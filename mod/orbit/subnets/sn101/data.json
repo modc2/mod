@@ -1,0 +1,141 @@
+{
+  "netuid": 101,
+  "name": "Tag101",
+  "symbol": "ე",
+  "owner": "5H8dNvi1jZRe1dcYN2FdknWKxfGx6u1o9pYm5zRMCZyy2Ex3",
+  "description": "Tag101 is a Bittensor subnet for decentralized social post tagging",
+  "github": "https://github.com/tag101-ai/tag101",
+  "url": "http://tag101.ai",
+  "discord": "Tag101",
+  "logo": null,
+  "registered_at": 5481350,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.003726501,
+    "moving_price": 0.003722895635291934,
+    "market_cap": 13365.480009707046,
+    "tao_in": 3592.526286565,
+    "alpha_in": 964048.104082891,
+    "alpha_out": 2622554.988122651,
+    "volume": 167184.90726845,
+    "vol_24h": 31.519141513010254,
+    "emission": 0.0,
+    "change_1h": -0.08089517197663598,
+    "change_24h": 1.0522282464561883,
+    "change_7d": -0.2152340623568172
+  },
+  "spark_24h": [
+    0.003687698,
+    0.003729085,
+    0.003729085,
+    0.003729075,
+    0.003728341,
+    0.003728306,
+    0.003728306,
+    0.003728317,
+    0.00372868,
+    0.00372873,
+    0.003728506,
+    0.003728581,
+    0.003728683,
+    0.003728755,
+    0.003728331,
+    0.00372834,
+    0.003728385,
+    0.003728453,
+    0.003728603,
+    0.003727879,
+    0.003727964,
+    0.003727704,
+    0.003727853,
+    0.003727888,
+    0.003728059,
+    0.003728142,
+    0.003728325,
+    0.003728417,
+    0.003728482,
+    0.003728542,
+    0.00372871,
+    0.003728964,
+    0.003729034,
+    0.003729033,
+    0.003729093,
+    0.003729158,
+    0.003729354,
+    0.003729359,
+    0.003729359,
+    0.003729422,
+    0.00372946,
+    0.003729482,
+    0.003729495,
+    0.00372942,
+    0.003729454,
+    0.003729516,
+    0.003729518,
+    0.003726501
+  ],
+  "trades_24h": {
+    "trades": 139,
+    "buys": 7,
+    "sells": 132,
+    "buy_tao": 23.428683322,
+    "sell_tao": 5.864997348,
+    "net_tao": 17.563685974000002,
+    "traders": 17
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GjBouDTGpwFKsoCTjEhGVvLb8RQv91KmydopE2RxeUs5jha",
+      "net_tao": 20.0,
+      "gross_tao": 20.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F4jxDVMWHaTjYdmWR8ZZkKunsRPC9AFxeigkVN14wr9knuj",
+      "net_tao": 0.003019266999999992,
+      "gross_tao": 5.996980733,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DPfGYhmpmmz1wFwCBvct33yfRrqRXVEoovMsPHUpMatnvb8",
+      "net_tao": 0.0002471430000000052,
+      "gross_tao": 0.499752857,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GrjPKp8AyNhRAbRzs5eELrnMqpxqjTtb1rYVbbFqht7tP7i",
+      "net_tao": -0.400486424,
+      "gross_tao": 0.400486424,
+      "trades": 22
+    },
+    {
+      "coldkey": "5CGTWGFSvhoiC1xUVPMRg7zSD5VhmBhsH8UbkVqpAw6xs2TK",
+      "net_tao": -0.367083373,
+      "gross_tao": 0.367083373,
+      "trades": 19
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791522591,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #9 from tag101-ai/dev",
+      "url": "https://github.com/tag101-ai/tag101/commit/6571c0bfa901a0c022101a45796c3059fb87e2e8",
+      "publisher": "tag101-ai/tag101"
+    },
+    {
+      "ts": 1791472193,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add v1.1 scoring, AWS corpus leasing, weight-setting hardening, and l…",
+      "url": "https://github.com/tag101-ai/tag101/commit/67b1a358a74452ab57f18b7bf02f26443709f4d7",
+      "publisher": "tag101-ai/tag101"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

@@ -72,10 +72,11 @@
                 0 0 90px rgba(92,148,252,.12);
     max-width: 100%; max-height: 100%;
   }
-  #screen.scanlines {
+  #crt-overlay {
+    position: absolute; inset: 0; pointer-events: none; display: none;
     background-image: repeating-linear-gradient(
-      transparent 0 2px, rgba(0,0,0,.28) 2px 3px);
-    background-blend-mode: multiply;
+      transparent 0 2px, rgba(0,0,0,.35) 2px 3px);
+    mix-blend-mode: multiply;
   }
 
   /* the empty state, which is also the drop target */
@@ -184,6 +185,7 @@
 
   <div id="stage">
     <canvas id="screen" width="256" height="240"></canvas>
+    <div id="crt-overlay"></div>
 
     <div id="drop">
       <h2>INSERT CARTRIDGE</h2>
@@ -235,7 +237,7 @@
       <span><b>START</b> <kbd>enter</kbd></span>
       <span><b>SELECT</b> <kbd>shift</kbd></span>
       <span><b>PAUSE</b> <kbd>P</kbd></span>
-      <span><b>STATE</b> <kbd>F2</kbd>/<kbd>F4</kbd></span>
+      <span><b>STATE</b> <kbd>F2</kbd>/<kbd>F3</kbd>/<kbd>F4</kbd></span>
       <span><b>FAST</b> <kbd>tab</kbd></span>
     </div>
   </footer>

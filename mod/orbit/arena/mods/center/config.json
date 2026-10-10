@@ -1,0 +1,30 @@
+{
+    "name": "center",
+    "description": "A Connect Four bot in one method: take the win, block theirs, else play towards the middle.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "player",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "605b2a1c97f405672eb37e03f11936225a75e2bd760dff53d4ec2ad170f6ea44",
+    "bytes": 3414,
+    "author": "arena",
+    "tags": [
+        "example",
+        "player",
+        "class",
+        "python"
+    ],
+    "defines": [
+        "play",
+        "read",
+        "legal",
+        "wins",
+        "four_from"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/center/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

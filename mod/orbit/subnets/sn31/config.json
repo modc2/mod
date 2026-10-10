@@ -1,0 +1,38 @@
+{
+  "name": "sn31",
+  "version": "1.0.0",
+  "description": "SN31 rec4ll — Recall provides decentralized retrieval-augmented generation to Bittensor. Miners serve embedding models, vector search, and LLM inference. Validators independently evaluate retrieval accuracy and answer quality. The subnet discovers the best RAG pipeline through open competition and routes user queries to the top performers. Think of it as an always-improving, community-owned search engine with citations. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ז",
+  "chain": "bittensor",
+  "netuid": 31,
+  "subnet": "rec4ll",
+  "symbol": "ז",
+  "owner": "5H3mfhC8DS853nezGzh73rRnrFqPaPXtaCR8jDtgkSCHrfvb",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=31",
+    "news": "/bt/news?netuid=31"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

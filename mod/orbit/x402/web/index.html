@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>x402 · every paid API</title>
+<style>
+  :root{--bg:#0b0e11;--panel:#12161b;--line:#1f2630;--text:#e6edf3;
+        --dim:#7d8a99;--accent:#facc15;--ok:#6ee7b7;--bad:#f87171;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);
+       font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+       padding:24px;max-width:1200px;margin:0 auto}
+  header{display:flex;align-items:baseline;gap:14px;margin-bottom:6px;flex-wrap:wrap}
+  h1{font-size:18px;letter-spacing:.12em}
+  h1 .mark{color:var(--accent)}
+  .hint{color:var(--dim);font-size:12px;margin-bottom:16px}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+        padding:8px 14px;min-width:110px}
+  .stat b{display:block;font-size:18px}
+  .stat span{color:var(--dim);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  nav{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px}
+  nav a{padding:8px 14px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;
+        letter-spacing:.08em;font-size:12px}
+  nav a.on{color:var(--text);border-color:var(--accent)}
+  .bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  input,select{background:var(--panel);border:1px solid var(--line);color:var(--text);
+        padding:8px 10px;border-radius:6px;font:inherit}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  .bar .q{flex:1;min-width:200px}
+  button{background:var(--accent);color:#141100;border:none;padding:8px 16px;
+         border-radius:6px;font:inherit;font-weight:700;cursor:pointer}
+  button.quiet{background:var(--panel);color:var(--dim);border:1px solid var(--line);font-weight:400}
+  button.quiet:hover{color:var(--text)}
+  table{width:100%;border-collapse:collapse}
+  td,th{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{color:var(--dim);font-weight:400;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  tr.row{cursor:pointer}
+  tr.row:hover td{background:var(--panel)}
+  .url{word-break:break-all}
+  .dim{color:var(--dim);font-size:12px}
+  .desc{color:var(--dim);font-size:12px;max-width:560px;
+        display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .num{text-align:right;white-space:nowrap}
+  .chip{display:inline-block;border:1px solid var(--line);border-radius:10px;
+        padding:0 7px;font-size:11px;color:var(--dim);margin:1px 2px 1px 0}
+  .chip{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+  .bar select{max-width:220px}
+  .chip.ok{color:var(--ok);border-color:#1f4f3f}
+  .chip.bad{color:var(--bad);border-color:#4f1f1f}
+  .m{color:var(--accent);font-size:11px;margin-right:6px}
+  img.ic{width:18px;height:18px;border-radius:4px;vertical-align:middle;margin-right:6px}
+  .pager{display:flex;gap:10px;align-items:center;margin:14px 0;color:var(--dim)}
+  #status{color:var(--dim);font-size:12px;min-height:1.5em;margin:6px 0}
+  #status.err{color:var(--bad)}
+  .empty{color:var(--dim);padding:40px 0;text-align:center}
+  a{color:inherit}
+  #drawer{position:fixed;top:0;right:0;bottom:0;width:min(640px,100%);background:var(--panel);
+          border-left:1px solid var(--line);padding:22px;overflow:auto;transform:translateX(100%);
+          transition:transform .15s}
+  #drawer.open{transform:none}
+  #drawer h2{font-size:15px;margin-bottom:4px;word-break:break-all}
+  #drawer h3{font-size:11px;color:var(--dim);letter-spacing:.1em;margin:18px 0 6px}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;
+      overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-all}
+  .x{position:absolute;top:14px;right:16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}
+  .card .name{font-weight:700}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg a{padding:8px 10px;color:var(--dim);cursor:pointer;font-size:12px}
+  .seg a.on{background:var(--accent);color:#141100;font-weight:700}
+  .srv{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:10px}
+  .srv .top{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .srv .name{font-weight:700}
+  .srv .tools{margin:8px 0 0;border-top:1px solid var(--line)}
+  .srv .tool{padding:6px 0;border-bottom:1px solid var(--line);cursor:pointer}
+  .srv .tool:last-child{border-bottom:none}
+  .srv .tool:hover{color:var(--accent)}
+  .srv code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:3px 6px;font-size:11px;word-break:break-all}
+  .ex{cursor:pointer}
+  .ex:hover{color:var(--text);border-color:var(--accent)}
+  .score{color:var(--accent);font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="mark">402</span> X402</h1>
+  <span class="dim">every pay-per-request API, one local index</span>
+</header>
+<div class="stats" id="stats"></div>
+<nav id="tabs">
+  <a data-t="services" class="on">SERVICES</a>
+  <a data-t="mcp">MCP SERVERS</a>
+  <a data-t="hosts">PROVIDERS</a>
+  <a data-t="sources">FACILITATORS</a>
+  <a data-t="partners">ECOSYSTEM</a>
+</nav>
+<div id="status"></div>
+<div id="view"></div>
+<aside id="drawer"><button class="quiet x" id="close">close</button><div id="dbody"></div></aside>
+
+<script>
+const API = 'api/';   // relative: resolves under /x402/ locally and behind the gateway
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const usd = p => p == null ? '<span class="dim">?</span>' : '$' + (p >= 1 ? p.toFixed(2) : +p.toPrecision(3));
+const big = n => n == null ? '0' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(n);
+const ago = t => { if (!t) return 'never'; const s = Date.now()/1000 - t;
+  return s < 90 ? 'just now' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
+
+async function get(fn, args = {}) {
+  const qs = new URLSearchParams(Object.entries(args).filter(([, v]) => v !== '' && v != null));
+  const r = await fetch(API + fn + (qs.toString() ? '?' + qs : ''));
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+async function post(fn, body = {}) {
+  const r = await fetch(API + fn, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+function status(msg, err) { const s = $('#status'); s.textContent = msg || ''; s.className = err ? 'err' : ''; }
+
+const st = {tab: 'services', q: '', network: '', max_price: '', sort: 'popular', offset: 0, host: '',
+            meaning: localStorage.getItem('x402.meaning') !== '0', mq: ''};
+const PAGE = 50;
+
+async function loadStats() {
+  try {
+    const i = await get('info'), x = i.index;
+    $('#stats').innerHTML = [
+      [big(x.services), 'services'], [big(x.hosts), 'providers'],
+      [x.listing_sources + '/' + x.sources, 'facilitators listing'],
+      [big(x.calls_30d), 'paid calls 30d'], [usd(x.median_price_usd), 'median price'],
+      [i.syncing ? 'syncing' : ago(i.last_sync), 'last crawl'],
+    ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
+    const nets = Object.keys(x.networks).slice(0, 30);
+    window.NETS = nets.map(n => [n, x.networks[n]]);
+    if (!x.services) status('Index is empty. The server crawls on start; check back in a few minutes.');
+  } catch (e) { status(e.message, true); }
+}
+
+function bar() {
+  const nets = (window.NETS || []).map(([n, c]) =>
+    `<option value="${esc(n)}" ${st.network === n ? 'selected' : ''}>${esc(n)} (${big(c)})</option>`).join('');
+  return `<form class="bar" id="f">
+    <input class="q" name="q" placeholder="search: weather, image, llm, twitter..." value="${esc(st.q)}" autofocus>
+    <select name="network"><option value="">any network</option>${nets}</select>
+    <select name="max_price">${['', '0.001', '0.01', '0.1', '1'].map(v =>
+      `<option value="${v}" ${st.max_price === v ? 'selected' : ''}>${v ? 'up to $' + v : 'any price'}</option>`).join('')}</select>
+    <select name="sort">${[['popular','most used'],['cheap','cheapest'],['new','newest'],['recent','recently updated'],['pricey','priciest']].map(([v, l]) =>
+      `<option value="${v}" ${st.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <span class="seg" title="words: exact text match · meaning: what the service does"><a data-m="0" class="${st.meaning ? '' : 'on'}">words</a><a data-m="1" class="${st.meaning ? 'on' : ''}">meaning</a></span>
+    ${st.host ? `<button type="button" class="quiet" id="clearhost">host: ${esc(st.host)} &times;</button>` : ''}
+  </form>`;
+}
+
+async function services() {
+  const sem = st.meaning && st.q && !st.host;
+  const r = sem
+    ? await get('find', {q: st.q, network: st.network, max_price: st.max_price, k: 100})
+        .then(f => { semNote(f); return {items: f.items.map(x => ({...x, sources: []})), total: f.items.length, offset: 0, limit: 100, sem: true}; })
+    : await get('services', {q: st.q, network: st.network, max_price: st.max_price,
+                             sort: st.sort, host: st.host, limit: PAGE, offset: st.offset});
+  const rows = r.items.map((s, i) => `<tr class="row" data-i="${i}">
+      <td><div class="url">${s.icon ? `<img class="ic" src="${esc(s.icon)}" loading="lazy" onerror="this.remove()">` : ''}<span class="m">${esc(s.method)}</span>${esc(s.url)}</div>
+          <div class="desc">${esc(s.name ? s.name + ' · ' : '')}${esc(s.description)}</div></td>
+      <td>${s.networks.slice(0, 3).map(n => `<span class="chip" title="${esc(n)}">${esc(n)}</span>`).join('')}${s.networks.length > 3 ? `<span class="dim">+${s.networks.length - 3}</span>` : ''}</td>
+      <td class="num">${usd(s.price_usd)}</td>
+      <td class="num">${s.calls_30d ? big(s.calls_30d) : '<span class="dim">-</span>'}</td>
+      <td class="dim">${r.sem ? `<span class="score">${s.score.toFixed(2)}</span> ${s.why.map(w => `<span class="chip">${esc(w)}</span>`).join('')}` : esc(s.sources.join(' '))}</td></tr>`).join('');
+  $('#view').innerHTML = bar() + (r.items.length ? `<table>
+      <tr><th>service</th><th>pays on</th><th class="num">per call</th><th class="num">calls 30d</th><th>${r.sem ? 'match' : 'listed by'}</th></tr>${rows}</table>
+      ${r.sem ? '' : pager(r)}` : '<div class="empty">nothing matches</div>');
+  wireBar();
+  document.querySelectorAll('tr.row').forEach(tr => tr.onclick = () => detail(r.items[+tr.dataset.i].url));
+}
+
+function pager(r) {
+  const end = Math.min(r.offset + r.items.length, r.total);
+  return `<div class="pager">
+    <button class="quiet" id="prev" ${r.offset ? '' : 'disabled'}>prev</button>
+    <span>${r.offset + 1}-${end} of ${r.total.toLocaleString()}</span>
+    <button class="quiet" id="next" ${end < r.total ? '' : 'disabled'}>next</button></div>`;
+}
+
+function wireBar() {
+  const f = $('#f');
+  let t;
+  const apply = () => { const d = new FormData(f);
+    Object.assign(st, {q: d.get('q'), network: d.get('network'), max_price: d.get('max_price'), sort: d.get('sort'), offset: 0}); render(); };
+  f.onsubmit = e => { e.preventDefault(); apply(); };
+  f.q.oninput = () => { clearTimeout(t); t = setTimeout(apply, 300); };
+  f.querySelectorAll('select').forEach(s => s.onchange = apply);
+  f.querySelectorAll('.seg a').forEach(a => a.onclick = () => {
+    st.meaning = a.dataset.m === '1'; localStorage.setItem('x402.meaning', st.meaning ? '1' : '0'); apply(); });
+  const ch = $('#clearhost'); if (ch) ch.onclick = () => { st.host = ''; st.offset = 0; render(); };
+  const p = $('#prev'), n = $('#next');
+  if (p) p.onclick = () => { st.offset = Math.max(0, st.offset - PAGE); render(); };
+  if (n) n.onclick = () => { st.offset += PAGE; render(); };
+  const q = f.q; q.focus(); q.setSelectionRange(q.value.length, q.value.length);
+}
+
+async function detail(url) {
+  $('#drawer').classList.add('open');
+  $('#dbody').innerHTML = '<div class="dim">loading</div>';
+  try {
+    const s = await get('service', {url});
+    const ex = (((s.raw.extensions || {}).bazaar || {}).info) || {};
+    const offers = s.offers.map(o => `<tr><td>${esc(o.network)}</td><td>${esc(o.scheme)}</td>
+      <td>${esc(o.asset_name || o.asset.slice(0, 10))}</td><td class="num">${o.price_usd != null ? usd(o.price_usd) : esc(o.amount)}</td>
+      <td class="dim url">${esc(o.pay_to)}</td></tr>`).join('');
+    $('#dbody').innerHTML = `
+      <h2>${esc(s.name || s.host)}</h2>
+      <div class="url dim"><span class="m">${esc(s.method)}</span><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a></div>
+      <p style="margin-top:10px">${esc(s.description)}</p>
+      <div style="margin-top:8px">${s.tags.map(t => `<span class="chip">${esc(t)}</span>`).join('')}</div>
+      <h3>PRICE OPTIONS</h3>
+      <table><tr><th>network</th><th>scheme</th><th>asset</th><th class="num">price</th><th>pays to</th></tr>${offers}</table>
+      <h3>ACTIVITY</h3>
+      <div class="dim">${big(s.calls_30d)} paid calls · ${big(s.payers_30d)} payers in 30d · x402 v${s.x402_version} · first seen ${ago(s.first_seen)}${s.pinned ? ' · <span class="chip ok">probed</span>' : ''}</div>
+      <h3>LISTED BY</h3><div>${s.sources.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</div>
+      <h3>TRY IT</h3>
+      <pre>curl -i ${s.method !== 'GET' ? '-X ' + esc(s.method) + ' ' : ''}'${esc(s.url)}'
+# answers 402 with its price; pay with any x402 client and retry</pre>
+      ${ex.input ? `<h3>INPUT EXAMPLE</h3><pre>${esc(JSON.stringify(ex.input, null, 2))}</pre>` : ''}
+      ${ex.output ? `<h3>OUTPUT EXAMPLE</h3><pre>${esc(JSON.stringify(ex.output, null, 2).slice(0, 3000))}</pre>` : ''}
+      <h3>PROVIDER</h3><button class="quiet" id="byhost">all ${esc(s.host)} services</button>
+      <button class="quiet" id="reprobe">probe it live</button> <span id="pr" class="dim"></span>`;
+    $('#byhost').onclick = () => { closeDrawer(); Object.assign(st, {tab: 'services', host: s.host, q: '', offset: 0}); tab('services'); };
+    $('#reprobe').onclick = async () => {
+      $('#pr').textContent = 'asking...';
+      try { const p = await post('probe', {url: s.url, method: s.method, pin: false});
+        $('#pr').textContent = p.x402 ? 'answers 402 with payment requirements: live' : `answered ${p.status}${p.error ? ' (' + p.error + ')' : ''}`; }
+      catch (e) { $('#pr').textContent = e.message; }
+    };
+  } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
+}
+function closeDrawer() { $('#drawer').classList.remove('open'); }
+$('#close').onclick = closeDrawer;
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+async function hosts() {
+  const r = await get('hosts', {q: st.q, limit: 200});
+  $('#view').innerHTML = `<form class="bar" id="hf"><input class="q" name="q" placeholder="filter providers" value="${esc(st.q)}"></form>
+    <table><tr><th>provider</th><th class="num">services</th><th class="num">price range</th><th class="num">calls 30d</th></tr>
+    ${r.items.map((h, i) => `<tr class="row" data-i="${i}"><td>${h.icon ? `<img class="ic" src="${esc(h.icon)}" loading="lazy" onerror="this.remove()">` : ''}${esc(h.host)}
+      ${h.name ? `<div class="dim">${esc(h.name)}</div>` : ''}</td><td class="num">${h.services}</td>
+      <td class="num">${usd(h.min_price)}${h.max_price !== h.min_price ? ' - ' + usd(h.max_price) : ''}</td>
+      <td class="num">${big(h.calls_30d)}</td></tr>`).join('')}</table>
+    <div class="dim" style="margin-top:10px">${r.total.toLocaleString()} providers${r.total > 200 ? ' (top 200 shown; filter to narrow)' : ''}</div>`;
+  let t; const f = $('#hf');
+  f.onsubmit = e => e.preventDefault();
+  f.q.oninput = () => { clearTimeout(t); t = setTimeout(() => { st.q = f.q.value; hosts().then(() => { $('#hf').q.focus(); }); }, 300); };
+  document.querySelectorAll('tr.row').forEach(tr => tr.onclick = () => {
+    Object.assign(st, {host: r.items[+tr.dataset.i].host, q: '', offset: 0}); tab('services'); });
+}
+
+async function sources() {
+  const rows = await get('sources');
+  const state = s => s.lists ? (s.status === 'error' ? `<span class="chip bad" title="${esc(s.error)}">error</span>`
+      : s.status === 'crawling' ? `<span class="chip">crawling ${esc(s.progress || '')}</span>` : '<span class="chip ok">lists</span>')
+      : s.lists === 0 ? '<span class="chip">no public list</span>' : '<span class="chip">unchecked</span>';
+  $('#view').innerHTML = `<p class="hint">Facilitators settle x402 payments. Those that publish the spec's discovery list
+    (<code>/discovery/resources</code>) are crawled every few hours; the rest are found and re-checked daily from the
+    coinbase/x402 ecosystem registry. Add your own below, from this machine.</p>
+    <form class="bar" id="af"><input class="q" name="base_url" placeholder="https://facilitator.example (base URL)">
+      <button>add facilitator</button><button type="button" class="quiet" id="sync">crawl now</button></form>
+    <form class="bar" id="pf"><input class="q" name="url" placeholder="https://api.example/paid-endpoint (probe one URL for its 402)">
+      <button>probe + pin</button></form>
+    <table><tr><th>facilitator</th><th>state</th><th class="num">indexed</th><th class="num">reported</th><th>last crawl</th><th>found via</th></tr>
+    ${rows.map(s => `<tr><td>${esc(s.name)}<div class="dim url">${esc(s.base_url)}</div></td><td>${state(s)}</td>
+      <td class="num">${s.indexed.toLocaleString()}</td><td class="num">${s.total != null ? s.total.toLocaleString() : '-'}</td>
+      <td class="dim">${ago(s.last_ok)}</td><td class="dim">${esc(s.origin)}</td></tr>`).join('')}</table>`;
+  $('#af').onsubmit = async e => { e.preventDefault();
+    try { const r = await post('add_source', {base_url: e.target.base_url.value});
+      status(r.lists ? `added; it lists ${r.total} services. Crawl now to index them.` : 'added, but it publishes no discovery list'); sources(); }
+    catch (err) { status(err.message, true); } };
+  $('#pf').onsubmit = async e => { e.preventDefault();
+    try { const r = await post('probe', {url: e.target.url.value});
+      status(r.x402 ? `x402 service indexed: ${r.service.url}` : `not x402: answered ${r.status}${r.error ? ' (' + r.error + ')' : ''}`, !r.x402); loadStats(); }
+    catch (err) { status(err.message, true); } };
+  $('#sync').onclick = async () => { try { await post('sync'); status('crawl started; this takes a few minutes'); setTimeout(sources, 2000); }
+    catch (err) { status(err.message, true); } };
+}
+
+async function partners() {
+  const rows = await get('partners');
+  const cats = [...new Set(rows.map(p => p.category))];
+  $('#view').innerHTML = `<p class="hint">${rows.length} projects in the coinbase/x402 ecosystem registry: who builds, pays, settles and sells over x402.</p>` +
+    cats.map(c => `<h3 class="dim" style="margin:16px 0 8px;font-size:11px;letter-spacing:.1em">${esc(c.toUpperCase())}</h3><div class="grid">` +
+      rows.filter(p => p.category === c).map(p => `<div class="card">
+        <div class="name">${p.logo ? `<img class="ic" src="${esc(p.logo)}" loading="lazy" onerror="this.remove()">` : ''}${esc(p.name)}</div>
+        <div class="dim">${esc(p.description).slice(0, 180)}</div>
+        ${p.website ? `<div class="dim" style="margin-top:6px"><a href="${esc(p.website)}" target="_blank" rel="noopener">${esc(p.website.replace(/^https?:\/\//, ''))}</a></div>` : ''}
+      </div>`).join('') + '</div>').join('');
+}
+
+function semNote(f) {
+  const i = f.index || {};
+  const msg = f.mode === 'lexical' ? `matching words only: the local encoder is unavailable${i.error ? ' (' + i.error + ')' : ''}`
+    : f.mode === 'partial' ? `still learning the index (${big(i.vectors)} of ${big(i.services)} services); results improve as it finishes`
+    : `ranked by meaning in ${f.elapsed_ms} ms, on this machine`;
+  status(msg, f.mode === 'lexical');
+}
+
+const EXAMPLES = ['is this token a rug', 'turn a web page into markdown', 'check a wallet before paying it',
+                  'make a short video', 'stablecoin yields', 'current weather', 'search the news'];
+
+async function mcp() {
+  $('#view').innerHTML = `<p class="hint">Describe the job. Every paid MCP server in the index is ranked by what its tools do, not by the words they use.</p>
+    <form class="bar" id="mf"><input class="q" name="q" placeholder="what should the server do?" value="${esc(st.mq)}" autofocus>
+      <select name="max_price">${['', '0.001', '0.01', '0.1', '1'].map(v =>
+        `<option value="${v}" ${st.max_price === v ? 'selected' : ''}>${v ? 'up to $' + v + ' a call' : 'any price'}</option>`).join('')}</select></form>
+    <div id="mres"></div>`;
+  const f = $('#mf'); let t;
+  const go = () => { st.mq = f.q.value; st.max_price = f.max_price.value; mcpResults(); };
+  f.onsubmit = e => { e.preventDefault(); go(); };
+  f.q.oninput = () => { clearTimeout(t); t = setTimeout(go, 350); };
+  f.max_price.onchange = go;
+  f.q.focus(); f.q.setSelectionRange(f.q.value.length, f.q.value.length);
+  mcpResults();
+}
+
+async function mcpResults() {
+  const box = $('#mres');
+  if (!st.mq.trim()) {
+    const i = (await get('info')).semantic || {};
+    box.innerHTML = `<div class="dim" style="margin:8px 0">${i.mcp_servers ? big(i.mcp_servers) + ' MCP servers indexed. ' : ''}Try:</div>` +
+      EXAMPLES.map(e => `<span class="chip ex">${esc(e)}</span>`).join(' ');
+    box.querySelectorAll('.ex').forEach(c => c.onclick = () => { $('#mf').q.value = c.textContent; st.mq = c.textContent; mcpResults(); });
+    status('');
+    return;
+  }
+  box.innerHTML = '<div class="dim">searching</div>';
+  const r = await get('mcp_servers', {q: st.mq, max_price: st.max_price, k: 25});
+  semNote(r);
+  if (!r.items.length) { box.innerHTML = '<div class="empty">no MCP server does that yet</div>'; return; }
+  box.innerHTML = r.items.map((g, gi) => `<div class="srv">
+    <div class="top">${g.icon ? `<img class="ic" src="${esc(g.icon)}" loading="lazy" onerror="this.remove()">` : ''}
+      <span class="name">${esc(g.name)}</span><span class="score">${g.score.toFixed(2)}</span>
+      <span class="dim">${usd(g.min_price)}${g.max_price !== g.min_price ? ' - ' + usd(g.max_price) : ''} a call</span>
+      ${g.networks.slice(0, 4).map(n => `<span class="chip">${esc(n)}</span>`).join('')}
+      ${g.why.map(w => `<span class="chip ok">${esc(w)}</span>`).join('')}</div>
+    <div class="url dim" style="margin-top:4px">${esc(g.server)}</div>
+    <div class="tools">${g.tools.slice(0, 4).map((t, ti) => `<div class="tool" data-g="${gi}" data-t="${ti}">
+      <span class="m">${esc(t.method)}</span>${esc(t.description || t.url).slice(0, 160)} <span class="dim">${usd(t.price_usd)}</span></div>`).join('')}
+      ${g.tools.length > 4 ? `<div class="dim" style="padding-top:6px">+${g.tools.length - 4} more matching tools</div>` : ''}</div>
+    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <code>${esc(g.connect.claude)}</code><button class="quiet cp" data-g="${gi}">copy</button></div>
+  </div>`).join('');
+  box.querySelectorAll('.tool').forEach(el => el.onclick = () => detail(r.items[+el.dataset.g].tools[+el.dataset.t].url));
+  box.querySelectorAll('.cp').forEach(b => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(r.items[+b.dataset.g].connect.claude); b.textContent = 'copied'; }
+    catch { b.textContent = 'select it'; }
+    setTimeout(() => b.textContent = 'copy', 1500); });
+}
+
+const VIEWS = {services, mcp, hosts, sources, partners};
+function tab(t) {
+  st.tab = t;
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.t === t));
+  render();
+}
+async function render() {
+  status('');
+  try { await VIEWS[st.tab](); } catch (e) { status(e.message, true); }
+}
+document.querySelectorAll('#tabs a').forEach(a => a.onclick = () => { st.q = ''; tab(a.dataset.t); });
+
+loadStats().then(render);
+setInterval(loadStats, 30000);
+</script>
+</body>
+</html>

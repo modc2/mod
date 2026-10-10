@@ -1,0 +1,38 @@
+{
+  "name": "sn117",
+  "version": "1.0.0",
+  "description": "SN117 everyframe.studio — Every frame gets craft. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Ⲁ",
+  "chain": "bittensor",
+  "netuid": 117,
+  "subnet": "everyframe.studio",
+  "symbol": "Ⲁ",
+  "owner": "5FFDV7LGKVsVvyVbzSduzxQDPfBuJYHBM2QJPia5ikDivsXd",
+  "github": "https://github.com/everyframe-studios/everyframe-miner",
+  "url": "https://everyframe.studio/",
+  "discord": "https://discord.com/channels/799672011265015819/1544011415692644444",
+  "logo": "https://avatars.githubusercontent.com/u/327085870?s=200&v=4",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=117",
+    "news": "/bt/news?netuid=117"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

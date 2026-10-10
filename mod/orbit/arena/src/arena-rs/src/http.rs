@@ -1,12 +1,13 @@
-//! HTTP surface: MCP Streamable HTTP at /mcp, REST adapters that dispatch
-//! through the same MCP tool layer, the blob endpoint the execution layer
-//! fetches modules from, and the console.
+//! HTTP surface: MCP Streamable HTTP at /mcp, one more MCP server per stored
+//! module at /m/<name>/mcp, REST adapters that dispatch through the same tool
+//! layer, the blob and wasm endpoints the execution layer fetches modules
+//! from, and the console.
 //!
 //! Behind the fleet router the API is reachable at /api/arena (prefix
 //! stripped) and the console at /arena (prefix kept), so both are served here
 //! and one console works in both places.
 
-use crate::{arena, mcp};
+use crate::{arena, mcp, mcpout, modmcp, rustc, storelink, vibe};
 use axum::{
     body::Body,
     extract::{Path, Query, Request},
@@ -20,14 +21,30 @@ use std::collections::HashMap;
 use tower_http::cors::CorsLayer;
 
 const CONSOLE_HTML: &str = include_str!("console.html");
+const ARCADE_HTML: &str = include_str!("arcade.html");
+const AGENTS_HTML: &str = include_str!("agents.html");
+const GAME_HTML: &str = include_str!("game.html");
+const AGENT_HTML: &str = include_str!("agent.html");
+const WHITEPAPER_HTML: &str = include_str!("whitepaper.html");
 
 /// The execution layer, served to the browser from the same binary that
-/// stores the modules — so a tab needs nothing but this port.
-const RUNTIME: [(&str, &str); 4] = [
+/// stores the modules — so a tab needs nothing but this port. `pyhost.mjs` and
+/// `host.py` are here to be read rather than imported: a tab cannot start a
+/// python process, and serving them is how the console can show what the
+/// sandbox a class runs in actually does.
+const RUNTIME: [(&str, &str); 9] = [
     ("host.mjs", include_str!("../../runtime/host.mjs")),
     ("abi.mjs", include_str!("../../runtime/abi.mjs")),
     ("match.mjs", include_str!("../../runtime/match.mjs")),
     ("worker.mjs", include_str!("../../runtime/worker.mjs")),
+    ("mcpsync.mjs", include_str!("../../runtime/mcpsync.mjs")),
+    ("pyhost.mjs", include_str!("../../runtime/pyhost.mjs")),
+    ("syncfetch.mjs", include_str!("../../runtime/syncfetch.mjs")),
+    ("host.py", include_str!("../../runtime/host.py")),
+    // Not imported by anything in a tab — served so the console can show what
+    // a Rust class is actually compiled against, which is the only honest way
+    // to document a prelude.
+    ("prelude.rs", include_str!("../../rustclass/prelude.rs")),
 ];
 
 fn info() -> Value {
@@ -38,18 +55,28 @@ fn info() -> Value {
     v["endpoints"] = json!({
         "mcp": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
         "modules": "GET /modules | POST /modules | GET /modules/:id | DELETE /modules/:id",
+        "games": "GET /modules?role=game&tag= — every game, filterable by tag; the console's GAMES tab shows this shelf",
+        "codegame": "POST /codegame {repo, name?, tasks?, rounds?} — a repo of choice, harvested into a coding game",
+        "clone": "POST /clone {url, role?, name?, path?} — clone a git repo onto this box and register the game or agent it holds",
+        "classes": "GET /classes — the Python classes | POST /classes {source} — upload one as text",
         "blob": "GET /blob/:id — the module bytes, immutable (the id is their hash)",
-        "inspect": "POST /inspect {bytes}",
+        "inspect": "POST /inspect {bytes|text}",
         "players": "GET /players | POST /players | GET /players/:id | DELETE /players/:id",
         "play": "POST /play {player, view, seat} — one move from a server-driven player",
         "matches": "GET /matches | POST /matches (record one) | GET /matches/:id",
         "run": "POST /run {game, players[]} — play one headlessly via the node runner",
+        "agents": "GET /agents — the agent protocol's roster joined to the ratings | POST /agents/sync — re-read it now",
+        "ab": "POST /ab {a, b, games?, count?} — A/B test two agents head to head, seats swapped | GET /ab | GET /ab/:id | DELETE /ab/:id",
         "leaderboard": "GET /leaderboard?game=",
-        "abi": "GET /abi?role=game — the contract a module implements",
-        "runtime": "GET /runtime/host.mjs — the execution layer itself",
+        "arcade": "GET /arcade?game= — score-per-game hi-score tables, no Elo; without a game, the marquee",
+        "abi": "GET /abi?role=game&lang=wasm|class — the contract a module implements",
+        "docs": "GET /docs — the contents | GET /docs/:slug (?format=md) | GET /docs/search?q=",
+        "runtime": "GET /runtime/host.mjs — the execution layer itself, host.py included",
         "forward": "POST /forward {action, ...args}",
         "tools": "GET /tools",
-        "console": "GET /arena (browser)"
+        "store": "GET /store — the bridge to the store module | POST /store/sync {force?, verify?}",
+        "fleet": "GET /fleet — every module of this fleet an agent can be seated from | GET /fleet/:name/tools",
+        "console": "GET /arena (browser, the games/agents console; /arena/classic is a permanent alias) | GET /arena/arcade (hi-score boards) | GET /arena/agents (the agent-module board, framed here) | GET /arena/whitepaper (the whitepaper, rendered)"
     });
     v["stdio"] = json!("arena-api --stdio");
     v
@@ -69,8 +96,45 @@ async fn root(req: Request) -> Response {
     }
 }
 
+/// The front door is the games/agents console. /arena/classic stays as a
+/// permanent alias — links and iframes were minted against it.
 async fn console() -> Html<&'static str> {
     Html(CONSOLE_HTML)
+}
+
+async fn arcade_page() -> Html<&'static str> {
+    Html(ARCADE_HTML)
+}
+
+/// The whitepaper's shareable page. The shell fetches /docs/whitepaper — the
+/// same markdown behind the console's docs tab and the MCP resource.
+async fn whitepaper_page() -> Html<&'static str> {
+    Html(WHITEPAPER_HTML)
+}
+
+/// The agent-module arena board, at home here: the page is the arena's, the
+/// board inside it is the agent module's own /agent/arena route.
+async fn agents_page() -> Html<&'static str> {
+    Html(AGENTS_HTML)
+}
+
+/// Every game has its own page, every agent has its own page — one static
+/// shell each; the page reads the id off its own path and asks the API. The
+/// path parameter is matched so the route exists, not so the server reads it.
+async fn game_page() -> Html<&'static str> {
+    Html(GAME_HTML)
+}
+
+async fn agent_profile_page() -> Html<&'static str> {
+    Html(AGENT_HTML)
+}
+
+/// One agent: its schema as the agent protocol serves it, joined to its seat.
+async fn agent_card(Path(id): Path<String>) -> Response {
+    match crate::agentproto::one(&id).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
 }
 
 async fn mcp_endpoint(Json(msg): Json<Value>) -> Response {
@@ -85,7 +149,9 @@ async fn via_tool(name: &str, args: Value) -> Response {
     match mcp::call_tool(name, &args).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => {
-            let status = if e.starts_with("no module") || e.starts_with("no player") || e.starts_with("no match") || e.starts_with("no game") {
+            let status = if let Some(denied) = auth_status(&e) {
+                denied
+            } else if e.starts_with("no module") || e.starts_with("no player") || e.starts_with("no match") || e.starts_with("no game") {
                 StatusCode::NOT_FOUND
             } else {
                 StatusCode::BAD_REQUEST
@@ -101,16 +167,71 @@ async fn list_modules(Query(q): Query<HashMap<String, String>>) -> Response {
     via_tool("list_modules", json!(q)).await
 }
 
+/// The class half of the registry. Exactly `/modules?lang=python`, named for
+/// what people come looking for.
+async fn list_classes(Query(q): Query<HashMap<String, String>>) -> Response {
+    let mut args = json!(q);
+    args["lang"] = json!("python");
+    via_tool("list_modules", args).await
+}
+
 async fn put_module(Json(body): Json<Value>) -> Response {
     via_tool("put_module", body).await
 }
 
-async fn get_module(Path(id): Path<String>) -> Response {
-    via_tool("get_module", json!({ "module": id })).await
+/// A class, as text — the same store, without making anyone base64 a file
+/// they are looking at in an editor.
+async fn put_class(Json(body): Json<Value>) -> Response {
+    via_tool("put_class", body).await
 }
 
-async fn delete_module(Path(id): Path<String>) -> Response {
-    via_tool("delete_module", json!({ "module": id })).await
+/// A repo of choice, harvested into a game. Minutes, not milliseconds — the
+/// console says so on the button, and a big repository is better done from
+/// the command line with `m arena/codegame`.
+async fn codegame(Json(body): Json<Value>) -> Response {
+    via_tool("harvest_repo", body).await
+}
+
+/// A repo of choice, cloned under the state directory and registered as the
+/// game or the agent it holds. Seconds for a small repo; `path=` names the
+/// file outright when the survey would read too much.
+async fn clone_repo(Json(body): Json<Value>) -> Response {
+    via_tool("clone_repo", body).await
+}
+
+async fn get_module(Path(id): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
+    let with_source = q.get("source").map(|v| v != "0" && v != "false").unwrap_or(true);
+    via_tool("get_module", json!({ "module": id, "source": with_source })).await
+}
+
+async fn delete_module(Path(id): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
+    let all = q.get("all").map(|v| v == "1" || v == "true").unwrap_or(false);
+    via_tool("delete_module", json!({ "module": id, "all": all })).await
+}
+
+/// Who this request is, as far as the arena can tell: the address its token
+/// proves (or why it proves nothing), and whether that address runs the box.
+async fn whoami(headers: axum::http::HeaderMap) -> Json<Value> {
+    let token = crate::ident::from_headers(&headers);
+    let (address, error) = match token.as_deref().map(crate::ident::verify) {
+        Some(Ok(a)) => (Some(a), None),
+        Some(Err(e)) => (None, Some(e)),
+        None => (None, None),
+    };
+    Json(json!({
+        "address": address,
+        "signed_in": address.is_some(),
+        "box_owner": address.as_deref().map(crate::ident::is_owner).unwrap_or(false),
+        "host": crate::ident::host(),
+        "error": error,
+    }))
+}
+
+/// Every request runs as whoever its token proves, or as nobody. A bad token
+/// is not an error here — it is a request from nobody, and /whoami says why.
+async fn as_caller(req: Request, next: axum::middleware::Next) -> Response {
+    let who = crate::ident::from_headers(req.headers()).and_then(|t| crate::ident::verify(&t).ok());
+    crate::ident::scope(who, next.run(req)).await
 }
 
 async fn inspect(Json(body): Json<Value>) -> Response {
@@ -119,11 +240,87 @@ async fn inspect(Json(body): Json<Value>) -> Response {
 
 /// The bytes. Content-addressed, so this can be cached forever — the id
 /// changing *is* the invalidation.
+/// The wasm a module runs as. For a Rust class this compiles it, which is
+/// slow exactly once — the artefact is cached under the id, and the id is the
+/// hash of the source, so the cache cannot go stale.
+async fn wasm(Path(id): Path<String>) -> Response {
+    // A compile is CPU work with a process in it; off the async runtime it
+    // goes, or one slow class stalls every other request on this server.
+    let out = tokio::task::spawn_blocking(move || arena::compiled(&id))
+        .await
+        .unwrap_or_else(|e| Err(format!("the compile task failed: {e}")));
+    match out {
+        Ok((id, bytes)) => (
+            [
+                (header::CONTENT_TYPE, "application/wasm".to_string()),
+                (header::CACHE_CONTROL, "public, max-age=31536000, immutable".to_string()),
+                (header::ETAG, format!("\"{id}\"")),
+            ],
+            Body::from(bytes),
+        )
+            .into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// The outward door, as an endpoint. Both sandboxes end here — the wasm one
+/// through a spawned synchronous fetch, the python one through its line
+/// protocol — and so can anything else that would rather have this arena make
+/// a call than make it itself.
+async fn mcp_call(Json(body): Json<Value>) -> Response {
+    Json(mcpout::call(&body).await).into_response()
+}
+
+async fn mcp_servers() -> Json<Value> {
+    Json(mcpout::list())
+}
+
+/// One module's own MCP server. Same JSON-RPC, a different and much smaller
+/// world: this game, or this agent, and nothing else in the arena.
+async fn module_mcp(Path(name): Path<String>, Json(msg): Json<Value>) -> Response {
+    match modmcp::handle_message(&name, &msg).await {
+        Some(reply) => Json(reply).into_response(),
+        None => StatusCode::ACCEPTED.into_response(),
+    }
+}
+
+async fn module_card(Path(name): Path<String>) -> Response {
+    match modmcp::call_tool(&name, "about", &json!({})).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn module_tools(Path(name): Path<String>) -> Response {
+    match modmcp::module_of(&name) {
+        Ok(m) => Json(json!({
+            "module": m.name, "role": m.role,
+            "mcp": format!("{}/m/{}/mcp", mcp::base(), m.name),
+            "tools": modmcp::tools_for(&m.role),
+        }))
+        .into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn toolchain() -> Json<Value> {
+    Json(rustc::toolchain())
+}
+
 async fn blob(Path(id): Path<String>) -> Response {
     match arena::module_bytes(&id) {
         Ok((id, bytes)) => (
             [
-                (header::CONTENT_TYPE, "application/wasm".to_string()),
+                (
+                    header::CONTENT_TYPE,
+                    // The bytes say which they are, the same way the registry
+                    // decided what to call them in the first place.
+                    if bytes.starts_with(b"\0asm") {
+                        "application/wasm".to_string()
+                    } else {
+                        "text/plain; charset=utf-8".to_string()
+                    },
+                ),
                 (header::CACHE_CONTROL, "public, max-age=31536000, immutable".to_string()),
                 (header::ETAG, format!("\"{id}\"")),
             ],
@@ -184,12 +381,63 @@ async fn leaderboard(Query(q): Query<HashMap<String, String>>) -> Response {
     via_tool("leaderboard", args).await
 }
 
+async fn arcade(Query(q): Query<HashMap<String, String>>) -> Response {
+    let mut args = json!(q);
+    if let Some(l) = q.get("limit").and_then(|v| v.parse::<u64>().ok()) {
+        args["limit"] = json!(l);
+    }
+    via_tool("arcade", args).await
+}
+
 async fn abi(Query(q): Query<HashMap<String, String>>) -> Response {
     via_tool("game_abi", json!(q)).await
 }
 
+/// The documentation. `GET /docs` is the contents, `/docs/search?q=` finds a
+/// section, and `/docs/:slug` is one page — as JSON by default, as the raw
+/// markdown with `?format=md` or an `Accept: text/markdown`, which is what
+/// makes it readable by curl as well as by the console.
+async fn docs_index() -> Response {
+    Json(crate::docs::index()).into_response()
+}
+
+async fn docs_search(Query(q): Query<HashMap<String, String>>) -> Response {
+    via_tool("docs_search", json!(q)).await
+}
+
+async fn docs_page(
+    Path(slug): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+    req: Request,
+) -> Response {
+    let page = match crate::docs::page(&json!({ "slug": slug })) {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    };
+    let raw = q.get("format").map(|f| f == "md" || f == "markdown").unwrap_or(false)
+        || req
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .map(|a| a.contains("text/markdown") || a.contains("text/plain"))
+            .unwrap_or(false);
+    if raw {
+        let body = page["markdown"].as_str().unwrap_or_default().to_string();
+        return ([(header::CONTENT_TYPE, "text/markdown; charset=utf-8")], body).into_response();
+    }
+    Json(page).into_response()
+}
+
 async fn plant() -> Response {
     via_tool("plant_examples", json!({})).await
+}
+
+async fn store_status() -> Response {
+    via_tool("store_status", json!({})).await
+}
+
+async fn store_sync(body: Option<Json<Value>>) -> Response {
+    via_tool("store_sync", body.map(|Json(v)| v).unwrap_or_else(|| json!({}))).await
 }
 
 /// Generic escape hatch — any tool by name, the same shape as the mod
@@ -213,8 +461,15 @@ async fn health() -> Json<Value> {
 
 async fn runtime_file(Path(name): Path<String>) -> Response {
     match RUNTIME.iter().find(|(n, _)| *n == name) {
-        Some((_, body)) => (
-            [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        Some((n, body)) => (
+            [(
+                header::CONTENT_TYPE,
+                if n.ends_with(".py") {
+                    "text/plain; charset=utf-8"
+                } else {
+                    "text/javascript; charset=utf-8"
+                },
+            )],
             *body,
         )
             .into_response(),
@@ -227,10 +482,136 @@ async fn runtime_file(Path(name): Path<String>) -> Response {
     }
 }
 
+/// The fleet, as somewhere a player could sit. Every module the MCP hub knows
+/// about, every module the activator can wake, and the servers a class here
+/// may call out to — each addressed through the gateway, which is what makes
+/// naming a module enough.
+async fn fleet() -> Json<Value> {
+    Json(mcpout::fleet().await)
+}
+
+/// What one module of the fleet offers, so a seat can be filled by picking a
+/// tool rather than by knowing one. Also the argument each tool wants the
+/// position in — the console shows it, the mcp driver infers the same thing.
+async fn fleet_tools(Path(name): Path<String>) -> Response {
+    let server = match mcpout::resolve(None, Some(&name), None) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    };
+    match mcpout::tools_of(&server).await {
+        Ok(tools) => Json(json!({
+            "module": name, "mcp": server.url, "count": tools.len(), "tools": tools,
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": e, "module": name, "mcp": server.url })),
+        )
+            .into_response(),
+    }
+}
+
+// ── vibe ─────────────────────────────────────────────────────────────────
+//
+// Writing a game or a player with the build agent. A session is a file the
+// agent edits a sentence at a time; storing it is an upload of the text, so
+// the registry, not the session, says what it became. An error that begins
+// with `build:` is the agent being unreachable, which is the caller's
+// dependency failing rather than the caller's request being wrong — 424, and
+// never a 5xx, which a proxy in front would replace with a bare code.
+
+/// A refusal about who you are: 401 when nobody signed the request, 403 when
+/// somebody did and it is not theirs.
+fn auth_status(e: &str) -> Option<StatusCode> {
+    if e.starts_with("sign in") {
+        Some(StatusCode::UNAUTHORIZED)
+    } else if e.contains("not yours") || (e.starts_with("vibe session") && e.contains("'s — fork")) {
+        Some(StatusCode::FORBIDDEN)
+    } else {
+        None
+    }
+}
+
+fn vibe_response(out: Result<Value, String>) -> Response {
+    match out {
+        Ok(v) => Json(v).into_response(),
+        Err(e) if auth_status(&e).is_some() => (auth_status(&e).unwrap(), Json(json!({ "error": e }))).into_response(),
+        Err(e) if e.starts_with("build:") => (StatusCode::FAILED_DEPENDENCY, Json(json!({ "error": e }))).into_response(),
+        Err(e) if e.starts_with("no vibe session") || e.starts_with("no module") => {
+            (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+// ── a/b experiments ──────────────────────────────────────────────────────
+
+async fn agent_board() -> Response {
+    via_tool("agent_board", json!({})).await
+}
+
+async fn agent_sync() -> Response {
+    via_tool("agent_sync", json!({})).await
+}
+
+async fn ab_list() -> Json<Value> {
+    Json(crate::ab::list())
+}
+
+async fn ab_start(Json(body): Json<Value>) -> Response {
+    match crate::ab::start(&body).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn ab_get(Path(id): Path<String>) -> Response {
+    match crate::ab::report(&id) {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn ab_delete(Path(id): Path<String>) -> Response {
+    match crate::ab::remove(&id) {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn vibe_list() -> Response {
+    let mut v = vibe::list();
+    v["build"] = vibe::availability().await;
+    Json(v).into_response()
+}
+
+async fn vibe_start(Json(body): Json<Value>) -> Response {
+    vibe_response(vibe::vibe(&body).await)
+}
+
+async fn vibe_get(Path(id): Path<String>) -> Response {
+    vibe_response(vibe::get(&id).await)
+}
+
+async fn vibe_delete(Path(id): Path<String>) -> Response {
+    vibe_response(vibe::delete(&id))
+}
+
+async fn vibe_store(Path(id): Path<String>, Json(body): Json<Value>) -> Response {
+    let mut args = body;
+    args["session"] = json!(id);
+    vibe_response(vibe::store(&args).await)
+}
+
+async fn vibe_cancel(Path(id): Path<String>) -> Response {
+    vibe_response(vibe::cancel(&id).await)
+}
+
 fn api_routes() -> Router {
     Router::new()
         .route("/info", get(health))
         .route("/health", get(health))
+        .route("/whoami", get(whoami))
         .route(
             "/mcp",
             post(mcp_endpoint).get(|| async {
@@ -241,8 +622,40 @@ fn api_routes() -> Router {
             }),
         )
         .route("/modules", get(list_modules).post(put_module))
+        .route("/classes", get(list_classes).post(put_class))
+        .route("/codegame", post(codegame))
+        .route("/clone", post(clone_repo))
         .route("/modules/:id", get(get_module).delete(delete_module))
         .route("/blob/:id", get(blob))
+        .route("/wasm/:id", get(wasm))
+        .route("/toolchain", get(toolchain))
+        .route("/vibe", get(vibe_list).post(vibe_start))
+        .route("/vibe/:id", get(vibe_get).delete(vibe_delete))
+        .route("/vibe/:id/store", post(vibe_store))
+        .route("/vibe/:id/cancel", post(vibe_cancel))
+        .route("/store", get(store_status))
+        .route("/store/sync", post(store_sync))
+        .route("/mcp/call", post(mcp_call))
+        .route("/mcp/servers", get(mcp_servers))
+        .route("/fleet", get(fleet))
+        .route("/fleet/:name/tools", get(fleet_tools))
+        .route("/m/:name", get(module_card))
+        .route("/m/:name/tools", get(module_tools))
+        .route(
+            "/m/:name/mcp",
+            post(module_mcp).get(|Path(name): Path<String>| async move {
+                (
+                    StatusCode::METHOD_NOT_ALLOWED,
+                    Json(json!({
+                        "error": format!("POST JSON-RPC messages to /m/{name}/mcp"),
+                        "tools": format!("GET /m/{name}/tools to see what it offers"),
+                    })),
+                )
+            }),
+        )
+        .route("/docs", get(docs_index))
+        .route("/docs/search", get(docs_search))
+        .route("/docs/:slug", get(docs_page))
         .route("/inspect", post(inspect))
         .route("/players", get(list_players).post(enter_player))
         .route("/players/:id", get(get_player).delete(remove_player))
@@ -250,7 +663,13 @@ fn api_routes() -> Router {
         .route("/matches", get(list_matches).post(record_match))
         .route("/matches/:id", get(get_match))
         .route("/run", post(run))
+        .route("/ab", get(ab_list).post(ab_start))
+        .route("/agents", get(agent_board))
+        .route("/agents/sync", post(agent_sync))
+        .route("/agents/:id", get(agent_card))
+        .route("/ab/:id", get(ab_get).delete(ab_delete))
         .route("/leaderboard", get(leaderboard))
+        .route("/arcade", get(arcade))
         .route("/abi", get(abi))
         .route("/examples", post(plant))
         .route("/runtime/:name", get(runtime_file))
@@ -265,17 +684,37 @@ pub async fn serve(port: u16) {
         "arena: {} example module(s) in the registry",
         planted["planted"].as_u64().unwrap_or(0)
     );
+    let seated = arena::plant_agents();
+    if seated > 0 {
+        println!("arena: {seated} Liquid AI agent(s) seated");
+    }
+    // The agent protocol's roster, now and every five minutes after.
+    crate::agentproto::sync_forever();
+    // From here on an upload pushes itself to the store; what was planted
+    // before now, and anything older without a cid, goes in one pass.
+    storelink::backfill_later();
+    // Whose box this is — who may edit anything here.
+    crate::ident::learn_owners_later();
 
     let app = Router::new()
         .route("/", get(root))
         .route("/arena", get(console))
         .route("/arena/", get(console))
+        .route("/arena/classic", get(console))
+        .route("/arena/arcade", get(arcade_page))
+        .route("/arena/whitepaper", get(whitepaper_page))
+        .route("/arena/agents", get(agents_page))
+        .route("/arena/game/:id", get(game_page))
+        .route("/arena/agent/:id", get(agent_profile_page))
         .merge(api_routes())
         // The console lives at /arena in both worlds and always calls
-        // /api/arena. Behind the fleet router caddy strips that prefix;
+        // /arena/api (canonical; /api/arena is the permanently supported
+        // legacy alias). Behind the fleet router caddy strips that prefix;
         // standalone on this port nothing does, so the same routes answer
         // there too and one console works in both places.
+        .nest("/arena/api", api_routes())
         .nest("/api/arena", api_routes())
+        .layer(axum::middleware::from_fn(as_caller))
         .layer(CorsLayer::permissive());
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));

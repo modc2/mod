@@ -1,0 +1,191 @@
+{
+  "netuid": 51,
+  "name": "lium.io",
+  "symbol": "ת",
+  "owner": "5FqACMtcegZxxopgu1g7TgyrnyD8skurr9QDPLPhxNQzsThe",
+  "description": "revolutionizing the democratization of compute",
+  "github": "https://github.com/Datura-ai/lium-io",
+  "url": "lium.io",
+  "discord": "p383_54249",
+  "logo": "https://raw.githubusercontent.com/Datura-ai/lium-logos/refs/heads/main/Celium_Icon_FullColor.png",
+  "registered_at": 3966206,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [
+    "lium"
+  ],
+  "market": {
+    "price": 0.101795379,
+    "moving_price": 0.10107045364566147,
+    "market_cap": 620751.7668051821,
+    "tao_in": 171652.873538524,
+    "alpha_in": 1686254.133659694,
+    "alpha_out": 4411780.697618669,
+    "volume": 2244562.452685363,
+    "vol_24h": 3179.2639395562,
+    "emission": 0.0,
+    "change_1h": 0.002234925462141213,
+    "change_24h": 0.9048543078401527,
+    "change_7d": 9.355531508660263
+  },
+  "spark_24h": [
+    0.100882539,
+    0.10088954,
+    0.100901052,
+    0.100902215,
+    0.100910531,
+    0.100920359,
+    0.10092174,
+    0.100955378,
+    0.100968174,
+    0.101150926,
+    0.101087277,
+    0.101097989,
+    0.101109337,
+    0.101138637,
+    0.101131773,
+    0.101119113,
+    0.101128819,
+    0.101198029,
+    0.101106184,
+    0.100826924,
+    0.100836845,
+    0.10085118,
+    0.100859734,
+    0.100895854,
+    0.100753496,
+    0.100759073,
+    0.100777941,
+    0.100655326,
+    0.10066725,
+    0.100669761,
+    0.100794791,
+    0.100850933,
+    0.10092603,
+    0.100940991,
+    0.10101603,
+    0.101031005,
+    0.101053097,
+    0.10132773,
+    0.101351428,
+    0.101381208,
+    0.101407567,
+    0.101422732,
+    0.101452959,
+    0.101470194,
+    0.101475362,
+    0.101555001,
+    0.101793104,
+    0.101795379
+  ],
+  "trades_24h": {
+    "trades": 488,
+    "buys": 276,
+    "sells": 212,
+    "buy_tao": 1597.896363364,
+    "sell_tao": 1190.960501655,
+    "net_tao": 406.93586170900016,
+    "traders": 250
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -0.3680055720000013,
+      "gross_tao": 400.368005572,
+      "trades": 4
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 150.049948637,
+      "gross_tao": 349.950051363,
+      "trades": 3
+    },
+    {
+      "coldkey": "5F2qyZTRDjznCUf9G45KLqKNWMdGqZZ1vvB9f2UZm9rMAFgK",
+      "net_tao": 200.5,
+      "gross_tao": 200.5,
+      "trades": 1
+    },
+    {
+      "coldkey": "5C7NvbmpfR3956shdAdV1ASbsbezANiA7sB4H5PBtUyMjUiz",
+      "net_tao": -50.056261242000005,
+      "gross_tao": 150.056261242,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HL56LdrCZisFzVdrPMeCx3ERkrGRXD8cUXTwG9XGv4k58g1",
+      "net_tao": 125.457373433,
+      "gross_tao": 125.484842621,
+      "trades": 5
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791539346,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-3980 - Validator: one Docker SDK SSH channel per host, not per UR…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/4f9f65ec1779930ab1343204dc3826c0f43cc5e7",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1791519221,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4001 - validator: no settled window keeps the weights in force, i…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/579b244a7203ca7d744fa1dc33bd97ef02f21935",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1791473783,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-3769 - Validator: dropped SSH transport becomes a typed error wit…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/25ebd36537d2786ff5023e0d451a6c70a83488d6",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1791473776,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-3583 - Pre-pull follow-up: cancel the sweep however the loop ends…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/979159ac7b637df7c02a5ed46ddbc47bc10402ae",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1791451314,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4001 - validator: shadow never delays the live weights, settlemen…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/1b82cdd5bd64e6b610758173e456b4380bdd58e4",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1791448760,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4001 - validator: settled weight submission (#1527)",
+      "url": "https://github.com/Datura-ai/lium-io/commit/4b07dcade43ef71bd46ee0612ca1f16488dc3686",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1791445320,
+      "kind": "commit",
+      "source": "github",
+      "title": "validator: remove the failed container before the stale-mount retry (…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/cb148c67ca2fef8aa9ea2658df2dfbc7a45fdb82",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1791445178,
+      "kind": "release",
+      "source": "github",
+      "title": "executor-v1.138",
+      "url": "https://github.com/Datura-ai/lium-io/releases/tag/executor-v1.138",
+      "publisher": "Datura-ai/lium-io"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

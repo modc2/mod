@@ -1,0 +1,141 @@
+{
+  "netuid": 93,
+  "name": "Bitcast",
+  "symbol": "ᚃ",
+  "owner": "5EbY1SebUuz189w1G96JN4mmHnShAECA6JefCRYhSLqyYg2c",
+  "description": "The Decentralized Creators Economy",
+  "github": "https://github.com/bitcast-network/bitcast",
+  "url": "https://stats.bitcast.network/",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/bitcast-network/brand-assets/main/bitcast/multi_logo.png",
+  "registered_at": 5370681,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.019189876,
+    "moving_price": 0.019124929094687104,
+    "market_cap": 101575.24994803456,
+    "tao_in": 24367.00700131,
+    "alpha_in": 1269784.536236925,
+    "alpha_out": 4023384.10894007,
+    "volume": 1185843.662141956,
+    "vol_24h": 4681.250211192993,
+    "emission": 0.0,
+    "change_1h": -0.0013340189634836186,
+    "change_24h": -0.1835043722664298,
+    "change_7d": -0.5842719261017759
+  },
+  "spark_24h": [
+    0.019225155,
+    0.019253543,
+    0.019271381,
+    0.019273092,
+    0.019383117,
+    0.019505617,
+    0.019658904,
+    0.019696156,
+    0.019558316,
+    0.019465062,
+    0.019534357,
+    0.019551932,
+    0.019420553,
+    0.018805702,
+    0.018918473,
+    0.018919204,
+    0.018915381,
+    0.018996888,
+    0.018864109,
+    0.018961144,
+    0.019192768,
+    0.019086133,
+    0.01908776,
+    0.019133919,
+    0.019042785,
+    0.019023987,
+    0.018946488,
+    0.018916897,
+    0.018983021,
+    0.018983344,
+    0.018974109,
+    0.01898692,
+    0.019029815,
+    0.019029284,
+    0.019031355,
+    0.019032071,
+    0.019034227,
+    0.019022564,
+    0.019027753,
+    0.019029835,
+    0.019031585,
+    0.019033603,
+    0.019113651,
+    0.019111211,
+    0.019234454,
+    0.019188637,
+    0.019190132,
+    0.019189876
+  ],
+  "trades_24h": {
+    "trades": 314,
+    "buys": 133,
+    "sells": 181,
+    "buy_tao": 2268.853132447,
+    "sell_tao": 2425.688585669,
+    "net_tao": -156.83545322200007,
+    "traders": 157
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 1.3192106730000077,
+      "gross_tao": 398.680789327,
+      "trades": 13
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.5414868479999999,
+      "gross_tao": 379.97691231799996,
+      "trades": 6
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": 0.13064868899999738,
+      "gross_tao": 239.869351311,
+      "trades": 8
+    },
+    {
+      "coldkey": "5GsifCeRapwVCz7B2jDL8JRRZjSU5NxEdA2SUPmHQEB1VVtf",
+      "net_tao": -0.2580426920000036,
+      "gross_tao": 199.578042692,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.015584903999993571,
+      "gross_tao": 198.01558490399998,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789679590,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: replace CLAUDE.md with AGENTS.md + on-chain liveness verificati…",
+      "url": "https://github.com/bitcast-network/bitcast/commit/e27397ed0a10402d0a14e6ae8a327802fcee8c43",
+      "publisher": "bitcast-network/bitcast"
+    },
+    {
+      "ts": 1789676473,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: remove subnet identity logo from repo (#175)",
+      "url": "https://github.com/bitcast-network/bitcast/commit/b3e6f81761e0de1edac55dead5d8f83a50c40021",
+      "publisher": "bitcast-network/bitcast"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

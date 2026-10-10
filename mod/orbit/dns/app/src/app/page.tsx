@@ -6,7 +6,7 @@ import dynamic from "next/dynamic"
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   (process.env.NODE_ENV === "production"
-    ? "https://modc2.com/api/dns"
+    ? "https://modc2.com/dns/api"
     : "http://localhost:5380")
 
 interface DnsRecord {

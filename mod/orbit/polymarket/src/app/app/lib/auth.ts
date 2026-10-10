@@ -14,8 +14,8 @@ declare global {
 
 // The browser cannot call clob.polymarket.com directly (no CORS on auth
 // endpoints). We proxy through the Rust API, which Caddy exposes at
-// /api/polymarket/*.
-const CLOB_PROXY = "/api/polymarket/clob";
+// /polymarket/api/*.
+const CLOB_PROXY = "/polymarket/api/clob";
 
 export function detectWallet(): boolean {
   return typeof window !== "undefined" && !!window.ethereum;

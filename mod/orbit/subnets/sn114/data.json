@@ -1,0 +1,189 @@
+{
+  "netuid": 114,
+  "name": "SOMA",
+  "symbol": "Є",
+  "owner": "5FHrQMjzzAhmL5zS9ys87ZrGCwG3vsVT9hXAUWZQ8SNdRqig",
+  "description": "Context compression layer delivered through MCP infrastructure",
+  "github": "https://github.com/DendriteHQ/SOMA",
+  "url": "https://thesoma.ai",
+  "discord": "https://discord.gg/durr4Sg6sM",
+  "logo": "https://thesoma.ai/images/1200x1200.png",
+  "registered_at": 7312241,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.02279482,
+    "moving_price": 0.02258164156228304,
+    "market_cap": 54722.01741855003,
+    "tao_in": 9683.130650969,
+    "alpha_in": 424795.42515778,
+    "alpha_out": 1975838.465285313,
+    "volume": 289433.309389278,
+    "vol_24h": 4830.12696444703,
+    "emission": 0.0,
+    "change_1h": -0.2360478825234824,
+    "change_24h": 8.24797172946199,
+    "change_7d": 11.135515559021925
+  },
+  "spark_24h": [
+    0.021057965,
+    0.021053681,
+    0.021280421,
+    0.021289003,
+    0.021317372,
+    0.021312834,
+    0.021340656,
+    0.021290674,
+    0.021327967,
+    0.021413774,
+    0.02142007,
+    0.021757688,
+    0.022039199,
+    0.022934646,
+    0.022878434,
+    0.02251979,
+    0.02265745,
+    0.022730592,
+    0.022698394,
+    0.022595504,
+    0.02281708,
+    0.023253127,
+    0.023353435,
+    0.023435082,
+    0.02345738,
+    0.023455349,
+    0.023457063,
+    0.022918213,
+    0.023178646,
+    0.02319216,
+    0.023111333,
+    0.023055785,
+    0.023061288,
+    0.023105048,
+    0.023126392,
+    0.023249386,
+    0.023063169,
+    0.022824027,
+    0.02279561,
+    0.022801043,
+    0.02280575,
+    0.022834047,
+    0.022866477,
+    0.022813155,
+    0.022818073,
+    0.022845062,
+    0.022848754,
+    0.02279482
+  ],
+  "trades_24h": {
+    "trades": 479,
+    "buys": 265,
+    "sells": 214,
+    "buy_tao": 2549.541710208,
+    "sell_tao": 2220.665206069,
+    "net_tao": 328.8765041390002,
+    "traders": 200
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.4013675750000264,
+      "gross_tao": 1031.661205809,
+      "trades": 46
+    },
+    {
+      "coldkey": "5EvHxAn5RBbMXSpgv5fYPikdtgwox9b8vynpVbNm1qPanR57",
+      "net_tao": -0.24405981899999674,
+      "gross_tao": 384.244059819,
+      "trades": 14
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.29293110000000055,
+      "gross_tao": 336.2929311,
+      "trades": 13
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -2.475486217999997,
+      "gross_tao": 232.475486218,
+      "trades": 11
+    },
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": -1.0887528680000003,
+      "gross_tao": 231.088752868,
+      "trades": 17
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791464314,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #228 from DendriteHQ/dev",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/fc7ecf46fb7eee19926102902d018ef27b5c1338",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791464088,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(frontend): report 0 jev tokens for runs without jev calls",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/c7d7b4b741cef4a6512d9b2b6796da6cfd76db86",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791454324,
+      "kind": "commit",
+      "source": "github",
+      "title": "Lower Jev input token weight to 0.2",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/790376f75996164c3b036611884f8b7fbcb2a00c",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791295114,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #227 from DendriteHQ/feat/call-jev",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/8d1e283fced1c4390913ee9fb9d178e00f8aad81",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791210750,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: add new prompting rules",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/d9e2f8a8333c7a235ba441acbeaa870c716391f7",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1790865135,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(gateway): skip provider pin for systemone calls",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/c493fb3a1c2591b819a2b3f4ddb3c997808c560e",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1790865135,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(sandbox): report compressor jev usage from benchmark metadata",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/268717f98fb5ca1e5a56e698b84759eefc5f54e7",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1790865135,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(scoring): count jev input tokens in miner weighted tokens",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/f5d68e286468f372131ce783ea111c1b1f76d128",
+      "publisher": "DendriteHQ/SOMA"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

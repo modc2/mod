@@ -1,0 +1,191 @@
+{
+  "netuid": 94,
+  "name": "Cathedral",
+  "symbol": "ᚄ",
+  "owner": "5CnwnkkCxrrNDuhy8Vvptd6j6ebrv9Z6mrTzD479f7uAiYat",
+  "description": "CPU sandboxes powering reinforcement learning on Bittensor.",
+  "github": "https://github.com/cathedralai/cathedral-sandbox",
+  "url": "https://cathedral.computer/",
+  "discord": "https://discord.com/channels/799672011265015819/1526241812589711571",
+  "logo": "https://cathedral.computer/assets/favicon.png",
+  "registered_at": 6962737,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [
+    "cathedral"
+  ],
+  "market": {
+    "price": 0.004548605,
+    "moving_price": 0.004588008392602205,
+    "market_cap": 11800.765446249467,
+    "tao_in": 2307.809647682,
+    "alpha_in": 507366.400151303,
+    "alpha_out": 2087003.840010124,
+    "volume": 141045.46488445,
+    "vol_24h": 1220.8275551029947,
+    "emission": 0.0,
+    "change_1h": -4.396950538110289e-05,
+    "change_24h": 0.8074158504117523,
+    "change_7d": -8.516176082535276
+  },
+  "spark_24h": [
+    0.004512173,
+    0.004513432,
+    0.004513432,
+    0.004517333,
+    0.004514308,
+    0.004514208,
+    0.004511183,
+    0.004511079,
+    0.004511083,
+    0.004511003,
+    0.004511003,
+    0.004573569,
+    0.004547839,
+    0.004541001,
+    0.004510979,
+    0.004510803,
+    0.004514726,
+    0.004514729,
+    0.004581526,
+    0.004817814,
+    0.004783791,
+    0.004652955,
+    0.004652865,
+    0.004652869,
+    0.004668764,
+    0.004671591,
+    0.004671569,
+    0.004671572,
+    0.004671522,
+    0.00471886,
+    0.004747992,
+    0.004747973,
+    0.004747973,
+    0.004724378,
+    0.004724378,
+    0.004656858,
+    0.00454541,
+    0.004545314,
+    0.004545314,
+    0.004568552,
+    0.004568552,
+    0.004588268,
+    0.0045882,
+    0.004587866,
+    0.004548705,
+    0.004548696,
+    0.004548607,
+    0.004548605
+  ],
+  "trades_24h": {
+    "trades": 199,
+    "buys": 90,
+    "sells": 109,
+    "buy_tao": 615.182801184,
+    "sell_tao": 604.50471761,
+    "net_tao": 10.678083574000084,
+    "traders": 66
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Dptqz9txgD48ZndTrLL4HD7ZhPRvJHrzUYdXjBVbumyvq2h",
+      "net_tao": 111.0,
+      "gross_tao": 111.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5G1sRKrcfSuEbpJbNSd5ToVF5gMvnt8UqWXNUMTChDrF4tFs",
+      "net_tao": 4.938167326000001,
+      "gross_tao": 108.68183267399999,
+      "trades": 26
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -1.4087643839999995,
+      "gross_tao": 91.408764384,
+      "trades": 7
+    },
+    {
+      "coldkey": "5HVZzrYNvcjtapJNR9teCY9oHEHy4EvgKaVR2EHCV6ByQ9ay",
+      "net_tao": -15.180544612,
+      "gross_tao": 85.180544612,
+      "trades": 6
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 0.6200117950000008,
+      "gross_tao": 69.379988205,
+      "trades": 7
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791227489,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: mission-first miner README and one canonical operating guide (#…",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/6e38541d434bdbb378052e308e636a537cc59607",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790975368,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #267 from cathedralai/fix/tdx-image-identity-v2",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/a22fb1df124ed3e4414335f109f30624152ff548",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790975077,
+      "kind": "commit",
+      "source": "github",
+      "title": "Check the verdict's v1 and v2 audit values against the quote in admis…",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/c47a6f733ebe8a8a6b09bfac70209d24f8178e57",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790972428,
+      "kind": "commit",
+      "source": "github",
+      "title": "Store the GCP quote fixtures as .bin; *.quote is ignored for live evi…",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/e1d6f49c70eb6a92d2bc80c09af4ea042cae7418",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790972368,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge remote-tracking branch 'origin/main' into fix/tdx-image-identit…",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/9eb29b09542a4310a93ac7402f310ed2fe5958aa",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790972362,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add the v2 TDX image identity that leaves out host-set owner fields (…",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/428a963a188fc6ed4bfe03da99bc37cc190527c8",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790850560,
+      "kind": "commit",
+      "source": "github",
+      "title": "snp friend probe: an unavailable AMD verifier is inconclusive, never …",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/244f9f52eaf4b570886e6d6eab734cecd0b39d78",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790849277,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #256 from cathedralai/fix/snp-umask-and-kds-thrott…",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/de8a061e1641b8e65fc4b1c5f27ff0ae4066e502",
+      "publisher": "cathedralai/cathedral-sandbox"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

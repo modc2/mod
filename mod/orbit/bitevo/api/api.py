@@ -57,6 +57,17 @@ class ScoreIdeaRequest(BaseModel):
     challenge: Optional[str] = None
 
 
+class EvolveRequest(BaseModel):
+    generations: int = 25
+    population: int = 40
+    dataset: str = "coupled"
+    horizon: int = 10
+    max_lag: int = 6
+    seed: Optional[int] = None
+    fresh: bool = False
+    csv: Optional[str] = None
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "module": "bitevo", "time": time.time()}
@@ -106,6 +117,37 @@ async def add_miner(req: AddMinerRequest):
         return {"result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/evolve")
+async def evolve(req: EvolveRequest):
+    try:
+        result = get_bitevo().evolve(
+            generations=req.generations, population=req.population,
+            dataset=req.dataset, horizon=req.horizon, max_lag=req.max_lag,
+            seed=req.seed, fresh=req.fresh, csv=req.csv,
+        )
+        return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{e}\n{traceback.format_exc()}")
+
+
+@app.get("/forecast")
+async def forecast(horizon: Optional[int] = Query(None), tail: int = Query(60)):
+    try:
+        return {"result": get_bitevo().forecast(horizon=horizon, tail=tail)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{e}\n{traceback.format_exc()}")
+
+
+@app.get("/population")
+async def population(top: int = Query(20)):
+    return {"result": get_bitevo().population(top=top)}
+
+
+@app.get("/datasets")
+async def datasets():
+    return {"result": get_bitevo().datasets()}
 
 
 @app.get("/backends")

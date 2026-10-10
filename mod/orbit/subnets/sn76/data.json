@@ -1,0 +1,183 @@
+{
+  "netuid": 76,
+  "name": "Ormas",
+  "symbol": "ن",
+  "owner": "5CLWmDjLwkDtLQ86y9aiwfzrUCrtnnSWS9oEXianj2jMDCAo",
+  "description": "Ormas is an Outcomes API for coding work on Bittensor subnet 76, in development. Clients post a change and the test that proves it; miners quote a firm price for the passing result and deliver a branch. Miners will be paid only when independent validators accept the delivery, and clients will be charged the accepted quote and nothing on a miss. Protocol, thin client, reference miner and reference validator: MIT.",
+  "github": "https://github.com/heroncovelabs/ormas-subnet",
+  "url": "https://ormas.ai",
+  "discord": "ormasheroncovelabs_43871",
+  "logo": "https://ormas.ai/brand/ormas-mark-v3.png",
+  "registered_at": 9003844,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.005079152,
+    "moving_price": 0.005159247200936079,
+    "market_cap": 1220.1691871398825,
+    "tao_in": 468.807313271,
+    "alpha_in": 92300.305878614,
+    "alpha_out": 147930.580525235,
+    "volume": 9766.957049561,
+    "vol_24h": 4.069323051000538,
+    "emission": 0.0,
+    "change_1h": -0.001063158296787936,
+    "change_24h": -1.2462163986648012,
+    "change_7d": -5.007466013926587
+  },
+  "spark_24h": [
+    0.005143248,
+    0.005143264,
+    0.00514328,
+    0.005143026,
+    0.005130976,
+    0.005129228,
+    0.005129245,
+    0.005129091,
+    0.005129108,
+    0.005128202,
+    0.005128178,
+    0.005127961,
+    0.005126263,
+    0.005126253,
+    0.005098439,
+    0.005096514,
+    0.005096479,
+    0.005096471,
+    0.005096312,
+    0.005096169,
+    0.00509599,
+    0.005095824,
+    0.005094172,
+    0.005094183,
+    0.005093875,
+    0.005093535,
+    0.005093098,
+    0.005093091,
+    0.005092496,
+    0.005091822,
+    0.005091197,
+    0.005090998,
+    0.005090996,
+    0.005090938,
+    0.005090938,
+    0.005093106,
+    0.005092167,
+    0.005090397,
+    0.005090397,
+    0.005090238,
+    0.005090238,
+    0.005089818,
+    0.00508409,
+    0.005080302,
+    0.005080302,
+    0.005080256,
+    0.005079206,
+    0.005079152
+  ],
+  "trades_24h": {
+    "trades": 4,
+    "buys": 2,
+    "sells": 2,
+    "buy_tao": 0.5512,
+    "sell_tao": 1.222826701,
+    "net_tao": -0.671626701,
+    "traders": 4
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HpEj28PrdiK2bjLJ8MVd2sKCDfBNuanpFnjC8ypoaaMoXc5",
+      "net_tao": -0.676913455,
+      "gross_tao": 0.676913455,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -0.545913246,
+      "gross_tao": 0.545913246,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Cvf7svZ7SqkbEaJCTwLujEjLG3qvVxd3WzKYn5U442ewpos",
+      "net_tao": 0.4512,
+      "gross_tao": 0.4512,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F6ftk9bHw1oasT38wGVujRRvtFoLKnnVkdHYTGGQM8GfKrq",
+      "net_tao": 0.1,
+      "gross_tao": 0.1,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791568897,
+      "kind": "commit",
+      "source": "github",
+      "title": "Pool deliveries: claim-refusal backoff + claim_health(); validator --…",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/c9a03f33fc5dbf5cf9a32cea5d1251aba8e8a311",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1791563722,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore/requirements lock (#30)",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/b3779155e6e4790d762d8899923ca4970d7078b3",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1791555054,
+      "kind": "commit",
+      "source": "github",
+      "title": "protected/miner/manifest.json: single admitted compose hash after the…",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/d67205b17e8e36bbe6420abd6a17dea83ad0a20f",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1791545850,
+      "kind": "commit",
+      "source": "github",
+      "title": "Sync public_subnet: offers SDK, claim-refusal resilience, validator c…",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/b6728d782d62f7de19f99248c3ba3c853de68219",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1791362576,
+      "kind": "commit",
+      "source": "github",
+      "title": "Sync public_subnet: doctor cells/hotkey/cap, /runners/me, --miner-id,…",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/5530cb2d62b006060992c5dd6eb34334b55bbfb3",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1791304248,
+      "kind": "commit",
+      "source": "github",
+      "title": "ormas-miner CLI and user-only installer (#25)",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/38a02124e987c01ad54534f3e3871d7e3afea61b",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1791253094,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: login confirms the save path and never echoes any part of the key",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/b8a17c14be0f635c0f7fd7ff24f9d039588a27ee",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1791252944,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: installer PATH hint without quoted tilde (shellcheck SC2088)",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/74ac7601a47451bbc0d07689e30092626ee82798",
+      "publisher": "heroncovelabs/ormas-subnet"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

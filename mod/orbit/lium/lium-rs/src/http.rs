@@ -2,8 +2,9 @@
 //! through the same MCP tool layer, and the console.
 //!
 //! Two ways in, one behaviour. Behind the fleet router the API is reachable at
-//! /api/lium (prefix stripped) and the console at /lium (prefix kept), so both
-//! paths are served here and one console works in both places.
+//! /lium/api (legacy alias /api/lium; prefix stripped) and the console at
+//! /lium (prefix kept), so both paths are served here and one console works
+//! in both places.
 
 use crate::{lium, mcp};
 use axum::{
@@ -269,6 +270,8 @@ pub async fn serve(port: u16) {
         .route("/lium", get(console))
         .route("/lium/", get(console))
         .merge(api_routes())
+        // Canonical fleet form; legacy /api/lium alias kept below.
+        .nest("/lium/api", api_routes())
         .nest("/api/lium", api_routes())
         // Gateway alias, matching the fleet convention for app-served APIs.
         .nest("/lium/_api", api_routes())

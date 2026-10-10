@@ -1,0 +1,149 @@
+{
+  "netuid": 96,
+  "name": "Verathos",
+  "symbol": "᚛",
+  "owner": "5CGq1JQhmZmR8w3pXFqycUgX9mcLt8bPwMZ8YDJbEmELpw7X",
+  "description": "Verified AI inference and training subnet.",
+  "github": "https://github.com/verathos-ai/verathos",
+  "url": "https://verathos.ai",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/verathos-ai/verathos/main/assets/logo.png",
+  "registered_at": 7692872,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.004249773,
+    "moving_price": 0.004246377618983388,
+    "market_cap": 6445.987514449666,
+    "tao_in": 2575.144346938,
+    "alpha_in": 605948.732106509,
+    "alpha_out": 910835.226577794,
+    "volume": 101402.454181947,
+    "vol_24h": 201.85266478599806,
+    "emission": 0.0,
+    "change_1h": -4.706131501164279e-05,
+    "change_24h": 0.8857769569325269,
+    "change_7d": -7.24798586427452
+  },
+  "spark_24h": [
+    0.00421246,
+    0.00421246,
+    0.00421246,
+    0.004212429,
+    0.004210557,
+    0.004210439,
+    0.004211085,
+    0.004211068,
+    0.004211068,
+    0.004210963,
+    0.004210013,
+    0.004205131,
+    0.004204997,
+    0.004204995,
+    0.004205553,
+    0.004205391,
+    0.00420529,
+    0.004242743,
+    0.004209833,
+    0.004209827,
+    0.004274737,
+    0.004274727,
+    0.004276267,
+    0.004265175,
+    0.004268223,
+    0.004262828,
+    0.004262814,
+    0.004263144,
+    0.004263078,
+    0.004274009,
+    0.004260348,
+    0.004261018,
+    0.004261017,
+    0.004261341,
+    0.004261341,
+    0.004261341,
+    0.004256506,
+    0.004251114,
+    0.004251114,
+    0.004251077,
+    0.004251077,
+    0.00425102,
+    0.004250267,
+    0.004249903,
+    0.004249903,
+    0.004249892,
+    0.004249775,
+    0.004249773
+  ],
+  "trades_24h": {
+    "trades": 74,
+    "buys": 15,
+    "sells": 59,
+    "buy_tao": 105.646450102,
+    "sell_tao": 94.205465743,
+    "net_tao": 11.440984358999998,
+    "traders": 24
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CMQrBAide6AnD6vcU9rp7PdmyZr9hHgkeUoNNAoG8VcuHG2",
+      "net_tao": 0.003361925000000099,
+      "gross_tao": 79.99663807499999,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HeNMFNQMc3PRSxCvDVqNA5vF827xR898rrBRPnWE63qzWx3",
+      "net_tao": 20.017499874,
+      "gross_tao": 59.982500126000005,
+      "trades": 4
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": 0.012704245000000114,
+      "gross_tao": 19.987295754999998,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FnGsoZGVFe3Xh4PxFat3kpb5VmXCKTTbahgdrDFFHuvbBDR",
+      "net_tao": 1.2107657059999997,
+      "gross_tao": 18.549962294,
+      "trades": 13
+    },
+    {
+      "coldkey": "5ERjmMZZjkbtHmcGawrT3cBQnUJxW3s3cjXHaGUoDNUy1nRy",
+      "net_tao": 0.004024253999999949,
+      "gross_tao": 7.995975746,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790327345,
+      "kind": "release",
+      "source": "github",
+      "title": "Verathos v0.2.3 – DeepSeek Mesh Proof Compatibility",
+      "url": "https://github.com/verathos-ai/verathos/releases/tag/v0.2.3",
+      "publisher": "verathos-ai/verathos"
+    },
+    {
+      "ts": 1790237734,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: release DeepSeek mesh proof compatibility as v0.2.3",
+      "url": "https://github.com/verathos-ai/verathos/commit/a859ff97c744eaf4b18761a8c7d9fd42d4a33573",
+      "publisher": "verathos-ai/verathos"
+    },
+    {
+      "ts": 1790236543,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: place hyper-connection head tensors in the final stage",
+      "url": "https://github.com/verathos-ai/verathos/commit/4b969dfb0630b60cfb2e40fdae36851709ac3a12",
+      "publisher": "verathos-ai/verathos"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

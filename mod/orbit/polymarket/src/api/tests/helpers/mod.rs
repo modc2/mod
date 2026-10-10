@@ -40,8 +40,10 @@ pub fn test_app() -> Router {
         signer_store,
         engines,
         user_strats,
+        score_fns: Arc::new(polymarket_api::ScoreFnStore::new()),
         share,
         sync: polymarket_api::SyncSchedule::from_env(),
+        copy_book: polymarket_api::CopyBookStore::from_env(),
     };
 
     let cors = CorsLayer::new()

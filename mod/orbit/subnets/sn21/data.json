@@ -1,0 +1,189 @@
+{
+  "netuid": 21,
+  "name": "AdTAO",
+  "symbol": "φ",
+  "owner": "5HjCYVfrWSkzTfJM5rkWBW3qTTJqXEFUzZrKty5hodpgfjyW",
+  "description": "Counterfactual impact prediction for advertising interventions",
+  "github": "https://github.com/ippcteam/SN21-adtao",
+  "url": "https://adtao.io",
+  "discord": null,
+  "logo": "https://www.ppcrebel.com/i/adtao.png",
+  "registered_at": 3156578,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.004823068,
+    "moving_price": 0.004656176082789898,
+    "market_cap": 29708.036685199495,
+    "tao_in": 8938.830776863,
+    "alpha_in": 1853349.256957178,
+    "alpha_out": 4306223.17395184,
+    "volume": 625674.055839313,
+    "vol_24h": 5019.522259566933,
+    "emission": 0.0,
+    "change_1h": 0.1969841195316624,
+    "change_24h": 1.5775146819876573,
+    "change_7d": 38.95475117424183
+  },
+  "spark_24h": [
+    0.004748165,
+    0.00472859,
+    0.004716339,
+    0.004716336,
+    0.004778186,
+    0.00474598,
+    0.004713561,
+    0.004561418,
+    0.004564566,
+    0.004573807,
+    0.004634934,
+    0.004613868,
+    0.004411738,
+    0.004346422,
+    0.004385474,
+    0.004460124,
+    0.004494281,
+    0.004416961,
+    0.004487407,
+    0.004489158,
+    0.004459195,
+    0.004460423,
+    0.004470347,
+    0.004470323,
+    0.004568276,
+    0.004483638,
+    0.004468455,
+    0.004468455,
+    0.004468932,
+    0.004470643,
+    0.004501845,
+    0.004665117,
+    0.004543164,
+    0.004543164,
+    0.004542745,
+    0.004547646,
+    0.004547646,
+    0.004547116,
+    0.004647863,
+    0.004982063,
+    0.004895994,
+    0.004759736,
+    0.004847719,
+    0.004847671,
+    0.004830346,
+    0.004824341,
+    0.004813586,
+    0.004823068
+  ],
+  "trades_24h": {
+    "trades": 456,
+    "buys": 176,
+    "sells": 280,
+    "buy_tao": 2549.958755452,
+    "sell_tao": 2472.698291536,
+    "net_tao": 77.26046391599994,
+    "traders": 184
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 1.0725735029999992,
+      "gross_tao": 771.593584051,
+      "trades": 46
+    },
+    {
+      "coldkey": "5FFFZZhWw9y9NQYn26kwAvjHiLrneoNVF1DZCiXqjV9jffff",
+      "net_tao": -6.394834046000024,
+      "gross_tao": 532.8017510560001,
+      "trades": 7
+    },
+    {
+      "coldkey": "5DFjenssJkNj73JRy6SSPJU53vfRc8scn6WHRQjJ3s3Ptnu3",
+      "net_tao": 156.98600485,
+      "gross_tao": 313.54495389,
+      "trades": 4
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 20.712770705,
+      "gross_tao": 249.287229295,
+      "trades": 12
+    },
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": 25.106306023,
+      "gross_tao": 244.893693977,
+      "trades": 12
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791560833,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(rewards): self-mining section lists the operator-run miners (UID…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/585b5aa25a3e7cc17a713e5a1a4b6cd8d32fecfe",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1791545609,
+      "kind": "release",
+      "source": "github",
+      "title": "SN21 training data v4 (live basket shape)",
+      "url": "https://github.com/ippcteam/SN21-adtao/releases/tag/training-v4-2026-10",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1791537759,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(training): v4 training data in the live daily basket shape",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/95d50f617eeea040c57b6baaafb2d4f6d2f6cdb6",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1791475644,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(reference): the budget lean reads the live daily basket layout",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/a375463741da5b1fad512f77325afc600ca994b9",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1791470115,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(scoring): copy groups agree on one earner, the earliest submission",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/662fad784e2214fe21408db1aee2898a54c9e10c",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1791295679,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(validator): /health in daily mode no longer echoes the loaded rel…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/67bac47190ffd16145733b703437017699dbf872",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1791295526,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(validator): weekly prediction submissions are off unless SN21_WEE…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/0977912ce07fe4378e165feadd8e80dff6dfbaa6",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1791294848,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(validator): /health reports daily mode once the weekly window has…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/afac3d0454cc56244a183f113333e35a35a3be42",
+      "publisher": "ippcteam/SN21-adtao"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

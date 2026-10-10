@@ -1,6 +1,6 @@
 "use client";
 
-// RUN — the same conversation, against whichever machine you point it at.
+// CHAT — the same conversation, against whichever machine you point it at.
 //
 // The runtime switch is one half of the page: BROWSER loads ONNX weights into
 // a worker in this tab, SERVER streams SSE off the box the API runs on, CLOUD
@@ -8,12 +8,19 @@
 // model's own task, which decides what the board even is — a transcript for
 // text and vision, an upload for speech, a similarity grid for embeddings.
 // Liquid ships all four kinds, so all four have a surface here.
+//
+// The rail also carries what used to be a LOCAL tab. Pulling weights and
+// pasting a cloud key are only ever done because a runtime you just picked
+// can't run the model you just picked — so they belong under that switch, not
+// behind a fourth tab you'd have to know to go looking for.
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  embedTexts, fetchCatalog, fetchRuntimes, streamChat, transcribe,
+  embedTexts, fetchCatalog, fetchKeys, fetchLocal, fetchPulls, fetchRuntimes,
+  loadRepo, pullRepo, reportBrowserRun, setKey, streamChat, transcribe,
+  unloadRepo,
 } from "../lib/api";
 import { fmtBytes, useBrowserRuntime } from "../lib/browser";
 import { params as fmtParams } from "../components/badges";
@@ -21,7 +28,8 @@ import { useAuth } from "../context/AuthContext";
 import SignIn from "../components/SignIn";
 import {
   messageImages, messageText,
-  type Catalog, type ChatMessage, type ContentPart, type Embedding, type Model,
+  type Catalog, type ChatMessage, type ContentPart, type Embedding,
+  type KeyStatus, type LocalModel, type Model, type Pull,
   type RunStats, type Runtime, type Runtimes,
 } from "../lib/types";
 
@@ -207,8 +215,25 @@ function Run() {
       }
       browser.generate(history, { max_tokens: maxTokens, temperature }, {
         token: (t) => { acc += t; setLive(acc); },
-        done: (s) => finish(s, acc),
-        error: (e) => fail(e, acc),
+        done: (s) => {
+          finish(s, acc);
+          // This run happened here, in this tab — the API never saw a token of
+          // it and never will. Reporting it is the only way a browser run
+          // reaches the ledger at all, and it's fire-and-forget: a backend
+          // that's down must not cost you an answer you already have.
+          reportBrowserRun({
+            model: selected.repo, task, ok: true, turns: history.length,
+            elapsed_sec: s.elapsed_sec, ttft_sec: s.ttft_sec ?? undefined,
+            tokens: s.chunks, engine: browser.status.device ?? undefined,
+          });
+        },
+        error: (e) => {
+          fail(e, acc);
+          reportBrowserRun({
+            model: selected.repo, task, ok: false, error: e,
+            turns: history.length, engine: browser.status.device ?? undefined,
+          });
+        },
       });
       return;
     }
@@ -289,7 +314,7 @@ function Run() {
             {!runtimeReady && (
               <p className="font-mono text-xs text-red-400 leading-snug">
                 {runtime === "cloud"
-                  ? <>no cloud key — add one on <Link href="/local" className="text-cyan-400">LOCAL</Link></>
+                  ? <>no cloud key — paste one below</>
                   : runtime === "server"
                     ? rt?.server.error ?? "server runtime unavailable"
                     : "this browser can't run a module worker"}
@@ -343,6 +368,20 @@ function Run() {
               </label>
             )}
           </div>
+
+          {/* The two things that used to be a LOCAL tab, each shown under the
+              switch that makes it matter. */}
+          {runtime === "server" && (
+            <ServerWeights
+              repo={selected?.repo ?? null}
+              modelId={selected?.id ?? null}
+              rt={rt}
+              onChange={() => fetchRuntimes().then(setRt).catch(() => {})}
+            />
+          )}
+          {runtime === "cloud" && (
+            <CloudKey rt={rt} onChange={() => fetchRuntimes().then(setRt).catch(() => {})} />
+          )}
 
           {/* Download meter — only while there's something to meter. */}
           {loading && (
@@ -529,6 +568,154 @@ function Run() {
       </section>
 
       {gate && <SignIn onClose={() => setGate(false)} />}
+    </div>
+  );
+}
+
+// ── the box, from the rail ───────────────────────────────────────────
+
+// SERVER can only run weights this box already holds, so the panel is about
+// exactly one repo — the one selected above. Pull, load, free: the same three
+// buttons the LOCAL table carried, minus fifty rows you weren't asking about.
+function ServerWeights({ repo, modelId, rt, onChange }: {
+  repo: string | null;
+  modelId: string | null;
+  rt: Runtimes | null;
+  onChange: () => void;
+}) {
+  const [local, setLocal] = useState<LocalModel[]>([]);
+  const [pulls, setPulls] = useState<Pull[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    fetchLocal().then((d) => setLocal(d.models)).catch(() => {});
+    fetchPulls().then((d) => setPulls(d.pulls)).catch(() => {});
+  }, []);
+
+  const pull = pulls.find((p) => p.repo === repo && p.state === "running");
+
+  // Idle it polls slowly enough to stay out of the way; mid-download the bar
+  // has to move or a five-minute pull reads as a hang.
+  useEffect(() => {
+    refresh();
+    const t = setInterval(refresh, pull ? 1500 : 6000);
+    return () => clearInterval(t);
+  }, [refresh, pull]);
+
+  const disk = local.find((l) => l.repo === repo);
+  const resident = rt?.server.loaded ?? null;
+
+  const act = (fn: () => Promise<any>) => {
+    setErr(null);
+    fn().then(() => { refresh(); onChange(); }).catch((e) => setErr(String(e)));
+  };
+
+  return (
+    <div className="pixel-panel p-2 flex flex-col gap-1.5">
+      <span className="stat-tile-label">WEIGHTS ON THIS BOX</span>
+      {!repo ? (
+        <p className="font-mono text-xs text-pixel-gray">nothing selected</p>
+      ) : (
+        <>
+          <p className="font-mono text-xs text-pixel-gray break-all">{repo}</p>
+          {pull ? (
+            <>
+              <div className="pixel-bar">
+                <div className="pixel-bar-fill" style={{ width: `${pull.pct ?? 5}%` }} />
+              </div>
+              <span className="font-mono text-xs text-pixel-gray-light">
+                {fmtBytes(pull.bytes ?? 0)}{pull.total ? ` / ${fmtBytes(pull.total)}` : ""} · downloading
+              </span>
+            </>
+          ) : (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className={`pixel-badge ${
+                disk?.resident ? "text-green-400 border-green-400"
+                  : disk ? "text-pixel-gray-light border-pixel-border"
+                  : "text-pixel-gray border-pixel-border"}`}>
+                {disk?.resident ? "resident" : disk ? `on disk · ${fmtBytes(disk.bytes)}` : "not pulled"}
+              </span>
+              <button
+                className="pixel-btn topbar-ctl px-2.5 ml-auto"
+                onClick={() => act(() => disk?.resident ? unloadRepo() : disk ? loadRepo(repo) : pullRepo(repo))}
+                title={disk?.resident ? "free the RAM" : disk ? "make it resident" : "download the safetensors"}
+              >
+                {disk?.resident ? "FREE" : disk ? "LOAD" : "PULL"}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {/* One model at a time, so say which one is holding the slot — otherwise
+          LOAD on a second model looks like it silently did nothing. */}
+      <p className="font-mono text-xs text-pixel-gray-light leading-snug">
+        {resident
+          ? <>resident: <span className="text-green-400">{resident.repo.replace("LiquidAI/", "")}</span> · one at a time{
+              modelId && resident.repo !== repo ? " — loading this evicts it" : ""}</>
+          : "nothing resident — the first send loads the model"}
+      </p>
+      <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-xs">
+        <Fact k="device" v={rt?.server.device ?? "—"} />
+        <Fact k="gpu" v={rt?.server.gpu ?? "none"} />
+        <Fact k="threads" v={String(rt?.server.threads ?? "—")} />
+        <Fact k="torch" v={rt?.server.torch ?? "—"} />
+      </dl>
+      {err && <p className="font-mono text-xs text-red-400 break-words">{err}</p>}
+    </div>
+  );
+}
+
+// BYOK. The key is written to ~/.mod/liquidai/keys.json at 0600 and never to
+// config.json, which is the whole reason this is a field and not an env var.
+function CloudKey({ rt, onChange }: { rt: Runtimes | null; onChange: () => void }) {
+  const [keys, setKeys] = useState<Record<string, KeyStatus> | null>(null);
+  const [draft, setDraft] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => { fetchKeys().then(setKeys).catch(() => {}); }, []);
+
+  return (
+    <div className="pixel-panel p-2 flex flex-col gap-1.5">
+      <span className="stat-tile-label">CLOUD KEY (BYOK)</span>
+      <div className="font-mono text-xs">
+        {keys?.cloud?.set
+          ? <span className="text-green-400">● {keys.cloud.masked} ({keys.cloud.source})</span>
+          : <span className="text-red-400">○ no key</span>}
+      </div>
+      <form
+        className="flex gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setErr(null); setMsg(null);
+          const wanted = draft.trim();
+          setKey(wanted)
+            .then(async () => {
+              setDraft("");
+              setMsg(wanted ? "key stored" : "key cleared");
+              setKeys(await fetchKeys());
+              onChange();
+            })
+            .catch((e2) => setErr(String(e2)));
+        }}
+      >
+        <input
+          type="password"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="paste key…"
+          className="pixel-input-sm font-mono flex-1 min-w-0"
+          aria-label="cloud key"
+        />
+        <button className="pixel-btn topbar-ctl px-3">SAVE</button>
+      </form>
+      <p className="font-mono text-xs text-pixel-gray-light leading-snug">
+        {rt?.cloud.ok
+          ? `${rt.cloud.count} models reachable at ${rt.cloud.base}`
+          : "runs bill to this key, never to a house key — stored at ~/.mod/liquidai/keys.json, 0600"}
+      </p>
+      {err && <p className="font-mono text-xs text-red-400 break-words">{err}</p>}
+      {msg && <p className="font-mono text-xs text-cyan-400">{msg}</p>}
     </div>
   );
 }
@@ -757,7 +944,7 @@ function StartCard({ model, rt, browserDevice, onPick }: {
       note: rt?.server.ok ? (rt.server.note ?? "transformers on the box running this module") : (rt?.server.error ?? "—") },
     { id: "CLOUD", ok: !!rt?.cloud.ok,
       where: rt?.cloud.ok ? `${rt.cloud.count} models` : "no key",
-      note: rt?.cloud.ok ? rt.cloud.base : "add a key on LOCAL — runs bill to it, never to a house key" },
+      note: rt?.cloud.ok ? rt.cloud.base : "paste a key in the rail under CLOUD — runs bill to it, never to a house key" },
   ];
 
   return (

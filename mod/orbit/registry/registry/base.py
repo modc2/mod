@@ -22,6 +22,10 @@ class RegistryBackend:
         """Get mod by ID. Returns {id, owner, name, data} or None."""
         raise NotImplementedError
 
+    def get_by_name(self, owner: str, name: str, **kw) -> dict | None:
+        """Get mod by owner + name. Returns {id, owner, name, data} or None."""
+        raise NotImplementedError
+
     def get_user_mods(self, owner: str, **kw) -> list:
         """Get all mods for an owner. Returns list of mod dicts."""
         raise NotImplementedError

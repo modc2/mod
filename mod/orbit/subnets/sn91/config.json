@@ -1,0 +1,38 @@
+{
+  "name": "sn91",
+  "version": "1.0.0",
+  "description": "SN91 cascade — SOTA Time Series Foundation Models. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᚁ",
+  "chain": "bittensor",
+  "netuid": 91,
+  "subnet": "cascade",
+  "symbol": "ᚁ",
+  "owner": "5HEe7NjS4exuP9SptWZdwWqWrMrGTTEHf5ieQH8yZXA3zXtW",
+  "github": "https://github.com/TensorLink-AI/cascade",
+  "url": "cascadesub.net",
+  "discord": "christensor_49068",
+  "logo": "https://raw.githubusercontent.com/TensorLink-AI/cascade/main/cascade/website/favicon-512.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=91",
+    "news": "/bt/news?netuid=91"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

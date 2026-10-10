@@ -47,6 +47,7 @@ class Mod:
     fns = [
         'forward', 'simulate', 'epoch', 'leaderboard', 'results',
         'status', 'add_miner', 'challenge', 'score_idea',
+        'evolve', 'forecast', 'population', 'datasets',
         'backends', 'whitepaper', 'test', 'serve', 'kill',
     ]
 
@@ -63,6 +64,7 @@ class Mod:
         self.storage_path = storage_path
         self.config = self._load_config()
         self._validator = None
+        self._engine = None
         self._init_kwargs = dict(
             backend=backend, model=model, local=local,
             tempo=tempo, netuid=netuid, storage_path=storage_path,
@@ -97,8 +99,16 @@ class Mod:
             'tempo': self.tempo,
             'miners': len(self.validator._local_miners),
             'leaderboard': self.validator.leaderboard(),
+            'evolution': self._evo_summary(),
             'urls': self.config.get('urls', {}),
         }
+
+    def _evo_summary(self):
+        engine = self._get_engine()
+        if engine is None:
+            return None
+        s = engine.status()
+        return {k: s[k] for k in ('dataset', 'variables', 'generation', 'population', 'best_fitness')}
 
     def simulate(self, n_miners: int = 3, backends=None, epochs: int = 1, tempo: int = 0):
         from neurons.miner import BitevoMiner
@@ -176,6 +186,56 @@ class Mod:
         resp = MinerResponse(miner_uid=-1, challenge_id="manual", pitch=pitch)
         score = self.validator._score_response(ch, resp)
         return score.model_dump()
+
+    # ── Evolution (Track II: multivariate future-fitting) ─────────
+
+    @property
+    def _evo_path(self):
+        return os.path.join(os.path.expanduser(self.storage_path), 'evolution_state.json')
+
+    def _get_engine(self):
+        if self._engine is None:
+            from core.evolve import EvolutionEngine
+            self._engine = EvolutionEngine.load(self._evo_path)
+        return self._engine
+
+    def evolve(self, generations: int = 25, population: int = 40, dataset: str = 'coupled',
+               horizon: int = 10, max_lag: int = 6, seed=None, fresh: bool = False,
+               csv: str = None):
+        """Evolve a population of multivariate predictor genomes against the
+        held-out future window. Resumes the saved population unless fresh=True
+        or the dataset changed. csv=<path> evolves against your own local data."""
+        from core.evolve import EvolutionEngine, make_dataset, load_csv
+        engine = None if fresh else self._get_engine()
+        target = csv or dataset
+        if engine is None or engine.dataset != target:
+            series = load_csv(csv) if csv else make_dataset(dataset, seed=int(seed) if seed is not None else 7)
+            engine = EvolutionEngine(
+                series, dataset=target, population=int(population),
+                horizon=int(horizon), max_lag=int(max_lag),
+                seed=int(seed) if seed is not None else None,
+            )
+            self._engine = engine
+        result = engine.run(int(generations))
+        engine.save(self._evo_path)
+        return {**result, 'status': engine.status(), 'leaderboard': engine.leaderboard(top=10)}
+
+    def forecast(self, horizon: int = None, tail: int = 60):
+        """Best evolved genome predicts the next `horizon` steps for every variable."""
+        engine = self._get_engine()
+        if engine is None:
+            return {'error': 'no evolved population yet — run evolve first'}
+        return engine.forecast(horizon=int(horizon) if horizon else None, tail=int(tail))
+
+    def population(self, top: int = 20):
+        engine = self._get_engine()
+        if engine is None:
+            return {'error': 'no evolved population yet — run evolve first'}
+        return {'status': engine.status(), 'leaderboard': engine.leaderboard(top=int(top))}
+
+    def datasets(self):
+        from core.evolve import DATASETS
+        return {k: v['docs'] for k, v in DATASETS.items()}
 
     # ── Backends ──────────────────────────────────────────────────
 

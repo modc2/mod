@@ -1,0 +1,165 @@
+{
+  "netuid": 33,
+  "name": "ReadyAI",
+  "symbol": "ט",
+  "owner": "5HinUfk5SqBUAbkMtgdNoum3VJvwrLgdvwW5sbXA1UPYZ8uB",
+  "description": null,
+  "github": "https://github.com/afterpartyai/bittensor-conversation-genome-project",
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "registered_at": 2943950,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.003647747,
+    "moving_price": 0.0036734838504344225,
+    "market_cap": 20164.264333545805,
+    "tao_in": 12952.394144926,
+    "alpha_in": 3550792.054972583,
+    "alpha_out": 1977076.060208049,
+    "volume": 920356.502109517,
+    "vol_24h": 206.58762350294273,
+    "emission": 0.0,
+    "change_1h": -0.1476810920571947,
+    "change_24h": -1.4344338153059133,
+    "change_7d": -6.273844272235818
+  },
+  "spark_24h": [
+    0.003700833,
+    0.003699968,
+    0.003700025,
+    0.003700052,
+    0.003699777,
+    0.003688974,
+    0.003689031,
+    0.003688323,
+    0.003700919,
+    0.00370094,
+    0.003700968,
+    0.003700806,
+    0.003700854,
+    0.003700043,
+    0.003699982,
+    0.003700027,
+    0.003700049,
+    0.003700038,
+    0.003700065,
+    0.003661354,
+    0.003661409,
+    0.003672725,
+    0.003672747,
+    0.003661349,
+    0.003660457,
+    0.003660484,
+    0.003659839,
+    0.003660485,
+    0.003660481,
+    0.003660533,
+    0.003660425,
+    0.003659731,
+    0.003659743,
+    0.003659799,
+    0.003659571,
+    0.003659599,
+    0.003659181,
+    0.003659237,
+    0.003659237,
+    0.003659265,
+    0.003659293,
+    0.003659376,
+    0.003659225,
+    0.003658501,
+    0.003658529,
+    0.003653122,
+    0.003653142,
+    0.003647747
+  ],
+  "trades_24h": {
+    "trades": 163,
+    "buys": 5,
+    "sells": 158,
+    "buy_tao": 53.309685947,
+    "sell_tao": 149.724450736,
+    "net_tao": -96.414764789,
+    "traders": 30
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5F6wr9DgVcAzsLZLLDF7NTrHBK61kdrV9JHFPGFumu5Ao7Xx",
+      "net_tao": -45.714520279,
+      "gross_tao": 45.714520279,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GEAc2xwinJsVUftvDZQni6nUdMFGMzg76bXKrV4Ks7ZMxhA",
+      "net_tao": 3.094890233000001,
+      "gross_tao": 41.262574305,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": 0.01803165600000156,
+      "gross_tao": 39.981968343999995,
+      "trades": 2
+    },
+    {
+      "coldkey": "5EuxqP2Jx9moa2aGCNijvkyNgY6WHU9onYbt6rYVB9X1FPrN",
+      "net_tao": -21.954058599,
+      "gross_tao": 21.954058599,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DFnqvwd4AbUTKEn4HTaxVnxRKzEkEgwqNKw5iKgtMpxzt9B",
+      "net_tao": 0.010064536999999874,
+      "gross_tao": 19.989935463000002,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791351031,
+      "kind": "news",
+      "source": "gnews",
+      "title": "ReadyAI USD (SN33-USD) cryptocurrency profile and facts – Yahoo Finance",
+      "url": "https://news.google.com/rss/articles/CBMiYkFVX3lxTE9yMjNzU2F5cGJGa0lZaF90b3NtbGxhOE5mdFR0MzhHT3loQXBBMS0tSmo0QWM4SloyVUtPMUV5WGpqQU9qR2U5c3FJN3hTT0N4bUhtSGRveHJDSGdxd2R5N3hB?oc=5",
+      "publisher": "Yahoo Finance Singapore"
+    },
+    {
+      "ts": 1790255965,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #138 from afterpartyai/bump-docker-image-version",
+      "url": "https://github.com/afterpartyai/bittensor-conversation-genome-project/commit/92b3e701058379a2cf772befdcff86868ae55afb",
+      "publisher": "afterpartyai/bittensor-conversation-genome-project"
+    },
+    {
+      "ts": 1790132299,
+      "kind": "commit",
+      "source": "github",
+      "title": "Dockerfile",
+      "url": "https://github.com/afterpartyai/bittensor-conversation-genome-project/commit/d3775435d953576f87885dfe447490bfdff4617e",
+      "publisher": "afterpartyai/bittensor-conversation-genome-project"
+    },
+    {
+      "ts": 1790008564,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #137 from afterpartyai/adjust-put-task-ordering",
+      "url": "https://github.com/afterpartyai/bittensor-conversation-genome-project/commit/412ce25185dc3fb7acf05d52050b214d9a7e0c5a",
+      "publisher": "afterpartyai/bittensor-conversation-genome-project"
+    },
+    {
+      "ts": 1790004351,
+      "kind": "commit",
+      "source": "github",
+      "title": "Buffer tasks and send them at the end of the validation loop",
+      "url": "https://github.com/afterpartyai/bittensor-conversation-genome-project/commit/5b0707c5854da666dc41019b8ec3e3f301832451",
+      "publisher": "afterpartyai/bittensor-conversation-genome-project"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

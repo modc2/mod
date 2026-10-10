@@ -3,16 +3,10 @@
 # ---- Docker mode ----
 if [ "$1" = "--docker" ]; then
     echo "=== mod stop (docker) ==="
-    CONTAINER_NAME="${2:-mod}"
-
-    if docker ps -q -f name="$CONTAINER_NAME" | grep -q .; then
-        echo "[+] Stopping container: $CONTAINER_NAME"
-        docker kill "$CONTAINER_NAME"
-        docker rm "$CONTAINER_NAME"
-        echo "[ok] container stopped"
-    else
-        echo "[ok] container $CONTAINER_NAME not running"
-    fi
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "$SCRIPT_DIR" || exit 1
+    docker compose down
+    echo "[ok] sandbox stopped"
     exit 0
 fi
 

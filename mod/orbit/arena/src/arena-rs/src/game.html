@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arena · game</title>
+<style>
+  :root {
+    --bg: #0b0f14; --card: #121820; --line: #1f2a36;
+    --fg: #d7e2ec; --dim: #7d8fa1; --accent: #55e0c8; --bad: #ff7a86;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh;
+    font: 14px/1.5 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding: 12px 14px 8px; border-bottom: 1px solid var(--line);
+  }
+  header .mark { width: 12px; height: 12px; background: var(--accent); border-radius: 3px; align-self: center; }
+  header h1 { font-size: 16px; letter-spacing: 2px; margin: 0; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .sub { color: var(--dim); font-size: 12px; }
+  header nav { margin-left: auto; display: flex; gap: 14px; }
+  header nav a { color: var(--dim); font-size: 12px; }
+  header nav a:hover { color: var(--accent); text-decoration: none; }
+  main { max-width: 980px; margin: 0 auto; padding: 14px; display: grid; gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .card h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: 2px; color: var(--dim); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px;
+    font-size: 12px; color: var(--dim);
+  }
+  .chip b { color: var(--fg); font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; font-size: 11px; letter-spacing: 1px; }
+  tr:last-child td { border-bottom: 0; }
+  .n { font-variant-numeric: tabular-nums; }
+  .rk { color: var(--dim); } .rk.top { color: var(--accent); font-weight: 700; }
+  .dim { color: var(--dim); } .bad { color: var(--bad); }
+  .bar { height: 4px; background: var(--line); border-radius: 2px; max-width: 160px; margin-top: 4px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+  pre {
+    margin: 0; padding: 10px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 8px; overflow: auto; font-size: 12px; max-height: 480px;
+  }
+  details summary { cursor: pointer; color: var(--dim); font-size: 12px; letter-spacing: 1px; }
+  details[open] summary { margin-bottom: 8px; }
+  p.desc { margin: 0; white-space: pre-wrap; }
+  #err { color: var(--bad); padding: 14px; display: none; }
+  .tw { overflow-x: auto; }
+  footer { color: var(--dim); font-size: 11px; text-align: center; padding: 8px 0 18px; }
+  @media (max-width: 700px) { header .sub { display: none; } header h1 { max-width: 100%; } }
+</style>
+</head>
+<body>
+<!-- One game's own page: a static shell served at /arena/game/<id-or-name>.
+     The server renders nothing here — the page reads the id off its own path
+     and asks the same API the console does, so a game page can never drift
+     from the registry. Names and descriptions are uploads: everything lands
+     in the DOM through textContent, never markup. -->
+<header>
+  <span class="mark"></span><h1 id="title">GAME</h1>
+  <span class="sub" id="sub"></span>
+  <nav>
+    <a id="nav-console" href="#">console</a>
+    <a id="nav-open" href="#">open in console</a>
+    <a id="nav-arcade" href="#">arcade</a>
+  </nav>
+</header>
+<div id="err"></div>
+<main id="main" hidden>
+  <section class="card">
+    <h2>ABOUT</h2>
+    <p class="desc" id="desc"></p>
+    <div class="chips" id="chips"></div>
+  </section>
+  <section class="card">
+    <h2>LEADERBOARD</h2>
+    <div class="tw"><table><thead><tr>
+      <th></th><th>player</th><th>kind</th><th>elo</th><th>matches</th><th>w/d/l</th><th>avg score</th>
+    </tr></thead><tbody id="board"></tbody></table></div>
+  </section>
+  <section class="card">
+    <h2>RECENT MATCHES</h2>
+    <div class="tw"><table><thead><tr>
+      <th>when</th><th>seats</th><th>score</th><th>result</th>
+    </tr></thead><tbody id="matches"></tbody></table></div>
+  </section>
+  <section class="card">
+    <h2>PLAY IT</h2>
+    <div class="tw"><table><tbody id="api"></tbody></table></div>
+  </section>
+  <section class="card" id="src-card" hidden>
+    <h2>SOURCE</h2>
+    <details><summary>show</summary><pre id="src"></pre></details>
+  </section>
+  <section class="card">
+    <details><summary>REGISTRY RECORD</summary><pre id="record"></pre></details>
+  </section>
+</main>
+<footer>every game is its own board — a page of the arena</footer>
+<script>
+"use strict";
+// /arena/game/<id> → ROOT=/arena, API=/arena/api. The same arithmetic holds
+// wherever this server is mounted, which is why nothing here is absolute.
+const path = location.pathname.replace(/\/+$/, "");
+const ID = decodeURIComponent(path.split("/").pop());
+const ROOT = path.replace(/\/game\/[^/]*$/, "");
+const API = `${ROOT}/api`;
+
+const $ = (id) => document.getElementById(id);
+function el(tag, props = {}, kids = []) {
+  const n = document.createElement(tag);
+  Object.assign(n, props);
+  for (const k of [].concat(kids)) if (k != null && k !== "") n.append(k.nodeType ? k : document.createTextNode(k));
+  return n;
+}
+const td = (props = {}, kids = []) => el("td", props, kids);
+async function call(p) {
+  const r = await fetch(API + p);
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.error || `${r.status} on ${p}`);
+  return out;
+}
+const wdl = (p) => `${p.wins ?? 0}-${p.draws ?? 0}-${p.losses ?? 0}`;
+const when = (t) => t ? new Date(t * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—";
+const agentLink = (p) => p.kind === "agent_mod"
+  ? el("a", { href: `${ROOT}/agent/${encodeURIComponent(p.name)}` }, [el("strong", { textContent: p.name })])
+  : el("strong", { textContent: p.name });
+
+function fail(e) {
+  $("err").style.display = "block";
+  $("err").textContent = e.message || String(e);
+}
+
+async function load() {
+  $("nav-console").href = ROOT || "/";
+  $("nav-arcade").href = `${ROOT}/arcade`;
+  const g = await call(`/modules/${encodeURIComponent(ID)}`);
+  document.title = `arena · ${g.name}`;
+  $("title").textContent = g.name;
+  $("sub").textContent = [g.lang, g.role].filter(Boolean).join(" · ");
+  $("nav-open").href = `${ROOT}#game/${g.id}`;
+  $("desc").textContent = g.description || "no description — the code is the description";
+  const chip = (label, value) => value == null || value === "" ? null
+    : el("span", { className: "chip" }, [`${label} `, el("b", { textContent: String(value) })]);
+  $("chips").replaceChildren(...[
+    chip("language", g.lang), chip("version", g.version > 1 ? `v${g.version}` : null),
+    chip("matches", g.runs), chip("players", g.min_players),
+    chip("owner", g.owner), chip("made with", g.made_with),
+    chip("id", (g.id || "").slice(0, 12)),
+  ].filter(Boolean));
+
+  // The game's own MCP server and the doors a player or a script comes in by.
+  const api = (how, what) => el("tr", {}, [
+    td({ className: "dim", style: "white-space:nowrap" }, how),
+    td({}, el("code", { textContent: what })),
+  ]);
+  $("api").replaceChildren(
+    api("its own MCP server", `POST ${ROOT}/api/m/${g.name}/mcp`),
+    api("its tools", `GET ${ROOT}/api/m/${g.name}/tools`),
+    api("run a match", `POST ${ROOT}/api/run {"game": "${g.name}", "players": ["a", "b"]}`),
+    api("this board", `GET ${ROOT}/api/leaderboard?game=${g.name}`),
+  );
+
+  if (g.source && g.lang !== "wasm") {
+    $("src-card").hidden = false;
+    $("src").textContent = g.source;
+  }
+  const { source, ...rest } = g;
+  $("record").textContent = JSON.stringify(rest, null, 2);
+  $("main").hidden = false;
+
+  const [board, matches] = await Promise.all([
+    call(`/leaderboard?game=${encodeURIComponent(g.id)}&limit=50`).catch(() => ({ players: [] })),
+    call(`/matches?game=${encodeURIComponent(g.id)}&limit=20`).catch(() => ({ matches: [] })),
+  ]);
+  const rows = board.players || [];
+  const elos = rows.map((p) => p.elo);
+  const lo = Math.min(...elos), hi = Math.max(...elos), span = hi - lo || 1;
+  $("board").replaceChildren(...(rows.length ? rows.map((p, i) => el("tr", {}, [
+    td({ className: `n rk${i < 3 ? " top" : ""}` }, String(i + 1)),
+    td({}, [agentLink(p), el("div", { className: "bar" },
+      el("i", { style: `width:${(((p.elo - lo) / span) * 0.9 + 0.1) * 100}%` }))]),
+    td({ className: "dim" }, p.kind || ""),
+    td({ className: "n" }, el("strong", { textContent: String(p.elo) })),
+    td({ className: "n" }, String(p.matches)),
+    td({ className: "n" }, wdl(p)),
+    td({ className: "n" }, String(p.avg_score ?? "")),
+  ])) : [el("tr", {}, td({ className: "dim", colSpan: 7 }, "nobody has played this game yet"))]));
+
+  $("matches").replaceChildren(...((matches.matches || []).length ? matches.matches.map((m) => {
+    const seats = m.seats || [];
+    const best = Math.max(...seats.map((s) => s.score));
+    const winners = seats.filter((s) => s.score === best);
+    return el("tr", {}, [
+      td({ className: "dim", style: "white-space:nowrap" }, when(m.created)),
+      td({}, seats.flatMap((s, i) => [i ? " vs " : "", el("span", { textContent: s.player_name })])),
+      td({ className: "n" }, seats.map((s) => s.score).join(" : ")),
+      td({ className: "dim" }, seats.length <= 1 ? "—" : winners.length === seats.length ? "draw" : `${winners.map((s) => s.player_name).join(", ")} won`),
+    ]);
+  }) : [el("tr", {}, td({ className: "dim", colSpan: 4 }, "no matches on record"))]));
+}
+
+load().catch(fail);
+</script>
+</body>
+</html>

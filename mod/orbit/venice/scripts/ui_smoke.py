@@ -39,24 +39,28 @@ with sync_playwright() as p:
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
 
     page.goto(APP, wait_until="networkidle")
-    # Authenticated UI shows the Access panel once /me resolves.
+    # Identity and billing live in the top-right account menu, not the sidebar —
+    # the Access panel only exists once that menu is open.
+    page.wait_for_selector(".acct-btn", timeout=20000)
+    page.click(".acct-btn")
     page.wait_for_selector("text=Access", timeout=20000)
-    print("✓ authenticated UI rendered (Access panel)")
+    print("✓ authenticated UI rendered (account menu → Access panel)")
 
     # Model picker populated with tool-capable models.
     page.wait_for_function("document.querySelectorAll('select option').length > 1", timeout=20000)
     n_models = page.eval_on_selector_all("select option", "els => els.length")
     print(f"✓ orchestrator model picker populated: {n_models} models")
 
-    # Save a BYOK key (sidebar Access section).
+    # Save a BYOK key (account menu → Access section).
     keybox = page.query_selector("input[type=password]")
     if keybox:
         keybox.fill(KEY)
         page.click(".key-form >> text=Save")
-        page.wait_for_selector("text=your key (BYOK)", timeout=15000)
-        print("✓ BYOK key saved (sidebar shows 'your key (BYOK)')")
+        page.wait_for_selector(".pill.ok >> text=your key", timeout=15000)
+        print("✓ BYOK key saved (Access shows 'your key')")
     else:
         print("• key already on file, skipping save")
+    page.keyboard.press("Escape")  # close the menu; it covers the composer
 
     # Send a chat turn and watch the SSE land in the thread.
     page.fill("textarea", "Generate an image of a small red circle on white." if REAL else "say hi")

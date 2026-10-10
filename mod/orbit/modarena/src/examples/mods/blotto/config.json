@@ -1,0 +1,17 @@
+{
+  "name": "blotto",
+  "kind": "game",
+  "lang": "python",
+  "anchor": "mod.py",
+  "description": "Colonel Blotto \u2014 both seats allocate at once and neither sees the other first. The simultaneous, hidden-information case of the class ABI.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "game",
+    "class",
+    "python",
+    "simultaneous"
+  ],
+  "protocol": "modarena/1.0",
+  "players": 2
+}

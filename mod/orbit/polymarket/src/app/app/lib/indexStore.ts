@@ -90,6 +90,22 @@ export function saveIndex(index: SavedIndex): void {
   setItemSafe(STORAGE_KEY, JSON.stringify(all));
 }
 
+/** Write a strat under its own id, replacing any existing entry.
+ *
+ *  The copy desk's rows are SERVER state (`/copy/book`); this store is only a
+ *  local cache so the workspace's backtest, chart and live panels — all of
+ *  which read a `SavedIndex` — have something to read. So the identity strat
+ *  materialized from a book row must OVERWRITE its previous copy on every
+ *  load: `saveIndex` appends, which would grow a duplicate per visit and let
+ *  a stale allocation win the `find` in `loadIndexes`. Local edits to a row's
+ *  params are pushed to `/copy/allocations` and come back on the next read;
+ *  the server is the source of truth, this is the mirror. */
+export function upsertIndex(index: SavedIndex): void {
+  const all = loadIndexes().filter((i) => i.id !== index.id);
+  all.push(index);
+  setItemSafe(STORAGE_KEY, JSON.stringify(all));
+}
+
 export function deleteIndex(id: string): void {
   const all = loadIndexes().filter((idx) => idx.id !== id);
   setItemSafe(STORAGE_KEY, JSON.stringify(all));
@@ -137,7 +153,7 @@ export function forkIndex(id: string, name?: string): SavedIndex | null {
     // is a per-strat act, so a fork of a public strat starts private and
     // unattributed until its new owner publishes it themselves.
     lastPnl: _p, lastPnlAfterCosts: _pc, lastRoi1k: _r,
-    lastTradeCount: _tc, lastBacktestAt: _ba,
+    lastTradeCount: _tc, lastBacktestAt: _ba, lastBacktestDays: _bd,
     visibility: _v, owner: _o,
     ...strategy
   } = source;

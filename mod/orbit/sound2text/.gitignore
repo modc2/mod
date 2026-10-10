@@ -1,0 +1,3 @@
+samples/sparse-45pct-speech.wav
+__pycache__/
+.pytest_cache/

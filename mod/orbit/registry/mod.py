@@ -198,7 +198,8 @@ class Mod:
         """Default action: register a mod, or list all if no args."""
         if name and data:
             return self.register(name, data, backend=backend, storage=storage, headers=headers, **kw)
-        return self.list_all(backend=backend, **kw)
+        owner = kw.pop('owner', None)
+        return self.list(owner=owner, backend=backend, **kw)
 
     def register(self, name: str, data, backend=None, storage=None, headers=None, **kw) -> str:
         """Register a new mod. Data must be a JSON dict — uploaded to storage provider.
@@ -287,13 +288,19 @@ class Mod:
 
         synced = []
         for mod in mods:
-            if not dst.is_name_taken(mod.get('owner', owner or 'local'), mod['name']):
+            mod_owner = mod.get('owner', owner or 'local')
+            if not dst.is_name_taken(mod_owner, mod['name']):
                 new_id = dst.register(
                     mod['name'],
                     mod['data'],
                     owner=mod.get('owner', owner),
                 )
-                synced.append({'source_id': mod.get('id'), 'target_id': new_id, 'name': mod['name']})
+                synced.append({'source_id': mod.get('id'), 'target_id': new_id, 'name': mod['name'], 'action': 'added'})
+            else:
+                existing = dst.get_by_name(mod_owner, mod['name'])
+                if existing and existing.get('data') != mod.get('data'):
+                    dst.update(existing['id'], mod['data'], owner=mod_owner)
+                    synced.append({'source_id': mod.get('id'), 'target_id': existing['id'], 'name': mod['name'], 'action': 'updated'})
         return synced
 
     # ── Mods directory (local module registry) ─────────────────────────────
@@ -381,8 +388,15 @@ class Mod:
             'n_mods': info['n_mods'],
         }, storage=storage)
 
-        # register as _mods_root in the backend
-        mod_id = self._get_backend(backend).register('_mods_root', data_uri, **kw)
+        # register as _mods_root in the backend (upsert: update if already exists)
+        _backend = self._get_backend(backend)
+        owner = kw.get('owner', 'local')
+        existing = _backend.get_by_name(owner, '_mods_root')
+        if existing:
+            _backend.update(existing['id'], data_uri, owner=owner)
+            mod_id = str(existing['id'])
+        else:
+            mod_id = _backend.register('_mods_root', data_uri, **kw)
 
         return {
             'root': info['root'],
@@ -403,7 +417,7 @@ class Mod:
         current = self.root_hash()
         if expected_root is None:
             # fetch latest committed root from backend
-            committed = self.get('_mods_root', **kw)
+            committed = self._get_backend(kw.get('backend')).get_by_name(kw.get('owner', 'local'), '_mods_root')
             if not committed:
                 return {'valid': False, 'error': 'no committed root found', 'current_root': current['root']}
             resolved = self.resolve(committed['data'])
@@ -414,7 +428,7 @@ class Mod:
         if not valid and expected_root:
             # attempt to resolve committed tree for diff
             try:
-                committed = self.get('_mods_root', **kw)
+                committed = self._get_backend(kw.get('backend')).get_by_name(kw.get('owner', 'local'), '_mods_root')
                 resolved = self.resolve(committed['data'])
                 committed_tree = resolved.get('tree', {})
                 all_files = set(current['tree'].keys()) | set(committed_tree.keys())
@@ -504,17 +518,15 @@ class Mod:
         with open(index_path) as f:
             index_data = json.load(f)
 
-        # Lazy import — keeps registry importable when localfs/multistore
-        # aren't on disk yet (fresh checkout, partial install).
-        from mod.core.mod import m as _m  # noqa: WPS433
+        import mod as m
         results = {}
         for backend in backends:
             try:
                 if backend == 'localfs':
-                    fs = _m.mod('localfs')()
+                    fs = m.mod('localfs')()
                     results[backend] = {'cid': fs.put(index_data)}
                 elif backend == 'multistore':
-                    ms = _m.mod('multistore')()
+                    ms = m.mod('multistore')()
                     results[backend] = {'cid': ms.put(index_data)}
                 else:
                     results[backend] = {'error': f'unknown backend: {backend}'}

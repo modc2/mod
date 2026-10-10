@@ -19,6 +19,13 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from pathlib import Path
+
+
+class Web3Encoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, bytes):
+            return o.hex()
+        return super().default(o)
 # Import Chain Mod class
 class Scrape(m.mod('chain')):
     """Event Scraper that inherits from Chain Mod.
@@ -53,10 +60,12 @@ class Scrape(m.mod('chain')):
         m.print(f'Scraper initialized for {network}', color='green')
 
     def _get_cache_key(self, contract_name: str, event_name: str,
-                      from_block: int, to_block: int, filters: Dict = None) -> str:
+                      from_block: int, to_block: int, filters: Dict = None,
+                      process_fn=None) -> str:
         """Generate cache key for event scraping."""
         filter_str = json.dumps(filters, sort_keys=True) if filters else 'none'
-        return f"{contract_name}_{event_name}_{from_block}_{to_block}_{filter_str}"
+        fn_str = process_fn.__name__ if process_fn is not None else 'none'
+        return f"{contract_name}_{event_name}_{from_block}_{to_block}_{filter_str}_{fn_str}"
 
     def _load_from_cache(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
         """Load events from cache if available."""
@@ -82,7 +91,7 @@ class Scrape(m.mod('chain')):
         cache_file = self.cache_dir / f"{cache_key}.json"
         try:
             with open(cache_file, 'w') as f:
-                json.dump(events, f)
+                json.dump(events, f, cls=Web3Encoder)
             m.print(f'Cached {len(events)} events', color='cyan')
         except Exception as e:
             m.print(f'Cache write error: {e}', color='yellow')
@@ -177,10 +186,12 @@ class Scrape(m.mod('chain')):
 
         # Check cache first
         if use_cache:
-            cache_key = self._get_cache_key(contract_name, event_name, from_block, to_block, filters)
+            cache_key = self._get_cache_key(contract_name, event_name, from_block, to_block, filters, process_fn)
             cached_events = self._load_from_cache(cache_key)
             if cached_events is not None:
                 return cached_events
+
+        original_from_block = from_block
 
         # Load checkpoint if exists
         if checkpoint_file:
@@ -247,7 +258,7 @@ class Scrape(m.mod('chain')):
                         # Retry with smaller batch size
                         if batch_size > 1000:
                             m.print('Retrying with smaller batch size...', color='yellow')
-                            return self.scrape_events(
+                            return all_events + self.scrape_events(
                                 contract_name,
                                 event_name,
                                 current_block,
@@ -257,13 +268,13 @@ class Scrape(m.mod('chain')):
                                 filters=filters,
                                 process_fn=process_fn,
                                 use_cache=use_cache,
-                                checkpoint_file=checkpoint_file
+                                checkpoint_file=None
                             )
                         raise
 
             # Save checkpoint
             if checkpoint_file:
-                self._save_checkpoint(checkpoint_file, current_block, all_events)
+                self._save_checkpoint(checkpoint_file, batch_end + 1, all_events)
 
             current_block = batch_end + 1
             batches_completed += 1
@@ -272,7 +283,7 @@ class Scrape(m.mod('chain')):
 
         # Save to cache
         if use_cache:
-            cache_key = self._get_cache_key(contract_name, event_name, from_block, to_block, filters)
+            cache_key = self._get_cache_key(contract_name, event_name, original_from_block, to_block, filters, process_fn)
             self._save_to_cache(cache_key, all_events)
 
         # Clean up checkpoint
@@ -287,7 +298,7 @@ class Scrape(m.mod('chain')):
                         to_address: str = None,
                         from_block: int = 0,
                         to_block: int = None,
-                        days: int = 1) -> List[Dict[str, Any]]:
+                        weeks: int = 2) -> List[Dict[str, Any]]:
         """Scrape Transfer events for a token.
 
         Args:
@@ -682,7 +693,7 @@ class Scrape(m.mod('chain')):
         checkpoint_path = Path(checkpoint_file)
         try:
             with open(checkpoint_path, 'w') as f:
-                json.dump({'last_block': last_block, 'events': events}, f)
+                json.dump({'last_block': last_block, 'events': events}, f, cls=Web3Encoder)
         except Exception as e:
             m.print(f'Checkpoint write error: {e}', color='yellow')
 
@@ -715,7 +726,7 @@ class Scrape(m.mod('chain')):
 
         if not parallel:
             for i, config in enumerate(scrape_configs):
-                key = f"{config['contract_name']}_{config['event_name']}"
+                key = f"{config['contract_name']}_{config['event_name']}_{i}"
                 m.print(f'Scraping {i+1}/{len(scrape_configs)}: {key}', color='cyan')
                 results[key] = self.scrape_events(**config)
             return results
@@ -725,9 +736,9 @@ class Scrape(m.mod('chain')):
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_config = {}
-            for config in scrape_configs:
+            for i, config in enumerate(scrape_configs):
                 future = executor.submit(self.scrape_events, **config)
-                key = f"{config['contract_name']}_{config['event_name']}"
+                key = f"{config['contract_name']}_{config['event_name']}_{i}"
                 future_to_config[future] = key
 
             for future in as_completed(future_to_config):
@@ -749,7 +760,8 @@ class Scrape(m.mod('chain')):
                              weeks: int = 2,
                              batch_size: int = None,
                              filters: Dict[str, Any] = None,
-                             process_fn: callable = None) -> List[Dict[str, Any]]:
+                             process_fn: callable = None,
+                             use_cache: bool = True) -> List[Dict[str, Any]]:
         """Scrape events with parallel batch processing.
 
         Args:
@@ -769,6 +781,15 @@ class Scrape(m.mod('chain')):
             blocks_in_period = seconds_in_period // self.block_time
             from_block = max(0, to_block - blocks_in_period)
 
+        # Check cache first
+        if use_cache:
+            cache_key = self._get_cache_key(contract_name, event_name, from_block, to_block, filters, process_fn)
+            cached_events = self._load_from_cache(cache_key)
+            if cached_events is not None:
+                return cached_events
+
+        original_from_block = from_block
+
         total_blocks = to_block - from_block
         m.print(f'Parallel scraping {event_name} from {contract_name}', color='cyan')
         m.print(f'Block range: {from_block:,} to {to_block:,} ({total_blocks:,} blocks)', color='cyan')
@@ -785,29 +806,37 @@ class Scrape(m.mod('chain')):
 
         def scrape_batch(start, end):
             """Helper to scrape a single batch."""
-            try:
-                event_filter = self.get_event_filter(
-                    contract_name,
-                    event_name,
-                    start,
-                    end,
-                    filters
-                )
-                events = event_filter.get_all_entries()
+            last_exc = None
+            for attempt in range(self.max_retries):
+                try:
+                    event_filter = self.get_event_filter(
+                        contract_name,
+                        event_name,
+                        start,
+                        end,
+                        filters
+                    )
+                    events = event_filter.get_all_entries()
 
-                if process_fn:
-                    events = [process_fn(e) for e in events]
+                    if process_fn:
+                        events = [process_fn(e) for e in events]
 
-                if self.rate_limit > 0:
-                    time.sleep(self.rate_limit)
+                    if self.rate_limit > 0:
+                        time.sleep(self.rate_limit)
 
-                return events
-            except Exception as e:
-                m.print(f'Error in batch {start}-{end}: {e}', color='red')
-                return []
+                    return events
+                except Exception as e:
+                    last_exc = e
+                    if attempt + 1 < self.max_retries:
+                        delay = self.retry_delay * (2 ** (attempt + 1))
+                        m.print(f'Batch {start}-{end} error: {e}. Retrying in {delay:.1f}s... (attempt {attempt + 1}/{self.max_retries})', color='yellow')
+                        time.sleep(delay)
+            raise last_exc
 
         # Process batches in parallel
         all_events = []
+        failed_ranges = []
+        batch_results = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_batch = {
                 executor.submit(scrape_batch, start, end): (start, end)
@@ -817,13 +846,30 @@ class Scrape(m.mod('chain')):
             completed = 0
             for future in as_completed(future_to_batch):
                 start, end = future_to_batch[future]
-                events = future.result()
-                all_events.extend(events)
-                completed += 1
-                progress = (completed / len(batches)) * 100
-                m.print(f'[{progress:.1f}%] Batch {start:,}-{end:,}: {len(events)} events', color='green')
+                try:
+                    events = future.result()
+                    batch_results[(start, end)] = events
+                    completed += 1
+                    progress = (completed / len(batches)) * 100
+                    m.print(f'[{progress:.1f}%] Batch {start:,}-{end:,}: {len(events)} events', color='green')
+                except Exception as e:
+                    failed_ranges.append((start, end))
+                    m.print(f'Error in batch {start}-{end}: {e}', color='red')
+
+        for key in sorted(batch_results):
+            all_events.extend(batch_results[key])
+
+        if failed_ranges:
+            ranges_str = ', '.join(f'{s}-{e}' for s, e in failed_ranges)
+            raise RuntimeError(f'Scrape incomplete — {len(failed_ranges)} batches failed: {ranges_str}')
 
         m.print(f'Total events found: {len(all_events):,}', color='green')
+
+        # Save to cache
+        if use_cache:
+            cache_key = self._get_cache_key(contract_name, event_name, original_from_block, to_block, filters, process_fn)
+            self._save_to_cache(cache_key, all_events)
+
         return all_events
 
     def export_events(self,
@@ -841,7 +887,8 @@ class Scrape(m.mod('chain')):
             Path to exported file
         """
         if format == 'json':
-            m.save(filename, events)
+            with open(filename, 'w') as f:
+                json.dump(events, f, cls=Web3Encoder, indent=2)
             m.print(f'Exported {len(events):,} events to {filename}', color='green')
             return filename
 
@@ -852,11 +899,15 @@ class Scrape(m.mod('chain')):
                 m.print('No events to export', color='yellow')
                 return None
 
-            keys = events[0].keys()
+            keys = dict.fromkeys(k for e in events for k in e.keys())
+            normalized = [
+                {k: ('0x' + v.hex()) if isinstance(v, bytes) else v for k, v in e.items()}
+                for e in events
+            ]
             with open(filename, 'w', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=keys)
                 writer.writeheader()
-                writer.writerows(events)
+                writer.writerows(normalized)
 
             m.print(f'Exported {len(events):,} events to {filename}', color='green')
             return filename

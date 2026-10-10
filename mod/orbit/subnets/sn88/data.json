@@ -1,0 +1,157 @@
+{
+  "netuid": 88,
+  "name": "Investing",
+  "symbol": "ᛉ",
+  "owner": "5FhMsGJS7WYdwBzcgsTWxEtY7UCYLZdmBVLcNPmCxr3ppiKS",
+  "description": "Decentralized AUM",
+  "github": "https://github.com/mobiusfund/investing",
+  "url": "https://Investing88.ai",
+  "discord": null,
+  "logo": "https://Investing88.ai/logo.png",
+  "registered_at": 5299805,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.002833803,
+    "moving_price": 0.0028318457771092653,
+    "market_cap": 15377.09258162616,
+    "tao_in": 5974.772597204,
+    "alpha_in": 2108393.838919475,
+    "alpha_out": 3317915.816912691,
+    "volume": 729692.834709493,
+    "vol_24h": 483.55656183999963,
+    "emission": 0.0,
+    "change_1h": 0.004517102349432811,
+    "change_24h": 0.676791178479963,
+    "change_7d": 0.7825953357958326
+  },
+  "spark_24h": [
+    0.002814753,
+    0.002815613,
+    0.002815802,
+    0.0028158,
+    0.002814877,
+    0.00281553,
+    0.00281553,
+    0.002815529,
+    0.002815529,
+    0.002815523,
+    0.002815517,
+    0.002815526,
+    0.002815514,
+    0.002815534,
+    0.002815413,
+    0.002815398,
+    0.00281539,
+    0.00281539,
+    0.00286897,
+    0.002873762,
+    0.002864348,
+    0.002840666,
+    0.002833818,
+    0.002833818,
+    0.002833814,
+    0.002833811,
+    0.002833688,
+    0.002833688,
+    0.002833684,
+    0.002843168,
+    0.002843162,
+    0.00284316,
+    0.002839359,
+    0.002840575,
+    0.002840563,
+    0.00283886,
+    0.00283887,
+    0.002838871,
+    0.002838871,
+    0.002838494,
+    0.002838494,
+    0.002843238,
+    0.002833708,
+    0.002833682,
+    0.002833682,
+    0.002833682,
+    0.002833675,
+    0.002833803
+  ],
+  "trades_24h": {
+    "trades": 68,
+    "buys": 32,
+    "sells": 36,
+    "buy_tao": 251.805533681,
+    "sell_tao": 231.261971866,
+    "net_tao": 20.543561814999975,
+    "traders": 44
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CMQrBAide6AnD6vcU9rp7PdmyZr9hHgkeUoNNAoG8VcuHG2",
+      "net_tao": -0.28972276700000066,
+      "gross_tao": 80.289722767,
+      "trades": 2
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": 0.13629878200000078,
+      "gross_tao": 79.863701218,
+      "trades": 5
+    },
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": -0.054930289999999715,
+      "gross_tao": 60.05493029,
+      "trades": 4
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 0.13271518799999882,
+      "gross_tao": 49.867284812,
+      "trades": 4
+    },
+    {
+      "coldkey": "5HVZzrYNvcjtapJNR9teCY9oHEHy4EvgKaVR2EHCV6ByQ9ay",
+      "net_tao": 4.707144767999999,
+      "gross_tao": 35.292855232,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790280518,
+      "kind": "commit",
+      "source": "github",
+      "title": "Incentivized conviction",
+      "url": "https://github.com/mobiusfund/investing/commit/4859a5869fb63bcb986d85bbf6faabb0386cb244",
+      "publisher": "mobiusfund/investing"
+    },
+    {
+      "ts": 1790279354,
+      "kind": "commit",
+      "source": "github",
+      "title": "Misc updates",
+      "url": "https://github.com/mobiusfund/investing/commit/86d63188bb20c1cd2b5671b0b4b90881273407d2",
+      "publisher": "mobiusfund/investing"
+    },
+    {
+      "ts": 1789455600,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Form 8K Grayscale Bittensor Trust (TAO) For: 15 September By Investing.com",
+      "url": "https://news.google.com/rss/articles/CBMitgFBVV95cUxOeU51dFlBV1RNcEJZV2loYW1EMnFBUWVFSVlLcFVnc1I1bExEN0UtOVpsRHlvMDdVeEYzYTBWN1dHUkgzbmhSMVhmczNOOFZ5UTdiblgwZ1dOQlFxMUl3cl9jWHM0VWZSZWREVGJCejhxcTl4R1BnU2dSU0QwSXoySEs2bGFkN0dIbzZiRHhYXzllU2hGZW05bWNfaXFoc2lsSF9CTksxRWsyRTdHUkp5MEltU0prdw?oc=5",
+      "publisher": "Investing.com UK"
+    },
+    {
+      "ts": 1789455600,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Grayscale Bittensor Trust reports private sale of 148,800 shares to investors By Investing.com",
+      "url": "https://news.google.com/rss/articles/CBMizAFBVV95cUxNTnBSb0tGVUhGbk43MW5UWjVUeUNaRnIwc3c0S0cxSmVnekhocGZQSm9zUm1aU2pJQkVmTHhNR3R6R28wTEtrNzJISGh4X2dhcXl6MThJTUZtTVllUzZwZ3lnNWhrd1VhaXMwWmRvc0ROTTVOYUZCV0ZLSUx4WUJ2Z0tJQndHTE1nMm43N3hBdUl1bzBUMDNhT3FSTldFc1NldEVfdmpSSnBWSHAzTkJ0bTkyMTFUaF9ZbVVTM3dzbWNmU1lQeGNIdkdaVWg?oc=5",
+      "publisher": "Investing.com"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

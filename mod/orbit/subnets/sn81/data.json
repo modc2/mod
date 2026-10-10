@@ -1,0 +1,189 @@
+{
+  "netuid": 81,
+  "name": "Reliquary",
+  "symbol": "ᚠ",
+  "owner": "5GnpQR4Nt3f5AQqBXuhf7GkkaEHhAVQrVk4EsK4daZDmkAQT",
+  "description": "The RL layer of Bittensor",
+  "github": "https://github.com/reliquadotai/reliquary",
+  "url": "https://www.reliqua.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1493247592551678012",
+  "logo": "https://www.reliqua.ai/reliquary-logo.png",
+  "registered_at": 5203057,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.005607196,
+    "moving_price": 0.0056932691950351,
+    "market_cap": 31490.178658954108,
+    "tao_in": 17180.631061609,
+    "alpha_in": 3064032.406830937,
+    "alpha_out": 2551997.18424348,
+    "volume": 953269.529922392,
+    "vol_24h": 499.1409664989915,
+    "emission": 0.0,
+    "change_1h": -0.013177756161575349,
+    "change_24h": -3.7592978364535123,
+    "change_7d": -7.112972652046457
+  },
+  "spark_24h": [
+    0.005826221,
+    0.005852594,
+    0.005852594,
+    0.005852591,
+    0.005852122,
+    0.005851914,
+    0.00585063,
+    0.005850619,
+    0.005850619,
+    0.005842603,
+    0.005842604,
+    0.005842599,
+    0.005842346,
+    0.005843074,
+    0.005842889,
+    0.005842867,
+    0.005842841,
+    0.005842741,
+    0.00584274,
+    0.005734153,
+    0.005698407,
+    0.005660121,
+    0.00566011,
+    0.005659476,
+    0.005643275,
+    0.005639464,
+    0.005639462,
+    0.005639462,
+    0.005639456,
+    0.005639448,
+    0.005639439,
+    0.005639437,
+    0.005639437,
+    0.005639072,
+    0.005639544,
+    0.005638866,
+    0.005638866,
+    0.00563892,
+    0.00563892,
+    0.005638741,
+    0.005638741,
+    0.005638331,
+    0.005638323,
+    0.005638283,
+    0.005607947,
+    0.005607946,
+    0.005607935,
+    0.005607196
+  ],
+  "trades_24h": {
+    "trades": 51,
+    "buys": 7,
+    "sells": 44,
+    "buy_tao": 83.419629679,
+    "sell_tao": 414.920015933,
+    "net_tao": -331.500386254,
+    "traders": 32
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": -148.720265637,
+      "gross_tao": 148.720265637,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HZ8FdvYgfWNnfFXc6t36iXiJEMVCgFBZEbVrrT6vq5kjsxd",
+      "net_tao": -58.251075093,
+      "gross_tao": 58.251075093,
+      "trades": 1
+    },
+    {
+      "coldkey": "5EuxqP2Jx9moa2aGCNijvkyNgY6WHU9onYbt6rYVB9X1FPrN",
+      "net_tao": -54.80053041,
+      "gross_tao": 54.80053041,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CJzqiHM8PHuSnvq3RDRsi4DMwG6R2md4QufqbVt1nSTH1dy",
+      "net_tao": 0.30148371800000007,
+      "gross_tao": 49.698516282,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HDpm7Ey53FMpPJRRgLrCK8gZpFBs4QUYxPQgJ3sYSzwu5aq",
+      "net_tao": -42.647554037,
+      "gross_tao": 42.647554037,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791563154,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #345 from reliquadotai/feat/register-reliquary-com…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/2701f005d269db9351484dcbc88580d4a84006bb",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1791536658,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(env): register reliquary-competitive-code as an SFT-only corpus …",
+      "url": "https://github.com/reliquadotai/reliquary/commit/75bff4c668f609979ee3e1a41a8d6725f45da2bc",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1791536653,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(env): score reliquary/stdio-program/v1 sources in the sandbox",
+      "url": "https://github.com/reliquadotai/reliquary/commit/0a76dc42e2bf084944ca23395327ded8982d4f1f",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1791536611,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(grader): run a whole stdin program in the sandbox (stdio mode)",
+      "url": "https://github.com/reliquadotai/reliquary/commit/7742b187851470c9a3b31f11ba00a21f1645e447",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1791523309,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #344 from reliquadotai/fix/expired-leases-revoke-n…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/458c6a690a0c27340bb406ee59e44da4cae0cf02",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1791516620,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(executors): expired leases bench an executor, never quarantine it",
+      "url": "https://github.com/reliquadotai/reliquary/commit/8df9d2cc447778e88287cab5e2fe367e216b9e03",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1791514282,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #342 from reliquadotai/fix/task-catalog-artifact-r…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/3d45493915cfdd87124e4dfc9ef7208d906703d3",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1791512556,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #341 from reliquadotai/feat/corpus-period-only-aut…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/c356b073a087a07ef98c5a52f4eb0c3b439ae7f2",
+      "publisher": "reliquadotai/reliquary"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

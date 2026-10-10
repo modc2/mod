@@ -1,0 +1,18 @@
+/* traders page — index builder on the leaderboard + the INDEXES tab.
+ * Shared primitives (tables, pills, .split, .sn-cell) live in sleek.css;
+ * only what the trader-index feature adds belongs here. */
+
+.ixbar {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  margin-top: 12px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--raise);
+  font-size: 13px; color: var(--ink2);
+}
+.ixbar input { max-width: 240px; }
+
+.ixpick { width: 30px; cursor: pointer; }
+.ixpick input { accent-color: var(--accent); cursor: pointer; margin: 0; }
+
+.ixcell { padding: 0 10px 18px !important; }
+.ixdetail { padding-top: 6px; }
+.ixdetail table { margin-top: 4px; }

@@ -1,0 +1,189 @@
+{
+  "netuid": 11,
+  "name": "TrajectoryRL",
+  "symbol": "λ",
+  "owner": "5D2Jhtbnm7iAdKfjRk6DisXBnr1MEsYat8kXqaPNrVqJP3uE",
+  "description": "Agentic RL as a Service, Optimize agent trajectories to make agents cheaper, safer, and more reliable.",
+  "github": "https://github.com/trajectoryRL/trajectoryRL",
+  "url": "https://trajrl.com",
+  "discord": null,
+  "logo": "https://pbs.twimg.com/profile_images/2018928039716089856/2PZ-Bhm2_400x400.jpg",
+  "registered_at": 2918568,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.007609093,
+    "moving_price": 0.007612345041707158,
+    "market_cap": 46512.23388597095,
+    "tao_in": 20179.927501594,
+    "alpha_in": 2652080.340194789,
+    "alpha_out": 3460636.889831306,
+    "volume": 1021221.302139969,
+    "vol_24h": 119.5753725109389,
+    "emission": 0.0,
+    "change_1h": 0.07946809774128649,
+    "change_24h": -0.416064423959317,
+    "change_7d": -0.946135742360521
+  },
+  "spark_24h": [
+    0.007640884,
+    0.007641241,
+    0.007641397,
+    0.007641523,
+    0.007641184,
+    0.007641296,
+    0.007643179,
+    0.007654646,
+    0.007654833,
+    0.007655837,
+    0.007656008,
+    0.007644809,
+    0.007607756,
+    0.007607943,
+    0.007607884,
+    0.007608013,
+    0.007608106,
+    0.007608261,
+    0.00760839,
+    0.007608546,
+    0.00760867,
+    0.007608824,
+    0.007608941,
+    0.007609115,
+    0.007609364,
+    0.007609504,
+    0.007609516,
+    0.007609646,
+    0.007610148,
+    0.007610267,
+    0.007610404,
+    0.007609783,
+    0.007609938,
+    0.007610132,
+    0.00761029,
+    0.00760902,
+    0.007609177,
+    0.007609372,
+    0.007609502,
+    0.007609654,
+    0.007609775,
+    0.007610442,
+    0.007610505,
+    0.007610609,
+    0.007610739,
+    0.00760236,
+    0.007603051,
+    0.007609093
+  ],
+  "trades_24h": {
+    "trades": 34,
+    "buys": 20,
+    "sells": 14,
+    "buy_tao": 29.191162905,
+    "sell_tao": 80.129439839,
+    "net_tao": -50.938276934,
+    "traders": 19
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GjBouDTGpwFKsoCTjEhGVvLb8RQv91KmydopE2RxeUs5jha",
+      "net_tao": -50.001877983,
+      "gross_tao": 50.001877983,
+      "trades": 1
+    },
+    {
+      "coldkey": "5G6jGr3m4a8j88ZF5mB3Uu1XnP7mVofzCRzAwXJsjQZaq8Pw",
+      "net_tao": 0.010277832999999958,
+      "gross_tao": 29.989722167,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Dff1qDFTTW9E1E9zEFXWrs6FMY19zp7UrKAM1Jdahps42xe",
+      "net_tao": -11.312087559,
+      "gross_tao": 11.312087559,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HmCuzedx7q1gFLwNQofDC4D2m62SKMuxXTZKvzy1PKRzgTu",
+      "net_tao": 7.640196694,
+      "gross_tao": 7.640196694,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CqkBgWEdWH4SGtbyDvsisCrfLmuxzeNSuVTJC3oNVubhGuH",
+      "net_tao": 2.685122424,
+      "gross_tao": 2.685122424,
+      "trades": 7
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791099703,
+      "kind": "commit",
+      "source": "github",
+      "title": "[coding-agent] meter: record and log the Engy request id for every ca…",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/e1399fd984569380413dd938fa971b25022a7eac",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1791056694,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.7.4",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/releases/tag/v0.7.4",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1791055650,
+      "kind": "commit",
+      "source": "github",
+      "title": "[coding-agent] chore(release): bump version to 0.7.4 (SPEC 27: $0.30 …",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/e6eb944eca3297b8d80101f173a226fdb4999437",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1791054559,
+      "kind": "commit",
+      "source": "github",
+      "title": "[coding-agent] make the episode cap a spec-specific setting (SpecConf…",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/c2f32fb838b1c0f552de28ac459378d534884f7b",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1791053867,
+      "kind": "commit",
+      "source": "github",
+      "title": "[coding-agent] SPEC 27: lower per-episode safety cap from $0.60 to $0…",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/a598d725059d3b6a737623d03807de3c33060724",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1791053749,
+      "kind": "commit",
+      "source": "github",
+      "title": "[coding-agent] validator: weight-only by default, eval behind EVAL_EN…",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/2f32a51b8e3ba0a77bbde2298a0de86fa00883dc",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1791050283,
+      "kind": "commit",
+      "source": "github",
+      "title": "Reduce per-episode safety cap from $1.00 to $0.60 (#334)",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/ccc54047bfa595b0319c3633ac0af7a00818d4e8",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1789972772,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.7.3",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/releases/tag/v0.7.3",
+      "publisher": "trajectoryRL/trajectoryRL"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

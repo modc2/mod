@@ -10,20 +10,30 @@
 // add up: each runs its own engine, so each holds only its own slice.
 
 import { useEffect, useRef, useState } from "react";
+import { getAccessToken, getOwnerAddress } from "./access";
 import { fetchPositions } from "./polymarket";
 import { useAuth } from "../context/AuthContext";
 import { fetchLiveSessions, runningStrategyIds, type SessionStratLedger } from "./liveSessions";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "/polymarket/api";
 
 export interface StratMoney {
+  /** USDC committed to this strat — its session's `capital` allocation.
+      This is "how much of my money is on this strat"; `moneyIn` below is
+      the slice of it currently deployed into open positions. */
+  capital: number;
   /** Open cost basis the strat currently has deployed (USDC). */
   moneyIn: number;
   /** Those open positions marked to current prices (entry when unpriced). */
   openValue: number;
   unrealized: number;
-  /** Realized PnL from the engine's per-strat ledger (sells + redeems). */
+  /** Realized PnL from the engine's per-strat ledger (sells + redeems),
+      GROSS — before `fees`. */
   realized: number;
+  /** Polymarket taker fees this strat has paid. Real money, and the reason
+      `totalPnl` is not `realized + unrealized`: it is
+      `realized - fees + unrealized`. */
+  fees: number;
   totalPnl: number;
   /** totalPnl vs open cost basis; null when nothing is deployed. */
   pnlPct: number | null;
@@ -47,6 +57,39 @@ export interface StratStatsResult {
   /** Strat ids with a RUNNING backend engine right now. Several strats can be
       funded and live at the same time. */
   running: Set<string>;
+  /** Every engine session the wallet has, keyed by strat id — including ones
+      whose strat is NOT saved in this browser (a WHO I COPY row, a strat made
+      on another device). Lets money surfaces list every dollar, not just the
+      dollars that happen to have a local strat card. */
+  sessions: Record<string, StratSession>;
+}
+
+export interface StratSession {
+  strategyId: string;
+  running: boolean;
+  /** true = real orders; false = dry run. */
+  executing: boolean;
+  capital: number;
+  /** Lowercased leader addresses the session copies. */
+  traders: string[];
+}
+
+/** "How much of my money is on this strat": a RUNNING strat holds its whole
+    committed capital (or more, if positions grew past it); a stopped one only
+    holds whatever positions it still has open. One rule for every surface. */
+export function moneyOnStrat(m: StratMoney | undefined, running: boolean): number {
+  if (!m) return 0;
+  return running ? Math.max(m.capital, m.moneyIn) : m.moneyIn;
+}
+
+/** Display name for a session with no local strat card. `copy-<addr>` ids
+    are WHO I COPY rows (one leader each). */
+export function sessionLabel(s: StratSession): string {
+  const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+  const m = /^copy-(0x[0-9a-f]{40})$/i.exec(s.strategyId);
+  if (m) return `COPY ${short(m[1])}`;
+  if (s.traders.length === 1) return `COPY ${short(s.traders[0])}`;
+  return `strat ${s.strategyId.slice(0, 10)}${s.traders.length ? ` · ${s.traders.length}T` : ""}`;
 }
 
 const num = (v: unknown): number => {
@@ -59,13 +102,16 @@ const num = (v: unknown): number => {
     users with no engine data). */
 export function useStratStats(pollMs = 30_000): StratStatsResult {
   const { auth } = useAuth();
-  const address = auth.address;
-  const [result, setResult] = useState<StratStatsResult>({ stats: {}, cash: null, running: new Set() });
+  // The signed-in OWNER is the funded wallet on this single-owner deployment
+  // — fall back to it so the money still shows when no browser wallet is
+  // connected (header "no wallet", QR-paired phone).
+  const address = auth.address ?? getOwnerAddress();
+  const [result, setResult] = useState<StratStatsResult>({ stats: {}, cash: null, running: new Set(), sessions: {} });
   // Deposit wallet is CREATE2-stable per EOA — resolve once and reuse.
   const walletRef = useRef<{ eoa: string; wallet: string } | null>(null);
 
   useEffect(() => {
-    if (!address) { setResult({ stats: {}, cash: null, running: new Set() }); return; }
+    if (!address) { setResult({ stats: {}, cash: null, running: new Set(), sessions: {} }); return; }
     let cancelled = false;
 
     const poll = async () => {
@@ -99,6 +145,20 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
         // them is what makes the sidebar's per-strat money add up.
         const sessions = await fetchLiveSessions(address);
         const running = runningStrategyIds(sessions);
+        const meta: Record<string, StratSession> = {};
+        for (const s of sessions) {
+          const id = s.strategyId || s.config?.strategyId;
+          if (!id) continue;
+          meta[id] = {
+            strategyId: id,
+            running: s.running,
+            executing: !!s.config?.autoExecute,
+            capital: num(s.config?.capital),
+            traders: (s.config?.traders ?? [])
+              .filter((t) => t?.enabled !== false && t?.address)
+              .map((t) => t.address.toLowerCase()),
+          };
+        }
         if (cash === null) {
           const bal = sessions.map((s) => s.state?.balance).find((b) => typeof b === "number");
           if (typeof bal === "number") cash = bal;
@@ -130,8 +190,18 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
             strategyId: e.strategyId || s.strategyId || s.config?.strategyId || "",
           })),
         );
-        if (positions.length === 0 && Object.keys(ledger).length === 0) {
-          if (!cancelled) setResult({ stats: {}, cash, running });
+        // Committed capital per strat, straight from each session's config —
+        // a strat can be "invested" (money reserved for it, engine running)
+        // while holding zero open positions, and the sidebar must still be
+        // able to answer "how much of my money is on it".
+        const capital: Record<string, number> = {};
+        for (const s of sessions) {
+          const id = s.strategyId || s.config?.strategyId;
+          const c = num(s.config?.capital);
+          if (id && c > 0) capital[id] = (capital[id] ?? 0) + c;
+        }
+        if (positions.length === 0 && Object.keys(ledger).length === 0 && Object.keys(capital).length === 0) {
+          if (!cancelled) setResult({ stats: {}, cash, running, sessions: meta });
           return;
         }
 
@@ -161,7 +231,7 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
         const next: Record<string, StratMoney> = {};
         const entryFor = (id: string): StratMoney =>
           (next[id] ??= {
-            moneyIn: 0, openValue: 0, unrealized: 0, realized: 0,
+            capital: 0, moneyIn: 0, openValue: 0, unrealized: 0, realized: 0, fees: 0,
             totalPnl: 0, pnlPct: null, pnl24h: 0, roi24h: null,
             fills: 0, openPositions: 0, lastFillAt: 0,
           });
@@ -186,10 +256,12 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
             basis24h[id] = (basis24h[id] ?? 0) + cost;
           }
         }
+        for (const [id, c] of Object.entries(capital)) entryFor(id).capital = c;
         for (const [id, ledgers] of Object.entries(ledger)) {
           const s = entryFor(id);
           for (const l of ledgers) {
             s.realized += num(l.realized);
+            s.fees += num(l.fees);
             s.fills += num(l.buys) + num(l.sells) + num(l.redeems);
             s.lastFillAt = Math.max(s.lastFillAt, num(l.lastFillAt));
           }
@@ -203,12 +275,14 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
         }
         for (const [id, s] of Object.entries(next)) {
           s.unrealized = s.openValue - s.moneyIn;
-          s.totalPnl = s.realized + s.unrealized;
+          // Fees are money that left the wallet — the strat's P&L is what it
+          // won MINUS what it paid Polymarket to win it.
+          s.totalPnl = s.realized - s.fees + s.unrealized;
           s.pnlPct = s.moneyIn > 0 ? (s.totalPnl / s.moneyIn) * 100 : null;
           const b = basis24h[id] ?? 0;
           s.roi24h = b > 0 ? (s.pnl24h / b) * 100 : null;
         }
-        if (!cancelled) setResult({ stats: next, cash, running });
+        if (!cancelled) setResult({ stats: next, cash, running, sessions: meta });
       } catch { /* transient — keep last snapshot */ }
     };
 
@@ -218,6 +292,56 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
   }, [address, pollMs]);
 
   return result;
+}
+
+// ── 7-day PnL curves ────────────────────────────────────────────
+//
+// The server-side sidecar (lib/server/stratPnl.ts) samples every strat's
+// total PnL every 10 minutes into a history file precisely because nothing
+// else keeps a per-strat time axis (the engine prunes realized events at
+// 48h). This hook is the cards' read of it: stratId → cumulative points.
+
+export interface StratPnlPoint {
+  t: number;
+  pnl: number;
+}
+
+/** Per-strat 7-day PnL series from /_api/strat-pnl. Empty until the sidecar
+    has sampled (first deploy) or when the caller isn't the owner. Keyed off
+    the ACCESS token, not the wallet: the tab only mounts once the gate is
+    open, and a QR-paired phone session holds a token with no wallet at all. */
+export function useStratPnlHistory(days = 7, pollMs = 5 * 60_000): Record<string, StratPnlPoint[]> {
+  const [series, setSeries] = useState<Record<string, StratPnlPoint[]>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        // Same-origin Next route (not the Rust API): access.ts's fetch patch
+        // only stamps API-bound URLs, so attach the token explicitly.
+        const token = getAccessToken();
+        const res = await fetch(`/polymarket/_api/strat-pnl?days=${days}`, {
+          cache: "no-store",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const j = (await res.json()) as { series?: Record<string, Array<[number, number]>> };
+        if (cancelled || !j.series) return;
+        const next: Record<string, StratPnlPoint[]> = {};
+        for (const [id, pts] of Object.entries(j.series)) {
+          next[id] = pts
+            .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+            .map(([t, pnl]) => ({ t, pnl }));
+        }
+        setSeries(next);
+      } catch { /* transient — keep last */ }
+    };
+    void poll();
+    const t = setInterval(poll, pollMs);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [days, pollMs]);
+
+  return series;
 }
 
 /** Compact "$12.50 in · +$1.20" formatting shared by picker + cards. */

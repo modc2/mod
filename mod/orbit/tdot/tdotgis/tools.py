@@ -361,6 +361,19 @@ def _housing_data(role: Optional[str] = None) -> dict:
     }
 
 
+def _housing_lots(top: int = 12, min_score: int = 0,
+                  ward: Optional[str] = None) -> dict:
+    from . import lots as LO
+    out = LO.shortlist(top=int(top), min_score=int(min_score), ward=ward)
+    action: Dict[str, Any] = {'show': ['housing_lots']}
+    # One clear best lot (a ward search, or a short list) is worth flying to.
+    rows = out.get('lots') or []
+    if rows and (ward or len(rows) <= 3) and 'lng' in rows[0]:
+        action['fly_to'] = {'lng': rows[0]['lng'], 'lat': rows[0]['lat'],
+                            'zoom': 15}
+    return {**out, '__map__': action}
+
+
 def _score_model() -> dict:
     from . import score as SC
     return SC.report()
@@ -541,6 +554,21 @@ TOOLS: List[Tool] = [
          dict(role={'type': 'string',
                     'description': 'Only one role: layer, feature, table or closed'}),
          _housing_data),
+
+    Tool('tdot_housing_lots',
+         'Find city-owned lots where affordable housing could be built — '
+         'vacant land, surface parking and surplus property, scored on size, '
+         'transit and surplus status — and highlight the full lot boundaries '
+         'on the map. Use this whenever someone asks where housing could go.',
+         'Housing',
+         dict(top={'type': 'integer', 'description': 'How many lots to list',
+                   'default': 12},
+              min_score={'type': 'integer',
+                         'description': 'Only lots scoring at least this (0-100)',
+                         'default': 0},
+              ward={'type': 'string',
+                    'description': 'Only lots in wards matching this name'}),
+         _housing_lots, drives_map=True),
 
     Tool('tdot_score_model',
          'How well open data predicts a building\'s RentSafeTO inspection '

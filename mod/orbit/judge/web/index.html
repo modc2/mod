@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/judge/">
+<title>judge</title>
+<style>
+  :root { --bg:#0f0f13; --card:#17171d; --line:#26262e; --ink:#e8e8ee;
+          --dim:#9a9aa6; --ok:#4cc38a; --bad:#e5484d; --accent:#8a6ff0; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .wrap { max-width:960px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:18px; letter-spacing:.08em; }
+  h1 span { color:var(--accent); }
+  .sub { color:var(--dim); margin:-8px 0 16px; }
+  .tabs { display:flex; gap:6px; margin-bottom:16px; }
+  .tabs button { background:var(--card); color:var(--dim); border:1px solid var(--line);
+                 margin:0; padding:7px 16px; letter-spacing:.08em; }
+  .tabs button.on { color:var(--ink); border-color:var(--accent); background:var(--bg); }
+  .card { background:var(--card); border:1px solid var(--line);
+          border-radius:10px; padding:16px; margin-bottom:16px; }
+  .card h2 { margin:0 0 10px; font-size:13px; color:var(--dim);
+             text-transform:uppercase; letter-spacing:.1em; }
+  input, select, textarea, button {
+    font:inherit; color:var(--ink); background:var(--bg);
+    border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  input, select { padding:6px 10px; }
+  textarea { width:100%; min-height:80px; resize:vertical; }
+  button { cursor:pointer; background:var(--accent); border:none; color:#fff;
+           padding:8px 18px; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.ghost { background:var(--bg); border:1px solid var(--line); color:var(--dim);
+                 padding:4px 12px; }
+  button.ghost:hover { color:var(--ink); }
+  button.danger { background:var(--bg); border:1px solid var(--bad); color:var(--bad);
+                  padding:4px 12px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .verdict { font-size:16px; font-weight:700; margin:10px 0 4px; }
+  .pass { color:var(--ok); } .fail { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; margin-top:8px; }
+  th, td { text-align:left; padding:6px 8px; border-top:1px solid var(--line);
+           vertical-align:top; }
+  th { color:var(--dim); font-weight:400; border-top:none; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .dim { color:var(--dim); }
+  .pill { display:inline-block; border:1px solid var(--line); border-radius:99px;
+          padding:1px 9px; margin:2px 4px 2px 0; color:var(--dim); font-size:12px; }
+  .pill.kind-agent { border-color:#3e6f55; color:var(--ok); }
+  .pill.kind-panel { border-color:#5a4a9e; color:var(--accent); }
+  .pill.kind-rule  { border-color:#6f6340; color:#d8b85a; }
+  .jrow { border:1px solid var(--line); border-radius:8px; padding:10px;
+          margin-bottom:8px; background:var(--bg); }
+  .jrow input, .jrow select { margin:2px 4px 2px 0; }
+  .jrow input.wide { width:100%; margin-top:6px; }
+  .banner { border:1px solid var(--line); border-left:3px solid var(--accent);
+            border-radius:8px; padding:10px 12px; margin-bottom:12px; color:var(--dim); }
+  .listing { border:1px solid var(--line); border-radius:8px; padding:12px;
+             margin-bottom:10px; background:var(--bg); }
+  .msg { margin-top:8px; }
+  code { color:var(--accent); }
+  .hide { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span>JD</span> judge</h1>
+  <p class="sub">a multisig of agents — judges can be rules, LLMs, agent-protocol
+     agents, or whole other panels; the bench's average must reach the threshold</p>
+
+  <div class="tabs">
+    <button id="tab-judge" class="on">JUDGE</button>
+    <button id="tab-panels">PANELS</button>
+    <button id="tab-market">MARKET</button>
+  </div>
+
+  <!-- ── JUDGE ─────────────────────────────────────────────── -->
+  <div id="view-judge">
+    <div class="card">
+      <h2>Judge an input</h2>
+      <div class="row">
+        <label for="panel">panel</label>
+        <select id="panel"></select>
+        <span id="params" class="dim"></span>
+      </div>
+      <textarea id="input" placeholder="the thing to approve or fail"></textarea>
+      <button id="go">judge</button>
+      <div id="result"></div>
+    </div>
+    <div class="card">
+      <h2>Recent verdicts</h2>
+      <div id="verdicts" class="dim">loading…</div>
+    </div>
+  </div>
+
+  <!-- ── PANELS ────────────────────────────────────────────── -->
+  <div id="view-panels" class="hide">
+    <div id="lock" class="banner hide">
+      panel changes need this box — or its write token
+      (<code>~/.mod/judge/token</code> on the host):
+      <div class="row" style="margin-top:8px">
+        <input id="token" type="password" placeholder="paste token" style="flex:1">
+        <button id="unlock" class="ghost">unlock</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Panels</h2>
+      <div id="panels" class="dim">loading…</div>
+      <button id="new-panel" class="ghost" style="margin-top:10px">+ new panel</button>
+    </div>
+    <div class="card hide" id="editor">
+      <h2 id="editor-title">New panel</h2>
+      <div class="row">
+        <input id="e-name" placeholder="name (a-z 0-9 - _)">
+        <input id="e-creator" placeholder="creator">
+        <label>threshold <input id="e-threshold" type="number" min="0" max="100"
+          value="60" style="width:70px"></label>
+        <label>quorum <input id="e-quorum" type="number" min="1" placeholder="all"
+          style="width:60px"></label>
+      </div>
+      <div id="e-judges"></div>
+      <div class="row">
+        <select id="e-kind">
+          <option value="rule">rule — offline checks</option>
+          <option value="llm">llm — criteria prompt</option>
+          <option value="agent">agent — agent protocol</option>
+          <option value="panel">panel — another panel votes</option>
+        </select>
+        <button id="e-add" class="ghost">+ add judge</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="e-save">save panel</button>
+        <button id="e-cancel" class="ghost">cancel</button>
+      </div>
+      <div id="e-msg" class="msg"></div>
+    </div>
+  </div>
+
+  <!-- ── MARKET ────────────────────────────────────────────── -->
+  <div id="view-market">
+    <div class="card">
+      <h2>Judge market</h2>
+      <div class="row">
+        <input id="m-q" placeholder="search judges…" style="flex:1">
+        <select id="m-kind">
+          <option value="">all kinds</option>
+          <option>rule</option><option>llm</option>
+          <option>agent</option><option>panel</option>
+        </select>
+      </div>
+      <div id="listings" class="dim">loading…</div>
+    </div>
+    <div class="card">
+      <h2>Publish a judge</h2>
+      <div class="row">
+        <input id="p-name" placeholder="listing name (a-z 0-9 - _)">
+        <input id="p-author" placeholder="you (author)">
+        <select id="p-kind">
+          <option value="rule">rule</option><option value="llm">llm</option>
+          <option value="agent">agent</option><option value="panel">panel</option>
+        </select>
+      </div>
+      <input id="p-desc" placeholder="one-line description" style="width:100%;margin-bottom:6px">
+      <input id="p-tags" placeholder="tags, comma, separated" style="width:100%;margin-bottom:6px">
+      <div id="p-fields"></div>
+      <button id="p-go">publish</button>
+      <div id="p-msg" class="msg"></div>
+    </div>
+  </div>
+  <datalist id="agentlist"></datalist>
+</div>
+
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const $ = id => document.getElementById(id);
+const TK = () => localStorage.getItem('judge_token') || '';
+const ghdrs = () => TK() ? {'X-Judge-Token': TK()} : {};
+const api = p => fetch('api/' + p, {headers: ghdrs()}).then(r => r.json());
+const post = (fn, body) => fetch('api/' + fn, { method: 'POST',
+  headers: {'Content-Type': 'application/json', ...ghdrs()},
+  body: JSON.stringify(body) }).then(r => r.json());
+
+let PANELS = [], LISTINGS = [], TRUSTED = false, EDIT = null;
+
+/* ── tabs ─────────────────────────────────────────────────── */
+const VIEWS = ['judge', 'panels', 'market'];
+function show(v) {
+  VIEWS.forEach(x => {
+    $('view-' + x).classList.toggle('hide', x !== v);
+    $('tab-' + x).classList.toggle('on', x === v);
+  });
+}
+VIEWS.forEach(v => $('tab-' + v).onclick = () => show(v));
+show('judge');
+
+/* ── shared loads ─────────────────────────────────────────── */
+function kindPill(j) {
+  const w = j.weight && j.weight !== 1 ? ' ×' + j.weight : '';
+  const ref = j.kind === 'panel' ? ' → ' + esc(j.panel)
+            : j.kind === 'agent' ? ' · ' + esc(j.agent_type) : '';
+  return `<span class="pill kind-${esc(j.kind)}">${esc(j.name)} (${esc(j.kind)}${ref}${w})</span>`;
+}
+
+function showParams() {
+  const p = PANELS.find(x => x.name === $('panel').value);
+  $('params').textContent = p
+    ? `threshold ${p.threshold} · quorum ${p.min_votes}/${p.judges.length}` : '';
+}
+
+async function loadPanels() {
+  const d = await api('panels');
+  PANELS = d.panels || [];
+  const sel = $('panel');
+  const cur = sel.value;
+  sel.innerHTML = PANELS.map(p => `<option>${esc(p.name)}</option>`).join('');
+  if (PANELS.some(p => p.name === cur)) sel.value = cur;
+  sel.onchange = showParams;
+  showParams();
+  $('panels').innerHTML = PANELS.length
+    ? PANELS.map(p => `<div style="margin-bottom:10px">
+        <b>${esc(p.name)}</b>
+        <span class="dim">by ${esc(p.creator)} · threshold ${p.threshold} ·
+          quorum ${p.min_votes}/${p.judges.length} · ${p.verdicts} verdicts</span>
+        <button class="ghost" data-edit="${esc(p.name)}">edit</button>
+        <button class="danger" data-del="${esc(p.name)}">delete</button><br>
+        ${p.judges.map(kindPill).join('')}
+      </div>`).join('')
+    : 'no panels yet — create one below';
+  $('panels').querySelectorAll('[data-edit]').forEach(b =>
+    b.onclick = () => openEditor(PANELS.find(p => p.name === b.dataset.edit)));
+  $('panels').querySelectorAll('[data-del]').forEach(b =>
+    b.onclick = async () => {
+      if (b.dataset.armed !== '1') {        // inline confirm, no native dialog
+        b.dataset.armed = '1'; b.textContent = 'sure?'; return;
+      }
+      const p = PANELS.find(x => x.name === b.dataset.del);
+      const r = await post('remove_panel', {name: p.name, creator: p.creator});
+      if (r.error) { b.textContent = 'denied'; b.title = r.error; return; }
+      loadPanels();
+    });
+}
+
+function scoresTable(scores) {
+  return `<table><tr><th>judge</th><th class="num">score</th><th>reason</th></tr>` +
+    scores.map(s => `<tr><td>${esc(s.name)} <span class="dim">${esc(s.kind)}</span></td>
+      <td class="num">${s.score === null ? '<span class="fail">—</span>' : s.score.toFixed(0)}</td>
+      <td class="dim">${esc(s.reason || '')}</td></tr>`).join('') + '</table>';
+}
+
+async function loadVerdicts() {
+  const d = await api('verdicts?limit=10');
+  const vs = d.verdicts || [];
+  $('verdicts').innerHTML = vs.length
+    ? `<table><tr><th>#</th><th>panel</th><th>verdict</th>
+         <th class="num">avg</th><th>input</th><th>sigs</th></tr>` +
+      vs.map(v => `<tr><td class="dim">${v.id}</td><td>${esc(v.panel)}</td>
+        <td class="${v.approved ? 'pass' : 'fail'}">${v.approved ? 'PASS' : 'FAIL'}</td>
+        <td class="num">${v.average === null ? '—' : v.average.toFixed(1)}</td>
+        <td class="dim">${esc(v.input.slice(0, 60))}</td>
+        <td><button class="ghost" data-verify="${v.id}">check</button></td></tr>`
+      ).join('') + '</table>'
+    : 'no verdicts yet';
+  $('verdicts').querySelectorAll('[data-verify]').forEach(b =>
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = '…';
+      const r = await api('verify?id=' + b.dataset.verify);
+      b.outerHTML = r.verified
+        ? '<span class="pass" title="every vote signature checks out">signed ok</span>'
+        : `<span class="fail" title="${esc(r.error || 'a signature failed')}">bad sig</span>`;
+    });
+}
+
+$('go').onclick = async () => {
+  const btn = $('go'), out = $('result');
+  btn.disabled = true;
+  out.innerHTML = '<p class="dim">the panel is deliberating… '
+    + '(agent and sub-panel judges can take a while)</p>';
+  try {
+    const v = await post('judge', { panel: $('panel').value, input: $('input').value });
+    out.innerHTML = v.error
+      ? `<p class="fail">${esc(v.error)}</p>`
+      : `<div class="verdict ${v.approved ? 'pass' : 'fail'}">
+           ${v.approved ? 'PASS' : 'FAIL'}</div>
+         <div class="dim">${esc(v.reason)}</div>${scoresTable(v.scores)}`;
+    loadVerdicts();
+  } catch (e) { out.innerHTML = `<p class="fail">${esc(e)}</p>`; }
+  btn.disabled = false;
+};
+
+/* ── trust / unlock ───────────────────────────────────────── */
+async function checkAuth() {
+  try { TRUSTED = (await api('auth')).trusted === true; }
+  catch (e) { TRUSTED = false; }
+  $('lock').classList.toggle('hide', TRUSTED);
+}
+$('unlock').onclick = async () => {
+  localStorage.setItem('judge_token', $('token').value.trim());
+  await checkAuth();
+  if (!TRUSTED) $('lock').firstChild.textContent = 'that token was refused — ';
+};
+
+/* ── panel editor ─────────────────────────────────────────── */
+const KIND_FIELDS = {
+  rule:  [['min_len', 'min length', 'num'], ['max_len', 'max length', 'num'],
+          ['require', 'require words (comma)', 'list'],
+          ['forbid', 'forbid words (comma)', 'list']],
+  llm:   [['prompt', 'criteria prompt', 'wide'], ['model', 'model (optional)', 'txt'],
+          ['url', 'endpoint url (optional)', 'txt']],
+  agent: [['agent_type', 'agent type', 'agent'], ['prompt', 'criteria prompt', 'wide'],
+          ['model', 'model (optional)', 'txt'], ['steps', 'steps (default 6)', 'num']],
+  panel: [['panel', 'panel that votes', 'panelref']],
+};
+
+function judgeRow(j, i) {
+  const fields = (KIND_FIELDS[j.kind] || []).map(([k, label, t]) => {
+    const v = j[k] ?? '';
+    if (t === 'wide')
+      return `<input class="wide" data-k="${k}" placeholder="${label}" value="${esc(v)}">`;
+    if (t === 'panelref')
+      return `<select data-k="${k}">` + PANELS
+        .filter(p => p.name !== (EDIT.orig || $('e-name').value))
+        .map(p => `<option ${p.name === v ? 'selected' : ''}>${esc(p.name)}</option>`)
+        .join('') + '</select>';
+    const list = t === 'agent' ? 'list="agentlist"' : '';
+    const val = Array.isArray(v) ? v.join(', ') : v;
+    return `<input data-k="${k}" ${list} placeholder="${label}"
+            value="${esc(val)}" style="width:${t === 'num' ? 110 : 180}px">`;
+  }).join('');
+  return `<div class="jrow" data-i="${i}">
+    <span class="pill kind-${esc(j.kind)}">${esc(j.kind)}</span>
+    <input data-k="name" placeholder="judge name" value="${esc(j.name || '')}"
+           style="width:140px">
+    <input data-k="weight" placeholder="weight" value="${esc(j.weight ?? 1)}"
+           style="width:70px">
+    <button class="danger" data-rm="${i}" style="float:right">remove</button>
+    <div>${fields}</div>
+  </div>`;
+}
+
+function renderJudges() {
+  $('e-judges').innerHTML = EDIT.judges.map(judgeRow).join('');
+  $('e-judges').querySelectorAll('[data-rm]').forEach(b =>
+    b.onclick = () => { readJudges(); EDIT.judges.splice(+b.dataset.rm, 1); renderJudges(); });
+}
+
+function readJudges() {
+  $('e-judges').querySelectorAll('.jrow').forEach(row => {
+    const j = EDIT.judges[+row.dataset.i];
+    row.querySelectorAll('[data-k]').forEach(el => {
+      const k = el.dataset.k, v = el.value.trim();
+      if (!v) { delete j[k]; return; }
+      if (['min_len', 'max_len', 'steps'].includes(k)) j[k] = parseInt(v, 10);
+      else if (k === 'weight') j[k] = parseFloat(v) || 1;
+      else if (['require', 'forbid'].includes(k))
+        j[k] = v.split(',').map(s => s.trim()).filter(Boolean);
+      else j[k] = v;
+    });
+  });
+}
+
+function openEditor(p) {
+  EDIT = p
+    ? { orig: p.name,
+        judges: p.judges.map(j => { const c = {...j}; delete c.keys; return c; }) }
+    : { orig: null, judges: [] };
+  $('editor-title').textContent = p ? 'Edit panel — ' + p.name : 'New panel';
+  $('e-name').value = p ? p.name : '';
+  $('e-name').disabled = !!p;
+  $('e-creator').value = p ? p.creator : ($('e-creator').value || 'me');
+  $('e-threshold').value = p ? p.threshold : 60;
+  $('e-quorum').value = p ? p.min_votes : '';
+  $('e-msg').textContent = '';
+  renderJudges();
+  $('editor').classList.remove('hide');
+  $('editor').scrollIntoView({behavior: 'smooth'});
+}
+
+$('new-panel').onclick = () => openEditor(null);
+$('e-cancel').onclick = () => { $('editor').classList.add('hide'); EDIT = null; };
+$('e-add').onclick = () => {
+  readJudges();
+  const kind = $('e-kind').value;
+  const j = {kind, name: kind + '-' + (EDIT.judges.length + 1)};
+  if (kind === 'panel' && PANELS.length) j.panel = PANELS[0].name;
+  if (kind === 'agent') j.agent_type = 'default';
+  EDIT.judges.push(j);
+  renderJudges();
+};
+
+$('e-save').onclick = async () => {
+  readJudges();
+  const body = { name: $('e-name').value.trim(), creator: $('e-creator').value.trim(),
+                 judges: EDIT.judges, threshold: parseFloat($('e-threshold').value) };
+  if ($('e-quorum').value) body.min_votes = parseInt($('e-quorum').value, 10);
+  const r = await post(EDIT.orig ? 'update_panel' : 'create_panel', body);
+  if (r.error) { $('e-msg').innerHTML = `<span class="fail">${esc(r.error)}</span>`; return; }
+  $('editor').classList.add('hide'); EDIT = null;
+  loadPanels();
+};
+
+/* ── market ───────────────────────────────────────────────── */
+async function loadMarket() {
+  const q = encodeURIComponent($('m-q').value.trim());
+  const kind = encodeURIComponent($('m-kind').value);
+  const d = await api(`market?q=${q}&kind=${kind}`);
+  LISTINGS = d.listings || [];
+  $('listings').innerHTML = LISTINGS.length
+    ? LISTINGS.map(l => `<div class="listing">
+        <b>${esc(l.name)}</b>
+        <span class="pill kind-${esc(l.kind)}">${esc(l.kind)}</span>
+        <span class="dim">by ${esc(l.author)} · ${l.installs} install${l.installs === 1 ? '' : 's'}</span>
+        <div class="dim" style="margin:4px 0">${esc(l.description || '')}</div>
+        ${(l.tags || []).map(t => `<span class="pill">${esc(t)}</span>`).join('')}
+        <div class="row" style="margin-top:8px">
+          <select data-target="${l.id}">${PANELS.map(p =>
+            `<option>${esc(p.name)}</option>`).join('')}</select>
+          <button class="ghost" data-install="${l.id}">install</button>
+          <span class="dim" data-note="${l.id}"></span>
+        </div>
+      </div>`).join('')
+    : 'nothing on the market matches';
+  $('listings').querySelectorAll('[data-install]').forEach(b =>
+    b.onclick = async () => {
+      const id = +b.dataset.install;
+      const sel = $('listings').querySelector(`[data-target="${id}"]`);
+      const p = PANELS.find(x => x.name === sel.value);
+      const note = $('listings').querySelector(`[data-note="${id}"]`);
+      if (!p) { note.innerHTML = '<span class="fail">make a panel first</span>'; return; }
+      const r = await post('install_judge', {id, panel: p.name, creator: p.creator});
+      note.innerHTML = r.error
+        ? `<span class="fail">${esc(r.error)}</span>`
+        : `<span class="pass">seated as ${esc(r.installed)} on ${esc(p.name)}</span>`;
+      if (!r.error) { loadPanels(); loadMarket(); }
+    });
+}
+$('m-q').oninput = () => { clearTimeout(loadMarket._t); loadMarket._t = setTimeout(loadMarket, 250); };
+$('m-kind').onchange = loadMarket;
+
+function renderPublishFields() {
+  const kind = $('p-kind').value;
+  EDITPUB.kind = kind;
+  $('p-fields').innerHTML = (KIND_FIELDS[kind] || []).map(([k, label, t]) => {
+    if (t === 'panelref')
+      return `<select data-pk="${k}">${PANELS.map(p =>
+        `<option>${esc(p.name)}</option>`).join('')}</select>`;
+    const list = t === 'agent' ? 'list="agentlist"' : '';
+    const wide = t === 'wide' ? 'style="width:100%;margin-bottom:6px"' : '';
+    return `<input data-pk="${k}" ${list} ${wide} placeholder="${label}"
+            style="margin:0 6px 6px 0">`;
+  }).join('');
+}
+const EDITPUB = {kind: 'rule'};
+$('p-kind').onchange = renderPublishFields;
+
+$('p-go').onclick = async () => {
+  const spec = {kind: $('p-kind').value};
+  $('p-fields').querySelectorAll('[data-pk]').forEach(el => {
+    const k = el.dataset.pk, v = el.value.trim();
+    if (!v) return;
+    if (['min_len', 'max_len', 'steps'].includes(k)) spec[k] = parseInt(v, 10);
+    else if (['require', 'forbid'].includes(k))
+      spec[k] = v.split(',').map(s => s.trim()).filter(Boolean);
+    else spec[k] = v;
+  });
+  const r = await post('publish_judge', {
+    name: $('p-name').value.trim(), author: $('p-author').value.trim(),
+    description: $('p-desc').value.trim(), tags: $('p-tags').value, spec });
+  $('p-msg').innerHTML = r.error
+    ? `<span class="fail">${esc(r.error)}</span>`
+    : `<span class="pass">listed — ${esc(r.name)} by ${esc(r.author)}</span>`;
+  if (!r.error) loadMarket();
+};
+
+/* ── agent roster for the pickers ─────────────────────────── */
+async function loadAgents() {
+  const d = await api('agents');
+  $('agentlist').innerHTML = (d.agents || []).map(a =>
+    `<option value="${esc(a)}">`).join('');
+}
+
+checkAuth();
+loadPanels().then(() => { loadMarket(); renderPublishFields(); });
+loadVerdicts();
+loadAgents();
+</script>
+</body>
+</html>

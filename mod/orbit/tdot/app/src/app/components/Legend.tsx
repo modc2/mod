@@ -6,7 +6,9 @@ import {
   TTC_LINE_COLOR, TTC_LINE_NEEDS_DARK_TYPE, rampOf, seriesColor,
   type MapPalette, type SemanticClass,
 } from '@/lib/palette'
+import { useEffect, useState } from 'react'
 import { usePalette } from './ThemeProvider'
+import { useNarrow } from '@/lib/useNarrow'
 
 type Props = {
   breaks: Breaks | null
@@ -43,6 +45,18 @@ export default function Legend({
   breaks, metric, options, active, areasWithData, totalAreas, catalog, layerData,
 }: Props) {
   const pal = usePalette()
+  const narrow = useNarrow()
+  // null = never chosen: open on a desktop, folded on a phone.
+  const [pinned, setPinned] = useState<boolean | null>(null)
+  useEffect(() => {
+    const v = localStorage.getItem('tdot_legend')
+    if (v === 'open' || v === 'closed') setPinned(v === 'open')
+  }, [])
+  const open = pinned ?? !narrow
+  const flip = () => {
+    setPinned(!open)
+    try { localStorage.setItem('tdot_legend', open ? 'closed' : 'open') } catch {}
+  }
   const rows: React.ReactNode[] = []
   const meta = options?.metrics?.[metric]
   const fmt = meta?.format ?? 'count'
@@ -204,8 +218,25 @@ export default function Legend({
   if (!rows.length) return null
 
   return (
-    <div className="panel pointer-events-auto w-[228px] space-y-3 p-3">
-      {rows}
+    <div className="panel pointer-events-auto w-[236px] overflow-hidden">
+      <button
+        onClick={flip}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fill"
+      >
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Key</span>
+        <span className="text-[10px] tabular-nums text-muted">{rows.length}</span>
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden
+             className={`ml-auto text-muted transition-transform ${open ? '' : 'rotate-180'}`}>
+          <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.5"
+                strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="max-h-[42vh] space-y-3 overflow-y-auto border-t border-line px-3 pb-3 pt-2.5">
+          {rows}
+        </div>
+      )}
     </div>
   )
 }

@@ -4,12 +4,13 @@ import { useEffect, useRef } from 'react'
 import maplibregl, { Map as MLMap } from 'maplibre-gl'
 import type { Catalog, Choropleth, LayerDef } from '@/lib/api'
 import { NARROW } from '@/lib/layout'
+import { matchExpression, matchesHighlight, type AgentOverlay, type ValueFilter } from '@/lib/scene'
 import {
-  DIVERGING, HEAT, LAYER_COLOR, NO_DATA, SEQUENTIAL, ZONE_COLOR,
-  divergingExpression, stepExpression,
+  DIVERGING, HEAT, LAYER_COLOR, NEWS_TOPIC, NO_DATA, SEQUENTIAL, SPEED_BAND,
+  ZONE_COLOR, divergingExpression, stepExpression,
 } from '@/lib/palette'
 
-export type Basemap = 'dark' | 'light' | 'streets'
+export type Basemap = 'dark' | 'light' | 'streets' | 'earth'
 
 /** Bounding box of the five boroughs, used to frame the opening view. */
 const NYC_BOUNDS: [[number, number], [number, number]] = [[-74.30, 40.47], [-73.68, 40.93]]
@@ -28,27 +29,68 @@ function framePadding(w: number, h: number) {
 }
 
 /**
- * Basemap styles. All raster, all key-free: CARTO's free tiles for the muted
- * cartography a data map needs, and OpenStreetMap's own tiles for the "show me
- * the actual streets" case. Attribution is mandatory and is baked into each
- * source rather than left to the caller.
+ * Basemap styles: OpenFreeMap's key-free hosted vector styles. (CARTO's
+ * "free" raster tiles started shipping an API KEY REQUIRED watermark burned
+ * into the imagery in 2026 — status codes stay 200, only your eyes catch it.)
+ * The styles bring their own glyphs and attribution.
  */
-const OSM_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-const CARTO_ATTR = `${OSM_ATTR} © <a href="https://carto.com/attributions">CARTO</a>`
+const BASEMAPS: Record<Exclude<Basemap, 'earth'>, string> = {
+  dark: 'https://tiles.openfreemap.org/styles/dark',
+  light: 'https://tiles.openfreemap.org/styles/positron',
+  streets: 'https://tiles.openfreemap.org/styles/liberty',
+}
 
-const BASEMAPS: Record<Basemap, { tiles: string[]; attribution: string }> = {
-  dark: {
-    tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
-    attribution: CARTO_ATTR,
+/**
+ * EARTH is the one three-dimensional view, and it is built here rather than
+ * fetched: Esri World Imagery (keyless, but the attribution string is a
+ * licence condition) under extruded OpenMapTiles buildings, on a globe
+ * projection so zooming out shows the planet with an atmosphere instead of a
+ * grey void. The glyphs endpoint matches the OpenFreeMap styles so the
+ * overlay label layers keep finding Noto Sans. The buildings layer id has no
+ * `--` and its source no `nyc-` prefix, which is what keeps `clearAll` off it.
+ */
+const EARTH_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  projection: { type: 'globe' },
+  sky: {
+    'sky-color': '#0b1526',
+    'horizon-color': '#7d9cc0',
+    'fog-color': '#0a0e14',
+    'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 8, 0.5, 11, 0] as any,
   },
-  light: {
-    tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png'],
-    attribution: CARTO_ATTR,
+  light: { anchor: 'viewport', color: '#ffffff', intensity: 0.4 },
+  glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+  sources: {
+    satellite: {
+      type: 'raster',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    },
+    openmaptiles: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' },
   },
-  streets: {
-    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-    attribution: OSM_ATTR,
-  },
+  layers: [
+    { id: 'satellite', type: 'raster', source: 'satellite' },
+    {
+      id: 'earth-buildings',
+      type: 'fill-extrusion',
+      source: 'openmaptiles',
+      'source-layer': 'building',
+      minzoom: 13.5,
+      filter: ['!=', ['get', 'hide_3d'], true],
+      paint: {
+        'fill-extrusion-color': '#b9bec6',
+        'fill-extrusion-opacity': 0.75,
+        // Heights grow in over a zoom level rather than popping; the tiles
+        // only carry render_height from ~z14, so earlier zooms get a stub.
+        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'],
+          13.5, 0,
+          15, ['coalesce', ['get', 'render_height'], 10]],
+        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+      },
+    },
+  ],
 }
 
 /** True on a touch screen, where hit-testing needs a bigger target. */
@@ -57,18 +99,8 @@ function coarsePointer(): boolean {
     && window.matchMedia('(pointer: coarse)').matches
 }
 
-function styleFor(basemap: Basemap): any {
-  const b = BASEMAPS[basemap]
-  return {
-    version: 8,
-    // A raster-only style ships no glyphs, and any symbol layer (the station
-    // labels) needs them. MapLibre's own free font endpoint serves Noto Sans.
-    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-    sources: {
-      base: { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution },
-    },
-    layers: [{ id: 'base', type: 'raster', source: 'base' }],
-  }
+function styleFor(basemap: Basemap): string | maplibregl.StyleSpecification {
+  return basemap === 'earth' ? EARTH_STYLE : BASEMAPS[basemap]
 }
 
 type Props = {
@@ -77,16 +109,28 @@ type Props = {
   opacity: Record<string, number>
   housing: Choropleth | null
   housingMetric: string
+  population: Choropleth | null
+  populationMetric: string
   layerData: Record<string, GeoJSON.FeatureCollection>
   basemap: Basemap
   flyTo: { lng: number; lat: number; zoom?: number; nonce: number } | null
   onFeatureClick: (payload: { layerId: string; props: Record<string, any> } | null) => void
   onMapReady: (map: MLMap) => void
+  /** What the chat agent drew: any open dataset, outlined areas, a range filter. */
+  agentOverlay?: AgentOverlay | null
+  highlight?: { names: string[]; nonce: number }
+  valueFilter?: ValueFilter
+  /** Show only areas matching these names / codes / boroughs. */
+  only?: string[]
+  /** Fit the camera to these areas (once per nonce, as soon as they are drawn). */
+  frame?: { names: string[]; nonce: number }
 }
 
 export default function MapView({
-  catalog, active, opacity, housing, housingMetric, layerData,
+  catalog, active, opacity, housing, housingMetric, population, populationMetric, layerData,
   basemap, flyTo, onFeatureClick, onMapReady,
+  agentOverlay = null, highlight = { names: [], nonce: 0 }, valueFilter = null, only = [],
+  frame = { names: [], nonce: 0 },
 }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<MLMap | null>(null)
@@ -112,11 +156,14 @@ export default function MapView({
       maxZoom: 18,
       minZoom: 8,
       attributionControl: false,
-      // The basemap is raster and the overlays are flat 2-D data; disabling
-      // pitch keeps polygon fills legible and avoids a tilted-map trap where
-      // the choropleth reads as terrain.
-      pitchWithRotate: false,
+      // The overlays are flat 2-D data, so on the flat basemaps rotation and
+      // pitch stay off — a tilted choropleth reads as terrain. The handlers
+      // are only switched on while the EARTH view is up (see the basemap
+      // effect); pitchWithRotate is a constructor-only option, so it is set
+      // here and stays inert until dragRotate is enabled.
+      pitchWithRotate: true,
       dragRotate: false,
+      maxPitch: 75,
     })
     // On a phone, pinch is the zoom control and the bottom-left corner is
     // wanted for the legend chip, so the map keeps only its attribution.
@@ -128,8 +175,9 @@ export default function MapView({
     m.addControl(new maplibregl.AttributionControl({ compact: true }),
                  narrow ? 'bottom-right' : 'bottom-left')
     // Two-finger rotation is easy to trigger by accident while pinching, and a
-    // rotated choropleth reads as terrain.
+    // rotated choropleth reads as terrain. Both come back in the EARTH view.
     m.touchZoomRotate.disableRotation()
+    m.touchPitch.disable()
 
     m.on('load', () => {
       ready.current = true
@@ -198,6 +246,23 @@ export default function MapView({
       ready.current = true
       redrawRef.current()
     })
+    // EARTH is the three-dimensional view: tilt the camera in and hand over
+    // the rotate/pitch gestures (right-drag, or two fingers). Leaving it lays
+    // the camera flat and faces north again, so the flat basemaps stay the
+    // legible 2-D surfaces the rest of the UI assumes.
+    if (basemap === 'earth') {
+      m.dragRotate.enable()
+      m.touchZoomRotate.enableRotation()
+      m.touchPitch.enable()
+      m.easeTo({ pitch: 55, duration: 1200 })
+    } else {
+      m.dragRotate.disable()
+      m.touchZoomRotate.disableRotation()
+      m.touchPitch.disable()
+      if (m.getPitch() !== 0 || m.getBearing() !== 0) {
+        m.easeTo({ pitch: 0, bearing: 0, duration: 600 })
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [basemap])
 
@@ -205,7 +270,28 @@ export default function MapView({
   useEffect(() => {
     redraw()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog, active, opacity, housing, housingMetric, layerData])
+  }, [catalog, active, opacity, housing, housingMetric, population, populationMetric, layerData,
+      agentOverlay, highlight, valueFilter, only])
+
+  // Outlining or keeping areas without an explicit camera move frames them.
+  // The choropleth often lands after the directive (a new metric is a new
+  // query), so the frame waits for data and is spent once it has been used.
+  const framed = useRef(0)
+  useEffect(() => {
+    const m = map.current
+    if (!m || !frame.names.length || framed.current === frame.nonce) return
+    const b = new maplibregl.LngLatBounds()
+    for (const fc of [housing, population, agentOverlay?.data]) {
+      for (const f of fc?.features ?? []) {
+        if (f.geometry?.type !== 'Point'
+            && matchesHighlight((f.properties as any) || {}, frame.names)) extend(b, f.geometry)
+      }
+    }
+    if (b.isEmpty()) return
+    framed.current = frame.nonce
+    const c = m.getContainer()
+    m.fitBounds(b, { padding: framePadding(c.clientWidth, c.clientHeight), duration: 900, maxZoom: 14 })
+  }, [frame, housing, population, agentOverlay])
 
   useEffect(() => {
     if (!flyTo || !map.current) return
@@ -215,14 +301,15 @@ export default function MapView({
   function clearAll(m: MLMap) {
     const style = m.getStyle()
     // Layers first, then sources — MapLibre refuses to drop a source that any
-    // layer still references. Our layers are named `<layerId>--<kind>` while
-    // our sources are named `nyc-<layerId>`, so the two need different tests;
-    // matching layers against the source prefix silently removes nothing.
+    // layer still references. Only OUR layers and sources go: ours are named
+    // `<layerId>--<kind>` over sources named `nyc-<layerId>`. The basemap is a
+    // full vector style now, dozens of layers of its own — "everything except
+    // `base`" would strip the entire city off the screen.
     for (const l of style.layers || []) {
-      if (l.id !== 'base') m.removeLayer(l.id)
+      if (l.id.includes('--')) m.removeLayer(l.id)
     }
     for (const s of Object.keys(style.sources || {})) {
-      if (s !== 'base') m.removeSource(s)
+      if (s.startsWith('nyc-')) m.removeSource(s)
     }
   }
 
@@ -251,6 +338,8 @@ export default function MapView({
       try {
         if (def.id === 'housing_prices') {
           if (housing) order.push(...addChoropleth(m, housing, housingMetric, alpha))
+        } else if (def.id === 'population') {
+          if (population) order.push(...addChoropleth(m, population, populationMetric, alpha, 'population'))
         } else {
           const data = layerData[def.id]
           if (data) order.push(...addOverlay(m, def, data, alpha))
@@ -259,6 +348,12 @@ export default function MapView({
         // A single malformed layer must not take the whole map down.
         console.error(`nyc: failed to draw ${def.id}`, err)
       }
+    }
+    try {
+      order.push(...drawAgent(m, { overlay: agentOverlay, highlight: highlight.names,
+        valueFilter, only, metric: housingMetric, sources: [housing, population] }))
+    } catch (err) {
+      console.error('nyc: failed to draw the agent view', err)
     }
     // Topmost layer first, so a click on a station beats the polygon under it.
     clickOrder.current = order.reverse()
@@ -269,8 +364,9 @@ export default function MapView({
 
 // ── choropleth ────────────────────────────────────────────────────────────
 
-function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number): string[] {
-  const src = 'nyc-housing'
+function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number,
+                       id = 'housing_prices'): string[] {
+  const src = `nyc-${id}`
   m.addSource(src, { type: 'geojson', data: fc as any })
   const stops = fc.breaks?.stops ?? []
   const diverging = metric === 'price_change'
@@ -285,13 +381,13 @@ function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number):
   const fill: any = ['case', ['==', ['get', metric], null], NO_DATA, color]
 
   m.addLayer({
-    id: 'housing_prices--fill',
+    id: `${id}--fill`,
     type: 'fill',
     source: src,
     paint: { 'fill-color': fill, 'fill-opacity': 0.78 * alpha },
   })
   m.addLayer({
-    id: 'housing_prices--line',
+    id: `${id}--line`,
     type: 'line',
     source: src,
     paint: {
@@ -299,7 +395,7 @@ function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number):
       'line-width': 0.6,
     },
   })
-  return ['housing_prices--fill']
+  return [`${id}--fill`]
 }
 
 // ── overlays ──────────────────────────────────────────────────────────────
@@ -394,6 +490,59 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return ids
 
+    case 'traffic_speeds': {
+      // Casing under the line: a 2px red thread over a dark basemap beside an
+      // amber one is hard to tell apart, and the jams are the whole point.
+      const band: any[] = ['match', ['get', 'band']]
+      Object.entries(SPEED_BAND).forEach(([k, c]) => band.push(k, c))
+      band.push('#8b93a7')
+      add({
+        id: `${def.id}--case`, type: 'line', source: src,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#000000',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 3.2, 13, 6, 16, 10],
+          'line-opacity': 0.55 * alpha,
+        },
+      })
+      add({
+        id: `${def.id}--line`, type: 'line', source: src,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': band as any,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.8, 13, 3.6, 16, 6.5],
+          'line-opacity': 0.95 * alpha,
+        },
+      })
+      return [`${def.id}--line`]
+    }
+
+    case 'traffic_volume':
+      add({
+        id: `${def.id}--circle`, type: 'circle', source: src,
+        paint: {
+          // √-scaled like the other graduated circles, against a 100k/day
+          // reference — the busiest locations in the file are the parkways
+          // and the East River bridges at roughly that.
+          //
+          // Floored, unlike the others: DOT's counts run over three orders of
+          // magnitude, so a pure √ scale drew the quiet two-thirds of them at
+          // under 2px — invisible, and below the map's own hit tolerance, so
+          // they could not be clicked open at all. The floor costs the low end
+          // its proportionality and buys back its existence.
+          'circle-radius': ['interpolate', ['linear'], ['zoom'],
+            10, ['max', 2.6,
+              ['*', 5.5, ['sqrt', ['/', ['coalesce', ['get', 'daily'], 1], 100000]]]],
+            15, ['max', 4.5,
+              ['*', 16, ['sqrt', ['/', ['coalesce', ['get', 'daily'], 1], 100000]]]]],
+          'circle-color': color,
+          'circle-opacity': 0.72 * alpha,
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#000000',
+        },
+      })
+      return ids
+
     case 'parks':
       add({
         id: `${def.id}--fill`, type: 'fill', source: src,
@@ -442,7 +591,56 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.5, 17, 6],
           'circle-color': ['case', ['>', ['coalesce', ['get', 'killed'], 0], 0],
-            '#f2a0a0', color],
+            '#f0564a', color],
+          'circle-opacity': 0.85 * alpha,
+          'circle-stroke-width': 0.8,
+          'circle-stroke-color': '#000000',
+        },
+      })
+      return [`${def.id}--circle`]
+
+    case 'crime':
+    case 'forsale': {
+      // A self-describing choropleth: the layer payload carries its own
+      // quantile breaks and names its own fill property (meta.metric), so it
+      // draws like housing/population without being parameterised — and the
+      // next breaks-carrying layer is a case label here, not a new block.
+      // "No data" stays distinct from "quietest class".
+      const metric: string = (data as any).meta?.metric ?? 'total'
+      const stops: number[] = (data as any).breaks?.stops ?? []
+      const fill: any = ['case', ['==', ['get', metric], null], NO_DATA,
+        stepExpression(metric, stops, SEQUENTIAL)]
+      add({
+        id: `${def.id}--fill`, type: 'fill', source: src,
+        paint: { 'fill-color': fill, 'fill-opacity': 0.72 * alpha },
+      })
+      add({
+        id: `${def.id}--line`, type: 'line', source: src,
+        paint: { 'line-color': 'rgba(255,255,255,0.22)', 'line-width': 0.6 },
+      })
+      return [`${def.id}--fill`]
+    }
+
+    case 'shootings':
+      add({
+        id: `${def.id}--heat`, type: 'heatmap', source: src,
+        maxzoom: 15,
+        paint: {
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 15, 2.4],
+          'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
+            ...HEAT.flatMap(([stop, c]) => [stop, c])] as any,
+          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 9, 6, 15, 28],
+          'heatmap-opacity': 0.62 * alpha,
+        },
+      })
+      // Past the heatmap's maxzoom each incident becomes inspectable.
+      add({
+        id: `${def.id}--circle`, type: 'circle', source: src,
+        minzoom: 14,
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.8, 17, 6],
+          'circle-color': ['case', ['==', ['get', 'statistical_murder_flag'], true],
+            '#f0564a', color] as any,
           'circle-opacity': 0.85 * alpha,
           'circle-stroke-width': 0.8,
           'circle-stroke-color': '#000000',
@@ -465,6 +663,27 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return ids
 
+    case 'news': {
+      const topic: any[] = ['match', ['get', 'topic']]
+      Object.entries(NEWS_TOPIC).forEach(([k, c]) => { if (k !== 'other') topic.push(k, c) })
+      topic.push(NEWS_TOPIC.other)
+      add({
+        id: `${def.id}--circle`, type: 'circle', source: src,
+        paint: {
+          // A borough-level pin is an approximation, drawn fainter so it never
+          // reads as "this happened on this block".
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 13, 7, 16, 10],
+          'circle-color': topic as any,
+          'circle-opacity': ['case', ['==', ['get', 'precision'], 'borough'],
+            0.45 * alpha, 0.9 * alpha],
+          // White ring: these dots sit over choropleths that share their hues.
+          'circle-stroke-width': 1.4,
+          'circle-stroke-color': 'rgba(255,255,255,0.85)',
+        },
+      })
+      return ids
+    }
+
     case 'sales':
       add({
         id: `${def.id}--circle`, type: 'circle', source: src,
@@ -478,6 +697,19 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return ids
 
+    case 'affordable_rents':
+      add({
+        id: `${def.id}--circle`, type: 'circle', source: src,
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 1.6, 14, 3.4, 17, 7],
+          'circle-color': stepExpression('rent_min', AFFORDABLE_RENT_BREAKS, SEQUENTIAL) as any,
+          'circle-opacity': 0.85 * alpha,
+          'circle-stroke-width': 0.4,
+          'circle-stroke-color': 'rgba(11,14,20,0.7)',
+        },
+      })
+      return [`${def.id}--circle`]
+
     case 'boroughs':
     case 'neighborhoods':
       add({
@@ -490,9 +722,52 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return ids
 
-    default:
+    default: {
       // A layer added to the catalogue but not styled here still renders,
-      // picked by geometry, rather than silently disappearing.
+      // picked by geometry, rather than silently disappearing. This is also
+      // how every owner-added dataset draws, so two self-describing cases
+      // get real treatment: a heatmap kind, and a polygon payload that
+      // carries its own quantile breaks (like crime/forsale) ramps on
+      // `value` instead of flattening to one colour.
+      if (def.kind === 'heatmap' && def.geometry === 'point') {
+        add({
+          id: `${def.id}--heat`, type: 'heatmap', source: src,
+          maxzoom: 15,
+          paint: {
+            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 15, 2.4],
+            'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
+              ...HEAT.flatMap(([stop, c]) => [stop, c])] as any,
+            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 9, 6, 15, 28],
+            'heatmap-opacity': 0.62 * alpha,
+          },
+        })
+        add({
+          id: `${def.id}--circle`, type: 'circle', source: src,
+          minzoom: 14,
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.8, 17, 6],
+            'circle-color': color,
+            'circle-opacity': 0.85 * alpha,
+            'circle-stroke-width': 0.8,
+            'circle-stroke-color': '#000000',
+          },
+        })
+        return [`${def.id}--circle`]
+      }
+      const stops: number[] = (data as any).breaks?.stops ?? []
+      if (def.geometry === 'polygon' && stops.length) {
+        const fill: any = ['case', ['==', ['get', 'value'], null], NO_DATA,
+          stepExpression('value', stops, SEQUENTIAL)]
+        add({
+          id: `${def.id}--fill`, type: 'fill', source: src,
+          paint: { 'fill-color': fill, 'fill-opacity': 0.72 * alpha },
+        })
+        add({
+          id: `${def.id}--line`, type: 'line', source: src,
+          paint: { 'line-color': 'rgba(255,255,255,0.22)', 'line-width': 0.6 },
+        })
+        return [`${def.id}--fill`]
+      }
       if (def.geometry === 'polygon') {
         add({
           id: `${def.id}--fill`, type: 'fill', source: src,
@@ -510,9 +785,126 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
         })
       }
       return ids
+    }
   }
 }
 
 /** Fixed price classes for the sales point layer, in dollars. */
 const SALE_BREAKS = [0, 400_000, 700_000, 1_000_000, 1_500_000, 2_500_000, 5_000_000]
-export { SALE_BREAKS }
+/** Monthly rent breaks for the affordable_rents layer, in dollars. */
+const AFFORDABLE_RENT_BREAKS = [0, 800, 1_200, 1_600, 2_000, 2_500, 3_200]
+export { SALE_BREAKS, AFFORDABLE_RENT_BREAKS }
+
+// ── the agent's view ──────────────────────────────────────────────────────
+
+const HIGHLIGHT = '#e8b64c'   // the HUD's gold accent: chrome, never a data class
+const AGENT_POINT = '#22d3ee'
+
+function extend(b: maplibregl.LngLatBounds, g: any) {
+  const walk = (c: any) => {
+    if (typeof c?.[0] === 'number') b.extend([c[0], c[1]])
+    else for (const x of c ?? []) walk(x)
+  }
+  walk(g?.coordinates)
+}
+
+/**
+ * Everything the chat agent asked for, drawn over the user's own layers:
+ * a range filter that dims the housing choropleth outside it, an overlay of
+ * any open dataset, and a bright outline around the areas it is talking about.
+ */
+function drawAgent(m: MLMap, a: {
+  overlay: AgentOverlay | null
+  highlight: string[]
+  valueFilter: ValueFilter
+  only: string[]
+  metric: string
+  sources: (GeoJSON.FeatureCollection | null)[]
+}): string[] {
+  const ids: string[] = []
+
+  const vf = a.valueFilter
+  if (vf && m.getLayer('housing_prices--fill')) {
+    const v: any = ['coalesce', ['get', a.metric], -1e15]
+    const inside: any[] = ['all']
+    if (vf.min !== null) inside.push(['>=', v, vf.min])
+    if (vf.max !== null) inside.push(['<=', v, vf.max])
+    m.setPaintProperty('housing_prices--fill', 'fill-opacity', ['case', inside, 0.85, 0.12])
+  }
+
+  const ov = a.overlay
+  const onlyFilter = a.only.length ? matchExpression(a.only) : null
+
+  if (ov?.data) {
+    m.addSource('nyc-agent', { type: 'geojson', data: ov.data as any })
+    if (ov.spec.mode === 'areas') {
+      const stops = ov.data.breaks?.stops ?? []
+      m.addLayer({
+        id: 'agent--fill', type: 'fill', source: 'nyc-agent',
+        paint: {
+          'fill-color': ['case', ['==', ['get', 'value'], null], NO_DATA,
+            stops.length ? stepExpression('value', stops, SEQUENTIAL) : SEQUENTIAL[3]] as any,
+          'fill-opacity': 0.8,
+        },
+      })
+      m.addLayer({ id: 'agent--line', type: 'line', source: 'nyc-agent',
+        paint: { 'line-color': 'rgba(255,255,255,0.22)', 'line-width': 0.6 } })
+      ids.push('agent--fill')
+    } else if (ov.spec.mode === 'heat') {
+      m.addLayer({
+        id: 'agent--heat', type: 'heatmap', source: 'nyc-agent', maxzoom: 16,
+        paint: {
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 15, 2.5],
+          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 9, 6, 15, 22],
+          'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
+            ...HEAT.flatMap(([stop, c]) => [stop, c])] as any,
+          'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0.9, 16, 0.2],
+        },
+      })
+      m.addLayer({
+        id: 'agent--circle', type: 'circle', source: 'nyc-agent', minzoom: 14,
+        paint: { 'circle-radius': 4, 'circle-color': HEAT[4][1] as string,
+                 'circle-stroke-color': '#000', 'circle-stroke-width': 1 },
+      })
+      ids.push('agent--circle')
+    } else {
+      m.addLayer({
+        id: 'agent--circle', type: 'circle', source: 'nyc-agent',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 2.5, 14, 5, 17, 8],
+          'circle-color': AGENT_POINT, 'circle-opacity': 0.9,
+          'circle-stroke-color': '#000', 'circle-stroke-width': 1,
+        },
+      })
+      ids.push('agent--circle')
+    }
+  }
+
+  // "Only Brooklyn": every area layer drops what does not match. Point layers
+  // carry no borough, so they are left alone rather than emptied.
+  if (onlyFilter) {
+    for (const id of ['housing_prices--fill', 'housing_prices--line', 'population--fill',
+                      'population--line', 'agent--fill', 'agent--line']) {
+      if (m.getLayer(id)) m.setFilter(id, onlyFilter as any)
+    }
+  }
+
+  if (a.highlight.length) {
+    const feats: GeoJSON.Feature[] = []
+    for (const fc of [...a.sources, ov?.data ?? null]) {
+      for (const f of fc?.features ?? []) {
+        if (f.geometry?.type !== 'Point' && matchesHighlight((f.properties as any) || {}, a.highlight)) feats.push(f)
+      }
+    }
+    // Nothing on the map to outline (the choropleth is off): fall back to
+    // nothing rather than guessing; the camera move still says where.
+    if (feats.length) {
+      m.addSource('nyc-agent-hl', { type: 'geojson', data: { type: 'FeatureCollection', features: feats } as any })
+      m.addLayer({ id: 'agent-hl--glow', type: 'line', source: 'nyc-agent-hl',
+        paint: { 'line-color': '#000', 'line-width': 6, 'line-opacity': 0.6 } })
+      m.addLayer({ id: 'agent-hl--line', type: 'line', source: 'nyc-agent-hl',
+        paint: { 'line-color': HIGHLIGHT, 'line-width': 2.5 } })
+    }
+  }
+  return ids
+}

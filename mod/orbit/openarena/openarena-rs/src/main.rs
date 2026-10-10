@@ -3,6 +3,7 @@
 #![recursion_limit = "512"]
 
 mod arena;
+mod bench;
 mod http;
 mod judge;
 mod mcp;

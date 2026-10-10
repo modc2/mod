@@ -1,0 +1,88 @@
+{
+  "scores": {
+    "0": 0.6636021740216,
+    "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": 0.5966268701921853
+  },
+  "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
+  "last_epoch": {
+    "validator": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
+    "network": "local",
+    "netuid": 0,
+    "miners": 1,
+    "results": {
+      "0": {
+        "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
+        "epoch_score": 0.7935,
+        "ema_score": 0.5966,
+        "samples": [
+          {
+            "score": 0.811514195285863,
+            "task": "block_header",
+            "elapsed": 3.28,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.6573138203492496,
+            "task": "gas_price",
+            "elapsed": 3.512,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.8599999999999999,
+            "task": "account_state",
+            "elapsed": 0.538,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.8599999999999999,
+            "task": "block_header",
+            "elapsed": 0.356,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.5893682263592558,
+            "task": "gas_price",
+            "elapsed": 6.392,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.7997182368601564,
+            "task": "account_state",
+            "elapsed": 3.469,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": null,
+            "error": "unverifiable: all NEAR RPCs failed: 429 Client Error: Too Many Requests for url: https://rpc.testnet.near.org/"
+          },
+          {
+            "score": 0.9766666666666666,
+            "task": "gas_price",
+            "elapsed": 0.467,
+            "signature_ok": true,
+            "correct": true
+          }
+        ]
+      }
+    },
+    "at": 1791668241,
+    "weights": {
+      "0": 1.0
+    },
+    "set_weights": {
+      "ok": true,
+      "epoch": 50,
+      "consensus": "yuma",
+      "incentive": {
+        "0": 1.0
+      }
+    }
+  },
+  "updated": 1791668248
+}

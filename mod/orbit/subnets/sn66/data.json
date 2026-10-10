@@ -1,0 +1,189 @@
+{
+  "netuid": 66,
+  "name": "conjectures",
+  "symbol": "ض",
+  "owner": "5CJCRGep3iyMUoaRb1FVNqXSuU8bcijfDBwVvZiQHSmGPTjT",
+  "description": "Incentivizing breakthroughs on decades-old open mathematical conjectures",
+  "github": "https://github.com/conjectures-io/conjectures-validator",
+  "url": "https://conjectures.io",
+  "discord": "wejh",
+  "logo": "https://conjectures.io/favicon.svg",
+  "registered_at": 4958013,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.002973461,
+    "moving_price": 0.0029861486982554197,
+    "market_cap": 17735.137910384452,
+    "tao_in": 6709.802581109,
+    "alpha_in": 2256562.567444604,
+    "alpha_out": 3707913.815593361,
+    "volume": 1428326.882772314,
+    "vol_24h": 200.16279747290537,
+    "emission": 0.0,
+    "change_1h": 0.00010089263073886912,
+    "change_24h": -1.0977347475306432,
+    "change_7d": -13.814198539793088
+  },
+  "spark_24h": [
+    0.003006464,
+    0.003019842,
+    0.003019842,
+    0.003019841,
+    0.003019567,
+    0.003019556,
+    0.003019557,
+    0.003019468,
+    0.003019514,
+    0.003013013,
+    0.003013013,
+    0.003017326,
+    0.003017217,
+    0.003017246,
+    0.003017147,
+    0.003017144,
+    0.003017136,
+    0.003009201,
+    0.0030092,
+    0.002995851,
+    0.002995872,
+    0.003011008,
+    0.003011001,
+    0.002995062,
+    0.002986179,
+    0.002986185,
+    0.002981771,
+    0.002968606,
+    0.002968601,
+    0.002968595,
+    0.002968589,
+    0.002977448,
+    0.002977166,
+    0.002985931,
+    0.002977395,
+    0.002975249,
+    0.002975249,
+    0.00297532,
+    0.002975324,
+    0.002975321,
+    0.002975321,
+    0.002975317,
+    0.002975312,
+    0.002975284,
+    0.002973466,
+    0.002973466,
+    0.002973458,
+    0.002973461
+  ],
+  "trades_24h": {
+    "trades": 54,
+    "buys": 12,
+    "sells": 42,
+    "buy_tao": 78.776897051,
+    "sell_tao": 118.129644104,
+    "net_tao": -39.35274705299999,
+    "traders": 23
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EhBAtp1NDaLLuxRrGLDntmgPQ5cCDvkk7uFawamcaemecsV",
+      "net_tao": -4.968804078,
+      "gross_tao": 30.968804077999998,
+      "trades": 5
+    },
+    {
+      "coldkey": "5GvJUjvQkFcrTzxebEEXYwgfx79LbrbFHJ1RgTL8gHfC31Xb",
+      "net_tao": -9.973366857999999,
+      "gross_tao": 29.973366858,
+      "trades": 2
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 0.1584596309999995,
+      "gross_tao": 29.841540369,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GsRn8W8sdaHH71pxPJyVPi4UQahyPHsjp8gmAdHmmNER6dd",
+      "net_tao": 25.0,
+      "gross_tao": 25.0,
+      "trades": 3
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": -4.504366886000001,
+      "gross_tao": 20.006774062,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791566461,
+      "kind": "commit",
+      "source": "github",
+      "title": "Raise proof limits to five million tokens and 30 MiB (#117)",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/bc4e1f7d5354fbb20d09636399ac24df2b6b63d8",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791455894,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #116 from conjectures-io/dev",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/874d37f532f8798bebfd43c7c7d42f19d06e615e",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791443044,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge branch 'main' into dev",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/85608cf31a675e4d246ff49568b8d8a5a267d220",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791417133,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #115 from conjectures-io/codex/research-problem-names",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/23fbeb2f5f239cc66ea8ccd5c12ca31f2920c90e",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791416992,
+      "kind": "commit",
+      "source": "github",
+      "title": "Name research problems using their source descriptions",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/c09a2adf27e19d13d53b01d19c89bf30a8f226a1",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791416578,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #114 from conjectures-io/codex/bounty-start-five-p…",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/8ed8ab7a1b5170a773123cd7eecace89ba03c0e9",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791416474,
+      "kind": "commit",
+      "source": "github",
+      "title": "Start new problem bounties at five percent",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/079e3ac9c6a849f9ba5f12aed5ee73febf8011c1",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791386217,
+      "kind": "commit",
+      "source": "github",
+      "title": "tasks: an unusable identity home is an identity failure, not a doctor…",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/3c6ed9ad946a9c04b02051ec042b575f2e285794",
+      "publisher": "conjectures-io/conjectures-validator"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

@@ -1,10 +1,13 @@
 # Bitevo
 
-Bittensor subnet — miners generate YC-style startup ideas, validators judge them.
+Bittensor subnet with two tracks under one incentive mechanism:
 
-**Whitepaper:** [WHITEPAPER.md](WHITEPAPER.md) — mechanism design, scoring rubric, EMA/softmax incentives. Also served at `/whitepaper` on the API and as the WHITEPAPER tab in the web console.
+- **Track I — judged generation:** miners generate YC-style startup pitches, validators LLM-judge them on a six-criteria rubric.
+- **Track II — evolutionary forecasting:** populations of multivariate predictor genomes (nonlinear VAR models, every variable reads lagged values of every other) evolve by selection/crossover/mutation, with fitness measured as walk-forward error on a held-out **future** window — the population is bred to fit multivariate predictions of the future, never to fit the past. Pure stdlib, local-first; evolve against built-in coupled datasets or any local CSV.
 
-**Web console:** `m bitevo/serve` → `http://localhost:50121` — leaderboard, run epochs/simulations, preview challenges, judge your own idea against the rubric, browse the epoch archive (every pitch + score breakdown + weights), and read the whitepaper. Zero-dep static app (`app/server.py` + `app/index.html`) proxying `/api/*` to the FastAPI backend.
+**Whitepaper:** [WHITEPAPER.md](WHITEPAPER.md) — mechanism design, scoring rubric, EMA/softmax incentives, genome design, walk-forward fitness. Also served at `/whitepaper` on the API and as the WHITEPAPER tab in the web console.
+
+**Web console:** `m bitevo/serve` → `http://localhost:50121` — CONSOLE (leaderboard, epochs, judge your own idea), EVOLVE (run evolution, fitness curve, multivariate forecast chart, genome leaderboard), EPOCHS (full archive), WHITEPAPER. Zero-dep static app (`app/server.py` + `app/index.html`) proxying `/api/*` to the FastAPI backend.
 
 ## Backends
 
@@ -29,6 +32,7 @@ bitevo/
 │   ├── schemas.py      # Pydantic models (Challenge, Pitch, Score, etc.)
 │   ├── prompts.py      # System/user prompts for miner & validator
 │   ├── scoring.py      # Composite scoring + EMA incentive mechanism
+│   ├── evolve.py       # Evolutionary engine: genomes, datasets, walk-forward fitness
 │   └── challenge.py    # Challenge generator (open, vertical, contrarian, etc.)
 ├── api/
 │   └── api.py          # FastAPI REST API
@@ -66,6 +70,13 @@ b.score_idea("AI-powered invoice reconciliation for SMBs")
 
 # List available backends
 b.backends()
+
+# Track II: evolve multivariate forecasters (resumes saved population)
+b.evolve(generations=25, population=40, dataset='coupled', horizon=10)
+b.evolve(csv='~/data/my_series.csv')   # your own local data
+b.forecast(horizon=12)                 # best genome predicts the future
+b.population()                         # genome leaderboard + fitness history
+b.datasets()                           # built-in multivariate datasets
 ```
 
 ### CLI
@@ -78,6 +89,11 @@ m bitevo/epoch
 m bitevo/leaderboard
 m bitevo/add_miner backend=chutes
 m bitevo/score_idea idea="Decentralized GPU compute marketplace"
+m bitevo/evolve generations=25 dataset=coupled
+m bitevo/evolve csv=~/data/my_series.csv fresh=true
+m bitevo/forecast horizon=12
+m bitevo/population
+m bitevo/datasets
 m bitevo/backends
 m bitevo/status
 m bitevo/serve
@@ -131,6 +147,10 @@ Start with `m bitevo/serve`, docs at `http://localhost:50120/docs`.
 | `/miner` | POST | Add a local miner |
 | `/challenge` | GET | Generate/preview a challenge |
 | `/score` | POST | Score a single startup idea |
+| `/evolve` | POST | Evolve multivariate forecaster genomes (Track II) |
+| `/forecast` | GET | Best genome's multivariate forecast (`?horizon=N`) |
+| `/population` | GET | Genome leaderboard + fitness history |
+| `/datasets` | GET | Built-in multivariate datasets |
 | `/backends` | GET | Supported LLM backends |
 | `/whitepaper` | GET | Whitepaper (markdown) |
 
@@ -141,3 +161,5 @@ Start with `m bitevo/serve`, docs at `http://localhost:50120/docs`.
 **Validators** score each pitch on 6 criteria (novelty, feasibility, market_size, clarity, defensibility, traction_signal), compute a weighted composite score, and update an EMA-based incentive mechanism that determines miner weights.
 
 **Backends** are interchangeable — a miner on `chutes` competes against miners on `openrouter` or `venice` in the same epoch. The decentralized chutes backend is the natural fit for Bittensor subnet operators running on distributed GPU infrastructure.
+
+**Genomes** (Track II) are content-addressed multivariate predictors evolved locally: lag structure and coefficients are the genes, tournament selection + row-level crossover + Gaussian/structural mutation are the operators, and negative future-window RMSE (walk-forward, recursive rollout, parsimony-penalized) is the fitness. Emission weights over the population reuse the same softmax as Track I. State persists to `~/.bitevo/evolution_state.json` and resumes across restarts.

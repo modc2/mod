@@ -1,0 +1,189 @@
+{
+  "netuid": 91,
+  "name": "cascade",
+  "symbol": "ᚁ",
+  "owner": "5HEe7NjS4exuP9SptWZdwWqWrMrGTTEHf5ieQH8yZXA3zXtW",
+  "description": "SOTA Time Series Foundation Models",
+  "github": "https://github.com/TensorLink-AI/cascade",
+  "url": "cascadesub.net",
+  "discord": "christensor_49068",
+  "logo": "https://raw.githubusercontent.com/TensorLink-AI/cascade/main/cascade/website/favicon-512.png",
+  "registered_at": 7633645,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.005212405,
+    "moving_price": 0.0051974032539874315,
+    "market_cap": 9929.464407617555,
+    "tao_in": 3411.796458484,
+    "alpha_in": 654553.223140882,
+    "alpha_out": 1250414.715386066,
+    "volume": 197631.384169828,
+    "vol_24h": 881.3001994620136,
+    "emission": 0.0,
+    "change_1h": -7.673994885104563e-05,
+    "change_24h": 0.9979652777683645,
+    "change_7d": -9.723771354938826
+  },
+  "spark_24h": [
+    0.005160901,
+    0.00521,
+    0.00521,
+    0.005206635,
+    0.005174442,
+    0.005174322,
+    0.005171424,
+    0.005170662,
+    0.005170967,
+    0.00517081,
+    0.005218122,
+    0.005218093,
+    0.005202577,
+    0.00520288,
+    0.005201185,
+    0.005203704,
+    0.00520359,
+    0.005130887,
+    0.00514666,
+    0.005228966,
+    0.005294321,
+    0.005312158,
+    0.005312053,
+    0.005234944,
+    0.005311733,
+    0.005317381,
+    0.005338524,
+    0.005338832,
+    0.005338726,
+    0.005344787,
+    0.005322863,
+    0.005323147,
+    0.005320403,
+    0.005247383,
+    0.005210432,
+    0.005179964,
+    0.005179357,
+    0.00517806,
+    0.005178364,
+    0.00517833,
+    0.00517833,
+    0.005251592,
+    0.005182663,
+    0.005188236,
+    0.005170804,
+    0.005166874,
+    0.005212409,
+    0.005212405
+  ],
+  "trades_24h": {
+    "trades": 163,
+    "buys": 69,
+    "sells": 94,
+    "buy_tao": 447.484857554,
+    "sell_tao": 431.442399898,
+    "net_tao": 16.042457655999954,
+    "traders": 57
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5D29hXj3WW349SKk8oHXpEAkZdYSHC6ovkbivaKpxVLSJhoh",
+      "net_tao": 0.14966613600000045,
+      "gross_tao": 89.85033386399999,
+      "trades": 6
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -0.8251673320000013,
+      "gross_tao": 80.825167332,
+      "trades": 6
+    },
+    {
+      "coldkey": "5CBAS9Vj87CTB46gXT7buv4BymG2s1igKrYnyMoyGcbvAxjk",
+      "net_tao": -24.252784965,
+      "gross_tao": 64.252784965,
+      "trades": 3
+    },
+    {
+      "coldkey": "5DFnqvwd4AbUTKEn4HTaxVnxRKzEkEgwqNKw5iKgtMpxzt9B",
+      "net_tao": 0.3844359120000007,
+      "gross_tao": 59.615564088,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GbSr2iJhgQj1V2XB3oQBT9jkz1VMB8uVSoskAwbWSSJEcgD",
+      "net_tao": -0.5959164580000014,
+      "gross_tao": 40.595916458000005,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791601177,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #362 from TensorLink-AI/fix/era-end-admission-max-…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/26b3d7324f8d1d69d0c12387d31a37c775e83d04",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1791600656,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge remote-tracking branch 'origin/main' into fix/era-end-admission…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/41e11505ff4766cbb1ee91a13e1952df4836f68c",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1791600624,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #361 from TensorLink-AI/fix/step0-nan-new-host",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/fef4d7eac22062b7ef6b7204708df5e1b3d4d66a",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1791600351,
+      "kind": "commit",
+      "source": "github",
+      "title": "Era cap: a fail-open module function, so partial runners keep their d…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/df12796001ffbf4f3debd8ad7e93b8bf601b3742",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1791528739,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #356 from TensorLink-AI/funded/expired-key-operato…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/8202f4477620b5e0929250440b700d31a236be06",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1791444713,
+      "kind": "commit",
+      "source": "github",
+      "title": "Funded legs: operator-rent a pod when the payer key expired and no la…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/93ebfba932dddb9a05a6d99080628057e56ee9ac",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1791283625,
+      "kind": "commit",
+      "source": "github",
+      "title": "king sync (finney): vault/direct@sha256:bc25aa4323c91d3313e038c1a62f4…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/9404c3a87e2a00679d5ec15362c9ef165293d349",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1791259800,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #355 from TensorLink-AI/web/missing-is-final",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/fa84d7617a795bf46f597274f605ddcfc4c84ef6",
+      "publisher": "TensorLink-AI/cascade"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

@@ -1,0 +1,165 @@
+{
+  "netuid": 36,
+  "name": "Epago",
+  "symbol": "כ",
+  "owner": "5DCjvVt6LbtM5YhMd3McczwSQpu4w85Gq5ENqSsyXjwgJxpZ",
+  "description": "THE OPEN INTELLIGENCE LAYER FOR HUMANS AND AGENTS",
+  "github": "https://github.com/EpagoFoundation/epago",
+  "url": "https://epago.ai/",
+  "discord": null,
+  "logo": "https://epago.ai/assets/epago-logo.png",
+  "registered_at": 8884359,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.001758348,
+    "moving_price": 0.0018530103843659163,
+    "market_cap": 551.0398317151797,
+    "tao_in": 290.317993208,
+    "alpha_in": 165108.311600906,
+    "alpha_out": 148276.656400411,
+    "volume": 21581.012233911,
+    "vol_24h": 16.668510891999176,
+    "emission": 0.0,
+    "change_1h": -2.700279888841295,
+    "change_24h": -5.715825399676666,
+    "change_7d": -40.94090926953526
+  },
+  "spark_24h": [
+    0.001864945,
+    0.001864945,
+    0.001864945,
+    0.001793078,
+    0.00178973,
+    0.001789397,
+    0.001789397,
+    0.001789351,
+    0.001789351,
+    0.001789186,
+    0.001789183,
+    0.00178915,
+    0.001788784,
+    0.001788781,
+    0.00178369,
+    0.001783239,
+    0.001783234,
+    0.001783232,
+    0.001783204,
+    0.001783162,
+    0.001783124,
+    0.001783073,
+    0.001782756,
+    0.001782756,
+    0.001782663,
+    0.001782497,
+    0.001782363,
+    0.001782363,
+    0.001782258,
+    0.00178214,
+    0.001782014,
+    0.001781978,
+    0.001781978,
+    0.001781968,
+    0.001781968,
+    0.001781968,
+    0.001781968,
+    0.001781654,
+    0.001781654,
+    0.001759545,
+    0.001808324,
+    0.00180824,
+    0.001808095,
+    0.00180735,
+    0.001807348,
+    0.001807334,
+    0.001807146,
+    0.001758348
+  ],
+  "trades_24h": {
+    "trades": 9,
+    "buys": 3,
+    "sells": 6,
+    "buy_tao": 4.0,
+    "sell_tao": 11.890436099,
+    "net_tao": -7.890436099,
+    "traders": 5
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CY9b9tgGmSoec5pykbthbpG8ninVvYiZDYeznYxknqMAuix",
+      "net_tao": 0.0032345309999999294,
+      "gross_tao": 7.996765469,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DCjvVt6LbtM5YhMd3McczwSQpu4w85Gq5ENqSsyXjwgJxpZ",
+      "net_tao": -3.353488806,
+      "gross_tao": 3.353488806,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CyEHfJ1JtLTPYfAGSYz18daGhQgBQbv8Ft7T83ajMJm8qAw",
+      "net_tao": -2.454975066,
+      "gross_tao": 2.454975066,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FEHAXbeQ5Pg3k5sqsR9f84vnE95r3B5uJpTAb314rdjmCS1",
+      "net_tao": -1.814039577,
+      "gross_tao": 1.814039577,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -0.271167181,
+      "gross_tao": 0.271167181,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789996742,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #12 from EpagoFoundation/staging",
+      "url": "https://github.com/EpagoFoundation/epago/commit/4dcb572f2a5a8ef3a174154d97beecf61c6030e9",
+      "publisher": "EpagoFoundation/epago"
+    },
+    {
+      "ts": 1789996727,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #13 from EpagoFoundation/feat/transcripts-and-atte…",
+      "url": "https://github.com/EpagoFoundation/epago/commit/0a6d6aecdcbbfb5740280c969e9cf7395d758b45",
+      "publisher": "EpagoFoundation/epago"
+    },
+    {
+      "ts": 1789994810,
+      "kind": "commit",
+      "source": "github",
+      "title": "Allow three attempts per hotkey, one model per round, from round 4",
+      "url": "https://github.com/EpagoFoundation/epago/commit/e5c4ccbfcc929634e75500236cfd16ed463f234a",
+      "publisher": "EpagoFoundation/epago"
+    },
+    {
+      "ts": 1789991705,
+      "kind": "commit",
+      "source": "github",
+      "title": "Write full episode transcripts when a transcript directory is set",
+      "url": "https://github.com/EpagoFoundation/epago/commit/f163c55786d7c59a66f747a91a531049eee453cf",
+      "publisher": "EpagoFoundation/epago"
+    },
+    {
+      "ts": 1789570328,
+      "kind": "commit",
+      "source": "github",
+      "title": "Faster rounds, stricter private pool, dashboard accuracy fixes (#11)",
+      "url": "https://github.com/EpagoFoundation/epago/commit/519c9aa8b6c3bf126130cdb4aca497625a4b02d1",
+      "publisher": "EpagoFoundation/epago"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

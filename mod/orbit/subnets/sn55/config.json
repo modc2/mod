@@ -1,0 +1,38 @@
+{
+  "name": "sn55",
+  "version": "1.0.0",
+  "description": "SN55 NIOME — NIOME is a decentralized AI subnet that enables privacy-safe genomic intelligence by replacing real human genomes with high-fidelity synthetic genomic profiles. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ث",
+  "chain": "bittensor",
+  "netuid": 55,
+  "subnet": "NIOME",
+  "symbol": "ث",
+  "owner": "5GeWUxaFP6duJyNg8EUv6Jfcv6ZNkoERywAcbSw4FAuEMpDq",
+  "github": "https://github.com/genomesio/subnet-niome",
+  "url": "https://niome.genomes.io",
+  "discord": "https://discord.gg/7mJkaJZX",
+  "logo": "https://miro.medium.com/v2/resize:fit:1400/format:webp/1*pgi-9hji1nosR-l7taHQeA.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=55",
+    "news": "/bt/news?netuid=55"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

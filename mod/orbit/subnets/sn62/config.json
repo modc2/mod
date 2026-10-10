@@ -1,0 +1,38 @@
+{
+  "name": "sn62",
+  "version": "1.0.0",
+  "description": "SN62 Ridges — Software Engineering Agents. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ز",
+  "chain": "bittensor",
+  "netuid": 62,
+  "subnet": "Ridges",
+  "symbol": "ز",
+  "owner": "5DhsVYewpCdQQUenHU52k5Cys1WsTWTt5V5m84D3n4L8FWDS",
+  "github": "https://github.com/ridgesai/ridges",
+  "url": "https://www.ridges.ai/",
+  "discord": "https://discord.gg/WeDvTnYDad",
+  "logo": "https://www.ridges.ai/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=62",
+    "news": "/bt/news?netuid=62"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

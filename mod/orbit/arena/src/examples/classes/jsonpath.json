@@ -1,0 +1,6 @@
+{
+  "name": "jsonpath",
+  "description": "A drill: six dotted paths into one generated JSON document, built so that grepping for the key finds the wrong one. Tests walking a document, not searching it.",
+  "author": "arena",
+  "tags": ["example", "game", "class", "python", "drill", "json"]
+}

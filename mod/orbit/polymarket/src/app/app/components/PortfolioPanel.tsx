@@ -14,10 +14,17 @@
 // 2 weeks of running you'll see the full 2-week curve.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "../context/AuthContext";
 import { getOwnerAddress } from "../lib/access";
 import { fetchPositions, fetchUserTrades, type GlobalTrade } from "../lib/polymarket";
+import { fetchLiveSessions } from "../lib/liveSessions";
+import { loadIndexes } from "../lib/indexStore";
 import { computeFifoTrades } from "../lib/pnlEngine";
+import {
+  CostLedger, FALLBACK_GAS_QUOTE, FeeBook, NEW_DEPLOYMENT_GAS_OPS, fetchGasQuote,
+  sessionGasUsd, type GasQuote,
+} from "../lib/fees";
 import type { PolymarketPosition, PolymarketTrade } from "../lib/types";
 import { type EquitySnapshot, type EquityMarker } from "./EquityChart";
 import PerfPanel from "./PerfPanel";
@@ -61,7 +68,7 @@ interface PositionLite {
 //            hide on this — a flaky poll shouldn't make a real position vanish.
 async function fetchBestBid(tokenId: string): Promise<number | null | undefined> {
   try {
-    const r = await fetch(`/api/polymarket/?endpoint=book&token_id=${tokenId}`, { cache: "no-store" });
+    const r = await fetch(`/polymarket/api/?endpoint=book&token_id=${tokenId}`, { cache: "no-store" });
     if (r.ok) {
       const book = await r.json();
       const bids = Array.isArray(book?.bids) ? book.bids : [];
@@ -182,6 +189,12 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   const [feedOrder, setFeedOrder] = useState<"newest" | "oldest">("newest");
   // In-flight guard so the auto-redeem effect can't stack requests.
   const redeemBusy = useRef(false);
+  // tokenId → strategyId that opened it, across EVERY session on this wallet.
+  // The positions list below is the deposit WALLET's, and one wallet funds
+  // several strats — so without this the table shows another strat's trades
+  // under this strat's header with nothing to say so.
+  const [posOwners, setPosOwners] = useState<Record<string, string>>({});
+  const [confirmPending, setConfirmPending] = useState<{ msg: string; onOk: () => void } | null>(null);
 
   // Owner-only console: the funded wallet is the signed-in owner (from the
   // access token), which is authoritative. Fall back to the connected wallet
@@ -207,7 +220,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     let wallet: string | null = null;
     try {
       const r = await fetch(
-        `/api/polymarket/deposit-wallet/info?eoa=${eoa}`,
+        `/polymarket/api/deposit-wallet/info?eoa=${eoa}`,
         { cache: "no-store" },
       );
       if (r.ok) {
@@ -233,7 +246,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       // 2a) Authoritative TOTAL positions value — one light call that tends to
       // survive rate-limiting even when the heavier /positions list is empty.
       try {
-        const vr = await fetch(`/api/polymarket/?endpoint=value&user=${wallet}`, { cache: "no-store" });
+        const vr = await fetch(`/polymarket/api/?endpoint=value&user=${wallet}`, { cache: "no-store" });
         if (vr.ok) {
           const vj = await vr.json();
           const v = Array.isArray(vj) ? Number(vj[0]?.value) : Number(vj?.value);
@@ -284,6 +297,22 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         setLastError(`positions: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+
+    // 2c) Who opened what. Every session's ledger tags its positions with the
+    // strat that bought them (live_engine.rs `OpenPosition.strategy_id`);
+    // a position adopted from the chain carries no tag and stays unlabelled.
+    // Best-effort — a failed read just leaves the rows unbadged.
+    try {
+      const sessions = await fetchLiveSessions(eoa);
+      const owners: Record<string, string> = {};
+      for (const s of sessions) {
+        for (const [tokenId, p] of Object.entries(s.state?.positions ?? {})) {
+          const owner = p.strategyId || s.strategyId;
+          if (owner) owners[tokenId] = owner;
+        }
+      }
+      setPosOwners(owners);
+    } catch { /* rows render without the badge */ }
 
     // Split realizable vs not. Hidden = no bid on the book AND not
     // redeemable — a SELL there can never fill, so we neither list it nor
@@ -400,19 +429,18 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     const red = positions.filter((p) => p.redeemable);
     if (red.length === 0) return;
     const claimable = red.reduce((s, p) => s + p.value, 0);
-    if (
-      !opts.auto &&
-      !confirm(
-        `Redeem ${red.length} settled position(s) (~${fmtUsd(claimable)} → cash)?\n\nConverts winning tokens to USDC on-chain (gasless) and wraps it into your trading balance. SELL can't cash these out — the markets have already resolved.`,
-      )
-    ) {
+    if (!opts.auto) {
+      setConfirmPending({
+        msg: `Redeem ${red.length} settled position(s) (~${fmtUsd(claimable)} → cash)?\n\nConverts winning tokens to USDC on-chain (gasless) and wraps it into your trading balance. SELL can't cash these out — the markets have already resolved.`,
+        onOk: () => { setConfirmPending(null); void doRedeem({ auto: true }); },
+      });
       return;
     }
     redeemBusy.current = true;
     setRedeeming(true);
     setRedeemStatus(`${opts.auto ? "auto-" : ""}redeeming ${red.length} settled position(s)…`);
     try {
-      const r = await fetch("/api/polymarket/redeem", {
+      const r = await fetch("/polymarket/api/redeem", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ eoa }),
@@ -498,15 +526,51 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     return { delta: total - start, since: first.t, start };
   }, [history, total]);
 
-  // Executed notional + friction, on the SAME zero-fee model the backtest
-  // books (CLOB charges no fee at fee_rate_bps 0; proxy trades are
-  // relayer-paid). Keeping the model identical is what lets the two panels'
-  // cost rows be compared at all — see PerfPanel's header comment.
+  // Live Polygon gas price, so the GAS line is measured rather than assumed.
+  const [gasQuote, setGasQuote] = useState<GasQuote>(FALLBACK_GAS_QUOTE);
+  useEffect(() => {
+    let live = true;
+    fetchGasQuote()
+      .then((q) => { if (live) setGasQuote(q); })
+      .catch(() => { /* the labelled fallback stays */ });
+    return () => { live = false; };
+  }, []);
+
+  // Executed notional + friction, through the SAME cost model the backtest
+  // books (lib/fees.ts). Keeping the model identical is what lets the two
+  // panels' cost rows be compared at all — see PerfPanel's header comment.
+  //
+  // These are MY fills, so where the feed reports the USDC that actually moved
+  // the fee is not modelled at all: it is the difference between that and
+  // `price x size`, to the cent. Where it doesn't, the market's category
+  // prices it, and the COSTS drawer says which happened.
   const costs = useMemo(() => {
-    const amount = fills.reduce((s, f) => s + f.price * f.size, 0);
+    const ledger = new CostLedger(new FeeBook().observeAll(fills), gasQuote);
+    let amount = 0;
+    for (const f of fills) {
+      const notional = f.price * f.size;
+      amount += notional;
+      ledger.charge({
+        conditionId: f.conditionId, market: f.market, slug: f.slug,
+        shares: f.size, price: f.price, notional,
+      });
+    }
     const pnl = sessionDelta?.delta ?? 0;
-    return { amount, fees: 0, gas: 0, txs: fills.length, gross: pnl };
-  }, [fills, sessionDelta]);
+    // The wallet is already deployed and funded by the time it has fills, so
+    // its gas is spent, not pending — but it IS what the account paid to exist.
+    const gas = sessionGasUsd(NEW_DEPLOYMENT_GAS_OPS, gasQuote);
+    // Same definition as the replay's: GROSS is the P&L before friction, and
+    // the friction was already paid out of this equity change.
+    const gross = pnl + ledger.fees + gas;
+    return {
+      amount,
+      fees: ledger.fees,
+      gas,
+      breakdown: ledger.breakdown(NEW_DEPLOYMENT_GAS_OPS, gross),
+      txs: fills.length,
+      gross,
+    };
+  }, [fills, sessionDelta, gasQuote]);
 
   // ── Rotation queue ──
   // Mirror the live engine's forward-EP ranking so the user can see which
@@ -534,9 +598,81 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       .sort((a, b) => a.forwardEP - b.forwardEP || b.pnlUsd - a.pnlUsd);
   }, [positions, strategyId]);
 
+  const doSellAll = useCallback(async (all: PositionLite[]) => {
+    setSelling(true);
+    setSellStatus(`selling ${all.length} positions…`);
+    let ok = 0;
+    let fail = 0;
+    for (let i = 0; i < all.length; i++) {
+      const p = all[i];
+      setSellStatus(`selling ${i + 1}/${all.length} · ${p.market.slice(0, 28)}…`);
+      try {
+        const sellPrice = tickRound(
+          Math.max(0.01, p.bestBid != null ? p.bestBid : p.currentPrice - 0.01),
+        );
+        const body = {
+          eoa,
+          creds: { apiKey: "u", secret: "u", passphrase: "u" },
+          args: {
+            tokenId: p.tokenId,
+            side: "SELL",
+            price: sellPrice,
+            size: Math.round(p.size * 100) / 100,
+            feeRateBps: 0,
+            expiration: 0,
+            signatureType: 3,
+            orderType: "FAK",
+            negRisk: p.negRisk,
+            maker: "0x0000000000000000000000000000000000000000",
+          },
+        };
+        const r = await fetch("/polymarket/api/order/place", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (r.ok) {
+          const j = (await r.json()) as { success?: boolean; errorMsg?: string };
+          if (j.success === false) {
+            fail++;
+            if (j.errorMsg) setLastError(`${p.market.slice(0, 28)}: ${j.errorMsg}`);
+          } else ok++;
+        } else {
+          fail++;
+          const detail = await r.text().catch(() => "");
+          setLastError(`${p.market.slice(0, 28)}: HTTP ${r.status} ${detail.slice(0, 120)}`);
+        }
+      } catch (e) {
+        fail++;
+        setLastError(`${p.market.slice(0, 28)}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    setSellStatus(`sold ${ok} ✓ · ${fail} failed`);
+    setSelling(false);
+    setTimeout(refresh, 4_000);
+  }, [eoa, refresh]);
+
+  // Label a row with the strat that opened it — but ONLY when that isn't the
+  // strat whose panel this is. Badging every row would just be noise; the
+  // question this answers is "which of my strats made this trade?", and it
+  // only comes up for the rows this one didn't make.
+  const ownerBadge = useCallback(
+    (tokenId: string): { label: string; title: string } | undefined => {
+      const owner = posOwners[tokenId];
+      if (!owner || owner === strategyId) return undefined;
+      const name = loadIndexes().find((s) => s.id === owner)?.name ?? owner;
+      return {
+        label: name,
+        title: `Opened by your ${name} strat, not this one. Strats share one deposit wallet, so its positions show up here too — check that strat's TRADE tab for why it bought this.`,
+      };
+    },
+    [posOwners, strategyId],
+  );
+
   if (!auth.connected) return null;
 
   return (
+    <>
     <PerfPanel
       label="LIVE"
       stats={{
@@ -552,7 +688,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
           ? (sessionDelta.delta / sessionDelta.start) * 100
           : null,
         pnlTitle: sessionDelta
-          ? `Equity change since the oldest snapshot (${fmtUsd(sessionDelta.start)} ${fmtRelTime(Date.now(), sessionDelta.since)}) — fees and gas already paid out of cash. Same accounting as the TEST curve.`
+          ? `Equity change since the oldest snapshot (${fmtUsd(sessionDelta.start)} ${fmtRelTime(Date.now(), sessionDelta.since)}) — Polymarket's taker fee and Polygon gas already paid out of cash. Same accounting as the TEST curve; open COSTS for what they came to.`
           : "Equity change over the plotted window — not enough history yet.",
       }}
       costs={costs}
@@ -570,11 +706,12 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         pnlUsd: p.pnlUsd,
         badge: p.redeemable ? "REDEEM" : undefined,
         badgeTitle: "Market resolved — cash out via REDEEM, not SELL",
+        owner: ownerBadge(p.tokenId),
         rowTitle: `${p.market} · ${p.outcome}${p.tracked ? ` · fwd EP $${p.forwardEP.toFixed(2)}` : " · not opened by the engine (rotates first)"}`,
       }))}
       positionsNote={
-        <span title="Rows are in rotation order — the engine sells the lowest forward expected profit first to fund new buys.">
-          rotation order · ▸ = sold first
+        <span title="Every strat on this wallet trades out of one deposit wallet, so this lists the WALLET's holdings — rows another strat opened carry its name. Order is the rotation order: the engine sells the lowest forward expected profit first to fund new buys.">
+          whole wallet · rotation order · ▸ = sold first
         </span>
       }
       footer={<>
@@ -621,80 +758,14 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       {posValue > 0 && (
         <div className="flex justify-end">
             <button
-              onClick={async () => {
+              onClick={() => {
                 if (!eoa) return;
-                // Resolved (redeemable) markets have no order book — a SELL
-                // there always bounces ("invalid token id"). Exclude them;
-                // they cash out through REDEEM → CASH instead. Also skip
-                // anything whose book probe found no bid — a SELL can't fill.
                 const all = positions.filter((p) => p.tokenId && p.size > 0 && !p.redeemable && p.sellable);
                 if (all.length === 0) return;
-                if (
-                  !confirm(
-                    `Sell ALL ${all.length} positions (~${fmtUsd(posValue)} → cash)?\n\nUses market-aggressive limit orders (current price). Some may partially fill if liquidity is thin.`,
-                  )
-                ) {
-                  return;
-                }
-                setSelling(true);
-                setSellStatus(`selling ${all.length} positions…`);
-                let ok = 0;
-                let fail = 0;
-                for (let i = 0; i < all.length; i++) {
-                  const p = all[i];
-                  setSellStatus(`selling ${i + 1}/${all.length} · ${p.market.slice(0, 28)}…`);
-                  try {
-                    // Sell AT the live best bid when the book probe captured
-                    // one — a FAK priced above the bid just gets killed
-                    // without filling. Fall back to current price - 1¢.
-                    const sellPrice = tickRound(
-                      Math.max(0.01, p.bestBid != null ? p.bestBid : p.currentPrice - 0.01),
-                    );
-                    const body = {
-                      eoa,
-                      creds: { apiKey: "u", secret: "u", passphrase: "u" },
-                      args: {
-                        tokenId: p.tokenId,
-                        side: "SELL",
-                        price: sellPrice,
-                        size: Math.round(p.size * 100) / 100,
-                        feeRateBps: 0,
-                        expiration: 0,
-                        signatureType: 3,
-                        orderType: "FAK",
-                        negRisk: p.negRisk,
-                        // Backend ignores this and derives the V2 deposit
-                        // wallet from `eoa` itself, but the field is
-                        // required by PlaceOrderArgs.
-                        maker: "0x0000000000000000000000000000000000000000",
-                      },
-                    };
-                    const r = await fetch("/api/polymarket/order/place", {
-                      method: "POST",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify(body),
-                    });
-                    if (r.ok) {
-                      const j = (await r.json()) as { success?: boolean; errorMsg?: string };
-                      if (j.success === false) {
-                        fail++;
-                        if (j.errorMsg) setLastError(`${p.market.slice(0, 28)}: ${j.errorMsg}`);
-                      } else ok++;
-                    } else {
-                      fail++;
-                      const detail = await r.text().catch(() => "");
-                      setLastError(`${p.market.slice(0, 28)}: HTTP ${r.status} ${detail.slice(0, 120)}`);
-                    }
-                  } catch (e) {
-                    fail++;
-                    setLastError(`${p.market.slice(0, 28)}: ${e instanceof Error ? e.message : String(e)}`);
-                  }
-                }
-                setSellStatus(`sold ${ok} ✓ · ${fail} failed`);
-                setSelling(false);
-                // History is kept — the drop in the Positions line IS the
-                // story, and the SELL markers on the curve explain it.
-                setTimeout(refresh, 4_000);
+                setConfirmPending({
+                  msg: `Sell ALL ${all.length} positions (~${fmtUsd(posValue)} → cash)?\n\nUses market-aggressive limit orders (current price). Some may partially fill if liquidity is thin.`,
+                  onOk: () => { setConfirmPending(null); void doSellAll(all); },
+                });
               }}
               disabled={selling || posValue <= 0}
               className="text-[10px] px-2 py-0.5 bg-red-700/80 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded"
@@ -715,5 +786,52 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       )}
       </>}
     />
+    {confirmPending && createPortal(
+      <div
+        className="fixed inset-0 z-[70] grid place-items-center p-4"
+        onClick={() => setConfirmPending(null)}
+      >
+        <div className="absolute inset-0" style={{ background: "rgb(var(--pixel-black-rgb)/0.6)" }} />
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setConfirmPending(null);
+            if (e.key === "Enter") confirmPending.onOk();
+          }}
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+          className="relative w-full max-w-[360px] rounded-[var(--radius)] backdrop-blur-md p-4 outline-none"
+          style={{
+            background: "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.98), rgb(var(--pixel-bg-rgb)/0.96))",
+            border: "1px solid var(--border)",
+            boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
+            animation: "drawer-in-left 0.14s ease-out",
+          }}
+        >
+          <div className="mt-1 text-[12.5px] font-mono text-pixel-white leading-relaxed whitespace-pre-wrap">
+            {confirmPending.msg}
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              onClick={() => setConfirmPending(null)}
+              className="rounded-[var(--radius-sm)] border border-pixel-border px-3 py-1.5 text-[11px] font-mono font-semibold tracking-[0.06em] text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40 transition-colors"
+            >
+              CANCEL
+            </button>
+            <button
+              onClick={confirmPending.onOk}
+              autoFocus
+              className="rounded-[var(--radius-sm)] border border-amber-400/50 bg-amber-400/10 px-3 py-1.5 text-[11px] font-mono font-semibold tracking-[0.06em] text-amber-400 hover:bg-amber-400/20 hover:border-amber-400 transition-colors"
+            >
+              CONFIRM
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )}
+  </>
   );
 }

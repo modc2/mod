@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>dag — run a graph over the fleet</title>
+<style>
+:root{
+  --bg:#0c0d10; --panel:#131519; --line:#22262e; --ink:#d8dde5; --dim:#7c8695;
+  --accent:#6ee7a8; --warn:#f0c674; --bad:#f2777a; --run:#7aa2f7; --skip:#4a5162;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 var(--mono)}
+header{display:flex;align-items:baseline;gap:14px;padding:10px 16px;
+  border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+header h1{font-size:15px;margin:0;letter-spacing:.14em;text-transform:uppercase}
+header .sub{color:var(--dim);font-size:11px}
+header .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+main{display:grid;grid-template-columns:290px minmax(0,1fr) 340px;gap:1px;
+  background:var(--line);min-height:calc(100vh - 44px)}
+section{background:var(--bg);padding:12px;overflow:auto;max-height:calc(100vh - 44px)}
+h2{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);
+  margin:0 0 8px;font-weight:600}
+h2 + h2{margin-top:16px}
+input,textarea,select,button{font:inherit;color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:3px;padding:6px 8px}
+input:focus,textarea:focus{outline:1px solid var(--run);border-color:var(--run)}
+button{cursor:pointer;background:#1a1e25}
+button:hover{border-color:var(--run)}
+button.go{background:#17301f;border-color:#2c6b45;color:var(--accent)}
+button.go:hover{background:#1d4029}
+.full{width:100%}
+textarea{width:100%;min-height:46vh;resize:vertical;line-height:1.45;tab-size:2;white-space:pre}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.tool{padding:6px;border:1px solid var(--line);border-radius:3px;margin-bottom:5px;
+  cursor:pointer;background:var(--panel)}
+.tool:hover{border-color:var(--run)}
+.tool b{font-weight:600;color:var(--ink);word-break:break-all}
+.tool .d{color:var(--dim);font-size:11px;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.tool .req{color:var(--warn);font-size:11px}
+.step{display:flex;gap:8px;align-items:baseline;padding:5px 7px;border-left:2px solid var(--line);
+  margin-bottom:3px;background:var(--panel)}
+.step .id{font-weight:600;min-width:72px;word-break:break-all}
+.step .t{color:var(--dim);font-size:11px;flex:1;word-break:break-all}
+.step .ms{color:var(--dim);font-size:11px}
+.ok{border-left-color:var(--accent)} .ok .id{color:var(--accent)}
+.failed{border-left-color:var(--bad)} .failed .id{color:var(--bad)}
+.running{border-left-color:var(--run)} .running .id{color:var(--run)}
+.skipped{border-left-color:var(--skip)} .skipped .id{color:var(--dim)}
+.pending .id{color:var(--dim)}
+.msg{color:var(--bad);font-size:11px;padding:2px 0 6px 9px;word-break:break-word}
+.msg.warnish{color:var(--warn)}
+pre{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:9px;
+  overflow:auto;max-height:44vh;margin:0;font-size:12px;white-space:pre-wrap;word-break:break-word}
+.pill{display:inline-block;padding:1px 7px;border-radius:9px;border:1px solid var(--line);
+  font-size:11px;color:var(--dim)}
+.pill.ok{color:var(--accent);border-color:#2c6b45}
+.pill.failed{color:var(--bad);border-color:#6b2c2e}
+.pill.running{color:var(--run);border-color:#2c456b}
+.hist{padding:5px 7px;border:1px solid var(--line);border-radius:3px;margin-bottom:4px;
+  cursor:pointer;display:flex;gap:8px;align-items:baseline;background:var(--panel)}
+.hist:hover{border-color:var(--run)}
+.hist .n{flex:1;word-break:break-all}
+.muted{color:var(--dim)}
+a{color:var(--run)}
+@media (max-width:1100px){main{grid-template-columns:1fr}section{max-height:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>dag</h1>
+  <span class="sub" id="sub">a graph of fleet calls, run in parallel</span>
+  <span class="right">
+    <span class="pill" id="hub">hub …</span>
+    <input id="token" placeholder="bearer token (only if set)" style="width:200px">
+  </span>
+</header>
+
+<main>
+<section>
+  <h2>fleet tools</h2>
+  <input id="q" class="full" placeholder="search 600+ tools — click one to add a step">
+  <div id="tools" class="muted" style="margin-top:8px">loading…</div>
+</section>
+
+<section>
+  <h2>graph</h2>
+  <textarea id="spec" spellcheck="false"></textarea>
+  <div class="row">
+    <button onclick="doPlan()">plan</button>
+    <button onclick="run(true)">dry run</button>
+    <button class="go" onclick="run(false)">run</button>
+    <span style="flex:1"></span>
+    <input id="gname" placeholder="name" style="width:120px">
+    <button onclick="save()">save</button>
+  </div>
+  <div class="row"><span class="muted" id="note"></span></div>
+  <div id="plan"></div>
+  <h2 style="margin-top:14px">output</h2>
+  <pre id="out">—</pre>
+</section>
+
+<section>
+  <h2>run <span id="runid" class="muted"></span></h2>
+  <div id="steps" class="muted">nothing running</div>
+  <h2>saved graphs</h2>
+  <div id="graphs" class="muted">…</div>
+  <h2>history</h2>
+  <div id="runs" class="muted">…</div>
+</section>
+</main>
+
+<script>
+const API = (location.pathname.replace(/\/+$/,'') || '') + '/_api';
+const $ = id => document.getElementById(id);
+let INDEX = [], POLL = null;
+
+const EXAMPLE = {
+  name: "wallet-report",
+  inputs: { wallet: { required: true, description: "a Solana address" } },
+  steps: [
+    { id: "what", tool: "solana__sol_account", args: { address: "${inputs.wallet}" } },
+    { id: "held", tool: "solana__sol_portfolio", args: { address: "${inputs.wallet}" } },
+    { id: "top", use: "expr", value: "${held.tokens}", sort_by: "value_usd", desc: true, limit: 3 },
+    { id: "risk", foreach: "${top}", tool: "solana__sol_token",
+      args: { mint: "${item.mint}" }, pick: "risk" }
+  ],
+  output: { usd: "${held.total_usd}", top: "${top.symbol}", risk: "${risk}" }
+};
+
+async function api(path, opts={}) {
+  const headers = {'content-type':'application/json'};
+  const t = $('token').value.trim();
+  if (t) headers.authorization = 'Bearer ' + t;
+  const r = await fetch(API + path, {...opts, headers});
+  const body = await r.json().catch(() => ({error: 'the server did not answer JSON'}));
+  if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+  return body;
+}
+
+function spec() {
+  try { return JSON.parse($('spec').value); }
+  catch (e) { throw new Error('the graph is not valid JSON — ' + e.message); }
+}
+function inputsOf(s) {
+  const out = {};
+  for (const [k, v] of Object.entries(s.inputs || {}))
+    if (v && typeof v === 'object' && 'default' in v) out[k] = v.default;
+  return out;
+}
+function fail(e) { $('out').textContent = String(e.message || e); $('note').textContent = ''; }
+
+// ── tools ──────────────────────────────────────────────────────
+async function loadTools() {
+  try {
+    const d = await api('/tools?limit=2000');
+    INDEX = d.tools; $('hub').textContent = d.total + ' tools';
+    $('hub').className = 'pill ok'; drawTools();
+  } catch (e) {
+    $('tools').textContent = 'the hub is not answering: ' + e.message;
+    $('hub').textContent = 'hub down'; $('hub').className = 'pill failed';
+  }
+}
+function drawTools() {
+  const q = $('q').value.toLowerCase();
+  const rows = INDEX.filter(t => !q || t.tool.toLowerCase().includes(q)
+                              || (t.description||'').toLowerCase().includes(q)).slice(0, 80);
+  $('tools').innerHTML = rows.length ? rows.map(t => `
+    <div class="tool" onclick='addStep(${JSON.stringify(JSON.stringify(t))})'>
+      <b>${t.tool}</b>
+      <div class="d">${(t.description||'').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</div>
+      ${t.required.length ? `<div class="req">needs ${t.required.join(', ')}</div>` : ''}
+    </div>`).join('') : '<span class="muted">nothing matches</span>';
+}
+function addStep(json) {
+  const t = JSON.parse(json);
+  let s; try { s = spec(); } catch (e) { return fail(e); }
+  const base = t.tool.split('__').pop().replace(/^[a-z]+_/, '') || 'step';
+  let id = base, n = 2;
+  while ((s.steps || []).some(x => x.id === id)) id = base + (n++);
+  const args = {};
+  for (const r of t.required) args[r] = '';
+  s.steps = (s.steps || []).concat([{ id, tool: t.tool, args }]);
+  $('spec').value = JSON.stringify(s, null, 2);
+  $('note').textContent = 'added ' + id + ' — fill in ' + (t.required.join(', ') || 'its args');
+}
+
+// ── plan / run ─────────────────────────────────────────────────
+async function doPlan() {
+  try {
+    const s = spec();
+    const p = await api('/plan', {method:'POST', body: JSON.stringify({graph: s, inputs: inputsOf(s)})});
+    $('note').textContent = p.note;
+    $('plan').innerHTML = '<pre>' + p.ascii + '</pre>' + p.issues.map(i =>
+      `<div class="msg ${i.level==='warn'?'warnish':''}">${i.level} ${i.step?('· '+i.step):''} — ${i.message}</div>`).join('');
+    $('out').textContent = p.ok ? 'the graph checks out — ' + p.note
+                                : 'this graph will not run as written; see above';
+  } catch (e) { fail(e); }
+}
+
+async function run(dry) {
+  try {
+    const s = spec();
+    $('out').textContent = dry ? 'walking the graph…' : 'running…';
+    $('steps').innerHTML = (s.steps||[]).map(x =>
+      `<div class="step pending"><span class="id">${x.id||'?'}</span><span class="t">queued</span></div>`).join('');
+    const rec = await api('/run', {method:'POST',
+      body: JSON.stringify({graph: s, inputs: inputsOf(s), dry_run: !!dry})});
+    show(rec); loadRuns();
+  } catch (e) { fail(e); }
+}
+
+function show(rec) {
+  $('runid').innerHTML = `${rec.id} <span class="pill ${rec.status}">${rec.status}</span>
+    <span class="muted">${rec.calls} call(s) · ${rec.duration_ms}ms</span>`;
+  $('steps').innerHTML = (rec.steps||[]).map(s => `
+    <div class="step ${s.status}">
+      <span class="id">${s.id}</span>
+      <span class="t">${s.target||''}</span>
+      <span class="ms">${s.duration_ms != null ? s.duration_ms+'ms' : ''}</span>
+    </div>${(s.error||s.reason) ? `<div class="msg ${s.reason?'warnish':''}">${s.error||s.reason}</div>` : ''}`).join('');
+  $('out').textContent = JSON.stringify(rec.outputs ?? rec.error ?? rec, null, 2);
+  $('note').textContent = `${rec.status} · ${rec.calls} call(s) · ${rec.duration_ms}ms`;
+}
+
+// ── saved graphs and history ───────────────────────────────────
+async function save() {
+  try {
+    const s = spec(), name = $('gname').value.trim() || s.name;
+    if (!name) return fail(new Error('give the graph a name first'));
+    await api('/graphs', {method:'POST', body: JSON.stringify({name, graph: s})});
+    $('note').textContent = 'saved as ' + name; loadGraphs();
+  } catch (e) { fail(e); }
+}
+async function loadGraphs() {
+  try {
+    const d = await api('/graphs');
+    $('graphs').innerHTML = d.graphs.length ? d.graphs.map(g => `
+      <div class="hist" onclick="openGraph('${g.name}')">
+        <span class="n">${g.name}</span><span class="muted">${g.steps} steps</span>
+      </div>`).join('') : '<span class="muted">none saved yet</span>';
+  } catch (e) { $('graphs').textContent = e.message; }
+}
+async function openGraph(name) {
+  const d = await api('/graphs/' + encodeURIComponent(name));
+  $('spec').value = JSON.stringify(d.spec, null, 2);
+  $('gname').value = name; $('plan').innerHTML = '<pre>' + d.ascii + '</pre>';
+}
+async function loadRuns() {
+  try {
+    const d = await api('/runs?limit=15');
+    $('runs').innerHTML = d.runs.length ? d.runs.map(r => `
+      <div class="hist" onclick="openRun('${r.id}')">
+        <span class="n">${r.graph}</span>
+        <span class="pill ${r.status}">${r.status}</span>
+        <span class="muted">${r.duration_ms ?? '—'}ms</span>
+      </div>`).join('') : '<span class="muted">no runs yet</span>';
+  } catch (e) { $('runs').textContent = e.message; }
+}
+async function openRun(id) { show(await api('/runs/' + id)); }
+
+$('q').addEventListener('input', drawTools);
+$('spec').value = JSON.stringify(EXAMPLE, null, 2);
+$('token').value = localStorage.getItem('dag_token') || '';
+$('token').addEventListener('change', () => localStorage.setItem('dag_token', $('token').value));
+loadTools(); loadGraphs(); loadRuns();
+</script>
+</body>
+</html>

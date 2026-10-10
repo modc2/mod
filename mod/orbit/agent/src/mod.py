@@ -15,6 +15,9 @@ import json
 import re
 import subprocess
 import signal
+import threading
+import time
+import uuid
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
@@ -24,24 +27,40 @@ try:
 except ImportError:
     m = None
 
-from .agents.mod import Agents
+from .agents.mod import Agents, REQUIRES as AGENT_REQUIRES
 from .memory.mod import Memory
+from .memory.registry import Memories, DEFAULT as DEFAULT_MEMORY
 from .library.mod import Library
 from .toolbox.mod import Toolboxes
 from .tools.mod import Tools
 from .credits import Credits
 from .billing import Meter
+from .hermes import HermesModel
+from .fleet import FLEET, FleetModel, is_fleet
 from .liquid import BROWSER, CATALOG, BrowserModel, LiquidModel
+from .prompt import render as render_prompt
+from .steps import (THINK as THINK_BLOCK, normalize as normalize_step,
+                    parse as parse_calls)
 from .vaults.mod import Vaults
+from .privacy.mod import Privacy, SealError
 from .discover.mod import Discover
 from .harness.mod import Harness, DEFAULT_TIMEOUT as HARNESS_TIMEOUT
+from .agenthub.mod import AgentHub
 from .arena.mod import Arena, Scheduler
+from .graph.mod import Graphs
 from .identity import Identity
 
 
 # ── path sandboxing ────────────────────────────────────────────────
 
 WRITE_TOOLS = ('write', 'edit', 'patch')
+
+# Tools that only look. Running one twice with the same params inside one run
+# is the model going in a circle, so the second call is answered from the
+# first one's result (see run_plan). Everything else — bash, git, the fleet —
+# may change the workspace, so its repeats are real calls.
+READONLY_TOOLS = ('read', 'tree', 'glob', 'grep', 'symbols', 'context',
+                  'diff', 'recall')
 
 # ── repeat-call guard ──────────────────────────────────────────────
 
@@ -52,10 +71,81 @@ WRITE_TOOLS = ('write', 'edit', 'patch')
 # edit is the same call with a legitimately different result.
 MAX_IDENTICAL_FAILURES = 2
 
+# ── circling guard ─────────────────────────────────────────────────
+
+# How many steps in a row may be calls the run had already made before the
+# loop gives up on tool use and goes to write the answer, and the temperature
+# the step after a repeat is sampled at. A greedy decode re-derives the same
+# call from the same task forever; sampling is what gives it another branch.
+MAX_REPEAT_STEPS = 3
+REPEAT_TEMPERATURE = 0.7
+
+# How many steps in a row may use the same tool — with different params, so
+# it is not a repeat — before the loop says so. Advisory only: reading six
+# files in a row is exactly what a good run looks like.
+SAME_TOOL_STREAK = 3
+
+# ── a run that ends on a promise ────────────────────────────────────
+#
+# The most expensive failure in this loop isn't a wrong answer, it's a run
+# that never happened: the model writes "I'll read the config and fix the
+# port" as its finish summary and stops, having called nothing. The caller
+# reads a plan, believes the work was done, and the task quietly didn't
+# happen. Two things have to be true to call it that — no tool ever ran, and
+# the sign-off announces work rather than reporting it — because an answer
+# that legitimately needed no tools ("what does this module do?") looks the
+# same from the outside except for how it is written.
+#
+# Tools that are the agent talking to itself. None of them is doing the task.
+NON_WORK_TOOLS = {'finish', 'response', 'error', 'invalid', 'think', 'todo'}
+
+# "I'll", "let me", "I'm going to", "next I will", "the plan is to" — future
+# tense aimed at the task itself.
+PROMISE_RE = re.compile(
+    r"\b(i'?ll\b|i will\b|i am going to\b|i'?m going to\b|let me\b|let'?s\b"
+    r"|going to (?:start|begin|check|look|read|run|open|create|write|update|fix)"
+    r"|first,? i\b|next,? i\b|the plan is\b)",
+    re.I)
+
+# …and the version with no verb in it at all. "Sure!" is only a promise while
+# it is the whole message — said at the top of a real answer it is manners,
+# which is why this one is length-bound and the one above is not.
+ACK_RE = re.compile(r"^(sure|ok(ay)?|got it|on it|will do|absolutely|of course|"
+                    r"happy to|no problem)\b", re.I)
+MAX_ACK_CHARS = 200
+
+DO_THE_WORK_HINT = (
+    "You ended without doing anything: no tool has run in this task, and your "
+    "last message describes work rather than reporting it. Do it now — call "
+    "the tools the task needs, one step at a time — and only finish once the "
+    "work is actually done, with the summary saying what you did and what "
+    "changed. If the task genuinely needs no tools, answer it outright, "
+    "without saying you are about to."
+)
+
+# ── what one step is allowed to cost a local model ──────────────────
+
+# A step is one small JSON object, but the default cap is sized for a hosted
+# model writing a long finish summary. On CPU weights that difference is the
+# whole run: a model that doesn't stop cleanly generates to the cap, and 8192
+# tokens on this box is ten minutes for one step. Capped only for the models
+# that need it (Agent.compact_prompt); the answer gets a little more room
+# because it is the one turn that is prose.
+LOCAL_STEP_TOKENS = 512
+LOCAL_ANSWER_TOKENS = 768
+
 
 def _call_sig(name: str, params: dict) -> str:
     """Stable identity of a tool call — same tool, same params, same string."""
     return name + '|' + json.dumps(params or {}, sort_keys=True, default=str)
+
+
+def _is_cancel(e: BaseException) -> bool:
+    """True for the API layer's RunCancelled — the one exception a step
+    callback may raise on purpose (the background panel's stop button).
+    Matched by name so this file needs no import from the HTTP layer above
+    it; every other callback exception is still swallowed."""
+    return type(e).__name__ == 'RunCancelled'
 
 
 def _step_failed(step: dict) -> bool:
@@ -229,6 +319,9 @@ RULES:
         'liquidai': 'liquidai',
         'liquidai-cloud': 'liquidai-cloud',
         'browser': 'browser',
+        # NousResearch Hermes weights, held by the hermes module's own process
+        # (hermes.py). Local like the LFM ones, and free for the same reason.
+        'hermes': 'hermes',
     }
 
     # providers built in this module rather than resolved through m.mod()
@@ -236,11 +329,19 @@ RULES:
         'liquidai': lambda: LiquidModel(runtime='server'),
         'liquidai-cloud': lambda: LiquidModel(runtime='cloud'),
         'browser': BrowserModel,
+        'hermes': HermesModel,
     }
 
     # which liquidai runtime each local provider's model list comes from
     LOCAL_RUNTIMES = {'liquidai': 'server', 'liquidai-cloud': 'cloud',
                       'browser': 'browser'}
+
+    # the order default_provider() tries. Weights on this box first — no key,
+    # no bill, no tab required. `browser` is deliberately not in here: it can
+    # only generate while the console is open, so it is a choice, not a default.
+    LOCAL_FIRST = ('liquidai', 'liquidai-cloud')
+    # …and where it lands when nothing local is serving
+    HOSTED_FALLBACK = ('openrouter', 'venice')
 
     # one line each for a UI that has to explain a provider with no key field.
     # 'no key' is not the same claim for all three: the cloud runtime does take
@@ -249,15 +350,24 @@ RULES:
         'liquidai': 'runs on this box — no key, never billed',
         'liquidai-cloud': "Liquid's cloud, on the key set in the liquidai module",
         'browser': 'runs in your own tab — no key, never billed',
+        'hermes': 'Hermes weights on this box — no key, never billed',
     }
 
     DEFAULT_MODELS = {
         'model.openrouter': 'anthropic/claude-opus-5',
         'openrouter': 'anthropic/claude-opus-5',
         'venice': 'deepseek-v3.2',
+        # A run is tool calls *and* the answer that ends it, so the default is
+        # the generalist rather than the tool-calling fine-tune beside it:
+        # measured on this box LFM2-1.2B-Tool makes the cleaner call and then
+        # hands back a shell snippet where the answer should be, while the
+        # instruct build answers in words every time. Both are in the list,
+        # along with LFM2.5-2.6B, which is better than either and minutes per
+        # step on CPU.
         'liquidai': 'LiquidAI/LFM2.5-1.2B-Instruct',
         'liquidai-cloud': 'lfm-2.5-8b-a1b',
         'browser': 'LiquidAI/LFM2.5-350M-ONNX',
+        'hermes': 'hermes-3-8b',
     }
 
     # curated model choices per provider for the UI selector (free-text still allowed)
@@ -290,6 +400,8 @@ RULES:
         # the server loads and what a tab downloads.
         'liquidai': [
             'LiquidAI/LFM2.5-1.2B-Instruct',
+            'LiquidAI/LFM2.5-2.6B',
+            'LiquidAI/LFM2-1.2B-Tool',
             'LiquidAI/LFM2.5-1.2B-Thinking',
             'LiquidAI/LFM2.5-350M',
             'LiquidAI/LFM2.5-230M',
@@ -306,7 +418,24 @@ RULES:
             'LiquidAI/LFM2.5-1.2B-Thinking-ONNX',
             'LiquidAI/LFM2.5-VL-450M-ONNX',
         ],
+        # the hermes module's own registry keys — provider_models() replaces
+        # these with its live list, which also names whatever GGUF the box has
+        # already downloaded and whatever an ollama on it already serves
+        'hermes': [
+            'hermes-3-8b',
+            'hermes-3-8b-q8',
+            'hermes-3-3b',
+        ],
     }
+
+    # Models that read the compact prompt (prompt.py). Everything running on
+    # LFM weights is small by definition, and everything else that names its
+    # own size in the billions announces itself: `LFM2.5-1.2B`, `-350M`,
+    # `qwen3-4b`. A dash or a word boundary has to come first, so `gemma-4-31b`
+    # and `llama-3.3-70b` — big models — are not caught by the `1b`/`0b` inside
+    # them. Being wrong here costs prompt quality, never correctness: the
+    # compact prompt says the same things in fewer tokens.
+    SMALL_MODEL_RE = re.compile(r'(?:\b|-)(?:\d{1,3}m|[0-4](?:\.\d)?b)\b', re.I)
 
     # FREE MODE ranking. The agent loop needs a model that can hold a long
     # transcript and emit well-formed step anchors, which rules out most of
@@ -320,58 +449,207 @@ RULES:
     }
 
     output_format = """
-        Respond with exactly ONE step per iteration inside anchors.
-        The params must be valid JSON.
-        <PLAN>
-        <STEP>{"tool": "<tool_name>", "params": {...}}</STEP>
-        </PLAN>
-        When finished:
-        <PLAN>
+        Reply with ONE step and nothing else — no commentary around it:
+        <STEP>{"tool": "TOOL_NAME", "params": {"ARG": "VALUE"}}</STEP>
+        Use a tool name from the list above, its own parameter names, and
+        valid JSON. Call one tool per reply and wait for its result.
+        When the work is done — or the question needed no tools at all —
+        reply with the step that ends the run:
         <STEP>{"tool": "finish", "params": {"summary": "your answer, written to the user"}}</STEP>
-        </PLAN>
         The summary is shown to the user as your response — write the actual
         answer there, not a description of what you did.
     """
 
+    # ── per-run state ────────────────────────────────────────────────
+    # Behind the API this object is one singleton shared by every thread:
+    # the console's runs, MCP calls and the arena scheduler all run on it at
+    # once. What a run sets for itself — where its steps go, which paths it
+    # may write, which directory it is in, which images it carries — has to
+    # live on the thread, not on the object. Held on the object, the arena
+    # match that started a moment after a console run took over the
+    # console's step callback, and the console watched a free-model 429
+    # from a match it never ran while its own Opus run on Venice was fine
+    # (and, the other way round, an arena match could inherit the owner's
+    # unsandboxed write paths). Each of these still reads and writes as a
+    # plain attribute; the storage is threading.local, created lazily so an
+    # Agent built without __init__ (tests) has one too.
+    def _tl(self) -> threading.local:
+        local = self.__dict__.get('_local')
+        if local is None:
+            local = self.__dict__['_local'] = threading.local()
+        return local
+
+    def _run_local(name, default=None):
+        def get(self):
+            return getattr(self._tl(), name, default() if callable(default) else default)
+
+        def set_(self, value):
+            setattr(self._tl(), name, value)
+        return property(get, set_)
+
+    _on_step = _run_local('on_step')
+    _on_usage = _run_local('on_usage')
+    _on_live = _run_local('on_live')
+    _images = _run_local('images', list)
+    _allowed_paths = _run_local('allowed_paths')
+    _path = _run_local('path')
+    _failed_calls = _run_local('failed_calls')
+    _done_calls = _run_local('done_calls')
+    # the signed-in caller behind this run — what a tool that acts on the
+    # caller's behalf (make_agent) files under. Never read off the wire by a
+    # tool: run() sets it from the key the run was authorized with.
+    _run_key = _run_local('run_key')
+    del _run_local
+
+    def _clear_run_state(self) -> None:
+        """Forget this thread's run. Worker threads are reused, and a snap()
+        on a thread that last ran a sandboxed guest would otherwise still
+        think it is sandboxed."""
+        for name in ('on_step', 'on_usage', 'on_live', 'images', 'allowed_paths',
+                     'path', 'failed_calls', 'done_calls', 'run_key'):
+            try:
+                delattr(self._tl(), name)
+            except AttributeError:
+                pass
+
+    def _explain_rate_limit(self, short: str, model: str, err: str) -> str:
+        """A provider's 429 in plain words, with what to do about it.
+
+        The raw body is a dict of headers and a `limit_source`, which reads
+        as nonsense next to a balance pill showing money: the credit is real,
+        it just isn't what a free model draws on. Say which door closed —
+        the free-model quota, shared by everything on the key — when it
+        reopens, and the two ways out. Anything that isn't a 429 comes back
+        untouched.
+        """
+        low = err.lower()
+        if '429' not in err and 'rate limit' not in low:
+            return err
+        reset = ''
+        found = re.search(r"X-RateLimit-Reset['\"]?\s*:\s*['\"]?(\d{10,13})", err)
+        if found:
+            ts = int(found.group(1))
+            ts = ts / 1000 if ts > 10 ** 11 else ts
+            reset = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(ts))
+        if 'free-models-per-day' in err or ':free' in (model or ''):
+            return (f"rate limited: {short}'s free-model quota for today is used up, "
+                    f"so {model} can't answer"
+                    + (f" — resets {reset}" if reset else " — resets at 00:00 UTC")
+                    + ". Switch to a paid model (turn 'Spend credits' on), pick "
+                    "another provider, or wait for the reset.")
+        return (f"rate limited by {short} on {model}"
+                + (f" — resets {reset}" if reset else "")
+                + ". Try again shortly, or switch model or provider.")
+
     def __init__(self,
-                 model: str = 'model.openrouter',
+                 # unset: the provider is resolved on first use, and resolves
+                 # local (default_provider). Naming one here still pins it.
+                 model: str = None,
                  provider: str = None,
-                 memory: str = 'agent.memory',
+                 memory: str = DEFAULT_MEMORY,
                  goal: str = None,
                  tools: list = None,
                  **kwargs):
         self.agents = Agents()
         # images attached to the current run (data URLs or http urls)
         self._images: List[str] = []
+        # ── the sub-components this box is made of ──
+        # An agent is not one object: it is a prompt, a model, a toolbox, a
+        # tool registry and a memory module, held together here. Each one is
+        # its own mod with its own registry, and each is swappable — which is
+        # what makes an agent something you compose rather than something you
+        # fork. parts() is the whole box in one view.
+        #
         # the whole tool surface in one registry: the tools shipped here, the
         # shell tools added from the console, and every mod in the fleet
         self.tools = Tools()
         # toolboxes: named tool bundles that snap onto this agent
         self.toolboxes = Toolboxes(tools=self.tools)
         self._snapped: List[str] = []
-        self.memory = m.mod(memory)() if m else Memory()
+        # memory: one of the pluggable memory modules (memory/registry.py).
+        # A dotted name ('agent.memory') still resolves through the framework,
+        # so an agent can be built with a memory that lives in another mod.
+        self.memories = Memories()
+        # per-thread overrides of the components a single run may swap — see
+        # the `memory` property and _bind_memory
+        self._local = threading.local()
+        self.memory = self.memories.make(memory)
+        # the tools that act on those sub-components (recall, remember,
+        # toolbox) need the live box, not a second copy of it
+        self.tools.bind(self)
         # session keys: provider shortname -> API key decrypted from the vault,
         # held IN MEMORY ONLY (never written to disk in plaintext)
         self._session_keys: Dict[str, str] = {}
         # resolve provider: shorthand ('venice', 'openrouter') or full module path
         provider = provider or model
-        self._provider = self.PROVIDERS.get(provider, provider)
         # one live client per provider path, built on demand — a run holds its
         # own so concurrent runs never trade clients (see _client)
         self._clients: Dict[str, Any] = {}
         # why a provider has no client, when it isn't a missing key (see run)
         self._client_why: Dict[str, str] = {}
-        self.model = self._client()
+        # Named none, the provider is resolved on first use rather than here:
+        # default_provider() probes the local runtime, and a module must not
+        # do that while it is still being constructed (see _client).
+        self._provider = self.PROVIDERS.get(provider, provider) if provider else None
+        self.model = self._client() if self._provider else None
         # prices each model call from the provider's live catalog, so a guest's
         # credits pay for the provider spend their run actually creates
         self.meter = Meter()
+        # arena matches run keyless, so this object IS their standing: it can
+        # only be held by code in this process — JSON off the wire can't forge
+        # object identity — which is what lets the harness gate trust it
+        self._arena_pass = object()
         if goal:
             self.goal = goal
         self._tool_names = tools  # optional filter
 
+    # ── the memory a run thinks with ─────────────────────────────────
+    #
+    # Behind the API this module is one Mod for the whole host, and working
+    # memory — the dict the prompt is built from — used to be one dict on it.
+    # Two runs at once then wrote the same scratchpad: the console's question
+    # was compiled with an arena match's task, tools and history, and came
+    # back answering the arena's task. (That is not hypothetical; it is what
+    # this comment was written from.)
+    #
+    # So each run binds its own memory instance to its own thread — the same
+    # pattern the meter uses for its tally (billing.py) and the browser bridge
+    # for its session (liquid.py). The durable layers are files, so a per-run
+    # instance still reads and writes the same episodes, facts and turns; only
+    # the scratchpad is private. Unbound, every reader gets the module's own.
+
+    @property
+    def memory(self):
+        return getattr(getattr(self, '_local', None), 'memory', None) or self._memory
+
+    @memory.setter
+    def memory(self, value):
+        """Setting it sets the module's default — that is what a caller doing
+        `agent.memory = …` outside a run means."""
+        self._memory = value
+
+    def _bind_memory(self, memory=None) -> None:
+        """Give this thread its own memory for the run about to start.
+
+        Named one is used as-is (an agent built with `ephemeral`, a caller's
+        override). Otherwise the run gets a fresh instance of the module's own
+        kind: same durable stores, its own scratchpad.
+        """
+        if memory is None:
+            try:
+                memory = self.memories.make(
+                    self.memories.name_of(self._memory), fresh=True)
+            except Exception:
+                return          # no registry to make one from: share, as before
+        self._local.memory = memory
+
+    def _unbind_memory(self) -> None:
+        if hasattr(getattr(self, '_local', None), 'memory'):
+            del self._local.memory
+
     def _provider_short(self, provider_path: str = None) -> str:
         """Map a provider module path back to its shortname ('model.openrouter' -> 'openrouter')."""
-        provider_path = provider_path or self._provider
+        provider_path = provider_path or self._provider or self.default_provider()
         for short, path in self.PROVIDERS.items():
             if path == provider_path:
                 return short
@@ -391,6 +669,10 @@ RULES:
         local = self.LOCAL_PROVIDERS.get(provider)
         if local:
             return local()
+        # any other model module in the fleet (`mod:chutes`), driven in its
+        # own process on its own key — see fleet.py
+        if is_fleet(provider):
+            return FleetModel(provider)
         if not m:
             return None
         session_key = self._session_keys.get(self._provider_short(provider))
@@ -425,7 +707,13 @@ RULES:
         and one provider gets the other's model id ("No model matching
         'nvidia/...:free' found on Venice"). Resolving per run kills that race.
         """
-        path = self.PROVIDERS.get(provider, provider) if provider else self._provider
+        if provider:
+            path = self.PROVIDERS.get(provider, provider)
+        else:
+            # nobody has picked one yet: local, and remembered from here on
+            self._provider = self._provider or \
+                self.PROVIDERS.get(self.default_provider(), self.default_provider())
+            path = self._provider
         if self._clients.get(path) is None:
             self._clients[path] = self._make_model(path)
         return self._clients[path]
@@ -454,6 +742,43 @@ RULES:
                 if pref in mid:
                     return mid
         return free[0] if free else None
+
+    def default_provider(self) -> str:
+        """The provider a caller who named none runs on.
+
+        Local first, and not as a preference: the alternative spends real
+        money on somebody's key for a question that a model on this box can
+        often answer. So a run defaults to the LFM weights running here
+        (liquidai), and only falls back to a hosted provider when nothing
+        local is actually serving — a default that costs nothing is only a
+        good default while it works.
+
+        Anyone who wants Opus asks for Opus: the console's picker, the
+        agent's own saved model, and the `provider` argument all still win.
+        Cached briefly because /providers, /params and every run ask.
+        """
+        cached = getattr(self, '_default_provider', None)
+        if cached and time.time() - cached[0] < 60:
+            return cached[1]
+        pick = None
+        for short in self.LOCAL_FIRST:
+            try:
+                if self._client(short) is not None and self.provider_models(short):
+                    pick = short
+                    break
+            except Exception:
+                continue
+        if not pick:
+            # nothing local is serving — the hosted provider whose key is
+            # actually configured, since a default that can't run is no default
+            def ready(short: str) -> bool:
+                try:                      # key_info is Mod's; Agent alone has none
+                    return bool(self.key_info(short).get('configured'))
+                except Exception:
+                    return self._client(short) is not None
+            pick = next((p for p in self.HOSTED_FALLBACK if ready(p)), 'openrouter')
+        self._default_provider = (time.time(), pick)
+        return pick
 
     def is_free_provider(self, provider: str = None) -> bool:
         """True when a run on this provider can't cost the module anything.
@@ -485,6 +810,9 @@ RULES:
         # model look like it belonged to somebody else — so each one but the
         # default was silently swapped out for claude-opus-5.
         short = self._provider_short(provider)
+        if is_fleet(short):
+            # a fleet module names its own models; none asked for = its default
+            return model or FleetModel(short).default_model() or ''
         if not model:
             return self.DEFAULT_MODELS.get(short, 'anthropic/claude-opus-5')
         if model in set(self.MODELS.get(short, [])):
@@ -504,6 +832,19 @@ RULES:
         Liquid shipped this morning is selectable this afternoon; everything
         else is the curated MODELS list.
         """
+        # a fleet module's list is whatever it last answered — never waited
+        # on here, /providers asks on every page load (see FLEET.models)
+        if is_fleet(provider):
+            return FLEET.cached_models(provider)
+        # hermes is local but not a liquidai runtime: its list comes from
+        # its own module, so a GGUF downloaded this morning is selectable now
+        if provider == 'hermes':
+            try:
+                live = self._client('hermes').free_models()
+            except Exception as e:
+                print(f"Model list lookup failed for hermes: {e}")
+                live = []
+            return live or self.MODELS.get(provider, [])
         runtime = self.LOCAL_RUNTIMES.get(provider)
         if runtime:
             try:
@@ -515,6 +856,22 @@ RULES:
             if live:
                 return live
         return self.MODELS.get(provider, [])
+
+    def all_providers(self) -> List[str]:
+        """Every provider a run may name: the built-ins, then each model
+        module found in the fleet (`mod:<name>`, see fleet.py)."""
+        try:
+            fleet = FLEET.keys()
+        except Exception as e:
+            print(f"[agent] fleet scan failed: {e}")
+            fleet = []
+        return list(self.PROVIDERS) + [k for k in fleet if k not in self.PROVIDERS]
+
+    def provider_hint(self, provider: str) -> Optional[str]:
+        if is_fleet(provider):
+            row = FLEET.get(provider) or {}
+            return row.get('hint') or f"the {provider[4:]} module, on its own key"
+        return self.LOCAL_HINTS.get(provider)
 
     def set_provider(self, provider: str):
         """Switch the module's default LLM provider. Use 'openrouter', 'venice',
@@ -550,6 +907,27 @@ RULES:
         toolboxes > every non-fleet tool.
         """
         return self.tools.schema(names or self.active_tools())
+
+    # ── agent hub (semantic search + GitHub agents as modules) ───────
+
+    def agent_search(self, q: str = "", k: int = 20, sources: List[str] = None) -> Dict:
+        """Every agent — this registry's personas and open-source agents on
+        GitHub — ranked by what the query means (orbit/modsearch embeddings,
+        word match when it is down; `mode` says which answered)."""
+        if isinstance(sources, str):
+            sources = [x.strip() for x in sources.split(',') if x.strip()]
+        return self.agenthub.search(q, k=k, sources=sources)
+
+    def agent_hub_install(self, id: str = None, repo: str = None, key=None,
+                          setup: bool = False, start: bool = True) -> Dict:
+        """Owner: make a GitHub agent a module of its own (orbit/<name>, its
+        own interface and /agents + /run/stream API), registered here as a
+        harness with a persona in front of it."""
+        return self.agenthub.install(id=id, repo=repo, key=key, start=start, setup=setup)
+
+    def agent_hub_remove(self, id: str, key=None, purge: bool = False) -> Dict:
+        """Owner: unwire an installed GitHub agent (purge also deletes its dir)."""
+        return self.agenthub.remove(id, key=key, purge=purge)
 
     # ── tool aggregator (discover → library) ─────────────────────────
 
@@ -642,10 +1020,102 @@ RULES:
             return self.toolboxes.resolve(self._snapped)
         return None
 
+    def use_toolbox(self, name: str) -> Dict[str, Any]:
+        """Snap a toolbox on from inside a run — what the `toolbox` tool calls.
+
+        A run starts with the loadout it was given, and that is usually the
+        right one; but an agent that discovers halfway through that it needs
+        version control shouldn't have to fail and be re-run with a bigger
+        box. So it can ask for one, and the tools appear in its schema on the
+        next step.
+
+        This deliberately edits the run's working memory rather than the
+        module's loadout: `select()` is module-wide state, and a run that
+        widened it would leave every later run wider. Sandboxed runs can't
+        pull the fleet in this way — the same rule run_plan enforces, applied
+        before the model is even told those tools exist.
+        """
+        box = self.toolboxes.get(name)          # KeyError if there is no such box
+        sandboxed = getattr(self, '_allowed_paths', None) is not None
+        add = [t for t in box.tools if self.tools.exists(t)]
+        blocked = []
+        if sandboxed:
+            blocked = [t for t in add if self.tools.kind(t) not in ('builtin', 'custom')]
+            add = [t for t in add if t not in blocked]
+        have = self.memory.get('tools') or {}
+        if not isinstance(have, dict):          # a caller passed a bare list
+            have = self.tool_schema(list(have))
+        added = [t for t in add if t not in have]
+        if added:
+            self.memory.add('tools', {**have, **self.tool_schema(add)})
+        if name not in self._snapped:
+            self._snapped.append(name)
+        return {
+            'toolbox': name,
+            'description': box.description,
+            'added': added,
+            'tools': sorted(set(have) | set(add)),
+            **({'blocked': blocked,
+                'note': 'fleet tools are host-only and were left out of this box'}
+               if blocked else {}),
+        }
+
+    # ── the box: every sub-component in one view ─────────────────────
+
+    def parts(self) -> Dict[str, Any]:
+        """What this agent is made of, component by component.
+
+        One call answers "what is in the box" for the console, the builder and
+        anyone auditing a run: which memory module is attached, which tools it
+        can reach, which bundles exist, which model it will call. Each entry
+        names the sub-registry it came from, so a UI can offer the swap.
+        """
+        active = self.active_tools()
+        return {
+            # the box is one node; these are the integrations its template
+            # requires wired in before it runs
+            'requires': list(AGENT_REQUIRES),
+            'model': {
+                'provider': self._provider_short(),
+                'model': self.DEFAULT_MODELS.get(self._provider_short()),
+                'ready': self.has_model(),
+                'options': list(self.PROVIDERS.keys()),
+            },
+            'memory': {
+                'module': self.memories.name_of(self.memory),
+                'options': self.memories.items(),
+                'state': self.memory.status() if hasattr(self.memory, 'status')
+                         else self.memory.summary(),
+            },
+            'toolbox': {
+                'snapped': list(self._snapped),
+                'boxes': self.toolboxes.ls(),
+                'source': self.snapped()['source'],
+            },
+            'tools': {
+                'active': active if active is not None else self.all_tools(),
+                'filtered': active is not None,
+                'total': len(self.all_tools()),
+                'fleet': True,
+            },
+            'prompt': {'goal': self.goal},
+        }
+
     # ── memory ───────────────────────────────────────────────────────
 
     def init_memory(self, **kwargs):
-        kwargs['goal'] = self.goal
+        """Start a run's working memory from nothing.
+
+        Working memory is the prompt being built, and behind the API this
+        module is one process-wide singleton — so whatever the last run put in
+        that dict was still there for the next one. A run that carried library
+        notes, an attached tool document or a stale hint left them in the
+        prompt of every run after it, on somebody else's question. The durable
+        layers (episodes, facts, dialogue) are separate stores and are not
+        touched: this clears the scratchpad, not the memory.
+        """
+        self.memory.clear()
+        kwargs.setdefault('goal', self.goal)      # a run may carry its own
         kwargs['output_format'] = self.output_format
         for k, v in kwargs.items():
             self.memory.add(k, v)
@@ -657,6 +1127,8 @@ RULES:
     def run(self,
             query: str = 'help me with this',
             *extra_text,
+            goal: str = None,
+            memory=None,
             model: Optional[str] = None,
             provider: str = None,
             path: str = None,
@@ -674,12 +1146,24 @@ RULES:
             allowed_paths: list = None,
             free: bool = False,
             on_step=None,
+            on_usage=None,
+            on_live=None,
             images: list = None,
             budget=None,
+            session: str = None,
+            # named so it stays out of **kwargs, which is compiled into the
+            # prompt — the agent's name is for the memory record, not context
+            agent_type: str = None,
             **kwargs) -> List[Dict[str, Any]]:
         """Run the agent loop: query -> LLM -> parse step -> execute tool -> repeat.
 
         Args:
+            goal: the system prompt for this run only — an agent's persona, or
+                  a prompt the caller picked. The module's own `goal` is the
+                  default and is never overwritten by a run (see _bind_memory
+                  for why that matters on a shared module).
+            memory: a memory module instance for this run only, bound to this
+                  thread. Defaults to the module's.
             model: model name on the provider (e.g. 'anthropic/claude-opus-5' for openrouter,
                    'deepseek-v3.2' for venice). Defaults to provider's default model.
             provider: LLM provider — 'openrouter', 'venice', or any module path. Switches at runtime.
@@ -690,23 +1174,53 @@ RULES:
                            Non-owners are restricted to their portal directory.
             on_step: optional callable invoked with each executed step dict as the
                      loop progresses — used by the API to stream live progress.
+            on_usage: optional callable invoked after each model call with what
+                     that call cost on the provider key — {call, model, tokens,
+                     cost, total}. A run's price is the sum of its calls, and
+                     waiting for the end to say so hides it while it is being
+                     spent.
+            on_live: optional callable invoked with ephemeral progress the
+                     watcher renders and drops — {'event': 'token', 'text'}
+                     as the model's output streams in, {'event': 'tool_start',
+                     'tool', 'params', 'i', 'n'} the moment a call begins,
+                     {'event': 'model_start', 'step', 'model'} when a call
+                     goes out. Nothing here is recorded; the step dicts on
+                     on_step remain the run's record.
             budget: optional callable given the run's metered provider cost so far;
                     returning False stops the loop. A paying guest's credits are
                     finite, and a charge clamped to their balance would leave the
                     module holding the overrun.
             images: image URLs (http or data:) the user attached to the query —
                     sent to the model as a leading multimodal turn.
+            session: the console conversation this run belongs to. Passing one
+                    makes the run a remembered exchange: the memory module
+                    compiles this caller's earlier turns into the prompt, and
+                    files this turn away when the run ends. A run with no
+                    session (an arena match, a tool call) is not conversation,
+                    and leaves the dialogue layer untouched.
         """
         # everything provider-shaped is run-local: the module is shared by every
         # concurrent run, so nothing here may read or write self.model
-        prov = self.PROVIDERS.get(provider, provider) if provider else self._provider
+        self._bind_memory(memory)
+        provider = provider or self._provider or self.default_provider()
+        prov = self.PROVIDERS.get(provider, provider)
         short = self._provider_short(prov)
         client = self._client(prov)
         if client is None:
             raise RuntimeError(self._client_why.get(prov) or (
                 f"No API key available for provider '{short}'. "
                 f"Add a key — or unlock your encrypted key — in the Builder (model node)."))
+        # a fleet module spends the operator's own key in that module, and
+        # nothing here can bill a guest for it — so only the host may use one
+        if getattr(client, 'host_only', False) and hasattr(self, 'is_owner') \
+                and not self.is_owner(key):
+            raise PermissionError(
+                f"'{short}' runs on the {short[4:]} module's own key — only the "
+                f"host can run on it. Pick openrouter, venice or a local provider.")
         self._on_step = on_step
+        self._on_usage = on_usage
+        self._on_live = on_live
+        self._run_key = key
         self._images = [i for i in (images or []) if isinstance(i, str) and i.strip()][:8]
         model = self._model_for(prov, model)
         # FREE MODE resolves the model here rather than letting the provider
@@ -727,15 +1241,31 @@ RULES:
         self._allowed_paths = allowed_paths
         query = query + ' ' + ' '.join(extra_text) if extra_text else query
         path = path or (m.dp(mod) if m and mod else os.getcwd())
+        # …and kept on the box, because it is where the run's relative paths
+        # resolve from (see _resolve_paths), not just something to print
+        self._path = path
         # per-run toolbox snap: explicit tools list wins, then toolbox union
         if not tools and toolbox:
             tools = self.toolboxes.resolve(toolbox)
-        # semantic recall: durable facts from past runs ride into the prompt
+        # memory recall: the caller's earlier turns and the durable facts past
+        # runs left behind ride into the prompt. Scoped to whoever is asking —
+        # the address when they are signed in, the console session when they
+        # are not — so one visitor's conversation never surfaces in another's.
+        who = None
+        if session:
+            try:
+                who = self.identity.addr(key)
+            except Exception:
+                who = None
+        # who the run is for, kept on the box so the recall tool scopes its
+        # retrieval the same way the compiled prompt was scoped
+        self._session, self._who = session, who
         recalled = None
         if hasattr(self.memory, 'compile'):
-            recalled = self.memory.compile(query) or None
+            recalled = self.memory.compile(query, session=session, who=who) or None
         self.init_memory(
             query=query,
+            goal=goal or self.goal,
             tools=self.tool_schema(tools),
             path=path,
             steps=steps,
@@ -746,27 +1276,66 @@ RULES:
         )
         history = []
         consecutive_errors = 0
+        # spent once, on a run that ended by describing the task (see below)
+        nudged = False
+        # consecutive steps that were calls the run had already made, and the
+        # temperature the next step is sampled at (raised to break a loop)
+        repeats, step_temp = 0, temperature
+        # …and the looser version of the same failure: one tool, over and over
+        prev_tool, streak = None, 0
+        # how the prompt is rendered for this run's model (see prompt.py), and
+        # how much it may write per step (see LOCAL_STEP_TOKENS)
+        compact = self.compact_prompt(short, model)
+        step_tokens = min(max_tokens, LOCAL_STEP_TOKENS) if compact else max_tokens
         # per-run tally of identical calls that failed, so the loop can stop
-        # replaying a dead end (see MAX_IDENTICAL_FAILURES)
+        # replaying a dead end (see MAX_IDENTICAL_FAILURES) — and of the
+        # read-only ones that worked, so it can stop replaying those too
         self._failed_calls: Dict[str, Dict[str, Any]] = {}
+        self._done_calls: Dict[str, Any] = {}
         # start this thread's cost tally — whoever bills the run reads it back
         # with meter.take() once forward() returns
         self.meter.open(provider=short, model=model)
         for step_i in range(steps):
+            # ── spend ceiling ──
+            # Checked BEFORE the call, not after. An account with no credits
+            # used to burn a whole model call on the module's key and only then
+            # be told its "credit balance was spent" — nothing had been spent,
+            # there was never anything to spend. The wording splits the two
+            # cases, because they need different things from the user.
+            if budget and not budget(self.meter.peek()):
+                # step 0 means the account could never afford this run; later
+                # means it afforded some of it. (Cost is not the tell — an
+                # unpriced model tallies 0.0 all the way through.)
+                step = {'tool': 'error', 'params': {}, 'error': (
+                    'credit balance spent — top up to keep going' if step_i else
+                    'no account credits — runs on the host key are billed to your '
+                    'credit balance (not the provider key in the header). '
+                    'Add credits, or pick a free model, to keep going.')}
+                self._emit_step(step)
+                history.append([step])
+                print('Agent stopped: out of credits')
+                break
             self.memory.update({'step': step_i, 'pwd': path})
             # inject recovery hint after repeated errors
             if consecutive_errors >= 3:
                 self.memory.add('hint', 'Multiple errors in a row. Use think to reflect on what is going wrong and try a different approach.')
                 consecutive_errors = 0
             try:
-                context = str(self.memory.get())
+                context = self.context(compact=compact)
+                # a hint is for the step it was written for. Left in place it
+                # accumulates — a run that recovered on step 3 was still being
+                # told about step 2's malformed JSON on step 20.
+                self.memory.rm('hint')
+                # say the call went out before it comes back — the watcher's
+                # "thinking…" starts when the model does, not when it answers
+                self._emit_live({'event': 'model_start', 'step': step_i, 'model': model})
                 output = self.meter.watch(
                     client.forward(
                         context,
                         stream=True,
                         model=model,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
+                        max_tokens=step_tokens,
+                        temperature=step_temp,
                         free=free,
                         **({'history': self._image_turn()} if self._images else {}),
                     ),
@@ -775,34 +1344,73 @@ RULES:
                 )
                 plan = self.plan(output, safety=safety)
             except Exception as e:
-                print(f"Model error [{short}/{model}]: {e}")
-                err = str(e)
+                if _is_cancel(e):
+                    raise          # a stopped run, not a model error
+                # parens, not brackets: the log printer treats [x/y] as markup
+                # and drops it, and the line read "Model error :"
+                print(f"Model error ({short}/{model}): {e}")
+                raw = err = str(e)
                 # providers raise their own missing-key errors at call time —
                 # point the user at the Builder, where keys are entered
                 if 'api key' in err.lower() or 'api_key' in err.lower():
                     err = f"{err} — enter your {short} API key in the Builder (model node)."
-                plan = [{'tool': 'error', 'params': {}, 'error': err}]
+                err = self._explain_rate_limit(short, model, err)
+                plan = [{'tool': 'error', 'params': {}, 'error': err,
+                         **({'detail': raw[:600]} if err != raw else {})}]
                 self._emit_step(plan[-1])
+            # what that call cost, while the run is still going — a failed call
+            # burned tokens too, so this is outside the try
+            self._emit_usage(step_i)
             history.append(plan)
             self.memory.add('history', history)
             if plan and plan[-1]['tool'].lower() in ('finish', 'response'):
+                # …unless it signed off on a promise. A model that answers
+                # "sure, I'll read the file and fix it" ends the run on step 0
+                # with nothing done, and the caller reads an answer that only
+                # describes the task. Say so once and let it go do the work.
+                if not nudged and self._promised_without_doing(history):
+                    nudged = True
+                    self.memory.rm('hint')
+                    self.memory.add('hint', DO_THE_WORK_HINT)
+                    print('Agent promised without doing anything — pushing back')
+                    continue
                 print('Agent finished')
                 break
             if plan and plan[-1]['tool'].lower() == 'error':
                 print('Agent stopped: model error')
-                break
-            if budget and not budget(self.meter.peek()):
-                step = {'tool': 'error', 'params': {},
-                        'error': 'credit balance spent — top up to keep going'}
-                self._emit_step(step)
-                history.append([step])
-                print('Agent stopped: out of credits')
                 break
             # track consecutive errors for recovery
             if plan and any(_step_failed(s) for s in plan):
                 consecutive_errors += 1
             else:
                 consecutive_errors = 0
+            # ── a run going in circles ──
+            # Every step was a call the run had already made. A hint says so,
+            # but a small model at temperature 0 re-derives the same call from
+            # the same task and loops until the budget is gone, so: sample the
+            # next step instead of taking the argmax, and if that doesn't break
+            # it either, stop and go write the answer. Nothing is lost — a
+            # repeat produces no new information by definition.
+            if plan and all(s.get('repeat') for s in plan):
+                repeats += 1
+                step_temp = max(temperature, REPEAT_TEMPERATURE)
+                if repeats >= MAX_REPEAT_STEPS:
+                    print('Agent stopped: repeating itself')
+                    break
+            else:
+                repeats, step_temp = 0, temperature
+            # …and the softer version of the same thing: the same tool over and
+            # over with slightly different params ("let me list the files
+            # first", four times). Reading six files in a row is legitimate, so
+            # this only says so — it doesn't stop the run.
+            last = plan[-1].get('tool') if plan else None
+            streak = streak + 1 if last and last == prev_tool else 1
+            prev_tool = last
+            if streak >= SAME_TOOL_STREAK:
+                self.memory.add('hint', (
+                    f"You have used {last} {streak} times in a row. If you already "
+                    f"have what you need, do something else with it — a different "
+                    f"tool, or finish and write the answer."))
         # a run that used tools must still end with words: if the loop stopped
         # without a finish summary or response text (steps ran out, or finish
         # came back empty), make one last tools-off call for the actual answer
@@ -811,11 +1419,50 @@ RULES:
             answer = self._force_answer(client=client, short=short, model=model,
                                         max_tokens=max_tokens,
                                         temperature=temperature, free=free)
+            self._emit_usage(len(history) - 1)
             if answer:
                 history[-1] = history[-1] + [answer]
+        # the exchange goes to the memory module, which is where the next run
+        # reads it back from — a failed run is still a turn that happened
+        if session:
+            self._remember_exchange(query, history, session=session, who=who,
+                                    agent=agent_type)
         if save and m and mod:
             return m.fn('api/reg')(mod=mod, key=key, comment=query)
         return history[-1] if history else []
+
+    def _remember_exchange(self, query: str, history: List[list], session: str,
+                           who: str = None, agent: str = None) -> None:
+        """File one finished user↔agent turn in the memory subsystem.
+
+        Never raises: memory is context, and a memory write that failed is not
+        a reason to lose the answer the user is waiting on.
+        """
+        try:
+            answer = self._answer_text(history)
+            if answer:
+                self.memory.exchange(query, answer, session=session,
+                                     who=who, agent=agent)
+        except Exception as e:
+            print(f"Memory write failed: {e}")
+
+    @staticmethod
+    def _answer_text(history: List[list]) -> str:
+        """The text the user actually read — the last finish summary or
+        response in the run, which is the agent's half of the exchange."""
+        for plan in reversed(history or []):
+            for s in reversed(plan or []):
+                if not isinstance(s, dict):
+                    continue
+                if s.get('tool') == 'finish':
+                    text = str((s.get('params') or {}).get('summary') or '').strip()
+                    if text:
+                        return text
+                if s.get('tool') == 'response':
+                    text = str(s.get('result') or '').strip()
+                    if text:
+                        return text
+        return ''
 
     # ── plan parsing & execution ─────────────────────────────────────
 
@@ -831,6 +1478,28 @@ RULES:
             'content': [{'type': 'text', 'text': 'Images the user attached to this task:'}]
                        + [{'type': 'image_url', 'image_url': {'url': u}} for u in self._images],
         }]
+
+    @classmethod
+    def _promised_without_doing(cls, history: List[list]) -> bool:
+        """True when the run is about to end having only said what it would do.
+
+        Requires both halves: not one tool call in the whole run, and a
+        sign-off written in the future tense. Either alone is legitimate —
+        a question answered from knowledge calls nothing, and a run that read
+        six files may well close by naming what it would do next.
+        """
+        for plan in history or []:
+            for s in plan or []:
+                if isinstance(s, dict) and str(s.get('tool') or '').lower() not in NON_WORK_TOOLS:
+                    return False
+        text = cls._answer_text(history)
+        if not text:
+            return False
+        # only the opening matters: a long report that mentions "I'll" in its
+        # last paragraph is a report, not a promise
+        text = text.strip()
+        return bool(PROMISE_RE.search(text[:400])
+                    or (len(text) <= MAX_ACK_CHARS and ACK_RE.match(text)))
 
     @staticmethod
     def _has_answer(history: List[list]) -> bool:
@@ -851,11 +1520,15 @@ RULES:
         answer the user reads. Returns a response step, or None if it fails.
 
         Takes the run's own client — see _client for why self.model is wrong here."""
-        self.memory.add('hint', 'Tool use is over. Using everything in the history '
-                                'above, write your final answer to the user now as '
-                                'plain text — answer what they asked. No tools, no anchors.')
+        self.memory.rm('hint')
+        compact = self.compact_prompt(short, model)
+        if compact:
+            max_tokens = min(max_tokens, LOCAL_ANSWER_TOKENS)
         try:
-            context = str(self.memory.get())
+            # the answer prompt withholds the tools and the step format: shown
+            # them again, a small model writes one more call instead of the
+            # answer, and the user reads nothing at all
+            context = self.context(compact=compact, answer=True)
             out = self.meter.watch(
                 client.forward(
                     context,
@@ -879,13 +1552,55 @@ RULES:
             if not text:
                 text = self._strip_anchors(raw)
             if not text:
+                # asked for prose, it wrote another tool call and nothing else.
+                # Say so in the loop's own voice rather than handing the user an
+                # empty bubble — the trail is the honest answer to what happened.
+                text = self._trail_summary()
+            if not text:
                 return None
             step = {'tool': 'response', 'params': {}, 'result': text}
             self._emit_step(step)
             return step
         except Exception as e:
+            if _is_cancel(e):
+                raise
             print(f"Final-answer error: {e}")
             return None
+
+    def _trail_summary(self) -> str:
+        """What the run did, in one line, when the model wrote no answer.
+
+        This is the module talking, not the model, so it says only what it can
+        see: the steps that ran and the last thing one of them returned.
+        """
+        trail = [e for e in (self.memory.get('history') or []) for e in
+                 (e if isinstance(e, list) else [e]) if isinstance(e, dict)]
+        if not trail:
+            return ''
+        names = [s.get('tool') for s in trail if s.get('tool')]
+        last = next((s.get('result') for s in reversed(trail) if s.get('result')), '')
+        line = (f"The run ended without writing an answer — its model kept calling "
+                f"tools instead. It took {len(names)} step(s): {', '.join(names[-8:])}.")
+        if last:
+            line += f"\n\nThe last result was:\n{str(last)[:800]}"
+        return line
+
+    def _emit_usage(self, step_i: int):
+        """Hand the live callback what the model call for this step cost.
+
+        Reads the meter's last call (and clears it), so a step that made no
+        call — or a run nobody is metering — emits nothing. Never raises: a
+        price is not worth losing a run over.
+        """
+        cb = getattr(self, '_on_usage', None)
+        if not cb:
+            return
+        try:
+            call = self.meter.last()
+            if call:
+                cb({'step': step_i, **call})
+        except Exception:
+            pass
 
     def _emit_step(self, step):
         """Notify the live-progress callback (if any) and record the step as an
@@ -899,20 +1614,107 @@ RULES:
         if cb:
             try:
                 cb(step)
+            except Exception as e:
+                # a watcher raising RunCancelled IS the stop button — let it
+                # stop the loop; anything else stays a watcher's own problem
+                if _is_cancel(e):
+                    raise
+                pass
+
+    def _emit_live(self, ev: dict):
+        """Hand the live-events callback something ephemeral — a chunk of the
+        model's output as it streams, a tool call the moment it starts. This
+        is progress a watcher renders and throws away: nothing here lands in
+        memory or the run's history, and it must never kill the loop."""
+        cb = getattr(self, '_on_live', None)
+        if cb:
+            try:
+                cb(ev)
             except Exception:
                 pass
 
     def _strip_anchors(self, text: str) -> str:
-        """Drop plan/step scaffolding from text meant for the user's eyes."""
+        """Drop plan/step scaffolding from text meant for the user's eyes.
+
+        Reasoning blocks go with it: a thinking model's scratchpad is the
+        working, not the answer, and it opens mid-sentence in the second
+        person ("The user wants me to…"), which reads as the agent talking
+        about the reader rather than to them.
+        """
         import re
         text = re.sub(r'<STEP>.*?</STEP>', '', text, flags=re.S)
+        text = THINK_BLOCK.sub('', text)
+        text = re.sub(r'<\|[^|]{0,40}\|>', '', text)   # tool_call_start & co
         for tag in (*self.anchors['plan'], *self.anchors['tool']):
             text = text.replace(tag, '')
         return text.strip()
 
+    # ── the prompt, and the calls that come back ─────────────────────
+
+    def compact_prompt(self, provider: str = None, model: str = None) -> bool:
+        """Does this run's model get the compact prompt? (see prompt.py)
+
+        Every LFM provider is small compute by definition — weights on this
+        box, or in a tab — and anything else that names a size under 5B is
+        telling us the same thing.
+        """
+        if self._provider_short(provider) in self.LOCAL_PROVIDERS:
+            return True
+        return bool(model and self.SMALL_MODEL_RE.search(model))
+
+    def context(self, compact: bool = False, answer: bool = False) -> str:
+        """Working memory as the text the model actually reads.
+
+        This used to be `str(memory.get())` — a Python dict repr, tool schemas
+        and all. Frontier models read through that; a 1.2B model answers the
+        shape it recognises instead, which is chat, and the run ends in a
+        paragraph rather than a tool call. prompt.py renders the same state as
+        sections, and a shorter prompt is a cheaper prompt on every provider.
+
+        `answer` is the run's closing prompt — no tools, no step format, just
+        the history and the instruction to write the user their answer.
+        """
+        text = render_prompt(self.memory.get(), compact=compact, answer=answer)
+        import os as _os
+        if _os.environ.get('AGENT_PROMPT_DUMP'):
+            with open(_os.environ['AGENT_PROMPT_DUMP'], 'a') as _f:
+                _f.write('\n===== PROMPT =====\n' + text + '\n')
+        return text
+
+    def _schemas(self) -> Optional[Dict[str, Dict]]:
+        """The tool schemas this run was compiled with — what a returned call
+        is checked against. None when the loadout isn't a schema dict."""
+        tools = self.memory.get('tools')
+        return tools if isinstance(tools, dict) and tools else None
+
+    def _fix_step(self, raw: dict) -> Optional[dict]:
+        """One parsed step mapped onto tools this registry actually has.
+
+        A model that calls `read_file(path=…)` means `read(file_path=…)`, and
+        failing that call teaches it nothing — it was a correct decision typed
+        in another harness's dialect. steps.normalize does the mapping; a name
+        that resolves to nothing at all is passed through untouched so the
+        registry's own "tool not found" reaches the model as the error.
+        """
+        fixed = normalize_step(raw, schemas=self._schemas())
+        if fixed:
+            extra = {k: v for k, v in raw.items()
+                     if k not in ('tool', 'params', 'name', 'arguments')}
+            return {**extra, **fixed}
+        return raw if isinstance(raw.get('tool'), str) else None
+
     def plan(self, output: str, safety: bool = False) -> list:
         """Parse LLM output into steps and execute them."""
         steps, raw_text = self.parse_steps(output)
+        if not steps and raw_text.strip():
+            # no anchored step: read the whole response for a call written in
+            # some other convention — a fenced JSON block, <tool_call>, a
+            # pythonic `[bash(command="ls")]`. Models trained by another
+            # harness reach for its format under pressure, and the decision in
+            # there is as good as an anchored one (see steps.py).
+            steps = [s for s in (self._fix_step(c) for c in
+                                 parse_calls(raw_text, schemas=self._schemas()))
+                     if s]
         if not steps and raw_text.strip():
             if self.anchors['tool'][0] in raw_text:
                 # the model tried to call a tool and the step didn't parse —
@@ -954,6 +1756,7 @@ RULES:
                 continue
             chunks.append(chunk)
             print(chunk, end='')
+            self._emit_live({'event': 'token', 'text': chunk})
             buf += chunk
             while True:
                 end = buf.find(close_tag, scan)
@@ -999,14 +1802,21 @@ RULES:
             step = self._repair_json(raw)
         if not isinstance(step, dict):
             return None
-        tool = step.get('tool')
+        tool = step.get('tool') or step.get('name')
         if not isinstance(tool, str) or not tool.strip():
             return None      # run_plan calls .lower() on this — it must be a name
         step['tool'] = tool.strip()
         params = step.get('params')
         if isinstance(params, str):              # double-encoded params
-            params = self._repair_json(params)
-        step['params'] = params if isinstance(params, dict) else {}
+            # a string that isn't JSON at all is kept: for a one-parameter
+            # tool it is that parameter's value, which normalize places
+            step['params'] = self._repair_json(params) or params
+        # an anchored step is still written in whatever dialect the model
+        # knows: map its name and parameters onto this registry's before it
+        # is run (see _fix_step)
+        step = self._fix_step(step) or step
+        if not isinstance(step.get('params'), dict):
+            step['params'] = {}
         return step
 
     @staticmethod
@@ -1082,6 +1892,41 @@ RULES:
                 return parsed
         return None
 
+    # params whose value is a filesystem path, and so is meant relative to the
+    # run's own directory rather than to whatever directory this server was
+    # started in. `cwd` is here too: bash inherits the run's directory unless
+    # the model says otherwise.
+    PATH_PARAMS = ('file_path', 'path', 'cwd', 'log_file', 'file', 'file_a', 'file_b')
+
+    def _resolve_paths(self, name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Anchor a step's paths to the run's working directory.
+
+        The model is told the directory the run is in and writes `a.txt`
+        meaning the file in it — but a tool resolves that against the *server
+        process's* cwd, which is somewhere else entirely, so the read failed
+        (or, worse, quietly read a different a.txt). Small models write
+        relative paths constantly, so this is most of the difference between a
+        local run that works and one that doesn't.
+
+        The same reasoning fills in a `path` the model left out: `tree()` with
+        no argument means "here", and here is the run's directory, not the
+        directory this server happened to start in.
+        """
+        base = getattr(self, '_path', None)
+        if not base or not isinstance(params, dict):
+            return params
+        out = dict(params)
+        for key in self.PATH_PARAMS:
+            value = out.get(key)
+            if isinstance(value, str) and value and not os.path.isabs(value) \
+                    and not value.startswith('~'):
+                out[key] = os.path.normpath(os.path.join(base, value))
+        schema = (self._schemas() or {}).get(name) or {}
+        for key in ('path', 'cwd'):
+            if key in (schema.get('params') or {}) and not out.get(key):
+                out[key] = base
+        return out
+
     def run_plan(self, plan: List[Dict[str, Any]], safety: bool = False) -> List[Dict[str, Any]]:
         """Execute parsed steps using tools. Enforces path sandboxing via _allowed_paths."""
         if safety and plan:
@@ -1092,9 +1937,13 @@ RULES:
         failed = getattr(self, '_failed_calls', None)
         if failed is None:
             failed = self._failed_calls = {}
+        done = getattr(self, '_done_calls', None)
+        if done is None:
+            done = self._done_calls = {}
         for i, step in enumerate(plan):
             name = step['tool'].lower()
-            params = step.get('params', {})
+            params = self._resolve_paths(name, step.get('params', {}))
+            step['params'] = params
             if name in ('finish', 'review'):
                 print(f"[{i+1}/{len(plan)}] {name}")
                 self._emit_step(step)
@@ -1115,6 +1964,34 @@ RULES:
                     f"unchanged will fail again — change the params, try a "
                     f"different tool, or finish with what you already know.")
                 print(f"[{i+1}/{len(plan)}] {name} -> blocked (repeat of a failed call)")
+                self._emit_step(plan[i])
+                continue
+
+            # ── the same guard for a call that *worked* ──
+            # A small model that gets a good result often answers the next
+            # prompt with the same call again, and again, until the step budget
+            # is gone — it read the task, not the trail. The cached result comes
+            # straight back with a line saying so, which is the only signal that
+            # reliably breaks the loop. Read-only tools only, and the cache is
+            # dropped the moment anything writes (see below), so re-reading a
+            # file after an edit still really re-reads it.
+            cached = done.get(sig)
+            if cached is not None:
+                plan[i]['result'] = cached
+                plan[i]['repeat'] = True
+                plan[i]['note'] = (
+                    f"you already ran {name} with exactly these params earlier in "
+                    f"this run — that is its result above, not a new one. Use it: "
+                    f"take the next step, or finish and write the answer.")
+                # …and again where the model is looking hardest. The history
+                # note alone does not turn a small model around; a direct
+                # instruction in the hint slot does.
+                self.memory.add('hint', (
+                    f"You have already called {name} with those exact parameters "
+                    f"and its result is in the history above. Do NOT call it "
+                    f"again. Your next step must be a different tool, or finish "
+                    f"with the answer written out of what you already have."))
+                print(f"[{i+1}/{len(plan)}] {name} -> cached (identical earlier call)")
                 self._emit_step(plan[i])
                 continue
 
@@ -1143,6 +2020,10 @@ RULES:
                 if name == 'git':
                     params['cwd'] = params.get('cwd') or allowed[0]
 
+            # announce the call before it runs, not after it returns — a slow
+            # bash command is exactly when a watcher wants to see what's up
+            self._emit_live({'event': 'tool_start', 'tool': name,
+                             'params': params, 'i': i + 1, 'n': len(plan)})
             try:
                 # the registry knows all three kinds; a bare module name the
                 # model reached for without the prefix still resolves via m.tool
@@ -1160,6 +2041,12 @@ RULES:
             if _step_failed(plan[i]):
                 failed[sig] = {'n': (seen['n'] + 1) if seen else 1,
                                'result': plan[i].get('result') or plan[i].get('error')}
+            elif name in READONLY_TOOLS:
+                done[sig] = plan[i].get('result')
+            if name not in READONLY_TOOLS:
+                # something ran that could have changed the workspace, so every
+                # cached look at it is now stale
+                done.clear()
             self._emit_step(plan[i])
         return plan
 
@@ -1171,12 +2058,33 @@ Dev = Agent
 class Mod(Agent):
     description = "Autonomous coding agent. Built-in tools, custom shell tools, and the whole fleet."
 
+    # addresses holding the owner's standing beside the owner. Loaded from
+    # ~/.mod/agent/owner.json in __init__; the empty default keeps every
+    # owner gate working on a Mod built without one.
+    _co_owners = ()
+
     # the agent a run lands on when the caller named none — the Claude Code
     # CLI on this host. It's a harness agent, so it only holds for the owner
     # with the CLI installed; everyone else falls back to the native loop
     # (see default_agent).
     DEFAULT_AGENT = 'claude-code'
     FALLBACK_AGENT = 'default'
+
+    # harness -> the console module whose own sign-in also vouches for a
+    # caller. The CLI drivers (claudecode, codexcli) carry no identity of
+    # their own, so the console that fronts the same agent answers for them:
+    # whoever the claude module's auth calls owner may run Claude Code here,
+    # the codex module's owner may run Codex, and so on. Identity is the
+    # fleet's one auth module (m.mod('auth')) end to end — the token this
+    # module verifies is the same token those consoles verify — so there is
+    # no second ACL to keep in sync.
+    HARNESS_AUTH = {
+        'claude': 'claude',
+        'claudemod': 'claude',
+        'codex': 'codex',
+        'buildmod': 'build',
+        'chainmod': 'chain',
+    }
 
     def __init__(self, key=None, **kwargs):
         super().__init__(**kwargs)
@@ -1207,6 +2115,13 @@ class Mod(Agent):
         if not owner and self.key:
             owner = self.key.address
         self._owner = owner.lower() if owner else None
+        # co-owners: addresses the owner has handed the same standing to.
+        # They pass every is_owner() gate and, because a co-owner's credit
+        # account is aliased to the owner's, they run on the owner's credits
+        # rather than a balance of their own. Private auth state, so the list
+        # lives off-tree in ~/.mod/agent/owner.json (env override for a
+        # containerised deploy) and never in the committed config.
+        self._co_owners = self._load_co_owners()
         self._mods_root = (m.paths['orbit']['mods']
                            if m and hasattr(m, 'paths') else
                            str(self.module_dir.parent / 'registry' / 'mods'))
@@ -1221,9 +2136,13 @@ class Mod(Agent):
             state_dir.mkdir(parents=True, exist_ok=True)
             self._acl_path = state_dir / 'acl.json'
             self._vault_dir = state_dir / 'vault'
+            # per-address preferences (which agent your runs land on) —
+            # private state, same treatment as the ACL
+            self._prefs_path = state_dir / 'prefs.json'
         except Exception:
             self._acl_path = self.module_dir / '.acl.json'
             self._vault_dir = self.module_dir / '.vault'
+            self._prefs_path = self.module_dir / '.prefs.json'
         self._acl = self._load_acl()
         # a remembered unlock survives restarts — resume it before anything
         # asks for a model, so the key is live without a passphrase prompt
@@ -1233,6 +2152,8 @@ class Mod(Agent):
         # credits to run on the module's public provider key. Ledger state
         # is private, off-tree, next to the ACL.
         self.credits = Credits(self._acl_path.parent, deposit_address=self._owner)
+        # a co-owner spends the owner's balance, not one of their own
+        self._sync_credit_aliases()
         # the ledger owns the pricing knobs; the meter just applies them
         self.meter.multiplier = self.credits.cost_multiplier
 
@@ -1253,6 +2174,12 @@ class Mod(Agent):
         # through the mod store module under ~/.mod/agent/vaults/
         self.vaults = Vaults()
 
+        # module visibility for the whole fleet. Public by default and
+        # readable by anyone — a module you can't read is a module you can't
+        # trust — with an owner switch that seals a module into ciphertext
+        # before it can reach a public remote. State: ~/.mod/agent/privacy/
+        self.privacy = Privacy()
+
         # internet-wide tool aggregator: scans GitHub, npm, the MCP
         # registry, Glama and curated lists for installable tool documents
         self.discover = Discover()
@@ -1260,33 +2187,114 @@ class Mod(Agent):
         # external agent CLIs (claude code, codex) an agent can hand its run to
         self.harness = Harness()
 
+        # every agent searchable by meaning (orbit/modsearch), and any agent
+        # on GitHub installable as a module of its own with its own interface
+        # — registered back into the harness table above when it is
+        self.agenthub = AgentHub(owner=self._owner, is_owner=self.is_owner,
+                                 addr=lambda k: self._resolve_address(k, verified=True),
+                                 agents=self.agents, harness=self.harness,
+                                 gh_token=self.discover.token)
+
         # the arena: every agent on the same tasks, one ranked board. Its
         # scheduler is started by the API (see arena/mod.py) — importing the
         # module must never kick off runs on somebody's provider key.
         self.arena = Arena(runner=self.arena_run, agents=self.agents)
 
+        # the graph layer: how agents are CONNECTED. An agent is built in the
+        # registry above; a graph never builds one, it wires whole agents to
+        # each other through gates, routers, joins and loops. The runners are
+        # injected rather than imported so the protocol stays a document and
+        # this module stays the only thing that spends a provider key.
+        self.graphs = Graphs(identity=self.identity, agents=self.agents,
+                             run_agent=self._graph_agent, run_tool=self._graph_tool)
+
         self._public_actions = {'status', 'health', 'schema',
                                 'agents', 'agent', 'chains', 'harnesses', 'agent_cids',
+                                'graph_kinds', 'graphs', 'graph', 'graph_validate',
                                 'agent_load', 'library', 'prompts', 'prompt_add',
                                 'prompt_rm', 'memory', 'memory_add', 'memory_rm',
                                 'upload', 'library_import', 'formats',
                                 'discover', 'discover_sources', 'discover_detail',
                                 'discover_doc', 'tool_install', 'installed_tools',
+                                'agent_search', 'agent_hub', 'agent_hub_item',
                                 'tool_import', 'tool_uninstall',
                                 'toolboxes', 'toolbox', 'snapped', 'tools', 'tool',
                                 'mods',
-                                'recall', 'episodes', 'facts', 'memory_state',
+                                # the fleet's MCP catalog is read-open like
+                                # the fleet index; refresh probes localhost
+                                # only and mutates nothing but a cache
+                                'mcp_servers', 'mcp_tools', 'mcp_refresh',
+                                # what the agent is made of, and the memory
+                                # modules one can be built with
+                                'parts', 'memories', 'mcp',
+                                'recall', 'retrieve', 'episodes', 'facts',
+                                'memory_state',
+                                # self-scoped: you get your own turns, nobody else's
+                                'exchanges',
                                 # the board is public — a ranking nobody can
                                 # read is not a ranking
                                 'arena', 'arena_tasks', 'arena_matches',
                                 'arena_card', 'arena_status',
+                                # the same matches read by model: what each one
+                                # scored, how fast it was, what it burned
+                                'arena_models', 'arena_model', 'arena_task_board',
+                                # skills: named task bundles with composite leaderboards
+                                # classes: skills bundled one level up; search
+                                # is how the pool is read to bundle from
+                                'arena_skills', 'arena_skill', 'arena_skill_results',
+                                'arena_classes', 'arena_class', 'arena_task_search',
+                                # games: one task or a bundle, read by one id
+                                'arena_games', 'arena_game', 'arena_game_results',
                                 'key_info', 'balance',
-                                'credits', 'credit_deposit',
+                                'credits', 'credit_deposit', 'credit_price',
                                 # vaults self-scope to the caller's verified
                                 # address (Vaults raises without a sign-in)
                                 'vaults', 'vaults_get', 'vaults_set',
                                 'vaults_add', 'vaults_rm', 'vaults_key_rm',
-                                'vaults_public'}
+                                'vaults_public',
+                                # auditing the fleet is the whole point of a
+                                # public module — no sign-in, no key
+                                'modules', 'module_tree', 'module_file',
+                                # arena tasks: listed by anyone, but writing one
+                                # takes a sign-in and editing one takes owning
+                                # it — each of these enforces that itself, and
+                                # a draft additionally answers to run policy
+                                'arena_task_draft', 'arena_task_add', 'arena_task_rm',
+                                # skill/class writes: signed-in, owner recorded
+                                'arena_skill_create', 'arena_skill_update', 'arena_skill_rm',
+                                'arena_class_create', 'arena_class_update', 'arena_class_rm',
+                                'arena_game_create', 'arena_game_update', 'arena_game_rm',
+                                # vibecoding an agent enforces its own sign-in
+                                # and, being a model run, run policy — exactly
+                                # like a task draft
+                                'agent_vibe',
+                                # same self-gating as agent_vibe
+                                'graph_vibe',
+                                # scouting is vibe with the internet in front
+                                # of it — same self-gating; reading runs back
+                                # is filtered to the caller's own
+                                'agent_scout', 'agent_scout_runs', 'agent_scout_run',
+                                # watching the grower is open; changing it is
+                                # owner-only, enforced inside each grow_* method
+                                'grow_status',
+                                # cron: every cron_* gates itself (owner or a
+                                # 'cron' grant; a grantee only its own jobs) —
+                                # status filters what a stranger sees
+                                'cron_status', 'cron_job', 'cron_add', 'cron_update',
+                                'cron_rm', 'cron_run', 'compute_info',
+                                # the openarena schema: the board next door is
+                                # public too, and each write here enforces its
+                                # own sign-in / authorship
+                                'openarena', 'openarena_task', 'openarena_sources',
+                                'openarena_task_add', 'openarena_task_rm',
+                                'openarena_preview', 'openarena_import',
+                                # graphs: reading the protocol and the saved
+                                # flows is open, saving one takes a sign-in and
+                                # editing one takes owning it (Graphs enforces
+                                # both), and running one answers to run policy
+                                # exactly like a single agent does
+                                'graph_save', 'graph_rm', 'graph_import',
+                                'graph_run'}
         self._admin_actions = {'run', 'plan', 'serve', 'kill',
                                'test', 'grant', 'revoke', 'acl',
                                'agent_save', 'agent_install', 'set_key',
@@ -1295,23 +2303,124 @@ class Mod(Agent):
                                'tool_add', 'tool_rm', 'tool_run',
                                'remember', 'forget', 'memory_serve', 'memory_kill',
                                # a round spends real steps on a provider key
-                               'arena_run', 'arena_qualify', 'arena_config',
+                               # (a game run is a round over the game's tasks)
+                               'arena_run', 'arena_game_run',
+                               'arena_qualify', 'arena_config',
                                'arena_scheduler',
+                               # ...and a gauntlet spends them on a named model,
+                               # which is the one place the board runs paid ones
+                               'arena_gauntlet',
+                               # our agent on openarena's board: they run it on
+                               # our key, so the host decides
+                               'openarena_enter',
                                'credit_grant', 'treasury', 'credit_topup',
-                               'credit_withdraw', 'credit_config'}
+                               'credit_verify', 'credit_withdraw', 'credit_config',
+                               # visibility + sealing are owner-only: they
+                               # decide what the world can read (see below,
+                               # each one calls require_owner itself)
+                               'module_visibility', 'modules_visibility',
+                               'module_seal', 'module_unseal', 'module_restore',
+                               'privacy_key'}
 
     # ── permissions (Claude module interface) ────────────────────────────
+
+    @property
+    def _owner_file(self) -> Path:
+        return Path.home() / '.mod' / 'agent' / 'owner.json'
 
     def _load_owner_file(self):
         """Read owner from ~/.mod/agent/owner.json (claude-style, import-independent)."""
         try:
-            p = Path.home() / '.mod' / 'agent' / 'owner.json'
+            p = self._owner_file
             if p.exists():
                 with open(p) as f:
                     return json.load(f).get('owner')
         except Exception:
             pass
         return None
+
+    def _load_co_owners(self) -> list:
+        """Addresses that hold the owner's standing beside the owner.
+
+        Read from ~/.mod/agent/owner.json (`co_owners`) and, for deploys with
+        no writable home, AGENT_CO_OWNERS as a comma-separated list. The
+        primary owner is never in this list — they are `_owner`.
+        """
+        found = []
+        try:
+            p = self._owner_file
+            if p.exists():
+                with open(p) as f:
+                    data = json.load(f)
+                found += list(data.get('co_owners') or data.get('owners') or [])
+        except Exception:
+            pass
+        found += [a for a in (os.environ.get('AGENT_CO_OWNERS') or '').split(',') if a.strip()]
+        out = []
+        for a in found:
+            a = str(a).strip().lower()
+            if a.startswith('0x') and len(a) == 42 and a != self._owner and a not in out:
+                out.append(a)
+        return out
+
+    def _save_co_owners(self):
+        """Persist the co-owner list next to the owner, off-tree."""
+        p = self._owner_file
+        data = {}
+        try:
+            if p.exists():
+                with open(p) as f:
+                    data = json.load(f) or {}
+        except Exception:
+            data = {}
+        data['owner'] = data.get('owner') or self._owner
+        data['co_owners'] = list(self._co_owners)
+        data.pop('owners', None)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix('.json.tmp')
+        with open(tmp, 'w') as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, p)
+
+    def _sync_credit_aliases(self):
+        """Point every co-owner's credit account at the owner's."""
+        credits = getattr(self, 'credits', None)
+        if not credits or not self._owner:
+            return
+        credits.aliases = {a: self._owner for a in self._co_owners}
+
+    def owners(self, op: str = 'list', address: str = None, key: str = None) -> dict:
+        """List / add / remove co-owners. The primary owner alone may change it.
+
+        A co-owner passes every owner gate and shares the owner's credit
+        account, so adding one is handing over the module — hence it is the
+        one thing a co-owner cannot do themselves.
+        """
+        op = (op or 'list').lower()
+        if op in ('list', ''):
+            self.require_owner(key, 'owners')
+            return {'owner': self._owner, 'co_owners': list(self._co_owners)}
+        # mutations: primary owner only
+        addr = self._resolve_address(key, verified=True)
+        if not self._owner or (addr or '').lower() != self._owner:
+            raise PermissionError(
+                "Permission denied: only the primary owner can add or remove co-owners.")
+        target = str(address or '').strip().lower()
+        if not (target.startswith('0x') and len(target) == 42):
+            raise ValueError('a 0x address is required')
+        if op == 'add':
+            if target == self._owner:
+                raise ValueError('that address is already the owner')
+            if target not in self._co_owners:
+                self._co_owners = list(self._co_owners) + [target]
+        elif op in ('rm', 'remove', 'delete'):
+            self._co_owners = [a for a in self._co_owners if a != target]
+        else:
+            raise ValueError(f'unknown op: {op}')
+        self._save_co_owners()
+        self._sync_credit_aliases()
+        return {'owner': self._owner, 'co_owners': list(self._co_owners),
+                'op': op, 'address': target}
 
     def _resolve_address(self, key=None, verified: bool = False) -> str:
         """Resolve a key/address/token to an address string.
@@ -1337,13 +2446,14 @@ class Mod(Agent):
         return key_str
 
     def is_owner(self, key=None) -> bool:
-        """Check if key/address/token belongs to the module owner."""
+        """Check if key/address/token belongs to the owner or a co-owner."""
         if not self._owner:
             return True
         addr = self._resolve_address(key, verified=True)
         if not addr:
             return False
-        return addr.lower() == self._owner.lower()
+        addr = addr.lower()
+        return addr == self._owner.lower() or addr in getattr(self, '_co_owners', ())
 
     def require_owner(self, key=None, operation: str = "this operation"):
         """Raise PermissionError if caller is not the owner."""
@@ -1451,6 +2561,58 @@ class Mod(Agent):
             'admin_actions': sorted(self._admin_actions),
         }
 
+    # ── module visibility (public audit / private seal) ──────────────
+    #
+    # Reading a public module is open (see the `modules`, `module_tree` and
+    # `module_file` actions). Everything that CHANGES what the world can read
+    # is owner-only, and says so here rather than trusting the caller.
+
+    def module_visibility(self, name: str, visibility: str,
+                          passphrase: str = None, key=None) -> dict:
+        """Flip one module public/private. Private seals it. Owner only."""
+        self.require_owner(key, 'module_visibility')
+        return self.privacy.set(name, visibility, passphrase)
+
+    def modules_visibility(self, visibility: str, passphrase: str = None,
+                           key=None) -> dict:
+        """Flip the whole fleet, and the default new modules inherit. Owner only."""
+        self.require_owner(key, 'modules_visibility')
+        return self.privacy.set_all(visibility, passphrase)
+
+    def module_seal(self, name: str, passphrase: str = None, key=None) -> dict:
+        """Re-seal a private module after editing it. Owner only."""
+        self.require_owner(key, 'module_seal')
+        return self.privacy.seal(name, passphrase)
+
+    def module_unseal(self, name: str, key=None) -> dict:
+        """Drop a module's blob and put its tree back under git. Owner only."""
+        self.require_owner(key, 'module_unseal')
+        return self.privacy.unseal(name)
+
+    def module_restore(self, name: str, passphrase: str = None,
+                       force: bool = False, key=None) -> dict:
+        """Unpack a sealed blob back into source — the clone side. Owner only."""
+        self.require_owner(key, 'module_restore')
+        return self.privacy.restore(name, passphrase, force)
+
+    def privacy_key(self, op: str = 'state', passphrase: str = None,
+                    current: str = None, key_b64: str = None, key=None) -> dict:
+        """The fleet key: state / export / import / passphrase. Owner only.
+
+        Export exists because the key is the only thing that opens a sealed
+        push — lose it and the blob is noise. It never leaves this method
+        without an owner signature.
+        """
+        self.require_owner(key, 'privacy_key')
+        if op == 'export':
+            return {'key': self.privacy.key_export(passphrase),
+                    'warning': 'anyone holding this opens every sealed module'}
+        if op == 'import':
+            return self.privacy.key_import(key_b64 or '', passphrase)
+        if op == 'passphrase':
+            return self.privacy.key_passphrase(passphrase, current)
+        return self.privacy.key_state()
+
     # ── credits (prepaid public-key usage) ───────────────────────────
 
     def credits_info(self, key: str = None) -> dict:
@@ -1460,16 +2622,31 @@ class Mod(Agent):
             addr = None
         return self.credits.info(addr, owner=bool(key) and self.is_owner(key))
 
-    def credit_deposit(self, tx_hash: str, network: str = 'base') -> dict:
-        """Verify a USDT/USDC deposit tx and credit the on-chain sender."""
-        return self.credits.verify_deposit(tx_hash, network)
+    def credit_deposit(self, tx_hash: str, network: str = 'base',
+                       provider: str = None) -> dict:
+        """Verify a USDT/USDC/ETH deposit tx and credit the on-chain sender.
+        `provider` earmarks it for the openrouter or venice key."""
+        return self.credits.verify_deposit(tx_hash, network, provider)
+
+    def credit_price(self, network: str = 'base') -> dict:
+        """ETH/USD a native deposit on `network` is credited at (Chainlink)."""
+        return self.credits.eth_usd(network)
 
     def credit_grant(self, address: str, amount: float, note: str = '',
                      key: str = None) -> dict:
-        """Manually adjust an account's credits (± amount). Owner only."""
+        """Top up or deduct any account (± amount). Owner only.
+
+        This is the owner's side of the ledger: they already pay the
+        providers directly, so they never buy credits for themselves —
+        they hand them to whoever should be able to run, and take them
+        back the same way. A deduction stops at zero.
+        """
         self.require_owner(key, 'credit_grant')
-        return self.credits.credit(address, amount, kind='grant',
-                                   note=note or f'granted by {self._owner}')
+        amount = float(amount)
+        kind = 'grant' if amount >= 0 else 'debit'
+        verb = 'granted' if amount >= 0 else 'deducted'
+        return self.credits.credit(address, amount, kind=kind,
+                                   note=note or f'{verb} by {self._owner}')
 
     def charge_run(self, address: str, usage: dict, note: str = '') -> dict:
         """Bill a finished guest run from its metered cost.
@@ -1504,6 +2681,9 @@ class Mod(Agent):
                 continue
             out[name] = {'balance': bal.get('balance'),
                          'usage': bal.get('total_usage'),
+                         # credits ever bought on the key — only OpenRouter
+                         # reports it, and it is what makes a top-up exact
+                         'purchased': bal.get('total_credits'),
                          'configured': bal.get('configured', False),
                          'key_source': bal.get('source')}
             if bal.get('error'):
@@ -1524,6 +2704,25 @@ class Mod(Agent):
         """Record credits bought at a provider out of the deposit float. Owner only."""
         self.require_owner(key, 'credit_topup')
         return self.credits.record_topup(provider, amount, ref=ref, note=note)
+
+    def credit_topup_verify(self, provider: str = 'openrouter', key: str = None) -> dict:
+        """Book a top-up by reading it off the provider key. Owner only.
+
+        Neither provider sells credits over an API (OpenRouter's Coinbase
+        endpoint answers 410 Gone, Venice never had one), so the money is
+        always sent on the provider's own page — `credits.PROVIDER_TOPUP`
+        holds the link the console opens. This closes the loop: it re-reads
+        the key and books whatever arrived, so the books record what landed
+        instead of an amount typed from memory.
+        """
+        self.require_owner(key, 'credit_topup_verify')
+        provider = (provider or 'openrouter').strip().lower()
+        bal = self.balance(provider)
+        live = {'balance': bal.get('balance'), 'purchased': bal.get('total_credits'),
+                'error': bal.get('error')}
+        out = self.credits.verify_topup(provider, live)
+        out['balance'] = bal.get('balance')
+        return out
 
     def credit_withdraw(self, amount: float, note: str = '', key: str = None) -> dict:
         """Take earned margin out of the float. Owner only."""
@@ -1578,13 +2777,21 @@ class Mod(Agent):
 
     def key_info(self, provider: str = 'openrouter') -> dict:
         """Masked view of the active API key + encrypted-vault state for a provider."""
+        if is_fleet(provider):
+            # the key (if any) lives in that module; it is its business
+            return {'provider': provider, 'configured': True, 'key': None,
+                    'supported': False, 'keyless': True, 'encrypted': False,
+                    'unlocked': False, 'hint': self.provider_hint(provider),
+                    'source': provider[4:], 'fleet': True,
+                    'remembered': False, 'remember_expires': None}
         if provider in self.LOCAL_PROVIDERS:
             # nothing to hold a key for: 'configured' means "a run can start",
             # and on these it always can (a cloud key lives in liquidai's own
             # vault, which is that module's business, not ours)
             return {'provider': provider, 'configured': True, 'key': None,
                     'supported': False, 'keyless': True, 'encrypted': False,
-                    'unlocked': False, 'hint': None, 'source': 'liquidai',
+                    'unlocked': False, 'hint': self.LOCAL_HINTS.get(provider),
+                    'source': 'liquidai' if provider.startswith('liquidai') else provider,
                     'remembered': False, 'remember_expires': None}
         keys = self._provider_keys(provider)
         vault = self._vault_read(provider)
@@ -1875,6 +3082,10 @@ class Mod(Agent):
     def balance(self, provider: str = 'openrouter') -> dict:
         """Remaining credit on the active API key (openrouter /credits, venice rate_limits)."""
         info = self.key_info(provider)
+        if info.get('fleet'):
+            return {**info, 'balance': None,
+                    'note': f"billed to the {provider[4:]} module's own key, "
+                            f"not to agent credit — host only"}
         if info.get('keyless'):
             return {**info, 'balance': None,
                     'note': 'no key, no bill — this provider runs on local or '
@@ -1918,11 +3129,29 @@ class Mod(Agent):
         Actions:
           Public (anyone):
             status, health, schema, agents, agent, chains, harnesses,
+            graph_kinds - the graph protocol: node kinds, ports, gate ops
+            graphs      - every saved graph of agents
+            graph       - one graph in full (id=)
+            graph_validate - what is wrong with a graph (graph=)
             toolboxes, toolbox, snapped, tools, tool, mods,
-            recall, episodes, facts, memory_state,
-            arena, arena_tasks, arena_matches, arena_card, arena_status
+            recall, episodes, facts, exchanges, memory_state,
+            arena, arena_tasks, arena_matches, arena_card, arena_status,
+            arena_models, arena_model, arena_task_board,
+            arena_skills, arena_skill (id=), arena_skill_results (id=),
+            arena_task_search (query=),
+            arena_classes, arena_class (id=),
+            arena_games, arena_game (id=), arena_game_results (id=),
+            openarena, openarena_task, openarena_sources,
+            credits, credit_price (network=),
+            credit_deposit (tx_hash=, network=base|ethereum, provider=openrouter|venice)
+                        - credit a USDT/USDC/ETH transfer to the deposit address
 
           Signed-in (self-scoped to the caller's verified address):
+            graph_save  - Save a graph of agents (graph={...})
+            graph_vibe  - Vibecode one: description in, a wired draft out;
+                          graph=/id= edits that graph instead (save= files it)
+            graph_rm    - Delete one of yours (id=)
+            graph_import- Install a shared graph (cid=)
             vaults      - List your key-value vaults
             vaults_get  - Read a vault (name=, reveal= to unseal private values)
             vaults_set  - Upsert an entry (name=, entry=, value=, private=)
@@ -1933,6 +3162,7 @@ class Mod(Agent):
 
           Admin (owner + granted users):
             run         - Run the agent loop (toolbox= snaps a bundle for the run)
+            graph_run   - Run a graph of agents (id= or graph={...}, query=)
             snap        - Snap a toolbox onto the agent (name=)
             unsnap      - Detach a toolbox (name=) or all (no args)
             select      - Pin the loadout to an exact list (tools=[...], none = boxes)
@@ -1941,14 +3171,50 @@ class Mod(Agent):
             tool_add    - Create a custom tool (name=, command=, params=)
             tool_rm     - Remove a custom tool (name=)
             tool_run    - Execute a custom tool (name=, params={...})
+            grow_status    - The grower: config, counts, last tick (public)
+            grow_config    - Owner: enabled/interval/engine/caps/model (see src/grow)
+            grow_tick      - Owner: grow one tool + agent now
+            grow_prune     - Owner: remove grown items (kind=tool|agent|all, count=)
+            grow_scheduler - Owner: start/stop the grow thread (on=)
             remember    - Store a durable memory fact (name=, content=)
             forget      - Remove a fact (id=)
             memory_serve- Start the memory service as its own process (:50119)
             memory_kill - Stop the memory service
+            arena_task_draft - Draft a task with the task-builder agent
+                               (description=, schema=agent|openarena)
+            arena_task_add   - Store a hand-written arena task (spec=, slug=)
+            arena_task_rm    - Remove one of your tasks (slug=)
+            arena_skill_create - Bundle tasks into a named skill (name=, tasks=, description=)
+            arena_skill_update - Adjust a skill's tasks or weights (id=, tasks=, name=)
+            arena_skill_rm   - Remove a skill (id=)
+            arena_task_search - The task pool ranked against a query (query=, k=)
+            arena_games      - Every game: one task or a bundle, played as one
+            arena_game       - One game's leaderboard (id= bundle id or task key)
+            arena_game_results - Its tasks + every agent's answer (id=)
+            arena_game_create - Combine tasks into a game (name=, tasks=)
+            arena_game_update - Adjust a game's tasks or weights (id=, tasks=)
+            arena_game_rm    - Remove a game (id=)
+            arena_game_run   - Play every member task (id=, force=)
+            arena_classes    - Every class: skills bundled one level up
+            arena_class      - One class's rolled-up benchmark (id=)
+            arena_class_create - Bundle skills into a class (name=, skills=, description=)
+            arena_class_update - Adjust a class's skills or weights (id=, skills=, name=)
+            arena_class_rm   - Remove a class (id=)
+            openarena        - The openarena bridge: is it up, what it holds
+            openarena_task   - One openarena task in full (slug=)
+            openarena_sources- Benchmarks it can pull off the web
+            openarena_task_add - Upload a task in the openarena schema (spec=)
+            openarena_task_rm  - Delete one you wrote there (slug=)
+            openarena_preview  - Convert a benchmark, keep nothing (source=, limit=)
+            openarena_import   - ...and keep it (source=, limit=, offset=)
             arena_run   - Play a match (agent=, task=) or a whole round
+            arena_gauntlet - Rank models against each other: one agent, one
+                              task set, N models (models=, agent=, tasks=)
             arena_qualify - Score a newcomer against the incumbents (agent=)
             arena_config  - Set the board's knobs (enabled=, free=, period_hours=…)
             arena_scheduler - Start/stop the background board process (on=)
+            openarena_enter - Enter one of our agents on openarena's own board
+                              (agent=, name=, model=, steps=, free=)
             plan        - Parse and execute a single LLM output
             tool_run    - Run a single tool (built-in, custom, or mod.<module>)
             serve       - Start API + app
@@ -1961,6 +3227,7 @@ class Mod(Agent):
             acl         - View current access control list
             treasury    - Deposits in, provider credits out, margin kept (live=)
             credit_topup- Record credits bought at a provider (provider=, amount=, ref=)
+            credit_verify - Book a top-up read off the provider key (provider=)
             credit_withdraw - Take earned margin out of the float (amount=)
             credit_config   - Set fee_rate / price_per_step / cost_multiplier
         """
@@ -1973,6 +3240,11 @@ class Mod(Agent):
             'agents': lambda: self.agents.forward(kwargs.get('name'), **kwargs),
             'agent': lambda: self.agents.forward(kwargs.get('name') or self.default_agent(key)),
             'chains': lambda: self.agents.chains(),
+            # the graph layer: what connects agents to each other
+            'graph_kinds': lambda: self.graphs.kinds(),
+            'graphs': lambda: {'graphs': self.graphs.ls(key)},
+            'graph': lambda: self.graphs.get(kwargs.get('id', ''), key=key),
+            'graph_validate': lambda: self.graphs.validate(kwargs.get('graph') or {}),
             # external agent CLIs an agent can hand its run to, + what's installed here
             'harnesses': lambda: self.harness.forward(kwargs.get('name')),
             'agent_cids': lambda: self.agents.forward(action='cids'),
@@ -1987,6 +3259,11 @@ class Mod(Agent):
             'prompts': lambda: {'prompts': self.library.prompts()},
             'prompt_add': lambda: self.library.prompt_add(kwargs.get('name', ''), kwargs.get('text', ''), kwargs.get('description', ''), kwargs.get('tags'), kwargs.get('id'), key=key),
             'prompt_rm': lambda: self.library.prompt_rm(kwargs.get('id', ''), key=key),
+            'graph_save': lambda: self.graphs.save(kwargs.get('graph') or {}, key=key),
+            'graph_rm': lambda: self.graphs.rm(kwargs.get('id', ''), key=key),
+            'graph_import': lambda: self.graphs.import_cid(kwargs.get('cid', ''), key=key),
+            'graph_run': lambda: self.graph_run(kwargs.get('graph') or kwargs.get('id', ''),
+                                               kwargs.get('query', ''), key=key),
             'memory': lambda: {'memory': self.library.notes()},
             'memory_add': lambda: self.library.note_add(kwargs.get('name', ''), kwargs.get('content', ''), kwargs.get('tags'), kwargs.get('id'), key=key),
             'memory_rm': lambda: self.library.note_rm(kwargs.get('id', ''), key=key),
@@ -1999,6 +3276,16 @@ class Mod(Agent):
             'discover_detail': lambda: self.discover.detail(kwargs.get('id', '')),
             'discover_doc': lambda: self.discover.tool_doc(kwargs.get('id', ''), kwargs.get('path')),
             'tool_install': lambda: self.tool_install(kwargs.get('id', ''), kwargs.get('path'), key=key),
+            # agent hub: search every agent by meaning, install GitHub agents as mods
+            'agent_search': lambda: self.agent_search(kwargs.get('q', ''), int(kwargs.get('k', 20)),
+                                                      kwargs.get('sources')),
+            'agent_hub': lambda: {'agents': self.agenthub.catalog(),
+                                  'installed': self.agenthub.installed()},
+            'agent_hub_item': lambda: self.agenthub.item(kwargs.get('id', '')),
+            'agent_hub_install': lambda: self.agent_hub_install(kwargs.get('id'), kwargs.get('repo'),
+                                                                key=key, setup=bool(kwargs.get('setup'))),
+            'agent_hub_remove': lambda: self.agent_hub_remove(kwargs.get('id', ''), key=key,
+                                                              purge=bool(kwargs.get('purge'))),
             'installed_tools': lambda: {'tools': self.library.installed_tools()},
             'tool_import': lambda: self.library.tool_import(kwargs.get('cid', ''), key=key),
             'tool_uninstall': lambda: self.library.tool_rm(kwargs.get('id', ''), key=key),
@@ -2011,10 +3298,39 @@ class Mod(Agent):
             'tool': lambda: self.tools.get(kwargs.get('name', '')),
             'mods': lambda: self.tools.mods.forward(q=kwargs.get('q', ''),
                                                     limit=kwargs.get('limit')),
+            # the fleet's MCP servers: who serves, what tools, re-probe
+            'mcp_servers': lambda: self.tools.mcp.forward(),
+            'mcp_tools': lambda: self.tools.mcp.forward(
+                action='tools', q=kwargs.get('q', ''),
+                limit=kwargs.get('limit')),
+            'mcp_refresh': lambda: self.tools.mcp.refresh(
+                kwargs.get('server'), kwargs.get('wake')),
+            # the agent box and every sub-component in it
+            'parts': lambda: self.parts(),
+            # the same API, spoken as Model Context Protocol (src/mcp.py)
+            'mcp': lambda: self.mcp(tools=bool(kwargs.get('tools'))),
+            # the memory modules an agent can be built with
+            'memories': lambda: self.memories.forward(kwargs.get('name')),
             # memory subsystem (working/episodic/semantic layers, own process)
             'memory_state': lambda: self.memory.forward('status') if hasattr(self.memory, 'status') else self.memory.summary(),
             'recall': lambda: self.memory.recall(kwargs.get('query', kwargs.get('q', '')), kwargs.get('k', 5)),
+            # retrieval across every layer at once, scoped to the caller —
+            # the same call the recall tool makes from inside a run
+            'retrieve': lambda: {
+                'query': kwargs.get('query', kwargs.get('q', '')),
+                'module': self.memories.name_of(self.memory),
+                'hits': self.memory.retrieve(
+                    kwargs.get('query', kwargs.get('q', '')),
+                    k=int(kwargs.get('k', 5)),
+                    layers=kwargs.get('layers'),
+                    session=kwargs.get('session'),
+                    min_score=kwargs.get('min_score'),
+                    who=self.identity.addr(key))},
             'episodes': lambda: self.memory.episodes(kwargs.get('n', 50), kwargs.get('session')),
+            # the caller's own conversation history, as the memory module has it
+            'exchanges': lambda: {'exchanges': self.memory.history(
+                int(kwargs.get('n', 20)), kwargs.get('session'),
+                self.identity.addr(key))},
             'facts': lambda: self.memory.facts(),
             # arena: every agent on the same tasks, one ranked board
             'arena': lambda: self.arena.forward(),
@@ -2024,12 +3340,139 @@ class Mod(Agent):
                                                         task=kwargs.get('task')),
             'arena_card': lambda: self.arena.forward('card', agent=kwargs.get('agent', '')),
             'arena_status': lambda: self.arena.forward('status'),
+            # the same board keyed on the model — and the catalog a gauntlet
+            # can pick from, so the console never has to guess an id
+            'arena_models': lambda: {**self.arena.forward('models'),
+                                     'catalog': self.arena_model_options()},
+            'arena_model': lambda: self.arena.forward('model',
+                                                      model=kwargs.get('model', '')),
+            'arena_task_board': lambda: self.arena.forward('task_board'),
+            # skills: named task bundles with composite leaderboards
+            'arena_skills': lambda: self.arena.forward('skills'),
+            'arena_skill': lambda: self.arena.forward('skill',
+                                                      id=kwargs.get('id') or kwargs.get('skill', '')),
+            # a skill opened all the way up: each task's prompt, and every
+            # agent's score with the answer it actually gave
+            'arena_skill_results': lambda: self.arena.forward('skill_results',
+                                                              id=kwargs.get('id') or kwargs.get('skill', '')),
+            # the pool ranked against a plain-language query — how a skill's
+            # task list is assembled. Local BM25, no service, no key
+            'arena_task_search': lambda: self.arena.forward(
+                'task_search', query=kwargs.get('query') or kwargs.get('q', ''),
+                k=kwargs.get('k', 20)),
+            # classes: skills bundled one level up, scores rolled up with them
+            'arena_classes': lambda: self.arena.forward('classes'),
+            'arena_class': lambda: self.arena.forward('class',
+                                                      id=kwargs.get('id', '')),
+            # games: one task or a bundle of tasks, played as one thing —
+            # the id is a bundle id or any bare task key
+            'arena_games': lambda: self.arena.forward('games'),
+            'arena_game': lambda: self.arena.forward('game',
+                                                     id=kwargs.get('id') or kwargs.get('game', '')),
+            'arena_game_results': lambda: self.arena.forward('game_results',
+                                                             id=kwargs.get('id') or kwargs.get('game', '')),
+            'arena_skill_create': lambda: self.arena.forward('skill_create',
+                                                              name=kwargs.get('name', ''),
+                                                              description=kwargs.get('description', ''),
+                                                              tasks=kwargs.get('tasks') or [],
+                                                              owner=kwargs.get('owner', '')),
+            'arena_skill_update': lambda: self.arena.forward('skill_update',
+                                                              id=kwargs.get('id') or kwargs.get('skill', ''),
+                                                              name=kwargs.get('name'),
+                                                              description=kwargs.get('description'),
+                                                              tasks=kwargs.get('tasks')),
+            'arena_skill_rm': lambda: self.arena.forward('skill_rm',
+                                                          id=kwargs.get('id') or kwargs.get('skill', '')),
+            # hand-written tasks: draft one with the task-builder agent, store
+            # it under your address, remove your own
+            'arena_task_draft': lambda: self.arena_task_draft(
+                kwargs.get('description', ''), model=kwargs.get('model'),
+                provider=kwargs.get('provider'), free=bool(kwargs.get('free')),
+                steps=kwargs.get('steps', 4),
+                schema=kwargs.get('schema', 'agent'),
+                harness=kwargs.get('harness'),
+                save=bool(kwargs.get('save')), key=key),
+            'arena_task_add': lambda: self.arena_task_add(
+                kwargs.get('spec') or {}, slug=kwargs.get('slug'), key=key),
+            # vibecode a flow: description (+ optionally the graph as it
+            # stands) in, a wired draft out — see graph_vibe
+            'graph_vibe': lambda: self.graph_vibe(
+                kwargs.get('description', ''),
+                graph=kwargs.get('graph') or kwargs.get('id'),
+                model=kwargs.get('model'), provider=kwargs.get('provider'),
+                free=bool(kwargs.get('free')), steps=kwargs.get('steps', 4),
+                save=bool(kwargs.get('save')),
+                harness=kwargs.get('harness'), key=key),
+            # vibecode an agent: description in, a reviewed draft (or, with
+            # save=true, a filed agent) out — see agent_vibe
+            'agent_vibe': lambda: self.agent_vibe(
+                kwargs.get('description', ''), name=kwargs.get('name'),
+                model=kwargs.get('model'), provider=kwargs.get('provider'),
+                free=bool(kwargs.get('free')), steps=kwargs.get('steps', 4),
+                save=bool(kwargs.get('save')),
+                harness=kwargs.get('harness'), key=key),
+            # go on the internet, come back with an agent idea (and, unless
+            # vibe=false, the agent itself) — see agent_scout
+            'agent_scout': lambda: self.agent_scout(
+                theme=kwargs.get('theme'), sources=kwargs.get('sources'),
+                reads=kwargs.get('reads', 4),
+                vibe=kwargs.get('vibe', True) is not False,
+                name=kwargs.get('name'), model=kwargs.get('model'),
+                provider=kwargs.get('provider'), free=bool(kwargs.get('free')),
+                steps=kwargs.get('steps', 4), save=bool(kwargs.get('save')),
+                harness=kwargs.get('harness'), key=key,
+                on_event=kwargs.get('on_event')),
+            'agent_scout_runs': lambda: self.agent_scout_runs(
+                limit=kwargs.get('limit', 20), key=key),
+            'agent_scout_run': lambda: self.agent_scout_run(
+                kwargs.get('id', ''), key=key),
+            # grow: a new tool + agent every interval (see src/grow)
+            'grow_status': lambda: self.grow_status(),
+            'grow_config': lambda: self.grow_config(key=key, **{
+                k: v for k, v in kwargs.items() if k in self._grow_keys()}),
+            'grow_tick': lambda: self.grow_tick(key=key),
+            'grow_prune': lambda: self.grow_prune(
+                kind=kwargs.get('kind', 'all'), count=kwargs.get('count'), key=key),
+            'grow_scheduler': lambda: self.grow_scheduler(
+                on=kwargs.get('on', True) is not False, key=key),
+            # cron: run an agent every N minutes (see src/cron)
+            'cron_status': lambda: self.cron_status(agent=kwargs.get('agent'), key=key),
+            'cron_job': lambda: self.cron_job(kwargs.get('id', ''), key=key),
+            'cron_add': lambda: self.cron_add(key=key, **{
+                k: v for k, v in kwargs.items() if k in self._cron_keys()}),
+            'cron_update': lambda: self.cron_update(kwargs.get('id', ''), key=key, **{
+                k: v for k, v in kwargs.items() if k in self._cron_keys()}),
+            'cron_rm': lambda: self.cron_rm(kwargs.get('id', ''), key=key),
+            'cron_run': lambda: self.cron_run(kwargs.get('id', ''), key=key),
+            'cron_scheduler': lambda: self.cron_scheduler(
+                on=kwargs.get('on', True) is not False, key=key),
+            'compute_info': lambda: self.compute_info(agent=kwargs.get('agent')),
+            'arena_task_rm': lambda: self.arena_task_rm(kwargs.get('slug', ''), key=key),
+            # the openarena schema: a statement plus graded cases, stored and
+            # judged next door (see arena/openarena.py)
+            'openarena': lambda: self.arena.forward('openarena'),
+            'openarena_task': lambda: self.arena_oa_task(kwargs.get('slug', '')),
+            'openarena_sources': lambda: self.arena.forward('oa_sources'),
+            'openarena_task_add': lambda: self.arena_oa_task_add(
+                kwargs.get('spec') or {}, key=key),
+            'openarena_task_rm': lambda: self.arena_oa_task_rm(
+                kwargs.get('slug', ''), key=key),
+            'openarena_preview': lambda: self.arena_oa_import(
+                kwargs.get('source', 'humaneval'), preview=True, key=key,
+                **{k: v for k, v in kwargs.items()
+                   if k not in ('source', 'preview', 'key')}),
+            'openarena_import': lambda: self.arena_oa_import(
+                kwargs.get('source', 'humaneval'), preview=bool(kwargs.get('preview')),
+                key=key, **{k: v for k, v in kwargs.items()
+                            if k not in ('source', 'preview', 'key')}),
             'key_info': lambda: self.key_info(kwargs.get('provider', 'openrouter')),
             'balance': lambda: self.balance(kwargs.get('provider', 'openrouter')),
             # credits (prepaid public-key usage)
             'credits': lambda: self.credits_info(key),
             'credit_deposit': lambda: self.credit_deposit(kwargs.get('tx_hash', ''),
-                                                          kwargs.get('network', 'base')),
+                                                          kwargs.get('network', 'base'),
+                                                          kwargs.get('provider')),
+            'credit_price': lambda: self.credit_price(kwargs.get('network', 'base')),
             'credit_grant': lambda: self.credit_grant(kwargs.get('address', ''),
                                                       kwargs.get('amount', 0),
                                                       kwargs.get('note', ''), key),
@@ -2039,6 +3482,8 @@ class Mod(Agent):
                                                       kwargs.get('amount', 0),
                                                       kwargs.get('ref', ''),
                                                       kwargs.get('note', ''), key),
+            'credit_verify': lambda: self.credit_topup_verify(
+                kwargs.get('provider', 'openrouter'), key),
             'credit_withdraw': lambda: self.credit_withdraw(kwargs.get('amount', 0),
                                                             kwargs.get('note', ''), key),
             'credit_config': lambda: self.credit_config(
@@ -2066,6 +3511,26 @@ class Mod(Agent):
                                                           kwargs.get('entry', '')),
             'vaults_public': lambda: self.vaults.public(kwargs.get('address', ''),
                                                         kwargs.get('name', '')),
+            # module visibility — the audit side is open to anyone
+            'modules': lambda: self.privacy.ls(kwargs.get('q', '')),
+            'module_tree': lambda: self.privacy.tree(kwargs.get('name', '')),
+            'module_file': lambda: self.privacy.read(kwargs.get('name', ''),
+                                                     kwargs.get('path', '')),
+            # …and the switches are the owner's alone
+            'module_visibility': lambda: self.module_visibility(
+                kwargs.get('name', ''), kwargs.get('visibility', ''),
+                kwargs.get('passphrase'), key=key),
+            'modules_visibility': lambda: self.modules_visibility(
+                kwargs.get('visibility', ''), kwargs.get('passphrase'), key=key),
+            'module_seal': lambda: self.module_seal(kwargs.get('name', ''),
+                                                    kwargs.get('passphrase'), key=key),
+            'module_unseal': lambda: self.module_unseal(kwargs.get('name', ''), key=key),
+            'module_restore': lambda: self.module_restore(
+                kwargs.get('name', ''), kwargs.get('passphrase'),
+                bool(kwargs.get('force')), key=key),
+            'privacy_key': lambda: self.privacy_key(
+                kwargs.get('op', 'state'), kwargs.get('passphrase'),
+                kwargs.get('current'), kwargs.get('key_b64'), key=key),
             # admin (owner + granted)
             'set_key': lambda: self.set_api_key(kwargs.get('api_key', ''),
                                                 kwargs.get('provider', 'openrouter'),
@@ -2111,8 +3576,68 @@ class Mod(Agent):
                                                     model=kwargs.get('model'),
                                                     steps=kwargs.get('steps'),
                                                     free=kwargs.get('free'),
-                                                    reason=kwargs.get('reason', 'manual')),
+                                                    reason=kwargs.get('reason', 'manual'),
+                                                    force=bool(kwargs.get('force', False))),
             'arena_qualify': lambda: self.arena.forward('qualify', agent=kwargs.get('agent', '')),
+            # a gauntlet names its models, so unlike a round it can spend on
+            # paid ones — the host's call, and the host's key
+            'arena_gauntlet': lambda: self.arena.forward(
+                'gauntlet', models=kwargs.get('models') or [],
+                agent=kwargs.get('agent'), tasks=kwargs.get('tasks'),
+                steps=kwargs.get('steps'), free=bool(kwargs.get('free', False)),
+                reason=kwargs.get('reason', 'gauntlet')),
+            # skill writes: signed-in only so skills carry an owner address
+            'arena_skill_create': lambda: self.arena.forward('skill_create',
+                                                              name=kwargs.get('name', ''),
+                                                              description=kwargs.get('description', ''),
+                                                              tasks=kwargs.get('tasks') or [],
+                                                              owner=self.identity.addr(key)),
+            'arena_skill_update': lambda: self.arena.forward('skill_update',
+                                                              id=kwargs.get('id') or kwargs.get('skill', ''),
+                                                              name=kwargs.get('name'),
+                                                              description=kwargs.get('description'),
+                                                              tasks=kwargs.get('tasks')),
+            'arena_skill_rm': lambda: self.arena.forward('skill_rm',
+                                                          id=kwargs.get('id') or kwargs.get('skill', '')),
+            # game writes: same contract as skills — signed-in, owner recorded.
+            # game_run spends steps like a round, so it sits with arena_run
+            # in the admin set rather than the public one
+            'arena_game_create': lambda: self.arena.forward('game_create',
+                                                             name=kwargs.get('name', ''),
+                                                             description=kwargs.get('description', ''),
+                                                             tasks=kwargs.get('tasks') or [],
+                                                             owner=self.identity.addr(key)),
+            'arena_game_update': lambda: self.arena.forward('game_update',
+                                                             id=kwargs.get('id') or kwargs.get('game', ''),
+                                                             name=kwargs.get('name'),
+                                                             description=kwargs.get('description'),
+                                                             tasks=kwargs.get('tasks')),
+            'arena_game_rm': lambda: self.arena.forward('game_rm',
+                                                         id=kwargs.get('id') or kwargs.get('game', '')),
+            'arena_game_run': lambda: self.arena.forward('game_run',
+                                                          id=kwargs.get('id') or kwargs.get('game', ''),
+                                                          agents=kwargs.get('agents'),
+                                                          force=bool(kwargs.get('force', False)),
+                                                          reason=kwargs.get('reason')),
+            # class writes: same contract as skills — signed-in, owner recorded
+            'arena_class_create': lambda: self.arena.forward('class_create',
+                                                              name=kwargs.get('name', ''),
+                                                              description=kwargs.get('description', ''),
+                                                              skills=kwargs.get('skills') or [],
+                                                              owner=self.identity.addr(key)),
+            'arena_class_update': lambda: self.arena.forward('class_update',
+                                                              id=kwargs.get('id', ''),
+                                                              name=kwargs.get('name'),
+                                                              description=kwargs.get('description'),
+                                                              skills=kwargs.get('skills')),
+            'arena_class_rm': lambda: self.arena.forward('class_rm',
+                                                          id=kwargs.get('id', '')),
+            # openarena calls back into /run to make our entrant play, which
+            # spends the host's key — so entering one is the host's call
+            'openarena_enter': lambda: self.arena_oa_enter(
+                kwargs.get('agent', ''), name=kwargs.get('name'),
+                model=kwargs.get('model'), steps=kwargs.get('steps'),
+                free=kwargs.get('free'), key=key),
             'arena_config': lambda: self.arena.forward('config', **kwargs),
             'arena_scheduler': lambda: self.arena_scheduler(kwargs.get('on', True)),
             # owner only
@@ -2142,6 +3667,15 @@ class Mod(Agent):
         goal and tool overrides before running.
         """
         key = kwargs.get('key')
+        # the arena's pass is standing, not identity — swap it for None before
+        # anything downstream tries to resolve an address out of it. Identity
+        # is what makes it trustworthy: it can only arrive from arena_run,
+        # never from JSON off the wire.
+        # getattr + None guard: test mods are built via __new__ and carry no
+        # pass, and a missing pass must never make a keyless run a match
+        arena_match = key is not None and key is getattr(self, '_arena_pass', None)
+        if arena_match:
+            key = kwargs['key'] = None
         # an explicit sandbox wins over key resolution: an arena match has no
         # caller behind it, and it belongs in its own scratch dir either way
         allowed_paths = kwargs.get('allowed_paths') or self.allowed_paths_for(key)
@@ -2154,18 +3688,33 @@ class Mod(Agent):
         agent_model = kwargs.get('model')
         agent_provider = kwargs.get('provider')
         agent_harness = None
+        # the memory module this run thinks with: what the caller asked for,
+        # else what the agent was built with, else the default one
+        agent_memory = kwargs.get('memory')
 
         if agent_type and agent_type in self.agents.ls():
             agent_config = self.agents.get(agent_type)
             if agent_config.get('goal'):
                 agent_goal = agent_config['goal']
+            if agent_config.get('memory') and not agent_memory:
+                agent_memory = agent_config['memory']
             # `skills` is the pre-rename key — agent configs saved back then
             # still carry it, so it's read as a fallback
             saved_tools = agent_config.get('tools') or agent_config.get('skills')
             if saved_tools and not kwargs.get('tools'):
                 agent_tools = saved_tools
-            if agent_config.get('model'):
+            # the agent's saved model is a default, not an override: a caller
+            # that named one — the console's picker, an arena gauntlet ranking
+            # six models on the same agent — asked for that model and would
+            # otherwise silently get whatever the agent was built with
+            if agent_config.get('model') and not agent_model:
                 agent_model = agent_config['model']
+            # same rule as the model: the agent's provider is a default the
+            # caller can override, not a lock. Without it an agent built on a
+            # local runtime runs its model id against whatever provider the
+            # caller defaulted to, which is where it gets silently swapped.
+            if agent_config.get('provider') and not agent_provider:
+                agent_provider = agent_config['provider']
             agent_harness = agent_config.get('harness')
 
         # explicit system prompt (library prompt or free text) beats the agent goal
@@ -2177,8 +3726,10 @@ class Mod(Agent):
         if agent_harness:
             kw = dict(kwargs)
             kw.pop('model', None)   # a provider model id means nothing to a CLI
+            kw.pop('arena_match', None)   # standing is computed here, never a caller knob
             return self._run_harness(agent_harness, goal=agent_goal,
-                                     model=agent_config.get('model'), **kw)
+                                     model=agent_config.get('model'),
+                                     arena_match=arena_match, **kw)
 
         # selected library memory notes ride along as run context
         extra = {}
@@ -2199,13 +3750,24 @@ class Mod(Agent):
                 extra['tool_docs'] = '\n\n'.join(
                     f"[tool: {d['name']}]\n{d.get('body', '')}" for d in docs)
 
-        # swap goal temporarily if agent has a custom one
-        original_goal = self.goal
-        if agent_goal:
-            self.goal = agent_goal
+        # The agent's prompt and memory module belong to this run, not to the
+        # module: behind the API there is one Mod for the whole host, and two
+        # runs overlapping on it used to swap these on the object and restore
+        # them out of order — leaving a persona's prompt bound to every run
+        # after it (the console spent a day answering as an agent called
+        # `broski`, whose whole system prompt is the word "broski"). Passed in
+        # per run instead; `run` binds them for its own thread.
+        run_memory = None
+        if agent_memory and agent_memory != self.memories.name_of(self.memory):
+            try:
+                run_memory = self.memories.make(agent_memory)
+            except Exception as e:
+                print(f"[agent] memory module {agent_memory!r} unavailable: {e}")
         try:
             return self.run(
                 query=kwargs.get('query', 'help me with this'),
+                goal=agent_goal,
+                memory=run_memory,
                 model=agent_model,
                 provider=agent_provider,
                 path=kwargs.get('path'),
@@ -2221,30 +3783,181 @@ class Mod(Agent):
                 allowed_paths=allowed_paths,
                 free=kwargs.get('free', False),
                 on_step=kwargs.get('on_step'),
+                on_usage=kwargs.get('on_usage'),
+                on_live=kwargs.get('on_live'),
                 images=kwargs.get('images'),
                 budget=kwargs.get('budget'),
+                session=kwargs.get('session'),
+                agent_type=agent_type,
                 **extra,
             )
         finally:
-            self.goal = original_goal
+            self._unbind_memory()
+            self._clear_run_state()
 
     # ── harness runs (external agent CLIs) ───────────────────────────
+
+    def _harness_trusted(self, harness: str, key=None) -> bool:
+        """Whether this caller may hand a run to that harness.
+
+        The host (owner + co-owners) always may. Beyond that the question is
+        delegated: the console module behind the harness (HARNESS_AUTH) is
+        asked its own is_owner for the address recovered from the caller's
+        token — the same gate its own interface enforces — so standing on the
+        claude or codex console is standing on its harness here. Verdicts are
+        cached briefly because the picker asks on every render and a console's
+        owner check may go to disk or chain.
+        """
+        if self.is_owner(key):
+            return True
+        peer = self.HARNESS_AUTH.get(harness)
+        if not (peer and key and m):
+            return False
+        try:
+            addr = (self._resolve_address(key, verified=True) or '').lower()
+        except Exception:   # no verifier wired up — nobody to vouch through
+            return False
+        if not addr:
+            return False
+        cache = getattr(self, '_harness_trust', None)
+        if cache is None:
+            cache = self._harness_trust = {}
+        hit = cache.get((peer, addr))
+        if hit and time.time() - hit[1] < 60:
+            return hit[0]
+        try:
+            verdict = bool(m.mod(peer)().is_owner(addr))
+        except Exception:   # a console that won't load vouches for nobody
+            verdict = False
+        cache[(peer, addr)] = (verdict, time.time())
+        return verdict
+
+    def _runnable_agent(self, name: str, key=None) -> bool:
+        """Whether this caller could actually run that agent right now.
+
+        The only thing that can stop them is a harness: the run leaves this
+        loop for a CLI on the host's own shell, so it wants a trusted caller
+        (the host, or the harnessed console's own owner — _harness_trusted)
+        and an installed binary. Everything else is runnable by anyone.
+        """
+        try:
+            harness = self.agents.get(name).get('harness')
+        except Exception:      # missing/unloadable — never offer it as a default
+            return False
+        if not harness:
+            return True
+        return bool(self._harness_trusted(harness, key)
+                    and self.harness.get(harness).available())
 
     def default_agent(self, key=None) -> str:
         """The agent to run as when the caller picked none.
 
-        Claude Code by default — this host's own CLI, with its own tools and
-        model. That is a harness run, which is owner-only and needs the binary
-        installed, so anyone else (or a host without it) gets the native agent.
+        A caller's own pick wins: whoever signs in can name the agent their
+        runs land on (set_default_agent), and it is remembered per address,
+        so the default follows the wallet rather than the browser.
+
+        With no pick on record it is Claude Code — this host's own CLI, with
+        its own tools and model. That is a harness run, which is owner-only
+        and needs the binary installed, so anyone else (or a host without it)
+        gets the native agent.
         """
+        pick = self.agent_pref(key)
+        # a pick that can no longer be run (a harness gone, an agent deleted)
+        # falls through rather than 403-ing every unnamed run
+        if pick and self._runnable_agent(pick, key):
+            return pick
         try:
-            harness = self.agents.get(self.DEFAULT_AGENT).get('harness')
-            if harness and not (self.is_owner(key)
-                                and self.harness.get(harness).available()):
+            if not self._runnable_agent(self.DEFAULT_AGENT, key):
                 return self.FALLBACK_AGENT
             return self.DEFAULT_AGENT
         except Exception:      # default agent missing/unloadable — never block a run
             return self.FALLBACK_AGENT
+
+    # ── the caller's own default agent ───────────────────────────────
+    # Which agent an unnamed run lands on is a preference, not a permission,
+    # but it is still per-address state, so it lives off-tree in
+    # ~/.mod/agent/prefs.json beside the ACL rather than in the module dir.
+
+    def _load_prefs(self) -> dict:
+        try:
+            if self._prefs_path.exists():
+                with open(self._prefs_path) as f:
+                    return json.load(f)
+        except Exception:      # a corrupt prefs file is not worth a 500
+            pass
+        return {}
+
+    def _save_prefs(self, prefs: dict):
+        with open(self._prefs_path, 'w') as f:
+            json.dump(prefs, f, indent=2)
+
+    def _pref_address(self, key=None) -> str:
+        """The address a preference is filed under, or '' for anonymous.
+
+        `key=None` is nobody — NOT this server's own key, which is what
+        _resolve_address falls back to. A pref bucket shared by every
+        anonymous caller is one anonymous caller overwriting the rest.
+        """
+        if not key:
+            return ''
+        return (self._resolve_address(key, verified=True) or '').lower()
+
+    def agent_pref(self, key=None) -> Optional[str]:
+        """The default agent this caller picked, or None. Anonymous = None.
+
+        Reads never raise: this is consulted on the way into every unnamed
+        run, and a module built without an identity (or without the prefs
+        path) has no pick rather than a broken run.
+        """
+        try:
+            addr = self._pref_address(key)
+            if not addr:
+                return None
+            return (self._load_prefs().get('default_agent') or {}).get(addr)
+        except Exception:
+            return None
+
+    def set_default_agent(self, name: Optional[str] = None, key=None) -> dict:
+        """Pick the agent unnamed runs land on. Signed-in callers only.
+
+        `name=None` clears the pick and hands the choice back to the module.
+        A harness agent can only be picked by someone who could run it — a
+        default that 403s every run is worse than no default at all.
+        """
+        addr = self._pref_address(key)
+        if not addr:
+            raise PermissionError(
+                'sign in to set a default agent — it is remembered per address')
+        prefs = self._load_prefs()
+        picks = dict(prefs.get('default_agent') or {})
+        if name:
+            name = str(name).strip()
+            try:
+                cfg = self.agents.get(name)
+            except Exception:
+                raise ValueError(f'unknown agent: {name}')
+            harness = cfg.get('harness')
+            if harness and not self._runnable_agent(name, key):
+                raise PermissionError(
+                    f"'{name}' hands its run to the {harness} CLI on this "
+                    f"host's own shell, so only the host can run it — pick a "
+                    f"native agent as your default.")
+            picks[addr] = name
+        else:
+            picks.pop(addr, None)
+        prefs['default_agent'] = picks
+        self._save_prefs(prefs)
+        return {'default': self.default_agent(key), 'pick': picks.get(addr),
+                'source': 'you' if picks.get(addr) else 'host', 'address': addr}
+
+    def default_agent_info(self, key=None) -> dict:
+        """The default plus where it came from — the caller, or this module."""
+        pick = self.agent_pref(key)
+        resolved = self.default_agent(key)
+        return {'default': resolved,
+                'pick': pick,
+                # 'you' only when the pick is the one actually in force
+                'source': 'you' if pick and pick == resolved else 'host'}
 
     def harness_for(self, agent_type: str = None) -> Optional[str]:
         """The harness an agent hands its run to, or None for a native run."""
@@ -2255,25 +3968,75 @@ class Mod(Agent):
         except Exception:
             return None
 
+    def agent_interface(self, name: str) -> Dict[str, Any]:
+        """The agent's own UI, resolved: the `interface` the agent declares,
+        or — for a hub-installed agent — its module's local port. `proxy`
+        says whether /agents/{name}/ui may relay a loopback interface to the
+        browser: only interfaces the host answers for (hub installs are
+        owner-gated, and host-owned agents are the host's word) are relayed,
+        so a guest-written agent cannot aim this server at an arbitrary
+        local port.
+        """
+        cfg = self.agents.get(name)
+        url, source = cfg.get('interface'), 'agent'
+        if not url:
+            try:
+                rec = self.agenthub.installed().get(cfg.get('harness') or name)
+            except Exception:
+                rec = None
+            if rec and rec.get('port'):
+                url, source = f"http://127.0.0.1:{rec['port']}/", 'hub'
+        if not url:
+            return {'agent': name, 'url': None, 'source': None, 'proxy': False}
+        host = (getattr(self.agents.identity, 'host', None) or '').lower()
+        host_owned = (cfg.get('owner_source') == 'host'
+                      or (host and (cfg.get('owner') or '').lower() == host))
+        return {'agent': name, 'url': url, 'source': source,
+                'proxy': source == 'hub' or bool(host_owned)}
+
     def _run_harness(self, name: str, goal: str = None, model: str = None,
-                     **kwargs) -> List[Dict[str, Any]]:
+                     arena_match: bool = False, **kwargs) -> List[Dict[str, Any]]:
         """Hand the run to an external agent CLI and stream back its steps.
 
         Owner only. The CLIs run with their approval prompts off — nobody is
         at the other end of a server-side run to answer them — so a harness run
         is effectively the host's own shell. Guests stay on this module's loop,
         which is sandboxed to their portal directory.
+
+        The one exception is the board: an arena match (arena_match is set by
+        _run alone, off the in-process pass) may play a harness agent once the
+        host has opted in with the arena's `harnesses` knob — that knob IS the
+        owner's standing consent, and without this door it could never work,
+        because a match has no caller to be the owner.
         """
-        if not self.is_owner(kwargs.get('key')):
+        if arena_match and not self.arena.config().get('harnesses'):
             raise PermissionError(
-                f"the {name} agent runs a coding CLI on this host — owner only. "
-                f"Pick a native agent to run on this module's own sandboxed loop.")
+                f"the arena is not allowed to play harness agents on this "
+                f"host — opt in with arena config harnesses=true before "
+                f"putting a {name} agent on the board.")
+        if not (arena_match or self._harness_trusted(name, kwargs.get('key'))):
+            # name the agent that was picked, not the harness behind it — the
+            # caller chose "Build Console", and being told about "buildmod"
+            # sends them looking for something they never asked for
+            agent = kwargs.get('agent_type') or kwargs.get('agent') or name
+            raise PermissionError(
+                f"'{agent}' hands the run to the {name} CLI on this host's own "
+                f"shell, so it is held to this host's owner and the console it "
+                f"belongs to. Pick a native agent to run on this module's own "
+                f"loop, sandboxed to your directory.")
         path = kwargs.get('path') or (m.dp(kwargs['mod']) if m and kwargs.get('mod')
                                       else os.getcwd())
         # reuse the native step sink: live progress for the console, and the
         # run still lands in the memory subsystem as episodes
         self._on_step = kwargs.get('on_step')
-        return self.harness.run(
+        # runner-specific knobs ride along untouched — which project the chain
+        # console's runner opens, say. The caller's key goes too, so a runner
+        # that scopes work by identity (whose projects) sees who asked.
+        extra = kwargs.get('harness_args')
+        extra = dict(extra) if isinstance(extra, dict) else {}
+        for reserved in ('query', 'path', 'goal', 'model', 'timeout', 'on_step', 'key'):
+            extra.pop(reserved, None)
+        steps = self.harness.run(
             name,
             query=kwargs.get('query', 'help me with this'),
             path=path,
@@ -2281,12 +4044,1182 @@ class Mod(Agent):
             model=model,
             timeout=int(kwargs.get('timeout') or HARNESS_TIMEOUT),
             on_step=self._emit_step,
+            key=kwargs.get('key'),
+            **extra,
         )
+        self._meter_harness(name, steps)
+        return steps
+
+    def _meter_harness(self, name: str, steps: List[Dict[str, Any]]):
+        """Land a harness run's own bill on this thread's meter.
+
+        A CLI run never touches our providers, so without this the meter reads
+        zero and every harness run looks free — the arena would score it as
+        burning no tokens, and the console's task row would show none. Runners
+        that report (claudecode puts the CLI's exact usage on the terminal
+        step) get exact numbers; runners that don't still read zero. Never
+        raises: accounting must not fail the run it is counting.
+        """
+        usage = None
+        for step in reversed(steps or []):
+            if isinstance(step, dict):
+                u = (step.get('params') or {}).get('usage')
+                if isinstance(u, dict) and u:
+                    usage = u
+                    break
+        if not usage:
+            return
+        try:
+            tally = self.meter.open(provider=usage.get('provider') or f'harness:{name}',
+                                    model=usage.get('model') or name)
+            tally['calls'] += max(1, int(usage.get('turns') or 0))
+            tally['prompt_tokens'] += int(usage.get('prompt_tokens') or 0)
+            tally['completion_tokens'] += int(usage.get('completion_tokens') or 0)
+            # the CLI's own USD figure, not a catalog estimate — priced stays
+            # True so downstream reads it as an exact bill
+            tally['cost'] += float(usage.get('cost') or 0.0)
+        except Exception:
+            pass
+
+    # ── arena tasks (hand-written, and drafted by an agent) ──────────
+
+    TASK_BUILDER = 'task-builder'
+
+    def arena_task_add(self, spec: Dict[str, Any], slug: str = None, key=None) -> dict:
+        """Store a hand-written arena task under the caller's address.
+
+        Writing a task is creating something the whole board plays, so it takes
+        a sign-in; editing one takes being its author (or the host).
+        """
+        self.identity.require_signed_in(key, operation="write an arena task")
+        addr = self.identity.addr(key)
+        if slug:
+            existing = self.arena.get_custom(slug)
+            if existing:
+                self.identity.require(owner=existing.get('owner'), key=key,
+                                      operation=f"edit task '{slug}'")
+        return self.arena.forward('task_add', spec=spec, owner=addr, slug=slug)
+
+    def arena_task_rm(self, slug: str, key=None) -> dict:
+        """Drop a hand-written task. Its author or the host."""
+        existing = self.arena.get_custom(slug)
+        if not existing:
+            raise KeyError(f"no such task: {slug}")
+        self.identity.require(owner=existing.get('owner'), key=key,
+                              operation=f"remove task '{slug}'")
+        return self.arena.forward('task_rm', slug=slug)
+
+    # ── arena tasks in the openarena schema ──────────────────────────
+    #
+    # A statement plus graded test cases, stored in the openarena module and
+    # judged by its sandbox. They are not copied here: writing one from this
+    # console puts it on openarena's board too, which is the point — one task,
+    # one set of hidden cases, one judge, two front doors.
+
+    def arena_oa_task(self, slug: str) -> dict:
+        """One openarena task in full, as an entrant may see it — the hidden
+        cases keep their names and give up nothing else. Public: reading the
+        exam is not cheating on it."""
+        from src.arena import openarena as oa
+        if not str(slug or '').strip():
+            raise ValueError("name the task")
+        return oa.get_task(slug, cached=False)
+
+    def arena_oa_task_add(self, spec: Dict[str, Any], key=None) -> dict:
+        """Upload a task in the openarena schema, filed under the caller."""
+        self.identity.require_signed_in(key, operation="write an openarena task")
+        return self.arena.forward('oa_task_add', spec=spec,
+                                  author=self.identity.addr(key))
+
+    def arena_oa_task_rm(self, slug: str, key=None) -> dict:
+        """Delete an openarena task. Its author, or the host.
+
+        openarena's own API is open — the gate is here, because here is where
+        an address is verified. A seeded or benchmark-imported task has no
+        address for an author, so only the host can remove one.
+        """
+        from src.arena import openarena as oa
+        try:
+            task = oa.get_task(slug, cached=False)
+        except Exception as e:
+            raise KeyError(f"no such openarena task: {slug} ({e})")
+        author = str(task.get('author') or '')
+        self.identity.require(owner=author if author.startswith('0x') else None,
+                              key=key, operation=f"remove openarena task '{slug}'")
+        return self.arena.forward('oa_task_rm', slug=slug)
+
+    def arena_oa_import(self, source: str, preview: bool = False, key=None,
+                        **opts) -> dict:
+        """Pull a published benchmark in as tasks — HumanEval, MBPP, a
+        HuggingFace dataset, a JSON url, a scraped problem page.
+
+        `preview` converts and keeps nothing, which is the call to make first:
+        a benchmark nobody looked at becomes tasks nobody read.
+        """
+        self.identity.require_signed_in(
+            key, operation="import a benchmark into the arena")
+        action = 'oa_preview' if preview else 'oa_import'
+        return self.arena.forward(action, source=source, **opts)
+
+    def arena_oa_enter(self, agent: str, name: str = None, model: str = None,
+                       steps: int = None, free: bool = None, key=None) -> dict:
+        """Enter one of our agents as a competitor on openarena's own board.
+
+        The other direction of the same bridge: openarena will call this
+        module's /run to make it play, which spends the host's provider key —
+        so entering an agent is the host's call, not a visitor's.
+        """
+        self.require_owner(key, 'enter an agent in openarena')
+        return self.arena.forward('oa_enter', agent=agent, name=name,
+                                  model=model, steps=steps, free=free)
+
+    # ── vibecoding shared machinery ──────────────────────────────────
+    # Both drafters (agent_vibe, arena_task_draft) are one model run that
+    # answers with a JSON spec. That run can happen on this module's own
+    # loop, or be handed to a harness CLI — the build console, Claude Code —
+    # so a host whose provider keys are empty (or who simply trusts the
+    # console's agent more) can still vibecode. The harness gets the same
+    # brief and the drafter agent's own goal as its system prompt, and its
+    # answer is parsed by the same machinery.
+
+    # friendlier engine names for callers who think in modules, not runners
+    HARNESS_ALIASES = {'build': 'buildmod', 'chain': 'chainmod'}
+
+    # a draft is one spec, not a refactor — don't hold the caller half an hour
+    DRAFT_HARNESS_TIMEOUT = 600
+
+    def _draft_harness(self, name: str) -> str:
+        """A caller's engine name resolved to a real harness, or a ValueError
+        that lists what exists."""
+        name = str(name or '').strip().lower()
+        name = self.HARNESS_ALIASES.get(name, name)
+        if not self.harness.exists(name):
+            raise ValueError(
+                f"unknown harness: {name} — pick one of "
+                f"{', '.join(self.harness.names())} (or 'build')")
+        return name
+
+    def _draft_trace(self, query: str, agent_type: str, harness: str = None,
+                     model: str = None, provider: str = None,
+                     free: bool = False, steps: int = 4, key=None,
+                     path: str = None, on_step=None, on_live=None) -> list:
+        """One drafting run: this module's loop by default, a harness CLI when
+        the caller named one. The harness path keeps _run_harness's own gate —
+        the host, or the harnessed console's own owner."""
+        if harness:
+            harness = self._draft_harness(harness)
+            try:
+                goal = self.agents.get(agent_type).get('goal') or None
+            except Exception:
+                goal = None
+            return self._run_harness(
+                harness, goal=goal, query=query, key=key, path=path,
+                agent_type=agent_type, timeout=self.DRAFT_HARNESS_TIMEOUT,
+                on_step=on_step)
+        return self._run(
+            query=query, agent_type=agent_type, model=model,
+            provider=provider, steps=max(2, min(int(steps or 4), 8)),
+            free=free, key=key, path=path, on_step=on_step, on_live=on_live)
+
+    @staticmethod
+    def _spec_scan(trace: list, parse) -> Optional[Dict[str, Any]]:
+        """The spec anywhere in a trace. A small model (or a CLI harness)
+        sometimes leaves the JSON in a think or response step and finishes
+        with prose — the spec still counts wherever it landed."""
+        for s in (trace or []):
+            if not isinstance(s, dict):
+                continue
+            for t in [s.get('result'), *(s.get('params') or {}).values()]:
+                if isinstance(t, str):
+                    spec = parse(t)
+                    if spec:
+                        return spec
+        return None
+
+    def arena_task_draft(self, description: str, model: str = None,
+                         provider: str = None, free: bool = False,
+                         steps: int = 4, schema: str = 'agent',
+                         harness: str = None, save: bool = False,
+                         key=None) -> dict:
+        """Hand a plain description to the task-builder agent and read a task
+        spec back out of its answer.
+
+        `schema` picks which kind of task it drafts: 'agent' scores the trace
+        and the files left behind, 'openarena' scores a program against graded
+        test cases. Both come back in the shape their own form edits.
+
+        `harness` hands the drafting run to an external agent CLI ('build' /
+        'buildmod' is the build console, 'claude' is Claude Code) instead of
+        this module's loop — same gate as any harness run: the host, or that
+        console's own owner.
+
+        The draft is returned, not saved, by default: a task nobody looked at
+        is exactly the kind of thing that quietly makes every round
+        meaningless. `save=True` files a VALID draft under the caller's
+        address in the same call — the one-click path an MCP client wants; an
+        invalid one still comes back for fixing, unsaved.
+        """
+        self.identity.require_signed_in(key, operation="draft a task")
+        # a draft is a model run on somebody's key, so it answers to the same
+        # policy a run does: the host, a granted address, or credits on hand
+        self.require_allowed(key, 'run')
+        description = str(description or '').strip()
+        if len(description) < 8:
+            raise ValueError("describe the task in a sentence or two first")
+        oa_schema = str(schema or 'agent').lower() in ('openarena', 'oa', 'program')
+        query = (f"Write an OPENARENA task for this:\n\n{description}\n\n"
+                 f"Use the OPENARENA schema — statement, mode, language, tests. "
+                 f"Compute every `expect` exactly."
+                 if oa_schema else
+                 f"Write an arena task for this:\n\n{description}")
+        trace = self._draft_trace(
+            query=query,
+            agent_type=self.TASK_BUILDER, harness=harness, model=model,
+            provider=provider, steps=steps, free=free, key=key,
+            # the agent has no file tools, but a stray write must not land in
+            # whatever directory the API happens to be running from
+            path=str(Path.home() / '.mod' / 'agent' / 'arena'),
+        )
+        answer = self._answer_text([trace] if trace and isinstance(trace, list) else [])
+        spec = self._parse_task_json(answer, openarena=oa_schema)
+        if spec is None and isinstance(trace, list):
+            spec = self._spec_scan(
+                trace, lambda t: self._parse_task_json(t, openarena=oa_schema))
+        if spec is None:
+            return {"error": "the task-builder did not return a task spec — "
+                             "try describing the task more concretely",
+                    "answer": answer}
+        if oa_schema:
+            from src.arena import openarena as oa
+            try:
+                clean = oa.validate(spec)
+            except ValueError as e:
+                return {"draft": spec, "answer": answer, "invalid": str(e),
+                        "schema": "openarena"}
+            out = {"draft": {**clean, "slug": self.arena.slugify(clean['title'])},
+                   "answer": answer, "schema": "openarena"}
+            if not save:
+                return out
+            return {**out, "task": self.arena_oa_task_add(clean, key=key),
+                    "saved": True}
+        try:
+            clean = self.arena.validate_task(spec)
+        except ValueError as e:
+            # a draft that doesn't validate is still worth showing: the form it
+            # fills is editable, and the message says what to fix
+            return {"draft": spec, "answer": answer, "invalid": str(e)}
+        out = {"draft": {**clean, "slug": self.arena.slugify(clean['title'])},
+               "answer": answer, "schema": "agent"}
+        if not save:
+            return out
+        return {**out, "task": self.arena_task_add(clean, key=key),
+                "saved": True}
+
+    @staticmethod
+    def _parse_task_json(text: str, openarena: bool = False) -> Optional[Dict[str, Any]]:
+        """The JSON object out of a model's answer — fenced block first, then
+        the outermost braces. None when there isn't one.
+
+        The two schemas are told apart by the field that cannot be missing from
+        either: an agent task is a `prompt`, an openarena task is `tests`.
+        """
+        text = str(text or '')
+        blocks = re.findall(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.S)
+        candidates = list(blocks)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end > start:
+            candidates.append(text[start:end + 1])
+        for raw in candidates:
+            try:
+                out = json.loads(raw)
+            except Exception:
+                continue
+            if not isinstance(out, dict):
+                continue
+            if openarena:
+                if out.get('tests'):
+                    return out
+            elif out.get('prompt'):
+                return out
+        return None
+
+    # ── vibecode an agent (one box in, a whole persona out) ──────────
+
+    VIBE_BUILDER = 'vibe-builder'
+
+    def _vibe_catalog(self, key=None) -> Dict[str, Any]:
+        """The tool surface a vibe draft may attach, read through the module's
+        own MCP server (the agent_tools handler) so the draft picks from
+        exactly the list an MCP client sees. Outside the API process — CLI,
+        tests — the registry is read directly instead of booting a second API.
+        """
+        import sys
+        try:
+            if any(hasattr(sys.modules.get(n), 'get_mod')
+                   for n in ('api', 'src.api.api')):
+                from src import mcp as mcp_server
+                out = mcp_server.TOOLS['agent_tools']['handler'](
+                    {'brief': True, 'limit': 400}, key)
+                if isinstance(out, dict) and out.get('tools'):
+                    return {'tools': out['tools'],
+                            'toolboxes': out.get('toolboxes') or [],
+                            'via': 'mcp'}
+        except Exception:
+            pass
+        tools = [{k: v for k, v in t.items() if k != 'params'}
+                 for t in self.tools.items()]
+        return {'tools': tools, 'toolboxes': self.toolboxes.items(),
+                'via': 'local'}
+
+    def _free_agent_name(self, preferred: str = None, ideas: List[str] = None,
+                         description: str = '') -> str:
+        """A slug no existing agent answers to.
+
+        A name the caller chose is honored as given (slugified) — colliding
+        with it is create()'s error to raise, not something to silently
+        rename out from under them. With no name given, the drafter's
+        candidates are walked most distinctive first, then a slug derived
+        from the description, and a numeric suffix is the last resort.
+        """
+        def slug(s):
+            return re.sub(r'[^a-z0-9]+', '-', str(s or '').lower()).strip('-')[:40]
+        if slug(preferred):
+            return slug(preferred)
+        if isinstance(ideas, str):
+            ideas = [ideas]
+        taken = {n.lower() for n in self.agents.ls()}
+        # a 1-2 char candidate is a parse artifact (a model that emitted the
+        # list as a string arrives here as its characters), not a name
+        candidates = [c for c in (slug(i) for i in (ideas or [])) if len(c) >= 3]
+        stop = {'the', 'and', 'for', 'with', 'that', 'this', 'who', 'what',
+                'which', 'from', 'into', 'can', 'will', 'should', 'one',
+                'agent', 'agents', 'you', 'your', 'like', 'want', 'make'}
+        words = [w for w in re.findall(r'[a-z0-9]+', str(description).lower())
+                 if len(w) > 2 and w not in stop][:2]
+        if words:
+            candidates.append(slug('-'.join(words) + '-agent'))
+        for c in candidates:
+            if c not in taken:
+                return c
+        base = candidates[0] if candidates else 'vibe-agent'
+        if base not in taken:
+            return base
+        for i in range(2, 100):
+            cand = f'{base}-{i}'[:40]
+            if cand not in taken:
+                return cand
+        return f'{base}-{int(time.time())}'[:40]
+
+    def _vibe_clean_tools(self, picked, catalog) -> tuple:
+        """The drafted tool list against the real registry: a toolbox name
+        expands to its bundle, an invented name is dropped and reported, and
+        an empty result means "no restriction" rather than "no tools"."""
+        known = {t.get('name') for t in catalog.get('tools', [])}
+        # the terminal step is always callable, but it is a plan anchor, not
+        # a registry entry — an agent may still list it (task-builder does)
+        known.add('finish')
+        boxes = {b.get('name'): list(b.get('tools') or [])
+                 for b in catalog.get('toolboxes', [])}
+        if isinstance(picked, str):
+            picked = [picked]
+        out, dropped, seen = [], [], set()
+        for name in (picked or []):
+            name = str(name).strip()
+            expanded = (boxes[name] if name in boxes
+                        else [name] if name in known else None)
+            if expanded is None:
+                if name:
+                    dropped.append(name)
+                continue
+            out.extend(t for t in expanded
+                       if t in known and not (t in seen or seen.add(t)))
+        return (out or None), dropped
+
+    def agent_vibe(self, description: str, name: str = None, model: str = None,
+                   provider: str = None, free: bool = False, steps: int = 4,
+                   save: bool = False, harness: str = None, key=None,
+                   on_step=None, on_live=None, direct: bool = False) -> dict:
+        """Vibecode an agent: a plain description in, a whole agent out.
+
+        The vibe-builder agent designs it — name, icon, prompt — with the
+        live tool catalog (read off this module's MCP server) in front of it,
+        so the tools it attaches are real; every pick is validated against
+        that catalog anyway and inventions are dropped. A caller who named
+        the agent gets that name; anyone else gets one the drafter made up
+        that no existing agent answers to.
+
+        `harness` hands the drafting run to an external agent CLI ('build' /
+        'buildmod' is the build console, 'claude' is Claude Code) instead of
+        this module's loop — same gate as any harness run.
+
+        `save=False` returns the draft for the editor to review and file
+        itself; `save=True` creates the agent under the caller's address
+        straight away — the one-click path an MCP client wants.
+        """
+        self.identity.require_signed_in(key, operation="vibecode an agent")
+        # a draft is a model run on somebody's key, so it answers to the same
+        # policy a run does: the host, a granted address, or credits on hand
+        self.require_allowed(key, 'run')
+        description = str(description or '').strip()
+        if len(description) < 8:
+            raise ValueError("describe the agent in a sentence or two first")
+        catalog = self._vibe_catalog(key)
+        taken = sorted(n.lower() for n in self.agents.ls())
+        tool_lines = '\n'.join(
+            f"  {t.get('name')} — {str(t.get('description') or '').strip()[:100]}"
+            for t in catalog['tools'] if t.get('name'))
+        box_lines = '\n'.join(
+            f"  {b.get('name')}: {', '.join(b.get('tools') or [])}"
+            for b in catalog.get('toolboxes', []) if b.get('name'))
+        query = (f"Design an agent for this request:\n\n{description}\n\n"
+                 f"NAMES ALREADY TAKEN (never propose these):\n"
+                 f"  {', '.join(taken)}\n\n"
+                 f"TOOL CATALOG (pick only these exact names):\n{tool_lines}\n\n"
+                 f"TOOLBOXES (a name here in \"tools\" takes the bundle):\n"
+                 f"{box_lines or '  (none)'}")
+        spec, trace, answer = None, None, ''
+        if direct and not harness:
+            # `direct` (the scout's path): one tools-off completion first, the
+            # loop only if it didn't land a spec
+            try:
+                answer = self._scout_complete(
+                    query, provider=provider, model=model, free=free,
+                    agent_type=self.VIBE_BUILDER,
+                    on_token=(lambda t: on_live({'event': 'token', 'text': t}))
+                    if on_live else None)
+                spec = self._parse_agent_json(answer)
+            except Exception as e:
+                print(f"[agent] direct vibe draft failed, using the loop: {e}")
+        if spec is None:
+            trace = self._draft_trace(
+                query=query,
+                agent_type=self.VIBE_BUILDER, harness=harness, model=model,
+                provider=provider, steps=steps, free=free, key=key,
+                # the agent has no file tools, but a stray write must not land
+                # in whatever directory the API happens to be running from
+                path=str(Path.home() / '.mod' / 'agent'),
+                on_step=on_step, on_live=on_live,
+            )
+            answer = self._answer_text([trace] if trace and isinstance(trace, list) else [])
+            spec = self._parse_agent_json(answer)
+        if spec is None and isinstance(trace, list):
+            spec = self._spec_scan(trace, self._parse_agent_json)
+        if spec is None:
+            return {"error": "the vibe-builder did not return an agent spec — "
+                             "try describing the agent more concretely",
+                    "answer": answer}
+        tools, dropped = self._vibe_clean_tools(spec.get('tools'), catalog)
+        ideas = spec.get('names')
+        ideas = [ideas] if isinstance(ideas, str) else list(ideas or [])
+        draft = {
+            'name': self._free_agent_name(name, ideas=ideas,
+                                          description=description),
+            'icon': str(spec.get('icon') or '✦').strip()[:4] or '✦',
+            'description': str(spec.get('description') or '').strip()[:200],
+            'goal': str(spec.get('prompt') or spec.get('goal') or '').strip(),
+            'tools': tools,
+            'model': str(spec.get('model')).strip() if spec.get('model') else None,
+            'name_ideas': [str(n) for n in ideas][:5],
+        }
+        out = {"draft": draft, "catalog_via": catalog.get('via'),
+               **({"tools_dropped": dropped} if dropped else {})}
+        if not save:
+            return out
+        created = self.agents.create(
+            name=draft['name'], description=draft['description'],
+            goal=draft['goal'], icon=draft['icon'], tools=draft['tools'],
+            model=draft['model'], key=key)
+        return {**out, "agent": created, "saved": True}
+
+    @staticmethod
+    def _parse_agent_json(text: str) -> Optional[Dict[str, Any]]:
+        """The agent spec out of the drafter's answer — fenced block first,
+        then the outermost braces. The field that cannot be missing is the
+        `prompt` (or `goal`); a spec without one is not an agent."""
+        text = str(text or '')
+        candidates = re.findall(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.S)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end > start:
+            candidates.append(text[start:end + 1])
+        for raw in candidates:
+            try:
+                out = json.loads(raw)
+            except Exception:
+                continue
+            if isinstance(out, dict) and (out.get('prompt') or out.get('goal')):
+                return out
+        return None
+
+    # ── vibecode a flow (a described wiring in, a runnable graph out) ─
+    # The graph layer CONNECTS agents, so its drafter gets the opposite brief
+    # from vibe-builder's: not the tool catalog but the agent registry — the
+    # whole point is that every node names an agent that already exists. It
+    # also EDITS: handed the graph as it stands plus an instruction, it
+    # returns the whole graph rewired, which is what makes the canvas's vibe
+    # box work on a flow mid-draw and not just on an empty one.
+
+    FLOW_BUILDER = 'flow-builder'
+
+    def _graph_vibe_brief(self, graph: Dict = None) -> str:
+        """The live half of the flow-builder's context: the agents a node may
+        name, the gate ops, the tools a tool node may call — and, when the
+        caller is editing, the graph as it stands."""
+        schemas = self.agents.schema()
+        agent_lines = '\n'.join(
+            f"  {name} — {str(cfg.get('description') or '').strip()[:90]}"
+            for name, cfg in sorted(schemas.items())
+            if isinstance(cfg, dict) and not cfg.get('error'))
+        try:
+            ops = ', '.join(self.graphs.kinds().get('ops', {}))
+        except Exception:
+            ops = ''
+        try:
+            tool_names = ', '.join(t.get('name') for t in self.tools.items()
+                                   if t.get('name'))[:2000]
+        except Exception:
+            tool_names = ''
+        parts = [f"AGENT REGISTRY (a node's data.agent must be one of these, "
+                 f"verbatim):\n{agent_lines}"]
+        if ops:
+            parts.append(f"GATE/ROUTER/LOOP RULE OPS (the fixed set): {ops}")
+        if tool_names:
+            parts.append(f"TOOLS a tool node may call (plus mod.<name> for a "
+                         f"fleet module): {tool_names}")
+        if graph:
+            keep = {k: graph.get(k) for k in
+                    ('id', 'name', 'description', 'nodes', 'edges')
+                    if graph.get(k) is not None}
+            parts.append("CURRENT GRAPH — apply the request to THIS graph and "
+                         "return the whole thing back. Keep the id, x and y "
+                         "of every node you keep:\n"
+                         + json.dumps(keep, default=str)[:20000])
+        return '\n\n'.join(parts)
+
+    @staticmethod
+    def _parse_graph_json(text: str) -> Optional[Dict[str, Any]]:
+        """The graph spec out of the drafter's answer — fenced block first,
+        then the outermost braces. The field that cannot be missing is
+        `nodes`; a spec without wiring is not a graph."""
+        text = str(text or '')
+        candidates = re.findall(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.S)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end > start:
+            candidates.append(text[start:end + 1])
+        for raw in candidates:
+            try:
+                out = json.loads(raw)
+            except Exception:
+                continue
+            if (isinstance(out, dict) and isinstance(out.get('nodes'), list)
+                    and any(isinstance(n, dict) and n.get('kind')
+                            for n in out['nodes'])):
+                return out
+        return None
+
+    @staticmethod
+    def _graph_layout(nodes: List[Dict], edges: List[Dict]) -> List[Dict]:
+        """Positions for drafted nodes, in place. The drafter thinks in
+        wiring, not pixels: anything that arrives without coordinates is laid
+        out in columns by its distance from the inputs, so the canvas opens
+        on a readable left-to-right flow instead of a pile at the origin.
+        Nodes that came with positions (an edit keeping the old layout) are
+        left exactly where they were."""
+        kids: Dict[str, List[str]] = {}
+        for e in edges:
+            kids.setdefault(str(e.get('from')), []).append(str(e.get('to')))
+        targets = {str(e.get('to')) for e in edges}
+        depth = {n['id']: 0 for n in nodes
+                 if n.get('kind') == 'input' or n['id'] not in targets}
+        queue, hops = list(depth), 0
+        while queue and hops < 10000:
+            cur = queue.pop(0)
+            hops += 1
+            for ch in kids.get(cur, []):
+                d = depth[cur] + 1
+                # the cap keeps a drafted cycle from walking forever
+                if d <= len(nodes) and depth.get(ch, -1) < d:
+                    depth[ch] = d
+                    queue.append(ch)
+        rows: Dict[int, int] = {}
+        for n in nodes:
+            if n.get('x') or n.get('y'):
+                continue
+            col = depth.get(n['id'], 0)
+            row = rows.get(col, 0)
+            rows[col] = row + 1
+            n['x'] = 60.0 + col * 300
+            n['y'] = 80.0 + row * 190
+        return nodes
+
+    def graph_vibe(self, description: str, graph=None, model: str = None,
+                   provider: str = None, free: bool = False, steps: int = 4,
+                   save: bool = False, harness: str = None, key=None,
+                   on_step=None, on_live=None) -> dict:
+        """Vibecode a graph of agents: a plain description in, a wired flow
+        out — or, with `graph` (a saved graph's id, or the canvas inline),
+        that graph back with the described change applied.
+
+        The flow-builder agent designs it with the live agent registry in
+        front of it, so the agents it wires are real; the draft is cleaned to
+        the protocol's own shape (an invented node kind is dropped and
+        reported), laid out for the canvas, and validated like any save
+        would be. `harness` hands the drafting run to an external agent CLI
+        ('build' / 'buildmod' is the build console, 'claude' is Claude Code)
+        — same gate as any harness run.
+
+        `save=False` returns the draft for the canvas to show — nothing is
+        filed until the save button is; `save=True` files a VALID draft under
+        the caller's address in the same call, and an invalid one still comes
+        back for fixing, unsaved.
+        """
+        self.identity.require_signed_in(key, operation="vibecode a flow")
+        # a draft is a model run on somebody's key, so it answers to the same
+        # policy a run does: the host, a granted address, or credits on hand
+        self.require_allowed(key, 'run')
+        description = str(description or '').strip()
+        if len(description) < 8:
+            raise ValueError("describe the flow in a sentence or two first")
+        current = None
+        if isinstance(graph, str) and graph.strip():
+            current = self.graphs.get(graph.strip(), key=key)
+        elif isinstance(graph, dict) and graph.get('nodes'):
+            current = graph
+        verb = "Edit this graph of agents as asked" if current else \
+               "Design a graph of agents for this request"
+        query = (f"{verb}:\n\n{description}\n\n"
+                 f"{self._graph_vibe_brief(current)}")
+        trace = self._draft_trace(
+            query=query,
+            agent_type=self.FLOW_BUILDER, harness=harness, model=model,
+            provider=provider, steps=steps, free=free, key=key,
+            # the agent has no file tools, but a stray write must not land
+            # in whatever directory the API happens to be running from
+            path=str(Path.home() / '.mod' / 'agent'),
+            on_step=on_step, on_live=on_live,
+        )
+        answer = self._answer_text([trace] if trace and isinstance(trace, list) else [])
+        spec = self._parse_graph_json(answer)
+        if spec is None and isinstance(trace, list):
+            spec = self._spec_scan(trace, self._parse_graph_json)
+        if spec is None:
+            return {"error": "the flow-builder did not return a graph spec — "
+                             "try describing the flow more concretely",
+                    "answer": answer}
+        nodes, dropped = [], []
+        for n in (spec.get('nodes') or []):
+            if not isinstance(n, dict):
+                continue
+            try:
+                nodes.append(self.graphs._clean_node(n))
+            except ValueError:
+                dropped.append(str(n.get('kind')))
+        ids = {n['id'] for n in nodes}
+        edges = [{'id': str(e.get('id') or uuid.uuid4().hex[:8]),
+                  'from': str(e.get('from')), 'to': str(e.get('to')),
+                  'port': str(e.get('port') or 'out')}
+                 for e in (spec.get('edges') or [])
+                 if isinstance(e, dict)
+                 and str(e.get('from')) in ids and str(e.get('to')) in ids]
+        self._graph_layout(nodes, edges)
+        draft = {
+            # an edit keeps the id it opened — that is what makes the save an
+            # update of your graph rather than a stray copy
+            'id': (current or {}).get('id') or None,
+            'name': str(spec.get('name')
+                        or (current or {}).get('name')
+                        # last resort: the request's own words, so save=True
+                        # never dies on a drafter that forgot to name it
+                        or ' '.join(description.split()[:4])).strip()[:80],
+            'description': str(spec.get('description')
+                               or (current or {}).get('description')
+                               or '').strip()[:200],
+            'nodes': nodes,
+            'edges': edges,
+        }
+        valid = self.graphs.validate(draft)
+        out = {"draft": draft, "valid": valid,
+               **({"nodes_dropped": dropped} if dropped else {})}
+        if not save:
+            return out
+        if not valid.get('ok'):
+            # a draft that doesn't validate is still worth showing — the
+            # canvas it fills is editable, and the message says what to fix
+            return {**out, "invalid": '; '.join(valid.get('errors') or [])}
+        return {**out, "graph": self.graphs.save(draft, key=key),
+                "saved": True}
+
+    # ── scout: go on the internet, come back with an agent idea ──────
+    # Vibe needs a description; scout writes one. Five phases, each an event
+    # on `on_event` so a console can show the whole process as it happens:
+    #   lens → search → read   src/scout (no model, no key, polite crawler)
+    #   ideate                 the idea-scout agent pitches ONE agent off the
+    #                          numbered digest, citing the signals it used
+    #   vibe                   the pitch is handed to agent_vibe unchanged —
+    #                          same drafter, same catalog check, same naming
+
+    IDEA_SCOUT = 'idea-scout'
+
+    def _scout(self):
+        # lazy: the API boots without touching the network, and test mods
+        # built via __new__ get one on first use
+        if getattr(self, '_scout_inst', None) is None:
+            from .scout.mod import Scout
+            self._scout_inst = Scout()
+        return self._scout_inst
+
+    def agent_scout(self, theme: str = None, sources: List[str] = None,
+                    reads: int = 4, vibe: bool = True, name: str = None,
+                    model: str = None, provider: str = None, free: bool = False,
+                    steps: int = 4, save: bool = False, harness: str = None,
+                    key=None, on_event=None) -> dict:
+        """Go on the internet and come back with a new agent.
+
+        `theme` aims the scout ("local-first tools", "bittensor"); omit it and
+        a lens is picked at random. `sources` narrows hn/github/arxiv/web.
+        `reads` is how many pages get opened in full (0-8). `vibe=False`
+        stops at the idea; otherwise the idea's brief goes through
+        agent_vibe, and `save=True` files the agent like vibe does.
+
+        The return value is the whole process — lens, signals, pages read,
+        the idea with the signals it cites, the agent draft — and is kept
+        under ~/.mod/agent/scout so it can be reopened later.
+        """
+        self.identity.require_signed_in(key, operation="scout for an agent idea")
+        self.require_allowed(key, 'run')
+        scout = self._scout()
+        started = time.time()
+        log: List[Dict[str, Any]] = []
+
+        def emit(ev):
+            ev = {"t": round(time.time() - started, 2), **ev}
+            if ev.get("type") not in ("token",):
+                log.append(ev)
+            if on_event:
+                try:
+                    on_event(ev)
+                except Exception:
+                    pass
+
+        def phase(name, **kw):
+            emit({"type": "phase", "phase": name, **kw})
+
+        run: Dict[str, Any] = {"id": f"sc-{uuid.uuid4().hex[:8]}",
+                               "owner": self.identity.addr(key),
+                               "started": started}
+        try:
+            lens = scout.lens(theme)
+            run["lens"] = lens
+            phase("lens", **lens)
+
+            phase("search", sources=sources or [s['name'] for s in scout.sources()])
+            signals = scout.gather(lens["theme"], sources=sources, on_event=emit)
+            run["signals"] = signals
+            if not signals:
+                raise RuntimeError("the internet came back empty for "
+                                   f"\"{lens['theme']}\" — try another theme")
+
+            phase("read", count=max(0, min(int(reads or 0), 8)))
+            pages = scout.read(signals, limit=reads, on_event=emit)
+            run["pages"] = [{k: v for k, v in p.items() if k != 'text'} for p in pages]
+
+            phase("ideate", agent=self.IDEA_SCOUT)
+            # a model on this box reads a long digest at minutes per step —
+            # give it half, the loudest signals come first anyway
+            try:
+                small = self.compact_prompt(
+                    self.PROVIDERS.get(provider, provider) if provider
+                    else getattr(self, '_provider', None), model)
+            except Exception:
+                small = False
+            digest_chars = 7000 if small else 16000
+            existing = []
+            for n in sorted(self.agents.ls()):
+                try:
+                    d = str(self.agents.get(n).get('description') or '')[:90]
+                except Exception:
+                    d = ''
+                existing.append(f"  {n} — {d}")
+            query = (f"THEME: {lens['theme']}\n\n"
+                     f"EXISTING AGENTS (do not pitch these):\n"
+                     + '\n'.join(existing[:80]) +
+                     f"\n\nDIGEST ({len(signals)} signals, "
+                     f"{sum(1 for p in pages if p['status'] == 'ok')} read in full):\n"
+                     f"{scout.digest(signals, pages, limit=digest_chars)}")
+            idea = None
+            if not harness:
+                # pitching needs no tools, and a small local model handed a
+                # tool loop reads `owner/repo` lines as calls to make — one
+                # plain completion is faster and lands far more often
+                emit({"type": "model_start", "phase": "ideate"})
+                answer = self._scout_complete(
+                    query, provider=provider, model=model, free=free,
+                    on_token=lambda t: emit({"type": "token", "phase": "ideate",
+                                             "text": t}))
+                run["ideate_raw"] = answer[-4000:]
+                idea = self._parse_idea_json(answer)
+            if idea is None:
+                # a harness CLI, or a model that wandered off the JSON: the
+                # idea-scout agent's own loop, which can think before it answers
+                trace = self._draft_trace(
+                    query=query, agent_type=self.IDEA_SCOUT, harness=harness,
+                    model=model, provider=provider, steps=steps, free=free,
+                    key=key, path=str(Path.home() / '.mod' / 'agent' / 'scout'),
+                    on_step=lambda st: emit({"type": "step", "phase": "ideate",
+                                             "step": st}))
+                answer = self._answer_text([trace] if isinstance(trace, list) else [])
+                idea = self._parse_idea_json(answer)
+                if idea is None and isinstance(trace, list):
+                    idea = self._spec_scan(trace, self._parse_idea_json)
+            if idea is None:
+                raise RuntimeError("the idea-scout did not pitch an idea — "
+                                   "run it again, or give it a theme")
+            idea = self._clean_idea(idea, signals)
+            run["idea"] = idea
+            emit({"type": "idea", "idea": idea})
+
+            if vibe:
+                phase("vibe", agent=self.VIBE_BUILDER)
+                brief = (f"{idea['title']}: {idea['pitch']}\n\n{idea['brief']}")
+                out = self.agent_vibe(
+                    brief, name=name, model=model, provider=provider, free=free,
+                    steps=steps, save=save, harness=harness, key=key,
+                    direct=True,
+                    on_step=lambda st: emit({"type": "step", "phase": "vibe",
+                                             "step": st}),
+                    on_live=lambda ev: emit({"type": "token", "phase": "vibe",
+                                             "text": ev.get('text', '')})
+                    if ev.get('event') == 'token' else None)
+                if out.get('error'):
+                    run["vibe_error"] = out['error']
+                    emit({"type": "vibe_error", "error": out['error']})
+                else:
+                    run["draft"] = out.get('draft')
+                    for k in ('tools_dropped', 'agent', 'saved'):
+                        if k in out:
+                            run[k] = out[k]
+                    emit({"type": "draft", "draft": out.get('draft'),
+                          "saved": bool(out.get('saved'))})
+            run["status"] = "done"
+        except PermissionError:
+            raise
+        except Exception as e:
+            run["status"] = "error"
+            run["error"] = str(e)
+            emit({"type": "error", "error": str(e)})
+        run["elapsed"] = round(time.time() - started, 2)
+        run["log"] = log[-300:]
+        scout.record(run)
+        return run
+
+    def _scout_complete(self, query: str, provider: str = None,
+                        model: str = None, free: bool = False,
+                        on_token=None, agent_type: str = None) -> str:
+        """One tools-off completion with a drafter agent's goal (the
+        idea-scout's by default) as the system prompt — the provider client a
+        run would use, resolved per call. Drafters answer with one JSON block,
+        so a loop buys them nothing and costs a small model its way."""
+        client = self._client(provider)
+        if client is None:
+            raise RuntimeError("no model configured — add or unlock a key in "
+                               "the Builder (model node), or pick liquidai")
+        path = self.PROVIDERS.get(provider, provider) if provider else self._provider
+        mdl = self._model_for(path, model)
+        goal = self.agents.get(agent_type or self.IDEA_SCOUT).get('goal') or ''
+        out = client.forward(f"{goal}\n\n---\n\n{query}\n\n---\n\n"
+                             f"Answer now, in English, with the ```json "
+                             f"block only.",
+                             stream=True, model=mdl, max_tokens=1200,
+                             temperature=0.5, free=free)
+        if isinstance(out, str):
+            if on_token:
+                on_token(out)
+            return out
+        parts = []
+        for chunk in out:
+            chunk = str(chunk)
+            parts.append(chunk)
+            if on_token:
+                on_token(chunk)
+        return ''.join(parts)
+
+    def agent_scout_runs(self, limit: int = 20, key=None) -> dict:
+        """Past scout runs, newest first, without their logs. Yours only —
+        the host sees everyone's."""
+        self.identity.require_signed_in(key, operation="read scout runs")
+        owner = None if self.is_owner(key) else self.identity.addr(key)
+        runs = self._scout().runs(owner=owner, limit=limit)
+        keep = ('id', 'owner', 'started', 'elapsed', 'status', 'error', 'lens',
+                'idea', 'draft', 'saved')
+        return {"runs": [{k: r.get(k) for k in keep if k in r} for r in runs]}
+
+    def agent_scout_run(self, id: str, key=None) -> dict:
+        """One scout run whole — every signal, page and step it took."""
+        self.identity.require_signed_in(key, operation="read a scout run")
+        run = self._scout().run(str(id or ''))
+        if not run or (not self.is_owner(key)
+                       and run.get('owner') != self.identity.addr(key)):
+            raise ValueError(f"no scout run {id}")
+        return run
+
+    @staticmethod
+    def _parse_idea_json(text: str) -> Optional[Dict[str, Any]]:
+        """The pitch out of the idea-scout's answer. The field that cannot be
+        missing is the `brief` (or a `pitch`) — that is what vibe builds from."""
+        text = str(text or '')
+        candidates = re.findall(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.S)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end > start:
+            candidates.append(text[start:end + 1])
+        # a small model sometimes closes a string with a typographic quote —
+        # strict first, then once more with those straightened
+        smart = str.maketrans({'\u201c': '"', '\u201d': '"', '\uff02': '"'})
+        for raw in candidates + [c.translate(smart) for c in candidates]:
+            try:
+                out = json.loads(raw)
+            except Exception:
+                continue
+            if isinstance(out, dict) and (out.get('brief') or out.get('pitch')):
+                return out
+        return None
+
+    @staticmethod
+    def _clean_idea(idea: Dict[str, Any], signals: List[Dict]) -> Dict[str, Any]:
+        """Citations held to the digest: a number that isn't a signal is
+        dropped, and each kept one carries its title and url so the idea can
+        be traced back without the digest in hand."""
+        by_n = {s['n']: s for s in signals}
+        cited = idea.get('inspired_by') or []
+        if not isinstance(cited, list):
+            cited = [cited]
+        refs = []
+        for c in cited:
+            try:
+                n = int(str(c).strip('[] '))
+            except ValueError:
+                continue
+            if n in by_n and n not in [r['n'] for r in refs]:
+                s = by_n[n]
+                refs.append({'n': n, 'source': s['source'],
+                             'title': s.get('title', ''), 'url': s['url']})
+        s = lambda k, n=600: str(idea.get(k) or '').strip()[:n]
+        pitch = s('pitch', 300)
+        return {'title': s('title', 80) or 'untitled idea', 'pitch': pitch,
+                'why_now': s('why_now', 400), 'brief': s('brief', 1600) or pitch,
+                'novelty': s('novelty', 300), 'inspired_by': refs}
+
+    # ── grow: a new tool and a new agent every interval ──────────────
+    # The engine lives in src/grow (config, guards, recipes, scheduler);
+    # these are its owner gates. Reading is open; every change — config,
+    # a manual tick, pruning, the thread on/off — is the owner's alone:
+    # require_owner, not require_allowed, so an ACL grant does not reach it.
+
+    def _grow(self):
+        if getattr(self, '_grow_inst', None) is None:
+            from .grow.mod import Grow, ModHost, Scheduler
+            self._grow_inst = Grow()
+            self._grow_host = ModHost(self)
+            self._grow_sched = Scheduler(self._grow_inst, self._grow_host)
+        return self._grow_inst
+
+    @staticmethod
+    def _grow_keys():
+        from .grow.mod import DEFAULTS
+        return tuple(DEFAULTS)
+
+    def grow_status(self) -> dict:
+        g = self._grow()
+        return {**g.status(self._grow_host, self._grow_sched),
+                "owner": self._owner}
+
+    def grow_config(self, key=None, **changes) -> dict:
+        """Change how the console grows. Owner only."""
+        self.require_owner(key, 'grow_config')
+        self._grow().set_config(**changes)
+        return self.grow_status()
+
+    def grow_tick(self, key=None) -> dict:
+        """Grow one pair now, even while disabled. Owner only."""
+        self.require_owner(key, 'grow_tick')
+        return self._grow().tick(self._grow_host, force=True)
+
+    def grow_prune(self, kind: str = 'all', count: int = None, key=None) -> dict:
+        """Remove grown tools/agents, oldest first. Owner only; never
+        touches anything the grower did not make."""
+        self.require_owner(key, 'grow_prune')
+        return self._grow().prune(self._grow_host, kind=kind, count=count)
+
+    def grow_scheduler(self, on: bool = True, key=None, delay: float = 20.0,
+                       _boot: bool = False) -> dict:
+        """Start/stop the thread. The API starts it at boot (_boot) and the
+        persisted `enabled` decides whether ticks do anything; by hand it is
+        owner only."""
+        if not _boot:
+            self.require_owner(key, 'grow_scheduler')
+        self._grow()
+        s = self._grow_sched
+        return s.start(delay=delay) if on else s.stop()
+
+    # ── cron: run an agent every N minutes ───────────────────────────
+    # The engine lives in src/cron (jobs, guards, scheduler, compute probe).
+    # Scheduling is for the owner and for addresses the owner granted 'cron'
+    # (or '*'); a grantee sees and manages only its own jobs. Everyone else
+    # gets counts and the compute card — prompts are not public.
+
+    def _cron(self):
+        if getattr(self, '_cron_inst', None) is None:
+            from .cron.mod import Cron, ModHost as CronHost, Scheduler as CronScheduler
+            self._cron_inst = Cron()
+            self._cron_host = CronHost(self)
+            self._cron_sched = CronScheduler(self._cron_inst, self._cron_host)
+        return self._cron_inst
+
+    @staticmethod
+    def _cron_keys():
+        from .cron.mod import JOB_FIELDS
+        return JOB_FIELDS
+
+    def _cron_caller(self, key=None) -> str:
+        """The verified address behind a cron request ('' = nobody)."""
+        if key is None:
+            return ''
+        return (self._resolve_address(key, verified=True) or '').lower()
+
+    def _cron_job_for(self, job_id: str, key=None) -> dict:
+        """The job, if this caller may touch it: the owner any, a grantee its own."""
+        c, addr = self._cron(), self._cron_caller(key)
+        job = c.get(job_id)
+        if not (self.is_owner(key) or (addr and job['owner'] == addr
+                                       and self._cron_host.may(addr))):
+            raise PermissionError("not your cron job")
+        return job
+
+    def cron_status(self, agent: str = None, key=None) -> dict:
+        """Jobs this caller may see, the scheduler, and this host's compute."""
+        c, host = self._cron(), self._cron_host
+        addr = self._cron_caller(key)
+        owner = bool(addr) and self.is_owner(key)
+        allowed = owner or (bool(addr) and host.may(addr))
+        jobs = c.jobs()
+        if agent:
+            jobs = [j for j in jobs if j['agent'] == agent]
+        mine = jobs if owner else [j for j in jobs if allowed and j['owner'] == addr]
+        from .cron import compute
+        return {
+            'jobs': [c.view(j) for j in sorted(mine, key=lambda j: j.get('next_at') or 0)],
+            'total': len(jobs),
+            'enabled': sum(1 for j in jobs if j.get('enabled')),
+            'running': len(c.running),
+            'you': {'address': addr or None, 'owner': owner, 'can_schedule': allowed},
+            'permission': 'cron',
+            'scheduler': self._cron_sched.status(),
+            'compute': (host.agent_compute(agent) if agent else
+                        {'host': compute.host()}),
+        }
+
+    def cron_job(self, id: str, key=None) -> dict:
+        job = self._cron_job_for(id, key)
+        return {**self._cron().view(job, full=True),
+                'compute': self._cron_host.agent_compute(job['agent'], job.get('provider'),
+                                                         job.get('model'))}
+
+    def cron_add(self, key=None, **fields) -> dict:
+        """Schedule an agent. Owner, or an address granted 'cron'."""
+        addr = self._cron_caller(key)
+        if not addr:
+            raise PermissionError("sign in to schedule an agent")
+        host = self._cron_host
+        if not host.may(addr):
+            raise PermissionError("scheduling needs the owner's grant: "
+                                  "ask them to grant your address 'cron'")
+        if fields.get('agent') and fields['agent'] not in host.agents():
+            raise ValueError(f"no agent named {fields['agent']!r}")
+        return self._cron().add(addr, host.is_host(addr), **fields)
+
+    def cron_update(self, id: str, key=None, **fields) -> dict:
+        self._cron_job_for(id, key)
+        if fields.get('agent') and fields['agent'] not in self._cron_host.agents():
+            raise ValueError(f"no agent named {fields['agent']!r}")
+        return self._cron().update(id, **fields)
+
+    def cron_rm(self, id: str, key=None) -> dict:
+        self._cron_job_for(id, key)
+        return self._cron().remove(id)
+
+    def cron_run(self, id: str, key=None) -> dict:
+        """Run a job now, in the background; the result lands on the job."""
+        self._cron_job_for(id, key)
+        c = self._cron()
+        if id in c.running:
+            return {'skipped': 'already running', 'id': id}
+        import threading
+        threading.Thread(target=c.run, args=(self._cron_host, id, True),
+                         name=f'cron-now-{id}', daemon=True).start()
+        return {'started': id}
+
+    def cron_scheduler(self, on: bool = True, key=None, delay: float = 20.0,
+                       _boot: bool = False) -> dict:
+        """Start/stop the cron thread. The API starts it at boot; by hand,
+        owner only. Each job's `enabled` decides whether it runs."""
+        if not _boot:
+            self.require_owner(key, 'cron_scheduler')
+        self._cron()
+        s = self._cron_sched
+        return s.start(delay=delay) if on else s.stop()
+
+    def compute_info(self, agent: str = None) -> dict:
+        """The compute an agent runs on: this host (loop + tools) and where
+        its model runs. Public — it describes the box, not anyone's work."""
+        self._cron()
+        if agent:
+            return self._cron_host.agent_compute(agent)
+        from .cron import compute
+        return {'host': compute.host()}
 
     # ── arena (one runner, every match) ──────────────────────────────
 
+    def arena_model_options(self) -> List[Dict[str, Any]]:
+        """The models a gauntlet can be pointed at, per provider.
+
+        Free ones first and flagged: they are what a board that runs itself on
+        a timer is allowed to spend, and the difference between "$0" and "the
+        host's credits" is the only thing about this list a console has to say
+        out loud. A provider with no key is listed anyway with `ready: false` —
+        an empty picker looks like a broken feature, not an unset key.
+        """
+        out: List[Dict[str, Any]] = []
+        order = ('openrouter', 'venice', 'liquidai-cloud', 'liquidai', 'hermes')
+        for short in order:
+            path = self.PROVIDERS.get(short, short)
+            ready = self.has_model(short)
+            free_ids = set()
+            if ready:
+                try:
+                    client = self._client(short)
+                    if getattr(client, 'is_free', False):
+                        free_ids = set(self.provider_models(short))
+                    elif hasattr(client, 'free_models'):
+                        free_ids = set(client.free_models() or [])
+                except Exception as e:
+                    print(f"[agent] free model list for {short} failed: {e}")
+            ids = list(self.provider_models(short))
+            # a free id the catalog offers but the curated list doesn't name is
+            # still the most useful thing here — it costs nothing to rank
+            for mid in sorted(free_ids):
+                if mid not in ids:
+                    ids.append(mid)
+            for mid in ids:
+                out.append({'model': mid, 'provider': short, 'ready': ready,
+                            'free': mid in free_ids,
+                            'hint': self.LOCAL_HINTS.get(short)})
+        # a key that works before one that doesn't, then provider order — the
+        # hosted catalogs first, because a gauntlet on this box's own LFM
+        # runtime is a hundred repos of noise in a picker
+        out.sort(key=lambda o: (not o['ready'], order.index(o['provider']),
+                                not o['free'], o['model']))
+        return out
+
     def arena_run(self, prompt: str, agent: str, model: str = None, steps: int = 8,
-                  free: bool = True, path: str = None):
+                  free: bool = True, path: str = None, provider: str = None):
         """Run one arena match and hand back its trace and what it cost.
 
         There is no caller behind a match — the board runs itself — so the run
@@ -2300,8 +5233,12 @@ class Mod(Agent):
         trace: List[Dict[str, Any]] = []
         try:
             last = self._run(query=prompt, agent_type=agent, model=model, steps=steps,
-                             free=free, path=path,
-                             allowed_paths=[path] if path else None, key=None,
+                             free=free, path=path, provider=provider,
+                             allowed_paths=[path] if path else None,
+                             # the pass, not a caller key: a match has nobody
+                             # behind it, but the harness gate needs to know
+                             # the board itself asked (see _run_harness)
+                             key=getattr(self, '_arena_pass', None),
                              on_step=trace.append)
         finally:
             try:
@@ -2309,6 +5246,81 @@ class Mod(Agent):
             except Exception:
                 usage = {}
         return (trace or last), usage
+
+    # ── graph of agents ──────────────────────────────────────────────
+
+    @staticmethod
+    def graph_answer(trace) -> str:
+        """What a run actually said, for the next node to read.
+
+        A step trace is not an answer: the finish summary is, and failing that
+        the last thing the run responded with. Handing the raw trace down an
+        edge would make every downstream agent read a log instead of the work.
+        """
+        if not isinstance(trace, list):
+            return str(trace or "")
+        summary, responses, error = "", [], ""
+        for st in trace:
+            if not isinstance(st, dict):
+                continue
+            if st.get("tool") == "finish":
+                summary = st.get("params", {}).get("summary", "") or summary
+            elif st.get("tool") == "response" and st.get("result"):
+                responses.append(str(st["result"]))
+            elif st.get("tool") == "error" and st.get("error") and not error:
+                error = str(st["error"])
+        return summary or (responses[-1] if responses else "") or error
+
+    def _graph_agent(self, agent: str, query: str, model: str = None, steps=None,
+                     toolbox=None, free=None, key=None, node=None, provider=None,
+                     on_step=None, on_usage=None, budget=None, **kw):
+        """One agent node of a graph: run the agent whole, hand back its answer.
+
+        Every setting the node did not override is the agent's own — the graph
+        says which agent runs here, not what that agent is.
+        """
+        trace = []
+        try:
+            last = self._run(query=query, agent_type=agent, model=model or None,
+                             provider=provider or None,
+                             steps=int(steps) if steps else 25,
+                             toolbox=toolbox or None, free=bool(free), key=key,
+                             budget=budget,
+                             on_step=lambda st: (trace.append(st),
+                                                 on_step(st) if on_step else None),
+                             on_usage=on_usage)
+        except Exception as e:
+            return {"ok": False, "error": str(e), "agent": agent}
+        steps_run = trace or (last if isinstance(last, list) else [])
+        text = self.graph_answer(steps_run)
+        failed = bool(steps_run) and all(
+            isinstance(st, dict) and st.get("tool") == "error" for st in steps_run)
+        return {"ok": not failed and bool(text or steps_run),
+                "text": text or ("the run produced nothing" if not failed else ""),
+                "error": None if not failed else self.graph_answer(steps_run),
+                "agent": agent, "trace": steps_run}
+
+    def _graph_tool(self, name: str, params: dict = None, key=None, **kw):
+        """One tool node: a call with no model in the loop."""
+        try:
+            out = self.run_tool(name, **(params or {}))
+        except Exception as e:
+            return {"ok": False, "error": f"{name}: {e}"}
+        if isinstance(out, dict) and out.get("error"):
+            return {"ok": False, "error": str(out["error"]), "data": out}
+        text = out if isinstance(out, str) else json.dumps(out, indent=2, default=str)[:8000]
+        return {"ok": True, "text": text,
+                "data": out if isinstance(out, dict) else {}}
+
+    def graph_run(self, graph=None, query: str = "", key=None, **kw):
+        """Run a graph — by id, or one handed over inline from the canvas.
+
+        A graph is several agent runs, so it answers to exactly the policy one
+        run does: the owner, a granted address, or a signed-in caller with
+        credits. Nothing about drawing it on a canvas makes it free.
+        """
+        self.require_allowed(key, 'run')
+        return self.graphs.run(graph, query, key=key, **kw)
 
     def arena_scheduler(self, on: bool = True, delay: float = 15.0):
         """Start (or stop) the background process that keeps the board current.
@@ -2453,7 +5465,24 @@ class Mod(Agent):
                 'app': self.app_port,
                 'memory': getattr(self.memory, '_port', None),
             },
+            'mcp': self.mcp(),
         }
+
+    def mcp(self, tools: bool = False) -> dict:
+        """How to connect an MCP client to this module, and what it gets.
+
+        The server is not a second API: src/mcp.py calls the same handlers the
+        REST routes call, so the tool list here and the endpoint list there
+        cannot describe different modules.
+        """
+        try:
+            from src import mcp as mcp_server
+        except Exception as e:
+            return {'available': False, 'error': f'{type(e).__name__}: {e}'}
+        out = mcp_server.info(f'http://localhost:{self.api_port}')
+        if tools:
+            out['schema'] = mcp_server.tool_list()
+        return out
 
     def test(self):
         """Test the agent module"""
@@ -2467,6 +5496,17 @@ class Mod(Agent):
             results['passed'] += 1
         except Exception as e:
             results['tests'].append({'name': 'tools_loaded', 'passed': False, 'error': str(e)})
+            results['failed'] += 1
+
+        # module visibility: the crypto round trip and the audit guards, run
+        # in a throwaway directory so this never touches the real fleet
+        try:
+            r = self.privacy.test()
+            assert r.get('ok'), r
+            results['tests'].append({'name': 'privacy', 'passed': True, **r})
+            results['passed'] += 1
+        except Exception as e:
+            results['tests'].append({'name': 'privacy', 'passed': False, 'error': str(e)})
             results['failed'] += 1
 
         # test the fleet is reachable as tools

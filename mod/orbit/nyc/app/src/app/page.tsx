@@ -4,17 +4,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import {
   api, type Catalog, type Choropleth, type HousingQuery, type Options,
+  type PopulationQuery,
 } from '@/lib/api'
 import { useCollapse } from '@/lib/collapse'
 import { usd } from '@/lib/format'
+import AccountButton from './components/AccountButton'
 import ChatPanel from './components/ChatPanel'
+import { AgentLegend } from './components/Infographic'
+import { describeMap, useAgentScene } from '@/lib/scene'
 import HousingControls from './components/HousingControls'
+import PopulationControls from './components/PopulationControls'
 import Inspector, { type Selection } from './components/Inspector'
+import DataPanel from './components/DataPanel'
 import LayerPanel from './components/LayerPanel'
 import Legend, { hasLegend } from './components/Legend'
+import MapFrame from './components/MapFrame'
+import PulsePanel from './components/PulsePanel'
 import SearchBar from './components/SearchBar'
 import Section from './components/Section'
-import { Coin, Mushroom, QuestionBlock } from './components/Sprites'
+import { Mushroom, QuestionBlock } from './components/Sprites'
 import { NARROW } from '@/lib/layout'
 import type { Basemap } from './components/MapView'
 
@@ -23,7 +31,7 @@ const MapView = dynamic(() => import('./components/MapView'), {
   ssr: false,
   loading: () => (
     <div className="absolute inset-0 grid place-items-center bg-nes-void">
-      <span className="pixel text-[10px] text-nes-coin">LOADING...</span>
+      <span className="pixel text-[10px] text-nes-coin">Loading…</span>
     </div>
   ),
 })
@@ -34,6 +42,7 @@ const BASEMAPS: { id: Basemap; label: string }[] = [
   { id: 'dark', label: 'NIGHT' },
   { id: 'light', label: 'DAY' },
   { id: 'streets', label: 'MAP' },
+  { id: 'earth', label: 'EARTH' },
 ]
 
 export default function Page() {
@@ -46,6 +55,9 @@ export default function Page() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [housing, setHousing] = useState<Choropleth | null>(null)
   const [housingBusy, setHousingBusy] = useState(false)
+  const [population, setPopulation] = useState<Choropleth | null>(null)
+  const [populationBusy, setPopulationBusy] = useState(false)
+  const [popQuery, setPopQuery] = useState<PopulationQuery>({ metric: 'density', geography: 'tract' })
   const [selection, setSelection] = useState<Selection | null>(null)
   const [basemap, setBasemap] = useState<Basemap>('dark')
   // The rail is a permanent fixture on a wide screen and a drawer on a phone,
@@ -67,13 +79,27 @@ export default function Page() {
   const [query, setQuery] = useState<HousingQuery>({
     metric: 'median_price',
     geography: 'nta',
-    since: '2024-01-01',
+    since: `${new Date().getFullYear()}-01-01`,
     property_type: 'residential',
   })
 
   useEffect(() => {
     if (window.matchMedia(`(min-width: ${NARROW}px)`).matches) setPanelOpen(true)
   }, [])
+
+  // ── the chat agent's hands on this map ──────────────────────────────────
+  const scene = useAgentScene({
+    defaults: {
+      layers: (catalog?.layers ?? []).filter((l) => l.default_on).map((l) => l.id),
+      query: { metric: 'median_price', geography: 'nta', since: `${new Date().getFullYear()}-01-01`, property_type: 'residential' },
+      basemap: 'dark',
+    },
+    setActive, setQuery, setBasemap, setFlyTo,
+  })
+  const mapState = () => describeMap({
+    active, query, basemap, overlay: scene.overlay,
+    highlight: scene.highlight.names, filter: scene.filter, only: scene.only,
+  })
 
   // ── boot ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -100,11 +126,36 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryKey, active.includes('housing_prices')])
 
+  // ── population choropleth ───────────────────────────────────────────────
+  const popKey = JSON.stringify(popQuery)
+  useEffect(() => {
+    if (!active.includes('population')) return
+    let alive = true
+    setPopulationBusy(true)
+    api.population(popQuery)
+      .then((fc) => { if (alive) { setPopulation(fc); setErrors((e) => omit(e, 'population')) } })
+      .catch((e) => { if (alive) setErrors((er) => ({ ...er, population: msg(e) })) })
+      .finally(() => { if (alive) setPopulationBusy(false) })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [popKey, active.includes('population')])
+
   // ── overlay fetching, one request per layer, cached in state ────────────
   const inflight = useRef<Set<string>>(new Set())
+  const prevSalesKey = useRef<string>('')
   useEffect(() => {
+    const salesKey = `${query.since}|${query.property_type}`
+    const salesParamsChanged = salesKey !== prevSalesKey.current
+    if (salesParamsChanged) {
+      prevSalesKey.current = salesKey
+      setLayerData((d) => omit(d, 'sales'))
+      inflight.current.delete('sales')
+    }
     for (const id of active) {
-      if (id === 'housing_prices' || layerData[id] || inflight.current.has(id)) continue
+      if (id === 'housing_prices' || id === 'population') continue
+      if (id !== 'sales' && layerData[id]) continue
+      if (id === 'sales' && !salesParamsChanged && layerData[id]) continue
+      if (inflight.current.has(id)) continue
       inflight.current.add(id)
       setLoading((l) => [...l, id])
       const fetcher = id === 'sales'
@@ -122,13 +173,28 @@ export default function Page() {
         })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active])
+  }, [active, query.since, query.property_type])
 
-  // The sales layer depends on the housing window, so drop it when that moves.
+  // ── live layers re-poll themselves ──────────────────────────────────────
+  // The fetch effect above deliberately fetches each layer once and keeps it.
+  // That is right for a park boundary and wrong for a speed sensor: a layer
+  // that declares `refresh_seconds` is a live reading, and left alone it would
+  // sit on screen showing whatever traffic was doing when it was switched on.
   useEffect(() => {
-    setLayerData((d) => omit(d, 'sales'))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query.since, query.property_type])
+    const live = (catalog?.layers ?? []).filter(
+      (l) => active.includes(l.id) && l.refresh_seconds)
+    if (!live.length) return
+    const timers = live.map((l) =>
+      setInterval(() => {
+        api.layer(l.id)
+          .then((fc) => setLayerData((d) => ({ ...d, [l.id]: fc })))
+          // A failed refresh keeps the last good reading on the map rather
+          // than blanking the layer; the timestamp in the inspector is what
+          // tells the viewer how old it is.
+          .catch(() => {})
+      }, l.refresh_seconds! * 1000))
+    return () => timers.forEach(clearInterval)
+  }, [catalog, active])
 
   const toggle = useCallback((id: string) => {
     setActive((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]))
@@ -139,8 +205,9 @@ export default function Page() {
     const c: Record<string, number> = {}
     for (const [id, fc] of Object.entries(layerData)) c[id] = fc.features?.length ?? 0
     if (housing) c.housing_prices = housing.meta?.areas_with_data ?? housing.features.length
+    if (population) c.population = population.features.length
     return c
-  }, [layerData, housing])
+  }, [layerData, housing, population])
 
   // Picking a result also puts the phone's search bar away: the point of
   // searching was to look at the map, which the field is sitting on top of.
@@ -150,6 +217,7 @@ export default function Page() {
   }, [])
 
   const legendRows = hasLegend(active, housing?.breaks ?? null)
+    || (active.includes('population') && !!population?.breaks?.stops?.length)
 
   if (boot) {
     return (
@@ -158,15 +226,15 @@ export default function Page() {
           <div className="flex justify-center">
             <Mushroom size={44} />
           </div>
-          <h1 className="pixel pixel-shadow mt-4 text-[16px] text-nes-red">GAME OVER</h1>
-          <p className="pixel mt-4 text-[8px] leading-[2.2] text-nes-ink2">
-            THE MAP CANT REACH ITS API
+          <h1 className="pixel mt-4 text-[15px] text-nes-red">API unreachable</h1>
+          <p className="mt-3 text-[13px] leading-relaxed text-nes-ink2">
+            The map can&apos;t reach its API.
           </p>
-          <p className="mt-4 text-[12.5px] leading-relaxed text-nes-ink3">{boot}</p>
-          <p className="pixel mt-5 text-[7.5px] leading-[2.2] text-nes-coin">
-            CONTINUE? RUN
+          <p className="mt-3 text-[12.5px] leading-relaxed text-nes-ink3">{boot}</p>
+          <p className="mt-5 text-[12px] leading-relaxed text-nes-ink3">
+            To bring it back, run
           </p>
-          <code className="mt-1.5 inline-block border-2 border-black bg-black px-2 py-1 text-[12px] text-nes-coin">
+          <code className="code mt-1.5 inline-block px-2 py-1 text-[12px]">
             m nyc/serve_api
           </code>
         </div>
@@ -179,24 +247,46 @@ export default function Page() {
     // out as you scroll, and `100vh` is the *tallest* case — the bottom of the
     // map, where the sheet and the key live, would sit under the address bar.
     <main className="relative h-[100dvh] w-full overflow-hidden bg-nes-void">
-      <MapView
-        catalog={catalog}
-        active={active}
-        opacity={opacity}
-        housing={housing}
-        housingMetric={query.metric}
-        layerData={layerData}
-        basemap={basemap}
-        flyTo={flyTo}
-        // Touching the map is the end of whatever the HUD was doing: the
-        // phone's search field is over the map, so it stands down here rather
-        // than staying up in front of the feature just tapped.
-        onFeatureClick={(s) => { setSelection(s); setSearchOpen(false) }}
-        onMapReady={() => {}}
-      />
+      {/* The map is the only part of this page that needs a GPU, so it is the
+          only part allowed to fail on a browser without one. */}
+      {/* On a wide screen an open chat takes a column of its own and the map
+          gives up the width instead of being covered — a conversation that
+          drives the map is pointless if the answer hides it. MapLibre watches
+          its container, so the shrink is a resize, not a remount.
+          412 = the chat column (ChatPanel md:w-[400px]) + its 12px right
+          inset; the inspector's 424 and the legend's 206 below derive from
+          the same 400 — change the chat width and all four move together. */}
+      <div className={`absolute inset-y-0 left-0 right-0 ${chatOpen ? 'md:right-[412px]' : ''}`}>
+      <MapFrame>
+        <MapView
+          catalog={catalog}
+          active={active}
+          opacity={opacity}
+          housing={housing}
+          housingMetric={query.metric}
+          population={population}
+          populationMetric={popQuery.metric}
+          agentOverlay={scene.overlay}
+          highlight={scene.highlight}
+          valueFilter={scene.filter}
+          only={scene.only}
+          frame={scene.frame}
+          layerData={layerData}
+          basemap={basemap}
+          flyTo={flyTo}
+          // Touching the map is the end of whatever the HUD was doing: the
+          // phone's search field is over the map, so it stands down here rather
+          // than staying up in front of the feature just tapped.
+          onFeatureClick={(s) => { setSelection(s); setSearchOpen(false) }}
+          onMapReady={() => {}}
+        />
+      </MapFrame>
+      </div>
 
       {/* ── HUD ─────────────────────────────────────────────────────── */}
-      <header className="safe-t safe-x pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start gap-3 pb-3">
+      {/* z-[60]: above the chat column (z-50), or the account popover —
+          which hangs off this strip — gets covered while the chat is open. */}
+      <header className="safe-t safe-x pointer-events-none absolute inset-x-0 top-0 z-[60] flex items-start gap-3 pb-3">
         {/* A phone gives the search field the whole bar. At 360px there is no
             room for a usable field beside the title, and a search box you can
             only half see is worse than one that is a tap away. */}
@@ -233,16 +323,13 @@ export default function Page() {
               </span>
             </button>
             <div className="min-w-0">
-              <h1 className="pixel pixel-shadow whitespace-nowrap text-[11px] leading-none text-white md:text-[13px]">
+              <h1 className="pixel whitespace-nowrap text-[12px] leading-none text-white md:text-[13px]">
                 NYC ATLAS
               </h1>
-              {/* The separator is a drawn pixel rather than a bullet glyph —
-                  Press Start 2P has no ·, and the fallback's version sits at a
-                  different weight and height from everything around it. */}
-              <p className="pixel mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-[6.5px] leading-none text-nes-coin md:mt-2 md:gap-2 md:text-[7.5px]">
-                <span>WORLD 1-1</span>
-                <span className="h-[4px] w-[4px] shrink-0 bg-nes-coin" aria-hidden />
-                <span>{catalog?.count ?? '--'} LAYERS</span>
+              <p className="mt-1 flex items-center gap-1.5 whitespace-nowrap text-[10.5px] leading-none text-nes-ink3 md:gap-2 md:text-[11px]">
+                <span>Open data</span>
+                <span className="h-[3px] w-[3px] shrink-0 rounded-full bg-nes-ink3" aria-hidden />
+                <span>{catalog?.count ?? '—'} layers</span>
               </p>
             </div>
           </div>
@@ -254,18 +341,34 @@ export default function Page() {
             <button
               onClick={() => setChatOpen((v) => !v)}
               aria-expanded={chatOpen}
-              className={`btn pixel tap px-2.5 py-3 text-[8px] md:px-3 ${chatOpen ? 'btn-on' : ''}`}
+              className={`btn pixel tap px-2.5 py-3 text-[11px] md:px-3 ${chatOpen ? 'btn-on' : ''}`}
             >
               ASK
             </button>
+            {/* The map is one of three ways to read this data; the docs are
+                where the other two (MCP, HTTP) are written down. Wide screens
+                only — a phone's HUD has no room to spare, and nobody wires up
+                an MCP client on one. */}
+            <a
+              href="/nyc/docs"
+              className="btn pixel tap hidden px-3 py-3 text-[11px] md:block"
+            >
+              DOCS
+            </a>
+            {/* The owner's sign-in: one wallet signature, the mod-protocol
+                token every module verifies. Wide screens only — the phone
+                HUD is full, so the drawer carries this row instead. */}
+            <div className="hidden md:block">
+              <AccountButton />
+            </div>
             <button
               onClick={() => setSearchOpen(true)}
               aria-label="Search an address or place"
               className="btn tap grid place-items-center px-3 py-3 md:hidden"
             >
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
-                <circle cx="7" cy="7" r="4.6" stroke="#fbd000" strokeWidth="2" />
-                <path d="M10.6 10.6L14 14" stroke="#fbd000" strokeWidth="2" strokeLinecap="square" />
+                <circle cx="7" cy="7" r="4.6" stroke="#e8b64c" strokeWidth="1.8" />
+                <path d="M10.6 10.6L14 14" stroke="#e8b64c" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
             </button>
             {/* The basemap switch is three buttons wide; on a phone it moves
@@ -275,7 +378,7 @@ export default function Page() {
                 <button
                   key={b.id}
                   onClick={() => setBasemap(b.id)}
-                  className={`btn pixel px-2.5 py-2 text-[8px] ${basemap === b.id ? 'btn-on' : ''}`}
+                  className={`btn pixel px-2.5 py-2 text-[11px] ${basemap === b.id ? 'btn-on' : ''}`}
                 >
                   {b.label}
                 </button>
@@ -309,8 +412,8 @@ export default function Page() {
       >
         {/* The drawer's own title bar: the HUD behind it is covered by the
             scrim, so the way out has to be inside. */}
-        <div className="safe-t flex shrink-0 items-center justify-between gap-2 border-b-[3px] border-black bg-black/40 px-3 pb-2.5 md:hidden">
-          <h2 className="pixel text-[9px] leading-none text-white">LAYERS</h2>
+        <div className="safe-t flex shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-black/40 px-3 pb-2.5 md:hidden">
+          <h2 className="pixel text-[11px] leading-none text-white">LAYERS</h2>
           <button
             onClick={() => setPanelOpen(false)}
             aria-label="Close layers"
@@ -320,22 +423,27 @@ export default function Page() {
           </button>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1.5 border-b-[3px] border-black px-3 py-2.5 md:hidden">
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-white/10 px-3 py-2.5 md:hidden">
           {BASEMAPS.map((b) => (
             <button
               key={b.id}
               onClick={() => setBasemap(b.id)}
-              className={`btn pixel tap flex-1 px-1 py-2.5 text-[8px] ${basemap === b.id ? 'btn-on' : ''}`}
+              className={`btn pixel tap flex-1 px-1 py-2.5 text-[11px] ${basemap === b.id ? 'btn-on' : ''}`}
             >
               {b.label}
             </button>
           ))}
         </div>
 
+        {/* The phone's seat for the owner sign-in the desktop HUD carries. */}
+        <div className="shrink-0 md:hidden">
+          <AccountButton rail />
+        </div>
+
         <div className="safe-b flex-1 overflow-y-auto md:pb-0">
           {active.includes('housing_prices') && (
             <Section
-              title="Housing choropleth"
+              title="Price map"
               open={collapse.isOpen('housing')}
               onToggle={() => collapse.toggle('housing')}
               summary={housingBusy ? '…' : options?.metrics?.[query.metric]?.label ?? ''}
@@ -347,6 +455,22 @@ export default function Page() {
                 busy={housingBusy}
               />
               {housing && <Headline housing={housing} metric={query.metric} />}
+            </Section>
+          )}
+          {active.includes('population') && (
+            <Section
+              title="Population"
+              open={collapse.isOpen('population')}
+              onToggle={() => collapse.toggle('population')}
+              summary={populationBusy ? '…' : (population?.meta as any)?.label ?? ''}
+            >
+              <PopulationControls
+                def={catalog?.layers.find((l) => l.id === 'population')}
+                query={popQuery}
+                onChange={(patch) => setPopQuery((q) => ({ ...q, ...patch }))}
+                data={population}
+                busy={populationBusy}
+              />
             </Section>
           )}
           <LayerPanel
@@ -361,6 +485,31 @@ export default function Page() {
             isOpen={collapse.isOpen}
             onToggleSection={collapse.toggle}
           />
+          {/* Owner-added datasets. The layers themselves ride in the panel
+              above (category "Your data"); this section is where they are
+              added and removed. A changed catalogue is refetched so the new
+              layer appears in the rail without a reload. */}
+          <Section
+            title="Your data"
+            open={collapse.isOpen('yourdata')}
+            onToggle={() => collapse.toggle('yourdata')}
+            summary={catalog?.layers.some((l) => (l as any).custom) ? 'add · manage' : 'add your own'}
+          >
+            <DataPanel onChanged={() => {
+              api.catalog().then(setCatalog).catch(() => {})
+            }} />
+          </Section>
+          {/* The city beyond the map: crime and market vitals, headlines,
+              and the full printable brief. Lives under the layers — the map
+              is still the main event — and fetches nothing until opened. */}
+          <Section
+            title="City pulse"
+            open={collapse.isOpen('pulse')}
+            onToggle={() => collapse.toggle('pulse')}
+            summary="news · crime · market"
+          >
+            <PulsePanel />
+          </Section>
         </div>
       </div>
 
@@ -373,6 +522,9 @@ export default function Page() {
           active={active}
           areasWithData={housing?.meta?.areas_with_data}
           totalAreas={housing?.meta?.areas}
+          population={population}
+          crime={layerData['crime'] as any}
+          forsale={layerData['forsale'] as any}
         />
       </div>
 
@@ -390,13 +542,16 @@ export default function Page() {
                 active={active}
                 areasWithData={housing?.meta?.areas_with_data}
                 totalAreas={housing?.meta?.areas}
+                population={population}
+                crime={layerData['crime'] as any}
+                forsale={layerData['forsale'] as any}
               />
             </div>
           )}
           <button
             onClick={() => setLegendOpen((v) => !v)}
             aria-expanded={legendOpen}
-            className={`btn pixel tap px-3 py-2.5 text-[8px] ${legendOpen ? 'btn-on' : ''}`}
+            className={`btn pixel tap px-3 py-2.5 text-[11px] ${legendOpen ? 'btn-on' : ''}`}
           >
             {legendOpen ? 'HIDE KEY' : 'KEY'}
           </button>
@@ -404,8 +559,12 @@ export default function Page() {
       )}
 
       {/* ── inspector ───────────────────────────────────────────────── */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40
-                      md:inset-x-auto md:bottom-auto md:right-3 md:top-[86px]">
+      {/* While the chat column is up, the inspector keeps to the map's own
+          right edge rather than disappearing behind the chat.
+          424 = chat 400 + 12px inset + 12px gap (derived with 412 above). */}
+      <div className={`pointer-events-none absolute inset-x-0 bottom-0 z-40
+                      md:inset-x-auto md:bottom-auto md:top-[86px]
+                      ${chatOpen ? 'md:right-[424px]' : 'md:right-3'}`}>
         <Inspector
           selection={selection}
           catalog={catalog}
@@ -415,7 +574,21 @@ export default function Page() {
       </div>
 
       {/* ── ask-the-agent chat ──────────────────────────────────────── */}
-      <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />
+      {/* The key for what the agent drew. On a wide screen it sits bottom-
+          centre of the map — of the *remaining* map while the chat column is
+          up, so it never slides underneath the chat. The infographic card
+          lives in the chat transcript, not here: nothing the agent says is
+          allowed to cover the map it is talking about.
+          206 = (chat 400 + 12px inset) / 2: recentres on the remaining map
+          (derived with 412/424 above). */}
+      <div className={`safe-x pointer-events-none absolute inset-x-0 top-[64px] z-20 flex justify-center px-3
+                      md:inset-x-auto md:top-auto md:bottom-3 md:-translate-x-1/2 md:px-0
+                      ${chatOpen ? 'md:left-[calc(50%-206px)]' : 'md:left-1/2'}`}>
+        <AgentLegend overlay={scene.overlay} caption={scene.caption} onClear={scene.clearAgent} />
+      </div>
+
+      <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)}
+                 onDisplay={scene.apply} mapState={mapState} />
     </main>
   )
 }
@@ -438,30 +611,26 @@ function Headline({ housing, metric }: { housing: Choropleth; metric: string }) 
     : metric === 'sales'
     ? median.toLocaleString()
     : metric === 'median_ppsf'
-    ? `$${Math.round(median)}/FT2`
+    ? `$${Math.round(median)}/ft²`
     : usd(median)
 
   return (
-    <div className="flex items-center justify-between gap-2 border-t-[3px] border-black bg-black/40 px-3 py-2.5">
-      <span className="pixel flex items-center gap-1.5 text-[8px] text-nes-coin">
-        <Coin size={13} />
-        x{sales.toLocaleString()}
+    <div className="flex items-center justify-between gap-2 border-t border-white/10 bg-black/40 px-3 py-2.5">
+      <span className="text-[11.5px] tabular-nums text-nes-ink3">
+        {sales.toLocaleString()} sales
       </span>
-      <span className="pixel text-[8px] text-white">{typical}</span>
+      <span className="text-[12px] font-semibold tabular-nums text-nes-coin">{typical}</span>
     </div>
   )
 }
 
-/** A whole-pixel X, for the two dismiss buttons the phone layout adds. */
+/** The dismiss X for the two close buttons the phone layout adds. */
 function Cross() {
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" shapeRendering="crispEdges"
-         fill="currentColor" className="text-nes-ink2" aria-hidden>
-      <rect x="0" y="0" width="2" height="2" /><rect x="2" y="2" width="2" height="2" />
-      <rect x="4" y="4" width="2" height="2" /><rect x="6" y="2" width="2" height="2" />
-      <rect x="8" y="0" width="2" height="2" /><rect x="6" y="6" width="2" height="2" />
-      <rect x="8" y="8" width="2" height="2" /><rect x="2" y="6" width="2" height="2" />
-      <rect x="0" y="8" width="2" height="2" />
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none"
+         className="text-nes-ink2" aria-hidden>
+      <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6"
+            strokeLinecap="round" />
     </svg>
   )
 }

@@ -1,0 +1,38 @@
+{
+  "name": "sn108",
+  "version": "1.0.0",
+  "description": "SN108 ChipForge — ChipForge decentralizes silicon design. Miners anywhere compete to build chips that accelerate AI, scored on real AI models. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "モ",
+  "chain": "bittensor",
+  "netuid": 108,
+  "subnet": "ChipForge",
+  "symbol": "モ",
+  "owner": "5FBwsAvvKjhe7bGSdtVSAaxm7huJAcWFZRb9WRpJJmrVUvoB",
+  "github": "https://github.com/TatsuProject/ChipForge_SN108",
+  "url": "https://www.chipforge.io/",
+  "discord": "https://discord.com/channels/799672011265015819/1408463235082092564",
+  "logo": "https://raw.githubusercontent.com/TatsuProject/ChipForge_SN108/master/assets/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=108",
+    "news": "/bt/news?netuid=108"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -60,7 +60,7 @@ export default function VaultDetailPage() {
       <Link href="/vaults" className="text-[11px] text-muted hover:text-ink">← all vaults</Link>
 
       <div>
-        <h1 className="text-xl text-ink">{d?.name || shortAddr(addr)}</h1>
+        <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">{d?.name || shortAddr(addr)}</h1>
         {d?.description && <p className="text-xs text-muted mt-1">{d.description}</p>}
         <div className="text-[11px] text-muted mt-1">
           leader <Link href={`/trader/${d?.leader}`} className="font-mono text-accent2 hover:text-accent">{shortAddr(d?.leader || "")}</Link>

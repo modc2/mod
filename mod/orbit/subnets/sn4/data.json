@@ -1,0 +1,167 @@
+{
+  "netuid": 4,
+  "name": "Targon",
+  "symbol": "δ",
+  "owner": "5CXGPMnq9RCCLUEvp9G2iUuabw69TSFM155UVS1S4Zmusaxv",
+  "description": "Incentivized Compute Marketplace powered by the Targon Virtual Machine (TVM).",
+  "github": "https://github.com/manifold-inc/targon",
+  "url": "https://targon.com",
+  "discord": null,
+  "logo": "https://www.manifold.inc/favicon.svg",
+  "registered_at": 1411451,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [
+    "targon"
+  ],
+  "market": {
+    "price": 0.051925646,
+    "moving_price": 0.051854322431609035,
+    "market_cap": 333218.8971548645,
+    "tao_in": 133965.129908596,
+    "alpha_in": 2579941.520537165,
+    "alpha_out": 3837290.094739504,
+    "volume": 2346125.023598888,
+    "vol_24h": 662.924889172893,
+    "emission": 0.0,
+    "change_1h": -0.012239081404952223,
+    "change_24h": 0.3373049922603455,
+    "change_7d": 0.743048588160744
+  },
+  "spark_24h": [
+    0.051751087,
+    0.051753839,
+    0.051757138,
+    0.051755313,
+    0.051753714,
+    0.051753659,
+    0.051758644,
+    0.051754157,
+    0.051757655,
+    0.05175945,
+    0.0517639,
+    0.051754594,
+    0.051757829,
+    0.051762913,
+    0.051766238,
+    0.051765097,
+    0.051768017,
+    0.051781427,
+    0.051783369,
+    0.051778606,
+    0.051814895,
+    0.051830346,
+    0.051848208,
+    0.051839682,
+    0.051845112,
+    0.051847622,
+    0.051869119,
+    0.051871877,
+    0.05187391,
+    0.051876541,
+    0.051871645,
+    0.051889042,
+    0.05191471,
+    0.051920959,
+    0.051912806,
+    0.051918064,
+    0.051917169,
+    0.051941272,
+    0.051939944,
+    0.051943248,
+    0.051949438,
+    0.051952361,
+    0.051957298,
+    0.051927558,
+    0.051926511,
+    0.051929664,
+    0.051932002,
+    0.051925646
+  ],
+  "trades_24h": {
+    "trades": 178,
+    "buys": 103,
+    "sells": 75,
+    "buy_tao": 248.257387624,
+    "sell_tao": 237.913345971,
+    "net_tao": 10.344041652999977,
+    "traders": 105
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HdqToFx8M52oypRPG7rrbC7RF3ZUMZmGErtxAXgfR4sHVxw",
+      "net_tao": -106.43263065,
+      "gross_tao": 106.43263065,
+      "trades": 12
+    },
+    {
+      "coldkey": "5HL56LdrCZisFzVdrPMeCx3ERkrGRXD8cUXTwG9XGv4k58g1",
+      "net_tao": 65.167386706,
+      "gross_tao": 65.167386706,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DCYnJgtJtVTbPrx9KVg24qXrWspGdFMx94bNN2M45f7K787",
+      "net_tao": 0.048544060999996884,
+      "gross_tao": 60.164086553000004,
+      "trades": 7
+    },
+    {
+      "coldkey": "5G6VBRRb9ha9TYsK6REkPWrp79dZfRAVqhwHM3uxrgJr7KEh",
+      "net_tao": -36.19487211,
+      "gross_tao": 36.19487211,
+      "trades": 8
+    },
+    {
+      "coldkey": "5CffSoGHkpLYuvAkDqhwozYS8pwRQyifwSjiXPhk6ozXCsgQ",
+      "net_tao": 23.974127022,
+      "gross_tao": 31.969872978,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790314305,
+      "kind": "commit",
+      "source": "github",
+      "title": "update docs",
+      "url": "https://github.com/manifold-inc/targon/commit/56a0769547474c56d14272d137ade43e58958a3c",
+      "publisher": "manifold-inc/targon"
+    },
+    {
+      "ts": 1790180655,
+      "kind": "commit",
+      "source": "github",
+      "title": "add hardware profiles",
+      "url": "https://github.com/manifold-inc/targon/commit/ee52c6b4171c6cfd952572f9db962de059472076",
+      "publisher": "manifold-inc/targon"
+    },
+    {
+      "ts": 1790146852,
+      "kind": "commit",
+      "source": "github",
+      "title": "restart chain subscription on stale connection",
+      "url": "https://github.com/manifold-inc/targon/commit/7b49a678da2a9f318372b70e1e44d42c4c4db7c3",
+      "publisher": "manifold-inc/targon"
+    },
+    {
+      "ts": 1789670317,
+      "kind": "commit",
+      "source": "github",
+      "title": "flip attestation ports prio",
+      "url": "https://github.com/manifold-inc/targon/commit/511128aabc6416ae11179306e57c144a906c9894",
+      "publisher": "manifold-inc/targon"
+    },
+    {
+      "ts": 1789670317,
+      "kind": "release",
+      "source": "github",
+      "title": "v2.0.1",
+      "url": "https://github.com/manifold-inc/targon/releases/tag/v2.0.1",
+      "publisher": "manifold-inc/targon"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

@@ -1,0 +1,189 @@
+{
+  "netuid": 108,
+  "name": "ChipForge",
+  "symbol": "モ",
+  "owner": "5FBwsAvvKjhe7bGSdtVSAaxm7huJAcWFZRb9WRpJJmrVUvoB",
+  "description": "ChipForge decentralizes silicon design. Miners anywhere compete to build chips that accelerate AI, scored on real AI models.",
+  "github": "https://github.com/TatsuProject/ChipForge_SN108",
+  "url": "https://www.chipforge.io/",
+  "discord": "https://discord.com/channels/799672011265015819/1408463235082092564",
+  "logo": "https://raw.githubusercontent.com/TatsuProject/ChipForge_SN108/master/assets/logo.png",
+  "registered_at": 9111253,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.00951791,
+    "moving_price": 0.00603080028668046,
+    "market_cap": 1386.9697275302756,
+    "tao_in": 746.128525024,
+    "alpha_in": 78392.052812216,
+    "alpha_out": 67330.036126456,
+    "volume": 16871.622577861,
+    "vol_24h": 322.5309425539999,
+    "emission": 0.0,
+    "change_1h": 0.06390988233495598,
+    "change_24h": -19.737175978369493,
+    "change_7d": 113.42730083443283
+  },
+  "spark_24h": [
+    0.011858429,
+    0.01191685,
+    0.011976788,
+    0.011983136,
+    0.011969806,
+    0.012021865,
+    0.012021851,
+    0.011954421,
+    0.01195585,
+    0.012041245,
+    0.012041233,
+    0.012064094,
+    0.012065399,
+    0.010901046,
+    0.011007553,
+    0.011001442,
+    0.010598595,
+    0.010593323,
+    0.01059325,
+    0.010540447,
+    0.010531834,
+    0.010531707,
+    0.010743106,
+    0.010717963,
+    0.01071778,
+    0.010717361,
+    0.010717024,
+    0.010503157,
+    0.010309284,
+    0.010111261,
+    0.01006856,
+    0.009654149,
+    0.009656717,
+    0.009594767,
+    0.00951752,
+    0.00952007,
+    0.009516369,
+    0.009512562,
+    0.009512562,
+    0.009017759,
+    0.008719234,
+    0.009325223,
+    0.009324881,
+    0.009449377,
+    0.009449373,
+    0.009462055,
+    0.009511831,
+    0.00951791
+  ],
+  "trades_24h": {
+    "trades": 157,
+    "buys": 92,
+    "sells": 65,
+    "buy_tao": 117.637940566,
+    "sell_tao": 200.504375989,
+    "net_tao": -82.86643542300001,
+    "traders": 60
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EHPKVJm5GfSJRUcT99dz3ReGu7LiWr4FDyYn9zRPo7UGCH1",
+      "net_tao": 1.3555999969999992,
+      "gross_tao": 38.884101511,
+      "trades": 15
+    },
+    {
+      "coldkey": "5GQwpXq3bpADAmhcm1Pzs4mFxgCxWgLdmwNsyRbVFFeNRJ8B",
+      "net_tao": -14.096867203999999,
+      "gross_tao": 20.096867204,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DFMjFqQMHPsqzFKNwgUW1t3pCieYQjTFb1bAuqgYf7iRBr8",
+      "net_tao": -7.060050363,
+      "gross_tao": 20.060050363000002,
+      "trades": 4
+    },
+    {
+      "coldkey": "5EhBAtp1NDaLLuxRrGLDntmgPQ5cCDvkk7uFawamcaemecsV",
+      "net_tao": 0.3611632899999999,
+      "gross_tao": 15.63883671,
+      "trades": 5
+    },
+    {
+      "coldkey": "5HBDoGquSJ5fRN8yURM9ujYjk96eUXKmX5qiccYbx3kjX87W",
+      "net_tao": -15.001926408,
+      "gross_tao": 15.001926408,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791287661,
+      "kind": "social",
+      "source": "reddit",
+      "title": "SN108 Chipforge // Why +300% in 24h",
+      "url": "https://www.reddit.com/r/bittensor_/comments/1wz0mjr/sn108_chipforge_why_300_in_24h/",
+      "publisher": "r/bittensor_"
+    },
+    {
+      "ts": 1791287266,
+      "kind": "commit",
+      "source": "github",
+      "title": "Minimum improvement comes from the challenge server (/validator/sync …",
+      "url": "https://github.com/TatsuProject/ChipForge_SN108/commit/0f74767f11df47b2c8ca0000d03e1ff91f1ad000",
+      "publisher": "TatsuProject/ChipForge_SN108"
+    },
+    {
+      "ts": 1791285256,
+      "kind": "commit",
+      "source": "github",
+      "title": ".env.example updated",
+      "url": "https://github.com/TatsuProject/ChipForge_SN108/commit/3cd9f3cf6f75061f67ae7085d9fea6748a8ed02f",
+      "publisher": "TatsuProject/ChipForge_SN108"
+    },
+    {
+      "ts": 1791185541,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: validator hardware requirements (min 16 physical cores + 32 GB,…",
+      "url": "https://github.com/TatsuProject/ChipForge_SN108/commit/3e019f6fed612b085ca944cb1956d6aa16b015d2",
+      "publisher": "TatsuProject/ChipForge_SN108"
+    },
+    {
+      "ts": 1791185142,
+      "kind": "commit",
+      "source": "github",
+      "title": "Stop tracking CHANGES_V2.md (local change log only) and ignore it",
+      "url": "https://github.com/TatsuProject/ChipForge_SN108/commit/9a399e47329879b7be44f135add1c3dfd0f007b0",
+      "publisher": "TatsuProject/ChipForge_SN108"
+    },
+    {
+      "ts": 1790862730,
+      "kind": "commit",
+      "source": "github",
+      "title": "Validator logs explain the MIN_IMPROVEMENT_PERCENT decision: % gain o…",
+      "url": "https://github.com/TatsuProject/ChipForge_SN108/commit/c834a38011fa514a7101b5b52a4659373552a891",
+      "publisher": "TatsuProject/ChipForge_SN108"
+    },
+    {
+      "ts": 1790843579,
+      "kind": "commit",
+      "source": "github",
+      "title": "Docs and config for public use: registration/permit/secret-key/EDA pr…",
+      "url": "https://github.com/TatsuProject/ChipForge_SN108/commit/684c833fc87023598a982956adbf2373270b39e8",
+      "publisher": "TatsuProject/ChipForge_SN108"
+    },
+    {
+      "ts": 1790789303,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #3 from TatsuProject/improvements/v2",
+      "url": "https://github.com/TatsuProject/ChipForge_SN108/commit/306a82af6d03ea15ccaa8d6222ed19c7f0383af5",
+      "publisher": "TatsuProject/ChipForge_SN108"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

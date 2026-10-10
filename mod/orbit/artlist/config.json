@@ -1,0 +1,101 @@
+{
+    "name": "artlist",
+    "title": "artlist \u00b7 royalty-free music, SFX & footage search",
+    "description": "Interface to Artlist.io: search 25k+ royalty-free songs, SFX, stock footage and video templates through Artlist's public search GraphQL API. Keyless for search/preview/metadata; streams AAC previews from Artlist's CDN. Licensed downloads require your own Artlist account token (kept off-chain). Stdlib-only. Also an MCP server (HTTP /mcp and stdio).",
+    "version": "0.1.0",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51190,
+    "route": false,
+    "deps": [],
+    "urls": {
+        "api": "http://localhost:51190",
+        "mcp": "http://localhost:51190/mcp"
+    },
+    "mcp": {
+        "http": "http://localhost:51190/mcp",
+        "stdio": {
+            "command": "python3",
+            "args": [
+                "-m",
+                "artlistapi.mcp_server"
+            ],
+            "cwd": "."
+        }
+    },
+    "state": "~/.mod/artlist/cache.db (GraphQL responses by query hash) \u00b7 ~/.mod/artlist/previews/ \u00b7 ~/.mod/artlist/token (optional, your Artlist bearer)",
+    "endpoints": {
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness + cache size"
+        },
+        "music": {
+            "method": "GET|POST",
+            "auth": false,
+            "docs": "?q=&k=&page= -> {total, results:[{id,name,artist,album,duration,preview_url,tags}]}"
+        },
+        "sfx": {
+            "method": "GET|POST",
+            "auth": false,
+            "docs": "?q=&k=&page= -> sound effects with preview_url (sort: NEWEST|TOP_DOWNLOADS|STAFF_PICKS)"
+        },
+        "footage": {
+            "method": "GET|POST",
+            "auth": false,
+            "docs": "?q=&k=&page= -> Artgrid stock footage clips"
+        },
+        "templates": {
+            "method": "GET|POST",
+            "auth": false,
+            "docs": "?q=&k= -> video templates (AE/Premiere/FCP/Resolve) with HLS preview"
+        },
+        "voices": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?page=&k= -> AI voiceover voices; accents carry preview_url"
+        },
+        "song": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?ids=1,2 -> full song records"
+        },
+        "preview": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?id= -> downloads the AAC preview to ~/.mod/artlist/previews/, returns the path"
+        },
+        "gq": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{query, variables} -> raw GraphQL passthrough to search-api.artlist.io"
+        },
+        "mcp": {
+            "method": "POST",
+            "auth": false,
+            "docs": "MCP JSON-RPC: artlist_music, artlist_sfx, artlist_footage, artlist_templates, artlist_voices, artlist_song, artlist_gq, artlist_status"
+        }
+    },
+    "fns": [
+        "forward",
+        "music",
+        "sfx",
+        "footage",
+        "templates",
+        "voices",
+        "song",
+        "album",
+        "artist",
+        "clip",
+        "story",
+        "preview",
+        "gq",
+        "clear_cache",
+        "mcp",
+        "serve",
+        "kill",
+        "status",
+        "test"
+    ],
+    "schema": "QmXJcB4FQT27HU5MpyFZaMiDismjCvwyNgPvjmWCMFEo6i"
+}

@@ -4,18 +4,24 @@ OpenHouse API — FastAPI wrapper over openhouse mod.
 Serves the OpenHouse Mod class methods as REST endpoints.
 Launched/killed via mod.py serve_api() / kill_api().
 """
+import json
 import sys
 import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
+# This directory, so `mcp_server` resolves however this module is loaded —
+# uvicorn puts it on the path via --app-dir, a test importing by path does not.
+sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import mod as m
+
+from mcp_server import build_router as build_mcp_router
 
 # Lazy singleton
 _openhouse = None
@@ -27,10 +33,18 @@ def get_openhouse():
     return _openhouse
 
 
+def _version():
+    try:
+        with open(Path(__file__).parent.parent / "config.json") as f:
+            return json.load(f).get("version", "0.0.0")
+    except Exception:
+        return "0.0.0"
+
+
 app = FastAPI(
     title="OpenHouse API",
     description="Collective asset ownership platform — fractional property ownership",
-    version="2.0.0",
+    version=_version(),
 )
 
 app.add_middleware(
@@ -51,6 +65,7 @@ class PurchaseRequest(BaseModel):
 
 class DistributeRequest(BaseModel):
     total_amount: float
+    owner: Optional[str] = None
 
 class RecordActionRequest(BaseModel):
     action: str
@@ -58,6 +73,7 @@ class RecordActionRequest(BaseModel):
 
 class TransferAuthorityRequest(BaseModel):
     new_authority: str
+    caller: Optional[str] = None
 
 class DeployRequest(BaseModel):
     network: str = "testnet"
@@ -92,6 +108,30 @@ class PayRentRequest(BaseModel):
 class QuoteRequest(BaseModel):
     amount: float
     kind: str = "rent"
+
+class CivicCharterRequest(BaseModel):
+    key: str
+    name: str = ""
+    region: str = ""
+    uri: str = ""
+    owner: Optional[str] = None
+
+class CivicOverrideRequest(BaseModel):
+    action: str
+    key: str
+    reason: str = ""
+
+class CivicResignRequest(BaseModel):
+    key: str
+
+class PoolCloseRequest(BaseModel):
+    caller: str = ""
+    force: bool = False
+
+class PoolClaimRequest(BaseModel):
+    address: str
+    quarter: Optional[int] = None
+    caller: Optional[str] = None
 
 
 # ── Health / Status ─────────────────────────────────────────────
@@ -136,7 +176,7 @@ def balance():
 
 @app.get("/models")
 def models():
-    """Rent-to-own model presets, the 1–5% fee band, and what platforms take."""
+    """Rent-to-own model presets, the 0–5% fee band, and what platforms take."""
     return get_openhouse().models()
 
 @app.get("/terms")
@@ -180,6 +220,197 @@ def rent_stats():
     return get_openhouse().rent_stats()
 
 
+# ── The civic seat ──────────────────────────────────────────────
+# A government's standing on this property. The write endpoints mirror the
+# contract's seats: the owner charters, only the chartered key overrides or
+# resigns. The government's own half lives in civic/server.py, on its box.
+
+@app.get("/civic")
+def civic():
+    """Who holds the civic seat, what stands, every override on record."""
+    return get_openhouse().civic()
+
+@app.post("/civic/charter")
+def civic_charter(req: CivicCharterRequest):
+    result = get_openhouse().civic_charter(
+        req.key, name=req.name, region=req.region, uri=req.uri, owner=req.owner)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/civic/override")
+def civic_override(req: CivicOverrideRequest):
+    result = get_openhouse().civic_override(req.action, req.key, reason=req.reason)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/civic/resign")
+def civic_resign(req: CivicResignRequest):
+    result = get_openhouse().civic_resign(req.key)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+# ── Testnet examples ────────────────────────────────────────────
+# Guided walkthroughs, each played in a throwaway store — running one never
+# touches the live testnet data, so GET is honest about it.
+
+@app.get("/examples")
+def examples():
+    return get_openhouse().examples()
+
+@app.get("/examples/{name}")
+def example(name: str):
+    result = get_openhouse().example(name)
+    if "error" in result and "steps" not in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+# ── The bank rail ───────────────────────────────────────────────
+# Any bank: sandbox (testnet, open) · statement files · Open Banking · a
+# bank's own MCP server. Real banks need the operator bank key, passed as
+# the X-Bank-Key header or `key` in the body/query. Errors are 4xx, never
+# 5xx (Cloudflare strips 5xx bodies).
+
+class BankConnectRequest(BaseModel):
+    kind: str = "sandbox"
+    name: str = ""
+    config: dict = {}
+    key: str = ""
+
+class BankImportRequest(BaseModel):
+    content: str
+    connection: str = ""
+    format: str = "auto"
+    key: str = ""
+
+class BankReceiveRequest(BaseModel):
+    amount: float
+    reference: str = ""
+    from_name: str = ""
+    from_iban: str = ""
+    account: str = ""
+    connection: str = ""
+    date: int = 0
+
+class BankLinkRequest(BaseModel):
+    address: str
+    payer_iban: str = ""
+    payer_name: str = ""
+    kind: str = "rent"
+    key: str = ""
+
+class BankReconcileRequest(BaseModel):
+    connection: str = ""
+    account: str = ""
+    since: int = 0
+    dry_run: bool = False
+    rate: Optional[float] = None
+    key: str = ""
+
+class BankPayRequest(BaseModel):
+    amount: float
+    to_iban: str
+    to_name: str = ""
+    account: str = ""
+    connection: str = ""
+    currency: str = ""
+    reference: str = ""
+    key: str = ""
+
+class BankDisconnectRequest(BaseModel):
+    connection: str
+    key: str = ""
+
+class BankUnlinkRequest(BaseModel):
+    address: str
+    key: str = ""
+
+
+def _bk(request: Request, key: str = "") -> str:
+    return key or request.headers.get("x-bank-key", "")
+
+def _bank_out(result):
+    if isinstance(result, dict) and "error" in result:
+        code = 403 if "key=" in result["error"] else 400
+        raise HTTPException(status_code=code, detail=result["error"])
+    return result
+
+@app.get("/bank")
+def bank_status():
+    return get_openhouse().bank_status()
+
+@app.get("/bank/kinds")
+def bank_kinds():
+    return get_openhouse().bank_kinds()
+
+@app.get("/bank/connections")
+def bank_connections(request: Request, key: str = ""):
+    return get_openhouse().bank_connections(key=_bk(request, key))
+
+@app.post("/bank/connect")
+def bank_connect(req: BankConnectRequest, request: Request):
+    return _bank_out(get_openhouse().bank_connect(
+        req.kind, name=req.name, config=req.config, key=_bk(request, req.key)))
+
+@app.post("/bank/disconnect")
+def bank_disconnect(req: BankDisconnectRequest, request: Request):
+    return _bank_out(get_openhouse().bank_disconnect(req.connection, key=_bk(request, req.key)))
+
+@app.get("/bank/accounts")
+def bank_accounts(request: Request, connection: str = "", key: str = ""):
+    return _bank_out(get_openhouse().bank_accounts(connection, key=_bk(request, key)))
+
+@app.get("/bank/transactions")
+def bank_transactions(request: Request, connection: str = "", account: str = "",
+                      since: int = 0, limit: int = 100, key: str = ""):
+    return _bank_out(get_openhouse().bank_transactions(
+        connection, account=account, since=since, limit=limit, key=_bk(request, key)))
+
+@app.post("/bank/import")
+def bank_import(req: BankImportRequest, request: Request):
+    return _bank_out(get_openhouse().bank_import(
+        req.content, connection=req.connection, format=req.format, key=_bk(request, req.key)))
+
+@app.post("/bank/receive")
+def bank_receive(req: BankReceiveRequest):
+    return _bank_out(get_openhouse().bank_receive(**req.model_dump()))
+
+@app.get("/bank/reference/{address}")
+def bank_reference(address: str):
+    return _bank_out(get_openhouse().bank_reference(address))
+
+@app.post("/bank/link")
+def bank_link(req: BankLinkRequest, request: Request):
+    return _bank_out(get_openhouse().bank_link(
+        req.address, payer_iban=req.payer_iban, payer_name=req.payer_name,
+        kind=req.kind, key=_bk(request, req.key)))
+
+@app.post("/bank/unlink")
+def bank_unlink(req: BankUnlinkRequest, request: Request):
+    return _bank_out(get_openhouse().bank_unlink(req.address, key=_bk(request, req.key)))
+
+@app.get("/bank/links")
+def bank_links(request: Request, key: str = ""):
+    return get_openhouse().bank_links(key=_bk(request, key))
+
+@app.post("/bank/reconcile")
+def bank_reconcile(req: BankReconcileRequest, request: Request):
+    return _bank_out(get_openhouse().bank_reconcile(
+        req.connection, account=req.account, since=req.since, dry_run=req.dry_run,
+        rate=req.rate, key=_bk(request, req.key)))
+
+@app.post("/bank/pay")
+def bank_pay(req: BankPayRequest, request: Request):
+    return _bank_out(get_openhouse().bank_pay(
+        req.amount, req.to_iban, to_name=req.to_name, account=req.account,
+        connection=req.connection, currency=req.currency, reference=req.reference,
+        key=_bk(request, req.key)))
+
+
 # ── The landscape ───────────────────────────────────────────────
 
 @app.get("/peers")
@@ -192,9 +423,46 @@ def compare(refresh: bool = False):
     """OpenHouse against the field — including where the field is ahead."""
     return get_openhouse().compare(refresh=refresh)
 
+@app.get("/fx")
+def fx(refresh: bool = False):
+    """ETH quoted in fiat currencies, for display. Cached; never errors."""
+    return get_openhouse().fx(refresh=refresh)
+
 @app.get("/equity/{address}")
 def equity(address: str):
     return get_openhouse().equity(address)
+
+
+# ── Pool / bloctime ─────────────────────────────────────────────
+
+@app.get("/pool")
+def pool():
+    return get_openhouse().pool()
+
+@app.get("/pool/history")
+def pool_history():
+    return get_openhouse().pool_history()
+
+@app.post("/pool/close")
+def pool_close(req: PoolCloseRequest):
+    result = get_openhouse().close_quarter(req.caller, req.force)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/pool/claim")
+def pool_claim(req: PoolClaimRequest):
+    result = get_openhouse().pool_claim(req.address, req.quarter, caller=req.caller or '')
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.get("/bloctime/{address}")
+def bloctime(address: str):
+    result = get_openhouse().bloctime(address)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 # ── Shareholders ────────────────────────────────────────────────
@@ -238,7 +506,7 @@ def purchase(req: PurchaseRequest):
 
 @app.post("/distribute")
 def distribute(req: DistributeRequest):
-    result = get_openhouse().distribute(req.total_amount)
+    result = get_openhouse().distribute(req.total_amount, req.owner or '')
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
@@ -252,14 +520,20 @@ def record_action(req: RecordActionRequest):
 
 @app.post("/transfer_authority")
 def transfer_authority(req: TransferAuthorityRequest):
-    result = get_openhouse().transfer_authority(req.new_authority)
+    result = get_openhouse().transfer_authority(req.new_authority, caller=req.caller or '')
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
 
+class ToggleActiveRequest(BaseModel):
+    owner: Optional[str] = None
+
 @app.post("/toggle_active")
-def toggle_active():
-    return get_openhouse().toggle_active()
+def toggle_active(req: ToggleActiveRequest = ToggleActiveRequest()):
+    result = get_openhouse().toggle_active(owner=req.owner or '')
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 # ── Source ──────────────────────────────────────────────────────
@@ -298,6 +572,14 @@ def deploy(req: DeployRequest):
     return result
 
 
+# ── MCP ─────────────────────────────────────────────────────────
+
+# POST /mcp — the same protocol as a set of JSON-RPC tools, for LLM agents.
+# The router calls get_openhouse() per tool call, so it reads exactly what
+# the REST endpoints above read.
+app.include_router(build_mcp_router(get_openhouse, app.version))
+
+
 # ── Generic forward ─────────────────────────────────────────────
 
 @app.post("/forward")
@@ -319,5 +601,5 @@ async def forward(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "50130"))
+    port = int(os.getenv("PORT", "50132"))
     uvicorn.run(app, host="0.0.0.0", port=port)

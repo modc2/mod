@@ -10,19 +10,22 @@ import { useEffect, useRef, useState } from 'react'
  * what you're about to get. Keep this list in step with THEMES in the
  * generator and with the id list in layout.tsx's blocking script. */
 export const THEMES = [
-  { id: 'arcade',   label: 'Arcade',   skin: 'pixel', base: 'dark',  swatch: ['#0a0a0a', '#10b981', '#f59e0b'] },
-  { id: 'matrix',   label: 'Matrix',   skin: 'pixel', base: 'dark',  swatch: ['#010502', '#00e56f', '#2dd4bf'] },
-  { id: 'win95',    label: 'Win95',    skin: 'pixel', base: 'light', swatch: ['#c0c0c0', '#000080', '#8a6d00'] },
+  // the modern skin leads — MIDNIGHT is the house default
   { id: 'midnight', label: 'Midnight', skin: 'soft',  base: 'dark',  swatch: ['#0b0b13', '#6366f1', '#a855f7'] },
   { id: 'abyss',    label: 'Abyss',    skin: 'soft',  base: 'dark',  swatch: ['#040d1a', '#0ea5e9', '#22d3ee'] },
   { id: 'ember',    label: 'Ember',    skin: 'soft',  base: 'dark',  swatch: ['#100a06', '#f97316', '#facc15'] },
   { id: 'neon',     label: 'Neon',     skin: 'soft',  base: 'dark',  swatch: ['#0c0518', '#ec4899', '#22d3ee'] },
   { id: 'paper',    label: 'Paper',    skin: 'soft',  base: 'light', swatch: ['#f7f2e8', '#15803d', '#b45309'] },
   { id: 'daylight', label: 'Daylight', skin: 'soft',  base: 'light', swatch: ['#f6f7fa', '#0d9488', '#2563eb'] },
+  // the retro shelf — pixel chrome, CRT scanlines
+  { id: 'arcade',   label: 'Arcade',   skin: 'pixel', base: 'dark',  swatch: ['#0a0a0a', '#10b981', '#f59e0b'] },
+  { id: 'matrix',   label: 'Matrix',   skin: 'pixel', base: 'dark',  swatch: ['#010502', '#00e56f', '#2dd4bf'] },
+  { id: 'mario',    label: 'Mario',    skin: 'pixel', base: 'dark',  swatch: ['#0b0d1c', '#fbd000', '#e52521'] },
+  { id: 'win95',    label: 'Win95',    skin: 'pixel', base: 'light', swatch: ['#c0c0c0', '#000080', '#8a6d00'] },
 ] as const
 
 export type ThemeId = (typeof THEMES)[number]['id']
-export const DEFAULT_THEME: ThemeId = 'arcade'
+export const DEFAULT_THEME: ThemeId = 'midnight'
 const STORAGE_KEY = 'agent_theme'
 
 const themeOf = (id: string) => THEMES.find(t => t.id === id)

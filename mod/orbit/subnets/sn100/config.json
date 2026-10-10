@@ -1,0 +1,38 @@
+{
+  "name": "sn100",
+  "version": "1.0.0",
+  "description": "SN100 Cortex — The open alternative to frontier AI | Efficient autonomous research. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "დ",
+  "chain": "bittensor",
+  "netuid": 100,
+  "subnet": "Cortex",
+  "symbol": "დ",
+  "owner": "5FX6kmhYwTYRFaZjxEo7k9DaG8qRmqrJtLTMGRgnfjRcXiWU",
+  "github": "https://github.com/CortexLM/cortex",
+  "url": "https://network.cortex.foundation",
+  "discord": null,
+  "logo": "https://network.cortex.foundation/icon-192.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=100",
+    "news": "/bt/news?netuid=100"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

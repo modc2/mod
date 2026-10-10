@@ -80,7 +80,7 @@
     "backend": "targon-rs (Rust: axum MCP server, JSON-RPC 2.0 Streamable HTTP + stdio)",
     "upstream": "https://api.targon.com/tha/v2",
     "secrets": "~/.mod/targon/api_key",
-    "schema": "Qmbk7j8fDH5qQdXwwsiXFfSd7iRu3WkzZcitMDsVkEhMvv",
+    "schema": "QmUn9b5tnTg2Bf1VWzB3Sv7F4Vcv5hMEMbudnSFput2e51",
     "gateway_port": 50440,
     "chain": {
         "network": "bittensor finney",

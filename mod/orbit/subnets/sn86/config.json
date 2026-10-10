@@ -1,0 +1,47 @@
+{
+  "name": "sn86",
+  "version": "1.0.0",
+  "description": "SN86 kaunan — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᚳ",
+  "chain": "bittensor",
+  "netuid": 86,
+  "subnet": "kaunan",
+  "symbol": "ᚳ",
+  "owner": "5DGneGQEeBfbGu3Ab2bmkwtWbWE2agcruA4SVb2TxjD7hCxA",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=86",
+    "news": "/bt/news?netuid=86"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ],
+  "previous": [
+    {
+      "subnet": "kaunan",
+      "owner": "5F4XAWGzcwpHjGdLUDfWiCvKnqeNPQHn3SwooBQcYcP7mWXJ",
+      "github": null,
+      "url": null,
+      "updated": "2026-10-02"
+    }
+  ]
+}

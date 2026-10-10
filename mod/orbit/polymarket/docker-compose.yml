@@ -26,7 +26,13 @@ services:
       - ./docker-entrypoint.dev.sh:/app/docker-entrypoint.sh:ro
     environment:
       - GATEWAY_PORT=${GATEWAY_PORT:-3000}
-      - STRAT_HMAC_SECRET=${STRAT_HMAC_SECRET:-polymarket_strats_default_hmac_key_2024}
+      # Body-integrity check on the strat-sync routes ONLY — not a credential.
+      # The matching key ships inside the public client bundle
+      # (NEXT_PUBLIC_STRAT_HMAC_SECRET), so a shared default provides exactly
+      # zero access control; the owner access gate (access.rs) is what
+      # protects these routes. Left unset by default rather than shipping a
+      # hardcoded value that reads like a secret.
+      - STRAT_HMAC_SECRET=${STRAT_HMAC_SECRET:-}
       # Tells signer.rs + live_engine.rs to persist to the mounted volume
       # instead of /tmp (which is wiped on container recreate).
       - POLYMARKET_DATA_DIR=/data

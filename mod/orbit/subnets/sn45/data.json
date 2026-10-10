@@ -1,0 +1,189 @@
+{
+  "netuid": 45,
+  "name": "AlphaRidge.ai",
+  "symbol": "פ",
+  "owner": "5FbcZiAHA75i2bPVrF7wa9mFaxV1eM27HR63kJtbpb8spvmf",
+  "description": "Real-time market intelligence across equities, FX, crypto, commodities and indices. AlphaRidge reads the conversations of 1,000+ news sources, X posts, Telegram feeds, scoring every post into structured signals: sentiment, impact, market outlook and more. See the why behind every move, screen any market, and get alerted the moment sentiment turns.",
+  "github": "https://github.com/Team-Rizzo/alpharidge-ai",
+  "url": "https://alpharidge.ai",
+  "discord": "canti_dev",
+  "logo": "https://alpharidge.ai/logo.png",
+  "registered_at": 3633154,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.002411261,
+    "moving_price": 0.002414020476862788,
+    "market_cap": 14198.022061249181,
+    "tao_in": 6222.60986435,
+    "alpha_in": 2580644.960529285,
+    "alpha_out": 3307569.571721343,
+    "volume": 752936.054664724,
+    "vol_24h": 39.86588191206101,
+    "emission": 0.0,
+    "change_1h": -0.04033605363327197,
+    "change_24h": -0.43406215198533715,
+    "change_7d": -1.0787038651435599
+  },
+  "spark_24h": [
+    0.002421773,
+    0.002421773,
+    0.002421783,
+    0.002421782,
+    0.002421429,
+    0.002421432,
+    0.002421524,
+    0.002421523,
+    0.002421523,
+    0.002420585,
+    0.002420574,
+    0.002420573,
+    0.002414385,
+    0.002414384,
+    0.002414302,
+    0.00242209,
+    0.002410416,
+    0.002410485,
+    0.002410511,
+    0.002410533,
+    0.002410456,
+    0.002410473,
+    0.002410525,
+    0.002410525,
+    0.002410649,
+    0.002410657,
+    0.002410731,
+    0.002410731,
+    0.002410819,
+    0.002410846,
+    0.002410842,
+    0.002410897,
+    0.002410928,
+    0.002410928,
+    0.002410928,
+    0.002410962,
+    0.002411031,
+    0.00241105,
+    0.002411437,
+    0.002411436,
+    0.002411493,
+    0.002411512,
+    0.002411508,
+    0.002411522,
+    0.002411522,
+    0.002411522,
+    0.002412234,
+    0.002411261
+  ],
+  "trades_24h": {
+    "trades": 186,
+    "buys": 4,
+    "sells": 182,
+    "buy_tao": 11.6994,
+    "sell_tao": 26.519035471,
+    "net_tao": -14.819635470999998,
+    "traders": 15
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CY9b9tgGmSoec5pykbthbpG8ninVvYiZDYeznYxknqMAuix",
+      "net_tao": -15.033744188,
+      "gross_tao": 15.033744188,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HnGcE6m34cBc91rRtv68TNzAdioCtnaVMq7dzzQSCMgFm95",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DaVrpqA2mgsGP5DGAneQDSsDaXFchzQP9FaZvBbpRwrZrxS",
+      "net_tao": -7.990105613,
+      "gross_tao": 7.990105613,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CwFy3THKxXsAcXzNaAUebfnojr53qsmgzZTm8ZBGCXPTMAQ",
+      "net_tao": 1.0,
+      "gross_tao": 1.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GsUMfaAzH2e4YcgHjstL1rewba3ZeyxLySzLBCkPQQbRhfm",
+      "net_tao": -0.840395762,
+      "gross_tao": 0.840395762,
+      "trades": 30
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791303551,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.12: clean no-reference on an empty error body",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/9f9e0144b42782a4e063d6e2e84e51392ad58c98",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1791240507,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.12: replacement fixes",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/a2b1adb8a0594b048088135e92b662bf0f0b1093",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1791233159,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.12",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/c2e0c26b4eb81540b081d2294515ace3ba59526c",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1791057555,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.11",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/b347edb4ec5cdc9af908bd17da8555a9e15e1033",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1790896973,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.10",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/cfcb64a6e637fb569506ccf74b86e2c3d332b5be",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1790881705,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.9",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/6feaaaa5394480848e0c04bc8176061c548fbbc9",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1790791525,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.8",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/f61d16bbfa3d190478f72543f1138a647afb6ab5",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    },
+    {
+      "ts": 1790751902,
+      "kind": "commit",
+      "source": "github",
+      "title": "3.9.7",
+      "url": "https://github.com/Team-Rizzo/alpharidge-ai/commit/de26286aa0cb954c7e0da9e39aaee7307f4d0eea",
+      "publisher": "Team-Rizzo/alpharidge-ai"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

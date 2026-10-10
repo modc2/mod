@@ -1,6 +1,52 @@
 {
     "name": "secretshare",
-    "description": "secretshare",
-    "version": "0.1.0",
-    "schema": "QmRDXnjWRAJ3oYQQzUBHma2ggXigFhDgfv33bzDdud3Fa7"
+    "description": "Split a secret into N pieces so any K of them rebuild it and fewer reveal nothing (Shamir's Secret Sharing over GF(256)). Local-first: the console splits in the browser, the API stores nothing, zero dependencies.",
+    "version": "0.2.0",
+    "anchor": "mod.py",
+    "port": 51080,
+    "app_port": 51080,
+    "route": true,
+    "urls": {
+        "api": "http://localhost:51080",
+        "app": "http://localhost:51080/secretshare"
+    },
+    "endpoints": {
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness"
+        },
+        "info": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Share format + limits"
+        },
+        "split": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{secret, n, k, b64?} -> {shares}; processed in memory, never stored"
+        },
+        "combine": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{shares: [..] | 'ss1.. ss1..'} -> {secret, secret_b64}"
+        },
+        "inspect": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{share} -> {set, k, x, secret_bytes}"
+        }
+    },
+    "fns": [
+        "forward",
+        "info",
+        "split",
+        "combine",
+        "inspect",
+        "test",
+        "serve",
+        "kill",
+        "status"
+    ],
+    "schema": "QmUGRvx92FBzH5XgE12JzmKygUjLmMn4KPd26hpwSh4PTJ"
 }

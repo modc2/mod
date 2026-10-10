@@ -21,12 +21,18 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://modc2.com/api/bridge',
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://modc2.com/bridge/api',
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || 'https://modc2.com/bridge',
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
   async rewrites() {
     return [
+      {
+        // Canonical fleet form; legacy /api/bridge alias kept below.
+        source: '/bridge/api/:path*',
+        destination: `${apiUrl}/:path*`,
+        ...(basePath ? { basePath: false } : {}),
+      },
       {
         source: '/api/bridge/:path*',
         destination: `${apiUrl}/:path*`,

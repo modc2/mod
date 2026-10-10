@@ -1,0 +1,38 @@
+{
+  "name": "sn78",
+  "version": "1.0.0",
+  "description": "SN78 Umi — Universal motion to meaning. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "و",
+  "chain": "bittensor",
+  "netuid": 78,
+  "subnet": "Umi",
+  "symbol": "و",
+  "owner": "5GvYz1tBVJdVGtdeJFAcDbiRQcmKDcXicT98pxnKzU3cxVQ3",
+  "github": "https://github.com/Umi-BitSign/umi",
+  "url": "https://www.umi.vision",
+  "discord": "https://discord.gg/8pexneWef",
+  "logo": "https://www.umi.vision/logo-white.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=78",
+    "news": "/bt/news?netuid=78"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

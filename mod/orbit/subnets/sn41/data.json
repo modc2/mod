@@ -1,0 +1,189 @@
+{
+  "netuid": 41,
+  "name": "Almanac",
+  "symbol": "נ",
+  "owner": "5FCSevLkofmKZRixMawp6jyyjBty1AeSCLa7N5Fv892DYkXX",
+  "description": "Prediction market research and intelligence.",
+  "github": "https://github.com/corvxai/almanac",
+  "url": "https://almnc.ai",
+  "discord": null,
+  "logo": "https://cdn.discordapp.com/icons/1263242016695783427/19e62da4ff8eb5a7c36d1ef24b9d911e.webp?size=1024",
+  "registered_at": 3394182,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.007291468,
+    "moving_price": 0.007483608787879348,
+    "market_cap": 43251.70834844575,
+    "tao_in": 15290.227784337,
+    "alpha_in": 2097002.490091779,
+    "alpha_out": 3834821.985918504,
+    "volume": 1667002.709399303,
+    "vol_24h": 702.7858383760322,
+    "emission": 0.0,
+    "change_1h": -0.10494404263085011,
+    "change_24h": -3.668029443375409,
+    "change_7d": -7.254659737648417
+  },
+  "spark_24h": [
+    0.007569105,
+    0.007540249,
+    0.007540444,
+    0.007555338,
+    0.007548272,
+    0.007548412,
+    0.007548606,
+    0.007548764,
+    0.007548958,
+    0.007527118,
+    0.007527308,
+    0.007527465,
+    0.007525087,
+    0.007549432,
+    0.007549276,
+    0.007549419,
+    0.007549304,
+    0.00754561,
+    0.007462632,
+    0.007462025,
+    0.007532704,
+    0.00753604,
+    0.007536163,
+    0.007536375,
+    0.007536669,
+    0.007531875,
+    0.007520363,
+    0.00751931,
+    0.007526347,
+    0.007526491,
+    0.007526655,
+    0.007526301,
+    0.007502229,
+    0.00749768,
+    0.007497832,
+    0.007497991,
+    0.007495561,
+    0.007459109,
+    0.007464088,
+    0.007482802,
+    0.007472245,
+    0.00747252,
+    0.007469766,
+    0.007469895,
+    0.007319137,
+    0.007298989,
+    0.007299128,
+    0.007291468
+  ],
+  "trades_24h": {
+    "trades": 152,
+    "buys": 20,
+    "sells": 132,
+    "buy_tao": 198.34025552,
+    "sell_tao": 494.039434376,
+    "net_tao": -295.699178856,
+    "traders": 133
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5H1mk1epHHMkdEVbGaXUJKPyh9LZpn5jz77a7HmpTCN7rtD7",
+      "net_tao": -142.124294887,
+      "gross_tao": 142.124294887,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.027707542000001695,
+      "gross_tao": 60.027707542,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GsRn8W8sdaHH71pxPJyVPi4UQahyPHsjp8gmAdHmmNER6dd",
+      "net_tao": -32.894242956,
+      "gross_tao": 52.894242956,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GSKU7VbmEiUid22SfXojQkBcpXnVTXQQNCMsbz5b3xF9ZQ3",
+      "net_tao": -5.746235781000001,
+      "gross_tao": 51.598230371,
+      "trades": 4
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": -0.04149981899999844,
+      "gross_tao": 50.041499818999995,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791487996,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #55 from corvxai/forecasting_scoring_v2",
+      "url": "https://github.com/corvxai/almanac/commit/a3a5091708cc965c80de1cdfa1f040ad21555dfc",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1791409190,
+      "kind": "commit",
+      "source": "github",
+      "title": "Proper scaling",
+      "url": "https://github.com/corvxai/almanac/commit/52c60e6f14dae96844acf79a240b01221802f4a2",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1791404327,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fixing audit items for forecast scoring. minimum predictions to be sk…",
+      "url": "https://github.com/corvxai/almanac/commit/24171459991eb929d2e1c44d112e0499d70c6098",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1791298875,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fixing comment",
+      "url": "https://github.com/corvxai/almanac/commit/7e2a78ca0f554c3fa04e9d26a86f4816c6c4a672",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1791298845,
+      "kind": "commit",
+      "source": "github",
+      "title": "Updating forecast scoring to a v2. Drops the calibration pillar and i…",
+      "url": "https://github.com/corvxai/almanac/commit/4c9f942136d90a93351120b352e7b68febeb7fd2",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1790794664,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #54 from corvxai/remove_gen_pool_logging",
+      "url": "https://github.com/corvxai/almanac/commit/31a4378cb4f9ba49c957f0790cfd16ba4cf284b4",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1790794646,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #53 from corvxai/burn_updates",
+      "url": "https://github.com/corvxai/almanac/commit/228278c8f4528b1565bd2b006126433defc9e609",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1790794500,
+      "kind": "commit",
+      "source": "github",
+      "title": "If general pool trading is disabled, don't print the tables in the logs",
+      "url": "https://github.com/corvxai/almanac/commit/523d459f5ece4038b3b7a930f9d722941ce5f23a",
+      "publisher": "corvxai/almanac"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

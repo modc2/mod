@@ -1,0 +1,141 @@
+{
+  "netuid": 127,
+  "name": "Astrid",
+  "symbol": "𑀅",
+  "owner": "5FU4uxAdrZsaWaezWwXEK93MwPX5gw2566BQK2WwrGUudfSH",
+  "description": "The capital axis for Bittensor.",
+  "github": "https://github.com/astridintelligence/sn-127",
+  "url": "https://www.astrid.global/",
+  "discord": null,
+  "logo": "https://cdn.prod.website-files.com/68b07769f32da8fcc36dc172/69f2325c06235848691480b7_Astrid%20Square.png",
+  "registered_at": 5848837,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.002192807,
+    "moving_price": 0.0021802119445055723,
+    "market_cap": 9580.493784892331,
+    "tao_in": 2944.889669682,
+    "alpha_in": 1342976.648570823,
+    "alpha_out": 3026078.076670536,
+    "volume": 601848.993693354,
+    "vol_24h": 126.67625995690469,
+    "emission": 0.0,
+    "change_1h": -4.560362785177574e-05,
+    "change_24h": 0.6344244080839667,
+    "change_7d": -4.404285576026846
+  },
+  "spark_24h": [
+    0.002178983,
+    0.002178983,
+    0.002178983,
+    0.00217898,
+    0.002178479,
+    0.002178467,
+    0.002178467,
+    0.002178465,
+    0.002178465,
+    0.002178455,
+    0.002178455,
+    0.002178453,
+    0.002178435,
+    0.002178435,
+    0.00217825,
+    0.002178228,
+    0.002178228,
+    0.002178228,
+    0.002178226,
+    0.002178224,
+    0.002178221,
+    0.002178217,
+    0.002178205,
+    0.002178205,
+    0.002178198,
+    0.002178194,
+    0.002178185,
+    0.002178185,
+    0.002178179,
+    0.002178171,
+    0.002178162,
+    0.002178028,
+    0.002178028,
+    0.002178027,
+    0.002178027,
+    0.002178027,
+    0.002178027,
+    0.002178016,
+    0.002178016,
+    0.002178013,
+    0.002178013,
+    0.002178008,
+    0.002178,
+    0.00217796,
+    0.00219282,
+    0.002192819,
+    0.002192808,
+    0.002192807
+  ],
+  "trades_24h": {
+    "trades": 16,
+    "buys": 7,
+    "sells": 9,
+    "buy_tao": 68.0042,
+    "sell_tao": 58.37113399,
+    "net_tao": 9.63306601,
+    "traders": 8
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -0.08624102199999939,
+      "gross_tao": 40.086241021999996,
+      "trades": 2
+    },
+    {
+      "coldkey": "5D2MW8D89hZa1CmTt2ZomiSemjC7VVzMRHPM497mbXBB9hZy",
+      "net_tao": -0.06511951799999949,
+      "gross_tao": 30.065119518,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": 0.01508064399999931,
+      "gross_tao": 29.984919356,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GZUAx1J8DjCeVCzww1fHG6vxEMthJoPhra9LxJxu4UjcPvj",
+      "net_tao": 0.19450968700000004,
+      "gross_tao": 15.805490313,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FJ8hukYBnJmVVvJ5TvtGJkH5ssUcUvu2WuJPUh7invjzToJ",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790855100,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Astrid Intelligence continues to expand its Bittensor platform",
+      "url": "https://news.google.com/rss/articles/CBMimwFBVV95cUxPbmhTV3dPWl9MU1owc0s5Zk14WUlsUXBmd3Q1ZXEzNDNCN1NfMUVpb3N5ekJnaFZMTXMyY19ramUxeUh3NmdXSkszZmd0Nmd6MUNaUnJxTkU2Q0VUaGRJbGIyOVpaX1NHNWVHZmxiMklnMk9qMDNsNVhJUG9sNEhRQjl0YndXVG9Ed21TcFVWRmdublBqMkVCSzE5VQ?oc=5",
+      "publisher": "Yahoo Finance UK"
+    },
+    {
+      "ts": 1790116236,
+      "kind": "commit",
+      "source": "github",
+      "title": "Opening trades should also incur fees.",
+      "url": "https://github.com/astridintelligence/sn-127/commit/4eb40ff280e3b61a7ba3decb9f03b2eda7281862",
+      "publisher": "astridintelligence/sn-127"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

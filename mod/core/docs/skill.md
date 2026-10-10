@@ -30,8 +30,12 @@ Ports: app **:50191** (zero-dep node viewer at `/docs`) · MCP **:50192**
 - **Module catalog** — every module in `orbit/` + `core/` with its group,
   description and shipped docs; and any one module's README + skill (via `hub`).
 - **Search** across page bodies and module descriptions in one call.
+- **Ask the docs (chatbot)** — a grounded natural-language Q&A: relevant pages
+  are retrieved and an answer is generated from them by a Liquid LFM (via the
+  `liquidai` module, called in-process). Returns the answer + the source pages.
 - **MCP server** — the same functions as tools for agents (stdio or HTTP).
-- **Web app** — a no-build, no-deps viewer that renders the markdown live.
+- **Web app** — a no-build, no-deps viewer that renders the markdown live, with
+  an **Ask the docs** chat panel that calls `docs_ask` over `/docs/mcp`.
 
 ## Usage
 
@@ -49,6 +53,7 @@ docs.whitepaper('simple')           # 'md' (default) | 'simple' | 'tex'
 docs.search('storage')              # {'pages': [...], 'modules': [...]}
 docs.modules('core')                # catalog (via hub)
 docs.doc('chain')                   # one module's description + README + skill
+docs.ask('how do I create a module?')  # grounded chatbot → {ok, answer, sources, model}
 docs.mcp()                          # how to connect an agent to the tools
 ```
 
@@ -62,6 +67,7 @@ m docs/whitepaper simple
 m docs/search auth
 m docs/modules group=orbit
 m docs/doc claude
+m docs/ask "how does a module expose an MCP server?"
 m docs/mcp
 ```
 
@@ -99,6 +105,7 @@ m pm/start docs target=api            # run it under pm2 (docs.api)
 | `docs_whitepaper` | `fmt` (`md`\|`simple`\|`tex`) | `{fmt, text}` |
 | `docs_modules` | `group` (`orbit`\|`core`\|`all`) | `{modules: [{name, group, description, readme, skill}]}` |
 | `docs_module_doc` | `module`* | `{module, description, readme, skill}` |
+| `docs_ask` | `question`*, `model`, `runtime` | `{ok, answer, sources, model}` |
 
 \* required. Bad arguments and missing pages come back as MCP tool results with
 `isError: true` and a message the calling model can act on — not as transport

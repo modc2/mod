@@ -1,0 +1,37 @@
+{
+    "name": "calc",
+    "description": "The ceiling for the drill pack: answers addup, times, jsonpath, jsonfix and invoice correctly, from the same view a model is given and nothing else.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "player",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "3a19758106c4d4ab1b87fbdd48857f74e639965e23c5b6459d9bb92654ddb5a2",
+    "bytes": 8951,
+    "author": "arena",
+    "tags": [
+        "example",
+        "player",
+        "class",
+        "python",
+        "drill"
+    ],
+    "defines": [
+        "play",
+        "drill",
+        "question",
+        "document",
+        "braces",
+        "arithmetic",
+        "value_at",
+        "invoice",
+        "fixed",
+        "quote_key",
+        "closers"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/calc/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

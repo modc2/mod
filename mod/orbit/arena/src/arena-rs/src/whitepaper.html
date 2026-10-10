@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arena · whitepaper</title>
+<style>
+  :root {
+    --bg: #0b0f14; --card: #121820; --line: #1f2a36;
+    --fg: #d7e2ec; --dim: #7d8fa1; --accent: #55e0c8; --bad: #ff7a86;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh;
+    font: 14px/1.5 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding: 12px 14px 8px; border-bottom: 1px solid var(--line);
+  }
+  header .mark { width: 12px; height: 12px; background: var(--accent); border-radius: 3px; align-self: center; }
+  header h1 { font-size: 16px; letter-spacing: 2px; margin: 0; }
+  header .sub { color: var(--dim); font-size: 12px; }
+  header nav { margin-left: auto; display: flex; gap: 14px; }
+  header nav a { color: var(--dim); font-size: 12px; }
+  header nav a:hover { color: var(--accent); text-decoration: none; }
+  main { max-width: 760px; margin: 0 auto; padding: 14px 14px 28px; }
+  .lede { color: var(--dim); margin: 4px 0 18px; }
+  article h1 { font-size: 22px; letter-spacing: 1px; margin: 18px 0 4px; }
+  article h2 { font-size: 16px; margin: 26px 0 8px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  article h3 { font-size: 14px; margin: 18px 0 6px; }
+  article p { margin: 10px 0; line-height: 1.65; }
+  article li { margin: 6px 0; line-height: 1.6; }
+  article code { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 12.5px; }
+  article pre {
+    margin: 12px 0; padding: 12px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; overflow: auto; font-size: 12px; line-height: 1.5;
+  }
+  article pre code { background: none; border: 0; padding: 0; }
+  article blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--accent); color: var(--dim); }
+  article table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 12px 0; }
+  article th, article td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); }
+  article th { color: var(--dim); font-weight: 600; font-size: 11px; letter-spacing: 1px; }
+  #err { color: var(--bad); padding: 14px; display: none; }
+  footer { color: var(--dim); font-size: 11px; text-align: center; padding: 8px 0 18px; }
+</style>
+</head>
+<body>
+<!-- The whitepaper's own page: a static shell served at /arena/whitepaper.
+     The text is NOT here — it is fetched from /docs/whitepaper, the same
+     markdown behind the console's docs tab, the docs_page tool and the
+     arena://docs/whitepaper resource. One text, four doors. -->
+<header>
+  <span class="mark"></span><h1>ARENA · WHITEPAPER</h1>
+  <span class="sub">why it is built this way</span>
+  <nav>
+    <a id="nav-console" href="#">console</a>
+    <a id="nav-docs" href="#">docs</a>
+    <a id="nav-vibe" href="#" title="say a game — the agent writes it, you publish it">vibecode a game</a>
+  </nav>
+</header>
+<div id="err"></div>
+<main>
+  <article id="art"><p class="lede">loading…</p></article>
+</main>
+<footer>the arena — uploaded bytes become a venue, seated agents become a record</footer>
+<script>
+"use strict";
+// /arena/whitepaper → ROOT=/arena, API=/arena/api. The same arithmetic holds
+// wherever this server is mounted, which is why nothing here is absolute.
+const path = location.pathname.replace(/\/+$/, "");
+const ROOT = path.replace(/\/whitepaper$/, "");
+const API = `${ROOT}/api`;
+$("nav-console").href = ROOT || "/";
+$("nav-docs").href = `${ROOT}#docs/start`;
+$("nav-vibe").href = `${ROOT}#vibe`;
+
+function $(id) { return document.getElementById(id); }
+
+const slugify = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+/** Markdown, the subset the docs are written in — the console's renderer,
+ *  with #docs/<slug> links pointed back at the console. The source is this
+ *  server's own compiled-in text, and everything in it is escaped anyway. */
+function markdown(src) {
+  const esc = (t) => t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const inline = (t) => esc(t)
+    .replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, txt, href) =>
+      href.startsWith("#docs/")
+        ? `<a href="${ROOT}${href}">${txt}</a>`
+        : `<a href="${href}" target="_blank" rel="noopener">${txt}</a>`);
+
+  const lines = src.split("\n");
+  const out = [];
+  let i = 0;
+  const isBlock = (l) => !l.trim() || /^(#{1,4} |```|\||[-*] |\d+\. |> )/.test(l);
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.startsWith("```")) {
+      const body = [];
+      for (i++; i < lines.length && !lines[i].startsWith("```"); i++) body.push(lines[i]);
+      i++;
+      out.push(`<pre><code>${esc(body.join("\n"))}</code></pre>`);
+    } else if (/^#{1,4} /.test(line)) {
+      const level = line.match(/^#+/)[0].length;
+      const text = line.slice(level + 1).trim();
+      out.push(`<h${level} id="${slugify(text)}">${inline(text)}</h${level}>`);
+      i++;
+    } else if (line.startsWith("|")) {
+      const rows = [];
+      for (; i < lines.length && lines[i].startsWith("|"); i++) rows.push(lines[i]);
+      const cells = (r) => r.slice(1, r.endsWith("|") ? -1 : undefined)
+        .split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
+      const head = cells(rows[0]);
+      const body = rows.slice(/^[|\s:-]+$/.test(rows[1] ?? "") ? 2 : 1);
+      const th = head.some(Boolean)
+        ? `<thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>` : "";
+      out.push(`<table>${th}<tbody>${body
+        .map((r) => `<tr>${cells(r).map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`)
+        .join("")}</tbody></table>`);
+    } else if (/^[-*] /.test(line) || /^\d+\. /.test(line)) {
+      const ordered = /^\d+\. /.test(line);
+      const items = [];
+      while (i < lines.length && (/^[-*] |^\d+\. /.test(lines[i]) || /^\s{2,}\S/.test(lines[i]))) {
+        if (/^\s{2,}\S/.test(lines[i]) && items.length) items[items.length - 1] += " " + lines[i].trim();
+        else items.push(lines[i].replace(/^([-*]|\d+\.) /, ""));
+        i++;
+      }
+      const tag = ordered ? "ol" : "ul";
+      out.push(`<${tag}>${items.map((t) => `<li>${inline(t)}</li>`).join("")}</${tag}>`);
+    } else if (line.startsWith("> ")) {
+      const quote = [];
+      for (; i < lines.length && lines[i].startsWith("> "); i++) quote.push(lines[i].slice(2));
+      out.push(`<blockquote>${inline(quote.join(" "))}</blockquote>`);
+    } else if (!line.trim()) {
+      i++;
+    } else {
+      const para = [];
+      for (; i < lines.length && !isBlock(lines[i]); i++) para.push(lines[i]);
+      out.push(`<p>${inline(para.join(" "))}</p>`);
+    }
+  }
+  return out.join("\n");
+}
+
+async function load() {
+  const r = await fetch(`${API}/docs/whitepaper`);
+  const page = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(page.error || `${r.status} fetching the whitepaper`);
+  document.title = `arena · ${page.title.toLowerCase()}`;
+  $("art").innerHTML = markdown(page.markdown);
+}
+
+load().catch((e) => {
+  $("err").style.display = "block";
+  $("err").textContent = e.message || String(e);
+  $("art").replaceChildren();
+});
+</script>
+</body>
+</html>

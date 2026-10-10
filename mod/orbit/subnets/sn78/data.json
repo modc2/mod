@@ -1,0 +1,189 @@
+{
+  "netuid": 78,
+  "name": "Umi",
+  "symbol": "و",
+  "owner": "5GvYz1tBVJdVGtdeJFAcDbiRQcmKDcXicT98pxnKzU3cxVQ3",
+  "description": "Universal motion to meaning",
+  "github": "https://github.com/Umi-BitSign/umi",
+  "url": "https://www.umi.vision",
+  "discord": "https://discord.gg/8pexneWef",
+  "logo": "https://www.umi.vision/logo-white.png",
+  "registered_at": 7966145,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.00361926,
+    "moving_price": 0.003658420406281948,
+    "market_cap": 5549.105836212921,
+    "tao_in": 1434.248631095,
+    "alpha_in": 396282.386433486,
+    "alpha_out": 1136933.198026575,
+    "volume": 191722.325467224,
+    "vol_24h": 184.33391017498798,
+    "emission": 0.0,
+    "change_1h": 0.06942699092473692,
+    "change_24h": -2.4574693641702616,
+    "change_7d": -26.823128700155507
+  },
+  "spark_24h": [
+    0.003710443,
+    0.003710443,
+    0.003750092,
+    0.00375406,
+    0.003748397,
+    0.003748387,
+    0.003746865,
+    0.003746309,
+    0.00373556,
+    0.003740291,
+    0.003739721,
+    0.003641805,
+    0.003626002,
+    0.003585022,
+    0.003531366,
+    0.003647673,
+    0.003655084,
+    0.003635091,
+    0.003648975,
+    0.003647802,
+    0.003645471,
+    0.003645216,
+    0.003645215,
+    0.00364778,
+    0.003638413,
+    0.003638374,
+    0.00363835,
+    0.003638349,
+    0.003638225,
+    0.00363811,
+    0.003638073,
+    0.003637197,
+    0.003642256,
+    0.003621165,
+    0.003621065,
+    0.003621065,
+    0.003621065,
+    0.003619051,
+    0.003618019,
+    0.00361798,
+    0.00361798,
+    0.003617891,
+    0.003617762,
+    0.003617207,
+    0.003617207,
+    0.003616966,
+    0.003616749,
+    0.00361926
+  ],
+  "trades_24h": {
+    "trades": 183,
+    "buys": 46,
+    "sells": 137,
+    "buy_tao": 83.212109091,
+    "sell_tao": 100.036980295,
+    "net_tao": -16.824871204000004,
+    "traders": 120
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": -0.18672460400000013,
+      "gross_tao": 20.186724604,
+      "trades": 4
+    },
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": -0.037313633000000124,
+      "gross_tao": 20.037313633,
+      "trades": 3
+    },
+    {
+      "coldkey": "5CCdDknU3L1JAHepuau2H3VnJA7ytJ3mawq7Q78C28NEgf9z",
+      "net_tao": 4.94156776,
+      "gross_tao": 19.058432240000002,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": -14.663863145,
+      "gross_tao": 14.663863145,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FP915tMm5kTXQjxQ2SBntGmXcsW6hQoACSPYre4GPW36gtE",
+      "net_tao": 11.0,
+      "gross_tao": 11.0,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791537541,
+      "kind": "commit",
+      "source": "github",
+      "title": "Unblock C5 admission reads and correct historical block verification …",
+      "url": "https://github.com/Umi-BitSign/umi/commit/66987885c21aedabd64087d11a22c7c4cba12ac7",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1791533659,
+      "kind": "commit",
+      "source": "github",
+      "title": "Avoid repeated original roster and absent service terminal reconstruc…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/88ced6e48855b58c32d3b820026110e476dbc760",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1791530171,
+      "kind": "commit",
+      "source": "github",
+      "title": "Reuse exact retained service records and static grant validation (#238)",
+      "url": "https://github.com/Umi-BitSign/umi/commit/30e4ec5de2d53505e2c2f06a35e4b17937bc7f7b",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1791524847,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #237 from Umi-BitSign/codex/c5-checkpoint-highwate…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/407ac12e5ab26823799a6efa7323602aff96e68b",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1791524756,
+      "kind": "commit",
+      "source": "github",
+      "title": "Reuse checked admissions and avoid full capacity scans for finalized …",
+      "url": "https://github.com/Umi-BitSign/umi/commit/9e84cc5f20a0d892c2d1b44edb4e69a37c842d45",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1791514683,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #235 from Umi-BitSign/codex/c5-recovery-integratio…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/0a2c1738dd1df52bdd5a04af9f613379ed5196fb",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1791514639,
+      "kind": "commit",
+      "source": "github",
+      "title": "Align recovery integration checks with shared windows and retained pr…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/9a04924db87c070543609b30be6cc0bf042acfb1",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1791512770,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #234 from Umi-BitSign/codex/c5-retained-export-rec…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/76f605c1b59edfb0c76b5f1ed78eae2cce28d77f",
+      "publisher": "Umi-BitSign/umi"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

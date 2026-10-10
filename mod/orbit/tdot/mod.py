@@ -371,6 +371,31 @@ class Mod:
         from tdotgis import tools as T
         return T.docs()
 
+    def mcp(self, name: str = 'tdot') -> dict:
+        """
+        How to point an MCP client at this map.
+
+        The same tools, on two transports: stdio for a client that spawns the
+        process, streamable HTTP for one that dials the running API.
+        """
+        from tdotgis import mcp_server as MCP
+        from tdotgis import tools as T
+        api = (self._config().get('urls') or {}).get('api', 'http://localhost:50320')
+        return {
+            'server': MCP.SERVER_INFO,
+            'protocolVersion': MCP.PROTOCOL_VERSION,
+            'tools': len(T.TOOLS),
+            'install': {
+                'http': f'claude mcp add --transport http {name} {api}/mcp',
+                'stdio': f'claude mcp add {name} -- python3 -m tdotgis.mcp_server',
+            },
+            'mcpServers': {
+                name: {'command': 'python3', 'args': ['-m', 'tdotgis.mcp_server'],
+                       'cwd': str(MODULE_DIR)},
+                f'{name}-http': {'type': 'http', 'url': f'{api}/mcp'},
+            },
+        }
+
     # ── cache ────────────────────────────────────────────────────────────
 
     def warm(self, include_crime: bool = True) -> dict:

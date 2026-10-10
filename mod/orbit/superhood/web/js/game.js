@@ -316,6 +316,7 @@
     this.levelId = LEVELS.order[0];
     this.high = 0;
     try { this.high = parseInt(localStorage.getItem('superhood.high') || '0', 10) || 0; } catch (e) {}
+    try { if (localStorage.getItem('superhood.muted') === '1') SND.mute(true); } catch (e) {}
     this.acc = 0;
     this.last = 0;
     this.shake = 0;
@@ -664,7 +665,7 @@
     this.titleT++;
     if (consume('start') || consume('jump')) {
       SND.sfx('select');
-      this.score = 0; this.tokens = 0; this.lives = 3;
+      this.score = 0; this.tokens = 0; this.lives = 3; this.newHigh = false;
       this.player = null;
       clearEdges();          // don't carry the start press into the first step
       this.loadLevel(LEVELS.order[0]);
@@ -857,6 +858,7 @@
       this.overT = 210;
       if (this.score > this.high) {
         this.high = this.score;
+        this.newHigh = true;
         try { localStorage.setItem('superhood.high', String(this.high)); } catch (e) {}
       }
       SND.play('gameover');
@@ -1212,6 +1214,7 @@
         this.overT = 400;
         if (this.score > this.high) {
           this.high = this.score;
+          this.newHigh = true;
           try { localStorage.setItem('superhood.high', String(this.high)); } catch (e) {}
         }
         SND.play('clear');
@@ -1609,8 +1612,10 @@
     hud(g, 'WORLD', 146, y, '#ffffff');
     hud(g, this.level.world, 152, y + 9, '#ffffff');
 
-    hud(g, 'TIME', 208, y, '#ffffff');
-    hud(g, pad(this.time, 3), 214, y + 9, this.time <= 100 ? '#ff6a4a' : '#ffffff');
+    hud(g, 'TIME', 208, y, this.time <= 100 ? '#ff6a4a' : '#ffffff');
+    if (this.time > 30 || Math.floor(this.frame / 8) % 2) {
+      hud(g, pad(this.time, 3), 214, y + 9, this.time <= 100 ? '#ff6a4a' : '#ffffff');
+    }
 
     // lives, bottom-left, out of the way
     g.drawImage(SPR.salSmall[0].idle, 8, VH - 20, 9, 12);
@@ -1646,6 +1651,8 @@
       textCentered(g, 'SCORE ' + pad(this.score, 6), 130, '#ffffff', 1);
     }
     textCentered(g, 'TOP ' + pad(this.high, 6), 146, '#9ad0ff', 1);
+    if (this.newHigh) textCentered(g, 'NEW RECORD', 160, '#f7d51d', 1);
+    if (Math.floor(this.frame / 26) % 2) textCentered(g, 'PRESS ENTER', this.newHigh ? 174 : 160, '#ffffff', 1);
   };
 
   Game.prototype.renderTitle = function (g) {

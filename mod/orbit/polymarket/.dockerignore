@@ -1,4 +1,9 @@
 src/app/node_modules
 src/app/.next
+src/app/tsconfig.tsbuildinfo
 src/api/target
+src/api/api.log
+src/api/api.log.*
+mcp_err.txt
+__pycache__
 .claude

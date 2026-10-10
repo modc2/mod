@@ -169,9 +169,17 @@ interface Props {
   onCategoryChange?: (c: CategorySlug) => void;
   /** Inside an existing panel: no border/background of its own. */
   embedded?: boolean;
+  /** Quick "+ bitcoin" chips. Off where a topic row above already offers the
+      same words (the profile rail) — three grids of the same nouns is noise. */
+  presets?: boolean;
+  /** Off where the caller draws its own summary + CLEAR (the profile rail). */
+  collapsedSummary?: boolean;
 }
 
-export default function TradeFilterBar({ bar, open, category = "", onCategoryChange, embedded = false }: Props) {
+export default function TradeFilterBar({
+  bar, open, category = "", onCategoryChange, embedded = false,
+  presets = true, collapsedSummary = true,
+}: Props) {
   const totalCount = bar.count + (category ? 1 : 0);
   const clearAll = () => {
     bar.clear();
@@ -180,7 +188,7 @@ export default function TradeFilterBar({ bar, open, category = "", onCategoryCha
 
   // Collapsed — keep whatever is narrowing the tape visible as a chip row.
   if (!open) {
-    if (!bar.active) return null;
+    if (!bar.active || !collapsedSummary) return null;
     return (
       <div className={`flex items-center gap-2 flex-wrap font-mono text-[11px] ${embedded ? "px-3 py-2 border-b-2 border-pixel-border" : ""}`}>
         <span className="pixel-badge border-green-400/60 text-green-400">{bar.describe()}</span>
@@ -272,7 +280,7 @@ export default function TradeFilterBar({ bar, open, category = "", onCategoryCha
             onBlur={() => bar.addKeyword(bar.kwInput)}
             className="pixel-input-sm w-40 text-[12px]"
           />
-          {KEYWORD_PRESETS.filter((p) => !bar.keywords.includes(p)).map((p) => (
+          {presets && KEYWORD_PRESETS.filter((p) => !bar.keywords.includes(p)).map((p) => (
             <button
               key={p}
               onClick={() => bar.addKeyword(p)}
@@ -314,7 +322,7 @@ export default function TradeFilterBar({ bar, open, category = "", onCategoryCha
           )}
         </div>
       )}
-      {!onCategoryChange && totalCount > 0 && (
+      {!onCategoryChange && collapsedSummary && totalCount > 0 && (
         <div className="flex font-mono">
           <button
             onClick={clearAll}

@@ -35,7 +35,8 @@
     "**/*.ts",
     "**/*.tsx",
     ".next-staging/types/**/*.ts",
-    ".next-test/types/**/*.ts"
+    ".next-test/types/**/*.ts",
+    ".next-qa-9b21/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

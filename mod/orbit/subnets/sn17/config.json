@@ -1,0 +1,38 @@
+{
+  "name": "sn17",
+  "version": "1.0.0",
+  "description": "SN17 404—GEN — a decentralized 3D content generation competition. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ρ",
+  "chain": "bittensor",
+  "netuid": 17,
+  "subnet": "404—GEN",
+  "symbol": "ρ",
+  "owner": "5E7a4a7QETrNjoZ2SbVSJMaavrQeyTEaHgjBPDUDxBKjUaMZ",
+  "github": "https://github.com/404-Repo/404-gen-subnet",
+  "url": "https://www.404.xyz",
+  "discord": null,
+  "logo": "https://avatars.githubusercontent.com/u/154099142?s=200&v=4",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=17",
+    "news": "/bt/news?netuid=17"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

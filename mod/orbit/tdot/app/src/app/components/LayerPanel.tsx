@@ -71,7 +71,7 @@ export default function LayerPanel({
                       onClick={() => onToggle(id)}
                       className="flex flex-1 items-center gap-1.5 truncate text-left text-[13px] text-ink"
                     >
-                      <span className="truncate">{def.title}</span>
+                      <span className="truncate" title={def.title}>{def.title}</span>
                       {def.custom && (
                         <span title="Added from the open-data portal"
                               className="shrink-0 rounded-full bg-fill-strong px-1.5 py-px text-[9px] uppercase tracking-wider text-muted">

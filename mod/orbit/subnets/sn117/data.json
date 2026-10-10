@@ -1,0 +1,189 @@
+{
+  "netuid": 117,
+  "name": "everyframe.studio",
+  "symbol": "Ⲁ",
+  "owner": "5FFDV7LGKVsVvyVbzSduzxQDPfBuJYHBM2QJPia5ikDivsXd",
+  "description": "Every frame gets craft",
+  "github": "https://github.com/everyframe-studios/everyframe-miner",
+  "url": "https://everyframe.studio/",
+  "discord": "https://discord.com/channels/799672011265015819/1544011415692644444",
+  "logo": "https://avatars.githubusercontent.com/u/327085870?s=200&v=4",
+  "registered_at": 5710859,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.002653191,
+    "moving_price": 0.0026434557512402534,
+    "market_cap": 8074.6105550014245,
+    "tao_in": 2944.973914208,
+    "alpha_in": 1109974.097100002,
+    "alpha_out": 1933384.091210385,
+    "volume": 239184.964995644,
+    "vol_24h": 8.14887556800386,
+    "emission": 0.0,
+    "change_1h": -3.7690449838923e-05,
+    "change_24h": 0.3983100392974448,
+    "change_7d": -3.777259484946205
+  },
+  "spark_24h": [
+    0.002642665,
+    0.002642665,
+    0.002642665,
+    0.002642662,
+    0.002641682,
+    0.002641647,
+    0.002641647,
+    0.002641644,
+    0.002641644,
+    0.002641622,
+    0.002641622,
+    0.002641618,
+    0.002641586,
+    0.002641585,
+    0.002641052,
+    0.002641022,
+    0.002641007,
+    0.002641006,
+    0.002641003,
+    0.002640999,
+    0.00264091,
+    0.002640905,
+    0.002640873,
+    0.002640873,
+    0.002640856,
+    0.002642647,
+    0.002642634,
+    0.002642634,
+    0.002642619,
+    0.002642607,
+    0.002642584,
+    0.00264258,
+    0.00264258,
+    0.002642579,
+    0.002642579,
+    0.002642579,
+    0.002642579,
+    0.002642545,
+    0.002642545,
+    0.002642538,
+    0.002642538,
+    0.002642524,
+    0.002642508,
+    0.00265322,
+    0.00265322,
+    0.002653218,
+    0.002653192,
+    0.002653191
+  ],
+  "trades_24h": {
+    "trades": 6,
+    "buys": 2,
+    "sells": 4,
+    "buy_tao": 7.0,
+    "sell_tao": 0.595354434,
+    "net_tao": 6.404645566,
+    "traders": 6
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CCdDknU3L1JAHepuau2H3VnJA7ytJ3mawq7Q78C28NEgf9z",
+      "net_tao": 6.0,
+      "gross_tao": 6.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5ELw22fdjsdPoveKQxKdBdbpzcBE8WFovomfHZUTh57uczA7",
+      "net_tao": 1.0,
+      "gross_tao": 1.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -0.539294074,
+      "gross_tao": 0.539294074,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Ebyse8FeC7RWT5QtTaSzUYjY1nDqxDRPxX6dmSeuM1v2TGJ",
+      "net_tao": -0.045089036,
+      "gross_tao": 0.045089036,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CisAkU2fJ33VoecMHg2g3NDjrSTuXJeVTWypzsWzT5JGKK9",
+      "net_tao": -0.008329996,
+      "gross_tao": 0.008329996,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791571707,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: standardize EveryFrame branding",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/62193e6627bfb139bfea5c9817a85498e2ab23bf",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1791467093,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #7 from everyframe-studios/feat/all-video-durations",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/118cd0be783639a7e80e330af320e43844d71452",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1791466304,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: support variable video durations in attested workers",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/5a0fc40219a2ef0029b85e7d6d8648b1f93658f1",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790983922,
+      "kind": "release",
+      "source": "github",
+      "title": "everycli v0.2.3",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.3",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790983022,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #6 from everyframe-studios/release/everycli-v0.2.3",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/38a9a5e279a23077be220ceb41f2821ffbad750a",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790982983,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: release everycli v0.2.3",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/7fcd9caafcf467648ba9bdd674bc1e1266e24a85",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790982049,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #5 from everyframe-studios/fix/actionable-readines…",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/6b476d37c0a41aaca2cac795531171d29419ff90",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790981238,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: replace approval catch-all with actionable readiness diagnostics",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/e36e0e4a4de43a0360214730f2ee39ff26495df9",
+      "publisher": "everyframe-studios/everyframe-miner"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

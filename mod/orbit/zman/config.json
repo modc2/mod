@@ -1,0 +1,39 @@
+{
+  "name": "zman",
+  "title": "zman \u2302 NYC buys its buildings back",
+  "version": "0.1.0",
+  "description": "Mayor Mamdani's housing plan as a program on the openhouse framework: municipal bond series are sold to investors, the proceeds acquire New York buildings, and each building becomes an openhouse property with the city in both the owner and civic-authority seats at a 0% fee. Rent is split by openhouse into tenant equity and debt service; debt service is swept to bondholders pro-rata; the rent freeze is enforced in code. Testnet bookkeeping only.",
+  "icon": "\u2302",
+  "color": "#f97316",
+  "deps": [
+    "openhouse"
+  ],
+  "network": "testnet",
+  "store": "~/.zman",
+  "fns": [
+    "forward",
+    "plan",
+    "status",
+    "health",
+    "claim_city",
+    "set_freeze",
+    "issue_bond",
+    "subscribe",
+    "bonds",
+    "bond",
+    "holder",
+    "acquire",
+    "buildings",
+    "building",
+    "set_rent",
+    "pay_rent",
+    "pay_coupon",
+    "coverage",
+    "log"
+  ],
+  "urls": {
+    "api": "http://localhost:50072"
+  },
+  "port": 50072,
+  "schema": "QmcBmsrc7QJLYw43YmKy2JqniuoYmBRZAVCwFJrtwZ3yUG"
+}

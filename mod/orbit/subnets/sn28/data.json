@@ -1,0 +1,189 @@
+{
+  "netuid": 28,
+  "name": "SayGM",
+  "symbol": "ד",
+  "owner": "5CA6rwAytZvvyZhLYEzo79627QEV422Q8kD51DEnTaRQxm45",
+  "description": "Drop-in access to Claude, GPT, and Gemini.",
+  "github": "https://github.com/taostat/gm-miner",
+  "url": "https://saygm.com/",
+  "discord": null,
+  "logo": "https://saygm.com/apple-touch-icon.png",
+  "registered_at": 4878363,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.023699269,
+    "moving_price": 0.023533481638878584,
+    "market_cap": 148980.6632843431,
+    "tao_in": 24143.817211476,
+    "alpha_in": 1018757.914005628,
+    "alpha_out": 5267539.915870185,
+    "volume": 6645590.505989786,
+    "vol_24h": 5055.106178123504,
+    "emission": 0.0,
+    "change_1h": 0.23925776334701165,
+    "change_24h": -1.746299877469304,
+    "change_7d": 8.802908882695547
+  },
+  "spark_24h": [
+    0.024120485,
+    0.024167498,
+    0.024187849,
+    0.024186751,
+    0.023676389,
+    0.023657327,
+    0.023624496,
+    0.023834183,
+    0.023840269,
+    0.023880719,
+    0.023873277,
+    0.023866522,
+    0.023527424,
+    0.023387286,
+    0.023387949,
+    0.023513742,
+    0.023485842,
+    0.023110761,
+    0.023009582,
+    0.023148994,
+    0.023198961,
+    0.023225359,
+    0.023204797,
+    0.023226303,
+    0.022902631,
+    0.022740947,
+    0.022717907,
+    0.022919128,
+    0.022970801,
+    0.023156792,
+    0.023367403,
+    0.023471353,
+    0.023358776,
+    0.023360527,
+    0.023833603,
+    0.023821326,
+    0.023914323,
+    0.023600434,
+    0.023603436,
+    0.023597264,
+    0.02354254,
+    0.023546105,
+    0.023547296,
+    0.023598488,
+    0.023606388,
+    0.023611934,
+    0.023642702,
+    0.023699269
+  ],
+  "trades_24h": {
+    "trades": 471,
+    "buys": 158,
+    "sells": 313,
+    "buy_tao": 2334.02656743,
+    "sell_tao": 2626.863609272,
+    "net_tao": -292.83704184199996,
+    "traders": 254
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.019505543000036596,
+      "gross_tao": 860.389797307,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -0.7293604319999965,
+      "gross_tao": 360.729360432,
+      "trades": 8
+    },
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": -0.8663262279999913,
+      "gross_tao": 220.866326228,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": 0.7537325379999942,
+      "gross_tao": 199.246267462,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": -1.0093983639999955,
+      "gross_tao": 181.009398364,
+      "trades": 6
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791299326,
+      "kind": "commit",
+      "source": "github",
+      "title": "Remove paid Gemini image-canary command (#299)",
+      "url": "https://github.com/taostat/gm-miner/commit/556de337c0a9f97998a9ba1fb7610e2bedf0fcbe",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1791298935,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.4.26",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.4.26",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1791297956,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add gmcli notifications list, set, confirm, status and off (#297)",
+      "url": "https://github.com/taostat/gm-miner/commit/deab605b3bb752aed1bb074a6e248ee3a77f46bd",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1791194407,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(cli): retry rate-limited token requests instead of re-logging in …",
+      "url": "https://github.com/taostat/gm-miner/commit/4eb759e1326ad1f15e84dfd37542035865ca0b02",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1791104154,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.4.25",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.4.25",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1791104113,
+      "kind": "commit",
+      "source": "github",
+      "title": "Handle scheduled miner price increases as successful declarations (#293)",
+      "url": "https://github.com/taostat/gm-miner/commit/6ae50a4253e7d9ff46c03af325d3664f9baea332",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1790589129,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.4.24",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.4.24",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1790588260,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): promote gm-miner 0.4.24 (#291)",
+      "url": "https://github.com/taostat/gm-miner/commit/163a5c676c3a65558694a36f6b3bc8bbe59f27d8",
+      "publisher": "taostat/gm-miner"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

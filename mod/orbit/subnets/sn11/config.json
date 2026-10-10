@@ -1,0 +1,38 @@
+{
+  "name": "sn11",
+  "version": "1.0.0",
+  "description": "SN11 TrajectoryRL — Agentic RL as a Service, Optimize agent trajectories to make agents cheaper, safer, and more reliable. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "λ",
+  "chain": "bittensor",
+  "netuid": 11,
+  "subnet": "TrajectoryRL",
+  "symbol": "λ",
+  "owner": "5D2Jhtbnm7iAdKfjRk6DisXBnr1MEsYat8kXqaPNrVqJP3uE",
+  "github": "https://github.com/trajectoryRL/trajectoryRL",
+  "url": "https://trajrl.com",
+  "discord": null,
+  "logo": "https://pbs.twimg.com/profile_images/2018928039716089856/2PZ-Bhm2_400x400.jpg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=11",
+    "news": "/bt/news?netuid=11"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

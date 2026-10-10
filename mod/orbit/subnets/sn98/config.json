@@ -1,0 +1,38 @@
+{
+  "name": "sn98",
+  "version": "1.0.0",
+  "description": "SN98 NeverPlayAlone — Living AI Companions that create memories alongside you. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ბ",
+  "chain": "bittensor",
+  "netuid": 98,
+  "subnet": "NeverPlayAlone",
+  "symbol": "ბ",
+  "owner": "5EWzZCNsJe72k44Jd9oPUXRRkxVgFAtjyohgSwmTu6F8MBHM",
+  "github": "https://github.com/neverplayalone/neverplayalone_subnet",
+  "url": "https://neverplayalone.ai",
+  "discord": "https://discord.com/invite/MG3nkhayjh",
+  "logo": "https://raw.githubusercontent.com/neverplayalone/neverplayalone_subnet/main/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=98",
+    "news": "/bt/news?netuid=98"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

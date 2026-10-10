@@ -1,0 +1,81 @@
+{
+ "block": "feesplitter",
+ "contract": "ModFeeSplitter",
+ "file": "feesplitter.sol",
+ "audited_at": "2026-08-30",
+ "auditor": "claude-fable-5 agent audit",
+ "risk": "medium",
+ "summary": "ModFeeSplitter holds one immutable ERC20 and, on a permissionless release(), pushes the whole balance to a list of payees by basis points; the owner can rewrite the list at any time. There is no reentrancy or theft path an outside attacker can use: accounting is balance-based, release() moves only what is present, and every write is onlyOwner. The worst problems are permanent-loss paths that come from how it is wired, not from an exploit: the contract has no rescue function, so any token other than `token` that lands here is stuck forever (psm and stableswap push TWO coins to their feeSink, so wiring either of them in strands half the fees), and because SafeTransfer requires a bool return, choosing a non-bool-returning fee token such as mainnet USDT makes release() revert forever with the balance locked inside. A blocklisted or reverting payee stalls every other payee until the owner intervenes, and the owner can silently repoint 100% of the undistributed balance to themselves. Safe to deploy as-is if `token` is a catalog ERC20 or a well-behaved bool-returning token, the upstream sink emits only that one token, and the governor input is a timelock or multisig; do not wire psm or stableswap into it.",
+ "counts": {
+  "critical": 0,
+  "high": 2,
+  "medium": 2,
+  "low": 1,
+  "info": 1
+ },
+ "findings": [
+  {
+   "id": "FEESPLITTER-1",
+   "severity": "high",
+   "title": "Single immutable token and no rescue: every other token sent here is lost forever, and two catalog sinks send two tokens",
+   "where": "constructor L27-L28 (immutable token), release() L49-L60; no rescue/sweep function anywhere in L9-L70",
+   "detail": "The splitter only ever moves `token` (L12, immutable). There is no function that can transfer any other ERC20 out, no ETH path, and setSplit() cannot change the token. The `sink` port this block provides is wired by the composer into cdp.setSurplusSink, psm.setFeeSink, stableswap.setFeeSink, lst.setFeeSink and flashlender.setFeeSink. psm.collectFees() (psm.sol L96-L104) pushes BOTH gem and stable fees to the sink, and stableswap.collectAdminFees() (stableswap.sol L188-L196) pushes BOTH coin0 and coin1. Whichever of the pair is not the splitter's `token` accumulates in this contract with no way out. The same applies to lst, which mints its own share token to the sink: if `token` is not the LST token the staking fees are stranded. Any accidental transfer of a wrong token by a human has the same result.",
+   "exploit": "1) Deploy ModFeeSplitter with token = STABLE. 2) On the canvas wire its `sink` into psm.feeSink; the composer calls psm.setFeeSink(splitter). 3) Users buy and sell through the PSM; feesGem and feesStable accrue. 4) Anyone calls psm.collectFees(): STABLE fees arrive and are releasable, GEM fees arrive at the splitter too. 5) release() only reads STABLE; nothing in the contract can call GEM.transfer. The GEM fees are unrecoverable by owner, payees or anyone.",
+   "recommendation": "Add an onlyOwner rescue(address anyToken, address to, uint256 amount) so mis-routed tokens can be recovered, or make release(address token_) generic and keep the bps table token-agnostic so one splitter can serve a two-coin sink. Until then, the catalog should refuse (or warn on) wiring psm/stableswap/lst into this block unless the fee token matches."
+  },
+  {
+   "id": "FEESPLITTER-2",
+   "severity": "high",
+   "title": "Non-bool-returning ERC20 as `token` (e.g. mainnet USDT) makes release() revert forever with all revenue locked inside",
+   "where": "release() L57 -> SafeTransfer.push common.sol L125-L127; IERC20.transfer common.sol L13",
+   "detail": "SafeTransfer.push does `require(token.transfer(to, amount), ...)` through an interface that declares `returns (bool)`. Solidity >=0.8 ABI-decodes the return data and reverts when a token returns nothing, which is exactly what USDT, BNB and several older tokens do on mainnet. Because release() is the only function that moves `token`, and FEESPLITTER-1 means there is no rescue, every unit of fee revenue routed here becomes permanently inaccessible. This is inherited from common.sol, but the splitter is the block where it is fatal: it is a pure conduit whose only job is to move that one token out. Tokens minted by other catalog blocks return true and are unaffected.",
+   "exploit": "1) Deploy ModFeeSplitter with token = 0xdAC17F958D2ee523a2206206994597C13D831ec7 (USDT). 2) Wire flashlender(asset = USDT).feeSink -> splitter; flash loans push USDT protocol cuts to the splitter (flashlender.sol L112, which itself succeeds only if that lender's own push decodes - it will not, so in practice the deployer will send USDT here directly or via a custom upstream). 3) Call release(): USDT.transfer returns no data, the decoder reverts, release() reverts. 4) Repeat forever; setSplit() cannot help because the payee list is not the problem. The USDT balance is locked.",
+   "recommendation": "Make SafeTransfer tolerant of empty return data (call via low-level `call` and accept `returndata.length == 0 || abi.decode(returndata,(bool))`, i.e. OpenZeppelin SafeERC20 semantics). At minimum document that `token` must return bool, and add the rescue from FEESPLITTER-1 as a backstop."
+  },
+  {
+   "id": "FEESPLITTER-3",
+   "severity": "medium",
+   "title": "One payee that cannot receive (blocklist, reverting hook, reentrant hook) blocks payment to every other payee",
+   "where": "release() L52-L59",
+   "detail": "release() is one atomic loop with push semantics and no per-payee accounting. If any single transfer reverts the whole call reverts, so a payee that is blocklisted by the token issuer (USDC/USDT style), a contract payee whose ERC777/ERC1363 receive hook reverts, or a hook payee that reenters release() (the inner call distributes the remaining balance, the outer loop's next push then exceeds the balance and reverts) holds every other payee's revenue hostage. There is no theft: the reentrant path cannot extract more than the balance because each cut is computed from a fresh balanceOf. The owner can recover by calling setSplit() to drop the bad payee, so this is medium rather than high, but that recovery is unavailable if the governor is slow (timelock/DAO) or ownership has been renounced via Owned.setOwner(address(0)), which the base contract allows.",
+   "exploit": "1) token = USDC, payees = [treasury 8000, contributor 2000]. 2) Circle blocklists `contributor`. 3) Fees accrue; anyone calls release(): the treasury push succeeds inside the tx, the contributor push reverts, the whole tx reverts. 4) Treasury receives nothing until the owner calls setSplit([treasury],[10000]); if the owner is a 48h timelock the treasury is unpaid for 48h, if the owner is address(0) it is unpaid forever. Variant: contributor is an ERC777 hook contract whose tokensReceived reverts (or calls release() again) - same outcome for any hook-enabled token.",
+   "recommendation": "Switch to pull accounting: release() credits `owed[payee] += cut` and a separate withdraw(payee) transfers, so one failing payee cannot block others (OpenZeppelin PaymentSplitter shape). If push is kept, wrap each push in try/catch and leave a failed payee's cut in `owed`. Add a reentrancy guard."
+  },
+  {
+   "id": "FEESPLITTER-4",
+   "severity": "medium",
+   "title": "Owner can repoint 100% of already-accrued but unreleased revenue to themselves; the split is not a commitment",
+   "where": "setSplit() L62-L69, release() L49-L60, Owned.setOwner common.sol L47-L50",
+   "detail": "setSplit() rewrites the whole payee table with immediate effect and no timelock, and it does not release first. Revenue sits in the contract between upstream pushes and the next release() call, so whatever has accrued belongs to whoever the owner names at the moment release() runs. The catalog frames this block as making the split 'part of the protocol's shape rather than an off-chain habit', but on-chain the non-owner payee has no guarantee at all. SplitUpdated (L17, L68) emits only the payee count, not the addresses or shares, so a repoint is not even legible from events. Owner also = full custody of the token: setSplit([owner],[10000]) + release() is a rescue-to-owner of the entire balance.",
+   "exploit": "1) Splitter has payees [dao 8000, partner 2000]; 50,000 USDC of fees have accrued since the last release. 2) Partner submits release(). 3) Owner front-runs with setSplit([owner],[10000]) then release() (or just lets the partner's release() land after the setSplit). 4) Owner receives all 50,000; partner receives 0 of revenue that was earned under the 80/20 table. Nothing in the contract distinguishes this from legitimate rewiring.",
+   "recommendation": "In setSplit(), call the release logic first when balanceOf(this) > 0 so a table change only applies to future revenue. Emit the full payees and sharesBps arrays in SplitUpdated. Route the `governor` input to a timelock or multisig, and consider a max-change cadence or a two-step (propose/apply) split change."
+  },
+  {
+   "id": "FEESPLITTER-5",
+   "severity": "low",
+   "title": "Truncation to a zero cut can make release() revert on tokens that reject zero-value transfers; last payee keeps the dust",
+   "where": "release() L53-L57",
+   "detail": "Each non-final cut is `balance * bps / 10_000`, which truncates to 0 when balance * bps < 10_000 (e.g. a 1-bps payee with balance < 10,000 wei). SafeTransfer.push then calls transfer(payee, 0); tokens that revert on zero amounts (some older ERC20s) make release() revert until the balance grows enough for every payee to round to >= 1. This is transient - real revenue grows the balance and the revert clears - so nobody can lock funds this way, but a griefer can keep re-triggering it on low-volume splitters by never letting anyone release a meaningful balance (front-running each release with nothing is not possible, so in practice the impact is a few reverted txs). Separately, the last payee receives the remainder (L53-L54), which is up to (payees.length - 1) wei above its exact share per release; negligible but it does mean the last slot is the favoured one.",
+   "exploit": "1) token reverts on transfer(_, 0); payees = [a 9999, b 1]. 2) Balance is 5,000 wei. 3) release(): cut for a = 4,999, cut for b (final) = 1 - fine. Reverse the order, payees = [b 1, a 9999]: cut for b = 5000*1/10000 = 0, transfer(b, 0) reverts, release() reverts until balance >= 10,000 wei.",
+   "recommendation": "Skip the push when cut == 0 (`if (cut > 0) token.push(...)`), and optionally reserve remainder handling for the largest-share payee rather than the last-listed one."
+  },
+  {
+   "id": "FEESPLITTER-6",
+   "severity": "info",
+   "title": "Owner footguns: unbounded payee list, silently dropped entries, renounceable ownership",
+   "where": "_add() L34-L38, setSplit() L62-L69, Owned.setOwner common.sol L47-L50",
+   "detail": "The header comment says 'up to four payees' but setSplit() has no cap; a very long list makes release() run out of gas until the owner re-sets it (self-inflicted, owner-only). _add() silently skips entries with payee == address(0) or bps == 0: a zero-bps entry disappears without error, and a zero-address entry with non-zero bps disappears and then trips BPS_SUM with a message that does not say why. Owned.setOwner accepts address(0), which permanently freezes the split table - combined with FEESPLITTER-3 that turns a single bad payee into a permanent lock. None of these are exploitable by an outsider; they are things a deployer should know before choosing a governor.",
+   "exploit": "Owner calls setSplit with 3,000 payees: release() exceeds the block gas limit; fees are unreachable until setSplit is called again. Owner calls setOwner(address(0)) intending to 'lock in' the split; later a payee gets blocklisted and release() is dead forever.",
+   "recommendation": "Cap payees (e.g. require(payees_.length <= 16)), require(payee != address(0) && bps > 0) in setSplit instead of silently skipping, and either disallow setOwner(address(0)) or document that renouncing removes the only recovery path."
+  }
+ ],
+ "safe_use": [
+  "Use a bool-returning ERC20 as `token` - any token minted by a catalog block, or USDC/DAI/WETH. Never mainnet USDT, BNB or other tokens that return no data from transfer(): release() will revert forever and there is no rescue.",
+  "Only wire the `sink` port from upstream blocks that emit exactly one token, and make sure it is the splitter's `token`: cdp (mints its stablecoin), flashlender (its `asset`). Do NOT wire psm or stableswap into this block - each pushes two coins to its feeSink and the second one is stranded here permanently. For lst, `token` must be the LST share token itself.",
+  "No upstream block ever calls release(); they only push tokens to the sink. A stalled splitter never breaks the fee-producing block - revenue just accumulates in the splitter until it can be released - so the failure modes here are about the payees' money, not the protocol's liveness.",
+  "Route the `governor` input to a timelock or multisig, not an EOA. The owner can repoint the entire undistributed balance at any time, and SplitUpdated does not log the new addresses, so off-chain monitoring must read payees()/sharesBps() after every SplitUpdated.",
+  "Call release() often (or before any setSplit) so the undistributed balance stays small; whatever is sitting in the contract belongs to whoever the current table names.",
+  "Do not use contract payees with receive hooks or addresses that could be blocklisted by the token issuer; one bad payee blocks every payee until the owner rewrites the table. Never renounce ownership (setOwner(0)) - it removes the only recovery path.",
+  "Verify the deployed table with payeeCount(), payees(i) and sharesBps(i): _add() silently drops zero-address and zero-bps entries, so the deployed table can be shorter than what was passed."
+ ]
+}

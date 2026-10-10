@@ -1,13 +1,13 @@
-/* /openhouse/paper — the whitepaper's table of contents.
+/* /paper — the whitepaper's table of contents.
 
-   The home page scrolls the same six sections inline; this is the version
-   you can link to, read one screen at a time, and send to someone who
-   isn't going to scroll past a skyline first. */
+   Six sections, one page each, plus the two reference tables that belong
+   with the paper rather than the product: the five numbers and the road. */
 
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { NextUp, Shell } from '../../components/chrome'
 import { SECTIONS, ABSTRACT, TOKENOMICS, ROADMAP, LAUNCH } from '../../lib/whitepaper'
-import { PaperNav, PaperFooter } from './chrome'
+import { PaperRail } from './chrome'
 
 export const metadata: Metadata = {
   title: 'The Whitepaper — OpenHouse',
@@ -16,12 +16,11 @@ export const metadata: Metadata = {
 
 export default function PaperIndex() {
   return (
-    <div className="relative grain vignette min-h-screen">
-      <div className="aurora" />
-      <PaperNav />
+    <Shell>
+      <PaperRail />
 
-      <div className="relative z-10 max-w-5xl mx-auto px-5 md:px-8">
-        <header className="pt-20 pb-14 md:pt-28 md:pb-20">
+      <div className="max-w-5xl mx-auto px-5 md:px-8">
+        <header className="pt-16 pb-14 md:pt-24 md:pb-20">
           <div className="text-coral text-[11px] font-bold uppercase tracking-[0.3em] mb-5">The Whitepaper</div>
           <h1 className="headline text-6xl md:text-8xl text-white leading-[0.85]">RENT<br /><span className="text-surf-grad">→ OWN</span></h1>
           <p className="font-serif-ed text-xl md:text-2xl text-white/72 max-w-2xl mt-8 leading-snug border-l-2 border-coral/40 pl-6">{ABSTRACT}</p>
@@ -58,6 +57,9 @@ export default function PaperIndex() {
               </div>
             ))}
           </div>
+          <p className="text-white/55 text-sm mt-6 text-center">
+            Or put your own numbers in — <Link href="/simulator" className="text-coral hover:underline">the simulator →</Link>
+          </p>
         </section>
 
         <section className="mt-20">
@@ -83,16 +85,13 @@ export default function PaperIndex() {
         </section>
 
         <div className="text-center mt-20">
-          <Link href="/#invest" className="btn-shine inline-block px-9 py-4 rounded-full bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-coral/40 transition-shadow">
+          <Link href="/invest" className="btn-shine inline-block px-9 py-4 rounded-full bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-coral/40 transition-shadow">
             Try it on testnet →
           </Link>
-          <p className="text-white/45 text-xs mt-4">
-            Or read it inline with the live numbers on the <Link href="/#whitepaper" className="text-coral hover:underline">home page</Link>.
-          </p>
         </div>
       </div>
 
-      <PaperFooter />
-    </div>
+      <NextUp here="/paper" />
+    </Shell>
   )
 }

@@ -1,0 +1,189 @@
+{
+  "netuid": 102,
+  "name": "ConnitoAI",
+  "symbol": "ვ",
+  "owner": "5HBc11rCaAj2UtUTeC3oK8zHbU7jQCQZWpRQvsawqxH8qkTm",
+  "description": "Contributors train specialized expert modules that are aggregated into powerful AI systems, without massive centralized compute.",
+  "github": "https://github.com/Connito-AI/Connito",
+  "url": "https://connito.ai/",
+  "discord": "isabella618033",
+  "logo": "https://connito.ai/images/logo.png",
+  "registered_at": 7840965,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.005999294,
+    "moving_price": 0.005913172382861376,
+    "market_cap": 10226.530977453522,
+    "tao_in": 3533.353912158,
+    "alpha_in": 588961.671546431,
+    "alpha_out": 1115660.735265691,
+    "volume": 246504.259509233,
+    "vol_24h": 1067.8987277509877,
+    "emission": 0.0,
+    "change_1h": -0.00010001166803608186,
+    "change_24h": 5.297121136303673,
+    "change_7d": 2.354079648351881
+  },
+  "spark_24h": [
+    0.005697491,
+    0.005702959,
+    0.005924726,
+    0.005929039,
+    0.005998724,
+    0.005959119,
+    0.00598034,
+    0.005888731,
+    0.005891353,
+    0.005891284,
+    0.005891282,
+    0.005907803,
+    0.005877559,
+    0.005753874,
+    0.005915579,
+    0.005915493,
+    0.005915393,
+    0.005915536,
+    0.005915574,
+    0.005915566,
+    0.005940896,
+    0.005935566,
+    0.00602242,
+    0.005971174,
+    0.005986028,
+    0.005986922,
+    0.005987082,
+    0.006003983,
+    0.005970122,
+    0.005970053,
+    0.005970021,
+    0.0059701,
+    0.00597016,
+    0.005970152,
+    0.005970183,
+    0.005970225,
+    0.005970191,
+    0.005970653,
+    0.005970695,
+    0.005984338,
+    0.005978326,
+    0.005978376,
+    0.005978531,
+    0.006012115,
+    0.00596078,
+    0.006001746,
+    0.0059993,
+    0.005999294
+  ],
+  "trades_24h": {
+    "trades": 209,
+    "buys": 91,
+    "sells": 118,
+    "buy_tao": 578.17463989,
+    "sell_tao": 487.207385667,
+    "net_tao": 90.967254223,
+    "traders": 62
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": 0.383501946,
+      "gross_tao": 125.616498054,
+      "trades": 14
+    },
+    {
+      "coldkey": "5CMQrBAide6AnD6vcU9rp7PdmyZr9hHgkeUoNNAoG8VcuHG2",
+      "net_tao": -0.589925848,
+      "gross_tao": 80.58992584800001,
+      "trades": 2
+    },
+    {
+      "coldkey": "5G1sRKrcfSuEbpJbNSd5ToVF5gMvnt8UqWXNUMTChDrF4tFs",
+      "net_tao": -0.4477864259999995,
+      "gross_tao": 60.447786426,
+      "trades": 10
+    },
+    {
+      "coldkey": "5CBAS9Vj87CTB46gXT7buv4BymG2s1igKrYnyMoyGcbvAxjk",
+      "net_tao": 20.110368801,
+      "gross_tao": 59.889631199,
+      "trades": 3
+    },
+    {
+      "coldkey": "5E4gK3Z6JuN14tqhQKGET8Zy7BzSt2jnTSgnaFTswj2PWB9s",
+      "net_tao": -13.992081705,
+      "gross_tao": 55.700437234999995,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790347021,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.6.4 — the reference miner trains the full model",
+      "url": "https://github.com/Connito-AI/Connito/releases/tag/v0.6.4",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1790346539,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #284 from Connito-AI/staging_v3",
+      "url": "https://github.com/Connito-AI/Connito/commit/05eead5d559a4c80b35e5738cd9a6934dd79735c",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1790345725,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #283 from Connito-AI/feat/miner-full-topology",
+      "url": "https://github.com/Connito-AI/Connito/commit/3ee1edec781caa41253a16e16d5e8d0fa825dd0f",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1790273126,
+      "kind": "commit",
+      "source": "github",
+      "title": "✨ feat(miner): train the full model the validator scores",
+      "url": "https://github.com/Connito-AI/Connito/commit/2b69b446ab3833eef8897ee15e934f2fdc35b448",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1790002295,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.6.3",
+      "url": "https://github.com/Connito-AI/Connito/releases/tag/v0.6.3",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1790002256,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #281 from Connito-AI/staging_v3",
+      "url": "https://github.com/Connito-AI/Connito/commit/d732f0bb841c0c7b9a510f7dd99f97bdb162053b",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1789999367,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #280 from Connito-AI/feat/parquet-row-group-seek",
+      "url": "https://github.com/Connito-AI/Connito/commit/c713a73931fd0b3cb780c5c88d51d37cf0618d41",
+      "publisher": "Connito-AI/Connito"
+    },
+    {
+      "ts": 1789678803,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.6.2",
+      "url": "https://github.com/Connito-AI/Connito/releases/tag/v0.6.2",
+      "publisher": "Connito-AI/Connito"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

@@ -59,32 +59,116 @@ pub struct WasmModule {
     pub runs: u64,
     #[serde(default)]
     pub created: u64,
+    /// The store module's CID for the same bytes — empty until pushed.
+    #[serde(default)]
+    pub cid: String,
+    /// Blob id of a readable source kept beside compiled bytes (the Rust a
+    /// wasm example was built from). Empty for a class: its bytes *are* the
+    /// source. Empty for a wasm upload that came without one.
+    #[serde(default)]
+    pub src: String,
+    /// The store's CID for that source, when it has one.
+    #[serde(default)]
+    pub src_cid: String,
+    /// When the store copy was last written.
+    #[serde(default)]
+    pub stored: u64,
+    /// The wallet address that uploaded it — verified off the request's
+    /// token, never taken from an argument. Empty = the box's own.
+    #[serde(default)]
+    pub owner: String,
+    /// What wrote it: the model a vibe session ran, `hand`, `harvest`…
+    #[serde(default)]
+    pub agent: String,
+    /// The version this one replaced — an edit is new bytes, so a new id.
+    #[serde(default)]
+    pub parent: String,
+    /// The version that replaced this one. Set = an old version: still
+    /// resolvable by id (its matches point at it), hidden from the shelf.
+    #[serde(default)]
+    pub superseded: String,
 }
 
 impl WasmModule {
+    /// What container these bytes are: `wasm`, or `python` / `rust` for a
+    /// class. Read off the description the reader wrote, so an entry stored
+    /// before classes existed still answers `wasm`.
+    pub fn lang(&self) -> &str {
+        self.info.get("lang").and_then(|v| v.as_str()).unwrap_or("wasm")
+    }
+
     pub fn card(&self) -> Value {
         json!({
             "id": self.id,
             "short": self.short(),
             "name": self.name,
             "role": self.role,
+            "lang": self.lang(),
+            "class": self.info.get("class").and_then(|v| v.as_str()),
             "description": self.description,
             "author": self.author,
             "tags": self.tags,
             "size": self.size,
             "runs": self.runs,
-            "source": self.source,
+            // Where it came from: `example` (the pack) or `upload`. Not the code —
+            // that is `source` on get_module, present only when there is code.
+            "origin": self.source,
             "created": self.created,
+            // Two hashes of the same bytes: this registry's and the store's.
+            "sha256": self.id,
+            "cid": if self.cid.is_empty() { Value::Null } else { json!(self.cid) },
+            "store": crate::storelink::card(&self.cid),
+            "has_source": self.lang() != "wasm" || !self.src.is_empty(),
+            "src_cid": if self.src_cid.is_empty() { Value::Null } else { json!(self.src_cid) },
             "exports": self.info.get("exports").and_then(|e| e.as_array())
                 .map(|a| a.iter().filter_map(|e| e.get("name").and_then(|n| n.as_str()))
                     .map(String::from).collect::<Vec<_>>())
                 .unwrap_or_default(),
             "host_needs": self.info.get("host_needs").cloned().unwrap_or(json!([])),
+            "min_players": self.min_players(),
+            // Whose it is. An unclaimed module belongs to the box.
+            "owner": if self.owner.is_empty() { crate::ident::host() } else { self.owner.clone() },
+            "owner_is_host": self.owner.is_empty() || crate::ident::is_owner(&self.owner),
+            "agent": self.agent,
+            "made_with": self.made_with(),
+            "parent": if self.parent.is_empty() { Value::Null } else { json!(self.parent) },
+            "superseded": if self.superseded.is_empty() { Value::Null } else { json!(self.superseded) },
         })
+    }
+
+    /// What wrote it, in the words a card has room for.
+    pub fn made_with(&self) -> String {
+        if !self.agent.is_empty() {
+            return self.agent.clone();
+        }
+        if self.source == "example" {
+            return "example pack".into();
+        }
+        if self.tags.iter().any(|t| t == "codegame" || t == "harvest" || t == "repo") || self.name.ends_with("-recon") {
+            return "harvested from a repo".into();
+        }
+        if self.tags.iter().any(|t| t == "vibe") {
+            return "build agent".into();
+        }
+        "uploaded".into()
     }
 
     pub fn short(&self) -> String {
         self.id.chars().take(12).collect()
+    }
+
+    pub fn min_players(&self) -> usize {
+        let raw = self.info.get("attributes")
+            .and_then(|a| a.as_array())
+            .and_then(|a| a.iter()
+                .find(|x| x["name"].as_str().map_or(false, |n| n.eq_ignore_ascii_case("players")))
+                .and_then(|x| x["value"].as_str()))
+            .unwrap_or("");
+        let first: usize = raw.split(|c: char| !c.is_ascii_digit())
+            .find(|t: &&str| !t.is_empty())
+            .and_then(|t| t.parse().ok())
+            .unwrap_or(2);
+        first.clamp(1, 16)
     }
 
     /// The URL the browser fetches the bytes from — relative, so it works
@@ -112,6 +196,14 @@ pub struct Rating {
     pub losses: u64,
     #[serde(default)]
     pub score_sum: f64,
+    /// The hi-score — the arcade number. `None` until a run lands, because a
+    /// game whose scores go negative must not read as "best: 0".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best: Option<f64>,
+    /// Unix timestamp (seconds) of the player's last match in this game.
+    /// `0` means no match has been recorded yet (pre-dates this field or truly new).
+    #[serde(default)]
+    pub last_match: u64,
 }
 
 impl Default for Rating {
@@ -123,6 +215,8 @@ impl Default for Rating {
             draws: 0,
             losses: 0,
             score_sum: 0.0,
+            best: None,
+            last_match: 0,
         }
     }
 }
@@ -135,6 +229,7 @@ impl Rating {
             "matches": self.matches, "wins": self.wins, "draws": self.draws, "losses": self.losses,
             "win_rate": if self.matches == 0 { 0.0 } else { round3(self.wins as f64 / n) },
             "avg_score": if self.matches == 0 { 0.0 } else { round3(self.score_sum / n) },
+            "best": self.best.map(round1),
         })
     }
 }
@@ -143,7 +238,7 @@ impl Rating {
 pub struct Player {
     pub id: String,
     pub name: String,
-    /// wasm | model | agent_mod | http | human
+    /// wasm | class | model | agent_mod | mcp | http | human
     pub kind: String,
     #[serde(default)]
     pub owner: String,
@@ -167,6 +262,12 @@ pub struct Player {
     /// A move that never arrived in time — the arena played a forfeit for it.
     #[serde(default)]
     pub timeouts: u64,
+    /// Times this player called out to an MCP server mid-match. Not a fault —
+    /// it is allowed, and the whole point of the outward door — but a player
+    /// that consulted something is not the same kind of player as one that
+    /// did not, and a leaderboard that hides the difference is lying.
+    #[serde(default)]
+    pub mcp: u64,
     #[serde(default)]
     pub move_ms_sum: u64,
     #[serde(default)]
@@ -186,6 +287,7 @@ impl Player {
         v["moves"] = json!(self.moves);
         v["illegal"] = json!(self.illegal);
         v["timeouts"] = json!(self.timeouts);
+        v["mcp"] = json!(self.mcp);
         v["illegal_rate"] = json!(if self.moves == 0 { 0.0 } else { round3(self.illegal as f64 / moves) });
         v["avg_move_ms"] = json!(if self.moves == 0 { 0 } else { self.move_ms_sum / self.moves });
         v["games_played"] = json!(self.by_game.len());
@@ -193,8 +295,34 @@ impl Player {
         if let Some(m) = self.config.get("model").and_then(|m| m.as_str()) {
             v["model"] = json!(m);
         }
+        // `module` means two different things and they must not be confused:
+        // for a wasm or class player it is a module stored *here*, by id; for
+        // an mcp player it is a module of the fleet, by name, which this arena
+        // holds no bytes for.
         if let Some(m) = self.config.get("module").and_then(|m| m.as_str()) {
-            v["module"] = json!(m);
+            match self.kind.as_str() {
+                "mcp" | "module" => v["via"] = json!(m),
+                _ => v["module"] = json!(m),
+            }
+        }
+        if self.kind == "mcp" {
+            for key in ["server", "tool", "url"] {
+                if let Some(x) = self.config.get(key).and_then(|v| v.as_str()) {
+                    v[key] = json!(x);
+                }
+            }
+        }
+        // The move clock this seat asked for. A card carries no config, and
+        // the runner reads the clock off the card — so a seat that set one and
+        // was never given it timed out at the default anyway.
+        if let Some(ms) = self.config.get("timeout_ms").and_then(|v| v.as_u64()) {
+            v["timeout_ms"] = json!(ms);
+        }
+        // What a server-driven player is told each move, so the players tab
+        // can say it without a click. The full template is on get_player.
+        if let Some(pc) = crate::players::prompt_card(self) {
+            v["system"] = pc["system"].clone();
+            v["brief"] = pc["brief"].clone();
         }
         v
     }
@@ -217,6 +345,9 @@ pub struct Seat {
     pub timeouts: u64,
     #[serde(default)]
     pub ms: u64,
+    /// MCP calls made from this seat during the match.
+    #[serde(default)]
+    pub mcp: u64,
     #[serde(default)]
     pub elo_before: f64,
     #[serde(default)]
@@ -241,6 +372,10 @@ pub struct Turn {
     pub ms: u64,
     #[serde(default)]
     pub note: String,
+    /// What a server-driven player was asked this turn, verbatim. Empty for
+    /// wasm/class players, which see the view directly and get no prompt.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub prompt: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -278,6 +413,7 @@ impl Match {
             "seats": self.seats.iter().map(|s| json!({
                 "seat": s.seat, "player_id": s.player_id, "player_name": s.player_name,
                 "score": s.score, "moves": s.moves, "illegal": s.illegal, "timeouts": s.timeouts,
+                "ms": s.ms, "mcp": s.mcp,
                 "elo_after": round1(s.elo_after), "delta": round1(s.elo_after - s.elo_before),
                 "error": s.error,
             })).collect::<Vec<_>>(),
@@ -349,7 +485,38 @@ impl Store {
             }
             return None; // ambiguous prefix resolves to nothing, never to a guess
         }
-        self.modules.values().find(|m| m.name.eq_ignore_ascii_case(k))
+        // A name is the current version's: an edit hands it on, and the old
+        // bytes keep answering to their id only.
+        self.modules
+            .values()
+            .filter(|m| m.name.eq_ignore_ascii_case(k))
+            .min_by_key(|m| (!m.superseded.is_empty(), std::cmp::Reverse(m.created)))
+    }
+
+    /// The current version of whatever `id` is a version of.
+    pub fn head(&self, id: &str) -> Option<&WasmModule> {
+        let mut at = self.modules.get(id)?;
+        for _ in 0..1000 {
+            match self.modules.get(&at.superseded) {
+                Some(next) if !at.superseded.is_empty() => at = next,
+                _ => break,
+            }
+        }
+        Some(at)
+    }
+
+    /// The versions behind a module, newest first, the module itself first.
+    pub fn lineage(&self, id: &str) -> Vec<&WasmModule> {
+        let mut out = vec![];
+        let mut at = self.modules.get(id);
+        while let Some(m) = at {
+            if out.iter().any(|o: &&WasmModule| o.id == m.id) {
+                break; // a cycle would be a bug; never loop on one
+            }
+            out.push(m);
+            at = if m.parent.is_empty() { None } else { self.modules.get(&m.parent) };
+        }
+        out
     }
 
     pub fn player(&self, key: &str) -> Option<&Player> {
@@ -411,4 +578,26 @@ pub fn write<T>(f: impl FnOnce(&mut Store) -> T) -> T {
     let out = f(&mut guard);
     guard.save();
     out
+}
+
+#[cfg(test)]
+mod turn_prompt_tests {
+    use super::Turn;
+
+    /// A runner that records a prompt keeps it; one that doesn't (wasm/class
+    /// turns, older runners) still deserializes, and an empty prompt is not
+    /// written back out.
+    #[test]
+    fn prompt_round_trips_and_is_optional() {
+        let with: Turn = serde_json::from_str(
+            r#"{"turn":1,"seat":0,"view":"v","raw":"r","mv":"m","legal":true,"ms":5,"note":"","prompt":"You are seat 0."}"#,
+        ).unwrap();
+        assert_eq!(with.prompt, "You are seat 0.");
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(json.contains("\"prompt\":\"You are seat 0.\""));
+
+        let without: Turn = serde_json::from_str(r#"{"turn":1,"seat":1}"#).unwrap();
+        assert_eq!(without.prompt, "");
+        assert!(!serde_json::to_string(&without).unwrap().contains("prompt"));
+    }
 }

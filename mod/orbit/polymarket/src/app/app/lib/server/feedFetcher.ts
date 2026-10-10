@@ -25,10 +25,11 @@
 
 import {
   MAX_LOOKBACK_DAYS, fetchPositions, fetchWalletTradesIncremental, fetchWalletTradesUntil,
+  walkReachedCutoff,
 } from "../polymarket";
 import type { TraderFeed } from "../hubReplay";
 import {
-  coverage, emptyMeta, readFeed, readMeta, writeFeed, writeMeta,
+  FEED_FORMAT, coverage, emptyMeta, readFeed, readMeta, writeFeed, writeMeta,
   type FeedCoverage, type FeedMeta,
 } from "./feedStore";
 
@@ -55,6 +56,20 @@ const REFRESH_BUDGET = 40;
     full 30-day walk (tens of pages), so this is much smaller than the refresh
     budget — the rest are picked up by the next fetch cycle. */
 const INLINE_COLD_BUDGET = 4;
+
+/** Upstream FILL rows a cold walk will page through before giving up on
+    reaching the 30-day cutoff.
+
+    Sized against the store's own ceiling rather than picked round: rows are
+    aggregated per leader action now, so N fills become fewer stored rows, and
+    a walk capped below `MAX_TRADES_PER_FEED` would hand the store less than it
+    is willing to keep — a rebuilt feed covering LESS history than the one it
+    replaced. At the old 4000 the busiest leaders came back with two days.
+
+    It is a ceiling, not a target: most traders reach the 30-day cutoff long
+    before it, and only the first walk per trader pays for it — every later
+    sync is incremental. */
+const COLD_WALK_MAX_FILLS = 10_000;
 
 /** Backoff after consecutive failures: 1m, 4m, 16m, capped at 1h. A trader
     whose feed 429s repeatedly stops being retried every cycle. */
@@ -97,11 +112,21 @@ async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
 // the same instant; without this both would walk /activity for them.
 const inFlight = new Map<string, Promise<FeedMeta>>();
 
+/** A payload written under an older FEED_FORMAT can't be topped up, only
+    replaced — an incremental sync would merge correct rows into wrong ones and
+    leave the feed permanently half-wrong. */
+function staleFormat(meta: FeedMeta | null): boolean {
+  return !!meta && meta.tradesAt > 0 && (meta.format ?? 1) < FEED_FORMAT;
+}
+
 /** True when this address is due for a network sync. Reads meta only — the
     scheduler asks this for the whole roster every cycle. */
 function isDue(meta: FeedMeta | null, maxAgeMs: number): boolean {
   if (!meta || meta.tradesAt === 0) return true;
   if (Date.now() - meta.attemptedAt < backoffMs(meta.fails)) return false;
+  // Backoff still applies (checked above) so a rebuild storm can't ignore a
+  // failing upstream, but otherwise an out-of-date payload is due now.
+  if (staleFormat(meta)) return true;
   return Date.now() - meta.tradesAt > maxAgeMs;
 }
 
@@ -118,14 +143,17 @@ export function syncFeed(address: string): Promise<FeedMeta> {
   const run = (async (): Promise<FeedMeta> => {
     const prevMeta = readMeta(key) ?? emptyMeta(key);
     const prev = prevMeta.tradeCount > 0 || prevMeta.positionCount > 0 ? readFeed(key) : null;
-    const prevTrades = prev?.trades ?? [];
+    // Dropping the baseline is what turns this sync into a full cold walk —
+    // see `staleFormat`. The old payload stays readable on disk until the walk
+    // succeeds, so a rebuild that 429s doesn't leave the hub with no feed.
+    const prevTrades = staleFormat(prevMeta) ? [] : prev?.trades ?? [];
     const cutoffMs = Date.now() - MAX_LOOKBACK_DAYS * 86400_000;
     const cutoffSec = Math.floor(cutoffMs / 1000);
     try {
       const trades = await withSlot(() =>
         prevTrades.length > 0
           ? fetchWalletTradesIncremental(key, prevTrades, cutoffSec)
-          : fetchWalletTradesUntil(key, cutoffSec, undefined, 4000),
+          : fetchWalletTradesUntil(key, cutoffSec, undefined, COLD_WALK_MAX_FILLS),
       );
       // Positions age on their own clock — a trade sync shouldn't drag a
       // second paginated fetch along with it every time.
@@ -140,14 +168,34 @@ export function syncFeed(address: string): Promise<FeedMeta> {
         }
       }
       const now = Date.now();
+      // What the walk actually reached, not what it asked for. A cold walk is
+      // capped at `maxTrades` rows; a trader who does more than that inside
+      // the window leaves it stopping partway, and recording the requested
+      // cutoff anyway told every downstream reader we had 30 days of a trader
+      // we had two of. Truncated → coverage starts at the oldest row we hold.
+      const oldestMs = trades.reduce(
+        (m, t) => (t.timestamp < m ? t.timestamp : m),
+        Number.POSITIVE_INFINITY,
+      );
+      const wasCold = prevTrades.length === 0;
+      const truncated = wasCold
+        ? walkReachedCutoff(key) === false
+        : prevMeta.truncated ?? false;
+      const covered = truncated && Number.isFinite(oldestMs)
+        ? oldestMs
+        : cutoffMs;
       const meta: FeedMeta = {
         ...prevMeta,
+        format: FEED_FORMAT,
         tradesAt: now,
         positionsAt,
-        // A full walk establishes coverage; an incremental one inherits it.
-        coveredFromMs: prevTrades.length > 0 && prevMeta.coveredFromMs > 0
-          ? Math.max(prevMeta.coveredFromMs, cutoffMs)
-          : cutoffMs,
+        // A full walk establishes coverage; an incremental one inherits it —
+        // but an incremental top-up can never EXTEND coverage backwards, so a
+        // truncated feed stays truncated until it is cold-walked again.
+        coveredFromMs: !wasCold && prevMeta.coveredFromMs > 0
+          ? Math.max(prevMeta.coveredFromMs, Math.min(covered, cutoffMs))
+          : covered,
+        truncated,
         fails: 0,
         attemptedAt: now,
         lastError: undefined,

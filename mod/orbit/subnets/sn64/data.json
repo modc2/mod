@@ -1,0 +1,135 @@
+{
+  "netuid": 64,
+  "name": "Chutes",
+  "symbol": "ش",
+  "owner": "5FRYKhbmfXPDoHdUUDMx27E3HuMvAzwjzFMMq3rNurUhAyS9",
+  "description": "Breakthrough Serverless Compute for AI, At Scale.",
+  "github": "https://github.com/chutesai/chutes",
+  "url": "https://chutes.ai",
+  "discord": "https://discord.gg/chutes",
+  "logo": "https://storage.googleapis.com/chutes-random/logo-chutes.png",
+  "registered_at": 4531295,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [
+    "chutes"
+  ],
+  "market": {
+    "price": 0.069949426,
+    "moving_price": 0.06983634736388922,
+    "market_cap": 447725.9688250348,
+    "tao_in": 202851.158399588,
+    "alpha_in": 2899968.880601648,
+    "alpha_out": 3500740.809639911,
+    "volume": 5089790.941138226,
+    "vol_24h": 911.1848108954728,
+    "emission": 0.0,
+    "change_1h": 0.00027162555427118207,
+    "change_24h": 0.2731537665091599,
+    "change_7d": -0.6115501778535148
+  },
+  "spark_24h": [
+    0.069758877,
+    0.069762194,
+    0.069766195,
+    0.069768851,
+    0.069762771,
+    0.069766863,
+    0.069754509,
+    0.069753926,
+    0.069752785,
+    0.0697548,
+    0.069758565,
+    0.069762679,
+    0.06976676,
+    0.069771946,
+    0.06977647,
+    0.06978067,
+    0.069787237,
+    0.069796166,
+    0.069773747,
+    0.069777691,
+    0.069766202,
+    0.069770096,
+    0.069772559,
+    0.069777625,
+    0.069780953,
+    0.069784059,
+    0.069786594,
+    0.069790596,
+    0.069795204,
+    0.069805052,
+    0.069814341,
+    0.069834768,
+    0.069862758,
+    0.069804782,
+    0.069809298,
+    0.069813136,
+    0.06981043,
+    0.069842909,
+    0.069844674,
+    0.069855506,
+    0.069862188,
+    0.069865617,
+    0.069932451,
+    0.0699362,
+    0.069941165,
+    0.069947047,
+    0.069949236,
+    0.069949426
+  ],
+  "trades_24h": {
+    "trades": 231,
+    "buys": 141,
+    "sells": 90,
+    "buy_tao": 331.969241782,
+    "sell_tao": 309.211034067,
+    "net_tao": 22.75820771499997,
+    "traders": 119
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EYexJMGs7U14qGTXEJLK6N5oNAUQu7CCRGBzGhbyc3eDcXR",
+      "net_tao": 102.399999,
+      "gross_tao": 102.399999,
+      "trades": 1
+    },
+    {
+      "coldkey": "5ESQ2z4qMu5uEhbYVNbsQwusoEpGpeden1oCoQzBybFCKfS7",
+      "net_tao": -99.90049805,
+      "gross_tao": 99.90049805,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HL56LdrCZisFzVdrPMeCx3ERkrGRXD8cUXTwG9XGv4k58g1",
+      "net_tao": 88.189668427,
+      "gross_tao": 88.189668427,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CfcBtYH2ZveMKEGo78KwdMrCntrnvY73AkYtNDWg4XFSbn8",
+      "net_tao": -31.496354573,
+      "gross_tao": 31.496354573,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DZ9nbUvRsv4cthwU7NzDmxo2g2fbFLXnn9BFSPrF7ri8RwX",
+      "net_tao": -10.493267267,
+      "gross_tao": 20.833267267,
+      "trades": 5
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789494202,
+      "kind": "blog",
+      "source": "site",
+      "title": "I let Hermes write its own Chutes config",
+      "url": "https://chutes.ai/news/open-agent-open-weights-open-enclave",
+      "publisher": "chutes.ai"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

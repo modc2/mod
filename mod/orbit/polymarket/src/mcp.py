@@ -1,26 +1,61 @@
 #!/usr/bin/env python3
 """polymarket mcp — Model Context Protocol server for the polymarket console.
 
-Turns the module into tools any MCP client (Claude Code / Desktop, an agent
-framework, another module) can call: read markets and leaderboards, inspect a
-trader's flow, read the strats this deployment runs, read the background
-worker's cached backtests — including the entry FUNNEL that says how much of
-the observed leader flow each strat actually copies and which gate blocked the
-rest — and read what the live engine is doing right now.
+This is the agent's half of the console, and for the COPY DESK it is the
+backend: the `pm_copy_*` tools call `/copy/*` on the Rust API, which is exactly
+what the browser calls. An agent and a person are looking at one desk — the
+copy book lives on the server (api/src/copy.rs), plaintext, so "put $50 on
+0xab…" over MCP shows up on the screen at the next poll, and an amount changed
+on the screen is what the agent reads next.
 
-READ-ONLY BY DESIGN. There is deliberately no order-placing tool: the console
-signs and submits real money through the deposit wallet, and a mis-prompted
-agent must not be able to reach that. The one tool with a side effect
-(`pm_backtest_run`) spends CPU and data-api calls, nothing else.
+What an agent can do here:
+
+  RESEARCH  pm_markets, pm_top_traders, pm_trader — find someone worth copying
+            and check the one thing that disqualifies most leaders (sub-hour
+            candle flow no poller can copy).
+  DECIDE    pm_copy_backtest — replay copying ONE trader over a window, with
+            the walk-forward verdict, before any money is committed.
+  ALLOCATE  pm_copy_book / pm_copy_allocate / pm_copy_remove /
+            pm_copy_rebalance — the desk itself.
+  OPERATE   pm_copy_start / pm_copy_stop, pm_live_sessions, pm_live_gates —
+            run it and find out why it isn't trading.
+
+SAFETY. There is no order-placing tool, and there never will be: the console
+signs real money through the deposit wallet and a mis-prompted agent must not
+reach it. The one thing that CAN spend money is `pm_copy_start` with
+`autoExecute: true`, and it is refused unless the deployment sets
+POLYMARKET_MCP_ALLOW_LIVE=1 — without it, an agent can research, allocate,
+backtest and DRY RUN, and a human flips the last switch in the browser. The
+same gate covers RE-sizing a session a human already flipped live: without
+ALLOW_LIVE, pm_copy_allocate and pm_copy_rebalance refuse while any session on
+that wallet is executing, so an ungated agent can never grow real exposure.
+Stopping is always allowed; it only ever reduces exposure.
+
+CONSOLE CHAT. When this server is spawned by the console's chat agent (env
+POLYMARKET_AGENT_RUN), money-moving and strat-changing tools additionally
+park as approval cards the owner answers in the browser — see "the approval
+gate" section below. The pm_strat_create/update/delete tools exist ONLY for
+that path: private strats are encrypted with a browser-held key, so the
+approved operation is applied by the console itself at the APPROVE click.
 
 Transports:
     python3 src/mcp.py                    # stdio — one JSON-RPC msg per line
     python3 src/mcp.py --http [--port N]  # Streamable HTTP — POST /mcp (:50092)
+    python3 src/mcp.py --token            # print an owner Bearer token for --http
 
-Auth: this deployment is owner-only (api/src/access.rs). The server mints the
-same Bearer token the console's sign-in issues, from the HMAC secret at
-~/.mod/polymarket/server.secret — so it works exactly when the local owner's
-console works, and not otherwise. Nothing here accepts a token from a caller.
+Auth. UPSTREAM: this deployment is owner-only (api/src/access.rs), and the
+server mints the same Bearer token the console's sign-in issues, from the HMAC
+secret at ~/.mod/polymarket/server.secret — so it works exactly when the local
+owner's console works, and not otherwise.
+
+DOWNSTREAM: because that mint is unconditional, the transport itself decides
+who may drive the desk. stdio is trusted by construction (the caller already
+runs as the owner's user and can read the secret directly). The HTTP transport
+is NOT: it therefore requires `Authorization: Bearer <owner token>` on every
+POST and verifies it exactly as the Rust gate does, failing closed when no
+owner or secret resolves. It also binds 127.0.0.1 by default — set
+POLYMARKET_MCP_HTTP_HOST to widen it deliberately. Mint a token for a client
+with `--token`.
 """
 import hashlib
 import hmac
@@ -43,18 +78,26 @@ SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
 DEFAULT_PROTOCOL_VERSION = '2025-03-26'
 
 INSTRUCTIONS = (
-    'Polymarket console: prediction-market data, copy-trading strats and a '
-    'live copy engine. Use pm_markets/pm_top_traders/pm_trader to look at the '
-    'market and who is trading it; pm_strats for the strategies this '
-    'deployment runs and pm_backtests for their cached 1-day backtests — read '
-    "the `funnel` on each: it says how many of the leader's entries the strat "
-    'actually copied and which gate blocked the rest, which is the answer to '
-    'almost every "why is it not trading?" question, and the `settlement`, '
-    'which says how much of that P&L was settled against real market '
-    'resolutions vs still marked at the last observed price (unverified marks '
-    'read high — losers expire quietly). pm_live_sessions and '
-    'pm_live_gates show what the engine is doing right now. Read-only: no tool '
-    'here can place, cancel or size an order.'
+    'Polymarket COPY DESK: copy individual traders, with a dollar amount '
+    'against each name. `pm_copy_book` is the desk and the place to start — '
+    'who is copied, with how much, running or not, DRY RUN or real, and what '
+    "each has actually made. The normal loop is: pm_top_traders / pm_trader to "
+    'find a leader and check what share of their flow is sub-hour Up/Down '
+    'candles (a poller cannot copy those — it is a measured loss, and it '
+    'disqualifies most high-frequency leaders); pm_copy_backtest to replay '
+    'copying THEM specifically, reading `walkForward.verdict` (only "held" '
+    'means it worked in the prior window and this one) and `funnel` (how many '
+    'of their entries this desk could actually copy, and which gate blocked '
+    'the rest — "flat" is usually "blocked"); pm_copy_allocate to put money '
+    'against them; pm_copy_start to run it. '
+    'Allocation is the whole position-sizing model: the amount on a row is '
+    'what the engine budgets against and what the backtest replays with. '
+    'Starting DEFAULTS TO DRY RUN — mirrors computed, nothing placed — and '
+    'real order placement over MCP is refused unless the deployment opts in '
+    'with POLYMARKET_MCP_ALLOW_LIVE=1. There is no order-placing tool at all. '
+    'When a session runs but does not fill, call pm_live_gates before '
+    'theorising. pm_strats/pm_backtests cover the older multi-trader index '
+    'strategies, which are a different thing from the desk.'
 )
 
 
@@ -92,6 +135,45 @@ def _token() -> str:
     return f'pma1.{owner}.{exp}.{sig}'
 
 
+def _verify_owner_token(token: str) -> bool:
+    """Is `token` a valid owner token for THIS deployment?
+
+    Mirrors the Rust gate (api/src/access.rs::verify_token) field for field:
+    `pma1.<addr>.<exp>.<sig>`, unexpired, HMAC-SHA256 over `pma1|addr|exp`
+    with the persisted server secret, compared in constant time, and the
+    address re-checked against the current owner so rotating the owner
+    immediately locks old tokens out. Fails CLOSED — any missing secret,
+    missing owner or malformed token is a rejection, never a pass.
+    """
+    try:
+        parts = token.split('.')
+        if len(parts) != 4 or parts[0] != 'pma1':
+            return False
+        _, addr, exp, sig = parts
+        if int(exp) <= int(time.time()):
+            return False
+        secret = bytes.fromhex(
+            open(os.path.join(_state_dir(), 'server.secret')).read().strip())
+        expect = hmac.new(secret, f'pma1|{addr}|{int(exp)}'.encode(),
+                          hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expect):
+            return False
+        return addr.strip().lower() == _owner()
+    except Exception:
+        return False
+
+
+def _truthy(v) -> bool:
+    """Strict truthiness for tool arguments.
+
+    `bool("false")` is True, and this flag decides whether real money moves —
+    so the string forms an LLM actually emits are parsed, not coerced.
+    """
+    if isinstance(v, str):
+        return v.strip().lower() in ('1', 'true', 'yes', 'on')
+    return bool(v)
+
+
 def _get(url: str, timeout: float = 30.0):
     req = urllib.request.Request(url, headers={'Authorization': f'Bearer {_token()}'})
     try:
@@ -123,7 +205,7 @@ def _api(endpoint: str, **params) -> object:
 
 
 def _hub(path: str = '') -> str:
-    return f'{APP_URL}{BASE_PATH}/api/hub{path}'
+    return f'{APP_URL}{BASE_PATH}/_api/hub{path}'
 
 
 def _req(args: dict, key: str) -> str:
@@ -170,9 +252,61 @@ def _t_markets(args):
     return {'markets': [{k: m.get(k) for k in keep if k in m} for m in (rows or [])[:limit]]}
 
 
+# Only traders who have filled something in the last N hours count as
+# copyable. Same default the console's leaderboard lands on — an agent and a
+# person asking "who should I copy" must not get different answers.
+DEFAULT_ACTIVE_HOURS = 6
+
+
+# The ranking metric is parameterized; winRate is the default, matching the
+# console's SCORE preset. Keys are the server's sort keys verbatim.
+TRADER_SORTS = ('winRate', 'best', 'roi', 'steady', 'resolveRate', 'exitEntry', 'sharpe', 'pnl', 'volume', 'history')
+
+
 def _t_top_traders(args):
     days = int(args.get('days') or 7)
     limit = int(args.get('limit') or 20)
+    hours = args.get('active_hours')
+    hours = DEFAULT_ACTIVE_HOURS if hours is None else float(hours)
+    sort = str(args.get('sort') or TRADER_SORTS[0])
+    if sort not in TRADER_SORTS:
+        sort = TRADER_SORTS[0]
+    params = {
+        'days': days,
+        # The pool the server's warmup actually aggregates — any other value is
+        # a different cache key and answers cold.
+        'pool': 2000,
+        'paged': '1',
+        'pageSize': min(max(limit, 1), 100),
+        'page': 0,
+        'sort': sort,
+        'order': 'desc',
+        'category': str(args.get('category') or ''),
+    }
+    if hours > 0:
+        params['maxLastTradeHrs'] = hours
+    # Track-record floor. A long `days` over a wallet that opened last week is
+    # mostly a flat line; this is how a caller demands N days of record behind
+    # the names it gets back. Unresolved ages are kept, not cut.
+    min_history = float(args.get('min_history_days') or 0)
+    if min_history > 0:
+        params['minHistoryDays'] = min_history
+    # Paged reads answer from the warm cache and never trigger an aggregation:
+    # the filters, the sort and the row count all run over the cached payload.
+    paged = _get(f'{API_URL}/active-traders?{urllib.parse.urlencode(params)}', timeout=60)
+    if isinstance(paged, dict) and not paged.get('cold'):
+        return {
+            'traders': paged.get('traders') or [],
+            'total': paged.get('total'),
+            'activeHours': hours if hours > 0 else None,
+            'dormantHidden': paged.get('activityDropped'),
+            'minHistoryDays': min_history or None,
+            'tooNewHidden': paged.get('historyDropped'),
+            'candidatePool': paged.get('candidatePool'),
+            'source': paged.get('source'),
+            'syncedAt': paged.get('syncedAt'),
+        }
+    # Cold cache — nothing to serve, so pay for the aggregation once. Minutes.
     qs = urllib.parse.urlencode({'days': days, 'limit': limit, 'format': 'json',
                                  'category': str(args.get('category') or '')})
     return _get(f'{API_URL}/active-traders?{qs}', timeout=180)
@@ -247,6 +381,12 @@ def _t_backtests(args):
         s = bt.get('settlement') or {}
         rows.append({
             'key': key, 'name': owned.get(key), 'pnl': bt.get('pnl'), 'roi': bt.get('roi'),
+            # Polymarket's taker fee, already deducted from `pnl`. Carried
+            # separately because it is the usual reason a strat with a real
+            # edge still loses: the fee is `rate x p x (1-p) x shares`, 4-7%
+            # by category, and it PEAKS at 50c. A strat trading coin flips in
+            # crypto markets pays ~3.5% of notional per side.
+            'fees': bt.get('fees'), 'fee_bps_of_volume': bt.get('feeBps'),
             'trades': bt.get('trades'), 'capital': bt.get('capital'),
             'traders': bt.get('traders'), 'note': bt.get('note'),
             'ran_at': bt.get('at'), 'by': bt.get('by'),
@@ -278,6 +418,20 @@ def _t_backtests(args):
                 'prior_window': [(bt.get('forward') or {}).get('from'),
                                  (bt.get('forward') or {}).get('to')],
             } if bt.get('forward') else None,
+            # TRAIN/TEST SPLIT. The same window replayed with the trader stats
+            # frozen at its START: the roster is picked (and every edge priced)
+            # on the earlier record only, then the window is traded blind.
+            # `pnl` above lets the FILTER rank traders on days it is scoring —
+            # holdout.pnl is the deployable number; pnl − holdout.pnl is what
+            # peeking at the window was worth to the trader selection.
+            'holdout': {
+                'pnl': (bt.get('holdout') or {}).get('pnl'),
+                'roi': (bt.get('holdout') or {}).get('roi'),
+                'trades': (bt.get('holdout') or {}).get('trades'),
+                'profitable': (bt.get('holdout') or {}).get('ok'),
+                'stats_window': [(bt.get('holdout') or {}).get('statsFrom'),
+                                 (bt.get('holdout') or {}).get('statsTo')],
+            } if bt.get('holdout') else None,
             'funnel': {'observed': f.get('observed'), 'copied': f.get('executed'),
                        'blocked_by_filters': f.get('gated'), 'outranked': f.get('outranked'),
                        'unplaceable': f.get('skipped'), 'reasons': f.get('reasons')} if f else None,
@@ -303,6 +457,54 @@ def _t_backtest_run(args):
     if args.get('wait') is False:
         return _post(_hub('?run=1'))
     return _post(_hub(), method='PUT')
+
+
+def _lab(path: str = '') -> str:
+    return f'{APP_URL}{BASE_PATH}/_api/lab{path}'
+
+
+def _t_lab_backtest(args):
+    """The STRAT LAB bench: replay one CANDIDATE param set (not a saved strat)
+       over the server's cached trader feeds, walk-forward included. Publishes
+       nothing — pure experiment."""
+    params = args.get('params')
+    if not isinstance(params, dict):
+        raise ValueError('params required — the candidate strat as an object '
+                         '(traders: [0x…], capital, minTrade, …)')
+    windows = args.get('windows') or [1]
+    # Cold traders can force inline backfills; give the bench real time.
+    return _post(_lab('?candidate=1'), {'params': params, 'windows': windows}, timeout=900)
+
+
+def _t_lab_start(args):
+    return _post(_lab(), {k: args[k] for k in ('goal', 'maxExperiments') if args.get(k) is not None})
+
+
+def _t_lab_runs(args):
+    rid = str(args.get('id') or '').strip()
+    return _get(_lab(f'?id={urllib.parse.quote(rid)}' if rid else ''), timeout=30)
+
+
+def _autostrat(path: str = '') -> str:
+    return f'{APP_URL}{BASE_PATH}/_api/autostrat{path}'
+
+
+def _t_autostrat(args):
+    """AUTO STRAT factory: one-shot agent runs that invent, bench and register
+       a copy-index strat. op=status|run|on|off."""
+    op = str(args.get('op') or 'status').strip().lower()
+    if op == 'run':
+        body = {}
+        theme = str(args.get('theme') or '').strip()
+        if theme:
+            body['theme'] = theme
+        return _post(_autostrat('?run=1'), body, timeout=60)
+    if op in ('on', 'off'):
+        body = {'enabled': op == 'on'}
+        if args.get('intervalSecs') is not None:
+            body['intervalSecs'] = int(args['intervalSecs'])
+        return _post(_autostrat(), body, timeout=30)
+    return _get(_autostrat(), timeout=30)
 
 
 def _t_live_sessions(args):
@@ -351,12 +553,530 @@ def _t_live_gates(args):
     }
 
 
+# ── the copy desk ──
+#
+# Every tool below is one call to /copy/* — the same routes the browser's COPY
+# DESK calls. Nothing here keeps its own state.
+
+
+def _delete(url: str, timeout: float = 60.0):
+    return _post(url, None, method='DELETE', timeout=timeout)
+
+
+def _copy_eoa(args) -> str:
+    """Whose sessions to act on. The book itself is deployment-wide; sessions
+       are per wallet, and on a single-owner deployment that wallet is the
+       owner unless the caller says otherwise."""
+    return str(args.get('eoa') or '').strip() or _owner()
+
+
+def _copy_url(path: str, eoa: str | None = None) -> str:
+    qs = f'?eoa={urllib.parse.quote(eoa)}' if eoa else ''
+    return f'{API_URL}/copy{path}{qs}'
+
+
+def _summarize_book(book: dict) -> dict:
+    """The desk, trimmed to what a model should reason about. The raw response
+       carries a full engine snapshot per row; most of it is noise here."""
+    rows = []
+    for a in book.get('allocations') or []:
+        live = a.get('live') or {}
+        ledger = live.get('ledger') or {}
+        rows.append({
+            'address': a.get('address'),
+            'name': a.get('name'),
+            'allocationUsd': a.get('allocationUsd'),
+            'enabled': a.get('enabled'),
+            'strategyId': a.get('strategyId'),
+            'params': a.get('params') or {},
+            'notes': a.get('notes'),
+            # The state that decides what a follow-up question should be.
+            'running': live.get('running', False),
+            # DRY RUN vs real money — the answer to most "it isn't trading"
+            # questions, and the first thing to check before any other theory.
+            'autoExecute': live.get('autoExecute', False),
+            'ordersPlaced': live.get('ordersPlaced'),
+            # Realized only: open positions are marked at the last observed
+            # price, which reads HIGH because leaders sell winners and let
+            # losers expire quietly.
+            'realizedPnl': ledger.get('realized'),
+            'lastFillAt': ledger.get('lastFillAt'),
+            'error': live.get('error'),
+        })
+    return {
+        'bankroll': book.get('bankroll'),
+        'totals': book.get('totals'),
+        'traders': rows,
+    }
+
+
+def _t_copy_book(args):
+    eoa = _copy_eoa(args)
+    book = _get(_copy_url('/book', eoa), timeout=30)
+    out = _summarize_book(book)
+    out['eoa'] = eoa
+    t = book.get('totals') or {}
+    if t.get('running') and not t.get('executing'):
+        out['note'] = ('every running session is in DRY RUN — mirrors are computed and '
+                       'nothing is placed. That is the default and it is deliberate.')
+    if (t.get('unallocatedUsd') or 0) < 0:
+        out['warning'] = ('more is allocated than the bankroll says exists — the engine budgets '
+                          'per trader, so this over-commits the account')
+    return out
+
+
+def _t_copy_allocate(args):
+    """Add a trader to the book, or change what they're copied with."""
+    body = {'address': _req(args, 'address'), 'allocationUsd': float(args['allocationUsd'])}
+    for k in ('label', 'notes'):
+        if args.get(k) is not None:
+            body[k] = str(args[k])
+    if args.get('enabled') is not None:
+        body['enabled'] = bool(args['enabled'])
+    if isinstance(args.get('params'), dict):
+        body['params'] = args['params']
+    eoa = _copy_eoa(args)
+    if not _live_allowed() and _executing(eoa):
+        return _live_gate_error('re-sizing a live allocation')
+    res = _post(_copy_url('/allocations', eoa), body)
+    return {
+        'ok': res.get('ok'),
+        'allocation': res.get('allocation'),
+        'strategyId': res.get('strategyId'),
+        # A running session picks the new size up immediately rather than at
+        # the next manual restart — worth saying, because it means an
+        # allocation change is a live change.
+        'reconfiguredRunningSession': res.get('reconfigured'),
+        'book': _summarize_book(res.get('book') or {}),
+        'next': ('backtest them with pm_copy_backtest before starting, then pm_copy_start '
+                 '(DRY RUN by default)'),
+    }
+
+
+def _t_copy_remove(args):
+    eoa = _copy_eoa(args)
+    addr = _req(args, 'address')
+    res = _delete(_copy_url(f'/allocations/{urllib.parse.quote(addr)}', eoa))
+    return {'ok': res.get('ok'), 'removed': res.get('removed'),
+            'stoppedSession': res.get('stopped'),
+            'book': _summarize_book(res.get('book') or {})}
+
+
+def _t_copy_rebalance(args):
+    eoa = _copy_eoa(args)
+    if not _live_allowed() and _executing(eoa):
+        return _live_gate_error('rebalancing a live book')
+    body = {'bankroll': float(args['bankroll']), 'mode': str(args.get('mode') or 'equal')}
+    res = _post(_copy_url('/rebalance', eoa), body)
+    return {'ok': res.get('ok'), 'reconfiguredRunningSessions': res.get('reconfigured'),
+            'book': _summarize_book(res.get('book') or {})}
+
+
+def _t_copy_backtest(args):
+    """How would copying ONE trader have gone?
+
+       The card comes from the same worker, the same engine and the same window
+       as every other backtest — the desk's leaders are replayed as identity
+       strats, which is literally the object the live engine runs."""
+    addr = _req(args, 'address').lower()
+    if not addr.startswith('0x') or len(addr) != 42:
+        raise ValueError(f'not an address: {addr}')
+    days = int(args.get('days') or 1)
+    sid = f'copy-{addr[2:]}'
+
+    book = _get(_copy_url('/book'), timeout=30)
+    known = {a.get('address') for a in book.get('allocations') or []}
+    added = False
+    if addr not in known:
+        if not args.get('add'):
+            return {'address': addr,
+                    'error': f'{addr} is not on the copy desk, so there is nothing to replay',
+                    'fix': 'call pm_copy_allocate first, or pass add=true to add them at $100 '
+                           'and backtest that'}
+        _post(_copy_url('/allocations'), {'address': addr,
+                                          'allocationUsd': float(args.get('allocationUsd') or 100)})
+        added = True
+
+    # A trader added seconds ago has no card yet; a synchronous pass makes one.
+    # It replays out of the server's cached feeds — CPU, not upstream requests.
+    if added or args.get('run'):
+        # A pass only replays the windows in the manifest (always 1 day, plus
+        # whatever the console last asked for). Forcing a pass for a window
+        # nobody published would run and still produce nothing — so add the
+        # window first, carrying the existing roster through untouched.
+        man = _read_manifest()
+        windows = [w for w in (man.get('windows') or [man.get('days') or 1]) if w]
+        if days not in windows:
+            _post(_hub(), {'days': man.get('days') or 1,
+                           'windows': sorted(set(windows + [days])),
+                           'strats': man.get('strats') or []})
+        _post(_hub(), method='PUT')
+
+    cache = _get(_hub(f'?days={days}'), timeout=30)
+    bt = (cache.get('results') or {}).get(sid)
+    if not bt:
+        return {'address': addr, 'strategyId': sid, 'days': days, 'backtest': None,
+                'note': ('this window has no card for that trader yet'
+                         if args.get('run') or added else
+                         'no replay for this window yet — pass run=true to force a pass now, '
+                         'or wait for the worker (pm_health shows its schedule)'),
+                'why': ('a replay needs the leader\'s trade history in the server\'s feed '
+                        'store; a trader added minutes ago may still be warming. '
+                        'pm_health shows the fetch loop\'s coverage.')}
+    f = bt.get('funnel') or {}
+    s = bt.get('settlement') or {}
+    fwd = bt.get('forward') or {}
+    hold = bt.get('holdout') or {}
+    return {
+        'address': addr, 'strategyId': sid, 'days': bt.get('days'),
+        'addedToDesk': added,
+        'pnl': bt.get('pnl'), 'roi': bt.get('roi'), 'trades': bt.get('trades'),
+        # Already inside `pnl`; broken out because it is the cost a copy of a
+        # busy leader pays whether or not the leader's edge survives it.
+        'fees': bt.get('fees'), 'feeBpsOfVolume': bt.get('feeBps'),
+        'capital': bt.get('capital'), 'ranAt': bt.get('at'), 'note': bt.get('note'),
+        # The number alone is one window. This is whether it survived being
+        # tested on a window it didn't get to see. `held` is the only pass.
+        'walkForward': {'verdict': fwd.get('verdict'), 'confirmed': fwd.get('ok'),
+                        'priorPnl': fwd.get('pnl'), 'priorTrades': fwd.get('trades')} if fwd else None,
+        # Same window, roster picked blind (trader stats frozen at the window
+        # start) — pnl minus holdout.pnl is train/test-overlap inflation.
+        'holdout': {'pnl': hold.get('pnl'), 'roi': hold.get('roi'),
+                    'trades': hold.get('trades'), 'profitable': hold.get('ok')} if hold else None,
+        # How much of the leader's flow this actually copies, and what blocked
+        # the rest. A leader whose entries are all gated is not a leader this
+        # desk can copy, whatever their own P&L says.
+        'funnel': {'observed': f.get('observed'), 'copied': f.get('executed'),
+                   'blocked_by_filters': f.get('gated'), 'outranked': f.get('outranked'),
+                   'unplaceable': f.get('skipped'), 'reasons': f.get('reasons')} if f else None,
+        'settlement': {'resolved': s.get('resolved'), 'unverified': s.get('marked'),
+                       'unverifiedUsd': s.get('markedUsd')} if s else None,
+        'warming': bt.get('warming'),
+    }
+
+
+def _copytrades(path: str = '') -> str:
+    return f'{APP_URL}{BASE_PATH}/_api/copytrades{path}'
+
+
+def _t_copy_trades(args):
+    """What the traders I copy actually did, and what I actually got.
+
+       The one question a per-trader backtest and a live status line both dodge:
+       of the trades the leaders made, how many landed in MY wallet? The answer
+       is a JOIN — my on-chain fills matched to the leader trade they mirror by
+       market, side and time (a fill carries no leader tag, so nothing upstream
+       links them) — and it reports three numbers:
+
+         coverage      copied / their trades. A desk that looks busy and copies
+                       3 of 60 is the failure this module keeps re-finding.
+         medianLagSec  how far behind their fill mine landed.
+         avgSlipCents  what that lag cost, signed against the leader's price.
+
+       `q` filters the feed the way a person talks: "big buys on crypto under
+       30c", "missed longshots", "politics, not candles". The answer echoes
+       what the sentence was READ as (`query.chips`) and what of it can be
+       armed as a real copy gate (`query.gate`) — arm it with pm_copy_allocate
+       params:{marketQuery, tradeFilters}. Reads only; places nothing."""
+    days = max(1, min(30, int(args.get('days') or 7)))
+    params = {'days': str(days)}
+    q = str(args.get('q') or '').strip()
+    if q:
+        params['q'] = q
+    if args.get('eoa'):
+        params['eoa'] = str(args['eoa'])
+    out = _get(_copytrades('?' + urllib.parse.urlencode(params)), timeout=600) or {}
+    s = out.get('summary') or {}
+    limit = max(1, min(200, int(args.get('limit') or 40)))
+    rows = (out.get('rows') or [])[:limit]
+    cov = s.get('coverage')
+    if not s.get('leader'):
+        verdict = ('none of the traders you copy traded in this window — or their feeds '
+                   'have not been fetched yet (see `warming`)')
+    elif not s.get('copied'):
+        verdict = (f"you copied NONE of their {s.get('leader')} trades. In TEST that is "
+                   'expected; in LIVE, pm_copy_backtest\'s funnel names the gate')
+    else:
+        verdict = (f"you got {s.get('copied')} of {s.get('leader')} trades "
+                   f"({round((cov or 0) * 100)}%), median {s.get('medianLagSec')}s behind, "
+                   f"{s.get('avgSlipCents')}c worse than their price")
+    return {
+        'days': out.get('days'),
+        'wallet': out.get('wallet'),
+        'verdict': verdict,
+        'summary': s,
+        'byLeader': out.get('leaders'),
+        # Fills of mine with no leader behind them — engine exits, or hand
+        # trades from the same wallet. Reported, never quietly attributed.
+        'unattributedFills': s.get('unattributed'),
+        'warming': out.get('warming'),
+        'query': out.get('query'),
+        'filtered': out.get('filtered'),
+        'rows': rows,
+        'rowsShown': len(rows),
+    }
+
+
+def _basket(path: str = '') -> str:
+    return f'{APP_URL}{BASE_PATH}/_api/basket{path}'
+
+
+def _t_copy_basket(args):
+    """Copy a SET of traders, a different amount against each, replayed as one
+       basket over N days.
+
+       This is not N calls to pm_copy_backtest glued together, and the
+       difference is the point. Each leg is replayed on its OWN capital — which
+       is what the desk runs (one allocation = one live session with its own
+       budget) — and then the honesty numbers are about the SPLIT:
+
+         legsTrading/legs  how many legs actually placed an order. The rest
+                           held cash for the whole window.
+         idleUsd           the dollars in those legs. An underfunded leg is not
+                           a small position, it is NO position: its
+                           proportional mirror lands under the order floor.
+         floors            the smallest amount at which each leg would trade
+                           at all (floors=true).
+         comparison        the same total divided EVENLY. If your amounts don't
+                           beat that, the conviction in your sizing didn't pay
+                           for itself in this window (compare=true).
+
+       Places nothing and writes nothing — sizing a basket is not committing to
+       it. pm_copy_allocate is how a leg becomes real."""
+    legs = args.get('legs')
+    from_desk = bool(args.get('fromDesk'))
+    if not legs and not from_desk:
+        raise ValueError('legs required — [{"address": "0x…", "allocationUsd": 250}, …] '
+                         'or fromDesk=true to replay what the desk already holds')
+    body = {
+        'days': int(args.get('days') or 7),
+        'compare': bool(args.get('compare')),
+        'floors': bool(args.get('floors')),
+    }
+    if from_desk:
+        body['fromDesk'] = True
+    else:
+        body['legs'] = legs
+    if args.get('total'):
+        body['total'] = float(args['total'])
+    if args.get('split'):
+        body['split'] = str(args['split'])
+    if args.get('ladder'):
+        body['ladder'] = [float(x) for x in args['ladder']][:10]
+
+    out = _post(_basket(), body, timeout=600)
+    p = (out or {}).get('portfolio') or {}
+    idle = p.get('idleUsd') or 0
+    # The one-line reading of the run, so a caller that only looks at `pnl`
+    # still can't miss "a third of your money never traded".
+    if p.get('legsTrading') == 0:
+        verdict = ('this basket copied NOTHING — every leg was refused. '
+                   'Re-run with floors=true for the smallest amount each leg needs.')
+    elif idle > 0:
+        verdict = (f"${idle:,.0f} across {(p.get('legs') or 0) - (p.get('legsTrading') or 0)} "
+                   'leg(s) never traded — that capital sat in cash for the whole window')
+    elif (p.get('confidence') or 1) < 0.7:
+        verdict = (f"only {round((p.get('confidence') or 0) * 100)}% of this result is a settled "
+                   'market; the rest values inventory at the last price a leader printed, '
+                   'which forgives losers — read it as an upper bound')
+    else:
+        verdict = 'every funded leg traded'
+    out['verdict'] = verdict
+    return out
+
+
+def _live_allowed() -> bool:
+    return (os.environ.get('POLYMARKET_MCP_ALLOW_LIVE') or '').strip() == '1'
+
+
+def _live_gate_error(what: str) -> dict:
+    return {'error': f'{what} is not available over MCP on this deployment',
+            'why': 'POLYMARKET_MCP_ALLOW_LIVE is not set to 1 and this wallet has a '
+                   'session placing real orders',
+            'what_you_can_do': 'a human changes real-money sizing from the COPY DESK in '
+                               'the browser. pm_copy_stop always works — it only ever '
+                               'reduces exposure.'}
+
+
+def _executing(eoa: str) -> bool:
+    """Is any session on this wallet placing real orders right now?
+
+    The ALLOW_LIVE gate on pm_copy_start only guards a COLD start; allocate and
+    rebalance reconfigure a session that is already running, and a running
+    session picks the new size up on its next cycle. So once a human has
+    flipped one session live, those two tools are a real-money control surface
+    and go through the same gate. Fails CLOSED: if the book can't be read we
+    cannot prove the wallet is dry, so we assume it is not.
+    """
+    try:
+        return bool(((_get(_copy_url('/book', eoa), timeout=30) or {})
+                     .get('totals') or {}).get('executing'))
+    except Exception:
+        return True
+
+
+def _t_copy_start(args):
+    eoa = _copy_eoa(args)
+    auto = _truthy(args.get('autoExecute'))
+    if auto and not _live_allowed():
+        # Refused loudly rather than silently downgraded: an agent told "it
+        # started" would report a live desk that is dry-running.
+        return {'error': 'real order placement is not available over MCP on this deployment',
+                'why': 'POLYMARKET_MCP_ALLOW_LIVE is not set to 1',
+                'what_you_can_do': 'start in DRY RUN (omit autoExecute) — the engine computes '
+                                   'every mirror it would place and places none. A human turns '
+                                   'on real execution from the COPY DESK in the browser.'}
+    body = {'eoa': eoa, 'autoExecute': auto}
+    if args.get('address'):
+        body['address'] = str(args['address'])
+    res = _post(_copy_url('/start'), body, timeout=120)
+    return {'ok': res.get('ok'), 'mode': res.get('mode'), 'eoa': eoa,
+            'tradingWallet': res.get('proxyAddress'),
+            'started': res.get('started'),
+            'book': _summarize_book(res.get('book') or {}),
+            'next': 'pm_live_gates says why a running session is not filling'}
+
+
+def _t_copy_stop(args):
+    eoa = _copy_eoa(args)
+    body = {'eoa': eoa}
+    if args.get('address'):
+        body['address'] = str(args['address'])
+    res = _post(_copy_url('/stop'), body, timeout=120)
+    return {'ok': res.get('ok'), 'stopped': res.get('stopped'),
+            'book': _summarize_book(res.get('book') or {})}
+
+
+def _t_strat_console(args):
+    """pm_strat_* outside the console chat: explain why there's nothing to do.
+
+    Private strats are encrypted with a key held only by the owner's browser,
+    so the server cannot author, edit or delete them. Inside the console chat
+    these calls park as approval cards and the APPROVE click applies them in
+    the console itself (see the approval gate below); any other caller gets
+    this honest refusal instead of a silent no-op."""
+    return {
+        'error': 'this tool only works inside the console chat',
+        'why': "private strats are encrypted with a key that never leaves the owner's "
+               'browser — the server cannot author or edit them. In the console chat this '
+               "call becomes an approval card, and the owner's APPROVE click applies it.",
+        'what_you_can_do': 'read strats with pm_strats, or ask the owner to open the console '
+                           'chat (the green mark, top-left).',
+    }
+
+
+# ── console navigation — the agent's "take me there" ──
+#
+# pm_console_open is the one tool that touches the BROWSER, not the API: it
+# rides the same approvals file channel the gate uses, but as a PRE-DECIDED
+# `nav` entry the chat route forwards instantly and the console applies as a
+# router.push. It is deliberately NOT gated — it can only move the owner
+# between screens of their own console, never money — and outside a chat run
+# (no POLYMARKET_AGENT_RUN) it degrades to a deep-link answer.
+
+_NAV_SECTIONS = ('invested', 'mine', 'scores', 'build', 'community', 'code')
+_NAV_TABS = ('copy', 'money', 'backtest', 'live', 'trades')
+_NAV_PAGES = ('board', 'trader', 'strats', 'markets', 'docs') + _NAV_TABS
+
+
+def _nav_path(args: dict):
+    """(path, label) for one console destination, or raise ValueError."""
+    page = str(args.get('page') or 'board').strip().lower()
+    if page in ('board', 'traders'):
+        q = str(args.get('q') or '').strip()
+        if q:
+            return (f'/traders?q={urllib.parse.quote(q)}',
+                    f'the trader board, filtered to "{q[:40]}"')
+        return ('/traders', 'the trader board')
+    if page == 'trader':
+        a = str(args.get('address') or '').strip().lower()
+        if not (a.startswith('0x') and len(a) == 42
+                and all(c in '0123456789abcdef' for c in a[2:])):
+            raise ValueError('page=trader needs a full 0x… wallet address')
+        return (f'/traders/{a}', f'trader {a[:6]}…{a[-4:]}')
+    if page == 'markets':
+        return ('/markets', 'the markets grid')
+    if page == 'docs':
+        return ('/docs', 'the docs')
+    if page == 'strats':
+        sec = str(args.get('section') or 'mine').strip().lower()
+        if sec not in _NAV_SECTIONS:
+            raise ValueError('section must be one of: ' + ', '.join(_NAV_SECTIONS))
+        if sec == 'mine':
+            return ('/strats', 'MY STRATS')
+        return (f'/strats?sec={sec}', f'STRATS · {sec.upper()}')
+    if page in _NAV_TABS:
+        return (f'/strats?tab={page}', f'the {page.upper()} tab')
+    raise ValueError('page must be one of: ' + ', '.join(_NAV_PAGES))
+
+
+def _t_console_open(args: dict) -> dict:
+    try:
+        path, label = _nav_path(args)
+    except ValueError as e:
+        return {'ok': False, 'error': str(e)}
+    run = _agent_run()
+    if not run:
+        # Direct MCP callers have no browser on the line — hand back the link.
+        return {'ok': True, 'url': f'/polymarket{path}',
+                'note': 'no console is attached to this run — give the owner this link'}
+    now = time.time()
+    entry = {
+        # nav_ prefix on purpose: the approvals decide endpoint only accepts
+        # ap_ ids, so a nav entry can never be "approved" into anything.
+        'id': f'nav_{int(now * 1000):x}_{os.urandom(3).hex()}',
+        'run': run,
+        'tool': 'pm_console_open',
+        'args': {'path': path, 'label': label},
+        'kind': 'nav',
+        'summary': f'open {label}',
+        'at': now,
+        'expires_at': now + 60,
+        # Pre-decided: navigation needs no OK and must never park or be
+        # declined by declineRunLeftovers on stream close.
+        'decision': 'approve',
+        'note': '',
+        'result': None,
+    }
+    try:
+        _write_json_atomic(os.path.join(_approvals_dir(), entry['id'] + '.json'), entry)
+    except Exception as e:
+        return {'ok': False,
+                'error': f'could not reach the console ({e}) — describe the way there in words'}
+    return {'ok': True, 'opened': path,
+            'note': f'the console is opening {label} — continue, no need to describe the route'}
+
+
 TOOLS = {
     'pm_health': {
         'description': 'Is the module up? API health, the trader-sync schedule, and the '
                        'background backtest worker (last pass, next pass, strats covered).',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_health,
+    },
+    'pm_console_open': {
+        'description': "NAVIGATE THE OWNER'S CONSOLE — opens a page in the browser they are "
+                       'chatting from. Use it whenever you are pointing them somewhere '
+                       '("take me to…", "where do I…", or right after you create/change '
+                       'something worth looking at): open the screen instead of describing '
+                       'the route. Navigation only — it moves no money and needs no '
+                       'approval. Pages: board (the trader leaderboard; optional q pre-fills '
+                       'its search) | trader (one profile, needs address) | strats (the strat '
+                       'manager; section picks the sub-tab) | copy | money | backtest | live '
+                       '| trades (management tabs of /strats) | markets | docs.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'page': {'type': 'string', 'description': 'board | trader | strats | copy | '
+                                                      'money | backtest | live | trades | '
+                                                      'markets | docs'},
+            'section': {'type': 'string', 'description': 'page=strats only: invested | mine '
+                                                         '| scores | build | community | '
+                                                         'code (default mine)'},
+            'address': {'type': 'string', 'description': 'page=trader only: the 0x… profile '
+                                                         'to open'},
+            'q': {'type': 'string', 'description': 'page=board only: pre-fill the board '
+                                                   'search with this text'},
+        }, 'required': ['page']},
+        'handler': _t_console_open,
     },
     'pm_markets': {
         'description': 'Polymarket markets — the busiest open ones by 24h volume, or a text '
@@ -368,13 +1088,44 @@ TOOLS = {
         'handler': _t_markets,
     },
     'pm_top_traders': {
-        'description': 'The leaderboard: most profitable active traders over a window, with '
-                       'PnL, win rate, Sharpe and volume. This is what strats seed their '
-                       'watchlists from. Slow (minutes) on a cold cache.',
+        'description': 'The leaderboard: best active traders over a window, ranked by win rate '
+                       'by default (sort parameterizes it: winRate, best = the all-round '
+                       'composite, roi, steady, exitEntry = avg exit÷entry '
+                       'price on closed trades, sharpe, pnl, volume). `winRate` is the share of '
+                       'positions the market SETTLED in the window that returned more than they '
+                       'cost, and `decidedPositions` is its denominator; `-1` means nothing '
+                       'settled, not zero. This is what strats seed their '
+                       'watchlists from. Answers from the warm cache (the server re-aggregates '
+                       'on its own schedule); only a cold cache is slow (minutes). Defaults to '
+                       'traders who have traded in the last 6 hours — a wallet that went quiet '
+                       'is one you cannot copy, however good its 7-day record looks.',
         'inputSchema': {'type': 'object', 'properties': {
             'days': {'type': 'integer', 'description': 'window in days (default 7, max 30)'},
-            'limit': {'type': 'integer', 'description': 'traders to return (default 20)'},
+            'limit': {'type': 'integer', 'description': 'traders to return (default 20, max 100)'},
             'category': {'type': 'string', 'description': 'politics|sports|crypto|… (optional)'},
+            'active_hours': {'type': 'number', 'description': 'only traders whose last trade is '
+                                                             'within this many hours (default 6; '
+                                                             '0 = the whole board, dormants too)'},
+            'min_history_days': {'type': 'number', 'description': "track-record floor: only traders "
+                                                                 "whose FIRST-ever trade is at least "
+                                                                 "this many days old (default 0 = off). "
+                                                                 "Set it to `days` on a long window — a "
+                                                                 "wallet that opened last week can top the "
+                                                                 "30-day board on days it did not exist"},
+            'sort': {'type': 'string', 'description': 'ranking metric: winRate (default; share '
+                                                      'of SETTLED positions that made money — read '
+                                                      'it with decidedPositions, a rate off five '
+                                                      'legs is noise) | best (the all-round composite '
+                                                      '— ROI per $100 discounted while activity is '
+                                                      'thin, plus bonuses for steady accrual and a '
+                                                      'proven win rate; unknowns count 0) | roi '
+                                                      '(pnl/volume) | steady (per-period Sharpe of '
+                                                      'the PnL curve) | resolveRate (share of settled '
+                                                      'buys that rode to a full $1 resolution — the '
+                                                      'buy-and-hold hit rate; a profitable early scalp '
+                                                      'counts for winRate but not here) | exitEntry | '
+                                                      'sharpe | pnl | volume | history (longest track '
+                                                      'record first)'},
         }},
         'handler': _t_top_traders,
     },
@@ -387,6 +1138,179 @@ TOOLS = {
             'limit': {'type': 'integer', 'description': 'activity rows to scan (default 100, max 500)'},
         }, 'required': ['address']},
         'handler': _t_trader,
+    },
+    'pm_copy_book': {
+        'description': 'THE COPY DESK — which individual traders this deployment copies and '
+                       'with how much. One row per leader: allocation in dollars, whether a '
+                       'session is running, whether it is placing REAL orders or dry-running, '
+                       'orders placed, realized P&L and last fill. This is the same book the '
+                       'browser shows; start here for anything about copy-trading.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'eoa': {'type': 'string', 'description': 'wallet whose sessions to report '
+                                                     '(default: the deployment owner)'},
+        }},
+        'handler': _t_copy_book,
+    },
+    'pm_copy_allocate': {
+        'description': 'Copy a trader with a given number of dollars — adds them to the copy '
+                       'book, or changes the amount if they are already on it (idempotent by '
+                       'address: one leader, one allocation, one session). The amount IS the '
+                       'position sizing: the engine budgets against it and the backtest '
+                       'replays with it. Adding costs nothing and places nothing — starting is '
+                       'a separate call. `params` optionally overrides the identity template '
+                       '(minTrade, maxTrade, maxPerCycle, maxOpenPositions, pollMinutes, '
+                       'backtestDays, sizing flow|bankroll, turnover, stopLoss, takeProfit, '
+                       'minMinutesToClose, maxTradeAgeSec, marketQuery, tradeFilters) and is '
+                       'a PATCH — omitted knobs keep their current value. The two GATE knobs '
+                       'are how one leader is copied only in part: marketQuery picks the '
+                       'markets by title ("bitcoin, btc, ethereum" — commas are OR, spaces are '
+                       'AND), tradeFilters picks the trades inside them ({sides, minPrice, '
+                       'maxPrice, minNotional, maxNotional}). pm_copy_trades q=... compiles a '
+                       'plain-language sentence into exactly that pair.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': {'type': 'string', 'description': '0x… trader to copy'},
+            'allocationUsd': {'type': 'number', 'description': 'dollars to copy them with'},
+            'label': {'type': 'string', 'description': 'display name (optional)'},
+            'notes': {'type': 'string', 'description': 'why you are copying them (optional)'},
+            'enabled': {'type': 'boolean', 'description': 'false pauses them without forgetting them'},
+            'params': {'type': 'object', 'description': 'per-trader overrides on the identity '
+                                                       'template, including the gate pair '
+                                                       '{marketQuery, tradeFilters}'},
+            'eoa': {'type': 'string', 'description': 'wallet whose running session to reconfigure'},
+        }, 'required': ['address', 'allocationUsd']},
+        'handler': _t_copy_allocate,
+    },
+    'pm_copy_remove': {
+        'description': 'Stop copying a trader: stops their session and drops them from the '
+                       'book. Their realized P&L stays in the engine ledger.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': {'type': 'string', 'description': '0x… trader to stop copying'},
+            'eoa': {'type': 'string', 'description': 'wallet (default: the deployment owner)'},
+        }, 'required': ['address']},
+        'handler': _t_copy_remove,
+    },
+    'pm_copy_rebalance': {
+        'description': 'Split a bankroll across every enabled trader on the desk. '
+                       'mode=equal gives everyone the same dollars; mode=weighted rescales '
+                       'the amounts already set, so conviction survives a deposit. Running '
+                       'sessions pick up their new size immediately.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'bankroll': {'type': 'number', 'description': 'total dollars to split'},
+            'mode': {'type': 'string', 'description': 'equal (default) | weighted'},
+            'eoa': {'type': 'string', 'description': 'wallet (default: the deployment owner)'},
+        }, 'required': ['bankroll']},
+        'handler': _t_copy_rebalance,
+    },
+    'pm_copy_backtest': {
+        'description': 'How would copying ONE trader have gone? Replays the identity strat for '
+                       'that leader — the exact object the live engine runs — over a window, '
+                       'and returns pnl/roi/trades plus two things worth more than the pnl: '
+                       'walkForward (the same replay over the PREVIOUS window, judged '
+                       'held/faded/recovered/no-edge — only "held" means it worked then AND '
+                       'since) and funnel (how many of their entries this desk could actually '
+                       'copy, and which gate blocked the rest — a leader whose flow is all '
+                       'gated cannot be copied whatever their own P&L says). Ask this BEFORE '
+                       'starting anyone.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': {'type': 'string', 'description': '0x… trader'},
+            'days': {'type': 'integer', 'description': 'window in days (default 1)'},
+            'add': {'type': 'boolean', 'description': 'add them to the desk if absent, so they '
+                                                      'can be replayed (default false)'},
+            'allocationUsd': {'type': 'number', 'description': 'amount to add them with when '
+                                                              'add=true (default 100)'},
+            'run': {'type': 'boolean', 'description': 'force a replay pass now instead of '
+                                                     'reading the cached card (default false)'},
+        }, 'required': ['address']},
+        'handler': _t_copy_backtest,
+    },
+    'pm_copy_trades': {
+        'description': 'MY COPY TRADES — every trade the traders on the desk made, every '
+                       'on-chain fill of mine, joined by market, side and time. Answers the '
+                       'question status lines dodge: what share of their flow did I actually '
+                       'get (coverage), how far behind (medianLagSec), and what that cost '
+                       '(avgSlipCents). Fills with no leader behind them (engine stop-loss / '
+                       'take-profit exits, hand trades) are reported as unattributedFills, '
+                       'never silently credited to a leader. `q` filters it in plain language '
+                       '— "big buys on crypto under 30c", "missed longshots", "politics, not '
+                       'candles" — and the answer echoes how the sentence was read plus the '
+                       'gate half of it that can be armed with pm_copy_allocate '
+                       'params:{marketQuery, tradeFilters}. Reads only.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'days': {'type': 'integer', 'description': 'window in days (default 7, max 30)'},
+            'q': {'type': 'string', 'description': 'plain-language filter over the feed: a '
+                                                  'topic (crypto, politics, sports, candles), '
+                                                  'a side (buys/sells), a price band (under '
+                                                  '30c, longshots, coin flips), a size (over '
+                                                  '$500, dust), a window (last 3 days), a '
+                                                  'status (missed, copied). Commas mean OR.'},
+            'limit': {'type': 'integer', 'description': 'rows to return (default 40, max 200)'},
+            'eoa': {'type': 'string', 'description': 'wallet (default: the deployment owner)'},
+        }},
+        'handler': _t_copy_trades,
+    },
+    'pm_copy_basket': {
+        'description': 'Copy a SET of traders with a DIFFERENT amount against each, replayed '
+                       'as one basket over N days. Answers the question a per-trader backtest '
+                       "cannot: given these names and this much money, how should it be split? "
+                       'Each leg is replayed on its own capital (which is how the desk runs '
+                       'them — one allocation, one session, one budget) and the answer reports '
+                       'legsTrading/legs and idleUsd: an underfunded leg does not take a small '
+                       'position, it takes NO position, because its proportional mirror lands '
+                       'under the order floor. floors=true names the smallest amount each leg '
+                       'needs; compare=true scores your split against dividing the same total '
+                       'evenly. Places nothing and writes nothing — use pm_copy_allocate to '
+                       'commit a leg.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'legs': {'type': 'array', 'description': 'the basket: [{address, allocationUsd, '
+                                                     'label?, params?}] — params is the same '
+                                                     'per-allocation patch pm_copy_allocate takes',
+                     'items': {'type': 'object', 'properties': {
+                         'address': {'type': 'string'},
+                         'allocationUsd': {'type': 'number'},
+                         'label': {'type': 'string'},
+                         'params': {'type': 'object'},
+                     }, 'required': ['address']}},
+            'fromDesk': {'type': 'boolean', 'description': 'replay the copy desk as it stands, '
+                                                          'instead of naming legs'},
+            'days': {'type': 'integer', 'description': 'window in days (default 7, max 30)'},
+            'total': {'type': 'number', 'description': 'rescale the legs to this total, keeping '
+                                                      'their proportions'},
+            'split': {'type': 'string', 'description': '"equal" to divide `total` evenly instead '
+                                                      'of keeping proportions'},
+            'compare': {'type': 'boolean', 'description': 'also replay the same total split '
+                                                         'EVENLY and report the edge'},
+            'floors': {'type': 'boolean', 'description': 'also find the smallest amount at which '
+                                                        'each leg trades at all'},
+            'ladder': {'type': 'array', 'items': {'type': 'number'},
+                       'description': 'also replay the whole split at these totals'},
+        }},
+        'handler': _t_copy_basket,
+    },
+    'pm_copy_start': {
+        'description': 'Start copying — one trader with `address`, or every enabled trader on '
+                       'the desk without it. DEFAULTS TO DRY RUN: the engine computes every '
+                       'mirror it would place and places none, which is what you want for '
+                       'checking that a leader actually produces copyable entries. '
+                       'autoExecute=true means REAL ORDERS with real money and is refused '
+                       'unless the deployment sets POLYMARKET_MCP_ALLOW_LIVE=1 — otherwise a '
+                       'human turns that on from the browser.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': {'type': 'string', 'description': 'one trader (default: all enabled)'},
+            'autoExecute': {'type': 'boolean', 'description': 'true = place real orders '
+                                                             '(default false = DRY RUN)'},
+            'eoa': {'type': 'string', 'description': 'wallet to run under (default: the owner)'},
+        }},
+        'handler': _t_copy_start,
+    },
+    'pm_copy_stop': {
+        'description': 'Stop copying — one trader with `address`, or the whole desk without '
+                       'it. The allocation and the ledger survive; only the session ends. '
+                       'Always permitted: stopping can only reduce exposure.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': {'type': 'string', 'description': 'one trader (default: the whole desk)'},
+            'eoa': {'type': 'string', 'description': 'wallet (default: the deployment owner)'},
+        }},
+        'handler': _t_copy_stop,
     },
     'pm_strats': {
         'description': 'The strategies this console runs: watchlist, capital, trade filters, '
@@ -403,7 +1327,11 @@ TOOLS = {
                        'with no knowledge of this one, and the verdict of the pair — '
                        'held / faded / recovered / no-edge / stalled / untested. Only '
                        'forward.confirmed means "made money then, and still is"; ranking by '
-                       'pnl alone ranks by a single window.',
+                       'pnl alone ranks by a single window. Each also carries HOLDOUT: the '
+                       'same window replayed with trader stats frozen at its start (roster '
+                       'picked on the earlier record only — no train/test overlap). '
+                       'holdout.pnl is the deployable number; pnl − holdout.pnl is what '
+                       'peeking at the window was worth to the trader selection.',
         'inputSchema': {'type': 'object', 'properties': {
             'days': {'type': 'integer', 'description': 'window in days (default 1 — what the worker runs)'},
             'strat': {'type': 'string', 'description': 'filter by strat id / template slug (optional)'},
@@ -422,6 +1350,113 @@ TOOLS = {
                         'description': 'fetch newer trader history before replaying (default false)'},
         }},
         'handler': _t_backtest_run,
+    },
+    'pm_lab_backtest': {
+        'description': 'STRAT LAB bench: backtest a CANDIDATE parameter set — not a saved '
+                       'strat — over the server\'s cached trader feeds, one result per '
+                       'window, each with fees, entry funnel and a walk-forward verdict '
+                       '(only "held" passes). Nothing is published or changed. `warming` '
+                       'lists traders with no cached history yet — their part of the pnl is '
+                       'a FLOOR; a fetch was queued, retest in a few minutes.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'params': {'type': 'object', 'description': 'the candidate: {name, traders: '
+                                                        '["0x…"], capital, minTrade, maxTrade, '
+                                                        'maxPerCycle, stopLoss, takeProfit, '
+                                                        'marketQuery, tradeFilters, filter, '
+                                                        'momentum, …} — same fields a saved '
+                                                        'strat has'},
+            'windows': {'type': 'array', 'items': {'type': 'integer'},
+                        'description': 'windows in days, from 1|3|7|14|30, max 3 (default [1])'},
+        }, 'required': ['params']},
+        'handler': _t_lab_backtest,
+    },
+    'pm_lab_start': {
+        'description': 'Start the STRAT LAB agent: a background run that researches the '
+                       'leaderboard, designs candidate strats, backtests each on the lab '
+                       'bench and iterates until the data clears a stated confidence bar '
+                       '(walk-forward held on 2+ windows, positive net-of-fee ROI incl. 7d, '
+                       'enough trades) — or reports confident:false honestly. One run at a '
+                       'time; poll pm_lab_runs for progress and the final verdict. Adopting '
+                       'the winner is a human action in the console.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'goal': {'type': 'string', 'description': 'what to optimize for, in words '
+                                                      '(optional — default: best copy-index '
+                                                      'the data supports)'},
+            'maxExperiments': {'type': 'integer', 'description': 'experiment budget before it '
+                                                                'must conclude (default 12)'},
+        }},
+        'handler': _t_lab_start,
+    },
+    'pm_lab_runs': {
+        'description': 'STRAT LAB runs: the list (id, goal, status, confident?) or, with '
+                       '`id`, one run\'s streamed steps and final verdict JSON.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': {'type': 'string', 'description': 'run id, e.g. lab_mf1x2y (optional)'},
+        }},
+        'handler': _t_lab_runs,
+    },
+    'pm_autostrat': {
+        'description': 'AUTO STRAT — the strat factory. One run: an agent invents a copy-index '
+                       'recipe off the live leaderboard (it can only pick addresses that are '
+                       'actually on the board), the lab bench replays it over 1/3/7 days, and '
+                       'the result registers as a paused strat plus a runnable Python Strat '
+                       'class that doubles as its own MCP server (polymarket-user-strats/'
+                       '<id>/mod.py). op="status" reads settings + recent runs; op="run" fires '
+                       'one run now (the console\'s RANDOM NEW STRAT); op="on"/"off" flips the '
+                       'server-side loop (default every 60s — each run spends inference). '
+                       'Nothing here ever starts a live session.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'op': {'type': 'string', 'enum': ['status', 'run', 'on', 'off']},
+            'theme': {'type': 'string', 'description': 'op=run: steer the lens, in words '
+                                                       '(optional — default: a random lens)'},
+            'intervalSecs': {'type': 'integer', 'description': 'op=on: loop cadence, min 60'},
+        }},
+        'handler': _t_autostrat,
+    },
+    'pm_strat_create': {
+        'description': 'Create a new PRIVATE strat in the owner\'s console: a copy-index '
+                       'watching the given traders, saved PAUSED (creating is never starting). '
+                       'CONSOLE-CHAT ONLY: private strats live encrypted under a key that '
+                       'never leaves the owner\'s browser, so this call parks as an approval '
+                       'card and the owner\'s APPROVE click is what actually saves it — the '
+                       'result you get back is what the console applied. Addresses must come '
+                       'from tool results (pm_top_traders / pm_trader), never from memory.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'name': {'type': 'string', 'description': 'strat name'},
+            'traders': {'type': 'array', 'items': {'type': 'string'},
+                        'description': '0x… trader wallets to watch (max 10)'},
+            'weights': {'type': 'array', 'items': {'type': 'number'},
+                        'description': 'relative weights, same order as traders '
+                                       '(optional — default equal)'},
+            'capital': {'type': 'number', 'description': 'simulation capital in USD (default 1000)'},
+            'params': {'type': 'object', 'description': 'optional parameters, the same editable '
+                                                        'set as the strat CHAT: minTrade, maxTrade, '
+                                                        'stopLoss, takeProfit, maxPerCycle, '
+                                                        'marketQuery, tradeFilters, filter, momentum…'},
+        }, 'required': ['name', 'traders']},
+        'handler': _t_strat_console,
+    },
+    'pm_strat_update': {
+        'description': 'Change a saved strat\'s parameters (ids come from pm_strats). '
+                       'CONSOLE-CHAT ONLY — parks for owner approval; the patch is validated '
+                       'against the console\'s editable parameter specs and every rejected '
+                       'field comes back named, so read the result before claiming success.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': {'type': 'string', 'description': 'strat id (from pm_strats)'},
+            'patch': {'type': 'object', 'description': 'param: value pairs to change — a PATCH, '
+                                                       'omitted fields keep their value'},
+        }, 'required': ['id', 'patch']},
+        'handler': _t_strat_console,
+    },
+    'pm_strat_delete': {
+        'description': 'Delete a saved strat from the owner\'s console (ids come from '
+                       'pm_strats). CONSOLE-CHAT ONLY — parks for owner approval. If the strat '
+                       'has a live session, stop it first (pm_copy_stop / the LIVE tab); '
+                       'deleting the strat does not place or cancel orders.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': {'type': 'string', 'description': 'strat id (from pm_strats)'},
+        }, 'required': ['id']},
+        'handler': _t_strat_console,
     },
     'pm_live_sessions': {
         'description': 'Live copy-engine sessions for the owner wallet: which strats are '
@@ -445,6 +1480,175 @@ TOOLS = {
 }
 
 
+# ── the approval gate (console chat) ──
+#
+# When this server is spawned BY THE CONSOLE CHAT AGENT (the env var
+# POLYMARKET_AGENT_RUN carries the chat run's id), money-moving and
+# strat-changing tools do not execute on the agent's say-so: the call PARKS
+# as a file under <state>/approvals/ which the console renders as an approval
+# card, and only the owner's APPROVE lets it proceed. The gate sits HERE,
+# below the agent, so no prompt — and no resumed session — can route around
+# it. Everything fails closed: no answer → declined at the TTL; an unreadable
+# queue → declined. A decline is a successful tool RESULT (isError false)
+# carrying the owner's note, so the model adapts instead of retrying.
+#
+# What is gated is NAMED, never derived. pm_copy_stop stays free — stopping
+# only ever reduces exposure, the same rule as the live engine's ungated
+# exits — and reads are never parked. pm_console_open is free too: it writes
+# a pre-decided `nav` entry on this same file channel (never pending, so the
+# fail-closed machinery ignores it) and can only turn the owner's own pages. The pm_strat_* tools are CONSOLE ops:
+# private strats are encrypted with a browser-held key, so an approved
+# create/update/delete is executed by the console at the APPROVE click and
+# the decision file carries the applied result back as the tool's answer.
+# This gate is additive: POLYMARKET_MCP_ALLOW_LIVE still rules real-money
+# starts, approval or not.
+
+GATED_TOOLS = {
+    'pm_copy_allocate': 'money',    # sizes real budget against a trader
+    'pm_copy_remove': 'money',      # drops an allocation the owner set up
+    'pm_copy_rebalance': 'money',   # re-sizes the whole book at once
+    'pm_copy_start': 'money',       # starts sessions (even DRY RUN is a commitment)
+    'pm_lab_start': 'spend',        # background run that spends inference
+    'pm_autostrat': 'spend',        # op=run/on only — see _gate_kind
+    'pm_strat_create': 'strat',
+    'pm_strat_update': 'strat',
+    'pm_strat_delete': 'strat',
+}
+
+# Tools the CONSOLE executes at the APPROVE click (browser-held strat key).
+CONSOLE_TOOLS = {'pm_strat_create', 'pm_strat_update', 'pm_strat_delete'}
+
+
+def _agent_run() -> str:
+    return os.environ.get('POLYMARKET_AGENT_RUN') or ''
+
+
+def _approvals_dir() -> str:
+    d = os.path.join(_state_dir(), 'approvals')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _approval_ttl() -> int:
+    try:
+        return max(10, int(os.environ.get('POLYMARKET_APPROVAL_TTL') or 180))
+    except ValueError:
+        return 180
+
+
+def _approval_poll() -> float:
+    try:
+        return max(0.05, float(os.environ.get('POLYMARKET_APPROVAL_POLL') or 0.5))
+    except ValueError:
+        return 0.5
+
+
+def _gate_kind(name: str, args: dict):
+    """'money' | 'spend' | 'strat' when this exact call needs the owner, else None."""
+    kind = GATED_TOOLS.get(name)
+    if not kind:
+        return None
+    # pm_autostrat op=status reads, op=off only stops spend — both free.
+    if name == 'pm_autostrat' and str(args.get('op') or 'status') not in ('run', 'on'):
+        return None
+    return kind
+
+
+def _gate_summary(name: str, args: dict) -> str:
+    """One card-sized line saying what the owner would be approving."""
+    try:
+        if name == 'pm_copy_allocate':
+            return f"copy {args.get('address', '?')} with ${float(args.get('allocationUsd') or 0):g}"
+        if name == 'pm_copy_remove':
+            return f"remove {args.get('address', '?')} from the copy book"
+        if name == 'pm_copy_rebalance':
+            return 'rebalance the whole copy book'
+        if name == 'pm_copy_start':
+            mode = 'REAL MONEY' if _truthy(args.get('autoExecute')) else 'DRY RUN'
+            return f"start copying {args.get('address') or 'the whole book'} ({mode})"
+        if name == 'pm_lab_start':
+            return f"start a STRAT LAB run: {str(args.get('goal') or 'best copy-index')[:80]}"
+        if name == 'pm_autostrat':
+            theme = str(args.get('theme') or '')[:60]
+            return f"AUTO STRAT {args.get('op')}" + (f': {theme}' if theme else '')
+        if name == 'pm_strat_create':
+            n = len(args.get('traders') or [])
+            return f'create strat "{str(args.get("name") or "")[:40]}" watching {n} trader{"s" if n != 1 else ""}'
+        if name == 'pm_strat_update':
+            keys = ', '.join(list((args.get('patch') or {}).keys())[:6]) or 'nothing'
+            return f"change strat {args.get('id', '?')}: {keys}"
+        if name == 'pm_strat_delete':
+            return f"DELETE strat {args.get('id', '?')}"
+    except Exception:
+        pass
+    return name
+
+
+def _write_json_atomic(path: str, obj: dict) -> None:
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(obj, f, indent=2, default=str)
+    os.replace(tmp, path)
+
+
+def _park_and_wait(name: str, args: dict, kind: str) -> dict:
+    """Park one gated call and block until the owner answers (or the TTL does).
+
+    Returns the decision entry; `decision` is always set on the way out —
+    'approve', 'decline', or 'expired'. Every failure mode is a decline."""
+    now = time.time()
+    entry = {
+        'id': f'ap_{int(now * 1000):x}_{os.urandom(3).hex()}',
+        'run': _agent_run(),
+        'tool': name,
+        'args': args,
+        'kind': kind,
+        'summary': _gate_summary(name, args),
+        'at': now,
+        'expires_at': now + _approval_ttl(),
+        'decision': None,
+        'note': '',
+        'result': None,
+    }
+    path = os.path.join(_approvals_dir(), entry['id'] + '.json')
+    try:
+        _write_json_atomic(path, entry)
+    except Exception as e:
+        return {**entry, 'decision': 'decline',
+                'note': f'approval queue unreachable ({e}) — failing closed'}
+    while True:
+        time.sleep(_approval_poll())
+        try:
+            with open(path) as f:
+                cur = json.load(f)
+        except FileNotFoundError:
+            return {**entry, 'decision': 'decline',
+                    'note': 'approval vanished from the queue — treated as declined'}
+        except Exception:
+            cur = None  # mid-write — re-read next tick
+        if isinstance(cur, dict) and cur.get('decision'):
+            return cur
+        if time.time() > entry['expires_at']:
+            expired = {**entry, 'decision': 'expired', 'decided_at': time.time(),
+                       'note': 'the owner did not answer in time'}
+            try:
+                _write_json_atomic(path, expired)
+            except Exception:
+                pass
+            return expired
+
+
+def _gate_text(decision: dict) -> str:
+    """The tool result a model can act on — a decline is information, not an error."""
+    note = str(decision.get('note') or '').strip()
+    if decision.get('decision') == 'expired':
+        return (f'NOT EXECUTED — the approval expired unanswered after {_approval_ttl()}s '
+                'and is treated as declined. The owner may be away; do not retry unprompted.')
+    return ('NOT EXECUTED — DECLINED by the owner'
+            + (f': "{note}"' if note else '')
+            + '. Do not retry the same call; adapt to the note or ask what they want instead.')
+
+
 # ── JSON-RPC 2.0 ──
 
 def _result(id_, result: dict) -> dict:
@@ -463,6 +1667,21 @@ def _call_tool(id_, params: dict) -> dict:
     args = params.get('arguments') or {}
     if not isinstance(args, dict):
         return _error(id_, -32602, 'arguments must be an object')
+    kind = _gate_kind(name, args)
+    if kind and _agent_run():
+        decision = _park_and_wait(name, args, kind)
+        if decision.get('decision') != 'approve':
+            return _result(id_, {'content': [{'type': 'text', 'text': _gate_text(decision)}],
+                                 'isError': False})
+        if name in CONSOLE_TOOLS:
+            # The console already executed this at the APPROVE click; its
+            # result IS the tool result (validation rejects ride it too).
+            result = decision.get('result')
+            if not isinstance(result, dict):
+                result = {'ok': True, 'note': 'approved — applied in the console'}
+            return _result(id_, {'content': [{'type': 'text',
+                                              'text': json.dumps(result, indent=2, default=str)}],
+                                 'isError': False, 'structuredContent': result})
     try:
         result = tool['handler'](args)
     except Exception as e:
@@ -486,6 +1705,8 @@ def handle(body):
     method, id_, params = body['method'], body.get('id'), body.get('params') or {}
     if id_ is None or method.startswith('notifications/'):
         return None
+    if not isinstance(params, dict):
+        return _error(id_, -32602, 'invalid params: expected an object')
     if method == 'initialize':
         client_ver = str(params.get('protocolVersion') or '')
         return _result(id_, {
@@ -531,8 +1752,22 @@ def serve_stdio():
             sys.stdout.flush()
 
 
-def serve_http(port: int):
-    """Streamable HTTP without SSE: one JSON-RPC message per POST /mcp."""
+# Bodies are JSON-RPC messages, not uploads; 4 MiB is far past the largest
+# tool call and stops an unauthenticated socket from buffering a process to
+# death before the token is even checked.
+MAX_BODY = 4 * 1024 * 1024
+
+
+def serve_http(port: int, host: str = '127.0.0.1'):
+    """Streamable HTTP without SSE: one JSON-RPC message per POST /mcp.
+
+    AUTHENTICATED. Every forwarded call carries a self-minted owner token
+    (`_token()`), so an open port here is the whole access gate handed to
+    whoever can reach it. Each POST must present that same owner token as
+    `Authorization: Bearer …` and it is verified against the server secret
+    before the message is parsed as JSON-RPC. Binds loopback by default; widen
+    with POLYMARKET_MCP_HTTP_HOST only behind something that authenticates.
+    """
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     paths = ('/mcp', f'{BASE_PATH.rstrip("/")}/mcp')
@@ -545,15 +1780,25 @@ def serve_http(port: int):
             self.send_response(code)
             self.send_header('content-type', ctype)
             self.send_header('content-length', str(len(data)))
-            self.send_header('access-control-allow-origin', '*')
-            self.send_header('access-control-allow-headers', '*')
+            # No wildcard CORS: this endpoint drives a real trading desk, and
+            # `*` invited every page open in a browser on this network to
+            # preflight its way in.
+            self.send_header('vary', 'origin')
             self.end_headers()
             self.wfile.write(data)
+
+        def _authed(self) -> bool:
+            auth = self.headers.get('authorization') or ''
+            if not auth.lower().startswith('bearer '):
+                return False
+            return _verify_owner_token(auth[7:].strip())
 
         def do_OPTIONS(self):
             self._send(204, b'', 'text/plain')
 
         def do_GET(self):
+            # Liveness only — deliberately the one unauthenticated route, and
+            # it reveals nothing but "a process is listening".
             if self.path.rstrip('/').endswith('/health'):
                 return self._send(200, b'ok', 'text/plain')
             self._send(405, b'POST JSON-RPC 2.0 messages to this endpoint', 'text/plain')
@@ -561,7 +1806,14 @@ def serve_http(port: int):
         def do_POST(self):
             if self.path.split('?')[0].rstrip('/') not in paths:
                 return self._send(404, b'not found', 'text/plain')
+            if not self._authed():
+                return self._send(401, _error(
+                    None, -32001,
+                    'unauthorized: POST /mcp requires the owner Bearer token '
+                    '(mint one with `python3 src/mcp.py --token`)'))
             n = int(self.headers.get('content-length') or 0)
+            if n > MAX_BODY:
+                return self._send(413, _error(None, -32600, 'request body too large'))
             try:
                 body = json.loads(self.rfile.read(n) or b'')
             except Exception:
@@ -574,15 +1826,22 @@ def serve_http(port: int):
         def log_message(self, *a):  # quiet: pm2 logs are for real events
             pass
 
-    print(f'polymarket mcp on :{port} — POST {paths[1]}', flush=True)
-    ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()
+    print(f'polymarket mcp on {host}:{port} — POST {paths[1]} (owner token required)',
+          flush=True)
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 
 if __name__ == '__main__':
     argv = sys.argv[1:]
-    if '--http' in argv:
+    if '--token' in argv:
+        # For configuring an HTTP client. Same token the console's sign-in
+        # issues; it is a full owner credential, so treat it like one.
+        print(_token())
+    elif '--http' in argv:
         i = argv.index('--port') + 1 if '--port' in argv else -1
         port = int(argv[i] if i > 0 else os.environ.get('MCP_PORT', 50092))
-        serve_http(port)
+        j = argv.index('--host') + 1 if '--host' in argv else -1
+        host = argv[j] if j > 0 else (os.environ.get('POLYMARKET_MCP_HTTP_HOST') or '127.0.0.1')
+        serve_http(port, host)
     else:
         serve_stdio()

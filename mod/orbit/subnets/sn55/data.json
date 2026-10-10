@@ -1,0 +1,141 @@
+{
+  "netuid": 55,
+  "name": "NIOME",
+  "symbol": "ث",
+  "owner": "5GeWUxaFP6duJyNg8EUv6Jfcv6ZNkoERywAcbSw4FAuEMpDq",
+  "description": "NIOME is a decentralized AI subnet that enables privacy-safe genomic intelligence by replacing real human genomes with high-fidelity synthetic genomic profiles",
+  "github": "https://github.com/genomesio/subnet-niome",
+  "url": "https://niome.genomes.io",
+  "discord": "https://discord.gg/7mJkaJZX",
+  "logo": "https://miro.medium.com/v2/resize:fit:1400/format:webp/1*pgi-9hji1nosR-l7taHQeA.png",
+  "registered_at": 4703386,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.002389477,
+    "moving_price": 0.0023301311302930117,
+    "market_cap": 13552.545529367078,
+    "tao_in": 6211.056091493,
+    "alpha_in": 2599336.523049075,
+    "alpha_out": 3072425.761905782,
+    "volume": 587052.336520285,
+    "vol_24h": 6419.709933137987,
+    "emission": 0.0,
+    "change_1h": -0.4862663895220276,
+    "change_24h": 18.381543498142648,
+    "change_7d": 4.513065899195001
+  },
+  "spark_24h": [
+    0.002018454,
+    0.002018466,
+    0.002018488,
+    0.002018499,
+    0.002018321,
+    0.002019032,
+    0.002019055,
+    0.002019065,
+    0.002018952,
+    0.002018959,
+    0.00201897,
+    0.00201898,
+    0.002003468,
+    0.002001465,
+    0.001997174,
+    0.001995802,
+    0.002175894,
+    0.002261346,
+    0.002424744,
+    0.002435799,
+    0.002471476,
+    0.002489276,
+    0.002486714,
+    0.002484886,
+    0.002431952,
+    0.002432679,
+    0.002420398,
+    0.002422007,
+    0.002421066,
+    0.002435016,
+    0.0024333,
+    0.002431528,
+    0.002427745,
+    0.002427768,
+    0.002427025,
+    0.0024275,
+    0.002437166,
+    0.002437683,
+    0.002447264,
+    0.002447274,
+    0.002447285,
+    0.002446349,
+    0.002446517,
+    0.002418461,
+    0.002422667,
+    0.002408768,
+    0.002401153,
+    0.002389477
+  ],
+  "trades_24h": {
+    "trades": 681,
+    "buys": 347,
+    "sells": 334,
+    "buy_tao": 3475.991786554,
+    "sell_tao": 2955.904204376,
+    "net_tao": 520.087582178,
+    "traders": 162
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -1.4920988009999803,
+      "gross_tao": 998.874300273,
+      "trades": 34
+    },
+    {
+      "coldkey": "5C8RphGnhz5QNcwdxygceAhPMJ6XA1TQ45tKALNjYGrnFU3j",
+      "net_tao": -3.9139670649999996,
+      "gross_tao": 307.913967065,
+      "trades": 21
+    },
+    {
+      "coldkey": "5HVZzrYNvcjtapJNR9teCY9oHEHy4EvgKaVR2EHCV6ByQ9ay",
+      "net_tao": -4.720155464000001,
+      "gross_tao": 304.720155464,
+      "trades": 16
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -3.744291709999999,
+      "gross_tao": 283.74429170999997,
+      "trades": 13
+    },
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": -1.0144371479999972,
+      "gross_tao": 281.014437148,
+      "trades": 17
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790163798,
+      "kind": "commit",
+      "source": "github",
+      "title": "use block hashes to generate seeds",
+      "url": "https://github.com/genomesio/subnet-niome/commit/9d9347a7ffab85a04eda6c36b9e87c59c8bb4049",
+      "publisher": "genomesio/subnet-niome"
+    },
+    {
+      "ts": 1789133996,
+      "kind": "commit",
+      "source": "github",
+      "title": "upload all miners submissions",
+      "url": "https://github.com/genomesio/subnet-niome/commit/9f3ada447b8fbec8d5b200694507f134ea8b9a6b",
+      "publisher": "genomesio/subnet-niome"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

@@ -1,0 +1,103 @@
+{
+    "name": "imagine",
+    "version": "0.1.0",
+    "description": "An image editor that is an Agent Protocol v1 server. Editing is modelled as the protocol already models work: a project is a workspace, an edit session is a task, one operation \u2014 generate, edit, upscale \u2014 is a step, and the image that comes back is that task's artifact. Because AP steps are allowed to be asynchronous, every operation runs on a background worker and the client polls: a generation that takes ninety seconds does not hold a socket open, the console renders the queue, and any Agent Protocol client \u2014 including the ones already in this fleet \u2014 can drive the whole editor without knowing anything about it beyond the protocol. Images are content-addressed by the SHA-256 of their own bytes and every artifact records the image it came from, so a project is not a folder of files but the DAG of edits that produced them: what was generated, what was edited into what, with which prompt, on which model. Two providers sit behind one operation table \u2014 Venice (generate, edit, upscale) and OpenRouter (generate, edit) \u2014 resolved per operation by what the box actually has a key for, so a missing key narrows the menu instead of breaking the module. Keys are read from the fleet's own stores (the venice and model.openrouter modules) rather than kept here.",
+    "anchor": "mod.py",
+    "protocol": "agent/1.0",
+    "icon": "\u25c8",
+    "color": "#a78bfa",
+    "port": 50560,
+    "app_port": 50560,
+    "base_path": "/imagine",
+    "route": true,
+    "dependencies": [
+        "venice",
+        "model.openrouter",
+        "localfs"
+    ],
+    "urls": {
+        "api": "http://localhost:50560",
+        "app": "http://localhost:50560/imagine",
+        "ap": "http://localhost:50560/ap/v1/agent/tasks",
+        "gateway": "https://modc2.com/imagine"
+    },
+    "state": "~/.mod/imagine \u2014 blobs/ (content-addressed images), projects.json, tasks.json, owner.json, server.secret",
+    "providers": {
+        "venice": {
+            "ops": [
+                "generate",
+                "edit",
+                "upscale"
+            ],
+            "key": "the venice module's api_key(), or VENICE_API_KEY"
+        },
+        "openrouter": {
+            "ops": [
+                "generate",
+                "edit"
+            ],
+            "key": "the model.openrouter module's api_key(), or OPENROUTER_API_KEY"
+        }
+    },
+    "ops": {
+        "generate": "prompt \u2192 a new image",
+        "edit": "an image + a prompt \u2192 the edited image",
+        "upscale": "an image + a scale \u2192 the larger image"
+    },
+    "endpoints": {
+        "info": "GET /",
+        "health": "GET /health",
+        "console": "GET /imagine",
+        "providers": "GET /api/providers",
+        "projects": "GET|POST /api/projects",
+        "project": "GET /api/projects/{id}",
+        "media": "GET /media/{image_id}",
+        "ap_tasks": "GET|POST /ap/v1/agent/tasks",
+        "ap_task": "GET /ap/v1/agent/tasks/{id}",
+        "ap_steps": "GET|POST /ap/v1/agent/tasks/{id}/steps",
+        "ap_step": "GET /ap/v1/agent/tasks/{id}/steps/{step_id}",
+        "ap_artifacts": "GET /ap/v1/agent/tasks/{id}/artifacts",
+        "ap_artifact": "GET /ap/v1/agent/tasks/{id}/artifacts/{artifact_id}"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "card",
+        "schema",
+        "test",
+        "providers",
+        "models",
+        "projects",
+        "project",
+        "new_project",
+        "rm_project",
+        "gallery",
+        "lineage",
+        "image",
+        "export",
+        "pin",
+        "generate",
+        "edit",
+        "upscale",
+        "ap_create_task",
+        "ap_step",
+        "ap_task",
+        "ap_tasks",
+        "ap_steps",
+        "ap_artifacts",
+        "queue",
+        "owner",
+        "set_owner",
+        "is_owner",
+        "access",
+        "grant",
+        "revoke",
+        "token",
+        "whoami",
+        "serve",
+        "kill",
+        "status"
+    ],
+    "key": "imagine",
+    "schema": "QmeZgrTrJismiMgFGVQRDUMA4HhcCEUhMfwEJZa2q73pM2"
+}

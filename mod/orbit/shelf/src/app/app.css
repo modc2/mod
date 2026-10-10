@@ -1,0 +1,238 @@
+/* shelf console — one stylesheet, no build step, no framework.
+ *
+ * Colour is not decoration here. The two series hues and the four status steps
+ * come from the fleet's validated data-viz palette, stepped for a dark surface
+ * and checked against this page's own background (#12141a) rather than a
+ * default one: lightness band, chroma floor, CVD separation, normal-vision
+ * floor and 3:1 contrast all pass. Status colour never carries meaning alone —
+ * every pill ships a glyph and a word, so the health of the store reads the
+ * same to a colourblind operator and to a monochrome terminal screenshot. */
+
+:root {
+  color-scheme: dark;
+
+  --plane:        #0d0e12;   /* page */
+  --surface:      #12141a;   /* cards — the surface the palette was validated on */
+  --surface-2:    #171a21;   /* insets, rows */
+  --line:         #232733;   /* hairline */
+  --line-strong:  #333947;
+
+  --ink:          #ffffff;
+  --ink-2:        #c3c2b7;
+  --muted:        #898781;
+
+  --series-1:     #3987e5;   /* magnitude — bytes the module wrote */
+  --series-2:     #d95926;   /* the second series — vendored caches */
+
+  --good:         #0ca30c;
+  --warning:      #fab219;
+  --serious:      #ec835a;
+  --critical:     #d03b3b;
+
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --r: 6px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font: 13px/1.5 var(--mono);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2 { margin: 0; font-weight: 600; letter-spacing: .02em; }
+h1 { font-size: 15px; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-2); }
+p  { margin: 0; }
+code { font-family: var(--mono); }
+
+/* ── header ─────────────────────────────────────────────────── */
+
+.top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  position: sticky; top: 0; z-index: 20;
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.mark {
+  font-size: 20px; color: var(--series-1);
+  width: 34px; height: 34px; display: grid; place-items: center;
+  border: 1px solid var(--line-strong); border-radius: var(--r);
+  background: var(--surface-2);
+}
+.sub { color: var(--muted); font-size: 11px; }
+.top-right { display: flex; align-items: center; gap: 10px; }
+.bound { color: var(--muted); font-size: 11px; }
+
+/* ── status pills: glyph + word, never colour alone ─────────── */
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px; font-size: 11px;
+  border: 1px solid var(--line-strong); background: var(--surface-2);
+  color: var(--ink-2);
+}
+.pill-icon { font-size: 11px; }
+.pill-good     { color: var(--good);     border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.pill-warning  { color: var(--warning);  border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
+.pill-critical { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 50%, transparent); }
+.pill-idle     { color: var(--muted); }
+
+/* ── layout ─────────────────────────────────────────────────── */
+
+.shell { display: grid; grid-template-columns: 168px 1fr; min-height: calc(100vh - 59px); }
+
+.rail {
+  border-right: 1px solid var(--line); background: var(--surface);
+  padding: 14px 10px; display: flex; flex-direction: column; gap: 4px;
+}
+.rail-btn {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px; border-radius: var(--r);
+  background: none; border: 1px solid transparent; color: var(--ink-2);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.rail-btn:hover { background: var(--surface-2); color: var(--ink); }
+.rail-btn.is-on {
+  background: var(--surface-2); color: var(--ink);
+  border-color: var(--line-strong);
+  box-shadow: inset 2px 0 0 var(--series-1);
+}
+.rail-foot { margin-top: auto; padding: 10px; color: var(--muted); font-size: 10px; line-height: 1.7; }
+
+.stage { padding: 18px; display: block; min-width: 0; }
+.view { display: none; flex-direction: column; gap: 14px; }
+.view.is-on { display: flex; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 10px; min-width: 0;
+}
+.cap { color: var(--muted); font-size: 11px; max-width: 78ch; }
+.count { color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.store-split { grid-template-columns: 260px 1fr; }
+@media (max-width: 980px) { .split, .store-split { grid-template-columns: 1fr; } }
+
+/* ── KPI row: headline numbers are tiles, not one-bar charts ── */
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.kpi {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r); padding: 12px 14px;
+}
+.kpi-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+.kpi-value { font-size: 26px; line-height: 1.2; margin-top: 4px; font-weight: 600; }
+.kpi-note { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.kpi-value.is-good     { color: var(--good); }
+.kpi-value.is-critical { color: var(--critical); }
+
+/* ── bar chart: one hue for magnitude, a second only for the
+ *    vendored split. 2px gap between segments, rounded data-end. */
+
+.chart figcaption { display: flex; flex-direction: column; gap: 3px; }
+.legend { display: flex; gap: 16px; font-size: 11px; color: var(--ink-2); }
+.key { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.swatch-1 { background: var(--series-1); }
+.swatch-2 { background: var(--series-2); }
+
+.bars { display: flex; flex-direction: column; }
+.bar-row {
+  display: grid; grid-template-columns: 130px 1fr 74px;
+  align-items: center; gap: 10px;
+  padding: 5px 6px; border-radius: 4px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.bar-row:hover { background: var(--surface-2); border-color: var(--line); }
+.bar-row.is-on { background: var(--surface-2); border-color: var(--line-strong); }
+.bar-name { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { height: 14px; background: var(--surface-2); border-radius: 3px; overflow: hidden; display: flex; gap: 2px; }
+/* No min-width: a module with nothing in it must render as nothing. A 2px
+ * floor on a zero value is a mark that lies about the data. */
+.bar-fill { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
+.bar-fill.vendor { background: var(--series-2); }
+.bar-val { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tail { align-self: flex-start; margin-top: 8px; color: var(--muted); font-size: 11px; }
+
+/* ── tables ─────────────────────────────────────────────────── */
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th {
+  text-align: left; color: var(--muted); font-weight: 400; font-size: 10px;
+  text-transform: uppercase; letter-spacing: .1em;
+  padding: 4px 8px; border-bottom: 1px solid var(--line);
+}
+td { padding: 5px 8px; border-bottom: 1px solid var(--line); color: var(--ink-2); }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--surface-2); color: var(--ink); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.row-link { cursor: pointer; }
+.row-link td:first-child { color: var(--series-1); }
+
+.scroll { max-height: 340px; overflow: auto; }
+.mono-key { word-break: break-all; }
+
+/* ── controls ───────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r); padding: 12px 14px;
+}
+.toolbar.flat { background: none; border: 0; padding: 0; }
+.toolbar label { display: flex; flex-direction: column; gap: 5px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+.toolbar .grow { flex: 1; min-width: 180px; }
+input, select {
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  color: var(--ink); font: inherit; padding: 6px 9px; border-radius: 4px;
+}
+input:focus, select:focus { outline: 2px solid var(--series-1); outline-offset: 1px; }
+.btn {
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  color: var(--ink); font: inherit; padding: 7px 13px; border-radius: 4px; cursor: pointer;
+}
+.btn:hover:not(:disabled) { border-color: var(--series-1); color: var(--series-1); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-danger:hover:not(:disabled) { border-color: var(--critical); color: var(--critical); }
+.actions { display: flex; gap: 8px; }
+
+.out {
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 4px; padding: 10px 12px; margin: 0;
+  font-size: 11px; color: var(--ink-2); white-space: pre-wrap;
+  word-break: break-word; max-height: 320px; overflow: auto;
+}
+
+/* ── value viewer ───────────────────────────────────────────── */
+
+.kv { display: grid; grid-template-columns: minmax(90px, 200px) 1fr; gap: 2px 14px; align-items: start; }
+.kv dt { color: var(--muted); font-size: 11px; word-break: break-all; }
+.kv dd { margin: 0; color: var(--ink-2); word-break: break-word; }
+.redacted { color: var(--warning); }
+.nest { border-left: 1px solid var(--line); padding-left: 10px; margin-top: 3px; }
+
+.flag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; border: 1px solid var(--line-strong); color: var(--muted); }
+.flag-secret { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
+.flag-bad { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 50%, transparent); }
+
+.muted { color: var(--muted); }
+.loading { color: var(--muted); font-size: 11px; }
+.err { color: var(--critical); font-size: 12px; }
+.ok-note { display: flex; align-items: center; gap: 7px; color: var(--good); font-size: 12px; }
+
+/* ── hover tooltip ──────────────────────────────────────────── */
+
+.tip {
+  position: fixed; z-index: 60; pointer-events: none;
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 4px; padding: 7px 10px; font-size: 11px; color: var(--ink);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .5); max-width: 300px;
+}
+.tip b { color: var(--series-1); font-weight: 600; }

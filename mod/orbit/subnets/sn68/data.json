@@ -1,0 +1,157 @@
+{
+  "netuid": 68,
+  "name": "NOVA",
+  "symbol": "ظ",
+  "owner": "5EcdJLAeYoxM3Tsf5VZ3NQPenPku218gqnjSoo3iJNy4V12V",
+  "description": "Accelerating drug discovery.",
+  "github": "https://github.com/metanova-labs/nova/",
+  "url": "https://www.metanova-labs.ai",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/metanova-labs/nova/refs/heads/main/assets/subnet-logo.png",
+  "registered_at": 4972413,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.020027185,
+    "moving_price": 0.02000386081635952,
+    "market_cap": 119658.61168061642,
+    "tao_in": 43115.035465744,
+    "alpha_in": 2152825.555756047,
+    "alpha_out": 3821983.768700507,
+    "volume": 1717594.468476414,
+    "vol_24h": 325.4173867329955,
+    "emission": 0.0,
+    "change_1h": 0.0024067865789012544,
+    "change_24h": 0.33488405834349866,
+    "change_7d": -7.00475229326104
+  },
+  "spark_24h": [
+    0.019960341,
+    0.019961665,
+    0.019963213,
+    0.019964332,
+    0.019963055,
+    0.019963014,
+    0.019964412,
+    0.019965515,
+    0.019966922,
+    0.019966221,
+    0.019968799,
+    0.019967987,
+    0.019969138,
+    0.019970542,
+    0.019969027,
+    0.019970174,
+    0.019971078,
+    0.019977656,
+    0.019997522,
+    0.020013148,
+    0.020014471,
+    0.020012785,
+    0.02000944,
+    0.020008642,
+    0.020014014,
+    0.020013189,
+    0.020009933,
+    0.019995332,
+    0.01999688,
+    0.019998074,
+    0.019997294,
+    0.019999306,
+    0.020011619,
+    0.020013671,
+    0.020015448,
+    0.020016992,
+    0.020018896,
+    0.020024289,
+    0.020025888,
+    0.020027438,
+    0.020028781,
+    0.020030297,
+    0.020021286,
+    0.0200221,
+    0.02002352,
+    0.020025531,
+    0.020026703,
+    0.020027185
+  ],
+  "trades_24h": {
+    "trades": 92,
+    "buys": 56,
+    "sells": 36,
+    "buy_tao": 119.940683218,
+    "sell_tao": 122.245498217,
+    "net_tao": -2.3048149990000013,
+    "traders": 67
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 0.04797463599999929,
+      "gross_tao": 99.95202536400001,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HL56LdrCZisFzVdrPMeCx3ERkrGRXD8cUXTwG9XGv4k58g1",
+      "net_tao": 25.455460036,
+      "gross_tao": 25.455460036,
+      "trades": 4
+    },
+    {
+      "coldkey": "5EyNdfGkT6ULx7YJEbdAJrx6sU8FafQbCkcvtEYXY2BBqt2b",
+      "net_tao": -16.970923874,
+      "gross_tao": 16.970923874,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FHAqS3xWNY8MUHa37NARZcgMjNQY2ujzGWnV2GWqxEnTMjG",
+      "net_tao": -10.92163559,
+      "gross_tao": 10.92163559,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GuPcEQbAahNqdLpuTeove5uhhNfCQfxvHAgA2FJoVmJFRZ3",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789594659,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update config.yaml",
+      "url": "https://github.com/metanova-labs/nova/commit/623f3456088f651609a1bcb870ab0587b0dc0520",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1789569815,
+      "kind": "commit",
+      "source": "github",
+      "title": "update submodule to include retry of TNP errors",
+      "url": "https://github.com/metanova-labs/nova/commit/e510bf77db2f90d2386945cf72ec2156b45753f5",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1789569671,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #92 from thomasvangurp/fix/retry-tnp-compute-errors",
+      "url": "https://github.com/metanova-labs/nova/commit/dc42566c760f3fb9d69aa4207b99ff976796baf7",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1789505856,
+      "kind": "commit",
+      "source": "github",
+      "title": "Retry TNP profiles that failed to compute, before rejecting the submi…",
+      "url": "https://github.com/metanova-labs/nova/commit/161b7d3c566828ad2d1e021fd3f046b5b430f9da",
+      "publisher": "metanova-labs/nova"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

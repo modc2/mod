@@ -707,10 +707,34 @@ a { color: inherit; text-decoration: none; }
 .chip.active { background: var(--coin); color: #101020; }
 [data-theme="dmg"] .chip.active { background: var(--ink); color: var(--panel); }
 
+/* AGENT — persistent header control. Lights up + shows a count only when an
+   agent is actually waiting on the human, so the badge means "act now". */
+.agent-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: 'Silkscreen', monospace; font-size: 12px; font-weight: 700;
+  letter-spacing: .04em; white-space: nowrap;
+  padding: 8px 12px; cursor: pointer;
+  background: var(--btn-bg); color: var(--ink-dim);
+  border: 3px solid var(--border); box-shadow: var(--block-sm);
+}
+.agent-btn:hover { background: var(--btn-bg-hover); color: var(--ink); transform: translate(-1px, -1px); }
+.agent-btn:active { transform: translate(3px, 3px); box-shadow: none; }
+.agent-btn__bot { font-size: 13px; line-height: 1; }
+.agent-btn.has-pending { background: var(--accent); color: #fff; }
+[data-theme="dmg"] .agent-btn.has-pending { background: var(--ink); color: var(--panel); }
+.agent-btn__count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  font-family: 'Silkscreen', monospace; font-size: 10px; font-weight: 700;
+  background: var(--coin); color: #101020;
+  border: 2px solid var(--border);
+}
+[data-theme="dmg"] .agent-btn__count { background: var(--panel); color: var(--ink); }
+
 /* ════════════════════════════════════════════════════════════════════
    HERO — the title screen
    ════════════════════════════════════════════════════════════════════ */
-.hero { position: relative; padding: 46px 0 34px; overflow: hidden; }
+.hero { position: relative; padding: 30px 0 22px; overflow: hidden; }
 .hero-eyebrow {
   font-family: 'Silkscreen', monospace; font-size: 12px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .18em;

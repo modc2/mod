@@ -1,0 +1,38 @@
+{
+  "name": "sn65",
+  "version": "1.0.0",
+  "description": "SN65 True Performance Network — Distributed AI model compression & optimization engine. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ص",
+  "chain": "bittensor",
+  "netuid": 65,
+  "subnet": "True Performance Network",
+  "symbol": "ص",
+  "owner": "5GxEEHxLWpvcAGghL8LG7xNjrxZk4SEPW1VT43hGPZ2TP9mZ",
+  "github": "https://github.com/taofu-labs/true-performance-network",
+  "url": "https://www.trueperformancenetwork.com/",
+  "discord": "https://discord.com/invite/GRVZyPYd6G",
+  "logo": "https://taofu-labs.github.io/truepn-branding/assets/img/logo-mark.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=65",
+    "news": "/bt/news?netuid=65"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

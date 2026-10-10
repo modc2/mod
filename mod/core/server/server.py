@@ -428,6 +428,7 @@ class Server:
             app_cmd = ['npx', 'next', 'dev', '-p', str(app_port)]
             subprocess.Popen(app_cmd, cwd=str(app_dir), env=app_env,
                              stdout=app_log, stderr=subprocess.STDOUT)
+            app_log.close()
             print(f'App started at http://localhost:{app_port}/{name} (log: {log_dir}/app.log)', color='green')
             # Register app in namespace so the gateway middleware can route to it
             self.registry.reg_app(name, f'http://localhost:{app_port}',

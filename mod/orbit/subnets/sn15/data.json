@@ -1,0 +1,189 @@
+{
+  "netuid": 15,
+  "name": "ORO",
+  "symbol": "ο",
+  "owner": "5EHdase3QHY1FSU2KoxzpbnkzGhxBZEVcWU85zyjrxG62KTK",
+  "description": "AI commerce agents",
+  "github": "https://github.com/ORO-AI/oro",
+  "url": "https://oroagents.com",
+  "discord": "https://discord.gg/MHqAVWTdka",
+  "logo": "https://raw.githubusercontent.com/ORO-AI/oro/main/brand/profile-snowcap.png",
+  "registered_at": 7366897,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.023428709,
+    "moving_price": 0.02329655340872705,
+    "market_cap": 53255.24914099908,
+    "tao_in": 14095.478215929,
+    "alpha_in": 601633.037248629,
+    "alpha_out": 1671443.517716439,
+    "volume": 613945.648356135,
+    "vol_24h": 579.1147475859616,
+    "emission": 0.0,
+    "change_1h": -0.007225654941811488,
+    "change_24h": 0.735824811306629,
+    "change_7d": -4.444894988003356
+  },
+  "spark_24h": [
+    0.023257574,
+    0.023195464,
+    0.0231996,
+    0.023202881,
+    0.023303385,
+    0.02330659,
+    0.023314407,
+    0.023350882,
+    0.023298008,
+    0.023267758,
+    0.023264211,
+    0.023234457,
+    0.023237973,
+    0.023145405,
+    0.023071615,
+    0.023082773,
+    0.023086231,
+    0.023058886,
+    0.023061932,
+    0.023052871,
+    0.023057037,
+    0.023071231,
+    0.023086262,
+    0.023081418,
+    0.023089006,
+    0.023093641,
+    0.023183392,
+    0.02318444,
+    0.023339424,
+    0.023297838,
+    0.023299151,
+    0.023302829,
+    0.02330714,
+    0.023203764,
+    0.023208193,
+    0.023210396,
+    0.023283702,
+    0.02323937,
+    0.023242726,
+    0.02323471,
+    0.023238395,
+    0.023341939,
+    0.023346369,
+    0.023248579,
+    0.023351363,
+    0.02342743,
+    0.023430402,
+    0.023428709
+  ],
+  "trades_24h": {
+    "trades": 152,
+    "buys": 53,
+    "sells": 99,
+    "buy_tao": 253.845865239,
+    "sell_tao": 257.968635474,
+    "net_tao": -4.12277023499999,
+    "traders": 75
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5H1LrDBGzU8KVkry4vB3pa2zL2RU1aCooPtnHesZV6U3PSHp",
+      "net_tao": -19.785241746999997,
+      "gross_tao": 79.785241747,
+      "trades": 3
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": -0.09016558600000124,
+      "gross_tao": 50.090165586,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": 0.024820541000000418,
+      "gross_tao": 49.975179459,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": -0.05470511200000061,
+      "gross_tao": 30.054705112,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GsRn8W8sdaHH71pxPJyVPi4UQahyPHsjp8gmAdHmmNER6dd",
+      "net_tao": 30.0,
+      "gross_tao": 30.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791449334,
+      "kind": "release",
+      "source": "github",
+      "title": "v2.4.0: Prepare runtime 3.5 validator and practice delivery (#367)",
+      "url": "https://github.com/ORO-AI/oro/releases/tag/v2.4.0",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1791449334,
+      "kind": "commit",
+      "source": "github",
+      "title": "Prepare runtime 3.5 validator and practice delivery (#367)",
+      "url": "https://github.com/ORO-AI/oro/commit/db6d80af2f8a749afb502caf5a2542ca5ff381a5",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1791364943,
+      "kind": "release",
+      "source": "github",
+      "title": "v2.3.0",
+      "url": "https://github.com/ORO-AI/oro/releases/tag/v2.3.0",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1791364943,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bind configured Readers to cancellable miner-funded simulator inferen…",
+      "url": "https://github.com/ORO-AI/oro/commit/9484727b3f2674dbca49884987cfc91a2058e2c4",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1791164073,
+      "kind": "release",
+      "source": "github",
+      "title": "Validator v2.2.0: oro-env-runtime 3.3.0, runtime contract 2 (#362)",
+      "url": "https://github.com/ORO-AI/oro/releases/tag/v2.2.0",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1791013671,
+      "kind": "release",
+      "source": "github",
+      "title": "Validator v2.1.0: runtime contract on claim and delivery load (#361)",
+      "url": "https://github.com/ORO-AI/oro/releases/tag/v2.1.0",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1790972989,
+      "kind": "commit",
+      "source": "github",
+      "title": "Validator v2.0.41: per-event market notices, preflight replay parity …",
+      "url": "https://github.com/ORO-AI/oro/commit/35fc09ddd49f51d3898e6a26f19c49269c60e1cf",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1790968071,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: remove unused load_problems from subnet.sandbox (#359)",
+      "url": "https://github.com/ORO-AI/oro/commit/f3600d1fe6eef8c5476c491bf44df0736c8557f1",
+      "publisher": "ORO-AI/oro"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

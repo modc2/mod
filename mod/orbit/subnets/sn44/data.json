@@ -1,0 +1,165 @@
+{
+  "netuid": 44,
+  "name": "Score",
+  "symbol": "ף",
+  "owner": "5CaCekuxb9pKQyLoxh3jbkEXig8fxjkeS4AQ6UmZa12xfQ9H",
+  "description": "Making every camera intelligent",
+  "github": "https://github.com/score-technologies/turbovision",
+  "url": "https://www.wearescore.com/",
+  "discord": null,
+  "logo": "https://www.wearescore.com/android-chrome-512x512.png",
+  "registered_at": 3550319,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.036097288,
+    "moving_price": 0.03600826021283865,
+    "market_cap": 222416.98134403583,
+    "tao_in": 66688.847919733,
+    "alpha_in": 1847475.315488107,
+    "alpha_out": 4314122.789722341,
+    "volume": 2347543.335579431,
+    "vol_24h": 2474.154086158145,
+    "emission": 0.0,
+    "change_1h": 0.2909350215112294,
+    "change_24h": -0.010661714061799277,
+    "change_7d": 0.0603595020256531
+  },
+  "spark_24h": [
+    0.036101137,
+    0.036097976,
+    0.036278845,
+    0.03628142,
+    0.036280468,
+    0.036140787,
+    0.036144986,
+    0.036147273,
+    0.036145647,
+    0.036148095,
+    0.036150708,
+    0.036153321,
+    0.036156147,
+    0.03590186,
+    0.035928385,
+    0.035931316,
+    0.035934816,
+    0.035950569,
+    0.035952689,
+    0.035955868,
+    0.035915641,
+    0.035888058,
+    0.035841883,
+    0.035844932,
+    0.035828173,
+    0.035830811,
+    0.035826693,
+    0.035951604,
+    0.035957451,
+    0.035936074,
+    0.035899865,
+    0.035915689,
+    0.035941375,
+    0.035946825,
+    0.035950858,
+    0.035988473,
+    0.0359879,
+    0.036131051,
+    0.036018152,
+    0.035998815,
+    0.036056685,
+    0.036059594,
+    0.0360617,
+    0.036064689,
+    0.036067311,
+    0.035990063,
+    0.035992573,
+    0.036097288
+  ],
+  "trades_24h": {
+    "trades": 247,
+    "buys": 147,
+    "sells": 100,
+    "buy_tao": 1099.804356892,
+    "sell_tao": 1232.372502121,
+    "net_tao": -132.56814522900004,
+    "traders": 137
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 0.41492551700000035,
+      "gross_tao": 399.58507448299997,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": 0.49812181299999736,
+      "gross_tao": 339.501878187,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 0.11055573299999821,
+      "gross_tao": 179.889444267,
+      "trades": 4
+    },
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": 0.21108554299999582,
+      "gross_tao": 159.788914457,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CvmQcgAgxWDd1pQnireTWwjkjyaPRXKpcTDJqiGLbsRBA4g",
+      "net_tao": 113.335698619,
+      "gross_tao": 113.335698619,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790865012,
+      "kind": "commit",
+      "source": "github",
+      "title": "change cricket weights",
+      "url": "https://github.com/score-technologies/turbovision/commit/bef6ad70de458c16bfaa8dfe9361b65f0d42ec3b",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1790648583,
+      "kind": "commit",
+      "source": "github",
+      "title": "room iou",
+      "url": "https://github.com/score-technologies/turbovision/commit/52201651f2175048a7fbdcf2c1da206667a942d2",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1790270273,
+      "kind": "commit",
+      "source": "github",
+      "title": "add retrys set weights+add logs long emits",
+      "url": "https://github.com/score-technologies/turbovision/commit/f1defeea7ffdcd9c0c662ecfa7dce711574a348f",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1790059555,
+      "kind": "commit",
+      "source": "github",
+      "title": "add logs emission",
+      "url": "https://github.com/score-technologies/turbovision/commit/b934ea66bed3cce1f42e12105134f9bba4973c30",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1789544638,
+      "kind": "commit",
+      "source": "github",
+      "title": "add detail fail lookup chutes",
+      "url": "https://github.com/score-technologies/turbovision/commit/d6c55296e2be449c56ed9738707730e4e300fa65",
+      "publisher": "score-technologies/turbovision"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

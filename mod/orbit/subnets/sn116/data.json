@@ -1,0 +1,189 @@
+{
+  "netuid": 116,
+  "name": "Carbon",
+  "symbol": "ъ",
+  "owner": "5D5RwyMPFaKLwChEcfb5yPA6VENHxJBagcHkP5aztfg8Ynj9",
+  "description": "Transforming engineering simulations through machine learning",
+  "github": "https://github.com/carbonphysicsai/Carbon",
+  "url": "https://https://carbonphysics.ai",
+  "discord": "...",
+  "logo": "https://carbonphysics.ai/assets/brand/carbon-logo.png",
+  "registered_at": 9210632,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.041616272,
+    "moving_price": 0.0258068956900388,
+    "market_cap": 7710.242517437927,
+    "tao_in": 1992.908984779,
+    "alpha_in": 47887.73361482,
+    "alpha_out": 137382.165559184,
+    "volume": 48183.400203671,
+    "vol_24h": 1251.9603329460006,
+    "emission": 0.0,
+    "change_1h": -0.8644456169310089,
+    "change_24h": 10.854726012199368,
+    "change_7d": 2107.497464492283
+  },
+  "spark_24h": [
+    0.03754127,
+    0.037669773,
+    0.038041725,
+    0.038979714,
+    0.038807048,
+    0.039326994,
+    0.039748547,
+    0.039885709,
+    0.04028574,
+    0.039294023,
+    0.03909187,
+    0.039386871,
+    0.03972412,
+    0.041390067,
+    0.040494765,
+    0.040623684,
+    0.040183403,
+    0.040442326,
+    0.041281415,
+    0.041588883,
+    0.041379289,
+    0.041382088,
+    0.042185613,
+    0.042400442,
+    0.042976868,
+    0.043198699,
+    0.043191327,
+    0.043191357,
+    0.04338938,
+    0.043387185,
+    0.043561827,
+    0.04358065,
+    0.042302427,
+    0.042436452,
+    0.042372341,
+    0.042381092,
+    0.041942357,
+    0.041914221,
+    0.041686448,
+    0.041894946,
+    0.041894946,
+    0.041905055,
+    0.041901715,
+    0.042489246,
+    0.041935123,
+    0.041934924,
+    0.041979159,
+    0.041616272
+  ],
+  "trades_24h": {
+    "trades": 196,
+    "buys": 117,
+    "sells": 79,
+    "buy_tao": 676.135659113,
+    "sell_tao": 560.273617126,
+    "net_tao": 115.862041987,
+    "traders": 80
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.20449096699999866,
+      "gross_tao": 456.799559927,
+      "trades": 20
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.17386927699999788,
+      "gross_tao": 92.173869277,
+      "trades": 8
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 13.56733523,
+      "gross_tao": 76.43266477,
+      "trades": 8
+    },
+    {
+      "coldkey": "5GmtZKcQh98PbMC5aWP428xFZEFyoYjREGwXZ6Ap4HVt6kWR",
+      "net_tao": 52.847690504,
+      "gross_tao": 52.847690504,
+      "trades": 7
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -0.7629428929999991,
+      "gross_tao": 50.762942893,
+      "trades": 6
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791600954,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #952 from carbonphysicsai/claude/ci-mirror-empty-d…",
+      "url": "https://github.com/carbonphysicsai/Carbon/commit/915225242146be67e6de098d4a08324cc63dc684",
+      "publisher": "carbonphysicsai/Carbon"
+    },
+    {
+      "ts": 1791600875,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #950 from carbonphysicsai/claude/readiness-prelive…",
+      "url": "https://github.com/carbonphysicsai/Carbon/commit/47f80a08100531f8af222720dd12dbe0d13b0661",
+      "publisher": "carbonphysicsai/Carbon"
+    },
+    {
+      "ts": 1791600533,
+      "kind": "commit",
+      "source": "github",
+      "title": "CI: the mirror step tolerates an empty daemon.json",
+      "url": "https://github.com/carbonphysicsai/Carbon/commit/1b76c9ba58ac79e3a4c7464f57f6efc67a29d1dc",
+      "publisher": "carbonphysicsai/Carbon"
+    },
+    {
+      "ts": 1791600269,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #908 from carbonphysicsai/claude/level4-g6-loss",
+      "url": "https://github.com/carbonphysicsai/Carbon/commit/1918c3d735963327de6a4505d16ab7c81e8e39d3",
+      "publisher": "carbonphysicsai/Carbon"
+    },
+    {
+      "ts": 1791600160,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #944 from carbonphysicsai/codex/launchpad-gate-bre…",
+      "url": "https://github.com/carbonphysicsai/Carbon/commit/19315df8aaae4a328fd3cbc3fc3b08a89c94ecff",
+      "publisher": "carbonphysicsai/Carbon"
+    },
+    {
+      "ts": 1791580073,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #941 from carbonphysicsai/codex/warpage-scope-alig…",
+      "url": "https://github.com/carbonphysicsai/Carbon/commit/4578d20b27f3d88641a8fe06b3bdbbde8aca17f7",
+      "publisher": "carbonphysicsai/Carbon"
+    },
+    {
+      "ts": 1791580067,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #907 from carbonphysicsai/claude/readiness-baseline-2",
+      "url": "https://github.com/carbonphysicsai/Carbon/commit/1fafcbf3b18f0ac0a5521bcea5c427c0389a2d79",
+      "publisher": "carbonphysicsai/Carbon"
+    },
+    {
+      "ts": 1791579488,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #933 from carbonphysicsai/codex/f13-saved-integral…",
+      "url": "https://github.com/carbonphysicsai/Carbon/commit/18f0b1870262a7f64481f8eb2f299535579738a8",
+      "publisher": "carbonphysicsai/Carbon"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

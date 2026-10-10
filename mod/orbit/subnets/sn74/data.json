@@ -1,0 +1,189 @@
+{
+  "netuid": 74,
+  "name": "Gittensor",
+  "symbol": "ل",
+  "owner": "5D1VXeeSdrfyrBdMe4SNwKnRsmzrjXES9dhx6kQkCHhJUPvS",
+  "description": "autonomous software development",
+  "github": "https://github.com/entrius/gittensor/tree/main",
+  "url": "https://gittensor.io",
+  "discord": " ",
+  "logo": "https://gittensor.s3.us-east-2.amazonaws.com/gt-logo-white.png",
+  "registered_at": 5086205,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.0031208,
+    "moving_price": 0.0031245157588273287,
+    "market_cap": 16688.79113831349,
+    "tao_in": 5860.591352119,
+    "alpha_in": 1877912.721980958,
+    "alpha_out": 3469687.617135131,
+    "volume": 363004.121364651,
+    "vol_24h": 198.31535004504258,
+    "emission": 0.0,
+    "change_1h": -3.204305560888798e-05,
+    "change_24h": -0.2704470669291803,
+    "change_7d": -2.2647776451661494
+  },
+  "spark_24h": [
+    0.003129263,
+    0.003129263,
+    0.003129263,
+    0.003129259,
+    0.003128852,
+    0.003128841,
+    0.003128841,
+    0.003128716,
+    0.003127506,
+    0.003127362,
+    0.003127362,
+    0.003127361,
+    0.003128677,
+    0.003128677,
+    0.003128509,
+    0.003128489,
+    0.003128262,
+    0.003128262,
+    0.003127647,
+    0.003127645,
+    0.003127643,
+    0.003129763,
+    0.00312865,
+    0.003128708,
+    0.003128702,
+    0.003128698,
+    0.003128424,
+    0.003128424,
+    0.003128418,
+    0.003129473,
+    0.003129465,
+    0.003130025,
+    0.003130025,
+    0.003130024,
+    0.003130024,
+    0.003120869,
+    0.003120869,
+    0.003120858,
+    0.003120858,
+    0.003120855,
+    0.003120855,
+    0.003120851,
+    0.003120844,
+    0.00312081,
+    0.00312081,
+    0.00312081,
+    0.003120801,
+    0.0031208
+  ],
+  "trades_24h": {
+    "trades": 28,
+    "buys": 12,
+    "sells": 16,
+    "buy_tao": 95.211027848,
+    "sell_tao": 102.71736814500001,
+    "net_tao": -7.506340297000008,
+    "traders": 15
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 0.050129710999996746,
+      "gross_tao": 99.949870289,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": 0.049960081000000045,
+      "gross_tao": 49.950039919,
+      "trades": 7
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": -8.54186907,
+      "gross_tao": 37.837273268000004,
+      "trades": 3
+    },
+    {
+      "coldkey": "5DeiMkSePD7q3ZQXYkgBfGnuhmv2CxVVKVo5o5TqYwGqVpk7",
+      "net_tao": 3.5142688449999997,
+      "gross_tao": 3.5142688449999997,
+      "trades": 5
+    },
+    {
+      "coldkey": "5FCf4bX3qocSDCeXhr6aoczj6wzG7EwFM1gMGSpWMtUBQWQg",
+      "net_tao": 2.049056904,
+      "gross_tao": 2.049056904,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791583165,
+      "kind": "commit",
+      "source": "github",
+      "title": "Interconnect: nvidia-smi topo -m wraps its header in terminal codes; …",
+      "url": "https://github.com/entrius/gittensor/commit/aae77d4ea86ab788eb672b217cbb60f8aa3c7ec8",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1791581410,
+      "kind": "commit",
+      "source": "github",
+      "title": "Host specs per box: measure every round, floor download, show the cus…",
+      "url": "https://github.com/entrius/gittensor/commit/3654abffb738687619bd7b962604f0d5f5c1f0f1",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1791572760,
+      "kind": "commit",
+      "source": "github",
+      "title": "NVIDIA final run: AMD iGPU is not a mixed box; gitt down waits for th…",
+      "url": "https://github.com/entrius/gittensor/commit/01f2c230e22b1e1cc3042bfb01b91c18b2598dd8",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1791564795,
+      "kind": "commit",
+      "source": "github",
+      "title": "AMD: MI300X qualified on the MI325X digest (vault 33 section 10) (#1833)",
+      "url": "https://github.com/entrius/gittensor/commit/f761d1f00f87acd00d1a6e3a17e0581c9174a887",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1791564515,
+      "kind": "commit",
+      "source": "github",
+      "title": "Rentals: every start/stop outcome reaches the log; gitt rent reasons …",
+      "url": "https://github.com/entrius/gittensor/commit/914fe46bd1ca871e56b36416bf511339c09425c5",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1791564434,
+      "kind": "commit",
+      "source": "github",
+      "title": "Miner-facing messages: gitt up rows say what to fix; bench phrases ca…",
+      "url": "https://github.com/entrius/gittensor/commit/4c8eb98b953c9596d08c67602d34c164178020b5",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1791564209,
+      "kind": "commit",
+      "source": "github",
+      "title": "Controller log: rental thread results, typed rental events, at_iso, e…",
+      "url": "https://github.com/entrius/gittensor/commit/d506c45a8f6ffd7975af1800a50029dc2c5274c6",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1791558631,
+      "kind": "commit",
+      "source": "github",
+      "title": "Compute: build and publish entrius/gt-proof-rocm in agent-images (vau…",
+      "url": "https://github.com/entrius/gittensor/commit/8dce88f76cbcfb2faa786682701bfa2130bf37e4",
+      "publisher": "entrius/gittensor"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

@@ -2757,3 +2757,302 @@ a.fn-chip:hover {
   flex: 1;
   text-decoration: none;
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Wallet + BlocTime
+   The one on-chain identity in the chrome, and the staking console it opens.
+   Same palette as everything else: accent-3 (cyan) means "BlocTime".
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.nav-ic.t4 {
+  color: var(--accent-3);
+}
+
+.wallet-wrap {
+  position: relative;
+  flex: none;
+}
+.wallet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 99px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  box-shadow: var(--top-light);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.18s var(--spring), color 0.18s var(--spring),
+    transform 0.18s var(--spring);
+}
+.wallet-btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: rgba(84, 230, 224, 0.45);
+  transform: translateY(-1px);
+}
+.wallet-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.wallet-btn.on {
+  color: var(--ink);
+}
+.wallet-btn.warn {
+  border-color: rgba(255, 176, 92, 0.5);
+}
+.wallet-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--ink-faint);
+  flex: none;
+}
+.wallet-dot.on {
+  background: var(--accent-3);
+  box-shadow: 0 0 10px rgba(84, 230, 224, 0.8);
+}
+.wallet-net {
+  color: var(--accent-3);
+  font-size: 11.5px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+.wallet-net.warn {
+  color: #ffb05c;
+}
+
+.wallet-pop {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: 300px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: #0c0e14;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), var(--top-light);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wallet-pop-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.wallet-pop-head .mono {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  word-break: break-all;
+}
+.wallet-chain {
+  font-size: 11px;
+  color: var(--accent-3);
+  font-family: var(--mono);
+}
+.wallet-switch {
+  width: 100%;
+  justify-content: center;
+}
+.wallet-pop-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+.wallet-pop-row .v {
+  font-family: var(--mono);
+  color: var(--ink);
+}
+.wallet-pop-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--ink-dim);
+  font-size: 12.5px;
+  font-family: var(--mono);
+  text-decoration: none;
+  cursor: pointer;
+}
+.wallet-pop-link:hover {
+  background: var(--panel-hover);
+  color: var(--ink);
+  border-color: var(--border);
+}
+.wallet-pop-link.danger:hover {
+  color: #ff9d9d;
+  border-color: rgba(255, 110, 110, 0.3);
+}
+.wallet-err {
+  font-size: 11.5px;
+  color: #ff9d9d;
+}
+
+/* Stake console */
+.stake-hero {
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin: 12px 0 26px;
+}
+.stake-hero h1 {
+  font-size: clamp(30px, 4vw, 44px);
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+}
+.stake-hero p {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--ink-dim);
+  font-size: 15px;
+}
+.stake-hero-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.stake-hero-stats .stat {
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  min-width: 118px;
+  box-shadow: var(--top-light);
+}
+.stake-hero-stats .k {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.stake-hero-stats .v {
+  font-size: 20px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.stake-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 18px;
+  margin-bottom: 22px;
+}
+.connect-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.stake-connect {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.linkish:hover {
+  color: var(--ink-dim);
+}
+.stake-wait {
+  margin-top: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--ink-dim);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.lock-range {
+  width: 100%;
+  accent-color: var(--accent-3);
+  margin: 6px 0 2px;
+}
+.lock-dur {
+  font-style: normal;
+  color: var(--ink-faint);
+}
+.preset-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.pos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.pos-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+.pos-main b {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.pos-meta {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-top: 3px;
+}
+.pos-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pos-lock {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-3);
+}
+.pos-lock.locked {
+  color: #ffb05c;
+}
+.chain-note.warn {
+  border-color: rgba(255, 176, 92, 0.4);
+  color: #ffcf9c;
+}
+.stake-book-row.mine {
+  outline: 1px solid rgba(84, 230, 224, 0.35);
+  outline-offset: 3px;
+  border-radius: 6px;
+}

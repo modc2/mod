@@ -200,6 +200,8 @@ def chat(payload: ChatRequest, request: Request):
     return StreamingResponse(gen(), media_type='text/event-stream')
 
 
+@app.get('/model')
+@app.get('/model/')
 @app.get('/')
 def index():
     if INDEX_PATH.exists():

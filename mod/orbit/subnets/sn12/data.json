@@ -1,0 +1,165 @@
+{
+  "netuid": 12,
+  "name": "Compute Horde",
+  "symbol": "μ",
+  "owner": "5ELzhHvgUqmnAYs74vFWjMMehXNeHkRtkreAa3g8QQS96PCp",
+  "description": null,
+  "github": "https://github.com/backend-developers-ltd/ComputeHorde/",
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "registered_at": 2256433,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.004944044,
+    "moving_price": 0.0048953385557979345,
+    "market_cap": 31584.131132565573,
+    "tao_in": 12875.3249532,
+    "alpha_in": 2604208.991911611,
+    "alpha_out": 3784110.192255353,
+    "volume": 428614.166946555,
+    "vol_24h": 249.63554972503334,
+    "emission": 0.0,
+    "change_1h": 0.808561474222369,
+    "change_24h": 1.8817037008034498,
+    "change_7d": 1.1186560828445602
+  },
+  "spark_24h": [
+    0.00485273,
+    0.00485273,
+    0.00485273,
+    0.004852728,
+    0.004852557,
+    0.004852545,
+    0.004905092,
+    0.00490509,
+    0.00490509,
+    0.004905081,
+    0.004906692,
+    0.00490669,
+    0.004899025,
+    0.004899025,
+    0.004902664,
+    0.004902643,
+    0.004902643,
+    0.004902642,
+    0.00490264,
+    0.004902638,
+    0.004902636,
+    0.004904178,
+    0.004904167,
+    0.004904167,
+    0.004904161,
+    0.004904158,
+    0.004904151,
+    0.004904151,
+    0.004904145,
+    0.004904138,
+    0.00490413,
+    0.00490413,
+    0.004904076,
+    0.004904075,
+    0.004904463,
+    0.004904463,
+    0.004904463,
+    0.004904452,
+    0.004904452,
+    0.004904449,
+    0.004904449,
+    0.004904444,
+    0.004904436,
+    0.0049044,
+    0.0049044,
+    0.004904399,
+    0.004904389,
+    0.004944044
+  ],
+  "trades_24h": {
+    "trades": 36,
+    "buys": 29,
+    "sells": 7,
+    "buy_tao": 182.484775154,
+    "sell_tao": 64.714053363,
+    "net_tao": 117.770721791,
+    "traders": 26
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.026161708000003614,
+      "gross_tao": 108.623563308,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HZ8FdvYgfWNnfFXc6t36iXiJEMVCgFBZEbVrrT6vq5kjsxd",
+      "net_tao": 40.0,
+      "gross_tao": 40.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5G6jGr3m4a8j88ZF5mB3Uu1XnP7mVofzCRzAwXJsjQZaq8Pw",
+      "net_tao": 15.004664509,
+      "gross_tao": 34.995335491,
+      "trades": 3
+    },
+    {
+      "coldkey": "5H1LrDBGzU8KVkry4vB3pa2zL2RU1aCooPtnHesZV6U3PSHp",
+      "net_tao": 30.0,
+      "gross_tao": 30.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5ErCxkw65wpNfhrGuUAWEBsqmvftETBVYMALZftWhyzzF8Qb",
+      "net_tao": 9.587684039,
+      "gross_tao": 9.587684039,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789748392,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: evict old neurons in allowance evict_old_data task",
+      "url": "https://github.com/backend-developers-ltd/ComputeHorde/commit/d7ba0880c13528fb45c873a6a1bb7e9dc3e29bc5",
+      "publisher": "backend-developers-ltd/ComputeHorde"
+    },
+    {
+      "ts": 1789748392,
+      "kind": "release",
+      "source": "github",
+      "title": "executor-staging-2026-09-18-35367827863-335-1: fix: evict old neurons in allowance evict_old_data task",
+      "url": "https://github.com/backend-developers-ltd/ComputeHorde/releases/tag/executor-staging-2026-09-18-35367827863-335-1",
+      "publisher": "backend-developers-ltd/ComputeHorde"
+    },
+    {
+      "ts": 1789748392,
+      "kind": "release",
+      "source": "github",
+      "title": "miner-staging-2026-09-18-35367827890-422-1: fix: evict old neurons in allowance evict_old_data task",
+      "url": "https://github.com/backend-developers-ltd/ComputeHorde/releases/tag/miner-staging-2026-09-18-35367827890-422-1",
+      "publisher": "backend-developers-ltd/ComputeHorde"
+    },
+    {
+      "ts": 1789748392,
+      "kind": "release",
+      "source": "github",
+      "title": "validator-preprod-2026-09-18-35368194640-313-1: fix: evict old neurons in allowance evict_old_data task",
+      "url": "https://github.com/backend-developers-ltd/ComputeHorde/releases/tag/validator-preprod-2026-09-18-35368194640-313-1",
+      "publisher": "backend-developers-ltd/ComputeHorde"
+    },
+    {
+      "ts": 1789748392,
+      "kind": "release",
+      "source": "github",
+      "title": "validator-staging-2026-09-18-35368036673-626-1: fix: evict old neurons in allowance evict_old_data task",
+      "url": "https://github.com/backend-developers-ltd/ComputeHorde/releases/tag/validator-staging-2026-09-18-35368036673-626-1",
+      "publisher": "backend-developers-ltd/ComputeHorde"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

@@ -8,7 +8,7 @@ import { THEMES, useTheme, type Theme } from './theme'
 // palette; pressing it drops a list of every skin, each row wearing its own
 // three plus the line that says what it's for. No preview, no animation —
 // you flip the switch and the console is a different console.
-export default function ThemePicker() {
+export default function ThemePicker({ inline = false }: { inline?: boolean }) {
   const { theme, setTheme } = useTheme()
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
@@ -29,6 +29,28 @@ export default function ThemePicker() {
       document.removeEventListener('keydown', onKey)
     }
   }, [open])
+
+  // Inline: the sidebar's own list — a compact swatch grid, no dropdown.
+  if (inline) {
+    return (
+      <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Skin">
+        {THEMES.map(t => (
+          <button
+            key={t.id}
+            role="radio"
+            aria-checked={t.id === theme}
+            title={t.note}
+            onClick={() => setTheme(t.id as Theme)}
+            className={`flex items-center gap-2 border rounded-lg px-2 py-1.5 text-left text-[11px] transition-colors
+              ${t.id === theme ? 'border-accent/50 bg-accent/10 text-ink' : 'border-hair bg-panel text-ink2 hover:border-line'}`}
+          >
+            <Chips chips={t.chips} />
+            <span className="truncate">{t.label}</span>
+          </button>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div ref={wrap} className="relative shrink-0">

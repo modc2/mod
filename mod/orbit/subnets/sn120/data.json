@@ -1,0 +1,189 @@
+{
+  "netuid": 120,
+  "name": "Affine",
+  "symbol": "ⴷ",
+  "owner": "5EfNFhH2s9hJoVuK8qkQRx8bkpNncRifhbCHBFKs6qKqknak",
+  "description": "Reason Mining",
+  "github": "https://github.com/AffineFoundation/affine",
+  "url": "www.affine.io",
+  "discord": "consttt",
+  "logo": "https://raw.githubusercontent.com/AffineFoundation/affine/main/affine.png",
+  "registered_at": 5749344,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.045236788,
+    "moving_price": 0.04521881532855332,
+    "market_cap": 200596.96916958567,
+    "tao_in": 76483.330609725,
+    "alpha_in": 1690733.091504612,
+    "alpha_out": 2743643.840155205,
+    "volume": 1562220.152028008,
+    "vol_24h": 806.8401773408987,
+    "emission": 0.0,
+    "change_1h": 0.021701651357486362,
+    "change_24h": 0.0609964181636391,
+    "change_7d": -2.46400867968094
+  },
+  "spark_24h": [
+    0.045209212,
+    0.045212421,
+    0.045216339,
+    0.045222078,
+    0.045225596,
+    0.045226882,
+    0.045227486,
+    0.045233212,
+    0.045237247,
+    0.045222665,
+    0.045218354,
+    0.045221644,
+    0.045227498,
+    0.045234728,
+    0.045293717,
+    0.045343934,
+    0.045347329,
+    0.045371154,
+    0.045374161,
+    0.045124245,
+    0.045124444,
+    0.045126777,
+    0.045119566,
+    0.045124426,
+    0.045119998,
+    0.045121772,
+    0.045088713,
+    0.045102717,
+    0.045131018,
+    0.045119358,
+    0.045109987,
+    0.04513489,
+    0.045169585,
+    0.045176034,
+    0.045181375,
+    0.045184726,
+    0.045179688,
+    0.045201956,
+    0.045205233,
+    0.045220353,
+    0.045222142,
+    0.045226037,
+    0.045231619,
+    0.045238046,
+    0.045223622,
+    0.045223939,
+    0.045226973,
+    0.045236788
+  ],
+  "trades_24h": {
+    "trades": 259,
+    "buys": 77,
+    "sells": 182,
+    "buy_tao": 224.499788398,
+    "sell_tao": 384.235237711,
+    "net_tao": -159.73544931300003,
+    "traders": 103
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Dptqz9txgD48ZndTrLL4HD7ZhPRvJHrzUYdXjBVbumyvq2h",
+      "net_tao": -211.195293923,
+      "gross_tao": 211.195293923,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HL56LdrCZisFzVdrPMeCx3ERkrGRXD8cUXTwG9XGv4k58g1",
+      "net_tao": 57.409849275,
+      "gross_tao": 57.409849275,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CJ7WzjgEeWepEjjMimFYvoByawMooEekmkzck4kutvHcCdE",
+      "net_tao": 40.960749863000004,
+      "gross_tao": 55.303027511,
+      "trades": 6
+    },
+    {
+      "coldkey": "5GZN8AqmyXmyGLQY1EE3McoCQFq6gBgKupdoT8efyj2Fcgwe",
+      "net_tao": -43.087637289999996,
+      "gross_tao": 43.087637289999996,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GTJt9ek1crGmSa7tVAmLLS8Pv9WUNcUseZNyV8apmbrxbmn",
+      "net_tao": 31.072516291,
+      "gross_tao": 31.072516291,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791602309,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: publish active epoch110 nine-batch and 512-task contract",
+      "url": "https://github.com/AffineFoundation/affine/commit/b41255b9a5d9a0c8dbad3b3e4014cf42e3aca046",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791595295,
+      "kind": "commit",
+      "source": "github",
+      "title": "Support prospective nine-batch mining and 512-task training",
+      "url": "https://github.com/AffineFoundation/affine/commit/65ff85fd9c85af66679f06919c2c9d5ea2cb392b",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791579720,
+      "kind": "commit",
+      "source": "github",
+      "title": "Retain partial miner batches and advance sampling attempts on retries",
+      "url": "https://github.com/AffineFoundation/affine/commit/34d3b2a6a291770f2f022c34148a5d3fc8c71387",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791577433,
+      "kind": "commit",
+      "source": "github",
+      "title": "Reuse fresh hourly assessments for learner openings",
+      "url": "https://github.com/AffineFoundation/affine/commit/c8312d347231e3fa940dd4598047969dd8985279",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791573894,
+      "kind": "commit",
+      "source": "github",
+      "title": "Recover hourly miner weight submissions from finalized chain evidence",
+      "url": "https://github.com/AffineFoundation/affine/commit/068a8ce6c7ab508ffd2ca893766562408758f90d",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791571630,
+      "kind": "commit",
+      "source": "github",
+      "title": "Remove stale pre-deployment status from reward documentation",
+      "url": "https://github.com/AffineFoundation/affine/commit/4a188d279a3dbca2740a4f4781080cf69ac85eb1",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791570736,
+      "kind": "commit",
+      "source": "github",
+      "title": "Keep hourly miner rewards running without owner burn fallbacks",
+      "url": "https://github.com/AffineFoundation/affine/commit/4e8e4644c47f815377ebcf6b781e9f505261788a",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791556139,
+      "kind": "commit",
+      "source": "github",
+      "title": "Display authenticated continuous audits in network batch counts",
+      "url": "https://github.com/AffineFoundation/affine/commit/ce14b38287df3bb17de95ee5fbf12698827700f0",
+      "publisher": "AffineFoundation/affine"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

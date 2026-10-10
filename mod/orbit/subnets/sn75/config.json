@@ -1,0 +1,40 @@
+{
+  "name": "sn75",
+  "version": "1.0.0",
+  "description": "SN75 Hippius — Blockchain-backed cloud: storage, VMs, and apps with unmatched transparency, trust, and power. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "م",
+  "chain": "bittensor",
+  "netuid": 75,
+  "subnet": "Hippius",
+  "symbol": "م",
+  "owner": "5DAQpczEK4vzBn1waHkC4BZGqGPZ1dwPxKVsj36JDofHAw3a",
+  "github": "https://github.com/thenervelab/thebrain",
+  "url": "https://hippius.com/",
+  "discord": null,
+  "logo": "https://hippius.com/logo.png",
+  "related": [
+    "hippius"
+  ],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=75",
+    "news": "/bt/news?netuid=75"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -213,6 +213,7 @@
     this.sramTimer = 0;
 
     this.bind();
+    this.restorePrefs();
     this.resize();
     this.draw();
     this.restoreLast();
@@ -287,7 +288,7 @@
       if (rec && rec.bytes) {
         self.loadROM(rec.bytes, rec.name);
         self.pause();               // waiting for a gesture before making noise
-        self.toast('resumed ' + rec.name + ' — press PAUSE to play');
+        self.toast('resumed ' + rec.name + ' — press PLAY to continue');
       }
     }).catch(noop);
   };
@@ -484,8 +485,20 @@
       }
       // Analogue sticks stand in for the d-pad, with a wide dead zone.
       var ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;
-      if (Math.abs(ax) > 0.4) this.nes.setButton(p, ax < 0 ? LEFT : RIGHT, true);
-      if (Math.abs(ay) > 0.4) this.nes.setButton(p, ay < 0 ? UP : DOWN, true);
+      if (Math.abs(ax) > 0.4) {
+        this.nes.setButton(p, ax < 0 ? LEFT : RIGHT, true);
+        this.nes.setButton(p, ax < 0 ? RIGHT : LEFT, false);
+      } else {
+        this.nes.setButton(p, LEFT, false);
+        this.nes.setButton(p, RIGHT, false);
+      }
+      if (Math.abs(ay) > 0.4) {
+        this.nes.setButton(p, ay < 0 ? UP : DOWN, true);
+        this.nes.setButton(p, ay < 0 ? DOWN : UP, false);
+      } else {
+        this.nes.setButton(p, UP, false);
+        this.nes.setButton(p, DOWN, false);
+      }
     }
   };
 
@@ -496,6 +509,7 @@
       if (e.metaKey || e.ctrlKey) return;
       if (e.code === 'KeyP') { self.togglePause(); e.preventDefault(); return; }
       if (e.code === 'F2') { self.saveState(); e.preventDefault(); return; }
+      if (e.code === 'F3') { self.slot = self.slot % 4 + 1; $('slot').textContent = 'SLOT ' + self.slot; idbPut('prefs', 'slot', self.slot).catch(noop); self.toast('slot ' + self.slot); e.preventDefault(); return; }
       if (e.code === 'F4') { self.loadState(); e.preventDefault(); return; }
       if (e.code === 'Tab') { self.turbo = true; e.preventDefault(); return; }
       var button = KEYMAP[e.code];
@@ -567,6 +581,7 @@
     $('slot').addEventListener('click', function () {
       self.slot = self.slot % 4 + 1;
       this.textContent = 'SLOT ' + self.slot;
+      idbPut('prefs', 'slot', self.slot).catch(noop);
     });
 
     $('mute').addEventListener('click', function () {
@@ -577,11 +592,15 @@
       if (on && !self.audio.ctx) self.audio.start(function (r) {
         if (r) self.nes.setSampleRate(r);
       });
+      idbPut('prefs', 'sound', on);
     });
 
     $('crt').addEventListener('click', function () {
-      var on = self.canvas.classList.toggle('scanlines');
+      var overlay = $('crt-overlay');
+      var on = overlay.style.display !== 'block';
+      overlay.style.display = on ? 'block' : 'none';
       this.classList.toggle('on', on);
+      idbPut('prefs', 'crt', on);
     });
 
     $('shot').addEventListener('click', function () { self.screenshot(); });
@@ -590,6 +609,32 @@
       if (doc.fullscreenElement) doc.exitFullscreen();
       else $('app').requestFullscreen().catch(noop);
     });
+  };
+
+  App.prototype.restorePrefs = function () {
+    var self = this;
+    idbGet('prefs', 'sound').then(function (on) {
+      if (on === false) {
+        self.audio.setEnabled(false);
+        var btn = $('mute');
+        if (btn) { btn.textContent = 'SOUND OFF'; btn.classList.add('on'); }
+      }
+    }).catch(noop);
+    idbGet('prefs', 'crt').then(function (on) {
+      if (on === true) {
+        var overlay = $('crt-overlay');
+        if (overlay) overlay.style.display = 'block';
+        var btn = $('crt');
+        if (btn) btn.classList.add('on');
+      }
+    }).catch(noop);
+    idbGet('prefs', 'slot').then(function (s) {
+      if (s >= 1 && s <= 4) {
+        self.slot = s;
+        var btn = $('slot');
+        if (btn) btn.textContent = 'SLOT ' + self.slot;
+      }
+    }).catch(noop);
   };
 
   App.prototype.screenshot = function () {

@@ -436,6 +436,7 @@
   function setMuted(v) {
     muted = !!v;
     if (master) master.gain.value = muted ? 0 : 0.55;
+    try { localStorage.setItem('superhood.muted', muted ? '1' : '0'); } catch (e) {}
     return muted;
   }
 

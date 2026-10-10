@@ -14,22 +14,28 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // The `nes` namespace survives from the old 8-bit theme so every
+        // component keeps its class names; the values are the night-console
+        // palette. `coin` is the one warm accent (taxi gold).
         nes: {
-          void: '#0a0a18',    // page / underground
-          panel: '#0e1330',   // panel body
-          raised: '#1a2258',  // inset controls, button rest state
-          sky: '#5c94fc',
-          red: '#e52521',
-          coin: '#fbd000',
-          green: '#43b047',
-          brick: '#c1440e',
-          ink: '#ffffff',
-          ink2: '#ccd3f2',
-          ink3: '#8f98c8',
+          void: '#0a0d14',    // page
+          panel: '#11151f',   // panel body
+          raised: '#1b2130',  // inset controls, button rest state
+          sky: '#60a5fa',
+          red: '#f0564a',
+          coin: '#e8b64c',
+          green: '#3fb68b',
+          brick: '#1b2130',
+          ink: '#f2f5fa',
+          ink2: '#c7cedb',
+          ink3: '#8b94a7',
         },
       },
       fontFamily: {
-        pixel: ['var(--font-pixel)', 'ui-monospace', 'monospace'],
+        pixel: [
+          'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI',
+          'Roboto', 'sans-serif',
+        ],
       },
     },
   },

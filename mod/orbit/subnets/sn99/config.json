@@ -1,0 +1,38 @@
+{
+  "name": "sn99",
+  "version": "1.0.0",
+  "description": "SN99 Thirty Spokes — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "გ",
+  "chain": "bittensor",
+  "netuid": 99,
+  "subnet": "Thirty Spokes",
+  "symbol": "გ",
+  "owner": "5DebFXsw76JvoG5j6qQRoyNK79qBEvd6A2trULrA6DGgQLYX",
+  "github": null,
+  "url": "https://www.thirtyspokes.ai",
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=99",
+    "news": "/bt/news?netuid=99"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

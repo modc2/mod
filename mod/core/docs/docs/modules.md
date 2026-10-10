@@ -273,4 +273,4 @@ curl -X POST http://localhost:8840/in_snapshot \
 
 Ports are read from the module's `config.json`. The API runs on `port`, the Next.js app on `app_port`.
 
-The server also exposes namespaced routes: `POST /mod/{name}/{fn}` calls `fn` on module `name`, and a **null call** — `POST /mod/{name}` with no function — returns the module's info (functions, schema). See [Protocol](protocol.md) for the full convention, including the `/{mod}` (app) / `/api/{mod}` (API) gateway URL rule.
+The server also exposes namespaced routes: `POST /mod/{name}/{fn}` calls `fn` on module `name`, and a **null call** — `POST /mod/{name}` with no function — returns the module's info (functions, schema). See [Protocol](protocol.md) for the full convention, including the `/{mod}` (app) / `/{mod}/api` (API) gateway URL rule.

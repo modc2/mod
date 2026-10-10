@@ -1,0 +1,24 @@
+[package]
+name = "ztensor-api"
+version = "0.2.0"
+edition = "2021"
+
+[[bin]]
+name = "ztensor-api"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors"] }
+serde = { version = "1", features = ["derive"] }
+# arbitrary_precision: python clients emit LSAG scalars as huge JSON ints;
+# this keeps their full digits instead of lossy f64.
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+sha2 = "0.10"
+rand = "0.8"
+
+[profile.release]
+opt-level = 3

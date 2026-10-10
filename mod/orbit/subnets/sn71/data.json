@@ -1,0 +1,189 @@
+{
+  "netuid": 71,
+  "name": "Leadpoet",
+  "symbol": "ㄴ",
+  "owner": "5DwHzMhBXPGPSSxnPzp3J8Y12UyYmU17nppQ8oHum6yrRjSk",
+  "description": "Intent-driven AI for modern sales teams.",
+  "github": "https://github.com/leadpoet/leadpoet",
+  "url": "https://leadpoet.com",
+  "discord": null,
+  "logo": "https://leadpoet.com/leadpoet-social-logo.png",
+  "registered_at": 5048438,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.004843133,
+    "moving_price": 0.004826627671718597,
+    "market_cap": 28554.628362831438,
+    "tao_in": 5541.124132633,
+    "alpha_in": 1144119.684931115,
+    "alpha_out": 4751780.419986804,
+    "volume": 1451076.783782532,
+    "vol_24h": 2461.3348899229895,
+    "emission": 0.0,
+    "change_1h": -0.3287640447588225,
+    "change_24h": -1.4241308240700024,
+    "change_7d": 26.47181019982938
+  },
+  "spark_24h": [
+    0.004913102,
+    0.004919267,
+    0.004904649,
+    0.00490444,
+    0.004892006,
+    0.004872721,
+    0.004918891,
+    0.004901536,
+    0.004914028,
+    0.004911817,
+    0.004909618,
+    0.004927538,
+    0.00490854,
+    0.004868607,
+    0.004787581,
+    0.004764766,
+    0.004777017,
+    0.004756549,
+    0.00473217,
+    0.00471376,
+    0.004712854,
+    0.004833229,
+    0.004812837,
+    0.004812837,
+    0.00478237,
+    0.004779895,
+    0.004727861,
+    0.004730958,
+    0.004759241,
+    0.00475408,
+    0.00483737,
+    0.004938512,
+    0.004924376,
+    0.004922686,
+    0.004935169,
+    0.004960018,
+    0.004956187,
+    0.004940378,
+    0.004870665,
+    0.004870969,
+    0.004870969,
+    0.004864564,
+    0.004864549,
+    0.004862622,
+    0.004862622,
+    0.004859129,
+    0.004859108,
+    0.004843133
+  ],
+  "trades_24h": {
+    "trades": 351,
+    "buys": 182,
+    "sells": 169,
+    "buy_tao": 1231.012782686,
+    "sell_tao": 1248.997291329,
+    "net_tao": -17.984508643000026,
+    "traders": 126
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": -20.109204575999996,
+      "gross_tao": 180.109204576,
+      "trades": 7
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": -0.5143691240000038,
+      "gross_tao": 167.321023402,
+      "trades": 17
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.27629833299999973,
+      "gross_tao": 130.276298333,
+      "trades": 10
+    },
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": 0.049974312999998105,
+      "gross_tao": 129.950025687,
+      "trades": 8
+    },
+    {
+      "coldkey": "5G1sRKrcfSuEbpJbNSd5ToVF5gMvnt8UqWXNUMTChDrF4tFs",
+      "net_tao": -1.297162997,
+      "gross_tao": 117.297162997,
+      "trades": 22
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791602548,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #323 from leadpoet/fix/arena-issuer-ticker-oct10",
+      "url": "https://github.com/leadpoet/leadpoet/commit/a2e0e67f6c37754a76d2fcf4bfe4ad9219813e76",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1791602440,
+      "kind": "commit",
+      "source": "github",
+      "title": "Prioritize submitted launch and hiring sources for required attributes",
+      "url": "https://github.com/leadpoet/leadpoet/commit/e5f2cf32f0d49062ecd1461416663f4422529ab6",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1791602043,
+      "kind": "commit",
+      "source": "github",
+      "title": "Preserve issuer ticker proof across whitespace and quoted aliases",
+      "url": "https://github.com/leadpoet/leadpoet/commit/7652cf9f663c9986bd089451cb35ff66aca5143a",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1791598590,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #322 from leadpoet/codex/arena-partial-score-deadl…",
+      "url": "https://github.com/leadpoet/leadpoet/commit/13924c8af62b9e89ed3c304034ecf6496ac48768",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1791598401,
+      "kind": "commit",
+      "source": "github",
+      "title": "Wait for partial baseline proof deadline without driver error",
+      "url": "https://github.com/leadpoet/leadpoet/commit/92bb0234f47c6ec1a7132ae5ad9dbb7701a80a26",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1791580838,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #315 from leadpoet/fix/public-current-read-oct09",
+      "url": "https://github.com/leadpoet/leadpoet/commit/bb2ff92f880bea1f16e4e8949e8078b89f975f42",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1791580801,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(arena): narrow public current configuration reads",
+      "url": "https://github.com/leadpoet/leadpoet/commit/5c9fe361639d9f3b8645910d97f251ff9a0c26d3",
+      "publisher": "leadpoet/leadpoet"
+    },
+    {
+      "ts": 1791579763,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #314 from leadpoet/fix/competition-summary-read-oct09",
+      "url": "https://github.com/leadpoet/leadpoet/commit/fb24c74fb6abf55ac4c9250825ae26e78ef22229",
+      "publisher": "leadpoet/leadpoet"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

@@ -222,32 +222,54 @@ class WorkerPool:
 
     def _acquire_worker(self) -> Optional[_PersistentWorker]:
         """Get an idle worker, or scale up if possible. Waits briefly if all busy."""
+        worker_to_start = None
         with self._lock:
             # Try to find an idle, alive worker
             for w in self._workers:
                 if not w.busy and w.alive:
+                    w.busy = True
                     return w
-            # Try to find an idle, dead worker and restart it
+            # Try to find an idle, dead worker; mark busy to reserve it before releasing lock
             for w in self._workers:
                 if not w.busy:
-                    w.start()
-                    return w
-            # Scale up if under max
-            if len(self._workers) < self.max_workers:
-                w = _PersistentWorker(worker_id=len(self._workers))
-                w.start()
-                self._workers.append(w)
-                return w
+                    w.busy = True
+                    worker_to_start = w
+                    break
+            # Scale up if under max; append inside lock to claim the slot
+            if worker_to_start is None and len(self._workers) < self.max_workers:
+                worker_to_start = _PersistentWorker(worker_id=len(self._workers))
+                worker_to_start.busy = True
+                self._workers.append(worker_to_start)
+
+        # Start the worker outside the lock so subprocess I/O doesn't block the pool
+        if worker_to_start is not None:
+            try:
+                worker_to_start.start()
+            except Exception:
+                worker_to_start.busy = False
+                raise
+            return worker_to_start
 
         # All workers busy, wait briefly for one to free up
         for _ in range(100):  # wait up to 10 seconds
             time.sleep(0.1)
+            worker_to_start = None
             with self._lock:
                 for w in self._workers:
                     if not w.busy:
-                        if not w.alive:
-                            w.start()
-                        return w
+                        if w.alive:
+                            w.busy = True
+                            return w
+                        w.busy = True
+                        worker_to_start = w
+                        break
+            if worker_to_start is not None:
+                try:
+                    worker_to_start.start()
+                except Exception:
+                    worker_to_start.busy = False
+                    raise
+                return worker_to_start
         return None
 
     def _auto_scale_loop(self):
@@ -274,50 +296,70 @@ class WorkerPool:
         if not self._started:
             self.start()
         n = max(self.min_workers, min(n, self.max_workers))
+        to_start = []
+        to_kill = []
         with self._lock:
             current = len(self._workers)
             if n > current:
-                # Scale up
+                # Scale up: reserve slots inside lock, start outside
                 for i in range(current, n):
                     w = _PersistentWorker(worker_id=i)
-                    w.start()
                     self._workers.append(w)
+                    to_start.append(w)
             elif n < current:
-                # Scale down (remove idle from the end)
-                removed = 0
+                # Scale down: pop inside lock, kill outside
                 for i in range(current - 1, -1, -1):
                     if len(self._workers) <= n:
                         break
                     w = self._workers[i]
                     if not w.busy:
                         self._workers.pop(i)
-                        w.kill()
-                        removed += 1
-            return self.status()
+                        to_kill.append(w)
+        # Do blocking I/O outside the lock
+        for w in to_start:
+            w.start()
+        for w in to_kill:
+            w.kill()
+        return self.status()
 
     def set_limits(self, min_workers: int = None, max_workers: int = None) -> dict:
-        """Update min/max worker limits."""
+        """Update min/max worker limits.
+
+        w.start() is called outside the lock; on failure w.busy is cleared so
+        _acquire_worker can reuse the slot rather than leaving it permanently reserved.
+        """
         if min_workers is not None:
             self.min_workers = max(1, min_workers)
         if max_workers is not None:
             self.max_workers = max(self.min_workers, max_workers)
-        # Ensure current count respects new limits
+        to_start = []
+        to_kill = []
+        # Mutate _workers inside lock; do blocking I/O outside
         with self._lock:
-            # Scale up to min if needed
+            # Scale up to min if needed; reserve slots before releasing lock
             while len(self._workers) < self.min_workers:
                 w = _PersistentWorker(worker_id=len(self._workers))
-                w.start()
+                w.busy = True
                 self._workers.append(w)
+                to_start.append(w)
             # Scale down to max if needed (remove idle from end)
             while len(self._workers) > self.max_workers:
                 for i in range(len(self._workers) - 1, -1, -1):
                     w = self._workers[i]
                     if not w.busy and len(self._workers) > self.max_workers:
                         self._workers.pop(i)
-                        w.kill()
+                        to_kill.append(w)
                         break
                 else:
                     break  # All above max are busy, can't remove yet
+        for w in to_start:
+            try:
+                w.start()
+            except Exception:
+                w.busy = False
+                raise
+        for w in to_kill:
+            w.kill()
         return self.status()
 
     def kill(self, cid: str) -> bool:
@@ -452,6 +494,10 @@ class SandboxWorker:
             except (ProcessLookupError, PermissionError):
                 pass
             proc.kill()
+            try:
+                proc.communicate()
+            except Exception:
+                pass
             raise TimeoutError(f"Worker timed out after {timeout}s")
 
         finally:
@@ -462,6 +508,10 @@ class SandboxWorker:
                 try:
                     proc.kill()
                 except (ProcessLookupError, PermissionError):
+                    pass
+                try:
+                    proc.communicate()
+                except Exception:
                     pass
 
     def kill(self, cid: str) -> bool:
@@ -615,15 +665,20 @@ class _DockerPersistentWorker:
 
         # Use docker exec -i to pipe task JSON and get result
         py_cmd = (
-            "import sys, json, traceback; "
-            "task = json.loads(sys.stdin.read()); "
-            "sys.stdout = sys.stderr; "
-            "import mod as m; "
-            "fn_obj = m.fn(task['fn']); "
-            "result = fn_obj(**task.get('params', {})) if callable(fn_obj) else fn_obj; "
-            "result = list(result) if hasattr(result, '__next__') else result; "
-            "sys.stdout = sys.__stdout__; "
-            "print(json.dumps({'result': result}))"
+            "import sys, json, traceback\n"
+            "_out = sys.stdout\n"
+            "sys.stdout = sys.stderr\n"
+            "task = json.loads(sys.stdin.read())\n"
+            "import mod as m\n"
+            "try:\n"
+            "    fn_obj = m.fn(task['fn'])\n"
+            "    result = fn_obj(**task.get('params', {})) if callable(fn_obj) else fn_obj\n"
+            "    result = list(result) if hasattr(result, '__next__') else result\n"
+            "    output = json.dumps({'result': result})\n"
+            "except Exception as e:\n"
+            "    output = json.dumps({'error': str(e), 'traceback': traceback.format_exc()})\n"
+            "_out.write(output + '\\n')\n"
+            "_out.flush()\n"
         )
 
         cmd = ['docker', 'exec', '-i', self.name, 'python3', '-u', '-c', py_cmd]
@@ -661,6 +716,10 @@ class _DockerPersistentWorker:
 
         except subprocess.TimeoutExpired:
             proc.kill()
+            try:
+                proc.communicate()
+            except Exception:
+                pass
             raise TimeoutError(f"Docker worker {self.name} timed out after {timeout}s")
 
         except json.JSONDecodeError:
@@ -782,19 +841,22 @@ class DockerWorker:
 
     def _acquire_worker(self) -> Optional[_DockerPersistentWorker]:
         """Get an idle worker container, or spin up a new one if under max."""
+        worker_to_start = None
         with self._lock:
             # Try to find an idle, alive worker
             for w in self._workers:
-                if not w.busy and w.alive:
+                if not w.busy and w._alive:
+                    w.busy = True
                     return w
-            # Try to find an idle, dead worker and restart it
+            # Try to find an idle, dead worker; mark busy to reserve it before releasing lock
             for w in self._workers:
                 if not w.busy:
-                    w.start()
-                    return w
-            # Spin up a new container if under max
-            if len(self._workers) < self.max_workers:
-                w = _DockerPersistentWorker(
+                    w.busy = True
+                    worker_to_start = w
+                    break
+            # Spin up a new container if under max; append inside lock to claim the slot
+            if worker_to_start is None and len(self._workers) < self.max_workers:
+                worker_to_start = _DockerPersistentWorker(
                     worker_id=len(self._workers),
                     image=self.image,
                     memory=self.memory,
@@ -803,19 +865,38 @@ class DockerWorker:
                     mod_path=self._mod_path,
                     storage_path=self._storage_path,
                 )
-                w.start()
-                self._workers.append(w)
-                return w
+                worker_to_start.busy = True
+                self._workers.append(worker_to_start)
+
+        # Start the worker outside the lock so docker I/O doesn't block the pool
+        if worker_to_start is not None:
+            try:
+                worker_to_start.start()
+            except Exception:
+                worker_to_start.busy = False
+                raise
+            return worker_to_start
 
         # All workers busy — wait briefly for one to free up
         for _ in range(100):  # wait up to 10 seconds
             time.sleep(0.1)
+            worker_to_start = None
             with self._lock:
                 for w in self._workers:
                     if not w.busy:
-                        if not w.alive:
-                            w.start()
-                        return w
+                        if w._alive:
+                            w.busy = True
+                            return w
+                        w.busy = True
+                        worker_to_start = w
+                        break
+            if worker_to_start is not None:
+                try:
+                    worker_to_start.start()
+                except Exception:
+                    worker_to_start.busy = False
+                    raise
+                return worker_to_start
         return None
 
     def _auto_scale_loop(self):
@@ -823,6 +904,7 @@ class DockerWorker:
         while self._running:
             time.sleep(5)
             now = time.time()
+            to_stop = []
             with self._lock:
                 to_remove = []
                 for i in range(len(self._workers) - 1, -1, -1):
@@ -830,14 +912,18 @@ class DockerWorker:
                     if not w.busy and (now - w.last_active) > self.idle_timeout:
                         to_remove.append(i)
                 for i in to_remove:
-                    w = self._workers.pop(i)
-                    w.stop()
+                    to_stop.append(self._workers.pop(i))
+            # Blocking docker I/O outside the lock so run() is not stalled
+            for w in to_stop:
+                w.stop()
 
     def scale(self, n: int) -> dict:
         """Manually set the target worker count (clamped to 1..max_workers)."""
         if not self._started:
             self.start()
         n = max(0, min(n, self.max_workers))
+        to_start = []
+        to_stop = []
         with self._lock:
             current = len(self._workers)
             if n > current:
@@ -847,8 +933,9 @@ class DockerWorker:
                         cpus=self.cpus, network=self.network,
                         mod_path=self._mod_path, storage_path=self._storage_path,
                     )
-                    w.start()
+                    w.busy = True  # reserve slot before releasing lock
                     self._workers.append(w)
+                    to_start.append(w)
             elif n < current:
                 for i in range(current - 1, -1, -1):
                     if len(self._workers) <= n:
@@ -856,7 +943,15 @@ class DockerWorker:
                     w = self._workers[i]
                     if not w.busy:
                         self._workers.pop(i)
-                        w.stop()
+                        to_stop.append(w)
+        # Do blocking I/O outside the lock
+        for w in to_start:
+            try:
+                w.start()
+            finally:
+                w.busy = False
+        for w in to_stop:
+            w.stop()
         return self.status()
 
     def set_limits(self, min_workers: int = None, max_workers: int = None,
@@ -867,16 +962,20 @@ class DockerWorker:
         if idle_timeout is not None:
             self.idle_timeout = max(5, idle_timeout)
         # Scale down if over new max
+        to_stop = []
         with self._lock:
             while len(self._workers) > self.max_workers:
                 for i in range(len(self._workers) - 1, -1, -1):
                     w = self._workers[i]
                     if not w.busy and len(self._workers) > self.max_workers:
                         self._workers.pop(i)
-                        w.stop()
+                        to_stop.append(w)
                         break
                 else:
                     break
+        # Blocking docker I/O outside the lock
+        for w in to_stop:
+            w.stop()
         return self.status()
 
     def kill(self, cid: str) -> bool:
@@ -961,6 +1060,9 @@ def _apply_sandbox(allowed_dirs: List[str], memory_limit: int, cpu_limit: int):
 
     # Resolve allowed dirs to absolute real paths
     resolved_dirs = [os.path.realpath(d) for d in allowed_dirs]
+    # ~/mod is read-only (module source); only ~/.mod and /tmp are writable
+    _mod_source = os.path.realpath(os.path.expanduser('~/mod'))
+    writable_dirs = [d for d in resolved_dirs if d != _mod_source]
     # Also allow /tmp for temporary files and Python stdlib paths
     safe_prefixes = resolved_dirs + [
         '/tmp',
@@ -982,16 +1084,19 @@ def _apply_sandbox(allowed_dirs: List[str], memory_limit: int, cpu_limit: int):
         resolved = os.path.realpath(str(file))
         # Allow reads from Python stdlib and site-packages
         mode = args[0] if args else kwargs.get('mode', 'r')
-        is_read = 'r' in str(mode) and 'w' not in str(mode) and 'a' not in str(mode)
+        is_read = 'r' in str(mode) and '+' not in str(mode) and 'w' not in str(mode) and 'a' not in str(mode)
         if is_read:
             # Allow reading from anywhere in Python path for imports
             if any(resolved.startswith(p) for p in safe_prefixes):
                 return _original_open(file, *args, **kwargs)
-        # For writes, strictly enforce allowed dirs
-        if any(resolved.startswith(d) for d in resolved_dirs):
+        # For writes, strictly enforce writable dirs (excludes ~/mod source)
+        if any(resolved.startswith(d) for d in writable_dirs):
+            return _original_open(file, *args, **kwargs)
+        # Allow writes to /tmp for temporary files
+        if resolved.startswith('/tmp'):
             return _original_open(file, *args, **kwargs)
         # Allow reading from safe prefixes even in non-explicit read mode
-        if any(resolved.startswith(p) for p in safe_prefixes):
+        if is_read and any(resolved.startswith(p) for p in safe_prefixes):
             return _original_open(file, *args, **kwargs)
         raise PermissionError(f"Sandbox: access denied to {file} (resolved: {resolved})")
 
@@ -1002,9 +1107,14 @@ def _apply_sandbox(allowed_dirs: List[str], memory_limit: int, cpu_limit: int):
 
     def _restricted_os_open(path, flags, *args, **kwargs):
         resolved = os.path.realpath(str(path))
-        if any(resolved.startswith(d) for d in resolved_dirs):
+        if any(resolved.startswith(d) for d in writable_dirs):
             return _original_os_open(path, flags, *args, **kwargs)
-        if any(resolved.startswith(p) for p in safe_prefixes):
+        # Allow /tmp writes
+        if resolved.startswith('/tmp'):
+            return _original_os_open(path, flags, *args, **kwargs)
+        # Allow safe prefixes only for reads (no write/create bits)
+        write_bits = os.O_WRONLY | os.O_RDWR | os.O_CREAT
+        if not (flags & write_bits) and any(resolved.startswith(p) for p in safe_prefixes):
             return _original_os_open(path, flags, *args, **kwargs)
         raise PermissionError(f"Sandbox: os.open denied for {path}")
 

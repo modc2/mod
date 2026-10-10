@@ -1,0 +1,189 @@
+{
+  "netuid": 111,
+  "name": "Claims",
+  "symbol": "Ё",
+  "owner": "5CGTryXjAmwmb3mAFD6B5ba2iBXZBcS5dN9pHLBxRoeonigv",
+  "description": "Turning scientific literature into a structured claim-evidence graph",
+  "github": "https://github.com/DeSciClaims/Claims",
+  "url": null,
+  "discord": "https://discord.com/channels/799672011265015819/1515007366016401599",
+  "logo": "https://www.dropbox.com/scl/fi/712kuof7877598tlvx3ep/Main-Logo_Dark_Claims.svg?rlkey=zhpmlbyirvdez3gm4j05gb0lk&st=xfm4tx9t&dl=0",
+  "registered_at": 5615562,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.004263949,
+    "moving_price": 0.004228141158819199,
+    "market_cap": 21120.113598101525,
+    "tao_in": 5554.871694807,
+    "alpha_in": 1302752.713220863,
+    "alpha_out": 3650428.85581327,
+    "volume": 213657.781466805,
+    "vol_24h": 68.79461999199702,
+    "emission": 0.0,
+    "change_1h": 0.22419084568934267,
+    "change_24h": 2.3230784256743853,
+    "change_7d": -2.4333826435057437
+  },
+  "spark_24h": [
+    0.004167143,
+    0.004167143,
+    0.004167143,
+    0.004167136,
+    0.004165024,
+    0.004165072,
+    0.004181599,
+    0.004185295,
+    0.004185295,
+    0.004185275,
+    0.004185275,
+    0.004185272,
+    0.004185234,
+    0.004183735,
+    0.004183734,
+    0.004183669,
+    0.004183648,
+    0.004183647,
+    0.004214104,
+    0.004214103,
+    0.004214099,
+    0.004214097,
+    0.004214071,
+    0.004214071,
+    0.004214056,
+    0.004214055,
+    0.004254626,
+    0.004254626,
+    0.004254614,
+    0.004254598,
+    0.004254581,
+    0.004254577,
+    0.004254577,
+    0.004254576,
+    0.004254576,
+    0.004254576,
+    0.004254576,
+    0.004254548,
+    0.004254548,
+    0.004254541,
+    0.004254541,
+    0.00425453,
+    0.004254515,
+    0.004254434,
+    0.004254434,
+    0.004254432,
+    0.004254411,
+    0.004263949
+  ],
+  "trades_24h": {
+    "trades": 16,
+    "buys": 11,
+    "sells": 5,
+    "buy_tao": 66.067452733,
+    "sell_tao": 2.399653195,
+    "net_tao": 63.667799538,
+    "traders": 13
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GEAc2xwinJsVUftvDZQni6nUdMFGMzg76bXKrV4Ks7ZMxhA",
+      "net_tao": 25.2843,
+      "gross_tao": 25.2843,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GsRn8W8sdaHH71pxPJyVPi4UQahyPHsjp8gmAdHmmNER6dd",
+      "net_tao": 20.0,
+      "gross_tao": 20.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CyYebW1rnVjNfCpGwwtY38b7wJEzmhoNWgcLAULsEF1wV4k",
+      "net_tao": 15.0,
+      "gross_tao": 15.0,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DcincDXcA11JaTtNd8gqCXGEFjDW7XtVHi2CKuLjPsfun55",
+      "net_tao": 3.652356865,
+      "gross_tao": 3.652356865,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -1.388490932,
+      "gross_tao": 1.388490932,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791488974,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(validator): route verified operator miner allocation",
+      "url": "https://github.com/DeSciClaims/Claims/commit/650898a510048c5a092e2f576e4fe67dbf73d5b1",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1791320625,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(validator): default miner burn to 90 percent",
+      "url": "https://github.com/DeSciClaims/Claims/commit/6b4a427c58b524c826b6dfc32e82f3092cfe2d25",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1791297864,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(validator): scope split audit repairs to expected draft units",
+      "url": "https://github.com/DeSciClaims/Claims/commit/366d4797f405677635935675c6b562aea529d341",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1791297860,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(validator): support configurable owner miner burn",
+      "url": "https://github.com/DeSciClaims/Claims/commit/2ab7dda3311929e687484345190c4d0a6c37cdf5",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1790906809,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.0.1",
+      "url": "https://github.com/DeSciClaims/Claims/releases/tag/v1.0.1",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1790725571,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(validator): wait for due canonical batches",
+      "url": "https://github.com/DeSciClaims/Claims/commit/e3bceb9503171a23912ce472cb0653bfc9499757",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1790722995,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(silver): reduce adjudication batch size to four",
+      "url": "https://github.com/DeSciClaims/Claims/commit/a85c4f55461e134c575191e4c7e35124c8287b96",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1790713321,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(silver): raise appellate output limit",
+      "url": "https://github.com/DeSciClaims/Claims/commit/05eab72d194b5e78c72367fed748a648730581df",
+      "publisher": "DeSciClaims/Claims"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

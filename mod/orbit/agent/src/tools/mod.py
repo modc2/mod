@@ -1,58 +1,81 @@
 """
 tools - the one registry the agent holds
 
-Three kinds of tool land in the same namespace, and the model can't tell them
+Four kinds of tool land in the same namespace, and the model can't tell them
 apart — it sees one list of names, descriptions and params:
 
     builtin/  the tools shipped in this repo   (bash, read, edit, git …)
     custom/   shell templates typed into the console
     mods/     every module in the fleet        (mod.git, mod.chain …)
+    mcp/      every fleet MCP server's tools   (mcp.build.list_modules …)
 
-The fleet is the odd one out: there are hundreds of modules, so putting them
-all in one prompt would drown the actual job. They are *potential* tools —
-in the registry, off the default loadout, snapped on by name or by toolbox
-when a run needs them.
+The fleet kinds are the odd ones out: there are hundreds of modules and
+hundreds more MCP tools, so putting them all in one prompt would drown the
+actual job. They are *potential* tools — in the registry, off the default
+loadout, snapped on by name or by toolbox when a run needs them. `mod.git`
+is the generic in-process door (one fn/params convention); `mcp.dns.…` is
+the richer one — each MCP tool carries its own real argument schema.
 
 Usage:
     tools = Tools()
     tools.ls()                          # built-ins + custom (the default loadout)
-    tools.ls(mods=True)                 # + the whole fleet
+    tools.ls(mods=True)                 # + the whole fleet, both doors
     tools.run('bash', command='ls')
     tools.run('mod.git', fn='status')
-    tools.schema(['read', 'mod.git'])   # what the LLM is handed
+    tools.run('mcp.dns.dns_resolve', name='agent')
+    tools.schema(['read', 'mcp.dns.dns_resolve'])   # what the LLM is handed
 """
 from typing import Any, Dict, List, Optional
 
 from .builtin.mod import Builtins
 from .custom.mod import CustomTools
 from .mods.mod import ModTools, PREFIX as MOD_PREFIX
+from .mcp.mod import McpTools, PREFIX as MCP_PREFIX
 
 
 class Tools:
     """Built-in tools, custom shell tools and the fleet, as one registry."""
     description = "Tool registry - built-in tools, custom shell tools, and the fleet"
 
-    def __init__(self, path: str = None, **kwargs):
-        self.builtin = Builtins()
+    def __init__(self, path: str = None, context=None, **kwargs):
+        self.builtin = Builtins(context=context)
         self.custom = CustomTools(builtin=self.builtin, path=path)
         self.mods = ModTools()
+        self.mcp = McpTools()
+        self.context = context
+
+    def bind(self, context) -> "Tools":
+        """Attach the agent these tools belong to.
+
+        A tool that acts on one of the agent's own sub-components — recall and
+        remember on its memory module, toolbox on its loadout — has to reach
+        the live one. Binding is how the box hands itself to the tools inside
+        it, and it is why those three are tools at all rather than API calls.
+        """
+        self.context = context
+        self.builtin.bind(context)
+        return self
 
     # ── names ────────────────────────────────────────────────────────
 
     def ls(self, mods: bool = False) -> List[str]:
-        """Every callable name: built-ins, then custom, then (opt-in) the fleet."""
+        """Every callable name: built-ins, then custom, then (opt-in) the
+        fleet — both doors, module objects and MCP tools."""
         names = self.builtin.ls() + [t for t in self.custom.ls()
                                      if t not in self.builtin.ls()]
-        return names + self.mods.ls() if mods else names
+        return names + self.mods.ls() + self.mcp.ls() if mods else names
 
     def kind(self, name: str) -> Optional[str]:
-        """'builtin' | 'custom' | 'mod', or None if nothing answers to that name."""
+        """'builtin' | 'custom' | 'mod' | 'mcp', or None if nothing answers
+        to that name."""
         if name in self.builtin.ls():
             return 'builtin'
         if self.custom.exists(name):
             return 'custom'
         if self.mods.exists(name):
             return 'mod'
+        if self.mcp.exists(name):
+            return 'mcp'
         return None
 
     def exists(self, name: str) -> bool:
@@ -65,6 +88,9 @@ class Tools:
     def is_mod(self, name: str) -> bool:
         return name.startswith(MOD_PREFIX)
 
+    def is_mcp(self, name: str) -> bool:
+        return name.startswith(MCP_PREFIX)
+
     # ── one tool ─────────────────────────────────────────────────────
 
     def get(self, name: str):
@@ -76,15 +102,23 @@ class Tools:
             return self.custom.get(name).to_dict()
         if kind == 'mod':
             return self.mods.get(name)
+        if kind == 'mcp':
+            return self.mcp.get(name)
         raise KeyError(f"tool not found: {name}")
 
-    def run(self, name: str, **params) -> Any:
-        """Run any tool by name, whichever registry it came from."""
+    def run(self, name: str, /, **params) -> Any:
+        """Run any tool by name, whichever registry it came from.
+
+        `name` is positional-only: an MCP tool's own argument is allowed to
+        be called `name` too, and it has to land in params, not here.
+        """
         kind = self.kind(name)
         if kind == 'custom':
             return self.custom.run(name, **params)
         if kind == 'mod':
             return self.mods.run(name, **params)
+        if kind == 'mcp':
+            return self.mcp.run(name, **params)
         return self.builtin.run(name, **params)
 
     # ── writing (custom tools only — the other two are code) ─────────
@@ -119,6 +153,7 @@ class Tools:
         schema = self.builtin.schema([n for n in names if n in self.builtin.ls()])
         schema.update(self.custom.schema(names))
         schema.update(self.mods.schema([n for n in names if self.mods.exists(n)]))
+        schema.update(self.mcp.schema([n for n in names if self.mcp.exists(n)]))
         return schema
 
     def items(self, mods: bool = False, q: str = '',
@@ -150,6 +185,10 @@ class Tools:
                      'description': mod_schemas[e['name']]['description'],
                      'params': mod_schemas[e['name']]['params']}
                     for e in self.mods.items(q, limit)]
+            out += [{**e, 'builtin': False,
+                     'params': self.mcp.schema([e['name']])
+                                       .get(e['name'], {}).get('params', {})}
+                    for e in self.mcp.items(q, limit)]
         return out
 
     def forward(self, name: str = None, **kwargs) -> Any:
@@ -174,7 +213,8 @@ class Tools:
         assert self.kind('bash') == 'builtin'
         assert self.kind('nope-not-a-tool') is None
         schema = self.schema()
-        assert 'bash' in schema and not any(n.startswith(MOD_PREFIX) for n in schema)
+        assert 'bash' in schema and not any(
+            n.startswith((MOD_PREFIX, MCP_PREFIX)) for n in schema)
         assert 'bash' in [t['name'] for t in self.items(q='bash')]
         assert not self.items(q='no-such-tool-anywhere')
         fleet = self.mods.ls()
@@ -184,5 +224,10 @@ class Tools:
             assert self.kind(fleet[0]) == 'mod' and self.is_mod(fleet[0])
             # the fleet is opt-in: off the default listing and the default schema
             assert fleet[0] not in [t['name'] for t in self.items()]
-            assert len(self.items(mods=True, limit=3)) == len(self.items()) + 3
-        return {'passed': True, 'tools': len(names), 'fleet': len(fleet)}
+        served = self.mcp.ls()
+        if served:
+            assert self.kind(served[0]) == 'mcp' and self.is_mcp(served[0])
+            assert list(self.schema([served[0]])) == [served[0]]
+            assert served[0] not in [t['name'] for t in self.items()]
+        return {'passed': True, 'tools': len(names), 'fleet': len(fleet),
+                'mcp': len(served)}

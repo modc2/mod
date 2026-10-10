@@ -1,0 +1,40 @@
+{
+  "name": "sn4",
+  "version": "1.0.0",
+  "description": "SN4 Targon — Incentivized Compute Marketplace powered by the Targon Virtual Machine (TVM). Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "δ",
+  "chain": "bittensor",
+  "netuid": 4,
+  "subnet": "Targon",
+  "symbol": "δ",
+  "owner": "5CXGPMnq9RCCLUEvp9G2iUuabw69TSFM155UVS1S4Zmusaxv",
+  "github": "https://github.com/manifold-inc/targon",
+  "url": "https://targon.com",
+  "discord": null,
+  "logo": "https://www.manifold.inc/favicon.svg",
+  "related": [
+    "targon"
+  ],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=4",
+    "news": "/bt/news?netuid=4"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

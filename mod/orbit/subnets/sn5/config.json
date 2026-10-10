@@ -1,0 +1,38 @@
+{
+  "name": "sn5",
+  "version": "1.0.0",
+  "description": "SN5 Hone — Hone (SN5) is an RLVR subnet: reinforcement learning from verifiable rewards. Miners are paid to solve real software-engineering tasks- repository patches submitted as git diffs and terminal tasks submitted as scripts with full trajectories. Validators lease tasks from a problem server and grade every response deterministically in isolated Docker verifiers, so rewards reflect verified outcomes only. Each scored solution becomes high-quality, verifiable RL training data for post-training code and agent models. Docs: https://github.com/hone-subnet-org/hone-subnet · Dashboard: https://honedashboard.com. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ε",
+  "chain": "bittensor",
+  "netuid": 5,
+  "subnet": "Hone",
+  "symbol": "ε",
+  "owner": "5GurNtB3yQFCh6CSmfH7LrYJDsvzup4diHZiaYtKe274nrMX",
+  "github": "https://github.com/hone-subnet-org/hone-subnet",
+  "url": "https://honedashboard.com",
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=5",
+    "news": "/bt/news?netuid=5"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

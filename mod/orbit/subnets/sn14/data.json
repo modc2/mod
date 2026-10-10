@@ -1,0 +1,189 @@
+{
+  "netuid": 14,
+  "name": "Cacheon",
+  "symbol": "ㄷ",
+  "owner": "5CKhH8nKAhXLmqxwaXzFtVFgxqwwnyckXG8qLpmGtzVJH9Ri",
+  "description": "A competition where miners submit optimized kernels to compete on end-to-end inference speed against target models.",
+  "github": "https://github.com/latent-to/cacheon",
+  "url": "https://cacheon.ai",
+  "discord": "https://discord.gg/SFt8s4gJD",
+  "logo": "https://cacheon.ai/icon-192.png",
+  "registered_at": 4848444,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.008836323,
+    "moving_price": 0.008816165383905172,
+    "market_cap": 53907.312163277194,
+    "tao_in": 24760.944327071,
+    "alpha_in": 2802177.176910173,
+    "alpha_out": 3298472.625420185,
+    "volume": 2666877.35871171,
+    "vol_24h": 787.92553714104,
+    "emission": 0.0,
+    "change_1h": 0.00500233083717827,
+    "change_24h": 0.9638288252620697,
+    "change_7d": 0.49441307425921455
+  },
+  "spark_24h": [
+    0.008751969,
+    0.008752173,
+    0.008752414,
+    0.008752602,
+    0.008752466,
+    0.008752647,
+    0.008736331,
+    0.008736527,
+    0.008736769,
+    0.008736941,
+    0.008737181,
+    0.008737337,
+    0.008737465,
+    0.008737705,
+    0.008737643,
+    0.008732312,
+    0.008732488,
+    0.008732725,
+    0.00873292,
+    0.008733115,
+    0.008922054,
+    0.008923723,
+    0.008923907,
+    0.008820403,
+    0.00882079,
+    0.008820988,
+    0.008821223,
+    0.008821423,
+    0.008821643,
+    0.00882183,
+    0.008822035,
+    0.008822231,
+    0.008822477,
+    0.008822421,
+    0.008822671,
+    0.008822873,
+    0.008823102,
+    0.008817756,
+    0.008817177,
+    0.008817415,
+    0.008817615,
+    0.008834947,
+    0.008835129,
+    0.008835274,
+    0.008835475,
+    0.008835716,
+    0.008835881,
+    0.008836323
+  ],
+  "trades_24h": {
+    "trades": 75,
+    "buys": 18,
+    "sells": 57,
+    "buy_tao": 437.992777514,
+    "sell_tao": 332.202363551,
+    "net_tao": 105.79041396299999,
+    "traders": 46
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -0.3081977700000067,
+      "gross_tao": 140.30819777,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GXjvzz9ZVezW6emkzXAzyFi11YhkpgKmMGbzHAtB4bFpioB",
+      "net_tao": 122.838022421,
+      "gross_tao": 122.838022421,
+      "trades": 2
+    },
+    {
+      "coldkey": "5D2MW8D89hZa1CmTt2ZomiSemjC7VVzMRHPM497mbXBB9hZy",
+      "net_tao": -0.16779114199999867,
+      "gross_tao": 120.167791142,
+      "trades": 3
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -0.10884889700000144,
+      "gross_tao": 94.108848897,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": -0.08452362700000293,
+      "gross_tao": 80.08452362700001,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791583014,
+      "kind": "commit",
+      "source": "github",
+      "title": "Notify Discord when new hotkeys receive committed and active weights …",
+      "url": "https://github.com/latent-to/cacheon/commit/efbc582bfaf73f7e3e7a0ff66a4edce25cd3bf5b",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1791304556,
+      "kind": "commit",
+      "source": "github",
+      "title": "Complete follower publication on commit and monitor reveals separatel…",
+      "url": "https://github.com/latent-to/cacheon/commit/5d421cc24a46bd316775a2c97ad2193ed8c73891",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1791228403,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add branded stock-SGLang submission link previews (#140)",
+      "url": "https://github.com/latent-to/cacheon/commit/d9e375f73d7467270cfd1b3f66286887963ef267",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790976295,
+      "kind": "commit",
+      "source": "github",
+      "title": "Keep weight publication running through intake and gateway outages (#…",
+      "url": "https://github.com/latent-to/cacheon/commit/5763f5643cc2d30aaa9bcb9146776bd960306ef5",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790973689,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add versioned competition paths to the dashboard (#139)",
+      "url": "https://github.com/latent-to/cacheon/commit/256109458288cce202b12f24a3912459cb43c411",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790906743,
+      "kind": "commit",
+      "source": "github",
+      "title": "Show consumed evaluation credits in dashboard fee labels (#136)",
+      "url": "https://github.com/latent-to/cacheon/commit/76bb51f36584e0966de5a8226a5ddbd3e670bf46",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790906687,
+      "kind": "commit",
+      "source": "github",
+      "title": "Separate worker observations from CPU relay heartbeats (#137)",
+      "url": "https://github.com/latent-to/cacheon/commit/ad53f729e27138d1e26ee8befa561bf6aaa7f512",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790886961,
+      "kind": "release",
+      "source": "github",
+      "title": "GLM crowned baseline source — 2026-10-01",
+      "url": "https://github.com/latent-to/cacheon/releases/tag/glm-baseline-20261001",
+      "publisher": "latent-to/cacheon"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

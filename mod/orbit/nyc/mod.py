@@ -23,6 +23,9 @@ CLI:
     m nyc/housing metric=median_ppsf   # a housing choropleth
     m nyc/prices                       # city-wide price summary
     m nyc/trend area=BK0101            # a neighborhood's price history
+    m nyc/population metric=density    # density / census choropleth (tract|nta|borough)
+    m nyc/stats geography=borough      # population + housing stats per area
+    m nyc/report                       # write the shareable HTML brief + CSVs
     m nyc/where "Prospect Park"        # geocode an address or place
     m nyc/tools                        # the MCP tool registry
     m nyc/tool nyc_query id=erm2-nwe9 select="complaint_type, count(*)"
@@ -49,11 +52,18 @@ MODULE_DIR = Path(__file__).parent
 if str(MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(MODULE_DIR))
 
+from nycgis import crime as CR
+from nycgis import demographics as DM
+from nycgis import housing as HG
 from nycgis import layers as L
+from nycgis import news as NW
 from nycgis import prices as P
+from nycgis import realestate as RE
+from nycgis import report as RP
 from nycgis import rents as R
 from nycgis import sources as S
 from nycgis import tools as T
+from nycgis import traffic as TR
 
 # The five boroughs — kept from this module's original scaffold, and still the
 # right thing to hand a client that just wants to know what NYC is made of.
@@ -184,6 +194,49 @@ class Mod:
                 'count': len(vals),
                 'diverging': metric == 'price_change'}
 
+    # ── population, density and the housing brief ───────────────────────
+
+    def population(self, metric: str = 'density', geography: str = 'tract') -> dict:
+        """
+        A population / housing-cost choropleth: density, income, rent, rent
+        burden, vacancy, new homes and more (ACS + DCP + DOF), with breaks.
+        """
+        if geography not in DM.GEOS:
+            return {'error': f'unknown geography {geography!r}', 'known': list(DM.GEOS)}
+        if metric not in DM.METRICS:
+            return {'error': f'unknown metric {metric!r}', 'known': list(DM.METRICS)}
+        return DM.choropleth(metric, geography)
+
+    def stats(self, geography: str = 'borough', since: str = '2025-01-01',
+              sort: str = '', limit: int = 0) -> dict:
+        """Population, density, income, rent, burden, prices, construction per area."""
+        st = DM.stats(geography, since)
+        if sort or limit:
+            rows = [dict(v, key=k) for k, v in st['areas'].items()]
+            if sort:
+                rows = sorted((r for r in rows if r.get(sort) is not None),
+                              key=lambda r: r[sort], reverse=True)
+            st = {**st, 'areas': rows[:int(limit)] if limit else rows}
+        return st
+
+    def report(self, since: str = '2025-01-01', out: str = '') -> dict:
+        """
+        Write the shareable brief — one self-contained HTML file (maps inline)
+        plus neighborhood and tract CSVs — and return where they are.
+        """
+        d = Path(out or os.path.expanduser('~/.mod/nyc/report'))
+        d.mkdir(parents=True, exist_ok=True)
+        files = {'html': d / 'nyc-population-housing.html',
+                 'csv_nta': d / 'nyc-neighborhoods.csv',
+                 'csv_tract': d / 'nyc-census-tracts.csv',
+                 'csv_borough': d / 'nyc-boroughs.csv'}
+        files['html'].write_text(RP.html_report(since))
+        files['csv_nta'].write_text(RP.csv('nta', since))
+        files['csv_tract'].write_text(RP.csv('tract', since))
+        files['csv_borough'].write_text(RP.csv('borough', since))
+        return {k: str(v) for k, v in files.items()} | {
+            'url': '/nyc/api/report', 'city': DM.stats('nta', since)['city']}
+
     def prices(self, since: str = '2024-01-01', until: Optional[str] = None,
                property_type: str = 'residential') -> dict:
         """City-wide price summary: totals, and the top/bottom neighborhoods."""
@@ -211,6 +264,58 @@ class Mod:
         """Individual recorded sales as map points."""
         return P.sales_points(since=since, until=until, property_type=property_type,
                               limit=int(limit), min_price=min_price, max_price=max_price)
+
+    def traffic(self, street: str = '', borough: str = '',
+                hour: Optional[int] = None, limit: int = 20) -> dict:
+        """
+        When to drive: the hour-by-hour traffic profile of DOT's count
+        locations, plus what the live speed sensors are reading right now.
+        """
+        return TR.summary(street=street, borough=borough,
+                          hour=None if hour is None else int(hour),
+                          limit=int(limit))
+
+    # ── safety, news, the listing market ─────────────────────────────────
+
+    def crime(self, part: str = 'summary', limit: int = 15) -> dict:
+        """
+        Public safety from the NYPD's open-data files: complaints and
+        shootings this year vs the same window last year, by borough and
+        precinct, the top offense types, and a 3-year monthly trend.
+
+        ``part``: summary (default), precincts (choropleth GeoJSON),
+        offenses, trend, boroughs.
+        """
+        parts = {
+            'summary': CR.summary,
+            'precincts': CR.by_precinct,
+            'offenses': lambda: {'offenses': CR.top_offenses(int(limit))},
+            'trend': lambda: {'monthly': CR.monthly_trend()},
+            'boroughs': lambda: {'boroughs': CR.by_borough()},
+        }
+        fn = parts.get(str(part))
+        if not fn:
+            return {'error': f'unknown part {part!r}', 'parts': sorted(parts)}
+        return fn()
+
+    def news(self, topic: str = '', q: str = '', limit: int = 25) -> dict:
+        """
+        NYC news right now, from key-free newsroom feeds (Gothamist, THE
+        CITY, NYT Metro). ``topic`` filters to housing / crime / transit /
+        government; ``q`` searches wider coverage through GDELT.
+        """
+        if q:
+            return NW.search(q, limit=int(limit))
+        return NW.headlines(topic=topic, limit=int(limit))
+
+    def market(self, area: str = '') -> dict:
+        """
+        The listing market: median asking rent, asking price and rental
+        inventory with year-over-year change — citywide, per borough, or
+        for one neighborhood (``m nyc/market area=astoria``) — plus the
+        Zillow NY-metro indices for context.
+        """
+        return RE.market(area=area or None)
 
     def options(self) -> dict:
         """Everything the UI needs to build its housing controls."""
@@ -267,6 +372,38 @@ class Mod:
             'rental_units': rental, 'homeownership_units': ownership,
             **meta,
         }
+
+    # ── the tenant's side: lotteries, violations, buildings, NYCHA ───────
+
+    def lotteries(self, borough: str = '', status: str = 'active',
+                  lottery_id: str = '', limit: int = 50) -> dict:
+        """
+        Housing Connect lotteries open for applications right now —
+        deadlines, unit mixes, income bands. Pass ``lottery_id`` for the
+        addresses behind one lottery.
+
+        ``m nyc/lotteries borough=Brooklyn``
+        """
+        if lottery_id:
+            return HG.lottery_buildings(lottery_id)
+        return HG.lotteries(borough=borough, status=status, limit=int(limit))
+
+    def building(self, address: str = '', borough: str = '') -> dict:
+        """
+        Check one address before signing: open HPD violations by class,
+        problems tenants reported in the last two years, HPD litigation.
+
+        ``m nyc/building address="760 Eldert Lane" borough=Brooklyn``
+        """
+        return HG.building(address, borough=borough)
+
+    def violations(self, borough: str = '', limit: int = 15) -> dict:
+        """Open housing-maintenance violations, and the worst buildings."""
+        return HG.violations(borough=borough, limit=int(limit))
+
+    def nycha(self, borough: str = '', limit: int = 15) -> dict:
+        """Public housing: NYCHA developments, apartments, population."""
+        return HG.nycha(borough=borough, limit=int(limit))
 
     def _nta_names(self) -> Dict[str, str]:
         try:
@@ -383,6 +520,12 @@ class Mod:
                 results['trend:nta'] = {'areas': len(series)}
             except Exception as e:
                 results['trend:nta'] = {'error': str(e)}
+        try:    # ~250 MB of Census files streamed once; cached 30 days
+            for geo in ('tract', 'nta', 'borough'):
+                DM.stats(geo)
+            results['population'] = {'ok': True}
+        except Exception as e:
+            results['population'] = {'error': str(e)}
         return {'warmed': results, 'cache': S.cache_stats()}
 
     def cache(self) -> dict:
@@ -392,6 +535,38 @@ class Mod:
     def clear_cache(self, prefix: str = '') -> dict:
         """Drop cached responses. ``prefix`` scopes it (e.g. ``geo-``)."""
         return S.cache_clear(prefix)
+
+    # ── the owner's saved datasets ───────────────────────────────────────
+    # On the box itself the caller holds the key, so the CLI writes without a
+    # token; over HTTP the same operations sit behind the owner's token.
+
+    def data(self, slug: str = ''):
+        """Saved datasets (layer rail category "Your data"), or one record."""
+        from nycgis import userdata as U
+        return U.info(slug) if slug else U.list_()
+
+    def add_data(self, title: str, **kwargs) -> dict:
+        """Save a dataset as a layer: geojson=<FC>, dataset=<socrata id> or url=."""
+        from nycgis import userdata as U
+        grant = U.grant_writer(True)
+        try:
+            return U.add({'title': title, **kwargs})
+        finally:
+            U.reset_writer(grant)
+
+    def remove_data(self, slug: str) -> dict:
+        """Delete one saved dataset."""
+        from nycgis import userdata as U
+        grant = U.grant_writer(True)
+        try:
+            return U.remove(slug)
+        finally:
+            U.reset_writer(grant)
+
+    def refresh_data(self, slug: str) -> dict:
+        """Refetch a fetch-backed saved dataset now."""
+        from nycgis import userdata as U
+        return U.refresh(slug)
 
     # ── boroughs (from the original scaffold) ────────────────────────────
 

@@ -1,0 +1,38 @@
+{
+  "name": "sn127",
+  "version": "1.0.0",
+  "description": "SN127 Astrid — The capital axis for Bittensor. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "𑀅",
+  "chain": "bittensor",
+  "netuid": 127,
+  "subnet": "Astrid",
+  "symbol": "𑀅",
+  "owner": "5FU4uxAdrZsaWaezWwXEK93MwPX5gw2566BQK2WwrGUudfSH",
+  "github": "https://github.com/astridintelligence/sn-127",
+  "url": "https://www.astrid.global/",
+  "discord": null,
+  "logo": "https://cdn.prod.website-files.com/68b07769f32da8fcc36dc172/69f2325c06235848691480b7_Astrid%20Square.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=127",
+    "news": "/bt/news?netuid=127"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

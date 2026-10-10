@@ -47,8 +47,7 @@ class Gate:
             except Exception:
                 print('Gate: meter module not found, metering disabled', color='yellow')
         self.roles_path = self.store.get_path('roles')
-        if len(self.roles()) < 2:
-            self.ensure_role_map()
+        self.ensure_role_map()
         self.set_mod(mod=mod)
     
 
@@ -125,16 +124,24 @@ class Gate:
                 assert actual_fn in mod_fns, f"Function {actual_fn} not in fns={mod_fns}"
             role_data = self.role_data(role) if role else self.role_data('public')
             role_fns = role_data.get('fns', [])
-            if role_fns and '*' not in role_fns:
+            if '*' not in role_fns:
                 assert actual_fn in role_fns, f"Function {actual_fn} not permitted for role={role or 'public'}, allowed={role_fns}"
             if not authenticated:
                 assert actual_fn in self.PUBLIC_FNS, f"Authentication required for {actual_fn}"
         self.print_request({'fn': fn, 'params': params, 'client': headers.get('key', ''), 'time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())})
         # Payment gate check (x402 paywall)
         if self.paywall and hasattr(self.paywall, 'gate_check'):
-            paywall_result = self.paywall.gate_check(fn, headers)
+            # Resolve the real target before checking: 'call'/'forward' wrappers
+            # carry the actual function in params['fn'] — use that so paywall
+            # rules on full paths (e.g. 'bridge/premium') cannot be bypassed by
+            # routing through the 'call' wrapper.
+            if fn in ('call', 'forward') and isinstance(params, dict) and 'fn' in params:
+                effective_fn = params['fn']
+            else:
+                effective_fn = fn
+            paywall_result = self.paywall.gate_check(effective_fn, headers)
             if paywall_result is not None:
-                print(f'Payment required for {fn}: {paywall_result}', color='red')
+                print(f'Payment required for {effective_fn}: {paywall_result}', color='red')
                 return paywall_result
 
         # Determine if this is a module function call that should be sandboxed
@@ -146,14 +153,22 @@ class Gate:
         status = 'success'
         try:
             if fn in ('call', 'forward') and isinstance(params, dict) and '/' in str(params.get('fn', '')):
-                # Module call via 'call' wrapper — resolve and execute directly
+                # Module call via 'call' wrapper
                 # (gate already verified auth/public access above)
                 inner_fn = params['fn']
+                assert isinstance(inner_fn, str) and inner_fn != '', "Inner function name cannot be empty"
+                assert FN_NAME_RE.match(inner_fn) and '..' not in inner_fn, f"Invalid inner function name: {inner_fn}"
                 inner_params = params.get('params', {})
                 if isinstance(inner_params, str):
                     inner_params = json.loads(inner_params)
-                fn_obj = self.get_fn_obj(inner_fn, mod=mod)
-                result = fn_obj(**inner_params) if callable(fn_obj) else fn_obj
+                inner_leaf = inner_fn.split('/')[-1] if '/' in inner_fn else inner_fn
+                if '/' in inner_fn and inner_leaf not in self.UNSANDBOXED_FNS:
+                    # Apply same sandbox isolation as direct module path calls
+                    print(f'Gate: sandboxed execution for {inner_fn} (via call wrapper)', color='yellow')
+                    result = self.sandbox.run(fn_path=inner_fn, params=inner_params, timeout=120)
+                else:
+                    fn_obj = self.get_fn_obj(inner_fn, mod=mod)
+                    result = fn_obj(**inner_params) if callable(fn_obj) else fn_obj
             elif is_module_call and actual_fn not in self.UNSANDBOXED_FNS:
                 # Execute in sandboxed subprocess
                 print(f'Gate: sandboxed execution for {fn}', color='yellow')
@@ -274,16 +289,19 @@ class Gate:
                 fn_obj = self._obj_cache[fn]
                 print(f'Using cached function object for {fn}', color='green')
             else:
+                cache_key = fn
                 temp_mod = fn.split('/')[0]
                 fn = '/'.join(fn.split('/')[1:])
                 if hasattr(self.mod, temp_mod):
-                    mod_obj = getattr(mod, temp_mod)
+                    mod_obj = getattr(self.mod, temp_mod)
                     fn_obj = getattr(mod_obj, fn)
-                else: 
+                else:
                     if m.mod_exists(temp_mod):
                         mod_obj = m.mod(temp_mod)()
                         fn_obj = getattr(mod_obj, fn)
-                self._obj_cache[fn] = fn_obj
+                    else:
+                        raise AttributeError(f"Function '{fn}' not found: module '{temp_mod}' is not a sub-mod of self.mod and does not exist in the registry")
+                self._obj_cache[cache_key] = fn_obj
         else:
             fn_obj = getattr(self.mod, fn) # get the function object from the mod
         return fn_obj
@@ -373,8 +391,6 @@ class Gate:
         role = self.resolve_role(role)
         return user in self.users(role)
 
-    role2data_path = 'role2data'
-
     def role_data(self, role:str = None) -> Dict[str, Any]:
         """
         get the role to data mapping
@@ -444,7 +460,7 @@ class Gate:
             role2data[role]['fns'] = []
         if fn not in role2data[role]['fns']:
             role2data[role]['fns'].append(fn)
-        self.store.put(self.role2data_path, role2data)
+        self.save_role_data(role, role2data[role])
         return role2data
 
     def delegations(self):
@@ -488,6 +504,8 @@ class Gate:
         'edit', 'reg', 'reg_payload', 'token', 'fork', 'new',
         'balance', 'balances', 'get_balances',
         'app_namespace', 'app_status', 'app_owner', 'is_app_owner', 'app_logs',
+        # Node integrity: anyone may read the root hash, only the owner commits it
+        'root_hash',
         'serve_app', 'kill_app', 'new_app', 'edit_app', 'remove_app',
         # Read-only module endpoints (health, status, listings)
         'health', 'status', 'owner', 'contract_info', 'info',

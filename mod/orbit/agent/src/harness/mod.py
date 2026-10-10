@@ -13,6 +13,10 @@ agent of its own, with its own tools, sandbox and models:
     buildmod   -> orbit/build        the build console's job server — the same
                                      contract, against that module's own
                                      sandbox, ledger and system prompt
+    chainmod   -> core/chain         the chain console's Claude Code runner:
+                                     a builder's contract project laid out as
+                                     a Hardhat workspace, edits accepted there
+                                     only, the shell limited to hardhat
 
 Every runner module answers the same two calls:
 
@@ -49,7 +53,20 @@ RUNNERS = {
     "codex": "codexcli",
     "claudemod": "claude",
     "buildmod": "build",
+    "chainmod": "chain.agent",
 }
+
+
+def installed_runners() -> Dict[str, str]:
+    """GitHub agents the agent hub turned into modules: harness -> module."""
+    try:
+        from ..agenthub.mod import AgentHub
+    except ImportError:
+        return {}
+    try:
+        return {k: v for k, v in AgentHub().runners().items() if k not in RUNNERS}
+    except Exception:
+        return {}
 
 
 class Harness:
@@ -59,6 +76,9 @@ class Harness:
 
     def __init__(self):
         self._loaded: Dict[str, Any] = {}
+        # per instance: the agent hub adds and removes the GitHub agents it
+        # installed as modules, and that must not leak into the class table
+        self.RUNNERS = {**RUNNERS, **installed_runners()}
 
     # ── the runner modules ───────────────────────────────────────────
 
@@ -109,7 +129,7 @@ class Harness:
         """Hand the run to a runner module and return its steps.
 
         Args:
-            name: harness name ('claude', 'codex', 'claudemod', 'buildmod')
+            name: harness name ('claude', 'codex', 'claudemod', 'buildmod', 'chainmod')
             query: the task, handed on as the prompt
             path: working directory for the run (default: cwd)
             goal: system prompt for the run
@@ -117,6 +137,7 @@ class Harness:
             timeout: wall-clock cap; the run is killed when it expires
             on_step: called with each step as it happens (live progress)
             key: caller identity, for runners that scope a run by it
+            **kwargs: runner-specific (chainmod: project, address, network)
         """
         return self.get(name).run(query, path=path, goal=goal, model=model,
                                   timeout=timeout, on_step=on_step, key=key,

@@ -1,0 +1,64 @@
+{
+    "name": "higgsfield",
+    "version": "0.1.0",
+    "description": "Higgsfield AI as one mod: cinematic image and video generation (Soul text-to-image, DoP image-to-video with named camera motions, Speak avatars) behind the mod protocol. BYOK throughout \u2014 every call spends the caller's own Higgsfield credits; the key pair (hf-api-key + hf-secret) is stored 0600 under ~/.mod/higgsfield and never in this repo. Generation is async upstream: submit returns a job-set id, poll it with job/wait until the artifact URLs land. One mod.py answers the m CLI and a small REST server off the same client, plus a raw escape hatch to any platform.higgsfield.ai route.",
+    "icon": "\u25c8",
+    "color": "#b48cff",
+    "anchor": "mod.py",
+    "port": 51210,
+    "app_port": 51210,
+    "gateway_port": 51210,
+    "base_path": "/higgsfield",
+    "route": true,
+    "urls": {
+        "api": "http://localhost:51210",
+        "app": "http://localhost:51210/higgsfield",
+        "upstream": "https://platform.higgsfield.ai",
+        "keys": "https://cloud.higgsfield.ai",
+        "docs": "https://docs.higgsfield.ai"
+    },
+    "backend": "python stdlib only (http.server + urllib) \u2014 no dependencies",
+    "state": "~/.mod/higgsfield \u2014 key.json (0600: hf-api-key + hf-secret). Nothing private is ever written into this repo.",
+    "auth": {
+        "upstream": "hf-api-key + hf-secret headers on every platform.higgsfield.ai call",
+        "byok": "keys come from env (HIGGSFIELD_API_KEY / HIGGSFIELD_SECRET), per-call kwargs, or the 0600 keystore \u2014 in that order"
+    },
+    "endpoints": {
+        "info": "GET /",
+        "health": "GET /health",
+        "image": "POST /image {prompt, ...params} \u2014 Soul text-to-image, returns a job-set",
+        "video": "POST /video {image_url, prompt, motion, model, ...} \u2014 DoP image-to-video",
+        "speak": "POST /speak {image_url, audio_url, ...} \u2014 talking avatar",
+        "motions": "GET /motions \u2014 named camera motions for DoP",
+        "job": "GET /job?id=<job_set_id> \u2014 poll a generation",
+        "raw": "POST /raw {path, method, body} \u2014 any upstream route"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "set_key",
+        "key",
+        "image",
+        "video",
+        "speak",
+        "motions",
+        "job",
+        "wait",
+        "raw",
+        "serve",
+        "kill",
+        "test",
+        "readme"
+    ],
+    "env": {
+        "PORT": "port for the REST server (default 51210)",
+        "HIGGSFIELD_DIR": "state directory (default ~/.mod/higgsfield)",
+        "HIGGSFIELD_API_KEY": "hf-api-key, checked before the keystore",
+        "HIGGSFIELD_SECRET": "hf-secret, checked before the keystore",
+        "HIGGSFIELD_UPSTREAM": "API base url (default https://platform.higgsfield.ai)"
+    },
+    "services": [
+        "higgsfield-api"
+    ],
+    "schema": "QmZafFjDhTVFRmTUUUKye9eJLNMJGrVUiCG1CDL7mwwhDk"
+}

@@ -1,0 +1,38 @@
+{
+  "name": "sn123",
+  "version": "1.0.0",
+  "description": "SN123 MANTIS — Incentivizing cooperative prediction. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "𑀀",
+  "chain": "bittensor",
+  "netuid": 123,
+  "subnet": "MANTIS",
+  "symbol": "𑀀",
+  "owner": "5HVuEdEGMYisecwjkWC7dKDPEzgs9cECdsdCQagfPRVf6FxZ",
+  "github": "https://github.com/Barbariandev/MANTIS",
+  "url": "https://mantis123.com",
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=123",
+    "news": "/bt/news?netuid=123"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

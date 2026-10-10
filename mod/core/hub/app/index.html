@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MOD — hub</title>
+<style>
+  :root{
+    --bg:#0c0f14; --panel:#141922; --line:#232b38; --text:#dbe2ec;
+    --muted:#8391a5; --accent:#6ea8fe; --badge-orbit:#2b3a55; --badge-core:#3d2f55;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,pre,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 20px 80px}
+
+  header{padding:34px 0 10px}
+  .brand{font-size:26px;font-weight:800;letter-spacing:.14em}
+  .brand span{color:var(--accent)}
+  .tag{color:var(--muted);margin-top:4px}
+
+  .tabs{display:inline-flex;background:var(--panel);border:1px solid var(--line);
+    border-radius:999px;padding:3px;margin:18px 0 6px}
+  .tabs button{border:0;background:none;color:var(--muted);padding:7px 18px;
+    border-radius:999px;cursor:pointer;font:inherit;font-weight:600;letter-spacing:.06em}
+  .tabs button.on{background:var(--accent);color:#0b1220}
+
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 20px}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;color:var(--muted);font-size:13.5px}
+  .step b{color:var(--text);display:block;margin-bottom:2px;font-size:14px}
+
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 18px}
+  .bar input{flex:1;min-width:220px;background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;color:var(--text);padding:9px 12px;font:inherit;outline:none}
+  .bar input:focus{border-color:var(--accent)}
+  .pill{border:1px solid var(--line);background:var(--panel);color:var(--muted);
+    border-radius:999px;padding:6px 14px;cursor:pointer;font:inherit;font-size:13px;font-weight:600}
+  .pill.on{border-color:var(--accent);color:var(--accent)}
+  .count{color:var(--muted);font-size:13px;margin-left:auto}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:13px 14px;cursor:pointer;transition:border-color .12s}
+  .card:hover{border-color:var(--accent)}
+  .card .name{font-weight:700;font-size:15px}
+  .card .desc{color:var(--muted);font-size:13px;margin-top:5px;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .badge{float:right;font-size:10.5px;letter-spacing:.1em;color:#aebbd4;
+    border-radius:5px;padding:2px 7px;margin-left:8px}
+  .badge.orbit{background:var(--badge-orbit)} .badge.core{background:var(--badge-core)}
+
+  .detail .back{display:inline-block;margin:6px 0 14px;color:var(--muted);cursor:pointer}
+  .detail .back:hover{color:var(--accent)}
+  .dhead{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:16px 18px;margin-bottom:16px}
+  .dhead h1{margin:0;font-size:22px;display:inline}
+  .dhead .desc{color:var(--muted);margin-top:6px}
+  .dhead .urls{margin-top:10px;font-size:13px;color:var(--muted)}
+  .dhead .urls code{background:#0b0e14;border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .doctabs{margin:0 0 10px}
+  .doctabs .pill{margin-right:8px}
+
+  .wpbar{display:flex;align-items:center;gap:12px;margin:8px 0 18px}
+  .wphint{color:var(--muted);font-size:13px}
+
+  .md{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px 26px}
+  .md h1{font-size:24px;border-bottom:1px solid var(--line);padding-bottom:8px}
+  .md h2{font-size:19px;margin-top:26px}
+  .md h3{font-size:16px}
+  .md pre{background:#0b0e14;border:1px solid var(--line);border-radius:8px;
+    padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+  .md code{background:#0b0e14;border:1px solid var(--line);border-radius:5px;
+    padding:1px 5px;font-size:13px}
+  .md pre code{background:none;border:0;padding:0}
+  .md blockquote{border-left:3px solid var(--accent);margin:0;padding:2px 16px;color:var(--muted)}
+  .md table{border-collapse:collapse;margin:12px 0}
+  .md th,.md td{border:1px solid var(--line);padding:6px 12px;font-size:14px}
+  .md th{background:#0b0e14}
+  .md hr{border:0;border-top:1px solid var(--line)}
+  .md img{max-width:100%}
+  .empty{color:var(--muted);padding:30px 0;text-align:center}
+  @media(max-width:700px){.steps{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">MOD <span>HUB</span></div>
+    <div class="tag">One box, many small apps. Everything here is a module — browse them, or read what this whole thing is.</div>
+    <div class="tabs">
+      <button id="tab-mods" onclick="go('#/')">MODS</button>
+      <button id="tab-wp" onclick="go('#/whitepaper')">WHITEPAPER</button>
+    </div>
+  </header>
+  <main id="main"></main>
+</div>
+
+<script>
+"use strict";
+const BASE = location.pathname.replace(/\/+$/,"") || "/hub";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+/* ── tiny markdown renderer — enough for READMEs and the whitepaper ── */
+function md(src){
+  const inline = (s) => s
+    .replace(/`([^`]+)`/g, (_,c)=>"<code>"+c+"</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>")
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_,t,u)=>'<a href="'+u+'" target="_blank" rel="noopener">'+t+"</a>");
+  const lines = src.replace(/\r/g,"").split("\n");
+  const out = [];
+  let i = 0, list = null, para = [];
+  const flushPara = () => { if (para.length){ out.push("<p>"+inline(para.join(" "))+"</p>"); para = []; } };
+  const flushList = () => { if (list){ out.push("</"+list+">"); list = null; } };
+  while (i < lines.length){
+    const raw = lines[i];
+    const l = esc(raw);
+    if (/^```/.test(raw)){                       // fenced code
+      flushPara(); flushList();
+      const buf = []; i++;
+      while (i < lines.length && !/^```/.test(lines[i])) buf.push(esc(lines[i++]));
+      i++;
+      out.push("<pre><code>"+buf.join("\n")+"</code></pre>");
+      continue;
+    }
+    const h = /^(#{1,4})\s+(.*)/.exec(l);
+    if (h){ flushPara(); flushList(); out.push("<h"+h[1].length+">"+inline(h[2])+"</h"+h[1].length+">"); i++; continue; }
+    if (/^(---+|\*\*\*+)\s*$/.test(l)){ flushPara(); flushList(); out.push("<hr>"); i++; continue; }
+    if (/^>\s?/.test(l)){ flushPara(); flushList(); out.push("<blockquote>"+inline(l.replace(/^>\s?/,""))+"</blockquote>"); i++; continue; }
+    const ul = /^\s*[-*+]\s+(.*)/.exec(l), ol = /^\s*\d+\.\s+(.*)/.exec(l);
+    if (ul || ol){
+      flushPara();
+      const want = ul ? "ul" : "ol";
+      if (list !== want){ flushList(); out.push("<"+want+">"); list = want; }
+      out.push("<li>"+inline((ul||ol)[1])+"</li>"); i++; continue;
+    }
+    if (/^\|.*\|\s*$/.test(l)){                  // table block
+      flushPara(); flushList();
+      const rows = [];
+      while (i < lines.length && /^\|.*\|\s*$/.test(lines[i])) rows.push(esc(lines[i++]));
+      const cells = (r) => r.replace(/^\||\|\s*$/g,"").split("|").map(c=>c.trim());
+      let html = "<table>";
+      rows.forEach((r,ri) => {
+        if (/^[\s|:-]+$/.test(r)) return;        // separator row
+        const tag = ri === 0 ? "th" : "td";
+        html += "<tr>"+cells(r).map(c=>"<"+tag+">"+inline(c)+"</"+tag+">").join("")+"</tr>";
+      });
+      out.push(html+"</table>");
+      continue;
+    }
+    if (!l.trim()){ flushPara(); flushList(); i++; continue; }
+    para.push(l); i++;
+  }
+  flushPara(); flushList();
+  return out.join("\n");
+}
+
+/* ── state + routing ── */
+let MODS = null;
+const state = { q: "", group: "all" };
+const go = (hash) => { location.hash = hash; };
+window.addEventListener("hashchange", render);
+
+async function mods(){
+  if (!MODS) MODS = await (await fetch(BASE+"/_mods")).json();
+  return MODS;
+}
+
+/* ── views ── */
+async function viewMods(){
+  const all = await mods();
+  $("main").innerHTML = `
+    <div class="steps">
+      <div class="step"><b>1. Everything is a module</b>Each card below is a small self-contained app living on this box.</div>
+      <div class="step"><b>2. One URL rule</b><span class="mono">/{mod}</span> opens its app, <span class="mono">/{mod}/api</span> is its API.</div>
+      <div class="step"><b>3. New here?</b>Read the <a href="#/whitepaper">whitepaper</a> — the short human version first.</div>
+    </div>
+    <div class="bar">
+      <input id="q" placeholder="search modules..." value="${esc(state.q)}">
+      ${["all","orbit","core"].map(g =>
+        `<button class="pill ${state.group===g?"on":""}" data-g="${g}">${g.toUpperCase()}</button>`).join("")}
+      <span class="count" id="count"></span>
+    </div>
+    <div class="grid" id="grid"></div>`;
+  $("q").addEventListener("input", (e)=>{ state.q = e.target.value; paint(all); });
+  document.querySelectorAll(".pill[data-g]").forEach(b =>
+    b.addEventListener("click", ()=>{ state.group = b.dataset.g; viewMods(); }));
+  $("q").focus();
+  paint(all);
+}
+
+function paint(all){
+  const q = state.q.toLowerCase();
+  const rows = all.filter(m =>
+    (state.group === "all" || m.group === state.group) &&
+    (!q || (m.name+" "+m.description).toLowerCase().includes(q)));
+  $("count").textContent = rows.length + " module" + (rows.length===1?"":"s");
+  $("grid").innerHTML = rows.map(m => `
+    <div class="card" onclick="go('#/mod/${m.name}')">
+      <span class="badge ${m.group}">${m.group.toUpperCase()}</span>
+      <div class="name">${esc(m.name)}</div>
+      <div class="desc">${m.description ? esc(m.description) : '<i>no description yet</i>'}</div>
+    </div>`).join("") || '<div class="empty">nothing matches</div>';
+}
+
+async function viewMod(name){
+  $("main").innerHTML = '<div class="empty">loading…</div>';
+  const r = await fetch(BASE+"/_doc/"+encodeURIComponent(name));
+  if (!r.ok){ $("main").innerHTML = '<div class="empty">module not found</div>'; return; }
+  const d = await r.json();
+  const docs = [["readme", d.readme], ["skill", d.skill]].filter(x => x[1]);
+  $("main").innerHTML = `
+    <div class="detail">
+      <span class="back" onclick="go('#/')">&larr; all modules</span>
+      <div class="dhead">
+        <span class="badge ${d.group}" style="float:right">${d.group.toUpperCase()}</span>
+        <h1>${esc(d.name)}</h1>
+        <div class="desc">${d.description ? esc(d.description) : "<i>no description yet</i>"}</div>
+        <div class="urls">app <code>/${esc(d.name)}</code> &nbsp;·&nbsp; api <code>/${esc(d.name)}/api</code>
+          &nbsp;·&nbsp; <a href="/${encodeURIComponent(d.name)}" target="_blank" rel="noopener">open &nearr;</a></div>
+      </div>
+      ${docs.length > 1 ? `<div class="doctabs">${docs.map((x,i) =>
+        `<button class="pill ${i===0?"on":""}" data-doc="${x[0]}">${x[0].toUpperCase()}</button>`).join("")}</div>` : ""}
+      <div class="md" id="doc">${docs.length ? md(docs[0][1]) : "This module ships no README yet."}</div>
+    </div>`;
+  document.querySelectorAll(".pill[data-doc]").forEach(b =>
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".pill[data-doc]").forEach(x => x.classList.toggle("on", x === b));
+      $("doc").innerHTML = md(b.dataset.doc === "skill" ? d.skill : d.readme);
+    }));
+}
+
+async function viewWp(){
+  const mode = localStorage.getItem("hub.wp") || "simple";
+  $("main").innerHTML = `
+    <div class="wpbar">
+      <div class="tabs" style="margin:0">
+        <button id="wp-simple" class="${mode==="simple"?"on":""}">HUMAN</button>
+        <button id="wp-full" class="${mode==="full"?"on":""}">ENGINEER</button>
+      </div>
+      <span class="wphint">${mode==="simple" ? "the plain-language version — start here" : "the full technical whitepaper"}</span>
+    </div>
+    <div class="md" id="wp"><div class="empty">loading…</div></div>`;
+  ["simple","full"].forEach(v => $("wp-"+v).addEventListener("click", () => {
+    localStorage.setItem("hub.wp", v); viewWp();
+  }));
+  const text = await (await fetch(BASE+"/_wp?v="+mode)).text();
+  $("wp").innerHTML = md(text);
+}
+
+function render(){
+  const h = location.hash || "#/";
+  const wp = h.startsWith("#/whitepaper");
+  $("tab-mods").classList.toggle("on", !wp);
+  $("tab-wp").classList.toggle("on", wp);
+  const m = /^#\/mod\/(.+)$/.exec(h);
+  if (wp) viewWp();
+  else if (m) viewMod(decodeURIComponent(m[1]));
+  else viewMods();
+}
+render();
+</script>
+</body>
+</html>

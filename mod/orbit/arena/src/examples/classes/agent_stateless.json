@@ -1,0 +1,6 @@
+{
+  "name": "stateless",
+  "description": "A/B baseline: picks the first legal move every turn, no memory, no MCP calls.",
+  "author": "arena",
+  "tags": ["example", "player", "class", "python", "baseline", "ab-test"]
+}

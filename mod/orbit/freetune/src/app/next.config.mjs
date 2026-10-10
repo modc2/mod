@@ -6,12 +6,18 @@ const nextConfig = {
   reactStrictMode: false,
   ...(basePath ? { basePath } : {}),
   env: {
-    NEXT_PUBLIC_API_URL: "/api/freetune",
+    NEXT_PUBLIC_API_URL: "/freetune/api",
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
   async rewrites() {
     // Dev/standalone fallback so the app works without the Caddy gateway in front.
     return [
+      {
+        // Canonical fleet form; legacy /api/freetune alias kept below.
+        source: "/freetune/api/:path*",
+        destination: `${apiUrl}/:path*`,
+        basePath: false,
+      },
       {
         source: "/api/freetune/:path*",
         destination: `${apiUrl}/:path*`,

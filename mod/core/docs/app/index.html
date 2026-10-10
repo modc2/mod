@@ -79,6 +79,52 @@
             border-bottom:1px solid var(--border); }
     main { padding:26px 20px 60px; }
   }
+
+  /* ── ask-the-docs chatbot ── */
+  #askBtn { position:fixed; right:22px; bottom:22px; z-index:40;
+            display:inline-flex; align-items:center; gap:8px;
+            padding:11px 16px; border:1px solid var(--border); border-radius:999px;
+            background:linear-gradient(180deg,#132018,#0e1712); color:var(--accent);
+            font:600 12.5px/1 inherit; letter-spacing:.06em; cursor:pointer;
+            box-shadow:0 4px 16px #0008; transition:transform .18s, border-color .18s; }
+  #askBtn:hover { transform:translateY(-1px); border-color:var(--accent); }
+  #askBtn::before { content:""; width:7px; height:7px; border-radius:50%;
+                    background:var(--accent); box-shadow:0 0 8px var(--accent); }
+  #ask { position:fixed; right:22px; bottom:22px; z-index:41; width:min(400px,calc(100vw - 32px));
+         height:min(560px,calc(100vh - 44px)); display:none; flex-direction:column;
+         background:#0b110d; border:1px solid var(--border); border-radius:16px;
+         box-shadow:0 12px 40px #000b; overflow:hidden; }
+  #ask.open { display:flex; }
+  .ask-hd { display:flex; align-items:center; justify-content:space-between;
+            padding:13px 15px; border-bottom:1px solid var(--border); }
+  .ask-hd b { color:var(--heading); font-size:13.5px; letter-spacing:.02em; }
+  .ask-hd small { color:var(--muted); font-size:10.5px; letter-spacing:.06em; display:block; margin-top:2px; }
+  .ask-x { background:none; border:0; color:var(--muted); cursor:pointer; font-size:18px; line-height:1; padding:2px 6px; }
+  .ask-x:hover { color:var(--fg); }
+  .ask-log { flex:1; overflow:auto; padding:16px 15px; display:flex; flex-direction:column; gap:14px; }
+  .ask-empty { color:var(--muted); font-size:13px; }
+  .ask-empty ul { margin:10px 0 0; padding-left:18px; }
+  .ask-empty li { cursor:pointer; color:var(--accent); }
+  .msg { font-size:13.5px; line-height:1.6; }
+  .msg.you { align-self:flex-end; max-width:85%; background:color-mix(in srgb,var(--accent) 14%,transparent);
+             border:1px solid var(--border); padding:8px 12px; border-radius:12px 12px 3px 12px; color:var(--heading); }
+  .msg.bot { align-self:flex-start; max-width:100%; }
+  .msg.bot p:first-child { margin-top:0; }
+  .msg.bot pre { font-size:12px; }
+  .msg .srcs { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+  .msg .srcs a { font-size:10.5px; letter-spacing:.04em; text-decoration:none; text-transform:capitalize;
+                 border:1px solid var(--border); border-radius:999px; padding:3px 9px; color:var(--muted); }
+  .msg .srcs a:hover { border-color:var(--accent); color:var(--accent); }
+  .msg.err { color:#f6a; }
+  .ask-in { display:flex; gap:8px; padding:12px; border-top:1px solid var(--border); }
+  .ask-in input { flex:1; background:var(--code); border:1px solid var(--border); border-radius:9px;
+                  padding:9px 11px; color:var(--fg); font:inherit; font-size:13px; }
+  .ask-in input:focus { outline:none; border-color:var(--accent); }
+  .ask-in button { border:0; border-radius:9px; padding:0 15px; background:var(--accent); color:#04140d;
+                   font:600 12.5px/1 inherit; cursor:pointer; }
+  .ask-in button:disabled { opacity:.5; cursor:default; }
+  .dots::after { content:"…"; animation:dots 1.2s steps(4,end) infinite; }
+  @keyframes dots { 0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."} }
 </style>
 </head>
 <body>
@@ -97,6 +143,27 @@
   </aside>
   <main><div id="content"><p class="muted">Loading…</p></div></main>
 </div>
+
+<button id="askBtn" onclick="askOpen(true)">Ask the docs</button>
+<section id="ask" aria-label="Ask the docs">
+  <div class="ask-hd">
+    <div><b>Ask the docs</b><small>grounded in these pages · Liquid LFM</small></div>
+    <button class="ask-x" onclick="askOpen(false)" aria-label="close">×</button>
+  </div>
+  <div class="ask-log" id="askLog">
+    <div class="ask-empty" id="askEmpty">Ask anything about the mod protocol. Try:
+      <ul>
+        <li onclick="askSend('How do I create a new module?')">How do I create a new module?</li>
+        <li onclick="askSend('What is a skill?')">What is a skill?</li>
+        <li onclick="askSend('How does a module expose an MCP server?')">How does a module expose an MCP server?</li>
+      </ul>
+    </div>
+  </div>
+  <form class="ask-in" onsubmit="event.preventDefault();askSend()">
+    <input id="askIn" placeholder="Ask a question…" autocomplete="off" />
+    <button id="askGo" type="submit">Ask</button>
+  </form>
+</section>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
 const BASE = "/docs";
@@ -171,6 +238,57 @@ document.querySelectorAll(".mode button").forEach(b => b.onclick = () => {
 window.onpopstate = () => show((location.pathname.replace(BASE,"").replace(/^\//,"").replace(/\.md$/,"")) || "README", false);
 paintMode();
 loadPages();
+
+// ── ask-the-docs chatbot ──
+// The web panel and any MCP agent hit the same tool: POST tools/call docs_ask to
+// /docs/mcp. No second endpoint, no drift from the CLI's m docs/ask.
+let asking = false;
+const askOpen = on => {
+  document.getElementById("ask").classList.toggle("open", on);
+  document.getElementById("askBtn").style.display = on ? "none" : "";
+  if (on) setTimeout(() => document.getElementById("askIn").focus(), 50);
+};
+function askAppend(cls, html) {
+  const empty = document.getElementById("askEmpty");
+  if (empty) empty.remove();
+  const log = document.getElementById("askLog");
+  const el = document.createElement("div");
+  el.className = "msg " + cls; el.innerHTML = html;
+  log.appendChild(el); log.scrollTop = log.scrollHeight;
+  return el;
+}
+async function askSend(preset) {
+  if (asking) return;
+  const input = document.getElementById("askIn");
+  const q = (preset || input.value).trim();
+  if (!q) return;
+  input.value = "";
+  askAppend("you", q.replace(/[&<]/g, c => ({ "&": "&amp;", "<": "&lt;" }[c])));
+  const go = document.getElementById("askGo"); go.disabled = asking = true;
+  const pending = askAppend("bot", "<span class='dots'>thinking</span>");
+  try {
+    const r = await fetch(BASE + "/mcp", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method: "tools/call",
+        params: { name: "docs_ask", arguments: { question: q } } }),
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message || "request failed");
+    const out = j.result?.structuredContent
+      || JSON.parse(j.result?.content?.[0]?.text || "{}");
+    if (!out.ok) throw new Error(out.error || "no answer");
+    const ans = window.marked ? marked.parse(out.answer || "") : (out.answer || "");
+    const srcs = (out.sources || []).map(s =>
+      `<a href="${BASE}/${s}" onclick="event.preventDefault();askOpen(false);show('${s}',true)">${label(s)}</a>`).join("");
+    pending.innerHTML = ans + (srcs ? `<div class="srcs">${srcs}</div>` : "");
+  } catch (e) {
+    pending.className = "msg err";
+    pending.textContent = "Couldn't answer: " + e.message;
+  } finally {
+    document.getElementById("askLog").scrollTop = 1e9;
+    go.disabled = asking = false; input.focus();
+  }
+}
 </script>
 </body>
 </html>

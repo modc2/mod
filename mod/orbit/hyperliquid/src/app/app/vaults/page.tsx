@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { listVaults, Vault, fmtUsd, fmtPct, shortAddr } from "../lib/api";
+import { listVaults, Vault, fmtUsd, fmtPct, fmtApr, shortAddr } from "../lib/api";
 
-type SortKey = "apr" | "tvl" | "age_days";
+type SortKey = "apr" | "apr_7d" | "apr_24h" | "tvl" | "age_days";
 const POOL_OPTIONS = [50, 150, 300, 600];
 const TVL_OPTIONS = [10_000, 50_000, 250_000, 1_000_000];
 
@@ -31,7 +31,11 @@ export default function VaultsPage() {
   const sorted = useMemo(() => {
     const arr = [...vaults];
     arr.sort((a, b) => {
-      const cmp = (a[sortKey] as number) - (b[sortKey] as number);
+      // Unmeasured window APRs (null) sink to the bottom either direction.
+      const worst = sortDir === "desc" ? -Infinity : Infinity;
+      const av = (a[sortKey] ?? worst) as number;
+      const bv = (b[sortKey] ?? worst) as number;
+      const cmp = av - bv;
       return sortDir === "desc" ? -cmp : cmp;
     });
     return arr;
@@ -51,7 +55,7 @@ export default function VaultsPage() {
   return (
     <section className="space-y-4">
       <div>
-        <h1 className="text-xl text-ink">Vaults</h1>
+        <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">Vaults</h1>
         <p className="text-xs text-muted mt-1">
           Deposit USDC into a Hyperliquid vault and the leader trades it for you — native copy-trading,
           ranked by APR. Open vaults only; closed and dust vaults filtered out.
@@ -87,10 +91,12 @@ export default function VaultsPage() {
 
       {/* Table */}
       <div className="panel">
-        <div className="grid grid-cols-[2.4fr_1.6fr_repeat(3,1fr)_1.2fr] gap-2 px-4 py-2 border-b border-border">
+        <div className="grid grid-cols-[2.4fr_1.6fr_repeat(5,1fr)_1.2fr] gap-2 px-4 py-2 border-b border-border">
           <div className="label !mb-0">vault</div>
           <div className="label !mb-0">leader</div>
           <div>{sortHeader("apr", "apr")}</div>
+          <div>{sortHeader("apr_24h", "24h apr")}</div>
+          <div>{sortHeader("apr_7d", "7d apr")}</div>
           <div>{sortHeader("tvl", "tvl")}</div>
           <div>{sortHeader("age_days", "age")}</div>
           <div className="label !mb-0 text-right">action</div>
@@ -98,9 +104,9 @@ export default function VaultsPage() {
         {err && <div className="px-4 py-3 text-xs text-loss">{err}</div>}
         {loading && sorted.length === 0 &&
           [...Array(6)].map((_, i) => (
-            <div key={i} className="grid grid-cols-[2.4fr_1.6fr_repeat(3,1fr)_1.2fr] gap-2 px-4 py-3 items-center table-row">
+            <div key={i} className="grid grid-cols-[2.4fr_1.6fr_repeat(5,1fr)_1.2fr] gap-2 px-4 py-3 items-center table-row">
               <div className="skeleton h-4 w-40" />
-              {[...Array(5)].map((_, j) => <div key={j} className="skeleton h-4 w-14 justify-self-end" />)}
+              {[...Array(7)].map((_, j) => <div key={j} className="skeleton h-4 w-14 justify-self-end" />)}
             </div>
           ))}
         {!err && !loading && sorted.length === 0 && (
@@ -112,7 +118,7 @@ export default function VaultsPage() {
             : rank <= 3 ? "text-accent border-accent/40" : "text-dim border-white/[0.08]";
           return (
             <div key={v.address}
-              className="group grid grid-cols-[2.4fr_1.6fr_repeat(3,1fr)_1.2fr] gap-2 px-4 py-2.5 items-center table-row hover:bg-accent/[0.04]">
+              className="group grid grid-cols-[2.4fr_1.6fr_repeat(5,1fr)_1.2fr] gap-2 px-4 py-2.5 items-center table-row hover:bg-accent/[0.04]">
               <div className="flex items-center gap-2 min-w-0">
                 <span className={`grid place-items-center h-5 w-5 shrink-0 rounded-md border text-[10px] font-mono font-semibold ${medal}`}>
                   {rank}
@@ -129,17 +135,25 @@ export default function VaultsPage() {
               <div className={`num text-right font-semibold ${v.apr >= 0 ? "text-win" : "text-loss"}`}>
                 {`${v.apr >= 0 ? "+" : ""}${fmtPct(v.apr, 0)}`}
               </div>
+              <div className={`num text-right ${v.apr_24h == null ? "text-dim" : v.apr_24h >= 0 ? "text-win" : "text-loss"}`}>
+                {fmtApr(v.apr_24h)}
+              </div>
+              <div className={`num text-right ${v.apr_7d == null ? "text-dim" : v.apr_7d >= 0 ? "text-win" : "text-loss"}`}>
+                {fmtApr(v.apr_7d)}
+              </div>
               <div className="num text-right text-ink/90">{fmtUsd(v.tvl)}</div>
               <div className="num text-right text-muted">{v.age_days}d</div>
               <div className="flex justify-end opacity-80 group-hover:opacity-100 transition-opacity">
-                <Link href={`/vaults/${v.address}`} className="btn-primary">invest</Link>
+                <Link href={`/vaults/${v.address}`} className="btn-ghost">invest</Link>
               </div>
             </div>
           );
         })}
       </div>
       <p className="text-[10px] text-muted">
-        APR is Hyperliquid's published trailing figure and is not a guarantee. Vault deposits carry a
+        APR is Hyperliquid's published trailing figure and is not a guarantee. 24H/7D APR is what a
+        deposit made at that window's start would have annualized to — "—" means the window isn't
+        measurable (no data, or a basis too small to divide by honestly). Vault deposits carry a
         lockup (typically ~1 day) before you can withdraw.
       </p>
     </section>

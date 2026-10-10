@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jokes</title>
+<style>
+  :root { --bg:#111; --card:#1b1b1b; --line:#2c2c2c; --fg:#eee; --dim:#999; --acc:#f5c518; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { margin:0 0 14px; font-size:22px; letter-spacing:.5px; }
+  h1 span { color:var(--acc); }
+  input, textarea, select, button { font:inherit; color:var(--fg); background:var(--card);
+    border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  textarea { width:100%; min-height:80px; resize:vertical; }
+  button { cursor:pointer; }
+  button.go { background:var(--acc); color:#111; border-color:var(--acc); font-weight:600; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+  .row > input { flex:1; min-width:120px; }
+  .bar { display:flex; gap:8px; margin:18px 0 10px; }
+  .bar input { flex:1; }
+  details { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+  summary { cursor:pointer; color:var(--acc); font-weight:600; }
+  .joke { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin:10px 0; }
+  .joke.hl { border-color:var(--acc); }
+  .text { white-space:pre-wrap; font-size:16px; }
+  .credit { color:var(--acc); margin-top:8px; }
+  .credit a { color:inherit; cursor:pointer; text-decoration:none; }
+  .meta { color:var(--dim); font-size:13px; display:flex; gap:10px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+  .meta button { padding:2px 8px; font-size:13px; }
+  .tag { color:var(--dim); cursor:pointer; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { font-size:13px; padding:2px 10px; border:1px solid var(--line); border-radius:99px; cursor:pointer; color:var(--dim); }
+  .chip.on { color:#111; background:var(--acc); border-color:var(--acc); }
+  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--acc); color:#111;
+    padding:8px 14px; border-radius:8px; display:none; font-weight:600; }
+  .empty { color:var(--dim); text-align:center; padding:30px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1><span>jokes</span> &middot; other people's best material</h1>
+
+  <details id="addbox">
+    <summary>Save a joke</summary>
+    <textarea id="text" placeholder="The joke, as told"></textarea>
+    <div class="row">
+      <input id="comedian" placeholder="Comedian" list="comedianlist">
+      <input id="source" placeholder="From (special, album, link)">
+      <input id="year" placeholder="Year" style="max-width:90px">
+    </div>
+    <div class="row">
+      <input id="tags" placeholder="Tags, comma separated">
+      <button class="go" id="save">Save</button>
+    </div>
+  </details>
+
+  <details>
+    <summary>Share a collection</summary>
+    <div class="row">
+      <button id="exportbtn">Download pack of what's shown</button>
+      <label><button id="importbtn">Import a pack</button>
+        <input type="file" id="importfile" accept=".json,application/json" hidden></label>
+    </div>
+    <div class="meta">A pack is a JSON file. Send it any way you like; whoever imports it gets the same jokes, credited, with no duplicates.</div>
+  </details>
+
+  <div class="bar">
+    <input id="q" placeholder="Search jokes, comedians, tags">
+    <select id="sort"><option value="new">Newest</option><option value="top">Top</option><option value="random">Shuffle</option></select>
+    <button id="rand">Random</button>
+  </div>
+  <div class="chips" id="comedians"></div>
+  <div id="list"></div>
+  <datalist id="comedianlist"></datalist>
+</main>
+<div id="toast"></div>
+
+<script>
+// Relative base: works at /jokes/ locally and behind the gateway.
+const API = 'api/';
+const $ = id => document.getElementById(id);
+let who = '', tag = '', focus = new URLSearchParams(location.search).get('j');
+
+async function call(fn, args = {}, post = false) {
+  const r = post
+    ? await fetch(API + fn, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) })
+    : await fetch(API + fn + '?' + new URLSearchParams(args));
+  const out = await r.json();
+  if (out && out.error) throw new Error(out.error);
+  return out;
+}
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 1800); }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+function card(j) {
+  const src = j.source ? (/^https?:\/\//.test(j.source) ? `<a href="${esc(j.source)}" target="_blank" rel="noopener">${esc(j.source)}</a>` : esc(j.source)) : '';
+  return `<div class="joke${j.id === focus ? ' hl' : ''}" id="j-${j.id}">
+    <div class="text">${esc(j.text)}</div>
+    <div class="credit">&mdash; <a data-who="${esc(j.comedian)}">${esc(j.comedian)}</a>${src ? ', ' + src : ''}${j.year ? ' (' + j.year + ')' : ''}</div>
+    <div class="meta">
+      <button data-vote="1" data-id="${j.id}">+</button><span>${j.votes}</span><button data-vote="-1" data-id="${j.id}">&minus;</button>
+      <button data-share="${j.id}">Share</button>
+      ${j.tags.map(t => `<span class="tag" data-tag="${esc(t)}">#${esc(t)}</span>`).join(' ')}
+    </div></div>`;
+}
+
+async function load() {
+  try {
+    if (focus) {
+      const j = await call('get', { id: focus });
+      if (j) { $('list').innerHTML = card(j) + '<div class="meta"><button id="all">See the whole book</button></div>'; $('all').onclick = () => { focus = null; history.replaceState(null, '', location.pathname); load(); }; return; }
+      focus = null;
+    }
+    const res = await call('search', { q: $('q').value, comedian: who, tag, sort: $('sort').value, limit: 100 });
+    $('list').innerHTML = res.jokes.length ? res.jokes.map(card).join('')
+      : `<div class="empty">${$('q').value || who || tag ? 'Nothing matches.' : 'The book is empty. Save the first joke above.'}</div>`;
+  } catch (e) { $('list').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
+async function loadComedians() {
+  const { comedians } = await call('comedians');
+  $('comedianlist').innerHTML = comedians.map(c => `<option value="${esc(c.comedian)}">`).join('');
+  $('comedians').innerHTML = (tag ? `<span class="chip on" data-tag="">#${esc(tag)} &times;</span>` : '') +
+    comedians.slice(0, 30).map(c => `<span class="chip${c.comedian === who ? ' on' : ''}" data-who="${esc(c.comedian)}">${esc(c.comedian)} ${c.n}</span>`).join('');
+}
+
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-who],[data-tag],[data-vote],[data-share]');
+  if (!el) return;
+  try {
+    if (el.dataset.vote) { await call('vote', { id: el.dataset.id, delta: +el.dataset.vote }, true); return load(); }
+    if (el.dataset.share) {
+      const s = await call('share', { id: el.dataset.share });
+      const url = new URL('./?j=' + s.id, location.href).href;
+      const msg = s.text + '\n\n' + url;
+      if (navigator.share) { try { await navigator.share({ text: msg }); return; } catch (_) {} }
+      await navigator.clipboard.writeText(msg); return toast('Copied joke + link');
+    }
+    if ('who' in el.dataset) { who = who === el.dataset.who ? '' : el.dataset.who; tag = ''; }
+    else { tag = el.dataset.tag; who = ''; }
+    focus = null; await loadComedians(); load();
+  } catch (err) { toast(err.message); }
+});
+
+$('save').onclick = async () => {
+  try {
+    const j = await call('add', { text: $('text').value, comedian: $('comedian').value, source: $('source').value, year: $('year').value, tags: $('tags').value }, true);
+    toast(j.existed ? 'Already in the book' : 'Saved');
+    ['text', 'source', 'year', 'tags'].forEach(id => $(id).value = '');
+    await loadComedians(); load();
+  } catch (e) { toast(e.message); }
+};
+let t; $('q').oninput = () => { clearTimeout(t); t = setTimeout(load, 200); };
+$('sort').onchange = load;
+$('rand').onclick = async () => {
+  const j = await call('random', { comedian: who, tag });
+  if (j) { focus = j.id; load(); } else toast('Nothing to pick from');
+};
+$('exportbtn').onclick = async () => {
+  const pack = await call('export', { comedian: who, tag, name: who || tag || 'jokes' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json' }));
+  a.download = (pack.name || 'jokes').replace(/[^\w-]+/g, '_') + '.jokes.json'; a.click();
+  toast(`Pack of ${pack.count}`);
+};
+$('importbtn').onclick = () => $('importfile').click();
+$('importfile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const r = await call('import_pack', { pack: JSON.parse(await f.text()) }, true);
+    toast(`Added ${r.added}, already had ${r.skipped}`); await loadComedians(); load();
+  } catch (err) { toast(err.message); }
+  e.target.value = '';
+};
+
+loadComedians().catch(() => {}); load();
+</script>
+</body>
+</html>

@@ -19,6 +19,14 @@ DEFAULT_NETWORK = 'finney'
 _lock = threading.Lock()
 _bt_cache: Dict[str, Any] = {}
 _trader_cache: Dict[str, Any] = {}
+_CACHE_MAX = 16     # callers pick the network string; don't keep every one
+
+
+def _cache_put(cache: Dict[str, Any], key: str, value: Any) -> Any:
+    while len(cache) >= _CACHE_MAX:
+        cache.pop(next(iter(cache)))        # oldest first (dicts keep order)
+    cache[key] = value
+    return value
 
 
 def get_bt(network: str = DEFAULT_NETWORK):
@@ -26,7 +34,7 @@ def get_bt(network: str = DEFAULT_NETWORK):
     with _lock:
         if network not in _bt_cache:
             from .bt import Bt
-            _bt_cache[network] = Bt(network=network)
+            _cache_put(_bt_cache, network, Bt(network=network))
         return _bt_cache[network]
 
 
@@ -38,8 +46,8 @@ def get_trader(wallet: str = 'default', hotkey: str = 'default',
         if key not in _trader_cache:
             from .bt import BtTrader
             try:
-                _trader_cache[key] = BtTrader(
-                    wallet_name=wallet, hotkey=hotkey, network=network)
+                _cache_put(_trader_cache, key, BtTrader(
+                    wallet_name=wallet, hotkey=hotkey, network=network))
             except Exception as e:
                 if 'KeyFile' in type(e).__name__ or 'Keyfile' in str(e):
                     raise ValueError(
@@ -73,13 +81,14 @@ def _jsonable(x: Any) -> Any:
 class Tool:
     def __init__(self, name: str, description: str, group: str,
                  params: Dict[str, Dict], handler: Callable[..., Any],
-                 mutates: bool = False):
+                 mutates: bool = False, local: bool = False):
         self.name = name
         self.description = description
         self.group = group
         self.params = params            # name -> {type, description, default?, required?}
         self.handler = handler
         self.mutates = mutates
+        self.local = local          # answered from the local index/disk only
 
     @property
     def input_schema(self) -> Dict:
@@ -262,6 +271,18 @@ def _sync(head=True):
             'ts': int(time.time()),
             'subnet_index': subnets, 'trader_index': accounts}
 
+def _days(limit=60):
+    from . import blocks
+    return blocks.days(limit=limit)
+
+def _daily(netuid=None, day=None, days_back=90):
+    from . import blocks
+    return blocks.daily(netuid=netuid, day=day, days_back=days_back)
+
+def _tx_history(address=None, limit=50):
+    from . import tx
+    return {'txs': tx.history(address=address, limit=limit)}
+
 def _validators(netuid, limit=15, network=DEFAULT_NETWORK):
     neurons = get_bt(network).neurons(netuid=netuid)
     rows = [{'uid': n.get('uid'), 'hotkey': n.get('hotkey'),
@@ -311,8 +332,34 @@ def _rpc_health(network=DEFAULT_NETWORK):
 def _best_rpc(network=DEFAULT_NETWORK):
     return {'endpoint': get_trader(network=network).best_rpc()}
 
-def _trades(days=30, limit=200, network=DEFAULT_NETWORK):
-    return get_trader(network=network).fast_trades(days=days, limit=limit)
+def _trades(netuid=None, hours=24, limit=100, side=None, coldkey=None,
+            before_block=None, min_tao=0, days=None):
+    from . import trades
+    return trades.trades(netuid=netuid, coldkey=coldkey, side=side,
+                         hours=days * 24 if days else hours, limit=limit,
+                         before_block=before_block, min_tao=min_tao)
+
+def _trades_status():
+    from . import trades
+    return trades.status()
+
+def _flows(hours=24):
+    from . import trades, history
+    out = trades.flows(hours=hours)
+    names = {r['netuid']: {'name': r.get('name'), 'symbol': r.get('symbol'),
+                           'logo': r.get('logo')}
+             for r in history.screener(sparks=False).get('rows', [])}
+    for row in out['rows']:
+        row.update(names.get(row['netuid'], {}))
+    return out
+
+def _usd():
+    from . import usd
+    return usd.spot()
+
+def _network():
+    from . import network
+    return network.network()
 
 
 # --- tracked traders (bt.traders index)
@@ -361,6 +408,108 @@ def _prices_at(ts=None):
     return traders.prices_at(ts=ts)
 
 
+# --- trader indexes (bt.indexes — saved baskets built off the board)
+
+def _index_create(name, members, note=None, track=True):
+    from . import indexes
+    return indexes.create(name, members, note=note, track=track)
+
+def _indexes(days=7, sparks=True):
+    from . import indexes
+    return indexes.indexes(days=days, sparks=sparks)
+
+def _index(index, days=7, curve=True):
+    from . import indexes
+    return indexes.get(index, days=days, curve=curve)
+
+def _index_update(index, name=None, members=None, note=None, track=True):
+    from . import indexes
+    return indexes.update(index, name=name, members=members, note=note,
+                          track=track)
+
+def _index_delete(index):
+    from . import indexes
+    return indexes.delete(index)
+
+
+# ------------------------------------------------------------------ console
+#
+# The one tool that is not a chain read: it hands the console a view to open.
+# The agent calls it so an answer *lands* somewhere — the subnet it just
+# described opens on the person's screen instead of being named at them. The
+# result carries a ``__view__`` block, which bt.agent lifts out of the tool
+# result and forwards to the browser as a ``view`` event.
+
+# news — the open per-subnet news index (bt/news.py); network reads, never the chain
+
+def _news(netuid=None, source=None, kind=None, days=30, search=None, limit=50,
+          offset=0, focused=False):
+    from . import news
+    return news.news(netuid=netuid, source=source, kind=kind, days=days,
+                     search=search, limit=limit, offset=offset, focused=focused)
+
+def _news_buzz(days=7, limit=0):
+    from . import news
+    return news.buzz(days=days, limit=limit)
+
+def _news_refresh(netuid=None, sources=None):
+    from . import news
+    names = [x.strip() for x in sources.split(',')] if sources else None
+    return news.refresh_feeds() if netuid is None else news.refresh(netuid, names)
+
+def _news_sources():
+    from . import news
+    return news.status()
+
+def _news_add_feed(url, label=None, netuid=None):
+    from . import news
+    return news.add_feed(url, label=label, netuid=netuid)
+
+def _news_remove_feed(url):
+    from . import news
+    return news.remove_feed(url)
+
+
+VIEWS: Dict[str, str] = {
+    'markets': 'the screener — every alpha market (search/sort_by optional)',
+    'subnet': 'one subnet detail overlay, with its price chart (needs netuid)',
+    'traders': 'the tracked-trader table',
+    'trader': 'one tracked trader profile: equity, positions, trade tape (needs address)',
+    'account': 'the account explorer for any ss58 coldkey (needs address)',
+    'wallet': 'local wallets',
+    'trade': 'the trade desk, where the person signs for themselves',
+    'docs': 'the tool reference',
+    'mcp': 'how to connect an agent to this module',
+}
+
+SCREENER_SORTS = ('market_cap', 'price', 'change_1h', 'change_24h',
+                  'change_7d', 'vol_24h', 'tao_in', 'netuid')
+
+
+SUBNET_TABS = ('overview', 'trades', 'validators', 'news')
+
+
+def _view(view, netuid=None, address=None, search=None, sort_by=None, tab=None):
+    if view not in VIEWS:
+        raise ValueError(f'unknown view: {view} — one of {", ".join(VIEWS)}')
+    if view == 'subnet' and netuid is None:
+        raise ValueError('view=subnet needs a netuid')
+    if view in ('trader', 'account') and not address:
+        raise ValueError(f'view={view} needs an ss58 address')
+    if sort_by and sort_by not in SCREENER_SORTS:
+        raise ValueError(f'unknown sort_by: {sort_by} — one of '
+                         f'{", ".join(SCREENER_SORTS)}')
+    if tab and tab not in SUBNET_TABS:
+        raise ValueError(f'unknown tab: {tab} — one of {", ".join(SUBNET_TABS)}')
+    action = {'view': view}
+    for key, val in (('netuid', netuid), ('address', address),
+                     ('search', search), ('sort_by', sort_by),
+                     ('tab', tab if view == 'subnet' else None)):
+        if val is not None and val != '':
+            action[key] = val
+    return {'__view__': action, 'opened': view, 'note': VIEWS[view]}
+
+
 # ---------------------------------------------------------------- registry
 
 TOOLS: List[Tool] = [
@@ -393,7 +542,7 @@ TOOLS: List[Tool] = [
          dict(address={'type': 'string', 'description': 'ss58 coldkey address', 'required': True},
               **_net_param()), _account),
     Tool('bt_wallets', 'List local Bittensor wallets (~/.bittensor/wallets): names, coldkey addresses, hotkeys.', 'Wallet',
-         {}, _wallets),
+         {}, _wallets, local=True),
     Tool('bt_wallet', 'Get info for one local wallet (coldkey + hotkey addresses).', 'Wallet',
          dict(name={'type': 'string', 'description': 'Wallet name', 'default': 'default'},
               hotkey={'type': 'string', 'description': 'Hotkey name', 'default': 'default'},
@@ -423,18 +572,33 @@ TOOLS: List[Tool] = [
               limit={'type': 'integer', 'description': 'Max rows (0 = all)', 'default': 0},
               search={'type': 'string', 'description': 'Filter by name/symbol/netuid'},
               sparks={'type': 'boolean', 'description': 'Include 24h sparkline series', 'default': True}),
-         _screener),
+         _screener, local=True),
     Tool('bt_history', "A subnet's price/mcap/volume time series from the local indexer — chart-ready.", 'Markets',
          dict(netuid={'type': 'integer', 'description': 'Subnet UID', 'required': True},
               hours={'type': 'integer', 'description': 'Lookback window in hours', 'default': 24},
               points={'type': 'integer', 'description': 'Max points (downsampled)', 'default': 300}),
-         _history),
+         _history, local=True),
     Tool('bt_stats', 'Network-wide totals: subnet count, total alpha market cap, TAO in pools, 24h volume.', 'Markets',
-         {}, _stats),
-    Tool('bt_trades', 'Recent on-chain staking events (buys/sells across subnets).', 'Markets',
-         dict(days={'type': 'integer', 'description': 'Lookback window in days', 'default': 30},
-              limit={'type': 'integer', 'description': 'Max events', 'default': 200},
-              **_net_param()), _trades),
+         {}, _stats, local=True),
+    Tool('bt_trades', "INSTANT trade tape from the local chain-event index: every alpha buy and sell (SubtensorModule StakeAdded/StakeRemoved) on one subnet or all of them, newest first — coldkey, hotkey, TAO, alpha, price, block. Hotkey moves and coldkey transfers are not trades and are left out; subnet-to-subnet swaps show as a sell plus a buy (kind='swap'). Also returns a summary of the whole window (buys/sells/net TAO/unique traders), the top coldkeys by volume, and which blocks the index covers. Page with before_block.", 'Markets',
+         dict(netuid={'type': 'integer', 'description': 'Subnet UID (omit for every subnet)'},
+              hours={'type': 'number', 'description': 'Lookback window in hours (0 = everything indexed)', 'default': 24},
+              limit={'type': 'integer', 'description': 'Max trades', 'default': 100},
+              side={'type': 'string', 'description': "'buy' or 'sell' (omit for both)"},
+              coldkey={'type': 'string', 'description': 'Only this ss58 coldkey'},
+              before_block={'type': 'integer', 'description': 'Next page: trades strictly before this block'},
+              min_tao={'type': 'number', 'description': 'Hide trades smaller than this many TAO', 'default': 0},
+              days={'type': 'integer', 'description': 'Legacy: lookback in days (overrides hours)'}),
+         _trades, local=True),
+    Tool('bt_trades_status', 'The chain-event trade indexer: blocks indexed, block range, trade count, head, backlog still to backfill, last error.', 'Network',
+         {}, _trades_status, local=True),
+    Tool('bt_flows', 'INSTANT per-subnet TAO flow board from the local chain-event trade index: for every subnet over one window, TAO staked in (buys), TAO unstaked out (sells), the NET flow, trade counts and unique buyers/sellers — where the market is rotating, sorted by net inflow. No chain round-trip, no API key.', 'Markets',
+         dict(hours={'type': 'number', 'description': 'Lookback window in hours (1, 24, 168, ...)', 'default': 24}),
+         _flows, local=True),
+    Tool('bt_usd', 'The TAO/USD price right now: median of free public exchange tickers (Kraken, Coinbase, Binance, CoinGecko), with 24h change and the per-source quotes. Cached ~60s; served from the last good value (stale=true) if every exchange is unreachable. No API key.', 'Markets',
+         {}, _usd, local=True),
+    Tool('bt_network', 'The network itself: current block, total TAO issuance vs the 21M cap, halving count and an estimated countdown to the next halving, block/daily emission, total staked TAO and staked %, plus the TAO/USD spot. Two storage reads on an own socket, cached 5 minutes.', 'Network',
+         {}, _network, local=True),
     # --- trading
     Tool('bt_portfolio', 'Get all staked alpha positions for a local wallet across subnets, with TAO value.', 'Trading',
          _wallet_params({}), _portfolio),
@@ -468,34 +632,34 @@ TOOLS: List[Tool] = [
     Tool('bt_untrack', 'Stop tracking a coldkey. Its recorded history is kept unless purge=true.', 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey', 'required': True},
               purge={'type': 'boolean', 'description': 'Also delete stored snapshots and flows', 'default': False}),
-         _untrack),
+         _untrack, local=True),
     Tool('bt_traders', 'INSTANT tracked-trader table from the local index: portfolio value, free vs staked, subnet count, 24h/7d change and PnL, recent trade count, and an equity sparkline — no chain round-trip.', 'Traders',
          dict(sort_by={'type': 'string', 'description': "Sort key: 'total_tao', 'change_24h', 'change_7d', 'pnl_24h', 'staked_tao', 'subnets'", 'default': 'total_tao'},
               limit={'type': 'integer', 'description': 'Max rows (0 = all)', 'default': 0},
               sparks={'type': 'boolean', 'description': 'Include equity sparkline', 'default': True}),
-         _traders),
-    Tool('bt_trader_board', 'INSTANT copy-trading leaderboard from the local index: every tracked coldkey ranked over N days, with PnL split into what the book earned on price (market) and what was staked in or out (flow) — so a trader who merely deposited does not outrank a real one. No chain round-trip.', 'Traders',
+         _traders, local=True),
+    Tool('bt_trader_board', 'INSTANT copy-trading leaderboard from the local index: every tracked coldkey ranked over N days, with PnL split into what the book earned on price (market) and what was staked in or out (flow). TAO moving in or out is normalized out of both percentages — market_pct is time-weighted (deposits cannot move it), pnl_pct is money-weighted (market gain over capital employed) — so a coldkey that merely deposited reads ~0%, never a headline. No chain round-trip.', 'Traders',
          dict(days={'type': 'integer', 'description': 'Ranking window in days', 'default': 7},
               top={'type': 'integer', 'description': 'Max rows (0 = all)', 'default': 0},
               min_subnets={'type': 'integer', 'description': 'Drop traders holding fewer subnets than this', 'default': 0},
-              sort_by={'type': 'string', 'description': "Sort key: 'market_pct' (trading skill), 'pnl_pct', 'pnl_tao', 'market_pnl_tao', 'total_stake_tao', 'num_subnets'", 'default': 'market_pct'},
+              sort_by={'type': 'string', 'description': "Sort key: 'market_pct' (time-weighted trading skill), 'pnl_pct' (money-weighted), 'pnl_tao', 'market_pnl_tao', 'total_stake_tao', 'num_subnets'", 'default': 'market_pct'},
               sparks={'type': 'boolean', 'description': 'Include an equity sparkline per trader', 'default': False}),
-         _trader_board),
+         _trader_board, local=True),
     Tool('bt_trader', 'Full profile for one tracked trader: current positions per subnet with TAO value and portfolio weight, equity curve, inferred trades, and windowed PnL.', 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey', 'required': True},
               hours={'type': 'integer', 'description': 'Equity-curve lookback in hours', 'default': 168},
               flows_limit={'type': 'integer', 'description': 'Max inferred trades to include', 'default': 50}),
-         _trader),
+         _trader, local=True),
     Tool('bt_trader_history', "A tracked trader's portfolio value over time (free / staked / total) — chart-ready.", 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey', 'required': True},
               hours={'type': 'integer', 'description': 'Lookback window in hours', 'default': 168},
               points={'type': 'integer', 'description': 'Max points (downsampled)', 'default': 300}),
-         _trader_history),
+         _trader_history, local=True),
     Tool('bt_trader_flows', 'The inferred trade tape: buys/sells derived from how tracked traders\' positions changed between snapshots. Omit address for the tape across every tracked trader.', 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey (omit for all tracked traders)'},
               hours={'type': 'integer', 'description': 'Lookback window in hours', 'default': 168},
               limit={'type': 'integer', 'description': 'Max rows', 'default': 100}),
-         _trader_flows),
+         _trader_flows, local=True),
     Tool('bt_trader_snapshot', 'Force a snapshot now (chain read) for one tracked trader, or for all of them if address is omitted.', 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey (omit for all tracked traders)'}),
          _trader_snapshot),
@@ -503,10 +667,35 @@ TOOLS: List[Tool] = [
          dict(address={'type': 'string', 'description': 'ss58 coldkey', 'required': True},
               ts={'type': 'integer', 'description': 'Unix timestamp (default: now)'},
               tolerance_sec={'type': 'integer', 'description': 'Reject the nearest snapshot if it misses ts by more than this (0 = accept any)', 'default': 0}),
-         _trader_at),
+         _trader_at, local=True),
     Tool('bt_prices_at', 'Every subnet alpha price at a past moment, from the local indexer — historical marks without an archive node.', 'Traders',
          dict(ts={'type': 'integer', 'description': 'Unix timestamp (default: now)'}),
-         _prices_at),
+         _prices_at, local=True),
+    Tool('bt_index_create', "Create a named trader index: a weighted basket of coldkeys, usually picked off bt_trader_board. Members not yet tracked are auto-tracked (one chain snapshot each), so the index prices from the local store from then on. Returns the index with its blended window performance.", 'Traders',
+         dict(name={'type': 'string', 'description': 'Index name (unique, case-insensitive)', 'required': True},
+              members={'type': 'string', 'description': "Comma/space-separated ss58 coldkeys, each optionally ':weight' (relative, normalized; default equal) — e.g. '5Grw…, 5FHn…:2'", 'required': True},
+              note={'type': 'string', 'description': 'Free-text thesis for the basket'},
+              track={'type': 'boolean', 'description': 'Auto-track members not yet in the trader index', 'default': True}),
+         _index_create),
+    Tool('bt_indexes', 'Every saved trader index with its blended performance over the window: weight-averaged market % and PnL % (flow-normalized, same math as the board), combined book τ, and a rebased-to-100 blended equity sparkline. From the local store only.', 'Traders',
+         dict(days={'type': 'integer', 'description': 'Performance window in days', 'default': 7},
+              sparks={'type': 'boolean', 'description': 'Include the blended equity sparkline', 'default': True}),
+         _indexes, local=True),
+    Tool('bt_index', 'One trader index in full: every member ranked exactly like the leaderboard ranks it (weight, market/PnL split, book), the blended totals, and the blended equity curve rebased to 100 at the start of the window.', 'Traders',
+         dict(index={'type': 'string', 'description': 'Index id or name', 'required': True},
+              days={'type': 'integer', 'description': 'Performance window in days', 'default': 7},
+              curve={'type': 'boolean', 'description': 'Include the blended equity curve', 'default': True}),
+         _index, local=True),
+    Tool('bt_index_update', 'Rename an index, change its note, or replace its member basket (same ss58[:weight] string as bt_index_create).', 'Traders',
+         dict(index={'type': 'string', 'description': 'Index id or name', 'required': True},
+              name={'type': 'string', 'description': 'New name'},
+              members={'type': 'string', 'description': 'Replacement member list (ss58[:weight], comma-separated)'},
+              note={'type': 'string', 'description': 'New note'},
+              track={'type': 'boolean', 'description': 'Auto-track any new members', 'default': True}),
+         _index_update),
+    Tool('bt_index_delete', 'Delete a saved trader index. Its members stay tracked — recorded history is never dropped.', 'Traders',
+         dict(index={'type': 'string', 'description': 'Index id or name', 'required': True}),
+         _index_delete, local=True),
     # --- network
     Tool('bt_sync', 'Indexer sync state: the chain block the local index is synced to, how far behind head it is, snapshot cadence and gaps, and whether every subnet and tracked trader is covered.', 'Network',
          dict(head={'type': 'boolean', 'description': 'Also read the chain tip to report exact lag (costs one RPC)', 'default': True}),
@@ -515,6 +704,57 @@ TOOLS: List[Tool] = [
          dict(**_net_param()), _rpc_health),
     Tool('bt_best_rpc', 'The lowest-latency RPC endpoint right now.', 'Network',
          dict(**_net_param()), _best_rpc),
+    # --- news
+    Tool('bt_news', "News about a subnet (or every subnet), scraped from the open web into a local index: the subnet's GitHub releases and commits, its own blog feed, Google News, Reddit, Hacker News and crypto outlets. Newest first. netuid 0 = Bittensor-wide news. Each item carries source, kind (news/social/blog/release/commit), publisher, url, ts, and focus (1 = the headline itself names the subnet, 0 = mentioned in the body).", 'News',
+         dict(netuid={'type': 'integer', 'description': 'Subnet UID (omit for every subnet; 0 = network-wide)'},
+              source={'type': 'string', 'description': 'Only one source: github, site, gnews, reddit, hn, bing, feeds'},
+              kind={'type': 'string', 'description': 'Comma list of kinds: news, social, blog, release, commit'},
+              days={'type': 'number', 'description': 'Look back this many days (0 = all time)', 'default': 30},
+              search={'type': 'string', 'description': 'Substring match on title, summary or publisher'},
+              focused={'type': 'boolean', 'description': 'Only items whose headline names the subnet', 'default': False},
+              limit={'type': 'integer', 'description': 'Max items (1-500)', 'default': 50},
+              offset={'type': 'integer', 'description': 'Skip this many (paging)', 'default': 0}),
+         _news, local=True),
+    Tool('bt_news_buzz', 'Which subnets the internet is talking about: news items per subnet over N days (press = headlines naming it, releases, commits) vs the window before, with the latest headline. From the local news index.', 'News',
+         dict(days={'type': 'number', 'description': 'Window in days', 'default': 7},
+              limit={'type': 'integer', 'description': 'Max subnets (0 = all)', 'default': 0}),
+         _news_buzz, local=True),
+    Tool('bt_news_refresh', 'Scrape now instead of waiting for the background pass: every enabled source for one subnet, or (netuid omitted) every outlet feed. Takes a few seconds; returns what each source found and added.', 'News',
+         dict(netuid={'type': 'integer', 'description': 'Subnet UID (omit = poll the outlet feeds)'},
+              sources={'type': 'string', 'description': 'Comma list to limit sources (default: all enabled)'}),
+         _news_refresh, local=True),
+    Tool('bt_news_sources', 'The news scraper itself: enabled sources, outlet feed list, per-source run/success counts and timing, subnets covered, recent errors.', 'News',
+         {}, _news_sources, local=True),
+    Tool('bt_news_add_feed', 'Add any RSS/Atom feed to the news scraper (kept in ~/.mod/bt/news_feeds.json). Items are filed under the subnets they name, or pin the feed to one netuid. The feed is fetched once to prove it parses.', 'News',
+         dict(url={'type': 'string', 'description': 'Feed URL (RSS or Atom)', 'required': True},
+              label={'type': 'string', 'description': 'Display name'},
+              netuid={'type': 'integer', 'description': 'File every item under this subnet'}),
+         _news_add_feed, local=True),
+    Tool('bt_news_remove_feed', 'Remove an outlet feed from the news scraper.', 'News',
+         dict(url={'type': 'string', 'description': 'Feed URL to drop', 'required': True}),
+         _news_remove_feed, local=True),
+    # --- console
+    Tool('bt_view', 'Open a view in the bt console the caller is looking at: the market screener (optionally searched/sorted), one subnet with its chart, a tracked trader, or any account. Use it whenever an answer is about something the console can show — the person then sees it, instead of being told where to look. Read-only: it changes the screen, nothing on chain.', 'Console',
+         dict(view={'type': 'string', 'description': "Which view: " + '; '.join(f'{k} = {v}' for k, v in VIEWS.items()), 'required': True},
+              netuid={'type': 'integer', 'description': 'Subnet UID (view=subnet)'},
+              address={'type': 'string', 'description': 'ss58 coldkey (view=trader or view=account)'},
+              search={'type': 'string', 'description': 'Prefill the screener search box (view=markets)'},
+              sort_by={'type': 'string', 'description': 'Screener sort column: ' + ', '.join(SCREENER_SORTS) + ' (view=markets)'},
+              tab={'type': 'string', 'description': 'Which tab of the subnet to show: ' + ', '.join(SUBNET_TABS) + ' (view=subnet; default overview)'}),
+         _view, local=True),
+    # --- daily ledger + browser-wallet transactions
+    Tool('bt_days', 'The daily block ledger: the chain block that opened each UTC day (number, hash, chain timestamp) and how many blocks each day produced — fetched once a day from an archive node and kept locally.', 'Network',
+         dict(limit={'type': 'integer', 'description': 'Most recent N days', 'default': 60}),
+         _days, local=True),
+    Tool('bt_daily', 'Daily candles from the local index: open/high/low/close alpha price, market cap, TAO in pool, 24h volume and emission per subnet per UTC day. Pass netuid for one subnet over time, or day (YYYY-MM-DD) for every subnet on that day (default: yesterday).', 'Markets',
+         dict(netuid={'type': 'integer', 'description': 'Subnet UID (one subnet over time)'},
+              day={'type': 'string', 'description': 'UTC day YYYY-MM-DD (every subnet that day)'},
+              days_back={'type': 'integer', 'description': 'Window when netuid is given', 'default': 90}),
+         _daily, local=True),
+    Tool('bt_tx_history', 'Transactions this console prepared for a browser wallet (SubWallet, Talisman, polkadot{.js}) and broadcast after the wallet signed — status, extrinsic hash, block. Read-only, local.', 'Wallet',
+         dict(address={'type': 'string', 'description': 'Only this ss58 signer'},
+              limit={'type': 'integer', 'description': 'Max rows', 'default': 50}),
+         _tx_history, local=True),
 ]
 
 TOOL_MAP: Dict[str, Tool] = {t.name: t for t in TOOLS}
@@ -533,6 +773,12 @@ def call_tool(name: str, args: Optional[Dict] = None) -> Any:
     tool = TOOL_MAP.get(name)
     if tool is None:
         raise ValueError(f'unknown tool: {name}')
+    # Index-only tools never speak to the chain, so they must not queue behind
+    # a 40-second chain scan: a console page load is a handful of these, and
+    # serializing them behind the websocket lock is what used to make the
+    # screener take a minute while a scan was in flight.
+    if tool.local:
+        return tool.call(args)
     with _call_lock:
         return tool.call(args)
 
@@ -543,7 +789,7 @@ def docs() -> List[Dict]:
     for t in TOOLS:
         groups.setdefault(t.group, []).append({
             'name': t.name, 'description': t.description,
-            'mutates': t.mutates,
+            'mutates': t.mutates, 'local': t.local,
             'params': [
                 {'name': k, **{kk: vv for kk, vv in v.items()}}
                 for k, v in t.params.items()],

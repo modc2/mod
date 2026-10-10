@@ -1,0 +1,38 @@
+{
+  "name": "sn84",
+  "version": "1.0.0",
+  "description": "SN84 ansuz — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᚨ",
+  "chain": "bittensor",
+  "netuid": 84,
+  "subnet": "ansuz",
+  "symbol": "ᚨ",
+  "owner": "5FRdKaxKceoecnyA71kfLjeiarJzWVxtBirsYvkwBjH727n5",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=84",
+    "news": "/bt/news?netuid=84"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

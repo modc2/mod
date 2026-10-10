@@ -1,0 +1,189 @@
+{
+  "netuid": 90,
+  "name": "KubeTEE",
+  "symbol": "テ",
+  "owner": "5C9y6fnLPSzBeh1Np7f4DnGen42xV29nL9qZTDuwpVC4iTEE",
+  "description": "KubeTEE AI Factory: Confidential Computing TEE Multi-Cluster K8s",
+  "github": "https://github.com/KubeTEE-AI/kubetee-subnet",
+  "url": "https://kubetee.ai",
+  "discord": "https://discord.gg/KUeXm9XQG4",
+  "logo": "https://kubetee.ai/logo.png",
+  "registered_at": 8618670,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.021122846,
+    "moving_price": 0.02140221488662064,
+    "market_cap": 13779.75473727547,
+    "tao_in": 4174.583071803,
+    "alpha_in": 197633.553533717,
+    "alpha_out": 454729.046528579,
+    "volume": 108246.030950208,
+    "vol_24h": 1886.0027915760002,
+    "emission": 0.0,
+    "change_1h": -0.16096874674752515,
+    "change_24h": -1.5527770540748276,
+    "change_7d": -10.109363695365758
+  },
+  "spark_24h": [
+    0.02145601,
+    0.021225217,
+    0.021298798,
+    0.021298657,
+    0.021518896,
+    0.021473685,
+    0.021482045,
+    0.021490762,
+    0.021386726,
+    0.021368248,
+    0.021340523,
+    0.021300781,
+    0.022033264,
+    0.022152953,
+    0.021978414,
+    0.021920887,
+    0.021919451,
+    0.021772499,
+    0.021609195,
+    0.021963307,
+    0.021866772,
+    0.021658297,
+    0.021656204,
+    0.021657843,
+    0.021644068,
+    0.021643343,
+    0.021697202,
+    0.021432187,
+    0.021431483,
+    0.021430015,
+    0.021428499,
+    0.021428677,
+    0.021429543,
+    0.021430478,
+    0.021431354,
+    0.021427968,
+    0.021517004,
+    0.021318741,
+    0.021330323,
+    0.021330337,
+    0.021331122,
+    0.02109033,
+    0.021068301,
+    0.021061722,
+    0.021214318,
+    0.021158734,
+    0.021156902,
+    0.021122846
+  ],
+  "trades_24h": {
+    "trades": 245,
+    "buys": 132,
+    "sells": 113,
+    "buy_tao": 923.626120364,
+    "sell_tao": 946.563458664,
+    "net_tao": -22.937338299999965,
+    "traders": 91
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.32780576499999525,
+      "gross_tao": 397.812380793,
+      "trades": 32
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.26042841299999964,
+      "gross_tao": 248.260428413,
+      "trades": 21
+    },
+    {
+      "coldkey": "5Gxh84eaVoBUFpB9FM1fRuQoFDJFsrEFTLVNFbBu1xU4xPRK",
+      "net_tao": 3.7518092679999997,
+      "gross_tao": 120.984222254,
+      "trades": 9
+    },
+    {
+      "coldkey": "5EtTJc8Z26EaysT9EEeJL54wkDvWW2jveHzuWnxm3yRY6Bxu",
+      "net_tao": -0.8938519679999981,
+      "gross_tao": 100.89385196799999,
+      "trades": 6
+    },
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": -0.3991065889999995,
+      "gross_tao": 75.522306589,
+      "trades": 8
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791482499,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(nemotron-omni): 256k context verified + NIM 2.0.13 + gateway mod…",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/feeb7495bb93a900a76f63af170bd0404187f871",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1791479900,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(nemotron-omni): sync with NVIDIA build.nvidia.com model card",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/d114ca972a815dfde1211e36e0af2c018940e568",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1791479605,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(nemotron-omni): remove the License section from the API doc",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/cc502f2a0ce0af867294315f3168b186ed78ee03",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1791479464,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(nemotron-omni): attribute license to NVIDIA, not the HF checkpoint",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/2915f202da525de1e9be6a4ab9944fce5489fb50",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1791478603,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(subnet): drop COMPUTE-ACCESS.md; Nemotron-Omni doc gets runnable…",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/f4ec9f53f27684bafd1d88c3f5130a110a3efd11",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1791287648,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(h3): note /v1/videos/sync exists in the serving stack but is not…",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/d96942841926eb294c12a626736fd7a4333230fe",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1791287538,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(h3): publish the H3 video generation API reference",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/6ddd2a01b3108524c0c2cfab5f4e78a6df4ebafb",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1790240368,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(attestation): TLS-possession proof on client-facing attestation",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/c9cb76085cdbf8171a8d507a85965e5f931ad352",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

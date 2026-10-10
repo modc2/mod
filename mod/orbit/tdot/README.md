@@ -31,6 +31,7 @@ App   http://localhost:50321/tdot  (Next.js + MapLibre GL)
 | **Apartment building scores** | graduated circles | Apartment Building Evaluation (`apartment-building-evaluation`) |
 | **Predicted vs actual score** | diverging circles | the score model (see below) |
 | **What homes cost** | choropleth, 16 metrics | Neighbourhood Profiles, 2021 Census |
+| **Lots for affordable housing** | full lot polygons, highlighted and tiered | Real Estate Asset Inventory (land) |
 | **Registered rental buildings** | circles sized by units | Apartment Building Registration |
 | **Toronto Community Housing** | circles sized by units | `toronto-community-housing-data` |
 | **Subsidized housing** | points by provider type | `subsidized-housing-listings` |
@@ -42,9 +43,25 @@ App   http://localhost:50321/tdot  (Next.js + MapLibre GL)
 | **Serious traffic collisions** | heatmap + points | Motor Vehicle Collisions (KSI) |
 | **Former municipalities / neighbourhoods / wards** | outlines | `former-municipality-boundaries`, `neighbourhoods`, `city-wards` |
 
-Basemaps are CARTO's free raster tiles (dark/light) and OpenStreetMap's own
-tiles; geocoding is OpenStreetMap Nominatim; the renderer is MapLibre GL
-(BSD-3).
+Basemaps are OpenFreeMap's key-free hosted vector styles (`dark`, `positron`,
+`liberty`); geocoding is OpenStreetMap Nominatim; the renderer is MapLibre GL
+(BSD-3). A **3D** toggle in the header tilts the camera, extrudes real
+building heights from the basemap's vector tiles, and raises each candidate
+housing lot to the massing it could carry (right-drag rotates).
+
+### Lots for affordable housing
+
+The `housing_lots` layer screens the city's own Real Estate Asset Inventory —
+every parcel the city holds, with full lot polygons — down to the land
+affordable housing actually gets built on: city-owned vacant land, surface
+parking (the Housing Now model) and anything declared surplus, at least
+450 m², never parks or linear scraps. Each lot is scored 0–100 (35 size,
+30 rapid-transit distance, 20 current use, 15 surplus status) and tiered
+PRIME / STRONG / POSSIBLE; the full lot boundary is drawn with a glow so the
+land under discussion is unmistakable, and each lot carries a rough massing
+estimate (45% coverage, 90 m² per home) that the 3-D view extrudes. The
+`tdot_housing_lots` agent tool answers "where could housing go?" and turns
+the layer on.
 
 `m tdot/housing` lists every open housing dataset the city publishes and what
 this module does with each — drawn as a layer, fed to the score model, open but
@@ -178,9 +195,33 @@ m tdot/kill                             # stop both
 | `GET /score/outliers?direction=under\|over&limit=` | buildings furthest from their peers |
 | `GET /score/building/{rsn}` | one building: prediction and what moves it |
 | `GET /options`, `/view`, `/health`, `/cache` | UI metadata |
+| `POST /mcp` | MCP over streamable HTTP (JSON-RPC 2.0) |
+| `GET /mcp`, `/mcp/schema`, `/mcp/config` | what the MCP server is, its tools, a client config |
 
 Responses are gzipped — the 3,250-polygon green-space layer goes out at a
 fraction of its raw size.
+
+## MCP
+
+The 18 tools the **Ask** panel plays are also published over the Model Context
+Protocol, so any MCP client can drive the map. Both transports dispatch through
+the same `mcp_server.rpc`, so they cannot drift apart:
+
+```sh
+claude mcp add --transport http tdot http://localhost:50320/mcp   # streamable HTTP
+claude mcp add tdot -- python3 -m tdotgis.mcp_server              # stdio
+m tdot/mcp                                                        # print both configs
+```
+
+The tools that move the map — `tdot_show_layers`, `tdot_hide_layers`,
+`tdot_fly_to`, `tdot_set_crime_view` — return their action under a `__map__` key
+in the result, which the browser applies to the live map. So an MCP client is
+not just querying the data; it is steering the console someone is looking at.
+
+The **MCP** panel in the header is the server's front door: status, connection
+snippets for both transports, every tool with its JSON Schema, and a runner that
+calls those tools over the real `/mcp` endpoint — so what you try there is
+exactly what an outside client gets.
 
 ## Caching
 
@@ -216,7 +257,7 @@ is saved in `localStorage` under `tdot_theme` and re-applied by a blocking
 script in `app/src/app/layout.tsx`, so the first paint is already the right
 palette — there is no flash of the wrong theme.
 
-A theme is three things, all declared in `app/src/lib/theme.ts`:
+A theme is four things, all declared in `app/src/lib/theme.ts`:
 
 - a **token block** in `globals.css` (`[data-theme="id"]`) that every piece of
   chrome draws from — the components hold no literal colours;
@@ -226,10 +267,24 @@ A theme is three things, all declared in `app/src/lib/theme.ts`:
   hues, or the map would read inside-out (see **Colour** above);
 - a **basemap**, applied on every theme change so picking a light theme moves
   the tiles under it too. The Dark/Light/Streets buttons still override by hand
-  until the next theme change.
+  until the next theme change;
+- a pair of **magnitude ramps** in `THEME_RAMPS` (`app/src/lib/palette.ts`), so
+  the theme reaches the map and not just the panels around it. MATRIX paints the
+  city green, EMBER amber, TTC red.
 
-Adding one means an entry in `THEMES`, a matching token block, and the id in the
-blocking script's list in `layout.tsx`.
+What a theme may and may not recolour is a deliberate split. The **sequential**
+ramps are themed, because "how much" carries no meaning in its hue — only in its
+position along the ramp. **Diverging** (up-is-bad stays red), **status** and
+**category** colours, and the TTC line palette, are not: those encode meaning or
+identity, and a skin that changed them would change what the map *says*.
+
+Each themed ramp was generated in OKLCH against the lightness and chroma
+schedule of the two validated base ramps, with chroma binary-searched to the
+sRGB gamut boundary, then gated with the dataviz `validateOrdinal` check. All
+twenty pass single-hue, monotone lightness and the ≥0.06 adjacent-step gap.
+
+Adding one means an entry in `THEMES`, a matching token block, a `THEME_RAMPS`
+pair, and the id in the blocking script's list in `layout.tsx`.
 
 ## Tests
 

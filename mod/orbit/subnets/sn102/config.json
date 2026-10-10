@@ -1,0 +1,38 @@
+{
+  "name": "sn102",
+  "version": "1.0.0",
+  "description": "SN102 ConnitoAI — Contributors train specialized expert modules that are aggregated into powerful AI systems, without massive centralized compute. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ვ",
+  "chain": "bittensor",
+  "netuid": 102,
+  "subnet": "ConnitoAI",
+  "symbol": "ვ",
+  "owner": "5HBc11rCaAj2UtUTeC3oK8zHbU7jQCQZWpRQvsawqxH8qkTm",
+  "github": "https://github.com/Connito-AI/Connito",
+  "url": "https://connito.ai/",
+  "discord": "isabella618033",
+  "logo": "https://connito.ai/images/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=102",
+    "news": "/bt/news?netuid=102"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -17,12 +17,49 @@ as **one open module you can read, run, and fork**, plus the whole protocol
 2. **MCP over HTTP** — `POST /mcp` speaks the same JSON-RPC (streamable HTTP),
    for remote clients: `https://modc2.com/bt/mcp`.
 
-3. **Web console** — Apple-style single-page app at `/` (gateway: `modc2.com/bt`):
-   live market screener (price, 1h/24h/7d change, mcap, 24h volume, liquidity,
-   sparklines), per-subnet detail with price chart + identity links + top
-   validators, account explorer for any ss58, a **Traders** tab that tracks
-   any coldkey over time, Wallet, Trade, a generic tool Console, and a
-   **Docs** section generated live from the tool registry.
+3. **Web console** — a Next.js app (`app/`), exported to static files and
+   served by the same FastAPI process at `/` (gateway: `modc2.com/bt`). Real
+   routes — `/markets` (screener table + heatmap), `/traders` (tracked +
+   leaderboard + tape), `/account?addr=…`, `/wallet`, `/trade`, `/chat`,
+   `/console?tool=…`, `/docs`, `/open`, `/mcp` — and shareable overlays
+   (`?sn=64` a subnet, `?tr=5…` a trader) that float over any page, which is
+   what the chat agent opens mid-answer. **Every subnet is a market**: the
+   `?sn=` overlay is the market view — α/τ pair, price + volume/liquidity/mcap
+   strip, chart and Overview·Trades·Validators·News tabs on the left, the
+   order ticket (`components/Ticket.tsx`: Buy/Sell, 25/50/max, 2% limit,
+   biggest validator by default, signed in SubWallet) on the right. `/trade`
+   picks a market by name/symbol/netuid and drives the same ticket.
+
+## The console (app/)
+
+```
+app/app/            routes (App Router) + globals.css — the whole look
+app/components/     Shell, TopBar, Rail, Overlays, Ticket, LineChart, Positions, ui
+app/lib/            api (one wire: POST {base}/_api/call), data, wallet,
+                    overlay, chat (agent SSE client), format, md, hooks
+app/build.sh        tsc -> next build -> releases/<t>, dist -> releases/<t>
+app/legacy.html     the single-file console it replaced (served at /legacy)
+```
+
+- **No node at runtime.** `output: 'export'` + `basePath: '/bt'`; bt.server
+  maps `/markets` -> `dist/markets.html` and `/_next/*` as-is. `build.sh`
+  swaps a symlink, so publishing is one rename and needs no restart; a failed
+  build leaves the old release serving; a host that never built serves
+  `legacy.html` at `/`. Roll back: `ln -sfn releases/<old> dist.tmp && mv -T dist.tmp dist`.
+- **Zero UI deps** — next, react, react-dom. Charts are hand-rolled SVG, the
+  pixel font is self-hosted (`app/app/fonts`), no CDN, no Google Fonts.
+- **`/bt/_api/*`, not `/bt/api/*`.** The gateway strips `/bt/api` before it
+  proxies (the mod-protocol canonical API form), so the console calls the one
+  path forwarded untouched and bt.server maps it back onto `/api`. The stripped
+  form works too: `modc2.com/bt/api/call` arrives as `/call` and is routed.
+  `/`, `/docs` and `/mcp` are both pages and API — browsers asking for
+  `text/html` get the page, everything else gets JSON.
+- **Chat state lives in the layout,** not the /chat page: when the agent calls
+  `bt_view` the console navigates while the answer keeps streaming.
+- Home links are plain anchors: Next's export fetches the `/` payload at
+  `/bt.txt`, which sits outside the gateway's `/bt/*` route.
+- Dev: `cd app && npm run dev` (port 50281, `.next-dev/` — never the live
+  build). Build: `app/build.sh` (or `m bt/app/build`).
 
 ## The open indexer
 
@@ -34,6 +71,16 @@ every subnet's pool state on an interval (`BT_REFRESH_SEC`, default 300s) into
 served from local disk in microseconds — no chain round-trip, no third-party
 API, no key. History depth grows the longer it runs. `BT_NO_SNAPSHOT=1`
 disables the thread (tests do this).
+
+## Every trade on every subnet
+
+`bt/trades.py` indexes the chain's own events block by block into `~/.mod/bt/trades.db`:
+each `StakeAdded` is a buy and each `StakeRemoved` is a sell (coldkey, hotkey, TAO, alpha, price, block).
+Hotkey moves and coldkey transfers (a same-pool Removed+Added pair) are not trades and are left out.
+Subnet-to-subnet swaps show as a sell plus a buy (`kind='swap'`). It follows the finalized head and backfills
+`BT_TRADES_BACKFILL_DAYS` (7) days, using the archive node for older blocks. Gaps heal on their own, and rows older
+than `BT_TRADES_KEEP_DAYS` (30) days are pruned. `bt_trades netuid=…` reads it instantly, paging with `before_block`.
+Every subnet page shows the tape (1H/24H/7D/ALL, buys/sells, biggest wallets) and the subnet's public git URL.
 
 ## Tracking traders
 
@@ -49,18 +96,19 @@ anything smaller is emission drift and is ignored (flows are marked
 It doubles as a time machine other modules borrow: `bt_trader_at` and
 `bt_prices_at` answer "what did this account hold, and what was it worth?"
 from local SQLite — the questions that otherwise need an archive node.
-`orbit/copytensor` runs its entire read path on it (see below).
+The copytensor submod runs its entire read path on it (see below).
 
 ## Architecture
 
 ```
-bt/tools.py       ← THE tool registry (37 tools, JSON schemas, handlers)
+bt/tools.py       ← THE tool registry (52 tools, JSON schemas, handlers)
 bt/history.py     ← the open indexer: SQLite snapshots + instant screener
 bt/traders.py     ← the trader index: tracked coldkeys, equity, inferred trades
 bt/mcp_server.py  ← zero-dep MCP stdio server (JSON-RPC over stdin/stdout)
-bt/server.py      ← FastAPI :50280 — app + /api/* + /mcp (starts the indexer)
+bt/server.py      ← FastAPI :50280 — console (app/dist) + /api/* + /mcp (starts the indexers)
 bt/bt.py          ← engine anchor (Bt chain surface, BtTrader) over _bt_engine.pyc
-app/index.html    ← the console (no build step)
+app/              ← the console: Next.js, exported static (see below)
+copytensor/       ← SUBMOD: the whole copytensor module (dTAO copy trading)
 ```
 
 Every surface is generated from `bt/tools.py`, so the console, the docs, and
@@ -75,11 +123,19 @@ the MCP schemas can never drift apart.
 | Markets | `bt_screener` `bt_history` `bt_stats` `bt_price` `bt_scan` `bt_leaderboard` `bt_trades` |
 | Trading | `bt_portfolio` `bt_trader_balance` `bt_buy`\* `bt_sell`\* `bt_sell_all`\* `bt_swap`\* |
 | Traders | `bt_track` `bt_untrack` `bt_traders` `bt_trader_board` `bt_trader` `bt_trader_history` `bt_trader_flows` `bt_trader_snapshot` `bt_trader_at` `bt_prices_at` |
-| Network | `bt_rpc_health` `bt_best_rpc` |
+| Network | `bt_sync` `bt_rpc_health` `bt_best_rpc` |
+| Console | `bt_view` — opens a view in the console the caller is looking at |
 
 \* = real on-chain write (moves TAO or creates key material). The MCP server's
 instructions tell clients to confirm with the user first; the console asks
-before signing.
+before signing. Over HTTP (`/api/call`, `/mcp`) these only run for the
+operator: a request from this machine to `localhost` with no proxy headers and
+no foreign browser `Origin`, or one with `Authorization: Bearer $BT_WRITE_TOKEN`.
+Everyone else gets 403 — and the same goes for custom `network` endpoints and
+renaming/deleting saved chats. Reads stay open.
+
+`bt/autopilot.py` is an optional LLM trading desk (caps per trade/day/budget,
+propose-only by default). Nothing in the server imports it.
 
 `bt_screener` / `bt_history` / `bt_stats` answer instantly from the indexer;
 `bt_scan` is the raw full-chain scan (slow, but always straight from chain).
@@ -100,9 +156,29 @@ default sort. A trader tracked for less than the window is ranked over the
 history that exists and says so in `window_days`; one with a single snapshot
 comes back `baseline: false` at PnL 0, never a fabricated number.
 
-## Who else reads this
+## The copytensor submod
 
-`orbit/copytensor` (dTAO copy trading) no longer walks public RPCs for reads —
+The entire copytensor module (Bittensor dTAO copy trading) lives inside this
+module at `copytensor/` and runs as a **submod**: declared in this module's
+`config.json` under `submods`, with its own processes started from that
+directory — `pm2 copytensor-api` (FastAPI :50150, `python3 -m uvicorn
+src.api.app:app`) and `pm2 copytensor-app` (Next.js :3150, basePath
+`/copytensor`). Its runtime book — watchlist, copies, snapshots, strats —
+stays in `copytensor/src/data/copytensor.db` (gitignored; treat it like a
+wallet, never move or duplicate it).
+
+Three doors into the same submod:
+
+- `{host}/copytensor` + `{host}/copytensor/api/*` — the public face, pinned
+  by a caddy override in `~/.mod/caddy/overrides.json` (route auto-discovery
+  only scans top-level module dirs, so a submod must be pinned).
+- `/ct/*` on this server (`:50280/ct/status`, `modc2.com/bt/ct/...`) — a
+  streaming proxy in `bt/server.py`, so the submod is reachable wherever bt is.
+- `:50150/mcp` — its own MCP endpoint (25 `ct_*` tools), unchanged.
+
+It is also this index's biggest consumer:
+
+copytensor (dTAO copy trading) no longer walks public RPCs for reads —
 `src/chain/bt_source.py` wraps this module's `POST /api/call` in a
 `SubtensorClient` whose subnet, position and history reads come from here, and
 which falls back to its own RPC pool if bt is stopped. Its `/subnets` went
@@ -115,24 +191,120 @@ walk took over a 253-account pool. Point it elsewhere with
 ## API
 
 ```
-GET  /api          module info
+GET  /api          module info          (also /_api, and / for non-HTML callers)
 GET  /api/tools    MCP-shaped tool listing
 GET  /api/docs     grouped docs (drives the Docs section)
-POST /api/call     {"tool": "bt_screener", "args": {"limit": 5}}
-GET  /api/agent    ask-the-network agent status (auth, model, tool count)
-POST /api/ask      {"question": ...} -> SSE stream of agent events
+POST /api/call     {"tool": "bt_screener", "args": {"limit": 5}}   (also /_api/call, /call)
 POST /mcp          MCP JSON-RPC (initialize / tools/list / tools/call)
+
+GET  /.well-known/agent.json   the agent card (also /api/agent/card)
+GET  /api/agent/status         auth, model, tool count, runs in flight
+GET  /api/agent/tools          the agent's toolbox, grouped
+GET  /api/agent/chats          conversations · /api/agent/chats/{id} one, with messages
+POST /api/agent/chat           {"message", "chat", "context"} -> SSE run
+POST /api/agent/ask            the same turn, run to completion, one JSON reply
+POST /api/agent/stop           {"chat"} -> kill the run in flight
 ```
 
-## Ask the network
+## Chat — the agent protocol
 
-The **Ask** tab runs a Claude agent (`bt/agent.py`) whose only toolbox is this
-module's own MCP server — every question becomes a run of tool calls streamed
-back as SSE. All parameters (model, max turns, timeout, allowed tools) sit at
-the top of `bt/agent.py`; on-chain write tools are always denied, so the agent
-can read anything and sign nothing. Auth resolves from `ANTHROPIC_API_KEY`,
-then `~/.mod/bt/anthropic.key` (auto-created 0600 if nothing else exists),
-then the Claude CLI's own login.
+The **Chat** tab is a conversation with a Claude agent (`bt/agent.py`) whose
+only toolbox is this module's own MCP server: every answer is a run of tool
+calls against the live chain and the local index, streamed back token by
+token. It speaks the fleet's agent protocol (`agent/1.0`) — a card at
+`/.well-known/agent.json` says who it is, what it can do and how to talk to
+it, and any client can hold the same conversation the console does.
+
+```sh
+curl -s localhost:50280/.well-known/agent.json | jq .        # who am I talking to
+curl -sN localhost:50280/api/agent/chat -H 'content-type: application/json' \
+  -d '{"message":"which subnet pumped hardest today?"}'      # SSE run
+curl -s localhost:50280/api/agent/ask -H 'content-type: application/json' \
+  -d '{"message":"how stale is the index?","chat":"<id>"}'   # one JSON reply
+```
+
+- **Multi-turn.** Every conversation carries a Claude session id; pass `chat`
+  and the next turn resumes it. The transcript — messages, the tools each
+  answer played, what the run cost — is kept in `~/.mod/bt/chats.db` and
+  served from `/api/agent/chats`, so a chat survives a reload or a restart.
+- **It drives the console.** `bt_view` is the one tool that touches no chain:
+  it opens the screener, a subnet with its chart, a trader or an account on
+  the screen of whoever is asking. The run emits a `view` event, the console
+  applies it, and the chip in the transcript replays it. The browser sends
+  back what it is looking at as `context`, so "and this one?" has a referent.
+- **Streamed.** Events are `start`, `status`, `text_delta`, `text`, `tool`,
+  `tool_done`, `view`, `done`, `error`. `POST /api/agent/stop` kills a run in
+  flight; the partial answer is kept.
+- **Read-only.** The six on-chain writes are denied by name, and so are the
+  CLI's own built-in tools — the agent can read anything and sign nothing.
+  Trading stays in the Trade tab, where a person signs it.
+
+All parameters (model, max turns, timeout, streaming) sit at the top of
+`bt/agent.py`. Auth resolves from `ANTHROPIC_API_KEY`, then
+`~/.mod/bt/anthropic.key` (auto-created 0600 if nothing else exists), then the
+Claude CLI's own login.
+
+## Index reads never wait on the chain
+
+Tools that answer from the local index or disk are marked `local` in the
+registry and skip the websocket lock that serializes chain reads: a console
+page load, or an agent's four screener calls, no longer queue behind a
+40-second `bt_scan`. The nearest-snapshot lookups behind the screener seek an
+index instead of ordering a million rows by distance, which took the screener
+from ~1s to ~0.1s, and `trader_snaps` is indexed by time (`MAX(ts)`,
+`COUNT(*)` and every window scan used to read the whole 10 GB table).
+
+The trader index follows the same rules (v3.0): `_snap_at` seeks the
+`(ss58, ts)` key twice instead of `ORDER BY ABS(ts - ?)` (31 ms -> 0.1 ms per
+lookup; `traders()` does ~1,700 of them — minutes -> 0.7 s), and only writers
+(`track`/`untrack`/`_record`) take `_db_lock`. Readers open their own WAL
+connection. The old process-wide lock around reads was the "whole API stalls
+for a minute" bug: one slow `traders()` held it while every console poll and
+copytensor's `bt_trader_at` queued behind it.
+
+## SubWallet (browser-wallet signing)
+
+Connect **SubWallet**, Talisman or polkadot{.js} from the wallet chip; the
+Trade page then buys (stake), sells (unstake) and sends TAO from *your* account.
+No chain library ships to the browser and no key ever reaches the node:
+
+```
+POST /api/tx/prepare {kind: stake|unstake|transfer, address, ...}
+   -> node composes the call on the live runtime, picks nonce + 64-block era,
+      returns a SignerPayloadJSON + preview + fee
+injector.signer.signPayload(payload)          (SubWallet shows it, signs)
+POST /api/tx/submit {id, signature}
+   -> node verifies the signature against the bytes IT built (mismatch =
+      refused, nothing broadcast), assembles, broadcasts, waits for inclusion
+```
+
+- `bt/tx.py` — prepare/verify/submit, own websocket (`BT_TX_ENDPOINT`), every
+  submission logged to `~/.mod/bt/tx.db` (`GET /api/tx`, tool `bt_tx_history`).
+- Stake/unstake are **limit orders** by default (`add_stake_limit` /
+  `remove_stake_limit`, 2% slippage, `allow_partial=false`); slippage 0 = market.
+- Bittensor's custom transaction extensions (SubtensorTransactionExtension,
+  DrandPriority, CheckShieldedTxValidity, SudoTransactionExtension) are empty,
+  so a wallet that does not know them signs the same bytes.
+  `scripts/signpayload_check.js` reproduces SubWallet's signing path
+  (@polkadot/extension-base) with and without chain metadata; both verified,
+  and finney accepted the signature (rejected only for fees on an empty account).
+- `app/lib/injected.ts` — zero-dep `window.injectedWeb3` bridge: waits for
+  late injection, filters out EVM/ecdsa/other-chain accounts, follows account
+  changes (a revoked account drops to watch-only). `polkadot-js` key covers
+  SubWallet mobile's in-app browser and Nova.
+
+## Daily block ledger + caching
+
+`bt/blocks.py` (thread, hourly check): for every UTC day it fetches the block
+that opened the day from an archive node (`BT_ARCHIVE_ENDPOINT`, bisection over
+`Timestamp.Now`, ~3 s/day, backfills `BT_BLOCKS_BACKFILL_DAYS`=120) and folds
+that day's 5-minute snapshots into one candle per subnet (OHLC, mcap, TAO in
+pool, 24h volume, emission). Stored in `~/.mod/bt/blocks.db`; closed days never
+change. Tools `bt_days`, `bt_daily`; `GET /api/blocks`; table on the Open page.
+
+The console paints from a localStorage cache (`usePoll(..., cacheKey)`) for the
+screener, stats, traders, node info and the ledger, then replaces it with the
+live answer — a reload never shows an empty table.
 
 ## Run
 
@@ -153,3 +325,40 @@ Tests cover the registry, the indexer (synthetic snapshots — change %, volume
 deltas, sparklines, downsampling, cold-start-from-disk), the trader index
 (flow inference, dust rejection, PnL windows, snapshot tolerance), MCP stdio
 protocol, and HTTP surfaces without touching the chain.
+
+## News (per-subnet web scraper)
+
+`bt/news.py` keeps an open, local news index for every subnet in
+`~/.mod/bt/news.db`. A background thread walks the subnets stalest-first, one
+every `BT_NEWS_PACE_SEC` (15s), and re-scrapes each one after
+`BT_NEWS_REFRESH_SEC` (6h). It uses only key-less public sources (stdlib
+`urllib` + `xml.etree`, no extra dependencies):
+
+| source  | what it reads                                                    |
+|---------|------------------------------------------------------------------|
+| github  | `releases.atom` + `commits.atom` of the subnet's on-chain repo   |
+| site    | the subnet website's own RSS/Atom (autodiscovered, rechecked daily) |
+| gnews   | Google News RSS: `"<name>" bittensor`                            |
+| reddit  | Reddit search RSS                                                |
+| hn      | Hacker News (Algolia) search                                     |
+| bing    | Bing News RSS (registered, off by default)                       |
+| feeds   | outlet feeds in `~/.mod/bt/news_feeds.json`, polled every 30 min and filed under the subnets they name |
+
+Relevance rules: an item has to name the subnet (word-boundary match, or
+`SN<n>`). Fuzzy sources (reddit, hn, outlet feeds) also need Bittensor
+context ("bittensor", "subnet", "TAO", "SN<n>"). Over-generic names are
+never matched. `focus=1` means the headline itself names the subnet. Price-ticker
+pages and presale promos are muted (`BT_NEWS_MUTE` regex). netuid 0 holds
+network-wide Bittensor news. Each host gets a minimum request gap, and a 429
+benches that host for 3 minutes instead of blocking a thread.
+
+Tools (group **News**, all local, so none of them queue behind the chain lock):
+`bt_news`, `bt_news_buzz`, `bt_news_refresh`, `bt_news_sources`,
+`bt_news_add_feed`, `bt_news_remove_feed`. Console: `/news` (buzz strip,
+filters, scraper status), a News section in every subnet overlay
+(`scrape now`), and an "In the news" card on the home page. Deep link:
+`/bt/news?netuid=64`.
+
+Env: `BT_NEWS_SOURCES` (default `github,site,gnews,reddit,hn`),
+`BT_NO_NEWS=1` disables the thread, `BT_NEWS_KEEP_DAYS` (365).
+

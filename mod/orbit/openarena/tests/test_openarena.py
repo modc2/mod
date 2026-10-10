@@ -361,10 +361,245 @@ def test_mod_client_round_trip(arena):
 
         assert mod.health()['up'] is True
         assert mod.info()['protocol'] == 'arena/1.0'
-        assert len(mod.tools()) == 13
+        assert len(mod.tools()) == 16
         assert mod.tasks()['count'] >= 6
 
         report = mod.test()
         assert report['judge_ok'] is True, report
     finally:
         sys.path.remove(MOD)
+
+
+# ── benchmarks off the web ───────────────────────────────────────────────
+#
+# The importer is a network client, so these tests give it a network: a
+# throwaway http server on localhost serving a benchmark shaped like MBPP and a
+# problem page shaped like a judge's. Nothing here reaches the real internet —
+# what is worth testing is the conversion and the fence around it, and both are
+# ours.
+
+SAMPLE_BENCH = [
+    {
+        'task_id': 1,
+        'prompt': 'Write a function add(a, b) that returns their sum.',
+        'test_imports': [],
+        'test_list': [
+            'assert add(1, 2) == 3',
+            'assert add(-4, 9) == 5',
+            'assert add(0, 0) == 0',
+        ],
+    },
+    {
+        'task_id': 2,
+        'prompt': 'Write a function double(x) that returns twice its argument.',
+        'test_imports': [],
+        'test_list': ['assert double(2) == 4', 'assert double(-3) == -6'],
+    },
+]
+
+SAMPLE_PAGE = """<html><head><title>Echo Sum &ndash; Test Judge</title></head><body>
+<nav><a href="/">home</a> <a href="/x">problems</a></nav>
+<h1>Echo Sum</h1>
+<p>The first line of stdin holds two integers separated by a space. Print their
+sum on one line, and nothing else, because that is all the judge compares.</p>
+<h3>Sample Input 1</h3><pre>2 3</pre>
+<h3>Sample Output 1</h3><pre>5</pre>
+<h3>Sample Input 2</h3><pre>-4 9</pre>
+<h3>Sample Output 2</h3><pre>5</pre>
+</body></html>"""
+
+
+@pytest.fixture(scope='module')
+def bench_site():
+    """A tiny web to import from."""
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body, kind = (json.dumps(SAMPLE_BENCH), 'application/json')
+            if self.path.startswith('/problem'):
+                body, kind = SAMPLE_PAGE, 'text/html'
+            raw = body.encode()
+            self.send_response(200)
+            self.send_header('content-type', kind)
+            self.send_header('content-length', str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f'http://127.0.0.1:{srv.server_port}'
+    srv.shutdown()
+
+
+@pytest.fixture(scope='module')
+def open_arena():
+    """A backend allowed to fetch from this machine — the default refuses."""
+    if not os.path.exists(BINARY):
+        pytest.skip(f'{BINARY} not built — run `m openarena/build`')
+    state = tempfile.mkdtemp(prefix='openarena-bench-')
+    port = free_port()
+    proc = subprocess.Popen(
+        [BINARY],
+        env={**os.environ, 'PORT': str(port), 'OPENARENA_STATE': state,
+             'OPENARENA_BENCH_LOCAL': '1'},
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    )
+    url = f'http://127.0.0.1:{port}'
+    for _ in range(50):
+        try:
+            if requests.get(f'{url}/health', timeout=1).ok:
+                break
+        except requests.RequestException:
+            time.sleep(0.1)
+    else:
+        proc.kill()
+        pytest.fail('backend never came up')
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+    shutil.rmtree(state, ignore_errors=True)
+
+
+def test_bench_catalog_lists_the_known_benchmarks(arena):
+    c = requests.get(f'{arena}/bench/sources', timeout=10).json()
+    ids = {s['id'] for s in c['sources']}
+    assert {'humaneval', 'mbpp', 'code_contests', 'hf', 'json', 'html'} <= ids
+    assert c['enabled'] is True
+    assert set(c['styles']) == {'humaneval', 'asserts', 'io', 'html'}
+    # Every source says where it came from and under what terms.
+    for s in c['sources']:
+        assert s['license'], s['id']
+
+
+def test_bench_unknown_source_is_refused(arena):
+    r = post(arena, '/bench/preview', {'source': 'not-a-benchmark'})
+    assert r.status_code == 400
+    assert 'unknown source' in r.json()['error']
+
+
+def test_bench_refuses_this_network_by_default(arena, bench_site):
+    """The importer is not a way to ask the arena's host what it can reach."""
+    r = post(arena, '/bench/preview', {'source': 'json', 'url': bench_site})
+    assert r.status_code == 400
+    assert 'inside this network' in r.json()['error']
+
+
+def test_bench_refuses_a_non_http_url(arena):
+    r = post(arena, '/bench/preview', {'source': 'json', 'url': 'file:///etc/passwd'})
+    assert r.status_code == 400
+    assert 'not an http(s) url' in r.json()['error']
+
+
+def test_bench_preview_writes_nothing(open_arena, bench_site):
+    before = requests.get(f'{open_arena}/tasks', timeout=10).json()['count']
+    r = post(open_arena, '/bench/preview',
+             {'source': 'json', 'url': bench_site, 'style': 'asserts', 'limit': 2}).json()
+    assert r['count'] == 2
+    assert r['sample']['mode'] == 'unit'
+    assert requests.get(f'{open_arena}/tasks', timeout=10).json()['count'] == before
+
+
+def test_bench_import_grades_like_any_other_task(open_arena, bench_site):
+    r = post(open_arena, '/bench/import',
+             {'source': 'json', 'url': bench_site, 'style': 'asserts',
+              'limit': 2, 'slug_prefix': 'demo'}).json()
+    assert r['imported'] == 2
+    assert r['next_offset'] == 2
+
+    t = requests.get(f'{open_arena}/tasks/demo-1', timeout=10).json()
+    assert t['mode'] == 'unit' and t['language'] == 'python'
+    # One case per assertion, the first of them visible so the entrant learns
+    # the function's name.
+    assert t['total_tests'] == 3 and t['hidden_tests'] == 2
+    assert 'benchmark' in t['tags']
+
+    good = post(open_arena, '/submit',
+                {'task': 'demo-1', 'code': 'def add(a, b):\n    return a + b\n'}).json()
+    assert good['score'] == 1.0 and good['solved'] is True
+
+    # Answering only the visible case is exactly what hidden cases are for.
+    cheat = post(open_arena, '/submit',
+                 {'task': 'demo-1', 'code': 'def add(a, b):\n    return 3\n'}).json()
+    assert 0 < cheat['score'] < 1 and cheat['solved'] is False
+
+
+def test_bench_reimport_skips_rather_than_fails(open_arena, bench_site):
+    body = {'source': 'json', 'url': bench_site, 'style': 'asserts',
+            'limit': 2, 'slug_prefix': 'twice'}
+    assert post(open_arena, '/bench/import', body).json()['imported'] == 2
+    again = post(open_arena, '/bench/import', body).json()
+    assert again['imported'] == 0
+    assert len(again['skipped']) == 2
+    assert not again['failed']
+
+
+def test_bench_hide_after_overrides_the_split(open_arena, bench_site):
+    r = post(open_arena, '/bench/import',
+             {'source': 'json', 'url': bench_site, 'style': 'asserts',
+              'limit': 1, 'hide_after': 0, 'slug_prefix': 'blind'}).json()
+    assert r['tasks'][0]['cases'] == r['tasks'][0]['hidden'] == 3
+
+
+def test_bench_scrapes_a_problem_page_into_an_io_task(open_arena, bench_site):
+    r = post(open_arena, '/bench/import',
+             {'source': 'html', 'url': f'{bench_site}/problem', 'slug_prefix': 'page'}).json()
+    assert r['imported'] == 1, r
+    slug = r['tasks'][0]['slug']
+
+    t = requests.get(f'{open_arena}/tasks/{slug}?reveal=1', timeout=10).json()
+    assert t['mode'] == 'io'
+    # Both samples, paired by their Input/Output labels and not by luck.
+    assert [(c['stdin'], c['expect']) for c in t['tests']] == [('2 3', '5'), ('-4 9', '5')]
+    assert 'sum' in t['statement'].lower()
+    assert 'home' not in t['statement'], 'the site navigation is not the statement'
+
+    ok = post(open_arena, '/submit', {
+        'task': slug, 'language': 'python',
+        'code': 'import sys\nprint(sum(int(x) for x in sys.stdin.read().split()))\n',
+    }).json()
+    assert ok['score'] == 1.0
+
+
+def test_bench_can_be_switched_off():
+    """OPENARENA_BENCH=0 means the arena does not fetch, and says so."""
+    if not os.path.exists(BINARY):
+        pytest.skip('not built')
+    state = tempfile.mkdtemp(prefix='openarena-nobench-')
+    port = free_port()
+    proc = subprocess.Popen(
+        [BINARY],
+        env={**os.environ, 'PORT': str(port), 'OPENARENA_STATE': state,
+             'OPENARENA_BENCH': '0'},
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    )
+    url = f'http://127.0.0.1:{port}'
+    try:
+        for _ in range(50):
+            try:
+                if requests.get(f'{url}/health', timeout=1).ok:
+                    break
+            except requests.RequestException:
+                time.sleep(0.1)
+        assert requests.get(f'{url}/health', timeout=5).json()['bench_fetch'] is False
+        assert requests.get(f'{url}/bench/sources', timeout=5).json()['enabled'] is False
+        r = post(url, '/bench/preview', {'source': 'mbpp', 'limit': 1})
+        assert r.status_code == 400
+        assert 'off' in r.json()['error']
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+        shutil.rmtree(state, ignore_errors=True)
+
+
+def test_bench_next_offset_counts_records_not_keeps(open_arena, bench_site):
+    """Re-importing a page must not advance past a record it only skipped."""
+    body = {'source': 'json', 'url': bench_site, 'style': 'asserts',
+            'limit': 2, 'slug_prefix': 'paging'}
+    first = post(open_arena, '/bench/import', body).json()
+    second = post(open_arena, '/bench/import', body).json()
+    assert first['next_offset'] == second['next_offset'] == 2

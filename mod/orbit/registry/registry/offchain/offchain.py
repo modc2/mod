@@ -21,17 +21,27 @@ class OffchainRegistry(RegistryBackend):
     def _load_index(self):
         if os.path.exists(self.index_path):
             with open(self.index_path, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+            data.setdefault('next_id', 1)
+            data.setdefault('mods', {})
+            data.setdefault('user_mods', {})
+            data.setdefault('name_map', {})
+            for m in data['mods'].values():
+                if isinstance(m.get('id'), int):
+                    m['id'] = str(m['id'])
+            return data
         return {'next_id': 1, 'mods': {}, 'user_mods': {}, 'name_map': {}}
 
     def _save_index(self):
-        with open(self.index_path, 'w') as f:
+        tmp_path = self.index_path + '.tmp'
+        with open(tmp_path, 'w') as f:
             json.dump(self.index, f)
+        os.replace(tmp_path, self.index_path)
 
     def register(self, name: str, data: dict = None, owner: str = 'local', **kw) -> int:
         if not name:
             raise ValueError('Name is required')
-        if not data:
+        if data is None:
             raise ValueError('Data is required')
 
         owner_names = self.index.get('name_map', {}).get(owner, {})
@@ -41,7 +51,7 @@ class OffchainRegistry(RegistryBackend):
         mod_id = self.index['next_id']
         self.index['next_id'] = mod_id + 1
         self.index['mods'][str(mod_id)] = {
-            'id': mod_id,
+            'id': str(mod_id),
             'owner': owner,
             'name': name,
             'data': data,
@@ -58,7 +68,7 @@ class OffchainRegistry(RegistryBackend):
         self.index['name_map'][owner][name] = mod_id
 
         self._save_index()
-        return True
+        return str(mod_id)
 
     def update(self, mod_id: int, data: dict = None, owner: str = 'local', **kw) -> bool:
         mod = self.index['mods'].get(str(mod_id))
@@ -66,7 +76,7 @@ class OffchainRegistry(RegistryBackend):
             raise ValueError(f'Mod {mod_id} does not exist')
         if mod['owner'] != owner:
             raise ValueError('Not mod owner')
-        if not data:
+        if data is None:
             raise ValueError('Data is required')
 
         mod['data'] = data
@@ -87,7 +97,7 @@ class OffchainRegistry(RegistryBackend):
 
         if mod_owner in self.index['user_mods']:
             self.index['user_mods'][mod_owner] = [
-                m for m in self.index['user_mods'][mod_owner] if m != mod_id
+                m for m in self.index['user_mods'][mod_owner] if str(m) != str(mod_id)
             ]
 
         if mod_owner in self.index['name_map'] and mod_name in self.index['name_map'][mod_owner]:
@@ -97,6 +107,12 @@ class OffchainRegistry(RegistryBackend):
         return True
 
     def get(self, mod_id: int, **kw) -> dict:
+        return self.index['mods'].get(str(mod_id))
+
+    def get_by_name(self, owner: str, name: str, **kw) -> dict | None:
+        mod_id = self.index.get('name_map', {}).get(owner, {}).get(name)
+        if mod_id is None:
+            return None
         return self.index['mods'].get(str(mod_id))
 
     def get_user_mods(self, owner: str, **kw) -> list:
@@ -125,7 +141,7 @@ class OffchainRegistry(RegistryBackend):
         # Remove from old owner
         if old_owner in self.index['user_mods']:
             self.index['user_mods'][old_owner] = [
-                m for m in self.index['user_mods'][old_owner] if m != mod_id
+                m for m in self.index['user_mods'][old_owner] if str(m) != str(mod_id)
             ]
         if old_owner in self.index['name_map'] and mod_name in self.index['name_map'][old_owner]:
             del self.index['name_map'][old_owner][mod_name]

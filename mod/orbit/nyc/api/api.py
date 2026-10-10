@@ -12,23 +12,30 @@ updates daily at most.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 import mod as m
+from nycgis import layers as L
+from nycgis import agentproto
+from nycgis import mcp_server as mcp
+from nycgis import scene
 from nycgis import tools
+from nycgis import userdata as U
 from nycgis.mcp_server import INSTRUCTIONS, PROTOCOL_VERSION, SERVER_INFO
 
 _nyc = None
@@ -50,7 +57,10 @@ app = FastAPI(
 
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
-                   allow_methods=['*'], allow_headers=['*'])
+                   allow_methods=['*'], allow_headers=['*'],
+                   # A browser MCP client cannot read the session it was just
+                   # issued unless the header is explicitly exposed to it.
+                   expose_headers=['Mcp-Session-Id', 'MCP-Protocol-Version'])
 
 # Layer geometry changes daily at most; let the browser hold onto it.
 LAYER_CACHE = 'public, max-age=3600, stale-while-revalidate=86400'
@@ -118,11 +128,52 @@ def sales(
                            limit=limit, min_price=min_price, max_price=max_price))
 
 
+@app.get('/layers/population')
+def population(metric: str = Query('density'), geography: str = Query('tract')):
+    """Population density / census / housing-cost choropleth with class breaks."""
+    out = nyc().population(metric=metric, geography=geography)
+    if isinstance(out, dict) and out.get('error'):
+        raise HTTPException(status_code=400, detail=out)
+    return geo(out)
+
+
+@app.get('/stats')
+def stats(geography: str = Query('borough'), since: str = Query('2025-01-01'),
+          sort: str = Query(''), limit: int = Query(0, ge=0, le=5000)):
+    """Population and housing statistics per tract, neighborhood or borough."""
+    try:
+        return geo(nyc().stats(geography=geography, since=since, sort=sort, limit=limit))
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get('/report', response_class=HTMLResponse)
+def report(since: str = Query('2025-01-01')):
+    """The shareable brief: one self-contained HTML page — save it, email it, print it."""
+    from nycgis import report as RP
+    return HTMLResponse(RP.html_report(since), headers={'Cache-Control': LAYER_CACHE})
+
+
+@app.get('/report.csv')
+def report_csv(geography: str = Query('nta'), since: str = Query('2025-01-01')):
+    """Every statistic as CSV, per tract, neighborhood or borough."""
+    from nycgis import report as RP
+    try:
+        body = RP.csv(geography, since)
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return PlainTextResponse(body, media_type='text/csv', headers={
+        'Content-Disposition': f'attachment; filename="nyc-{geography}-stats.csv"',
+        'Cache-Control': LAYER_CACHE})
+
+
 @app.get('/layers/{layer_id}')
 def layer(layer_id: str):
     """Any catalogue layer as a GeoJSON FeatureCollection."""
     try:
-        return geo(nyc().layer(layer_id))
+        # Live layers (traffic speeds) carry their own, much shorter lifetime.
+        return geo(nyc().layer(layer_id),
+                   cache=L.cache_control(layer_id, LAYER_CACHE))
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -146,6 +197,45 @@ def prices(since: str = Query('2024-01-01'), until: Optional[str] = Query(None),
                cache='public, max-age=3600')
 
 
+@app.get('/traffic')
+def traffic(street: str = Query(''), borough: str = Query(''),
+            hour: Optional[int] = Query(None, ge=0, le=23),
+            limit: int = Query(20, ge=1, le=200)):
+    """When to drive: hourly volume profiles plus the live speed picture."""
+    return geo(nyc().traffic(street=street, borough=borough, hour=hour,
+                             limit=limit),
+               cache='public, max-age=180')
+
+
+@app.get('/crime')
+def crime(part: str = Query('summary'), limit: int = Query(15, ge=1, le=100)):
+    """Public safety: complaints + shootings vs last year, trends, offenses."""
+    out = nyc().crime(part=part, limit=limit)
+    if isinstance(out, dict) and out.get('error'):
+        raise HTTPException(status_code=400, detail=out)
+    return geo(out, cache='public, max-age=3600')
+
+
+@app.get('/news')
+def news(topic: str = Query(''), q: str = Query(''),
+         limit: int = Query(25, ge=1, le=200)):
+    """NYC headlines from key-free newsroom feeds; q searches via GDELT."""
+    try:
+        return geo(nyc().news(topic=topic, q=q, limit=limit),
+                   cache='public, max-age=300')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get('/market')
+def market(area: str = Query('')):
+    """The listing market: asking rent / price / inventory, YoY, movers."""
+    out = nyc().market(area=area)
+    if isinstance(out, dict) and out.get('error'):
+        raise HTTPException(status_code=404, detail=out['error'])
+    return geo(out, cache='public, max-age=3600')
+
+
 @app.get('/rents')
 def rents():
     """What affordable homes rent for: medians by bedroom, income band, borough."""
@@ -166,6 +256,49 @@ def homes(max_rent: Optional[int] = Query(None, ge=0),
 def affordable():
     """Affordable units built, tallied by income band and borough."""
     return geo(nyc().affordable(), cache='public, max-age=3600')
+
+
+@app.get('/lotteries')
+def lotteries(borough: str = Query(''), status: str = Query('active'),
+              lottery_id: str = Query(''), limit: int = Query(50, ge=1, le=200)):
+    """Housing Connect lotteries open for applications, soonest deadline first."""
+    try:
+        return geo(nyc().lotteries(borough=borough, status=status,
+                                   lottery_id=lottery_id, limit=limit),
+                   cache='public, max-age=3600')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get('/building')
+def building(address: str = Query(..., min_length=3),
+             borough: str = Query('')):
+    """One address checked: open violations, tenant problems, HPD litigation."""
+    try:
+        return geo(nyc().building(address=address, borough=borough),
+                   cache='public, max-age=3600')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get('/violations')
+def violations(borough: str = Query(''), limit: int = Query(15, ge=1, le=50)):
+    """Open HPD violations by class and borough, plus the worst buildings."""
+    try:
+        return geo(nyc().violations(borough=borough, limit=limit),
+                   cache='public, max-age=3600')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get('/nycha')
+def nycha(borough: str = Query(''), limit: int = Query(15, ge=1, le=100)):
+    """Public housing: NYCHA developments, apartments, population, rent."""
+    try:
+        return geo(nyc().nycha(borough=borough, limit=limit),
+                   cache='public, max-age=86400')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get('/trend')
@@ -196,11 +329,25 @@ def cache():
 
 @app.get('/tools')
 def tools_list():
-    """Every tool, grouped — the same registry the MCP servers expose."""
-    return {'count': len(tools.TOOLS), 'groups': tools.groups(),
-            'tools': tools.list_tools(),
-            'mcp': {'http': '/nyc/api/mcp',
-                    'stdio': 'python3 -m nycgis.mcp_server'}}
+    """
+    The whole MCP surface as plain JSON — tools, prompts and resources, from
+    the same registry both transports serve. The docs page renders itself from
+    this, so a tool added to the registry documents itself.
+    """
+    return geo({
+        'count': len(tools.TOOLS),
+        'groups': tools.groups(),
+        'tools': tools.list_tools(),
+        'prompts': mcp._prompt_list(),
+        'resources': mcp._resources(),
+        'server': mcp.SERVER_INFO,
+        'instructions': INSTRUCTIONS,
+        'mcp': {'http': '/nyc/api/mcp',
+                'stdio': 'python3 -m nycgis.mcp_server',
+                'protocol': PROTOCOL_VERSION,
+                'supported': list(mcp.SUPPORTED_PROTOCOLS),
+                'capabilities': mcp.CAPABILITIES},
+    }, cache='public, max-age=300')
 
 
 @app.post('/tools/{name}')
@@ -212,6 +359,9 @@ async def tools_call(name: str, request: Request):
         args = {}
     if not isinstance(args, dict):
         raise HTTPException(status_code=400, detail='arguments must be a JSON object')
+    # A caller whose token verifies to the owner may use the write tools
+    # (nyc_add_data / nyc_remove_data); everyone else gets the read surface.
+    grant = U.grant_writer(U.is_owner_token(request.headers.get('authorization')))
     try:
         return {'ok': True, 'tool': name, 'result': tools.call_tool(name, args)}
     except KeyError as e:
@@ -219,41 +369,40 @@ async def tools_call(name: str, request: Request):
     except Exception as e:
         return JSONResponse(status_code=400, content={
             'ok': False, 'tool': name, 'error': f'{type(e).__name__}: {e}'})
+    finally:
+        U.reset_writer(grant)
 
 
-def _mcp_handle(msg: dict):
-    method = msg.get('method')
-    id_ = msg.get('id')
-    if id_ is None:  # notification
-        return None
-    if method == 'initialize':
-        client_ver = (msg.get('params') or {}).get('protocolVersion')
-        result = {'protocolVersion': client_ver or PROTOCOL_VERSION,
-                  'capabilities': {'tools': {}}, 'serverInfo': SERVER_INFO,
-                  'instructions': INSTRUCTIONS}
-    elif method == 'ping':
-        result = {}
-    elif method == 'tools/list':
-        result = {'tools': tools.list_tools()}
-    elif method == 'tools/call':
-        params = msg.get('params') or {}
-        try:
-            out = tools.call_tool(params.get('name'), params.get('arguments') or {})
-            result = {'content': [{'type': 'text',
-                                   'text': json.dumps(out, indent=2, default=str)}],
-                      'isError': False}
-        except Exception as e:
-            result = {'content': [{'type': 'text',
-                                   'text': f'{type(e).__name__}: {e}'}],
-                      'isError': True}
-    else:
-        return {'jsonrpc': '2.0', 'id': id_,
-                'error': {'code': -32601, 'message': f'method not found: {method}'}}
-    return {'jsonrpc': '2.0', 'id': id_, 'result': result}
+# ── MCP streamable HTTP ──────────────────────────────────────────────────
+#
+# The JSON-RPC dispatch itself lives in nycgis.mcp_server and is shared with
+# the stdio transport; everything here is HTTP framing around it. Sessions are
+# tracked so a client that is handed an id gets told when it has gone stale
+# (a restarted API), but a client that sends no id at all is still served —
+# every tool is read-only and stateless, so there is nothing to protect.
+
+MCP_SESSIONS: set[str] = set()
+
+
+def _mcp_headers(session: Optional[str] = None) -> dict:
+    h = {'MCP-Protocol-Version': PROTOCOL_VERSION}
+    if session:
+        h['Mcp-Session-Id'] = session
+    return h
+
+
+def _sse(payloads: list) -> StreamingResponse:
+    """One JSON-RPC reply per SSE event, for clients that ask for a stream."""
+    def gen():
+        for p in payloads:
+            yield f'data: {json.dumps(p)}\n\n'
+    return StreamingResponse(gen(), media_type='text/event-stream',
+                             headers={'Cache-Control': 'no-cache',
+                                      'X-Accel-Buffering': 'no'})
 
 
 @app.post('/mcp')
-async def mcp_endpoint(request: Request):
+async def mcp_post(request: Request):
     """MCP streamable-HTTP endpoint — same JSON-RPC surface as the stdio server."""
     try:
         body = await request.json()
@@ -261,17 +410,60 @@ async def mcp_endpoint(request: Request):
         return JSONResponse(status_code=400, content={
             'jsonrpc': '2.0', 'id': None,
             'error': {'code': -32700, 'message': 'parse error'}})
+
+    # A session id we never issued means the client is talking to a different
+    # process than the one it initialised against — usually an API restart.
+    sent = request.headers.get('mcp-session-id')
+    if sent and sent not in MCP_SESSIONS:
+        return JSONResponse(status_code=404, headers=_mcp_headers(), content={
+            'jsonrpc': '2.0', 'id': None,
+            'error': {'code': -32001, 'message': 'unknown session; reinitialize'}})
+
     msgs = body if isinstance(body, list) else [body]
-    replies = [r for r in (_mcp_handle(x) for x in msgs) if r is not None]
+    if not all(isinstance(x, dict) for x in msgs):
+        return JSONResponse(status_code=400, content={
+            'jsonrpc': '2.0', 'id': None,
+            'error': {'code': -32600, 'message': 'invalid request'}})
+
+    session = sent
+    if any(x.get('method') == 'initialize' for x in msgs):
+        session = uuid.uuid4().hex
+        MCP_SESSIONS.add(session)
+
+    # Same owner gate as /tools: an Authorization header that verifies to the
+    # owner unlocks the write tools for this dispatch only.
+    grant = U.grant_writer(U.is_owner_token(request.headers.get('authorization')))
+    try:
+        replies = [r for r in (mcp.handle_message(x) for x in msgs) if r is not None]
+    finally:
+        U.reset_writer(grant)
+
+    # Notifications only: nothing to answer, and 202 with an empty body is what
+    # the spec asks for — a JSON `null` here trips strict clients.
     if not replies:
-        return JSONResponse(status_code=202, content=None)
-    return replies[0] if not isinstance(body, list) else replies
+        return Response(status_code=202, headers=_mcp_headers(session))
+
+    if 'text/event-stream' in request.headers.get('accept', '') \
+            and 'application/json' not in request.headers.get('accept', ''):
+        return _sse(replies)
+
+    payload = replies if isinstance(body, list) else replies[0]
+    return JSONResponse(payload, headers=_mcp_headers(session))
+
+
+@app.delete('/mcp')
+def mcp_delete(request: Request):
+    """End a session. Nothing is stored against it, so this is bookkeeping."""
+    MCP_SESSIONS.discard(request.headers.get('mcp-session-id') or '')
+    return Response(status_code=204, headers=_mcp_headers())
 
 
 @app.get('/mcp')
 def mcp_get():
-    return JSONResponse(status_code=405, content={
-        'error': 'POST JSON-RPC here (MCP streamable HTTP); SSE stream not offered'})
+    """No server-initiated stream: the spec's answer for that is a plain 405."""
+    return JSONResponse(status_code=405, headers=_mcp_headers(), content={
+        'error': 'POST JSON-RPC here (MCP streamable HTTP); '
+                 'this server opens no server-initiated SSE stream'})
 
 
 # ─────────────────────────────────────────────────────────────────── chat
@@ -286,13 +478,31 @@ CHAT_SYSTEM = (
     'on public open data and aimed at city staff and residents alike. Answer '
     'questions about NYC with the nyc_* tools; never guess a number you '
     'could look up. Housing questions: nyc_housing / nyc_prices / nyc_trend '
-    '/ nyc_sales. Transit, parks, flood zones, crashes: nyc_layers + '
-    'nyc_layer. Anything else (311, crime, schools, health, budgets, '
+    '/ nyc_sales; the listing market (asking rents/prices, Zillow indices): '
+    'nyc_market. Crime and shootings: nyc_crime. News and current events: '
+    'nyc_news. Transit, parks, flood zones, crashes: nyc_layers + '
+    'nyc_layer. Three map layers pair with those answers: "forsale" (homes '
+    'for sale — asking price / inventory / price cuts by neighborhood), '
+    '"sales" (homes SOLD, every recorded deed as a point) and "news" '
+    '(headlines pinned where they happened) — add them with nyc_map when '
+    'the conversation is about the market or the news. Anything else (311, schools, health, budgets, '
     'permits): nyc_find_datasets → nyc_dataset → nyc_query. Keep answers '
     'short and concrete: lead with the figure, name the neighborhood, and '
     'cite the dataset it came from. Plain text only — no markdown tables, '
     'no headers; short paragraphs and simple "-" lists render best in the '
-    'chat panel.')
+    'chat panel. '
+    'YOU ALSO DRIVE THE USER\'S MAP. The user is looking at a live map beside '
+    'this chat, and each message starts with what it shows right now. Whenever '
+    'a question or request is about places, show it: call nyc_map to switch '
+    'layers, set housing filters, dim, outline or hide areas (`only` keeps just '
+    'the matching boroughs / neighborhoods), fly the camera, or '
+    'draw any open dataset as an overlay (find it with nyc_find_datasets, read '
+    'columns with nyc_dataset, then overlay with a SoQL where clause; prefer '
+    'mode "areas" by zip with per_capita for comparisons, "heat" for density). '
+    'When the answer has numbers, call nyc_infographic once with the headline '
+    'stats, a ranked bar list and the sources. Requests like "only Brooklyn", '
+    '"make it darker", "zoom into Harlem", "now by ZIP" are map edits — apply '
+    'them with nyc_map against the current state and confirm in one line.')
 
 # Tools the headless agent may touch: our MCP server, nothing else. The CLI
 # denies everything outside this list, so the chat agent cannot reach the
@@ -302,23 +512,241 @@ CHAT_DENIED = ('Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,'
                'WebSearch,Task,TodoWrite')
 
 
-def _chat_mcp_config() -> str:
-    """Write the MCP config the CLI points at; per-user state, so off-tree."""
+def _chat_mcp_config(write: bool = False) -> str:
+    """
+    Write the MCP config the CLI points at; per-user state, so off-tree.
+
+    An owner-authenticated chat gets a config whose MCP server runs with
+    NYC_DATA_WRITE=1 — that env var is the whole difference between an agent
+    that can save datasets (nyc_add_data) and one that cannot. Two files, so
+    a public chat racing an owner chat can never pick up the write bit.
+    """
     cfg_dir = Path(os.path.expanduser('~/.mod/nyc'))
     cfg_dir.mkdir(parents=True, exist_ok=True)
-    cfg = cfg_dir / 'mcp.json'
+    env = {'PYTHONPATH': str(MOD_ROOT)}
+    if write:
+        env['NYC_DATA_WRITE'] = '1'
+    cfg = cfg_dir / ('mcp-owner.json' if write else 'mcp.json')
     cfg.write_text(json.dumps({'mcpServers': {'nyc': {
         'command': sys.executable or 'python3',
         'args': ['-m', 'nycgis.mcp_server'],
         'cwd': str(MODULE_DIR),
-        'env': {'PYTHONPATH': str(MOD_ROOT)},
+        'env': env,
     }}}, indent=2))
     return str(cfg)
+
+
+# What an owner-authenticated chat may additionally do.
+CHAT_OWNER_EXTRA = (
+    ' This chat is authenticated as the deployment owner: you may also save '
+    'datasets as permanent layers with nyc_add_data (and remove them with '
+    'nyc_remove_data) when the owner asks to add, keep, or save data — '
+    'confirm what you saved in one line.')
 
 
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
+    # Which agent answers: '' / 'claude' = the local Claude CLI below; any
+    # other name is an agent on the agent protocol (see GET /agents).
+    agent: Optional[str] = None
+    # What the user's map shows right now, so "only Brooklyn" or "now by ZIP"
+    # can be read against it. Sent by the page each turn; never trusted for
+    # anything but prompt context.
+    map_state: Optional[Dict[str, Any]] = None
+    # A mod-protocol token. If it verifies to the deployment owner, the chat
+    # agent is allowed to save datasets as layers (nyc_add_data).
+    token: Optional[str] = None
+
+
+# The display tools: their results are directives for the page, forwarded on
+# the stream as `display` events once the tool has validated them.
+DISPLAY_TOOLS = {'mcp__nyc__nyc_map', 'mcp__nyc__nyc_infographic'}
+
+
+def _tool_result_json(block: dict) -> Optional[dict]:
+    """The JSON a display tool returned, out of a stream-json tool_result."""
+    if block.get('is_error'):
+        return None
+    content = block.get('content')
+    texts = [content] if isinstance(content, str) else [
+        c.get('text', '') for c in (content or []) if isinstance(c, dict)]
+    for t in texts:
+        try:
+            out = json.loads(t)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(out, dict) and isinstance(out.get('directive'), dict):
+            return out['directive']
+    return None
+
+
+@app.get('/overlay')
+def overlay(spec: str):
+    """GeoJSON for an agent overlay (the spec nyc_map validated), cached."""
+    try:
+        return scene.overlay_data(json.loads(spec))
+    except (ValueError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f'{type(e).__name__}: {e}')
+
+
+# ── the owner's data: add your own layers ────────────────────────────────
+#
+# Reading is public like every other layer. Writing needs the owner's
+# mod-protocol token (Authorization: Bearer <token>) — the same envelope the
+# rest of the fleet verifies, signed by a browser wallet or minted with
+# m.mod('auth')().token({}) on the box that holds the key. Errors stay 4xx:
+# the gateway strips 5xx bodies.
+
+def _require_owner(request: Request) -> str:
+    token = request.headers.get('authorization')
+    address = U.verify(token)
+    if not address:
+        raise HTTPException(status_code=401, detail=(
+            'send the owner\'s mod-protocol token as '
+            '`Authorization: Bearer <token>`'))
+    if not U.is_owner_token(token):
+        raise HTTPException(status_code=403, detail=(
+            f'only the deployment owner ({U.owner_address()}) can change '
+            f'the saved data; you signed as {address}'))
+    return address
+
+
+@app.get('/whoami')
+def whoami(request: Request):
+    """Who the calling token verifies to — the owner sign-in handshake.
+
+    Public and never an error: no token (or a bad one) is simply anonymous.
+    The app calls this after a wallet signature to learn whether the signer
+    is the deployment owner and what that unlocks.
+    """
+    return U.identity(request.headers.get('authorization'))
+
+
+@app.get('/data')
+def data_list(request: Request):
+    """Saved datasets, plus whether the calling token could write them."""
+    out = U.list_()
+    out['writable'] = U.is_owner_token(request.headers.get('authorization'))
+    return out
+
+
+@app.get('/data/{slug}')
+def data_get(slug: str):
+    """One saved dataset as GeoJSON (also served at /layers/{slug})."""
+    try:
+        return geo(U.data(slug), cache='public, max-age=120')
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=424, detail=f'{type(e).__name__}: {e}')
+
+
+@app.post('/data')
+async def data_add(request: Request):
+    """(owner) Save a dataset: inline GeoJSON, a Socrata spec, or a URL."""
+    address = _require_owner(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail='body must be JSON')
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail='body must be a JSON object')
+    grant = U.grant_writer(True)
+    try:
+        return U.add(body, by=address)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=424, detail=f'{type(e).__name__}: {e}')
+    finally:
+        U.reset_writer(grant)
+
+
+@app.delete('/data/{slug}')
+def data_remove(slug: str, request: Request):
+    """(owner) Delete a saved dataset."""
+    _require_owner(request)
+    grant = U.grant_writer(True)
+    try:
+        return U.remove(slug)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    finally:
+        U.reset_writer(grant)
+
+
+@app.post('/data/{slug}/refresh')
+def data_refresh(slug: str, request: Request):
+    """(owner) Refetch a fetch-backed dataset right now."""
+    _require_owner(request)
+    try:
+        return U.refresh(slug)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=424, detail=f'{type(e).__name__}: {e}')
+
+
+# ── agents: who answers ASK NYC ──────────────────────────────────────────
+#
+# The Claude CLI is one answerer; every agent on the agent protocol is
+# another. nycgis.agentproto is the only code that talks to that protocol.
+
+CLAUDE_AGENT = 'claude'
+
+
+@app.get('/agents')
+def agents_list(q: str = ''):
+    """
+    Every agent that can answer: the Claude CLI (when installed) plus the
+    agent protocol's roster, NYC agents first. nyc-atlas is filed on the
+    protocol the first time anyone looks.
+    """
+    out: Dict[str, Any] = {'agents': [], 'protocol': None}
+    if shutil.which('claude'):
+        out['agents'].append({
+            'name': CLAUDE_AGENT, 'label': 'Claude', 'icon': '?',
+            'description': f'The local Claude CLI ({CHAT_MODEL}) on the nyc MCP tools',
+            'nyc': True, 'builtin': True})
+    try:
+        out['registered'] = agentproto.register()
+    except Exception as e:
+        out['registered'] = {'error': f'{type(e).__name__}: {e}'}
+    try:
+        r = agentproto.roster(q)
+        out['agents'] += r['agents']
+        out['protocol'] = {k: r[k] for k in ('url', 'address', 'free', 'total')}
+    except Exception as e:
+        out['protocol'] = {'error': f'{type(e).__name__}: {e}',
+                           'url': agentproto.agent_url()}
+    out['default'] = (CLAUDE_AGENT if shutil.which('claude')
+                      else agentproto.ATLAS)
+    return out
+
+
+class AgentMakeRequest(BaseModel):
+    description: str
+    name: Optional[str] = None
+
+
+@app.post('/agents')
+def agents_make(req: AgentMakeRequest):
+    """
+    Make a new NYC agent from one plain description, through the agent
+    protocol (its vibe-builder drafts it; nyc then hands it the data tools).
+    """
+    try:
+        return agentproto.create(req.description, req.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ConnectionError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except RuntimeError as e:
+        # 4xx with the reason: the gateway strips 5xx bodies
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @app.get('/chat/health')
@@ -347,19 +775,34 @@ def chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail='empty message')
     if len(message) > 4000:
         raise HTTPException(status_code=400, detail='message too long (4000 chars)')
+    agent = (req.agent or '').strip()
+    if agent and agent != CLAUDE_AGENT:
+        if not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}', agent):
+            raise HTTPException(status_code=400, detail='bad agent name')
+        events = agentproto.run(agent, message, req.session_id, req.map_state)
+        return StreamingResponse(
+            (f'data: {json.dumps(ev)}\n\n' for ev in events),
+            media_type='text/event-stream',
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
     if not shutil.which('claude'):
         raise HTTPException(status_code=503,
                             detail='claude CLI not installed on this host')
 
+    is_owner = U.is_owner_token(req.token)
     cmd = ['claude', '-p', '--output-format', 'stream-json', '--verbose',
            '--model', CHAT_MODEL,
-           '--strict-mcp-config', '--mcp-config', _chat_mcp_config(),
+           '--strict-mcp-config', '--mcp-config', _chat_mcp_config(is_owner),
            '--allowedTools', CHAT_ALLOWED,
            '--disallowedTools', CHAT_DENIED,
-           '--append-system-prompt', CHAT_SYSTEM,
+           '--append-system-prompt',
+           CHAT_SYSTEM + (CHAT_OWNER_EXTRA if is_owner else ''),
            '--max-turns', '25']
-    if req.session_id:
+    # an agent-protocol conversation id means nothing to the CLI
+    if req.session_id and not req.session_id.startswith('nyc-'):
         cmd += ['--resume', req.session_id]
+    if req.map_state:
+        state = json.dumps(req.map_state, default=str)[:3000]
+        message = f'[The user\'s map right now: {state}]\n\n{message}'
 
     def sse(event: dict) -> str:
         return f'data: {json.dumps(event)}\n\n'
@@ -372,6 +815,7 @@ def chat(req: ChatRequest):
         # A hung agent must not pin the connection open forever.
         watchdog = threading.Timer(CHAT_TIMEOUT, proc.kill)
         watchdog.start()
+        display_ids: set = set()
         try:
             proc.stdin.write(message)
             proc.stdin.close()
@@ -394,10 +838,20 @@ def chat(req: ChatRequest):
                             # Only surface real data tools — the CLI also emits
                             # harness plumbing (ToolSearch) nobody needs to see.
                             name = str(block.get('name', ''))
+                            if name in DISPLAY_TOOLS:
+                                display_ids.add(block.get('id'))
                             if name.startswith('mcp__nyc__'):
                                 yield sse({'type': 'tool',
                                            'name': name.replace('mcp__nyc__', ''),
                                            'input': block.get('input') or {}})
+                elif t == 'user':
+                    for block in (ev.get('message') or {}).get('content', []) or []:
+                        if not isinstance(block, dict) or block.get('type') != 'tool_result':
+                            continue
+                        if block.get('tool_use_id') in display_ids:
+                            d = _tool_result_json(block)
+                            if d:
+                                yield sse({'type': 'display', 'directive': d})
                 elif t == 'result':
                     err = ev.get('subtype') != 'success'
                     out = {'type': 'done', 'ms': ev.get('duration_ms'),

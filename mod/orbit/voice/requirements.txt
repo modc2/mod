@@ -1,0 +1,5 @@
+# The server is deliberately thin — inference happens in the browser.
+fastapi>=0.110
+uvicorn>=0.27
+requests>=2.31
+python-multipart>=0.0.9     # /transcribe is a file upload

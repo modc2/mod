@@ -1,0 +1,9 @@
+/* bt console — stylesheet index.
+ *
+ * The look is split by owner so parallel work never edits the same file:
+ *   styles/sleek.css   the design system: tokens, type, chrome, every shared class
+ *   styles/<feature>.css  one file per feature (news, tx, subnet …)
+ * All are imported from app/layout.tsx; this file is imported LAST, so a quick
+ * rule dropped here still wins — but please move it into a feature file.
+ * Optional skins (public/skins/*.css) layer on top at runtime; see TopBar.
+ */

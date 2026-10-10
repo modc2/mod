@@ -1,0 +1,38 @@
+{
+  "name": "sn33",
+  "version": "1.0.0",
+  "description": "SN33 ReadyAI — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ט",
+  "chain": "bittensor",
+  "netuid": 33,
+  "subnet": "ReadyAI",
+  "symbol": "ט",
+  "owner": "5HinUfk5SqBUAbkMtgdNoum3VJvwrLgdvwW5sbXA1UPYZ8uB",
+  "github": "https://github.com/afterpartyai/bittensor-conversation-genome-project",
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=33",
+    "news": "/bt/news?netuid=33"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

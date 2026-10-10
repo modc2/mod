@@ -1,0 +1,189 @@
+{
+  "netuid": 67,
+  "name": "Harnyx",
+  "symbol": "ط",
+  "owner": "5HEAv3TU1yNei4GwiTsxfmDCDW9pMCKLeDVky9iaVJfYiVeY",
+  "description": "Deep research as a commodity. Faster, cheaper, traceable research — produced by a competitive swarm of miners on Bittensor SN67.",
+  "github": "https://github.com/harnyx/harnyx",
+  "url": "https://harnyx.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1457737666316472351",
+  "logo": "https://harnyx.ai/favicon.png",
+  "registered_at": 7236936,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.003381929,
+    "moving_price": 0.0033914425875991583,
+    "market_cap": 6049.366077580993,
+    "tao_in": 2633.069541909,
+    "alpha_in": 778570.230879032,
+    "alpha_out": 1010162.198920941,
+    "volume": 69244.20059579,
+    "vol_24h": 7.461374363003415,
+    "emission": 0.0,
+    "change_1h": 0.004435535261171353,
+    "change_24h": -0.34106349692337723,
+    "change_7d": -5.094553850851069
+  },
+  "spark_24h": [
+    0.003393503,
+    0.003393542,
+    0.003391931,
+    0.003391997,
+    0.003391394,
+    0.003391409,
+    0.003391818,
+    0.003391887,
+    0.003391966,
+    0.003392077,
+    0.003392153,
+    0.003392142,
+    0.003392082,
+    0.003392122,
+    0.003391331,
+    0.003391415,
+    0.003391384,
+    0.0033913,
+    0.003391047,
+    0.003391155,
+    0.003391138,
+    0.003391175,
+    0.003389084,
+    0.003389128,
+    0.003389195,
+    0.003389322,
+    0.0033893,
+    0.003389353,
+    0.003389368,
+    0.003389331,
+    0.003389386,
+    0.003389424,
+    0.003389474,
+    0.003387063,
+    0.003387113,
+    0.003387159,
+    0.003387132,
+    0.003387126,
+    0.003387236,
+    0.003387267,
+    0.003385957,
+    0.003383418,
+    0.003383225,
+    0.003382971,
+    0.003383063,
+    0.003381847,
+    0.003381779,
+    0.003381929
+  ],
+  "trades_24h": {
+    "trades": 65,
+    "buys": 1,
+    "sells": 64,
+    "buy_tao": 0.129255959,
+    "sell_tao": 5.233287445,
+    "net_tao": -5.104031486,
+    "traders": 17
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EviUp7mgr7fZTioPAzvr26VMmkAuz5emLB8iZj8ZiAnjskz",
+      "net_tao": -0.994478674,
+      "gross_tao": 0.994478674,
+      "trades": 5
+    },
+    {
+      "coldkey": "5FhQvx2KJS1pQaoov2APsk1p3nDwNifm7aKzS9MY2yppPUzP",
+      "net_tao": -0.9172244159999999,
+      "gross_tao": 0.9172244159999999,
+      "trades": 8
+    },
+    {
+      "coldkey": "5FeXAjrY7Cg9Z4LDjnsMxh2iVmNbpLZAJjAGGj2G3W11qsxT",
+      "net_tao": -0.8315626039999999,
+      "gross_tao": 0.8315626039999999,
+      "trades": 3
+    },
+    {
+      "coldkey": "5DxxTTguj6ApwHXqjesAVtzAxHf2c8L9ugHQWQKiYMxpBACj",
+      "net_tao": -0.727783906,
+      "gross_tao": 0.727783906,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Ge5LoLNZRZQjy8x7sSexsyLAATWLbDdNgT59Vj7RrCzs1tf",
+      "net_tao": -0.528440486,
+      "gross_tao": 0.528440486,
+      "trades": 14
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791364851,
+      "kind": "commit",
+      "source": "github",
+      "title": "Document miner decision queries and staging smoke results (#1673)",
+      "url": "https://github.com/harnyx/harnyx/commit/3824b37d90de8fd778b335957d7b91ac2d9ce49f",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1791359841,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261007.post2",
+      "url": "https://github.com/harnyx/harnyx/commit/46058b4447ed5d9781c2962f39f8e3e867e7b2b0",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1791359263,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add native decision queries for miners (#1662)",
+      "url": "https://github.com/harnyx/harnyx/commit/2494b74a06e1436eaa9171d2aa238cb27fada1f1",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1791359243,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261007.post1",
+      "url": "https://github.com/harnyx/harnyx/commit/1044dfa994222db4d7678598ef3a76ae33e447e2",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1791357927,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261007.post0",
+      "url": "https://github.com/harnyx/harnyx/commit/192160b39cafaf13f8a1bba68a46bfc21a914cd9",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1791288140,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261006.post5",
+      "url": "https://github.com/harnyx/harnyx/commit/bd2d9eee2040946b7649411d14f3df4179b06471",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1791273170,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261006.post3",
+      "url": "https://github.com/harnyx/harnyx/commit/e41fe8e51a8e8e1584f541a09a2e8625ae61a3b6",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1791273119,
+      "kind": "commit",
+      "source": "github",
+      "title": "Increase miner task generation Luna concurrency to twenty (#1657)",
+      "url": "https://github.com/harnyx/harnyx/commit/d0164c9aaf3fa1926da848388fc939e6c2a2801e",
+      "publisher": "harnyx/harnyx"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

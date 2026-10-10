@@ -1,0 +1,133 @@
+{
+  "netuid": 37,
+  "name": "Aurelius",
+  "symbol": "ל",
+  "owner": "5GRBbS3aDep7cvR1NRm9Awp5HAF1o4HC7t59Y8HoheLZ6ZaP",
+  "description": "Decentralized Alignment of Artificial Intelligence",
+  "github": "https://github.com/Aurelius-Protocol/Aurelius-Protocol",
+  "url": "https://aureliusaligned.ai",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/Aurelius-Protocol/aurelius-whitepaper/main/aurelius_logo.png",
+  "registered_at": 3212175,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.002750448,
+    "moving_price": 0.0027469575870782137,
+    "market_cap": 17090.7345416036,
+    "tao_in": 7232.806239122,
+    "alpha_in": 2629682.455001778,
+    "alpha_out": 3584117.821027291,
+    "volume": 360670.247062684,
+    "vol_24h": 23.984228908957448,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 0.4549686248055629,
+    "change_7d": 0.8041763514538669
+  },
+  "spark_24h": [
+    0.002737991,
+    0.002737971,
+    0.002737972,
+    0.00273797,
+    0.002737769,
+    0.002737769,
+    0.002737907,
+    0.002737907,
+    0.002737907,
+    0.002737902,
+    0.002737903,
+    0.002737902,
+    0.002737894,
+    0.002737894,
+    0.002737797,
+    0.002737786,
+    0.002737787,
+    0.002737787,
+    0.002752976,
+    0.002752975,
+    0.002752974,
+    0.002752973,
+    0.002752973,
+    0.002750505,
+    0.002750503,
+    0.002750501,
+    0.002750496,
+    0.002750496,
+    0.002750493,
+    0.002750488,
+    0.002750484,
+    0.002750483,
+    0.002750483,
+    0.002750482,
+    0.002750482,
+    0.002750482,
+    0.002750482,
+    0.002750482,
+    0.002750482,
+    0.002750481,
+    0.002750481,
+    0.002750478,
+    0.002750474,
+    0.002750454,
+    0.002750454,
+    0.002750454,
+    0.002750448,
+    0.002750448
+  ],
+  "trades_24h": {
+    "trades": 6,
+    "buys": 2,
+    "sells": 4,
+    "buy_tao": 20.180368942,
+    "sell_tao": 3.5339800429999997,
+    "net_tao": 16.646388899,
+    "traders": 6
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GjBouDTGpwFKsoCTjEhGVvLb8RQv91KmydopE2RxeUs5jha",
+      "net_tao": 20.0,
+      "gross_tao": 20.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DtsqbU1rNxJtGPtLsae51JLVuBE8ii2pEVWjBVUbBbfADRX",
+      "net_tao": -3.242409059,
+      "gross_tao": 3.242409059,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -0.263921085,
+      "gross_tao": 0.263921085,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D4oZz7veairyteK4Je26zbEKxPu9vuZRfB3gdLv6BEsnh9M",
+      "net_tao": 0.180368942,
+      "gross_tao": 0.180368942,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FkEvA9PGbcawCacKriWEPdUEFEAZqgv1TCZWjcaAYvRa2ir",
+      "net_tao": -0.014653873,
+      "gross_tao": 0.014653873,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791254493,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(validator)!: default-off master switch VALIDATOR_ENABLED (#26)",
+      "url": "https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/99ef804cc9cd4a627f2edd112100202ad7f989fa",
+      "publisher": "Aurelius-Protocol/Aurelius-Protocol"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

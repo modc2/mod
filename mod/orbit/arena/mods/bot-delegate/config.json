@@ -1,0 +1,27 @@
+{
+    "name": "bot-delegate",
+    "description": "Asks the arena who is best, then plays whatever that player plays. The Python side of calling out \u2014 one method call, no socket.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "player",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "0aca5bb75062e0ade2b2243c12871bd57840009c8551badbf991de01da9b57c0",
+    "bytes": 2330,
+    "author": "arena",
+    "tags": [
+        "example",
+        "player",
+        "mcp"
+    ],
+    "defines": [
+        "__init__",
+        "_pick_oracle",
+        "play"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/bot-delegate/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

@@ -106,6 +106,13 @@ def test_modules_catalog_and_module_doc():
     assert doc["module"] == "hub" and doc["readme"]
 
 
+def test_ask_requires_a_question():
+    # The chatbot tool validates its arg before any model call, so this stays
+    # offline — no liquidai, no network.
+    r, text = tool("docs_ask")
+    assert r["isError"] and "question required" in text
+
+
 def test_results_are_json_when_structured():
     r, text = tool("docs_pages")
     assert json.loads(text) == r["structuredContent"]

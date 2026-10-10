@@ -1,0 +1,189 @@
+{
+  "netuid": 5,
+  "name": "Hone",
+  "symbol": "ε",
+  "owner": "5GurNtB3yQFCh6CSmfH7LrYJDsvzup4diHZiaYtKe274nrMX",
+  "description": "Hone (SN5) is an RLVR subnet: reinforcement learning from verifiable rewards. Miners are paid to solve real software-engineering tasks- repository patches submitted as git diffs and terminal tasks submitted as scripts with full trajectories. Validators lease tasks from a problem server and grade every response deterministically in isolated Docker verifiers, so rewards reflect verified outcomes only. Each scored solution becomes high-quality, verifiable RL training data for post-training code and agent models. Docs: https://github.com/hone-subnet-org/hone-subnet · Dashboard: https://honedashboard.com",
+  "github": "https://github.com/hone-subnet-org/hone-subnet",
+  "url": "https://honedashboard.com",
+  "discord": null,
+  "logo": null,
+  "registered_at": 2491604,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.012693773,
+    "moving_price": 0.012704291613772511,
+    "market_cap": 75774.69565086557,
+    "tao_in": 33625.468791436,
+    "alpha_in": 2648973.413509056,
+    "alpha_out": 3320464.960004128,
+    "volume": 980441.536653265,
+    "vol_24h": 311.9092086170567,
+    "emission": 0.0,
+    "change_1h": 0.012046727119341405,
+    "change_24h": -0.14458605084441967,
+    "change_7d": 0.12829808508107998
+  },
+  "spark_24h": [
+    0.012712153,
+    0.012712791,
+    0.012713757,
+    0.012714103,
+    0.012714022,
+    0.012713169,
+    0.012701674,
+    0.012702154,
+    0.012703276,
+    0.01270372,
+    0.012704841,
+    0.012705307,
+    0.012706384,
+    0.012707394,
+    0.012707376,
+    0.012708464,
+    0.012708893,
+    0.012709483,
+    0.01270902,
+    0.012709539,
+    0.012710216,
+    0.012707018,
+    0.012704091,
+    0.012704747,
+    0.012693883,
+    0.012694373,
+    0.012695434,
+    0.012695926,
+    0.012696945,
+    0.012697415,
+    0.01269795,
+    0.012698438,
+    0.012699364,
+    0.01270047,
+    0.012701451,
+    0.012701946,
+    0.012702978,
+    0.012697743,
+    0.012697424,
+    0.012697729,
+    0.012698608,
+    0.012699167,
+    0.012700027,
+    0.012691258,
+    0.012691466,
+    0.012692311,
+    0.012692244,
+    0.012693773
+  ],
+  "trades_24h": {
+    "trades": 215,
+    "buys": 3,
+    "sells": 212,
+    "buy_tao": 90.071723105,
+    "sell_tao": 166.46214679,
+    "net_tao": -76.39042368499999,
+    "traders": 46
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": 0.05005705100000313,
+      "gross_tao": 99.94994294899999,
+      "trades": 2
+    },
+    {
+      "coldkey": "5D2MW8D89hZa1CmTt2ZomiSemjC7VVzMRHPM497mbXBB9hZy",
+      "net_tao": 0.04002835600000054,
+      "gross_tao": 79.959971644,
+      "trades": 2
+    },
+    {
+      "coldkey": "5G1G2f93eezKQ48jFFmynqGdTYsK8yk6ecTSDb8uU22111ht",
+      "net_tao": -16.877710587,
+      "gross_tao": 16.877710587,
+      "trades": 1
+    },
+    {
+      "coldkey": "5ErCxkw65wpNfhrGuUAWEBsqmvftETBVYMALZftWhyzzF8Qb",
+      "net_tao": -9.518649451,
+      "gross_tao": 9.518649451,
+      "trades": 1
+    },
+    {
+      "coldkey": "5H1EjBg22UJfXNzhzDTTj1dnmvQVXeBUpNigt67fXa8atYwd",
+      "net_tao": -5.1403665,
+      "gross_tao": 5.1403665,
+      "trades": 25
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791329214,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #18 from hone-subnet-org/score-window-100",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/78cd4b888f7a69b3c1410a5afa7c6afb12e3ef6a",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1791325613,
+      "kind": "commit",
+      "source": "github",
+      "title": "Shrink the score window to the latest 100 observations",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/5a6546d80b8ce12287943a8c461bda518f623c45",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790923802,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #16 from hone-subnet-org/owner-by-hotkey",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/587c9fd498c13767b528989b867a5ad8b24cb973",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790912703,
+      "kind": "commit",
+      "source": "github",
+      "title": "Exclude the subnet owner by hotkey, not by assuming it is UID 0",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/e75e8e4b0757afc85b23c337b8bee61d6c053850",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790799080,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #15 from hone-subnet-org/dedup-and-wider-sampling",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/5f254a994ccc04773597b8ad9a393c31f2f5173f",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790795015,
+      "kind": "commit",
+      "source": "github",
+      "title": "Name the pool size in the lease, two CPUs per grading, 32 notices in …",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/3a500d48cda47f189a393faa5f9ff5b6bb11eb84",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790793400,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #13 from hone-subnet-org/terminal-task-fixture",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/44d3aadc10059a454de23560d96c3c7cbc28d72c",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790793293,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #14 from hone-subnet-org/fix-relative-state-dir",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/4238f551e67b365c61ed7afda6f06af69d7fab0c",
+      "publisher": "hone-subnet-org/hone-subnet"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

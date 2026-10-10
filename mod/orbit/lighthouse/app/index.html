@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/lighthouse/">
+<title>lighthouse — perpetual storage</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="beam" aria-hidden="true"></span>
+    <span class="name">lighthouse</span>
+    <span class="tag">perpetual storage &rarr; store</span>
+  </div>
+  <div class="bar-right">
+    <button id="theme" class="ghost" title="light / dark">light</button>
+    <span id="who" class="who">not signed in</span>
+    <button id="signin" class="primary">sign in</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── the two halves, and whether each is ready ─────────────── -->
+  <section class="grid two" id="state">
+    <div class="card" id="card-lh">
+      <h2>lighthouse<span class="dot" id="dot-lh"></span></h2>
+      <dl id="lh-facts"><dt>&nbsp;</dt><dd>loading&hellip;</dd></dl>
+      <div class="row">
+        <input id="byok" type="password" placeholder="your own Lighthouse API key (this tab only)" autocomplete="off">
+        <button id="byok-use" class="ghost">use</button>
+      </div>
+      <p class="hint" id="byok-hint">A key typed here is sent per request as
+        <code>x-lh-key</code> and never written to disk. Get one at
+        <a href="https://files.lighthouse.storage" target="_blank" rel="noreferrer">files.lighthouse.storage</a>.</p>
+      <div class="row owner-only" id="owner-key">
+        <input id="modkey" type="password" placeholder="deployment key (owner &mdash; saved to ~/.mod/lighthouse)" autocomplete="off">
+        <button id="modkey-save" class="ghost">save</button>
+      </div>
+    </div>
+
+    <div class="card" id="card-store">
+      <h2>store<span class="dot" id="dot-store"></span></h2>
+      <dl id="store-facts"><dt>&nbsp;</dt><dd>loading&hellip;</dd></dl>
+      <div id="store-blockers"></div>
+      <p class="hint">Every CID uploaded here is registered in the store module,
+        which is where visibility, grants, pools and the marketplace live. The
+        bytes stay on Lighthouse &mdash; the store keeps the gateway url and
+        redirects readers to it.</p>
+    </div>
+  </section>
+
+  <!-- ── upload ────────────────────────────────────────────────── -->
+  <section class="card">
+    <h2>upload</h2>
+    <div class="tabs" id="put-tabs">
+      <button class="tab on" data-pane="pane-file">file</button>
+      <button class="tab" data-pane="pane-text">text</button>
+    </div>
+
+    <div class="pane on" id="pane-file">
+      <label class="drop" id="drop">
+        <input type="file" id="file" hidden>
+        <span id="drop-label">choose a file, or drop one here</span>
+      </label>
+    </div>
+
+    <div class="pane" id="pane-text">
+      <textarea id="text" rows="6" placeholder="text to store forever"></textarea>
+    </div>
+
+    <div class="row wrap">
+      <input id="objkey" placeholder="name (optional)" autocomplete="off">
+      <input id="pool" placeholder="store pool id (optional)" autocomplete="off">
+      <label class="check"><input type="checkbox" id="register" checked> register in store</label>
+      <label class="check"><input type="checkbox" id="public"> public</label>
+      <button id="put" class="primary">upload</button>
+    </div>
+    <div id="put-out" class="out"></div>
+  </section>
+
+  <!-- ── mirror ────────────────────────────────────────────────── -->
+  <section class="card">
+    <h2>make a store object perpetual</h2>
+    <p class="hint">Pull a CID the store already has &mdash; with your read
+      rights, not the module's &mdash; push it to Lighthouse, register it back.
+      Same content usually means the same CID; when it does not, both are shown.</p>
+    <div class="row wrap">
+      <input id="mirror-cid" placeholder="store CID" autocomplete="off" spellcheck="false">
+      <label class="check"><input type="checkbox" id="mirror-public"> public</label>
+      <button id="mirror" class="primary">mirror</button>
+    </div>
+    <div id="mirror-out" class="out"></div>
+  </section>
+
+  <!-- ── what is here ──────────────────────────────────────────── -->
+  <section class="card">
+    <div class="head-row">
+      <h2>objects</h2>
+      <div class="tabs" id="list-tabs">
+        <button class="tab on" data-src="module">this module</button>
+        <button class="tab" data-src="store">in the store</button>
+      </div>
+      <button id="refresh" class="ghost">refresh</button>
+    </div>
+    <div id="objects" class="objects"><p class="hint">sign in to see your objects.</p></div>
+  </section>
+
+  <!-- ── mcp: the same work, as tools ──────────────────────────── -->
+  <section class="card" id="card-mcp">
+    <div class="head-row">
+      <h2>mcp server<span class="dot" id="dot-mcp"></span></h2>
+      <span class="who" id="mcp-count"></span>
+      <button id="mcp-copy" class="ghost">copy config</button>
+    </div>
+    <p class="hint">Everything on this page is also an MCP tool. Point a client at
+      <code id="mcp-url">&hellip;</code> (Streamable HTTP, JSON-RPC 2.0), or run
+      <code>python3 mcp.py</code> on the box for stdio. The full schema is served
+      unauthenticated at <code>GET /mcp</code> &mdash; this table is that document.</p>
+    <pre class="code" id="mcp-conf">loading&hellip;</pre>
+    <p class="hint" id="mcp-auth"></p>
+    <div class="tools" id="mcp-tools"></div>
+  </section>
+
+  <section class="card faint">
+    <h2>the seam</h2>
+    <p class="hint">
+      This module holds no store credential. Your protocol token &mdash; the one
+      your wallet signed &mdash; is forwarded verbatim to the store, so the
+      store's whitelist, terms and quota apply to <em>your</em> address. If you
+      could not store in the store directly, nothing here can do it for you.
+      API: <code>/lighthouse/_api</code> on this origin,
+      <code>:50680</code> on the box.
+    </p>
+  </section>
+
+</main>
+
+<div id="toast" class="toast"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

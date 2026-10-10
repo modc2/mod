@@ -1,23 +1,51 @@
 {
     "name": "claudecode",
-    "version": "1.0.0",
-    "description": "The Claude Code CLI as a harness module \u2014 spawns the binary in stream-json mode and returns a step trace any module can render",
+    "version": "1.1.0",
+    "description": "Claude Code as a module \u2014 the CLI's spawn spec, a step-trace runner, and an agent-contract API (GET /agents + POST /run/stream) any console can mount",
     "icon": "\u2b21",
     "color": "#cc785c",
+    "port": 51260,
+    "agent_contract": {
+        "list": "/agents",
+        "run": "/run/stream"
+    },
     "harness": {
         "name": "claude",
         "label": "Claude Code",
         "bin": "claude",
-        "install": "npm install -g @anthropic-ai/claude-code"
+        "install": "npm install -g @anthropic-ai/claude-code",
+        "args": [
+            "--print",
+            "--verbose",
+            "--output-format",
+            "stream-json",
+            "--dangerously-skip-permissions"
+        ],
+        "stream_input_args": [
+            "--input-format",
+            "stream-json"
+        ],
+        "model_flag": "--model",
+        "resume_flag": "--resume",
+        "agent_flag": "--agent",
+        "system_prompt_flag": "--append-system-prompt",
+        "env": {
+            "oauth_token": "CLAUDE_CODE_OAUTH_TOKEN",
+            "oauth_prefix": "sk-ant-oat",
+            "api_key": "ANTHROPIC_API_KEY",
+            "cred_file": "~/.claude/.credentials.json"
+        }
     },
     "fns": [
         "forward",
         "harness",
+        "spec",
+        "agents",
         "run",
         "available",
         "path",
         "command",
         "session"
     ],
-    "schema": "QmRRM1ZDxpvUkr1n9SVPCs8akAog3wMqiJTTKEsdHFnLMW"
+    "schema": "QmVVP1S3w5Qpn3JxkBQBhpWHMwZYNtfpGvVuDy78oxooEk"
 }

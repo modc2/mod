@@ -1,0 +1,189 @@
+{
+  "netuid": 22,
+  "name": "Desearch",
+  "symbol": "χ",
+  "owner": "5DFuaMasyQtPhXcsuoYEyJmCVSRtzKxsTKFTA4SrpcGXBxJn",
+  "description": "Decentralized search engine",
+  "github": "https://github.com/datura-ai/desearch",
+  "url": "https://desearch.ai",
+  "discord": "https://discord.gg/P44zrJmdFy",
+  "logo": "https://desearch.ai/assets/logo-icon-C18R0lAC.png",
+  "registered_at": 2009702,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.003157666,
+    "moving_price": 0.0031384536996483803,
+    "market_cap": 19676.715648571546,
+    "tao_in": 7712.306389708,
+    "alpha_in": 2442406.813729348,
+    "alpha_out": 3789004.503544723,
+    "volume": 275571.637558426,
+    "vol_24h": 312.4937240789877,
+    "emission": 0.0,
+    "change_1h": -0.0029451265913582603,
+    "change_24h": 0.24431978717256442,
+    "change_7d": 3.7167569548981483
+  },
+  "spark_24h": [
+    0.00314997,
+    0.003150232,
+    0.003151541,
+    0.003150726,
+    0.00315041,
+    0.00315054,
+    0.003175298,
+    0.003175843,
+    0.003175887,
+    0.003175847,
+    0.00314617,
+    0.003139732,
+    0.003119325,
+    0.003119359,
+    0.003119601,
+    0.003119653,
+    0.003119669,
+    0.003119812,
+    0.003132047,
+    0.003132062,
+    0.003132078,
+    0.003135736,
+    0.003142281,
+    0.003133649,
+    0.00313372,
+    0.003133741,
+    0.003143945,
+    0.00315623,
+    0.003156012,
+    0.003156821,
+    0.003144566,
+    0.003145039,
+    0.003145056,
+    0.00314509,
+    0.003145108,
+    0.003143591,
+    0.003143627,
+    0.003143638,
+    0.003142144,
+    0.00314215,
+    0.003142132,
+    0.003142146,
+    0.003141971,
+    0.003141983,
+    0.003144527,
+    0.003157748,
+    0.003157759,
+    0.003157666
+  ],
+  "trades_24h": {
+    "trades": 268,
+    "buys": 48,
+    "sells": 220,
+    "buy_tao": 159.576968926,
+    "sell_tao": 151.14958086000001,
+    "net_tao": 8.427388065999992,
+    "traders": 43
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": 0.031157789999999963,
+      "gross_tao": 69.96884221,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FcKhc3tSN7KatLk12CQfiPGQexyRfK1cUmq9eJidQgC93CL",
+      "net_tao": 0.047623183999998986,
+      "gross_tao": 39.952376816,
+      "trades": 2
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": 0.015087955000000264,
+      "gross_tao": 29.984912045,
+      "trades": 2
+    },
+    {
+      "coldkey": "5G6jGr3m4a8j88ZF5mB3Uu1XnP7mVofzCRzAwXJsjQZaq8Pw",
+      "net_tao": 10.079090918,
+      "gross_tao": 25.920909082,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GsRn8W8sdaHH71pxPJyVPi4UQahyPHsjp8gmAdHmmNER6dd",
+      "net_tao": 25.0,
+      "gross_tao": 25.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791225221,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #383 from Desearch-ai/hotfix/publish-pool",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/7a2062746809aa6ac2728687cf9c3fac38b45a36",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791225037,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(task-api): judge completions when they reach the API, run storage…",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/ab06267d1914f08a1b43d8aef06c227ef22775b5",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791218156,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #382 from Desearch-ai/hotfix/settle-speed",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/45e848cd138220d8e043fb7a35e227f804e25d3d",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791217972,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(task-api): settle uploads in parallel reading each seed block onc…",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/e12a068b4bb4e01fe2547daf59b013109759ef4f",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791214443,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #381 from Desearch-ai/feat/crawl-scale",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/237ca4541ac4bf91a9d79f23c43e11b113197997",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1790862027,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #380 from Desearch-ai/develop",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/a88c51d510b9f69186ee221dac0c1ae7be54e29f",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1790861992,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: update version to 0.0.232",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/7845cb041b2b647ed78a59c4f7bead01d27de0e4",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1790861991,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(validators): take an upload before waiting on its seed, so parall…",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/fbf05aa791c323b9b87e7ef3c73bd140a29ded0f",
+      "publisher": "datura-ai/desearch"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

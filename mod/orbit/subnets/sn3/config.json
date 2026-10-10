@@ -1,0 +1,38 @@
+{
+  "name": "sn3",
+  "version": "1.0.0",
+  "description": "SN3 Teutonic — Coordinated Learning. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "γ",
+  "chain": "bittensor",
+  "netuid": 3,
+  "subnet": "Teutonic",
+  "symbol": "γ",
+  "owner": "5GsGUrd21bnkNxQsH2grv474y4gcDwCmp5xJ72KeokspZ2bg",
+  "github": "https://github.com/unarbos/teutonic",
+  "url": "https://www.teutonic.ai/",
+  "discord": "@unarbos",
+  "logo": "https://teutonic.ai/favicon.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=3",
+    "news": "/bt/news?netuid=3"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -1,0 +1,62 @@
+{
+    "name": "mandamistan",
+    "version": "0.1.0",
+    "description": "How Mamdani fixes the New York housing crisis, with receipts. The crisis in sourced numbers (1.41% vacancy, 51.6% rent-burdened, 100k in shelters), the Block by Block plan pillar by pillar (freeze + 200k built + 200k preserved + NYCHA + rezoning + tenant power), a promised-to-delivered timeline (the Oct 1 2026 rent freeze is live), the strongest critiques with their counters, and a transparent what-if simulator. Visual console + JSON API, static data, stdlib only, every figure cited.",
+    "icon": "\u2744",
+    "color": "#3987e5",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51240,
+    "app_port": 51240,
+    "gateway_port": 51240,
+    "base_path": "/mandamistan",
+    "route": true,
+    "deps": [],
+    "urls": {
+        "app": "http://localhost:51240/mandamistan/",
+        "api": "http://localhost:51240"
+    },
+    "state": "none \u2014 static data in housing.py",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "crisis",
+        "plan",
+        "pillar",
+        "timeline",
+        "critiques",
+        "simulate",
+        "sources",
+        "serve",
+        "test",
+        "kill"
+    ],
+    "api_fns": [
+        "info",
+        "health",
+        "readme",
+        "crisis",
+        "plan",
+        "pillar",
+        "timeline",
+        "critiques",
+        "simulate",
+        "sources"
+    ],
+    "endpoints": {
+        "GET /info": "Null call \u2014 what this module is",
+        "GET /health": "Liveness \u2014 touches only local data",
+        "GET /readme": "The project README",
+        "GET /crisis": "The NYC housing crisis in numbers, every figure sourced",
+        "GET /plan": "Block by Block: the whole plan, pillar by pillar",
+        "GET /pillar": "One pillar in full (id=freeze|build|preserve|nycha|zoning|tenants)",
+        "GET /timeline": "Promised \u2192 delivered, dated",
+        "GET /critiques": "The strongest objections, and the counters",
+        "GET /simulate": "Project affordable stock + tenant savings (new_per_year, preserved_per_year, freeze_years, rgb_hike, attrition_per_year, median_stabilized_rent, years)",
+        "GET /sources": "Every citation behind the numbers"
+    },
+    "key": "mandamistan",
+    "schema": "QmRAC6Uxkf7s9vvqzsVjcGFJ3AqSzbx8JCiLjp3C8FW2PQ"
+}

@@ -77,6 +77,13 @@ with sync_playwright() as p:
                 path = f"{OUT}/{theme}-picker.png"
                 page.screenshot(path=path)
                 print("wrote", path)
+            # …and on the shell, the account menu in the top-right corner.
+            if kind == "shell":
+                page.click(".acct-btn")
+                page.wait_for_timeout(400)
+                path = f"{OUT}/{theme}-account.png"
+                page.screenshot(path=path)
+                print("wrote", path)
             ctx.close()
     browser.close()
 

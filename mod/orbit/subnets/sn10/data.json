@@ -1,0 +1,189 @@
+{
+  "netuid": 10,
+  "name": "Pareton",
+  "symbol": "Ⱂ",
+  "owner": "5HK5714cfComgoVg9UfQswQHad6wJV4RnGvp6PQvTkLUUFt5",
+  "description": "The Intelligence Layer for AI Inference",
+  "github": "https://github.com/Pareton-ai/pareton",
+  "url": "https://www.pareton.ai/",
+  "discord": null,
+  "logo": "https://www.pareton.ai/logo.png",
+  "registered_at": 2869647,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.006131751,
+    "moving_price": 0.006173030706122518,
+    "market_cap": 37536.269022884735,
+    "tao_in": 16138.264625983,
+    "alpha_in": 2631917.750828972,
+    "alpha_out": 3489705.423837569,
+    "volume": 1051693.234078324,
+    "vol_24h": 1842.039906668011,
+    "emission": 0.0,
+    "change_1h": 0.05977394580496398,
+    "change_24h": -1.686154132291362,
+    "change_7d": 1.3278921637077001
+  },
+  "spark_24h": [
+    0.006236915,
+    0.006259924,
+    0.006260359,
+    0.00624531,
+    0.006244741,
+    0.006190738,
+    0.006181413,
+    0.006230613,
+    0.006230613,
+    0.00623058,
+    0.006226751,
+    0.006253518,
+    0.006247637,
+    0.006247637,
+    0.006253583,
+    0.006241944,
+    0.006248779,
+    0.006224683,
+    0.006228662,
+    0.006212489,
+    0.006168951,
+    0.006172235,
+    0.006182133,
+    0.006178687,
+    0.006139732,
+    0.006089497,
+    0.006097128,
+    0.006085202,
+    0.00609046,
+    0.006101809,
+    0.006116959,
+    0.00613214,
+    0.006126972,
+    0.00612697,
+    0.006126948,
+    0.006130744,
+    0.006130744,
+    0.006130807,
+    0.006128811,
+    0.006128811,
+    0.006128811,
+    0.006128802,
+    0.006128342,
+    0.006112818,
+    0.006112952,
+    0.006112952,
+    0.006128088,
+    0.006131751
+  ],
+  "trades_24h": {
+    "trades": 144,
+    "buys": 66,
+    "sells": 78,
+    "buy_tao": 852.321170441,
+    "sell_tao": 988.2122804750001,
+    "net_tao": -135.891110034,
+    "traders": 68
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": 0.09298632899999859,
+      "gross_tao": 199.90701367100002,
+      "trades": 2
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": 0.10704730599999834,
+      "gross_tao": 139.892952694,
+      "trades": 6
+    },
+    {
+      "coldkey": "5CJzqiHM8PHuSnvq3RDRsi4DMwG6R2md4QufqbVt1nSTH1dy",
+      "net_tao": 0.24143523400000078,
+      "gross_tao": 109.758564766,
+      "trades": 5
+    },
+    {
+      "coldkey": "5FnGsoZGVFe3Xh4PxFat3kpb5VmXCKTTbahgdrDFFHuvbBDR",
+      "net_tao": 14.217837365,
+      "gross_tao": 106.543380635,
+      "trades": 16
+    },
+    {
+      "coldkey": "5GbSr2iJhgQj1V2XB3oQBT9jkz1VMB8uVSoskAwbWSSJEcgD",
+      "net_tao": 0.05026483000000326,
+      "gross_tao": 99.94973517,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791459919,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(gpu): normalize RTX PRO names for static SSH hosts (#192)",
+      "url": "https://github.com/Pareton-ai/pareton/commit/2f990c31a2f9f9d3ba856e3655b669f26f11cab6",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1791317705,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(api): distinguish v5 completion failures from timing diagnostics …",
+      "url": "https://github.com/Pareton-ai/pareton/commit/80540d9715fe73bd77651b4ab401b5336c361e72",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1791301702,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(gpu): recover Lium RTX PRO 6000 inventory identity (#190)",
+      "url": "https://github.com/Pareton-ai/pareton/commit/dfaf4bda1665373e6b5f615518054d388442d274",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1791298925,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(ops): add private PRO6000 FP8 campaign with v5 C4 scoring (#188)",
+      "url": "https://github.com/Pareton-ai/pareton/commit/7d327e9adb3e6d7e06852265ae8f769a427a4cb6",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1791227735,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(bench): add tier concurrency scoring with failure penalties (#187)",
+      "url": "https://github.com/Pareton-ai/pareton/commit/8ca3970fb075d953597d2359492667c88bce3da9",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1791225805,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: configure campaign patch visibility outside the manifest hash (…",
+      "url": "https://github.com/Pareton-ai/pareton/commit/25e21a5fde77fe40f568d3e98f0f9552e712a188",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1790495105,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #182 from Pareton-ai/bohdan/par-136-builder-cleanu…",
+      "url": "https://github.com/Pareton-ai/pareton/commit/36852d8533b4d73e0392ea113bd803c8e8f50b3d",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1790246666,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(ops): page a full disk while a build holds the cleanup lock",
+      "url": "https://github.com/Pareton-ai/pareton/commit/bfc99f86cd976b65b4e790007012d054052c9f23",
+      "publisher": "Pareton-ai/pareton"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

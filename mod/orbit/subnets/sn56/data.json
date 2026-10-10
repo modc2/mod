@@ -1,0 +1,189 @@
+{
+  "netuid": 56,
+  "name": "Gradients",
+  "symbol": "ج",
+  "owner": "5EJ1zbdwhumTRYFx3VCGnR6SW7CJWP28tEJCo2gw1dFbVL5g",
+  "description": "Best AutoML plaftorm in the world",
+  "github": "https://github.com/gradients-ai/G.O.D",
+  "url": "https://www.gradients.io/",
+  "discord": "None",
+  "logo": "https://gradients-public.s3.eu-central-003.backblazeb2.com/gradientslogo.png",
+  "registered_at": 4312927,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.014865914,
+    "moving_price": 0.014873543288558722,
+    "market_cap": 92234.94250786313,
+    "tao_in": 49493.783564462,
+    "alpha_in": 3329346.647058081,
+    "alpha_out": 2875111.585907826,
+    "volume": 2868185.124702396,
+    "vol_24h": 208.17109289905056,
+    "emission": 0.0,
+    "change_1h": -0.009873964360374021,
+    "change_24h": -0.19324327309243605,
+    "change_7d": -0.4427397116425813
+  },
+  "spark_24h": [
+    0.014894697,
+    0.01489523,
+    0.01489585,
+    0.014896337,
+    0.01489591,
+    0.014896419,
+    0.014897,
+    0.014897469,
+    0.014898085,
+    0.014893954,
+    0.014894536,
+    0.014895046,
+    0.014895528,
+    0.014896146,
+    0.014891037,
+    0.014895932,
+    0.014896456,
+    0.014899967,
+    0.01490048,
+    0.014901076,
+    0.014853385,
+    0.014853952,
+    0.014853568,
+    0.014854268,
+    0.01485526,
+    0.014855604,
+    0.014855908,
+    0.014856417,
+    0.014856511,
+    0.014856967,
+    0.014857528,
+    0.014861241,
+    0.014866962,
+    0.014867733,
+    0.014868349,
+    0.014863194,
+    0.014863879,
+    0.01486825,
+    0.014869163,
+    0.014869769,
+    0.014864235,
+    0.014864868,
+    0.01486536,
+    0.014865771,
+    0.01486628,
+    0.014866893,
+    0.014867382,
+    0.014865914
+  ],
+  "trades_24h": {
+    "trades": 71,
+    "buys": 44,
+    "sells": 27,
+    "buy_tao": 33.60451292,
+    "sell_tao": 125.001247197,
+    "net_tao": -91.39673427700001,
+    "traders": 48
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EsKnyDhbR7VbPgZCMXqW4FxukGtE9zuLSCpiAchh8BtPasB",
+      "net_tao": -45.110308361,
+      "gross_tao": 45.110308361,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FpZ2vAudnf9jnPNYZUAM9a6WB1QtW8fGKckXCfJfFB4FcfA",
+      "net_tao": -21.382378452,
+      "gross_tao": 21.382378452,
+      "trades": 3
+    },
+    {
+      "coldkey": "5HL56LdrCZisFzVdrPMeCx3ERkrGRXD8cUXTwG9XGv4k58g1",
+      "net_tao": 18.784028759999998,
+      "gross_tao": 18.784028759999998,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DtVsUCwSW1MvSdwjmRsYaozfxuXYzMsBJ5DNH4D1mw3unXZ",
+      "net_tao": -16.122543119,
+      "gross_tao": 16.122543119,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CoGrEDwTvSQv2Uv33YucbxzshpemD2oEqFguu6fwWFobiuQ",
+      "net_tao": -15.042988934,
+      "gross_tao": 15.042988934,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791547683,
+      "kind": "commit",
+      "source": "github",
+      "title": "replacement for DQ (#1394)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/de5ea9cd90bfff32d59a8403cb62433a8ce46bab",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1791416650,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fix/70b runpod eval path (#1393)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/b49ba8644a0d705e9b035746eceaa05614742934",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1791203956,
+      "kind": "commit",
+      "source": "github",
+      "title": "cheat check moved to round 2 (#1391)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/e524ce62ce09b14b1cebdf169b46f114cdbaabf3",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790946109,
+      "kind": "commit",
+      "source": "github",
+      "title": "Oversampled pool: text-only <=4B models (#1388)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/df81121a9b56f7d5f2a4261038aad8b6a93af56a",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790548712,
+      "kind": "commit",
+      "source": "github",
+      "title": "aggressive eval (#1390)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/e23a35ae97b508f34c6b1bb4fe523fe12b66bdcb",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790544827,
+      "kind": "commit",
+      "source": "github",
+      "title": "3 task round 1 image (#1387)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/17a2723756daa88561d3dcd5b5d86263523e9a12",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790267320,
+      "kind": "commit",
+      "source": "github",
+      "title": "Oversampled pool: drop >3B and Qwen models (#1389)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/dd8e898b0262ad85ec8ae09dbdeef94a70b5dec5",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790114609,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add Runpod evaluation backend via dstack (#1386)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/fb8cff268f57a049371d7b4c3518660fae17863b",
+      "publisher": "gradients-ai/G.O.D"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

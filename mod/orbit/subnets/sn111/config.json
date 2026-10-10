@@ -1,0 +1,38 @@
+{
+  "name": "sn111",
+  "version": "1.0.0",
+  "description": "SN111 Claims — Turning scientific literature into a structured claim-evidence graph. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Ё",
+  "chain": "bittensor",
+  "netuid": 111,
+  "subnet": "Claims",
+  "symbol": "Ё",
+  "owner": "5CGTryXjAmwmb3mAFD6B5ba2iBXZBcS5dN9pHLBxRoeonigv",
+  "github": "https://github.com/DeSciClaims/Claims",
+  "url": null,
+  "discord": "https://discord.com/channels/799672011265015819/1515007366016401599",
+  "logo": "https://www.dropbox.com/scl/fi/712kuof7877598tlvx3ep/Main-Logo_Dark_Claims.svg?rlkey=zhpmlbyirvdez3gm4j05gb0lk&st=xfm4tx9t&dl=0",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=111",
+    "news": "/bt/news?netuid=111"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

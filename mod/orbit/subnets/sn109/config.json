@@ -1,0 +1,38 @@
+{
+  "name": "sn109",
+  "version": "1.0.0",
+  "description": "SN109 Finsight — Finsight is a decentralized personal investment intelligence. Turn the financial news, filings, and market data that touch an investor's holdings into scored, portfolio-aware signals. Bittensor powers finsight.tech, a Canada-first portfolio platform with native TFSA/RRSP logic, CRA-ready cost-basis tracking, and superficial-loss awareness. Built for Canadians by Canadians. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "՞",
+  "chain": "bittensor",
+  "netuid": 109,
+  "subnet": "Finsight",
+  "symbol": "՞",
+  "owner": "5FqZqKFxfm3VWmc47UdEjaFyVrSfkGd4HcXwFoxH8vBGXKmv",
+  "github": null,
+  "url": "https://finsight.tech/",
+  "discord": null,
+  "logo": "https://finsight.tech/",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-10",
+  "urls": {
+    "bt": "/bt/markets?sn=109",
+    "news": "/bt/news?netuid=109"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

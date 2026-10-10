@@ -1,0 +1,157 @@
+{
+  "netuid": 63,
+  "name": "Enigma",
+  "symbol": "س",
+  "owner": "5CqTmNfgDchxULD1bfoz8jvj9rDYSoq76kiq98oBUUEDpWqX",
+  "description": "Breaking today to build tomorrow",
+  "github": "https://github.com/qbittensor-labs/enigma",
+  "url": "https://www.qbittensorlabs.com/",
+  "discord": "qbittensorlabs",
+  "logo": "https://www.qbittensorlabs.com/63.png",
+  "registered_at": 4885578,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.003998174,
+    "moving_price": 0.003987593110650778,
+    "market_cap": 24568.58394358285,
+    "tao_in": 10847.51823281,
+    "alpha_in": 2713117.860261516,
+    "alpha_out": 3431833.295836955,
+    "volume": 1244310.205270775,
+    "vol_24h": 546.9080897360109,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 1.2336651347238048,
+    "change_7d": -0.022555210253560887
+  },
+  "spark_24h": [
+    0.003949451,
+    0.003949451,
+    0.003949451,
+    0.003949448,
+    0.003949219,
+    0.00394921,
+    0.003949104,
+    0.003949102,
+    0.003949013,
+    0.003949006,
+    0.003949006,
+    0.003949005,
+    0.003948992,
+    0.003948992,
+    0.003948885,
+    0.003948869,
+    0.003948608,
+    0.003977954,
+    0.003977953,
+    0.003948605,
+    0.004015497,
+    0.004012011,
+    0.004052734,
+    0.004052722,
+    0.004052717,
+    0.004053334,
+    0.004056153,
+    0.004057038,
+    0.003982538,
+    0.003982532,
+    0.003982526,
+    0.003982524,
+    0.003982524,
+    0.003964473,
+    0.003964821,
+    0.003998084,
+    0.003998084,
+    0.003998223,
+    0.003998223,
+    0.003998221,
+    0.003998221,
+    0.003998217,
+    0.003998211,
+    0.003998182,
+    0.003998182,
+    0.003998182,
+    0.003998174,
+    0.003998174
+  ],
+  "trades_24h": {
+    "trades": 49,
+    "buys": 23,
+    "sells": 26,
+    "buy_tao": 306.675876941,
+    "sell_tao": 239.752243513,
+    "net_tao": 66.92363342800002,
+    "traders": 29
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -0.2227912159999974,
+      "gross_tao": 160.222791216,
+      "trades": 5
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -0.23278705799999955,
+      "gross_tao": 60.232787058,
+      "trades": 2
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": -0.2320479519999985,
+      "gross_tao": 60.232047952,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GjBouDTGpwFKsoCTjEhGVvLb8RQv91KmydopE2RxeUs5jha",
+      "net_tao": 50.0,
+      "gross_tao": 50.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CJzqiHM8PHuSnvq3RDRsi4DMwG6R2md4QufqbVt1nSTH1dy",
+      "net_tao": 0.02514204199999881,
+      "gross_tao": 49.974857958,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789570284,
+      "kind": "commit",
+      "source": "github",
+      "title": "[create-pull-request] automated change (#44)",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/feafea5a481712228268b70db54ab31f304b7e89",
+      "publisher": "qbittensor-labs/enigma"
+    },
+    {
+      "ts": 1789420659,
+      "kind": "commit",
+      "source": "github",
+      "title": "[create-pull-request] automated change (#43)",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/2d5efee5460e3a68493cca0019964e78114324ee",
+      "publisher": "qbittensor-labs/enigma"
+    },
+    {
+      "ts": 1789109293,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add initial burn sync code and adjust when weights are set",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/b1fbd3548149400fab530cc034bbc5eccde1fac3",
+      "publisher": "qbittensor-labs/enigma"
+    },
+    {
+      "ts": 1789052719,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fix issue with migrated validator db",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/6863ee28db97b7f6591a51f7d8e2cc9b752f09a9",
+      "publisher": "qbittensor-labs/enigma"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}

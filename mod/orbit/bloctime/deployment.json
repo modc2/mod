@@ -1,0 +1,24 @@
+{
+  "nativeToken": "0xB9b6F5CdB25f8BC9fC88CA171381B509Df907b51",
+  "blocTime": "0x703065eB49Eb383fbb15417571049536Ee884CD9",
+  "address": "0x703065eB49Eb383fbb15417571049536Ee884CD9",
+  "network": "base_sepolia",
+  "chainId": 84532,
+  "model": "usd_seconds_linear",
+  "maxLockSeconds": 252288000,
+  "priceUsdMicro": 1000000,
+  "secondsPerBlock": 2,
+  "points": [
+    {
+      "lockSeconds": 0,
+      "multiplier": 10000
+    }
+  ],
+  "inflation": {
+    "initialRewardPerEpoch": "50",
+    "halvingInterval": 1460,
+    "minRewardPerEpoch": "0",
+    "epochLength": 86400
+  },
+  "deployedAt": "2026-09-03T00:37:41.326Z"
+}

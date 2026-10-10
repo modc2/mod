@@ -109,6 +109,72 @@ def test_challenge_gen():
     return _result('challenge_gen', True, f'types={types_tested}', time.time() - t0)
 
 
+def test_evolution():
+    """Evolution engine: fitness improves on the held-out future window."""
+    from core.evolve import EvolutionEngine, make_dataset, DATASETS
+    t0 = time.time()
+
+    for name in DATASETS:
+        s = make_dataset(name, n=120, seed=1)
+        lengths = {len(v) for v in s.values()}
+        assert len(lengths) == 1 and lengths.pop() == 120, f"{name} series misaligned"
+
+    eng = EvolutionEngine(make_dataset('harmonics', 300, seed=3), dataset='harmonics',
+                          population=24, horizon=8, seed=42)
+    eng.run(10)
+    first, last = eng.history[0], eng.history[-1]
+    assert last['best'] >= first['best'], \
+        f"elitism should make best fitness monotone: {first['best']} -> {last['best']}"
+    assert last['best'] > first['best'], "10 generations should improve best fitness"
+    lb = eng.leaderboard(top=5)
+    assert lb[0]['fitness'] is not None and lb[0]['weight'] > 0
+    assert abs(sum(e['weight'] for e in lb) - 1.0) < 0.01, "weights should sum to ~1"
+    return _result('evolution', True,
+                   f"best {first['best']} -> {last['best']} over {eng.generation} gens",
+                   time.time() - t0)
+
+
+def test_evolution_forecast():
+    """Best genome produces a full multivariate forecast of the future."""
+    from core.evolve import EvolutionEngine, make_dataset
+    t0 = time.time()
+
+    eng = EvolutionEngine(make_dataset('coupled', 240, seed=5), dataset='coupled',
+                          population=16, horizon=6, seed=7)
+    eng.run(5)
+    fc = eng.forecast(horizon=9, tail=30)
+    assert set(fc['variables']) == {'driver', 'follower', 'stress'}
+    for k, v in fc['variables'].items():
+        assert len(v['forecast']) == 9, f"{k} forecast wrong length"
+        assert len(v['history']) == 30
+        assert all(isinstance(x, float) for x in v['forecast'])
+    return _result('evolution_forecast', True,
+                   f"genome {fc['genome']} lag={fc['lag']} h={fc['horizon']}",
+                   time.time() - t0)
+
+
+def test_evolution_persistence():
+    """Save/load round-trip resumes the same population and generation count."""
+    import tempfile, os
+    from core.evolve import EvolutionEngine, make_dataset
+    t0 = time.time()
+
+    eng = EvolutionEngine(make_dataset('regimes', 200, seed=2), dataset='regimes',
+                          population=12, horizon=5, seed=11)
+    eng.run(3)
+    path = os.path.join(tempfile.mkdtemp(), 'evo.json')
+    eng.save(path)
+    eng2 = EvolutionEngine.load(path)
+    assert eng2.generation == eng.generation
+    assert len(eng2.population) == len(eng.population)
+    assert eng2.leaderboard(top=1)[0]['id'] == eng.leaderboard(top=1)[0]['id']
+    eng2.run(2)
+    assert eng2.generation == eng.generation + 2, "resumed engine should continue counting"
+    return _result('evolution_persistence', True,
+                   f"gen {eng.generation} saved, resumed to {eng2.generation}",
+                   time.time() - t0)
+
+
 def test_backend_load(backend='chutes'):
     """Test that a backend module loads and has a forward() method."""
     from core.llm import get_llm
@@ -264,7 +330,8 @@ def test_multi_backend_epoch():
 
 ALL_BACKENDS = ['claude', 'openrouter', 'venice', 'chutes']
 
-QUICK_TESTS = [test_schemas, test_scoring, test_challenge_gen]
+QUICK_TESTS = [test_schemas, test_scoring, test_challenge_gen,
+               test_evolution, test_evolution_forecast, test_evolution_persistence]
 
 def run_tests(backends=None, full=False):
     """Run bitevo test suite.

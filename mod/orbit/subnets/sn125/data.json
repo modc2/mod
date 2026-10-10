@@ -1,0 +1,133 @@
+{
+  "netuid": 125,
+  "name": "Refinery",
+  "symbol": "𑀂",
+  "owner": "5DTzv2rL6YGQjCDNiWQJz2nE23fK1mDccH9eQimgiieyL3C4",
+  "description": "Incentivizing the improvement of the algorithms behind a pretraining run",
+  "github": "https://github.com/Barbariandev/refinery",
+  "url": "https://refinery125.com",
+  "discord": null,
+  "logo": null,
+  "registered_at": 5834408,
+  "tempo": 360,
+  "active": true,
+  "block": 9250674,
+  "related": [],
+  "market": {
+    "price": 0.002668027,
+    "moving_price": 0.0026793594006448984,
+    "market_cap": 12185.473213458039,
+    "tao_in": 5366.766770319,
+    "alpha_in": 2011510.761185197,
+    "alpha_out": 2555711.839432428,
+    "volume": 243705.909703867,
+    "vol_24h": 20.22995253399131,
+    "emission": 0.0,
+    "change_1h": -3.7480866010852765e-05,
+    "change_24h": -0.7235424220233821,
+    "change_7d": -3.0315068089874497
+  },
+  "spark_24h": [
+    0.002687472,
+    0.002687472,
+    0.002687472,
+    0.00268747,
+    0.002687071,
+    0.002687061,
+    0.002687414,
+    0.002687413,
+    0.002687413,
+    0.002687405,
+    0.002687405,
+    0.002687403,
+    0.002687388,
+    0.002687387,
+    0.002687237,
+    0.002687218,
+    0.002687217,
+    0.002687217,
+    0.002687216,
+    0.002687214,
+    0.002687211,
+    0.002687208,
+    0.002687198,
+    0.002677178,
+    0.002677172,
+    0.002677169,
+    0.002677161,
+    0.002677161,
+    0.002677156,
+    0.002677149,
+    0.002677142,
+    0.00267714,
+    0.00267714,
+    0.002677139,
+    0.002677139,
+    0.002677139,
+    0.002677139,
+    0.00267713,
+    0.00267713,
+    0.002677128,
+    0.002677128,
+    0.002677123,
+    0.002677117,
+    0.002677083,
+    0.002677083,
+    0.002668037,
+    0.002668028,
+    0.002668027
+  ],
+  "trades_24h": {
+    "trades": 8,
+    "buys": 2,
+    "sells": 6,
+    "buy_tao": 0.354758731,
+    "sell_tao": 19.530567414,
+    "net_tao": -19.175808683,
+    "traders": 6
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DtsqbU1rNxJtGPtLsae51JLVuBE8ii2pEVWjBVUbBbfADRX",
+      "net_tao": -10.017205643,
+      "gross_tao": 10.017205643,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F9TuXFQ9QAP5wxMmZADLk7QJyor3s5bJMSGWuc8bMSsQ7i1",
+      "net_tao": -9.085900109999999,
+      "gross_tao": 9.085900109999999,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -0.39842607199999996,
+      "gross_tao": 0.39842607199999996,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DDZvteGNAHRBgUwdUn6tv1wChGrseQV24WJEVSg7noHaG7H",
+      "net_tao": 0.187668395,
+      "gross_tao": 0.187668395,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D4oZz7veairyteK4Je26zbEKxPu9vuZRfB3gdLv6BEsnh9M",
+      "net_tao": 0.167090336,
+      "gross_tao": 0.167090336,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789615015,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add files via upload",
+      "url": "https://github.com/Barbariandev/Refinery/commit/a6a9cc202ccd36d5564da0b0dd2cd555447d1991",
+      "publisher": "Barbariandev/refinery"
+    }
+  ],
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
+}
