@@ -58,7 +58,8 @@ def info():
             'POST /repeat': '{state}', 'POST /transfer': '{device, play}',
             'POST /queue': '{query|uri}', 'GET /queue': 'what is up next',
             'GET /recent': 'limit', 'GET /top': 'type, time_range, limit',
-            'GET /saved': 'limit', 'POST /save': '{query|uri, remove}',
+            'GET /saved': 'limit', 'GET /saved/contains': 'ids (comma-joined track IDs)',
+            'POST /save': '{query|uri, remove}',
             'GET /playlists': 'limit, offset', 'GET /playlist': 'id, limit',
             'POST /playlist': '{name, public, description, tracks}',
             'POST /playlist/tracks': '{id, tracks, remove, position}',
@@ -127,6 +128,10 @@ def route(method, path, query, body, token=None):
                       limit=arg('limit', default=20))
     if path == '/saved' and method == 'GET':
         return sp.saved(limit=arg('limit', default=20), offset=arg('offset', default=0))
+    if path == '/saved/contains' and method == 'GET':
+        ids_raw = arg('ids') or ''
+        ids = [i for i in ids_raw.split(',') if i]
+        return {'ids': ids, 'saved': sp.contains(ids) if ids else []}
     if path == '/playlists':
         return sp.playlists(limit=arg('limit', default=50), offset=arg('offset', default=0))
     if path == '/playlist' and method == 'GET':

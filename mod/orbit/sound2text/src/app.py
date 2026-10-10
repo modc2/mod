@@ -122,6 +122,7 @@ PAGE = r"""<!doctype html>
     <button id="cacheBtn" class="on">use cache</button>
     <button id="go">transcribe</button>
     <button id="cmp">compare all three</button>
+    <button id="bnch">bench all engines</button>
     <span class="sub" id="status"></span>
   </div>
 </section>
@@ -327,6 +328,31 @@ $('#cmp').onclick = async () => {
     ${r.time_saved_pct}% less model time than sending the whole file.
     Packing was worth ${r.packing_worth_pct}% on top of trimming.
     <span style="color:${r.same_text ? 'var(--speech)' : 'var(--warn)'}">${r.same_text ? 'Transcript unchanged.' : 'Transcript differs from whole-file output.'}</span></div>`;
+};
+
+$('#bnch').onclick = async () => {
+  if (!source){ $('#status').textContent = 'pick some audio first'; return; }
+  $('#bnch').disabled = true; $('#status').textContent = 'benching all engines…';
+  let r;
+  if (source.kind === 'path') {
+    const params = new URLSearchParams({path: source.value});
+    r = await fetch(API + '/bench?' + params).then(res=>res.json());
+  } else {
+    const body = new FormData();
+    body.append('file', source.value, 'clip.wav');
+    r = await fetch(API + '/bench', {method:'POST', body}).then(res=>res.json());
+  }
+  $('#bnch').disabled = false; $('#status').textContent = '';
+  if (r.error){ $('#why').textContent = r.error; return; }
+  const rows = (r.results||[]).map(v => {
+    if (v.error) return `<tr><td>${v.engine}</td><td colspan="4" class="warn">${v.error}</td></tr>`;
+    const cost = v.cost_usd ? '$' + v.cost_usd.toFixed(5) : 'free';
+    const snippet = (v.text||'').slice(0, 80) + ((v.text||'').length > 80 ? '…' : '');
+    return `<tr><td>${v.engine}</td><td>${v.rtf}</td><td>${v.model_s}s</td><td>${cost}</td><td class="no">${snippet}</td></tr>`;
+  }).join('');
+  $('#stats').innerHTML = '';
+  $('#text').innerHTML = `<table><tr><th>engine</th><th>rtf</th><th>model time</th><th>cost</th><th>transcript</th></tr>${rows}</table>
+    <div class="note">Fastest: ${r.fastest||'—'}. Results sorted by RTF ascending.</div>`;
 };
 
 // ── the panels ────────────────────────────────────────────────────

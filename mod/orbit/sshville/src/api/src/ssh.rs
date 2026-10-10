@@ -38,6 +38,8 @@ pub async fn run(conn: &Connection, secret: &str, command: &str) -> Result<SshOu
         "-o",
         "UserKnownHostsFile=/dev/null",
         "-o",
+        "LogLevel=ERROR",
+        "-o",
         "BatchMode=no",
         "-o",
         "ConnectTimeout=10",
@@ -53,7 +55,7 @@ pub async fn run(conn: &Connection, secret: &str, command: &str) -> Result<SshOu
                     exit: -1,
                     stdout: String::new(),
                     stderr:
-                        "sshpass not installed on host — required for password SSH auth (brew install hudochenkov/sshpass/sshpass)"
+                        "sshpass not installed on host — required for password SSH auth (sudo apt install sshpass)"
                             .into(),
                 });
             }

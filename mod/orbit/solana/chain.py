@@ -637,7 +637,7 @@ class Client:
                'programs': [{'id': p, 'name': KNOWN.get(p)} for p in programs],
                'sol_moves': moves[:20], 'token_moves': token_moves[:20],
                'actions': actions[:30] if verbose else
-                          [a['type'] for a in actions][:12]}
+                          [(a['program'] if a['type'] == 'unparsed' else a['type']) for a in actions][:12]}
         if focus:
             mine = next((m for m in moves if m['address'] == focus), None)
             out['net_sol'] = mine['sol'] if mine else 0

@@ -794,6 +794,10 @@ class Spotify:
                 'tracks': [{'added_at': x.get('added_at'), **(track(x.get('track')) or {})}
                            for x in r.get('items') or []]}
 
+    def contains(self, ids):
+        """Return a list of booleans: True if each track ID is in the user's library."""
+        return self.get('/me/tracks/contains', ids=','.join(ids))
+
     def save(self, query=None, uri=None, remove=False):
         """Save (or with remove=1, unsave) a track in Your Library."""
         resolved = to_uri(uri or query) or self.resolve(uri or query, 'track')

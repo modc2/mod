@@ -27,6 +27,7 @@
                     border-radius:8px; padding:10px 12px; font:13px/1.45 var(--mono); }
   textarea { resize:vertical; min-height:96px; }
   textarea:focus, input:focus { outline:none; border-color:var(--acc); }
+  .drag-over { border-color: var(--acc) !important; }
   .row { display:flex; gap:12px; align-items:end; }
   .row label { flex:1; font-size:13px; color:var(--dim); display:flex; flex-direction:column; gap:4px; }
   button { font:600 14px system-ui, sans-serif !important; background:var(--acc); color:#06120d; border:0;
@@ -182,6 +183,25 @@
     e.target.value = "";
   });
 
+  $("secret").addEventListener("dragover", (e) => { e.preventDefault(); $("secret").classList.add("drag-over"); });
+  $("secret").addEventListener("dragleave", () => $("secret").classList.remove("drag-over"));
+  $("secret").addEventListener("drop", (e) => {
+    e.preventDefault();
+    $("secret").classList.remove("drag-over");
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      splitFileBytes = new Uint8Array(ev.target.result);
+      $("secret").value = "";
+      lastShares = [];
+      $("split-out").hidden = true;
+      say($("split-msg"), "");
+      say($("split-file-status"), `${file.name} · ${splitFileBytes.length} bytes loaded`, "ok");
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
   $("pieces").addEventListener("input", () => {
     if (!$("combine-out").hidden) {
       $("combine-out").hidden = true;
@@ -327,6 +347,36 @@
   };
   $("hide-result").onclick = () => { $("result").textContent = ""; $("combine-out").hidden = true; lastCombineBytes = null; say($("combine-msg"), ""); };
 
+  $("pieces").addEventListener("dragover", (e) => { e.preventDefault(); $("pieces").classList.add("drag-over"); });
+  $("pieces").addEventListener("dragleave", () => $("pieces").classList.remove("drag-over"));
+  $("pieces").addEventListener("drop", (e) => {
+    e.preventDefault();
+    $("pieces").classList.remove("drag-over");
+    const files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+    const existing = new Set($("pieces").value.split(/\s+/).filter(t => t.startsWith("ss1.")));
+    let added = 0, remaining = files.length;
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        ev.target.result.split(/\s+/).filter(t => t.startsWith("ss1.")).forEach(t => {
+          if (!existing.has(t)) {
+            existing.add(t);
+            const a = $("pieces");
+            a.value = (a.value ? a.value.trimEnd() + "\n" : "") + t;
+            added++;
+          }
+        });
+        if (--remaining === 0) {
+          $("pieces").dispatchEvent(new Event("input"));
+          if (added > 0) say($("combine-msg"), `Loaded ${added} piece${added > 1 ? "s" : ""}.`, "ok");
+          else say($("combine-msg"), "No new pieces found in the dropped files.", "");
+        }
+      };
+      reader.readAsText(file);
+    });
+  });
+
   $("load-files-btn").onclick = () => $("load-files-input").click();
   $("load-files-input").addEventListener("change", (e) => {
     const files = Array.from(e.target.files);
@@ -345,9 +395,9 @@
           }
         });
         if (--remaining === 0) {
+          $("pieces").dispatchEvent(new Event("input"));
           if (added > 0) say($("combine-msg"), `Loaded ${added} piece${added > 1 ? "s" : ""}.`, "ok");
           else say($("combine-msg"), "No new pieces found in the selected files.", "");
-          $("pieces").dispatchEvent(new Event("input"));
         }
       };
       reader.readAsText(file);

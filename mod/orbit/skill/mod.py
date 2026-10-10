@@ -24,7 +24,10 @@ class Mod:
         return [{'name': os.path.basename(os.path.dirname(p)), 'hint': self._extract_hint(p)} for p in paths]
 
     def search(self, query):
-        """Return [{name, hint}] for modules whose name, hint, or skill body matches query."""
+        """Return [{name, hint, match_in}] for modules whose name, hint, or skill body matches query.
+
+        match_in is "name", "hint", or "body" indicating which field first matched the query.
+        """
         orbit_root = os.path.dirname(self.path)
         pattern = os.path.join(orbit_root, '*/skill.md')
         paths = sorted(glob.glob(pattern))
@@ -37,8 +40,15 @@ class Mod:
             except Exception:
                 text = ''
             hint = self._hint_from_text(text)
-            if q in name.lower() or q in hint.lower() or q in text.lower():
-                results.append({'name': name, 'hint': hint})
+            if q in name.lower():
+                match_in = 'name'
+            elif q in hint.lower():
+                match_in = 'hint'
+            elif q in text.lower():
+                match_in = 'body'
+            else:
+                continue
+            results.append({'name': name, 'hint': hint, 'match_in': match_in})
         return results
 
     def _extract_hint(self, skill_path):
@@ -78,7 +88,8 @@ class Mod:
             raise ValueError(f"No skill.md found for module '{name}'")
         if not os.path.exists(skill_path):
             raise ValueError(f"No skill.md found for module '{name}'")
-        return m.get_text(skill_path)
+        text = m.get_text(skill_path)
+        return {'name': name, 'hint': self._hint_from_text(text), 'skill': text}
 
     def info(self):
         """Return module info."""

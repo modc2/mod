@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 import concurrent.futures
+from datetime import datetime, timezone
 import mod as m
 
 STATE_PATH = '~/.mod/sshland/hosts.json'
@@ -130,6 +131,9 @@ class Mod:
                 result = self._test_one(name, host, timeout)
             except Exception as exc:
                 result = {'ok': False, 'returncode': -1, 'stderr': str(exc)[:500]}
+            st['hosts'][name]['last_tested'] = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            st['hosts'][name]['last_ok'] = result['ok']
+            self._save(st)
             return {'name': name, **result}
 
         hosts = st['hosts']
@@ -146,6 +150,11 @@ class Mod:
                 except Exception as exc:
                     results[n] = {'ok': False, 'returncode': -1, 'stderr': str(exc)[:500]}
 
+        ts = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        for n, r in results.items():
+            st['hosts'][n]['last_tested'] = ts
+            st['hosts'][n]['last_ok'] = r['ok']
+        self._save(st)
         reachable = sum(1 for r in results.values() if r['ok'])
         results['_summary'] = {'total': len(hosts), 'reachable': reachable, 'failed': len(hosts) - reachable}
         return results

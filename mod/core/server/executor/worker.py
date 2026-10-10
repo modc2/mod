@@ -1060,6 +1060,9 @@ def _apply_sandbox(allowed_dirs: List[str], memory_limit: int, cpu_limit: int):
 
     # Resolve allowed dirs to absolute real paths
     resolved_dirs = [os.path.realpath(d) for d in allowed_dirs]
+    # ~/mod is read-only (module source); only ~/.mod and /tmp are writable
+    _mod_source = os.path.realpath(os.path.expanduser('~/mod'))
+    writable_dirs = [d for d in resolved_dirs if d != _mod_source]
     # Also allow /tmp for temporary files and Python stdlib paths
     safe_prefixes = resolved_dirs + [
         '/tmp',
@@ -1086,8 +1089,8 @@ def _apply_sandbox(allowed_dirs: List[str], memory_limit: int, cpu_limit: int):
             # Allow reading from anywhere in Python path for imports
             if any(resolved.startswith(p) for p in safe_prefixes):
                 return _original_open(file, *args, **kwargs)
-        # For writes, strictly enforce allowed dirs
-        if any(resolved.startswith(d) for d in resolved_dirs):
+        # For writes, strictly enforce writable dirs (excludes ~/mod source)
+        if any(resolved.startswith(d) for d in writable_dirs):
             return _original_open(file, *args, **kwargs)
         # Allow writes to /tmp for temporary files
         if resolved.startswith('/tmp'):
@@ -1104,7 +1107,7 @@ def _apply_sandbox(allowed_dirs: List[str], memory_limit: int, cpu_limit: int):
 
     def _restricted_os_open(path, flags, *args, **kwargs):
         resolved = os.path.realpath(str(path))
-        if any(resolved.startswith(d) for d in resolved_dirs):
+        if any(resolved.startswith(d) for d in writable_dirs):
             return _original_os_open(path, flags, *args, **kwargs)
         # Allow /tmp writes
         if resolved.startswith('/tmp'):

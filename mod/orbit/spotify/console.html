@@ -222,15 +222,32 @@ async function load(){
 
 async function search(){
   try {
-    const j = await get('/search?type=' + $('stype').value + '&limit=20&q=' + encodeURIComponent($('q').value));
+    const type = $('stype').value;
+    const j = await get('/search?type=' + type + '&limit=20&q=' + encodeURIComponent($('q').value));
     const rows = Object.values(j).filter(Array.isArray).flat();
     $('hits').innerHTML = rows.map(t => `<tr>
       <td><button class="ghost" onclick="cmd('play',{uri:'${t.uri}'})">▶</button></td>
       <td>${esc(t.name)}</td><td>${esc(t.artists || t.owner)}</td>
       <td>${esc(t.album || t.type)}</td>
       <td><button class="ghost" onclick="cmd('queue',{uri:'${t.uri}'})">QUEUE</button>
-          <button class="ghost" onclick="cmd('save',{uri:'${t.uri}'})">&#9825;</button></td>
+          <button id="sv-${t.uri.split(':').pop()}" class="ghost" onclick="cmd('save',{uri:'${t.uri}'})">&#9825;</button></td>
       </tr>`).join('') || '<tr><td colspan="5" class="note">no hits</td></tr>';
+    if (type === 'track' && rows.length) {
+      const ids = rows.map(t => t.uri.split(':').pop());
+      get('/saved/contains?ids=' + encodeURIComponent(ids.join(','))).then(c => {
+        c.ids.forEach((id, i) => {
+          const btn = document.getElementById('sv-' + id);
+          if (!btn) return;
+          if (c.saved[i]) {
+            btn.innerHTML = '&#9829;';
+            btn.onclick = () => cmd('save', {uri: rows[i].uri, remove: true});
+          } else {
+            btn.innerHTML = '&#9825;';
+            btn.onclick = () => cmd('save', {uri: rows[i].uri});
+          }
+        });
+      }).catch(() => {});
+    }
   } catch (e) { flash(e.message, true); }
 }
 

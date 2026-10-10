@@ -575,6 +575,7 @@ class Sources:
             return [self.fetch(ident)]
         repo_part = ident[3:].split(":")[0]
         owner, _, repo = repo_part.partition("/")
+        src = "anthropic" if owner == "anthropics" and repo == "skills" else "github"
         found: List[Dict[str, Any]] = []
         for folder in ("skills", ".claude/skills", "document-skills", "artifacts-builder"):
             for entry in self._contents(owner, repo, folder):
@@ -585,7 +586,7 @@ class Sources:
                     if body is None:
                         continue
                     found.append(skilldoc.normalize(
-                        body, name=entry["name"], source="github",
+                        body, name=entry["name"], source=src,
                         url=f"https://github.com/{owner}/{repo}/tree/HEAD/{folder}/{entry['name']}",
                         origin_id=f"gh:{owner}/{repo}:{folder}/{entry['name']}"))
                     break

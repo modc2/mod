@@ -206,6 +206,18 @@ def bench(path: Optional[str] = None, url: Optional[str] = None,
         return _fail(exc)
 
 
+@app.post('/bench')
+async def bench_upload(
+        file: Optional[UploadFile] = File(None), path: Optional[str] = Form(None),
+        url: Optional[str] = Form(None), engines_csv: Optional[str] = Form(None),
+        model: Optional[str] = Form(None)) -> Any:
+    try:
+        names = [e.strip() for e in engines_csv.split(',')] if engines_csv else None
+        return pipeline.bench(_source(file, path, url), engine_names=names, model=model)
+    except Exception as exc:
+        return _fail(exc)
+
+
 # ── housekeeping ─────────────────────────────────────────────────────
 
 @app.get('/samples')

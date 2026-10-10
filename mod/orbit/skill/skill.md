@@ -5,8 +5,8 @@ Skill registry for orbit modules.
 ## Methods
 
 - `list_skills()` — returns `[{name, hint}]` for all modules that have a `skill.md` file (default action)
-- `get_skill(name)` — returns the `skill.md` content for the named module; raises `ValueError` if not found
-- `search(query)` — returns `[{name, hint}]` for modules whose name, hint, or full skill body matches the query (case-insensitive); hint comes from the YAML frontmatter `description:` field if present, otherwise the first non-heading line of the skill
+- `get_skill(name)` — returns `{name, hint, skill}` for the named module (`skill` is the full `skill.md` text); raises `ValueError` if not found
+- `search(query)` — returns `[{name, hint, match_in}]` for modules whose name, hint, or full skill body matches the query (case-insensitive); `match_in` is `"name"`, `"hint"`, or `"body"` indicating which field first matched; hint comes from the YAML frontmatter `description:` field if present, otherwise the first non-heading line of the skill
 
 ## forward() kwargs
 

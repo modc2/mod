@@ -27,17 +27,18 @@ class Mod:
         fn = kwargs.pop('fn', 'info')
         available = self._public_methods()
         if not isinstance(fn, str):
-            return {'error': 'fn must be a string', 'fn': repr(fn), 'available': available}
+            return {'ok': False, 'error': 'fn must be a string', 'fn': repr(fn), 'available': available}
         if fn not in available:
-            return {'error': 'unknown fn', 'fn': fn, 'available': available}
+            return {'ok': False, 'error': 'unknown fn', 'fn': fn, 'available': available}
         method = getattr(self, fn)
         try:
             result = method(**kwargs)
             if not isinstance(result, dict):
                 result = {'result': result}
+            result.setdefault('ok', True)
             return result
         except Exception as e:
-            return {'error': str(e), 'fn': fn, 'error_type': type(e).__name__}
+            return {'ok': False, 'error': str(e), 'fn': fn, 'error_type': type(e).__name__}
 
     def ping(self, **_):
         """Return a lightweight liveness response."""
@@ -61,5 +62,8 @@ class Mod:
         for name in ['README.md', 'readme.md', 'README.rst', 'README']:
             p = os.path.join(self.path, name)
             if os.path.exists(p):
-                return {'content': m.get_text(p), 'file': os.path.basename(p)}
+                try:
+                    return {'content': m.get_text(p), 'file': os.path.basename(p)}
+                except Exception:
+                    continue
         return {'content': self._description, 'source': 'description'}

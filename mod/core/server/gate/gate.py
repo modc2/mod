@@ -156,6 +156,8 @@ class Gate:
                 # Module call via 'call' wrapper
                 # (gate already verified auth/public access above)
                 inner_fn = params['fn']
+                assert isinstance(inner_fn, str) and inner_fn != '', "Inner function name cannot be empty"
+                assert FN_NAME_RE.match(inner_fn) and '..' not in inner_fn, f"Invalid inner function name: {inner_fn}"
                 inner_params = params.get('params', {})
                 if isinstance(inner_params, str):
                     inner_params = json.loads(inner_params)
