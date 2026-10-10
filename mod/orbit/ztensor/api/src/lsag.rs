@@ -6,7 +6,7 @@
 //! revealing which; the per-(ring, topic) key image makes a second vote by
 //! the same member detectable while staying unlinkable across topics.
 //!
-//! Interop contract with ring.py and the browser signer (web/lib/lsag.mjs):
+//! Interop contract with ring.py and the browser signer (app/lib/lsag.mjs):
 //!   * hash = SHA-512 over [len(part) as u64 BE || part] for each part
 //!   * group elements / tags serialize as 256-byte big-endian
 //!   * domain tags "ztensor-h2g" and "ztensor-lsag-c"

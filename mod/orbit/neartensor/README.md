@@ -9,22 +9,45 @@ NEAR RPC view at the exact block hash the miner anchored to, score
 correctness × freshness × latency, and set weights. Wrong or unsigned answers
 earn zero, no matter how fast.
 
+Read the **whitepaper**: `src/whitepaper.md` (also the app's Whitepaper tab).
+
+## Create a subnet
+
+```bash
+m neartensor sn_create name=fast-headers tasks=block_header consensus=winner
+m neartensor sn_subnets                       # every subnet: netuid, name, consensus, tasks
+m neartensor sn_epoch netuid=1                # validate one subnet now
+m neartensor sn_set_consensus netuid=1 consensus=yuma
+```
+
+Or use the **Create subnet** form on the app's Subnets tab. Each local subnet
+is one file, `data/subnets/<netuid>.json`. Netuid 0 (`neartensor`) is genesis.
+The miner joins every subnet; the validator loop validates every subnet.
+
+## Modular consensus
+
+Each rule is one file in `src/ntsubnet/consensus/` exposing
+`NAME`, `ABOUT`, `run(weights, stakes) -> {uid: incentive}`:
+
+| rule | behaviour |
+|---|---|
+| `yuma` (default) | stake-weighted median clip, then stake average |
+| `mean` | plain stake-weighted average |
+| `winner` | yuma, then 100% to the top miner |
+
+Drop in a new file to add a rule. It's discovered automatically.
+
 ## Design principles
 
-- **Local-first.** With `subnet.network = "local"` (the default) the entire
-  subnet runs on one box: a file-backed metagraph (`data/subnet_chain.json`),
-  local sr25519 hotkeys, plain HTTP between neurons, and a Yuma-lite
-  (stake-weighted, median-clipped) epoch. No wallet, no subtensor connection,
-  no third-party service beyond public NEAR RPC — and even that rotates
-  across independent endpoints so no single provider is load-bearing.
-- **Same code on mainnet.** Set `subnet.network` to `"test"` or `"finney"`
-  and a netuid, and the identical protocol/miner/validator code runs against
-  real subtensor via the bittensor SDK (burned registration, `serve_axon`,
-  `set_weights`).
-- **Modular.** Each concern is one small file with one seam:
-  `near_client.py` (NEAR RPC), `protocol.py` (tasks + canonical answers +
-  signing), `reward.py` (pure scoring functions), `chain.py`
-  (LocalChain | SubtensorChain), `miner.py`, `validator.py`.
+- **Local-first.** With `subnet.network = "local"` (the default) everything
+  runs on one box: file-backed subnets, local sr25519 hotkeys, plain HTTP
+  between neurons. No wallet and no subtensor; NEAR RPC rotates across public
+  endpoints.
+- **Same code on mainnet.** Set `subnet.network` to `"test"`/`"finney"` and a
+  netuid; the identical miner/validator runs on subtensor via the bittensor
+  SDK. (There, create subnets with `btcli subnet create`.)
+- **One file per concern** in `src/ntsubnet/`: `near_client.py`, `protocol.py`,
+  `reward.py`, `chain.py`, `consensus/*.py`, `miner.py`, `validator.py`.
 
 ## The dedicated task set
 
@@ -50,11 +73,11 @@ m neartensor sn_task task=block_header   # ask the local miner directly
 m neartensor sn_kill
 ```
 
-Or through the API (`POST /neartensor/sn_*` on :50180) and the app's
+Or through the API (`POST /neartensor/sn_*` on :50185) and the app's
 **Bittensor** tab (:50181), which shows the metagraph and can run an epoch.
 
 ```bash
-python3 -m pytest tests/test_subnet.py   # offline: fake NEAR, temp chain
+python3 -m pytest src/tests   # offline: fake NEAR, temp chain
 ```
 
 ## Joining real subtensor
@@ -69,13 +92,13 @@ the box. No secrets go in `config.json`.
 ## NEAR-side protocol (contracts)
 
 The module also ships the original Bittensor-inspired subnet protocol **on
-NEAR** (`contracts/`: registry, subnet, governance — Rust/WASM), driven by
+NEAR** (`src/contracts/`: registry, subnet, governance — Rust/WASM), driven by
 `build` / `deploy` / `register_subnet` / `stake_on` / `produce_block` etc.
 The two layers meet in the middle: the Bittensor subnet attests to the same
 chain the contracts live on.
 
 **Subnet registration is BlocTime** (a port of `orbit/bloctime`'s
-`BlocTime.sol`, in `contracts/registry/src/bloctime.rs`). A registrant attaches
+`BlocTime.sol`, in `src/contracts/registry/src/bloctime.rs`). A registrant attaches
 5 NEAR account funding + a stake and picks `lock_seconds`; the lock earns
 `µNEAR × seconds × curve multiplier` and must reach `min_registration_bloctime`
 (default 1 NEAR × 30 days). A subnet's score — what eviction ranks on — is the
@@ -87,10 +110,14 @@ curve boost is a share market and no longer counts toward the score.
 
 ```
 neartensor/
-├── neartensor/mod.py   # Mod class: all actions incl. sn_* subnet actions
-├── subnet/             # the dedicated Bittensor subnet (see above)
-├── api/api.py          # FastAPI dispatcher on :50180
-├── app/                # Next.js console on :50181 (Bittensor tab = subnet)
-├── contracts/          # NEAR WASM contracts (registry, subnet, governance)
-└── tests/test_subnet.py
+├── config.json          # ports + `subnet` section
+├── data/                # runtime state: subnets/<netuid>.json, keys/
+└── src/                 # ALL code
+    ├── mod.py           # Mod class: every action (sn_* = subnets)
+    ├── whitepaper.md
+    ├── ntsubnet/        # the subnet engine (consensus/ = pluggable rules)
+    ├── api/api.py       # FastAPI dispatcher on :50185
+    ├── app/             # Next.js console on :50181
+    ├── contracts/       # NEAR WASM contracts (cargo workspace: src/Cargo.toml)
+    └── tests/
 ```

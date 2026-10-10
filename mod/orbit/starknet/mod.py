@@ -5,17 +5,19 @@ import sys
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
+API = os.path.join(HERE, 'api')
+sys.path.insert(0, API)
 import abi  # noqa: E402
 import chain  # noqa: E402
 import strk20  # noqa: E402
 
 
 class Mod:
-    description = ("Starknet as one mod: reads the chain over free public RPC "
-                   "with failover (your own node first via STARKNET_RPC), "
-                   "hashes entry-point selectors in-tree, serves a REST API "
-                   "and a browser console on one port. Stdlib only.")
+    description = ("Starknet as one mod: an explorer app and a REST + MCP API "
+                   "on one port, reading the chain over free public RPC with "
+                   "failover (your own node first via STARKNET_RPC). Any "
+                   "contract by its on-chain ABI, plus the STRK20 privacy "
+                   "pool. Python stdlib only.")
     path = HERE
     config = json.load(open(os.path.join(HERE, 'config.json')))
     port = config['port']
@@ -48,6 +50,12 @@ class Mod:
 
     def block_number(self, network=None):
         return chain.block_number(network=network)
+
+    def blocks(self, limit=10, network=None):
+        return chain.blocks(limit, network=network)
+
+    def search(self, q, network=None):
+        return chain.lookup(q, network=network)
 
     def block(self, id='latest', full=False, network=None):
         return chain.block(id, full=full, network=network)
@@ -141,17 +149,30 @@ class Mod:
     # ---- server -------------------------------------------------------
 
     def serve(self, port=None, background=False):
-        """Run the REST API and the console on one port."""
+        """Run the REST API, MCP and the app on one port."""
         port = int(port or self.port)
         if not background:
-            import api
-            return api.serve(port)
+            # loaded by path under its own name: a bare `import api` can hit
+            # whatever `api` the caller already has in sys.modules
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'starknet_api', os.path.join(API, 'api.py'))
+            server = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(server)
+            return server.serve(port)
         proc = subprocess.Popen(
-            [sys.executable, os.path.join(HERE, 'api.py'), '--port', str(port)],
+            [sys.executable, os.path.join(API, 'api.py'), '--port', str(port)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=HERE)
         return {'pid': proc.pid, 'port': port,
                 'api': f'http://localhost:{port}/',
                 'app': f'http://localhost:{port}{self.base}/'}
+
+    def build(self):
+        """Build the app (app/build.sh) and publish it to app/dist."""
+        out = subprocess.run(['bash', os.path.join(HERE, 'app', 'build.sh')],
+                             capture_output=True, text=True)
+        return {'ok': out.returncode == 0,
+                'log': (out.stdout + out.stderr)[-4000:]}
 
     def kill(self, port=None):
         port = int(port or self.port)

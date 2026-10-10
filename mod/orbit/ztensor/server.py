@@ -22,7 +22,7 @@ _spec.loader.exec_module(modpy)
 
 MOD = modpy.Mod()
 PORT = int(os.environ.get("ZTENSOR_PORT", MOD.port))
-APP = (MODULE_DIR / "app" / "index.html")
+APP = (MODULE_DIR / "dist" / "index.html")  # Next.js export of app/ (build.sh)
 
 
 class H(BaseHTTPRequestHandler):

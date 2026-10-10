@@ -35,7 +35,7 @@ compatible implementations, cross-checked against each other in CI-able tests:
 | ------------------- | --------------------------------------------------- |
 | `ring.py`           | reference (pure python, stdlib only)                |
 | `api/src/lsag.rs`   | the verifier the Rust service runs                  |
-| `web/lib/lsag.mjs`  | the browser signer (keygen + sign, WebCrypto BigInt)|
+| `app/lib/lsag.mjs`  | the browser signer (keygen + sign, WebCrypto BigInt)|
 
 - **Anonymity** — a signature proves *some* member of the ring signed it, never which.
 - **Double-vote resistance** — each signature carries a per-topic *key image* (tag);
@@ -113,16 +113,15 @@ ztensor/
     src/lsag.rs      #   LSAG verifier (+ sign for self-check endpoints)
     src/main.rs      #   routes, state, static dist serving
     tests/           #   python-signed fixture for cross-implementation tests
-  web/               # Next.js console (output: 'export', basePath /ztensor)
+  app/               # Next.js console (output: 'export', basePath /ztensor)
     lib/lsag.mjs     #   browser keygen + signer — secrets never leave the client
     scripts/crosstest.mjs  # JS<->python wire-compatibility check
   dist -> releases/<ts>   # published console, atomic symlink swap (build.sh)
   server.py          # pure-python fallback server (used when api/ not built)
-  app/index.html     # legacy single-file console (fallback when dist missing)
   state/             # local state (public keys, tags, choices) — git-ignored
 ```
 
 One process, one port: the Rust binary serves the API and the static console;
 no node process at runtime. Verify the three LSAG implementations agree with
 `cd api && cargo test` (verifies a python-signed fixture) and
-`cd web && node scripts/crosstest.mjs` (JS signs, python verifies).
+`cd app && node scripts/crosstest.mjs` (JS signs, python verifies).

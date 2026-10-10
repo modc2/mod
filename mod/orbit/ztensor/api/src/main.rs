@@ -1,8 +1,8 @@
 //! ztensor API — anonymous voting & consensus for miner/validator networks.
 //!
 //! Rust port of server.py/mod.py. One binary, one port (:51180): JSON API +
-//! the static Next.js console (dist/, atomic-swapped by build.sh; falls back
-//! to app/index.html when no dist exists).
+//! the static Next.js console (app/ exported to dist/, atomic-swapped by
+//! build.sh).
 //!
 //! Design stance — PRIVATE BALLOTS, PUBLIC BOOKS:
 //!   * votes are LSAG-signed: the tally learns a member voted, never which;
@@ -329,7 +329,7 @@ fn run_self_test(explain: bool) -> Value {
     out
 }
 
-// ── static console (Next.js export in dist/, legacy fallback app/index.html) ──
+// ── static console (Next.js export of app/ in dist/) ──
 
 fn content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
@@ -377,13 +377,6 @@ async fn static_handler(State(app): State<Arc<App>>, uri: Uri) -> Response {
             if let Ok(bytes) = std::fs::read(cand) {
                 return ([(header::CONTENT_TYPE, content_type(cand))], bytes).into_response();
             }
-        }
-    }
-    // legacy single-file console
-    let legacy = app.module_dir.join("app").join("index.html");
-    if legacy.is_file() {
-        if let Ok(bytes) = std::fs::read(&legacy) {
-            return ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], bytes).into_response();
         }
     }
     (StatusCode::NOT_FOUND, Json(json!({"error": "not found"}))).into_response()

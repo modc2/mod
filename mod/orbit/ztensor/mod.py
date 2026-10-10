@@ -25,10 +25,10 @@ CLI:
     m ztensor/kill
 
 Service stack: the Rust binary (api/, axum) serves both the JSON API and the
-static Next.js console (web/ -> dist/); server.py is the pure-python fallback
+static Next.js console (app/ -> dist/); server.py is the pure-python fallback
 used only when the binary has not been built. ring.py stays the reference
-LSAG implementation — api/src/lsag.rs and web/lib/lsag.mjs are byte-for-byte
-compatible ports (cross-checked by `cargo test` and web/scripts/crosstest.mjs).
+LSAG implementation — api/src/lsag.rs and app/lib/lsag.mjs are byte-for-byte
+compatible ports (cross-checked by `cargo test` and app/scripts/crosstest.mjs).
 """
 import json
 import os

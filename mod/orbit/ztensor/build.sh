@@ -6,12 +6,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "== web (next export) =="
-(cd web && npm install --no-audit --no-fund && npm run build)
+echo "== app (next export) =="
+(cd app && npm install --no-audit --no-fund && npm run build)
 
 ts=$(date +%Y%m%d-%H%M%S)
 mkdir -p releases
-cp -r web/out "releases/$ts"
+cp -r app/out "releases/$ts"
 ln -sfn "releases/$ts" dist.tmp
 mv -T dist.tmp dist
 echo "console -> releases/$ts (dist updated)"
