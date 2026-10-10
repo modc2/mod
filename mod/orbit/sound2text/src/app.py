@@ -271,18 +271,29 @@ $('#go').onclick = async () => {
 };
 
 $('#cmp').onclick = async () => {
-  if (!source || source.kind !== 'path'){
-    $('#status').textContent = 'compare runs on a sample — load one first'; return; }
+  if (!source){ $('#status').textContent = 'pick some audio first'; return; }
   $('#cmp').disabled = true; $('#status').textContent = 'running all three…';
-  const r = await get('/compare?path=' + encodeURIComponent(source.value));
+  let r;
+  if (source.kind === 'path') {
+    r = await get('/compare?path=' + encodeURIComponent(source.value));
+  } else {
+    const body = new FormData();
+    body.append('file', source.value, 'clip.wav');
+    r = await fetch(API + '/compare', {method:'POST', body}).then(res=>res.json());
+  }
   $('#cmp').disabled = false; $('#status').textContent = '';
   if (r.error){ $('#why').textContent = r.error; return; }
-  const rows = Object.entries(r.runs).map(([k,v]) =>
-    `<tr><td>${k.replace('_',' ')}</td><td>${v.windows}</td><td>${v.sent_s}s</td>
-     <td>${v.model_s}s</td><td>${v.rtf}</td></tr>`).join('');
+  const hasWer = r.runs && Object.values(r.runs).some(v => 'wer' in v);
+  const rows = Object.entries(r.runs).map(([k,v]) => {
+    const wer = hasWer ? `<td>${'wer' in v ? v.wer.toFixed(3) : '—'}</td>` : '';
+    const snippet = (v.text||'').slice(0, 80) + ((v.text||'').length > 80 ? '…' : '');
+    return `<tr><td>${k.replace('_',' ')}</td><td>${v.windows}</td><td>${v.sent_s}s</td>
+     <td>${v.model_s}s</td><td>${v.rtf}</td>${wer}<td class="no">${snippet}</td></tr>`;
+  }).join('');
   $('#stats').innerHTML = '';
+  const werHeader = hasWer ? '<th>WER</th>' : '';
   $('#text').innerHTML = `<table><tr><th>run</th><th>windows</th><th>sent</th>
-    <th>model time</th><th>rtf</th></tr>${rows}</table>
+    <th>model time</th><th>rtf</th>${werHeader}<th>transcript</th></tr>${rows}</table>
     <div class="note">${r.audio_saved_pct}% less audio sent,
     ${r.time_saved_pct}% less model time than sending the whole file.
     Packing was worth ${r.packing_worth_pct}% on top of trimming.</div>`;

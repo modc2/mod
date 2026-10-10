@@ -382,8 +382,6 @@ class Gate:
         role = self.resolve_role(role)
         return user in self.users(role)
 
-    role2data_path = 'role2data'
-
     def role_data(self, role:str = None) -> Dict[str, Any]:
         """
         get the role to data mapping
@@ -453,7 +451,7 @@ class Gate:
             role2data[role]['fns'] = []
         if fn not in role2data[role]['fns']:
             role2data[role]['fns'].append(fn)
-        self.store.put(self.role2data_path, role2data)
+        self.save_role_data(role, role2data[role])
         return role2data
 
     def delegations(self):

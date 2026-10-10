@@ -15,8 +15,9 @@
         "hosts",
         "add",
         "remove",
-        "test"
+        "test",
+        "test_all"
     ],
     "key": "sshland",
-    "schema": "QmZ5CgLjKLGcvbLTyBnoNsqEA1rgRuTpGCyMFPuxy5QAic"
+    "schema": "QmdfUPGRWfzHjPhASMVzNKQeCQctwbkaLohDdXsnSKgjpX"
 }

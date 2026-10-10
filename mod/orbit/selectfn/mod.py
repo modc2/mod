@@ -24,13 +24,12 @@ class Mod:
     def forward(self, **kwargs):
         """Default entry point. Pass fn=<method_name> to call a named method."""
         fn = kwargs.pop('fn', 'info')
+        available = self._public_methods()
         if not isinstance(fn, str):
-            return {'error': 'fn must be a string', 'fn': repr(fn), 'available': self._public_methods()}
-        if fn.startswith('_'):
-            return {'error': 'fn not allowed', 'fn': fn}
-        method = getattr(self, fn, None)
-        if not callable(method):
-            return {'error': 'unknown fn', 'fn': fn, 'available': self._public_methods()}
+            return {'error': 'fn must be a string', 'fn': repr(fn), 'available': available}
+        if fn not in available:
+            return {'error': 'unknown fn', 'fn': fn, 'available': available}
+        method = getattr(self, fn)
         try:
             return method(**kwargs)
         except Exception as e:

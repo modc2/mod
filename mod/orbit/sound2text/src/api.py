@@ -180,6 +180,17 @@ def compare(path: Optional[str] = None, url: Optional[str] = None,
         return _fail(exc)
 
 
+@app.post('/compare')
+async def compare_upload(
+        file: Optional[UploadFile] = File(None), path: Optional[str] = Form(None),
+        url: Optional[str] = Form(None), engine: Optional[str] = Form(None),
+        model: Optional[str] = Form(None)) -> Any:
+    try:
+        return pipeline.compare(_source(file, path, url), engine=engine, model=model)
+    except Exception as exc:
+        return _fail(exc)
+
+
 @app.get('/bench')
 def bench(path: Optional[str] = None, url: Optional[str] = None,
           engines_csv: Optional[str] = None, model: Optional[str] = None) -> Any:

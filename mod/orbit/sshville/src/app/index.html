@@ -201,15 +201,22 @@
     const accts = await ext.web3Accounts({ ss58Format: 42 });
     if (!accts.length) { alert("No accounts in extension"); return; }
 
-    // simple picker for now: first sr25519 account, prompt if more than one
     const sr = accts.filter(a => (a.type || "sr25519") === "sr25519");
     if (!sr.length) { alert("No sr25519 accounts available — only sr25519 is verified server-side"); return; }
-    let pick = sr[0];
-    if (sr.length > 1) {
-      const labels = sr.map((a, i) => `${i}: ${a.meta.name || "?"}  ${a.address}`).join("\n");
-      const idx = prompt(`Pick an account:\n${labels}`, "0");
-      pick = sr[parseInt(idx || "0", 10) || 0];
-    }
+    const pick = sr.length === 1 ? sr[0] : await new Promise(resolve => {
+      const panel = document.getElementById("panel");
+      const saved = panel.innerHTML;
+      panel.innerHTML = "<h2>Pick an account</h2>";
+      sr.forEach(a => {
+        const addr = a.address;
+        const short = addr.length > 16 ? `${addr.slice(0, 8)}…${addr.slice(-6)}` : addr;
+        const el = document.createElement("div");
+        el.className = "conn";
+        el.innerHTML = `<div class="name">${a.meta.name || "(unnamed)"}</div><div class="addr">${short}</div>`;
+        el.addEventListener("click", () => { panel.innerHTML = saved; resolve(a); });
+        panel.appendChild(el);
+      });
+    });
     const injector = await ext.web3FromAddress(pick.address);
     const { signature } = await injector.signer.signRaw({
       type: "bytes",
@@ -704,36 +711,41 @@ iv:         ${escape(k.iv)}</pre>
     document.getElementById("new-btn").onclick = renderNewForm;
   }
 
-  function renderNewForm() {
-    SELECTED = null;
-    renderList();
+  function renderNewForm(conn) {
+    if (!conn) {
+      SELECTED = null;
+      renderList();
+    }
+    const isEdit = !!conn;
     const keyOpts = KEYS.map(k =>
-      `<option value="${escape(k.id)}" data-kind="${escape(k.kind)}">🔑 ${escape(k.name)} (${escape(k.kind)})</option>`
+      `<option value="${escape(k.id)}" data-kind="${escape(k.kind)}"${conn && conn.key_id === k.id ? " selected" : ""}>🔑 ${escape(k.name)} (${escape(k.kind)})</option>`
     ).join("");
     document.getElementById("panel").innerHTML = `
-      <h2>New connection</h2>
-      <label>Name</label><input id="f-name" placeholder="prod web01" />
+      <h2>${isEdit ? "Edit connection" : "New connection"}</h2>
+      ${isEdit ? `<input type="hidden" id="f-id" value="${escape(conn.id)}" />` : ""}
+      ${isEdit && !conn.key_id ? `<input type="hidden" id="f-existing-ciphertext" value="${escape(conn.ciphertext || "")}" /><input type="hidden" id="f-existing-iv" value="${escape(conn.iv || "")}" />` : ""}
+      <label>Name</label><input id="f-name" placeholder="prod web01" value="${isEdit ? escape(conn.name) : ""}" />
       <div class="row">
-        <div><label>Host</label><input id="f-host" placeholder="1.2.3.4 or host.example.com" /></div>
-        <div><label>Port</label><input id="f-port" type="number" value="22" /></div>
+        <div><label>Host</label><input id="f-host" placeholder="1.2.3.4 or host.example.com" value="${isEdit ? escape(conn.host) : ""}" /></div>
+        <div><label>Port</label><input id="f-port" type="number" value="${isEdit ? conn.port : 22}" /></div>
       </div>
-      <label>User</label><input id="f-user" placeholder="root" />
+      <label>User</label><input id="f-user" placeholder="root" value="${isEdit ? escape(conn.user) : ""}" />
       <label>Credential</label>
       <select id="f-source">
         ${keyOpts}
-        <option value="__inline__">one-off secret (not saved to the vault)</option>
+        <option value="__inline__"${conn && !conn.key_id ? " selected" : ""}>one-off secret (not saved to the vault)</option>
       </select>
       <div id="f-inline" style="display:none">
         <label>Auth type</label>
         <select id="f-authtype">
-          <option value="password">password</option>
-          <option value="key">private key</option>
+          <option value="password"${conn && conn.auth_type === "password" ? " selected" : ""}>password</option>
+          <option value="key"${conn && conn.auth_type === "key" ? " selected" : ""}>private key</option>
         </select>
-        <label id="f-secret-label">Password (encrypted client-side before upload)</label>
-        <textarea id="f-secret" placeholder="AES-GCM encrypted under a wallet-signature-derived key (legacy scheme — a vault key is stronger)"></textarea>
+        <label id="f-secret-label">${conn && conn.auth_type === "key" ? "Private key (-----BEGIN ... ----- block, encrypted client-side)" : "Password (encrypted client-side before upload)"}</label>
+        <textarea id="f-secret" placeholder="${isEdit ? "Leave blank to keep existing secret, or re-enter to replace" : "AES-GCM encrypted under a wallet-signature-derived key (legacy scheme — a vault key is stronger)"}"></textarea>
       </div>
       <div style="margin-top:16px; display:flex; gap:8px;">
-        <button id="save-btn">Save</button>
+        <button id="save-btn">${isEdit ? "Save changes" : "Save"}</button>
         <button class="ghost" id="cancel-btn">Cancel</button>
       </div>
       <details>
@@ -776,16 +788,28 @@ once in the TLS body, used for the SSH call, never persisted.</pre>
     const source = document.getElementById("f-source").value;
     if (!name || !host || !user) { alert("name, host, user required"); return; }
     let body;
+    const idEl = document.getElementById("f-id");
+    const existingId = idEl ? idEl.value : null;
     if (source === "__inline__") {
       const authType = document.getElementById("f-authtype").value;
       const secret = document.getElementById("f-secret").value;
-      if (!secret) { alert("secret required"); return; }
-      const { ciphertext, iv } = await legacyEncrypt(secret);
-      body = { name, host, port, user, auth_type: authType, ciphertext, iv };
+      if (secret) {
+        const { ciphertext, iv } = await legacyEncrypt(secret);
+        body = { name, host, port, user, auth_type: authType, ciphertext, iv };
+      } else {
+        const ctEl = document.getElementById("f-existing-ciphertext");
+        const ivEl = document.getElementById("f-existing-iv");
+        if (ctEl && ctEl.value) {
+          body = { name, host, port, user, auth_type: authType, ciphertext: ctEl.value, iv: ivEl.value };
+        } else {
+          alert("secret required"); return;
+        }
+      }
     } else {
       const opt = [...document.getElementById("f-source").options].find(o => o.value === source);
       body = { name, host, port, user, auth_type: opt.dataset.kind, key_id: source };
     }
+    if (existingId) body.id = existingId;
     await api("/connections/add", { method: "POST", body: JSON.stringify(body) });
     await loadConnections();
     clearPanel();
@@ -804,6 +828,7 @@ once in the TLS body, used for the SSH call, never persisted.</pre>
         ${cred}
         <span style="flex:1"></span>
         <button id="test-btn">Test</button>
+        <button id="edit-btn">Edit</button>
         <button class="danger" id="del-btn">Delete</button>
       </div>
       <label>Command</label>
@@ -818,6 +843,7 @@ iv:         ${escape(conn.iv || "")}</pre>
       </details>`}
     `;
     document.getElementById("test-btn").onclick = () => runRemote(conn, "whoami && uname -a");
+    document.getElementById("edit-btn").onclick = () => renderNewForm(conn);
     document.getElementById("exec-btn").onclick = () =>
       runRemote(conn, document.getElementById("cmd").value);
     document.getElementById("del-btn").onclick = async () => {
@@ -831,39 +857,49 @@ iv:         ${escape(conn.iv || "")}</pre>
 
   async function runRemote(conn, command) {
     const out = document.getElementById("out");
+    const testBtn = document.getElementById("test-btn");
+    const execBtn = document.getElementById("exec-btn");
+    const origLabel = execBtn ? execBtn.textContent : null;
+    if (testBtn) testBtn.disabled = true;
+    if (execBtn) { execBtn.disabled = true; execBtn.textContent = "Running…"; }
     out.textContent = "decrypting secret in browser…";
     let secret;
-    if (conn.key_id) {
-      if (!requireUnlocked()) { out.textContent = "vault locked — unlock it in the sidebar"; return; }
-      try {
-        const k = await api(`/keys/${encodeURIComponent(conn.key_id)}`);
-        secret = await gcmDecrypt(VAULT_KEY, k.ciphertext, k.iv);
-      } catch (e) {
-        out.textContent = `vault key decrypt failed: ${e.message}`;
-        return;
-      }
-    } else {
-      try {
-        secret = await legacyDecrypt(conn.ciphertext, conn.iv);
-      } catch (e) {
-        out.textContent = `decrypt failed: ${e.message}
+    try {
+      if (conn.key_id) {
+        if (!requireUnlocked()) { out.textContent = "vault locked — unlock it in the sidebar"; return; }
+        try {
+          const k = await api(`/keys/${encodeURIComponent(conn.key_id)}`);
+          secret = await gcmDecrypt(VAULT_KEY, k.ciphertext, k.iv);
+        } catch (e) {
+          out.textContent = `vault key decrypt failed: ${e.message}`;
+          return;
+        }
+      } else {
+        try {
+          secret = await legacyDecrypt(conn.ciphertext, conn.iv);
+        } catch (e) {
+          out.textContent = `decrypt failed: ${e.message}
 
 You may need to re-sign with the wallet that saved this entry — the AES
 key is deterministic in the signature bytes, so a different signature
 (different wallet, or extension that randomised the sig) cannot decrypt.`;
-        return;
+          return;
+        }
       }
-    }
-    out.textContent = `running: ${command}
+      out.textContent = `running: ${command}
 …`;
-    try {
-      const r = await api(`/connections/${encodeURIComponent(conn.id)}/exec`, {
-        method: "POST",
-        body: JSON.stringify({ secret, command }),
-      });
-      out.textContent = formatResult(r);
-    } catch (e) {
-      out.textContent = `error: ${e.message}`;
+      try {
+        const r = await api(`/connections/${encodeURIComponent(conn.id)}/exec`, {
+          method: "POST",
+          body: JSON.stringify({ secret, command }),
+        });
+        out.textContent = formatResult(r);
+      } catch (e) {
+        out.textContent = `error: ${e.message}`;
+      }
+    } finally {
+      if (testBtn) testBtn.disabled = false;
+      if (execBtn) { execBtn.disabled = false; execBtn.textContent = origLabel; }
     }
   }
 

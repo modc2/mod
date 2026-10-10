@@ -275,8 +275,6 @@ class Sources:
                 card["url"] = f"https://github.com/anthropics/skills/tree/main/{top}/{name}"
                 card["tags"] = ["official", "anthropic"]
                 out.append(card)
-            if out:
-                break
         return self._filter(out, q)[:max(limit, 10)]
 
     def _awesome_list(self, url: str, label: str) -> List[Dict]:
@@ -591,6 +589,4 @@ class Sources:
                         url=f"https://github.com/{owner}/{repo}/tree/HEAD/{folder}/{entry['name']}",
                         origin_id=f"gh:{owner}/{repo}:{folder}/{entry['name']}"))
                     break
-            if found:
-                break
         return found or [self.fetch(ident)]

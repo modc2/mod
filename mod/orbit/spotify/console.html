@@ -32,6 +32,7 @@
   button.ghost{background:none;border:1px solid var(--line);color:var(--ink);
                padding:4px 10px;cursor:pointer;font:inherit;font-size:11px}
   button.ghost:hover{border-color:var(--hot);color:var(--hot)}
+  button.ghost.on{border-color:var(--hot);color:var(--hot)}
   table{width:100%;border-collapse:collapse;font-size:12px}
   th{text-align:left;color:var(--dim);font-weight:400;border-bottom:1px solid var(--line);
      padding:6px 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
@@ -76,8 +77,8 @@
     <button class="ghost" onclick="cmd('next')">⏭</button>
     <input id="vol" type="number" min="0" max="100" placeholder="vol" style="min-width:70px">
     <button class="ghost" onclick="cmd('volume',{percent:+vol.value})">SET VOL</button>
-    <button class="ghost" onclick="cmd('shuffle',{state:true})">SHUFFLE</button>
-    <button class="ghost" onclick="cmd('repeat',{state:'off'})">REPEAT OFF</button>
+    <button id="btnShuffle" class="ghost" onclick="cmd('shuffle',{state:true})">SHUFFLE</button>
+    <button id="btnRepeat" class="ghost" onclick="cmd('repeat',{state:'context'})">REPEAT OFF</button>
     <button class="ghost" onclick="load()">REFRESH</button>
   </div>
   <div class="card">
@@ -142,6 +143,7 @@
 
 </main>
 <script>
+function esc(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 // Mounted at /spotify behind the gateway, or bare at :50610 — ask our own path.
 const BASE = location.pathname.replace(/\/+$/,'').endsWith('/spotify')
   ? location.pathname.replace(/\/+$/,'') + '/_api' : '/_api';
@@ -176,17 +178,24 @@ async function load(){
     $('cb').textContent = location.origin + '/callback';
     const np = s.now_playing || {};
     $('np').innerHTML = np.item
-      ? `<b>${np.item.name}</b> — ${np.item.artists || ''} <span class="sub">${np.item.duration || ''}</span>`
+      ? `<b>${esc(np.item.name)}</b> — ${esc(np.item.artists)} <span class="sub">${esc(np.item.duration)}</span>`
       : (np.note || '—');
     $('npdev').textContent = 'device ' + ((np.device && np.device.name) || '—')
       + (np.playing ? ' · playing' : ' · paused');
     $('npctx').textContent = np.progress ? 'at ' + np.progress : '';
+    const shuf = !!np.shuffle;
+    $('btnShuffle').classList.toggle('on', shuf);
+    $('btnShuffle').onclick = () => cmd('shuffle', {state: !shuf});
+    const rep = np.repeat || 'off';
+    const repNext = rep === 'off' ? 'context' : rep === 'context' ? 'track' : 'off';
+    $('btnRepeat').textContent = 'REPEAT ' + rep.toUpperCase();
+    $('btnRepeat').onclick = () => cmd('repeat', {state: repNext});
     $('devices').innerHTML = (s.devices || []).map(d =>
-      `${d.active ? '● ' : '○ '}${d.name} <span class="sub">(${d.kind || ''} ${d.volume ?? ''}%)</span>
+      `${d.active ? '● ' : '○ '}${esc(d.name)} <span class="sub">(${esc(d.kind)} ${esc(d.volume)}%)</span>
        <button class="ghost" onclick="cmd('transfer',{device:'${d.id}'})">USE</button>`).join('<br>')
       || 'no device is awake — open Spotify anywhere';
     if (s.logged_in) get('/queue?limit=8').then(q => $('upnext').innerHTML =
-      (q.next || []).map(t => `${t.name} — ${t.artists || ''}`).join('<br>') || 'queue empty');
+      (q.next || []).map(t => `${esc(t.name)} — ${esc(t.artists)}`).join('<br>') || 'queue empty');
   } catch (e) { flash(e.message, true); }
 }
 
@@ -196,8 +205,8 @@ async function search(){
     const rows = Object.values(j).filter(Array.isArray).flat();
     $('hits').innerHTML = rows.map(t => `<tr>
       <td><button class="ghost" onclick="cmd('play',{uri:'${t.uri}'})">▶</button></td>
-      <td>${t.name || ''}</td><td>${t.artists || t.owner || ''}</td>
-      <td>${t.album || t.type}</td>
+      <td>${esc(t.name)}</td><td>${esc(t.artists || t.owner)}</td>
+      <td>${esc(t.album || t.type)}</td>
       <td><button class="ghost" onclick="cmd('queue',{uri:'${t.uri}'})">QUEUE</button></td>
       </tr>`).join('') || '<tr><td colspan="5" class="note">no hits</td></tr>';
   } catch (e) { flash(e.message, true); }

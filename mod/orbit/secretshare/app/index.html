@@ -231,9 +231,16 @@
       const box = $("shares"); box.innerHTML = "";
       lastShares.forEach((s, i) => {
         const row = document.createElement("div"); row.className = "share";
-        row.innerHTML = `<span class="n">#${i + 1}</span><code></code><button class="ghost">Copy</button>`;
+        row.innerHTML = `<span class="n">#${i + 1}</span><code></code><button class="ghost">Copy</button><button class="ghost">Save</button>`;
         row.querySelector("code").textContent = s;
-        row.querySelector("button").onclick = (e) => copy(s, e.target);
+        row.querySelectorAll("button")[0].onclick = (e) => copy(s, e.target);
+        row.querySelectorAll("button")[1].onclick = () => {
+          const set = s.split(".")[1];
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([s + "\n"], { type: "text/plain" }));
+          a.download = `secretshare-${set}-piece-${i + 1}-of-${lastShares.length}.txt`;
+          a.click(); URL.revokeObjectURL(a.href);
+        };
         box.appendChild(row);
       });
       $("split-out").hidden = false;
@@ -264,7 +271,21 @@
   $("do-combine").onclick = async () => {
     const msg = $("combine-msg");
     try {
-      const bytes = await Shamir.combine($("pieces").value);
+      const raw = $("pieces").value;
+      const tokens = raw.split(/[\s,]+/).filter(Boolean);
+      const bySet = new Map();
+      for (const t of tokens) {
+        try {
+          const p = Shamir.parse(t);
+          if (!bySet.has(p.set)) bySet.set(p.set, { k: p.k, xs: new Map() });
+          bySet.get(p.set).xs.set(p.x, t);
+        } catch { /* ignore unparseable tokens */ }
+      }
+      let selectedTokens = null, selectedSetId = null;
+      for (const [id, { k, xs }] of bySet) {
+        if (xs.size >= k) { selectedTokens = [...xs.values()]; selectedSetId = id; break; }
+      }
+      const bytes = await Shamir.combine(selectedTokens !== null ? selectedTokens : raw);
       let text, isBinary = false;
       try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
       catch { text = "(binary) base64: " + btoa(String.fromCharCode(...bytes)); isBinary = true; }
@@ -272,7 +293,7 @@
       $("save-file-result").hidden = !isBinary;
       $("result").textContent = text;
       $("combine-out").hidden = false;
-      say(msg, "Unlocked.", "ok");
+      say(msg, selectedSetId ? `Unlocked set ${selectedSetId}.` : "Unlocked.", "ok");
     } catch (e) { $("combine-out").hidden = true; say(msg, e.message, "err"); }
   };
   $("save-file-result").onclick = () => {

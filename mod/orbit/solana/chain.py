@@ -22,7 +22,7 @@ import urllib.parse
 import urllib.request
 
 from keys import (SolError, b58decode, b58encode, find_program_address, is_address,
-                  need_address, pubkey_of, sign, signer)
+                  need_address, on_curve, pubkey_of, sign, signer)
 
 LAMPORTS = 1_000_000_000
 NETWORKS = {
@@ -451,7 +451,7 @@ class Client:
         res = self.call('getAccountInfo', [address, {'encoding': 'jsonParsed'}]) or {}
         value = res.get('value')
         if value is None:
-            on_curve_ = len(b58decode(address)) == 32
+            on_curve_ = on_curve(b58decode(address))
             return {'network': self.network, 'address': address, 'exists': False,
                     'kind': 'unused', 'lamports': 0, 'sol': 0,
                     'note': 'no account at this address — never funded, or closed. '
@@ -927,11 +927,19 @@ class Client:
                      'symbol': plan.get('symbol') or ('SOL' if not mint else None),
                      'usd': value, 'network': self.network})
 
-        if value is not None and value > SPEND_USD and not confirm:
-            return {**plan, 'sent': False, 'needs_confirm': True,
-                    'guard_usd': SPEND_USD,
-                    'reason': f'${value:,.2f} is over the ${SPEND_USD:,.2f} guard — '
-                              f'call again with confirm=true to send it'}
+        if not confirm:
+            # An unknown USD value is not a small one — same principle as swap().
+            if value is None:
+                return {**plan, 'sent': False, 'needs_confirm': True,
+                        'guard_usd': SPEND_USD,
+                        'reason': 'the price API did not answer, so the '
+                                  f'${SPEND_USD:,.2f} guard cannot be applied — '
+                                  'call again with confirm=true'}
+            if value > SPEND_USD:
+                return {**plan, 'sent': False, 'needs_confirm': True,
+                        'guard_usd': SPEND_USD,
+                        'reason': f'${value:,.2f} is over the ${SPEND_USD:,.2f} guard — '
+                                  'call again with confirm=true to send it'}
 
         blockhash = ((self.call('getLatestBlockhash') or {}).get('value') or {})
         if not blockhash.get('blockhash'):
