@@ -39,6 +39,10 @@ class Mod:
         except Exception as e:
             return {'error': str(e), 'fn': fn, 'error_type': type(e).__name__}
 
+    def ping(self, **_):
+        """Return a lightweight liveness response."""
+        return {'ok': True, 'name': self._name, 'version': self._version}
+
     def info(self, **_):
         """Return module info."""
         files = sorted(

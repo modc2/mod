@@ -304,7 +304,7 @@
       const bytes = await Shamir.combine(selectedTokens !== null ? selectedTokens : raw);
       let text, isBinary = false;
       try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
-      catch { text = "(binary) base64: " + btoa(String.fromCharCode(...bytes)); isBinary = true; }
+      catch { let s = ""; for (const c of bytes) s += String.fromCharCode(c); text = "(binary) base64: " + btoa(s); isBinary = true; }
       lastCombineBytes = isBinary ? bytes : null;
       $("save-file-result").hidden = !isBinary;
       $("result").textContent = text;
@@ -320,9 +320,9 @@
     a.click(); URL.revokeObjectURL(a.href);
   };
   $("copy-result").onclick = (e) => {
-    const text = lastCombineBytes
-      ? btoa(String.fromCharCode(...lastCombineBytes))
-      : $("result").textContent;
+    let text;
+    if (lastCombineBytes) { let s = ""; for (const c of lastCombineBytes) s += String.fromCharCode(c); text = btoa(s); }
+    else { text = $("result").textContent; }
     copy(text, e.target);
   };
   $("hide-result").onclick = () => { $("result").textContent = ""; $("combine-out").hidden = true; lastCombineBytes = null; say($("combine-msg"), ""); };

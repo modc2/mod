@@ -296,10 +296,17 @@ $('#cmp').onclick = async () => {
   $('#cmp').disabled = true; $('#status').textContent = 'running all three…';
   let r;
   if (source.kind === 'path') {
-    r = await get('/compare?path=' + encodeURIComponent(source.value));
+    const params = new URLSearchParams({path: source.value,
+      engine: $('#engine').value, policy: $('#policy').value,
+      language: $('#lang').value, task: $('#task').value});
+    r = await fetch(API + '/compare?' + params).then(res=>res.json());
   } else {
     const body = new FormData();
     body.append('file', source.value, 'clip.wav');
+    body.append('engine', $('#engine').value);
+    body.append('policy', $('#policy').value);
+    body.append('language', $('#lang').value);
+    body.append('task', $('#task').value);
     r = await fetch(API + '/compare', {method:'POST', body}).then(res=>res.json());
   }
   $('#cmp').disabled = false; $('#status').textContent = '';
@@ -324,7 +331,7 @@ $('#cmp').onclick = async () => {
 
 // ── the panels ────────────────────────────────────────────────────
 (async () => {
-  const [s, e] = await Promise.all([get('/samples'), get('/engines')]);
+  const [s, e, sp] = await Promise.all([get('/samples'), get('/engines'), get('/speed')]);
   $('#sample').innerHTML = (s.samples||[]).map(x =>
     `<option value="${x.path}">${x.name} — ${x.seconds}s, ${(x.speech_ratio*100)|0}% speech${x.real?'':' (constructed)'}</option>`).join('');
   const ready = (e.engines||[]).filter(x => x.available);
@@ -334,12 +341,28 @@ $('#cmp').onclick = async () => {
   $('#engine').innerHTML = '<option value="">route for me</option>' +
     (e.engines||[]).map(x => `<option value="${x.name}" ${x.available?'':'disabled'}>
       ${x.name}${x.available?'':' — '+x.note}</option>`).join('');
+  const measured = sp.measured || {};
+  const speedFor = (name, model) => {
+    const exact = measured[`${name}:${model}`];
+    if (exact) return exact;
+    const rows = Object.entries(measured)
+      .filter(([k]) => k.split(':')[0] === name).map(([, v]) => v);
+    if (!rows.length) return null;
+    const audio_s = rows.reduce((a, r) => a + r.audio_s, 0);
+    const model_s = rows.reduce((a, r) => a + r.model_s, 0);
+    return audio_s && model_s
+      ? {rtf: (model_s/audio_s).toFixed(4), x_realtime: (audio_s/model_s).toFixed(2)}
+      : null;
+  };
   $('#engines').innerHTML = `<table><tr><th>engine</th><th>kind</th><th>model</th>
-    <th>$/min</th><th>state</th></tr>` + (e.engines||[]).map(x =>
-    `<tr><td>${x.name}</td><td class="no">${x.kind||''}</td><td class="no">${x.model||''}</td>
+    <th>$/min</th><th>state</th><th>measured RTF</th></tr>` + (e.engines||[]).map(x => {
+    const spd = speedFor(x.name, x.model||'');
+    const rtfCell = spd ? `${spd.rtf} (${spd.x_realtime}×)` : '—';
+    return `<tr><td>${x.name}</td><td class="no">${x.kind||''}</td><td class="no">${x.model||''}</td>
      <td class="no">${x.cost_per_min ? '$'+x.cost_per_min : 'free'}</td>
-     <td class="${x.available?'yes':'no'}">${x.available ? 'ready' : x.note}</td></tr>`
-    ).join('') + '</table>';
+     <td class="${x.available?'yes':'no'}">${x.available ? 'ready' : x.note}</td>
+     <td class="no">${rtfCell}</td></tr>`;
+    }).join('') + '</table>';
   if (s.samples && s.samples.length) $('#load').click();
 })();
 </script></body></html>"""

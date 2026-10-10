@@ -171,18 +171,21 @@ def to_markdown(rec: Dict[str, Any]) -> str:
     Round-trips: normalize(to_markdown(rec)) is rec, minus provenance. A skill
     installed here can be copied into any other tool that reads SKILL.md.
     """
-    fm = [f"name: {rec.get('name', '')}",
-          f"description: {rec.get('description', '')}"]
+    def _scalar(v: str) -> str:
+        return v.replace('\r', ' ').replace('\n', ' ')
+
+    fm = [f"name: {_scalar(rec.get('name', ''))}",
+          f"description: {_scalar(rec.get('description', ''))}"]
     if rec.get("license"):
-        fm.append(f"license: {rec['license']}")
+        fm.append(f"license: {_scalar(rec['license'])}")
     if rec.get("version"):
-        fm.append(f"version: {rec['version']}")
+        fm.append(f"version: {_scalar(rec['version'])}")
     if rec.get("tools"):
         fm.append("tools: [%s]" % ", ".join(rec["tools"]))
     if rec.get("tags"):
         fm.append("tags: [%s]" % ", ".join(rec["tags"]))
     if rec.get("url"):
-        fm.append(f"source: {rec['url']}")
+        fm.append(f"source: {_scalar(rec['url'])}")
     return "---\n%s\n---\n\n%s" % ("\n".join(fm), strip_frontmatter(rec.get("body", "")))
 
 

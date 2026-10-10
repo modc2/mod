@@ -70,6 +70,7 @@
 <section id="now" class="on">
   <div class="card">
     <h3>NOW PLAYING</h3>
+    <img id="npart" style="float:left;width:56px;height:56px;margin:0 10px 4px 0;display:none">
     <div class="np" id="np">—</div>
     <div id="npbar"><div id="npbar-fill"></div></div>
     <div class="row"><span id="npdev">device —</span><span id="npctx"></span></div>
@@ -152,7 +153,8 @@ function esc(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
 const BASE = location.pathname.replace(/\/+$/,'').endsWith('/spotify')
   ? location.pathname.replace(/\/+$/,'') + '/_api' : '/_api';
 const $ = id => document.getElementById(id);
-let npDuration = 0;
+let npDuration = 0, npProgressMs = 0, npLoadedAt = 0;
+function mmss(ms){ const s = Math.floor(ms/1000); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
 const flash = (m, bad) => { $('flash').textContent = m || '';
   $('flash').style.color = bad ? 'var(--bad)' : 'var(--warn)'; };
 
@@ -186,12 +188,16 @@ async function load(){
     $('np').innerHTML = np.item
       ? `<b>${esc(np.item.name)}</b> — ${esc(np.item.artists)} <span class="sub">${esc(np.item.duration)}</span>`
       : (np.note || '—');
+    $('npart').src = (np.item && np.item.art) || '';
+    $('npart').style.display = (np.item && np.item.art) ? '' : 'none';
     $('npdev').textContent = 'device ' + ((np.device && np.device.name) || '—')
       + (np.playing ? ' · playing' : ' · paused');
     $('npctx').textContent = np.progress ? 'at ' + np.progress : '';
     const pct = np.item ? Math.min(100, Math.max(0, (np.progress_ms / (np.item.duration_ms || 1)) * 100)) : 0;
     $('npbar-fill').style.width = pct + '%';
     npDuration = np.item ? (np.item.duration_ms || 0) : 0;
+    npProgressMs = np.progress_ms || 0;
+    npLoadedAt = np.playing ? Date.now() : 0;
     const npbar = $('npbar');
     npbar.classList.toggle('seekable', !!npDuration);
     npbar.onclick = npDuration ? (e => {
@@ -252,6 +258,15 @@ get('/tools').then(j => $('tools').textContent =
   + '\n\nhttp: POST ' + location.origin + '/mcp');
 load();
 setInterval(() => { if ($('now').classList.contains('on')) load(); }, 15000);
+setInterval(() => {
+  if (npDuration > 0) {
+    const est = npLoadedAt > 0
+      ? Math.min(npDuration, Math.max(0, npProgressMs + (Date.now() - npLoadedAt)))
+      : npProgressMs;
+    $('npbar-fill').style.width = (est / npDuration * 100).toFixed(2) + '%';
+    $('npctx').textContent = 'at ' + mmss(est);
+  }
+}, 1000);
 </script>
 </body>
 </html>

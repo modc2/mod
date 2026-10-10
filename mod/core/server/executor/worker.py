@@ -1081,7 +1081,7 @@ def _apply_sandbox(allowed_dirs: List[str], memory_limit: int, cpu_limit: int):
         resolved = os.path.realpath(str(file))
         # Allow reads from Python stdlib and site-packages
         mode = args[0] if args else kwargs.get('mode', 'r')
-        is_read = 'r' in str(mode) and 'w' not in str(mode) and 'a' not in str(mode)
+        is_read = 'r' in str(mode) and '+' not in str(mode) and 'w' not in str(mode) and 'a' not in str(mode)
         if is_read:
             # Allow reading from anywhere in Python path for imports
             if any(resolved.startswith(p) for p in safe_prefixes):

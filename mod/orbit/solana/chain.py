@@ -571,6 +571,7 @@ class Client:
                            f'{self.network} — it may be unconfirmed, dropped, or older '
                            'than this node\'s history', status=404)
         out = {'network': self.network, 'signature': signature,
+               'explorer': self.explorer(signature),
                **self._summarise(raw, verbose=True)}
         if logs:
             out['logs'] = ((raw.get('meta') or {}).get('logMessages') or [])

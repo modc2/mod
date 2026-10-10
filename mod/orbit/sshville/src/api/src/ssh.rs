@@ -8,7 +8,7 @@
 //! permissions-restricted temp file and `ssh -i $TMP`.
 
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::process::Stdio;
 
@@ -125,10 +125,11 @@ fn write_temp_key(secret: &str) -> Result<PathBuf> {
     let mut name = [0u8; 8];
     rand::thread_rng().fill_bytes(&mut name);
     let path = std::env::temp_dir().join(format!("sshville-{}.key", hex::encode(name)));
-    let mut f = std::fs::File::create(&path)?;
-    let mut perms = f.metadata()?.permissions();
-    perms.set_mode(0o600);
-    std::fs::set_permissions(&path, perms)?;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?;
     let mut s = secret.to_string();
     if !s.ends_with('\n') {
         s.push('\n');

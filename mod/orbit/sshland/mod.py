@@ -104,7 +104,10 @@ class Mod:
         if host.get('key'):
             cmd += ['-i', host['key']]
         cmd += [f"{host['user']}@{host['host']}", 'true']
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+        except subprocess.TimeoutExpired:
+            raise TimeoutError(f'ssh timed out after {timeout + 5}s')
         return {
             'ok': result.returncode == 0,
             'returncode': result.returncode,
@@ -123,7 +126,10 @@ class Mod:
             host = st['hosts'].get(name)
             if not host:
                 raise ValueError(f'unknown host: {name!r} (add it with m sshland/add)')
-            result = self._test_one(name, host, timeout)
+            try:
+                result = self._test_one(name, host, timeout)
+            except Exception as exc:
+                result = {'ok': False, 'returncode': -1, 'stderr': str(exc)[:500]}
             return {'name': name, **result}
 
         hosts = st['hosts']

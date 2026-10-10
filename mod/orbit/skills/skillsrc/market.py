@@ -117,12 +117,14 @@ class Market:
             body = self.store.read(ident)
             meta = self.store.meta(ident)
             return {"name": ident, "markdown": body, "chars": len(body),
-                    "tools": meta.get("tools") or [], "source": meta.get("source"),
+                    "tools": meta.get("tools") or [], "tags": meta.get("tags") or [],
+                    "source": meta.get("source"),
                     "url": meta.get("url"), "installed": True}
         doc = self.get(ident)                   # not installed: fetch it live
         md = skilldoc.to_markdown(doc)
         return {"name": doc["name"], "markdown": md, "chars": len(md),
-                "tools": doc.get("tools") or [], "source": doc.get("source"),
+                "tools": doc.get("tools") or [], "tags": doc.get("tags") or [],
+                "source": doc.get("source"),
                 "url": doc.get("url"), "installed": False}
 
     def remove(self, name: str) -> Dict[str, Any]:

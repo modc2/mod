@@ -52,6 +52,7 @@ class Mod:
     def _hint_from_text(self, text):
         """Extract a one-line hint from skill.md text."""
         # Check for YAML frontmatter description:
+        body_start = 0
         if text.startswith('---'):
             end = text.find('\n---', 3)
             if end != -1:
@@ -59,8 +60,10 @@ class Mod:
                 for line in frontmatter.splitlines():
                     if line.startswith('description:'):
                         return line[len('description:'):].strip()
-        # Fallback: first non-empty, non-heading line
-        for line in text.splitlines():
+                # Frontmatter found but no description: skip past the closing fence
+                body_start = end + 4  # len('\n---') == 4
+        # Fallback: first non-empty, non-heading line after frontmatter
+        for line in text[body_start:].splitlines():
             stripped = line.strip()
             if stripped and not stripped.startswith('#'):
                 return stripped

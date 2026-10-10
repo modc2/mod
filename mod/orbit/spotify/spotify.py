@@ -164,6 +164,7 @@ def track(t):
         'popularity': t.get('popularity'),
         'explicit': t.get('explicit'),
         'type': t.get('type', 'track'),
+        'art': next((x['url'] for x in sorted(album.get('images') or [], key=lambda x: x.get('width', 0))), None),
     }
 
 

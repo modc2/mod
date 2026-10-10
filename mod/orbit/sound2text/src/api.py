@@ -173,9 +173,12 @@ def _waveform(pcm, buckets: int = 900) -> list:
 
 @app.get('/compare')
 def compare(path: Optional[str] = None, url: Optional[str] = None,
-            engine: Optional[str] = None, model: Optional[str] = None) -> Any:
+            engine: Optional[str] = None, model: Optional[str] = None,
+            language: Optional[str] = None, task: str = 'transcribe',
+            policy: str = 'fast') -> Any:
     try:
-        return pipeline.compare(_source(None, path, url), engine=engine, model=model)
+        return pipeline.compare(_source(None, path, url), engine=engine, model=model,
+                                language=language, task=task, policy=policy)
     except Exception as exc:
         return _fail(exc)
 
@@ -184,9 +187,11 @@ def compare(path: Optional[str] = None, url: Optional[str] = None,
 async def compare_upload(
         file: Optional[UploadFile] = File(None), path: Optional[str] = Form(None),
         url: Optional[str] = Form(None), engine: Optional[str] = Form(None),
-        model: Optional[str] = Form(None)) -> Any:
+        model: Optional[str] = Form(None), language: Optional[str] = Form(None),
+        task: str = Form('transcribe'), policy: str = Form('fast')) -> Any:
     try:
-        return pipeline.compare(_source(file, path, url), engine=engine, model=model)
+        return pipeline.compare(_source(file, path, url), engine=engine, model=model,
+                                language=language, task=task, policy=policy)
     except Exception as exc:
         return _fail(exc)
 

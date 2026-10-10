@@ -540,6 +540,8 @@ async function decode(){
     ]));
     const p = el('div','note'); p.append(document.createTextNode('paid by '));
     p.append(addr(t.fee_payer)); out.append(p);
+    if(t.explorer){ const lnk=el('a','addr',t.signature); lnk.href=t.explorer; lnk.target='_blank';
+      const vd=el('div','note'); vd.append(document.createTextNode('view on Solscan ')); vd.append(lnk); out.append(vd); }
     const progs = el('div','note');
     (t.programs||[]).forEach(x => progs.append(el('span','p'+(x.name?' hot':''),
       x.name || short(x.id))));
@@ -1478,6 +1480,9 @@ $('#pr-go').onclick = prices;
 $('#pr-ids').onkeydown = e => e.key==='Enter' && prices();
 $('#q-go').onclick = quote;
 $('#q-swap').onclick = doSwap;
+['#q-in','#q-out','#q-amt','#q-slip'].forEach(id => {
+  $(id).addEventListener('input', () => { $('#q-swap').disabled = true; });
+});
 $('#ch-go').onclick = chain;
 $('#w-refresh').onclick = wlist;
 $('#w-create').onclick = () => wact('create', {name:$('#w-name').value.trim()||'default'});
