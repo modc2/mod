@@ -2,7 +2,7 @@
 
 revolutionizing the democratization of compute
 
-Bittensor subnet **51** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **51** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/Datura-ai/lium-io) · [url](https://lium.io) · discord `p383_54249`
 
@@ -12,22 +12,22 @@ Fleet mods for this subnet: `lium`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.100881 | -0.16% | +0.70% | +8.10% | 614,349 | 170,779 | 5,753 |
+| 0.101795 | +0.00% | +0.90% | +9.36% | 620,752 | 171,653 | 3,179 |
 
 ## Last 24h flow
 
-539 trades by 243 coldkeys · 277 buys (2,802 τ) / 262 sells (2,566 τ) · net 235.25 τ
+488 trades by 250 coldkeys · 276 buys (1,598 τ) / 212 sells (1,191 τ) · net 406.94 τ
 
 ## News
 
+- 2026-10-09 · commit · [DAH-3980 - Validator: one Docker SDK SSH channel per host, not per UR…](https://github.com/Datura-ai/lium-io/commit/4f9f65ec1779930ab1343204dc3826c0f43cc5e7) — Datura-ai/lium-io
+- 2026-10-09 · commit · [DAH-4001 - validator: no settled window keeps the weights in force, i…](https://github.com/Datura-ai/lium-io/commit/579b244a7203ca7d744fa1dc33bd97ef02f21935) — Datura-ai/lium-io
 - 2026-10-08 · commit · [DAH-3769 - Validator: dropped SSH transport becomes a typed error wit…](https://github.com/Datura-ai/lium-io/commit/25ebd36537d2786ff5023e0d451a6c70a83488d6) — Datura-ai/lium-io
 - 2026-10-08 · commit · [DAH-3583 - Pre-pull follow-up: cancel the sweep however the loop ends…](https://github.com/Datura-ai/lium-io/commit/979159ac7b637df7c02a5ed46ddbc47bc10402ae) — Datura-ai/lium-io
 - 2026-10-08 · commit · [DAH-4001 - validator: shadow never delays the live weights, settlemen…](https://github.com/Datura-ai/lium-io/commit/1b82cdd5bd64e6b610758173e456b4380bdd58e4) — Datura-ai/lium-io
 - 2026-10-08 · commit · [DAH-4001 - validator: settled weight submission (#1527)](https://github.com/Datura-ai/lium-io/commit/4b07dcade43ef71bd46ee0612ca1f16488dc3686) — Datura-ai/lium-io
 - 2026-10-08 · commit · [validator: remove the failed container before the stale-mount retry (…](https://github.com/Datura-ai/lium-io/commit/cb148c67ca2fef8aa9ea2658df2dfbc7a45fdb82) — Datura-ai/lium-io
 - 2026-10-08 · release · [executor-v1.138](https://github.com/Datura-ai/lium-io/releases/tag/executor-v1.138) — Datura-ai/lium-io
-- 2026-10-08 · commit · [executor: reserve CPU/RAM and OOM-protect it so a renter's full load …](https://github.com/Datura-ai/lium-io/commit/173e11d2b8c0c0245e4b6f9f2bb5c96ca1ace657) — Datura-ai/lium-io
-- 2026-10-08 · commit · [DAH-3980 - validator: a customer rent starts the filler's removal as …](https://github.com/Datura-ai/lium-io/commit/1f37562e7b9cb645cfcd8392d45761abb51af967) — Datura-ai/lium-io
 
 ## Use
 

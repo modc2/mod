@@ -2,7 +2,7 @@
 
 The Foundational Layer of Genomics
 
-Bittensor subnet **107** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **107** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/minos-protocol/minos_subnet) · [url](https://theminos.ai) · [discord](https://discord.com/channels/799672011265015819/1467949024769478793)
 
@@ -10,11 +10,16 @@ Links: [github](https://github.com/minos-protocol/minos_subnet) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.037577 | +0.03% | -4.11% | -7.03% | 85,100 | 20,602 | 1,085 |
+| 0.035384 | +0.06% | -5.84% | -12.56% | 80,464 | 20,070 | 2,094 |
 
 ## Last 24h flow
 
-157 trades by 93 coldkeys · 68 buys (227.77 τ) / 89 sells (735.68 τ) · net -507.91 τ
+226 trades by 130 coldkeys · 133 buys (644.21 τ) / 93 sells (1,340 τ) · net -695.78 τ
+
+## News
+
+- 2026-10-09 · commit · [Merge pull request #40 from minos-protocol/fix/scoring-cutoff-lead](https://github.com/minos-protocol/minos_subnet/commit/4b3c0944b517d09be9b54eb8fa3158ae700b5d5f) — minos-protocol/minos_subnet
+- 2026-10-09 · commit · [Bound the scoring phase by the submit window](https://github.com/minos-protocol/minos_subnet/commit/30465ca777356e3990b419b5b9f86863f96f2109) — minos-protocol/minos_subnet
 
 ## Use
 

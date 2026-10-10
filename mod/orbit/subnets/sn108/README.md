@@ -2,7 +2,7 @@
 
 ChipForge decentralizes silicon design. Miners anywhere compete to build chips that accelerate AI, scored on real AI models.
 
-Bittensor subnet **108** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **108** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/TatsuProject/ChipForge_SN108) · [url](https://www.chipforge.io/) · [discord](https://discord.com/channels/799672011265015819/1408463235082092564)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/TatsuProject/ChipForge_SN108) · [url](https:
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.011858 | +0.01% | -10.47% | +166.43% | 1,643 | 832.8301 | 654.64 |
+| 0.009518 | +0.06% | -19.74% | +113.43% | 1,387 | 746.1285 | 322.53 |
 
 ## Last 24h flow
 
-218 trades by 76 coldkeys · 131 buys (303.40 τ) / 87 sells (346.30 τ) · net -42.90 τ
+157 trades by 60 coldkeys · 92 buys (117.64 τ) / 65 sells (200.50 τ) · net -82.87 τ
 
 ## News
 

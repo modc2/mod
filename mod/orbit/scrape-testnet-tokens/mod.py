@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import urllib.request
 import urllib.error
@@ -7,7 +8,7 @@ import mod as m
 
 NETWORKS = {
     "sepolia":  "https://eth-sepolia.blockscout.com",
-    "goerli":   "https://eth-goerli.blockscout.com",
+    "holesky":  "https://eth-holesky.blockscout.com",
     "mumbai":   "https://polygon-mumbai.blockscout.com",
     "base-sepolia": "https://base-sepolia.blockscout.com",
 }
@@ -26,6 +27,9 @@ class Mod:
 
     def scrape(self, address: str, network: str = "sepolia"):
         """Return ERC-20 token balances for address on the given testnet."""
+        if not re.fullmatch(r'0x[0-9a-fA-F]{40}', address):
+            return {"error": f"Invalid address '{address}': must be a 0x-prefixed 40-hex-character Ethereum address"}
+
         base = NETWORKS.get(network.lower())
         if base is None:
             return {"error": f"Unknown network '{network}'. Supported: {list(NETWORKS)}"}
@@ -75,8 +79,8 @@ class Mod:
         return {
             'name': 'scrape-testnet-tokens',
             'description': self.description,
-            'path': self.path,
-            'files': os.listdir(self.path),
+            'supported_networks': list(NETWORKS.keys()),
+            'usage': 'Call with address=<0x…> and optionally network=<name> (default: sepolia)',
         }
 
     def readme(self):

@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9243466,
+  "block": 9250674,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6870903.1063434,
-    "tao_in": 5453406.230670615,
-    "alpha_in": 1417496.875672785,
-    "alpha_out": 5453406.230670615,
-    "volume": 58928144.20615354,
-    "vol_24h": 42746.6235852316,
+    "market_cap": 6871170.407802535,
+    "tao_in": 5454117.694207228,
+    "alpha_in": 1417052.713595308,
+    "alpha_out": 5454117.694207228,
+    "volume": 58956900.7601197,
+    "vol_24h": 28753.110447332263,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,6 +81,14 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1791538788,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor (TAO): Grayscale adds Coinbase as a second custodian, price 10.7 percent below the weekly high",
+      "url": "https://news.google.com/rss/articles/CBMifEFVX3lxTE50Z1NPenB1cDczV2U4VTB5eEJoN2lnT01wbFR5WHZrWUZGd21vNzhpUDAyVHAzcXFXY2E4SEhCMVhyZWJYdjQxZGZldElTYUNKSUg1Y3dSM1RXclVwT0V6bVhBcWNPVDBFOEY2eENocHdnSS0tSnU5N3pBQ0o?oc=5",
+      "publisher": "CryptoTicker"
+    },
+    {
       "ts": 1791496519,
       "kind": "release",
       "source": "feeds",
@@ -135,16 +143,8 @@
       "title": "Inside the AI businesses being built on Bittensor",
       "url": "https://news.google.com/rss/articles/CBMinAFBVV95cUxOUDhVN0FsQzhRSEVPZXNybVNoWXlkbTM2Q0tzWFpDWk9WWWtrYUdVenh4UkdBbURhNjVWNUdtTk02Y010NlBlVl9tcEZTakpPRXpIdEFGcmxnaVZzT3haY3JmNVZLeWR2VUx2cVRYdXFEMWtScEdxNUViZTFIalU1UXV0SUpOZHo0SDZySm5BTWJWdWtqWk00WF9qdUM?oc=5",
       "publisher": "Yahoo Finance"
-    },
-    {
-      "ts": 1791303900,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Distributed AI Takes Center Stage as Exploit Summit Charts Bittensor's Next Chapter in Montreal",
-      "url": "https://news.google.com/rss/articles/CBMingFBVV95cUxQRkJRNXZVTnh0Vmx5bFgyS3lKb2llMk9RVFdXYWRuN0FBSjh1dV91NzloX1pSb2pZVlROMExaOEdLcGlsdlNUdlhPaHlTNkxybHNvdUd3OHQyenRvUUdNVU4wS0hqWTJnWmFZeTZTV091blZDVWYyZFBWZXB5T1NVN3lKVm1mZ0hxajV2MXNpOTZhOFRXLWZtSGUxNWk1dw?oc=5",
-      "publisher": "Yahoo Finance"
     }
   ],
-  "updated": 1791524461,
-  "updated_day": "2026-10-09"
+  "updated": 1791610861,
+  "updated_day": "2026-10-10"
 }

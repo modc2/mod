@@ -84,6 +84,7 @@
       <input type="file" id="load-files-input" multiple accept=".txt,text/plain" hidden>
       <button class="ghost" id="load-files-btn" style="align-self:flex-start">Load from files</button>
       <textarea id="pieces" placeholder="ss1.xxxxxxxx.3.1.…&#10;ss1.xxxxxxxx.3.4.…&#10;ss1.xxxxxxxx.3.5.…" spellcheck="false"></textarea>
+      <div class="msg" id="pieces-counter"></div>
       <button id="do-combine">Unlock</button>
       <div class="msg" id="combine-msg"></div>
       <div id="combine-out" hidden>
@@ -130,6 +131,35 @@
   // Keep the threshold sane as the piece count changes.
   $("n").addEventListener("input", () => { if (+$("k").value > +$("n").value) $("k").value = $("n").value; });
 
+  $("pieces").addEventListener("input", () => {
+    const counter = $("pieces-counter");
+    const raw = $("pieces").value;
+    if (!raw.trim()) { say(counter, ""); return; }
+    const tokens = raw.split(/[\s,]+/).filter(Boolean);
+    const bySet = new Map();
+    for (const t of tokens) {
+      try {
+        const p = Shamir.parse(t);
+        if (!bySet.has(p.set)) bySet.set(p.set, { k: p.k, xs: new Set() });
+        bySet.get(p.set).xs.add(p.x);
+      } catch { /* ignore unparseable tokens */ }
+    }
+    const sets = [...bySet.entries()];
+    if (sets.length === 0) { say(counter, ""); return; }
+    if (sets.length > 1) {
+      const total = sets.reduce((s, [, v]) => s + v.xs.size, 0);
+      say(counter, `${total} pieces across ${sets.length} different splits`, "err");
+      return;
+    }
+    const [setId, { k, xs }] = sets[0];
+    const have = xs.size;
+    if (have >= k) {
+      say(counter, `${have} of ${have} pieces ready — set ${setId}`, "ok");
+    } else {
+      say(counter, `${have} piece${have > 1 ? "s" : ""} · set ${setId} · need ${k - have} more`);
+    }
+  });
+
   $("do-split").onclick = async () => {
     const msg = $("split-msg");
     try {
@@ -171,7 +201,7 @@
     } catch (e) { $("combine-out").hidden = true; say(msg, e.message, "err"); }
   };
   $("copy-result").onclick = (e) => copy($("result").textContent, e.target);
-  $("hide-result").onclick = () => { $("result").textContent = ""; $("pieces").value = ""; $("combine-out").hidden = true; say($("combine-msg"), ""); };
+  $("hide-result").onclick = () => { $("result").textContent = ""; $("combine-out").hidden = true; say($("combine-msg"), ""); };
 
   $("load-files-btn").onclick = () => $("load-files-input").click();
   $("load-files-input").addEventListener("change", (e) => {
@@ -193,6 +223,7 @@
         if (--remaining === 0) {
           if (added > 0) say($("combine-msg"), `Loaded ${added} piece${added > 1 ? "s" : ""}.`, "ok");
           else say($("combine-msg"), "No new pieces found in the selected files.", "");
+          $("pieces").dispatchEvent(new Event("input"));
         }
       };
       reader.readAsText(file);
@@ -210,6 +241,18 @@
       say(msg, "Parsed.", "ok");
     } catch (e) { $("inspect-out").hidden = true; say(msg, e.message, "err"); }
   };
+
+  $("inspect-share").addEventListener("input", () => {
+    const val = $("inspect-share").value.trim();
+    if (!val) { $("inspect-out").hidden = true; say($("inspect-msg"), ""); return; }
+    try {
+      const m = Shamir.inspect(val);
+      $("inspect-result").textContent =
+        `Set ID:    ${m.set}\nThreshold: ${m.k} pieces needed\nShare #:   ${m.x}\nPayload:   ${m.secret_bytes} bytes`;
+      $("inspect-out").hidden = false;
+      say($("inspect-msg"), "");
+    } catch { $("inspect-out").hidden = true; }
+  });
 </script>
 </body>
 </html>

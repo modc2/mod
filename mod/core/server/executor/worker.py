@@ -452,6 +452,10 @@ class SandboxWorker:
             except (ProcessLookupError, PermissionError):
                 pass
             proc.kill()
+            try:
+                proc.communicate()
+            except Exception:
+                pass
             raise TimeoutError(f"Worker timed out after {timeout}s")
 
         finally:
@@ -462,6 +466,10 @@ class SandboxWorker:
                 try:
                     proc.kill()
                 except (ProcessLookupError, PermissionError):
+                    pass
+                try:
+                    proc.communicate()
+                except Exception:
                     pass
 
     def kill(self, cid: str) -> bool:
@@ -666,6 +674,10 @@ class _DockerPersistentWorker:
 
         except subprocess.TimeoutExpired:
             proc.kill()
+            try:
+                proc.communicate()
+            except Exception:
+                pass
             raise TimeoutError(f"Docker worker {self.name} timed out after {timeout}s")
 
         except json.JSONDecodeError:
@@ -787,19 +799,21 @@ class DockerWorker:
 
     def _acquire_worker(self) -> Optional[_DockerPersistentWorker]:
         """Get an idle worker container, or spin up a new one if under max."""
+        worker_to_start = None
         with self._lock:
             # Try to find an idle, alive worker
             for w in self._workers:
-                if not w.busy and w.alive:
+                if not w.busy and w._alive:
                     return w
-            # Try to find an idle, dead worker and restart it
+            # Try to find an idle, dead worker; mark busy to reserve it before releasing lock
             for w in self._workers:
                 if not w.busy:
-                    w.start()
-                    return w
-            # Spin up a new container if under max
-            if len(self._workers) < self.max_workers:
-                w = _DockerPersistentWorker(
+                    w.busy = True
+                    worker_to_start = w
+                    break
+            # Spin up a new container if under max; append inside lock to claim the slot
+            if worker_to_start is None and len(self._workers) < self.max_workers:
+                worker_to_start = _DockerPersistentWorker(
                     worker_id=len(self._workers),
                     image=self.image,
                     memory=self.memory,
@@ -808,19 +822,37 @@ class DockerWorker:
                     mod_path=self._mod_path,
                     storage_path=self._storage_path,
                 )
-                w.start()
-                self._workers.append(w)
-                return w
+                worker_to_start.busy = True
+                self._workers.append(worker_to_start)
+
+        # Start the worker outside the lock so docker I/O doesn't block the pool
+        if worker_to_start is not None:
+            try:
+                worker_to_start.start()
+            except Exception:
+                worker_to_start.busy = False
+                raise
+            return worker_to_start
 
         # All workers busy — wait briefly for one to free up
         for _ in range(100):  # wait up to 10 seconds
             time.sleep(0.1)
+            worker_to_start = None
             with self._lock:
                 for w in self._workers:
                     if not w.busy:
-                        if not w.alive:
-                            w.start()
-                        return w
+                        if w._alive:
+                            return w
+                        w.busy = True
+                        worker_to_start = w
+                        break
+            if worker_to_start is not None:
+                try:
+                    worker_to_start.start()
+                except Exception:
+                    worker_to_start.busy = False
+                    raise
+                return worker_to_start
         return None
 
     def _auto_scale_loop(self):

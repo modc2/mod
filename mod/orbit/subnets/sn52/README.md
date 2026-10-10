@@ -1,6 +1,6 @@
 # sn52 — Dojo ا
 
-Bittensor subnet **52** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **52** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/tensorplex-labs/dojo)
 
@@ -8,11 +8,11 @@ Links: [github](https://github.com/tensorplex-labs/dojo)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006022 | -0.00% | -0.04% | -0.65% | 36,876 | 17,483 | 3.36 |
+| 0.006021 | +0.00% | -0.01% | -0.34% | 36,916 | 17,482 | 0.92 |
 
 ## Last 24h flow
 
-7 trades by 6 coldkeys · 0 buys (0.00 τ) / 7 sells (2.89 τ) · net -2.89 τ
+5 trades by 5 coldkeys · 0 buys (0.00 τ) / 5 sells (0.45 τ) · net -0.45 τ
 
 ## Use
 

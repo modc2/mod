@@ -2,7 +2,7 @@
 
 CapabilityForge Next rewards traceable training-data improvements that measurably enhance the accuracy, reasoning, clarity, age appropriateness, and safety of learning-oriented AI through reproducible evaluation.
 
-Bittensor subnet **119** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **119** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/capabilityforge-next/capabilityforge) · [discord](https://discord.com/channels/799672011265015819/1381660350818029578)
 
@@ -10,15 +10,11 @@ Links: [github](https://github.com/capabilityforge-next/capabilityforge) · [dis
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002259 | -0.00% | -0.07% | +1.10% | 6,933 | 3,070 | 1.04 |
+| 0.002260 | +0.00% | +0.03% | +1.17% | 6,951 | 3,070 | 59.48 |
 
 ## Last 24h flow
 
-2 trades by 2 coldkeys · 0 buys (0.00 τ) / 2 sells (0.66 τ) · net -0.66 τ
-
-## News
-
-- 2026-09-09 · commit · [Initial commit](https://github.com/capabilityforge-next/capabilityforge/commit/33e2ade40c368bf291d221dfe9bcd71a957d4aba) — capabilityforge-next/capabilityforge
+11 trades by 6 coldkeys · 4 buys (30.00 τ) / 7 sells (29.11 τ) · net 0.89 τ
 
 ## Use
 

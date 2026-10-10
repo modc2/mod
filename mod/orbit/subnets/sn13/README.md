@@ -2,7 +2,7 @@
 
 Scraping the world's social media data
 
-Bittensor subnet **13** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **13** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/macrocosm-os/data-universe) · [url](https://datauniverse.macrocosmos.ai/) · [discord](https://discord.gg/adsQPnFRY)
 
@@ -10,20 +10,22 @@ Links: [github](https://github.com/macrocosm-os/data-universe) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004448 | +0.00% | -0.27% | -5.74% | 27,655 | 17,820 | 24.78 |
+| 0.004441 | -0.01% | -0.15% | -5.76% | 27,645 | 17,806 | 17.44 |
 
 ## Last 24h flow
 
-266 trades by 142 coldkeys · 10 buys (0.05 τ) / 256 sells (23.83 τ) · net -23.78 τ
+366 trades by 134 coldkeys · 1 buys (1.47 τ) / 365 sells (14.99 τ) · net -13.52 τ
 
 ## News
 
+- 2026-10-09 · commit · [Merge pull request #924 from macrocosm-os/dev](https://github.com/macrocosm-os/data-universe/commit/bb261aaec9a9a3153c90ccd5981553b4f5bf8561) — macrocosm-os/data-universe
+- 2026-10-09 · release · [Release v1.18.74](https://github.com/macrocosm-os/data-universe/releases/tag/v1.18.74) — macrocosm-os/data-universe
+- 2026-10-09 · commit · [Merge pull request #922 from macrocosm-os/fix/reddit-fresh-post-valid…](https://github.com/macrocosm-os/data-universe/commit/3a8246be8a70cf4e07b9289d9dbc9801d405bf5e) — macrocosm-os/data-universe
+- 2026-10-08 · commit · [fix(reddit): stop failing fresh posts against the archive snapshot](https://github.com/macrocosm-os/data-universe/commit/503109734825a91eba57d11ebb821a4cb384d46b) — macrocosm-os/data-universe
 - 2026-10-01 · release · [Release v1.18.73](https://github.com/macrocosm-os/data-universe/releases/tag/v1.18.73) — macrocosm-os/data-universe
 - 2026-10-01 · commit · [Merge pull request #921 from macrocosm-os/dev](https://github.com/macrocosm-os/data-universe/commit/af8442153cc3f956b90d3e6aa179a14cb9cd6cb8) — macrocosm-os/data-universe
 - 2026-10-01 · commit · [Merge pull request #919 from macrocosm-os/fix/job-window-full-scan](https://github.com/macrocosm-os/data-universe/commit/ffa8c3ef22130f3a5a0c95e52a71b6396c852d51) — macrocosm-os/data-universe
 - 2026-10-01 · commit · [fix(s3): run the job-window scan only on locally cached files](https://github.com/macrocosm-os/data-universe/commit/15e731b7eeb37b5ea1e70e6ed138905d0d740828) — macrocosm-os/data-universe
-- 2026-10-01 · commit · [Merge pull request #920 from macrocosm-os/docs/agents-md](https://github.com/macrocosm-os/data-universe/commit/673f187e720fcc241c35a44960741cd5278a5c7a) — macrocosm-os/data-universe
-- 2026-10-01 · commit · [Merge pull request #916 from macrocosm-os/improve-gravity-logging](https://github.com/macrocosm-os/data-universe/commit/8ea25391a773d295adaad4cd25688c9ef2a6827f) — macrocosm-os/data-universe
 
 ## Use
 

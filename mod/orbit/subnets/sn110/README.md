@@ -2,7 +2,7 @@
 
 Enterprise Inference Hardware, 100% Green Energy
 
-Bittensor subnet **110** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **110** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [url](https://www.green-compute.com/)
 
@@ -10,11 +10,11 @@ Links: [url](https://www.green-compute.com/)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.017484 | +1.09% | -2.40% | +3.57% | 65,234 | 9,248 | 1,787 |
+| 0.018845 | +2.13% | +7.78% | +14.56% | 70,473 | 9,629 | 5,898 |
 
 ## Last 24h flow
 
-215 trades by 98 coldkeys · 98 buys (786.28 τ) / 117 sells (946.33 τ) · net -160.05 τ
+467 trades by 151 coldkeys · 255 buys (3,076 τ) / 212 sells (2,767 τ) · net 308.67 τ
 
 ## Use
 

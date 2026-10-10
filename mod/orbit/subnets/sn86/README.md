@@ -1,6 +1,6 @@
 # sn86 — kaunan ᚳ
 
-Bittensor subnet **86** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **86** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 ## Market
 

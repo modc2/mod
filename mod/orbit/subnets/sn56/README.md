@@ -2,7 +2,7 @@
 
 Best AutoML plaftorm in the world
 
-Bittensor subnet **56** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **56** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/gradients-ai/G.O.D) · [url](https://www.gradients.io/) · discord `None`
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/gradients-ai/G.O.D) · [url](https://www.grad
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.014895 | +0.00% | -0.12% | -0.39% | 92,291 | 49,527 | 134.54 |
+| 0.014866 | -0.01% | -0.19% | -0.44% | 92,235 | 49,494 | 208.17 |
 
 ## Last 24h flow
 
-44 trades by 30 coldkeys · 16 buys (4.02 τ) / 28 sells (79.06 τ) · net -75.04 τ
+71 trades by 48 coldkeys · 44 buys (33.60 τ) / 27 sells (125.00 τ) · net -91.40 τ
 
 ## News
 
+- 2026-10-09 · commit · [replacement for DQ (#1394)](https://github.com/gradients-ai/G.O.D/commit/de5ea9cd90bfff32d59a8403cb62433a8ce46bab) — gradients-ai/G.O.D
 - 2026-10-07 · commit · [Fix/70b runpod eval path (#1393)](https://github.com/gradients-ai/G.O.D/commit/b49ba8644a0d705e9b035746eceaa05614742934) — gradients-ai/G.O.D
 - 2026-10-05 · commit · [cheat check moved to round 2 (#1391)](https://github.com/gradients-ai/G.O.D/commit/e524ce62ce09b14b1cebdf169b46f114cdbaabf3) — gradients-ai/G.O.D
 - 2026-10-02 · commit · [Oversampled pool: text-only <=4B models (#1388)](https://github.com/gradients-ai/G.O.D/commit/df81121a9b56f7d5f2a4261038aad8b6a93af56a) — gradients-ai/G.O.D
@@ -25,7 +26,6 @@ Links: [github](https://github.com/gradients-ai/G.O.D) · [url](https://www.grad
 - 2026-09-27 · commit · [3 task round 1 image (#1387)](https://github.com/gradients-ai/G.O.D/commit/17a2723756daa88561d3dcd5b5d86263523e9a12) — gradients-ai/G.O.D
 - 2026-09-24 · commit · [Oversampled pool: drop >3B and Qwen models (#1389)](https://github.com/gradients-ai/G.O.D/commit/dd8e898b0262ad85ec8ae09dbdeef94a70b5dec5) — gradients-ai/G.O.D
 - 2026-09-22 · commit · [Add Runpod evaluation backend via dstack (#1386)](https://github.com/gradients-ai/G.O.D/commit/fb8cff268f57a049371d7b4c3518660fae17863b) — gradients-ai/G.O.D
-- 2026-09-22 · commit · [Drop the forced pre-boss model, widen boss large instruct to 30-72B (…](https://github.com/gradients-ai/G.O.D/commit/0791bb6e345533cae8088ffcc4d214c70c22efaf) — gradients-ai/G.O.D
 
 ## Use
 

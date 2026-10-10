@@ -2,7 +2,7 @@
 
 Pushing weather forecasts beyond state-of-the-art
 
-Bittensor subnet **18** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **18** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/Orpheus-AI/Zeus) · [url](https://www.zeussubnet.com/) · discord `wouter_orpheusai`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Orpheus-AI/Zeus) · [url](https://www.zeussub
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003869 | -0.01% | +2.42% | -3.15% | 22,900 | 9,995 | 3,084 |
+| 0.003755 | +0.86% | -2.97% | -2.45% | 22,250 | 9,847 | 1,107 |
 
 ## Last 24h flow
 
-308 trades by 137 coldkeys · 181 buys (1,602 τ) / 127 sells (1,481 τ) · net 120.90 τ
+186 trades by 107 coldkeys · 48 buys (489.17 τ) / 138 sells (627.52 τ) · net -138.35 τ
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 The Intelligence Layer for AI Inference
 
-Bittensor subnet **10** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **10** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pareton.ai/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pare
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006216 | -0.86% | -2.91% | -2.38% | 38,009 | 16,249 | 2,339 |
+| 0.006132 | +0.06% | -1.69% | +1.33% | 37,536 | 16,138 | 1,842 |
 
 ## Last 24h flow
 
-170 trades by 86 coldkeys · 93 buys (1,076 τ) / 77 sells (1,288 τ) · net -212.35 τ
+144 trades by 68 coldkeys · 66 buys (852.32 τ) / 78 sells (988.21 τ) · net -135.89 τ
 
 ## News
 

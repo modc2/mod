@@ -2,7 +2,7 @@
 
 The open alternative to frontier AI | Efficient autonomous research
 
-Bittensor subnet **100** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **100** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/CortexLM/cortex) · [url](https://network.cortex.foundation)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/CortexLM/cortex) · [url](https://network.cor
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003516 | +0.08% | -2.55% | -5.06% | 9,559 | 2,387 | 394.08 |
+| 0.003620 | +0.75% | +2.95% | -4.05% | 9,867 | 2,422 | 565.24 |
 
 ## Last 24h flow
 
-83 trades by 44 coldkeys · 39 buys (180.58 τ) / 44 sells (211.85 τ) · net -31.27 τ
+98 trades by 41 coldkeys · 49 buys (300.19 τ) / 49 sells (264.34 τ) · net 35.85 τ
 
 ## News
 
@@ -24,8 +24,6 @@ Links: [github](https://github.com/CortexLM/cortex) · [url](https://network.cor
 - 2026-09-25 · commit · [fix: bring production hotfixes into main; algorithm 3 empty-epoch bur…](https://github.com/CortexLM/cortex/commit/163f814698d1c3db0e0d98e1c5020db86607dd93) — CortexLM/cortex
 - 2026-09-24 · commit · [feat(challenges): load docker challenges and move bounty out (#312)](https://github.com/CortexLM/cortex/commit/6c6d72b15c45b35c29428abb7ef87a509212ec85) — CortexLM/cortex
 - 2026-09-21 · commit · [fix(hooks): isolate fixture git context before push (#308)](https://github.com/CortexLM/cortex/commit/89b9760067fbc444cc387cc595bcd51709e05179) — CortexLM/cortex
-- 2026-09-10 · release · [ctx CLI v3.3.31](https://github.com/CortexLM/cortex/releases/tag/v3.3.31) — CortexLM/cortex
-- 2026-09-09 · release · [ctx CLI v3.3.30](https://github.com/CortexLM/cortex/releases/tag/v3.3.30) — CortexLM/cortex
 
 ## Use
 

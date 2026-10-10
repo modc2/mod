@@ -2,7 +2,7 @@
 
 The peer to peer privacy network and encryption layer for the internet
 
-Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) · discord `xcolwell`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) ·
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006603 | +0.23% | -3.59% | -1.12% | 40,501 | 13,144 | 1,290 |
+| 0.006384 | -0.05% | -3.31% | -5.24% | 39,212 | 12,931 | 5,949 |
 
 ## Last 24h flow
 
-68 trades by 37 coldkeys · 34 buys (518.34 τ) / 34 sells (765.43 τ) · net -247.09 τ
+354 trades by 151 coldkeys · 208 buys (2,871 τ) / 146 sells (3,082 τ) · net -211.09 τ
 
 ## News
 
-- 2026-10-09 · commit · [Merge the SN25 launch record and momentum terms](https://github.com/urfoundation/sn/commit/0f525b115eea7659ef03fc1ca4efa8076c72301b) — urfoundation/sn
-- 2026-10-09 · commit · [Merge shape-only bootstrap custody checks and untraversable approval …](https://github.com/urfoundation/sn/commit/e1500f150584a3b39ba9753b20f7e2eeb50f1147) — urfoundation/sn
-- 2026-10-09 · commit · [Document shape-only v5 custody checks and untraversable approval sources](https://github.com/urfoundation/sn/commit/4a8d6f9bc35ea9e52e7cfe547f412a397d9180cb) — urfoundation/sn
-- 2026-10-09 · commit · [Read retained production inputs when a signed source is untraversable](https://github.com/urfoundation/sn/commit/6f1997a3adf0bc04593725d74bda52c5089ddce9) — urfoundation/sn
-- 2026-10-09 · commit · [Inspect pre-activation bootstrap custody paths by shape only](https://github.com/urfoundation/sn/commit/de00ed187a6e3bd3cfd663ef485f6db74b515713) — urfoundation/sn
-- 2026-10-08 · release · [v2026.10.8-1066946420](https://github.com/urfoundation/sn/releases/tag/v2026.10.8-1066946420) — urfoundation/sn
-- 2026-10-08 · release · [v2026.10.8-1066912010](https://github.com/urfoundation/sn/releases/tag/v2026.10.8-1066912010) — urfoundation/sn
-- 2026-10-08 · commit · [Preserve regression fixes, memory diagnostics, and test harness evidence](https://github.com/urfoundation/sn/commit/6c322bf6165f22b5636c514f8e3a33b494f766d6) — urfoundation/sn
+- 2026-10-10 · release · [v2026.10.9-1067985620](https://github.com/urfoundation/sn/releases/tag/v2026.10.9-1067985620) — urfoundation/sn
+- 2026-10-10 · release · [v2026.10.9-1067932340](https://github.com/urfoundation/sn/releases/tag/v2026.10.9-1067932340) — urfoundation/sn
+- 2026-10-09 · commit · [Tidy go.mod against the current sibling checkouts](https://github.com/urfoundation/sn/commit/68ab0eee29d4d5ff30e8509d2820008abd6221c2) — urfoundation/sn
+- 2026-10-09 · commit · [Review VERSION2 readiness and specify cumulative app claims](https://github.com/urfoundation/sn/commit/21303ed1468671141307fe160e0ae8d2b4dc7a9a) — urfoundation/sn
+- 2026-10-09 · commit · [Test that a quarantining run ends with exit status 75](https://github.com/urfoundation/sn/commit/2773f1cbe85ac9c6319ab09c74a83741d1b70538) — urfoundation/sn
+- 2026-10-09 · commit · [Sign an auto-register operator in again after a rejected network token](https://github.com/urfoundation/sn/commit/3bbffc82b8cff7e7a46f75b9635ef85b8a7148ed) — urfoundation/sn
+- 2026-10-09 · commit · [Set a rejected network token aside under its owner lock](https://github.com/urfoundation/sn/commit/d26f048071646164c0ddb52e7d98eb13a1ad42d7) — urfoundation/sn
+- 2026-10-09 · commit · [Add the version 2 pool payment scaling design, its review and the fin…](https://github.com/urfoundation/sn/commit/31dd6fd521a22a38c4468ea7543795c246ea4b27) — urfoundation/sn
 
 ## Use
 

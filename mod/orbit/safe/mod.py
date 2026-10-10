@@ -9,6 +9,8 @@ class Mod:
 
     def forward(self, **kwargs):
         """Default entry point."""
+        if kwargs.get('method') == 'readme' or kwargs.get('action') == 'readme':
+            return self.readme()
         return self.info()
 
     def info(self):
@@ -18,7 +20,7 @@ class Mod:
             'name': cfg.get('name', ''),
             'description': cfg.get('description', ''),
             'version': cfg.get('version', ''),
-            'path': self.path,
+            'schema': cfg.get('schema', ''),
             'files': [f for f in os.listdir(self.path)
                       if f != '__pycache__' and not f.startswith('.')],
         }

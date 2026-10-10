@@ -2,7 +2,7 @@
 
 autonomous software development
 
-Bittensor subnet **74** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **74** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/entrius/gittensor/tree/main) · [url](https://gittensor.io) · discord ` `
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/entrius/gittensor/tree/main) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003129 | -0.00% | +0.60% | -2.80% | 16,716 | 5,868 | 56.31 |
+| 0.003121 | -0.00% | -0.27% | -2.26% | 16,689 | 5,861 | 198.32 |
 
 ## Last 24h flow
 
-43 trades by 22 coldkeys · 28 buys (36.88 τ) / 15 sells (19.09 τ) · net 17.79 τ
+28 trades by 15 coldkeys · 12 buys (95.21 τ) / 16 sells (102.72 τ) · net -7.51 τ
 
 ## News
 
-- 2026-10-08 · commit · [Compute: the AMD avenue in the controller (vault 31 steps 3 and 4) (#…](https://github.com/entrius/gittensor/commit/e0b7331eee6416450abe926fab41f0133288b655) — entrius/gittensor
-- 2026-10-08 · commit · [Compute: the GPU vendor switch scaffold (vault 30 step 0) (#1825)](https://github.com/entrius/gittensor/commit/941f1688fa376c5677c69af15d587d6ad11bf907) — entrius/gittensor
-- 2026-10-08 · commit · [Catalog: RTX3090 and RTX4090 as listed entry cards (#1826)](https://github.com/entrius/gittensor/commit/cbc5faad8ca1cf32ccd5d20009486c1f0c5f1259) — entrius/gittensor
-- 2026-10-08 · commit · [gitt down waits for the customer; leaving never forfeits pay (#1824)](https://github.com/entrius/gittensor/commit/893123cc46cd8abd24e6bd3db6ddf77531b83c47) — entrius/gittensor
-- 2026-10-08 · commit · [Rentals: probe the rent range at admit; a closed range admits idle-on…](https://github.com/entrius/gittensor/commit/43ef5d41d282326532cc032cffa239939d2b5e5f) — entrius/gittensor
-- 2026-10-07 · commit · [gitt rent ps: explicit columns, pyright-clean (#1820)](https://github.com/entrius/gittensor/commit/e2d915da454ecd65e22b4a4a9d82ba67f93febc5) — entrius/gittensor
-- 2026-10-07 · commit · [Pay: a 48 h holdback; probation is the rental gate (#1818 phase 1) (#…](https://github.com/entrius/gittensor/commit/8a0bd2c13a8bb31f322338eda34273baf543ad29) — entrius/gittensor
-- 2026-10-07 · commit · [Validator-only packages become the validator extra (#1822)](https://github.com/entrius/gittensor/commit/a68b6b4da31be5377d10cdc7f1ccae972bc757d9) — entrius/gittensor
+- 2026-10-09 · commit · [Interconnect: nvidia-smi topo -m wraps its header in terminal codes; …](https://github.com/entrius/gittensor/commit/aae77d4ea86ab788eb672b217cbb60f8aa3c7ec8) — entrius/gittensor
+- 2026-10-09 · commit · [Host specs per box: measure every round, floor download, show the cus…](https://github.com/entrius/gittensor/commit/3654abffb738687619bd7b962604f0d5f5c1f0f1) — entrius/gittensor
+- 2026-10-09 · commit · [NVIDIA final run: AMD iGPU is not a mixed box; gitt down waits for th…](https://github.com/entrius/gittensor/commit/01f2c230e22b1e1cc3042bfb01b91c18b2598dd8) — entrius/gittensor
+- 2026-10-09 · commit · [AMD: MI300X qualified on the MI325X digest (vault 33 section 10) (#1833)](https://github.com/entrius/gittensor/commit/f761d1f00f87acd00d1a6e3a17e0581c9174a887) — entrius/gittensor
+- 2026-10-09 · commit · [Rentals: every start/stop outcome reaches the log; gitt rent reasons …](https://github.com/entrius/gittensor/commit/914fe46bd1ca871e56b36416bf511339c09425c5) — entrius/gittensor
+- 2026-10-09 · commit · [Miner-facing messages: gitt up rows say what to fix; bench phrases ca…](https://github.com/entrius/gittensor/commit/4c8eb98b953c9596d08c67602d34c164178020b5) — entrius/gittensor
+- 2026-10-09 · commit · [Controller log: rental thread results, typed rental events, at_iso, e…](https://github.com/entrius/gittensor/commit/d506c45a8f6ffd7975af1800a50029dc2c5274c6) — entrius/gittensor
+- 2026-10-09 · commit · [Compute: build and publish entrius/gt-proof-rocm in agent-images (vau…](https://github.com/entrius/gittensor/commit/8dce88f76cbcfb2faa786682701bfa2130bf37e4) — entrius/gittensor
 
 ## Use
 

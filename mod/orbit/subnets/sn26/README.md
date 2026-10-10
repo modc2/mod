@@ -2,7 +2,7 @@
 
 Decentralized adversarial robustness network
 
-Bittensor subnet **26** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **26** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/0xsigurd/Perturb) · [url](https://www.perturbai.io/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/0xsigurd/Perturb) · [url](https://www.pertur
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002586 | -0.00% | +9.57% | +12.45% | 4,474 | 1,744 | 424.30 |
+| 0.002488 | -0.00% | -3.80% | +9.00% | 4,323 | 1,711 | 190.29 |
 
 ## Last 24h flow
 
-90 trades by 39 coldkeys · 31 buys (251.13 τ) / 59 sells (172.46 τ) · net 78.67 τ
+49 trades by 28 coldkeys · 20 buys (78.44 τ) / 29 sells (111.17 τ) · net -32.73 τ
 
 ## News
 

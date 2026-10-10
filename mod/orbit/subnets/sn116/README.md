@@ -2,7 +2,7 @@
 
 Transforming engineering simulations through machine learning
 
-Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://https://carbonphysics.ai) · discord `...`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://http
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.037541 | -2.78% | -3.64% | +1787.44% | 6,685 | 1,893 | 1,656 |
+| 0.041616 | -0.86% | +10.85% | +2107.50% | 7,710 | 1,993 | 1,252 |
 
 ## Last 24h flow
 
-201 trades by 81 coldkeys · 109 buys (810.41 τ) / 92 sells (829.49 τ) · net -19.08 τ
+196 trades by 80 coldkeys · 117 buys (676.14 τ) / 79 sells (560.27 τ) · net 115.86 τ
 
 ## News
 
-- 2026-10-09 · commit · [Merge pull request #857 from carbonphysicsai/codex/challenge-volume-l…](https://github.com/carbonphysicsai/Carbon/commit/db0772d79692384ffc92b878224ebfee58ee1a99) — carbonphysicsai/Carbon
-- 2026-10-09 · commit · [Merge pull request #859 from carbonphysicsai/agent/dashboard-d3](https://github.com/carbonphysicsai/Carbon/commit/4f7417b79ee16cb41fe4314648b3b09bfd3c3056) — carbonphysicsai/Carbon
-- 2026-10-09 · commit · [Merge pull request #858 from carbonphysicsai/agent/dashboard-d2](https://github.com/carbonphysicsai/Carbon/commit/a7cc8e165534f53b287db4283d3f4a33e2093662) — carbonphysicsai/Carbon
-- 2026-10-09 · commit · [Merge pull request #856 from carbonphysicsai/agent/dashboard-d1](https://github.com/carbonphysicsai/Carbon/commit/b1114d4b7ca02ffe6e570b4977b785fa430ab033) — carbonphysicsai/Carbon
-- 2026-10-09 · commit · [Merge pull request #855 from carbonphysicsai/agent/dashboard-plan](https://github.com/carbonphysicsai/Carbon/commit/965deaf73db7a338f53ae180a0ba1fb6298d8171) — carbonphysicsai/Carbon
-- 2026-10-08 · release · [worker-images-v3](https://github.com/carbonphysicsai/Carbon/releases/tag/worker-images-v3) — carbonphysicsai/Carbon
-- 2026-10-08 · commit · [Merge pull request #843 from carbonphysicsai/claude/launchpad-multi-i…](https://github.com/carbonphysicsai/Carbon/commit/22d535c941e73bf5f0e1ce1cc9dbc02d9cfc08d5) — carbonphysicsai/Carbon
-- 2026-10-08 · commit · [Merge pull request #840 from carbonphysicsai/agent/design-bank](https://github.com/carbonphysicsai/Carbon/commit/9d011aba3989c3e99f5ba5f427c99a61f23b78f6) — carbonphysicsai/Carbon
+- 2026-10-10 · commit · [Merge pull request #952 from carbonphysicsai/claude/ci-mirror-empty-d…](https://github.com/carbonphysicsai/Carbon/commit/915225242146be67e6de098d4a08324cc63dc684) — carbonphysicsai/Carbon
+- 2026-10-10 · commit · [Merge pull request #950 from carbonphysicsai/claude/readiness-prelive…](https://github.com/carbonphysicsai/Carbon/commit/47f80a08100531f8af222720dd12dbe0d13b0661) — carbonphysicsai/Carbon
+- 2026-10-10 · commit · [CI: the mirror step tolerates an empty daemon.json](https://github.com/carbonphysicsai/Carbon/commit/1b76c9ba58ac79e3a4c7464f57f6efc67a29d1dc) — carbonphysicsai/Carbon
+- 2026-10-10 · commit · [Merge pull request #908 from carbonphysicsai/claude/level4-g6-loss](https://github.com/carbonphysicsai/Carbon/commit/1918c3d735963327de6a4505d16ab7c81e8e39d3) — carbonphysicsai/Carbon
+- 2026-10-10 · commit · [Merge pull request #944 from carbonphysicsai/codex/launchpad-gate-bre…](https://github.com/carbonphysicsai/Carbon/commit/19315df8aaae4a328fd3cbc3fc3b08a89c94ecff) — carbonphysicsai/Carbon
+- 2026-10-09 · commit · [Merge pull request #941 from carbonphysicsai/codex/warpage-scope-alig…](https://github.com/carbonphysicsai/Carbon/commit/4578d20b27f3d88641a8fe06b3bdbbde8aca17f7) — carbonphysicsai/Carbon
+- 2026-10-09 · commit · [Merge pull request #907 from carbonphysicsai/claude/readiness-baseline-2](https://github.com/carbonphysicsai/Carbon/commit/1fafcbf3b18f0ac0a5521bcea5c427c0389a2d79) — carbonphysicsai/Carbon
+- 2026-10-09 · commit · [Merge pull request #933 from carbonphysicsai/codex/f13-saved-integral…](https://github.com/carbonphysicsai/Carbon/commit/18f0b1870262a7f64481f8eb2f299535579738a8) — carbonphysicsai/Carbon
 
 ## Use
 

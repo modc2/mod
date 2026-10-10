@@ -2,7 +2,7 @@
 
 Coordinated Learning
 
-Bittensor subnet **3** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **3** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/unarbos/teutonic) · [url](https://www.teutonic.ai/) · discord `@unarbos`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/unarbos/teutonic) · [url](https://www.teuton
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.025663 | +0.01% | -0.13% | +0.62% | 160,058 | 76,107 | 711.12 |
+| 0.025601 | +0.02% | -0.24% | -0.04% | 159,865 | 76,040 | 926.40 |
 
 ## Last 24h flow
 
-80 trades by 49 coldkeys · 39 buys (238.28 τ) / 41 sells (374.90 τ) · net -136.62 τ
+119 trades by 75 coldkeys · 72 buys (308.32 τ) / 47 sells (504.74 τ) · net -196.42 τ
 
 ## News
 
+- 2026-10-09 · commit · [Document-index download retries](https://github.com/unarbos/teutonic/commit/58e37fa8a22a0d8c5366d7c2b2728ab8206b406c) — unarbos/teutonic
+- 2026-10-09 · commit · [Update early-stopping feature check to use token-weighted observed qu…](https://github.com/unarbos/teutonic/commit/66dd1b15f2effdc898475fd6b691a5dea8ddba4f) — unarbos/teutonic
+- 2026-10-09 · commit · [Add competition filters to evaluation history and update dataset summ…](https://github.com/unarbos/teutonic/commit/14a9bb2cd8f28b645fa6abb146fe00a1593e1c96) — unarbos/teutonic
+- 2026-10-09 · commit · [Add document-masked evaluation and token-weighted scoring with 2K–8K …](https://github.com/unarbos/teutonic/commit/f3988cf2cc28c1528ffb51746a1a235f3d04b252) — unarbos/teutonic
 - 2026-10-08 · commit · [Add competition dataset panel and update evaluation history layout](https://github.com/unarbos/teutonic/commit/25c64ca4857015c01f10257eac609d2fc8389fe5) — unarbos/teutonic
 - 2026-10-08 · commit · [Fix evaluator replica race in Transformers module cache](https://github.com/unarbos/teutonic/commit/803af9c332f70a0259921a6e45a3767abc0abc6b) — unarbos/teutonic
 - 2026-10-07 · commit · [Refresh stale split baselines after coronation](https://github.com/unarbos/teutonic/commit/3475ddab7411ee695770b6d1af1c9195494fd86b) — unarbos/teutonic
 - 2026-10-07 · commit · [Add per-competition error visibility toggles](https://github.com/unarbos/teutonic/commit/7c8b80eeeaeaa7477c9f3f08555f2d6916e42024) — unarbos/teutonic
-- 2026-10-07 · commit · [Update delta_threshold values for MATH, CODE, and TEXT splits to 0.002](https://github.com/unarbos/teutonic/commit/f5bfc3f1fba26599b314e7458b36993a2d8a777c) — unarbos/teutonic
-- 2026-10-07 · commit · [Add automatic upload credential renewal and latest-generation discovery](https://github.com/unarbos/teutonic/commit/b7b3618c0f3733b1443b968926e538a45f07429e) — unarbos/teutonic
-- 2026-10-06 · commit · [Adjust weights for MATH split](https://github.com/unarbos/teutonic/commit/8a804269aecd638acc414b9919b5d9efdb445bf4) — unarbos/teutonic
-- 2026-10-06 · commit · [Enforce original-coldkey checkpoint ownership and enable promotions a…](https://github.com/unarbos/teutonic/commit/188ea802426f4394ec93362b1ee554ff7cad3dd6) — unarbos/teutonic
 
 ## Use
 

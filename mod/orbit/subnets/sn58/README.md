@@ -2,7 +2,7 @@
 
 The open frontier for adaptive robot intelligence
 
-Bittensor subnet **58** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **58** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/robotensor/attune-subnet) · [url](https://attune.robotensor.ai) · [discord](https://discord.com/channels/799672011265015819/1550516268002578432)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/robotensor/attune-subnet) · [url](https://at
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.011739 | -0.56% | -0.47% | +89.25% | 9,937 | 1,361 | 2,096 |
+| 0.008576 | +0.31% | -26.96% | +35.34% | 7,321 | 1,164 | 1,572 |
 
 ## Last 24h flow
 
-487 trades by 131 coldkeys · 265 buys (1,046 τ) / 222 sells (1,043 τ) · net 3.54 τ
+317 trades by 96 coldkeys · 140 buys (686.50 τ) / 177 sells (878.81 τ) · net -192.32 τ
 
 ## News
 
+- 2026-10-09 · commit · [feat(vector): ignore commitments made before the start block](https://github.com/robotensor/attune-subnet/commit/25fff1ba5346ba05f98bfa4d16bc543042a23af9) — robotensor/attune-subnet
 - 2026-10-08 · commit · [chore: keep config/ out of the repository; each host keeps its own](https://github.com/robotensor/attune-subnet/commit/ba4fba46c3b183edfc4bd1c4ef2098e454447e7d) — robotensor/attune-subnet
 - 2026-10-08 · commit · [fix(miner): `attune miner status` checks the Hub with the submission …](https://github.com/robotensor/attune-subnet/commit/ab0a7a0310c7fd6aa1b104a4ea64115823ed2084) — robotensor/attune-subnet
 - 2026-10-07 · commit · [refactor: no `attune doctor`](https://github.com/robotensor/attune-subnet/commit/0f16095014543bcce61d7030b4fae5d9666e9e64) — robotensor/attune-subnet

@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import mod as m
 
 class Mod:
@@ -14,6 +15,7 @@ class Mod:
         self.name = cfg.get('name', 'selfgov')
         self.description = cfg.get('description', 'selfgov')
         self.version = cfg.get('version', '0.0.0')
+        self.loaded_at = time.time()
 
     def forward(self, **kwargs):
         """Default entry point."""
@@ -32,6 +34,7 @@ class Mod:
             'description': self.description,
             'path': self.path,
             'files': [f for f in os.listdir(self.path) if not f.startswith('__')],
+            'loaded_at': self.loaded_at,
         }
 
     def readme(self):
@@ -39,5 +42,6 @@ class Mod:
         for name in ['README.md', 'readme.md', 'README.rst', 'README']:
             p = os.path.join(self.path, name)
             if os.path.exists(p):
-                return m.get_text(p)
-        return None
+                return {'content': m.get_text(p), 'path': p}
+        content = f"# {self.name}\n\n{self.description}\n\nVersion: {self.version}\n"
+        return {'content': content, 'synthesized': True}

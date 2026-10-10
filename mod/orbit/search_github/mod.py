@@ -15,14 +15,15 @@ class Mod:
             return self.search(**kwargs)
         return self.info()
 
-    def search(self, query, language=None, repo=None, n=10, **kwargs):
-        """Search GitHub code. Returns list of {path, repository, url, fragment}."""
+    def search(self, query, language=None, repo=None, n=10, page=1, **kwargs):
+        """Search GitHub code. Returns list of {path, repository, url, fragment, fragments}."""
         q = query
         if language:
             q += f' language:{language}'
         if repo:
             q += f' repo:{repo}'
-        url = 'https://api.github.com/search/code?q=' + urllib.parse.quote(q) + f'&per_page={min(int(n), 100)}'
+        page = max(1, int(page))
+        url = 'https://api.github.com/search/code?q=' + urllib.parse.quote(q) + f'&per_page={min(int(n), 100)}&page={page}'
         req = urllib.request.Request(url)
         req.add_header('Accept', 'application/vnd.github.text-match+json')
         req.add_header('User-Agent', 'search_github-mod/0.1')
@@ -39,12 +40,13 @@ class Mod:
         results = []
         for item in data.get('items', []):
             matches = item.get('text_matches', [])
-            fragment = matches[0].get('fragment', '') if matches else ''
+            fragments = [m.get('fragment', '') for m in matches]
             results.append({
                 'path': item.get('path', ''),
                 'repository': item.get('repository', {}).get('full_name', ''),
                 'url': item.get('html_url', ''),
-                'fragment': fragment,
+                'fragment': fragments[0] if fragments else '',
+                'fragments': fragments,
             })
         return {
             'total_count': data.get('total_count', 0),

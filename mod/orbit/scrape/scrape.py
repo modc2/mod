@@ -19,6 +19,13 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from pathlib import Path
+
+
+class Web3Encoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, bytes):
+            return o.hex()
+        return super().default(o)
 # Import Chain Mod class
 class Scrape(m.mod('chain')):
     """Event Scraper that inherits from Chain Mod.
@@ -82,7 +89,7 @@ class Scrape(m.mod('chain')):
         cache_file = self.cache_dir / f"{cache_key}.json"
         try:
             with open(cache_file, 'w') as f:
-                json.dump(events, f)
+                json.dump(events, f, cls=Web3Encoder)
             m.print(f'Cached {len(events)} events', color='cyan')
         except Exception as e:
             m.print(f'Cache write error: {e}', color='yellow')
@@ -785,29 +792,27 @@ class Scrape(m.mod('chain')):
 
         def scrape_batch(start, end):
             """Helper to scrape a single batch."""
-            try:
-                event_filter = self.get_event_filter(
-                    contract_name,
-                    event_name,
-                    start,
-                    end,
-                    filters
-                )
-                events = event_filter.get_all_entries()
+            event_filter = self.get_event_filter(
+                contract_name,
+                event_name,
+                start,
+                end,
+                filters
+            )
+            events = event_filter.get_all_entries()
 
-                if process_fn:
-                    events = [process_fn(e) for e in events]
+            if process_fn:
+                events = [process_fn(e) for e in events]
 
-                if self.rate_limit > 0:
-                    time.sleep(self.rate_limit)
+            if self.rate_limit > 0:
+                time.sleep(self.rate_limit)
 
-                return events
-            except Exception as e:
-                m.print(f'Error in batch {start}-{end}: {e}', color='red')
-                return []
+            return events
 
         # Process batches in parallel
         all_events = []
+        failed_ranges = []
+        batch_results = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_batch = {
                 executor.submit(scrape_batch, start, end): (start, end)
@@ -817,11 +822,22 @@ class Scrape(m.mod('chain')):
             completed = 0
             for future in as_completed(future_to_batch):
                 start, end = future_to_batch[future]
-                events = future.result()
-                all_events.extend(events)
-                completed += 1
-                progress = (completed / len(batches)) * 100
-                m.print(f'[{progress:.1f}%] Batch {start:,}-{end:,}: {len(events)} events', color='green')
+                try:
+                    events = future.result()
+                    batch_results[(start, end)] = events
+                    completed += 1
+                    progress = (completed / len(batches)) * 100
+                    m.print(f'[{progress:.1f}%] Batch {start:,}-{end:,}: {len(events)} events', color='green')
+                except Exception as e:
+                    failed_ranges.append((start, end))
+                    m.print(f'Error in batch {start}-{end}: {e}', color='red')
+
+        for key in sorted(batch_results):
+            all_events.extend(batch_results[key])
+
+        if failed_ranges:
+            ranges_str = ', '.join(f'{s}-{e}' for s, e in failed_ranges)
+            raise RuntimeError(f'Scrape incomplete — {len(failed_ranges)} batches failed: {ranges_str}')
 
         m.print(f'Total events found: {len(all_events):,}', color='green')
         return all_events

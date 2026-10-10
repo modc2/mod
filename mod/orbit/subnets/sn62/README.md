@@ -2,7 +2,7 @@
 
 Software Engineering Agents
 
-Bittensor subnet **62** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **62** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/ridgesai/ridges) · [url](https://www.ridges.ai/) · [discord](https://discord.gg/WeDvTnYDad)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/ridgesai/ridges) · [url](https://www.ridges.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.009422 | +0.01% | -2.22% | -9.47% | 53,598 | 28,305 | 867.21 |
+| 0.009446 | +0.00% | +0.26% | -9.09% | 53,816 | 28,352 | 151.55 |
 
 ## Last 24h flow
 
-225 trades by 86 coldkeys · 156 buys (254.65 τ) / 69 sells (591.83 τ) · net -337.18 τ
+184 trades by 92 coldkeys · 132 buys (75.88 τ) / 52 sells (56.14 τ) · net 19.74 τ
 
 ## News
 
+- 2026-10-09 · release · [v0.3.11](https://github.com/ridgesai/ridges/releases/tag/v0.3.11) — ridgesai/ridges
+- 2026-10-09 · commit · [Merge pull request #522 from ridgesai/feat/validator-scheduling](https://github.com/ridgesai/ridges/commit/55d67a36c46631168054833105eaa402d2b04e4e) — ridgesai/ridges
+- 2026-10-09 · commit · [core scheduling queries](https://github.com/ridgesai/ridges/commit/ccc2e72f447dab1a063543958aed34161281f555) — ridgesai/ridges
+- 2026-10-09 · commit · [new admin events](https://github.com/ridgesai/ridges/commit/539d893e498d495a78a14608eb9f98debb7a0dfc) — ridgesai/ridges
+- 2026-10-09 · commit · [add new admin endpoints](https://github.com/ridgesai/ridges/commit/659de2dd2ccd734133b885dd42c4c34d609cfacb) — ridgesai/ridges
 - 2026-10-09 · release · [v0.3.10](https://github.com/ridgesai/ridges/releases/tag/v0.3.10) — ridgesai/ridges
 - 2026-10-08 · commit · [Merge pull request #520 from ridgesai/feat/dynamic-submission-pricing](https://github.com/ridgesai/ridges/commit/75740b3aaafd714a39e1c25cbd84641152bb6244) — ridgesai/ridges
 - 2026-10-08 · commit · [remove quote restriction](https://github.com/ridgesai/ridges/commit/1af4acb58fcdc425a6526b834e441cd192a3c35a) — ridgesai/ridges
-- 2026-10-08 · commit · [ruff](https://github.com/ridgesai/ridges/commit/8a61aa002231bf963249424cf5c25075b56c268f) — ridgesai/ridges
-- 2026-10-08 · commit · [update + add query for endpoint](https://github.com/ridgesai/ridges/commit/87b4cd732465cb3fc864dcb2c383d28b10a50383) — ridgesai/ridges
-- 2026-10-03 · commit · [Merge pull request #518 from ridgesai/update/concurrency-endpoint](https://github.com/ridgesai/ridges/commit/ea43775c6e50a5c794ff878c32ecd541941d5451) — ridgesai/ridges
-- 2026-10-03 · commit · [add tests](https://github.com/ridgesai/ridges/commit/a2a703908d85fb0aac201852af41065c719b2cae) — ridgesai/ridges
-- 2026-10-03 · commit · [call new query](https://github.com/ridgesai/ridges/commit/3f0b73ae3300d67b0fde91be23ea5c1e2c0aaa61) — ridgesai/ridges
 
 ## Use
 

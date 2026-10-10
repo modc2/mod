@@ -9,6 +9,26 @@ const SEV_ORDER = ["critical", "high", "medium", "low", "info", "unknown"];
 export function ScanReport({ id }: { id: string }) {
   const [scan, setScan] = useState<Scan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filterSevs, setFilterSevs] = useState<Set<string>>(new Set());
+  const [filterCats, setFilterCats] = useState<Set<string>>(new Set());
+
+  function toggleSev(sev: string) {
+    setFilterSevs((prev) => {
+      const next = new Set(prev);
+      if (next.has(sev)) next.delete(sev);
+      else next.add(sev);
+      return next;
+    });
+  }
+
+  function toggleCat(cat: string) {
+    setFilterCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  }
 
   useEffect(() => {
     let cancel = false;
@@ -37,9 +57,14 @@ export function ScanReport({ id }: { id: string }) {
   if (error) return <div className="text-critical p-6">{error}</div>;
   if (!scan) return <div className="text-muted p-6">loading scan…</div>;
 
-  const findings = (scan.findings ?? []).slice().sort((a, b) => {
+  const allFindings = (scan.findings ?? []).slice().sort((a, b) => {
     return SEV_ORDER.indexOf(a.severity) - SEV_ORDER.indexOf(b.severity);
   });
+  const findings = allFindings.filter(
+    (f) =>
+      (filterSevs.size === 0 || filterSevs.has(f.severity)) &&
+      (filterCats.size === 0 || filterCats.has(f.category ?? ""))
+  );
 
   const stats = scan.stats?.by_severity || {};
 
@@ -69,29 +94,73 @@ export function ScanReport({ id }: { id: string }) {
           <StatusLine scan={scan} />
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">
-          {SEV_ORDER.slice(0, 5).map((sev) => {
-            const colorMap: Record<string, string> = {
-              critical: "text-critical",
-              high: "text-high",
-              medium: "text-medium",
-              low: "text-low",
-              info: "text-info",
-            };
-            return (
-              <div
-                key={sev}
-                className="bg-panel2 border border-border rounded px-3 py-2"
+        <div className="mt-4">
+          {(filterSevs.size > 0 || filterCats.size > 0) && (
+            <div className="flex justify-end mb-1">
+              <button
+                onClick={() => { setFilterSevs(new Set()); setFilterCats(new Set()); }}
+                className="text-xs text-muted hover:text-accent"
               >
-                <div className="text-[10px] uppercase tracking-wider text-muted">
-                  {sev}
-                </div>
-                <div className={`text-xl font-mono mt-0.5 ${colorMap[sev] || "text-text"}`}>
-                  {stats[sev] || 0}
-                </div>
+                × clear filter
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            {SEV_ORDER.slice(0, 5).map((sev) => {
+              const colorMap: Record<string, string> = {
+                critical: "text-critical",
+                high: "text-high",
+                medium: "text-medium",
+                low: "text-low",
+                info: "text-info",
+              };
+              const active = filterSevs.has(sev);
+              return (
+                <button
+                  key={sev}
+                  onClick={() => toggleSev(sev)}
+                  className={`bg-panel2 border rounded px-3 py-2 text-left transition-colors ${
+                    active
+                      ? "border-accent ring-1 ring-accent"
+                      : "border-border hover:border-accent/50"
+                  }`}
+                >
+                  <div className="text-[10px] uppercase tracking-wider text-muted">
+                    {sev}
+                  </div>
+                  <div className={`text-xl font-mono mt-0.5 ${colorMap[sev] || "text-text"}`}>
+                    {stats[sev] || 0}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {(() => {
+            const byCat = scan.stats?.by_category;
+            if (!byCat) return null;
+            const cats = Object.entries(byCat).filter(([, n]) => (n as number) > 0);
+            if (cats.length === 0) return null;
+            return (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {cats.map(([cat, count]) => {
+                  const active = filterCats.has(cat);
+                  return (
+                    <button
+                      key={cat}
+                      onClick={() => toggleCat(cat)}
+                      className={`border rounded px-2.5 py-1 text-xs transition-colors ${
+                        active
+                          ? "border-accent ring-1 ring-accent text-text"
+                          : "border-border hover:border-accent/50 text-muted"
+                      }`}
+                    >
+                      {cat} ({count})
+                    </button>
+                  );
+                })}
               </div>
             );
-          })}
+          })()}
         </div>
       </header>
 
@@ -107,6 +176,10 @@ export function ScanReport({ id }: { id: string }) {
             <FindingCard key={i} f={f} repoUrl={scan.repo} branch={scan.branch} />
           ))}
         </ul>
+      ) : filterSevs.size > 0 || filterCats.size > 0 ? (
+        <div className="bg-panel border border-border rounded-lg p-6 text-muted text-center">
+          No {[...(filterSevs.size > 0 ? filterSevs : []), ...(filterCats.size > 0 ? filterCats : [])].join(" / ")} findings.
+        </div>
       ) : scan.status === "done" ? (
         <div className="bg-panel border border-border rounded-lg p-6 text-muted text-center">
           No vulnerabilities detected.

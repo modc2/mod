@@ -2,7 +2,7 @@
 
 Accelerating drug discovery.
 
-Bittensor subnet **68** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **68** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/metanova-labs/nova/) · [url](https://www.metanova-labs.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/metanova-labs/nova/) · [url](https://www.met
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.019960 | -0.00% | +0.13% | -5.61% | 119,102 | 43,022 | 704.42 |
+| 0.020027 | +0.00% | +0.33% | -7.00% | 119,659 | 43,115 | 325.42 |
 
 ## Last 24h flow
 
-116 trades by 83 coldkeys · 40 buys (283.05 τ) / 76 sells (326.34 τ) · net -43.30 τ
+92 trades by 67 coldkeys · 56 buys (119.94 τ) / 36 sells (122.25 τ) · net -2.30 τ
 
 ## News
 
@@ -22,7 +22,6 @@ Links: [github](https://github.com/metanova-labs/nova/) · [url](https://www.met
 - 2026-09-16 · commit · [update submodule to include retry of TNP errors](https://github.com/metanova-labs/nova/commit/e510bf77db2f90d2386945cf72ec2156b45753f5) — metanova-labs/nova
 - 2026-09-16 · commit · [Merge pull request #92 from thomasvangurp/fix/retry-tnp-compute-errors](https://github.com/metanova-labs/nova/commit/dc42566c760f3fb9d69aa4207b99ff976796baf7) — metanova-labs/nova
 - 2026-09-15 · commit · [Retry TNP profiles that failed to compute, before rejecting the submi…](https://github.com/metanova-labs/nova/commit/161b7d3c566828ad2d1e021fd3f046b5b430f9da) — metanova-labs/nova
-- 2026-09-09 · commit · [Merge branch 'main' of https://github.com/metanova-labs/nova](https://github.com/metanova-labs/nova/commit/607b07a61389008cb60a09c424e4a56011ea9014) — metanova-labs/nova
 
 ## Use
 

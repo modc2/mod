@@ -1,16 +1,16 @@
-# sn92 — Available ᚂ
+# sn92 — luis ᚂ
 
-Bittensor subnet **92** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **92** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001338 | -0.00% | -2.07% | -6.45% | 1,433 | 584.9784 | 1,090 |
+| 0.004517 | +0.00% | +237.58% | +225.44% | 884.8000 | 884.8001 | 0.00 |
 
 ## Last 24h flow
 
-63 trades by 35 coldkeys · 32 buys (542.28 τ) / 31 sells (547.51 τ) · net -5.24 τ
+15 trades by 12 coldkeys · 6 buys (52.70 τ) / 9 sells (52.30 τ) · net 0.40 τ
 
 ## Use
 

@@ -2,7 +2,7 @@
 
  The same model, small enough to run on your phone. Compress the frontier models into GGUFs.
 
-Bittensor subnet **40** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **40** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/RalphLabsAI/ralph) · [url](https://ralphlabs.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/RalphLabsAI/ralph) · [url](https://ralphlabs
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002269 | -0.00% | -1.31% | -11.90% | 2,499 | 1,384 | 9.20 |
+| 0.002257 | -0.00% | -0.53% | -8.26% | 2,502 | 1,381 | 78.09 |
 
 ## Last 24h flow
 
-7 trades by 6 coldkeys · 1 buys (0.00 τ) / 6 sells (8.40 τ) · net -8.40 τ
+20 trades by 11 coldkeys · 6 buys (37.22 τ) / 14 sells (40.09 τ) · net -2.86 τ
 
 ## News
 

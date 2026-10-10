@@ -2,7 +2,7 @@
 
 Proof of Edge - Trading signals
 
-Bittensor subnet **89** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **89** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/DeltaCompute24/InfiniteQuant-Subnet) · [url](https://infinitequant.app)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/DeltaCompute24/InfiniteQuant-Subnet) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002978 | -0.00% | -0.02% | -2.00% | 14,993 | 6,117 | 1,143 |
+| 0.002990 | +0.10% | +0.41% | -0.67% | 15,075 | 6,130 | 142.64 |
 
 ## Last 24h flow
 
-72 trades by 55 coldkeys · 9 buys (571.20 τ) / 63 sells (571.17 τ) · net 0.03 τ
+55 trades by 32 coldkeys · 12 buys (77.34 τ) / 43 sells (64.96 τ) · net 12.38 τ
 
 ## News
 
-- 2026-10-09 · commit · [markets V2: entity collateral + P&L-basis emission per weight cycle (…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/404c9967e011acb97bc9fd15f5b725ac51f4962c) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-09 · commit · [README: IQ Markets for players (web app, /markets, no miner needed; r…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/51c896b4f2674f85c60bfa95536bf4629931080c) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-08 · commit · [markets: mainnet cutover 2026-10-09 00:00Z — Markets takes Closers' 0…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/9f7ea9b7c2f12a13661146e5c2ee34c49509919e) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-08 · commit · [markets: on-chain Up/Down prediction markets (testnet-armed, mainnet …](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/0e2a71ee03c437c957f7bca323a34138686bdb1e) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-08 · commit · [markets: bets only before the window — open one window ahead, close b…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/79600f8e05735c4979391d9d4440d81ed05bc90b) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-07 · commit · [README: list the hluniverse-20261007 pairs on the LF and HF tables](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/3de69fbea98f72f89b7abeb4015878562d53590b) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-07 · commit · [bands: flip signals-bands.json to hluniverse-20261007 (18 Vanta-trade…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/1e2011da2573d9ffe5b09e3576cc5c5af3857085) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-03 · commit · [hf v6: list the 19 Vanta-tradeable Hyperliquid pairs from 2026-10-07 …](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/e4d00ea86082007f148903e4325f9237a677e0f7) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-10 · commit · [markets V2b: lost stakes stay with the entity; emission on net entity…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/4c8c495cabc46c32b888845a0c16e1b91f0ae79e) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-09 · commit · [tests: pin V1 Markets tests to the pre-V3/pre-V2 era (clock-derived s…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/1f80ca20d160027edcc2a0dd51e0f623dba4698c) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-09 · commit · [markets V2 collateral: mainnet arms 2026-10-10 01:00 UTC (Whit: start…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/461d6130d1cf49d5812cccba5c7a3274a87c6283) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-09 · commit · [tests: pin the pre-V3 running-window refusal to a pre-V3 stamp (flipp…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/dceed355b498778e137791cffb8748889a968aae) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-09 · commit · [markets: entity dust collateral minimum 120 -> 6,100 alpha (~$5,000) …](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/cee9b30b0cd75d2b9df667150d04c4d913fccf9f) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-09 · commit · [README: Markets V3 date 2026-10-09 15:00 UTC](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/ae82ccde5cf399fb4a09f11b3e3e41627a2dfb19) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-09 · commit · [markets V3: mainnet arms 2026-10-09 15:00 UTC (Whit: switch as soon a…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/5d04815a8b12715eb0383584cc36c033cbb7d432) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-09 · commit · [markets V3: bets during the window, priced off the live tick (mainnet…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/3216dc1c204858342e35091bb6c1c5f57525985e) — DeltaCompute24/InfiniteQuant-Subnet
 
 ## Use
 

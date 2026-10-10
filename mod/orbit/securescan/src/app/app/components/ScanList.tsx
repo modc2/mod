@@ -71,6 +71,13 @@ export function ScanList({
                 <div className="font-mono text-xs truncate text-text">
                   {prettyRepo(s.repo)}
                 </div>
+                {(s.branch || s.subdir) && (
+                  <div className="text-[10px] uppercase tracking-wider text-muted mt-0.5 truncate">
+                    {s.branch && <span>@ {s.branch}</span>}
+                    {s.branch && s.subdir && <span> · </span>}
+                    {s.subdir && <span>{s.subdir}</span>}
+                  </div>
+                )}
                 <div className="flex items-center gap-2 mt-1 text-[10px] uppercase tracking-wider">
                   <StatusBadge status={s.status} />
                   {findings > 0 && (

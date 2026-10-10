@@ -1,9 +1,11 @@
 import mod as m
 import json
+import time
 
 class Mod:
     description = "LLM-powered search to find the best orbit module for a task"
     _catalog_cache = None
+    _catalog_cache_time = None
 
     def __init__(self, **kwargs):
         pass
@@ -32,8 +34,11 @@ Return ONLY valid JSON (no markdown fences) in this exact format:
 
 Return exactly {n} results, ranked best first. If fewer than {n} modules are relevant, return only the relevant ones."""
 
-        router = m.mod('model.openrouter')()
-        response = router.forward(prompt, free=True)
+        try:
+            router = m.mod('model.openrouter')()
+            response = router.forward(prompt, free=True)
+        except Exception as e:
+            return {'query': query, 'results': [], 'error': str(e)}
 
         try:
             results = json.loads(response)
@@ -46,6 +51,7 @@ Return exactly {n} results, ranked best first. If fewer than {n} modules are rel
                 return {'query': query, 'results': [], 'raw': response}
 
         results = [r for r in results if r.get('name') in catalog]
+        results = results[:int(n)]
 
         for r in results:
             r['description'] = catalog.get(r['name'], '')
@@ -54,7 +60,8 @@ Return exactly {n} results, ranked best first. If fewer than {n} modules are rel
 
     def catalog(self, refresh=False):
         """Return dict of {module_name: description} for all modules."""
-        if self._catalog_cache and not refresh:
+        cache_expired = Mod._catalog_cache_time is None or (time.time() - Mod._catalog_cache_time > 600)
+        if self._catalog_cache and not refresh and not cache_expired:
             return self._catalog_cache
 
         catalog = {}
@@ -69,4 +76,5 @@ Return exactly {n} results, ranked best first. If fewer than {n} modules are rel
                 catalog[name] = ''
 
         Mod._catalog_cache = catalog
+        Mod._catalog_cache_time = time.time()
         return catalog

@@ -1,13 +1,13 @@
 {
   "name": "sn92",
   "version": "1.0.0",
-  "description": "SN92 Available — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "description": "SN92 luis — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
   "icon": "ᚂ",
   "chain": "bittensor",
   "netuid": 92,
-  "subnet": "Available",
+  "subnet": "luis",
   "symbol": "ᚂ",
-  "owner": "5E9LPDS2E5RFzoqRsF2D7NgJTFH3N2DVqeAodTksPJP7CT4x",
+  "owner": "5GMxpAvB9iJkDtNDELhVn8GmbBz5XChnWcLaThWTJ38QmU6B",
   "github": null,
   "url": null,
   "discord": null,
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-09",
+  "updated": "2026-10-10",
   "urls": {
     "bt": "/bt/markets?sn=92",
     "news": "/bt/news?netuid=92"
@@ -34,5 +34,14 @@
     "snapshot",
     "readme",
     "refresh"
+  ],
+  "previous": [
+    {
+      "subnet": "Available",
+      "owner": "5E9LPDS2E5RFzoqRsF2D7NgJTFH3N2DVqeAodTksPJP7CT4x",
+      "github": null,
+      "url": null,
+      "updated": "2026-10-09"
+    }
   ]
 }

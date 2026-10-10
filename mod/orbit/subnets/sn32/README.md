@@ -2,7 +2,7 @@
 
 ItsAI is a bittensor subnet focused on high-quality AI detection for texts. Recognised as the most accurate AI detector by MGTD benchmark.
 
-Bittensor subnet **32** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
+Bittensor subnet **32** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
 
 Links: [github](https://github.com/It-s-AI/llm-detection) · [url](https://its-ai.org/en) · [discord](https://discord.com/channels/799672011265015819/1215319932062011464)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/It-s-AI/llm-detection) · [url](https://its-a
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002663 | -0.00% | -0.19% | -2.56% | 16,461 | 6,803 | 9.19 |
+| 0.002668 | -0.01% | +0.18% | -2.39% | 16,509 | 6,810 | 20.45 |
 
 ## Last 24h flow
 
-27 trades by 12 coldkeys · 5 buys (0.04 τ) / 22 sells (7.34 τ) · net -7.29 τ
+29 trades by 13 coldkeys · 1 buys (11.00 τ) / 28 sells (6.82 τ) · net 4.18 τ
 
 ## Use
 
