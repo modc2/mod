@@ -6,8 +6,10 @@ class Mod:
     description = """tabs"""
     path = os.path.dirname(os.path.abspath(__file__))
 
-    def forward(self, **kwargs):
+    def forward(self, action=None, **kwargs):
         """Default entry point."""
+        if action == 'readme':
+            return self.readme()
         return self.info()
 
     def info(self):

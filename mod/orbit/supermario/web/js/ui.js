@@ -580,6 +580,7 @@
     $('slot').addEventListener('click', function () {
       self.slot = self.slot % 4 + 1;
       this.textContent = 'SLOT ' + self.slot;
+      idbPut('prefs', 'slot', self.slot).catch(noop);
     });
 
     $('mute').addEventListener('click', function () {
@@ -621,6 +622,13 @@
         self.canvas.classList.add('scanlines');
         var btn = $('crt');
         if (btn) btn.classList.add('on');
+      }
+    }).catch(noop);
+    idbGet('prefs', 'slot').then(function (s) {
+      if (s >= 1 && s <= 4) {
+        self.slot = s;
+        var btn = $('slot');
+        if (btn) btn.textContent = 'SLOT ' + self.slot;
       }
     }).catch(noop);
   };

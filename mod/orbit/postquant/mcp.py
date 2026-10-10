@@ -329,6 +329,9 @@ def _t_quote(a):
     q = n.state.quote(key, value, kind, seconds, witness_bytes=wb,
                       new_account=new_account)
     existing = n.state.entry(key, int(time.time()))
+    effective_deposit = (0 if (existing and not existing['expired'])
+                         else q['rent']['deposit'])
+    effective_total = q['total'] - q['rent']['deposit'] + effective_deposit
     return {
         **q,
         'witness': {'scheme': scheme, 'sig_bytes': algo.sizes['sig'],
@@ -337,14 +340,17 @@ def _t_quote(a):
                                else 'a first transaction carries its public '
                                     'key inline and pays for the bytes'},
         'write_cost': _money(q['write_cost']),
-        'deposit': _money(q['rent']['deposit']),
-        'total': _money(q['total']),
+        'deposit': _money(effective_deposit),
+        'total': _money(effective_total),
         'base_fee': _money(q['base_fee']),
         'rent': {**q['rent'], 'deposit': _money(q['rent']['deposit']),
                  'lease': _money(q['rent']['lease']),
                  'bounty': _money(q['rent']['bounty']),
                  'per_day': _money(q['rent']['per_day'])},
         'value': value,
+        **(({'deposit_note': 'key already leased — no additional deposit '
+             'charged on re-write (use pq_fund to extend the lease)'}
+            ) if effective_deposit == 0 else {}),
         'occupied': _entry_view(existing) if existing else None,
         'affordable': (_money(n.state.balance(addr)) if addr else None),
     }

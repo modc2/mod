@@ -1484,6 +1484,7 @@ $('w-quote').onclick = async () => {
       `${q.gas.account ? ' + new acct ' + q.gas.account : ''})</span>` +
       `<b>deposit</b><span class="amt">${esc(pq(q.deposit))} PQ ` +
       `(lease ${esc(pq(q.rent.lease))} + bond ${esc(pq(q.rent.bounty))})</span>` +
+      (q.deposit_note ? `<b class="muted">note</b><span class="muted">${esc(q.deposit_note)}</span>` : '') +
       `<b>total</b><span class="amt">${esc(pq(q.total))} PQ</span>` +
       `<b>bytes</b><span>${q.billable_bytes} billable · ${esc(pq(q.rent.per_day))} PQ/day to hold</span>` +
       (q.occupied ? `<b class="warn">occupied</b><span class="warn">held by ` +

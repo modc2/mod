@@ -417,6 +417,39 @@ function findAgents(o, depth = 0) {
   return [];
 }
 
+function showOutput(el, out) {
+  const readable = (() => {
+    if (out && typeof out.output === 'string' && out.output.trim()) return out.output.trim();
+    if (out && Array.isArray(out.jobs)) {
+      const parts = out.jobs.map(j => j && typeof j.output === 'string' ? j.output.trim() : '').filter(Boolean);
+      if (parts.length) return parts.join('\n\n---\n\n');
+    }
+    return null;
+  })();
+  if (readable) {
+    const wrap = document.createElement('div');
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'white-space:pre-wrap;word-break:break-word;margin:0 0 12px';
+    pre.textContent = readable;
+    wrap.append(pre);
+    const det = document.createElement('details');
+    const sum = document.createElement('summary');
+    sum.className = 'dimtxt';
+    sum.style.cssText = 'cursor:pointer;font-size:11px;margin-bottom:4px';
+    sum.textContent = 'full response JSON';
+    const raw = document.createElement('pre');
+    raw.className = 'dimtxt';
+    raw.style.cssText = 'white-space:pre-wrap;word-break:break-word;margin:0;font-size:10px';
+    raw.textContent = j(out);
+    det.append(sum, raw);
+    wrap.append(det);
+    el.innerHTML = '';
+    el.append(wrap);
+  } else {
+    el.textContent = j(out);
+  }
+}
+
 $('#run').onclick = async () => {
   const task = $('#task').value.trim();
   if (!task) return flash('#f-swarm', 'describe the task first', true);
@@ -438,7 +471,7 @@ $('#run').onclick = async () => {
                                   body: JSON.stringify({...body, confirm: true})});
       } else { flash('#f-swarm', 'held'); b.disabled = false; return; }
     }
-    $('#out-swarm').textContent = j(out);
+    showOutput($('#out-swarm'), out);
     flash('#f-swarm', 'done');
   } catch (e) { $('#out-swarm').textContent = j(e.body || e.message);
                 flash('#f-swarm', e.message, true); }
@@ -480,7 +513,7 @@ $('#a-run').onclick = async () => {
                                     body: JSON.stringify({...body, confirm: true})});
       } else { flash('#f-agent', 'held'); b.disabled = false; return; }
     }
-    $('#out-agent').textContent = j(out);
+    showOutput($('#out-agent'), out);
     flash('#f-agent', 'done');
   } catch (e) { $('#out-agent').textContent = j(e.body || e.message);
                 flash('#f-agent', e.message, true); }

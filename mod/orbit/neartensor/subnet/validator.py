@@ -81,9 +81,14 @@ class Validator:
 
         try:
             truth, final_height = protocol.ground_truth(task_req, answer, self.near)
-            anchor_h = protocol.anchored_height(answer, self.near)
         except Exception as e:
             return {"score": None, "error": f"unverifiable: {e}"}  # skip, don't punish
+        if truth is None:
+            return {"score": 0.0, "error": "no verifiable anchor", "task": task_req["task"]}
+        try:
+            anchor_h = protocol.anchored_height(answer, self.near)
+        except Exception:
+            anchor_h = final_height  # freshness=0, but still score correctness+latency
 
         s = reward.score_response(
             truth=truth, answer=answer, anchor_height=anchor_h,

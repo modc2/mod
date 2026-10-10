@@ -234,8 +234,11 @@ export default function LivePanel() {
             </AuthGate>
           ) : (
             <AuthGate action="start copy-trading">
-              <button className="btn-primary" disabled={busy} onClick={onStart}>start</button>
+              <button className="btn-primary" disabled={busy || approved !== true} onClick={onStart}>start</button>
             </AuthGate>
+          )}
+          {!running && approved !== true && (
+            <span className="text-warn text-xs">approve the agent above first</span>
           )}
           {err && <span className="text-danger text-xs">{err}</span>}
         </div>
@@ -257,6 +260,7 @@ export default function LivePanel() {
               <Stat label="failed" value={state.totalOrdersFailed ?? 0} />
               <Stat label="volume" value={fmtUsd(state.totalVolumeMirrored ?? 0)} />
               <Stat label="last cycle" value={state.lastCycleAt ? ago(state.lastCycleAt) : "—"} />
+              <Stat label="next cycle" value={state.nextCycleAt ? `in ${Math.max(0, Math.round((state.nextCycleAt - Date.now()) / 1000))}s` : "—"} />
             </div>
             {(() => {
               const errors = (state.log ?? []).filter((e: any) => e.type === "ERROR").slice(0, 10);

@@ -1612,8 +1612,10 @@
     hud(g, 'WORLD', 146, y, '#ffffff');
     hud(g, this.level.world, 152, y + 9, '#ffffff');
 
-    hud(g, 'TIME', 208, y, '#ffffff');
-    hud(g, pad(this.time, 3), 214, y + 9, this.time <= 100 ? '#ff6a4a' : '#ffffff');
+    hud(g, 'TIME', 208, y, this.time <= 100 ? '#ff6a4a' : '#ffffff');
+    if (this.time > 30 || Math.floor(this.frame / 8) % 2) {
+      hud(g, pad(this.time, 3), 214, y + 9, this.time <= 100 ? '#ff6a4a' : '#ffffff');
+    }
 
     // lives, bottom-left, out of the way
     g.drawImage(SPR.salSmall[0].idle, 8, VH - 20, 9, 12);

@@ -45,8 +45,11 @@ class Subnet:
             return {'netuid': self.netuid, 'error': 'no snapshot yet — run `subnets sync`'}
 
     def config(self):
-        with open(os.path.join(self.dirpath, 'config.json')) as f:
-            return json.load(f)
+        try:
+            with open(os.path.join(self.dirpath, 'config.json')) as f:
+                return json.load(f)
+        except OSError:
+            return {'netuid': self.netuid, 'error': 'no config yet — run `subnets sync`'}
 
     def _live(self, tool, fallback_key=None, **args):
         try:
@@ -110,8 +113,11 @@ class Subnet:
         return {k: c.get(k) for k in ('github', 'url', 'discord', 'logo', 'related', 'urls')}
 
     def readme(self):
-        with open(os.path.join(self.dirpath, 'README.md')) as f:
-            return f.read()
+        try:
+            with open(os.path.join(self.dirpath, 'README.md')) as f:
+                return f.read()
+        except OSError:
+            return f'sn{self.netuid}: no README yet — run `subnets sync`'
 
     def refresh(self):
         """Regenerate just this subnet's mod now (same code path as the daily cron)."""
