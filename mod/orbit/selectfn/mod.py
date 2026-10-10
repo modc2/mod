@@ -12,9 +12,11 @@ class Mod:
                 cfg = json.load(f)
             self._name = cfg.get('name', 'selectfn')
             self._description = cfg.get('description', self.description)
+            self._version = cfg.get('version', '')
         except Exception:
             self._name = 'selectfn'
             self._description = self.description
+            self._version = ''
 
     def _public_methods(self):
         return [m for m in dir(self) if not m.startswith('_') and m != 'forward' and callable(getattr(self, m))]
@@ -27,7 +29,10 @@ class Mod:
         method = getattr(self, fn, None)
         if not callable(method):
             return {'error': 'unknown fn', 'fn': fn, 'available': self._public_methods()}
-        return method(**kwargs)
+        try:
+            return method(**kwargs)
+        except Exception as e:
+            return {'error': str(e), 'fn': fn}
 
     def info(self, **_):
         """Return module info."""
@@ -37,8 +42,9 @@ class Mod:
         return {
             'name': self._name,
             'description': self._description,
+            'version': self._version,
             'files': files,
-            'methods': self._public_methods(),
+            'methods': {name: (getattr(self, name).__doc__ or '') for name in self._public_methods()},
         }
 
     def readme(self, **_):

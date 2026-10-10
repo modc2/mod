@@ -222,32 +222,52 @@ class WorkerPool:
 
     def _acquire_worker(self) -> Optional[_PersistentWorker]:
         """Get an idle worker, or scale up if possible. Waits briefly if all busy."""
+        worker_to_start = None
         with self._lock:
             # Try to find an idle, alive worker
             for w in self._workers:
                 if not w.busy and w.alive:
                     return w
-            # Try to find an idle, dead worker and restart it
+            # Try to find an idle, dead worker; mark busy to reserve it before releasing lock
             for w in self._workers:
                 if not w.busy:
-                    w.start()
-                    return w
-            # Scale up if under max
-            if len(self._workers) < self.max_workers:
-                w = _PersistentWorker(worker_id=len(self._workers))
-                w.start()
-                self._workers.append(w)
-                return w
+                    w.busy = True
+                    worker_to_start = w
+                    break
+            # Scale up if under max; append inside lock to claim the slot
+            if worker_to_start is None and len(self._workers) < self.max_workers:
+                worker_to_start = _PersistentWorker(worker_id=len(self._workers))
+                worker_to_start.busy = True
+                self._workers.append(worker_to_start)
+
+        # Start the worker outside the lock so subprocess I/O doesn't block the pool
+        if worker_to_start is not None:
+            try:
+                worker_to_start.start()
+            except Exception:
+                worker_to_start.busy = False
+                raise
+            return worker_to_start
 
         # All workers busy, wait briefly for one to free up
         for _ in range(100):  # wait up to 10 seconds
             time.sleep(0.1)
+            worker_to_start = None
             with self._lock:
                 for w in self._workers:
                     if not w.busy:
-                        if not w.alive:
-                            w.start()
-                        return w
+                        if w.alive:
+                            return w
+                        w.busy = True
+                        worker_to_start = w
+                        break
+            if worker_to_start is not None:
+                try:
+                    worker_to_start.start()
+                except Exception:
+                    worker_to_start.busy = False
+                    raise
+                return worker_to_start
         return None
 
     def _auto_scale_loop(self):
@@ -865,6 +885,7 @@ class DockerWorker:
         while self._running:
             time.sleep(5)
             now = time.time()
+            to_stop = []
             with self._lock:
                 to_remove = []
                 for i in range(len(self._workers) - 1, -1, -1):
@@ -872,8 +893,10 @@ class DockerWorker:
                     if not w.busy and (now - w.last_active) > self.idle_timeout:
                         to_remove.append(i)
                 for i in to_remove:
-                    w = self._workers.pop(i)
-                    w.stop()
+                    to_stop.append(self._workers.pop(i))
+            # Blocking docker I/O outside the lock so run() is not stalled
+            for w in to_stop:
+                w.stop()
 
     def scale(self, n: int) -> dict:
         """Manually set the target worker count (clamped to 1..max_workers)."""
@@ -920,16 +943,20 @@ class DockerWorker:
         if idle_timeout is not None:
             self.idle_timeout = max(5, idle_timeout)
         # Scale down if over new max
+        to_stop = []
         with self._lock:
             while len(self._workers) > self.max_workers:
                 for i in range(len(self._workers) - 1, -1, -1):
                     w = self._workers[i]
                     if not w.busy and len(self._workers) > self.max_workers:
                         self._workers.pop(i)
-                        w.stop()
+                        to_stop.append(w)
                         break
                 else:
                     break
+        # Blocking docker I/O outside the lock
+        for w in to_stop:
+            w.stop()
         return self.status()
 
     def kill(self, cid: str) -> bool:

@@ -18,14 +18,15 @@ class Mod:
         self.schema = cfg.get('schema', '')
         self.loaded_at = time.time()
 
+    def _actions(self):
+        return [n for n in dir(self) if not n.startswith('_') and n != 'forward' and callable(getattr(self, n))]
+
     def forward(self, **kwargs):
         """Default entry point."""
         action = kwargs.get('action', 'info')
-        if action == 'info':
-            return self.info()
-        if action == 'readme':
-            return self.readme()
-        return {'error': f'unknown action: {action}', 'available': ['info', 'readme']}
+        if action in self._actions():
+            return getattr(self, action)(**{k: v for k, v in kwargs.items() if k != 'action'})
+        return {'error': f'unknown action: {action}', 'available': self._actions()}
 
     def info(self):
         """Return module info."""
@@ -37,6 +38,7 @@ class Mod:
             'path': self.path,
             'files': [f for f in os.listdir(self.path) if f != '__pycache__' and not f.startswith('.')],
             'loaded_at': self.loaded_at,
+            'actions': self._actions(),
         }
 
     def readme(self):

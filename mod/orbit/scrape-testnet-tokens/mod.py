@@ -59,7 +59,7 @@ class Mod:
                 raw_value = item.get("value", "0")
                 decimals = int(token.get("decimals") or 0)
                 try:
-                    balance = str(Decimal(raw_value) / Decimal(10 ** decimals)) if decimals else int(raw_value)
+                    balance = format(Decimal(raw_value) / Decimal(10 ** decimals), 'f')
                 except (ValueError, TypeError):
                     balance = raw_value
                 tokens.append({

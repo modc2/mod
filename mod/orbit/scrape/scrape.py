@@ -191,6 +191,8 @@ class Scrape(m.mod('chain')):
             if cached_events is not None:
                 return cached_events
 
+        original_from_block = from_block
+
         # Load checkpoint if exists
         if checkpoint_file:
             checkpoint = self._load_checkpoint(checkpoint_file)
@@ -281,7 +283,7 @@ class Scrape(m.mod('chain')):
 
         # Save to cache
         if use_cache:
-            cache_key = self._get_cache_key(contract_name, event_name, from_block, to_block, filters, process_fn)
+            cache_key = self._get_cache_key(contract_name, event_name, original_from_block, to_block, filters, process_fn)
             self._save_to_cache(cache_key, all_events)
 
         # Clean up checkpoint
@@ -758,7 +760,8 @@ class Scrape(m.mod('chain')):
                              weeks: int = 2,
                              batch_size: int = None,
                              filters: Dict[str, Any] = None,
-                             process_fn: callable = None) -> List[Dict[str, Any]]:
+                             process_fn: callable = None,
+                             use_cache: bool = True) -> List[Dict[str, Any]]:
         """Scrape events with parallel batch processing.
 
         Args:
@@ -777,6 +780,15 @@ class Scrape(m.mod('chain')):
             seconds_in_period = weeks * 7 * 24 * 60 * 60
             blocks_in_period = seconds_in_period // self.block_time
             from_block = max(0, to_block - blocks_in_period)
+
+        # Check cache first
+        if use_cache:
+            cache_key = self._get_cache_key(contract_name, event_name, from_block, to_block, filters, process_fn)
+            cached_events = self._load_from_cache(cache_key)
+            if cached_events is not None:
+                return cached_events
+
+        original_from_block = from_block
 
         total_blocks = to_block - from_block
         m.print(f'Parallel scraping {event_name} from {contract_name}', color='cyan')
@@ -842,6 +854,12 @@ class Scrape(m.mod('chain')):
             raise RuntimeError(f'Scrape incomplete — {len(failed_ranges)} batches failed: {ranges_str}')
 
         m.print(f'Total events found: {len(all_events):,}', color='green')
+
+        # Save to cache
+        if use_cache:
+            cache_key = self._get_cache_key(contract_name, event_name, original_from_block, to_block, filters, process_fn)
+            self._save_to_cache(cache_key, all_events)
+
         return all_events
 
     def export_events(self,

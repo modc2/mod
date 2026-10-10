@@ -19,6 +19,7 @@ class Mod:
             query: Natural language description of what you need
             n: Number of top results to return (default 3)
         """
+        query = query.strip().lower()
         cache_key = (query, int(n))
         cached_time = Mod._result_cache_times.get(cache_key)
         if cached_time is not None and (time.time() - cached_time) < 120:
@@ -79,9 +80,15 @@ Return exactly {n} results, ranked best first. If fewer than {n} modules are rel
             r['description'] = catalog.get(r['name'], '')
 
         result = {'query': query, 'results': results}
-        if results:
-            Mod._result_cache[cache_key] = result
-            Mod._result_cache_times[cache_key] = time.time()
+        now = time.time()
+        Mod._result_cache[cache_key] = result
+        Mod._result_cache_times[cache_key] = now
+
+        stale = [k for k, t in Mod._result_cache_times.items() if now - t >= 120]
+        for k in stale:
+            Mod._result_cache.pop(k, None)
+            Mod._result_cache_times.pop(k, None)
+
         return result
 
     def catalog(self, refresh=False):

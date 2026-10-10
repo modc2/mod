@@ -90,6 +90,9 @@ export function ScanReport({ id }: { id: string }) {
             {scan.subdir && (
               <span className="ml-2 text-muted text-sm">· {scan.subdir}</span>
             )}
+            {scan.reviewer && (
+              <span className="ml-2 text-muted text-sm font-mono">reviewer: {truncateAddr(scan.reviewer)}</span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {scan.status === "done" && (
@@ -312,4 +315,8 @@ function prettyRepo(url: string) {
 }
 function prettyRepoUrl(url: string) {
   return url.replace(/\.git$/, "");
+}
+function truncateAddr(addr: string) {
+  if (addr.length <= 12) return addr;
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }

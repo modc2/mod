@@ -73,6 +73,7 @@
         <div class="actions" style="margin-bottom:8px">
           <button class="ghost" id="copy-all">Copy all</button>
           <button class="ghost" id="dl-all">Download as files</button>
+          <button class="ghost" id="verify-split">Verify</button>
         </div>
         <div class="shares" id="shares"></div>
       </div>
@@ -128,8 +129,24 @@
   };
   let lastShares = [];
 
-  // Keep the threshold sane as the piece count changes.
-  $("n").addEventListener("input", () => { if (+$("k").value > +$("n").value) $("k").value = $("n").value; });
+  const clearSplitIfStale = () => {
+    if (lastShares.length > 0) {
+      lastShares = [];
+      $("split-out").hidden = true;
+      say($("split-msg"), "Settings changed — click Split again to make new shares.", "");
+    }
+  };
+
+  // Keep the threshold sane as the piece count changes; clear any stale split result.
+  $("n").addEventListener("input", () => {
+    if (+$("k").value > +$("n").value) $("k").value = $("n").value;
+    clearSplitIfStale();
+  });
+  $("k").addEventListener("input", () => {
+    if (+$("k").value > +$("n").value) $("k").value = $("n").value;
+    if (+$("k").value < 2 && $("k").value !== "") $("k").value = 2;
+    clearSplitIfStale();
+  });
 
   $("pieces").addEventListener("input", () => {
     const counter = $("pieces-counter");
@@ -186,6 +203,15 @@
   };
 
   $("copy-all").onclick = (e) => copy(lastShares.join("\n"), e.target);
+  $("verify-split").onclick = async () => {
+    const msg = $("split-msg");
+    try {
+      const k = Shamir.parse(lastShares[0]).k;
+      await Shamir.combine(lastShares.slice(0, k));
+      say(msg, `Verified — the first ${k} of ${lastShares.length} pieces correctly rebuild the secret.`, "ok");
+    } catch (e) { say(msg, e.message, "err"); }
+  };
+
   $("dl-all").onclick = () => lastShares.forEach((s, i) => {
     const set = s.split(".")[1];
     const a = document.createElement("a");
