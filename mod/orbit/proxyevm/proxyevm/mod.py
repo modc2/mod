@@ -15,10 +15,13 @@ POOL_ORDER_BY_VALUES = frozenset({
 _DEFAULT_QUERY = """
 query TopPools($first: Int!, $orderBy: Pool_orderBy!, $orderDirection: OrderDirection!) {{
   pools(first: $first, orderBy: $orderBy, orderDirection: $orderDirection) {{
+    id
     token0 {{ symbol }}
     token1 {{ symbol }}
     feeTier
     totalValueLockedUSD
+    volumeUSD
+    txCount
   }}
 }}
 """
@@ -45,6 +48,8 @@ class Mod:
             raise ValueError(f"order_by must be one of {POOL_ORDER_BY_VALUES!r}, got {order_by!r}")
         if query is None and order_direction not in {"asc", "desc"}:
             raise ValueError(f"order_direction must be 'asc' or 'desc', got {order_direction!r}")
+        if query is None and not (1 <= first <= 1000):
+            raise ValueError(f"first must be between 1 and 1000, got {first!r}")
         if query is not None:
             payload = {"query": query}
         else:

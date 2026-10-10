@@ -58,7 +58,7 @@ class OffchainRegistry(RegistryBackend):
         self.index['name_map'][owner][name] = mod_id
 
         self._save_index()
-        return True
+        return str(mod_id)
 
     def update(self, mod_id: int, data: dict = None, owner: str = 'local', **kw) -> bool:
         mod = self.index['mods'].get(str(mod_id))

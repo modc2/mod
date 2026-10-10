@@ -2,7 +2,7 @@ import os
 import mod as m
 
 class Mod:
-    description = """remote"""
+    description = """Remote access and execution utilities for mod orbit modules."""
     path = r'/root/mod/mod/orbit/remote'
 
     def forward(self, **kwargs):
@@ -14,7 +14,6 @@ class Mod:
         return {
             'name': 'remote',
             'description': self.description,
-            'path': self.path,
             'files': os.listdir(self.path),
         }
 

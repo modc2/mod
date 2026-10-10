@@ -292,6 +292,14 @@ impl Proof {
             }
         }
 
+        // 8. Every circuit output wire must appear in public_outputs; a proof that
+        // omits an output wire entirely would pass step 7's for-loop vacuously.
+        for output in &circuit.outputs {
+            if !self.public_outputs.contains_key(output) {
+                return Ok(false);
+            }
+        }
+
         Ok(true)
     }
 }
@@ -449,6 +457,19 @@ mod tests {
         // 3² + 4² ≠ 6² — execution fails at Eq gate
         inputs.insert("c".into(), "6".into());
         assert!(Witness::execute(&circuit, &inputs).is_err());
+    }
+
+    #[test]
+    fn missing_output_in_public_outputs_fails() {
+        let circuit = make_double_circuit();
+        let mut inputs = HashMap::new();
+        inputs.insert("x".into(), "21".into());
+        let witness = Witness::execute(&circuit, &inputs).unwrap();
+
+        let mut proof = Proof::generate(&circuit, &witness).unwrap();
+        // Remove a declared output wire — verify must reject this
+        proof.public_outputs.remove("result");
+        assert!(!proof.verify(&circuit).unwrap());
     }
 
     #[test]

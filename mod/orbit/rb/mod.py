@@ -10,7 +10,10 @@ class Mod:
         handler = getattr(self, method, None)
         if callable(handler) and not method.startswith('_'):
             return handler(**kwargs)
-        return self.info()
+        if method == 'info':
+            return self.info()
+        available = sorted(n for n in dir(self) if not n.startswith('_') and callable(getattr(self, n)))
+        return {'error': 'unknown method', 'method': method, 'available': available}
 
     def info(self):
         """Return module info."""
@@ -40,5 +43,5 @@ class Mod:
         for name in ['README.md', 'readme.md', 'README.rst', 'README']:
             p = os.path.join(self.path, name)
             if os.path.exists(p):
-                return m.get_text(p)
-        return None
+                return {'found': True, 'content': m.get_text(p), 'filename': name}
+        return {'found': False, 'content': None}

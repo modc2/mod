@@ -80,6 +80,15 @@ class BaseMod:
         except Exception as e:
             return {'error': str(e)}
 
+    def get_latest_prices(self, feed_ids: List[str]) -> List[Dict]:
+        try:
+            url = f'{self.PYTH_API_BASE}/v2/updates/price/latest'
+            response = requests.get(url, params=[('ids[]', fid) for fid in feed_ids], timeout=10)
+            response.raise_for_status()
+            return [self.decode_price({'parsed': [entry]}) for entry in response.json()['parsed']]
+        except Exception as e:
+            return [{'error': str(e)}]
+
     @staticmethod
     def decode_price(raw: dict) -> dict:
         try:
@@ -155,7 +164,6 @@ class BaseMod:
             'pyth_contract': self.pyth_contract,
             'supported_chains': self.get_supported_chains(),
             'api_base': self.PYTH_API_BASE,
-            'total_feeds': len(self.get_all_price_feeds()),
         }
 
     def forward(self, **kwargs):
@@ -164,6 +172,8 @@ class BaseMod:
         if 'feed_id' in kwargs:
             raw = self.get_latest_price(kwargs['feed_id'])
             return self.decode_price(raw)
+        if 'feed_ids' in kwargs:
+            return self.get_latest_prices(kwargs['feed_ids'])
         if 'chain' in kwargs:
             return self.switch_chain(kwargs['chain'])
         return self.get_feed_info()

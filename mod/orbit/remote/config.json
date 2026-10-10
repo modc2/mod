@@ -1,6 +1,6 @@
 {
     "name": "remote",
-    "description": "remote",
+    "description": "Remote access and execution utilities for mod orbit modules.",
     "version": "0.1.0",
     "schema": "QmejcVcYVNwL4L3YNqd2e4ujT3sXDivnku4gPgujbvSGW3"
 }

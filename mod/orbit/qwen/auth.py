@@ -136,7 +136,11 @@ class Auth:
         sig_data = self.sig_data(headers)
         # Now verify with (possibly normalized) signature
 
-        age = abs(time.time() - float(headers['time']))
+        now = time.time()
+        token_time = float(headers['time'])
+        if token_time > now + 30:
+            raise ValueError(f'Token timestamp is in the future by {token_time - now:.1f}s')
+        age = now - token_time
         if age >= self.max_age:
             raise ValueError(f'Token is stale: age {age:.1f}s exceeds max {self.max_age}s')
 
@@ -156,7 +160,8 @@ class Auth:
         if key is None:
             key = self.key
         else:
-            key = m.key(key, crypto_type=self.crypto_type)
+            inferred = self.infer_crypto_type(key) if isinstance(key, str) else None
+            key = m.key(key, crypto_type=inferred or self.crypto_type)
         assert hasattr(key, 'address'), f'Invalid key {key}'
         return key
 

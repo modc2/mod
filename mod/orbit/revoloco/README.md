@@ -1,12 +1,12 @@
-# base
+# revoloco
 
 A minimal example mod showing the standard module structure.
 
 ## Structure
 
 ```
-base/
-├── base/
+revoloco/
+├── revoloco/
 │   └── mod.py    # Anchor file with Mod class
 └── README.md
 ```
@@ -17,13 +17,13 @@ base/
 import mod as m
 
 # Load and run
-base = m.mod('base')()
-result = base.forward(3, 4)  # 7
+revoloco = m.mod('revoloco')()
+result = revoloco.forward(3, 4)  # 7
 ```
 
 ```bash
 # CLI
-m base forward a=3 b=4
+m revoloco forward a=3 b=4
 ```
 
 ## Creating a New Mod

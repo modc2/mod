@@ -1,26 +1,26 @@
 {
-    "name": "openledger",
-    "description": "Key custody without the hardware wallet: shard a key into N Shamir shares, one per USB stick \u2014 any K plugged back in rebuild it, fewer reveal nothing. ss1 format (secretshare-compatible); a local ledger records where shares went, never the key.",
-    "version": "0.1.0",
-    "anchor": "mod.py",
-    "route": false,
-    "fns": [
-        "forward",
-        "info",
-        "usbs",
-        "shard",
-        "check",
-        "restore",
-        "sets",
-        "wipe",
-        "split",
-        "combine",
-        "inspect",
-        "test"
-    ],
-    "urls": {
-        "api": "http://localhost:50051"
-    },
-    "port": 50051,
-    "schema": "QmdYCsMmceyVGqYMqYzpChbVRnGXJNKecuidY52QkoTa9h"
+  "name": "openledger",
+  "description": "Key custody without the hardware wallet: shard a key into N Shamir shares, one per USB stick \u2014 any K plugged back in rebuild it, fewer reveal nothing. ss1 format (secretshare-compatible); a local ledger records where shares went, never the key.",
+  "version": "0.1.0",
+  "anchor": "mod.py",
+  "route": false,
+  "fns": [
+    "forward",
+    "info",
+    "usbs",
+    "shard",
+    "check",
+    "restore",
+    "sets",
+    "wipe",
+    "split",
+    "combine",
+    "inspect",
+    "test"
+  ],
+  "urls": {
+    "api": "http://localhost:50051"
+  },
+  "port": 50051,
+  "schema": "QmdYCsMmceyVGqYMqYzpChbVRnGXJNKecuidY52QkoTa9h"
 }

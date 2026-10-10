@@ -120,11 +120,16 @@ class Mod:
         if not free_models:
             raise ValueError("No free models available on OpenRouter")
 
+        # Rotate last known-working model to front to avoid cold-start retries
+        last_working = self.store.get('last_working_model')
+        if last_working and last_working in free_models:
+            free_models = [last_working] + [m for m in free_models if m != last_working]
+
         last_exc = None
         for candidate in free_models:
             print(f"Using free model: {candidate}", file=sys.stderr)
             try:
-                return router.forward(
+                result = router.forward(
                     query,
                     model=candidate,
                     stream=stream,
@@ -134,6 +139,8 @@ class Mod:
                     free=True,
                     **kwargs
                 )
+                self.store.put('last_working_model', candidate)
+                return result
             except Exception as e:
                 print(f"Model {candidate} failed: {e}, trying next...", file=sys.stderr)
                 last_exc = e
@@ -245,8 +252,10 @@ class Mod:
                     system=system,
                     **kwargs
                 )
-            except Exception:
-                print("OpenRouter exhausted, falling back to Venice...", file=sys.stderr)
+            except Exception as exc:
+                if model is not None:
+                    raise
+                print(f"OpenRouter exhausted ({exc}), falling back to Venice...", file=sys.stderr)
                 return self.venice_query(
                     query,
                     model=None,

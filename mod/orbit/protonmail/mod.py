@@ -23,6 +23,7 @@ class Mod:
                 bcc=kwargs.get('bcc'),
                 html_body=kwargs.get('html_body'),
                 attachments=kwargs.get('attachments'),
+                reply_to=kwargs.get('reply_to'),
             )
         return self.info()
 
@@ -35,14 +36,17 @@ class Mod:
             'files': os.listdir(self.path),
         }
 
-    def send(self, to, subject, body, from_addr=None, cc=None, bcc=None, html_body=None, attachments=None):
+    def send(self, to, subject, body, from_addr=None, cc=None, bcc=None, html_body=None, attachments=None, reply_to=None):
         """Send email via ProtonMail Bridge SMTP.
 
         Reads connection details from env vars:
-          PROTONMAIL_SMTP_HOST (default 127.0.0.1)
-          PROTONMAIL_SMTP_PORT (default 1025)
+          PROTONMAIL_SMTP_HOST    (default 127.0.0.1)
+          PROTONMAIL_SMTP_PORT    (default 1025)
           PROTONMAIL_SMTP_USER
           PROTONMAIL_SMTP_PASS
+          PROTONMAIL_SMTP_TIMEOUT (default 10 seconds)
+          PROTONMAIL_SMTP_SSL     set to "1", "true", or "yes" to use implicit
+                                  TLS (SMTP_SSL on port 465); otherwise STARTTLS
 
         attachments: list of file-path strings or (filename, bytes) tuples
         """
@@ -53,6 +57,8 @@ class Mod:
         port = int(os.environ.get('PROTONMAIL_SMTP_PORT', '1025'))
         user = os.environ.get('PROTONMAIL_SMTP_USER')
         password = os.environ.get('PROTONMAIL_SMTP_PASS')
+        timeout = int(os.environ.get('PROTONMAIL_SMTP_TIMEOUT', '10'))
+        use_ssl = os.environ.get('PROTONMAIL_SMTP_SSL', '').lower() in ('1', 'true', 'yes')
         if not user or not password:
             raise ValueError("PROTONMAIL_SMTP_USER and PROTONMAIL_SMTP_PASS must be set")
         sender = from_addr or user
@@ -91,9 +97,16 @@ class Mod:
         msg['To'] = ', '.join(to_list)
         if cc_list:
             msg['Cc'] = ', '.join(cc_list)
+        if reply_to:
+            msg['Reply-To'] = reply_to
         recipients = to_list + cc_list + bcc_list
-        with smtplib.SMTP(host, port) as conn:
-            conn.starttls()
+        if use_ssl:
+            conn_ctx = smtplib.SMTP_SSL(host, port, timeout=timeout)
+        else:
+            conn_ctx = smtplib.SMTP(host, port, timeout=timeout)
+        with conn_ctx as conn:
+            if not use_ssl:
+                conn.starttls()
             conn.login(user, password)
             conn.sendmail(sender, recipients, msg.as_string())
         result = {'sent': True, 'to': to_list, 'cc': cc_list or None, 'bcc': bcc_list or None}

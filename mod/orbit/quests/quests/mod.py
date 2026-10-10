@@ -378,6 +378,11 @@ class Quests:
         response = self.get_response(response_id)
         assert response['responder'] == editor_key, 'Only the original responder can edit'
         assert response['status'] == 'pending', 'Can only edit pending responses'
+
+        quest = self.get_quest(response['quest_id'])
+        if quest.get('deadline') and time.time() > quest['deadline']:
+            raise Exception('Quest deadline has passed — response can no longer be edited')
+
         assert content and len(content.strip()) > 0, 'Content is required'
 
         response['content'] = content.strip()

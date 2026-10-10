@@ -1,9 +1,9 @@
 
 class Mod:
     description = """
-    Base mod - Uniswap GraphQL scraper
+    Minimal example mod — adds two numbers.
     """
 
     def forward(self, a=1, b=2) -> int:
-        """Multiply two numbers and return the result."""
+        """Add two numbers and return the result."""
         return a + b

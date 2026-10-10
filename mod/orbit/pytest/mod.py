@@ -11,8 +11,8 @@ class Mod:
 
     def forward(self, **kwargs):
         """Default entry point."""
-        if 'path' in kwargs or 'args' in kwargs:
-            return self.run(path=kwargs.get('path'), args=kwargs.get('args'))
+        if 'path' in kwargs or 'args' in kwargs or 'timeout' in kwargs:
+            return self.run(path=kwargs.get('path'), args=kwargs.get('args'), timeout=kwargs.get('timeout', 120))
         return self.info()
 
     def run(self, path=None, args=None, timeout=120):
@@ -27,7 +27,7 @@ class Mod:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
-            return {'exit_code': -1, 'error': 'timeout', 'output': '', 'passed': 0, 'failed': 0, 'errors': 0, 'skipped': 0}
+            return {'exit_code': -1, 'error': 'timeout', 'output': '', 'passed': 0, 'failed': 0, 'errors': 0, 'skipped': 0, 'failures': [], 'error_nodes': []}
         output = result.stdout + result.stderr
         passed = failed = errors = skipped = 0
         duration = None
@@ -58,12 +58,19 @@ class Mod:
             for line in output.splitlines()
             if line.startswith('FAILED ')
         ]
+        error_nodes = []
+        for line in output.splitlines():
+            if line.startswith('ERROR '):
+                rest = line[len('ERROR '):]
+                node = rest.split(' - ')[0].strip()
+                error_nodes.append(node)
         return {
             'passed': passed,
             'failed': failed,
             'errors': errors,
             'skipped': skipped,
             'failures': failures,
+            'error_nodes': error_nodes,
             'exit_code': result.returncode,
             'output': output,
             'duration': duration,

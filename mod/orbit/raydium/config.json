@@ -109,5 +109,5 @@
         "solana": "signs and sends what ray_swap_tx builds; also the general-purpose chain reader",
         "defi": "composes swaps across chains and calls this module's MCP server"
     },
-    "schema": "QmcUPSiqdxhoJvX3kLQd23EQ47829bAcnbQ44pQ79A4hsK"
+    "schema": "Qmf8ZjLwqAPT33Q837sEBmoSUy3DWZqThgdTdrhZPhoyK2"
 }

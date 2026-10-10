@@ -1337,6 +1337,9 @@ def _wallet_positions(nft_mints, limit):
             'range_width_pct': round((amounts['price_upper'] / amounts['price_lower'] - 1)
                                      * 100, 2) if amounts and amounts.get('price_lower') else None,
             'apr_24h': p.get('apr_24h'),
+            'volume_24h': p.get('volume_24h'),
+            'fees_24h': p.get('fees_24h'),
+            'fee_rate': p.get('fee_rate'),
         })
     return rows
 
@@ -1370,5 +1373,9 @@ def _wallet_lps(fungible):
                 'amount_b': round(slim['reserve_b'] * balance / supply, 8)
                 if supply and slim.get('reserve_b') else None,
                 'apr_24h': slim.get('apr_24h'),
+                'volume_24h': slim.get('volume_24h'),
+                'fees_24h': slim.get('fees_24h'),
+                'fee_rate': slim.get('fee_rate'),
+                'type': slim.get('type'),
             })
     return rows

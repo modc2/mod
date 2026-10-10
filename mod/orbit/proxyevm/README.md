@@ -41,15 +41,16 @@ m proxyevm forward first=5
 
 ## Parameters
 
-`forward(query, first, order_by, subgraph_url)`
+`forward(query, first, order_by, order_direction, subgraph_url)`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `query` | `str` | `None` | Raw GraphQL query string. When provided, `first` and `order_by` are ignored. |
+| `query` | `str` | `None` | Raw GraphQL query string. When provided, all other parameters are ignored. |
 | `first` | `int` | `10` | Number of pools to return. |
-| `order_by` | `str` | `"totalValueLockedUSD"` | Field to sort pools by (descending). |
+| `order_by` | `str` | `"totalValueLockedUSD"` | Field to sort pools by. |
+| `order_direction` | `str` | `"desc"` | Sort direction: `"asc"` or `"desc"`. |
 | `subgraph_url` | `str` | `None` | Override the subgraph endpoint. Defaults to the Uniswap v3 mainnet subgraph on The Graph. |
 
 ## Returns
 
-The parsed JSON `data` dict from the subgraph response. Each pool entry includes `token0`, `token1`, `feeTier`, and `totalValueLockedUSD`.
+The parsed JSON `data` dict from the subgraph response. Each pool entry includes `id`, `token0`, `token1`, `feeTier`, `totalValueLockedUSD`, `volumeUSD`, and `txCount`.
