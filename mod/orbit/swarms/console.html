@@ -110,6 +110,19 @@
         <input id="loops" type="number" value="1" min="1" max="50" title="max_loops" style="width:80px">
         <button class="ghost" id="autobuild">BUILD ROSTER FROM TASK</button>
       </div>
+      <div id="arch-opts" style="display:none;margin-bottom:8px">
+        <div id="opt-rearrange" style="display:none">
+          <input id="rearrange-flow" placeholder="a -> b, c  (agent flow)" style="width:100%">
+        </div>
+        <div id="opt-heavy" style="display:none" class="bar">
+          <span class="dimtxt" style="font-size:11px">heavy_swarm_variant</span>
+          <select id="heavy-variant">
+            <option value="default">default</option>
+            <option value="medium">medium</option>
+            <option value="heavy">heavy</option>
+          </select>
+        </div>
+      </div>
       <div class="bar">
         <span class="dimtxt" id="picked">swarm_type: auto</span>
         <label class="chk"><input type="checkbox" id="collab"> collaborate</label>
@@ -140,6 +153,7 @@ before paying to run it.</pre>
         <input id="a-name" placeholder="agent name">
         <select id="a-model"><option value="">model (default)</option></select>
         <textarea id="a-system" rows="5" placeholder="system prompt"></textarea>
+        <input id="a-prompt-id" placeholder="marketplace_prompt_id (optional)">
         <div class="bar" style="margin:0">
           <input id="a-temp" type="number" step="0.1" min="0" max="2" placeholder="temp" style="width:90px">
           <input id="a-max" type="number" placeholder="max_tokens" style="width:120px">
@@ -319,6 +333,14 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
 // ── swarm ──
 let SWARM_TYPE = 'auto';
 
+function showArchOpts(name) {
+  const rearrange = name === 'AgentRearrange';
+  const heavy = name === 'HeavySwarm';
+  $('#arch-opts').style.display = (rearrange || heavy) ? '' : 'none';
+  $('#opt-rearrange').style.display = rearrange ? '' : 'none';
+  $('#opt-heavy').style.display = heavy ? '' : 'none';
+}
+
 async function loadArchitectures() {
   const box = $('#archlist');
   box.innerHTML = '';
@@ -341,6 +363,7 @@ async function loadArchitectures() {
       SWARM_TYPE = name;
       $('#picked').textContent = 'swarm_type: ' + name;
       box.querySelectorAll('.arch').forEach(x => x.classList.toggle('on', x === d));
+      showArchOpts(name);
     };
     box.append(d);
   });
@@ -458,6 +481,9 @@ $('#run').onclick = async () => {
   if (agents) body.agents = agents;
   if ($('#collab').checked) body.multi_agent_collab_prompt = true;
   if ($('#listall').checked) body.list_all_agents = true;
+  const rf = $('#rearrange-flow').value.trim();
+  if (rf) body.rearrange_flow = rf;
+  if (SWARM_TYPE === 'HeavySwarm') body.heavy_swarm_variant = $('#heavy-variant').value;
   const b = $('#run'); b.disabled = true;
   flash('#f-swarm', 'running — swarms take a while');
   $('#out-swarm').textContent = `running ${SWARM_TYPE}…`;
@@ -495,7 +521,7 @@ $('#a-run').onclick = async () => {
   const task = $('#a-task').value.trim();
   if (!task) return flash('#f-agent', 'give it a task', true);
   const body = {task};
-  const map = {agent_name: '#a-name', system_prompt: '#a-system', model_name: '#a-model'};
+  const map = {agent_name: '#a-name', system_prompt: '#a-system', model_name: '#a-model', marketplace_prompt_id: '#a-prompt-id'};
   for (const [k, sel] of Object.entries(map)) { const v = $(sel).value.trim(); if (v) body[k] = v; }
   if ($('#a-temp').value) body.temperature = Number($('#a-temp').value);
   if ($('#a-max').value) body.max_tokens = Number($('#a-max').value);
@@ -524,8 +550,9 @@ $('#a-run').onclick = async () => {
 async function loadMarket() {
   const box = $('#m-cards'); box.innerHTML = '';
   flash('#f-market', 'loading…');
+  const kind = $('#m-kind').value;
   try {
-    const q = new URLSearchParams({kind: $('#m-kind').value, limit: $('#m-limit').value || 30});
+    const q = new URLSearchParams({kind, limit: $('#m-limit').value || 30});
     if ($('#m-q').value.trim()) q.set('q', $('#m-q').value.trim());
     const out = await call('/market?' + q);
     flash('#f-market', `${out.count} of ${out.total}`);
@@ -546,6 +573,16 @@ async function loadMarket() {
         const idl = el('div', 'dimtxt'); idl.style.fontSize = '10px';
         idl.style.marginTop = '6px'; idl.textContent = it.id;
         c.append(idl);
+      }
+      if (kind === 'prompts' && it.id) {
+        const btn = el('button', 'ghost', 'USE');
+        btn.style.marginTop = '8px';
+        btn.onclick = () => {
+          $('#a-prompt-id').value = it.id;
+          document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x.dataset.t === 'agent'));
+          document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === 'agent'));
+        };
+        c.append(btn);
       }
       box.append(c);
     });

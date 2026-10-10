@@ -25,6 +25,7 @@ export default function StratDetail() {
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [intent, setIntent] = useState<any>(null);
   const [initialUsd, setInitialUsd] = useState(100);
   const [vaultAddr, setVaultAddr] = useState("");
@@ -56,7 +57,6 @@ export default function StratDetail() {
   };
 
   const onDelete = () => attempt(async () => {
-    if (!confirm(`Delete "${idx?.name ?? "this strat"}"? This can't be undone.`)) return;
     await deleteIndex(id);
     window.location.href = "/strats";
   });
@@ -94,7 +94,14 @@ export default function StratDetail() {
           <Link href={`/strats/new?fork=${idx.id}`} className="btn-primary">fork this strat</Link>
           {isOwner && (
             <AuthGateInline action="delete this strat">
-              <button className="btn-danger" onClick={onDelete} disabled={busy}>delete</button>
+              {confirmDelete ? (
+                <div className="flex items-center gap-2">
+                  <button className="btn-danger" onClick={onDelete} disabled={busy}>yes, delete</button>
+                  <button className="btn" onClick={() => setConfirmDelete(false)}>cancel</button>
+                </div>
+              ) : (
+                <button className="btn-danger" onClick={() => setConfirmDelete(true)} disabled={busy}>delete</button>
+              )}
             </AuthGateInline>
           )}
         </div>

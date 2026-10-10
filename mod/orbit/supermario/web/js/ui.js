@@ -509,6 +509,7 @@
       if (e.metaKey || e.ctrlKey) return;
       if (e.code === 'KeyP') { self.togglePause(); e.preventDefault(); return; }
       if (e.code === 'F2') { self.saveState(); e.preventDefault(); return; }
+      if (e.code === 'F3') { self.slot = self.slot % 4 + 1; $('slot').textContent = 'SLOT ' + self.slot; idbPut('prefs', 'slot', self.slot).catch(noop); self.toast('slot ' + self.slot); e.preventDefault(); return; }
       if (e.code === 'F4') { self.loadState(); e.preventDefault(); return; }
       if (e.code === 'Tab') { self.turbo = true; e.preventDefault(); return; }
       var button = KEYMAP[e.code];
@@ -595,7 +596,9 @@
     });
 
     $('crt').addEventListener('click', function () {
-      var on = self.canvas.classList.toggle('scanlines');
+      var overlay = $('crt-overlay');
+      var on = overlay.style.display !== 'block';
+      overlay.style.display = on ? 'block' : 'none';
       this.classList.toggle('on', on);
       idbPut('prefs', 'crt', on);
     });
@@ -619,7 +622,8 @@
     }).catch(noop);
     idbGet('prefs', 'crt').then(function (on) {
       if (on === true) {
-        self.canvas.classList.add('scanlines');
+        var overlay = $('crt-overlay');
+        if (overlay) overlay.style.display = 'block';
         var btn = $('crt');
         if (btn) btn.classList.add('on');
       }

@@ -10,6 +10,8 @@ class Mod:
         """Default entry point."""
         if action == 'readme':
             return self.readme()
+        elif action is not None:
+            return {'error': f'Unknown action: {action!r}', 'valid_actions': ['readme']}
         return self.info()
 
     def info(self):
@@ -32,4 +34,4 @@ class Mod:
             p = os.path.join(self.path, name)
             if os.path.exists(p):
                 return m.get_text(p)
-        return None
+        return {'error': 'No README found'}

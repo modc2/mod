@@ -94,7 +94,7 @@ def _pct(x):
 
 
 def _md(s):
-    return (s or '').replace('|', '\\|').replace('\n', ' ').strip()
+    return (s or '').replace('[', '\\[').replace(']', '\\]').replace('|', '\\|').replace('\n', ' ').strip()
 
 
 def related_mods(rows, orbit=ORBIT):
@@ -368,7 +368,8 @@ class Mod:
         fresh = not os.path.isdir(d)
         os.makedirs(d, exist_ok=True)
         old = _read_json(os.path.join(d, 'data.json'))
-        if old and _strip_volatile(old) == _strip_volatile(snap):
+        all_present = all(os.path.exists(os.path.join(d, f)) for f in ('config.json', 'README.md'))
+        if old and all_present and _strip_volatile(old) == _strip_volatile(snap):
             stats['unchanged'] += 1
             return
         prev_cfg = _read_json(os.path.join(d, 'config.json'))

@@ -518,6 +518,8 @@ class State:
         entry["escrow"] += amount - self._top_up_bounty(entry, amount)
         self._reprice(entry)
         return GAS_MARKET_OP, {"key": key, "funded_by": sender,
+                               "deposit": amount,
+                               "escrow": entry["escrow"],
                                "expires_at": entry["expires_at"],
                                "lease_seconds": entry["expires_at"] - now}, 0
 

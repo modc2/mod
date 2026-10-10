@@ -45,6 +45,7 @@ function StratsTab({ onNavigate }: { onNavigate: () => void }) {
   const { canWrite } = useSession();
   const [mine, setMine] = useState<Index[] | null>(null);
   const [perf, setPerf] = useState<Record<string, Perf>>({});
+  const [deletePending, setDeletePending] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!address) { setMine(null); return; }
@@ -61,8 +62,8 @@ function StratsTab({ onNavigate }: { onNavigate: () => void }) {
   useEffect(() => { load().catch(() => setMine([])); }, [load]);
 
   const onDelete = async (id: string) => {
-    if (!confirm("delete strat?")) return;
     await deleteIndex(id);
+    setDeletePending(null);
     load().catch(() => {});
   };
 
@@ -110,8 +111,17 @@ function StratsTab({ onNavigate }: { onNavigate: () => void }) {
               <div className="flex items-center gap-2">
                 <Link href={`/invest/new?strat=${i.id}`} className="btn-ghost !py-0.5" onClick={onNavigate}>invest</Link>
                 {canWrite && (
-                  <button className="text-[10px] uppercase tracking-wider text-dim hover:text-loss transition-colors"
-                    onClick={() => onDelete(i.id)}>delete</button>
+                  deletePending === i.id ? (
+                    <>
+                      <button className="text-[10px] uppercase tracking-wider text-loss transition-colors"
+                        onClick={() => onDelete(i.id)}>yes, delete</button>
+                      <button className="text-[10px] uppercase tracking-wider text-dim hover:text-ink transition-colors"
+                        onClick={() => setDeletePending(null)}>cancel</button>
+                    </>
+                  ) : (
+                    <button className="text-[10px] uppercase tracking-wider text-dim hover:text-loss transition-colors"
+                      onClick={() => setDeletePending(i.id)}>delete</button>
+                  )
                 )}
               </div>
             </div>

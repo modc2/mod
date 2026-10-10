@@ -122,11 +122,13 @@ class Validator:
                     total += res["score"]
                     n += 1
             epoch_score = total / n if n else 0.0
-            self.scores[hk] = reward.ema(self.scores.get(hk), epoch_score,
-                                         self.cfg.ema_alpha)
+            if n:
+                self.scores[hk] = reward.ema(self.scores.get(hk), epoch_score,
+                                             self.cfg.ema_alpha)
+            ema = self.scores.get(hk)
             report["results"][uid] = {"hotkey": hk,
                                       "epoch_score": round(epoch_score, 4),
-                                      "ema_score": round(self.scores[hk], 4),
+                                      "ema_score": round(ema, 4) if ema is not None else None,
                                       "samples": results}
 
         weights = reward.normalize_weights(

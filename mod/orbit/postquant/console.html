@@ -1520,6 +1520,7 @@ async function manage(path, extra) {
       (r.receipt?.refund ? `<b>refund</b><span class="amt">${esc(pq(r.receipt.refund))} PQ</span>` : '') +
       (r.receipt?.bounty ? `<b>bounty</b><span class="amt">${esc(pq(r.receipt.bounty))} PQ</span>` : '') +
       (r.receipt?.price  ? `<b>price</b><span class="amt">${esc(pq(r.receipt.price))} PQ</span>` : '') +
+      (r.receipt?.deposit ? `<b>deposited</b><span class="amt">${esc(pq(r.receipt.deposit))} PQ</span>` : '') +
       (r.receipt?.escrow ? `<b>escrow</b><span class="amt">${esc(pq(r.receipt.escrow))} PQ</span>` : '') +
       (r.receipt?.expires_at ? `<b>expires in</b><span>${ago(r.receipt.expires_at - Math.floor(Date.now()/1000))}</span>` : '') +
       `</div>`);

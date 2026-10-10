@@ -13,6 +13,7 @@ export default function FollowsPage() {
   const { address } = useWallet();
   const [follows, setFollows] = useState<Follow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletePending, setDeletePending] = useState<string | null>(null);
 
   // Follows are private per wallet — the API only serves your own rows,
   // scoped to the signed-in address on the auth token.
@@ -28,8 +29,9 @@ export default function FollowsPage() {
   useEffect(() => { load(); }, [load]);
 
   const onDelete = async (id: string) => {
-    if (!confirm("delete this follow?")) return;
-    await deleteFollow(id); load();
+    await deleteFollow(id);
+    setDeletePending(null);
+    load();
   };
   const onPause = async (f: Follow) => {
     if (f.paused) await resumeFollow(f.id); else await pauseFollow(f.id);
@@ -88,11 +90,18 @@ export default function FollowsPage() {
                 {f.max_per_trade_usd > 0 ? `$${f.max_per_trade_usd}` : "∞"}
               </div>
               <div className="text-right text-[11px] text-muted">{ago(f.created_ms)}</div>
-              <div className="flex justify-end gap-1">
+              <div className="flex justify-end gap-1 items-center">
                 {f.paused
                   ? <button className="btn" onClick={() => onPause(f)}>resume</button>
                   : <button className="btn" onClick={() => onPause(f)}>pause</button>}
-                <button className="btn-danger" onClick={() => onDelete(f.id)}>delete</button>
+                {deletePending === f.id ? (
+                  <>
+                    <button className="btn-danger" onClick={() => onDelete(f.id)}>yes, delete</button>
+                    <button className="btn" onClick={() => setDeletePending(null)}>cancel</button>
+                  </>
+                ) : (
+                  <button className="btn-danger" onClick={() => setDeletePending(f.id)}>delete</button>
+                )}
               </div>
             </div>
           ))}

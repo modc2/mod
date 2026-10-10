@@ -234,7 +234,7 @@ def _receipt_view(r):
     if not r:
         return None
     out = dict(r)
-    for field in ('fee', 'refund', 'bounty', 'amount', 'price', 'escrow'):
+    for field in ('fee', 'refund', 'bounty', 'amount', 'price', 'deposit', 'escrow'):
         if field in out and isinstance(out[field], int):
             out[field] = _money(out[field])
     return out

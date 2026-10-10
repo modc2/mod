@@ -225,6 +225,34 @@ def test_recycled_uid_new_miner_gets_clean_ema(cfg, monkeypatch):
     assert result["ema_score"] != pytest.approx(0.9, abs=0.05)
 
 
+# ── validator RPC outage ─────────────────────────────────────────────────
+
+def test_rpc_outage_does_not_decay_ema(cfg, monkeypatch):
+    """When all samples return score=None (unverifiable), EMA must not change."""
+    from subnet.validator import Validator
+
+    monkeypatch.setattr("subnet.validator.NearClient", lambda *a, **k: FakeNear())
+
+    val = Validator(cfg)
+    chain = LocalChain(cfg)
+    hk = "miner-outage-test"
+    chain.register(hk, role="miner")
+    chain.serve(hk, "http://fake-miner")
+
+    prior_ema = 0.75
+    val.scores[hk] = prior_ema
+
+    def fake_query_unverifiable(miner, task_req):
+        return {"score": None, "error": "unverifiable: rpc down", "task": task_req["task"]}
+    monkeypatch.setattr(val, "query_one", fake_query_unverifiable)
+
+    report = val.epoch()
+    assert val.scores[hk] == pytest.approx(prior_ema), \
+        "EMA must not change when all samples are unverifiable"
+    uid = str(chain.metagraph()["neurons"][-1]["uid"])
+    assert report["results"][uid]["ema_score"] == pytest.approx(prior_ema)
+
+
 # ── end-to-end offline epoch ────────────────────────────────────────────
 
 def test_offline_epoch_scores_and_sets_weights(cfg, monkeypatch):
