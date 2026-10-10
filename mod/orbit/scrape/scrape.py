@@ -247,7 +247,7 @@ class Scrape(m.mod('chain')):
                         # Retry with smaller batch size
                         if batch_size > 1000:
                             m.print('Retrying with smaller batch size...', color='yellow')
-                            return self.scrape_events(
+                            return all_events + self.scrape_events(
                                 contract_name,
                                 event_name,
                                 current_block,
@@ -257,13 +257,13 @@ class Scrape(m.mod('chain')):
                                 filters=filters,
                                 process_fn=process_fn,
                                 use_cache=use_cache,
-                                checkpoint_file=checkpoint_file
+                                checkpoint_file=None
                             )
                         raise
 
             # Save checkpoint
             if checkpoint_file:
-                self._save_checkpoint(checkpoint_file, current_block, all_events)
+                self._save_checkpoint(checkpoint_file, batch_end + 1, all_events)
 
             current_block = batch_end + 1
             batches_completed += 1

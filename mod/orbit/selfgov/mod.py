@@ -1,21 +1,37 @@
+import json
 import os
 import mod as m
 
 class Mod:
-    description = """selfgov"""
-    path = r'/root/mod/mod/orbit/selfgov'
+    path = os.path.dirname(os.path.abspath(__file__))
+
+    def __init__(self):
+        try:
+            with open(os.path.join(self.path, 'config.json')) as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+        self.name = cfg.get('name', 'selfgov')
+        self.description = cfg.get('description', 'selfgov')
+        self.version = cfg.get('version', '0.0.0')
 
     def forward(self, **kwargs):
         """Default entry point."""
-        return self.info()
+        action = kwargs.get('action', 'info')
+        if action == 'info':
+            return self.info()
+        if action == 'readme':
+            return self.readme()
+        return {'error': f'unknown action: {action}', 'available': ['info', 'readme']}
 
     def info(self):
         """Return module info."""
         return {
-            'name': 'selfgov',
+            'name': self.name,
+            'version': self.version,
             'description': self.description,
             'path': self.path,
-            'files': os.listdir(self.path),
+            'files': [f for f in os.listdir(self.path) if not f.startswith('__')],
         }
 
     def readme(self):

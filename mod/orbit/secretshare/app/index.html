@@ -81,6 +81,8 @@
     <section class="card" id="combine-card">
       <h2>Unlock a secret</h2>
       <p>Paste the pieces you have, one per line. Order doesn't matter.</p>
+      <input type="file" id="load-files-input" multiple accept=".txt,text/plain" hidden>
+      <button class="ghost" id="load-files-btn" style="align-self:flex-start">Load from files</button>
       <textarea id="pieces" placeholder="ss1.xxxxxxxx.3.1.…&#10;ss1.xxxxxxxx.3.4.…&#10;ss1.xxxxxxxx.3.5.…" spellcheck="false"></textarea>
       <button id="do-combine">Unlock</button>
       <div class="msg" id="combine-msg"></div>
@@ -93,6 +95,17 @@
       </div>
     </section>
   </div>
+
+  <section class="card" id="inspect-card" style="margin-top:18px">
+    <h2>Inspect a piece</h2>
+    <p>Paste one share to see its set ID, threshold, and index — without revealing the secret.</p>
+    <input id="inspect-share" type="text" placeholder="ss1.xxxxxxxx.3.2.…" autocomplete="off" spellcheck="false">
+    <button id="do-inspect">Inspect</button>
+    <div class="msg" id="inspect-msg"></div>
+    <div id="inspect-out" hidden>
+      <div class="result" id="inspect-result"></div>
+    </div>
+  </section>
 
   <footer>
     Shamir's Secret Sharing over GF(256), with a checksum so wrong pieces fail loudly instead of returning garbage.
@@ -131,7 +144,8 @@
         box.appendChild(row);
       });
       $("split-out").hidden = false;
-      say(msg, `Made ${n} pieces. Any ${k} of them unlock the secret.`, "ok");
+      $("secret").value = "";
+      say(msg, `Made ${n} pieces (original cleared). Any ${k} of them unlock it.`, "ok");
     } catch (e) { $("split-out").hidden = true; say(msg, e.message, "err"); }
   };
 
@@ -157,7 +171,45 @@
     } catch (e) { $("combine-out").hidden = true; say(msg, e.message, "err"); }
   };
   $("copy-result").onclick = (e) => copy($("result").textContent, e.target);
-  $("hide-result").onclick = () => { $("result").textContent = ""; $("combine-out").hidden = true; say($("combine-msg"), ""); };
+  $("hide-result").onclick = () => { $("result").textContent = ""; $("pieces").value = ""; $("combine-out").hidden = true; say($("combine-msg"), ""); };
+
+  $("load-files-btn").onclick = () => $("load-files-input").click();
+  $("load-files-input").addEventListener("change", (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    const existing = new Set($("pieces").value.split(/\s+/).filter(t => t.startsWith("ss1.")));
+    let added = 0, remaining = files.length;
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        ev.target.result.split(/\s+/).filter(t => t.startsWith("ss1.")).forEach(t => {
+          if (!existing.has(t)) {
+            existing.add(t);
+            const a = $("pieces");
+            a.value = (a.value ? a.value.trimEnd() + "\n" : "") + t;
+            added++;
+          }
+        });
+        if (--remaining === 0) {
+          if (added > 0) say($("combine-msg"), `Loaded ${added} piece${added > 1 ? "s" : ""}.`, "ok");
+          else say($("combine-msg"), "No new pieces found in the selected files.", "");
+        }
+      };
+      reader.readAsText(file);
+    });
+    e.target.value = "";
+  });
+
+  $("do-inspect").onclick = () => {
+    const msg = $("inspect-msg");
+    try {
+      const m = Shamir.inspect($("inspect-share").value.trim());
+      $("inspect-result").textContent =
+        `Set ID:    ${m.set}\nThreshold: ${m.k} pieces needed\nShare #:   ${m.x}\nPayload:   ${m.secret_bytes} bytes`;
+      $("inspect-out").hidden = false;
+      say(msg, "Parsed.", "ok");
+    } catch (e) { $("inspect-out").hidden = true; say(msg, e.message, "err"); }
+  };
 </script>
 </body>
 </html>

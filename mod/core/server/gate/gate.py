@@ -274,16 +274,19 @@ class Gate:
                 fn_obj = self._obj_cache[fn]
                 print(f'Using cached function object for {fn}', color='green')
             else:
+                cache_key = fn
                 temp_mod = fn.split('/')[0]
                 fn = '/'.join(fn.split('/')[1:])
                 if hasattr(self.mod, temp_mod):
-                    mod_obj = getattr(mod, temp_mod)
+                    mod_obj = getattr(self.mod, temp_mod)
                     fn_obj = getattr(mod_obj, fn)
-                else: 
+                else:
                     if m.mod_exists(temp_mod):
                         mod_obj = m.mod(temp_mod)()
                         fn_obj = getattr(mod_obj, fn)
-                self._obj_cache[fn] = fn_obj
+                    else:
+                        raise AttributeError(f"Function '{fn}' not found: module '{temp_mod}' is not a sub-mod of self.mod and does not exist in the registry")
+                self._obj_cache[cache_key] = fn_obj
         else:
             fn_obj = getattr(self.mod, fn) # get the function object from the mod
         return fn_obj

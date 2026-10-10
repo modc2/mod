@@ -1,9 +1,11 @@
+import json
 import os
 import mod as m
 
 class Mod:
-    description = """safe"""
     path = os.path.dirname(os.path.abspath(__file__))
+    _cfg = json.load(open(os.path.join(path, 'config.json')))
+    description = _cfg.get('description', '')
 
     def forward(self, **kwargs):
         """Default entry point."""
@@ -11,11 +13,14 @@ class Mod:
 
     def info(self):
         """Return module info."""
+        cfg = self._cfg
         return {
-            'name': 'safe',
-            'description': self.description,
+            'name': cfg.get('name', ''),
+            'description': cfg.get('description', ''),
+            'version': cfg.get('version', ''),
             'path': self.path,
-            'files': os.listdir(self.path),
+            'files': [f for f in os.listdir(self.path)
+                      if f != '__pycache__' and not f.startswith('.')],
         }
 
     def readme(self):

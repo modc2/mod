@@ -62,6 +62,9 @@ export function ScanReport({ id }: { id: string }) {
             {scan.branch && (
               <span className="ml-2 text-muted text-sm">@ {scan.branch}</span>
             )}
+            {scan.subdir && (
+              <span className="ml-2 text-muted text-sm">· {scan.subdir}</span>
+            )}
           </div>
           <StatusLine scan={scan} />
         </div>
@@ -101,7 +104,7 @@ export function ScanReport({ id }: { id: string }) {
       {findings.length > 0 ? (
         <ul className="space-y-3">
           {findings.map((f, i) => (
-            <FindingCard key={i} f={f} />
+            <FindingCard key={i} f={f} repoUrl={scan.repo} branch={scan.branch} />
           ))}
         </ul>
       ) : scan.status === "done" ? (
@@ -141,7 +144,13 @@ function StatusLine({ scan }: { scan: Scan }) {
   );
 }
 
-function FindingCard({ f }: { f: Finding }) {
+function FindingCard({ f, repoUrl, branch }: { f: Finding; repoUrl?: string; branch?: string | null }) {
+  const fileLabel = f.file ? `${f.file}${f.line ? `:${f.line}` : ""}` : null;
+  const fileHref =
+    f.file && repoUrl && repoUrl.includes("github.com")
+      ? `${prettyRepoUrl(repoUrl)}/blob/${branch || "HEAD"}/${f.file}${f.line ? `#L${f.line}` : ""}`
+      : undefined;
+
   return (
     <li className="bg-panel border border-border rounded-lg p-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -153,11 +162,14 @@ function FindingCard({ f }: { f: Finding }) {
             </span>
           )}
         </div>
-        {f.file && (
-          <code className="text-xs text-accent break-all">
-            {f.file}
-            {f.line ? `:${f.line}` : ""}
-          </code>
+        {fileLabel && (
+          fileHref ? (
+            <a href={fileHref} target="_blank" rel="noreferrer" className="font-mono text-xs text-accent hover:underline break-all">
+              {fileLabel}
+            </a>
+          ) : (
+            <code className="text-xs text-accent break-all">{fileLabel}</code>
+          )
         )}
       </div>
       <div className="mt-2 font-medium">{f.title || "Untitled finding"}</div>

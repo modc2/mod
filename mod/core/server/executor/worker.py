@@ -615,15 +615,20 @@ class _DockerPersistentWorker:
 
         # Use docker exec -i to pipe task JSON and get result
         py_cmd = (
-            "import sys, json, traceback; "
-            "task = json.loads(sys.stdin.read()); "
-            "sys.stdout = sys.stderr; "
-            "import mod as m; "
-            "fn_obj = m.fn(task['fn']); "
-            "result = fn_obj(**task.get('params', {})) if callable(fn_obj) else fn_obj; "
-            "result = list(result) if hasattr(result, '__next__') else result; "
-            "sys.stdout = sys.__stdout__; "
-            "print(json.dumps({'result': result}))"
+            "import sys, json, traceback\n"
+            "_out = sys.stdout\n"
+            "sys.stdout = sys.stderr\n"
+            "task = json.loads(sys.stdin.read())\n"
+            "import mod as m\n"
+            "try:\n"
+            "    fn_obj = m.fn(task['fn'])\n"
+            "    result = fn_obj(**task.get('params', {})) if callable(fn_obj) else fn_obj\n"
+            "    result = list(result) if hasattr(result, '__next__') else result\n"
+            "    output = json.dumps({'result': result})\n"
+            "except Exception as e:\n"
+            "    output = json.dumps({'error': str(e), 'traceback': traceback.format_exc()})\n"
+            "_out.write(output + '\\n')\n"
+            "_out.flush()\n"
         )
 
         cmd = ['docker', 'exec', '-i', self.name, 'python3', '-u', '-c', py_cmd]

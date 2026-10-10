@@ -3,9 +3,10 @@ import json
 
 class Mod:
     description = "LLM-powered search to find the best orbit module for a task"
+    _catalog_cache = None
 
     def __init__(self, **kwargs):
-        self._catalog_cache = None
+        pass
 
     def forward(self, query, n=3, **kwargs):
         """Search for the best module matching a natural language query.
@@ -15,7 +16,7 @@ class Mod:
             n: Number of top results to return (default 3)
         """
         catalog = self.catalog()
-        catalog_text = '\n'.join(f'- {name}: {desc}' for name, desc in catalog.items())
+        catalog_text = '\n'.join(f'- {name}: {desc}' for name, desc in catalog.items() if desc.strip())
 
         prompt = f"""You are a module search engine for a Python framework with {len(catalog)} modules.
 
@@ -42,7 +43,9 @@ Return exactly {n} results, ranked best first. If fewer than {n} modules are rel
             if start >= 0 and end > start:
                 results = json.loads(response[start:end])
             else:
-                return {'query': query, 'raw': response}
+                return {'query': query, 'results': [], 'raw': response}
+
+        results = [r for r in results if r.get('name') in catalog]
 
         for r in results:
             r['description'] = catalog.get(r['name'], '')
@@ -65,5 +68,5 @@ Return exactly {n} results, ranked best first. If fewer than {n} modules are rel
             except Exception:
                 catalog[name] = ''
 
-        self._catalog_cache = catalog
+        Mod._catalog_cache = catalog
         return catalog
