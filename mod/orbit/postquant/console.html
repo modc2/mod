@@ -147,6 +147,24 @@
   .kv{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;font-size:12.5px}
   .kv b{color:var(--dim);font-weight:600}
   .tabs2{display:flex;gap:6px;margin-bottom:10px}
+  /* ── BUILDER: the key type DAG ── */
+  #dag-wrap{overflow:auto;border:1px solid var(--line);border-radius:8px;
+            background:var(--inset);margin-bottom:10px}
+  #dag{display:block}
+  .dnode rect{fill:#101724;stroke:var(--line2);cursor:pointer;
+              transition:stroke .12s, filter .12s}
+  .dnode:hover rect{stroke:var(--pq)}
+  .dnode.sel rect{stroke:var(--pq);stroke-width:2;
+                  filter:drop-shadow(0 0 6px rgba(157,123,255,.5))}
+  .dnode.refused rect{stroke:#5a2733;stroke-dasharray:4 3}
+  .dnode text{fill:var(--ink);font:12px ui-monospace,monospace;pointer-events:none}
+  .dnode .sub{fill:var(--dim);font-size:10px}
+  .dnode .qs{fill:var(--good)} .dnode .cl{fill:var(--gold)}
+  .dedge{fill:none;stroke:var(--pq-dim);stroke-width:1.2;opacity:.55}
+  .dedge.any{stroke:var(--gold);stroke-dasharray:5 4}
+  .proof-row{display:flex;gap:8px;align-items:baseline;padding:4px 0;
+             border-bottom:1px solid #121a24;font-size:12.5px}
+  .proof-row:last-child{border-bottom:0}
   /* ── ASK: the agent ── */
   #ask-log{display:flex;flex-direction:column;gap:10px;margin-top:12px}
   .turn-q{align-self:flex-end;max-width:80%;background:rgba(157,123,255,.10);
@@ -236,6 +254,7 @@
     <button data-tab="ask">ASK</button>
     <button data-tab="store">STORE</button>
     <button data-tab="market">MARKET</button>
+    <button data-tab="builder">BUILDER</button>
     <button data-tab="write">WRITE</button>
     <button data-tab="wallet">WALLET</button>
     <button data-tab="about">WHITEPAPER</button>
@@ -371,6 +390,50 @@
     <div class="panel">
       <h2>gas schedule</h2>
       <div id="gas" class="kv"></div>
+    </div>
+  </section>
+
+  <!-- BUILDER ------------------------------------------------------------ -->
+  <section id="builder">
+    <div class="panel">
+      <h2>key type builder</h2>
+      <p class="note">Every key type this node can witness, drawn as the graph
+        it is: primitives on the left, composites built out of them to the
+        right. Solid edges feed an <b>all</b>-composite — every part must sign,
+        it falls only if every part falls. Dashed gold edges feed an
+        <b>any</b> — one part's signature suffices, it falls at the weakest.
+        Click nodes to pick parts, then mint a new key type. Nothing here is
+        secure by decree: the gate probes the composed keygen like any plugin,
+        and TEST PROOFS runs the battery live.</p>
+      <div id="dag-wrap"><svg id="dag"></svg></div>
+      <div class="row">
+        <span class="pill">parts</span>
+        <span id="kt-picked" class="muted">click nodes above…</span>
+      </div>
+      <div class="row">
+        <select id="kt-op">
+          <option value="all">ALL-OF — hybrid AND: break every part</option>
+          <option value="any">ANY-OF — 1-of-n OR: break the weakest</option>
+        </select>
+        <input type="text" id="kt-name" placeholder="name (auto)">
+        <button class="go" id="kt-build">BUILD KEY TYPE</button>
+        <span class="pill" id="kt-meta">—</span>
+      </div>
+      <div id="kt-out"></div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2>the picked type</h2>
+        <div id="kt-detail" class="muted">click a node in the graph.</div>
+      </div>
+      <div class="panel">
+        <h2>proofs</h2>
+        <p class="note">Refutation-only: sign/verify roundtrip, tampered
+          message and signature, truncation, context and key binding, per-part
+          ablation for composites, and a fresh entropy probe. Green means no
+          failure was found — never "secure".</p>
+        <div id="proof-out" class="muted">pick a type and press TEST PROOFS.</div>
+      </div>
     </div>
   </section>
 
@@ -679,8 +742,8 @@
         is the single source of truth, and any summary derived from it is
         thrown away the moment the two disagree.</p>
       <p class="sci">The same functions serve REST under
-        <span class="mono" id="about-api"></span>, MCP (25 tools,
-        <code>pq_head</code> through <code>pq_complexity</code>) at
+        <span class="mono" id="about-api"></span>, MCP (28 tools,
+        <code>pq_head</code> through <code>pq_keytype_dag</code>) at
         <code>POST /mcp</code>, and this console. State lives in
         <code>~/.mod/postquant</code>: wallet seeds mode 0600 and never
         committed, <code>blocks.jsonl</code> as the truth, and a state
@@ -753,6 +816,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   clearInterval(_chainTimer); _chainTimer = null;
   if (b.dataset.tab === 'chain') _chainTimer = setInterval(loadChain, 5000);
   ({chain: loadChain, ask: loadAsk, store: loadKeys, market: loadMarket,
+    builder: loadBuilder,
     wallet: () => { loadWallets(); loadAlgos(); },
     write: fillWallets}[b.dataset.tab] || (()=>{}))();
 });
@@ -1127,6 +1191,150 @@ async function loadMarket() {
       });
   } catch (e) { out('market-stats', esc(e.message), 'err'); }
 }
+
+// ── BUILDER: the key type DAG ──
+let dagData = null, ktSel = [];
+async function loadBuilder() {
+  try { dagData = await api('/keytype_dag'); drawDag(); ktPicked(); }
+  catch (e) { err('kt-out', e); }
+}
+function drawDag() {
+  const svg = $('dag'), nodes = dagData.nodes, edges = dagData.edges;
+  const W = 232, H = 56, GX = 90, GY = 14, cols = {};
+  nodes.forEach(n => (cols[n.depth] = cols[n.depth] || []).push(n));
+  const depths = Object.keys(cols).map(Number).sort((a, b) => a - b);
+  const height = Math.max(...depths.map(d => cols[d].length)) * (H + GY) + 6;
+  const pos = {};
+  depths.forEach(d => cols[d].forEach((n, i) => {
+    const colH = cols[d].length * (H + GY) - GY;
+    pos[n.name] = {x: 10 + d * (W + GX),
+                   y: (height - colH) / 2 + i * (H + GY)};
+  }));
+  const width = 20 + (Math.max(...depths) + 1) * (W + GX) - GX;
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('width', width); svg.setAttribute('height', height);
+  let s = '';
+  edges.forEach(e => {
+    const a = pos[e.from], b = pos[e.to];
+    if (!a || !b) return;
+    const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2,
+          mx = (x1 + x2) / 2;
+    s += `<path class="dedge ${e.op}" d="M${x1},${y1} C${mx},${y1} ` +
+         `${mx},${y2} ${x2},${y2}"/>`;
+  });
+  nodes.forEach(n => {
+    const p = pos[n.name];
+    const cls = (ktSel.includes(n.name) ? ' sel' : '') +
+                (n.accepted ? '' : ' refused');
+    const bits = '2^' + n.classical_bits;
+    const kind = n.composite ? n.composite.op.toUpperCase() + '-OF composite'
+                             : n.family;
+    const q = n.quantum_safe
+      ? `<text class="sub qs" x="10" y="46">quantum-safe · ${esc(bits)} classical</text>`
+      : `<text class="sub cl" x="10" y="46">${esc(bits)} classical · quantum: Shor</text>`;
+    s += `<g class="dnode${cls}" transform="translate(${p.x},${p.y})" ` +
+         `data-n="${esc(n.name)}"><rect width="${W}" height="${H}" rx="7"/>` +
+         `<text x="10" y="18">${esc(short(n.name, 27))}</text>` +
+         `<text class="sub" x="10" y="32">${esc(kind)} · sig ${n.sig_bytes}B` +
+         `${n.accounts_on_chain ? ' · ' + n.accounts_on_chain + ' acct' : ''}` +
+         `${n.accepted ? '' : ' · REFUSED'}</text>${q}</g>`;
+  });
+  svg.innerHTML = s;
+  svg.querySelectorAll('.dnode').forEach(
+    g => g.onclick = () => ktClick(g.dataset.n));
+}
+function ktClick(name) {
+  const i = ktSel.indexOf(name);
+  if (i >= 0) ktSel.splice(i, 1); else ktSel.push(name);
+  drawDag(); ktPicked(); ktDetail(name);
+}
+function ktAutoName() {
+  const e = $('kt-name');
+  if (e.dataset.auto === '0' && e.value) return;
+  e.value = ktSel.length < 2 ? '' : (ktSel.map(n =>
+    n.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 9)).join('+')
+    + '.' + $('kt-op').value).slice(0, 48);
+}
+function ktPicked() {
+  out('kt-picked', ktSel.length
+    ? ktSel.map(n => `<span class="chip" data-n="${esc(n)}">${esc(n)} ×</span>`).join('')
+    : '<span class="muted">click nodes above — 2 to 6 parts</span>');
+  $('kt-picked').querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    ktSel = ktSel.filter(x => x !== c.dataset.n);
+    drawDag(); ktPicked();
+  });
+  ktAutoName();
+}
+function ktDetail(name) {
+  const n = dagData.nodes.find(x => x.name === name);
+  if (!n) return;
+  const kind = n.composite
+    ? n.composite.op.toUpperCase() + '-OF of ' + n.composite.parts.join(' + ')
+    : n.family + ' (' + n.origin + ')';
+  out('kt-detail', `<div class="kv">
+    <b>name</b><span class="mono">${esc(n.name)}</span>
+    <b>kind</b><span>${esc(kind)}</span>
+    <b>accepted</b><span class="${n.accepted ? 'good' : 'bad'}">` +
+    `${n.accepted ? 'yes — may witness here' : 'refused at the gate'}</span>
+    <b>quantum</b><span class="${n.quantum_safe ? 'good' : 'warn'}">${esc(n.quantum)}</span>
+    <b>classical</b><span>2^${n.classical_bits} best-known attack</span>
+    <b>witness</b><span>pk ${n.pk_bytes}B + sig ${n.sig_bytes}B — what witness gas bills</span>
+    <b>accounts</b><span>${n.accounts_on_chain} on chain</span>
+    ${n.note ? `<b>note</b><span>${esc(n.note)}</span>` : ''}</div>
+    <div class="row" style="margin-top:10px">
+      <button class="go" id="kt-test">TEST PROOFS</button>
+      ${n.composite && !n.accounts_on_chain
+        ? '<button id="kt-del">DELETE</button>' : ''}
+    </div>`);
+  $('kt-test').onclick = () => ktTest(name);
+  const del = $('kt-del');
+  if (del) del.onclick = async () => {
+    try {
+      await api('/keytype', {action: 'delete', name});
+      ktSel = ktSel.filter(x => x !== name);
+      out('kt-detail', 'deleted.', 'muted');
+      loadBuilder();
+    } catch (e) { err('kt-out', e); }
+  };
+}
+async function ktTest(name) {
+  out('proof-out', 'running the battery against ' + esc(name) + '…', 'muted');
+  try {
+    const r = await api('/keytype_test?scheme=' + encodeURIComponent(name));
+    out('proof-out', `<div class="row">
+      <span class="pill ${r.ok ? 'good' : 'bad'}">${r.ok
+        ? 'ALL ' + r.passed + ' PROOFS PASSED'
+        : 'FAILED: ' + r.failed.map(esc).join(', ')}</span>
+      <span class="pill">keygen ${r.timings_ms.keygen}ms · sign ` +
+      `${r.timings_ms.sign}ms · verify ${r.timings_ms.verify}ms</span>
+      <span class="pill">sig ${r.sizes.sig}B</span>
+      ${r.probe.avalanche ? `<span class="pill">avalanche ${r.probe.avalanche}</span>` : ''}
+      </div>` + r.proofs.map(p => `<div class="proof-row">
+        <span class="${p.ok ? 'good' : 'bad'}">${p.ok ? '✔' : '✘'}</span>
+        <b style="min-width:170px">${esc(p.proof)}</b>
+        <span class="muted">${esc(p.detail)}</span></div>`).join(''));
+  } catch (e) { err('proof-out', e); }
+}
+$('kt-build').onclick = async () => {
+  const name = $('kt-name').value.trim(), op = $('kt-op').value;
+  if (ktSel.length < 2)
+    return out('kt-out', 'pick at least two parts in the graph.', 'err');
+  $('kt-meta').textContent = 'minting…';
+  try {
+    const r = await api('/keytype', {action: 'create', name, op, parts: ktSel});
+    $('kt-meta').textContent = r.accepted ? name + ' — accepted'
+                                          : name + ' — refused';
+    out('kt-out', json({created: r.created, accepted: r.accepted,
+      security: r.security, ...(r.refused ? {refused: r.refused} : {}),
+      next: r.next}));
+    ktSel = []; $('kt-name').value = ''; $('kt-name').dataset.auto = '';
+    await loadBuilder(); ktDetail(name); ktTest(name);
+  } catch (e) { $('kt-meta').textContent = '—'; err('kt-out', e); }
+};
+$('kt-name').addEventListener('input', () => {
+  $('kt-name').dataset.auto = $('kt-name').value ? '0' : '';
+});
+$('kt-op').onchange = ktAutoName;
 
 // ── WALLET ──
 async function fillWallets() {

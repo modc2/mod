@@ -8,6 +8,7 @@ export interface SubnetInfo {
   consensus_type: string;
   inflation_type: string;
   stake_score: string;
+  bloctime: string;
   is_immune: boolean;
 }
 
@@ -45,6 +46,7 @@ export interface StakePosition {
 export interface PoolInfo {
   total_shares: string;
   total_bloctime: string;
+  boost_reserve: string;
   current_price: string;
   locked_stake: string;
 }

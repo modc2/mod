@@ -20,6 +20,7 @@ export const FORMULA_VARS = [
   "winRate", "winRateLo", "closes", "wins", "losses", "trades",
   "sharpe", "sharpeDays", "profitFactor", "worstClose", "fees",
   "avgTrade", "hoursSince", "measured", "days",
+  "expDay", "expDay1k",
 ] as const;
 
 /** What each variable IS, in one line — rendered beside the formula box.
@@ -46,6 +47,8 @@ export const SCORE_VAR_HINTS: Record<(typeof FORMULA_VARS)[number], string> = {
   hoursSince: "Hours since the last fill we saw. -1 = unknown (row not measured; the board's liveness gate still means ≤24h).",
   measured: "1 when this row's fill stats were actually fetched, 0 when only leaderboard pricing exists. Gate fill-derived math on it.",
   days: "The board's window length in days — normalise with it (pnl / days).",
+  expDay: "Expected net profit per DAY at the trader's own size, USD — (winRateLo·avgWin − (1−winRateLo)·avgLoss) × closes/day. The profit factor's halves priced at the win rate the sample can defend. NaN = not measured.",
+  expDay1k: "expDay per $1,000 copied proportionally (× 1000 / the equity the window opened on). Compare traders on THIS — it's what a copy earns. NaN = unmeasured or dust basis (< $1k).",
 };
 
 /** Named formulas the score can start from — chips above the box. A preset
@@ -62,6 +65,12 @@ export const SCORE_PRESETS = [
 if (!measured || closes < ${MIN_CLOSES} || sharpeDays < ${MIN_SHARPE_DAYS}) return null;
 return roi * winRateLo / 100 * sharpe;`,
     hint: "The canonical leaderboard score: roi × winRateLo/100 × sharpe — the window return, discounted by the win rate the sample can defend and by consistency. Hides rows without the evidence to score.",
+  },
+  {
+    key: "expDay",
+    label: "EXP $/DAY",
+    formula: "expDay1k",
+    hint: "Expected profit per day per $1,000 copied — the profit factor's halves (avg win, avg loss) priced at the win rate the sample can defend, times closes/day. A lucky streak gets haircut; a long record keeps its pace. Unmeasured rows sink.",
   },
   {
     key: "roi",
@@ -138,6 +147,7 @@ export interface ScoreInputs {
   losses: number; trades: number; sharpe: number; sharpeDays: number;
   profitFactor: number; worstClose: number; fees: number; avgTrade: number;
   hoursSince: number; measured: number; days: number;
+  expDay: number; expDay1k: number;
 }
 
 export function scoreInputs(t: TopTrader, days: number): ScoreInputs {
@@ -161,6 +171,10 @@ export function scoreInputs(t: TopTrader, days: number): ScoreInputs {
     hoursSince: t.last_active > 0 ? (Date.now() - t.last_active) / 3_600_000 : -1,
     measured: t.win_rate >= 0 ? 1 : 0,
     days,
+    // NaN, not 0: an unmeasured row has no expectation, and 0 would rank
+    // it level with a genuinely break-even book.
+    expDay: t.expected?.per_day ?? NaN,
+    expDay1k: t.expected?.per_1k ?? NaN,
   };
 }
 
@@ -169,6 +183,7 @@ export const PROBE_INPUTS: ScoreInputs = {
   roi: 0, pnl: 0, volume: 0, equity: 0, winRate: 0, winRateLo: 0, closes: 0,
   wins: 0, losses: 0, trades: 0, sharpe: 0, sharpeDays: 0, profitFactor: 0,
   worstClose: 0, fees: 0, avgTrade: 0, hoursSince: 0, measured: 0, days: 0,
+  expDay: 0, expDay1k: 0,
 };
 
 /** A compiled score: fn returns the trader's score, or NULL when the user's

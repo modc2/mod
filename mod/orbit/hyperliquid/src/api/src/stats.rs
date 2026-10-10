@@ -130,6 +130,11 @@ pub struct PerfStats {
     /// the window — the ratio is genuinely undefined there, and `0.0` would
     /// render as the worst possible book when it means the opposite.
     pub profit_factor: f64,
+    /// Σ net wins and |Σ net losses| over closes — the two halves of
+    /// `profit_factor`, kept so the expected-profit model (expect.rs) can
+    /// price an average win and an average loss instead of guessing them.
+    pub win_sum: f64,
+    pub loss_sum: f64,
 
     // ── provenance ──
     /// ms epoch of the most recent fill in the window.
@@ -227,6 +232,8 @@ pub fn score(fills: &[Fill], cutoff_ms: i64, now_ms: i64) -> PerfStats {
     s.first_active = if first == i64::MAX { 0 } else { first };
     s.avg_trade_usd = if s.trades == 0 { 0.0 } else { s.volume / s.trades as f64 };
     s.profit_factor = if loss_sum > 0.0 { win_sum / loss_sum } else { -1.0 };
+    s.win_sum = win_sum;
+    s.loss_sum = loss_sum;
 
     // ── win rate, with its denominator attached ──
     if s.closes == 0 {

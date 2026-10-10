@@ -34,6 +34,31 @@ export type TopTrader = {
   /** Σ wins ÷ |Σ losses|. `-1` when there were no losses (undefined, not bad). */
   profit_factor: number;
   worst_close: number;
+  /** Expected profit per day, server-computed (expect.rs). null = unmeasured. */
+  expected?: Expected | null;
+};
+
+/** Expected profit per day — the profit factor's halves (avg win, avg loss)
+ *  priced at the win rate the sample can DEFEND (Wilson lower bound), times
+ *  closes per day. `per_1k` scales it to $1,000 copied proportionally. */
+export type Expected = {
+  /** Conservative expected net USD/day at the trader's own size. */
+  per_day: number;
+  /** The raw window pace, pnl ÷ days — what per_day is a haircut of. */
+  pace_per_day: number;
+  /** USD/day per $1,000 copied. null on a dust basis (< $1k). */
+  per_1k: number | null;
+  basis: number;
+  edge_per_close: number;
+  closes_per_day: number;
+  avg_win: number;
+  avg_loss: number;
+  /** Win rate the edge was priced at, 0–1. */
+  win_lo: number;
+  /** per_day ÷ pace — the share of the pace the sample can defend. */
+  haircut: number | null;
+  source: "exact" | "derived";
+  thin: boolean;
 };
 
 /** Closes below which a win rate is anecdote. Mirrors `stats::MIN_CLOSES`. */
@@ -605,6 +630,49 @@ export const stratsBacktest = (capital = 1000, days: number[] = BACKTEST_WINDOWS
   j<StratsBacktestReport>(
     `/strats/backtest?capital=${capital}&days=${days.join(",")}${refresh ? "&refresh=true" : ""}`
   );
+
+// ── the scout agent ──
+export type ScoutCell = {
+  days: number;
+  trusted: boolean;
+  pnl: number | null;
+  per_day: number | null;
+  roi_pct: number | null;
+  max_drawdown_pct: number | null;
+  flags: string[];
+};
+export type ScoutPick = {
+  address: string;
+  board_rank: number;
+  roi: number;
+  equity: number;
+  closes: number;
+  win_rate: number;
+  profit_factor: number;
+  model: Expected;
+  cells: ScoutCell[];
+  backtest_per_day: number | null;
+  /** min(model per $1k, backtest per $1k) — null when unverified. */
+  expected_per_day: number | null;
+  trusted_windows: number;
+  green_windows: number;
+  verdict: "consistent" | "mixed" | "losing" | "unverified";
+};
+export type ScoutState = {
+  method: string;
+  running: boolean;
+  started?: boolean;
+  next_run_ms: number;
+  every_ms: number;
+  report: {
+    board_days: number; windows: number[]; capital: number;
+    scanned: number; eligible: number; picks: ScoutPick[];
+    updated_ms: number; build_ms: number; note: string | null;
+  } | null;
+  best: ScoutPick | null;
+  history: { ts_ms: number; eligible: number; best: string | null; best_expected_per_day: number | null }[];
+};
+export const scout = (run = false) => j<ScoutState>(`/scout${run ? "?run=true" : ""}`);
 
 // ── vaults ──
 export type Vault = {

@@ -315,6 +315,20 @@ pub fn tools() -> &'static [Tool] {
                 ("traders", p("integer", "trader rows from the board, 0-100 (default 24)")),
                 ("refresh", p("boolean", "skip the 10-minute report cache")),
             ], &[]),
+        tool("hl_scout", "scout", "GET", "/scout", true,
+            "The SCOUT agent's answer to 'which trader is the most profitable \
+             to copy right now'. Every 15 min it ranks the 7d board by expected \
+             profit per day per $1,000 copied — (winRateLo·avgWin − \
+             (1−winRateLo)·avgLoss) × closes/day, scaled by 1000/basis — then \
+             backtests the top 12 with $1,000 at 1/7/30 days. Each pick's \
+             expected_per_day = min(model per $1k, median backtest $/day over \
+             trusted windows); verdict consistent|mixed|losing|unverified. \
+             `best` is the top pick; `history` lists past runs' winners. \
+             run=true starts a fresh pass in the background (≤1 per 5 min). \
+             A forecast from history, not a promise.",
+            vec![
+                ("run", p("boolean", "start a fresh scout pass in the background (rate-limited to one per 5 min)")),
+            ], &[]),
         tool("hl_list_indexes", "list_indexes", "GET", "/indexes", true,
             "All saved indexes (a.k.a. strats): weighted baskets of traders to \
              mirror, with legs, window and any linked vault.",

@@ -54,7 +54,7 @@ npx near-cli-rs contract deploy "${ACCOUNT}" \
 
 npx near-cli-rs contract call-function as-transaction \
     "${ACCOUNT}" new \
-    json-args "{\"governance_token\":\"${GOV_ACCOUNT}\",\"registration_cost\":\"1000000000000000000000000\",\"immunity_period\":86400}" \
+    json-args "{\"governance_token\":\"${GOV_ACCOUNT}\",\"min_registration_bloctime\":\"2592000000000\",\"immunity_period\":86400}" \
     prepaid-gas '30 Tgas' attached-deposit '0 NEAR' \
     sign-with-keychain network-config ${NETWORK} send
 echo ""

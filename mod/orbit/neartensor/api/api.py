@@ -46,12 +46,17 @@ READ_DEFAULTS = {
     "subnet_info": None,
     "staker_rewards": None,
     "validator_balance": None,
+    "registration_terms": None,
+    "quote_registration": None,
+    "quote_bloctime": None,
+    "positions": [],
 }
 # Actions that mutate NEAR state — meaningless without a deployed registry.
 WRITE_ACTIONS = {
     "register_validator", "stake_on", "unstake_from", "checkin", "batch_checkin",
     "produce_block", "claim_staker_rewards", "claim_validator_rewards",
     "register_subnet", "boost_subnet", "sell_boost", "deploy", "build",
+    "stake_subnet", "unstake_position",
 }
 NOT_DEPLOYED = ("NearTensor is not deployed to NEAR testnet yet — "
                 "deploy the registry (m neartensor/deploy) to enable on-chain actions.")

@@ -32,10 +32,10 @@ export default function Home() {
         setSubnets(Array.isArray(subs) ? subs : []);
       }
 
-      // Fetch registration cost
-      const cost = await api("neartensor/status");
-      if (cost && cost.registration_cost) {
-        setRegistrationCost(cost.registration_cost);
+      // Registration is BlocTime-based: deposit needed for a 30-day lock
+      const quote = await api("neartensor/quote_registration", { lock_seconds: 30 * 86400 });
+      if (typeof quote === "string" && /^\d+$/.test(quote)) {
+        setRegistrationCost(quote);
       }
     } catch (e: any) {
       setError(e.message);

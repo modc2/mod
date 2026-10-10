@@ -6,6 +6,7 @@ import Link from "next/link";
 import { DataBar, Field, Freshness, Identicon, Kpi, Medal, Meter, PageHead, SparkBars, SplitBar, Switch } from "./BoardBits";
 import TraderCell, { ROW_ATTR, isCoreCoin } from "./TraderCell";
 import TraderCard, { CardStat } from "./TraderCard";
+import ScoutPanel from "./ScoutPanel";
 import { useCurves } from "../lib/curves";
 import {
   JS_FN_TEMPLATE, PY_FN_TEMPLATE, SCORE_PRESETS, SCORE_VAR_HINTS, FORMULA_VARS,
@@ -457,6 +458,9 @@ export default function TopTraders() {
           } />
         }
       />
+
+      {/* The scout agent's current answer to "who should I copy?" */}
+      <ScoutPanel />
 
       {/* Filters — rides at the top of the board on scroll. Window, measure
           depth and order fold behind CONTROLS; floors, ƒ score and coins fold

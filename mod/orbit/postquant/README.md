@@ -58,6 +58,28 @@ persistent node host, and parity-tested against the python references
 (`parity_test.py`: valid / tampered-sig / tampered-msg / wrong-ctx /
 wrong-key across every scheme).
 
+## The key type builder
+
+Key types compose. `pq_keytype action=create op=all parts=ML-DSA-44,ed25519`
+mints a NEW key type out of registered ones and stores its spec in
+`~/.mod/postquant/keytypes.json`: `op=all` is the hybrid AND — every part
+signs, verify demands every part, so it falls only if *every* part falls and
+is quantum-safe if *any* part is; `op=any` is the 1-of-n OR — one part's
+signature suffices, so it is exactly as strong as its weakest part, and the
+catalog card says so. Parts may themselves be composites, so the registry is
+a DAG (`pq_keytype_dag` returns it; the console's BUILDER tab draws it and
+lets you mix and match by clicking). A composite is gated like any plugin —
+the entropy probe runs against the composed keygen — and `pq_keytype_test`
+runs the full proof battery on demand: roundtrip, tampered message and
+signature, truncation, context and key binding, per-part ablation (an "all"
+that survives a corrupted part is lying about that part), plus a fresh
+probe. Refutation-only, like everything here: green means no failure was
+found, never "secure". Deleting a composite is refused while another
+composite or any on-chain account depends on it — a replay audit must always
+be able to re-judge every historic witness. The sub-seeds are domain-
+separated per composite name and slot, so a part key inside a hybrid is
+never the same key as a bare wallet under that part scheme.
+
 ## Three prices, separate on purpose
 
 - **write gas** — one-time, per byte entering the state. A key byte costs 4x
@@ -104,7 +126,7 @@ python3 -m pytest tests -q     # the suite, against a throwaway chain
 - Console: `http://localhost:51030/postquant`
 - REST: `GET /head /market /keys /get?key= /quote?key= /prove?key= …`,
   `POST /set /del /fund /sweep /list /buy /transfer /wallet /faucet /mine`
-- MCP: `POST /mcp` (Streamable HTTP), 25 tools, `pq_head` through `pq_complexity`
+- MCP: `POST /mcp` (Streamable HTTP), 28 tools, `pq_head` through `pq_keytype_dag`
 
 ## Ask it
 
@@ -196,7 +218,7 @@ pq/wasm-src/    their Rust sources, build.sh (bare rustc), parity_test.py
 state.py        the state machine — pure functions of (state, tx, timestamp)
 keys.py         keystore, addresses, transaction signing
 chain.py        blocks, mempool, the proposer, replay + verify
-mcp.py          25 tools; call_tool() is the one door
+mcp.py          28 tools; call_tool() is the one door
 agent.py        plain English → call_tool(); rules + chat (liquidai) + llm brains
 lfm.py          the chat brain's model: liquidai /chat SSE + its local token mint
 api.py          REST + console + MCP on one port

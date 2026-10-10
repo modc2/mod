@@ -18,7 +18,10 @@ def fake(rows):
         if tool == 'bt_trades':
             return {'summary': {'trades': 3, 'buys': 2, 'sells': 1, 'buy_tao': 1, 'sell_tao': 1, 'net_tao': 0, 'traders': 2}}
         if tool == 'bt_news':
-            return {'items': [{'ts': 1790000000, 'kind': 'news', 'title': 'Seven | ships', 'url': 'u', 'publisher': 'p'}]}
+            return {'items': [
+                {'ts': 1790000000, 'kind': 'news', 'title': 'Seven | ships', 'url': 'u', 'publisher': 'p'},
+                {'ts': 1790000001, 'kind': 'news', 'title': 'No link story', 'url': None, 'publisher': 'q'},
+            ]}
     return call
 
 
@@ -38,6 +41,7 @@ def test_generates_every_subnet(tmp_path, monkeypatch):
     assert 'does things —' not in cfg['description'] and '..' not in cfg['description']
     readme = open(root / 'sn7' / 'README.md').read()
     assert 'Seven \\| ships' in readme and 'https://seven.ai' in readme
+    assert 'No link story' in readme and '(None)' not in readme
     assert open(root / 'sn7' / 'mod.py').read().startswith(M.GENERATED)
 
 

@@ -15,6 +15,17 @@ WASM_PATHS = {
 }
 
 
+# BlocTime registration (mirrors contracts/registry/src/bloctime.rs):
+# a lock earns µNEAR × seconds × curve multiplier; registering needs ≥ this.
+SUBACCOUNT_FUNDING_NEAR = 5
+MIN_REGISTRATION_BLOCTIME = 1_000_000 * 30 * 86400  # 1 NEAR locked 30 days
+
+
+def _near_amount(v):
+    """'2 NEAR' / '2' / 2 → 2.0 (NEAR)."""
+    return float(str(v).upper().replace("NEAR", "").strip() or 0)
+
+
 def _run(cmd, cwd=ROOT, timeout=120):
     result = subprocess.run(
         cmd, shell=True, cwd=cwd,
@@ -99,7 +110,8 @@ class Mod:
             account, "registry",
             json.dumps({
                 "governance_token": gov_account,
-                "registration_cost": "1000000000000000000000000",
+                # BlocTime bar: 1 NEAR locked 30 days (µNEAR × seconds)
+                "min_registration_bloctime": str(MIN_REGISTRATION_BLOCTIME),
                 "immunity_period": 86400,
             })
         )
@@ -223,7 +235,13 @@ class Mod:
 
     def register_subnet(self, name="subnet", token_name="SubnetToken", token_symbol="SNT",
                         consensus_type="Yuma", emission_rate="100000000000000000000",
-                        epoch_length=86400, **kwargs):
+                        epoch_length=86400, stake="1 NEAR", lock_seconds=30 * 86400, **kwargs):
+        """Register a subnet by locking `stake` NEAR for `lock_seconds` (BlocTime).
+
+        Attached deposit = 5 NEAR account funding + stake. The lock must earn
+        stake×seconds ≥ the registry's min_registration_bloctime and, when all
+        slots are taken, beat the weakest subnet — see quote_registration().
+        """
         inflation_config = kwargs.get("inflation_config", json.dumps({"Flat": {"rate": emission_rate}}))
         params = {
             "name": name,
@@ -237,7 +255,35 @@ class Mod:
         for k in ["decay_bps", "max_lock_blocks", "max_stakers_per_validator", "default_commission_bps"]:
             if k in kwargs:
                 params[k] = int(kwargs[k])
-        return self._call(self.account, "register_subnet", {"params": params}, gas="200 Tgas", deposit="5 NEAR")
+        deposit = f"{_near_amount(stake) + SUBACCOUNT_FUNDING_NEAR} NEAR"
+        return self._call(self.account, "register_subnet",
+                          {"params": params, "lock_seconds": int(lock_seconds)},
+                          gas="200 Tgas", deposit=deposit)
+
+    def stake_subnet(self, subnet_id=0, amount="1 NEAR", lock_seconds=30 * 86400):
+        """Back a subnet with a BlocTime lock — raises its score against eviction."""
+        return self._call(self.account, "stake_subnet",
+                          {"subnet_id": int(subnet_id), "lock_seconds": int(lock_seconds)},
+                          deposit=f"{_near_amount(amount)} NEAR")
+
+    def unstake_position(self, position_id=0):
+        """Withdraw an expired registration/support lock."""
+        return self._call(self.account, "unstake_position", {"position_id": int(position_id)})
+
+    def registration_terms(self):
+        return self._view(self.account, "get_registration_terms")
+
+    def quote_registration(self, lock_seconds=30 * 86400):
+        """Total deposit (yocto, incl. 5 NEAR funding) needed to register at this lock."""
+        return self._view(self.account, "quote_registration", {"lock_seconds": int(lock_seconds)})
+
+    def quote_bloctime(self, amount="1 NEAR", lock_seconds=30 * 86400):
+        yocto = str(int(round(_near_amount(amount) * 10**6)) * 10**18)
+        return self._view(self.account, "quote_bloctime",
+                          {"amount": yocto, "lock_seconds": int(lock_seconds)})
+
+    def positions(self, account=""):
+        return self._view(self.account, "get_user_positions", {"user": account or self.account})
 
     def boost_subnet(self, subnet_id=0, amount="1 NEAR"):
         return self._call(self.account, "boost_subnet", {"subnet_id": int(subnet_id)}, deposit=amount)
@@ -506,6 +552,12 @@ class Mod:
             "claim_validator_rewards": self.claim_validator_rewards,
             "register_subnet": self.register_subnet,
             "boost_subnet": self.boost_subnet,
+            "stake_subnet": self.stake_subnet,
+            "unstake_position": self.unstake_position,
+            "registration_terms": self.registration_terms,
+            "quote_registration": self.quote_registration,
+            "quote_bloctime": self.quote_bloctime,
+            "positions": self.positions,
             "validators": self.validators,
             "leaderboard": self.leaderboard,
             "sn_status": self.sn_status,

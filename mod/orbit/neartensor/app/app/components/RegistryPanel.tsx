@@ -35,7 +35,7 @@ export default function RegistryPanel({ subnetCount, registrationCost }: Props) 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3">
           <div className="p-2 rounded bg-nt-bg border border-nt-border">
-            <div className="text-[10px] text-nt-muted">Registration Cost</div>
+            <div className="text-[10px] text-nt-muted">Register (30-day lock)</div>
             <div className="text-sm font-medium">{formatNear(registrationCost)} NEAR</div>
           </div>
           <div className="p-2 rounded bg-nt-bg border border-nt-border">
@@ -45,7 +45,9 @@ export default function RegistryPanel({ subnetCount, registrationCost }: Props) 
         </div>
 
         <div className="text-[10px] text-nt-muted">
-          When at capacity, the weakest non-immune subnet is evicted to make room for new registrations.
+          Registration is BlocTime: lock NEAR for a chosen time; score = NEAR x seconds locked
+          (min 1 NEAR for 30 days, plus 5 NEAR account funding). Anyone can add locks to back a subnet.
+          When at capacity a newcomer must out-score the weakest non-immune subnet, which is evicted.
           New subnets receive immunity for ~24 hours (86,400 blocks).
         </div>
       </div>

@@ -142,6 +142,15 @@ pub struct TopTrader {
     /// Worst single realised close in the window (negative USD).
     #[serde(default)]
     pub worst_close: f64,
+    /// Σ net wins / |Σ net losses| — the halves of `profit_factor`.
+    #[serde(default)]
+    pub win_sum: f64,
+    #[serde(default)]
+    pub loss_sum: f64,
+    /// Expected profit per day (expect.rs), stamped on the way out of
+    /// `/traders/top` for the window being served. `None` = not measured.
+    #[serde(default)]
+    pub expected: Option<crate::expect::Expected>,
 }
 
 impl TopTrader {
@@ -165,6 +174,8 @@ impl TopTrader {
         self.fees = s.fees;
         self.profit_factor = s.profit_factor;
         self.worst_close = s.worst_close;
+        self.win_sum = s.win_sum;
+        self.loss_sum = s.loss_sum;
         self.last_active = s.last_active;
     }
 
@@ -1077,6 +1088,7 @@ pub async fn analyze(hl: Arc<Client>, addr: &str, days: u32) -> anyhow::Result<V
         ..Default::default()
     };
     summary.apply_stats(&stats);
+    summary.expected = crate::expect::expected(&summary, days);
 
     Ok(serde_json::json!({
         "address": addr,

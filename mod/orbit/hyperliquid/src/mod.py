@@ -87,7 +87,7 @@ class Hyperliquid(m.Mod):
         "top_traders", "score_market", "analyze_trader", "trader_curve",
         "backtest_trader", "leaderboard",
         # indexes / strats
-        "strats_board", "backtest_strats",
+        "strats_board", "backtest_strats", "scout",
         "list_indexes", "get_index", "create_index", "update_index",
         "delete_index", "index_perf", "auto_index",
         # follows
@@ -661,6 +661,15 @@ class Hyperliquid(m.Mod):
                                "refresh": "true" if refresh else None}.items()
              if v is not None}
         return self._get("/strats/backtest", **q)
+
+    def scout(self, run: bool = False) -> Any:
+        """The scout agent's hunt for the most profitable trader to copy.
+        Ranks the 7d board by expected profit/day per $1k copied (profit
+        factor's halves priced at the defensible win rate), backtests the top
+        12 at 1/7/30d with $1,000, and scores each by the lower of the two.
+        `best` = top pick, `history` = past runs. `run=True` kicks a fresh
+        pass in the background (rate-limited to one per 5 min)."""
+        return self._get("/scout", **({"run": "true"} if run else {}))
 
     def list_indexes(self) -> Any: return self._get("/indexes")
     def get_index(self, id: str) -> Any: return self._get(f"/indexes/{id}")

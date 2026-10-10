@@ -778,6 +778,10 @@ once in the TLS body, used for the SSH call, never persisted.</pre>
     };
     document.getElementById("cancel-btn").onclick = clearPanel;
     document.getElementById("save-btn").onclick = () => saveConnection().catch(e => alert(e.message));
+    ["f-name", "f-host", "f-port", "f-user"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.onkeydown = e => { if (e.key === "Enter") saveConnection().catch(err => alert(err.message)); };
+    });
   }
 
   async function saveConnection() {

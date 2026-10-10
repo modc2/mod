@@ -1,6 +1,6 @@
 {
   "netuid": 0,
-  "block": 42,
+  "block": 43,
   "neurons": {
     "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": {
       "uid": 0,
@@ -27,6 +27,6 @@
   "incentive": {
     "0": 1.0
   },
-  "epochs": 42,
-  "updated": 1791311512
+  "epochs": 43,
+  "updated": 1791649383
 }

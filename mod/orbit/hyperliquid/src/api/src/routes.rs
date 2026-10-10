@@ -97,6 +97,7 @@ pub fn router() -> Router<AppState> {
         // one row shape, trailing 24h/7d APR each.
         .route("/strats/board", get(strats_board))
         .route("/strats/backtest", get(strats_backtest))
+        .route("/scout", get(scout))
         .route("/indexes", get(list_indexes).post(create_index))
         .route("/indexes/:id", get(get_index).patch(update_index).delete(delete_index))
         .route("/indexes/:id/perf", get(index_perf))
@@ -370,7 +371,7 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
         "endpoints": {
             // `crate::auth::is_public` is the authority; mcp::tools() carries
             // the same flag per tool and a test holds the two in agreement.
-            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/traders/market", "/trader/:addr/analyze", "/trader/:addr/backtest", "/user/:addr/*", "/vaults", "/strats/board", "/strats/backtest", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
+            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/traders/market", "/trader/:addr/analyze", "/trader/:addr/backtest", "/user/:addr/*", "/vaults", "/strats/board", "/strats/backtest", "/scout", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
             "gated": ["/auth/me", "/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action", "/deposit/quote", "POST /indexes", "PATCH|DELETE /indexes/:id"],
         },
         // The mod-protocol fn surface is also an MCP tool server; /mcp/schema
@@ -394,6 +395,8 @@ async fn status(State(s): State<AppState>) -> Json<Value> {
         "mcp_tools": crate::mcp::tools().len(),
         // Agents currently attached over the HTTP+SSE transport.
         "mcp_sse_sessions": crate::mcp::session_count(),
+        // Cached /info answers held right now (swept every 60s).
+        "hl_cache_entries": s.hl.cache_len(),
     }))
 }
 
@@ -546,6 +549,7 @@ async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
     let finish = |mut traders: Vec<crate::traders::TopTrader>, depth: usize, candidates: Option<usize>,
                   coins: Vec<String>, updated_at: i64, scanning: bool| {
         let priced = traders.len();
+        crate::expect::stamp(&mut traders, days);
         filter.apply(&mut traders);
         if let Some(k) = sort { k.sort(&mut traders); }
         Json(json!({
@@ -1090,6 +1094,22 @@ async fn strats_backtest(State(s): State<AppState>, Query(q): Query<StratsBackte
         q.refresh.unwrap_or(false),
     ).await;
     Json(serde_json::to_value(r).unwrap_or_else(|_| json!({"rows": []})))
+}
+
+// ── the scout ──
+
+#[derive(Deserialize)]
+struct ScoutQ { run: Option<bool> }
+
+/// The scout agent's latest hunt for the most profitable copy. `run=true`
+/// kicks a fresh pass in the background (at most one per 5 min).
+async fn scout(State(s): State<AppState>, Query(q): Query<ScoutQ>) -> Json<Value> {
+    let started = q.run.unwrap_or(false)
+        && s.scout.poke(s.hl.clone(), s.boards.clone(), s.syncs.clone());
+    let mut v = s.scout.snapshot();
+    v["started"] = json!(started);
+    if started { v["running"] = json!(true); }
+    Json(v)
 }
 
 // ── vaults ──

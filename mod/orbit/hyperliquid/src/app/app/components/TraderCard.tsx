@@ -61,6 +61,51 @@ function Stat({ label, value, sub, lit, title, tone }: {
   );
 }
 
+const fmtDay = (n: number) =>
+  `${n >= 0 ? "+" : "-"}$${Math.abs(n) >= 100 ? Math.round(Math.abs(n)).toLocaleString("en-US") : Math.abs(n).toFixed(2)}`;
+
+/** Expected $/day: per $1k copied first, the trader's own $/day beside it. */
+function ExpectedBand({ t, days, enrichNote }: { t: TopTrader; days: number; enrichNote: string }) {
+  const e = t.expected;
+  const why = e
+    ? `Expected profit per day, over the ${days}d window:\n` +
+      `  edge per close = ${(e.win_lo * 100).toFixed(0)}% × ${fmtUsd(e.avg_win)} avg win` +
+      ` − ${((1 - e.win_lo) * 100).toFixed(0)}% × ${fmtUsd(e.avg_loss)} avg loss = ${fmtDay(e.edge_per_close)}\n` +
+      `  × ${e.closes_per_day} closes/day = ${fmtDay(e.per_day)}/day at the trader's size\n` +
+      (e.per_1k != null
+        ? `  × $1,000 / ${fmtUsd(e.basis)} window-start equity = ${fmtDay(e.per_1k)}/day per $1k copied\n`
+        : `  per $1k withheld: the window opened on ${fmtUsd(e.basis)} — under $1k, ratios are noise\n`) +
+      `The win rate is the Wilson lower bound (what ${t.closes} closes can defend), not the printed ` +
+      `${fmtPct(t.win_rate, 0)} — that's the haircut on the raw pace of ${fmtDay(e.pace_per_day)}/day.` +
+      (e.source === "derived" ? "\nAvg win/loss rebuilt from pnl and profit factor (row scored by an older build)." : "") +
+      (e.thin ? `\nUnder ${MIN_CLOSES} closes — anecdote, not evidence.` : "") +
+      "\nA forecast from history, not a promise."
+    : enrichNote;
+  const head = e?.per_1k ?? null;
+  const tone = head == null ? "text-dim" : head > 0 ? "text-win" : "text-loss";
+  return (
+    <div title={why}
+      className="mt-3 flex items-baseline justify-between gap-2 rounded-md px-2 py-1.5 bg-white/[0.03] border border-white/[0.06]">
+      <div className="min-w-0">
+        <div className="eyebrow !text-[9px]">expected / day</div>
+        <div className={`num mt-1 text-[15px] leading-none ${tone} ${e?.thin ? "opacity-60" : ""}`}>
+          {head != null ? fmtDay(head) : "—"}
+          <span className="ml-1 text-[10px] text-dim">{head != null ? "per $1k copied" : e ? "dust basis" : "not measured"}</span>
+        </div>
+      </div>
+      {e && (
+        <div className="text-right shrink-0 text-[10px] leading-tight text-dim">
+          <div>trader <span className={`num ${e.per_day >= 0 ? "text-win/80" : "text-loss/80"}`}>{fmtDay(e.per_day)}</span>/day</div>
+          <div className="mt-0.5">
+            {e.haircut != null ? `${Math.round(e.haircut * 100)}% of pace` : `pace ${fmtDay(e.pace_per_day)}`}
+            {e.thin ? " · thin" : ""}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TraderCard({
   t, rank, days, curve, picked, onPick, statKey, enrichNote,
 }: {
@@ -224,6 +269,12 @@ export default function TraderCard({
           <span className="opacity-0" aria-hidden>·</span>
         )}
       </div>
+
+      {/* ── expected profit per day ── the forward-looking number. The
+          window's pace (pnl ÷ days) re-priced at the win rate the sample can
+          defend, so a lucky streak is haircut and a long record isn't. Per
+          $1k copied is the headline — it's what a copy of this book earns. */}
+      <ExpectedBand t={t} days={days} enrichNote={enrichNote} />
 
       {/* ── proof ── */}
       <div className="mt-3 grid grid-cols-3 gap-1">

@@ -73,6 +73,19 @@ hl.analyze_trader('0xabc…', days=14)
 # feels) and the realised fills `mirror` (the live engine's convention).
 hl.backtest_trader('0xabc…', capital=2500, days=30)
 
+# Expected profit per day. Every measured /traders/top row carries `expected`:
+# per_day (USD/day at the trader's size) = (winRateLo·avgWin − (1−winRateLo)·avgLoss)
+# × closes/day, i.e. the profit factor's halves priced at the win rate the
+# sample can defend; per_1k = per_day × 1000 / window-start equity (null under
+# a $1k basis); haircut = per_day ÷ raw pace (pnl/days). The ƒ score box gets
+# expDay / expDay1k and an EXP $/DAY preset.
+#
+# The SCOUT agent (scout.rs, every 15 min): ranks the 7d board by per_1k,
+# backtests the top 12 with $1,000 at 1/7/30d, and scores each pick by
+# min(model, median trusted backtest $/day). `best` = most profitable copy.
+hl.scout()            # latest report + run history
+hl.scout(run=True)    # kick a fresh pass (≤ 1 per 5 min)
+
 hl.create_index(name='Top10', owner='0x…', legs=[
     {'address': '0x…', 'weight': 0.3},
 ], days_window=7, notional_pct=50)

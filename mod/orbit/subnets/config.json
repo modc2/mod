@@ -1,35 +1,39 @@
 {
-    "name": "subnets",
-    "version": "1.0.0",
-    "description": "One mod per Bittensor subnet (subnets.sn<N>) \u2014 identity, market, 24h flow and news, regenerated once a day by cron from the local orbit/bt index. No third-party APIs, no keys; every subnet mod still answers from its snapshot when bt is down.",
-    "icon": "\u03c4",
-    "chain": "bittensor",
-    "route": false,
-    "source": "orbit/bt (BT_URL, default http://localhost:50280/api/call)",
-    "cron": "41 5 * * * mod.py sync  (# subnets daily mod sync)",
-    "state": "~/.mod/subnets (sync.lock, last_sync.json)",
-    "log": "/tmp/subnets-daily.log",
-    "fns": [
-        "sync",
-        "ls",
-        "get",
-        "status",
-        "install_cron",
-        "uninstall_cron"
-    ],
-    "child_fns": [
-        "info",
-        "price",
-        "news",
-        "trades",
-        "daily",
-        "history",
-        "validators",
-        "neurons",
-        "links",
-        "snapshot",
-        "readme",
-        "refresh"
-    ],
-    "schema": "QmQk2YoTJthowHVw3oN1k1CiknQcRFkDuZGfXDuEwpLCkF"
+  "name": "subnets",
+  "version": "1.0.0",
+  "description": "One mod per Bittensor subnet (subnets.sn<N>) \u2014 identity, market, 24h flow and news, regenerated once a day by cron from the local orbit/bt index. No third-party APIs, no keys; every subnet mod still answers from its snapshot when bt is down.",
+  "icon": "\u03c4",
+  "chain": "bittensor",
+  "route": false,
+  "source": "orbit/bt (BT_URL, default http://localhost:50280/api/call)",
+  "cron": "41 5 * * * mod.py sync  (# subnets daily mod sync)",
+  "state": "~/.mod/subnets (sync.lock, last_sync.json)",
+  "log": "/tmp/subnets-daily.log",
+  "fns": [
+    "sync",
+    "ls",
+    "get",
+    "status",
+    "install_cron",
+    "uninstall_cron"
+  ],
+  "child_fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ],
+  "schema": "QmXGVwkCduuxWLwS47qWZP9WgPpiAEwc8ZtFypNhCbQx1o",
+  "urls": {
+    "api": "http://localhost:50108"
+  },
+  "port": 50108
 }

@@ -20,17 +20,12 @@ impl Registry {
             .copied()
             .unwrap_or(0);
         // n = -s + sqrt(s^2 + 2 * amount * 1e18 / slope)
+        // (u128 port: 2*amount*1e18 overflows for any real deposit, so divide
+        //  through by slope first via mul_div)
         let inner = s
             .checked_mul(s)
             .unwrap()
-            .checked_add(
-                2u128
-                    .checked_mul(amount)
-                    .unwrap()
-                    .checked_mul(PRECISION)
-                    .unwrap()
-                    / self.curve_slope,
-            )
+            .checked_add(mul_div(2 * amount, PRECISION, self.curve_slope))
             .unwrap();
         let root = isqrt(inner);
         if root > s {
@@ -52,19 +47,14 @@ impl Registry {
             .unwrap_or(0);
         assert!(shares <= s, "shares exceed supply");
         // return = slope * (2*s*n - n^2) / (2 * 1e18)
-        let numerator = self
-            .curve_slope
-            .checked_mul(
-                2u128
-                    .checked_mul(s)
-                    .unwrap()
-                    .checked_mul(shares)
-                    .unwrap()
-                    .checked_sub(shares.checked_mul(shares).unwrap())
-                    .unwrap(),
-            )
+        let area = 2u128
+            .checked_mul(s)
+            .unwrap()
+            .checked_mul(shares)
+            .unwrap()
+            .checked_sub(shares.checked_mul(shares).unwrap())
             .unwrap();
-        numerator / (2 * PRECISION)
+        mul_div(area, self.curve_slope, 2 * PRECISION)
     }
 
     pub(crate) fn get_boost_price_internal(
@@ -78,10 +68,18 @@ impl Registry {
             .copied()
             .unwrap_or(0);
         // cost = slope * (2*s*n + n^2) / (2 * 1e18)
-        let numerator = self.curve_slope
-            * (2 * s * num_shares + num_shares * num_shares);
-        numerator / (2 * PRECISION)
+        let area = 2 * s * num_shares + num_shares * num_shares;
+        mul_div(area, self.curve_slope, 2 * PRECISION)
     }
+}
+
+/// floor(a * b / d) without overflowing on the intermediate a * b
+/// (exact when b < d or a % d small enough; panics on true overflow).
+pub(crate) fn mul_div(a: u128, b: u128, d: u128) -> u128 {
+    (a / d)
+        .checked_mul(b)
+        .and_then(|hi| hi.checked_add((a % d).checked_mul(b)? / d))
+        .expect("bonding overflow")
 }
 
 /// Babylonian integer square root.

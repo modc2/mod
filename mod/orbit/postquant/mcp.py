@@ -664,6 +664,93 @@ def _t_complexity(a):
     }
 
 
+def _t_keytype(a):
+    """The key type builder's write surface: create / delete / show / list
+    composite key types. The DAG and the proof battery are their own read
+    tools (pq_keytype_dag, pq_keytype_test)."""
+    from pq import complexity as CPLX
+    from pq import compose as CMP
+    action = (a.get('action') or 'list').lower()
+    if action in ('list', 'ls'):
+        rows = []
+        for spec in CMP.specs():
+            algo = ALGOS.maybe(spec['name'])
+            rows.append({**spec, 'registered': algo is not None,
+                         'accepted': ALGOS.allowed(spec['name']),
+                         **({'security': CPLX.summary(algo)} if algo else {})})
+        return {'keytypes': rows, 'count': len(rows), 'ops': list(CMP.OPS),
+                'store': CMP.STORE_FILE, 'errors': CMP.STORE_ERRORS}
+    name = a.get('name')
+    if not name:
+        raise StateError('this action needs a name', code='bad_args')
+    if action in ('show', 'get'):
+        algo = ALGOS.maybe(name)
+        if algo is None:
+            raise StateError(f'unknown key type {name!r} — pq_algos lists '
+                             'what this node knows', code='unknown_scheme',
+                             status=404)
+        return {**algo.describe(), 'accepted': ALGOS.allowed(name),
+                'composite': getattr(algo, 'composite', None),
+                'dependents': CMP.dependents(name),
+                'accounts_on_chain': _scheme_accounts(name)}
+    if action == 'create':
+        parts = a.get('parts')
+        if isinstance(parts, str):
+            parts = [p.strip() for p in parts.replace('+', ',').split(',')
+                     if p.strip()]
+        try:
+            algo = CMP.create(name, (a.get('op') or 'all').lower(),
+                              parts or [], note=a.get('note'))
+        except CMP.ComposeError as e:
+            raise StateError(str(e), code='bad_keytype')
+        r = ALGOS.refusal(name)
+        return {'created': name, **algo.describe(),
+                'composite': algo.composite,
+                'accepted': r is None, **({'refused': r[1]} if r else {}),
+                'next': f'pq_keytype_test scheme={name} runs its proofs; '
+                        f'pq_wallet action=create scheme={name} uses it'}
+    if action in ('delete', 'rm'):
+        used_by = _scheme_accounts(name)
+        if used_by:
+            raise StateError(
+                f'{name} witnesses for {used_by} on-chain account(s) — '
+                'deleting it would leave history this node could no longer '
+                're-judge (pq_verify replays every witness)',
+                code='keytype_in_use', status=409)
+        try:
+            return CMP.delete(name)
+        except CMP.ComposeError as e:
+            raise StateError(str(e), code='bad_keytype')
+    raise StateError(f'unknown action {action!r} — '
+                     'create | delete | show | list', code='bad_args')
+
+
+def _scheme_accounts(name):
+    return sum(1 for acct in node().state.accounts.values()
+               if acct.get('scheme') == name)
+
+
+def _t_keytype_test(a):
+    """Run the proof battery against one key type, composite or not."""
+    from pq import compose as CMP
+    scheme = a.get('scheme') or a.get('name')
+    algo = ALGOS.maybe(scheme)
+    if algo is None:
+        raise StateError(f'unknown key type {scheme!r} — pq_algos lists '
+                         'what this node knows', code='unknown_scheme',
+                         status=404)
+    return CMP.proofs(algo)
+
+
+def _t_keytype_dag(a):
+    """The registry as a graph, for mixing and matching."""
+    from pq import compose as CMP
+    out = CMP.dag()
+    for node_ in out['nodes']:
+        node_['accounts_on_chain'] = _scheme_accounts(node_['name'])
+    return out
+
+
 def _t_wallet(a):
     action = (a.get('action') or 'list').lower()
     if action in ('list', 'ls'):
@@ -782,6 +869,64 @@ TOOLS = {
                            'for a single scheme, no for the all-scheme '
                            'scan)')}},
         'handler': _t_complexity,
+    },
+    'pq_keytype': {
+        'description': 'The key type builder: compose a NEW key type out of '
+                       'registered ones and store it on this node. op=all is '
+                       'the hybrid AND (every part signs, verify needs every '
+                       'part — falls only if every part falls, quantum-safe '
+                       'if any part is); op=any is the 1-of-n OR (one part\'s '
+                       'signature suffices — falls at the weakest part). '
+                       'Parts may themselves be composites, so key types '
+                       'form a DAG (pq_keytype_dag draws it). A composite '
+                       'registers like any plugin: the complexity gate '
+                       'probes its composed keygen before it may witness, '
+                       'and wallets pick it by name like any scheme. '
+                       'Actions: create, delete (refused while on-chain '
+                       'accounts or other composites depend on it), show, '
+                       'list.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'action': _str('create | delete | show | list (default list)',
+                           enum=['create', 'delete', 'show', 'list']),
+            'name': _str('the composite\'s name, 3-48 chars of [A-Za-z0-9_.+-] '
+                         '— hashed into every address under it, never '
+                         'rebindable'),
+            'op': _str('how the parts combine: all (hybrid AND) or any '
+                       '(1-of-n OR); default all', enum=['all', 'any']),
+            'parts': {'type': 'array', 'items': {'type': 'string'},
+                      'description': '2-6 registered key types to combine '
+                                     '(pq_algos lists them); also accepted '
+                                     'as one string, comma- or +-separated'},
+            'note': _str('a line about why this composite exists'),
+        }},
+        'handler': _t_keytype,
+    },
+    'pq_keytype_test': {
+        'description': 'Run the proof battery against one key type, built-in '
+                       'or composite: sign/verify roundtrip, tampered '
+                       'message, tampered and truncated signature, context '
+                       'binding, wrong-key rejection, per-part ablation for '
+                       'composites (corrupt one part\'s signature bytes — an '
+                       '"all" that still verifies is lying about a part), '
+                       'and a fresh entropy probe. Refutation-only: a green '
+                       'board means no failure was found, never "secure". '
+                       'Also returns keygen/sign/verify timings and real '
+                       'witness sizes.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'scheme': _str('the key type to test (pq_algos lists them)')},
+            'required': ['scheme']},
+        'handler': _t_keytype_test,
+    },
+    'pq_keytype_dag': {
+        'description': 'Every key type this node knows, as the graph it is: '
+                       'one node per key type (family, acceptance, security '
+                       'bits, witness sizes, on-chain accounts) and one edge '
+                       'from each part into the composite built from it. '
+                       'Primitives sit at depth 0; a composite\'s depth is '
+                       'one past its deepest part. What the console\'s '
+                       'BUILDER tab draws.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_keytype_dag,
     },
     'pq_quote': {
         'description': 'What a write will cost, before you sign it. Returns the '
@@ -1056,7 +1201,8 @@ TOOLS = {
 }
 
 WRITE_TOOLS = {'pq_set', 'pq_del', 'pq_fund', 'pq_sweep', 'pq_list', 'pq_buy',
-               'pq_transfer', 'pq_wallet', 'pq_faucet', 'pq_mine'}
+               'pq_transfer', 'pq_wallet', 'pq_faucet', 'pq_mine',
+               'pq_keytype'}
 
 
 def call_tool(name, args):

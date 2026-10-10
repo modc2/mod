@@ -74,6 +74,17 @@ NEAR** (`contracts/`: registry, subnet, governance — Rust/WASM), driven by
 The two layers meet in the middle: the Bittensor subnet attests to the same
 chain the contracts live on.
 
+**Subnet registration is BlocTime** (a port of `orbit/bloctime`'s
+`BlocTime.sol`, in `contracts/registry/src/bloctime.rs`). A registrant attaches
+5 NEAR account funding + a stake and picks `lock_seconds`; the lock earns
+`µNEAR × seconds × curve multiplier` and must reach `min_registration_bloctime`
+(default 1 NEAR × 30 days). A subnet's score — what eviction ranks on — is the
+sum of every lock held against it; anyone can add one (`stake_subnet`), and
+locks come back via `unstake_position` only after they expire. When all slots
+are full a newcomer must out-score the weakest non-immune subnet. The bonding
+curve boost is a share market and no longer counts toward the score.
+`quote_registration lock_seconds=…` gives the exact deposit needed.
+
 ```
 neartensor/
 ├── neartensor/mod.py   # Mod class: all actions incl. sn_* subnet actions

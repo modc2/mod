@@ -176,8 +176,10 @@ def render_readme(d):
     if d.get('news'):
         lines += ['## News', '']
         for n in d['news']:
+            title_part = (f"[{_md(n.get('title'))}]({n.get('url')})"
+                          if n.get('url') else _md(n.get('title')))
             lines.append(f"- {_day(n['ts']) if n.get('ts') else ''} · {n.get('kind', '')} · "
-                         f"[{_md(n.get('title'))}]({n.get('url')}) — {_md(n.get('publisher'))}")
+                         f"{title_part} — {_md(n.get('publisher'))}")
         lines.append('')
     lines += ['## Use', '', '```bash',
               f"m subnets.sn{d['netuid']}/info        # live identity + market (snapshot if bt is down)",

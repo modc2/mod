@@ -217,6 +217,8 @@ pub fn is_public(method: &Method, path: &str) -> bool {
         | "/strats/board"
         // Its multi-window backtest is the same browse-surface, replayed.
         | "/strats/backtest"
+        // The scout agent's report (a re-run is rate-limited server-side).
+        | "/scout"
         // MCP discovery: the tool schema is the module's public fn surface.
         | "/mcp/schema"
         // Agent readiness (is a model key configured, how many tools). Asking

@@ -162,9 +162,9 @@ def route(method, path, query, body):
     if isinstance(body, dict):
         args.update(body)
 
-    # pq_wallet is a write tool, but listing or showing the keystore is a
-    # read — those two actions are the one GET the write set allows.
-    wallet_read = name == 'wallet' and \
+    # pq_wallet and pq_keytype are write tools, but listing or showing is a
+    # read — those actions are the one GET the write set allows.
+    wallet_read = name in ('wallet', 'keytype') and \
         (args.get('action') or 'list') in ('list', 'ls', 'show', 'get')
     if name in WRITE_ROUTES and method != 'POST' and not wallet_read:
         raise ApiError(f'/{name} writes — POST it', 405)

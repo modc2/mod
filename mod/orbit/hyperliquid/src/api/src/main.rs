@@ -4,6 +4,8 @@ mod deposit;
 mod hl;
 mod curve;
 mod backtest;
+mod expect;
+mod scout;
 mod stats;
 mod traders;
 mod vaults;
@@ -61,6 +63,8 @@ pub struct AppState {
     pub scans: Arc<traders::ScanJobs>,
     /// Ledger of background sync passes — what `/sync` reports.
     pub syncs: Arc<sync::SyncLog>,
+    /// The scout agent: hunts the most profitable trader to copy.
+    pub scout: Arc<scout::Scout>,
     pub signer: Arc<signer::SignerStore>,
     pub meta: Arc<actions::MetaCache>,
     pub live: Arc<live_engine::EngineRegistry>,
@@ -108,6 +112,18 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&data_dir).ok();
 
     let hl = Arc::new(hl::Client::new(testnet));
+    // The /info cache only checks ttl on read; this is what actually frees
+    // expired per-wallet payloads.
+    let sweep_hl = hl.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            let n = sweep_hl.sweep();
+            if n > 0 {
+                tracing::debug!("hl cache sweep: dropped {n}, {} held", sweep_hl.cache_len());
+            }
+        }
+    });
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
@@ -264,7 +280,13 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // The scout: every 15 min, rank the 7d board by expected $/day per $1k
+    // copied and backtest the leaders to verify it (scout.rs).
+    let scout = Arc::new(scout::Scout::load(&data_dir));
+    tokio::spawn(scout.clone().forever(hl.clone(), boards.clone(), syncs.clone()));
+
     let state = AppState {
+        scout,
         hl, http, store, copy, progress, boards, index, signer, meta, live,
         invest: invest_store, engine,
         scans: traders::ScanJobs::new(),

@@ -22,6 +22,7 @@ type Turn =
 
 const EXAMPLES = [
   "who are the top 5 traders by 7-day ROI, and what are they holding?",
+  "what's the expected profit per day of copying the scout's best pick?",
   "what's the BTC orderbook look like right now?",
   "which vaults have the best APR above $1M TVL?",
   "analyze 0x… — is this trader worth copying?",
@@ -35,6 +36,7 @@ const CHAT_EXAMPLES = [
 ];
 
 const STRAT_EXAMPLES = [
+  "which trader is the most profitable to copy right now? (ask the scout)",
   "what's the best strat on the board right now, and why?",
   "backtest $1,000 on the top recommended trader over 30 days",
   "how are my strats doing?",

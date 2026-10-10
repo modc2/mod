@@ -192,7 +192,7 @@ def test_mcp_surface():
                           'params': {'protocolVersion': '2025-06-18'}})
     assert init['result']['serverInfo']['name'] == 'postquant'
     tools = mcpsrv.handle({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
-    assert len(tools['result']['tools']) == len(mcpsrv.TOOLS) == 25
+    assert len(tools['result']['tools']) == len(mcpsrv.TOOLS) == 28
     got = mcpsrv.handle({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call',
                          'params': {'name': 'pq_head', 'arguments': {}}})
     assert got['result']['isError'] is False

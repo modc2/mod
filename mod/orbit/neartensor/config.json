@@ -22,7 +22,7 @@
     "contracts": {
         "near_testnet": {}
     },
-    "schema": "QmavbHqxpLk4UT3jicN2vP6oKvUxgQRRug7kK9VLLhikK6",
+    "schema": "QmdkaLHVLTNN4V675qqFhSQpzeuNkBZtxYizrJ6tNjnTHu",
     "endpoints": {
         "GET /health": "Liveness probe",
         "GET /status": "Deployment status",
@@ -40,7 +40,12 @@
         "POST /neartensor/sn_task": "Send one attestation task to the local miner",
         "POST /neartensor/sn_register": "Register this box's hotkey as miner or validator",
         "POST /neartensor/sn_serve": "Start miner + validator neurons under pm2",
-        "POST /neartensor/sn_kill": "Stop the subnet neurons"
+        "POST /neartensor/sn_kill": "Stop the subnet neurons",
+        "POST /neartensor/register_subnet": "Register a subnet by locking NEAR BlocTime-style (stake x lock_seconds >= min)",
+        "POST /neartensor/stake_subnet": "Back a subnet with a BlocTime lock (raises its eviction score)",
+        "POST /neartensor/unstake_position": "Withdraw an expired BlocTime lock",
+        "POST /neartensor/registration_terms": "BlocTime registration terms: min, max lock, curve, eviction threshold",
+        "POST /neartensor/quote_registration": "Deposit needed to register at a given lock_seconds"
     },
     "fns": [
         "forward",
@@ -58,6 +63,12 @@
         "produce_block",
         "register_subnet",
         "boost_subnet",
+        "positions",
+        "quote_bloctime",
+        "quote_registration",
+        "registration_terms",
+        "unstake_position",
+        "stake_subnet",
         "sn_status",
         "sn_metagraph",
         "sn_register",

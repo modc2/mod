@@ -328,3 +328,12 @@ def load_plugins():
 
 
 load_plugins()
+
+# Composites load LAST: a stored key type may name a plugin scheme as a part.
+# The import sits down here, not at the top, because compose imports this
+# module back — by this line everything it needs is defined.
+try:
+    from . import compose                                        # noqa: E402
+except ImportError:                                              # run as a script
+    import compose                                               # noqa: E402
+compose.load_store()

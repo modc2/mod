@@ -12,7 +12,7 @@ ML-DSA-44, 17088 for SLH-DSA — billed as-is), and rent per byte-hour against
 a prepaid escrow. Expired entries pay their sweeper.
 
 API `:51030` (`/postquant/api`) · console `/postquant` · MCP `POST /mcp`
-(25 tools) · state `~/.mod/postquant`
+(28 tools) · state `~/.mod/postquant`
 
 ## When to reach for it
 
@@ -55,6 +55,11 @@ runs. `GET /agents` is the roster (the fleet agent contract).
    and which wasm blob (by SHA3-256) enforces it. `pq_complexity scheme=…`
    is the full measurement — brute-force bound under maximal entropy,
    Grover or polynomial quantum cost, probe results, gate verdict.
+   `pq_keytype` composes NEW key types out of registered ones (op=all hybrid
+   AND / op=any weakest-link OR, nestable — the registry is a DAG, drawn by
+   `pq_keytype_dag` and the console's BUILDER tab); `pq_keytype_test` runs
+   the proof battery (roundtrip, tamper, ablation, entropy probe) on any
+   key type.
 2. `pq_wallet action=create scheme=…` then `pq_faucet` — writes need a funded
    wallet; scheme defaults to ML-DSA-44, `pq_algos` lists the choices.
    Amounts: a **string** ("25", "1.5") is PQ; a bare int is nq (1e-9).

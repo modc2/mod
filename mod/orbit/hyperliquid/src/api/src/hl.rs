@@ -11,8 +11,33 @@ pub struct Client {
     pub exchange_url: String,
     pub stats_url: String,
     pub testnet: bool,
-    cache: DashMap<String, (Instant, Value)>,
+    cache: DashMap<String, Entry>,
 }
+
+/// A cached /info answer. Per-wallet payloads (fills, portfolio) are kept as
+/// the raw JSON text: a 2000-fill answer is ~450 KB of text but 3-4 MB as a
+/// `Value` tree (preserve_order = an IndexMap + owned key String per field),
+/// and the prewarm touches thousands of wallets. Parsing on a hit is ~1 ms.
+enum Body {
+    Json(Value),
+    Text(Box<str>),
+}
+
+struct Entry {
+    at: Instant,
+    /// How long ANY reader may still want this entry; `sweep` drops it after.
+    /// Readers keep passing their own (shorter or equal) ttl to `cache_get`.
+    keep: Duration,
+    body: Body,
+}
+
+/// Swept-by horizons per key family. Each must be >= the longest ttl any
+/// reader passes for that key, or a valid hit gets swept early.
+const KEEP_MIDS: Duration = Duration::from_secs(600);
+const KEEP_FILLS: Duration = Duration::from_secs(1500);
+const KEEP_PORTFOLIO: Duration = Duration::from_secs(300);
+const KEEP_CDN: Duration = Duration::from_secs(60);
+const KEEP_VAULT_DETAILS: Duration = Duration::from_secs(45);
 
 impl Client {
     pub fn new(testnet: bool) -> Self {
@@ -41,16 +66,40 @@ impl Client {
 
     fn cache_get(&self, key: &str, ttl: Duration) -> Option<Value> {
         let e = self.cache.get(key)?;
-        if e.0.elapsed() < ttl { Some(e.1.clone()) } else { None }
+        if e.at.elapsed() >= ttl { return None; }
+        match &e.body {
+            Body::Json(v) => Some(v.clone()),
+            Body::Text(t) => Some(serde_json::from_str(t).unwrap_or(Value::Null)),
+        }
     }
-    fn cache_put(&self, key: String, v: Value) {
-        self.cache.insert(key, (Instant::now(), v));
+    fn cache_put(&self, key: String, v: Value, keep: Duration) {
+        self.cache.insert(key, Entry { at: Instant::now(), keep, body: Body::Json(v) });
+    }
+    fn cache_put_text(&self, key: String, t: String, keep: Duration) {
+        self.cache.insert(key, Entry { at: Instant::now(), keep, body: Body::Text(t.into_boxed_str()) });
+    }
+    /// Drop every entry past its keep horizon. Without this the map only ever
+    /// grew: `fills:{addr}` / `portfolio:{addr}` for every wallet the prewarm
+    /// had ever scanned stayed resident forever (6 GB RSS in 30 min).
+    pub fn sweep(&self) -> usize {
+        let before = self.cache.len();
+        self.cache.retain(|_, e| e.at.elapsed() < e.keep);
+        before - self.cache.len()
+    }
+    pub fn cache_len(&self) -> usize {
+        self.cache.len()
     }
     pub fn cache_evict_prefix(&self, prefix: &str) {
         self.cache.retain(|k, _| !k.starts_with(prefix));
     }
 
     pub async fn info(&self, body: Value) -> anyhow::Result<Value> {
+        let txt = self.info_text(body).await?;
+        Ok(serde_json::from_str(&txt).unwrap_or(Value::Null))
+    }
+
+    /// `info`, but hands back the raw body so callers can cache the compact text.
+    async fn info_text(&self, body: Value) -> anyhow::Result<String> {
         // Hyperliquid's /info bursts to 429 under load; back off and retry.
         // Bigger retry budget so a single 429 doesn't drop a candidate
         // from the cohort. 8 attempts × backoff up to 4s = ~30s worst case.
@@ -60,7 +109,7 @@ impl Client {
             let status = r.status();
             let txt = r.text().await?;
             if status.is_success() {
-                return Ok(serde_json::from_str(&txt).unwrap_or(Value::Null));
+                return Ok(txt);
             }
             if status.as_u16() == 429 && attempt < 7 {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
@@ -83,7 +132,7 @@ impl Client {
         }
         match self.info(json!({"type": "allMids"})).await {
             Ok(v) => {
-                self.cache_put("allMids".into(), v.clone());
+                self.cache_put("allMids".into(), v.clone(), KEEP_MIDS);
                 Ok(v)
             }
             Err(e) => self.cache_get("allMids", Duration::from_secs(600)).ok_or(e),
@@ -127,12 +176,13 @@ impl Client {
         }
         let now = chrono::Utc::now().timestamp_millis();
         let fetch_start = start_ms.min(now - 31 * 86_400_000);
-        let v = self.info(json!({
+        let txt = self.info_text(json!({
             "type": "userFillsByTime",
             "user": addr,
             "startTime": fetch_start
         })).await?;
-        self.cache_put(key, v.clone());
+        let v = serde_json::from_str(&txt).unwrap_or(Value::Null);
+        self.cache_put_text(key, txt, KEEP_FILLS);
         Ok(v)
     }
 
@@ -145,8 +195,9 @@ impl Client {
         if let Some(v) = self.cache_get(&key, Duration::from_secs(300)) {
             return Ok(v);
         }
-        let v = self.info(json!({"type": "portfolio", "user": addr})).await?;
-        self.cache_put(key, v.clone());
+        let txt = self.info_text(json!({"type": "portfolio", "user": addr})).await?;
+        let v = serde_json::from_str(&txt).unwrap_or(Value::Null);
+        self.cache_put_text(key, txt, KEEP_PORTFOLIO);
         Ok(v)
     }
 
@@ -171,7 +222,7 @@ impl Client {
             anyhow::bail!("leaderboard {} {}", status, txt);
         }
         let v: Value = serde_json::from_str(&txt).unwrap_or(Value::Null);
-        self.cache_put("leaderboard".into(), v.clone());
+        self.cache_put("leaderboard".into(), v.clone(), KEEP_CDN);
         Ok(v)
     }
 
@@ -191,7 +242,7 @@ impl Client {
             anyhow::bail!("vaults {} {}", status, txt);
         }
         let v: Value = serde_json::from_str(&txt).unwrap_or(Value::Null);
-        self.cache_put("vaults".into(), v.clone());
+        self.cache_put("vaults".into(), v.clone(), KEEP_CDN);
         Ok(v)
     }
 
@@ -209,7 +260,7 @@ impl Client {
             body.as_object_mut().unwrap().insert("user".into(), Value::String(u.to_string()));
         }
         let v = self.info(body).await?;
-        self.cache_put(key, v.clone());
+        self.cache_put(key, v.clone(), KEEP_VAULT_DETAILS);
         Ok(v)
     }
 
@@ -250,4 +301,22 @@ pub struct Fill {
 
 pub fn parse_fills(v: &Value) -> Vec<Fill> {
     serde_json::from_value::<Vec<Fill>>(v.clone()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn sweep_drops_only_entries_past_their_keep() {
+        let c = Client::new(false);
+        c.cache_put("old".into(), json!(1), Duration::from_millis(0));
+        c.cache_put_text("fills:0xabc".into(), r#"[{"coin":"BTC"}]"#.into(), KEEP_FILLS);
+        assert_eq!(c.sweep(), 1);
+        assert_eq!(c.cache_len(), 1);
+        // Text entries come back as the same Value a fresh fetch would give.
+        assert_eq!(c.cache_get("fills:0xabc", KEEP_FILLS), Some(json!([{"coin": "BTC"}])));
+        // A reader's own ttl still applies on top of the keep horizon.
+        assert_eq!(c.cache_get("fills:0xabc", Duration::from_millis(0)), None);
+    }
 }
