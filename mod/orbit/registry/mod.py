@@ -403,7 +403,7 @@ class Mod:
         current = self.root_hash()
         if expected_root is None:
             # fetch latest committed root from backend
-            committed = self.get('_mods_root', **kw)
+            committed = self._get_backend(kw.get('backend')).get_by_name(kw.get('owner', 'local'), '_mods_root')
             if not committed:
                 return {'valid': False, 'error': 'no committed root found', 'current_root': current['root']}
             resolved = self.resolve(committed['data'])
@@ -414,7 +414,7 @@ class Mod:
         if not valid and expected_root:
             # attempt to resolve committed tree for diff
             try:
-                committed = self.get('_mods_root', **kw)
+                committed = self._get_backend(kw.get('backend')).get_by_name(kw.get('owner', 'local'), '_mods_root')
                 resolved = self.resolve(committed['data'])
                 committed_tree = resolved.get('tree', {})
                 all_files = set(current['tree'].keys()) | set(committed_tree.keys())

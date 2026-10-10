@@ -6,8 +6,13 @@ class Mod:
     description = """Remote access and execution utilities for mod orbit modules."""
     path = os.path.dirname(os.path.abspath(__file__))
 
-    def forward(self, **kwargs):
-        """Default entry point."""
+    def forward(self, fn: str = '', **kwargs):
+        """Default entry point; fn selects a named method."""
+        dispatch = {'info': self.info, 'readme': self.readme}
+        if fn:
+            if fn not in dispatch:
+                return {'error': f'unknown fn: {fn!r}', 'available': list(dispatch)}
+            return dispatch[fn]()
         return self.info()
 
     def info(self):
@@ -17,11 +22,13 @@ class Mod:
             with open(config_path) as f:
                 config = json.load(f)
             version = config.get('version')
+            description = config.get('description', self.description)
         except Exception:
             version = None
+            description = self.description
         return {
             'name': 'remote',
-            'description': self.description,
+            'description': description,
             'version': version,
             'files': [f for f in os.listdir(self.path) if not f.startswith('_') and not f.endswith('.py')],
         }
@@ -32,4 +39,5 @@ class Mod:
             p = os.path.join(self.path, name)
             if os.path.exists(p):
                 return m.get_text(p)
-        return f"# {self.info()['name']}\n\n{self.description}"
+        info = self.info()
+        return f"# {info['name']}\n\n{info['description']}"

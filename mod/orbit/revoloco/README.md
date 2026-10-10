@@ -26,6 +26,16 @@ result = revoloco.forward(3, 4)  # 7
 m revoloco forward a=3 b=4
 ```
 
+Additional methods work the same way:
+
+```python
+result = revoloco.multiply(3, 4)  # 12
+```
+
+```bash
+m revoloco multiply a=3 b=4
+```
+
 ## Creating a New Mod
 
 Every mod follows this pattern:

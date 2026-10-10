@@ -34,7 +34,7 @@ class Mod:
         del db[key]
         return {'ok': True, 'key': key}
 
-    def list_keys(self, prefix: str = ""):
+    def list_keys(self, prefix: str = "", limit: int = None):
         db = self.open_db()
         it = db.iter()
         if prefix:
@@ -43,6 +43,8 @@ class Mod:
             it.seek_to_first()
         keys = []
         while it.valid():
+            if limit is not None and len(keys) >= limit:
+                break
             k = it.key()
             if prefix and not k.startswith(prefix):
                 break
@@ -50,7 +52,7 @@ class Mod:
             it.next()
         return keys
 
-    def scan(self, prefix: str = ""):
+    def scan(self, prefix: str = "", limit: int = None):
         db = self.open_db()
         it = db.iter()
         if prefix:
@@ -59,6 +61,8 @@ class Mod:
             it.seek_to_first()
         result = {}
         while it.valid():
+            if limit is not None and len(result) >= limit:
+                break
             k = it.key()
             if prefix and not k.startswith(prefix):
                 break
@@ -74,6 +78,14 @@ class Mod:
         batch.write()
         return {'ok': True, 'count': len(items)}
 
+    def batch_delete(self, keys: list):
+        db = self.open_db()
+        batch = db.write_batch()
+        for k in keys:
+            batch.delete(k)
+        batch.write()
+        return {'ok': True, 'count': len(keys)}
+
     def forward(self, **kwargs):
         action = kwargs.get('action')
         if action == 'put':
@@ -83,11 +95,13 @@ class Mod:
         if action == 'delete':
             return self.delete(kwargs['key'])
         if action == 'list_keys':
-            return self.list_keys(kwargs.get('prefix', ''))
+            return self.list_keys(kwargs.get('prefix', ''), kwargs.get('limit'))
         if action == 'scan':
-            return self.scan(kwargs.get('prefix', ''))
+            return self.scan(kwargs.get('prefix', ''), kwargs.get('limit'))
         if action == 'batch_put':
             return self.batch_put(kwargs['items'])
+        if action == 'batch_delete':
+            return self.batch_delete(kwargs['keys'])
         return self.info()
 
     def info(self):

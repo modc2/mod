@@ -558,6 +558,64 @@ class Mod:
                         pinned += 1
             except Exception:
                 pass
+        if 'Cargo.toml' in names:
+            try:
+                with open(os.path.join(root, 'Cargo.toml'), encoding='utf-8',
+                          errors='replace') as f:
+                    in_dep = False
+                    for line in f:
+                        s = line.strip()
+                        if re.match(r'^\[(dev-dependencies|build-dependencies|dependencies)\]', s):
+                            in_dep = True
+                        elif s.startswith('['):
+                            in_dep = False
+                        elif in_dep and '=' in s and not s.startswith('#'):
+                            m = re.match(r'^[\w-]+\s*=\s*(.*)', s)
+                            if m:
+                                declared += 1
+                                val = m.group(1).strip()
+                                ver = re.search(r'version\s*=\s*"([^"]*)"', val)
+                                if ver:
+                                    if ver.group(1).startswith('='):
+                                        pinned += 1
+                                elif val.startswith('"') and val.endswith('"'):
+                                    if val[1:].startswith('='):
+                                        pinned += 1
+            except OSError:
+                pass
+        if 'go.mod' in names:
+            try:
+                with open(os.path.join(root, 'go.mod'), encoding='utf-8',
+                          errors='replace') as f:
+                    in_require = False
+                    for line in f:
+                        s = line.strip()
+                        if s.startswith('require ('):
+                            in_require = True
+                        elif in_require and s == ')':
+                            in_require = False
+                        elif in_require and re.match(r'^\S+\s+v[\d.]', s):
+                            declared += 1
+                            pinned += 1
+                        elif re.match(r'^require\s+\S+\s+v[\d.]', s):
+                            declared += 1
+                            pinned += 1
+            except OSError:
+                pass
+        if 'Gemfile' in names:
+            try:
+                with open(os.path.join(root, 'Gemfile'), encoding='utf-8',
+                          errors='replace') as f:
+                    for line in f:
+                        s = line.strip()
+                        if s.startswith('#'):
+                            continue
+                        if re.match(r"^gem\s+['\"][\w-]+['\"]", s):
+                            declared += 1
+                            if re.search(r"['\"]= [\d.]", s):
+                                pinned += 1
+            except OSError:
+                pass
         # a mod-protocol module declares its fleet dependencies in config.json
         # rather than a language manifest — that IS its declaration
         mod_deps = []
@@ -705,6 +763,10 @@ class Mod:
                                   f"comment ratio {q['comment_ratio']}"))
         elif q['comment_ratio'] > 0.35:
             score -= 5
+            tips.append(self._tip('low', 'small',
+                                  'Trim the over-commenting — comments that restate what the '
+                                  'code already says add noise rather than clarity',
+                                  f"comment ratio {q['comment_ratio']}"))
         if q['bare_except']:
             score -= min(20, q['bare_except'] * 4)
             tips.append(self._tip('high', 'small',
@@ -1158,7 +1220,8 @@ class Mod:
                             for b in ballots if b['dimension'] == d],
                 'findings': [f for b in cast for f in b.get('findings', [])][:8],
             }
-            for tip in [t for b in cast for t in b.get('suggestions', [])] or static_tips[d]:
+            panel_tips = [t for b in cast for t in b.get('suggestions', [])]
+            for tip in (panel_tips if cast else static_tips[d]):
                 suggestions.append(dict(tip, dimension=d, source='panel' if cast else 'static'))
 
         total_w = sum(DIMENSIONS[d]['weight'] for d in dims)

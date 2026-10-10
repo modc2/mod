@@ -4,6 +4,8 @@ import mod as m
 
 _DATA = os.path.join(os.path.dirname(__file__), 'roadmap.json')
 
+VALID_STATUSES = {'planned', 'in-progress', 'done'}
+
 _SEED = [
     {'id': 1, 'title': 'JSON-backed item store', 'status': 'done',
      'description': 'Persist roadmap items in roadmap.json with add/list/update.'},
@@ -34,12 +36,20 @@ class Mod:
     def forward(self, **kwargs):
         method = kwargs.pop('method', 'items')
         if method == 'add':
+            if 'title' not in kwargs:
+                return {'error': 'title is required'}
             return self.add(**kwargs)
         if method == 'update':
-            item_id = int(kwargs.pop('id'))
+            try:
+                item_id = int(kwargs.pop('id'))
+            except (KeyError, ValueError):
+                return {'error': 'id is required and must be an integer'}
             return self.update(item_id, **kwargs)
         if method == 'delete':
-            item_id = int(kwargs['id'])
+            try:
+                item_id = int(kwargs['id'])
+            except (KeyError, ValueError):
+                return {'error': 'id is required and must be an integer'}
             return self.delete(item_id)
         return self.items(status=kwargs.get('status'))
 
@@ -52,6 +62,8 @@ class Mod:
 
     def add(self, title, description='', status='planned'):
         """Append a new item and return it."""
+        if status not in VALID_STATUSES:
+            return {'error': 'invalid status', 'valid': sorted(VALID_STATUSES)}
         all_items = _load()
         next_id = max((i['id'] for i in all_items), default=0) + 1
         item = {'id': next_id, 'title': title, 'status': status,
@@ -65,22 +77,24 @@ class Mod:
         all_items = _load()
         for item in all_items:
             if item['id'] == id:
+                if 'status' in fields and fields['status'] not in VALID_STATUSES:
+                    return {'error': 'invalid status', 'valid': sorted(VALID_STATUSES)}
                 for k, v in fields.items():
                     if k in ('title', 'status', 'description'):
                         item[k] = v
                 _save(all_items)
                 return item
-        return None
+        return {'error': 'not found', 'id': id}
 
     def delete(self, id: int):
-        """Remove an item by id and return it, or None if not found."""
+        """Remove an item by id and return it, or an error dict if not found."""
         all_items = _load()
         for i, item in enumerate(all_items):
             if item['id'] == id:
                 removed = all_items.pop(i)
                 _save(all_items)
                 return removed
-        return None
+        return {'error': 'not found', 'id': id}
 
     def info(self):
         """Return module info."""

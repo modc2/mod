@@ -21,7 +21,12 @@ class OffchainRegistry(RegistryBackend):
     def _load_index(self):
         if os.path.exists(self.index_path):
             with open(self.index_path, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+            data.setdefault('next_id', 1)
+            data.setdefault('mods', {})
+            data.setdefault('user_mods', {})
+            data.setdefault('name_map', {})
+            return data
         return {'next_id': 1, 'mods': {}, 'user_mods': {}, 'name_map': {}}
 
     def _save_index(self):
@@ -99,6 +104,12 @@ class OffchainRegistry(RegistryBackend):
         return True
 
     def get(self, mod_id: int, **kw) -> dict:
+        return self.index['mods'].get(str(mod_id))
+
+    def get_by_name(self, owner: str, name: str, **kw) -> dict | None:
+        mod_id = self.index.get('name_map', {}).get(owner, {}).get(name)
+        if mod_id is None:
+            return None
         return self.index['mods'].get(str(mod_id))
 
     def get_user_mods(self, owner: str, **kw) -> list:

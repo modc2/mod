@@ -638,11 +638,13 @@ def pair(a, b=None, sort='liquidity', limit=10, type='all', full=False):
         'pool_count': len(rows), 'more_pools': bool((raw or {}).get('hasNextPage')),
         'tvl_usd': round(tvl, 2), 'volume_24h_usd': round(vol, 2),
         'deepest': {'id': deepest['id'], 'pair': deepest['pair'],
-                    'tvl': deepest['tvl'], 'price': deepest['price'],
+                    'tvl': deepest['tvl'], 'volume_24h': deepest['volume_24h'],
+                    'price': deepest['price'],
                     'type': deepest['type']} if deepest else None,
         'busiest': {'id': busiest['id'], 'pair': busiest['pair'],
-                    'volume_24h': busiest['volume_24h'],
-                    'price': busiest['price']} if busiest else None,
+                    'tvl': busiest['tvl'], 'volume_24h': busiest['volume_24h'],
+                    'price': busiest['price'],
+                    'type': busiest['type']} if busiest else None,
         'price_spread_pct': _spread(rows, top),
         'pools': rows[:max(1, min(int(limit or 10), 100))],
     }
@@ -1210,6 +1212,7 @@ def position(nft_mint, pool_info=None):
         'closed': pos['liquidity'] == 0,
         **amounts,
         'symbol_a': p['mint_a'].get('symbol'), 'symbol_b': p['mint_b'].get('symbol'),
+        'mint_a': p['mint_a'].get('mint'), 'mint_b': p['mint_b'].get('mint'),
         'value_usd': value, 'fees_owed_usd': fees_usd,
         'range_width_pct': round((amounts['price_upper'] / amounts['price_lower'] - 1)
                                  * 100, 2) if amounts.get('price_lower') else None,
@@ -1338,6 +1341,7 @@ def _wallet_positions(nft_mints, limit):
             'liquidity': str(pos['liquidity']), 'closed': pos['liquidity'] == 0,
             **amounts,
             'symbol_a': p['mint_a'].get('symbol'), 'symbol_b': p['mint_b'].get('symbol'),
+            'mint_a': p['mint_a'].get('mint'), 'mint_b': p['mint_b'].get('mint'),
             'value_usd': round(amounts.get('amount_a', 0) * usd_a
                                + amounts.get('amount_b', 0) * usd_b, 2)
             if amounts else None,
@@ -1387,5 +1391,9 @@ def _wallet_lps(fungible):
                 'fees_24h': slim.get('fees_24h'),
                 'fee_rate': slim.get('fee_rate'),
                 'type': slim.get('type'),
+                'symbol_a': (slim.get('mint_a') or {}).get('symbol'),
+                'symbol_b': (slim.get('mint_b') or {}).get('symbol'),
+                'mint_a': (slim.get('mint_a') or {}).get('mint'),
+                'mint_b': (slim.get('mint_b') or {}).get('mint'),
             })
     return rows
