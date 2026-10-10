@@ -598,7 +598,7 @@ async function quote(){
       ['you get', num(q.buy.amount,6)+' '+(q.buy.symbol||''), usd(q.buy.usd), 'grn'],
       ['rate', num(q.rate,6), '1 '+(q.sell.symbol||'in')+' → '+(q.buy.symbol||'out')],
       ['price impact', pct(q.price_impact_pct*100),
-       'worst case '+num(q.worst_case_out,6), q.price_impact_pct>0.01?'':''],
+       'worst case '+num(q.worst_case_out,6), q.price_impact_pct>0.05?'badv':q.price_impact_pct>0.01?'warnv':''],
     ]));
     const r = el('div','note'); r.append(document.createTextNode('route: '));
     (q.route||[]).forEach(h => r.append(el('span','p hot', h.amm+' '+h.percent+'%')));

@@ -18,6 +18,19 @@ class Mod:
         self.schema = cfg.get('schema', '')
         self.loaded_at = time.time()
 
+    def reload(self):
+        """Re-read config.json and update module attributes in place."""
+        try:
+            with open(os.path.join(self.path, 'config.json')) as f:
+                cfg = json.load(f)
+        except Exception as e:
+            return {'error': str(e)}
+        self.name = cfg.get('name', 'selfgov')
+        self.description = cfg.get('description', 'selfgov')
+        self.version = cfg.get('version', '0.0.0')
+        self.schema = cfg.get('schema', '')
+        return {'reloaded': True, 'name': self.name, 'version': self.version, 'schema': self.schema}
+
     def _actions(self):
         return [n for n in dir(self) if not n.startswith('_') and n != 'forward' and callable(getattr(self, n))]
 

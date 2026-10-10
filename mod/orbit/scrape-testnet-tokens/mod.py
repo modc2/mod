@@ -26,10 +26,11 @@ class Mod:
         if address:
             network = kwargs.get("network", "sepolia")
             token_type = kwargs.get("token_type", "ERC-20")
-            return self.scrape(address, network, token_type)
+            max_pages = kwargs.get("max_pages", 10)
+            return self.scrape(address, network, token_type, max_pages)
         return self.info()
 
-    def scrape(self, address: str, network: str = "sepolia", token_type: str = "ERC-20"):
+    def scrape(self, address: str, network: str = "sepolia", token_type: str = "ERC-20", max_pages: int = 10):
         """Return token balances for address on the given testnet."""
         if not re.fullmatch(r'0x[0-9a-fA-F]{40}', address):
             return {"error": f"Invalid address '{address}': must be a 0x-prefixed 40-hex-character Ethereum address"}
@@ -44,7 +45,7 @@ class Mod:
         base_url = f"{base}/api/v2/addresses/{address}/tokens?type={token_type}"
         tokens = []
         next_params = None
-        max_pages = 10
+        max_pages = min(max(1, int(max_pages)), 50)
 
         for page_num in range(max_pages):
             if next_params:
@@ -91,7 +92,7 @@ class Mod:
             'description': self.description,
             'supported_networks': list(NETWORKS.keys()),
             'supported_token_types': sorted(TOKEN_TYPES),
-            'usage': 'Call with address=<0x…> and optionally network=<name> (default: sepolia) and token_type=<ERC-20|ERC-721|ERC-1155> (default: ERC-20)',
+            'usage': 'Call with address=<0x…> and optionally network=<name> (default: sepolia), token_type=<ERC-20|ERC-721|ERC-1155> (default: ERC-20), and max_pages=<1-50> (default: 10)',
         }
 
     def readme(self):

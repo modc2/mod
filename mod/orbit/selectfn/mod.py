@@ -19,11 +19,13 @@ class Mod:
             self._version = ''
 
     def _public_methods(self):
-        return [m for m in dir(self) if not m.startswith('_') and m != 'forward' and callable(getattr(self, m))]
+        return [name for name in dir(self) if not name.startswith('_') and name != 'forward' and callable(getattr(self, name))]
 
     def forward(self, **kwargs):
         """Default entry point. Pass fn=<method_name> to call a named method."""
         fn = kwargs.pop('fn', 'info')
+        if not isinstance(fn, str):
+            return {'error': 'fn must be a string', 'fn': repr(fn), 'available': self._public_methods()}
         if fn.startswith('_'):
             return {'error': 'fn not allowed', 'fn': fn}
         method = getattr(self, fn, None)

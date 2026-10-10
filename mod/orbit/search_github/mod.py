@@ -93,9 +93,11 @@ class Mod:
             matches = item.get('text_matches', [])
             fragments = [m.get('fragment', '') for m in matches]
             results.append({
+                'name': item.get('name', ''),
                 'path': item.get('path', ''),
                 'repository': item.get('repository', {}).get('full_name', ''),
                 'url': item.get('html_url', ''),
+                'score': item.get('score', None),
                 'fragment': fragments[0] if fragments else '',
                 'fragments': fragments,
             })

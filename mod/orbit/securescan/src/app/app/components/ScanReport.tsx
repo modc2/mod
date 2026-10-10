@@ -11,6 +11,7 @@ export function ScanReport({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [filterSevs, setFilterSevs] = useState<Set<string>>(new Set());
   const [filterCats, setFilterCats] = useState<Set<string>>(new Set());
+  const [filterText, setFilterText] = useState<string>("");
 
   function toggleSev(sev: string) {
     setFilterSevs((prev) => {
@@ -36,6 +37,7 @@ export function ScanReport({ id }: { id: string }) {
     setError(null);
     setFilterSevs(new Set());
     setFilterCats(new Set());
+    setFilterText("");
     async function tick() {
       try {
         const s = await getScan(id);
@@ -65,7 +67,8 @@ export function ScanReport({ id }: { id: string }) {
   const findings = allFindings.filter(
     (f) =>
       (filterSevs.size === 0 || filterSevs.has(f.severity)) &&
-      (filterCats.size === 0 || filterCats.has(f.category ?? ""))
+      (filterCats.size === 0 || filterCats.has(f.category ?? "")) &&
+      (filterText === "" || [f.file, f.title, f.description, f.recommendation].some(t => t?.toLowerCase().includes(filterText.toLowerCase())))
   );
 
   const stats = scan.stats?.by_severity || {};
@@ -129,10 +132,10 @@ export function ScanReport({ id }: { id: string }) {
         </div>
 
         <div className="mt-4">
-          {(filterSevs.size > 0 || filterCats.size > 0) && (
+          {(filterSevs.size > 0 || filterCats.size > 0 || filterText !== "") && (
             <div className="flex justify-end mb-1">
               <button
-                onClick={() => { setFilterSevs(new Set()); setFilterCats(new Set()); }}
+                onClick={() => { setFilterSevs(new Set()); setFilterCats(new Set()); setFilterText(""); }}
                 className="text-xs text-muted hover:text-accent"
               >
                 × clear filter
@@ -195,6 +198,13 @@ export function ScanReport({ id }: { id: string }) {
               </div>
             );
           })()}
+          <input
+            type="search"
+            placeholder="search findings…"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            className="bg-panel2 border border-border rounded px-3 py-1.5 text-sm font-mono w-full mt-3"
+          />
         </div>
       </header>
 
@@ -205,14 +215,21 @@ export function ScanReport({ id }: { id: string }) {
       )}
 
       {findings.length > 0 ? (
-        <ul className="space-y-3">
-          {findings.map((f, i) => (
-            <FindingCard key={i} f={f} repoUrl={scan.repo} branch={scan.branch} />
-          ))}
-        </ul>
-      ) : filterSevs.size > 0 || filterCats.size > 0 ? (
+        <>
+          {(filterSevs.size > 0 || filterCats.size > 0 || filterText !== "") && (
+            <div className="text-xs text-muted font-mono px-1">
+              {findings.length} / {allFindings.length} findings
+            </div>
+          )}
+          <ul className="space-y-3">
+            {findings.map((f, i) => (
+              <FindingCard key={i} f={f} repoUrl={scan.repo} branch={scan.branch} />
+            ))}
+          </ul>
+        </>
+      ) : filterSevs.size > 0 || filterCats.size > 0 || filterText !== "" ? (
         <div className="bg-panel border border-border rounded-lg p-6 text-muted text-center">
-          No {[...(filterSevs.size > 0 ? filterSevs : []), ...(filterCats.size > 0 ? filterCats : [])].join(" / ")} findings.
+          No matching findings.
         </div>
       ) : scan.status === "done" ? (
         <div className="bg-panel border border-border rounded-lg p-6 text-muted text-center">

@@ -63,6 +63,11 @@
       <h2>Split a secret</h2>
       <p>Everything happens in this browser tab. Nothing is sent to any server.</p>
       <textarea id="secret" placeholder="your secret — e.g. a 24-word seed phrase" autocomplete="off" spellcheck="false"></textarea>
+      <input type="file" id="split-file-input" hidden>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="ghost" id="split-file-btn" style="align-self:flex-start">Load from file</button>
+        <span class="msg" id="split-file-status" style="flex:1"></span>
+      </div>
       <div class="row">
         <label>Pieces to make<input id="n" type="number" min="2" max="255" value="5"></label>
         <label>Pieces needed to unlock<input id="k" type="number" min="2" max="255" value="3"></label>
@@ -93,6 +98,7 @@
         <div class="actions" style="margin-top:8px">
           <button class="ghost" id="copy-result">Copy</button>
           <button class="ghost" id="hide-result">Hide</button>
+          <button class="ghost" id="save-file-result" hidden>Save file</button>
         </div>
       </div>
     </section>
@@ -128,6 +134,14 @@
     const old = btn.textContent; btn.textContent = "Copied"; setTimeout(() => (btn.textContent = old), 1200);
   };
   let lastShares = [];
+  let splitFileBytes = null;
+  let lastCombineBytes = null;
+
+  const clearSplitFileStatus = () => {
+    splitFileBytes = null;
+    say($("split-file-status"), "");
+    $("split-file-input").value = "";
+  };
 
   const clearSplitIfStale = () => {
     if (lastShares.length > 0) {
@@ -135,6 +149,7 @@
       $("split-out").hidden = true;
       say($("split-msg"), "Settings changed — click Split again to make new shares.", "");
     }
+    if (splitFileBytes) clearSplitFileStatus();
   };
 
   // Keep the threshold sane as the piece count changes; clear any stale split result.
@@ -149,10 +164,28 @@
   });
   $("secret").addEventListener("input", clearSplitIfStale);
 
+  $("split-file-btn").onclick = () => $("split-file-input").click();
+  $("split-file-input").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      splitFileBytes = new Uint8Array(ev.target.result);
+      $("secret").value = "";
+      lastShares = [];
+      $("split-out").hidden = true;
+      say($("split-msg"), "");
+      say($("split-file-status"), `${file.name} · ${splitFileBytes.length} bytes loaded`, "ok");
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = "";
+  });
+
   $("pieces").addEventListener("input", () => {
     if (!$("combine-out").hidden) {
       $("combine-out").hidden = true;
       $("result").textContent = "";
+      lastCombineBytes = null;
       say($("combine-msg"), "Pieces changed — click Unlock again.", "");
     }
     const counter = $("pieces-counter");
@@ -193,7 +226,8 @@
     const msg = $("split-msg");
     try {
       const n = +$("n").value, k = +$("k").value;
-      lastShares = await Shamir.split($("secret").value, n, k);
+      const input = splitFileBytes !== null ? splitFileBytes : $("secret").value;
+      lastShares = await Shamir.split(input, n, k);
       const box = $("shares"); box.innerHTML = "";
       lastShares.forEach((s, i) => {
         const row = document.createElement("div"); row.className = "share";
@@ -204,6 +238,7 @@
       });
       $("split-out").hidden = false;
       $("secret").value = "";
+      if (splitFileBytes) clearSplitFileStatus();
       say(msg, `Made ${n} pieces (original cleared). Any ${k} of them unlock it.`, "ok");
     } catch (e) { $("split-out").hidden = true; say(msg, e.message, "err"); }
   };
@@ -230,16 +265,25 @@
     const msg = $("combine-msg");
     try {
       const bytes = await Shamir.combine($("pieces").value);
-      let text;
+      let text, isBinary = false;
       try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
-      catch { text = "(binary) base64: " + btoa(String.fromCharCode(...bytes)); }
+      catch { text = "(binary) base64: " + btoa(String.fromCharCode(...bytes)); isBinary = true; }
+      lastCombineBytes = isBinary ? bytes : null;
+      $("save-file-result").hidden = !isBinary;
       $("result").textContent = text;
       $("combine-out").hidden = false;
       say(msg, "Unlocked.", "ok");
     } catch (e) { $("combine-out").hidden = true; say(msg, e.message, "err"); }
   };
+  $("save-file-result").onclick = () => {
+    if (!lastCombineBytes) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([lastCombineBytes]));
+    a.download = "secretshare-recovered";
+    a.click(); URL.revokeObjectURL(a.href);
+  };
   $("copy-result").onclick = (e) => copy($("result").textContent, e.target);
-  $("hide-result").onclick = () => { $("result").textContent = ""; $("combine-out").hidden = true; say($("combine-msg"), ""); };
+  $("hide-result").onclick = () => { $("result").textContent = ""; $("combine-out").hidden = true; lastCombineBytes = null; say($("combine-msg"), ""); };
 
   $("load-files-btn").onclick = () => $("load-files-input").click();
   $("load-files-input").addEventListener("change", (e) => {

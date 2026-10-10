@@ -806,22 +806,32 @@ class Scrape(m.mod('chain')):
 
         def scrape_batch(start, end):
             """Helper to scrape a single batch."""
-            event_filter = self.get_event_filter(
-                contract_name,
-                event_name,
-                start,
-                end,
-                filters
-            )
-            events = event_filter.get_all_entries()
+            last_exc = None
+            for attempt in range(self.max_retries):
+                try:
+                    event_filter = self.get_event_filter(
+                        contract_name,
+                        event_name,
+                        start,
+                        end,
+                        filters
+                    )
+                    events = event_filter.get_all_entries()
 
-            if process_fn:
-                events = [process_fn(e) for e in events]
+                    if process_fn:
+                        events = [process_fn(e) for e in events]
 
-            if self.rate_limit > 0:
-                time.sleep(self.rate_limit)
+                    if self.rate_limit > 0:
+                        time.sleep(self.rate_limit)
 
-            return events
+                    return events
+                except Exception as e:
+                    last_exc = e
+                    if attempt + 1 < self.max_retries:
+                        delay = self.retry_delay * (2 ** (attempt + 1))
+                        m.print(f'Batch {start}-{end} error: {e}. Retrying in {delay:.1f}s... (attempt {attempt + 1}/{self.max_retries})', color='yellow')
+                        time.sleep(delay)
+            raise last_exc
 
         # Process batches in parallel
         all_events = []
@@ -890,10 +900,14 @@ class Scrape(m.mod('chain')):
                 return None
 
             keys = dict.fromkeys(k for e in events for k in e.keys())
+            normalized = [
+                {k: ('0x' + v.hex()) if isinstance(v, bytes) else v for k, v in e.items()}
+                for e in events
+            ]
             with open(filename, 'w', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=keys)
                 writer.writeheader()
-                writer.writerows(events)
+                writer.writerows(normalized)
 
             m.print(f'Exported {len(events):,} events to {filename}', color='green')
             return filename

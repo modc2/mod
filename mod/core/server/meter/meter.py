@@ -286,15 +286,35 @@ class Meter:
 
     def reset_user(self, user: str) -> dict:
         """Reset usage data for a specific user."""
+        import os, shutil
         user = user.lower()
         try:
             self.store.put(f'users/{user}/totals', {})
+        except Exception:
+            pass
+        try:
+            fns_dir = self.store.get_path(f'users/{user}/fns')
+            if os.path.isdir(fns_dir):
+                shutil.rmtree(fns_dir)
         except Exception:
             pass
         return {'status': 'reset', 'user': user}
 
     def reset_all(self) -> dict:
         """Reset all metering data."""
+        import os, shutil
+        try:
+            users_dir = self.store.get_path('users')
+            if os.path.isdir(users_dir):
+                shutil.rmtree(users_dir)
+        except Exception:
+            pass
+        try:
+            servers_dir = self.store.get_path('servers')
+            if os.path.isdir(servers_dir):
+                shutil.rmtree(servers_dir)
+        except Exception:
+            pass
         try:
             self.store.put('recent_log', [])
         except Exception:

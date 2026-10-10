@@ -20,10 +20,18 @@ class Mod:
             n: Number of top results to return (default 3)
         """
         query = query.strip().lower()
-        cache_key = (query, int(n))
+        n_int = int(n)
+        now = time.time()
+        cache_key = (query, n_int)
         cached_time = Mod._result_cache_times.get(cache_key)
-        if cached_time is not None and (time.time() - cached_time) < 120:
+        if cached_time is not None and (now - cached_time) < 120:
             return Mod._result_cache[cache_key]
+
+        for (cq, cn), entry in list(Mod._result_cache.items()):
+            if cq == query and cn > n_int:
+                t = Mod._result_cache_times.get((cq, cn))
+                if t is not None and (now - t) < 120 and len(entry.get('results', [])) >= n_int:
+                    return {**entry, 'results': entry['results'][:n_int]}
 
         catalog = self.catalog()
         visible = {name: desc for name, desc in catalog.items() if desc.strip()}
@@ -36,9 +44,9 @@ class Mod:
                 key=lambda kv: sum(t in kv[0].lower() for t in tokens) * 3 + sum(t in kv[1].lower() for t in tokens),
                 reverse=True
             )
-            keep = max(int(n) * 10, 30)
+            keep = max(n_int * 10, 30)
             top = scored[:keep]
-            if len(top) >= int(n):
+            if len(top) >= n_int:
                 visible = dict(top)
 
         catalog_text = '\n'.join(f'- {name}: {desc}' for name, desc in visible.items())
@@ -73,8 +81,11 @@ Return exactly {n} results, ranked best first. If fewer than {n} modules are rel
             else:
                 return {'query': query, 'results': [], 'raw': response}
 
+        if not isinstance(results, list):
+            return {'query': query, 'results': [], 'raw': response}
+
         results = [r for r in results if r.get('name') in visible]
-        results = results[:int(n)]
+        results = results[:n_int]
 
         for r in results:
             r['description'] = catalog.get(r['name'], '')

@@ -321,28 +321,43 @@ class WorkerPool:
         return self.status()
 
     def set_limits(self, min_workers: int = None, max_workers: int = None) -> dict:
-        """Update min/max worker limits."""
+        """Update min/max worker limits.
+
+        w.start() is called outside the lock; on failure w.busy is cleared so
+        _acquire_worker can reuse the slot rather than leaving it permanently reserved.
+        """
         if min_workers is not None:
             self.min_workers = max(1, min_workers)
         if max_workers is not None:
             self.max_workers = max(self.min_workers, max_workers)
-        # Ensure current count respects new limits
+        to_start = []
+        to_kill = []
+        # Mutate _workers inside lock; do blocking I/O outside
         with self._lock:
-            # Scale up to min if needed
+            # Scale up to min if needed; reserve slots before releasing lock
             while len(self._workers) < self.min_workers:
                 w = _PersistentWorker(worker_id=len(self._workers))
-                w.start()
+                w.busy = True
                 self._workers.append(w)
+                to_start.append(w)
             # Scale down to max if needed (remove idle from end)
             while len(self._workers) > self.max_workers:
                 for i in range(len(self._workers) - 1, -1, -1):
                     w = self._workers[i]
                     if not w.busy and len(self._workers) > self.max_workers:
                         self._workers.pop(i)
-                        w.kill()
+                        to_kill.append(w)
                         break
                 else:
                     break  # All above max are busy, can't remove yet
+        for w in to_start:
+            try:
+                w.start()
+            except Exception:
+                w.busy = False
+                raise
+        for w in to_kill:
+            w.kill()
         return self.status()
 
     def kill(self, cid: str) -> bool:

@@ -27,6 +27,7 @@ class Mod:
             'schema': cfg.get('schema', ''),
             'files': sorted(f for f in os.listdir(self.path)
                             if f != '__pycache__' and not f.startswith('.')),
+            'methods': ['info', 'readme'],
         }
 
     def readme(self):
@@ -37,7 +38,7 @@ class Mod:
                 try:
                     return {'content': m.get_text(p), 'filename': name}
                 except Exception:
-                    break
+                    continue
         cfg = self._cfg
         content = f"# {cfg.get('name', '')}\n\n{cfg.get('description', '')}\n\nVersion: {cfg.get('version', '')}"
         return {'content': content, 'filename': None}
