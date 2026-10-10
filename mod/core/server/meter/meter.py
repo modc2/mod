@@ -28,6 +28,7 @@ Integration with Gate:
 """
 
 from typing import *
+import threading
 import time
 import mod as m
 
@@ -38,6 +39,7 @@ class Meter:
 
     def __init__(self, path='~/.mod/server/meter'):
         self.store = m.mod('store')(path)
+        self._lock = threading.Lock()
         # Default rate: cost per compute-second (in whatever unit you want - USD, ETH, credits)
         self._config = self.store.get('config', {
             'rate_per_second': 0.001,    # cost per CPU-second
@@ -65,61 +67,62 @@ class Meter:
         user = user.lower()
         ts = time.time()
 
-        # Update per-user totals
-        totals = self.store.get(f'users/{user}/totals', {
-            'requests': 0,
-            'errors': 0,
-            'total_duration': 0.0,
-            'total_params_bytes': 0,
-            'total_result_bytes': 0,
-            'first_seen': ts,
-            'last_seen': ts,
-        })
-        totals['requests'] += 1
-        if status != 'success':
-            totals['errors'] += 1
-        totals['total_duration'] += duration
-        totals['total_params_bytes'] += params_size
-        totals['total_result_bytes'] += result_size
-        totals['last_seen'] = ts
-        self.store.put(f'users/{user}/totals', totals)
+        with self._lock:
+            # Update per-user totals
+            totals = self.store.get(f'users/{user}/totals', {
+                'requests': 0,
+                'errors': 0,
+                'total_duration': 0.0,
+                'total_params_bytes': 0,
+                'total_result_bytes': 0,
+                'first_seen': ts,
+                'last_seen': ts,
+            })
+            totals['requests'] += 1
+            if status != 'success':
+                totals['errors'] += 1
+            totals['total_duration'] += duration
+            totals['total_params_bytes'] += params_size
+            totals['total_result_bytes'] += result_size
+            totals['last_seen'] = ts
+            self.store.put(f'users/{user}/totals', totals)
 
-        # Update per-function breakdown
-        fn_key = fn.replace('/', '_')
-        fn_stats = self.store.get(f'users/{user}/fns/{fn_key}', {
-            'requests': 0,
-            'errors': 0,
-            'total_duration': 0.0,
-        })
-        fn_stats['requests'] += 1
-        if status != 'success':
-            fn_stats['errors'] += 1
-        fn_stats['total_duration'] += duration
-        self.store.put(f'users/{user}/fns/{fn_key}', fn_stats)
+            # Update per-function breakdown
+            fn_key = fn.replace('/', '_')
+            fn_stats = self.store.get(f'users/{user}/fns/{fn_key}', {
+                'requests': 0,
+                'errors': 0,
+                'total_duration': 0.0,
+            })
+            fn_stats['requests'] += 1
+            if status != 'success':
+                fn_stats['errors'] += 1
+            fn_stats['total_duration'] += duration
+            self.store.put(f'users/{user}/fns/{fn_key}', fn_stats)
 
-        # Update global server stats
-        server_key = server or 'default'
-        server_stats = self.store.get(f'servers/{server_key}', {
-            'requests': 0,
-            'total_duration': 0.0,
-        })
-        server_stats['requests'] += 1
-        server_stats['total_duration'] += duration
-        self.store.put(f'servers/{server_key}', server_stats)
+            # Update global server stats
+            server_key = server or 'default'
+            server_stats = self.store.get(f'servers/{server_key}', {
+                'requests': 0,
+                'total_duration': 0.0,
+            })
+            server_stats['requests'] += 1
+            server_stats['total_duration'] += duration
+            self.store.put(f'servers/{server_key}', server_stats)
 
-        # Append to recent log (keep last 1000)
-        log = self.store.get('recent_log', [])
-        log.append({
-            'user': user,
-            'fn': fn,
-            'duration': round(duration, 4),
-            'status': status,
-            'time': ts,
-            'server': server,
-        })
-        if len(log) > 1000:
-            log = log[-1000:]
-        self.store.put('recent_log', log)
+            # Append to recent log (keep last 1000)
+            log = self.store.get('recent_log', [])
+            log.append({
+                'user': user,
+                'fn': fn,
+                'duration': round(duration, 4),
+                'status': status,
+                'time': ts,
+                'server': server,
+            })
+            if len(log) > 1000:
+                log = log[-1000:]
+            self.store.put('recent_log', log)
 
         return {'recorded': True}
 

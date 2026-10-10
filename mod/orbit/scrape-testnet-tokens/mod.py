@@ -4,12 +4,13 @@ import json
 import urllib.request
 import urllib.error
 import urllib.parse
+from decimal import Decimal
 import mod as m
 
 NETWORKS = {
     "sepolia":  "https://eth-sepolia.blockscout.com",
     "holesky":  "https://eth-holesky.blockscout.com",
-    "mumbai":   "https://polygon-mumbai.blockscout.com",
+    "amoy":     "https://polygon-amoy.blockscout.com",
     "base-sepolia": "https://base-sepolia.blockscout.com",
 }
 
@@ -39,7 +40,7 @@ class Mod:
         next_params = None
         max_pages = 10
 
-        for _ in range(max_pages):
+        for page_num in range(max_pages):
             if next_params:
                 url = base_url + "&" + urllib.parse.urlencode(next_params)
             else:
@@ -58,7 +59,7 @@ class Mod:
                 raw_value = item.get("value", "0")
                 decimals = int(token.get("decimals") or 0)
                 try:
-                    balance = int(raw_value) / (10 ** decimals) if decimals else int(raw_value)
+                    balance = str(Decimal(raw_value) / Decimal(10 ** decimals)) if decimals else int(raw_value)
                 except (ValueError, TypeError):
                     balance = raw_value
                 tokens.append({
@@ -72,7 +73,8 @@ class Mod:
             if not next_params:
                 break
 
-        return {"network": network, "address": address, "tokens": tokens}
+        truncated = next_params is not None
+        return {"network": network, "address": address, "tokens": tokens, "truncated": truncated, "pages_fetched": page_num + 1}
 
     def info(self):
         """Return module info."""

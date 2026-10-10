@@ -2,5 +2,5 @@
     "name": "search",
     "description": "Search for the best module matching a natural language query. Args: query: Natural language description of what you need n: Number of top results to return (default 3)",
     "version": "0.1.0",
-    "schema": "Qma5sdHLwymLcM7sAJsRTt5JZNjMHGRNG9ahhjDRHeqGty"
+    "schema": "QmPVNGauC1mPbywRhvDhhfJAyNnv84oh38zPwV83TnduaZ"
 }

@@ -15,6 +15,7 @@ class Mod:
         self.name = cfg.get('name', 'selfgov')
         self.description = cfg.get('description', 'selfgov')
         self.version = cfg.get('version', '0.0.0')
+        self.schema = cfg.get('schema', '')
         self.loaded_at = time.time()
 
     def forward(self, **kwargs):
@@ -32,8 +33,9 @@ class Mod:
             'name': self.name,
             'version': self.version,
             'description': self.description,
+            'schema': self.schema,
             'path': self.path,
-            'files': [f for f in os.listdir(self.path) if not f.startswith('__')],
+            'files': [f for f in os.listdir(self.path) if f != '__pycache__' and not f.startswith('.')],
             'loaded_at': self.loaded_at,
         }
 

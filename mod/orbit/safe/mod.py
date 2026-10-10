@@ -21,8 +21,8 @@ class Mod:
             'description': cfg.get('description', ''),
             'version': cfg.get('version', ''),
             'schema': cfg.get('schema', ''),
-            'files': [f for f in os.listdir(self.path)
-                      if f != '__pycache__' and not f.startswith('.')],
+            'files': sorted(f for f in os.listdir(self.path)
+                            if f != '__pycache__' and not f.startswith('.')),
         }
 
     def readme(self):
@@ -30,5 +30,5 @@ class Mod:
         for name in ['README.md', 'readme.md', 'README.rst', 'README']:
             p = os.path.join(self.path, name)
             if os.path.exists(p):
-                return m.get_text(p)
-        return None
+                return {'content': m.get_text(p), 'filename': name}
+        return {'content': None, 'filename': None}

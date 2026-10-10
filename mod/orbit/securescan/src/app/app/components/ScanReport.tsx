@@ -91,7 +91,36 @@ export function ScanReport({ id }: { id: string }) {
               <span className="ml-2 text-muted text-sm">· {scan.subdir}</span>
             )}
           </div>
-          <StatusLine scan={scan} />
+          <div className="flex items-center gap-2">
+            {scan.status === "done" && (
+              <button
+                onClick={() => {
+                  const payload = {
+                    repo: scan.repo,
+                    branch: scan.branch,
+                    subdir: scan.subdir,
+                    stats: scan.stats,
+                    findings: scan.findings,
+                  };
+                  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+                    type: "application/json",
+                  });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  const slug = prettyRepo(scan.repo).replace(/\//g, "-");
+                  const date = new Date().toISOString().slice(0, 10);
+                  a.href = url;
+                  a.download = `securescan-${slug}-${date}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="text-xs border border-border rounded px-2.5 py-1 text-muted hover:text-accent hover:border-accent/50 transition-colors"
+              >
+                ↓ JSON
+              </button>
+            )}
+            <StatusLine scan={scan} />
+          </div>
         </div>
 
         <div className="mt-4">
@@ -195,7 +224,22 @@ export function ScanReport({ id }: { id: string }) {
 
 function StatusLine({ scan }: { scan: Scan }) {
   const isWorking = ["queued", "cloning", "scanning"].includes(scan.status);
-  const elapsed = scan.elapsed_seconds
+  const [liveElapsed, setLiveElapsed] = useState<number>(0);
+
+  useEffect(() => {
+    if (!isWorking) return;
+    const tick = () => {
+      const origin = scan.started_at ?? Date.now() / 1000;
+      setLiveElapsed(Math.floor(Date.now() / 1000 - origin));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [isWorking, scan.started_at]);
+
+  const elapsed = isWorking
+    ? ` · ${liveElapsed}s`
+    : scan.elapsed_seconds
     ? ` · ${scan.elapsed_seconds}s`
     : "";
   return (

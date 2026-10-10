@@ -60,10 +60,12 @@ class Scrape(m.mod('chain')):
         m.print(f'Scraper initialized for {network}', color='green')
 
     def _get_cache_key(self, contract_name: str, event_name: str,
-                      from_block: int, to_block: int, filters: Dict = None) -> str:
+                      from_block: int, to_block: int, filters: Dict = None,
+                      process_fn=None) -> str:
         """Generate cache key for event scraping."""
         filter_str = json.dumps(filters, sort_keys=True) if filters else 'none'
-        return f"{contract_name}_{event_name}_{from_block}_{to_block}_{filter_str}"
+        fn_str = process_fn.__name__ if process_fn is not None else 'none'
+        return f"{contract_name}_{event_name}_{from_block}_{to_block}_{filter_str}_{fn_str}"
 
     def _load_from_cache(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
         """Load events from cache if available."""
@@ -184,7 +186,7 @@ class Scrape(m.mod('chain')):
 
         # Check cache first
         if use_cache:
-            cache_key = self._get_cache_key(contract_name, event_name, from_block, to_block, filters)
+            cache_key = self._get_cache_key(contract_name, event_name, from_block, to_block, filters, process_fn)
             cached_events = self._load_from_cache(cache_key)
             if cached_events is not None:
                 return cached_events
@@ -279,7 +281,7 @@ class Scrape(m.mod('chain')):
 
         # Save to cache
         if use_cache:
-            cache_key = self._get_cache_key(contract_name, event_name, from_block, to_block, filters)
+            cache_key = self._get_cache_key(contract_name, event_name, from_block, to_block, filters, process_fn)
             self._save_to_cache(cache_key, all_events)
 
         # Clean up checkpoint
@@ -689,7 +691,7 @@ class Scrape(m.mod('chain')):
         checkpoint_path = Path(checkpoint_file)
         try:
             with open(checkpoint_path, 'w') as f:
-                json.dump({'last_block': last_block, 'events': events}, f)
+                json.dump({'last_block': last_block, 'events': events}, f, cls=Web3Encoder)
         except Exception as e:
             m.print(f'Checkpoint write error: {e}', color='yellow')
 
@@ -857,7 +859,8 @@ class Scrape(m.mod('chain')):
             Path to exported file
         """
         if format == 'json':
-            m.save(filename, events)
+            with open(filename, 'w') as f:
+                json.dump(events, f, cls=Web3Encoder, indent=2)
             m.print(f'Exported {len(events):,} events to {filename}', color='green')
             return filename
 

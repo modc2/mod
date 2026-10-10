@@ -147,14 +147,20 @@
     const sets = [...bySet.entries()];
     if (sets.length === 0) { say(counter, ""); return; }
     if (sets.length > 1) {
-      const total = sets.reduce((s, [, v]) => s + v.xs.size, 0);
-      say(counter, `${total} pieces across ${sets.length} different splits`, "err");
+      const parts = sets.map(([id, { k, xs }]) => {
+        const have = xs.size;
+        return have >= k
+          ? `set ${id}: ${have}/${k} ready`
+          : `set ${id}: ${have} piece${have !== 1 ? "s" : ""} (need ${k - have} more)`;
+      });
+      const anyReady = sets.some(([, { k, xs }]) => xs.size >= k);
+      say(counter, `${sets.length} sets mixed — ${parts.join(" | ")}`, anyReady ? "ok" : "err");
       return;
     }
     const [setId, { k, xs }] = sets[0];
     const have = xs.size;
     if (have >= k) {
-      say(counter, `${have} of ${have} pieces ready — set ${setId}`, "ok");
+      say(counter, `${have} of ${k} needed · ready — set ${setId}`, "ok");
     } else {
       say(counter, `${have} piece${have > 1 ? "s" : ""} · set ${setId} · need ${k - have} more`);
     }

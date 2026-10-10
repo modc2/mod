@@ -274,26 +274,31 @@ class WorkerPool:
         if not self._started:
             self.start()
         n = max(self.min_workers, min(n, self.max_workers))
+        to_start = []
+        to_kill = []
         with self._lock:
             current = len(self._workers)
             if n > current:
-                # Scale up
+                # Scale up: reserve slots inside lock, start outside
                 for i in range(current, n):
                     w = _PersistentWorker(worker_id=i)
-                    w.start()
                     self._workers.append(w)
+                    to_start.append(w)
             elif n < current:
-                # Scale down (remove idle from the end)
-                removed = 0
+                # Scale down: pop inside lock, kill outside
                 for i in range(current - 1, -1, -1):
                     if len(self._workers) <= n:
                         break
                     w = self._workers[i]
                     if not w.busy:
                         self._workers.pop(i)
-                        w.kill()
-                        removed += 1
-            return self.status()
+                        to_kill.append(w)
+        # Do blocking I/O outside the lock
+        for w in to_start:
+            w.start()
+        for w in to_kill:
+            w.kill()
+        return self.status()
 
     def set_limits(self, min_workers: int = None, max_workers: int = None) -> dict:
         """Update min/max worker limits."""
@@ -875,6 +880,8 @@ class DockerWorker:
         if not self._started:
             self.start()
         n = max(0, min(n, self.max_workers))
+        to_start = []
+        to_stop = []
         with self._lock:
             current = len(self._workers)
             if n > current:
@@ -884,8 +891,9 @@ class DockerWorker:
                         cpus=self.cpus, network=self.network,
                         mod_path=self._mod_path, storage_path=self._storage_path,
                     )
-                    w.start()
+                    w.busy = True  # reserve slot before releasing lock
                     self._workers.append(w)
+                    to_start.append(w)
             elif n < current:
                 for i in range(current - 1, -1, -1):
                     if len(self._workers) <= n:
@@ -893,7 +901,15 @@ class DockerWorker:
                     w = self._workers[i]
                     if not w.busy:
                         self._workers.pop(i)
-                        w.stop()
+                        to_stop.append(w)
+        # Do blocking I/O outside the lock
+        for w in to_start:
+            try:
+                w.start()
+            finally:
+                w.busy = False
+        for w in to_stop:
+            w.stop()
         return self.status()
 
     def set_limits(self, min_workers: int = None, max_workers: int = None,
