@@ -518,7 +518,8 @@ def overview():
         'ray_usd': px.get(KNOWN['RAY']),
         'sol_usd': px.get(WSOL),
         'api_version': (get('/main/version', ttl=600) or {}).get('latest'),
-        'priority_fee_micro_lamports': (get('/main/auto-fee', ttl=60) or {}).get('default'),
+        'priority_fees_micro_lamports': (fees := (get('/main/auto-fee', ttl=60) or {}).get('default') or {}),
+        'priority_fee_micro_lamports': fees.get('h'),  # high-tier scalar — recommended for swaps
         'chain_time_offset_s': (get('/main/chain-time', ttl=60) or {}).get('offset'),
         'programs': PROGRAM_NAMES,
         'as_of': _time(time.time()),
@@ -696,7 +697,8 @@ def token(mint, pools_limit=5):
         'tvl_usd': depth.get('tvl_usd'),
         'volume_24h_usd': depth.get('volume_24h_usd'),
         'price_spread_pct': depth.get('price_spread_pct'),
-        'deepest_pool': depth.get('deepest'), 'pools': depth.get('pools'),
+        'deepest_pool': depth.get('deepest'), 'busiest_pool': depth.get('busiest'),
+        'pools': depth.get('pools'),
     }
 
 
@@ -1257,6 +1259,13 @@ def wallet(address, min_usd=0.01, limit=50):
     lps.sort(key=lambda l: l.get('value_usd') or 0, reverse=True)
     total = sum(p.get('value_usd') or 0 for p in kept) + \
         sum(l.get('value_usd') or 0 for l in lps)
+    nft_scanned = min(len(nft_mints), max(1, min(int(limit or 50), 400))) if nft_mints else 0
+    limit_reached = nft_scanned < len(nft_mints)
+    note = ('a position whose price has left its range earns nothing until it '
+            'comes back or is rebalanced — those are listed in out_of_range')
+    if limit_reached:
+        note += (f'; only {nft_scanned} of {len(nft_mints)} NFTs were checked — '
+                 'pass a higher limit= to scan more')
     return {
         'wallet': owner,
         'total_usd': round(total, 2),
@@ -1264,13 +1273,14 @@ def wallet(address, min_usd=0.01, limit=50):
         'lp_usd': round(sum(l.get('value_usd') or 0 for l in lps), 2),
         'fees_owed_usd': round(sum(p.get('fees_owed_usd') or 0 for p in kept), 4),
         'out_of_range': [p['nft_mint'] for p in kept if p.get('in_range') is False],
+        'limit_reached': limit_reached,
         'positions': kept,
         'lp_tokens': lps,
         'scanned': {'token_accounts': len(accounts), 'nft_candidates': len(nft_mints),
+                    'nft_scanned': nft_scanned,
                     'fungible_mints': len(fungible),
                     'closed_positions': len([p for p in positions if p.get('closed')])},
-        'note': 'a position whose price has left its range earns nothing until it '
-                'comes back or is rebalanced — those are listed in out_of_range',
+        'note': note,
     }
 
 

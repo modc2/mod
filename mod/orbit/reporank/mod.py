@@ -225,16 +225,16 @@ class Mod:
     #
     # four kinds of reference land here and leave as a directory on disk
 
-    def resolve(self, repo: str = None) -> dict:
+    def resolve(self, repo: str = None, pull: bool = False) -> dict:
         """Turn a reference — an orbit module name, a path, a git URL or
         owner/repo, or a localfs CID — into a checkout on disk. Remote repos
-        are cloned once and reused; `pull=1` on rank refreshes them."""
+        are cloned once and reused; `pull=True` fetches the latest code."""
         ref = str(repo or self._default or '.').strip()
         if CID_RE.match(ref):
             return self._from_cid(ref)
         if URL_RE.search(ref) or (GH_RE.match(ref) and '/' in ref and not os.path.exists(
                 m.abspath(ref))):
-            return self._from_git(ref)
+            return self._from_git(ref, pull=pull)
         path = m.abspath(ref)
         if os.path.isdir(path):
             return self._local(ref, path, 'path')
@@ -251,7 +251,7 @@ class Mod:
         return dict({'source': ref, 'kind': kind, 'name': os.path.basename(path.rstrip('/')),
                      'path': path}, **self._git_meta(path))
 
-    def _from_git(self, ref: str) -> dict:
+    def _from_git(self, ref: str, pull: bool = False) -> dict:
         """Clone (or reuse) a remote repo. Shallow — but deep enough that the
         activity dimension has a history to look at."""
         mm = GH_RE.match(ref)
@@ -262,6 +262,10 @@ class Mod:
         if not os.path.isdir(os.path.join(dest, '.git')):
             self._run(['git', 'clone', '--depth', str(CLONE_DEPTH), url, dest],
                       cwd=self.clones, timeout=300)
+        elif pull:
+            self._run(['git', 'fetch', 'origin', '--depth', str(CLONE_DEPTH)],
+                      cwd=dest, timeout=300, check=False)
+            self._run(['git', 'reset', '--hard', 'origin/HEAD'], cwd=dest, check=False)
         name = os.path.basename(dest)
         return dict({'source': ref, 'kind': 'git', 'name': name, 'path': dest, 'url': url},
                     **self._git_meta(dest))
@@ -530,6 +534,29 @@ class Mod:
                 declared += len(deps)
                 pinned += sum(1 for v in deps.values() if re.match(r'^\d', str(v)))
             except (OSError, ValueError):
+                pass
+        if 'pyproject.toml' in names:
+            try:
+                try:
+                    import tomllib
+                except ImportError:
+                    import tomli as tomllib  # type: ignore[no-redef]
+                with open(os.path.join(root, 'pyproject.toml'), 'rb') as f:
+                    pyproj = tomllib.load(f)
+                # PEP 621: [project] dependencies is a list of requirement strings
+                for dep in pyproj.get('project', {}).get('dependencies', []):
+                    declared += 1
+                    if '==' in str(dep):
+                        pinned += 1
+                # Poetry: [tool.poetry.dependencies] is a dict of name→spec
+                for pkg, spec in pyproj.get('tool', {}).get('poetry', {}).get('dependencies', {}).items():
+                    if pkg.lower() == 'python':
+                        continue
+                    declared += 1
+                    spec_str = spec if isinstance(spec, str) else (spec.get('version', '') if isinstance(spec, dict) else '')
+                    if '==' in str(spec_str) or re.match(r'^\d', str(spec_str).lstrip()):
+                        pinned += 1
+            except Exception:
                 pass
         # a mod-protocol module declares its fleet dependencies in config.json
         # rather than a language manifest — that IS its declaration
@@ -1010,13 +1037,10 @@ class Mod:
         start = body.find('{')
         if start < 0:
             raise ValueError(f'no ballot in the reply: {body[:200]}')
-        depth, end = 0, None
-        for i, ch in enumerate(body[start:], start):
-            depth += (ch == '{') - (ch == '}')
-            if depth == 0:
-                end = i + 1
-                break
-        parsed = json.loads(body[start:end or len(body)])
+        try:
+            parsed, _ = json.JSONDecoder().raw_decode(body, start)
+        except json.JSONDecodeError:
+            raise ValueError(f'no valid ballot in the reply: {body[:200]}')
         score = float(parsed.get('score', 0))
         tips = []
         for s in (parsed.get('suggestions') or [])[:5]:
@@ -1074,7 +1098,7 @@ class Mod:
 
     def rank(self, repo: str = None, llm: bool = True, dimensions=None, voters=None,
              model: str = None, free: bool = False, fresh: bool = False,
-             workers: int = 4) -> dict:
+             pull: bool = False, workers: int = 4) -> dict:
         """Score a repo out of 100. `repo` is an orbit module name, a path, a
         git URL or owner/repo, or a localfs CID.
 
@@ -1083,7 +1107,7 @@ class Mod:
         model every agent voter uses; free=True runs them on the agent's free
         tier. Results are cached per (repo, revision, panel) — fresh=True
         re-runs the panel."""
-        r = self.resolve(repo)
+        r = self.resolve(repo, pull=pull)
         dims = [d for d in (self._list(dimensions) or list(DIMENSIONS)) if d in DIMENSIONS]
         if not dims:
             raise ValueError(f'no known dimension in {dimensions!r}')
@@ -1727,7 +1751,7 @@ class Mod:
             '/api/purge': ('purge', 'write'),
             '/api/grant': ('grant', 'admin'), '/api/revoke': ('revoke', 'admin'),
         }
-        ARGS = {'rank': ('repo', 'llm', 'dimensions', 'voters', 'model', 'free', 'fresh'),
+        ARGS = {'rank': ('repo', 'llm', 'dimensions', 'voters', 'model', 'free', 'fresh', 'pull'),
                 'compare': ('repos', 'llm', 'dimensions', 'model', 'free', 'fresh'),
                 'facts': ('repo',), 'suggestions': ('repo', 'n', 'llm', 'model', 'free'),
                 'session': (), 'purge': ('repo',),
@@ -1735,7 +1759,7 @@ class Mod:
                               'prompt', 'headers', 'steps'),
                 'remove_voter': ('id',), 'set_voter': ('id', 'enabled', 'weight', 'model'),
                 'grant': ('address', 'role'), 'revoke': ('address',)}
-        BOOLS = {'llm', 'free', 'fresh', 'enabled'}
+        BOOLS = {'llm', 'free', 'fresh', 'pull', 'enabled'}
 
         class H(BaseHTTPRequestHandler):
             protocol_version = 'HTTP/1.1'

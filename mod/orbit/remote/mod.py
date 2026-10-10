@@ -1,9 +1,10 @@
 import os
+import json
 import mod as m
 
 class Mod:
     description = """Remote access and execution utilities for mod orbit modules."""
-    path = r'/root/mod/mod/orbit/remote'
+    path = os.path.dirname(os.path.abspath(__file__))
 
     def forward(self, **kwargs):
         """Default entry point."""
@@ -11,10 +12,18 @@ class Mod:
 
     def info(self):
         """Return module info."""
+        config_path = os.path.join(self.path, 'config.json')
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+            version = config.get('version')
+        except Exception:
+            version = None
         return {
             'name': 'remote',
             'description': self.description,
-            'files': os.listdir(self.path),
+            'version': version,
+            'files': [f for f in os.listdir(self.path) if not f.startswith('_') and not f.endswith('.py')],
         }
 
     def readme(self):
@@ -23,4 +32,4 @@ class Mod:
             p = os.path.join(self.path, name)
             if os.path.exists(p):
                 return m.get_text(p)
-        return None
+        return f"# {self.info()['name']}\n\n{self.description}"

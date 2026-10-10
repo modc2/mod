@@ -1,13 +1,14 @@
-# base
+# registree
 
-A minimal example mod showing the standard module structure.
+A module registry for the mod orbit. Reads each sibling module's `config.json` and returns its metadata.
 
 ## Structure
 
 ```
-base/
-├── base/
-│   └── mod.py    # Anchor file with Mod class
+registree/
+├── registree/
+│   └── mod.py    # Mod class — registry logic
+├── config.json
 └── README.md
 ```
 
@@ -16,33 +17,35 @@ base/
 ```python
 import mod as m
 
-# Load and run
-base = m.mod('base')()
-result = base.forward(3, 4)  # 7
+reg = m.mod('registree')()
+
+# List all modules
+modules = reg.forward()
+# [{"name": "agent", "description": "...", "version": "0.1.0"}, ...]
+
+# Get one module by name
+info = reg.forward(name="registree")
+# {"name": "registree", "description": "...", "version": "0.1.0"}
 ```
 
 ```bash
-# CLI
-m base forward a=3 b=4
+# CLI — list all
+m registree forward
+
+# CLI — single module
+m registree forward name=agent
 ```
 
-## Creating a New Mod
+## Response shape
 
-Every mod follows this pattern:
+Each entry contains:
 
-1. Create a directory: `orbit/<name>/<name>/mod.py`
-2. Define a `Mod` class with a `description` and a `forward` method:
+| Field | Source |
+|-------|--------|
+| `name` | `config.json` → `name` |
+| `description` | `config.json` → `description` |
+| `version` | `config.json` → `version` |
+| `schema` | `config.json` → `schema` |
+| `port` | `config.json` → `port` (`null` if absent) |
 
-```python
-class Mod:
-    description = """
-    What your mod does
-    """
-
-    def forward(self, **kwargs):
-        """Entry point for the mod."""
-        # your logic here
-        return result
-```
-
-The `forward` method is the default entry point called when the mod is invoked. Additional methods can be called via `m.fn('name/method')()`.
+Modules whose `config.json` is missing or malformed are silently skipped.

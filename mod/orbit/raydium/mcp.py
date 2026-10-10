@@ -172,9 +172,12 @@ TOOLS = {
     'ray_overview': {
         'description': 'THE PROTOCOL IN ONE CALL: total value locked, 24h volume, '
                        'the turnover ratio between them, the RAY and SOL price, and '
-                       'the priority fee Raydium is currently recommending. Start '
-                       'here to know whether the numbers you are about to read are '
-                       'a big day or a quiet one.',
+                       'the priority fees Raydium is currently recommending. '
+                       'priority_fees_micro_lamports holds the full tier breakdown '
+                       '{m, h, vh}; priority_fee_micro_lamports is the high-tier '
+                       'scalar (what Raydium recommends for swaps). Start here to '
+                       'know whether the numbers you are about to read are a big day '
+                       'or a quiet one.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_overview,
     },
