@@ -73,6 +73,17 @@ def test_empty_screener_refuses(tmp_path, monkeypatch):
         run(tmp_path, monkeypatch, [])
 
 
+def test_sanitize_url_strips_duplicate_protocol(tmp_path, monkeypatch):
+    rows = ROWS + [{'netuid': 116, 'name': 'Carb', 'symbol': 'C', 'price': 0.1, 'owner': 'D',
+                    'url': 'https://https://example.com', 'github': 'http://https://github.com/x/y'}]
+    _, root = run(tmp_path, monkeypatch, rows)
+    cfg = json.load(open(root / 'sn116' / 'config.json'))
+    assert cfg['url'] == 'https://example.com'
+    assert cfg['github'] == 'https://github.com/x/y'
+    readme = open(root / 'sn116' / 'README.md').read()
+    assert 'https://https://' not in readme
+
+
 def test_child_shim_falls_back_to_snapshot(tmp_path, monkeypatch):
     _, root = run(tmp_path, monkeypatch, ROWS)
     sys.modules.pop('_subnets_base', None)

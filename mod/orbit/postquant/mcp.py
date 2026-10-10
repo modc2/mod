@@ -246,9 +246,16 @@ def _receipt_view(r):
 def _t_head(a):
     n = node()
     h = n.head()
+    try:
+        from pq import wasmvm as _wvm
+        wasm_ok = bool(_wvm.status()['engine']['ok'])
+    except Exception:  # noqa: BLE001
+        wasm_ok = False
     return {**h, 'burned': _money(h['burned']), 'supply': _money(h['supply']),
             'base_fee': _money(h['base_fee']),
             'scheme': K.SCHEME, 'hash': h['hash'],
+            'schemes': [name for name in ALGOS.names() if ALGOS.allowed(name)],
+            'wasm': wasm_ok,
             'signatures': ', '.join(n for n in ALGOS.names()
                                     if ALGOS.allowed(n)) +
                           ' — per account, chosen at key creation (pq_algos)',

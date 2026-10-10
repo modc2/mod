@@ -106,6 +106,7 @@ class Validator:
         task_names = list(protocol.TASKS)
         for miner in miners:
             uid = str(miner["uid"])
+            hk = miner["hotkey"]
             results, total, n = [], 0.0, 0
             for i in range(self.cfg.sample_size):
                 task_req = protocol.make_task(task_names[i % len(task_names)],
@@ -116,16 +117,15 @@ class Validator:
                     total += res["score"]
                     n += 1
             epoch_score = total / n if n else 0.0
-            self.scores[uid] = reward.ema(self.scores.get(uid), epoch_score,
-                                          self.cfg.ema_alpha)
-            report["results"][uid] = {"hotkey": miner["hotkey"],
+            self.scores[hk] = reward.ema(self.scores.get(hk), epoch_score,
+                                         self.cfg.ema_alpha)
+            report["results"][uid] = {"hotkey": hk,
                                       "epoch_score": round(epoch_score, 4),
-                                      "ema_score": round(self.scores[uid], 4),
+                                      "ema_score": round(self.scores[hk], 4),
                                       "samples": results}
 
         weights = reward.normalize_weights(
-            {u: s for u, s in self.scores.items()
-             if any(str(m["uid"]) == u for m in miners)})
+            {str(m["uid"]): self.scores.get(m["hotkey"], 0.0) for m in miners})
         report["weights"] = weights
         if weights:
             try:

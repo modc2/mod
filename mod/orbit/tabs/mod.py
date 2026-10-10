@@ -1,3 +1,4 @@
+import json
 import os
 import mod as m
 
@@ -11,11 +12,16 @@ class Mod:
 
     def info(self):
         """Return module info."""
+        config_path = os.path.join(self.path, 'config.json')
+        with open(config_path) as f:
+            config = json.load(f)
+        files = sorted(e for e in os.listdir(self.path) if e != '__pycache__' and not e.startswith('.'))
         return {
-            'name': 'tabs',
-            'description': self.description,
+            'name': config.get('name', 'tabs'),
+            'version': config.get('version', ''),
+            'description': config.get('description', self.description),
             'path': self.path,
-            'files': os.listdir(self.path),
+            'files': files,
         }
 
     def readme(self):

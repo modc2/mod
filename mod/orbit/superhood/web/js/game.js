@@ -316,6 +316,7 @@
     this.levelId = LEVELS.order[0];
     this.high = 0;
     try { this.high = parseInt(localStorage.getItem('superhood.high') || '0', 10) || 0; } catch (e) {}
+    try { if (localStorage.getItem('superhood.muted') === '1') SND.mute(true); } catch (e) {}
     this.acc = 0;
     this.last = 0;
     this.shake = 0;
@@ -1649,6 +1650,7 @@
     }
     textCentered(g, 'TOP ' + pad(this.high, 6), 146, '#9ad0ff', 1);
     if (this.newHigh) textCentered(g, 'NEW RECORD', 160, '#f7d51d', 1);
+    if (Math.floor(this.frame / 26) % 2) textCentered(g, 'PRESS ENTER', this.newHigh ? 174 : 160, '#ffffff', 1);
   };
 
   Game.prototype.renderTitle = function (g) {

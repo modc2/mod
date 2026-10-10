@@ -983,7 +983,7 @@ async function loadChain() {
       stat('<span class="amt">' + esc(pq(h.burned)) + '</span>', 'burned PQ') +
       stat(h.mempool, 'mempool'));
     $('chain-root').textContent = 'root ' + short(h.state_root, 22) +
-      ' · ' + (h.schemes ? h.schemes.length + ' key types, wasm-verified'
+      ' · ' + (h.schemes ? h.schemes.length + ' key types' + (h.wasm ? ', wasm-verified' : '')
                          : esc(h.scheme));
     const now = Math.floor(Date.now()/1000);
     const blocks = [];

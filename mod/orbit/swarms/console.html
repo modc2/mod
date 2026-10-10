@@ -239,6 +239,7 @@ before paying to run it.</pre>
     <code>~/.mod/swarms/key.json</code> (0600) for everyone using this box.
     Get one at <a href="https://swarms.world/platform/api-keys" target="_blank">swarms.world/platform/api-keys</a>.</div>
   <div class="cards" id="acct-cards"></div>
+  <pre id="out-acct" style="max-height:40vh">Credits, rate limits, live pricing.</pre>
   <h2>cost model</h2>
   <div class="bar">
     <input id="c-agents" type="number" value="5" style="width:90px" title="agents">
@@ -247,7 +248,14 @@ before paying to run it.</pre>
     <input id="c-out" type="number" value="2000" style="width:110px" title="output tokens">
     <button class="ghost" id="c-go">PRICE IT</button>
   </div>
-  <pre id="out-acct" style="max-height:40vh">Credits, rate limits, live pricing.</pre>
+  <pre id="out-cost" style="max-height:40vh">Enter parameters and click PRICE IT.</pre>
+  <h2>request logs</h2>
+  <div class="bar">
+    <input id="l-limit" type="number" value="20" style="width:90px" title="entries to fetch">
+    <button class="ghost" id="l-go">LOAD LOGS</button>
+    <span class="flash" id="f-logs"></span>
+  </div>
+  <pre id="out-logs" style="max-height:40vh">Past API requests — load to inspect.</pre>
 </section>
 
 <!-- ── MCP ───────────────────────────────────────────────────── -->
@@ -654,8 +662,24 @@ async function loadAccount() {
 $('#c-go').onclick = async () => {
   const q = new URLSearchParams({agents: $('#c-agents').value, loops: $('#c-loops').value,
                                  input_tokens: $('#c-in').value, output_tokens: $('#c-out').value});
-  try { $('#out-acct').textContent = j(await call('/cost?' + q)); }
-  catch (e) { $('#out-acct').textContent = j(e.body || e.message); }
+  try { $('#out-cost').textContent = j(await call('/cost?' + q)); }
+  catch (e) { $('#out-cost').textContent = j(e.body || e.message); }
+};
+
+$('#l-go').onclick = async () => {
+  const b = $('#l-go'); b.disabled = true;
+  flash('#f-logs', 'loading…');
+  $('#out-logs').textContent = 'loading…';
+  try {
+    const out = await call('/logs?limit=' + ($('#l-limit').value || 20));
+    $('#out-logs').textContent = j(out);
+    const entries = out.logs || out.data || out.items || [];
+    flash('#f-logs', Array.isArray(entries) ? `${entries.length} entries` : '');
+  } catch (e) {
+    $('#out-logs').textContent = j(e.body || e.message);
+    flash('#f-logs', e.message, true);
+  }
+  b.disabled = false;
 };
 
 // ── mcp ──

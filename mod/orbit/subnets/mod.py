@@ -193,6 +193,12 @@ def render_readme(d):
     return '\n'.join(lines)
 
 
+def _sanitize_url(v):
+    if not isinstance(v, str) or not v:
+        return v
+    return re.sub(r'^https?://(https?://)', r'\1', v)
+
+
 def build_snapshot(row, trades, news, related, block, ts):
     return {
         'netuid': row['netuid'],
@@ -200,8 +206,8 @@ def build_snapshot(row, trades, news, related, block, ts):
         'symbol': row.get('symbol'),
         'owner': row.get('owner'),
         'description': row.get('description'),
-        'github': row.get('github'),
-        'url': row.get('url'),
+        'github': _sanitize_url(row.get('github')),
+        'url':    _sanitize_url(row.get('url')),
         'discord': row.get('discord'),
         'logo': row.get('logo'),
         'registered_at': row.get('registered_at'),
@@ -330,7 +336,10 @@ class Mod:
                 except Exception as e:
                     stats['errors'].append(f'sn{n} news: {e}')
             snap = build_snapshot(row, tr, nw, related.get(n, []), scr.get('block'), ts)
-            self._emit(snap, stats)
+            try:
+                self._emit(snap, stats)
+            except Exception as e:
+                stats['errors'].append(f'sn{n} emit: {e}')
             if verbose:
                 print(f"sn{n:<4} {row.get('name') or '':24} ok", flush=True)
 
@@ -342,8 +351,11 @@ class Mod:
             snap = _read_json(os.path.join(self.root, d, 'data.json'))
             if snap and snap.get('active', True):
                 snap.update(active=False, inactive_since_day=_day(ts), updated=ts, updated_day=_day(ts))
-                self._emit(snap, stats)
-                stats['inactive'] += 1
+                try:
+                    self._emit(snap, stats)
+                    stats['inactive'] += 1
+                except Exception as e:
+                    stats['errors'].append(f'sn{int(m.group(1))} emit: {e}')
 
         result = {'ok': True, 'at': ts, 'day': _day(ts), 'subnets': len(rows),
                   'secs': round(time.time() - t0, 1), **stats}

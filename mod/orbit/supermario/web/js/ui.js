@@ -213,6 +213,7 @@
     this.sramTimer = 0;
 
     this.bind();
+    this.restorePrefs();
     this.resize();
     this.draw();
     this.restoreLast();
@@ -484,8 +485,20 @@
       }
       // Analogue sticks stand in for the d-pad, with a wide dead zone.
       var ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;
-      if (Math.abs(ax) > 0.4) this.nes.setButton(p, ax < 0 ? LEFT : RIGHT, true);
-      if (Math.abs(ay) > 0.4) this.nes.setButton(p, ay < 0 ? UP : DOWN, true);
+      if (Math.abs(ax) > 0.4) {
+        this.nes.setButton(p, ax < 0 ? LEFT : RIGHT, true);
+        this.nes.setButton(p, ax < 0 ? RIGHT : LEFT, false);
+      } else {
+        this.nes.setButton(p, LEFT, false);
+        this.nes.setButton(p, RIGHT, false);
+      }
+      if (Math.abs(ay) > 0.4) {
+        this.nes.setButton(p, ay < 0 ? UP : DOWN, true);
+        this.nes.setButton(p, ay < 0 ? DOWN : UP, false);
+      } else {
+        this.nes.setButton(p, UP, false);
+        this.nes.setButton(p, DOWN, false);
+      }
     }
   };
 
@@ -577,11 +590,13 @@
       if (on && !self.audio.ctx) self.audio.start(function (r) {
         if (r) self.nes.setSampleRate(r);
       });
+      idbPut('prefs', 'sound', on);
     });
 
     $('crt').addEventListener('click', function () {
       var on = self.canvas.classList.toggle('scanlines');
       this.classList.toggle('on', on);
+      idbPut('prefs', 'crt', on);
     });
 
     $('shot').addEventListener('click', function () { self.screenshot(); });
@@ -590,6 +605,24 @@
       if (doc.fullscreenElement) doc.exitFullscreen();
       else $('app').requestFullscreen().catch(noop);
     });
+  };
+
+  App.prototype.restorePrefs = function () {
+    var self = this;
+    idbGet('prefs', 'sound').then(function (on) {
+      if (on === false) {
+        self.audio.setEnabled(false);
+        var btn = $('mute');
+        if (btn) { btn.textContent = 'SOUND OFF'; btn.classList.add('on'); }
+      }
+    }).catch(noop);
+    idbGet('prefs', 'crt').then(function (on) {
+      if (on === true) {
+        self.canvas.classList.add('scanlines');
+        var btn = $('crt');
+        if (btn) btn.classList.add('on');
+      }
+    }).catch(noop);
   };
 
   App.prototype.screenshot = function () {

@@ -190,6 +190,41 @@ def test_bad_sig_with_unprovable_hash_scores_zero_not_skip(cfg, monkeypatch):
     assert result["score"] is not None  # not skipped
 
 
+# ── UID recycling ───────────────────────────────────────────────────────
+
+def test_recycled_uid_new_miner_gets_clean_ema(cfg, monkeypatch):
+    """A new miner at a recycled UID must not inherit the previous miner's EMA."""
+    from subnet.validator import Validator
+
+    near = FakeNear()
+    monkeypatch.setattr("subnet.validator.NearClient", lambda *a, **k: near)
+
+    val = Validator(cfg)
+    # Simulate a prior epoch where "old-hotkey" occupied UID 0 and built up EMA.
+    val.scores["old-hotkey"] = 0.9
+
+    chain = LocalChain(cfg)
+    new_hk = "new-hotkey"
+    chain.register(new_hk, role="miner")
+    chain.serve(new_hk, "http://fake-miner")
+
+    def fake_query(miner, task_req):
+        answer = protocol.solve(task_req, near)
+        return {"score": reward.score_response(
+            truth=answer, answer=answer, anchor_height=FakeNear.HEIGHT,
+            final_height=FakeNear.HEIGHT, elapsed=0.1, signature_ok=True),
+            "task": task_req["task"], "elapsed": 0.1,
+            "signature_ok": True, "correct": True}
+    monkeypatch.setattr(val, "query_one", fake_query)
+
+    report = val.epoch()
+    uid = str(chain.metagraph()["neurons"][-1]["uid"])
+    result = report["results"][uid]
+    # EMA must bootstrap from None — equals raw epoch score, not the old 0.9.
+    assert result["ema_score"] == pytest.approx(result["epoch_score"])
+    assert result["ema_score"] != pytest.approx(0.9, abs=0.05)
+
+
 # ── end-to-end offline epoch ────────────────────────────────────────────
 
 def test_offline_epoch_scores_and_sets_weights(cfg, monkeypatch):

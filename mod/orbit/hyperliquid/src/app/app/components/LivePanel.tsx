@@ -250,13 +250,34 @@ export default function LivePanel() {
           </span>
         </div>
         {state ? (
-          <div className="grid grid-cols-4 gap-3 text-sm">
-            <Stat label="cycles" value={state.cycleCount ?? 0} />
-            <Stat label="placed" value={state.totalOrdersPlaced ?? 0} />
-            <Stat label="failed" value={state.totalOrdersFailed ?? 0} />
-            <Stat label="volume" value={fmtUsd(state.totalVolumeMirrored ?? 0)} />
-            <Stat label="last cycle" value={state.lastCycleAt ? ago(state.lastCycleAt) : "—"} />
-          </div>
+          <>
+            <div className="grid grid-cols-4 gap-3 text-sm">
+              <Stat label="cycles" value={state.cycleCount ?? 0} />
+              <Stat label="placed" value={state.totalOrdersPlaced ?? 0} />
+              <Stat label="failed" value={state.totalOrdersFailed ?? 0} />
+              <Stat label="volume" value={fmtUsd(state.totalVolumeMirrored ?? 0)} />
+              <Stat label="last cycle" value={state.lastCycleAt ? ago(state.lastCycleAt) : "—"} />
+            </div>
+            {(() => {
+              const errors = (state.log ?? []).filter((e: any) => e.type === "ERROR").slice(0, 10);
+              if (!errors.length) return null;
+              return (
+                <div className="mt-3">
+                  <div className="text-[10px] uppercase tracking-wider text-danger mb-1">Recent errors</div>
+                  <div className="space-y-1">
+                    {errors.map((e: any) => (
+                      <div key={e.id} className="flex items-start gap-2 text-xs text-danger/80">
+                        <span className="text-muted shrink-0">{ago(e.timestamp)}</span>
+                        {e.traderAddress && <span className="font-mono shrink-0">{shortAddr(e.traderAddress)}</span>}
+                        {e.coin && <span className="shrink-0">{e.coin}</span>}
+                        <span className="truncate">{e.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+          </>
         ) : <div className="text-muted text-sm">no session</div>}
       </section>
 
