@@ -21,9 +21,10 @@ class Mod:
 
     def get(self, key: str):
         try:
-            return self.open_db()[key]
+            value = self.open_db()[key]
+            return {'ok': True, 'key': key, 'value': value}
         except KeyError:
-            return None
+            return {'ok': False, 'key': key, 'error': 'key not found'}
 
     def delete(self, key: str):
         db = self.open_db()
@@ -35,40 +36,46 @@ class Mod:
         return {'ok': True, 'key': key}
 
     def list_keys(self, prefix: str = "", limit: int = None):
-        db = self.open_db()
-        it = db.iter()
-        if prefix:
-            it.seek(prefix)
-        else:
-            it.seek_to_first()
-        keys = []
-        while it.valid():
-            if limit is not None and len(keys) >= limit:
-                break
-            k = it.key()
-            if prefix and not k.startswith(prefix):
-                break
-            keys.append(k)
-            it.next()
-        return keys
+        try:
+            db = self.open_db()
+            it = db.iter()
+            if prefix:
+                it.seek(prefix)
+            else:
+                it.seek_to_first()
+            keys = []
+            while it.valid():
+                if limit is not None and len(keys) >= limit:
+                    break
+                k = it.key()
+                if prefix and not k.startswith(prefix):
+                    break
+                keys.append(k)
+                it.next()
+            return {'ok': True, 'keys': keys, 'count': len(keys)}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
 
     def scan(self, prefix: str = "", limit: int = None):
-        db = self.open_db()
-        it = db.iter()
-        if prefix:
-            it.seek(prefix)
-        else:
-            it.seek_to_first()
-        result = {}
-        while it.valid():
-            if limit is not None and len(result) >= limit:
-                break
-            k = it.key()
-            if prefix and not k.startswith(prefix):
-                break
-            result[k] = it.value()
-            it.next()
-        return result
+        try:
+            db = self.open_db()
+            it = db.iter()
+            if prefix:
+                it.seek(prefix)
+            else:
+                it.seek_to_first()
+            result = {}
+            while it.valid():
+                if limit is not None and len(result) >= limit:
+                    break
+                k = it.key()
+                if prefix and not k.startswith(prefix):
+                    break
+                result[k] = it.value()
+                it.next()
+            return {'ok': True, 'items': result, 'count': len(result)}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
 
     def batch_put(self, items: dict):
         db = self.open_db()
@@ -86,23 +93,31 @@ class Mod:
         batch.write()
         return {'ok': True, 'count': len(keys)}
 
+    KNOWN_ACTIONS = {'put', 'get', 'delete', 'list_keys', 'scan', 'batch_put', 'batch_delete'}
+
     def forward(self, **kwargs):
         action = kwargs.get('action')
-        if action == 'put':
-            return self.put(kwargs['key'], kwargs['value'])
-        if action == 'get':
-            return self.get(kwargs['key'])
-        if action == 'delete':
-            return self.delete(kwargs['key'])
-        if action == 'list_keys':
-            return self.list_keys(kwargs.get('prefix', ''), kwargs.get('limit'))
-        if action == 'scan':
-            return self.scan(kwargs.get('prefix', ''), kwargs.get('limit'))
-        if action == 'batch_put':
-            return self.batch_put(kwargs['items'])
-        if action == 'batch_delete':
-            return self.batch_delete(kwargs['keys'])
-        return self.info()
+        if action not in self.KNOWN_ACTIONS:
+            if action is None:
+                return self.info()
+            return {'ok': False, 'error': f'unknown action: {action}'}
+        try:
+            if action == 'put':
+                return self.put(kwargs['key'], kwargs['value'])
+            if action == 'get':
+                return self.get(kwargs['key'])
+            if action == 'delete':
+                return self.delete(kwargs['key'])
+            if action == 'list_keys':
+                return self.list_keys(kwargs.get('prefix', ''), kwargs.get('limit'))
+            if action == 'scan':
+                return self.scan(kwargs.get('prefix', ''), kwargs.get('limit'))
+            if action == 'batch_put':
+                return self.batch_put(kwargs['items'])
+            if action == 'batch_delete':
+                return self.batch_delete(kwargs['keys'])
+        except KeyError as e:
+            return {'ok': False, 'error': f'missing required parameter: {e.args[0]}'}
 
     def info(self):
         return {

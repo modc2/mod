@@ -419,8 +419,9 @@ class Mod:
             except OSError:
                 pass
         docs = [f[0] for f in files if f[2] in DOC_EXT and f[0].lower() != (readme or '').lower()]
+        no_fences = re.sub(r'```.*?```', '', body, flags=re.DOTALL)
         return {'readme': bool(readme), 'readme_lines': body.count('\n'),
-                'readme_sections': len(re.findall(r'^#{1,3} ', body, re.M)),
+                'readme_sections': len(re.findall(r'^#{1,3} ', no_fences, re.M)),
                 'readme_examples': len(re.findall(r'^```', body, re.M)) // 2,
                 'doc_files': len(docs), 'doc_dir': any(f[0].startswith('docs/') for f in files),
                 'skill': 'skill.md' in names, 'license': any(n.startswith('license') for n in names),
@@ -432,7 +433,8 @@ class Mod:
         tests = [f[0] for f in files if f[2] in CODE_EXT and (
             'test' in f[0].lower().replace('latest', '') or f[0].lower().startswith('spec/'))]
         ci = [f[0] for f in files if f[0].startswith('.github/workflows/')
-              or f[0] in ('.gitlab-ci.yml', 'Jenkinsfile', '.circleci/config.yml')]
+              or f[0] in ('.gitlab-ci.yml', 'Jenkinsfile', '.circleci/config.yml',
+                           '.travis.yml', 'azure-pipelines.yml', 'bitbucket-pipelines.yml')]
         cases = sum(len(re.findall(r'^\s*(?:def test_|it\(|test\(|#\[test\])', t, re.M))
                     for rel, t in texts.items() if rel in set(tests))
         code = [f for f in files if f[2] in CODE_EXT]
@@ -661,9 +663,9 @@ class Mod:
                 'fns': len(cfg.get('fns') or []), 'schema_cid': bool(cfg.get('schema')),
                 'deps': cfg.get('dependencies') or cfg.get('deps') or [],
                 'port': cfg.get('port') or cfg.get('app_port'),
-                'has_forward': bool(re.search(r'def forward\b|fn forward\b', body)),
-                'has_info': bool(re.search(r'def info\b|fn info\b', body)),
-                'has_serve': bool(re.search(r'def serve\b|fn serve\b', body))}
+                'has_forward': bool(re.search(r'(?:async\s+)?def forward\b|fn forward\b', body)),
+                'has_info':    bool(re.search(r'(?:async\s+)?def info\b|fn info\b',    body)),
+                'has_serve':   bool(re.search(r'(?:async\s+)?def serve\b|fn serve\b',  body))}
 
     # ── static voters ────────────────────────────────────────────────────
     #

@@ -8,7 +8,7 @@ def _coerce(a, b):
 
 class Mod:
     description = """
-    Minimal example mod — adds two numbers.
+    Minimal example mod — supports add, subtract, multiply, and divide.
     """
 
     def forward(self, a=1, b=2) -> int | float:
@@ -17,8 +17,26 @@ class Mod:
         result = a + b
         return int(result) if result == int(result) else result
 
+    def add(self, a=1, b=2) -> int | float:
+        """Add two numbers and return the result."""
+        return self.forward(a, b)
+
     def multiply(self, a=1, b=2) -> int | float:
         """Multiply two numbers and return the result."""
         a, b = _coerce(a, b)
         result = a * b
+        return int(result) if result == int(result) else result
+
+    def subtract(self, a=1, b=2) -> int | float:
+        """Subtract b from a and return the result."""
+        a, b = _coerce(a, b)
+        result = a - b
+        return int(result) if result == int(result) else result
+
+    def divide(self, a=1, b=2) -> int | float:
+        """Divide a by b and return the result."""
+        a, b = _coerce(a, b)
+        if b == 0:
+            raise ValueError("division by zero: b must not be 0")
+        result = a / b
         return int(result) if result == int(result) else result

@@ -774,7 +774,9 @@ def farms(pool=None, ids=None, limit=20):
     elif pool:
         ident = need_address(pool, 'pool')
         info = [p for p in (get('/pools/info/ids', ttl=60, ids=ident) or []) if p]
-        lp = ((info[0].get('lpMint') if info else None) or {}).get('address')
+        if not info:
+            raise RayError(f'{ident} is not a Raydium pool', status=404)
+        lp = (info[0].get('lpMint') or {}).get('address')
         if not lp:
             raise RayError(f'{ident} has no LP mint — concentrated pools carry '
                            f'their rewards inline, see ray_pool', status=404)
@@ -980,7 +982,7 @@ def token_account(owner, mint):
                   [owner, {'mint': mint, 'programId': program},
                    {'encoding': 'jsonParsed'}]) or {}
         accounts += res.get('value') or []
-    best, best_amount = None, -1
+    best, best_amount = None, 0
     for a in accounts:
         info = (((a.get('account') or {}).get('data') or {}).get('parsed')
                 or {}).get('info') or {}

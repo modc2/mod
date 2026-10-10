@@ -1,5 +1,6 @@
 
 import json
+import time
 from pathlib import Path
 
 
@@ -15,7 +16,13 @@ class Mod:
     useful for service-discovery without client-side filtering.
     """
 
+    def __init__(self):
+        self._cache = None
+        self._cache_at = 0.0
+
     def _load_all(self):
+        if self._cache is not None and time.time() - self._cache_at < 5:
+            return self._cache
         modules = []
         for config_path in sorted(ORBIT_ROOT.glob("*/config.json")):
             try:
@@ -28,9 +35,14 @@ class Mod:
                     "port": data.get("port", None),
                     "urls": data.get("urls", None),
                     "icon": data.get("icon", ""),
+                    "color": data.get("color", ""),
+                    "fns": data.get("fns", []),
+                    "submods": data.get("submods", {}),
                 })
             except (json.JSONDecodeError, OSError):
                 pass
+        self._cache = modules
+        self._cache_at = time.time()
         return modules
 
     def forward(self, name: str = None, port_only: bool = False, q: str = None):

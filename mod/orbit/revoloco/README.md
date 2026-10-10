@@ -18,22 +18,18 @@ import mod as m
 
 # Load and run
 revoloco = m.mod('revoloco')()
-result = revoloco.forward(3, 4)  # 7
+result = revoloco.add(3, 4)        # 7
+result = revoloco.multiply(3, 4)   # 12
+result = revoloco.subtract(10, 3)  # 7
+result = revoloco.divide(10, 4)    # 2.5
 ```
 
 ```bash
 # CLI
-m revoloco forward a=3 b=4
-```
-
-Additional methods work the same way:
-
-```python
-result = revoloco.multiply(3, 4)  # 12
-```
-
-```bash
+m revoloco add a=3 b=4
 m revoloco multiply a=3 b=4
+m revoloco subtract a=10 b=3
+m revoloco divide a=10 b=4
 ```
 
 ## Creating a New Mod

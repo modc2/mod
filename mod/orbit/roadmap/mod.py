@@ -51,14 +51,23 @@ class Mod:
             except (KeyError, ValueError):
                 return {'error': 'id is required and must be an integer'}
             return self.delete(item_id)
-        return self.items(status=kwargs.get('status'))
+        if method == 'items':
+            return self.items(status=kwargs.get('status'), q=kwargs.get('q'))
+        return {'error': 'unknown method', 'valid': ['items', 'add', 'update', 'delete']}
 
-    def items(self, status=None):
-        """Return roadmap items, optionally filtered by status (planned, in-progress, done)."""
+    def items(self, status=None, q=None):
+        """Return roadmap items, optionally filtered by status and/or keyword query."""
+        if status is not None and status not in VALID_STATUSES:
+            return {'error': 'invalid status', 'valid': sorted(VALID_STATUSES)}
         all_items = _load()
-        if status is None:
-            return all_items
-        return [i for i in all_items if i.get('status') == status]
+        if status is not None:
+            all_items = [i for i in all_items if i.get('status') == status]
+        if q:
+            q_lower = q.lower()
+            all_items = [i for i in all_items
+                         if q_lower in i.get('title', '').lower()
+                         or q_lower in i.get('description', '').lower()]
+        return all_items
 
     def add(self, title, description='', status='planned'):
         """Append a new item and return it."""
@@ -77,6 +86,9 @@ class Mod:
         all_items = _load()
         for item in all_items:
             if item['id'] == id:
+                unknown = set(fields) - {'title', 'status', 'description'}
+                if unknown:
+                    return {'error': 'unrecognized fields', 'fields': sorted(unknown)}
                 if 'status' in fields and fields['status'] not in VALID_STATUSES:
                     return {'error': 'invalid status', 'valid': sorted(VALID_STATUSES)}
                 for k, v in fields.items():
