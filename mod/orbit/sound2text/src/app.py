@@ -98,6 +98,25 @@ PAGE = r"""<!doctype html>
       <option value="cheap">cheapest</option>
       <option value="best">best model</option>
     </select>
+    <select id="lang">
+      <option value="">auto-detect</option>
+      <option value="en">English</option>
+      <option value="es">Spanish</option>
+      <option value="fr">French</option>
+      <option value="de">German</option>
+      <option value="zh">Chinese</option>
+      <option value="ja">Japanese</option>
+      <option value="ar">Arabic</option>
+      <option value="pt">Portuguese</option>
+      <option value="ru">Russian</option>
+      <option value="ko">Korean</option>
+      <option value="hi">Hindi</option>
+      <option value="it">Italian</option>
+    </select>
+    <select id="task">
+      <option value="transcribe">transcribe</option>
+      <option value="translate">translate → English</option>
+    </select>
     <button id="vadBtn" class="on">trim silence</button>
     <button id="packBtn" class="on">pack windows</button>
     <button id="cacheBtn" class="on">use cache</button>
@@ -244,6 +263,8 @@ $('#go').onclick = async () => {
   else body.append('file', source.value, 'clip.wav');
   body.append('engine', $('#engine').value);
   body.append('policy', $('#policy').value);
+  body.append('language', $('#lang').value);
+  body.append('task', $('#task').value);
   body.append('vad_on', flag($('#vadBtn')));
   body.append('pack', flag($('#packBtn')));
   body.append('cache_on', flag($('#cacheBtn')));

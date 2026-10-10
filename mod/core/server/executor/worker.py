@@ -227,6 +227,7 @@ class WorkerPool:
             # Try to find an idle, alive worker
             for w in self._workers:
                 if not w.busy and w.alive:
+                    w.busy = True
                     return w
             # Try to find an idle, dead worker; mark busy to reserve it before releasing lock
             for w in self._workers:
@@ -257,6 +258,7 @@ class WorkerPool:
                 for w in self._workers:
                     if not w.busy:
                         if w.alive:
+                            w.busy = True
                             return w
                         w.busy = True
                         worker_to_start = w
@@ -844,6 +846,7 @@ class DockerWorker:
             # Try to find an idle, alive worker
             for w in self._workers:
                 if not w.busy and w._alive:
+                    w.busy = True
                     return w
             # Try to find an idle, dead worker; mark busy to reserve it before releasing lock
             for w in self._workers:
@@ -882,6 +885,7 @@ class DockerWorker:
                 for w in self._workers:
                     if not w.busy:
                         if w._alive:
+                            w.busy = True
                             return w
                         w.busy = True
                         worker_to_start = w
@@ -1085,8 +1089,11 @@ def _apply_sandbox(allowed_dirs: List[str], memory_limit: int, cpu_limit: int):
         # For writes, strictly enforce allowed dirs
         if any(resolved.startswith(d) for d in resolved_dirs):
             return _original_open(file, *args, **kwargs)
+        # Allow writes to /tmp for temporary files
+        if resolved.startswith('/tmp'):
+            return _original_open(file, *args, **kwargs)
         # Allow reading from safe prefixes even in non-explicit read mode
-        if any(resolved.startswith(p) for p in safe_prefixes):
+        if is_read and any(resolved.startswith(p) for p in safe_prefixes):
             return _original_open(file, *args, **kwargs)
         raise PermissionError(f"Sandbox: access denied to {file} (resolved: {resolved})")
 
@@ -1099,7 +1106,12 @@ def _apply_sandbox(allowed_dirs: List[str], memory_limit: int, cpu_limit: int):
         resolved = os.path.realpath(str(path))
         if any(resolved.startswith(d) for d in resolved_dirs):
             return _original_os_open(path, flags, *args, **kwargs)
-        if any(resolved.startswith(p) for p in safe_prefixes):
+        # Allow /tmp writes
+        if resolved.startswith('/tmp'):
+            return _original_os_open(path, flags, *args, **kwargs)
+        # Allow safe prefixes only for reads (no write/create bits)
+        write_bits = os.O_WRONLY | os.O_RDWR | os.O_CREAT
+        if not (flags & write_bits) and any(resolved.startswith(p) for p in safe_prefixes):
             return _original_os_open(path, flags, *args, **kwargs)
         raise PermissionError(f"Sandbox: os.open denied for {path}")
 

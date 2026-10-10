@@ -143,6 +143,10 @@ def normalize(body: str, *, name: str = "", description: str = "",
         fm_tags = [t.strip() for t in fm_tags.split(",") if t.strip()]
     n = str(fm.get("name") or name or title_of(body) or "skill")
     desc = str(fm.get("description") or description or summarize(body) or "")
+    if isinstance(tools, str):
+        tools = [t.strip() for t in re.split(r"[,\s]+", tools) if t.strip()]
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
     return {
         "name": slug(n),
         "title": n.strip(),

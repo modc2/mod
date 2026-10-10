@@ -277,8 +277,14 @@
         <input id="q-out" value="USDC" size="8">
         <input id="q-amt" value="1" size="6">
         <input id="q-slip" value="50" size="4" title="slippage bps">
+        <label class="chk"><input type="checkbox" id="q-confirm"> confirm</label>
         <button class="go" id="q-go">QUOTE</button>
         <button class="go" id="q-swap" disabled title="quote first, then SWAP">SWAP</button>
+      </div>
+      <div class="note">Swaps over the spend guard come back held — tick confirm to override.</div>
+      <div class="bar">
+        <input id="q-token" size="46" placeholder="bearer token — only needed if the server has a secret set">
+        <span class="dimtxt">leave blank if reaching over loopback</span>
       </div>
       <div class="flash" id="q-flash"></div>
       <div id="q-res"></div>
@@ -615,7 +621,8 @@ async function doSwap(){
   try{
     const r = await post('/swap', {
       input:$('#q-in').value, output:$('#q-out').value,
-      amount:$('#q-amt').value, slippage_bps:$('#q-slip').value}, tok());
+      amount:$('#q-amt').value, slippage_bps:$('#q-slip').value,
+      confirm:$('#q-confirm').checked}, ($('#q-token').value.trim() || tok()));
     $('#q-flash').textContent='';
     if(r.needs_confirm){
       out.append(cards([['held back', usd(r.sell?.usd), 'guard is '+usd(r.guard_usd), '']]));

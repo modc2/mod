@@ -13,6 +13,7 @@ CLI:
     m sshland/test name             # ssh connectivity check for one host (BatchMode, no prompt)
     m sshland/test                  # test every host in parallel, return summary
     m sshland/test_all              # alias for test with no name
+    m sshland/rename old new        # rename a host entry without remove+re-add
 """
 import os
 import re
@@ -75,7 +76,21 @@ class Mod:
             raise ValueError(f"host {name!r} already exists; use overwrite=True to replace it")
         st['hosts'][name] = host
         self._save(st)
-        return {name: host, 'updated': updated}
+        safe = {k: v for k, v in host.items() if k != 'key'}
+        if 'key' in host:
+            safe['has_key'] = True
+        return {name: safe, 'updated': updated}
+
+    def rename(self, old_name: str, new_name: str) -> dict:
+        """Rename a host entry in the inventory."""
+        st = self._load()
+        if old_name not in st['hosts']:
+            raise ValueError(f'unknown host: {old_name!r} (add it with m sshland/add)')
+        if new_name in st['hosts']:
+            raise ValueError(f"host {new_name!r} already exists; remove it first or choose a different name")
+        st['hosts'][new_name] = st['hosts'].pop(old_name)
+        self._save(st)
+        return {'renamed': old_name, 'to': new_name}
 
     def remove(self, name: str) -> dict:
         st = self._load()

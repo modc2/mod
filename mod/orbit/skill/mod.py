@@ -69,7 +69,10 @@ class Mod:
     def get_skill(self, name):
         """Return the skill.md content for the named orbit module."""
         orbit_root = os.path.dirname(self.path)
+        name = os.path.basename(name)
         skill_path = os.path.join(orbit_root, name, 'skill.md')
+        if not os.path.realpath(skill_path).startswith(os.path.realpath(orbit_root) + os.sep):
+            raise ValueError(f"No skill.md found for module '{name}'")
         if not os.path.exists(skill_path):
             raise ValueError(f"No skill.md found for module '{name}'")
         return m.get_text(skill_path)

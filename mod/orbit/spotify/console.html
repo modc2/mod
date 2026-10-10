@@ -42,6 +42,7 @@
   .card h3{margin:0 0 6px;font-size:12px;letter-spacing:.1em;color:var(--dim)}
   .np{font-size:16px} .np b{color:var(--hot)}
   #npbar{height:3px;background:var(--line);margin:6px 0 2px}
+  #npbar.seekable{cursor:pointer;height:6px}
   #npbar-fill{height:100%;background:var(--hot);width:0%;transition:width .4s linear}
   .row{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--dim);padding:2px 0}
   pre{background:var(--panel);border:1px solid var(--line);padding:12px;overflow:auto;
@@ -151,6 +152,7 @@ function esc(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
 const BASE = location.pathname.replace(/\/+$/,'').endsWith('/spotify')
   ? location.pathname.replace(/\/+$/,'') + '/_api' : '/_api';
 const $ = id => document.getElementById(id);
+let npDuration = 0;
 const flash = (m, bad) => { $('flash').textContent = m || '';
   $('flash').style.color = bad ? 'var(--bad)' : 'var(--warn)'; };
 
@@ -189,6 +191,13 @@ async function load(){
     $('npctx').textContent = np.progress ? 'at ' + np.progress : '';
     const pct = np.item ? Math.min(100, Math.max(0, (np.progress_ms / (np.item.duration_ms || 1)) * 100)) : 0;
     $('npbar-fill').style.width = pct + '%';
+    npDuration = np.item ? (np.item.duration_ms || 0) : 0;
+    const npbar = $('npbar');
+    npbar.classList.toggle('seekable', !!npDuration);
+    npbar.onclick = npDuration ? (e => {
+      const pos = Math.round((e.offsetX / npbar.offsetWidth) * npDuration);
+      cmd('seek', {position_ms: pos});
+    }) : null;
     const shuf = !!np.shuffle;
     $('btnShuffle').classList.toggle('on', shuf);
     $('btnShuffle').onclick = () => cmd('shuffle', {state: !shuf});
@@ -213,7 +222,8 @@ async function search(){
       <td><button class="ghost" onclick="cmd('play',{uri:'${t.uri}'})">▶</button></td>
       <td>${esc(t.name)}</td><td>${esc(t.artists || t.owner)}</td>
       <td>${esc(t.album || t.type)}</td>
-      <td><button class="ghost" onclick="cmd('queue',{uri:'${t.uri}'})">QUEUE</button></td>
+      <td><button class="ghost" onclick="cmd('queue',{uri:'${t.uri}'})">QUEUE</button>
+          <button class="ghost" onclick="cmd('save',{uri:'${t.uri}'})">&#9825;</button></td>
       </tr>`).join('') || '<tr><td colspan="5" class="note">no hits</td></tr>';
   } catch (e) { flash(e.message, true); }
 }

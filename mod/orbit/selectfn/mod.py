@@ -1,3 +1,4 @@
+import inspect
 import json
 import os
 import mod as m
@@ -48,7 +49,7 @@ class Mod:
             'description': self._description,
             'version': self._version,
             'files': files,
-            'methods': {name: (getattr(self, name).__doc__ or '') for name in self._public_methods()},
+            'methods': {name: {'doc': (getattr(self, name).__doc__ or ''), 'sig': str(inspect.signature(getattr(self, name)))} for name in self._public_methods()},
         }
 
     def readme(self, **_):
@@ -56,5 +57,5 @@ class Mod:
         for name in ['README.md', 'readme.md', 'README.rst', 'README']:
             p = os.path.join(self.path, name)
             if os.path.exists(p):
-                return {'content': m.get_text(p), 'path': p}
+                return {'content': m.get_text(p), 'file': os.path.basename(p)}
         return {'content': self._description, 'source': 'description'}

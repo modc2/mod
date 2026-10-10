@@ -810,9 +810,11 @@ once in the TLS body, used for the SSH call, never persisted.</pre>
       body = { name, host, port, user, auth_type: opt.dataset.kind, key_id: source };
     }
     if (existingId) body.id = existingId;
-    await api("/connections/add", { method: "POST", body: JSON.stringify(body) });
+    const saved = await api("/connections/add", { method: "POST", body: JSON.stringify(body) });
+    SELECTED = saved.id; SELECTED_KEY = null;
     await loadConnections();
-    clearPanel();
+    renderVaultBox();
+    renderDetail(saved.id).catch(e => alert(e.message));
   }
 
   async function renderDetail(cid) {
@@ -836,6 +838,7 @@ once in the TLS body, used for the SSH call, never persisted.</pre>
       <div style="margin-top:8px;"><button id="exec-btn">Run</button></div>
       <h2 style="margin-top:24px">Output</h2>
       <pre id="out">—</pre>
+      <div class="toolbar"><button class="ghost" id="out-copy">Copy output</button></div>
       ${conn.key_id ? "" : `<details>
         <summary>Stored ciphertext (server-visible, opaque)</summary>
         <pre>ciphertext: ${escape((conn.ciphertext || "").slice(0,80))}…
@@ -852,6 +855,11 @@ iv:         ${escape(conn.iv || "")}</pre>
       SELECTED = null;
       await loadConnections();
       clearPanel();
+    };
+    document.getElementById("out-copy").onclick = (e) =>
+      copyText(document.getElementById("out").textContent.trim(), e.target);
+    document.getElementById("cmd").onkeydown = (e) => {
+      if (e.key === "Enter") runRemote(conn, e.target.value);
     };
   }
 

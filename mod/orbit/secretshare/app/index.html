@@ -66,14 +66,14 @@
       <input type="file" id="split-file-input" hidden>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="ghost" id="split-file-btn" style="align-self:flex-start">Load from file</button>
-        <span class="msg" id="split-file-status" style="flex:1"></span>
+        <span class="msg" id="split-file-status" style="flex:1" aria-live="polite" role="status"></span>
       </div>
       <div class="row">
         <label>Pieces to make<input id="n" type="number" min="2" max="255" value="5"></label>
         <label>Pieces needed to unlock<input id="k" type="number" min="2" max="255" value="3"></label>
       </div>
       <button id="do-split">Split into pieces</button>
-      <div class="msg" id="split-msg"></div>
+      <div class="msg" id="split-msg" aria-live="polite" role="status"></div>
       <div id="split-out" hidden>
         <div class="actions" style="margin-bottom:8px">
           <button class="ghost" id="copy-all">Copy all</button>
@@ -90,9 +90,9 @@
       <input type="file" id="load-files-input" multiple accept=".txt,text/plain" hidden>
       <button class="ghost" id="load-files-btn" style="align-self:flex-start">Load from files</button>
       <textarea id="pieces" placeholder="ss1.xxxxxxxx.3.1.…&#10;ss1.xxxxxxxx.3.4.…&#10;ss1.xxxxxxxx.3.5.…" spellcheck="false"></textarea>
-      <div class="msg" id="pieces-counter"></div>
+      <div class="msg" id="pieces-counter" aria-live="polite" role="status"></div>
       <button id="do-combine">Unlock</button>
-      <div class="msg" id="combine-msg"></div>
+      <div class="msg" id="combine-msg" aria-live="polite" role="status"></div>
       <div id="combine-out" hidden>
         <div class="result" id="result"></div>
         <div class="actions" style="margin-top:8px">
@@ -109,7 +109,7 @@
     <p>Paste one share to see its set ID, threshold, and index — without revealing the secret.</p>
     <input id="inspect-share" type="text" placeholder="ss1.xxxxxxxx.3.2.…" autocomplete="off" spellcheck="false">
     <button id="do-inspect">Inspect</button>
-    <div class="msg" id="inspect-msg"></div>
+    <div class="msg" id="inspect-msg" aria-live="polite" role="status"></div>
     <div id="inspect-out" hidden>
       <div class="result" id="inspect-result"></div>
       <div class="actions" style="margin-top:8px"><button class="ghost" id="copy-inspect">Copy</button></div>
@@ -319,7 +319,12 @@
     a.download = "secretshare-recovered";
     a.click(); URL.revokeObjectURL(a.href);
   };
-  $("copy-result").onclick = (e) => copy($("result").textContent, e.target);
+  $("copy-result").onclick = (e) => {
+    const text = lastCombineBytes
+      ? btoa(String.fromCharCode(...lastCombineBytes))
+      : $("result").textContent;
+    copy(text, e.target);
+  };
   $("hide-result").onclick = () => { $("result").textContent = ""; $("combine-out").hidden = true; lastCombineBytes = null; say($("combine-msg"), ""); };
 
   $("load-files-btn").onclick = () => $("load-files-input").click();

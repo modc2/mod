@@ -139,8 +139,10 @@ class Market:
         handing it none.
         """
         if names:
+            missing = [n for n in names if not self.store.has(n)]
             picked = [n for n in names if self.store.has(n)]
         else:
+            missing = []
             picked = [i["name"] for i in self.store.items(q)]
         skills = []
         for n in picked:
@@ -151,7 +153,8 @@ class Market:
                            "tags": meta.get("tags") or [],
                            "markdown": self.store.read(n)})
         return {"total": len(skills), "skills": skills,
-                "chars": sum(len(s["markdown"]) for s in skills)}
+                "chars": sum(len(s["markdown"]) for s in skills),
+                "missing": missing}
 
     # ── housekeeping ─────────────────────────────────────────────────
 
