@@ -31,7 +31,10 @@ class Mod:
             return {'error': 'unknown fn', 'fn': fn, 'available': available}
         method = getattr(self, fn)
         try:
-            return method(**kwargs)
+            result = method(**kwargs)
+            if not isinstance(result, dict):
+                result = {'result': result}
+            return result
         except Exception as e:
             return {'error': str(e), 'fn': fn, 'error_type': type(e).__name__}
 
@@ -53,5 +56,5 @@ class Mod:
         for name in ['README.md', 'readme.md', 'README.rst', 'README']:
             p = os.path.join(self.path, name)
             if os.path.exists(p):
-                return {'content': m.get_text(p)}
-        return {'error': 'no readme found'}
+                return {'content': m.get_text(p), 'path': p}
+        return {'content': self._description, 'source': 'description'}

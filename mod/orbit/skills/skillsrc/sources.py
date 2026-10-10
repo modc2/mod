@@ -576,7 +576,7 @@ class Sources:
         repo_part = ident[3:].split(":")[0]
         owner, _, repo = repo_part.partition("/")
         found: List[Dict[str, Any]] = []
-        for folder in ("skills", ".claude/skills", "document-skills"):
+        for folder in ("skills", ".claude/skills", "document-skills", "artifacts-builder"):
             for entry in self._contents(owner, repo, folder):
                 if entry.get("type") != "dir":
                     continue

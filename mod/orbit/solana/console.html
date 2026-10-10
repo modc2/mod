@@ -278,6 +278,7 @@
         <input id="q-amt" value="1" size="6">
         <input id="q-slip" value="50" size="4" title="slippage bps">
         <button class="go" id="q-go">QUOTE</button>
+        <button class="go" id="q-swap" disabled title="quote first, then SWAP">SWAP</button>
       </div>
       <div class="flash" id="q-flash"></div>
       <div id="q-res"></div>
@@ -604,8 +605,35 @@ async function quote(){
     (q.route||[]).forEach(h => r.append(el('span','p hot', h.amm+' '+h.percent+'%')));
     out.append(r);
     out.append(el('div','note', q.note));
-  }catch(e){ $('#q-flash').textContent=''; fail(out, e); }
+    $('#q-swap').disabled = false;
+  }catch(e){ $('#q-flash').textContent=''; fail(out, e); $('#q-swap').disabled = true; }
   finally{ busy($('#q-go'),false); }
+}
+async function doSwap(){
+  const out = $('#q-res'); out.innerHTML=''; $('#q-flash').textContent='…';
+  busy($('#q-swap'),true);
+  try{
+    const r = await post('/swap', {
+      input:$('#q-in').value, output:$('#q-out').value,
+      amount:$('#q-amt').value, slippage_bps:$('#q-slip').value}, tok());
+    $('#q-flash').textContent='';
+    if(r.needs_confirm){
+      out.append(cards([['held back', usd(r.sell?.usd), 'guard is '+usd(r.guard_usd), '']]));
+      out.append(el('div','note warnv', r.reason));
+    } else {
+      out.append(cards([
+        ['swapped', num(r.buy?.amount,6)+' '+(r.buy?.symbol||''), usd(r.buy?.usd), 'grn'],
+        ['status', r.confirmation?.confirmed ? (r.confirmation.status||'confirmed')
+                                             : (r.confirmation?.status||'submitted'),
+         'slot '+num(r.confirmation?.slot,0)],
+      ]));
+      const a = el('a','addr', r.signature); a.href = r.explorer; a.target='_blank';
+      const d = el('div','note'); d.append(document.createTextNode('signature ')); d.append(a);
+      out.append(d);
+    }
+    out.append(el('pre','',JSON.stringify(r,null,2)));
+  }catch(e){ $('#q-flash').textContent=''; fail(out, e); }
+  finally{ busy($('#q-swap'),false); }
 }
 
 // ── chain ──
@@ -1442,6 +1470,7 @@ $('#tx-sig').onkeydown = e => e.key==='Enter' && decode();
 $('#pr-go').onclick = prices;
 $('#pr-ids').onkeydown = e => e.key==='Enter' && prices();
 $('#q-go').onclick = quote;
+$('#q-swap').onclick = doSwap;
 $('#ch-go').onclick = chain;
 $('#w-refresh').onclick = wlist;
 $('#w-create').onclick = () => wact('create', {name:$('#w-name').value.trim()||'default'});

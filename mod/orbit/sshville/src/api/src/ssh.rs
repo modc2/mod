@@ -16,6 +16,7 @@ use anyhow::{bail, Result};
 use rand::RngCore;
 use serde::Serialize;
 use tokio::process::Command;
+use tokio::time::timeout;
 
 use crate::store::Connection;
 
@@ -90,8 +91,25 @@ pub async fn run(conn: &Connection, secret: &str, command: &str) -> Result<SshOu
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    cmd.kill_on_drop(true);
 
-    let output = cmd.output().await?;
+    let child = cmd.spawn()?;
+    let output = match timeout(
+        std::time::Duration::from_secs(60),
+        child.wait_with_output(),
+    )
+    .await
+    {
+        Ok(result) => result?,
+        Err(_) => {
+            return Ok(SshOutcome {
+                ok: false,
+                exit: -1,
+                stdout: String::new(),
+                stderr: "command timed out after 60s".into(),
+            });
+        }
+    };
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let exit = output.status.code().unwrap_or(-1);

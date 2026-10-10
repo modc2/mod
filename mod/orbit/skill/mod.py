@@ -17,14 +17,14 @@ class Mod:
         return self.list_skills()
 
     def list_skills(self):
-        """Return module names that have a skill.md file."""
+        """Return [{name, hint}] for all modules that have a skill.md file."""
         orbit_root = os.path.dirname(self.path)
         pattern = os.path.join(orbit_root, '*/skill.md')
         paths = sorted(glob.glob(pattern))
-        return [os.path.basename(os.path.dirname(p)) for p in paths]
+        return [{'name': os.path.basename(os.path.dirname(p)), 'hint': self._extract_hint(p)} for p in paths]
 
     def search(self, query):
-        """Return [{name, hint}] for modules whose name or hint matches query."""
+        """Return [{name, hint}] for modules whose name, hint, or skill body matches query."""
         orbit_root = os.path.dirname(self.path)
         pattern = os.path.join(orbit_root, '*/skill.md')
         paths = sorted(glob.glob(pattern))
@@ -32,8 +32,12 @@ class Mod:
         results = []
         for p in paths:
             name = os.path.basename(os.path.dirname(p))
-            hint = self._extract_hint(p)
-            if q in name.lower() or q in hint.lower():
+            try:
+                text = m.get_text(p)
+            except Exception:
+                text = ''
+            hint = self._hint_from_text(text)
+            if q in name.lower() or q in hint.lower() or q in text.lower():
                 results.append({'name': name, 'hint': hint})
         return results
 
@@ -43,6 +47,10 @@ class Mod:
             text = m.get_text(skill_path)
         except Exception:
             return ''
+        return self._hint_from_text(text)
+
+    def _hint_from_text(self, text):
+        """Extract a one-line hint from skill.md text."""
         # Check for YAML frontmatter description:
         if text.startswith('---'):
             end = text.find('\n---', 3)

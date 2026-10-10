@@ -286,17 +286,19 @@ $('#cmp').onclick = async () => {
   const hasWer = r.runs && Object.values(r.runs).some(v => 'wer' in v);
   const rows = Object.entries(r.runs).map(([k,v]) => {
     const wer = hasWer ? `<td>${'wer' in v ? v.wer.toFixed(3) : '—'}</td>` : '';
+    const cost = v.cost_usd ? '$' + v.cost_usd.toFixed(5) : 'free';
     const snippet = (v.text||'').slice(0, 80) + ((v.text||'').length > 80 ? '…' : '');
     return `<tr><td>${k.replace('_',' ')}</td><td>${v.windows}</td><td>${v.sent_s}s</td>
-     <td>${v.model_s}s</td><td>${v.rtf}</td>${wer}<td class="no">${snippet}</td></tr>`;
+     <td>${v.model_s}s</td><td>${v.rtf}</td><td>${cost}</td>${wer}<td class="no">${snippet}</td></tr>`;
   }).join('');
   $('#stats').innerHTML = '';
   const werHeader = hasWer ? '<th>WER</th>' : '';
   $('#text').innerHTML = `<table><tr><th>run</th><th>windows</th><th>sent</th>
-    <th>model time</th><th>rtf</th>${werHeader}<th>transcript</th></tr>${rows}</table>
+    <th>model time</th><th>rtf</th><th>cost</th>${werHeader}<th>transcript</th></tr>${rows}</table>
     <div class="note">${r.audio_saved_pct}% less audio sent,
     ${r.time_saved_pct}% less model time than sending the whole file.
-    Packing was worth ${r.packing_worth_pct}% on top of trimming.</div>`;
+    Packing was worth ${r.packing_worth_pct}% on top of trimming.
+    <span style="color:${r.same_text ? 'var(--speech)' : 'var(--warn)'}">${r.same_text ? 'Transcript unchanged.' : 'Transcript differs from whole-file output.'}</span></div>`;
 };
 
 // ── the panels ────────────────────────────────────────────────────

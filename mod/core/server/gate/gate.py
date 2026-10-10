@@ -47,8 +47,7 @@ class Gate:
             except Exception:
                 print('Gate: meter module not found, metering disabled', color='yellow')
         self.roles_path = self.store.get_path('roles')
-        if len(self.roles()) < 2:
-            self.ensure_role_map()
+        self.ensure_role_map()
         self.set_mod(mod=mod)
     
 
@@ -132,9 +131,17 @@ class Gate:
         self.print_request({'fn': fn, 'params': params, 'client': headers.get('key', ''), 'time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())})
         # Payment gate check (x402 paywall)
         if self.paywall and hasattr(self.paywall, 'gate_check'):
-            paywall_result = self.paywall.gate_check(fn, headers)
+            # Resolve the real target before checking: 'call'/'forward' wrappers
+            # carry the actual function in params['fn'] — use that so paywall
+            # rules on full paths (e.g. 'bridge/premium') cannot be bypassed by
+            # routing through the 'call' wrapper.
+            if fn in ('call', 'forward') and isinstance(params, dict) and 'fn' in params:
+                effective_fn = params['fn']
+            else:
+                effective_fn = fn
+            paywall_result = self.paywall.gate_check(effective_fn, headers)
             if paywall_result is not None:
-                print(f'Payment required for {fn}: {paywall_result}', color='red')
+                print(f'Payment required for {effective_fn}: {paywall_result}', color='red')
                 return paywall_result
 
         # Determine if this is a module function call that should be sandboxed

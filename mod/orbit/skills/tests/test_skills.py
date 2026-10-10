@@ -22,6 +22,7 @@ sys.path.insert(0, HERE)
 from skillsrc import mcp as mcpsrv          # noqa: E402
 from skillsrc import skill as sd            # noqa: E402
 from skillsrc.market import Market          # noqa: E402
+from skillsrc.sources import Sources        # noqa: E402
 from skillsrc.store import Store            # noqa: E402
 
 SAMPLE = """---
@@ -122,6 +123,8 @@ def test_load_carries_bodies(market):
     payload = market.publish(["a"])
     assert payload["total"] == 1 and "pdftk" in payload["skills"][0]["markdown"]
     assert market.publish()["total"] == 2          # unfiltered = the whole catalog
+    # names provided but none installed → empty, not the whole catalog
+    assert market.publish(["nonexistent"])["total"] == 0
 
 
 def test_catalog_names_cannot_escape(market):
@@ -201,6 +204,36 @@ def test_api_write_gate(monkeypatch):
 def test_mod_selftest():
     import mod as skillsmod
     assert skillsmod.test()["passed"] is True
+
+
+# ── folder-list consistency ──────────────────────────────────────────
+
+def test_bundle_covers_anthropic_folders():
+    """bundle() must include every folder that src_anthropic() scans.
+
+    anthropics/skills uses skills/, document-skills/, and artifacts-builder/.
+    If bundle() misses any of them, install(all=True) silently skips skills
+    that search returns normally.
+    """
+    import inspect, re as _re
+    src = inspect.getsource(Sources)
+    # Extract the folder tuples from each method by matching the for-loop lines
+    anthropic_m = _re.search(
+        r'def src_anthropic\b.*?for top in \(([^)]+)\)', src, _re.DOTALL)
+    bundle_m = _re.search(
+        r'def bundle\b.*?for folder in \(([^)]+)\)', src, _re.DOTALL)
+    assert anthropic_m and bundle_m, "could not locate folder tuples in sources.py"
+
+    def parse_tuple(s):
+        return {f.strip().strip('"\'') for f in s.split(",") if f.strip().strip('"\'')}
+
+    anthropic_folders = parse_tuple(anthropic_m.group(1))
+    bundle_folders = parse_tuple(bundle_m.group(1))
+    missing = anthropic_folders - bundle_folders
+    assert not missing, (
+        f"bundle() is missing {missing!r} — "
+        "install(all=True) on anthropics/skills will silently skip those folders"
+    )
 
 
 # ── the fleet as a source (no network) ───────────────────────────────

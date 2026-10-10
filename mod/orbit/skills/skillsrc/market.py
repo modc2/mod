@@ -138,8 +138,10 @@ class Market:
         narrow it, because handing a model forty documents is worse than
         handing it none.
         """
-        picked = [n for n in (names or []) if self.store.has(n)] or \
-                 [i["name"] for i in self.store.items(q)]
+        if names:
+            picked = [n for n in names if self.store.has(n)]
+        else:
+            picked = [i["name"] for i in self.store.items(q)]
         skills = []
         for n in picked:
             meta = self.store.meta(n)

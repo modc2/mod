@@ -52,7 +52,7 @@ class Mod:
     def hosts(self) -> dict:
         """List known hosts (name -> user/host/port; key path omitted from listing)."""
         st = self._load()
-        return {name: {k: v for k, v in h.items() if k != 'key'}
+        return {name: {**{k: v for k, v in h.items() if k != 'key'}, 'has_key': 'key' in h}
                 for name, h in st['hosts'].items()}
 
     def add(self, name: str, target: str, key: str = None, port: int = None, overwrite: bool = False) -> dict:

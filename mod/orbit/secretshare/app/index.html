@@ -112,6 +112,7 @@
     <div class="msg" id="inspect-msg"></div>
     <div id="inspect-out" hidden>
       <div class="result" id="inspect-result"></div>
+      <div class="actions" style="margin-top:8px"><button class="ghost" id="copy-inspect">Copy</button></div>
     </div>
   </section>
 
@@ -193,15 +194,28 @@
     if (!raw.trim()) { say(counter, ""); return; }
     const tokens = raw.split(/[\s,]+/).filter(Boolean);
     const bySet = new Map();
+    let corrupted = 0;
     for (const t of tokens) {
       try {
         const p = Shamir.parse(t);
         if (!bySet.has(p.set)) bySet.set(p.set, { k: p.k, xs: new Set() });
         bySet.get(p.set).xs.add(p.x);
-      } catch { /* ignore unparseable tokens */ }
+      } catch { if (t.startsWith("ss1.")) corrupted++; }
     }
+    const corruptedNote = () => {
+      if (corrupted > 0) {
+        const sp = document.createElement("span");
+        sp.style.color = "var(--err)";
+        sp.textContent = ` · ${corrupted} malformed share${corrupted > 1 ? "s" : ""}`;
+        counter.appendChild(sp);
+      }
+    };
     const sets = [...bySet.entries()];
-    if (sets.length === 0) { say(counter, ""); return; }
+    if (sets.length === 0) {
+      if (corrupted > 0) say(counter, `${corrupted} malformed share${corrupted > 1 ? "s" : ""}`, "err");
+      else say(counter, "");
+      return;
+    }
     if (sets.length > 1) {
       const parts = sets.map(([id, { k, xs }]) => {
         const have = xs.size;
@@ -211,6 +225,7 @@
       });
       const anyReady = sets.some(([, { k, xs }]) => xs.size >= k);
       say(counter, `${sets.length} sets mixed — ${parts.join(" | ")}`, anyReady ? "ok" : "err");
+      corruptedNote();
       return;
     }
     const [setId, { k, xs }] = sets[0];
@@ -220,6 +235,7 @@
     } else {
       say(counter, `${have} piece${have > 1 ? "s" : ""} · set ${setId} · need ${k - have} more`);
     }
+    corruptedNote();
   });
 
   $("do-split").onclick = async () => {
@@ -344,6 +360,8 @@
       say(msg, "Parsed.", "ok");
     } catch (e) { $("inspect-out").hidden = true; say(msg, e.message, "err"); }
   };
+
+  $("copy-inspect").onclick = (e) => copy($("inspect-result").textContent, e.target);
 
   $("inspect-share").addEventListener("input", () => {
     const val = $("inspect-share").value.trim();

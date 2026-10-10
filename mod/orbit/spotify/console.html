@@ -41,6 +41,8 @@
   .card{background:var(--panel);border:1px solid var(--line);padding:12px;margin-bottom:12px}
   .card h3{margin:0 0 6px;font-size:12px;letter-spacing:.1em;color:var(--dim)}
   .np{font-size:16px} .np b{color:var(--hot)}
+  #npbar{height:3px;background:var(--line);margin:6px 0 2px}
+  #npbar-fill{height:100%;background:var(--hot);width:0%;transition:width .4s linear}
   .row{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--dim);padding:2px 0}
   pre{background:var(--panel);border:1px solid var(--line);padding:12px;overflow:auto;
       font-size:11px;max-height:56vh;white-space:pre-wrap;word-break:break-word}
@@ -68,6 +70,7 @@
   <div class="card">
     <h3>NOW PLAYING</h3>
     <div class="np" id="np">—</div>
+    <div id="npbar"><div id="npbar-fill"></div></div>
     <div class="row"><span id="npdev">device —</span><span id="npctx"></span></div>
   </div>
   <div class="bar">
@@ -177,12 +180,15 @@ async function load(){
     $('authstate').textContent = JSON.stringify(s, null, 2);
     $('cb').textContent = location.origin + '/callback';
     const np = s.now_playing || {};
+    if (np.device && np.device.volume != null && document.activeElement !== $('vol')) $('vol').value = np.device.volume;
     $('np').innerHTML = np.item
       ? `<b>${esc(np.item.name)}</b> — ${esc(np.item.artists)} <span class="sub">${esc(np.item.duration)}</span>`
       : (np.note || '—');
     $('npdev').textContent = 'device ' + ((np.device && np.device.name) || '—')
       + (np.playing ? ' · playing' : ' · paused');
     $('npctx').textContent = np.progress ? 'at ' + np.progress : '';
+    const pct = np.item ? Math.min(100, Math.max(0, (np.progress_ms / (np.item.duration_ms || 1)) * 100)) : 0;
+    $('npbar-fill').style.width = pct + '%';
     const shuf = !!np.shuffle;
     $('btnShuffle').classList.toggle('on', shuf);
     $('btnShuffle').onclick = () => cmd('shuffle', {state: !shuf});
