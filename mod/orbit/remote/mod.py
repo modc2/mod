@@ -1,5 +1,7 @@
 import os
 import json
+import urllib.request
+import urllib.error
 import mod as m
 
 class Mod:
@@ -39,6 +41,25 @@ class Mod:
             'fns': [k for k in dir(self) if not k.startswith('_') and k != 'forward' and callable(getattr(self, k))],
             'files': [f for f in os.listdir(self.path) if not f.startswith('_') and not f.endswith('.py')],
         }
+
+    def call(self, mod: str = '', fn: str = '', **kwargs):
+        """POST to another orbit module via the local gateway and return its JSON response."""
+        if not mod:
+            return {'error': 'mod is required'}
+        url = f'http://localhost:3000/{mod}/api'
+        body = json.dumps({'fn': fn, **kwargs}).encode()
+        req = urllib.request.Request(url, data=body, headers={'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            body = e.read()
+            try:
+                return json.loads(body)
+            except Exception:
+                return {'error': str(e), 'status': e.code, 'mod': mod, 'fn': fn}
+        except Exception as e:
+            return {'error': str(e), 'mod': mod, 'fn': fn}
 
     def readme(self):
         """Return the project README."""

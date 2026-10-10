@@ -26,6 +26,9 @@ class OffchainRegistry(RegistryBackend):
             data.setdefault('mods', {})
             data.setdefault('user_mods', {})
             data.setdefault('name_map', {})
+            for m in data['mods'].values():
+                if isinstance(m.get('id'), int):
+                    m['id'] = str(m['id'])
             return data
         return {'next_id': 1, 'mods': {}, 'user_mods': {}, 'name_map': {}}
 
@@ -48,7 +51,7 @@ class OffchainRegistry(RegistryBackend):
         mod_id = self.index['next_id']
         self.index['next_id'] = mod_id + 1
         self.index['mods'][str(mod_id)] = {
-            'id': mod_id,
+            'id': str(mod_id),
             'owner': owner,
             'name': name,
             'data': data,

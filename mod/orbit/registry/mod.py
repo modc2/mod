@@ -198,7 +198,8 @@ class Mod:
         """Default action: register a mod, or list all if no args."""
         if name and data:
             return self.register(name, data, backend=backend, storage=storage, headers=headers, **kw)
-        return self.list_all(backend=backend, **kw)
+        owner = kw.pop('owner', None)
+        return self.list(owner=owner, backend=backend, **kw)
 
     def register(self, name: str, data, backend=None, storage=None, headers=None, **kw) -> str:
         """Register a new mod. Data must be a JSON dict — uploaded to storage provider.

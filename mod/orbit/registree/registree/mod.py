@@ -16,13 +16,12 @@ class Mod:
     useful for service-discovery without client-side filtering.
     """
 
-    def __init__(self):
-        self._cache = None
-        self._cache_at = 0.0
+    _cache = None
+    _cache_at = 0.0
 
     def _load_all(self):
-        if self._cache is not None and time.time() - self._cache_at < 5:
-            return self._cache
+        if Mod._cache is not None and time.time() - Mod._cache_at < 5:
+            return Mod._cache
         modules = []
         for config_path in sorted(ORBIT_ROOT.glob("*/config.json")):
             try:
@@ -41,8 +40,8 @@ class Mod:
                 })
             except (json.JSONDecodeError, OSError):
                 pass
-        self._cache = modules
-        self._cache_at = time.time()
+        Mod._cache = modules
+        Mod._cache_at = time.time()
         return modules
 
     def forward(self, name: str = None, port_only: bool = False, q: str = None):
@@ -54,6 +53,8 @@ class Mod:
         q: case-insensitive substring filter applied to name and description.
         Ignored when name is provided. Composes with port_only (both filters applied).
         Example: forward(q="chain") → all modules whose name or description contains "chain".
+
+        When name is provided and no matching module is found, returns None.
         """
         modules = self._load_all()
         if name is None:
@@ -66,4 +67,4 @@ class Mod:
         for mod in modules:
             if mod["name"] == name:
                 return mod
-        raise KeyError(f"Module not found: {name!r}")
+        return None

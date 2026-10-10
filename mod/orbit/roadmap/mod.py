@@ -52,11 +52,23 @@ class Mod:
                 return {'error': 'id is required and must be an integer'}
             return self.delete(item_id)
         if method == 'items':
-            return self.items(status=kwargs.get('status'), q=kwargs.get('q'))
-        return {'error': 'unknown method', 'valid': ['items', 'add', 'update', 'delete']}
+            return self.items(status=kwargs.get('status'), q=kwargs.get('q'),
+                              sort_by=kwargs.get('sort_by', 'id'),
+                              order=kwargs.get('order', 'asc'))
+        if method == 'info':
+            return self.info()
+        if method == 'readme':
+            return self.readme()
+        return {'error': 'unknown method', 'valid': ['items', 'add', 'update', 'delete', 'info', 'readme']}
 
-    def items(self, status=None, q=None):
+    def items(self, status=None, q=None, sort_by='id', order='asc'):
         """Return roadmap items, optionally filtered by status and/or keyword query."""
+        VALID_SORT_BY = ['id', 'title', 'status']
+        VALID_ORDER = ['asc', 'desc']
+        if sort_by not in VALID_SORT_BY:
+            return {'error': 'invalid sort_by', 'valid': VALID_SORT_BY}
+        if order not in VALID_ORDER:
+            return {'error': 'invalid order', 'valid': VALID_ORDER}
         if status is not None and status not in VALID_STATUSES:
             return {'error': 'invalid status', 'valid': sorted(VALID_STATUSES)}
         all_items = _load()
@@ -67,6 +79,8 @@ class Mod:
             all_items = [i for i in all_items
                          if q_lower in i.get('title', '').lower()
                          or q_lower in i.get('description', '').lower()]
+        all_items = sorted(all_items, key=lambda i: i.get(sort_by, ''),
+                           reverse=(order == 'desc'))
         return all_items
 
     def add(self, title, description='', status='planned'):

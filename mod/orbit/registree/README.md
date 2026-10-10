@@ -72,3 +72,5 @@ Modules whose `config.json` is missing or malformed are silently skipped.
 Pass `port_only=True` to `forward()` to restrict the list to entries where `port` is not `null`.
 
 Pass `q=<keyword>` to `forward()` to filter entries by a case-insensitive substring match against `name` or `description`. Composes with `port_only`.
+
+Pass `name=<module>` to `forward()` to look up a single module by name. Returns `None` when no module with that name exists.

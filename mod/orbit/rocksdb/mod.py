@@ -35,11 +35,15 @@ class Mod:
         del db[key]
         return {'ok': True, 'key': key}
 
-    def list_keys(self, prefix: str = "", limit: int = None):
+    def list_keys(self, prefix: str = "", limit: int = None, cursor: str = ""):
         try:
             db = self.open_db()
             it = db.iter()
-            if prefix:
+            if cursor:
+                it.seek(cursor)
+                if it.valid() and it.key() == cursor:
+                    it.next()
+            elif prefix:
                 it.seek(prefix)
             else:
                 it.seek_to_first()
@@ -52,19 +56,25 @@ class Mod:
                     break
                 keys.append(k)
                 it.next()
-            return {'ok': True, 'keys': keys, 'count': len(keys)}
+            next_cursor = keys[-1] if (limit is not None and len(keys) == limit) else None
+            return {'ok': True, 'keys': keys, 'count': len(keys), 'next_cursor': next_cursor}
         except Exception as e:
             return {'ok': False, 'error': str(e)}
 
-    def scan(self, prefix: str = "", limit: int = None):
+    def scan(self, prefix: str = "", limit: int = None, cursor: str = ""):
         try:
             db = self.open_db()
             it = db.iter()
-            if prefix:
+            if cursor:
+                it.seek(cursor)
+                if it.valid() and it.key() == cursor:
+                    it.next()
+            elif prefix:
                 it.seek(prefix)
             else:
                 it.seek_to_first()
             result = {}
+            last_key = None
             while it.valid():
                 if limit is not None and len(result) >= limit:
                     break
@@ -72,8 +82,10 @@ class Mod:
                 if prefix and not k.startswith(prefix):
                     break
                 result[k] = it.value()
+                last_key = k
                 it.next()
-            return {'ok': True, 'items': result, 'count': len(result)}
+            next_cursor = last_key if (limit is not None and len(result) == limit) else None
+            return {'ok': True, 'items': result, 'count': len(result), 'next_cursor': next_cursor}
         except Exception as e:
             return {'ok': False, 'error': str(e)}
 
@@ -109,9 +121,9 @@ class Mod:
             if action == 'delete':
                 return self.delete(kwargs['key'])
             if action == 'list_keys':
-                return self.list_keys(kwargs.get('prefix', ''), kwargs.get('limit'))
+                return self.list_keys(kwargs.get('prefix', ''), kwargs.get('limit'), kwargs.get('cursor', ''))
             if action == 'scan':
-                return self.scan(kwargs.get('prefix', ''), kwargs.get('limit'))
+                return self.scan(kwargs.get('prefix', ''), kwargs.get('limit'), kwargs.get('cursor', ''))
             if action == 'batch_put':
                 return self.batch_put(kwargs['items'])
             if action == 'batch_delete':

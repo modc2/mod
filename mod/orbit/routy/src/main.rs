@@ -14,6 +14,7 @@ mod registry;
 mod resources;
 
 use config::Config;
+use proxy::HyperClient;
 use registry::WebsiteRegistry;
 use resources::ResourceMonitor;
 
@@ -22,6 +23,7 @@ struct AppState {
     registry: Arc<WebsiteRegistry>,
     monitor: Arc<ResourceMonitor>,
     config: Arc<Config>,
+    client: Arc<HyperClient>,
 }
 
 #[tokio::main]
@@ -45,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
         registry,
         monitor,
         config,
+        client: Arc::new(proxy::build_client()),
     };
 
     let app = Router::new()
@@ -262,7 +265,7 @@ async fn app_proxy_handler(
                 .strip_prefix("api")
                 .unwrap_or("")
                 .trim_start_matches('/');
-            return proxy::proxy_request(api, rest, method, headers, uri, body).await;
+            return proxy::proxy_request(state.client.clone(), api, rest, method, headers, uri, body).await;
         }
     }
 
@@ -278,7 +281,7 @@ async fn app_proxy_handler(
         website_name,
         path.trim_start_matches('/')
     );
-    proxy::proxy_request(website, &full_path, method, headers, uri, body).await
+    proxy::proxy_request(state.client.clone(), website, &full_path, method, headers, uri, body).await
 }
 
 async fn app_proxy_root(
@@ -296,7 +299,7 @@ async fn app_proxy_root(
         .ok_or(AppError::WebsiteNotFound)?;
 
     // Keep /{name} as the path
-    proxy::proxy_request(website, &website_name, method, headers, uri, body).await
+    proxy::proxy_request(state.client.clone(), website, &website_name, method, headers, uri, body).await
 }
 
 // ── API proxy: /api/{name}/* → strip prefix ──
@@ -316,7 +319,7 @@ async fn api_proxy_handler(
         .ok_or(AppError::WebsiteNotFound)?;
 
     // Strip /api/{name}/ prefix — just forward the remaining path
-    proxy::proxy_request(website, &path, method, headers, uri, body).await
+    proxy::proxy_request(state.client.clone(), website, &path, method, headers, uri, body).await
 }
 
 async fn api_proxy_root(
@@ -334,7 +337,7 @@ async fn api_proxy_root(
         .ok_or(AppError::WebsiteNotFound)?;
 
     // Root of the API — forward as /
-    proxy::proxy_request(website, "", method, headers, uri, body).await
+    proxy::proxy_request(state.client.clone(), website, "", method, headers, uri, body).await
 }
 
 // ── Fallback ──

@@ -8,13 +8,19 @@ use hyper_util::{
     client::legacy::{connect::HttpConnector, Client},
     rt::TokioExecutor,
 };
+use std::sync::Arc;
 use tracing::info;
 
 use crate::registry::Website;
 
-type HyperClient = Client<HttpConnector, Body>;
+pub type HyperClient = Client<HttpConnector, Body>;
+
+pub fn build_client() -> HyperClient {
+    Client::builder(TokioExecutor::new()).build_http()
+}
 
 pub async fn proxy_request(
+    client: Arc<HyperClient>,
     website: Website,
     path: &str,
     method: Method,
@@ -36,8 +42,6 @@ pub async fn proxy_request(
     let target_uri: Uri = target_url
         .parse()
         .map_err(|e| crate::AppError::ProxyError(format!("Invalid target URL: {}", e)))?;
-
-    let client: HyperClient = Client::builder(TokioExecutor::new()).build_http();
 
     let mut req_builder = hyper::Request::builder()
         .method(method.clone())

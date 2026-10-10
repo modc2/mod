@@ -1,5 +1,5 @@
 import pytest
-from revoloco.mod import Mod
+from revoloco.mod import Mod, _normalize
 
 
 @pytest.fixture
@@ -21,6 +21,22 @@ class TestForward:
     def test_non_numeric_raises(self, mod):
         with pytest.raises(ValueError):
             mod.forward("x", 1)
+
+
+class TestAdd:
+    def test_integer_inputs(self, mod):
+        assert mod.add(3, 4) == 7
+
+    def test_float_inputs(self, mod):
+        assert mod.add(1.5, 2.5) == 4.0
+
+    def test_result_simplifies_to_int(self, mod):
+        assert mod.add(1.0, 2.0) == 3
+        assert isinstance(mod.add(1.0, 2.0), int)
+
+    def test_non_numeric_raises(self, mod):
+        with pytest.raises(ValueError):
+            mod.add("x", 1)
 
 
 class TestSubtract:
@@ -74,6 +90,16 @@ class TestDivide:
     def test_non_numeric_raises(self, mod):
         with pytest.raises(ValueError):
             mod.divide("x", 1)
+
+
+class TestNormalize:
+    def test_whole_float_becomes_int(self):
+        assert _normalize(3.0) == 3
+        assert isinstance(_normalize(3.0), int)
+
+    def test_true_float_passthrough(self):
+        assert _normalize(2.5) == 2.5
+        assert isinstance(_normalize(2.5), float)
 
 
 class TestCoerce:

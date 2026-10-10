@@ -351,7 +351,7 @@ class Mod:
             'repo': {k: v for k, v in r.items() if k != 'path'},
             'size': self._size_facts(files),
             'docs': self._doc_facts(r['path'], files, texts),
-            'tests': self._test_facts(files, texts),
+            'tests': self._test_facts(r['path'], files, texts),
             'quality': self._quality_facts(files, texts),
             'security': self._security_facts(files, texts),
             'activity': self._activity_facts(r),
@@ -428,15 +428,27 @@ class Mod:
                 'changelog': any(n.startswith('changelog') for n in names),
                 'docstring_files': sum(1 for t in texts.values() if t.lstrip().startswith(('"""', "'''")))}
 
-    @staticmethod
-    def _test_facts(files, texts) -> dict:
+    def _test_facts(self, root, files, texts) -> dict:
         tests = [f[0] for f in files if f[2] in CODE_EXT and (
             'test' in f[0].lower().replace('latest', '') or f[0].lower().startswith('spec/'))]
         ci = [f[0] for f in files if f[0].startswith('.github/workflows/')
               or f[0] in ('.gitlab-ci.yml', 'Jenkinsfile', '.circleci/config.yml',
                            '.travis.yml', 'azure-pipelines.yml', 'bitbucket-pipelines.yml')]
+        test_set = set(tests)
         cases = sum(len(re.findall(r'^\s*(?:def test_|it\(|test\(|#\[test\])', t, re.M))
-                    for rel, t in texts.items() if rel in set(tests))
+                    for rel, t in texts.items() if rel in test_set)
+        if cases == 0 and tests:
+            spent = 0
+            for rel in tests[:50]:
+                if spent >= 100_000:
+                    break
+                try:
+                    with open(os.path.join(root, rel), encoding='utf-8', errors='replace') as f:
+                        body = f.read(10_000)
+                    cases += len(re.findall(r'^\s*(?:def test_|it\(|test\(|#\[test\])', body, re.M))
+                    spent += len(body)
+                except OSError:
+                    continue
         code = [f for f in files if f[2] in CODE_EXT]
         return {'test_files': len(tests), 'test_cases': cases, 'ci': ci,
                 'ratio': round(len(tests) / max(1, len(code)), 3),
@@ -447,7 +459,7 @@ class Mod:
         locs = {rel: t.count('\n') + 1 for rel, t in texts.items()}
         long_files = sorted(locs.items(), key=lambda kv: -kv[1])[:5]
         joined = '\n'.join(texts.values())
-        comment_lines = len(re.findall(r'^\s*(#|//|/\*|\*)', joined, re.M))
+        comment_lines = len(re.findall(r'^\s*(#(?!\[|\w)|//|/\*|\*)', joined, re.M))
         blank = len(re.findall(r'^\s*$', joined, re.M))
         total = joined.count('\n') + 1
         return {'loc_sampled': total, 'files_sampled': len(texts),

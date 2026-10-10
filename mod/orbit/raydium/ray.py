@@ -962,7 +962,7 @@ def swap_transaction(wallet, input, output, amount, slippage_bps=50, mode='in',
     return {
         'wallet': owner, 'unsigned': True, 'tx_version': tx_version,
         'transactions': txs, 'count': len(txs),
-        'compute_unit_price_micro_lamports': body['computeUnitPriceMicroLamports'],
+        'compute_unit_price_micro_lamports': int(body['computeUnitPriceMicroLamports']),
         'wrap_sol': wrap, 'unwrap_sol': unwrap,
         'quote': {k: q[k] for k in ('mode', 'input', 'output', 'price',
                                     'price_impact_pct', 'vs_spot_pct', 'worst_case', 'route')},
@@ -1257,7 +1257,7 @@ def wallet(address, min_usd=0.01, limit=50):
 
     positions = _wallet_positions(nft_mints, limit)
     lps = _wallet_lps(fungible)
-    kept = [p for p in positions if (p.get('value_usd') or 0) >= float(min_usd or 0)
+    kept = [p for p in positions if p.get('error') or (p.get('value_usd') or 0) >= float(min_usd or 0)
             or p.get('fees_owed_usd')]
     kept.sort(key=lambda p: p.get('value_usd') or 0, reverse=True)
     lps = [l for l in lps if (l.get('value_usd') or 0) >= float(min_usd or 0)]
@@ -1284,7 +1284,8 @@ def wallet(address, min_usd=0.01, limit=50):
         'scanned': {'token_accounts': len(accounts), 'nft_candidates': len(nft_mints),
                     'nft_scanned': nft_scanned,
                     'fungible_mints': len(fungible),
-                    'closed_positions': len([p for p in positions if p.get('closed')])},
+                    'closed_positions': len([p for p in positions if p.get('closed')]),
+                    'error_positions': len([p for p in positions if p.get('error')])},
         'note': note,
     }
 

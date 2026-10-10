@@ -1,4 +1,8 @@
 
+def _normalize(result):
+    return int(result) if result == int(result) else result
+
+
 def _coerce(a, b):
     try:
         return float(a), float(b)
@@ -15,7 +19,7 @@ class Mod:
         """Add two numbers and return the result."""
         a, b = _coerce(a, b)
         result = a + b
-        return int(result) if result == int(result) else result
+        return _normalize(result)
 
     def add(self, a=1, b=2) -> int | float:
         """Add two numbers and return the result."""
@@ -25,13 +29,13 @@ class Mod:
         """Multiply two numbers and return the result."""
         a, b = _coerce(a, b)
         result = a * b
-        return int(result) if result == int(result) else result
+        return _normalize(result)
 
     def subtract(self, a=1, b=2) -> int | float:
         """Subtract b from a and return the result."""
         a, b = _coerce(a, b)
         result = a - b
-        return int(result) if result == int(result) else result
+        return _normalize(result)
 
     def divide(self, a=1, b=2) -> int | float:
         """Divide a by b and return the result."""
@@ -39,4 +43,4 @@ class Mod:
         if b == 0:
             raise ValueError("division by zero: b must not be 0")
         result = a / b
-        return int(result) if result == int(result) else result
+        return _normalize(result)

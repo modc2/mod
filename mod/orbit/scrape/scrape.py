@@ -287,7 +287,7 @@ class Scrape(m.mod('chain')):
                         to_address: str = None,
                         from_block: int = 0,
                         to_block: int = None,
-                        days: int = 1) -> List[Dict[str, Any]]:
+                        weeks: int = 2) -> List[Dict[str, Any]]:
         """Scrape Transfer events for a token.
 
         Args:

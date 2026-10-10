@@ -3,7 +3,7 @@ import mod as m
 
 class Mod:
     description = """rotato"""
-    path = r'/root/mod/mod/orbit/rotato'
+    path = os.path.dirname(os.path.abspath(__file__))
 
     def forward(self, **kwargs):
         """Default entry point."""
