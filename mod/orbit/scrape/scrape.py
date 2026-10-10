@@ -726,7 +726,7 @@ class Scrape(m.mod('chain')):
 
         if not parallel:
             for i, config in enumerate(scrape_configs):
-                key = f"{config['contract_name']}_{config['event_name']}"
+                key = f"{config['contract_name']}_{config['event_name']}_{i}"
                 m.print(f'Scraping {i+1}/{len(scrape_configs)}: {key}', color='cyan')
                 results[key] = self.scrape_events(**config)
             return results
@@ -736,9 +736,9 @@ class Scrape(m.mod('chain')):
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_config = {}
-            for config in scrape_configs:
+            for i, config in enumerate(scrape_configs):
                 future = executor.submit(self.scrape_events, **config)
-                key = f"{config['contract_name']}_{config['event_name']}"
+                key = f"{config['contract_name']}_{config['event_name']}_{i}"
                 future_to_config[future] = key
 
             for future in as_completed(future_to_config):
@@ -889,7 +889,7 @@ class Scrape(m.mod('chain')):
                 m.print('No events to export', color='yellow')
                 return None
 
-            keys = events[0].keys()
+            keys = dict.fromkeys(k for e in events for k in e.keys())
             with open(filename, 'w', newline='') as f:
                 writer = csv.DictWriter(f, fieldnames=keys)
                 writer.writeheader()

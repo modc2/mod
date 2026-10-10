@@ -147,8 +147,14 @@
     if (+$("k").value < 2 && $("k").value !== "") $("k").value = 2;
     clearSplitIfStale();
   });
+  $("secret").addEventListener("input", clearSplitIfStale);
 
   $("pieces").addEventListener("input", () => {
+    if (!$("combine-out").hidden) {
+      $("combine-out").hidden = true;
+      $("result").textContent = "";
+      say($("combine-msg"), "Pieces changed — click Unlock again.", "");
+    }
     const counter = $("pieces-counter");
     const raw = $("pieces").value;
     if (!raw.trim()) { say(counter, ""); return; }

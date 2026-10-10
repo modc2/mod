@@ -33,7 +33,7 @@ class Mod:
         if tokens:
             scored = sorted(
                 visible.items(),
-                key=lambda kv: sum(t in f"{kv[0]} {kv[1]}".lower() for t in tokens),
+                key=lambda kv: sum(t in kv[0].lower() for t in tokens) * 3 + sum(t in kv[1].lower() for t in tokens),
                 reverse=True
             )
             keep = max(int(n) * 10, 30)
@@ -78,6 +78,7 @@ Return exactly {n} results, ranked best first. If fewer than {n} modules are rel
 
         for r in results:
             r['description'] = catalog.get(r['name'], '')
+            r['url'] = '/' + r['name']
 
         result = {'query': query, 'results': results}
         now = time.time()

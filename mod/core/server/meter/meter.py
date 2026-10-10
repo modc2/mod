@@ -94,6 +94,7 @@ class Meter:
                 'errors': 0,
                 'total_duration': 0.0,
             })
+            fn_stats['fn'] = fn
             fn_stats['requests'] += 1
             if status != 'success':
                 fn_stats['errors'] += 1
@@ -172,8 +173,8 @@ class Meter:
                 return {}
             result = {}
             for f in os.listdir(fns_dir):
-                fn_name = f.replace('.json', '').replace('_', '/')
                 fn_stats = self.store.get(f'users/{user}/fns/{f.replace(".json", "")}', {})
+                fn_name = fn_stats.get('fn', f.replace('.json', ''))
                 result[fn_name] = fn_stats
             return result
         except Exception:

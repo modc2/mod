@@ -125,7 +125,7 @@ class Gate:
                 assert actual_fn in mod_fns, f"Function {actual_fn} not in fns={mod_fns}"
             role_data = self.role_data(role) if role else self.role_data('public')
             role_fns = role_data.get('fns', [])
-            if role_fns and '*' not in role_fns:
+            if '*' not in role_fns:
                 assert actual_fn in role_fns, f"Function {actual_fn} not permitted for role={role or 'public'}, allowed={role_fns}"
             if not authenticated:
                 assert actual_fn in self.PUBLIC_FNS, f"Authentication required for {actual_fn}"
@@ -146,14 +146,20 @@ class Gate:
         status = 'success'
         try:
             if fn in ('call', 'forward') and isinstance(params, dict) and '/' in str(params.get('fn', '')):
-                # Module call via 'call' wrapper — resolve and execute directly
+                # Module call via 'call' wrapper
                 # (gate already verified auth/public access above)
                 inner_fn = params['fn']
                 inner_params = params.get('params', {})
                 if isinstance(inner_params, str):
                     inner_params = json.loads(inner_params)
-                fn_obj = self.get_fn_obj(inner_fn, mod=mod)
-                result = fn_obj(**inner_params) if callable(fn_obj) else fn_obj
+                inner_leaf = inner_fn.split('/')[-1] if '/' in inner_fn else inner_fn
+                if '/' in inner_fn and inner_leaf not in self.UNSANDBOXED_FNS:
+                    # Apply same sandbox isolation as direct module path calls
+                    print(f'Gate: sandboxed execution for {inner_fn} (via call wrapper)', color='yellow')
+                    result = self.sandbox.run(fn_path=inner_fn, params=inner_params, timeout=120)
+                else:
+                    fn_obj = self.get_fn_obj(inner_fn, mod=mod)
+                    result = fn_obj(**inner_params) if callable(fn_obj) else fn_obj
             elif is_module_call and actual_fn not in self.UNSANDBOXED_FNS:
                 # Execute in sandboxed subprocess
                 print(f'Gate: sandboxed execution for {fn}', color='yellow')

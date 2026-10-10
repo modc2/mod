@@ -10,9 +10,12 @@ class Mod:
 
     def forward(self, **kwargs):
         """Default entry point."""
-        if kwargs.get('method') == 'readme' or kwargs.get('action') == 'readme':
+        method = kwargs.get('method') or kwargs.get('action')
+        if method == 'readme':
             return self.readme()
-        return self.info()
+        if not method or method == 'info':
+            return self.info()
+        return {'error': f'unknown method: {method}'}
 
     def info(self):
         """Return module info."""
@@ -31,7 +34,10 @@ class Mod:
         for name in ['README.md', 'readme.md', 'README.rst', 'README']:
             p = os.path.join(self.path, name)
             if os.path.exists(p):
-                return {'content': m.get_text(p), 'filename': name}
+                try:
+                    return {'content': m.get_text(p), 'filename': name}
+                except Exception:
+                    break
         cfg = self._cfg
         content = f"# {cfg.get('name', '')}\n\n{cfg.get('description', '')}\n\nVersion: {cfg.get('version', '')}"
         return {'content': content, 'filename': None}

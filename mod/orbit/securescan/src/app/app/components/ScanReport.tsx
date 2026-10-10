@@ -34,6 +34,8 @@ export function ScanReport({ id }: { id: string }) {
     let cancel = false;
     setScan(null);
     setError(null);
+    setFilterSevs(new Set());
+    setFilterCats(new Set());
     async function tick() {
       try {
         const s = await getScan(id);

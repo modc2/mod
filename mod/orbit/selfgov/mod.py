@@ -25,7 +25,10 @@ class Mod:
         """Default entry point."""
         action = kwargs.get('action', 'info')
         if action in self._actions():
-            return getattr(self, action)(**{k: v for k, v in kwargs.items() if k != 'action'})
+            try:
+                return getattr(self, action)(**{k: v for k, v in kwargs.items() if k != 'action'})
+            except Exception as e:
+                return {'error': str(e), 'action': action}
         return {'error': f'unknown action: {action}', 'available': self._actions()}
 
     def info(self):

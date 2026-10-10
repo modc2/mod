@@ -14,6 +14,8 @@ NETWORKS = {
     "base-sepolia": "https://base-sepolia.blockscout.com",
 }
 
+TOKEN_TYPES = {"ERC-20", "ERC-721", "ERC-1155"}
+
 class Mod:
     description = "Scrape ERC-20 token balances for an address on an EVM testnet (Sepolia by default)"
     path = r'/root/mod/mod/orbit/scrape-testnet-tokens'
@@ -23,19 +25,23 @@ class Mod:
         address = kwargs.get("address")
         if address:
             network = kwargs.get("network", "sepolia")
-            return self.scrape(address, network)
+            token_type = kwargs.get("token_type", "ERC-20")
+            return self.scrape(address, network, token_type)
         return self.info()
 
-    def scrape(self, address: str, network: str = "sepolia"):
-        """Return ERC-20 token balances for address on the given testnet."""
+    def scrape(self, address: str, network: str = "sepolia", token_type: str = "ERC-20"):
+        """Return token balances for address on the given testnet."""
         if not re.fullmatch(r'0x[0-9a-fA-F]{40}', address):
             return {"error": f"Invalid address '{address}': must be a 0x-prefixed 40-hex-character Ethereum address"}
+
+        if token_type not in TOKEN_TYPES:
+            return {"error": f"Invalid token_type '{token_type}'. Supported: {sorted(TOKEN_TYPES)}"}
 
         base = NETWORKS.get(network.lower())
         if base is None:
             return {"error": f"Unknown network '{network}'. Supported: {list(NETWORKS)}"}
 
-        base_url = f"{base}/api/v2/addresses/{address}/tokens?type=ERC-20"
+        base_url = f"{base}/api/v2/addresses/{address}/tokens?type={token_type}"
         tokens = []
         next_params = None
         max_pages = 10
@@ -66,7 +72,9 @@ class Mod:
                     "symbol":           token.get("symbol", ""),
                     "name":             token.get("name", ""),
                     "balance":          balance,
+                    "decimals":         decimals,
                     "contract_address": token.get("address", ""),
+                    "token_id":         item.get("token_id"),
                 })
 
             next_params = data.get("next_page_params") or None
@@ -74,7 +82,7 @@ class Mod:
                 break
 
         truncated = next_params is not None
-        return {"network": network, "address": address, "tokens": tokens, "truncated": truncated, "pages_fetched": page_num + 1}
+        return {"network": network, "address": address, "token_type": token_type, "tokens": tokens, "truncated": truncated, "pages_fetched": page_num + 1}
 
     def info(self):
         """Return module info."""
@@ -82,7 +90,8 @@ class Mod:
             'name': 'scrape-testnet-tokens',
             'description': self.description,
             'supported_networks': list(NETWORKS.keys()),
-            'usage': 'Call with address=<0x…> and optionally network=<name> (default: sepolia)',
+            'supported_token_types': sorted(TOKEN_TYPES),
+            'usage': 'Call with address=<0x…> and optionally network=<name> (default: sepolia) and token_type=<ERC-20|ERC-721|ERC-1155> (default: ERC-20)',
         }
 
     def readme(self):

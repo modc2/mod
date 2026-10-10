@@ -32,12 +32,12 @@ class Mod:
         try:
             return method(**kwargs)
         except Exception as e:
-            return {'error': str(e), 'fn': fn}
+            return {'error': str(e), 'fn': fn, 'error_type': type(e).__name__}
 
     def info(self, **_):
         """Return module info."""
         files = sorted(
-            e for e in os.listdir(self.path) if not e.startswith('__')
+            e for e in os.listdir(self.path) if not e.startswith('__') and not e.startswith('.')
         )
         return {
             'name': self._name,

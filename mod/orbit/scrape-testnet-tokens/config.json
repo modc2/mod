@@ -2,5 +2,5 @@
     "name": "scrape-testnet-tokens",
     "description": "Scrape ERC-20 token balances for an address on an EVM testnet (Sepolia by default)",
     "version": "0.1.0",
-    "schema": "QmXGnuh3vMt2VVZ99msoMLX692uYoFzTBS15zDUBpfMT7f"
+    "schema": "QmajiWsSYXxJD4Xa1jsR3fBu2Lgtd9QxxKdA9WKYMzyPe1"
 }
