@@ -4742,14 +4742,20 @@ export default function Home() {
   )
 
   // the chat dock — the same console, riding along on the AGENTS and ARENA
-  // tabs so switching tabs never loses the conversation. Collapses to a
-  // strip like the rails, and only that on-purpose collapse hides it.
-  const chatDock = (
+  // tabs so switching tabs never loses the conversation. On a wide screen it
+  // docks to the right edge as a resizable panel; on a phone it rises as a
+  // near-fullscreen sheet over the view (a 430px side panel IS the screen on a
+  // phone). Collapsed it takes no space at all — the agent orb pinned to the
+  // bottom-right corner (agentFab, below) is what brings it back, on every tab
+  // and at every width, so the agent is always one tap away.
+  const chatDock = chatDockOpen ? (
     <div
-      className={`flex min-h-0 sidebar-panel relative shrink-0 ${chatDockOpen ? '' : 'w-[42px]'}`}
-      style={chatDockOpen ? { width: chatDockW, maxWidth: '85vw' } : undefined}
+      className={isMobile
+        ? 'fixed inset-x-0 bottom-0 top-12 z-40 flex min-h-0 bg-surface-0 shadow-2xl'
+        : 'flex min-h-0 sidebar-panel relative shrink-0'}
+      style={isMobile ? undefined : { width: chatDockW, maxWidth: '85vw' }}
     >
-      {chatDockOpen && (
+      {!isMobile && (
         <div
           className="absolute top-0 bottom-0 -left-[4px] z-20 w-[9px] cursor-col-resize touch-none group"
           onPointerDown={onChatDockDragStart}
@@ -4758,62 +4764,67 @@ export default function Home() {
         </div>
       )}
       <div className="flex-1 border-l border-white/[0.06] flex flex-col min-h-0 min-w-0 overflow-hidden">
-        {chatDockOpen ? (
-          <>
-            <div className="px-2 py-1 border-b border-white/[0.06] flex items-center gap-1.5 shrink-0">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                className="text-emerald-300/80 shrink-0" aria-hidden="true">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        <div className="px-2 py-1 border-b border-white/[0.06] flex items-center gap-1.5 shrink-0">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            className="text-emerald-300/80 shrink-0" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          <span className="text-[10px] uppercase tracking-widest text-gray-500 select-none">chat</span>
+          <button
+            onClick={() => {
+              setView('chat')
+              if (activeTab === 'agents') setActiveTab('output')
+            }}
+            title="Open the chat full width"
+            className="ml-auto w-8 h-8 flex items-center justify-center rounded text-gray-600 hover:text-gray-300 hover:bg-white/5 transition text-[11px]"
+          >⤢</button>
+          <button
+            onClick={() => setChatDockOpenPersist(false)}
+            title={isMobile ? 'Close the chat' : 'Collapse the chat to the orb'}
+            className="w-8 h-8 flex items-center justify-center rounded text-gray-600 hover:text-gray-300 hover:bg-white/5 transition"
+          >
+            {isMobile ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
               </svg>
-              <span className="text-[10px] uppercase tracking-widest text-gray-500 select-none">chat</span>
-              <button
-                onClick={() => {
-                  setView('chat')
-                  if (activeTab === 'agents') setActiveTab('output')
-                }}
-                title="Open the chat full width"
-                className="ml-auto w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:text-gray-300 hover:bg-white/5 transition text-[11px]"
-              >⤢</button>
-              <button
-                onClick={() => setChatDockOpenPersist(false)}
-                title="Collapse the chat"
-                className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:text-gray-300 hover:bg-white/5 transition"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="9 18 15 12 9 6" />
-                </svg>
-              </button>
-            </div>
-            {consoleDock}
-          </>
-        ) : (
-          <div className="flex flex-col items-center py-3 gap-2 h-full">
-            <button
-              onClick={() => setChatDockOpenPersist(true)}
-              className="text-gray-600 hover:text-gray-400 transition p-1"
-              title="Show the chat"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 18 9 12 15 6" />
+            ) : (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
               </svg>
-            </button>
-            <button
-              onClick={() => setChatDockOpenPersist(true)}
-              title="Chat — the conversation keeps going here"
-              className="[writing-mode:vertical-rl] text-[10px] uppercase tracking-widest text-gray-600 hover:text-emerald-300 transition py-2"
-            >
-              chat
-            </button>
-            {loading && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mt-1"
-                title="a run is working in the chat" />
             )}
-          </div>
-        )}
+          </button>
+        </div>
+        {consoleDock}
       </div>
     </div>
-  )
+  ) : null
+
+  // the agent orb — always in the bottom-right corner on the AGENTS and ARENA
+  // tabs, so the agent is one tap away without the chat holding a column of the
+  // layout open. Tapping it brings the dock back (a sheet on a phone, the side
+  // panel on a wide screen). Hidden on the chat tab, where the console already
+  // has the floor, and while the dock is already open. Sits clear of the
+  // phone's home-bar / rounded corners via the safe-area insets.
+  const agentFab = view !== 'chat' && !chatDockOpen ? (
+    <button
+      type="button"
+      onClick={() => setChatDockOpenPersist(true)}
+      title="Chat — talk to your agent"
+      aria-label="Open the agent chat"
+      className="fixed z-30 flex items-center justify-center w-14 h-14 rounded-full bg-emerald-500 text-black shadow-lg shadow-emerald-900/40 hover:bg-emerald-400 active:scale-95 transition"
+      style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom))', right: 'calc(1rem + env(safe-area-inset-right))' }}
+    >
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+      {loading && (
+        <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-400 ring-2 ring-surface-0 animate-pulse"
+          title="a run is working in the chat" />
+      )}
+    </button>
+  ) : null
 
   // --- Hub: the AGENTS shelf — the registry (where an agent is made), the
   //     FLOW canvas (where agents are connected to each other) and the TASK
@@ -5046,6 +5057,7 @@ export default function Home() {
             : <>{marketPanel}{workspace}{railPanel}</>
         )}
       </div>
+      {agentFab}
       {overlays}
     </main>
   )

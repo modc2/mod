@@ -1,15 +1,32 @@
-// The wasm verification host: one long-lived node process, JSON lines on
+// The wasm key-type host: one long-lived node process, JSON lines on
 // stdin/stdout. pq/wasmvm.py keeps one of these alive and feeds it every
-// witness the chain checks.
+// witness the chain checks — and, for wasm-defined key types, every keygen
+// and signature too.
 //
-//   in : {"id":1, "wasm":"/abs/path.wasm", "sha3":"<hex>",
+//   in : {"id":1, "op":"verify", "wasm":"/abs/path.wasm", "sha3":"<hex>",
 //         "pk":"<hex>", "msg":"<hex>", "sig":"<hex>", "ctx":"<hex>"}
 //   out: {"id":1, "ok":true, "valid":true}
-//        {"id":1, "ok":false, "error":"..."}
+//
+//   in : {"id":2, "op":"keygen", "wasm":..., "sha3":..., "pure":true,
+//         "seed":"<hex>", "pk_bytes":N, "sk_bytes":N}
+//   out: {"id":2, "ok":true, "pk":"<hex>", "sk":"<hex>"}
+//
+//   in : {"id":3, "op":"sign", "wasm":..., "sha3":..., "pure":true,
+//         "sk":"<hex>", "msg":"<hex>", "ctx":"<hex>", "sig_bytes":N}
+//   out: {"id":3, "ok":true, "sig":"<hex>"}
+//
+//   any: {"id":n, "ok":false, "error":"..."}
+//
+// op defaults to "verify" (the pq1 ABI); keygen/sign are the pq2 extension
+// user-registered key types must export. "pure":true refuses to run a module
+// that declares ANY import — inside an importless module there is no clock,
+// no randomness and no host call, so the exports are deterministic functions
+// of their inputs. That check is what lets this chain accept a stranger's
+// key type: the blob can be re-run byte-identically by every node.
 //
 // The module is compiled once per (path, sha3) and re-instantiated per call:
-// instantiation is microseconds, and a fresh instance means one verification
-// can never leave state behind for the next. The host re-hashes the file with
+// instantiation is microseconds, and a fresh instance means one call can
+// never leave state behind for the next. The host re-hashes the file with
 // SHA3-256 and refuses to run bytes that do not match the hash the registry
 // committed to — the python side checks too; two doors, same lock.
 
@@ -42,19 +59,64 @@ function place(exports, hex) {
   return [ptr, bytes.length];
 }
 
-function verify(req) {
+function outBuf(exports, n) {
+  const ptr = exports.pq_alloc(n);
+  if (ptr === 0) throw new Error('pq_alloc failed — output larger than the arena');
+  return ptr;
+}
+
+function readBuf(exports, ptr, n) {
+  return Buffer.from(new Uint8Array(exports.memory.buffer, ptr, n)).toString('hex');
+}
+
+function need(e, name, abi) {
+  if (typeof e[name] !== 'function') {
+    throw new Error(`module does not export ${name} (${abi} ABI)`);
+  }
+}
+
+function run(req) {
   const mod = getModule(req.wasm, req.sha3);
+  if (req.pure && WebAssembly.Module.imports(mod).length > 0) {
+    throw new Error('module declares imports — a deterministic key type may '
+      + 'import nothing (no clock, no randomness, no host)');
+  }
   const instance = new WebAssembly.Instance(mod, {});
   const e = instance.exports;
-  if (typeof e.pq_verify !== 'function' || typeof e.pq_alloc !== 'function') {
-    throw new Error('module does not export the pq1 ABI (pq_alloc/pq_verify)');
-  }
+  need(e, 'pq_alloc', 'pq1');
+  need(e, 'pq_reset', 'pq1');
   e.pq_reset();
-  const [pk, pkLen] = place(e, req.pk);
-  const [msg, msgLen] = place(e, req.msg);
-  const [sig, sigLen] = place(e, req.sig);
-  const [ctx, ctxLen] = place(e, req.ctx);
-  return e.pq_verify(pk, pkLen, msg, msgLen, sig, sigLen, ctx, ctxLen) === 1;
+  const op = req.op || 'verify';
+  if (op === 'verify') {
+    need(e, 'pq_verify', 'pq1');
+    const [pk, pkLen] = place(e, req.pk);
+    const [msg, msgLen] = place(e, req.msg);
+    const [sig, sigLen] = place(e, req.sig);
+    const [ctx, ctxLen] = place(e, req.ctx);
+    return { valid: e.pq_verify(pk, pkLen, msg, msgLen, sig, sigLen, ctx, ctxLen) === 1 };
+  }
+  if (op === 'keygen') {
+    need(e, 'pq_keygen', 'pq2');
+    const [seed, seedLen] = place(e, req.seed);
+    const pkPtr = outBuf(e, req.pk_bytes);
+    const skPtr = outBuf(e, req.sk_bytes);
+    if (e.pq_keygen(seed, seedLen, pkPtr, skPtr) !== 1) {
+      throw new Error('pq_keygen refused the seed');
+    }
+    return { pk: readBuf(e, pkPtr, req.pk_bytes), sk: readBuf(e, skPtr, req.sk_bytes) };
+  }
+  if (op === 'sign') {
+    need(e, 'pq_sign', 'pq2');
+    const [sk, skLen] = place(e, req.sk);
+    const [msg, msgLen] = place(e, req.msg);
+    const [ctx, ctxLen] = place(e, req.ctx);
+    const sigPtr = outBuf(e, req.sig_bytes);
+    if (e.pq_sign(sk, skLen, msg, msgLen, ctx, ctxLen, sigPtr) !== 1) {
+      throw new Error('pq_sign refused');
+    }
+    return { sig: readBuf(e, sigPtr, req.sig_bytes) };
+  }
+  throw new Error(`unknown op ${op}`);
 }
 
 const rl = createInterface({ input: process.stdin, terminal: false });
@@ -64,8 +126,8 @@ rl.on('line', (line) => {
   let req = null;
   try {
     req = JSON.parse(line);
-    const valid = verify(req);
-    process.stdout.write(JSON.stringify({ id: req.id, ok: true, valid }) + '\n');
+    const out = run(req);
+    process.stdout.write(JSON.stringify({ id: req.id, ok: true, ...out }) + '\n');
   } catch (err) {
     process.stdout.write(JSON.stringify({
       id: req && req.id, ok: false, error: String(err.message || err),

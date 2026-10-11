@@ -229,15 +229,17 @@ def catalog():
         "complexity_floor": f"2^{complexity.MIN_BITS} best-known classical",
         "plugin_dirs": list(PLUGIN_DIRS),
         "plugin_errors": PLUGIN_ERRORS,
-        "how_to_add": ("drop a .py into a plugin dir defining "
-                       "register(algos) that calls "
-                       "algos.register(algos.SigAlgo(name, keygen, sign, "
-                       "verify, sizes, family=…, quantum_safe=…, "
-                       "classical_bits=… if an attack cheaper than brute "
-                       "force is known)) — pq/algos.d/ed25519.py is a "
-                       "worked example; pq_complexity scheme=<name> then "
-                       "shows what breaking it costs and whether the "
-                       "entropy probe lets it witness"),
+        "how_to_add": ("two doors: the node operator drops a .py into a "
+                       "plugin dir defining register(algos) — "
+                       "pq/algos.d/ed25519.py is the worked example — and "
+                       "ANYONE registers a key type as one importless wasm "
+                       "blob exporting the pq2 ABI via pq_keytype "
+                       "action=create wasm=<base64> (admitted only if the "
+                       "proof battery, the determinism double-run and the "
+                       "complexity gate all pass; "
+                       "pq/wasm-src/examples/lamport.rs is that worked "
+                       "example); pq_complexity scheme=<name> then shows "
+                       "what breaking it costs"),
     }
 
 
@@ -329,9 +331,16 @@ def load_plugins():
 
 load_plugins()
 
-# Composites load LAST: a stored key type may name a plugin scheme as a part.
-# The import sits down here, not at the top, because compose imports this
-# module back — by this line everything it needs is defined.
+# User-registered wasm key types load after the plugin dirs (their verify is
+# the blob itself — zz_wasm has nothing to wrap) and BEFORE composites, which
+# may use one as a part. Imports sit down here, not at the top, because both
+# modules import this one back — by this line everything they need is defined.
+try:
+    from . import wasmtype                                       # noqa: E402
+except ImportError:                                              # run as a script
+    import wasmtype                                              # noqa: E402
+wasmtype.load_store()
+
 try:
     from . import compose                                        # noqa: E402
 except ImportError:                                              # run as a script

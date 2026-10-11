@@ -266,7 +266,7 @@ class Mod:
             return {'error': f'no such quorum {slug!r}'}
         yes = sum(1 for v in q['votes'] if v['choice'] == 1)
         no = len(q['votes']) - yes
-        return {'quorum': slug, 'yes': yes, 'no': no,
+        return {'quorum': slug, 'desc': q.get('desc', ''), 'yes': yes, 'no': no,
                 'threshold': q['threshold'], 'reached': yes >= q['threshold'],
                 'members': len(q['members']), 'frozen': q['frozen'],
                 'root': q['root']}
@@ -303,66 +303,23 @@ class Mod:
             s['circuit_test'] = self.test()
         return s
 
-    # ---- optional HTTP server ----------------------------------------------
+    # ---- HTTP server (app + API) -------------------------------------------
 
     def serve(self, port=None, background=False):
-        """Tiny stdlib JSON API: GET /health,/status and POST
-        /zquorum/<fn> with a JSON body of kwargs."""
+        """Run server.py — the stdlib server that serves the static console
+        (app/ -> dist/) next to the JSON API at /zquorum/api/<fn>. The ledger
+        logic all lives here in mod.py; server.py only maps URLs onto it."""
         port = int(port or self.port)
+        env = dict(os.environ, ZQUORUM_PORT=str(port))
+        cmd = [sys.executable, os.path.join(HERE, 'server.py'), str(port)]
         if background:
             proc = subprocess.Popen(
-                [sys.executable, os.path.join(HERE, 'mod.py'), 'serve',
-                 str(port)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                cwd=HERE)
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                cwd=HERE, env=env)
             return {'pid': proc.pid, 'port': port,
-                    'api': f'http://localhost:{port}/'}
-        self._http(port)
-
-    def _http(self, port):
-        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-        mod = self
-
-        class H(BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def _send(self, obj, code=200):
-                body = json.dumps(obj, default=str).encode()
-                self.send_response(code)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def do_GET(self):
-                p = self.path.split('?')[0].rstrip('/')
-                if p in ('', '/health'):
-                    return self._send(mod.health())
-                if p == '/status':
-                    return self._send(mod.status())
-                if p in ('/info', mod.base, mod.base + '/info'):
-                    return self._send(mod.info())
-                return self._send({'error': 'not found'}, 404)
-
-            def do_POST(self):
-                fn = self.path.split('?')[0].rstrip('/').split('/')[-1]
-                if fn not in mod.config['fns'] or fn in ('serve', 'kill'):
-                    return self._send({'error': f'unknown fn {fn!r}'}, 404)
-                n = int(self.headers.get('Content-Length') or 0)
-                try:
-                    kw = json.loads(self.rfile.read(n) or b'{}')
-                except Exception:  # noqa: BLE001
-                    kw = {}
-                try:
-                    return self._send(getattr(mod, fn)(**kw))
-                except Exception as e:  # noqa: BLE001
-                    return self._send({'error': str(e)}, 400)
-
-        srv = ThreadingHTTPServer(('0.0.0.0', port), H)
-        print(f'zquorum api on http://localhost:{port}/ '
-              f'(POST {mod.base}/<fn>)')
-        srv.serve_forever()
+                    'app': f'http://localhost:{port}{self.base}',
+                    'api': f'http://localhost:{port}{self.base}/api/<fn>'}
+        subprocess.run(cmd, cwd=HERE, env=env)
 
     def kill(self, port=None):
         port = int(port or self.port)

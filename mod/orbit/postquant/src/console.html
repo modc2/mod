@@ -10,15 +10,20 @@
     --ink:#dbe6f0; --dim:#7d8ea0;
     --pq:#9d7bff; --pq-dim:#54418a; --gold:#e8c05a; --good:#4ade80; --warn:#fbbf24;
     --bad:#ff5d5d; --blue:#5db4ff;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
   body{margin:0;color:var(--ink);
-       font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+       font:14px/1.6 var(--sans);
+       min-height:100svh;
        background:
          radial-gradient(1100px 480px at 82% -12%, rgba(157,123,255,.10), transparent 60%),
          radial-gradient(900px 420px at 8% -6%, rgba(232,192,90,.06), transparent 55%),
          radial-gradient(1400px 900px at 50% 120%, rgba(93,180,255,.04), transparent 60%),
-         var(--bg)}
+         var(--bg);
+       background-attachment:fixed}
+  code,kbd,pre,.mono,.addr,.amt,.pill,.chip{font-family:var(--mono)}
   a{color:var(--blue)}
   ::selection{background:rgba(157,123,255,.35);color:#fff}
   ::-webkit-scrollbar{width:10px;height:10px}
@@ -57,7 +62,8 @@
   nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
   button,select,input,textarea{
     background:#101724;color:var(--ink);border:1px solid var(--line);
-    border-radius:5px;padding:5px 10px;font:inherit}
+    border-radius:7px;padding:6px 11px;font:12.5px/1.5 var(--mono)}
+  button{font-family:var(--sans);letter-spacing:.07em;font-weight:500}
   input,select,textarea{transition:border-color .12s, box-shadow .12s}
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pq-dim);
     box-shadow:0 0 0 2px rgba(157,123,255,.14)}
@@ -75,33 +81,40 @@
   button.go:active{transform:translateY(1px)}
   button.sm{padding:1px 8px;font-size:11px;border-radius:4px}
   nav button{background:transparent;border-color:transparent;color:var(--dim);
-    font-size:12px;letter-spacing:.1em;padding:6px 12px}
+    font-size:12px;letter-spacing:.1em;padding:6px 14px;border-radius:999px}
   nav button:hover{color:var(--ink);border-color:var(--line);background:#101724}
   nav button.on{color:#fff;border-color:var(--pq-dim);
     background:rgba(157,123,255,.12);box-shadow:0 0 14px rgba(157,123,255,.12)}
-  main{padding:18px 18px 60px;max-width:1500px;margin:0 auto}
+  main{padding:22px 22px 90px;max-width:1500px;margin:0 auto}
   section{display:none} section.on{display:block;animation:fadeup .28s ease}
   .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
   .panel{background:linear-gradient(180deg,#0d131c,#0b1017);
-         border:1px solid var(--line);border-radius:11px;
-         padding:14px 16px;margin-bottom:14px;
+         border:1px solid var(--line);border-radius:14px;
+         padding:16px 18px;margin-bottom:14px;
          box-shadow:0 1px 0 rgba(255,255,255,.02) inset, 0 8px 24px rgba(0,0,0,.25);
          transition:border-color .18s, box-shadow .18s}
   .panel:hover{border-color:#243144;
          box-shadow:0 1px 0 rgba(255,255,255,.03) inset, 0 8px 28px rgba(0,0,0,.3),
                     0 0 0 1px rgba(157,123,255,.05)}
-  .panel h2{display:flex;align-items:center;gap:8px;margin:0 0 6px;font-size:11.5px;
+  .panel h2{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:11.5px;
             letter-spacing:.16em;color:var(--dim);text-transform:uppercase;
             font-weight:600}
   .panel h2::before{content:'';width:7px;height:7px;border-radius:2px;
             background:var(--pq);box-shadow:0 0 8px rgba(157,123,255,.55);
             flex:none}
   .note{color:var(--dim);font-size:12px;margin:0 0 10px}
-  table{width:100%;border-collapse:collapse;font-size:12.5px}
-  th{text-align:left;color:var(--dim);font-weight:600;padding:6px 8px;
-     border-bottom:1px solid var(--line);white-space:nowrap;font-size:11px;
-     letter-spacing:.08em;text-transform:uppercase}
-  td{padding:6px 8px;border-bottom:1px solid #121a24;vertical-align:top}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;
+        font-family:var(--mono)}
+  th{text-align:left;color:var(--dim);font-weight:600;padding:7px 9px;
+     border-bottom:1px solid var(--line);white-space:nowrap;font-size:10.5px;
+     letter-spacing:.1em;text-transform:uppercase;font-family:var(--sans)}
+  td{padding:7px 9px;border-bottom:1px solid #121a24;vertical-align:top;
+     white-space:nowrap}
+  /* data tables render into these holders; wide ones scroll, never wrap */
+  #keys,#listings,#expiring,#blocks,#hist-out,#algos,#wallets,#acct-out{
+     overflow-x:auto}
+  .paper table{font-family:var(--sans)}
+  .paper td,.paper th{white-space:normal}
   tr:last-child td{border-bottom:0}
   tr:nth-child(even) td{background:rgba(255,255,255,.012)}
   tr.click{cursor:pointer}
@@ -111,8 +124,8 @@
   .num{text-align:right;font-variant-numeric:tabular-nums}
   .stats{display:flex;gap:10px;flex-wrap:wrap}
   .stat{position:relative;overflow:hidden;
-        border:1px solid var(--line);border-radius:8px;padding:10px 15px 8px;
-        background:linear-gradient(180deg,#0e1520,#0a0f15);min-width:108px;
+        border:1px solid var(--line);border-radius:10px;padding:12px 16px 10px;
+        background:linear-gradient(180deg,#0e1520,#0a0f15);min-width:118px;
         border-top:1px solid #26334a;
         transition:border-color .15s, transform .15s, box-shadow .15s}
   .stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
@@ -121,9 +134,10 @@
   .stat:hover{border-color:var(--pq-dim);transform:translateY(-1px);
         box-shadow:0 4px 14px rgba(0,0,0,.35), 0 0 12px rgba(157,123,255,.08)}
   .stat:hover::before{opacity:1}
-  .stat b{display:block;font-size:18px;font-variant-numeric:tabular-nums;
-        margin-bottom:2px;text-shadow:0 0 18px rgba(219,230,240,.14)}
-  .stat span{color:var(--dim);font-size:10px;letter-spacing:.1em;
+  .stat b{display:block;font-size:20px;font-variant-numeric:tabular-nums;
+        margin-bottom:2px;font-family:var(--mono);
+        text-shadow:0 0 18px rgba(219,230,240,.14)}
+  .stat span{color:var(--dim);font-size:10px;letter-spacing:.12em;
              text-transform:uppercase}
   .pill{border:1px solid var(--line);border-radius:20px;padding:2px 10px;
         color:var(--dim);font-size:11px;background:rgba(16,23,36,.6);
@@ -165,7 +179,7 @@
   .hero .h-line{color:var(--dim);font-size:13px;max-width:660px;margin:0 auto 10px}
   .hero .h-kbd{color:var(--dim);font-size:11px;letter-spacing:.08em}
   .hero kbd{border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;
-       padding:1px 6px;background:#101724;font:inherit;font-size:10px;color:var(--ink)}
+       padding:1px 6px;background:#101724;font:10px/1.5 var(--mono);color:var(--ink)}
   .doors{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
        max-width:980px;margin:0 auto 14px}
   .door{position:relative;border:1px solid var(--line);border-radius:11px;cursor:pointer;
@@ -213,7 +227,7 @@
   .pal-it.sel,.pal-it:hover{background:rgba(157,123,255,.12)}
   #pal-hint{padding:7px 14px;border-top:1px solid var(--line);color:var(--dim);
        font-size:10.5px;letter-spacing:.08em}
-  .kbtn{border:1px solid var(--line);border-radius:5px;background:transparent;
+  .kbtn{border:1px solid var(--line);border-radius:999px;background:transparent;
        color:var(--dim);font-size:10.5px;letter-spacing:.1em;padding:4px 9px}
   .kbtn:hover{color:var(--ink);border-color:var(--line2)}
   /* ── toasts ── */
@@ -429,7 +443,7 @@
     <div class="grid">
       <div class="panel">
         <h2>recent blocks</h2>
-        <div id="blocks"></div>
+        <div id="blocks"><span class="muted">loading…</span></div>
       </div>
       <div class="panel">
         <h2>mempool</h2>
@@ -586,6 +600,36 @@
           failure was found — never "secure".</p>
         <div id="proof-out" class="muted">pick a type and press TEST PROOFS.</div>
       </div>
+    </div>
+    <div class="panel">
+      <h2>bring your own</h2>
+      <p class="note">Any key type is welcome here if it can be verified
+        deterministically: compile the whole scheme — keygen, sign, verify —
+        to one wasm blob that imports <b>nothing</b> (no clock, no randomness,
+        no host), export the pq2 ABI, and register it below. The node runs
+        the full proof battery, a determinism double-run and the complexity
+        gate before the name exists; refusal comes back with the measurement.
+        <code>pq/wasm-src/examples/lamport.rs</code> is the worked example.</p>
+      <div class="row">
+        <label>name</label><input type="text" id="byo-name" placeholder="my-scheme">
+        <label>blob</label><input type="file" id="byo-file" accept=".wasm">
+        <label>family</label><input class="sm" type="text" id="byo-family" placeholder="Lamport">
+      </div>
+      <div class="row">
+        <label>pk bytes</label><input class="sm" type="text" id="byo-pk">
+        <label>sig bytes</label><input class="sm" type="text" id="byo-sig">
+        <label>sk bytes</label><input class="sm" type="text" id="byo-sk">
+        <select id="byo-qs">
+          <option value="1">quantum-safe — Grover at worst</option>
+          <option value="0">classical — Shor breaks it (say so)</option>
+        </select>
+        <input class="sm" type="text" id="byo-bits" placeholder="attack bits">
+      </div>
+      <div class="row">
+        <input type="text" id="byo-note" placeholder="one honest line — one-time? experimental?" style="flex:1">
+        <button class="go" id="byo-send">REGISTER KEY TYPE</button>
+      </div>
+      <div id="byo-out"></div>
     </div>
   </section>
 
@@ -1707,6 +1751,35 @@ $('kt-name').addEventListener('input', () => {
   $('kt-name').dataset.auto = $('kt-name').value ? '0' : '';
 });
 $('kt-op').onchange = ktAutoName;
+$('byo-send').onclick = async () => {
+  const name = $('byo-name').value.trim();
+  const file = $('byo-file').files[0];
+  if (!name || !file)
+    return out('byo-out', 'a name and a .wasm blob are both required.', 'err');
+  $('byo-send').textContent = 'RUNNING THE BATTERY…';
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < buf.length; i += 0x8000)
+      bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    const qs = $('byo-qs').value === '1';
+    const bits = parseInt($('byo-bits').value, 10);
+    const r = await api('/keytype', {
+      action: 'create', name, wasm: btoa(bin),
+      pk_bytes: parseInt($('byo-pk').value, 10),
+      sig_bytes: parseInt($('byo-sig').value, 10),
+      sk_bytes: parseInt($('byo-sk').value, 10),
+      family: $('byo-family').value.trim(),
+      quantum_safe: qs,
+      ...(bits ? (qs ? {quantum_bits: bits} : {classical_bits: bits}) : {}),
+      note: $('byo-note').value.trim()});
+    out('byo-out', json({created: r.created, accepted: r.accepted,
+      admission: r.admission, security: r.security, next: r.next}));
+    toast(name + ' admitted — the blob is the algorithm now');
+    await loadBuilder(); ktDetail(name);
+  } catch (e) { err('byo-out', e); }
+  $('byo-send').textContent = 'REGISTER KEY TYPE';
+};
 
 // ── WALLET ──
 async function fillWallets() {

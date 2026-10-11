@@ -27,6 +27,12 @@ export const ROUTES = [
   { href: '/code',      label: 'Code',      blurb: 'Read the Solidity that holds the keys — no trust required' },
 ] as const
 
+/** The routes the top rail leads with. Eight tracked uppercase pills plus a
+ *  logo, a vibe swatch and a CTA don't fit one line without overflowing into
+ *  a half-cut word — so the rail shows the five that matter and the footer +
+ *  home directory carry the full eight. */
+const NAV_PRIMARY = ['/manifesto', '/split', '/simulator', '/invest', '/paper']
+
 /** /paper/03-the-take is still the whitepaper as far as the rail cares. */
 function isHere(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(href + '/')
@@ -60,10 +66,10 @@ export function SiteNav() {
             <span className="font-display font-extrabold tracking-tight text-[15px] text-white hidden sm:inline">OpenHouse</span>
           </Link>
 
-          {/* The rail scrolls sideways rather than collapsing into a burger:
-              seven destinations you can see beat one you have to open. */}
-          <div ref={rail} className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto no-bar">
-            {ROUTES.map(r => {
+          {/* Five primary destinations, centred, with room to breathe. The
+              other three live in the footer and the home directory. */}
+          <div ref={rail} className="flex-1 min-w-0 flex items-center justify-center gap-1.5 overflow-x-auto no-bar">
+            {ROUTES.filter(r => NAV_PRIMARY.includes(r.href)).map(r => {
               const here = isHere(pathname, r.href)
               return (
                 <Link key={r.href} href={r.href} title={r.blurb}

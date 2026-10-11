@@ -64,10 +64,39 @@ without any party ever seeing a secret, and `orbit/cairo` can host the
 on-chain verifier contract. Until then: don't reuse a ceremony secret as
 anything valuable.
 
+## App & API (mod-protocol shape)
+
+zQuorum carries the canonical mod-protocol web layout — an `app/` console and
+an API — the same shape as its sibling `orbit/ztensor`, kept Python-stdlib:
+
+- **app/** — a Next.js **static export** (`output:'export'`, `basePath:/zquorum`).
+  `build.sh` writes `out/`, publishes it to `releases/<ts>` and flips the
+  `dist` symlink atomically (no restart).
+- **server.py** — the API server. One stdlib process on `:51300` serves the
+  static console **and** the JSON API; it loads `mod.py` by path and maps URLs
+  onto its methods, reimplementing no cryptography.
+- **route: true** links the module onto the gateway router. Reachable at:
+
+  | URL | serves |
+  |-----|--------|
+  | `{host}/zquorum` | the console |
+  | `{host}/zquorum/api/<fn>` | the protocol API (prefix stripped) — canonical |
+  | `{host}/zquorum/_api/<fn>` | the app's own self-calls (prefix kept) |
+  | `{host}/api/zquorum/<fn>` | permanent legacy alias |
+
+```sh
+bash build.sh        # build + publish the console
+m zquorum/serve      # run server.py (app + API) on :51300
+```
+
 ## Layout
 
 ```
-mod.py             stdlib anchor: ledger + scarb orchestration (port 51300, route=false)
+mod.py             stdlib anchor: ledger + scarb orchestration + CLI (port 51300)
+server.py          stdlib HTTP server: static console (dist/) + JSON API
+app/               Next.js console (static export) — create/join/vote/tally UI
+build.sh           next export -> releases/<ts> -> atomic dist symlink
+dist -> releases/  published console (gitignored symlink)
 circuit/           Cairo 2.8.4 package `zq` — THE protocol (hashes, vote check, CLI main)
 data/quorums.json  runtime ledger (gitignored); secrets are never stored
 ```

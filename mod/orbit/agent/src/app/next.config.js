@@ -6,6 +6,9 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL
   ?? (process.env.NODE_ENV === 'development' ? 'http://localhost:50117' : '/agent/api')
 const nextConfig = {
   output: 'standalone',
+  // a dev check (NEXT_DIST_DIR=.next-devcheck next dev) builds into its own dir
+  // instead of wiping the live standalone the pm2 server serves out of .next
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   reactStrictMode: true,
   swcMinify: true,
   ...(basePath ? { basePath } : {}),

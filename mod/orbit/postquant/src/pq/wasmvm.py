@@ -43,6 +43,16 @@ THE ABI (pq1)
     The FIPS m' context wrapping happens inside the module — the host hands
     raw bytes to the algorithm and gets a verdict, so the wasm is the whole
     algorithm, not a fragment of one.
+
+THE ABI (pq2) — what a user-registered key type adds (see pq/wasmtype.py)
+    exports additionally:
+             pq_keygen(seed,seed_len, pk_out, sk_out)->i32
+             pq_sign(sk,sk_len, msg,msg_len, ctx,ctx_len, sig_out)->i32
+    Output buffers are pq_alloc'd by the host at the sizes the registrant
+    declared; 1 means ok. A pq2 module must declare NO imports — importless
+    wasm has no clock, no randomness and no host call, so every export is a
+    deterministic function of its inputs, which is the admission rule for
+    key types this node did not write.
 """
 
 from __future__ import annotations
@@ -163,6 +173,28 @@ def _file_hash(path):
     return digest
 
 
+def run(spec, op, **fields):
+    """One pq2 call (keygen/sign) through the blob's own exports.
+
+    Unlike verify(), a failure here RAISES: a wallet that cannot derive its
+    key must say so, not hand back garbage. The hash is enforced on both
+    sides of the process boundary, and spec["pure"] makes the host refuse a
+    module that declares any import — the determinism rule for key types
+    registered by strangers.
+    """
+    path = spec["file"]
+    declared = spec["sha3_256"].lower()
+    if _file_hash(path) != declared:
+        raise RuntimeError(
+            f"{os.path.basename(path)} does not hash to the "
+            f"{declared[:16]}… the registry committed to")
+    resp = _HOST.call({"wasm": path, "sha3": declared, "op": op,
+                       "pure": bool(spec.get("pure")), **fields})
+    if not resp.get("ok"):
+        raise RuntimeError(resp.get("error") or "wasm host error")
+    return resp
+
+
 def verify(name, pk, msg, sig, ctx=b"", spec=None):
     """One witness through the wasm registered for its key type.
 
@@ -183,6 +215,7 @@ def verify(name, pk, msg, sig, ctx=b"", spec=None):
                 f"{os.path.basename(path)} does not hash to the "
                 f"{declared[:16]}… the registry committed to")
         resp = _HOST.call({"wasm": path, "sha3": declared,
+                           "pure": bool(spec.get("pure")),
                            "pk": bytes(pk).hex(), "msg": bytes(msg).hex(),
                            "sig": bytes(sig).hex(), "ctx": bytes(ctx).hex()})
         if not resp.get("ok"):

@@ -679,20 +679,26 @@ def _t_complexity(a):
 
 def _t_keytype(a):
     """The key type builder's write surface: create / delete / show / list
-    composite key types. The DAG and the proof battery are their own read
-    tools (pq_keytype_dag, pq_keytype_test)."""
+    key types built on this node — composites of registered schemes, and
+    user-supplied wasm blobs (the bring-your-own door). The DAG and the
+    proof battery are their own read tools (pq_keytype_dag,
+    pq_keytype_test)."""
     from pq import complexity as CPLX
     from pq import compose as CMP
+    from pq import wasmtype as WT
     action = (a.get('action') or 'list').lower()
     if action in ('list', 'ls'):
         rows = []
-        for spec in CMP.specs():
+        for kind, spec in ([('composite', s) for s in CMP.specs()]
+                           + [('wasm', s) for s in WT.specs()]):
             algo = ALGOS.maybe(spec['name'])
-            rows.append({**spec, 'registered': algo is not None,
+            rows.append({**spec, 'kind': kind, 'registered': algo is not None,
                          'accepted': ALGOS.allowed(spec['name']),
                          **({'security': CPLX.summary(algo)} if algo else {})})
+        rows.sort(key=lambda r: r.get('created', 0))
         return {'keytypes': rows, 'count': len(rows), 'ops': list(CMP.OPS),
-                'store': CMP.STORE_FILE, 'errors': CMP.STORE_ERRORS}
+                'store': CMP.STORE_FILE, 'wasm_store': WT.STORE_FILE,
+                'errors': CMP.STORE_ERRORS + WT.STORE_ERRORS}
     name = a.get('name')
     if not name:
         raise StateError('this action needs a name', code='bad_args')
@@ -704,9 +710,12 @@ def _t_keytype(a):
                              status=404)
         return {**algo.describe(), 'accepted': ALGOS.allowed(name),
                 'composite': getattr(algo, 'composite', None),
+                'wasmtype': getattr(algo, 'wasmtype', None),
                 'dependents': CMP.dependents(name),
                 'accounts_on_chain': _scheme_accounts(name)}
     if action == 'create':
+        if a.get('wasm'):
+            return _create_wasm_keytype(name, a)
         parts = a.get('parts')
         if isinstance(parts, str):
             parts = [p.strip() for p in parts.replace('+', ',').split(',')
@@ -730,12 +739,49 @@ def _t_keytype(a):
                 'deleting it would leave history this node could no longer '
                 're-judge (pq_verify replays every witness)',
                 code='keytype_in_use', status=409)
+        algo = ALGOS.maybe(name)
         try:
+            if algo is not None and getattr(algo, 'wasmtype', None):
+                return WT.delete(name)
             return CMP.delete(name)
-        except CMP.ComposeError as e:
+        except (CMP.ComposeError, WT.WasmTypeError) as e:
             raise StateError(str(e), code='bad_keytype')
     raise StateError(f'unknown action {action!r} — '
                      'create | delete | show | list', code='bad_args')
+
+
+def _create_wasm_keytype(name, a):
+    """The bring-your-own door: one importless wasm blob exporting the pq2
+    ABI, admitted only if the proof battery, the determinism double-run and
+    the complexity gate all pass — refused otherwise, with the measurement."""
+    import base64
+    from pq import wasmtype as WT
+    try:
+        blob = base64.b64decode(a['wasm'], validate=True)
+    except Exception:                                       # noqa: BLE001
+        raise StateError('wasm must be the blob as standard base64',
+                         code='bad_args')
+    try:
+        algo, card = WT.create(
+            name, blob,
+            sizes={'pk': a.get('pk_bytes'), 'sig': a.get('sig_bytes'),
+                   'sk': a.get('sk_bytes'), 'seed': a.get('seed_bytes', 32)},
+            family=a.get('family') or 'wasm',
+            basis=a.get('basis') or '',
+            quantum_safe=bool(a.get('quantum_safe')),
+            classical_bits=a.get('classical_bits'),
+            quantum_bits=a.get('quantum_bits'),
+            note=a.get('note'))
+    except WT.WasmTypeError as e:
+        raise StateError(str(e), code='bad_keytype', status=403)
+    return {'created': name, **algo.describe(),
+            'wasmtype': algo.wasmtype, 'accepted': True,
+            'admission': {'ok': card['ok'],
+                          'determinism': card['determinism'],
+                          'budgets': card['budgets'],
+                          'proofs_passed': card['battery']['passed']},
+            'next': f'pq_wallet action=create scheme={name} uses it; '
+                    f'pq_keytype_test scheme={name} re-runs its proofs'}
 
 
 def _scheme_accounts(name):
@@ -884,33 +930,66 @@ TOOLS = {
         'handler': _t_complexity,
     },
     'pq_keytype': {
-        'description': 'The key type builder: compose a NEW key type out of '
-                       'registered ones and store it on this node. op=all is '
-                       'the hybrid AND (every part signs, verify needs every '
-                       'part — falls only if every part falls, quantum-safe '
-                       'if any part is); op=any is the 1-of-n OR (one part\'s '
-                       'signature suffices — falls at the weakest part). '
-                       'Parts may themselves be composites, so key types '
-                       'form a DAG (pq_keytype_dag draws it). A composite '
-                       'registers like any plugin: the complexity gate '
-                       'probes its composed keygen before it may witness, '
-                       'and wallets pick it by name like any scheme. '
-                       'Actions: create, delete (refused while on-chain '
-                       'accounts or other composites depend on it), show, '
-                       'list.',
+        'description': 'The key type builder: add a NEW key type to this '
+                       'node. Two doors. COMPOSE registered schemes: op=all '
+                       'is the hybrid AND (every part signs, verify needs '
+                       'every part — falls only if every part falls, '
+                       'quantum-safe if any part is); op=any is the 1-of-n '
+                       'OR (one part\'s signature suffices — falls at the '
+                       'weakest part); parts may themselves be composites, '
+                       'so key types form a DAG (pq_keytype_dag draws it). '
+                       'Or BRING YOUR OWN as wasm=<base64 blob>: one '
+                       'importless wasm module exporting the pq2 ABI '
+                       '(pq_keygen/pq_sign/pq_verify — importless means no '
+                       'clock, no randomness, no host call, so it is '
+                       'deterministic and every node can re-judge every '
+                       'witness forever). A bring-your-own blob is admitted '
+                       'only if the proof battery, a determinism double-run, '
+                       'the runtime budgets and the complexity gate ALL '
+                       'pass — refused otherwise with the measurement '
+                       'attached. Either way the new scheme registers like '
+                       'any other: wallets pick it by name, witness gas '
+                       'bills its real bytes. Actions: create, delete '
+                       '(refused while on-chain accounts or composites '
+                       'depend on it), show, list.',
         'inputSchema': {'type': 'object', 'properties': {
             'action': _str('create | delete | show | list (default list)',
                            enum=['create', 'delete', 'show', 'list']),
-            'name': _str('the composite\'s name, 3-48 chars of [A-Za-z0-9_.+-] '
-                         '— hashed into every address under it, never '
-                         'rebindable'),
-            'op': _str('how the parts combine: all (hybrid AND) or any '
-                       '(1-of-n OR); default all', enum=['all', 'any']),
+            'name': _str('the key type\'s name, 3-48 chars of '
+                         '[A-Za-z0-9_.+-] — hashed into every address under '
+                         'it, never rebindable'),
+            'op': _str('composites: how the parts combine — all (hybrid '
+                       'AND) or any (1-of-n OR); default all',
+                       enum=['all', 'any']),
             'parts': {'type': 'array', 'items': {'type': 'string'},
-                      'description': '2-6 registered key types to combine '
-                                     '(pq_algos lists them); also accepted '
-                                     'as one string, comma- or +-separated'},
-            'note': _str('a line about why this composite exists'),
+                      'description': 'composites: 2-6 registered key types '
+                                     'to combine (pq_algos lists them); also '
+                                     'accepted as one string, comma- or '
+                                     '+-separated'},
+            'wasm': _str('bring-your-own: the wasm blob, standard base64. '
+                         'Must export the pq2 ABI and declare zero imports; '
+                         'pq/wasm-src/examples/lamport.rs is the worked '
+                         'example'),
+            'pk_bytes': _int('bring-your-own: exact public key size the '
+                             'blob produces'),
+            'sig_bytes': _int('bring-your-own: exact signature size'),
+            'sk_bytes': _int('bring-your-own: exact secret key size'),
+            'family': _str('bring-your-own: scheme family for the catalog '
+                           'card (e.g. Lamport, EdDSA)'),
+            'basis': _str('bring-your-own: what the security rests on, '
+                          'one honest line'),
+            'quantum_safe': _bool('bring-your-own: does the hard problem '
+                                  'survive a quantum computer? false means '
+                                  'POLYNOMIAL (Shor-class) on the catalog '
+                                  'card'),
+            'classical_bits': _int('bring-your-own: best-known classical '
+                                   'attack in bits, if cheaper than brute '
+                                   'force over the 256-bit seed — the '
+                                   'complexity floor judges this'),
+            'quantum_bits': _int('bring-your-own: best-known quantum attack '
+                                 'in bits, when quantum_safe'),
+            'note': _str('a line about why this key type exists (say so '
+                         'here if it is one-time or experimental)'),
         }},
         'handler': _t_keytype,
     },

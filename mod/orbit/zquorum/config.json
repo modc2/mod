@@ -1,20 +1,21 @@
 {
     "name": "zquorum",
     "title": "zQuorum \u00b7 anonymous quorums in Cairo",
-    "version": "0.1.0",
-    "description": "A group reaches a quorum without revealing who voted. Members register Pedersen commitments; a vote reveals only a nullifier \u2014 unlinkable to any member without their secret, and a repeated nullifier is a rejected double vote. All cryptography (commit, nullifier, set root, vote check) runs as a Cairo 2 program in circuit/ so the anchor never reimplements a hash, and the statement is already prover-shaped for the v0.2 STARK upgrade. Python-stdlib anchor keeps the quorum ledger (public books: tallies and nullifiers, never identities) over scarb 2.8.4.",
+    "version": "0.2.0",
+    "description": "A group reaches a quorum without revealing who voted. Members register Pedersen commitments; a vote reveals only a nullifier \u2014 unlinkable to any member without their secret, and a repeated nullifier is a rejected double vote. All cryptography (commit, nullifier, set root, vote check) runs as a Cairo 2 program in circuit/ so the anchor never reimplements a hash, and the statement is already prover-shaped for the v0.2 STARK upgrade. A static Next.js console (app/) is served by the Python-stdlib anchor (server.py) next to the JSON API, behind the mod-protocol gateway.",
     "icon": "Q",
     "color": "#8b5cf6",
     "anchor": "mod.py",
+    "server": "server.py",
     "network": "local",
     "port": 51300,
     "app_port": 51300,
     "gateway_port": 51300,
     "base_path": "/zquorum",
-    "route": false,
+    "route": true,
     "urls": {
         "api": "http://localhost:51300",
-        "app": "http://localhost:51300/zquorum/"
+        "app": "http://localhost:51300/zquorum"
     },
     "protocol": {
         "scheme": "commit/nullifier (Semaphore-style), Pedersen over the STARK field",
@@ -24,7 +25,7 @@
         "freeze": "the member set freezes at the first vote",
         "circuit": "circuit/ (Cairo package zq); run via scarb cairo-run, tested via scarb cairo-test",
         "trust_v0_1": "anchor = trusted tallier; sees a secret transiently during verification, persists only (nullifier, choice)",
-        "upgrade_v0_2": "STARK-prove the same circuit so votes verify without the tallier seeing secrets"
+        "upgrade_v0_2": "STARK-prove the same circuit so votes verify without the tallier seeing secrets; commit/nullifier derivation moves client-side"
     },
     "toolchain": {
         "scarb": "2.8.4",
@@ -54,17 +55,20 @@
         "kill"
     ],
     "endpoints": {
-        "GET /health": "Liveness probe",
-        "GET /status": "Toolchain + quorum catalog",
-        "POST /zquorum/commit": "Derive a commitment from a secret (run client-side; secret=)",
-        "POST /zquorum/create": "Open a quorum (name=, threshold=, desc=)",
-        "POST /zquorum/join": "Register a member commitment (name=, commitment=)",
-        "POST /zquorum/vote": "Cast an anonymous vote (name=, secret=, choice=yes|no)",
-        "POST /zquorum/tally": "Counts + reached, never identities (name=)",
-        "POST /zquorum/get": "One quorum's public record (name=)",
-        "POST /zquorum/list": "All quorums with tallies",
-        "POST /zquorum/test": "Run the circuit's cairo-test suite"
+        "GET /zquorum": "The console (static Next.js export)",
+        "GET /zquorum/api/health": "Liveness probe",
+        "GET /zquorum/api/info": "Scheme description + quorum catalog",
+        "GET /zquorum/api/status": "Toolchain + quorum catalog",
+        "GET /zquorum/api/list": "All quorums with tallies",
+        "GET /zquorum/api/tally?name=": "Counts + reached, never identities",
+        "GET /zquorum/api/get?name=": "One quorum's public record",
+        "POST /zquorum/api/commit": "Derive a commitment from a secret (secret=)",
+        "POST /zquorum/api/create": "Open a quorum (name=, threshold=, desc=)",
+        "POST /zquorum/api/join": "Register a member commitment (name=, commitment=)",
+        "POST /zquorum/api/vote": "Cast an anonymous vote (name=, secret=, choice=yes|no)",
+        "POST /zquorum/api/remove": "Delete a quorum (name=)",
+        "note": "The app self-calls the same handlers under /zquorum/_api/* (gateway keeps the prefix); /api/zquorum/* is the permanent legacy alias."
     },
-    "safety": "No chain, no keys, no funds: a local ceremony ledger. Secrets are verified by executing the Cairo circuit and are never persisted; the ledger stores commitments, nullifiers and choices only. route=false keeps the API off the gateway until deliberately exposed.",
-    "schema": "Qmbfqn6oZM2iAaktq8Qx1UBSykssRWgrr578PzBnQWEQHG"
+    "safety": "No chain, no keys, no funds: a local ceremony ledger. Secrets are verified by executing the Cairo circuit and are never persisted; the ledger stores commitments, nullifiers and choices only. route=true links the module onto the gateway at {host}/zquorum (app) and {host}/zquorum/api (API).",
+    "schema": "QmXt2qp3EEwcaxQcKVomj2jwzTMbX8AoTdM9GT9GGcnbbJ"
 }
