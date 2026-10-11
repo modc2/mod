@@ -17,6 +17,8 @@ os.environ['POSTQUANT_CHAIN_ID'] = 'postquant-test'
 # No test talks to the live liquidai next door — the chat brain's tests fake
 # lfm, and brain='auto' must deterministically land on rules in here.
 os.environ['POSTQUANT_LIQUIDAI'] = ''
+# …nor to orbit/agent: the agent brain's tests fake fleet.stream.
+os.environ['POSTQUANT_FLEET_AGENT'] = ''
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HERE not in sys.path:

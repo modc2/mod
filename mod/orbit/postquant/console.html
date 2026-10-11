@@ -831,6 +831,10 @@ async function loadAsk() {
     const b = r.brains || {};
     $('ask-brain').textContent = b.llm && b.llm.ready
       ? 'brain: ' + b.llm.model + ' (falls back to rules)'
+      : b.agent && b.agent.ready
+      ? 'brain: agent · ' + (b.agent.model || '').replace(/^LiquidAI\//, '') + ' picks the tools'
+      : b.chat && b.chat.ready
+      ? 'brain: chat · ' + (b.chat.model || '').replace(/^LiquidAI\//, '')
       : 'brain: rules — local, free, no model';
     $('ask-examples').innerHTML = (a.examples || []).map(e =>
       `<span class="chip">${esc(e)}</span>`).join('');
@@ -854,6 +858,9 @@ async function ask() {
     if (ev.type === 'token') {        // chat brain streams word-ish chunks
       streamed += ev.text;
       ans.className = 'ans'; ans.textContent = streamed;
+    } else if (ev.type === 'model_start' && ev.brain === 'agent' && !streamed) {
+      ans.className = 'ans muted';    // a small model on CPU: say it is working
+      ans.textContent = 'thinking… step ' + ((ev.step || 0) + 1);
     } else if (ev.type === 'tool_start') {
       chip = document.createElement('span'); chip.className = 'chip run';
       chip.textContent = ev.tool; chip.title = JSON.stringify(ev.params);

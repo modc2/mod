@@ -5,6 +5,7 @@ import { API_URL } from './config'
 import Library from './components/Library'
 import type { LibItem } from './components/Library'
 import Market from './components/Market'
+import Games from './components/Games'
 import Builder from './components/Builder'
 import AgentEditor from './components/AgentEditor'
 import SchedulePanel from './components/SchedulePanel'
@@ -4843,7 +4844,10 @@ export default function Home() {
   )
 
   return (
-    <main className="h-screen flex flex-col bg-surface-0">
+    // fixed, not h-screen: html/body overflow:hidden still lets focus() and
+    // scrollIntoView scroll the document, which in an embedding frame shoves
+    // this header up out of sight. A fixed root leaves nothing to scroll.
+    <main className="fixed inset-0 flex flex-col bg-surface-0">
       {/* top bar — a chat icon, AGENTS, ARENA, and who you are. Everything
           else lives where it's used: the rails carry their own collapse, the
           dock its own size, the key and the tool count sit in the rail's foot. */}
@@ -4852,64 +4856,41 @@ export default function Home() {
           the .tab-strip scrolls sideways instead of squashing or wrapping,
           so the tabs stay first without hiding one. */}
       <header className="site-header border-b border-white/[0.06] px-3 min-h-12 py-1.5 flex items-center gap-x-3 shrink-0 bg-surface-0">
-        <div className="flex items-center gap-2.5 shrink-0" title="Agent — mod framework">
+        {/* the brand is the way home to the chat — the nav is AGENTS ·
+            GAMES only, so the console itself needs no tab of its own */}
+        <button type="button" onClick={() => { setView('chat'); if (activeTab === 'agents') setActiveTab('output') }}
+          className="flex items-center gap-2.5 shrink-0" title="Chat — talk to an agent">
           <div className="brand-mark w-7 h-7 flex items-center justify-center shrink-0">
             <span className="select-none">{'>'}_</span>
           </div>
           {/* wordmark — first thing the eye lands on, so it carries the theme's
               accent. Drops out under 640px, where the bar needs the room. */}
           <span className="title-gradient uppercase select-none hidden sm:block">agent</span>
-        </div>
+        </button>
 
         <nav className="tab-strip min-w-0 gap-px">
-          {/* Three named tabs — AGENTS, BACKGROUND and ARENA — plus chat as an
-              icon. AGENTS is the door into the hub (roster shelf first);
-              BACKGROUND is a door too, straight to the hub's runs shelf —
-              every run on the server, live, stoppable — so it wears the
-              running-count badge (and nothing else does: one count, one
-              place). The library stays one press further via the hub's own
-              shelf strip. The chat icon owns the transcript. */}
-          {(['chat', 'agents', 'background', 'arena'] as const).map(v => {
-            const lit = v === 'chat' ? view === 'chat'
-              : v === 'agents' ? view === 'hub' && hubPane !== 'tasks'
-              : v === 'background' ? view === 'hub' && hubPane === 'tasks'
-              : view === 'arena'
+          {/* Two tabs: AGENTS (the hub — roster, library, runs) and GAMES (the
+              arena mod's games, read from its API, each game's page framed
+              from it). The brand mark is the chat. AGENTS wears the running
+              count — the runs shelf lives behind it. */}
+          {(['agents', 'games'] as const).map(v => {
+            const lit = v === 'agents' ? view === 'hub' : view === 'arena'
             return (
               <button key={v}
                 onClick={() => {
-                  // entering the hub from the top bar shows the agents, not a
-                  // canvas someone left up — "show agents" is the shelf's job
                   if (v === 'agents') { setBuilderMode('browse'); openHub('agents') }
-                  else if (v === 'background') openHub('tasks')
-                  else if (v === 'chat') {
-                    setView('chat')
-                    // CHAT reopens on the transcript, its tools, or memory —
-                    // all three are live workspace tabs. Only the agents pane
-                    // is dormant now (its door is the top-bar AGENTS), so step
-                    // off it so the tab never looks dead.
-                    if (activeTab === 'agents') setActiveTab('output')
-                  }
                   else setView('arena')
                 }}
-                aria-label={v === 'chat' ? 'chat' : undefined}
                 className={`nav-tab tab-btn relative flex items-center gap-1.5 px-3 py-2 font-medium uppercase tracking-wider transition-colors ${
                   lit ? 'nav-tab--on text-emerald-200' : 'text-gray-600 hover:text-gray-300'
                 }`}
-                title={v === 'chat' ? 'The console — talk to an agent'
-                  : v === 'agents' ? 'Agents and the library'
-                  : v === 'background' ? 'Background agents — every run on the server, live, stoppable'
-                  : 'Every agent on the same tasks, one ranked board'}>
-                {v === 'chat' ? (
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  </svg>
-                ) : v}
-                {v === 'agents' && agentOptions.length > 0 && (
-                  <span className="font-mono text-[10px] text-gray-500">{agentOptions.length}</span>
-                )}
-                {v === 'background' && runningCount > 0 && (
-                  <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-300">
+                title={v === 'agents' ? 'Agents, the library and every run on the server'
+                  : 'Games on the arena mod — every agent on the same games, ranked'}>
+                {v}
+                {v === 'agents' && runningCount > 0 && (
+                  <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-300"
+                    onClick={e => { e.stopPropagation(); openHub('tasks') }}
+                    title="running now — open the runs">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     {runningCount}
                   </span>
@@ -4993,23 +4974,12 @@ export default function Home() {
           {chatDock}
         </>)}
 
-        {/* arena — migrated to the arena mod. The board itself is the
-            standalone /agent/arena route (components/Arena mounted with its
-            own auth bootstrap); its front door is the arena mod's
-            /arena/agents page, and this tab is a window onto that door.
-            Same origin end to end, so the sign-in in this console reaches
-            the framed board through shared localStorage. In dev there is no
-            gateway (no /arena route on :3117), so the tab frames the local
-            route directly. */}
+        {/* GAMES — the arena mod's games (components/Games: its /arcade list,
+            each game's own /arena/game/<id> page framed beside it). The view
+            value stays 'arena'; the standalone /agent/arena board route is
+            untouched. */}
         {view === 'arena' && (<>
-          <div className="flex-1 min-h-0 flex">
-            <iframe
-              src={process.env.NODE_ENV === 'development'
-                ? `${process.env.NEXT_PUBLIC_BASE_PATH ?? '/agent'}/arena`
-                : '/arena/agents?embed=1'}
-              title="arena — every agent on the same tasks, one ranked board"
-              className="flex-1 w-full h-full border-0 bg-surface-0" />
-          </div>
+          <Games />
           {chatDock}
         </>)}
 

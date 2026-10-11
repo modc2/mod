@@ -12,7 +12,7 @@ contract, stdlib only.
 The event names are orbit/agent's on purpose: build's job renderer already
 draws them, so a postquant run in that console looks like every other job.
 
-THREE BRAINS, ONE DOOR
+FOUR BRAINS, ONE DOOR
     Every tool call an agent makes goes through mcp.call_tool() — the same
     function REST and MCP call — so the agent can never see a different chain
     or skip a check a person would hit.
@@ -22,6 +22,12 @@ THREE BRAINS, ONE DOOR
            to pq…", "quote avatar", "balance", "block 12". Understands several
            commands joined by "then" / ";" / new lines. It is what makes the
            agent work on a box with nothing else installed.
+    agent  (default when orbit/agent and liquidai are up)  a real agent:
+           orbit/agent's plan→tool→observe loop over the fleet agent
+           protocol (POST /run/stream), with liquidai's LFM as the model and
+           this chain's MCP tools (mcp.postquant.*) as its hands. The model
+           picks the tools; postquant picks which tools it is offered — read
+           tools only unless the caller may write. See fleet.py.
     chat   (on when the liquidai module is)  conversation, with the rules
            brain as its hands. Commands in the message are parsed and
            executed by rules first — deterministic, gated, free — then the
@@ -61,8 +67,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.append(HERE)
 
+import fleet                                                    # noqa: E402
 import lfm                                                      # noqa: E402
-import mcp as mcpsrv                                            # noqa: E402
+import mcp as mcpsrv                                           # noqa: E402
 from state import StateError                                    # noqa: E402
 
 LLM_URL = os.environ.get('POSTQUANT_AGENT_LLM', '').rstrip('/')
@@ -719,6 +726,82 @@ def _run_chat(query, can_write, emit, history=None):
         return answer, steps, note
 
 
+# ── the agent brain (orbit/agent's loop, liquidai's LFM, our tools) ─
+
+_AGENT_RULES = (
+    "\nYou have this chain's tools. Call them to look things up or act, then "
+    "answer from what they returned. Never invent numbers, hashes or "
+    "balances. An amount given as a string like \"25\" is PQ.")
+
+
+def _agent_allowed(can_write):
+    return {n for n in mcpsrv.TOOLS if can_write or n not in mcpsrv.WRITE_TOOLS}
+
+
+def _run_agent(query, can_write, emit, model=None, history=None):
+    """orbit/agent picks the tools and loops; we relay. Returns (answer,
+    steps, fallback_note). Before anything ran, a failure hands the message to
+    the chat brain; after a step ran, it never does — that would re-sign."""
+    prompt = CHAT_PERSONA + _AGENT_RULES + (
+        '' if can_write else '\nThis caller may not write: only read tools '
+        'are available. To price a write, use pq_quote.')
+    turns = [h for h in (history or [])[-6:] if isinstance(h, dict)
+             and h.get('role') in ('user', 'assistant') and h.get('content')]
+    if turns:
+        prompt += '\nConversation so far:\n' + '\n'.join(
+            f"{h['role']}: {str(h['content'])[:400]}" for h in turns)
+    names = fleet.tools(query, _agent_allowed(can_write))
+    steps, last_text, err = [], '', None
+    try:
+        for ev in fleet.stream(query, names, prompt, model=model):
+            kind = ev.get('type')
+            if kind == 'model_start':
+                emit({**ev, 'brain': 'agent', 'provider': fleet.PROVIDER})
+            elif kind == 'tool_start':
+                emit({**ev, 'tool': fleet.local_tool(ev.get('tool'))})
+            elif kind == 'step':
+                s = dict(ev.get('step') or {})
+                tool = s.get('tool')
+                if tool in ('response', 'finish'):
+                    p = s.get('params') or {}
+                    last_text = (p.get('summary') if tool == 'finish' else None) \
+                        or (s.get('result') if isinstance(s.get('result'), str) else '') \
+                        or last_text
+                    continue
+                s['tool'] = fleet.local_tool(tool)
+                if 'result' in s:
+                    s['result'] = fleet.unwrap(s['result'])
+                steps.append(s)
+                emit({'type': 'step', 'step': s})
+            elif kind == 'error':
+                err = ev.get('error') or 'orbit/agent run failed'
+                break
+            elif kind == 'done':
+                for s in ev.get('result') or []:
+                    if isinstance(s, dict) and s.get('tool') == 'finish':
+                        last_text = (s.get('params') or {}).get('summary') or last_text
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        err = f'{type(e).__name__}: {e}'
+    answer = fleet.clean(last_text)
+    if answer and not err:
+        emit({'type': 'token', 'text': answer})
+        return answer, steps, None
+    note = f'orbit/agent unavailable ({err or "no answer"})'
+    if not steps:
+        emit({'type': 'status', 'text': note + ' — used chat'})
+        answer, more, fb = _run_chat(query, can_write, emit, history)
+        return answer, more, note + (f'; {fb}' if fb else ' — used chat')
+    def line(s):
+        try:
+            return summarize(s['tool'], s.get('params') or {}, s['result'])
+        except Exception:                               # noqa: BLE001
+            return f"{s['tool']}: {s.get('error') or 'ran'}"
+    answer = '\n'.join(line(s) for s in steps)
+    emit({'type': 'status', 'text': note + ' — summarised what ran'})
+    emit({'type': 'token', 'text': answer})
+    return answer, steps, note
+
+
 # ── the llm brain (optional, local first) ─────────────────────────
 
 def llm_key():
@@ -812,6 +895,14 @@ def _run_llm(query, can_write, emit, model=None, history=None, steps_max=MAX_STE
 
 def brains():
     return {'rules': {'ready': True, 'local': True, 'cost': 'free'},
+            'agent': {'ready': fleet.ready(), 'local': True, 'cost': 'free',
+                      'model': fleet.MODEL if fleet.enabled() else None,
+                      'provider': fleet.PROVIDER, 'url': fleet.URL or None,
+                      'how': 'orbit/agent runs the loop (agent protocol '
+                             '/run/stream) with the liquidai LFM as its model '
+                             'and this chain\'s MCP tools as its hands — the '
+                             'model picks the tools; write tools are only '
+                             'offered when the caller may write'},
             'chat': {'ready': lfm.ready(), 'local': True, 'cost': 'free',
                      'model': lfm.MODEL if lfm.enabled() else None,
                      'provider': 'liquidai', 'url': lfm.URL or None,
@@ -866,8 +957,9 @@ def run_stream(query, agent=None, can_write=False, brain='auto', model=None,
         return
     can_write = bool(can_write and AGENTS[key]['writes'])
     t0 = time.time()
-    use = brain if brain in ('rules', 'llm', 'chat') else \
-        ('llm' if llm_ready() else 'chat' if lfm.ready() else 'rules')
+    use = brain if brain in ('rules', 'llm', 'chat', 'agent') else \
+        ('llm' if llm_ready() else 'agent' if fleet.ready()
+         else 'chat' if lfm.ready() else 'rules')
     fell_back = None
     # The brain runs on a thread and the generator drains its queue, so the
     # caller sees tool_start before a slow witness or a slow model finishes.
@@ -877,6 +969,11 @@ def run_stream(query, agent=None, can_write=False, brain='auto', model=None,
     def work():
         nonlocal fell_back
         try:
+            if use == 'agent':
+                answer, steps, fell_back = _run_agent(query, can_write, q.put,
+                                                      model, history)
+                box['out'] = (answer, steps)
+                return
             if use == 'chat':
                 # chat does its own degrading: steps run exactly once up
                 # front, and only the voice falls back to their summaries.
@@ -913,7 +1010,8 @@ def run_stream(query, agent=None, can_write=False, brain='auto', model=None,
     finish = {'tool': 'finish', 'params': {'summary': answer}}
     yield {'type': 'step', 'step': finish}
     yield {'type': 'done', 'result': answer, 'steps': steps, 'agent': key,
-           'brain': 'rules' if fell_back else use, 'fallback': fell_back,
+           'brain': use if use == 'agent' or not fell_back else 'rules',
+           'fallback': fell_back,
            'can_write': can_write, 'free': True,
            'ms': int((time.time() - t0) * 1000)}
 

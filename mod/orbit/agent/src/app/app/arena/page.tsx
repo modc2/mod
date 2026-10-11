@@ -83,7 +83,7 @@ export default function ArenaPage() {
   const openConsole = () => { window.open(BASE || '/', '_blank', 'noopener') }
 
   return (
-    <main className="h-screen flex flex-col bg-surface-0">
+    <main className="fixed inset-0 flex flex-col bg-surface-0">
       <div className="flex-1 min-h-0 flex">
         <Arena token={auth?.token} isHost={isHost} address={auth?.address}
           onSignIn={openConsole}

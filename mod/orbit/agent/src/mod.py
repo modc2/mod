@@ -2455,6 +2455,14 @@ class Mod(Agent):
         addr = addr.lower()
         return addr == self._owner.lower() or addr in getattr(self, '_co_owners', ())
 
+    def is_host(self, key=None) -> bool:
+        """A VERIFIED token signed by this server's own key. key=None is not
+        the host — it is an anonymous caller that resolves to the default."""
+        if key is None or not getattr(self, 'key', None):
+            return False
+        addr = self._resolve_address(key, verified=True)
+        return bool(addr) and addr.lower() == self.key.address.lower()
+
     def require_owner(self, key=None, operation: str = "this operation"):
         """Raise PermissionError if caller is not the owner."""
         if not self.is_owner(key):
@@ -2466,9 +2474,13 @@ class Mod(Agent):
         """Return allowed write paths for the caller.
 
         Owner: None (unrestricted)
+        Host:  None — a token signed by this box's own key (a sibling module
+               calling in, e.g. postquant's chat driving its own MCP tools).
+               Holding that key already means a shell on the host, and
+               "fleet tools are host-only" is exactly about the host.
         Others: [registry/mods/{address}/]
         """
-        if self.is_owner(key):
+        if self.is_owner(key) or self.is_host(key):
             return None
         addr = self._resolve_address(key).lower()
         mods_dir = os.path.join(self._mods_root, addr)
