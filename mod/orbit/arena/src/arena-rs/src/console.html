@@ -584,6 +584,12 @@
   .askbox input, .askbox textarea { width: 100%; margin-bottom: 14px; }
   .askbox .row { justify-content: flex-end; }
   button.danger { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
+  /* ── portal: framed by another console (?portal) ─────────────────────────
+     The host draws the arena's chrome — sections, sign-in, the + buttons —
+     so the page shows only its views and lets the host's frame be the edge. */
+  html.portal header, html.portal nav.bottom { display: none !important; }
+  html.portal body { padding-bottom: 0 !important; }
+  html.portal main { padding-top: 14px; }
 </style>
 </head>
 <body>
@@ -1292,7 +1298,30 @@ const TOKEN_KEY = "arena_token";
 let me = { address: null, box_owner: false, host: "" };
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
-function authHeaders() { const t = lsGet(TOKEN_KEY); return t ? { token: t } : {}; }
+// A token handed over by a portal host for a session it was asked not to
+// keep lives here only — never in localStorage, so it dies with the frame.
+let memToken = null;
+const currentToken = () => memToken || lsGet(TOKEN_KEY);
+function authHeaders() { const t = currentToken(); return t ? { token: t } : {}; }
+
+// ── portal ───────────────────────────────────────────────────────────────
+// Framed by another console of this fleet (the agent module's ARENA tab
+// loads /arena?portal), the arena is one identity with its host: the host
+// hands its token over, and sign-in / sign-out go back to the host's own
+// prompt, so there is one key and one place it is asked for. Only a parent
+// on this origin (or a dev box on localhost) is listened to — a page that
+// frames the arena from anywhere else cannot plant an identity in it.
+const PORTAL = window.parent !== window && new URLSearchParams(location.search).has("portal");
+if (PORTAL) document.documentElement.classList.add("portal");
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+let portalOrigin = null;   // learned from the host's first trusted message
+function toPortal(msg) {
+  if (!PORTAL) return;
+  // "ready" carries nothing but the fact; everything else waits for the host
+  // to have proved its origin.
+  if (msg.type === "arena-ready") window.parent.postMessage(msg, "*");
+  else if (portalOrigin) window.parent.postMessage(msg, portalOrigin);
+}
 const b64url = (text) => btoa(String.fromCharCode(...new TextEncoder().encode(text)))
   .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const shortAddr = (a) => (a && a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a || "");
@@ -1333,8 +1362,8 @@ async function loadMe() {
   try { me = await call("/whoami"); }
   catch (e) { unreachable = e.message || "unreachable"; me = { address: null, box_owner: false, host: "" }; }
   if (unreachable) toast(`the arena is unreachable — ${unreachable}`, true);
-  else if (lsGet(TOKEN_KEY) && !me.address) {
-    lsSet(TOKEN_KEY, null);
+  else if (currentToken() && !me.address) {
+    lsSet(TOKEN_KEY, null); memToken = null;
     if (me.error) toast(`signed out — ${me.error}`, true);
   }
   const b = $("me");
@@ -1343,12 +1372,16 @@ async function loadMe() {
     : ["sign in"]));
   b.title = me.address ? `${me.address}${me.box_owner ? " — you run this box" : ""}` : "sign in with your wallet";
   $("g-scope").hidden = !me.address;
+  toPortal({ type: "arena-me", address: me.address, box_owner: !!me.box_owner });
   renderGames();
   if (openGame && !$("view-game").hidden) gameActions(openGame);
   if (!$("view-studio").hidden) studioDraw();
 }
 
 async function signIn() {
+  // In a portal the host owns sign-in: its prompt, its key. It answers with
+  // a mod-auth message, which loads us as whoever it signed in.
+  if (PORTAL && portalOrigin) { toPortal({ type: "mod-signin" }); return false; }
   const eth = window.ethereum;
   if (!eth) {
     const pasted = await ask({
@@ -1384,6 +1417,7 @@ $("me").onclick = async () => {
   const r = await ask({ title: shortAddr(me.address),
     body: `${me.address}\n${me.box_owner ? "you run this box — you can edit every game here" : "you can edit the games you made"}`,
     choices: [["mine", "my games"], ["out", "sign out", true]], cancel: "close" });
+  if (r === "out" && PORTAL && portalOrigin) { toPortal({ type: "mod-signout" }); return; }
   if (r === "out") { lsSet(TOKEN_KEY, null); await loadMe(); toast("signed out"); }
   if (r === "mine") { gameScope = "mine"; show("games"); renderGames(); }
 };
@@ -1425,6 +1459,7 @@ function show(view) {
     b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
   if (view === "docs") openDocs();
   window.scrollTo({ top: 0 });
+  toPortal({ type: "arena-view", view: tab });
 }
 $("tabs").querySelectorAll("button").forEach((b) => (b.onclick = () => show(b.dataset.tab)));
 $("brand").onclick = () => show("lobby");
@@ -3681,6 +3716,34 @@ $("st-new").onclick = async () => {
 
 setInterval(() => { if (!document.hidden && !$("view-lobby").hidden) loadFeed(); }, 15000);
 
+// The host's side of the portal: its identity, where to go, its theme.
+window.addEventListener("message", async (e) => {
+  if (!PORTAL || e.source !== window.parent) return;
+  if (e.origin !== location.origin && !LOCAL_ORIGIN.test(e.origin)) return;
+  const m = e.data || {};
+  if (typeof m.type !== "string") return;
+  portalOrigin = e.origin;
+  if (m.type === "mod-auth") {
+    const t = typeof m.token === "string" && m.token ? m.token : null;
+    if (t === currentToken() && me.address) { toPortal({ type: "arena-me", address: me.address, box_owner: !!me.box_owner }); return; }
+    memToken = t && m.ephemeral ? t : null;
+    if (!m.ephemeral) lsSet(TOKEN_KEY, t);
+    await loadMe();
+  } else if (m.type === "arena-go") {
+    const to = String(m.to || "");
+    if (["lobby", "agents", "games", "docs"].includes(to)) show(to);
+    else if (to === "vibe") openStudio({});
+    else if (to === "vibe-agent") openStudio({ role: "player" });
+    else if (to === "upload") openUpload();
+    else if (to.startsWith("game/")) openGamePage(to.slice(5)).catch((err) => toast(err.message, true));
+  } else if (m.type === "arena-theme" && typeof m.theme === "string") {
+    applyTheme(m.theme, false);
+  }
+});
+// Signed in or out in another tab of this origin (the arena, or a console
+// sharing its key): follow it rather than calling as a stale identity.
+window.addEventListener("storage", (e) => { if (e.key === TOKEN_KEY && !memToken) loadMe(); });
+
 // ── boot ─────────────────────────────────────────────────────────────────
 try {
   await loadMe();
@@ -3694,10 +3757,13 @@ try {
   else if (location.hash === "#vibe") openStudio({});
   else if (location.hash === "#vibe-agent") openStudio({ role: "player" });
   else if (location.hash === "#upload") openUpload();
+  else if (["#agents", "#games", "#docs"].includes(location.hash)) show(location.hash.slice(1));
 } catch (e) {
   $("banner").textContent = `cannot reach the server: ${e.message}`;
   $("banner").className = "counts bad";
 }
+// Up either way — a host waiting on a dead server should see the page say so.
+toPortal({ type: "arena-ready", view: document.querySelector("#tabs button[aria-selected='true']")?.dataset.tab || "lobby" });
 </script>
 </body>
 </html>
