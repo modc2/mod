@@ -63,5 +63,5 @@
         "POST /cairo/remove": "Delete a submod (name=)"
     },
     "safety": "vibe() runs the Claude CLI with --permission-mode acceptEdits scoped to a single submod directory (--add-dir), so edits and scarb/snforge runs stay inside that contract's project. It uses the host Claude OAuth credentials and spends against them. No keys are deployed and nothing is sent to a live chain; sncast is present for the user to deploy by hand.",
-    "schema": "QmVcLXGwxet24H8Hrv6Ar5mg35Equc5sTPz3KmatWLLBwN"
+    "schema": "QmSBPGDQaBEAqtgaC5BJ3DqRmyyjuNotWRaP48RBPk5SYf"
 }

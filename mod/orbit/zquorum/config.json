@@ -1,0 +1,70 @@
+{
+    "name": "zquorum",
+    "title": "zQuorum \u00b7 anonymous quorums in Cairo",
+    "version": "0.1.0",
+    "description": "A group reaches a quorum without revealing who voted. Members register Pedersen commitments; a vote reveals only a nullifier \u2014 unlinkable to any member without their secret, and a repeated nullifier is a rejected double vote. All cryptography (commit, nullifier, set root, vote check) runs as a Cairo 2 program in circuit/ so the anchor never reimplements a hash, and the statement is already prover-shaped for the v0.2 STARK upgrade. Python-stdlib anchor keeps the quorum ledger (public books: tallies and nullifiers, never identities) over scarb 2.8.4.",
+    "icon": "Q",
+    "color": "#8b5cf6",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51300,
+    "app_port": 51300,
+    "gateway_port": 51300,
+    "base_path": "/zquorum",
+    "route": false,
+    "urls": {
+        "api": "http://localhost:51300",
+        "app": "http://localhost:51300/zquorum/"
+    },
+    "protocol": {
+        "scheme": "commit/nullifier (Semaphore-style), Pedersen over the STARK field",
+        "commitment": "C = pedersen('zq-commit', secret)",
+        "nullifier": "N = pedersen(pedersen('zq-null', secret), topic)",
+        "root": "fold pedersen('zq-root', ...) over the sorted commitment set",
+        "freeze": "the member set freezes at the first vote",
+        "circuit": "circuit/ (Cairo package zq); run via scarb cairo-run, tested via scarb cairo-test",
+        "trust_v0_1": "anchor = trusted tallier; sees a secret transiently during verification, persists only (nullifier, choice)",
+        "upgrade_v0_2": "STARK-prove the same circuit so votes verify without the tallier seeing secrets"
+    },
+    "toolchain": {
+        "scarb": "2.8.4",
+        "edition": "2024_07",
+        "bin_dir": "~/.local/bin"
+    },
+    "state": "data/quorums.json (gitignored runtime ledger). Secrets are never stored anywhere.",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "toolchain",
+        "commit",
+        "create",
+        "join",
+        "vote",
+        "tally",
+        "get",
+        "list",
+        "quorums",
+        "remove",
+        "build",
+        "test",
+        "status",
+        "serve",
+        "kill"
+    ],
+    "endpoints": {
+        "GET /health": "Liveness probe",
+        "GET /status": "Toolchain + quorum catalog",
+        "POST /zquorum/commit": "Derive a commitment from a secret (run client-side; secret=)",
+        "POST /zquorum/create": "Open a quorum (name=, threshold=, desc=)",
+        "POST /zquorum/join": "Register a member commitment (name=, commitment=)",
+        "POST /zquorum/vote": "Cast an anonymous vote (name=, secret=, choice=yes|no)",
+        "POST /zquorum/tally": "Counts + reached, never identities (name=)",
+        "POST /zquorum/get": "One quorum's public record (name=)",
+        "POST /zquorum/list": "All quorums with tallies",
+        "POST /zquorum/test": "Run the circuit's cairo-test suite"
+    },
+    "safety": "No chain, no keys, no funds: a local ceremony ledger. Secrets are verified by executing the Cairo circuit and are never persisted; the ledger stores commitments, nullifiers and choices only. route=false keeps the API off the gateway until deliberately exposed.",
+    "schema": "Qmbfqn6oZM2iAaktq8Qx1UBSykssRWgrr578PzBnQWEQHG"
+}

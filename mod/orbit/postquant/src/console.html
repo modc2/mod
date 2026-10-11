@@ -147,6 +147,85 @@
   .kv{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;font-size:12.5px}
   .kv b{color:var(--dim);font-weight:600}
   .tabs2{display:flex;gap:6px;margin-bottom:10px}
+  [data-copy]{cursor:copy}
+  @keyframes tickflash{0%{color:var(--pq);text-shadow:0 0 20px rgba(157,123,255,.9)}
+                       100%{color:inherit}}
+  b.tickflash{animation:tickflash 1.4s ease}
+  /* ── HOME: the front door ── */
+  .hero{text-align:center;padding:42px 16px 18px;animation:fadeup .4s ease}
+  .hero .big{font-size:58px;line-height:1;color:var(--pq);
+       animation:glyphpulse 4s ease-in-out infinite}
+  .hero h1{font-size:clamp(34px,6vw,54px);letter-spacing:.14em;margin:10px 0 8px;
+       font-weight:700;text-shadow:0 0 44px rgba(157,123,255,.18)}
+  .hero .p{background:linear-gradient(105deg,#b394ff,var(--pq) 70%);
+       -webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero .q{background:linear-gradient(105deg,var(--gold) 30%,#f2d488);
+       -webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero .h-sub{font-size:19px;color:var(--ink);margin:0 0 10px}
+  .hero .h-line{color:var(--dim);font-size:13px;max-width:660px;margin:0 auto 10px}
+  .hero .h-kbd{color:var(--dim);font-size:11px;letter-spacing:.08em}
+  .hero kbd{border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;
+       padding:1px 6px;background:#101724;font:inherit;font-size:10px;color:var(--ink)}
+  .doors{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+       max-width:980px;margin:0 auto 14px}
+  .door{position:relative;border:1px solid var(--line);border-radius:11px;cursor:pointer;
+       padding:18px 18px 16px;background:linear-gradient(180deg,#0d131c,#0b1017);
+       transition:border-color .15s, transform .15s, box-shadow .15s}
+  .door:hover{border-color:var(--pq-dim);transform:translateY(-2px);
+       box-shadow:0 10px 30px rgba(0,0,0,.4), 0 0 18px rgba(157,123,255,.12)}
+  .door .dg{font-size:22px;color:var(--pq);margin-bottom:8px}
+  .door b{display:block;font-size:14px;margin-bottom:6px;letter-spacing:.04em}
+  .door p{color:var(--dim);font-size:12px;margin:0 0 12px;line-height:1.55}
+  .door .cta{display:inline-block;border:1px solid var(--pq-dim);border-radius:5px;
+       padding:3px 12px;font-size:11px;letter-spacing:.14em;color:#d6c9fa;
+       background:linear-gradient(180deg,#2a2148,#161126)}
+  .door:hover .cta{border-color:var(--pq);color:#fff;
+       box-shadow:0 0 14px rgba(157,123,255,.3)}
+  .home-wrap{max-width:980px;margin:0 auto 14px}
+  .j-step{display:flex;gap:10px;align-items:baseline;padding:8px 0;
+       border-bottom:1px solid #121a24;font-size:12.5px;animation:fadeup .25s ease}
+  .j-step:last-child{border-bottom:0}
+  .j-step .g{flex:none;width:16px;text-align:center}
+  .j-step .g.run{color:var(--pq);animation:glyphpulse 1.2s ease-in-out infinite}
+  .j-step b{flex:none;min-width:230px;font-weight:600}
+  .j-step .d{word-break:break-word}
+  .j-fin{border-left:3px solid var(--pq);padding:6px 0 6px 16px;margin-top:12px;
+       color:#c3d0dd;font-size:13.5px;animation:fadeup .3s ease}
+  @media (max-width:700px){.j-step{flex-wrap:wrap}.j-step b{min-width:0}}
+  /* ── the palette: one keystroke to anywhere ── */
+  #pal-wrap{position:fixed;inset:0;z-index:40;display:none;
+       background:rgba(4,6,9,.6);backdrop-filter:blur(3px)}
+  #pal-wrap.open{display:block}
+  #pal{width:min(560px,calc(100vw - 32px));margin:12vh auto 0;
+       background:linear-gradient(180deg,#0e141d,#0b1017);
+       border:1px solid var(--line2);border-radius:12px;overflow:hidden;
+       box-shadow:0 24px 70px rgba(0,0,0,.6), 0 0 0 1px rgba(157,123,255,.1);
+       animation:fadeup .15s ease}
+  #pal-q{width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;
+       padding:13px 16px;font-size:14px;background:transparent}
+  #pal-q:focus{box-shadow:none}
+  #pal-list{max-height:320px;overflow:auto;padding:6px}
+  .pal-it{display:flex;gap:10px;align-items:baseline;padding:8px 12px;border-radius:7px;
+       cursor:pointer;font-size:13px}
+  .pal-it .k{color:var(--pq);flex:none}
+  .pal-it .h{color:var(--dim);font-size:11px;margin-left:auto;flex:none;
+       padding-left:14px}
+  .pal-it.sel,.pal-it:hover{background:rgba(157,123,255,.12)}
+  #pal-hint{padding:7px 14px;border-top:1px solid var(--line);color:var(--dim);
+       font-size:10.5px;letter-spacing:.08em}
+  .kbtn{border:1px solid var(--line);border-radius:5px;background:transparent;
+       color:var(--dim);font-size:10.5px;letter-spacing:.1em;padding:4px 9px}
+  .kbtn:hover{color:var(--ink);border-color:var(--line2)}
+  /* ── toasts ── */
+  #toasts{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
+       z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;
+       pointer-events:none}
+  .toast{border:1px solid var(--pq-dim);border-radius:8px;padding:7px 16px;
+       background:linear-gradient(180deg,#1b1530,#121022);color:#e6ddfd;
+       font-size:12px;box-shadow:0 8px 28px rgba(0,0,0,.5), 0 0 16px rgba(157,123,255,.18);
+       animation:fadeup .2s ease}
+  .toast.bad{border-color:#6b2c2c;color:#ffb9b9;
+       background:linear-gradient(180deg,#2a1515,#1a0e0e)}
   /* ── BUILDER: the key type DAG ── */
   #dag-wrap{overflow:auto;border:1px solid var(--line);border-radius:8px;
             background:var(--inset);margin-bottom:10px}
@@ -214,16 +293,44 @@
   .paper .wp-mode button.on{box-shadow:0 0 12px rgba(157,123,255,.18)}
   .paper.human .sci{display:none}
   .paper:not(.human) .hum{display:none}
-  /* ── the corner helper: the agent, within reach of the paper ── */
-  #wp-help{position:fixed;right:20px;bottom:20px;z-index:8;display:none;
-           flex-direction:column;align-items:flex-end;gap:10px}
-  #wp-help.show{display:flex}
-  #wp-fab{width:52px;height:52px;border-radius:50%;font-size:21px;
-          border-color:var(--pq-dim);color:#d6c9fa;
-          background:linear-gradient(180deg,#2a2148,#161126);
-          box-shadow:0 6px 22px rgba(0,0,0,.5), 0 0 18px rgba(157,123,255,.28)}
-  #wp-fab:hover{border-color:var(--pq);color:#fff;
-          box-shadow:0 6px 22px rgba(0,0,0,.5), 0 0 26px rgba(157,123,255,.45)}
+  /* ── the corner agent: the one agent door, floating bottom-right on
+     every tab — the same glassy violet orb as the build console's
+     .agent-fab. Closed = violet orb with a breathing halo; .is-open =
+     dark ringed orb above the unfolded chat (press again to fold). ── */
+  #wp-help{position:fixed;right:20px;bottom:20px;z-index:30;display:flex;
+           flex-direction:column;align-items:flex-end;gap:12px}
+  #wp-fab{position:relative;width:64px;height:64px;padding:0;border:0;
+          border-radius:999px;background:transparent;cursor:pointer;
+          display:grid;place-items:center;
+          transition:transform .18s cubic-bezier(.2,.8,.2,1);
+          animation:fab-in .28s cubic-bezier(.2,.8,.2,1)}
+  #wp-fab .halo{position:absolute;inset:-6px;border-radius:inherit;pointer-events:none;
+          background:radial-gradient(circle, rgba(167,139,250,.38) 0%, transparent 70%);
+          animation:fab-breathe 3.2s ease-in-out infinite}
+  #wp-fab .face{position:relative;width:100%;height:100%;border-radius:inherit;
+          display:grid;place-items:center;font-size:24px;color:#f5f3ff;
+          text-shadow:0 1px 2px rgba(30,10,70,.55);
+          background:radial-gradient(120% 90% at 30% 15%, rgba(255,255,255,.28), transparent 45%),
+                     linear-gradient(150deg,#a78bfa 0%,#7c3aed 48%,#4c1d95 100%);
+          border:1px solid rgba(221,214,254,.45);
+          box-shadow:0 14px 34px -6px rgba(76,29,149,.65), 0 4px 12px rgba(0,0,0,.45),
+                     inset 0 -6px 14px rgba(46,16,101,.55), inset 0 1px 0 rgba(255,255,255,.35);
+          transition:box-shadow .18s ease, filter .18s ease, background .18s ease}
+  #wp-fab:hover{transform:translateY(-3px) scale(1.05)}
+  #wp-fab:hover .face{filter:brightness(1.1);
+          box-shadow:0 18px 40px -6px rgba(124,58,237,.75), 0 0 0 6px rgba(167,139,250,.16),
+                     inset 0 -6px 14px rgba(46,16,101,.5), inset 0 1px 0 rgba(255,255,255,.4)}
+  #wp-fab:active{transform:scale(.95)}
+  #wp-fab.is-open .halo{animation:none;opacity:0}
+  #wp-fab.is-open .face{color:#c4b5fd;
+          background:radial-gradient(120% 90% at 30% 15%, rgba(255,255,255,.12), transparent 45%),
+                     linear-gradient(150deg,#2e2a45 0%,#1c1830 100%);
+          border-color:rgba(167,139,250,.7);
+          box-shadow:0 10px 26px -6px rgba(0,0,0,.6), 0 0 0 3px rgba(167,139,250,.22),
+                     inset 0 1px 0 rgba(255,255,255,.1)}
+  @keyframes fab-in{from{opacity:0;transform:translateY(10px) scale(.85)}to{opacity:1;transform:none}}
+  @keyframes fab-breathe{0%,100%{transform:scale(.96);opacity:.7}50%{transform:scale(1.1);opacity:1}}
+  @media (prefers-reduced-motion: reduce){#wp-fab,#wp-fab .halo{animation:none}}
   #wp-chat{display:none;width:min(360px,calc(100vw - 40px));
            background:linear-gradient(180deg,#0d131c,#0b1017);
            border:1px solid var(--line2);border-radius:12px;overflow:hidden;
@@ -250,7 +357,8 @@
   <div class="mark"><span class="glyph">▧</span><span><span class="p">POST</span><span class="q">QUANT</span></span></div>
   <div class="tag">a key/value market where every byte pays rent — ML-DSA or SLH-DSA + SHA3, no curves, every witness checked by its key type's wasm</div>
   <nav>
-    <button data-tab="chain" class="on">CHAIN</button>
+    <button data-tab="home" class="on">HOME</button>
+    <button data-tab="chain">CHAIN</button>
     <button data-tab="ask">ASK</button>
     <button data-tab="store">STORE</button>
     <button data-tab="market">MARKET</button>
@@ -259,11 +367,55 @@
     <button data-tab="wallet">WALLET</button>
     <button data-tab="about">WHITEPAPER</button>
   </nav>
+  <button class="kbtn" id="pal-open" title="jump anywhere, run anything">CTRL K</button>
 </header>
 
 <main>
+  <!-- HOME --------------------------------------------------------------- -->
+  <section id="home" class="on">
+    <div class="hero">
+      <div class="big">▧</div>
+      <h1><span class="p">POST</span><span class="q">QUANT</span></h1>
+      <p class="h-sub">Own a name. Pay rent in bytes. Outlive the quantum computer.</p>
+      <p class="h-line">No elliptic curves anywhere — every signature is lattice or
+        pure hash, every witness re-checked inside sealed wasm, and anyone can
+        replay the whole chain from its first block.</p>
+      <p class="h-kbd"><kbd>CTRL</kbd> <kbd>K</kbd> jumps anywhere, runs anything</p>
+    </div>
+    <div class="doors">
+      <div class="door" id="door-start">
+        <div class="dg">▶</div><b>First key in 60 seconds</b>
+        <p>Forge a post-quantum wallet, fund it from the treasury, write a key,
+          and hold the Merkle proof — four steps, every one of them real.</p>
+        <span class="cta">BEGIN</span>
+      </div>
+      <div class="door" data-go="ask">
+        <div class="dg">▧</div><b>Ask the chain</b>
+        <p>Plain words in, signed transactions out. "create wallet alice then
+          faucet 100 to alice" — it shows every tool it ran.</p>
+        <span class="cta">ASK</span>
+      </div>
+      <div class="door" data-go="about">
+        <div class="dg">✦</div><b>Read the paper</b>
+        <p>One idea in two voices — HUMAN and SCIENTIST, the same truth either
+          way, with the chain's own agent in the corner.</p>
+        <span class="cta">READ</span>
+      </div>
+    </div>
+    <div class="panel home-wrap" id="journey" style="display:none">
+      <h2>your first key</h2>
+      <div id="j-steps"></div>
+      <div id="j-fin"></div>
+    </div>
+    <div class="panel home-wrap">
+      <h2>the chain, live</h2>
+      <div class="stats" id="home-stats"><span class="muted">loading…</span></div>
+      <p class="note" id="home-root" style="margin-top:10px"></p>
+    </div>
+  </section>
+
   <!-- CHAIN -------------------------------------------------------------- -->
-  <section id="chain" class="on">
+  <section id="chain">
     <div class="panel">
       <h2>the tip</h2>
       <div class="stats" id="head-stats"><span class="muted">loading…</span></div>
@@ -752,13 +904,12 @@
   </section>
 </main>
 
-<!-- the corner helper: the same agent as ASK, within reach of the paper -->
+<!-- the corner agent: the same agent as ASK, one orb on every tab -->
 <div id="wp-help">
   <div id="wp-chat">
-    <div class="hd"><span class="dot"></span>ASK THE PAPER
+    <div class="hd"><span class="dot"></span>ASK THE CHAIN
       <span class="muted" style="margin-left:auto;letter-spacing:0;text-transform:none">the chain's own agent</span></div>
-    <div id="wp-log"><div class="a muted">Anything the paper left you
-      wondering — ask here, or tap a question.</div></div>
+    <div id="wp-log"><div class="a muted">Anything the chain left you wondering — ask here, or tap a question.</div></div>
     <div id="wp-chips">
       <span class="chip">why no curves?</span>
       <span class="chip">what is rent?</span>
@@ -766,11 +917,23 @@
       <span class="chip">how does consensus work?</span>
       <span class="chip">what is 1 PQ?</span>
     </div>
-    <div id="wp-row"><input id="wp-q" type="text" placeholder="ask the paper…">
+    <div id="wp-row"><input id="wp-q" type="text" placeholder="ask the chain…">
       <button class="go" id="wp-go">ASK</button></div>
   </div>
-  <button id="wp-fab" title="ask the whitepaper">▧</button>
+  <button id="wp-fab" title="ask the chain" aria-label="ask the chain"
+    ><span class="halo"></span><span class="face">▧</span></button>
 </div>
+
+<!-- the palette: one keystroke to anywhere -->
+<div id="pal-wrap">
+  <div id="pal">
+    <input id="pal-q" type="text" placeholder="jump to a tab, run an action, or just ask…"
+           autocomplete="off" spellcheck="false">
+    <div id="pal-list"></div>
+    <div id="pal-hint">↑↓ choose · ENTER run · ESC close — anything else becomes a question for the agent</div>
+  </div>
+</div>
+<div id="toasts"></div>
 
 <script>
 'use strict';
@@ -812,10 +975,10 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
   document.querySelectorAll('main > section').forEach(x => x.classList.remove('on'));
   b.classList.add('on'); $(b.dataset.tab).classList.add('on');
-  $('wp-help').classList.toggle('show', b.dataset.tab === 'about');
   clearInterval(_chainTimer); _chainTimer = null;
   if (b.dataset.tab === 'chain') _chainTimer = setInterval(loadChain, 5000);
-  ({chain: loadChain, ask: loadAsk, store: loadKeys, market: loadMarket,
+  if (b.dataset.tab === 'home') _chainTimer = setInterval(loadHome, 5000);
+  ({home: loadHome, chain: loadChain, ask: loadAsk, store: loadKeys, market: loadMarket,
     builder: loadBuilder,
     wallet: () => { loadWallets(); loadAlgos(); },
     write: fillWallets}[b.dataset.tab] || (()=>{}))();
@@ -898,8 +1061,8 @@ $('ask-go').onclick = ask;
 $('ask-q').onkeydown = e => { if (e.key === 'Enter') ask(); };
 
 // One SSE reader for both askers — the ASK tab and the paper's corner helper.
-// body: {query, history?} — brain is left to the server's auto pick
-// (llm → chat → rules), so a liquidai outage degrades by itself.
+// body: {query, history?, brain?} — the ASK tab leaves brain to the server's
+// auto pick (llm → agent → chat → rules), so a liquidai outage degrades by itself.
 async function streamRun(body, handle) {
   const r = await fetch(API + '/run/stream', {method: 'POST',
     headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
@@ -931,9 +1094,10 @@ $('wp-sci').onclick = () => wpMode('sci');
 wpMode((() => { try { return localStorage.getItem('pq-wp-mode'); }
                 catch (e) { return null; } })() || 'human');
 
-// ── the corner helper: the same agent, one question at a time ──
+// ── the corner agent: one orb on every tab, like build's .agent-fab ──
 $('wp-fab').onclick = () => {
   const c = $('wp-chat'); c.classList.toggle('open');
+  $('wp-fab').classList.toggle('is-open', c.classList.contains('open'));
   if (c.classList.contains('open')) $('wp-q').focus();
 };
 document.querySelectorAll('#wp-chips .chip').forEach(c =>
@@ -950,14 +1114,18 @@ async function wpAsk(preset) {
   log.append(qd, ad); log.scrollTop = log.scrollHeight;
   let streamed = '';
   try {
-    // brain pinned to rules: the paper helper serves definitions, and the
-    // glossary verbatim beats a 1.2B paraphrase of it ("what is rent?" came
-    // back as a set command through chat). Flip to auto when chat answers
-    // pure-explain plans from the glossary.
-    await streamRun({query: q, history: wpHist.slice(-10), brain: 'rules'}, ev => {
+    // brain pinned to agent: the server-side fleet agent (orbit/agent +
+    // the resident liquidai LFM) picks the tools; agent.py itself falls
+    // back to chat → rules if orbit/agent is unreachable.
+    await streamRun({query: q, history: wpHist.slice(-10), brain: 'agent'}, ev => {
       if (ev.type === 'token') {
         streamed += ev.text;
         ad.className = 'a'; ad.textContent = streamed;
+      } else if (ev.type === 'model_start' && !streamed) {
+        ad.className = 'a muted';
+        ad.textContent = 'thinking… step ' + ((ev.step || 0) + 1);
+      } else if (ev.type === 'tool_start' && !streamed) {
+        ad.className = 'a muted'; ad.textContent = 'running ' + ev.tool + '…';
       } else if (ev.type === 'status') {
         ad.className = 'a muted'; ad.textContent = ev.text;
       } else if (ev.type === 'done') {
@@ -976,19 +1144,211 @@ async function wpAsk(preset) {
 $('wp-go').onclick = () => wpAsk();
 $('wp-q').onkeydown = e => { if (e.key === 'Enter') wpAsk(); };
 
+// ── toasts + click-to-copy ──
+function toast(msg, cls) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (cls ? ' ' + cls : '');
+  t.textContent = msg;
+  $('toasts').appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-copy]');
+  if (!t || !navigator.clipboard) return;
+  navigator.clipboard.writeText(t.dataset.copy)
+    .then(() => toast('copied ' + short(t.dataset.copy, 22)))
+    .catch(() => toast('copy failed', 'bad'));
+});
+
+// ── HOME: the front door ──
+const go = tab => document.querySelector(`nav button[data-tab="${tab}"]`).click();
+document.querySelectorAll('.door[data-go]').forEach(d => d.onclick = () => {
+  go(d.dataset.go);
+  if (d.dataset.go === 'ask') $('ask-q').focus();
+});
+let _homeHeight = null;
+async function loadHome() {
+  try {
+    const h = await api('/head');
+    const moved = _homeHeight !== null && h.height !== _homeHeight;
+    _homeHeight = h.height;
+    out('home-stats',
+      stat(h.height, 'block height', moved ? 'tickflash' : '') +
+      stat(h.keys, 'keys owned') +
+      stat(h.accounts, 'accounts') +
+      stat((h.schemes ? h.schemes.length : 1), 'key types') +
+      stat('<span class="amt">' + esc(pq(h.base_fee)) + '</span>', 'base fee nq/gas') +
+      stat('<span class="amt">' + esc(pq(h.burned)) + '</span>', 'PQ burned'));
+    const root = $('home-root');
+    root.innerHTML = 'state root <span class="mono addr" data-copy="' +
+      esc(h.state_root) + '" title="click to copy">' + short(h.state_root, 26) +
+      '</span> · a new block every few seconds · VERIFY replays all ' +
+      h.height + ' of them from genesis';
+  } catch (e) { out('home-stats', esc(e.message), 'err'); }
+}
+
+// ── the journey: a real wallet, real PQ, a real key, a real proof ──
+$('door-start').onclick = journey;
+let _jBusy = false;
+async function journey() {
+  if (_jBusy) return;
+  _jBusy = true;
+  const box = $('journey');
+  box.style.display = 'block';
+  box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  $('j-steps').innerHTML = ''; $('j-fin').innerHTML = '';
+  const name = 'pioneer', key = 'hello/' + name;
+  const step = label => {
+    const d = document.createElement('div');
+    d.className = 'j-step';
+    d.innerHTML = `<span class="g run">◆</span><b>${esc(label)}</b>` +
+      `<span class="d muted">working…</span>`;
+    $('j-steps').appendChild(d);
+    const g = d.querySelector('.g'), dd = d.querySelector('.d');
+    return {
+      ok(html) { g.textContent = '✔'; g.className = 'g good';
+                 dd.className = 'd'; dd.innerHTML = html; },
+      fail(e)  { g.textContent = '✘'; g.className = 'g bad';
+                 dd.className = 'd bad'; dd.textContent = e.message || e; }
+    };
+  };
+  let s = step('forge a post-quantum wallet');
+  try {
+    const list = await api('/wallet?action=list');
+    let w = (list.wallets || []).find(x => x.name === name);
+    if (!w) w = await api('/wallet', {action: 'create', name});
+    s.ok(`<span class="mono addr" data-copy="${esc(w.address)}" title="click to copy">` +
+      `${esc(w.address)}</span> — ${esc(w.scheme || 'ML-DSA-44')}, a lattice ` +
+      `signature with no elliptic curve to Shor through. The address itself ` +
+      `commits to the key type.`);
+
+    s = step('fund it from the treasury');
+    await api('/faucet', {wallet: name});
+    const acct = await api('/account?wallet=' + encodeURIComponent(name));
+    s.ok(`balance <span class="amt">${esc(pq(acct.balance))} PQ</span> — a real ` +
+      `signed transfer from genesis, in a real block, not a number in a database.`);
+
+    s = step('ask the market what a key costs');
+    const q = await api('/quote?' + new URLSearchParams(
+      {key, data: 'my first post-quantum commitment', hours: 24, wallet: name}));
+    s.ok(`<span class="amt">${esc(pq(q.total))} PQ</span> all in: write gas for ` +
+      `the bytes, witness gas for the signature's own ${q.gas.witness} gas ` +
+      `(big signatures pay their way), and 24h of rent escrow.`);
+
+    s = step(`sign + write "${key}"`);
+    const r = await api('/set', {key,
+      data: 'my first post-quantum commitment · ' + new Date().toISOString(),
+      hours: 24, wallet: name});
+    s.ok(`${esc(r.status)} in block <a href="#" class="j-blk" data-b="${esc(r.height ?? '')}">` +
+      `${r.height ?? '—'}</a> · tx <a href="#" class="j-tx mono" data-h="${esc(r.hash || '')}">` +
+      `${short(r.hash, 18)}</a> · a ${r.witness_bytes}-byte post-quantum witness, ` +
+      `verified inside its key type's sealed wasm.`);
+    box.querySelectorAll('.j-tx').forEach(a => a.onclick = ev => {
+      ev.preventDefault(); goInspect(a.dataset.h); });
+    box.querySelectorAll('.j-blk').forEach(a => a.onclick = ev => {
+      ev.preventDefault(); goBlock(+a.dataset.b); });
+
+    s = step('hold the Merkle proof');
+    const p = await api('/prove?key=' + encodeURIComponent(key));
+    s.ok(`<span class="${p.valid ? 'good' : 'bad'}">${p.valid ? 'VALID' : 'INVALID'}</span>` +
+      ` — ${p.path.length} hashes take your key to state root ` +
+      `<span class="mono" data-copy="${esc(p.root)}" title="click to copy">` +
+      `${short(p.root, 18)}</span>. Anything that can hash can check it — no ` +
+      `full node, no trust.`);
+
+    $('j-fin').className = 'j-fin';
+    $('j-fin').innerHTML = `That is the whole chain: you own bytes, the bytes ` +
+      `pay rent, and the proof fits in a pocket. Your key is live in the ` +
+      `<a href="#" id="j-store">STORE</a> for the next 24 hours — fund it to ` +
+      `keep it, sell it, or let it expire and someone sweeps the bond. ` +
+      `Or just <a href="#" id="j-ask">ask the chain</a> what to do next.`;
+    $('j-store').onclick = ev => { ev.preventDefault(); go('store');
+      $('get-key').value = key; $('get-btn').click(); };
+    $('j-ask').onclick = ev => { ev.preventDefault(); go('ask'); $('ask-q').focus(); };
+    loadHome();
+  } catch (e) { s.fail(e); }
+  _jBusy = false;
+}
+
+// ── the palette ──
+const PAL = [
+  ['HOME', 'the front door', () => go('home')],
+  ['CHAIN', 'blocks, mempool, verify', () => go('chain')],
+  ['ASK', 'the agent — plain words in', () => { go('ask'); $('ask-q').focus(); }],
+  ['STORE', 'every live key', () => go('store')],
+  ['MARKET', 'the price of a byte', () => go('market')],
+  ['BUILDER', 'compose key types', () => go('builder')],
+  ['WRITE', 'claim a key', () => { go('write'); $('w-key').focus(); }],
+  ['WALLET', 'the keystore + key types', () => go('wallet')],
+  ['WHITEPAPER', 'two voices, one truth', () => go('about')],
+  ['first key in 60 seconds', 'the guided journey', () => { go('home'); journey(); }],
+  ['mine a block now', 'force the proposer', async () => {
+    try { await api('/mine', {force: true}); toast('block mined'); }
+    catch (e) { toast(e.message, 'bad'); } }],
+  ['verify the chain', 'replay from genesis', () => { go('chain'); $('chain-verify').click(); }],
+  ['create a wallet', 'pick a key type', () => { go('wallet'); $('nw-name').focus(); }],
+];
+let palSel = 0, palItems = [];
+function palRender() {
+  const q = $('pal-q').value.trim().toLowerCase();
+  palItems = PAL.filter(([t, h]) =>
+    !q || t.toLowerCase().includes(q) || h.toLowerCase().includes(q));
+  const rows = palItems.map(([t, h], i) =>
+    `<div class="pal-it${i === palSel ? ' sel' : ''}" data-i="${i}">` +
+    `<span class="k">▸</span><span>${esc(t)}</span><span class="h">${esc(h)}</span></div>`);
+  if (q) rows.push(`<div class="pal-it${palSel === palItems.length ? ' sel' : ''}" data-i="ask">` +
+    `<span class="k">▧</span><span>ask the chain: "${esc($('pal-q').value.trim())}"</span>` +
+    `<span class="h">the agent answers</span></div>`);
+  $('pal-list').innerHTML = rows.join('');
+  $('pal-list').querySelectorAll('.pal-it').forEach(el => el.onclick = () => palRun(el.dataset.i));
+}
+function palRun(i) {
+  const q = $('pal-q').value.trim();
+  palClose();
+  if (i === 'ask' || +i >= palItems.length) {
+    go('ask'); $('ask-q').value = q; ask();
+  } else palItems[+i][2]();
+}
+function palOpen() {
+  $('pal-wrap').classList.add('open');
+  $('pal-q').value = ''; palSel = 0; palRender();
+  $('pal-q').focus();
+}
+function palClose() { $('pal-wrap').classList.remove('open'); }
+$('pal-open').onclick = palOpen;
+$('pal-wrap').onclick = e => { if (e.target === $('pal-wrap')) palClose(); };
+$('pal-q').oninput = () => { palSel = 0; palRender(); };
+$('pal-q').onkeydown = e => {
+  const max = palItems.length + ($('pal-q').value.trim() ? 1 : 0);
+  if (e.key === 'ArrowDown') { palSel = Math.min(palSel + 1, max - 1); palRender(); e.preventDefault(); }
+  else if (e.key === 'ArrowUp') { palSel = Math.max(palSel - 1, 0); palRender(); e.preventDefault(); }
+  else if (e.key === 'Enter' && max) palRun(palSel >= palItems.length ? 'ask' : palSel);
+};
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    $('pal-wrap').classList.contains('open') ? palClose() : palOpen();
+  } else if (e.key === 'Escape') palClose();
+});
+
 // ── CHAIN ──
 const stat = (v, k, cls) => `<div class="stat"><b class="${cls||''}">${v}</b><span>${k}</span></div>`;
+let _chainHeight = null;
 async function loadChain() {
   try {
     const h = await api('/head');
+    const moved = _chainHeight !== null && h.height !== _chainHeight;
+    _chainHeight = h.height;
     out('head-stats',
-      stat(h.height, 'height') +
+      stat(h.height, 'height', moved ? 'tickflash' : '') +
       stat('<span class="amt">' + esc(pq(h.base_fee)) + '</span>', 'base fee nq/gas') +
       stat(h.keys, 'keys') +
       stat(h.state_bytes, 'state bytes') +
       stat('<span class="amt">' + esc(pq(h.supply)) + '</span>', 'supply PQ') +
       stat('<span class="amt">' + esc(pq(h.burned)) + '</span>', 'burned PQ') +
       stat(h.mempool, 'mempool'));
+    $('chain-root').dataset.copy = h.state_root;
+    $('chain-root').title = 'click to copy the state root';
     $('chain-root').textContent = 'root ' + short(h.state_root, 22) +
       ' · ' + (h.schemes ? h.schemes.length + ' key types' + (h.wasm ? ', wasm-verified' : '')
                          : esc(h.scheme));
@@ -1404,7 +1764,7 @@ async function loadWallets() {
         '<th class="num">balance PQ</th><th class="num">nonce</th><th></th></tr>' +
         w.wallets.map(x => `<tr><td>${esc(x.name)}` +
           `${x.name === w.default ? ' <span class="pill">default</span>' : ''}</td>` +
-          `<td class="mono addr">${esc(x.address)}</td>` +
+          `<td class="mono addr" data-copy="${esc(x.address)}" title="click to copy">${esc(x.address)}</td>` +
           `<td class="mono muted">${esc(x.scheme)}</td>` +
           `<td class="num amt">${esc(pq(x.balance))}</td>` +
           `<td class="num">${x.nonce}</td>` +
@@ -1596,8 +1956,8 @@ $('x-send').onclick = async () => {
   })();
 })();
 
-loadChain(); fillWallets();
-_chainTimer = setInterval(loadChain, 5000);
+loadHome(); fillWallets();
+_chainTimer = setInterval(loadHome, 5000);
 </script>
 </body>
 </html>
