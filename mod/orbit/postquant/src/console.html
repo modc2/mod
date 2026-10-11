@@ -1699,7 +1699,7 @@ function ktDetail(name) {
     ${n.note ? `<b>note</b><span>${esc(n.note)}</span>` : ''}</div>
     <div class="row" style="margin-top:10px">
       <button class="go" id="kt-test">TEST PROOFS</button>
-      ${n.composite && !n.accounts_on_chain
+      ${(n.composite || n.origin === 'wasm') && !n.accounts_on_chain
         ? '<button id="kt-del">DELETE</button>' : ''}
     </div>`);
   $('kt-test').onclick = () => ktTest(name);

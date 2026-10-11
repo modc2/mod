@@ -58,6 +58,35 @@ persistent node host, and parity-tested against the python references
 (`parity_test.py`: valid / tampered-sig / tampered-msg / wrong-ctx /
 wrong-key across every scheme).
 
+### Bring your own key type
+
+The plugin dirs are the node operator's door (python runs as the node). The
+door for everyone else is `pq_keytype action=create wasm=<base64>`: the whole
+scheme — keygen, sign *and* verify — compiled to **one wasm blob exporting
+the pq2 ABI** (`pq_keygen(seed,seed_len,pk_out,sk_out)`,
+`pq_sign(sk,sk_len,msg,msg_len,ctx,ctx_len,sig_out)`, plus pq1's
+`pq_verify`), with the exact pk/sig/sk sizes declared at registration. The
+admission rule is that the scheme can be **verified deterministically**, and
+it is enforced, not promised: the blob must declare **zero imports** (parsed
+before a single instruction runs, and re-checked by the host on every call —
+an importless module has no clock, no randomness and no host call, so every
+export is a pure function of its inputs that any node can re-run forever),
+and it must survive the full proof battery (roundtrip, tampered
+message/signature, truncation, context and key binding, the entropy probe
+against its own keygen), a determinism double-run across fresh instances,
+runtime budgets (a verifier slower than `POSTQUANT_WASMTYPE_VERIFY_MS`,
+default 2s, is a mempool denial of service and is refused), and the same
+complexity floor as everything else. Any failure refuses the registration
+outright with the measurement attached — names are hashed into addresses and
+can never be rebound, so junk must not squat them. What admits is stored
+content-addressed (`~/.mod/postquant/wasmtypes/<sha3>.wasm` +
+`wasmtypes.json`) and from then on the hash *is* the algorithm: wallets pick
+it by name, witness gas bills its real bytes, composites may use it as a
+part, and replay re-judges its witnesses through the same pinned blob.
+`src/pq/wasm-src/examples/lamport.rs` is the worked example — Lamport
+one-time signatures over SHAKE256, ~60 lines of scheme, built with bare
+rustc and registered through the console's BUILDER tab or the tool.
+
 ## The key type builder
 
 Key types compose. `pq_keytype action=create op=all parts=ML-DSA-44,ed25519`

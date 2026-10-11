@@ -55,11 +55,17 @@ runs. `GET /agents` is the roster (the fleet agent contract).
    and which wasm blob (by SHA3-256) enforces it. `pq_complexity scheme=…`
    is the full measurement — brute-force bound under maximal entropy,
    Grover or polynomial quantum cost, probe results, gate verdict.
-   `pq_keytype` composes NEW key types out of registered ones (op=all hybrid
-   AND / op=any weakest-link OR, nestable — the registry is a DAG, drawn by
-   `pq_keytype_dag` and the console's BUILDER tab); `pq_keytype_test` runs
-   the proof battery (roundtrip, tamper, ablation, entropy probe) on any
-   key type.
+   `pq_keytype` adds NEW key types two ways: compose registered ones (op=all
+   hybrid AND / op=any weakest-link OR, nestable — the registry is a DAG,
+   drawn by `pq_keytype_dag` and the console's BUILDER tab), or BRING YOUR
+   OWN as `wasm=<base64>` — one importless wasm blob exporting the pq2 ABI
+   (keygen/sign/verify + declared pk/sig/sk sizes), admitted only if it can
+   be verified deterministically: zero imports (no clock/randomness/host),
+   the full proof battery, a determinism double-run, runtime budgets and the
+   complexity gate all pass, else refused with the measurement
+   (`src/pq/wasm-src/examples/lamport.rs` is the worked example).
+   `pq_keytype_test` runs the proof battery (roundtrip, tamper, ablation,
+   entropy probe) on any key type.
 2. `pq_wallet action=create scheme=…` then `pq_faucet` — writes need a funded
    wallet; scheme defaults to ML-DSA-44, `pq_algos` lists the choices.
    Amounts: a **string** ("25", "1.5") is PQ; a bare int is nq (1e-9).
