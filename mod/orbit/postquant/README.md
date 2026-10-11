@@ -16,7 +16,7 @@ If lattices fall, a hash-based witness still stands. Key exchange is ML-KEM
 secp256k1, because a curve is exactly the thing Shor's algorithm takes apart.
 What survives a quantum adversary is lattices and hashes, at worst with a
 square-root loss the parameter sizes already absorb. Every scheme is
-implemented from the FIPS specs in pure python under `pq/`, no dependencies.
+implemented from the FIPS specs in pure python under `src/pq/`, no dependencies.
 
 An account picks its key type at wallet creation and its address commits to
 the choice: `pq` + 20 bytes of domain-separated SHA3-256 over the algorithm's
@@ -27,7 +27,7 @@ later one does not.
 ## The wasm is the algorithm
 
 A key type is not a branch in the node's code — it is a compiled **wasm
-verifier** plus the SHA3-256 of its bytes (`pq/wasm/manifest.json`). Every
+verifier** plus the SHA3-256 of its bytes (`src/pq/wasm/manifest.json`). Every
 transaction the chain accepts has its witness checked *inside* the wasm
 module registered for its key's algorithm: the node refuses to run a blob
 whose hash does not match the registry, and refuses the witness outright if
@@ -35,12 +35,12 @@ the module cannot run. What "valid signature" means is thereby pinned to
 exact bytes any node can hash, ship and re-run.
 
 That is also what makes the key-type set amendable. A future algorithm is one
-plugin file — `pq/algos.d/<name>.py` in-tree, or `~/.mod/postquant/algos/`
+plugin file — `src/pq/algos.d/<name>.py` in-tree, or `~/.mod/postquant/algos/`
 per node — that registers keygen/sign/verify and stamps its `SigAlgo` with
-`wasm={file, sha3_256}`; the binding pass (`pq/algos.d/zz_wasm.py` →
-`pq/wasmvm.py`) then enforces that blob on every witness of that type. The
+`wasm={file, sha3_256}`; the binding pass (`src/pq/algos.d/zz_wasm.py` →
+`src/pq/wasmvm.py`) then enforces that blob on every witness of that type. The
 gate prices complexity instead of prohibiting classical: any key type may
-witness — `pq/algos.d/ed25519.py` is the worked classical example, admitted
+witness — `src/pq/algos.d/ed25519.py` is the worked classical example, admitted
 at ~2^126 best-known classical work — provided the best-known classical
 attack clears a 2^100 floor (brute force assuming a maximal-entropy seed)
 and, for plugin schemes, an empirical entropy probe holds up: deterministic
@@ -52,7 +52,7 @@ declared `quantum_safe=false` — and is reflected in witness gas, but only
 floor or failing the probe is refused with `insufficient_complexity` and
 the measurement attached.
 
-The builtin verifiers are dependency-free Rust in `pq/wasm-src/`, compiled
+The builtin verifiers are dependency-free Rust in `src/pq/wasm-src/`, compiled
 with bare rustc (no cargo, no network) by `build.sh`, executed by a
 persistent node host, and parity-tested against the python references
 (`parity_test.py`: valid / tampered-sig / tampered-msg / wrong-ctx /
@@ -118,8 +118,8 @@ light client needs to trust a commitment without holding the store.
 ## Run it
 
 ```
-python3 api.py                 # REST + console + MCP on :51030, block loop on
-python3 mcp.py                 # MCP over stdio
+python3 src/api.py             # REST + console + MCP on :51030, block loop on
+python3 src/mcp.py             # MCP over stdio
 python3 -m pytest tests -q     # the suite, against a throwaway chain
 ```
 
@@ -134,7 +134,7 @@ The chain speaks the fleet's agent contract, so you can just say what you
 want — in the console's ASK tab, over HTTP, or from the shell:
 
 ```
-python3 agent.py "create wallet alice then faucet 100 to alice"
+python3 src/agent.py "create wallet alice then faucet 100 to alice"
 curl -N localhost:51030/run/stream -d '{"query":"set greeting to hi for 2 days from alice then get greeting"}'
 GET  /agents                     # the roster orbit/build probes: pq, pq-reader
 ```
@@ -208,20 +208,20 @@ Writes are open by default on a local devnet. Create
 ## Layout
 
 ```
-pq/mldsa.py     ML-DSA (FIPS 204), pure python — keygen/sign/reference verify
-pq/slhdsa.py    SLH-DSA (FIPS 205), pure python — the hash-based hedge
-pq/mlkem.py     ML-KEM (FIPS 203), pure python
-pq/algos.py     the key-type registry; plugins in pq/algos.d/
-pq/wasmvm.py    the enforcement layer — every witness runs its type's wasm
-pq/wasm/        the verifier blobs + manifest.json (SHA3-256 per blob)
-pq/wasm-src/    their Rust sources, build.sh (bare rustc), parity_test.py
-state.py        the state machine — pure functions of (state, tx, timestamp)
-keys.py         keystore, addresses, transaction signing
-chain.py        blocks, mempool, the proposer, replay + verify
-mcp.py          28 tools; call_tool() is the one door
-agent.py        plain English → call_tool(); rules + chat (liquidai) + llm brains
-lfm.py          the chat brain's model: liquidai /chat SSE + its local token mint
-api.py          REST + console + MCP on one port
-console.html    the app
-mod.py          the module surface
+src/pq/mldsa.py   ML-DSA (FIPS 204), pure python — keygen/sign/reference verify
+src/pq/slhdsa.py  SLH-DSA (FIPS 205), pure python — the hash-based hedge
+src/pq/mlkem.py   ML-KEM (FIPS 203), pure python
+src/pq/algos.py   the key-type registry; plugins in src/pq/algos.d/
+src/pq/wasmvm.py  the enforcement layer — every witness runs its type's wasm
+src/pq/wasm/      the verifier blobs + manifest.json (SHA3-256 per blob)
+src/pq/wasm-src/  their Rust sources, build.sh (bare rustc), parity_test.py
+src/state.py      the state machine — pure functions of (state, tx, timestamp)
+src/keys.py       keystore, addresses, transaction signing
+src/chain.py      blocks, mempool, the proposer, replay + verify
+src/mcp.py        28 tools; call_tool() is the one door
+src/agent.py      plain English → call_tool(); rules + chat (liquidai) + llm brains
+src/lfm.py        the chat brain's model: liquidai /chat SSE + its local token mint
+src/api.py        REST + console + MCP on one port
+src/console.html  the app
+mod.py            the module surface
 ```

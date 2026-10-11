@@ -1,0 +1,67 @@
+{
+    "name": "cairo",
+    "title": "Cairo \u00b7 a ZK contract workbench",
+    "version": "0.1.0",
+    "description": "A Cairo/Starknet zero-knowledge contract workbench. Scaffold a Cairo 2 contract, vibecode it with an agent, build it and run its snforge tests \u2014 each contract is a self-contained Scarb project mounted as its own submod under orbit/cairo/<name>. Thin orchestration (Python stdlib) over the real toolchain already on this box: scarb 2.8.4, starknet-foundry (snforge/sncast) 0.31, universal-sierra-compiler. The 'vibecode' loop drives the headless Claude CLI, scoped to one submod, to write or edit Cairo and then verifies with build + test.",
+    "icon": "C",
+    "color": "#ff6b4a",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51291,
+    "app_port": 51291,
+    "gateway_port": 51291,
+    "base_path": "/cairo",
+    "route": false,
+    "urls": {
+        "api": "http://localhost:51291",
+        "app": "http://localhost:51291/cairo/"
+    },
+    "toolchain": {
+        "scarb": "2.8.4",
+        "snforge": "0.31.0",
+        "edition": "2024_07",
+        "bin_dir": "~/.local/bin"
+    },
+    "state": "Contracts live in-tree as submods at orbit/cairo/<name>/ (one Scarb project each). No external state dir; scarb target/ and .snfoundry_cache/ are gitignored.",
+    "submods": [
+        "counter"
+    ],
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "toolchain",
+        "list",
+        "contracts",
+        "get",
+        "tree",
+        "read",
+        "write",
+        "new",
+        "vibe",
+        "build",
+        "test",
+        "clean",
+        "remove",
+        "serve",
+        "kill",
+        "status"
+    ],
+    "endpoints": {
+        "GET /health": "Liveness probe",
+        "GET /status": "Toolchain + submod catalog",
+        "POST /cairo/info": "What this module is and the routes it serves",
+        "POST /cairo/list": "List contract submods with build/test status",
+        "POST /cairo/get": "One submod: files, Scarb.toml, last build/test (name=)",
+        "POST /cairo/new": "Scaffold a new contract submod (name=, desc=)",
+        "POST /cairo/vibe": "Vibecode a submod with the agent, then build + test (name=, prompt=)",
+        "POST /cairo/build": "scarb build one submod (name=)",
+        "POST /cairo/test": "snforge test one submod (name=); no name = module self-test",
+        "POST /cairo/read": "Read a file inside a submod (name=, path=)",
+        "POST /cairo/write": "Write a file inside a submod (name=, path=, content=)",
+        "POST /cairo/remove": "Delete a submod (name=)"
+    },
+    "safety": "vibe() runs the Claude CLI with --permission-mode acceptEdits scoped to a single submod directory (--add-dir), so edits and scarb/snforge runs stay inside that contract's project. It uses the host Claude OAuth credentials and spends against them. No keys are deployed and nothing is sent to a live chain; sncast is present for the user to deploy by hand.",
+    "schema": "QmVcLXGwxet24H8Hrv6Ar5mg35Equc5sTPz3KmatWLLBwN"
+}

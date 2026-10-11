@@ -4,7 +4,7 @@ A post-quantum L1 that is nothing but a market in key/value space. Multiple
 key types — ML-DSA 44/65/87 (FIPS 204, lattice) and SLH-DSA-SHAKE-128f
 (FIPS 205, hash-only) — chosen per wallet, SHA3-256 commitments, no elliptic
 curve anywhere. Every witness is verified by the wasm module registered for
-its key type (hash-committed in `pq/wasm/manifest.json`; fail closed), so an
+its key type (hash-committed in `src/pq/wasm/manifest.json`; fail closed), so an
 algorithm is a pluggable blob, not a branch in the node. A key maps to bytes —
 usually a 32-byte hash of data kept off-chain — and holding it costs three
 separate prices: write gas per byte, witness gas per signature byte (2420 for
@@ -95,7 +95,7 @@ runs. `GET /agents` is the roster (the fleet agent contract).
 - Verification needs node (the wasm host). No node → witnesses are refused,
   visibly (`pq_algos` → `wasm.engine`); `POSTQUANT_WASM=off` is the explicit
   dev-only opt-out. A new key type ships as a plugin .py (+ .wasm with its
-  declared sha3) in `pq/algos.d/` or `~/.mod/postquant/algos/`; classical
+  declared sha3) in `src/pq/algos.d/` or `~/.mod/postquant/algos/`; classical
   algorithms register but the mempool gate refuses their witnesses.
 - REST mirrors the tools 1:1 (`/set` = `pq_set`, args identical; reads GET,
   writes POST). `server.secret` in the state dir gates the write routes.

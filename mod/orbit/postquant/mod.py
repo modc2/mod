@@ -2,10 +2,11 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
+SRC = os.path.join(HERE, 'src')
+if SRC not in sys.path:
     # Appended, not prepended: this file would shadow the protocol's own
     # `mod` package for anything importing us afterwards.
-    sys.path.append(HERE)
+    sys.path.append(SRC)
 
 
 class Mod:

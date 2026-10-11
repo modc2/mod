@@ -1,0 +1,4 @@
+# per-submod scarb output — each contract has its own copy of these too
+**/target/
+**/.snfoundry_cache/
+__pycache__/

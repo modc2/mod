@@ -101,7 +101,7 @@ def test_ed25519_matches_rfc8032_vector(monkeypatch):
     the module's ctx framing bypassed, since the RFC signs raw messages."""
     import importlib.util
     path = os.path.join(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))), "pq", "algos.d", "ed25519.py")
+        os.path.abspath(__file__))), "src", "pq", "algos.d", "ed25519.py")
     spec = importlib.util.spec_from_file_location("ed25519_vec", path)
     ed = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(ed)

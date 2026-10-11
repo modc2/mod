@@ -38,7 +38,8 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 URL = os.environ.get('POSTQUANT_LIQUIDAI', 'http://127.0.0.1:50460').rstrip('/')
 AUTH_FILE = os.environ.get('POSTQUANT_LIQUIDAI_AUTH', os.path.join(
-    os.path.dirname(HERE), 'liquidai', 'src', 'api', 'auth.py'))
+    os.path.dirname(os.path.dirname(HERE)), 'liquidai', 'src', 'api',
+    'auth.py'))
 MODEL = os.environ.get('POSTQUANT_CHAT_MODEL', 'LiquidAI/LFM2.5-1.2B-Instruct')
 MAX_TOKENS = int(os.environ.get('POSTQUANT_CHAT_MAX_TOKENS', 280))
 TIMEOUT = float(os.environ.get('POSTQUANT_CHAT_TIMEOUT', 180))

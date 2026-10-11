@@ -32,6 +32,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -196,3 +197,17 @@ class Mod:
                       "contract": (MODULE_DIR / "contracts/target/dev").exists()},
             "contract": self.config.get("contract"),
         }
+
+
+if __name__ == '__main__':
+    m = Mod()
+    fn = sys.argv[1] if len(sys.argv) > 1 else 'status'
+    if fn == 'serve':
+        out = m.serve(port=sys.argv[2] if len(sys.argv) > 2 else None)
+    else:
+        method = getattr(m, fn, None)
+        if not callable(method):
+            out = {"error": f"unknown fn: {fn}"}
+        else:
+            out = method(*sys.argv[2:])
+    print(json.dumps(out, indent=2, default=str))

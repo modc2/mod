@@ -1368,7 +1368,7 @@ async function loadMe() {
   }
   const b = $("me");
   b.replaceChildren(...(me.address
-    ? [addrDot(me.address), shortAddr(me.address), me.box_owner ? el("span", { className: "badge", textContent: "owner" }) : null]
+    ? [addrDot(me.address), shortAddr(me.address), me.box_owner ? el("span", { className: "badge", textContent: "owner" }) : null].filter(Boolean)
     : ["sign in"]));
   b.title = me.address ? `${me.address}${me.box_owner ? " — you run this box" : ""}` : "sign in with your wallet";
   $("g-scope").hidden = !me.address;

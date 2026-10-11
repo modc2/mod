@@ -17,6 +17,7 @@
 // than the contract was sent.
 
 pub mod mock_erc20;
+pub mod shadowstake;
 
 use starknet::ContractAddress;
 

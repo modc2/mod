@@ -7,7 +7,6 @@ import { Nav, Footer } from "../../components/Chrome";
 import Explorer from "../../components/Explorer";
 import RegisterPanel from "../../components/RegisterPanel";
 import StakePanel from "../../components/StakePanel";
-import { LivePreview } from "../../components/LivePreview";
 
 function hueFromName(name: string): string {
   let h = 0;
@@ -35,6 +34,9 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
       .then((mod) => {
         if (!alive) return;
         setM(mod);
+        // Land on the running app when there is one — the module's app is the
+        // thing worth seeing first; metadata lives one tab over.
+        setTab(mod.has_app ? "app" : "overview");
         recents.add(mod.name); // feeds the workspace "previously visited" rail
       })
       .catch((e) => alive && setErr(String(e)));
@@ -86,21 +88,6 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
               )}
             </div>
 
-            <p className="detail-desc">
-              {m.description || "No description provided."}
-            </p>
-
-            {m.has_app && (
-              <div className="detail-hero">
-                <LivePreview
-                  url={appUrl}
-                  label={(m.icon || m.name[0]).slice(0, 1)}
-                  glow={glow}
-                  onOpen={() => setTab("app")}
-                />
-              </div>
-            )}
-
             <div className="tabs">
               <button
                 className={`tab${tab === "overview" ? " active" : ""}`}
@@ -126,6 +113,9 @@ export default function ModuleDetail({ params }: { params: { name: string } }) {
 
             {tab === "overview" && (
               <>
+                <p className="detail-desc">
+                  {m.description || "No description provided."}
+                </p>
                 <div className="kv-grid">
                   <div className="kv">
                     <div className="k">Gateway mount</div>

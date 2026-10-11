@@ -5,7 +5,7 @@ import { API_URL } from './config'
 import Library from './components/Library'
 import type { LibItem } from './components/Library'
 import Market from './components/Market'
-import Games from './components/Games'
+import ArenaPortal from './components/ArenaPortal'
 import Builder from './components/Builder'
 import AgentEditor from './components/AgentEditor'
 import SchedulePanel from './components/SchedulePanel'
@@ -250,6 +250,8 @@ const STARTERS: { q: string; s: string; icon: JSX.Element }[] = [
 type AuthInfo = { address: string; token: string; isOwner: boolean; local?: boolean; ephemeral?: boolean; harnesses?: string[] }
 
 const AUTH_KEY = 'agent_auth'
+// the arena mod's own sign-in slot — shared origin, so shared sign-in
+const ARENA_TOKEN_KEY = 'arena_token'
 const TOKEN_TTL_MS = 23 * 3600 * 1000 // server max_age is 24h — refresh before that
 
 const eth = () => (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
@@ -1472,6 +1474,57 @@ export default function Home() {
         .catch(() => {})
     } catch {}
   }, [])
+
+  // ── one key, two consoles — the arena portal ───────────────────────
+  // The arena mod (same origin, /arena) reads its caller from `arena_token`
+  // and verifies any mod-protocol token offline, so the token signed here IS
+  // a sign-in there: mirror it, and /arena in any tab is you. The other way
+  // round too — signed in at the arena and not here, this console adopts
+  // that token (once /whoami vouches for it). A session the person asked not
+  // to keep is never written; the portal hands it over in memory instead.
+  const arenaMirror = useRef<string | null>(null)
+  useEffect(() => {
+    try {
+      if (auth && !auth.ephemeral) {
+        localStorage.setItem(ARENA_TOKEN_KEY, auth.token)
+        arenaMirror.current = auth.token
+      } else if (!auth && arenaMirror.current) {
+        if (localStorage.getItem(ARENA_TOKEN_KEY) === arenaMirror.current) localStorage.removeItem(ARENA_TOKEN_KEY)
+        arenaMirror.current = null
+      }
+    } catch {}
+  }, [auth?.token, auth?.ephemeral]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const adoptArenaToken = async (token: string | null) => {
+    if (!token || !tokenFresh(token)) return
+    try {
+      const who = await fetch(`${API_URL}/whoami?key=${encodeURIComponent(token)}`,
+        { signal: AbortSignal.timeout(8000) }).then(r => r.json())
+      if (!who?.signed_in || !who.address) return
+      const a = await finishSignIn(String(who.address).toLowerCase(), token, false)
+      // a sign-in prompt left open (the portal asked for one) is answered now
+      if (authAskRef.current && authSatisfies(a, authAskRef.current)) settleAuthAsk(a)
+    } catch {}
+  }
+  const authAskRef = useRef<AuthNeed | null>(null)
+  authAskRef.current = authAsk
+  // signed in nowhere here yet, but the arena has someone: that's us
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(AUTH_KEY)) return
+      void adoptArenaToken(localStorage.getItem(ARENA_TOKEN_KEY))
+    } catch {}
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // and while open: an arena tab signing in or out moves this console with it
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== ARENA_TOKEN_KEY) return
+      if (e.newValue && e.newValue !== auth?.token) void adoptArenaToken(e.newValue)
+      else if (!e.newValue && auth && e.oldValue === auth.token) signOut()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [auth?.token]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── background tasks (server-side registry) ───────────────────────
   const fetchServerTasks = useCallback(() => {
@@ -4869,11 +4922,10 @@ export default function Home() {
         </button>
 
         <nav className="tab-strip min-w-0 gap-px">
-          {/* Two tabs: AGENTS (the hub — roster, library, runs) and GAMES (the
-              arena mod's games, read from its API, each game's page framed
-              from it). The brand mark is the chat. AGENTS wears the running
+          {/* Two tabs: AGENTS (the hub — roster, library, runs) and ARENA (a
+              portal to the arena mod, framed whole and signed in as you). The brand mark is the chat. AGENTS wears the running
               count — the runs shelf lives behind it. */}
-          {(['agents', 'games'] as const).map(v => {
+          {(['agents', 'arena'] as const).map(v => {
             const lit = v === 'agents' ? view === 'hub' : view === 'arena'
             return (
               <button key={v}
@@ -4885,7 +4937,7 @@ export default function Home() {
                   lit ? 'nav-tab--on text-emerald-200' : 'text-gray-600 hover:text-gray-300'
                 }`}
                 title={v === 'agents' ? 'Agents, the library and every run on the server'
-                  : 'Games on the arena mod — every agent on the same games, ranked'}>
+                  : 'The arena — every game, every agent ranked, signed in as you'}>
                 {v}
                 {v === 'agents' && runningCount > 0 && (
                   <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-300"
@@ -4974,12 +5026,15 @@ export default function Home() {
           {chatDock}
         </>)}
 
-        {/* GAMES — the arena mod's games (components/Games: its /arcade list,
-            each game's own /arena/game/<id> page framed beside it). The view
+        {/* ARENA — a portal to the arena mod (components/ArenaPortal): its
+            whole console framed, signed in as you with this console's own
+            token, sign-in asked back to this console's AuthGate. The view
             value stays 'arena'; the standalone /agent/arena board route is
             untouched. */}
         {view === 'arena' && (<>
-          <Games />
+          <ArenaPortal auth={auth} theme={theme}
+            onSignIn={() => { void requireAuth({ kind: 'signin', reason: 'Enter the arena as yourself — one key for this console and the arena' }) }}
+            onSignOut={signOut} />
           {chatDock}
         </>)}
 

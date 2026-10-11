@@ -11,7 +11,7 @@ One process on **:51280**, route **/starktime**:
 |---|---|
 | `api/` | **Rust (axum)**: the protocol engine (paper ledger), live Starknet JSON-RPC, and the server for the built app |
 | `app/` | **Next.js** static export (basePath `/starktime`) with STAKE · POSITIONS · BOARD · NETWORK · PROTOCOL tabs |
-| `contracts/` | **Cairo 2** `StarkTime` contract with the same math, plus snforge tests |
+| `contracts/` | **Cairo 2** `StarkTime` contract with the same math, plus `ShadowStake` (privacy-preserving staking + private mod registry), all with snforge tests |
 | `whitepaper.md` | protocol spec (also served at `/whitepaper` and shown in the PROTOCOL tab) |
 
 ## Modes
@@ -57,3 +57,25 @@ Entrypoints: `stake unstake extend claim claim_all poke notify_reward set_points
 and the views `get_position positions_of pending get_multiplier get_points get_stats get_reward_period`.
 The owner can change the curve (new stakes only) and fund rewards. The owner
 **cannot** withdraw staked principal.
+
+### ShadowStake — privacy-preserving (`src/shadowstake.cairo`)
+
+Same time-weighted economics, but the chain never learns **who owns which mod
+or which stake**. Stakes are notes keyed only by a Poseidon `commitment`
+(`Note` has no owner field); the private mod registry stores only an
+`owner_commitment`. See [`../staketime/PRIVACY.md`](../staketime/PRIVACY.md) for
+the threat model, the commitment/nullifier/rotation scheme, honest MVP limits,
+and the phase-2 garaga/Noir ZK roadmap.
+
+```bash
+snforge test shadow     # 12 tests: no-owner-in-state, anon reward split,
+                        # spend-to-fresh-recipient, wrong-secret reject,
+                        # double-spend guard, private registry + rotation
+```
+
+Entrypoints: `stake(commitment, denom_index, lock, mod_id)`,
+`claim / unstake(secret, nullifier_secret, …, recipient)`, `notify_reward`,
+`register_mod(owner_commitment, metadata_hash)`,
+`update_mod(id, owner_secret, salt, new_owner_commitment, metadata_hash)`,
+`set_denoms set_points`; views `compute_commitment compute_nullifier
+compute_mod_commitment get_note pending get_mod get_note_root get_stats`.

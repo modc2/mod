@@ -20,6 +20,7 @@ os.environ['POSTQUANT_LIQUIDAI'] = ''
 # …nor to orbit/agent: the agent brain's tests fake fleet.stream.
 os.environ['POSTQUANT_FLEET_AGENT'] = ''
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
+SRC = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src')
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)

@@ -1,0 +1,39 @@
+{
+    "name": "jev",
+    "version": "0.1.0",
+    "title": "jev · typed questions over the Jev model",
+    "description": "Complete wrapper over jevgo, the Go client for TypeSafe AI's System One API and its Jev model (github.com/fgn/jevgo). One static Go bridge binary does every call — client options, retries, error sentinels — and mod.py is a thin shell onto it: ask typed questions (noul yes/no, choice, score) about any state and get probability distributions back, or list models. Key via TYPESAFE_API_KEY only, never stored here.",
+    "icon": "⚖",
+    "color": "#7aa2f7",
+    "anchor": "mod.py",
+    "network": "local",
+    "route": false,
+    "deps": [],
+    "urls": {
+        "upstream": "https://api.typesafe.ai",
+        "client": "https://pkg.go.dev/github.com/fgn/jevgo"
+    },
+    "env": {
+        "TYPESAFE_API_KEY": "required — System One API key (secret, env only)",
+        "TYPESAFE_BASE_URL": "optional — default https://api.typesafe.ai",
+        "TYPESAFE_DEFAULT_MODEL": "optional — default jev-latest"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "ask",
+        "noul",
+        "choice",
+        "score",
+        "models",
+        "build",
+        "status",
+        "test"
+    ],
+    "notes": {
+        "bridge": "src/cmd/jevbridge — every network call goes through the Go client; Python never speaks the protocol itself, so the CLI and the library can never disagree with jevgo",
+        "questions": "System One takes a state plus named questions: noul (probability of yes), choice (pick an option, per-option probabilities), score (position against ordered levels, per-level probabilities), raw (pass-through for unknown kinds)",
+        "errors": "jevgo sentinels surface as {error, code}: bad_request, authentication, permission_denied, not_found, unprocessable, rate_limit, overloaded, internal, connection, timeout, invalid_request",
+        "secrets": "API key is read from the environment by the Go binary; it is never written to config.json or any file in this module"
+    }
+}
