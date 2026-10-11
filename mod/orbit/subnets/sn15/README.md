@@ -2,7 +2,7 @@
 
 AI commerce agents
 
-Bittensor subnet **15** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **15** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 Links: [github](https://github.com/ORO-AI/oro) · [url](https://oroagents.com) · [discord](https://discord.gg/MHqAVWTdka)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/ORO-AI/oro) · [url](https://oroagents.com) �
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.023429 | -0.01% | +0.74% | -4.44% | 53,255 | 14,095 | 579.11 |
+| 0.022981 | +0.03% | -1.91% | -7.47% | 52,450 | 14,010 | 602.56 |
 
 ## Last 24h flow
 
-152 trades by 75 coldkeys · 53 buys (253.85 τ) / 99 sells (257.97 τ) · net -4.12 τ
+156 trades by 82 coldkeys · 49 buys (175.40 τ) / 107 sells (366.68 τ) · net -191.28 τ
 
 ## News
 

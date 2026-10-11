@@ -2,7 +2,7 @@
 
 The risk intelligence network
 
-Bittensor subnet **30** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **30** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 Links: [url](https://endure.network)
 
@@ -10,11 +10,11 @@ Links: [url](https://endure.network)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003355 | +0.00% | +1.04% | +4.36% | 20,495 | 8,448 | 443.41 |
+| 0.003347 | -0.00% | -0.23% | +4.61% | 20,473 | 8,438 | 25.64 |
 
 ## Last 24h flow
 
-41 trades by 21 coldkeys · 21 buys (243.64 τ) / 20 sells (199.37 τ) · net 44.28 τ
+3 trades by 2 coldkeys · 1 buys (8.00 τ) / 2 sells (17.39 τ) · net -9.39 τ
 
 ## Use
 

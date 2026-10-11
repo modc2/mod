@@ -2,7 +2,7 @@
 
 Competitive training of chronologically consistent Large Language Models
 
-Bittensor subnet **38** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **38** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 Links: [github](https://github.com/chronollm/sn38) · [url](https://chronollm.crunchdao.com/) · [discord](https://discord.com/channels/799672011265015819/1485634202895519844)
 
@@ -10,15 +10,15 @@ Links: [github](https://github.com/chronollm/sn38) · [url](https://chronollm.cr
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.019656 | +0.04% | -0.27% | -9.88% | 48,594 | 8,745 | 307.76 |
+| 0.019557 | +0.01% | -0.50% | -12.82% | 48,530 | 8,763 | 463.58 |
 
 ## Last 24h flow
 
-70 trades by 42 coldkeys · 21 buys (96.80 τ) / 49 sells (155.45 τ) · net -58.65 τ
+67 trades by 48 coldkeys · 37 buys (173.23 τ) / 30 sells (239.18 τ) · net -65.95 τ
 
 ## News
 
-- 2026-10-07 · commit · [Leak returns to the score at 30%, over a [-11, -25] window](https://github.com/chronollm/sn38/commit/f0f5ce21868545b5b305d6f57e0d55e3c69bda08) — chronollm/sn38
+- 2026-10-07 · commit · [Leak returns to the score at 30%, over a \[-11, -25\] window](https://github.com/chronollm/sn38/commit/f0f5ce21868545b5b305d6f57e0d55e3c69bda08) — chronollm/sn38
 - 2026-10-05 · commit · [Round 14: Cache downloaded models and batch the duel generation (#29)](https://github.com/chronollm/sn38/commit/c2f5c9aeafeb473645ca6d83a50fe562ddf1a781) — chronollm/sn38
 - 2026-09-22 · commit · [fix: quality duels — async fix, skip private models, cache completion…](https://github.com/chronollm/sn38/commit/a1f1aa75452e4e81aa75e3cafdfc1aa89b5be14f) — chronollm/sn38
 - 2026-09-21 · commit · [fix: increase max_new_tokens from 50 to 100 for quality evaluation](https://github.com/chronollm/sn38/commit/261809ce6cd0e48305f0b06f0ef2b084393722d1) — chronollm/sn38

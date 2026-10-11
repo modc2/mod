@@ -1,16 +1,16 @@
 # sn70 — ghayn غ
 
-Bittensor subnet **70** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **70** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.000961 | +0.09% | -12.14% | -27.40% | 506.9102 | 225.0031 | 51.54 |
+| 0.000944 | -0.00% | -1.77% | -24.38% | 504.7615 | 223.0159 | 25.76 |
 
 ## Last 24h flow
 
-32 trades by 16 coldkeys · 17 buys (18.25 τ) / 15 sells (32.82 τ) · net -14.56 τ
+28 trades by 13 coldkeys · 11 buys (11.89 τ) / 17 sells (13.54 τ) · net -1.65 τ
 
 ## Use
 

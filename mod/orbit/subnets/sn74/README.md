@@ -2,7 +2,7 @@
 
 autonomous software development
 
-Bittensor subnet **74** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **74** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 Links: [github](https://github.com/entrius/gittensor/tree/main) · [url](https://gittensor.io) · discord ` `
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/entrius/gittensor/tree/main) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003121 | -0.00% | -0.27% | -2.26% | 16,689 | 5,861 | 198.32 |
+| 0.003097 | +0.11% | -0.76% | -2.10% | 16,579 | 5,838 | 35.15 |
 
 ## Last 24h flow
 
-28 trades by 15 coldkeys · 12 buys (95.21 τ) / 16 sells (102.72 τ) · net -7.51 τ
+31 trades by 22 coldkeys · 8 buys (6.37 τ) / 23 sells (28.52 τ) · net -22.15 τ
 
 ## News
 
+- 2026-10-10 · commit · [Box listing: market status per box, the hotkey pin, box_busy, gitt re…](https://github.com/entrius/gittensor/commit/75e0f2ee3a8008b4dba3755629fd5db1fb7bac1e) — entrius/gittensor
+- 2026-10-10 · commit · [Compute: upload advertised, the rental heartbeat, 7 days in the contr…](https://github.com/entrius/gittensor/commit/e0d23ccd929376786238c64f8d00a28bb1d91a96) — entrius/gittensor
 - 2026-10-09 · commit · [Interconnect: nvidia-smi topo -m wraps its header in terminal codes; …](https://github.com/entrius/gittensor/commit/aae77d4ea86ab788eb672b217cbb60f8aa3c7ec8) — entrius/gittensor
 - 2026-10-09 · commit · [Host specs per box: measure every round, floor download, show the cus…](https://github.com/entrius/gittensor/commit/3654abffb738687619bd7b962604f0d5f5c1f0f1) — entrius/gittensor
 - 2026-10-09 · commit · [NVIDIA final run: AMD iGPU is not a mixed box; gitt down waits for th…](https://github.com/entrius/gittensor/commit/01f2c230e22b1e1cc3042bfb01b91c18b2598dd8) — entrius/gittensor
 - 2026-10-09 · commit · [AMD: MI300X qualified on the MI325X digest (vault 33 section 10) (#1833)](https://github.com/entrius/gittensor/commit/f761d1f00f87acd00d1a6e3a17e0581c9174a887) — entrius/gittensor
 - 2026-10-09 · commit · [Rentals: every start/stop outcome reaches the log; gitt rent reasons …](https://github.com/entrius/gittensor/commit/914fe46bd1ca871e56b36416bf511339c09425c5) — entrius/gittensor
 - 2026-10-09 · commit · [Miner-facing messages: gitt up rows say what to fix; bench phrases ca…](https://github.com/entrius/gittensor/commit/4c8eb98b953c9596d08c67602d34c164178020b5) — entrius/gittensor
-- 2026-10-09 · commit · [Controller log: rental thread results, typed rental events, at_iso, e…](https://github.com/entrius/gittensor/commit/d506c45a8f6ffd7975af1800a50029dc2c5274c6) — entrius/gittensor
-- 2026-10-09 · commit · [Compute: build and publish entrius/gt-proof-rocm in agent-images (vau…](https://github.com/entrius/gittensor/commit/8dce88f76cbcfb2faa786682701bfa2130bf37e4) — entrius/gittensor
 
 ## Use
 

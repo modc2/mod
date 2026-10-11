@@ -2,7 +2,7 @@
 
 Context compression layer delivered through MCP infrastructure
 
-Bittensor subnet **114** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **114** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 Links: [github](https://github.com/DendriteHQ/SOMA) · [url](https://thesoma.ai) · [discord](https://discord.gg/durr4Sg6sM)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/DendriteHQ/SOMA) · [url](https://thesoma.ai)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.022795 | -0.24% | +8.25% | +11.14% | 54,722 | 9,683 | 4,830 |
+| 0.022446 | +0.29% | -1.53% | +6.70% | 54,092 | 9,656 | 1,654 |
 
 ## Last 24h flow
 
-479 trades by 200 coldkeys · 265 buys (2,550 τ) / 214 sells (2,221 τ) · net 328.88 τ
+292 trades by 173 coldkeys · 102 buys (734.58 τ) / 190 sells (859.84 τ) · net -125.26 τ
 
 ## News
 

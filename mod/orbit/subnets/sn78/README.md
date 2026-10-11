@@ -2,7 +2,7 @@
 
 Universal motion to meaning
 
-Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vision) · [discord](https://discord.gg/8pexneWef)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vis
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003619 | +0.07% | -2.46% | -26.82% | 5,549 | 1,434 | 184.33 |
+| 0.003734 | +0.17% | +3.17% | -20.55% | 5,752 | 1,457 | 470.75 |
 
 ## Last 24h flow
 
-183 trades by 120 coldkeys · 46 buys (83.21 τ) / 137 sells (100.04 τ) · net -16.82 τ
+182 trades by 55 coldkeys · 89 buys (246.72 τ) / 93 sells (223.03 τ) · net 23.70 τ
 
 ## News
 

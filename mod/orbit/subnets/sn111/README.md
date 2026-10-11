@@ -2,7 +2,7 @@
 
 Turning scientific literature into a structured claim-evidence graph
 
-Bittensor subnet **111** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **111** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 Links: [github](https://github.com/DeSciClaims/Claims) · [discord](https://discord.com/channels/799672011265015819/1515007366016401599)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/DeSciClaims/Claims) · [discord](https://disc
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004264 | +0.22% | +2.32% | -2.43% | 21,120 | 5,555 | 68.79 |
+| 0.004539 | -0.22% | +6.46% | +4.77% | 22,520 | 5,735 | 1,870 |
 
 ## Last 24h flow
 
-16 trades by 13 coldkeys · 11 buys (66.07 τ) / 5 sells (2.40 τ) · net 63.67 τ
+236 trades by 110 coldkeys · 149 buys (1,023 τ) / 87 sells (845.64 τ) · net 177.63 τ
 
 ## News
 

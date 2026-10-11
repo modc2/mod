@@ -2,30 +2,30 @@
 
 Transforming engineering simulations through machine learning
 
-Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
-Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://https://carbonphysics.ai) · discord `...`
+Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://carbonphysics.ai) · discord `...`
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.041616 | -0.86% | +10.85% | +2107.50% | 7,710 | 1,993 | 1,252 |
+| 0.039275 | -1.71% | -5.63% | +1985.29% | 7,559 | 1,936 | 1,035 |
 
 ## Last 24h flow
 
-196 trades by 80 coldkeys · 117 buys (676.14 τ) / 79 sells (560.27 τ) · net 115.86 τ
+148 trades by 64 coldkeys · 79 buys (499.77 τ) / 69 sells (556.31 τ) · net -56.54 τ
 
 ## News
 
-- 2026-10-10 · commit · [Merge pull request #952 from carbonphysicsai/claude/ci-mirror-empty-d…](https://github.com/carbonphysicsai/Carbon/commit/915225242146be67e6de098d4a08324cc63dc684) — carbonphysicsai/Carbon
-- 2026-10-10 · commit · [Merge pull request #950 from carbonphysicsai/claude/readiness-prelive…](https://github.com/carbonphysicsai/Carbon/commit/47f80a08100531f8af222720dd12dbe0d13b0661) — carbonphysicsai/Carbon
-- 2026-10-10 · commit · [CI: the mirror step tolerates an empty daemon.json](https://github.com/carbonphysicsai/Carbon/commit/1b76c9ba58ac79e3a4c7464f57f6efc67a29d1dc) — carbonphysicsai/Carbon
-- 2026-10-10 · commit · [Merge pull request #908 from carbonphysicsai/claude/level4-g6-loss](https://github.com/carbonphysicsai/Carbon/commit/1918c3d735963327de6a4505d16ab7c81e8e39d3) — carbonphysicsai/Carbon
-- 2026-10-10 · commit · [Merge pull request #944 from carbonphysicsai/codex/launchpad-gate-bre…](https://github.com/carbonphysicsai/Carbon/commit/19315df8aaae4a328fd3cbc3fc3b08a89c94ecff) — carbonphysicsai/Carbon
-- 2026-10-09 · commit · [Merge pull request #941 from carbonphysicsai/codex/warpage-scope-alig…](https://github.com/carbonphysicsai/Carbon/commit/4578d20b27f3d88641a8fe06b3bdbbde8aca17f7) — carbonphysicsai/Carbon
-- 2026-10-09 · commit · [Merge pull request #907 from carbonphysicsai/claude/readiness-baseline-2](https://github.com/carbonphysicsai/Carbon/commit/1fafcbf3b18f0ac0a5521bcea5c427c0389a2d79) — carbonphysicsai/Carbon
-- 2026-10-09 · commit · [Merge pull request #933 from carbonphysicsai/codex/f13-saved-integral…](https://github.com/carbonphysicsai/Carbon/commit/18f0b1870262a7f64481f8eb2f299535579738a8) — carbonphysicsai/Carbon
+- 2026-10-11 · commit · [Merge pull request #1059 from carbonphysicsai/codex/feasibility-gate-…](https://github.com/carbonphysicsai/Carbon/commit/cfb60d3d5fdc7c83ecb5ff779470dc5a0856335c) — carbonphysicsai/Carbon
+- 2026-10-11 · commit · [Make public research export LF-stable across platforms](https://github.com/carbonphysicsai/Carbon/commit/3bf5d470791176b8f72aa16d9e2eb24cb9ac62c4) — carbonphysicsai/Carbon
+- 2026-10-11 · commit · [Feasibility-gate results.json: LF, not CRLF](https://github.com/carbonphysicsai/Carbon/commit/7b83f96079c533d683c740acfab115fc8cb890c9) — carbonphysicsai/Carbon
+- 2026-10-11 · commit · [research: measure public feasibility gate trade-offs and selection ca…](https://github.com/carbonphysicsai/Carbon/commit/af92a86737dc732736c184108c1a63f730178b28) — carbonphysicsai/Carbon
+- 2026-10-11 · commit · [Merge pull request #1036 from carbonphysicsai/claude/f02-kit](https://github.com/carbonphysicsai/Carbon/commit/f4c422bdcf5b410fe8da3045ce7203ed92f22452) — carbonphysicsai/Carbon
+- 2026-10-10 · commit · [Merge pull request #1015 from carbonphysicsai/codex/investor-evidence…](https://github.com/carbonphysicsai/Carbon/commit/f1a20813bc8e389f88b4557a69b93957ddb87703) — carbonphysicsai/Carbon
+- 2026-10-10 · commit · [Merge pull request #977 from carbonphysicsai/codex/onboarding-automat…](https://github.com/carbonphysicsai/Carbon/commit/9256c812d6543bd1f4ad5744662fa7235eef5fec) — carbonphysicsai/Carbon
+- 2026-10-10 · commit · [Merge pull request #1008 from carbonphysicsai/claude/la-f19-old-revis…](https://github.com/carbonphysicsai/Carbon/commit/369a626d3d6d15a6be96cdf225c79b29fe3aa4f9) — carbonphysicsai/Carbon
 
 ## Use
 

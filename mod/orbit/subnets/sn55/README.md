@@ -2,7 +2,7 @@
 
 NIOME is a decentralized AI subnet that enables privacy-safe genomic intelligence by replacing real human genomes with high-fidelity synthetic genomic profiles
 
-Bittensor subnet **55** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **55** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 Links: [github](https://github.com/genomesio/subnet-niome) · [url](https://niome.genomes.io) · [discord](https://discord.gg/7mJkaJZX)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/genomesio/subnet-niome) · [url](https://niom
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002389 | -0.49% | +18.38% | +4.51% | 13,553 | 6,211 | 6,420 |
+| 0.002205 | -0.05% | -7.73% | -9.26% | 12,521 | 5,966 | 1,438 |
 
 ## Last 24h flow
 
-681 trades by 162 coldkeys · 347 buys (3,476 τ) / 334 sells (2,956 τ) · net 520.09 τ
+238 trades by 93 coldkeys · 73 buys (596.37 τ) / 165 sells (840.57 τ) · net -244.20 τ
 
 ## News
 

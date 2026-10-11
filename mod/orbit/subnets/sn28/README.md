@@ -2,7 +2,7 @@
 
 Drop-in access to Claude, GPT, and Gemini.
 
-Bittensor subnet **28** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **28** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 Links: [github](https://github.com/taostat/gm-miner) · [url](https://saygm.com/)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/taostat/gm-miner) · [url](https://saygm.com/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.023699 | +0.24% | -1.75% | +8.80% | 148,981 | 24,144 | 5,055 |
+| 0.024220 | +0.41% | +2.20% | +12.43% | 152,455 | 24,431 | 2,124 |
 
 ## Last 24h flow
 
-471 trades by 254 coldkeys · 158 buys (2,334 τ) / 313 sells (2,627 τ) · net -292.84 τ
+365 trades by 181 coldkeys · 223 buys (1,110 τ) / 142 sells (925.25 τ) · net 184.73 τ
 
 ## News
 
+- 2026-10-10 · release · [v0.4.27-dev](https://github.com/taostat/gm-miner/releases/tag/v0.4.27-dev) — taostat/gm-miner
+- 2026-10-10 · commit · [chore(release): gm-miner 0.4.27-dev (#310)](https://github.com/taostat/gm-miner/commit/88920c8f9f6de07624f25bbb12f56e166c8d420a) — taostat/gm-miner
+- 2026-10-10 · commit · [Add video job routes for KubeTEE and DeepInfra (#309)](https://github.com/taostat/gm-miner/commit/b096bbf5e3f70b9cfcecce59dc2c11259a621d19) — taostat/gm-miner
 - 2026-10-06 · commit · [Remove paid Gemini image-canary command (#299)](https://github.com/taostat/gm-miner/commit/556de337c0a9f97998a9ba1fb7610e2bedf0fcbe) — taostat/gm-miner
 - 2026-10-06 · release · [v0.4.26](https://github.com/taostat/gm-miner/releases/tag/v0.4.26) — taostat/gm-miner
 - 2026-10-06 · commit · [Add gmcli notifications list, set, confirm, status and off (#297)](https://github.com/taostat/gm-miner/commit/deab605b3bb752aed1bb074a6e248ee3a77f46bd) — taostat/gm-miner
 - 2026-10-05 · commit · [fix(cli): retry rate-limited token requests instead of re-logging in …](https://github.com/taostat/gm-miner/commit/4eb759e1326ad1f15e84dfd37542035865ca0b02) — taostat/gm-miner
 - 2026-10-04 · release · [v0.4.25](https://github.com/taostat/gm-miner/releases/tag/v0.4.25) — taostat/gm-miner
-- 2026-10-04 · commit · [Handle scheduled miner price increases as successful declarations (#293)](https://github.com/taostat/gm-miner/commit/6ae50a4253e7d9ff46c03af325d3664f9baea332) — taostat/gm-miner
-- 2026-09-28 · release · [v0.4.24](https://github.com/taostat/gm-miner/releases/tag/v0.4.24) — taostat/gm-miner
-- 2026-09-28 · commit · [chore(release): promote gm-miner 0.4.24 (#291)](https://github.com/taostat/gm-miner/commit/163a5c676c3a65558694a36f6b3bc8bbe59f27d8) — taostat/gm-miner
 
 ## Use
 

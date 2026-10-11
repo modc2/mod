@@ -1,15 +1,16 @@
 # sn0 — root Τ
 
-Bittensor subnet **0** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **0** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 1.000000 | +0.00% | +0.00% | +0.00% | 6,871,170 | 5,454,118 | 28,753 |
+| 1.000000 | +0.00% | +0.00% | +0.00% | 6,871,326 | 5,456,386 | 26,450 |
 
 ## News
 
+- 2026-10-10 · news · [AI News: Majors Stall, Trending Tokens Pump, Bittensor Governance Reset](https://news.google.com/rss/articles/CBMirwFBVV95cUxPeVN1azRReEIyME1hS1k0OXk4TlVFS19yOUtZUHZyS2MxdV9YdU5CS05QT2VGTUFVME1UWlRQVVdsUkRqV1FUZFdQTnp2MlFBZGNIMFRidWtubXVGbmZteUZtUGRvRTRwRHJqVElmd2VJUFl1RTFoSmQwb3YwaS15M0U0WEtkRHhfMnRDUzNDdlRJd25vbmphWkloZ2ZUMVBWc0V6TERSbi1QbXZzeEw4?oc=5) — CoinMarketCap
 - 2026-10-09 · news · [Bittensor (TAO): Grayscale adds Coinbase as a second custodian, price 10.7 percent below the weekly high](https://news.google.com/rss/articles/CBMifEFVX3lxTE50Z1NPenB1cDczV2U4VTB5eEJoN2lnT01wbFR5WHZrWUZGd21vNzhpUDAyVHAzcXFXY2E4SEhCMVhyZWJYdjQxZGZldElTYUNKSUg1Y3dSM1RXclVwT0V6bVhBcWNPVDBFOEY2eENocHdnSS0tSnU5N3pBQ0o?oc=5) — CryptoTicker
 - 2026-10-08 · release · [Runtime 477 (proposed)](https://github.com/RaoFoundation/subtensor/releases/tag/v477) — subtensor releases
 - 2026-10-08 · release · [Runtime 476 (proposed)](https://github.com/RaoFoundation/subtensor/releases/tag/v476) — subtensor releases
@@ -17,7 +18,6 @@ Bittensor subnet **0** · generated daily by `orbit/subnets` from the local `orb
 - 2026-10-07 · release · [v475: Merge pull request #3214 from RaoFoundation/basket-min-trade-sudo](https://github.com/RaoFoundation/subtensor/releases/tag/v475) — subtensor releases
 - 2026-10-07 · news · [Bittensor (TAO) Drops 3.42% Amid Market-Wide Risk-Off](https://news.google.com/rss/articles/CBMicEFVX3lxTE5RU3U5ZFF6dUNWUlczLThwRVBhNlBlOGJZRVdpSC05VGg0Q2RDRjhyT3VSeDZPRnNmV2s2NE9Pb0pOOFR3dUNVbnVINVhpQnJWTGswc2Q1eVE0UGxtTDUyNTl5eFI0Wm5GNnZEeDhQRHU?oc=5) — CoinMarketCap
 - 2026-10-07 · news · [Bittensor (TAO) drops 4.61% in one hour, market cap at $3.44B, amid $650K long liquidations](https://news.google.com/rss/articles/CBMilgFBVV95cUxNckpPOXpuRXplblkwN1BsZUtXS2ltcG1ZSWppRVR5Q3F4UjRtRVRtdXQ3YUcteFh6Tlo2WS1lbjdMSy03bFU1aktqU3pBZkEtMXhJV0RIRXdLeGI1YkhqMjhKcjJHS1RHckUzTGlBQVJDZDRjalFtMmstVkVVZXpKeWI0Z19WUFhBMkF2MjF4M0N2Z1BCa3c?oc=5) — Pluang
-- 2026-10-07 · news · [Inside the AI businesses being built on Bittensor](https://news.google.com/rss/articles/CBMinAFBVV95cUxOUDhVN0FsQzhRSEVPZXNybVNoWXlkbTM2Q0tzWFpDWk9WWWtrYUdVenh4UkdBbURhNjVWNUdtTk02Y010NlBlVl9tcEZTakpPRXpIdEFGcmxnaVZzT3haY3JmNVZLeWR2VUx2cVRYdXFEMWtScEdxNUViZTFIalU1UXV0SUpOZHo0SDZySm5BTWJWdWtqWk00WF9qdUM?oc=5) — Yahoo Finance
 
 ## Use
 

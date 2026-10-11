@@ -7,7 +7,7 @@
   "netuid": 109,
   "subnet": "Finsight",
   "symbol": "՞",
-  "owner": "5FqZqKFxfm3VWmc47UdEjaFyVrSfkGd4HcXwFoxH8vBGXKmv",
+  "owner": "5EbvoDsmqr9tfbyKHjxpHmFtwAdEgMYKVi1nyBXU6sQiRHDx",
   "github": null,
   "url": "https://finsight.tech/",
   "discord": null,
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-10",
+  "updated": "2026-10-11",
   "urls": {
     "bt": "/bt/markets?sn=109",
     "news": "/bt/news?netuid=109"
@@ -34,5 +34,14 @@
     "snapshot",
     "readme",
     "refresh"
+  ],
+  "previous": [
+    {
+      "subnet": "Finsight",
+      "owner": "5FqZqKFxfm3VWmc47UdEjaFyVrSfkGd4HcXwFoxH8vBGXKmv",
+      "github": null,
+      "url": "https://finsight.tech/",
+      "updated": "2026-10-10"
+    }
   ]
 }

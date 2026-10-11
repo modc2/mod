@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9250674,
+  "block": 9257875,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6871170.407802535,
-    "tao_in": 5454117.694207228,
-    "alpha_in": 1417052.713595308,
-    "alpha_out": 5454117.694207228,
-    "volume": 58956900.7601197,
-    "vol_24h": 28753.110447332263,
+    "market_cap": 6871325.541461071,
+    "tao_in": 5456386.157126865,
+    "alpha_in": 1414939.384334206,
+    "alpha_out": 5456386.157126865,
+    "volume": 58983351.20322032,
+    "vol_24h": 26450.443100623786,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,6 +81,14 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1791616442,
+      "kind": "news",
+      "source": "gnews",
+      "title": "AI News: Majors Stall, Trending Tokens Pump, Bittensor Governance Reset",
+      "url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxPeVN1azRReEIyME1hS1k0OXk4TlVFS19yOUtZUHZyS2MxdV9YdU5CS05QT2VGTUFVME1UWlRQVVdsUkRqV1FUZFdQTnp2MlFBZGNIMFRidWtubXVGbmZteUZtUGRvRTRwRHJqVElmd2VJUFl1RTFoSmQwb3YwaS15M0U0WEtkRHhfMnRDUzNDdlRJd25vbmphWkloZ2ZUMVBWc0V6TERSbi1QbXZzeEw4?oc=5",
+      "publisher": "CoinMarketCap"
+    },
+    {
       "ts": 1791538788,
       "kind": "news",
       "source": "gnews",
@@ -135,16 +143,8 @@
       "title": "Bittensor (TAO) drops 4.61% in one hour, market cap at $3.44B, amid $650K long liquidations",
       "url": "https://news.google.com/rss/articles/CBMilgFBVV95cUxNckpPOXpuRXplblkwN1BsZUtXS2ltcG1ZSWppRVR5Q3F4UjRtRVRtdXQ3YUcteFh6Tlo2WS1lbjdMSy03bFU1aktqU3pBZkEtMXhJV0RIRXdLeGI1YkhqMjhKcjJHS1RHckUzTGlBQVJDZDRjalFtMmstVkVVZXpKeWI0Z19WUFhBMkF2MjF4M0N2Z1BCa3c?oc=5",
       "publisher": "Pluang"
-    },
-    {
-      "ts": 1791331500,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Inside the AI businesses being built on Bittensor",
-      "url": "https://news.google.com/rss/articles/CBMinAFBVV95cUxOUDhVN0FsQzhRSEVPZXNybVNoWXlkbTM2Q0tzWFpDWk9WWWtrYUdVenh4UkdBbURhNjVWNUdtTk02Y010NlBlVl9tcEZTakpPRXpIdEFGcmxnaVZzT3haY3JmNVZLeWR2VUx2cVRYdXFEMWtScEdxNUViZTFIalU1UXV0SUpOZHo0SDZySm5BTWJWdWtqWk00WF9qdUM?oc=5",
-      "publisher": "Yahoo Finance"
     }
   ],
-  "updated": 1791610861,
-  "updated_day": "2026-10-10"
+  "updated": 1791697261,
+  "updated_day": "2026-10-11"
 }

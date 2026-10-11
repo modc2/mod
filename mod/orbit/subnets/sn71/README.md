@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004843 | -0.33% | -1.42% | +26.47% | 28,555 | 5,541 | 2,461 |
+| 0.004839 | +0.23% | -0.09% | +28.15% | 28,564 | 5,539 | 1,317 |
 
 ## Last 24h flow
 
-351 trades by 126 coldkeys · 182 buys (1,231 τ) / 169 sells (1,249 τ) · net -17.98 τ
+196 trades by 78 coldkeys · 122 buys (657.33 τ) / 74 sells (658.76 τ) · net -1.43 τ
 
 ## News
 
-- 2026-10-10 · commit · [Merge pull request #323 from leadpoet/fix/arena-issuer-ticker-oct10](https://github.com/leadpoet/leadpoet/commit/a2e0e67f6c37754a76d2fcf4bfe4ad9219813e76) — leadpoet/leadpoet
-- 2026-10-10 · commit · [Prioritize submitted launch and hiring sources for required attributes](https://github.com/leadpoet/leadpoet/commit/e5f2cf32f0d49062ecd1461416663f4422529ab6) — leadpoet/leadpoet
-- 2026-10-10 · commit · [Preserve issuer ticker proof across whitespace and quoted aliases](https://github.com/leadpoet/leadpoet/commit/7652cf9f663c9986bd089451cb35ff66aca5143a) — leadpoet/leadpoet
-- 2026-10-10 · commit · [Merge pull request #322 from leadpoet/codex/arena-partial-score-deadl…](https://github.com/leadpoet/leadpoet/commit/13924c8af62b9e89ed3c304034ecf6496ac48768) — leadpoet/leadpoet
-- 2026-10-10 · commit · [Wait for partial baseline proof deadline without driver error](https://github.com/leadpoet/leadpoet/commit/92bb0234f47c6ec1a7132ae5ad9dbb7701a80a26) — leadpoet/leadpoet
-- 2026-10-09 · commit · [Merge pull request #315 from leadpoet/fix/public-current-read-oct09](https://github.com/leadpoet/leadpoet/commit/bb2ff92f880bea1f16e4e8949e8078b89f975f42) — leadpoet/leadpoet
-- 2026-10-09 · commit · [fix(arena): narrow public current configuration reads](https://github.com/leadpoet/leadpoet/commit/5c9fe361639d9f3b8645910d97f251ff9a0c26d3) — leadpoet/leadpoet
-- 2026-10-09 · commit · [Merge pull request #314 from leadpoet/fix/competition-summary-read-oct09](https://github.com/leadpoet/leadpoet/commit/fb24c74fb6abf55ac4c9250825ae26e78ef22229) — leadpoet/leadpoet
+- 2026-10-11 · commit · [Merge pull request #371 from leadpoet/codex/oct11-native-settlement-b…](https://github.com/leadpoet/leadpoet/commit/5e71476e2a3d3ea4d67110f11637150a5386ef39) — leadpoet/leadpoet
+- 2026-10-11 · commit · [fix(arena): bind native Deepline settlement outage recovery](https://github.com/leadpoet/leadpoet/commit/11c9aa2b303d26f7fc008daed45cfedc7a8dc810) — leadpoet/leadpoet
+- 2026-10-11 · commit · [Merge pull request #370 from leadpoet/codex/oct11-broker-persistence-…](https://github.com/leadpoet/leadpoet/commit/65f000891f9a0590315280230ea1b85451a4229f) — leadpoet/leadpoet
+- 2026-10-11 · commit · [Report undurable transport accounting without false uncertainty](https://github.com/leadpoet/leadpoet/commit/586b1c42f4413c599044fe38591c86439029ed46) — leadpoet/leadpoet
+- 2026-10-11 · commit · [Retain exact provider accounting through transient database outages](https://github.com/leadpoet/leadpoet/commit/514894cc37b0566fb0098db2334ed6bd23518384) — leadpoet/leadpoet
+- 2026-10-10 · commit · [Merge pull request #364 from leadpoet/fix/arena-publication-round-wit…](https://github.com/leadpoet/leadpoet/commit/9e50de908fbe1cfad657b2f18101972b1060c2bf) — leadpoet/leadpoet
+- 2026-10-10 · commit · [Bind incomplete publication judge witnesses to the current round](https://github.com/leadpoet/leadpoet/commit/d778997334d3b6d1d951b26b5a41a833127034de) — leadpoet/leadpoet
+- 2026-10-10 · commit · [Merge pull request #363 from leadpoet/fix/arena-oct10-score-claim-cutoff](https://github.com/leadpoet/leadpoet/commit/2727be91bd2b96bfa21efa3106261a416ae49cae) — leadpoet/leadpoet
 
 ## Use
 
