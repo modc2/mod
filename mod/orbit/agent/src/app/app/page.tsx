@@ -1712,13 +1712,20 @@ export default function Home() {
     return () => clearInterval(iv)
   }, [loading])
 
-  useEffect(() => {
-    setAtBottom(true)
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [selectedTask])
+  // scroll the transcript itself, never scrollIntoView — that also scrolls the
+  // page (and an embedding frame), shoving the header up out of sight
+  const scrollToBottom = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }, [])
 
   useEffect(() => {
-    if (atBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    setAtBottom(true)
+    scrollToBottom()
+  }, [selectedTask, scrollToBottom])
+
+  useEffect(() => {
+    if (atBottom) scrollToBottom()
   }, [tasks])
 
   const handleTranscriptScroll = useCallback(() => {
@@ -4031,7 +4038,7 @@ export default function Home() {
     </div>
     {!atBottom && (
       <button
-        onClick={() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); setAtBottom(true) }}
+        onClick={() => { scrollToBottom(); setAtBottom(true) }}
         className="absolute bottom-4 right-4 z-10 text-[10px] text-emerald-300 border border-emerald-500/25 bg-black/60 rounded-full px-2 py-0.5"
       >
         ↓
