@@ -47,6 +47,51 @@
     text-transform: uppercase;
   }
   header b { color: #f7d51d; letter-spacing: 3px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 14px; }
+  .hdr-ctl { display: inline-flex; align-items: center; gap: 8px; letter-spacing: 1px; }
+  .hdr-ctl select, .hdr-ctl button, #keys-panel button {
+    -webkit-appearance: none; appearance: none;
+    font: inherit; font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+    background: #1b1b26; color: #b9b9cc;
+    border: 1px solid #2e2e3e; border-radius: 3px; padding: 3px 7px; cursor: pointer;
+  }
+  .hdr-ctl select:hover, .hdr-ctl button:hover, #keys-panel button:hover { color: #fff; border-color: #45455e; }
+  .hdr-ctl select { padding-right: 7px; }
+  #cid-chip { display: inline-flex; align-items: center; gap: 6px; text-transform: none; }
+  #cid-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: #55556a; }
+  #cid-chip[data-status="committed"] .dot { background: #4ad46a; }
+  #cid-chip[data-status="drifted"] .dot { background: #f0b030; }
+  #cid-chip[data-status="error"] .dot { background: #d44a4a; }
+  #cid-chip.copied #cid-hash::after { content: ' copied'; color: #f7d51d; }
+  #stage { position: relative; }
+  #keys-panel {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(5, 5, 12, 0.72);
+  }
+  #keys-panel[hidden] { display: none; }
+  .kp-box {
+    width: min(460px, 94vw); max-height: 90vh; overflow: auto;
+    background: #12121c; border: 1px solid #2e2e3e; border-radius: 6px;
+    padding: 14px 16px; font-size: 12px;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.75);
+  }
+  .kp-head { display: flex; justify-content: space-between; align-items: center;
+             color: #f7d51d; letter-spacing: 3px; margin-bottom: 10px; }
+  .kp-row { display: flex; align-items: center; gap: 8px; padding: 5px 0;
+            border-top: 1px solid #1e1e2c; }
+  .kp-name { width: 110px; flex: none; color: #9a9ab4; }
+  .kp-keys { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; }
+  .kp-key { display: inline-flex; align-items: center; background: #1b1b26;
+            border: 1px solid #2e2e3e; border-bottom-width: 2px; border-radius: 3px; }
+  .kp-key kbd { font: inherit; font-size: 11px; color: #e8e8f0; padding: 1px 5px; }
+  #keys-panel .kp-x { border: 0; background: none; padding: 0 5px 0 0; color: #6d6d86; font-size: 12px; }
+  #keys-panel .kp-x:hover { color: #ff6a4a; }
+  .kp-none { color: #55556a; font-style: italic; }
+  #keys-panel .kp-add { flex: none; min-width: 92px; }
+  #keys-panel .kp-add.wait { color: #0a0a12; background: #f7d51d; border-color: #f7d51d; }
+  .kp-foot { display: flex; justify-content: space-between; align-items: center;
+             margin-top: 10px; color: #55556a; font-size: 10px; }
   footer {
     font-size: 11px; color: #55556a; text-align: center; line-height: 1.7;
   }
@@ -83,9 +128,27 @@
 </head>
 <body>
 <div id="app">
-  <header><b>Super Hood Bros.</b> &nbsp;·&nbsp; Washington Park, Brooklyn</header>
+  <header>
+    <span><b>Super Hood Bros.</b> &nbsp;·&nbsp; <span id="city-label">Washington Park, Brooklyn</span></span>
+    <span class="hdr-ctl">
+      <select id="city" aria-label="city" title="city (left/right on the title screen)"></select>
+      <button id="keys-btn" title="rebind the controls">Keys</button>
+      <button id="cid-chip" title="module source hash"><span class="dot"></span>CID <span id="cid-hash">…</span></button>
+    </span>
+  </header>
 
   <div id="stage"><canvas id="screen" width="256" height="240"></canvas></div>
+
+  <div id="keys-panel" hidden>
+    <div class="kp-box" role="dialog" aria-label="controls">
+      <div class="kp-head">CONTROLS <button id="keys-close" aria-label="close">close</button></div>
+      <div id="keys-rows"></div>
+      <div class="kp-foot">
+        <span>+ add, then press a key &middot; Esc cancels &middot; saved in this browser</span>
+        <button id="keys-reset">Reset</button>
+      </div>
+    </div>
+  </div>
 
   <div id="pad">
     <div class="row">
@@ -116,6 +179,7 @@
     <kbd data-key="start">Enter</kbd> start &nbsp;
     <kbd data-key="pause">P</kbd> pause &nbsp;
     <kbd data-key="mute">M</kbd> mute &nbsp;
+    <a href="#" id="keys-link" style="color:#8a8ab0">rebind keys</a> &nbsp;
     &nbsp;— pizza makes you big, an egg cream arms you, a MetroCard makes you untouchable.
   </footer>
 </div>
@@ -135,7 +199,7 @@
   var base = document.createElement('base');
   base.href = dir;                       // so the load-failure notice can show it
   document.head.appendChild(base);
-  ['sprites', 'audio', 'levels', 'game'].forEach(function (name) {
+  ['sprites', 'audio', 'levels', 'cities', 'game', 'ui'].forEach(function (name) {
     var s = document.createElement('script');
     s.src = dir + 'js/' + name + '.js';
     s.async = false;                     // keeps them executing in this order

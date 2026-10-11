@@ -50,6 +50,36 @@ sm.play()          # serves on 50341 and opens a browser
 On a phone the on-screen pad appears automatically. On a desktop the key hints
 under the screen are live buttons — click one and it presses that key.
 
+**Rebinding.** `KEYS` in the page header (or "rebind keys" in the footer) opens
+the controls panel: `+ add` then press a key to bind it, `×` to unbind, `Esc`
+to cancel, `Reset` for the defaults above. A key belongs to one action at a
+time — binding it elsewhere moves it. Bindings live in `localStorage`
+(`superhood.keys`); the footer hints and the title card's cheat line are
+written from them. While the panel is open the game sees no keys and a running
+course pauses.
+
+## Cities
+
+The same three courses can be played in **Brooklyn** (the original), **Chicago**,
+**London**, **Tokyo** or **Mexico City**. Pick one with `←`/`→` on the title
+screen, the dropdown in the header, or a link with `?city=<id>`
+(`brooklyn|chicago|london|tokyo|cdmx`). A city is a reskin, not a new map: it
+renames the courses, repaints the tile themes and skyline, swaps the title
+card's sky and the landmark behind the park (bank tower, stepped spire, clock
+tower, lattice tower, column). Cities live in `web/js/cities.js`; adding one is
+one entry there — `m superhood/test` checks every city names every course in
+the bitmap font's alphabet.
+
+## CID
+
+The header chip (and the title card's top-left corner) shows the module's
+content hash: sha256 over its sorted `{relpath: sha256(file)}` map — the exact
+walk the node root hash uses per module, so it is the value `orbit/superhood`
+carries in `~/.mod/api/root_committed.json`. The dot is green when it matches
+the committed root, amber when the module has been edited since, grey when no
+committed root lists it. Click to copy. `GET /superhood/cid` (or
+`m superhood/cid files=true` for per-file hashes) answers the same thing.
+
 The controls are meant to be forgiving rather than literal, so what you asked
 for is what you get:
 
@@ -106,12 +136,15 @@ superhood/
 ├── mod.py            the anchor; class Mod is the module surface
 ├── serve.py          stdlib static server; strips the /superhood prefix
 ├── web/
-│   ├── index.html    page shell, CSS, touch pad
+│   ├── index.html    page shell, CSS, touch pad, KEYS panel
 │   └── js/
 │       ├── sprites.js  every sprite as a pixel grid + palettes, baked to canvas
 │       ├── audio.js    chiptune engine: 2 pulse voices, triangle bass, noise
 │       ├── levels.js   a small level-builder DSL and the four maps
-│       └── game.js     physics, collision, entities, renderer, HUD, bitmap font
+│       ├── cities.js   the cities: course names, palettes, landmark
+│       ├── game.js     physics, collision, entities, renderer, HUD, bitmap font,
+│       │               key bindings; exposes window.HOOD to ui.js
+│       └── ui.js       KEYS panel, city dropdown, CID chip
 └── tests/smoke.py    headless Chromium playthrough
 ```
 
