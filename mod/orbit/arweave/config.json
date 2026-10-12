@@ -1,6 +1,7 @@
 {
   "name": "arweave",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "route": true,
   "description": "Arweave storage and retrieval \u2014 public gateway reads + optional wallet uploads, with FastAPI server and minimal web app.",
   "port": 50153,
   "app_port": 50153,
