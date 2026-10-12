@@ -137,6 +137,24 @@ def _coerce(v):
     return v
 
 
+
+# Write tools whose read actions need no write standing: listing/showing a
+# wallet or key type, showing a prim, and the private-key-type actions that
+# sign nothing on this node (a verify carries a 64 KiB proof, so it must be
+# POSTable without the write bearer).
+READ_ACTIONS = {
+    'wallet': ('list', 'list', 'ls', 'show', 'get'),
+    'keytype': ('list', 'list', 'ls', 'show', 'get'),
+    'prim': ('show', 'show', 'get'),
+    'private': ('info', 'info', 'verify', 'check_open'),
+}
+
+
+def _read_action(name, args):
+    acts = READ_ACTIONS.get(name)
+    return bool(acts) and (args.get('action') or acts[0]) in acts[1:]
+
+
 def route(method, path, query, body):
     """One request → one JSON answer. Raises ApiError for a caller's mistake."""
     if path in ('', '/'):
@@ -164,8 +182,7 @@ def route(method, path, query, body):
 
     # pq_wallet and pq_keytype are write tools, but listing or showing is a
     # read — those actions are the one GET the write set allows.
-    wallet_read = name in ('wallet', 'keytype') and \
-        (args.get('action') or 'list') in ('list', 'ls', 'show', 'get')
+    wallet_read = _read_action(name, args)
     if name in WRITE_ROUTES and method != 'POST' and not wallet_read:
         raise ApiError(f'/{name} writes — POST it', 405)
     return mcpsrv.call_tool(tool, args)
@@ -255,8 +272,11 @@ def serve(port=PORT, bind=None, base=BASE, block_loop=True):
                 else ''
             return token == token_needed
 
-        def _authed(self, path, method):
+        def _authed(self, path, method, body=None):
             if method == 'GET' or path.lstrip('/') not in WRITE_ROUTES:
+                return True
+            if isinstance(body, dict) and _read_action(path.lstrip('/'),
+                                                       body):
                 return True
             return self._may_write()
 
@@ -340,7 +360,7 @@ def serve(port=PORT, bind=None, base=BASE, block_loop=True):
                 body = {}
             if self._agent(p, body):
                 return None
-            if not self._authed(p, self.command):
+            if not self._authed(p, self.command, body):
                 return self._send(401, {'error': 'this route spends PQ — send '
                                         'the bearer from '
                                         '~/.mod/postquant/server.secret'})

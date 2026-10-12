@@ -721,14 +721,18 @@ def _t_keytype(a):
             parts = [p.strip() for p in parts.replace('+', ',').split(',')
                      if p.strip()]
         try:
+            author = _author(a)
             algo = CMP.create(name, (a.get('op') or 'all').lower(),
-                              parts or [], note=a.get('note'))
+                              parts or [], note=a.get('note'), k=a.get('k'),
+                              author=author and author['address'])
         except CMP.ComposeError as e:
             raise StateError(str(e), code='bad_keytype')
         r = ALGOS.refusal(name)
+        spec = next((x for x in CMP.specs() if x['name'] == name), {})
         return {'created': name, **algo.describe(),
-                'composite': algo.composite,
+                'composite': algo.composite, 'author': algo.author,
                 'accepted': r is None, **({'refused': r[1]} if r else {}),
+                **_maybe_publish(a, name, spec, author),
                 'next': f'pq_keytype_test scheme={name} runs its proofs; '
                         f'pq_wallet action=create scheme={name} uses it'}
     if action in ('delete', 'rm'):
@@ -742,10 +746,12 @@ def _t_keytype(a):
         algo = ALGOS.maybe(name)
         try:
             if algo is not None and getattr(algo, 'wasmtype', None):
-                return WT.delete(name)
-            return CMP.delete(name)
+                out = WT.delete(name)
+            else:
+                out = CMP.delete(name)
         except (CMP.ComposeError, WT.WasmTypeError) as e:
             raise StateError(str(e), code='bad_keytype')
+        return {**out, **_unanchor(name)}
     raise StateError(f'unknown action {action!r} — '
                      'create | delete | show | list', code='bad_args')
 
@@ -761,6 +767,7 @@ def _create_wasm_keytype(name, a):
     except Exception:                                       # noqa: BLE001
         raise StateError('wasm must be the blob as standard base64',
                          code='bad_args')
+    author = _author(a)
     try:
         algo, card = WT.create(
             name, blob,
@@ -771,11 +778,13 @@ def _create_wasm_keytype(name, a):
             quantum_safe=bool(a.get('quantum_safe')),
             classical_bits=a.get('classical_bits'),
             quantum_bits=a.get('quantum_bits'),
-            note=a.get('note'))
+            note=a.get('note'), author=author and author['address'])
     except WT.WasmTypeError as e:
         raise StateError(str(e), code='bad_keytype', status=403)
+    spec = next((x for x in WT.specs() if x['name'] == name), {})
     return {'created': name, **algo.describe(),
             'wasmtype': algo.wasmtype, 'accepted': True,
+            'author': algo.author, **_maybe_publish(a, name, spec, author),
             'admission': {'ok': card['ok'],
                           'determinism': card['determinism'],
                           'budgets': card['budgets'],
@@ -834,8 +843,7 @@ def _t_wallet(a):
     if action in ('remove', 'delete'):
         return K.remove(a['name'])
     if action in ('show', 'get'):
-        w = K.get(a.get('name'))
-        return {k: v for k, v in w.items() if k != 'seed'}
+        return K._public(K.get(a.get('name')))
     raise StateError(f'unknown wallet action {action!r} — list, create, use, '
                      'show or remove', code='bad_action')
 
@@ -873,6 +881,385 @@ def _t_mine(a):
     return {'mined': True, **out['block'], 'hash': out['hash'],
             'dropped': out['dropped'],
             'next_base_fee': _money(out['next_base_fee'])}
+
+
+# ── prims, the key type market, private key types ─────────────────
+
+ANCHOR_PREFIX = 'keytype/'
+
+
+def _author(a):
+    """The wallet credited as a key type's author, if one was named."""
+    name = a.get('author')
+    return K.get(name) if name else None
+
+
+def _spec_hash(spec):
+    """What a key type's on-chain anchor commits to: the spec that defines
+    it (for a wasm prim the spec pins the blob's SHA3, so the bytes are in
+    it too), canonical JSON, minus the wall-clock fields."""
+    body = {k: v for k, v in spec.items() if k not in ('created', 'author')}
+    return hashlib.sha3_256(json.dumps(body, sort_keys=True,
+                                       separators=(',', ':')).encode()) \
+        .hexdigest()
+
+
+def _maybe_publish(a, name, spec, author):
+    """Anchor a key type on chain: the author's wallet writes
+    keytype/<name> = SHA3(spec). Authorship then IS a key in the store —
+    provable, transferable, and listable on the existing key market."""
+    if not (a.get('publish') and author and spec):
+        return {}
+    try:
+        out = _t_set({'wallet': author['name'], 'key': ANCHOR_PREFIX + name,
+                      'value': _spec_hash(spec), 'value_kind': 'hash',
+                      'days': a.get('days') or 30})
+        return {'anchor': {'key': ANCHOR_PREFIX + name,
+                           'value': _spec_hash(spec), 'tx': out.get('hash'),
+                           'status': out.get('status'),
+                           'owner': author['address']}}
+    except StateError as e:
+        return {'anchor_error': f'key type created, not anchored: {e}'}
+
+
+def _unanchor(name):
+    """A deleted key type's authorship key goes with it — when this node
+    holds the owning wallet. A key someone else bought stays theirs."""
+    e = node().state.entry(ANCHOR_PREFIX + name, int(time.time()))
+    if not e or e.get('expired'):
+        return {}
+    owner = K.get(e['owner'], required=False)
+    if owner is None:
+        return {'anchor_kept': f'{e["key"]} is owned by {e["owner"]}, not a '
+                               'wallet on this node — it stays on chain'}
+    try:
+        out = _t_del({'wallet': owner['name'], 'key': e['key']})
+        return {'unanchored': {'key': e['key'], 'tx': out.get('hash'),
+                               'status': out.get('status')}}
+    except StateError as err:
+        return {'anchor_kept': f'{e["key"]} could not be deleted: {err}'}
+
+
+def _anchor_view(name, now):
+    e = node().state.entry(ANCHOR_PREFIX + name, now)
+    if not e or e.get('expired'):
+        return None
+    return {'key': e['key'], 'owner': e['owner'], 'value': e['value'],
+            'listed_price': _money(e['price']) if e['listed'] and e['price']
+            else None, 'expires_in': e.get('expires_in')}
+
+
+def _prim_kind(algo):
+    if getattr(algo, 'wasmtype', None):
+        return 'wasm'
+    return 'builtin' if algo.origin == 'builtin' else 'plugin'
+
+
+def _is_prim(algo):
+    return (getattr(algo, 'composite', None) is None
+            and not getattr(algo, 'private', False))
+
+
+def _uses():
+    counts = {}
+    for acct in node().state.accounts.values():
+        if acct.get('scheme'):
+            counts[acct['scheme']] = counts.get(acct['scheme'], 0) + 1
+    return counts
+
+
+def _prim_view(algo, uses):
+    from pq import compose as CMP
+    r = ALGOS.refusal(algo.name)
+    d = algo.describe()
+    return {**d, 'kind': _prim_kind(algo), 'accepted': r is None,
+            **({'refused': r[1]} if r else {}),
+            'author': getattr(algo, 'author', None),
+            'blob_sha3': (getattr(algo, 'wasmtype', None) or {})
+            .get('sha3_256'),
+            'used_by': CMP.dependents(algo.name),
+            'accounts_on_chain': uses.get(algo.name, 0)}
+
+
+def _t_prims(a):
+    """The atoms: every key type that is not built out of others."""
+    uses = _uses()
+    if a.get('name'):
+        algo = ALGOS.maybe(a['name'])
+        if algo is None or not _is_prim(algo):
+            raise StateError(f'no prim {a["name"]!r} — pq_prims lists them',
+                             code='unknown_scheme', status=404)
+        return {**_prim_view(algo, uses),
+                'anchor': _anchor_view(algo.name, int(time.time()))}
+    rows = [_prim_view(x, uses) for _, x in sorted(ALGOS.REGISTRY.items())
+            if _is_prim(x)]
+    kinds = {}
+    for r in rows:
+        kinds[r['kind']] = kinds.get(r['kind'], 0) + 1
+    return {'prims': rows, 'count': len(rows), 'kinds': kinds,
+            'how_to_add': 'pq_prim action=add wasm=<base64> — one importless '
+                          'wasm blob exporting the pq2 ABI (keygen/sign/'
+                          'verify); admitted only if the proof battery, the '
+                          'determinism double-run and the complexity gate '
+                          'pass. src/pq/wasm-src/examples/lamport.rs is the '
+                          'worked example.'}
+
+
+def _t_prim(a):
+    """Add, show or delete a wasm prim."""
+    action = (a.get('action') or 'show').lower()
+    name = a.get('name')
+    if not name:
+        raise StateError('this action needs a name', code='bad_args')
+    if action in ('show', 'get'):
+        return _t_prims({'name': name})
+    if action in ('add', 'create'):
+        if not a.get('wasm'):
+            raise StateError('a prim is one wasm blob: pass wasm=<base64>',
+                             code='bad_args')
+        out = _create_wasm_keytype(name, a)
+        out['kind'] = 'wasm'
+        return out
+    if action in ('delete', 'rm'):
+        algo = ALGOS.maybe(name)
+        if algo is None or not getattr(algo, 'wasmtype', None):
+            raise StateError(f'{name} is not a wasm prim registered here — '
+                             'builtins and plugins are files',
+                             code='bad_keytype')
+        return _t_keytype({'action': 'delete', 'name': name})
+    raise StateError(f'unknown action {action!r} — add | show | delete',
+                     code='bad_args')
+
+
+_BADGE_ORDER = ('legendary', 'epic', 'rare', 'common')
+
+
+def _market_item(algo, uses, deps, now):
+    from pq import complexity as CPLX
+    comp = getattr(algo, 'composite', None)
+    priv = getattr(algo, 'private', False)
+    s = CPLX.summary(algo)
+    r = ALGOS.refusal(algo.name)
+    wb = (algo.sizes.get('pk') or 0) + (algo.sizes.get('sig') or 0)
+    kind = 'private' if priv else ('keytype' if comp else 'prim')
+    sub = 'private' if priv else ('composite' if comp else _prim_kind(algo))
+    n_uses, n_forks = uses.get(algo.name, 0), len(deps.get(algo.name, ()))
+    cbits = s.get('classical_bits')
+    badges = []
+    if algo.quantum_safe:
+        badges.append('quantum-safe')
+    if comp and comp['op'] == 'all' and len(
+            {ALGOS.get(p).family for p in comp['parts']}) > 1:
+        badges.append('cross-family')
+    if comp and comp['op'] == 'threshold':
+        badges.append(f'{comp["k"]}-of-{len(comp["parts"])}')
+    if priv:
+        badges.append('cloaked')
+    if sub == 'wasm':
+        badges.append('wasm')
+    if wb <= 4096:
+        badges.append('lean')
+    # Rarity: what it would take to break, and how far it is from the
+    # stock shelf — a cross-family threshold beats a single lattice set.
+    score = (2 if algo.quantum_safe else 0) + (1 if cbits is None or cbits >= 192 else 0) \
+        + (2 if 'cross-family' in badges or comp and comp['op'] ==
+           'threshold' else 0) + (2 if priv else 0) + (1 if sub == 'wasm'
+                                                       else 0)
+    rarity = _BADGE_ORDER[0 if score >= 5 else 1 if score >= 4 else
+                          2 if score >= 2 else 3]
+    badges.insert(0, rarity)
+    return {
+        'name': algo.name, 'kind': kind, 'sub': sub,
+        **({'op': comp['op'], 'parts': comp['parts']} if comp else {}),
+        **({'k': comp['k']} if comp and 'k' in comp else {}),
+        'author': getattr(algo, 'author', None),
+        'anchor': _anchor_view(algo.name, now),
+        'uses': n_uses, 'forks': n_forks, 'depth': _depth_of(algo),
+        'family': algo.family,
+        'pk_bytes': algo.sizes.get('pk'), 'sig_bytes': algo.sizes.get('sig'),
+        'witness_bytes': wb, 'witness_gas_nq': wb * S.GAS_WITNESS_BYTE,
+        'classical_bits': cbits, 'quantum': s.get('quantum'),
+        'quantum_safe': algo.quantum_safe, 'accepted': r is None,
+        **({'refused': r[1]} if r else {}),
+        'created': getattr(algo, 'created', None),
+        'heat': round(n_uses * 3 + n_forks * 5 + (2 if priv else 0)
+                      + (1 if r is None else -5), 2),
+        'rarity': rarity, 'badges': badges, 'note': algo.note,
+    }
+
+
+def _depth_of(algo, seen=()):
+    comp = getattr(algo, 'composite', None)
+    if not comp or algo.name in seen:
+        return 0
+    return 1 + max(_depth_of(ALGOS.get(p), seen + (algo.name,))
+                   for p in comp['parts'])
+
+
+_SORTS = {
+    'hot': lambda x: (-x['heat'], x['name']),
+    'new': lambda x: (-(x['created'] or 0), x['name']),
+    'safe': lambda x: (not x['quantum_safe'], -(x['classical_bits'] or 999),
+                       x['name']),
+    'cheap': lambda x: (x['witness_bytes'], x['name']),
+    'deep': lambda x: (-x['depth'], -x['forks'], x['name']),
+    'used': lambda x: (-x['uses'], x['name']),
+}
+
+
+def _t_keymarket(a):
+    """The key type market: every prim, composite and the private cloak on
+    one shelf, with who built it, who uses it and what breaking it costs."""
+    from pq import private as PRIV
+    now = int(time.time())
+    uses = _uses()
+    deps = {}
+    for nm, x in ALGOS.REGISTRY.items():
+        for p in (getattr(x, 'composite', None) or {}).get('parts', ()):
+            deps.setdefault(p, []).append(nm)
+    items = [_market_item(x, uses, deps, now)
+             for _, x in sorted(ALGOS.REGISTRY.items())]
+    kind = (a.get('kind') or 'all').lower()
+    if kind != 'all':
+        items = [i for i in items if i['kind'] == kind]
+    q = (a.get('q') or '').lower().strip()
+    if q:
+        items = [i for i in items if q in json.dumps(
+            [i['name'], i['family'], i['sub'], i.get('parts'), i['badges'],
+             i['note']]).lower()]
+    sort = (a.get('sort') or 'hot').lower()
+    items.sort(key=_SORTS.get(sort, _SORTS['hot']))
+    allitems = [_market_item(x, uses, deps, now)
+                for x in ALGOS.REGISTRY.values()]
+    return {
+        'items': items, 'count': len(items), 'sort': sort,
+        'sorts': list(_SORTS),
+        'stats': {
+            'prims': sum(1 for i in allitems if i['kind'] == 'prim'),
+            'keytypes': sum(1 for i in allitems if i['kind'] == 'keytype'),
+            'wasm': sum(1 for i in allitems if i['sub'] == 'wasm'),
+            'composites': sum(1 for i in allitems if i['sub'] == 'composite'),
+            'accounts': sum(uses.values()),
+            'private_accounts': uses.get(PRIV.NAME, 0),
+            'anonymity_set': len(PRIV.cloak_set()),
+            'anchored': sum(1 for i in allitems if i['anchor']),
+        },
+        'authorship': 'publishing a key type (publish=true author=<wallet>) '
+                      f'writes {ANCHOR_PREFIX}<name> = SHA3(spec) from the '
+                      'author\'s wallet; that key is the authorship — list '
+                      'it with pq_list, buy it with pq_buy',
+    }
+
+
+def _t_private(a):
+    """Private key types: sign without ever revealing which key type."""
+    import base64
+    from pq import private as PRIV
+    action = (a.get('action') or 'info').lower()
+    n = node()
+    if action == 'info':
+        cloak = PRIV.cloak_set()
+        return {
+            'scheme': PRIV.NAME, 'seal': {k: v for k, v in
+                                          PRIV.seal_info().items()
+                                          if k != 'ek'} if not a.get('ek')
+            else PRIV.seal_info(),
+            'envelope_bytes': PRIV.ENVELOPE,
+            'witness_gas_nq': (PRIV.ENVELOPE + 32) * S.GAS_WITNESS_BYTE,
+            'cloak_set': cloak, 'anonymity_set': len(cloak),
+            'private_accounts': _uses().get(PRIV.NAME, 0),
+            'default_inner': PRIV.DEFAULT_INNER,
+            'honesty': [
+                'on chain: a 32-byte commitment and fixed-size envelopes — '
+                'the key type and the public key never appear',
+                'every envelope is the same size, so ML-DSA, SLH-DSA, '
+                'ed25519 and wasm prims are indistinguishable',
+                'envelopes are sealed with ML-KEM-768 to the proposer: '
+                'harvest-now-decrypt-later does not open them',
+                'the proposer can open them — it already orders and signs '
+                'every block; everyone else trusts its attestation',
+                'if the seal key leaks, each account falls back to its '
+                'hidden scheme\'s own security card',
+                'a zero-knowledge proof would remove the proposer from the '
+                'trust path; that is the upgrade, not a claim made here',
+            ],
+        }
+    if action == 'create':
+        inner = a.get('inner') or PRIV.DEFAULT_INNER
+        w = K.create(a.get('name') or 'ghost', seed=a.get('seed'),
+                     scheme=PRIV.NAME, overwrite=bool(a.get('overwrite')),
+                     inner=inner)
+        return {**w, 'commitment': w['pk'], 'envelope_bytes': PRIV.ENVELOPE,
+                'anonymity_set': len(PRIV.cloak_set()),
+                'note': 'the address commits to SHA3(key type, salt, public '
+                        'key); fund it with pq_faucet and use it in any '
+                        'write — the chain only ever sees envelopes'}
+    if action == 'prove':
+        w = K.get(a.get('wallet'))
+        if w['scheme'] != PRIV.NAME:
+            raise StateError(f'{w["name"]} is a {w["scheme"]} wallet — '
+                             'private proofs need pq_private action=create',
+                             code='not_private')
+        msg = str(a.get('message') or '').encode()
+        env = PRIV.prove(K.secret_key(w), msg)
+        return {'address': w['address'], 'commitment': w['pk'],
+                'message_sha3': hashlib.sha3_256(msg).hexdigest(),
+                'proof': env.hex(), 'proof_bytes': len(env),
+                'scheme': PRIV.NAME, 'scheme_revealed': False}
+    if action == 'verify':
+        commit = a.get('commitment')
+        addr = a.get('address')
+        if not commit and addr:
+            acct = n.state.accounts.get(addr) or {}
+            commit = acct.get('pk')
+            if not commit:
+                w = K.get(addr, required=False)
+                commit = w and w['scheme'] == PRIV.NAME and w['pk']
+            if not commit:
+                raise StateError(f'{addr} has no commitment on chain yet — '
+                                 'pass commitment= instead',
+                                 code='no_commitment', status=404)
+        if not commit or not S.is_hex(commit, 32):
+            raise StateError('pass address= or commitment= (32 bytes hex)',
+                             code='bad_args')
+        if addr and K.address(bytes.fromhex(commit), PRIV.NAME) != addr:
+            raise StateError('that commitment does not hash to that address',
+                             code='bad_commitment')
+        proof = a.get('proof') or ''
+        try:
+            env = bytes.fromhex(proof)
+        except ValueError:
+            try:
+                env = base64.b64decode(proof, validate=True)
+            except Exception:                               # noqa: BLE001
+                raise StateError('proof must be hex (or base64)',
+                                 code='bad_args')
+        msg = str(a.get('message') or '').encode()
+        ok, att = PRIV.attest(n.validator, K, bytes.fromhex(commit), msg,
+                              env, n.chain_id)
+        return {'valid': ok, 'scheme_revealed': False,
+                'address': K.address(bytes.fromhex(commit), PRIV.NAME),
+                'commitment': commit, 'attestation': att,
+                'anonymity_set': len(PRIV.cloak_set())}
+    if action == 'open':
+        w = K.get(a.get('wallet'))
+        if w['scheme'] != PRIV.NAME:
+            raise StateError(f'{w["name"]} is not a private wallet',
+                             code='not_private')
+        sk = K.secret_key(w)
+        return {'address': w['address'], 'commitment': w['pk'],
+                'inner': sk['inner'], 'salt': sk['salt'].hex(),
+                'pk': sk['pk'].hex(),
+                'note': 'selective disclosure: anyone can now recompute the '
+                        'commitment with pq_private action=check_open — '
+                        'and anyone can now attack the revealed scheme'}
+    if action == 'check_open':
+        ok = PRIV.check_open(a.get('commitment') or '', a.get('inner') or '',
+                             a.get('salt') or '', a.get('pk') or '')
+        return {'match': ok, 'commitment': a.get('commitment'),
+                'inner': a.get('inner')}
+    raise StateError(f'unknown action {action!r} — info | create | prove | '
+                     'verify | open | check_open', code='bad_args')
 
 
 # ── registry ──────────────────────────────────────────────────────
@@ -936,7 +1323,9 @@ TOOLS = {
                        'every part — falls only if every part falls, '
                        'quantum-safe if any part is); op=any is the 1-of-n '
                        'OR (one part\'s signature suffices — falls at the '
-                       'weakest part); parts may themselves be composites, '
+                       'weakest part); op=threshold k=2 is k-of-n (any k '
+                       'parts sign — falls when the k weakest fall); parts '
+                       'may themselves be composites, '
                        'so key types form a DAG (pq_keytype_dag draws it). '
                        'Or BRING YOUR OWN as wasm=<base64 blob>: one '
                        'importless wasm module exporting the pq2 ABI '
@@ -959,8 +1348,14 @@ TOOLS = {
                          '[A-Za-z0-9_.+-] — hashed into every address under '
                          'it, never rebindable'),
             'op': _str('composites: how the parts combine — all (hybrid '
-                       'AND) or any (1-of-n OR); default all',
-                       enum=['all', 'any']),
+                       'AND), any (1-of-n OR) or threshold (k-of-n, pass '
+                       'k); default all',
+                       enum=['all', 'any', 'threshold']),
+            'k': _int('threshold: how many parts must sign (1..parts)'),
+            'author': _str('local wallet credited as the key type\'s author'),
+            'publish': _bool('anchor keytype/<name> = SHA3(spec) on chain '
+                             'from the author wallet — authorship becomes a '
+                             'key you can list and sell'),
             'parts': {'type': 'array', 'items': {'type': 'string'},
                       'description': 'composites: 2-6 registered key types '
                                      'to combine (pq_algos lists them); also '
@@ -1290,11 +1685,98 @@ TOOLS = {
                                 'whatever its key type (slow)')}},
         'handler': _t_verify,
     },
+
+    'pq_prims': {
+        'description': 'The prims: every key type that is not built from '
+                       'others — builtin ML-DSA/SLH-DSA, plugin schemes '
+                       '(ed25519) and user wasm blobs — with what they rest '
+                       'on, what breaking them costs, which key types use '
+                       'them and how many accounts sign with them. name= '
+                       'shows one.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'name': _str('one prim to show')}},
+        'handler': _t_prims,
+    },
+    'pq_prim': {
+        'description': 'Add a prim: one importless wasm blob exporting the '
+                       'pq2 ABI (pq_keygen/pq_sign/pq_verify), admitted only '
+                       'if the proof battery, the determinism double-run and '
+                       'the complexity gate pass — refused with the '
+                       'measurement otherwise. author= credits a wallet and '
+                       'publish=true anchors the spec hash on chain at '
+                       'keytype/<name>. Also show / delete.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'action': _str('add | show | delete (default show)'),
+            'name': _str('the prim name — hashed into every address, never '
+                         'rebound'),
+            'wasm': _str('the blob, standard base64'),
+            'pk_bytes': _int('exact public key size the blob produces'),
+            'sig_bytes': _int('exact signature size'),
+            'sk_bytes': _int('exact secret key size'),
+            'family': _str('family label, e.g. hash-OTS'),
+            'basis': _str('what the security rests on'),
+            'quantum_safe': _bool('declared quantum-safe'),
+            'classical_bits': _int('best-known classical attack, bits'),
+            'quantum_bits': _int('best-known quantum attack, bits'),
+            'note': _str('a line for the market card'),
+            'author': _str('local wallet credited as author'),
+            'publish': _bool('anchor keytype/<name> = SHA3(spec) on chain '
+                             'from the author wallet'),
+        }, 'required': ['name']},
+        'handler': _t_prim,
+    },
+    'pq_keymarket': {
+        'description': 'The key type market: every prim, composite and the '
+                       'private cloak on one shelf — author, on-chain anchor '
+                       '(authorship is the key keytype/<name>, listable and '
+                       'buyable), accounts using it, key types forked from '
+                       'it, witness bytes and gas, classical/quantum attack '
+                       'cost, rarity. sort=hot|new|safe|cheap|deep|used, '
+                       'q= filters, kind=all|prim|keytype|private.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'sort': _str('hot | new | safe | cheap | deep | used'),
+            'q': _str('text filter over name, family, parts, badges'),
+            'kind': _str('all | prim | keytype | private')}},
+        'handler': _t_keymarket,
+    },
+    'pq_private': {
+        'description': 'Private key types: an account whose key type and '
+                       'public key never appear on chain. Its address '
+                       'commits to SHA3(key type, salt, pk); its witnesses '
+                       'are fixed-size ML-KEM-768 envelopes that only the '
+                       'proposer opens, so every hidden scheme looks the '
+                       'same. action=info (cloak set, seal key, threat '
+                       'model) | create (name, inner=<hidden scheme>) | '
+                       'prove (wallet, message -> sealed proof) | verify '
+                       '(address|commitment, message, proof -> valid + the '
+                       'proposer\'s signed attestation, scheme never '
+                       'revealed) | open (owner reveals inner/salt/pk) | '
+                       'check_open. Private wallets work in every write '
+                       'tool.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'action': _str('info | create | prove | verify | open | '
+                           'check_open (default info)'),
+            'name': _str('create: wallet name (default ghost)'),
+            'inner': _str('create: the hidden key type (default ML-DSA-44; '
+                          'info lists the cloak set)'),
+            'seed': _str('create: optional 32-byte hex seed'),
+            'overwrite': _bool('create: replace an existing wallet'),
+            'wallet': _str('prove/open: the private wallet'),
+            'message': _str('prove/verify: the message'),
+            'proof': _str('verify: the sealed proof, hex'),
+            'address': _str('verify: the private address'),
+            'commitment': _str('verify/check_open: the 32-byte commitment'),
+            'salt': _str('check_open: revealed salt hex'),
+            'pk': _str('check_open: revealed inner public key hex'),
+            'ek': _bool('info: include the full seal encapsulation key'),
+        }},
+        'handler': _t_private,
+    },
 }
 
 WRITE_TOOLS = {'pq_set', 'pq_del', 'pq_fund', 'pq_sweep', 'pq_list', 'pq_buy',
                'pq_transfer', 'pq_wallet', 'pq_faucet', 'pq_mine',
-               'pq_keytype'}
+               'pq_keytype', 'pq_prim', 'pq_private'}
 
 
 def call_tool(name, args):

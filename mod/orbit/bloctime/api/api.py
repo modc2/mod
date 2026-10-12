@@ -11,7 +11,8 @@ import sys
 import time
 from pathlib import Path
 from typing import List, Optional
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from web3 import Web3
@@ -19,6 +20,7 @@ from web3 import Web3
 sys.path.insert(0, str(Path(__file__).parent))
 import bt_registry
 import bt_contracts
+import agent
 
 app = FastAPI(title="BlocTime API", description="Time-weighted staking")
 
@@ -320,8 +322,38 @@ async def whitepaper():
     return {"markdown": WHITEPAPER_PATH.read_text(), "updated": int(WHITEPAPER_PATH.stat().st_mtime)}
 
 
+# ── Ask agent ───────────────────────────────────────────────────────────
+# The bottom-right guide. Tool-less and read-only (see agent.py); public but
+# rate-limited per caller since every answer spends model credits.
+
+class AskRequest(BaseModel):
+    question: str
+    history: List[dict] = []
+    context: Optional[dict] = None
+
+
+@app.get("/ask/status")
+async def ask_status():
+    return agent.status()
+
+
+@app.post("/ask")
+async def ask(req: AskRequest, request: Request):
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="Ask a question")
+    caller = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "?")
+    why = agent.admit(caller)
+    if why:
+        raise HTTPException(status_code=429, detail=why)
+    return StreamingResponse(
+        agent.stream(req.question, req.history, req.context),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.post("/overview")
-async def overview(req: Optional[AddressReq] = None):
+def overview(req: Optional[AddressReq] = None):
     w3, contract, account, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -368,7 +400,7 @@ async def overview(req: Optional[AddressReq] = None):
 
 
 @app.post("/stake", dependencies=SIGNER)
-async def stake(req: StakeReq):
+def stake(req: StakeReq):
     w3, contract, account, token = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Contract not deployed or no signer")
@@ -397,7 +429,7 @@ async def stake(req: StakeReq):
 
 
 @app.post("/unstake", dependencies=SIGNER)
-async def unstake(req: UnstakeReq):
+def unstake(req: UnstakeReq):
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Contract not deployed or no signer")
@@ -410,7 +442,7 @@ async def unstake(req: UnstakeReq):
 
 
 @app.post("/get_position")
-async def get_position(req: PositionReq):
+def get_position(req: PositionReq):
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -430,7 +462,7 @@ async def get_position(req: PositionReq):
 
 
 @app.post("/get_multiplier")
-async def get_multiplier(req: dict):
+def get_multiplier(req: dict):
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -450,7 +482,7 @@ async def get_multiplier(req: dict):
 
 
 @app.post("/quote")
-async def quote(req: QuoteReq):
+def quote(req: QuoteReq):
     """BLOC minted for a hypothetical stake — usd value × seconds × multiplier."""
     w3, contract, _, _ = load_contract()
     if not contract:
@@ -471,7 +503,7 @@ async def quote(req: QuoteReq):
 
 
 @app.get("/price")
-async def get_price():
+def get_price():
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -482,7 +514,7 @@ async def get_price():
 
 
 @app.post("/set_price", dependencies=SIGNER)
-async def set_price(req: SetPriceReq):
+def set_price(req: SetPriceReq):
     """Owner-only: reprice the staked token (dollars per whole token)."""
     w3, contract, account, _ = load_contract()
     if not contract or not account:
@@ -498,7 +530,7 @@ async def set_price(req: SetPriceReq):
 
 
 @app.get("/points")
-async def get_points():
+def get_points():
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -512,7 +544,7 @@ async def get_points():
 
 
 @app.post("/set_points", dependencies=SIGNER)
-async def set_points(req: SetPointsReq):
+def set_points(req: SetPointsReq):
     """Owner-only: reshape the lock-length → multiplier curve. Each point is
     {lock_seconds, multiplier (bps) | multiplier_x}; the contract interpolates
     between them. Mirrors the contract's requires so a bad curve fails here
@@ -546,7 +578,7 @@ async def set_points(req: SetPointsReq):
 
 
 @app.get("/params")
-async def get_params():
+def get_params():
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -582,7 +614,7 @@ ERC20_SYMBOL_ABI = [
 
 
 @app.get("/treasury")
-async def treasury_status():
+def treasury_status():
     """Is this instance connected to a treasury? A live probe, not a config
     echo: the address must hold code and its token() must be this instance's
     NativeToken — only then do deposits mint the token the stake form takes,
@@ -624,7 +656,7 @@ async def treasury_status():
 
 
 @app.get("/stats")
-async def stats():
+def stats():
     w3, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -696,7 +728,7 @@ async def stats():
 # ── Delegation & Rewards Endpoints ──────────────────────────────────────
 
 @app.post("/get_voting_power")
-async def get_voting_power(req: AddressReq):
+def get_voting_power(req: AddressReq):
     _, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -714,7 +746,7 @@ async def get_voting_power(req: AddressReq):
 
 
 @app.post("/get_rewards")
-async def get_rewards(req: AddressReq):
+def get_rewards(req: AddressReq):
     _, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -732,7 +764,7 @@ async def get_rewards(req: AddressReq):
 
 
 @app.get("/get_inflation_params")
-async def get_inflation_params():
+def get_inflation_params():
     _, contract, _, _ = load_contract()
     if not contract:
         raise HTTPException(status_code=500, detail="Contract not deployed")
@@ -755,7 +787,7 @@ async def get_inflation_params():
 
 
 @app.get("/get_inflation_curve")
-async def get_inflation_curve():
+def get_inflation_curve():
     """Return sampled inflation rewards over epochs for chart display."""
     _, contract, _, _ = load_contract()
     if not contract:
@@ -781,7 +813,7 @@ async def get_inflation_curve():
 # ── Delegation / Rewards Write Endpoints ─────────────────────────────────
 
 @app.post("/delegate", dependencies=SIGNER)
-async def delegate(req: DelegateReq):
+def delegate(req: DelegateReq):
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Not loaded or no signer")
@@ -794,7 +826,7 @@ async def delegate(req: DelegateReq):
 
 
 @app.post("/undelegate", dependencies=SIGNER)
-async def undelegate():
+def undelegate():
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Not loaded or no signer")
@@ -806,7 +838,7 @@ async def undelegate():
 
 
 @app.post("/claim_rewards", dependencies=SIGNER)
-async def claim_rewards():
+def claim_rewards():
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Not loaded or no signer")
@@ -818,7 +850,7 @@ async def claim_rewards():
 
 
 @app.get("/pot")
-async def pot():
+def pot():
     """Reward pot waiting on the next weekly distribution."""
     _, contract, _, _ = load_contract()
     if not contract:
@@ -830,7 +862,7 @@ async def pot():
 
 
 @app.post("/fund_pot", dependencies=SIGNER)
-async def fund_pot(req: FundPotReq):
+def fund_pot(req: FundPotReq):
     """Add BLOC to the pot — paid out at the next Friday 12:00 EST."""
     w3, contract, account, _ = load_contract()
     if not contract or not account:
@@ -844,7 +876,7 @@ async def fund_pot(req: FundPotReq):
 
 
 @app.post("/distribute_rewards", dependencies=SIGNER)
-async def distribute_rewards():
+def distribute_rewards():
     """Sweep the pot to BLOC holders. Only opens Friday 12:00 EST, weekly."""
     w3, contract, account, _ = load_contract()
     if not contract or not account:
@@ -983,7 +1015,7 @@ def _json_safe(v):
 
 
 @app.get("/contracts")
-async def contracts():
+def contracts():
     """All deployed contracts with address, ABI, and Solidity source."""
     network, cfg = _network_cfg()
     out = []
@@ -1023,7 +1055,7 @@ async def contracts():
 
 
 @app.post("/contract/read")
-async def contract_read(req: AbiCallReq):
+def contract_read(req: AbiCallReq):
     """Call any view/pure function on a registered contract."""
     w3, contract, _, abi = _load_any_contract(req.contract)
     entry = _find_fn(abi, req.fn, len(req.args))
@@ -1044,7 +1076,7 @@ async def contract_read(req: AbiCallReq):
 
 
 @app.post("/contract/write", dependencies=SIGNER)
-async def contract_write(req: AbiCallReq):
+def contract_write(req: AbiCallReq):
     """Send a state-changing transaction via the server signer (PRIVATE_KEY)."""
     w3, contract, account, abi = _load_any_contract(req.contract)
     if not account:
@@ -1151,7 +1183,7 @@ DEPLOY_DEFAULTS = {
 
 
 @app.get("/factory")
-async def factory():
+def factory():
     """ABI + bytecode + default params so a browser wallet can deploy its own BlocTime."""
     out = {}
     for key, path in (("bloctime", ABI_PATH), ("nativeToken", TOKEN_ABI_PATH), ("treasury", TREASURY_ABI_PATH)):
@@ -1173,7 +1205,7 @@ async def factory():
 
 
 @app.get("/reserve-tokens")
-async def reserve_tokens():
+def reserve_tokens():
     """Per-chain allowlist of reserve tokens the deploy form may offer."""
     return {"result": _load_reserve_tokens()}
 
@@ -1186,7 +1218,7 @@ class ReserveTokenAdd(BaseModel):
 
 
 @app.post("/reserve-tokens/add", dependencies=OWNER)
-async def reserve_tokens_add(req: ReserveTokenAdd):
+def reserve_tokens_add(req: ReserveTokenAdd):
     chain_id = str(req.chainId).strip()
     if not chain_id.isdigit():
         raise HTTPException(status_code=400, detail="chainId must be a decimal chain id")
@@ -1216,7 +1248,7 @@ class ReserveTokenRemove(BaseModel):
 
 
 @app.post("/reserve-tokens/remove", dependencies=OWNER)
-async def reserve_tokens_remove(req: ReserveTokenRemove):
+def reserve_tokens_remove(req: ReserveTokenRemove):
     chain_id = str(req.chainId).strip()
     data = _load_reserve_tokens()
     tokens = data.get(chain_id, [])
@@ -1286,7 +1318,7 @@ class DeployContractReq(BaseModel):
 
 
 @app.get("/compile/starter")
-async def compile_starter():
+def compile_starter():
     """A tiny contract to start from, plus what the compiler here can do."""
     return {"result": {
         "source": STARTER_SOL,
@@ -1296,7 +1328,7 @@ async def compile_starter():
 
 
 @app.post("/compile")
-async def compile_contract(req: CompileReq):
+def compile_contract(req: CompileReq):
     """Compile Solidity → ABI + bytecode for every contract in the file."""
     try:
         return {"result": bt_contracts.compile_source(
@@ -1307,14 +1339,14 @@ async def compile_contract(req: CompileReq):
 
 
 @app.get("/deployments")
-async def deployments():
+def deployments():
     """Contracts deployed through this console (yours and anyone else's on this box)."""
     entries = bt_contracts.list_deployments()
     return {"result": {"count": len(entries), "deployments": entries}}
 
 
 @app.post("/deployments/record")
-async def deployments_record(req: RecordDeployReq):
+def deployments_record(req: RecordDeployReq):
     """Remember a wallet-deployed contract so it joins the CONTRACTS playground."""
     try:
         bt_registry.assert_public_rpc(req.rpc)
@@ -1329,7 +1361,7 @@ async def deployments_record(req: RecordDeployReq):
 
 
 @app.post("/deployments/forget")
-async def deployments_forget(req: ForgetDeployReq):
+def deployments_forget(req: ForgetDeployReq):
     """Drop a deployment record. Deployer must sign 'bloctime:forget:<id>'."""
     entry = bt_contracts.get_deployment(req.id)
     if not entry:
@@ -1353,7 +1385,7 @@ async def deployments_forget(req: ForgetDeployReq):
 
 
 @app.post("/deploy", dependencies=SIGNER)
-async def deploy_contract(req: DeployContractReq):
+def deploy_contract(req: DeployContractReq):
     """Deploy a contract with the server signer (PRIVATE_KEY) — the CLI path.
 
     The app deploys from your own wallet instead; this is for headless use.
@@ -1444,7 +1476,7 @@ def registry_list():
 
 
 @app.post("/registry/register")
-async def registry_register(req: RegisterReq):
+def registry_register(req: RegisterReq):
     """Register a deployed BlocTime. Verified on-chain; owner() is recorded."""
     try:
         bt_registry.assert_public_rpc(req.rpc)
@@ -1460,7 +1492,7 @@ async def registry_register(req: RegisterReq):
 
 
 @app.post("/registry/unregister")
-async def registry_unregister(req: UnregisterReq):
+def registry_unregister(req: UnregisterReq):
     """Remove an entry. Caller must sign 'bloctime:unregister:<id>' with the instance owner key."""
     entry = bt_registry.get_instance(req.id)
     if not entry:
@@ -1536,7 +1568,7 @@ def _bridge_call(fn: str, params: Optional[dict] = None):
 
 
 @app.get("/bridge/info")
-async def bridge_info():
+def bridge_info():
     """Bridge module health + totals, plus where its app lives."""
     try:
         health, code = _bridge_call("health")
@@ -1558,7 +1590,7 @@ async def bridge_info():
 
 
 @app.post("/bridge/{fn}")
-async def bridge_proxy(fn: str, params: Optional[dict] = None):
+def bridge_proxy(fn: str, params: Optional[dict] = None):
     """Whitelisted read-only pass-through to the bridge module's API."""
     if fn not in BRIDGE_FNS:
         raise HTTPException(status_code=403, detail=f"Bridge fn '{fn}' not allowed via this proxy")
@@ -1569,7 +1601,7 @@ async def bridge_proxy(fn: str, params: Optional[dict] = None):
 
 
 @app.post("/set_inflation_params", dependencies=SIGNER)
-async def set_inflation_params(req: SetInflationReq):
+def set_inflation_params(req: SetInflationReq):
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Not loaded or no signer")

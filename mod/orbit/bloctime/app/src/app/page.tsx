@@ -33,10 +33,13 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   DocumentTextIcon,
+  HomeIcon,
 } from '@heroicons/react/24/outline'
 import { useThemeColors } from './theme'
 import ThemePicker from './ThemePicker'
 import Whitepaper from './Whitepaper'
+import Intro from './Intro'
+import Agent from './Agent'
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
@@ -382,7 +385,10 @@ interface BridgeInfo {
   api: string
 }
 
-type Tab = 'stake' | 'rewards' | 'market' | 'deploy' | 'bridge' | 'contracts'
+type Tab = 'intro' | 'paper' | 'stake' | 'rewards' | 'market' | 'deploy' | 'bridge' | 'contracts'
+
+// First visit lands on the intro; after that, straight to the stake form.
+const SEEN_INTRO_KEY = 'bloctime_seen_intro'
 
 // ── API helper ──────────────────────────────────────────────────────────
 
@@ -2948,7 +2954,15 @@ function BlocTimePageInner() {
   const closeSidebar = useCallback(() => setSidebarOpen(false), [])
   const [gasBal, setGasBal] = useState<string | null>(null)
   const [chainId, setChainId] = useState(DEFAULT_CHAIN)
-  const [tab, setTab] = useState<Tab>('stake')
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === 'undefined') return 'intro'
+    const h = window.location.hash.slice(1)
+    if (h === 'intro' || h === 'paper') return h
+    return localStorage.getItem(SEEN_INTRO_KEY) ? 'stake' : 'intro'
+  })
+  useEffect(() => { try { localStorage.setItem(SEEN_INTRO_KEY, '1') } catch {} }, [])
+  const [askSeed, setAskSeed] = useState({ q: '', n: 0 })
+  const openAgent = useCallback((q?: string) => setAskSeed(s => ({ q: q || '', n: s.n + 1 })), [])
 
   // Stake form. The lock is stored in whichever unit the toggle says —
   // SECONDS by default, BLOCKS as a view on the same span — and the contract
@@ -3498,6 +3512,22 @@ function BlocTimePageInner() {
     } catch { return 0n }
   }, [stakeAmount, priceUsdMicro, lockSeconds, currentMultiplierBps])
 
+  // What the guide gets to see: the numbers already on screen, nothing more.
+  const agentContext = () => ({
+    tab,
+    instance: activeInst ? { name: activeInst.name, chainId: activeInst.chainId } : 'official',
+    stats: stats ? {
+      network: stats.network, chainId: stats.chainId, priceUsd: stats.priceUsd,
+      totalStakes: stats.totalStakes, totalBloc: fmtEth(stats.totalBlocTime),
+      maxLockSeconds: stats.maxLockSeconds, hasTreasury: !!stats.treasury,
+      pot: stats.pot,
+    } : null,
+    wallet: connected && overview ? {
+      connected: true, myBloc: fmtEth(overview.totalBlocTime), staked: fmtEth(overview.totalStaked),
+      pendingRewards: fmtEth(overview.pendingRewards), votingPower: fmtEth(overview.votingPower),
+    } : { connected: false },
+  })
+
   return (
     <div className="min-h-screen text-ink">
       {/* The field: two washes, a grid and (on the tube skins) scanlines.
@@ -3513,6 +3543,8 @@ function BlocTimePageInner() {
         <div className="max-w-5xl mx-auto px-3 md:px-5 py-1.5 flex items-center gap-2">
           <div className="tabbar flex-1 min-w-0">
             {([
+              ['intro', 'Intro', HomeIcon],
+              ['paper', 'Whitepaper', DocumentTextIcon],
               ['stake', 'Stake', LockClosedIcon],
               ['rewards', 'Rewards', GiftIcon],
               ['market', 'Market', BuildingStorefrontIcon],
@@ -3598,8 +3630,8 @@ function BlocTimePageInner() {
           </div>
         )}
 
-        {/* Stats */}
-        {stats && (
+        {/* Stats — the intro and the paper carry their own framing */}
+        {stats && tab !== 'intro' && tab !== 'paper' && (
           <StatGrid>
             <Stat label="Total Stakes" tone="accent" value={stats.totalStakes} />
             <Stat label="Total BlocTime" tone="gold" value={fmtEth(stats.totalBlocTime)} />
@@ -3609,13 +3641,37 @@ function BlocTimePageInner() {
         )}
 
         {/* Account overview with rewards info */}
-        {connected && overview && (
+        {connected && overview && tab !== 'intro' && tab !== 'paper' && (
           <StatGrid>
             <Stat label="My BLOC" tone="accent" value={fmtEth(overview.totalBlocTime)} />
             <Stat label="Staked" tone="gold" value={fmtEth(overview.totalStaked)} />
             <Stat label="Pending Rewards" tone="up" value={fmtEth(overview.pendingRewards)} />
             <Stat label="Voting Power" tone="iris" value={fmtEth(overview.votingPower)} />
           </StatGrid>
+        )}
+
+        {/* ── Intro Tab ────────────────────────────────────────────────── */}
+        {tab === 'intro' && (
+          <Intro
+            live={stats ? {
+              totalStakes: stats.totalStakes,
+              totalBloc: fmtEth(stats.totalBlocTime),
+              network: stats.network,
+              priceUsd: stats.priceUsd,
+            } : null}
+            onStake={() => setTab('stake')}
+            onPaper={() => setTab('paper')}
+            onAsk={openAgent}
+            onDeploy={() => setTab('deploy')}
+            onMarket={() => setTab('market')}
+          />
+        )}
+
+        {/* ── Whitepaper Tab ───────────────────────────────────────────── */}
+        {tab === 'paper' && (
+          <div key="paper" className="card max-w-3xl mx-auto animate-fade-up">
+            <Whitepaper load={loadWhitepaper} wide />
+          </div>
         )}
 
         {/* ── Stake Tab ────────────────────────────────────────────────── */}
@@ -4174,6 +4230,8 @@ function BlocTimePageInner() {
           <span className="lbl-dim">BlocTime Module</span>
         </footer>
       </div>
+
+      <Agent apiUrl={API_URL} getContext={agentContext} seed={askSeed} />
     </div>
   )
 }

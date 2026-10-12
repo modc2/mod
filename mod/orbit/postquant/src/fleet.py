@@ -109,6 +109,8 @@ def ready():
 # what a word in the message points at — the tool list a small model sees
 _ROUTES = [
     (r'algo|scheme|key ?type|dsa|slh|signature|quantum|wasm|plugin', ('pq_algos', 'pq_complexity')),
+    (r'private|hidden|cloak|anonym|seal|reveal', ('pq_private',)),
+    (r'key ?type market|keymarket|marketplace|\bprims?\b|primitive', ('pq_keymarket', 'pq_prims')),
     (r'market|sale|listing|for sale|buy|price|cost|fee|burn', ('pq_market', 'pq_quote')),
     (r'quote|how much|afford|\brent\b|\bbytes?\b', ('pq_quote',)),
     (r'\bget\b|value of|stored (at|under)', ('pq_get', 'pq_keys')),

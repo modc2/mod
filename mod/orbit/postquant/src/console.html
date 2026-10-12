@@ -4,402 +4,660 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>postquant — a post-quantum key/value market</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* ════════════════════════════════════════════════════════════════════
+     POSTQUANT // 8-bit cyberpunk. Arcade cabinet meets a Blade Runner
+     terminal: pixel type for the chrome, VT323 for data, Chakra Petch for
+     prose. No border-radius anywhere — corners are notched pixels.
+     ════════════════════════════════════════════════════════════════════ */
   :root{
-    --bg:#06080b; --panel:#0c1118; --inset:#0a0f15; --line:#1b2431; --line2:#2b3a4d;
-    --ink:#dbe6f0; --dim:#7d8ea0;
-    --pq:#9d7bff; --pq-dim:#54418a; --gold:#e8c05a; --good:#4ade80; --warn:#fbbf24;
-    --bad:#ff5d5d; --blue:#5db4ff;
-    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --bg:#07040f; --panel:#0d0820; --panel2:#120a2a; --inset:#080414;
+    --line:#2b1a4d; --line2:#4b2a85;
+    --ink:#ece4ff; --dim:#8f84b8;
+    --mag:#ff2bd6; --cy:#00f0ff; --ac:#39ff14; --hz:#ffe600; --vi:#9d4dff; --or:#ff7a18;
+    --pq:var(--mag); --pq-dim:#7a1a6a; --gold:var(--hz); --good:var(--ac); --warn:var(--hz);
+    --bad:#ff3860; --blue:var(--cy);
+    --px:"Press Start 2P",ui-monospace,monospace;
+    --vt:"VT323",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:"Chakra Petch",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    --mono:var(--vt);
   }
   *{box-sizing:border-box}
+  html{scrollbar-color:var(--line2) var(--bg)}
   body{margin:0;color:var(--ink);
-       font:14px/1.6 var(--sans);
+       font:15px/1.6 var(--sans);
        min-height:100svh;
        background:
-         radial-gradient(1100px 480px at 82% -12%, rgba(157,123,255,.10), transparent 60%),
-         radial-gradient(900px 420px at 8% -6%, rgba(232,192,90,.06), transparent 55%),
-         radial-gradient(1400px 900px at 50% 120%, rgba(93,180,255,.04), transparent 60%),
+         radial-gradient(1000px 520px at 85% -10%, rgba(255,43,214,.13), transparent 60%),
+         radial-gradient(900px 480px at 5% -8%, rgba(0,240,255,.10), transparent 55%),
+         radial-gradient(1400px 900px at 50% 125%, rgba(157,77,255,.12), transparent 60%),
          var(--bg);
        background-attachment:fixed}
-  code,kbd,pre,.mono,.addr,.amt,.pill,.chip{font-family:var(--mono)}
-  a{color:var(--blue)}
-  ::selection{background:rgba(157,123,255,.35);color:#fff}
+  /* CRT: scanlines + vignette, never in the way of a click */
+  body::before{content:'';position:fixed;inset:0;z-index:70;pointer-events:none;
+       background:repeating-linear-gradient(180deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px);
+       mix-blend-mode:multiply;opacity:.55}
+  body::after{content:'';position:fixed;inset:0;z-index:69;pointer-events:none;
+       background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%)}
+  code,kbd,pre,.mono,.addr,.amt,.chip{font-family:var(--vt)}
+  .mono,.addr,.amt{font-size:1.15em;line-height:1.2}
+  a{color:var(--cy);text-decoration:none;border-bottom:1px dashed rgba(0,240,255,.4)}
+  a:hover{color:#fff;text-shadow:0 0 8px var(--cy)}
+  ::selection{background:var(--mag);color:#000}
   ::-webkit-scrollbar{width:10px;height:10px}
-  ::-webkit-scrollbar-track{background:transparent}
-  ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:5px}
-  ::-webkit-scrollbar-thumb:hover{background:var(--pq-dim)}
-  #lattice{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--line2);border:2px solid var(--bg)}
+  ::-webkit-scrollbar-thumb:hover{background:var(--mag)}
+  #lattice{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.55}
   header,main{position:relative;z-index:1}
-  @keyframes shimmer{0%{background-position:0% 50%}100%{background-position:200% 50%}}
-  @keyframes glyphpulse{
-    0%,100%{text-shadow:0 0 10px rgba(157,123,255,.45)}
-    50%{text-shadow:0 0 18px rgba(157,123,255,.9), 0 0 34px rgba(157,123,255,.35)}}
-  @keyframes fadeup{from{opacity:0;transform:translateY(6px)}
-                    to{opacity:1;transform:none}}
-  @media (prefers-reduced-motion:reduce){
-    *,*::before,*::after{animation:none !important;transition:none !important}
-    #lattice{display:none}}
-  header{display:flex;align-items:center;gap:18px;height:52px;
-         padding:0 20px;background:rgba(6,8,11,.72);
-         backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
-         position:sticky;top:0;z-index:5;border-bottom:1px solid rgba(255,255,255,.07)}
-  .mark{font:600 15px/1 var(--sans);letter-spacing:-.01em;color:#f5f5f7;
-         display:flex;align-items:center;gap:8px;flex:none}
-  .mark .glyph{color:var(--pq);font-size:14px}
+  @keyframes fadeup{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @keyframes fadein{from{opacity:0}to{opacity:1}}
+  @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+  @keyframes glow{0%,100%{text-shadow:0 0 6px currentColor}50%{text-shadow:0 0 14px currentColor,0 0 28px currentColor}}
+  @keyframes flick{0%,100%{opacity:1}92%{opacity:1}93%{opacity:.4}94%{opacity:1}97%{opacity:.7}}
+  .cursor::after,.blinker::after{content:'█';margin-left:4px;color:var(--mag);animation:blink 1s steps(1) infinite}
+  /* ── header ── */
+  header{display:flex;align-items:center;gap:16px;height:58px;
+         padding:0 18px;background:rgba(7,4,15,.86);
+         backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+         position:sticky;top:0;z-index:20;border-bottom:3px solid var(--line);
+         box-shadow:0 3px 0 rgba(255,43,214,.25), 0 6px 24px rgba(0,0,0,.6)}
+  .mark{font:12px/1 var(--px);color:#fff;display:flex;align-items:center;gap:10px;flex:none;
+        text-shadow:2px 0 0 var(--mag),-2px 0 0 var(--cy);letter-spacing:.04em}
+  .mark .glyph{display:inline-block;width:18px;height:18px;flex:none;
+        background:
+          linear-gradient(var(--mag),var(--mag)) 0 0/6px 6px no-repeat,
+          linear-gradient(var(--cy),var(--cy)) 12px 0/6px 6px no-repeat,
+          linear-gradient(var(--cy),var(--cy)) 6px 6px/6px 6px no-repeat,
+          linear-gradient(var(--hz),var(--hz)) 0 12px/6px 6px no-repeat,
+          linear-gradient(var(--mag),var(--mag)) 12px 12px/6px 6px no-repeat;
+        font-size:0;filter:drop-shadow(0 0 4px var(--mag))}
   nav{display:flex;gap:2px;flex:1;min-width:0;justify-content:center;
       overflow-x:auto;scrollbar-width:none}
   nav::-webkit-scrollbar{display:none}
   button,select,input,textarea{
-    background:#101724;color:var(--ink);border:1px solid var(--line);
-    border-radius:7px;padding:6px 11px;font:12.5px/1.5 var(--mono)}
-  button{font-family:var(--sans);letter-spacing:.07em;font-weight:500}
-  input,select,textarea{transition:border-color .12s, box-shadow .12s}
-  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pq-dim);
-    box-shadow:0 0 0 2px rgba(157,123,255,.14)}
-  ::placeholder{color:#546274}
-  button{cursor:pointer;transition:border-color .12s, background .12s,
-         color .12s, box-shadow .12s}
-  button:hover{border-color:var(--line2);color:#fff}
-  button.on{border-color:var(--pq);color:#fff;background:rgba(157,123,255,.12)}
-  button.go{border-color:var(--pq-dim);color:#d6c9fa;
-    background:linear-gradient(180deg,#2a2148,#161126);
-    text-shadow:0 0 10px rgba(157,123,255,.3)}
-  button.go:hover{border-color:var(--pq);color:#fff;
-    background:linear-gradient(180deg,#332759,#1a142e);
-    box-shadow:0 0 16px rgba(157,123,255,.32), 0 0 2px rgba(157,123,255,.5)}
-  button.go:active{transform:translateY(1px)}
-  button.sm{padding:1px 8px;font-size:11px;border-radius:4px}
-  nav button{background:transparent;border:0;color:#a1a1a6;flex:none;
-    font:400 13px/1 var(--sans);letter-spacing:0;padding:8px 12px;border-radius:8px}
-  nav button:hover{color:#f5f5f7;background:transparent}
-  nav button.on{color:#f5f5f7;background:rgba(255,255,255,.08);box-shadow:none}
-  main{padding:22px 22px 90px;max-width:1500px;margin:0 auto}
-  section{display:none} section.on{display:block;animation:fadeup .28s ease}
-  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
-  .panel{background:linear-gradient(180deg,#0d131c,#0b1017);
-         border:1px solid var(--line);border-radius:14px;
-         padding:16px 18px;margin-bottom:14px;
-         box-shadow:0 1px 0 rgba(255,255,255,.02) inset, 0 8px 24px rgba(0,0,0,.25);
-         transition:border-color .18s, box-shadow .18s}
-  .panel:hover{border-color:#243144;
-         box-shadow:0 1px 0 rgba(255,255,255,.03) inset, 0 8px 28px rgba(0,0,0,.3),
-                    0 0 0 1px rgba(157,123,255,.05)}
-  .panel h2{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:11.5px;
-            letter-spacing:.16em;color:var(--dim);text-transform:uppercase;
-            font-weight:600}
-  .panel h2::before{content:'';width:7px;height:7px;border-radius:2px;
-            background:var(--pq);box-shadow:0 0 8px rgba(157,123,255,.55);
-            flex:none}
-  .note{color:var(--dim);font-size:12px;margin:0 0 10px}
-  table{width:100%;border-collapse:collapse;font-size:12.5px;
-        font-family:var(--mono)}
-  th{text-align:left;color:var(--dim);font-weight:600;padding:7px 9px;
-     border-bottom:1px solid var(--line);white-space:nowrap;font-size:10.5px;
-     letter-spacing:.1em;text-transform:uppercase;font-family:var(--sans)}
-  td{padding:7px 9px;border-bottom:1px solid #121a24;vertical-align:top;
-     white-space:nowrap}
+    background:var(--inset);color:var(--ink);border:2px solid var(--line2);
+    border-radius:0;padding:7px 11px;font:18px/1.15 var(--vt)}
+  input,select,textarea{transition:border-color .1s, box-shadow .1s}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cy);
+    box-shadow:0 0 0 2px rgba(0,240,255,.18), 0 0 14px rgba(0,240,255,.25)}
+  ::placeholder{color:#5f5588}
+  input[type=checkbox]{accent-color:var(--mag);width:16px;height:16px;vertical-align:-3px}
+  input[type=file]{font:15px var(--vt);padding:4px}
+  input[type=file]::file-selector-button{font:8px var(--px);background:var(--panel2);color:var(--cy);
+    border:2px solid var(--cy);padding:6px 8px;margin-right:8px;cursor:pointer}
+  button{cursor:pointer;font:9px/1.4 var(--px);letter-spacing:.06em;text-transform:uppercase;
+    padding:9px 12px;color:var(--ink);background:var(--panel2);border:2px solid var(--line2);
+    box-shadow:3px 3px 0 #000;transition:transform .05s, box-shadow .05s, color .1s, border-color .1s, background .1s}
+  button:hover{border-color:var(--cy);color:#fff;text-shadow:0 0 6px var(--cy)}
+  button:active{transform:translate(3px,3px);box-shadow:0 0 0 #000}
+  button:disabled{opacity:.5;cursor:wait}
+  button.on{border-color:var(--mag);color:#fff;background:rgba(255,43,214,.16);
+    text-shadow:0 0 8px var(--mag)}
+  button.go{background:var(--mag);color:#14001a;border-color:#ff8cec;
+    box-shadow:3px 3px 0 #000, 0 0 16px rgba(255,43,214,.45);text-shadow:none}
+  button.go:hover{background:#ff5ee0;color:#000;border-color:#fff;
+    box-shadow:3px 3px 0 #000, 0 0 26px rgba(255,43,214,.75)}
+  button.go:active{box-shadow:0 0 0 #000, 0 0 26px rgba(255,43,214,.75)}
+  button.cy{background:var(--cy);color:#001418;border-color:#9ff9ff;box-shadow:3px 3px 0 #000,0 0 14px rgba(0,240,255,.4)}
+  button.cy:hover{background:#6ff7ff;color:#000;text-shadow:none}
+  button.ac{background:var(--ac);color:#031400;border-color:#b6ff9e;box-shadow:3px 3px 0 #000,0 0 14px rgba(57,255,20,.4)}
+  button.ac:hover{background:#7dff5e;color:#000;text-shadow:none}
+  button.hz{background:var(--hz);color:#1a1600;border-color:#fff59e;box-shadow:3px 3px 0 #000,0 0 14px rgba(255,230,0,.4)}
+  button.hz:hover{background:#fff176;color:#000;text-shadow:none}
+  button.sm{padding:5px 8px;font-size:7.5px;box-shadow:2px 2px 0 #000}
+  button.sm:active{transform:translate(2px,2px)}
+  nav button{background:transparent;border:0;box-shadow:none;color:#9e93c8;flex:none;
+    font:8.5px/1 var(--px);padding:10px 10px;position:relative}
+  nav button:hover{color:#fff;background:transparent;text-shadow:0 0 8px var(--cy)}
+  nav button:active{transform:none}
+  nav button.on{color:#fff;background:transparent;text-shadow:0 0 8px var(--mag)}
+  nav button.on::after{content:'';position:absolute;left:8px;right:8px;bottom:0;height:3px;
+    background:var(--mag);box-shadow:0 0 10px var(--mag)}
+  nav button.on::before{content:'▶';position:absolute;left:-1px;top:10px;font-size:7px;color:var(--mag);
+    animation:blink 1s steps(1) infinite}
+  nav button.hot{color:var(--hz)}
+  nav .sep{flex:none;width:2px;margin:12px 6px;background:var(--line)}
+  main{padding:24px 22px 110px;max-width:1500px;margin:0 auto}
+  section{display:none} section.on{display:block;animation:fadeup .25s steps(4)}
+  .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
+  .grid > *{min-width:0}
+  select{max-width:100%}
+  @media (max-width:520px){.grid{grid-template-columns:1fr}
+    main{padding:16px 10px 110px}.panel{padding:14px 12px}.panel h2::after{display:none}
+    .hero{margin:-16px -10px 14px}}
+  /* panels: notched pixel corners from stepped shadows + a hard drop */
+  .panel{position:relative;background:linear-gradient(180deg,rgba(18,10,42,.94),rgba(10,6,24,.94));
+         padding:18px 20px;margin:3px 3px 20px;
+         box-shadow:0 -3px 0 0 var(--line2), 0 3px 0 0 var(--line2),
+                    -3px 0 0 0 var(--line2), 3px 0 0 0 var(--line2),
+                    9px 9px 0 0 rgba(0,0,0,.55)}
+  .panel h2{display:flex;align-items:center;gap:10px;margin:0 0 14px;font:10px/1.4 var(--px);
+            letter-spacing:.08em;color:var(--cy);text-transform:uppercase;
+            text-shadow:0 0 8px rgba(0,240,255,.55)}
+  .panel h2::before{content:'';width:8px;height:8px;flex:none;background:var(--mag);
+            box-shadow:0 0 8px var(--mag), 10px 0 0 var(--line2)}
+  .panel h2::after{content:'';flex:1;height:2px;margin-left:14px;
+            background:repeating-linear-gradient(90deg,var(--line2) 0 6px,transparent 6px 10px)}
+  .panel h2 .tag{flex:none;font-size:7px;color:var(--hz);text-shadow:none;order:3;margin-left:6px}
+  .note{color:var(--dim);font-size:14px;margin:0 0 12px;line-height:1.55}
+  .note b{color:var(--ink)}
+  table{width:100%;border-collapse:collapse;font:17px/1.2 var(--vt)}
+  th{text-align:left;color:var(--mag);font:7.5px/1.4 var(--px);padding:9px 9px;
+     border-bottom:2px solid var(--line2);white-space:nowrap;letter-spacing:.06em;text-transform:uppercase}
+  td{padding:6px 9px;border-bottom:1px dashed #22163d;vertical-align:top;white-space:nowrap}
   /* data tables render into these holders; wide ones scroll, never wrap */
-  #keys,#listings,#expiring,#blocks,#hist-out,#algos,#wallets,#acct-out{
+  #keys,#listings,#expiring,#blocks,#hist-out,#algos,#wallets,#acct-out,#prim-detail,#pv-wallets{
      overflow-x:auto}
-  .paper table{font-family:var(--sans)}
+  .paper table{font-family:var(--sans);font-size:15px}
   .paper td,.paper th{white-space:normal}
   tr:last-child td{border-bottom:0}
-  tr:nth-child(even) td{background:rgba(255,255,255,.012)}
+  tr:nth-child(even) td{background:rgba(157,77,255,.035)}
   tr.click{cursor:pointer}
-  tr.click td{transition:background .1s}
-  tr.click:hover td{background:rgba(157,123,255,.07)}
-  tr.click:hover td:first-child{box-shadow:inset 2px 0 0 var(--pq)}
+  tr.click:hover td{background:rgba(255,43,214,.10)}
+  tr.click:hover td:first-child{box-shadow:inset 3px 0 0 var(--mag)}
   .num{text-align:right;font-variant-numeric:tabular-nums}
-  .stats{display:flex;gap:10px;flex-wrap:wrap}
-  .stat{position:relative;overflow:hidden;
-        border:1px solid var(--line);border-radius:10px;padding:12px 16px 10px;
-        background:linear-gradient(180deg,#0e1520,#0a0f15);min-width:118px;
-        border-top:1px solid #26334a;
-        transition:border-color .15s, transform .15s, box-shadow .15s}
-  .stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
-        background:linear-gradient(90deg,transparent,rgba(157,123,255,.55),transparent);
-        opacity:0;transition:opacity .15s}
-  .stat:hover{border-color:var(--pq-dim);transform:translateY(-1px);
-        box-shadow:0 4px 14px rgba(0,0,0,.35), 0 0 12px rgba(157,123,255,.08)}
-  .stat:hover::before{opacity:1}
-  .stat b{display:block;font-size:20px;font-variant-numeric:tabular-nums;
-        margin-bottom:2px;font-family:var(--mono);
-        text-shadow:0 0 18px rgba(219,230,240,.14)}
-  .stat span{color:var(--dim);font-size:10px;letter-spacing:.12em;
-             text-transform:uppercase}
-  .pill{border:1px solid var(--line);border-radius:20px;padding:2px 10px;
-        color:var(--dim);font-size:11px;background:rgba(16,23,36,.6);
-        box-shadow:0 1px 0 rgba(255,255,255,.02) inset}
-  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
-  label{color:var(--dim);font-size:11.5px;letter-spacing:.06em}
-  textarea{width:100%;min-height:60px;resize:vertical}
+  /* HUD stat strip */
+  .stats{display:flex;gap:12px;flex-wrap:wrap}
+  .stat{position:relative;min-width:128px;padding:10px 14px 8px 16px;
+        background:linear-gradient(180deg,#140c30,#0a0618);
+        border:2px solid var(--line);border-left:4px solid var(--cy);
+        box-shadow:4px 4px 0 #000}
+  .stat:nth-child(3n+2){border-left-color:var(--mag)}
+  .stat:nth-child(3n+3){border-left-color:var(--hz)}
+  .stat::after{content:'';position:absolute;right:4px;top:4px;width:4px;height:4px;background:var(--line2)}
+  .stat:hover{border-color:var(--line2)}
+  .stat b{display:block;font:32px/1 var(--vt);font-weight:400;font-variant-numeric:tabular-nums;
+        margin-bottom:4px;color:#fff;text-shadow:0 0 10px rgba(0,240,255,.35)}
+  .stat b .amt{font-size:1em;line-height:1}
+  .stat b span{font:inherit}
+  .stat > span{color:var(--dim);font:7px/1.4 var(--px);letter-spacing:.08em;text-transform:uppercase}
+  .pill{display:inline-block;border:2px solid var(--line2);padding:3px 9px;
+        color:var(--dim);font:16px/1.1 var(--vt);background:rgba(8,4,20,.8)}
+  .pill.good{border-color:#1f7a10;color:var(--ac)} .pill.bad{border-color:#7a1830;color:var(--bad)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  label{color:var(--dim);font:7.5px/1.4 var(--px);letter-spacing:.06em;text-transform:uppercase}
+  label input[type=checkbox]{margin-right:6px}
+  textarea{width:100%;min-height:64px;resize:vertical}
   input[type=text]{min-width:190px}
-  input.sm{min-width:0;width:74px}
-  pre{white-space:pre-wrap;word-break:break-word;margin:6px 0 0;color:#b7c6d4;
-      background:var(--inset);border:1px solid var(--line);border-radius:6px;
-      padding:10px;max-height:320px;overflow:auto;font-size:12px}
-  pre::-webkit-scrollbar{width:8px;height:8px}
-  pre::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+  input.sm{min-width:0;width:80px}
+  pre{white-space:pre-wrap;word-break:break-word;margin:8px 0 0;color:#b9ffd0;
+      background:var(--inset);border:2px solid var(--line);border-left:4px solid var(--ac);
+      padding:10px 12px;max-height:340px;overflow:auto;font:16px/1.25 var(--vt);
+      text-shadow:0 0 6px rgba(57,255,20,.25)}
   .mono{word-break:break-all}
-  .addr{color:var(--pq)}
-  .amt{color:var(--gold);font-variant-numeric:tabular-nums}
+  .addr{color:var(--mag)}
+  .amt{color:var(--hz);font-variant-numeric:tabular-nums}
   .good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
-  .err{color:var(--bad)}
+  .err{color:var(--bad);font:17px/1.3 var(--vt)}
+  .err::before{content:'!! ';color:var(--bad)}
   .muted{color:var(--dim)}
-  .kv{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;font-size:12.5px}
-  .kv b{color:var(--dim);font-weight:600}
-  .tabs2{display:flex;gap:6px;margin-bottom:10px}
+  .kv{display:grid;grid-template-columns:max-content 1fr;gap:5px 16px;font-size:14px;align-items:baseline}
+  .kv b{color:var(--cy);font:7.5px/1.6 var(--px);letter-spacing:.06em;text-transform:uppercase;font-weight:400}
+  .tabs2{display:flex;gap:8px;margin-bottom:12px}
   [data-copy]{cursor:copy}
-  @keyframes tickflash{0%{color:var(--pq);text-shadow:0 0 20px rgba(157,123,255,.9)}
-                       100%{color:inherit}}
-  b.tickflash{animation:tickflash 1.4s ease}
-  /* ── HOME: the front door ── */
-  .hero{text-align:center;padding:42px 16px 18px;animation:fadeup .4s ease}
-  .hero .big{font-size:40px;line-height:1;color:var(--pq)}
-  .hero h1{font-size:clamp(36px,6vw,56px);letter-spacing:-.02em;margin:14px 0 10px;
-       font-weight:700;color:#f5f5f7}
-  .hero .h-sub{font-size:clamp(18px,2.4vw,22px);color:#f5f5f7;margin:0 0 12px;
-       font-weight:500;letter-spacing:-.01em}
-  .hero .h-line{color:#a1a1a6;font-size:15px;max-width:620px;margin:0 auto 10px}
-  .doors{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
-       max-width:980px;margin:0 auto 14px}
-  .door{position:relative;border:1px solid var(--line);border-radius:11px;cursor:pointer;
-       padding:18px 18px 16px;background:linear-gradient(180deg,#0d131c,#0b1017);
-       transition:border-color .15s, transform .15s, box-shadow .15s}
-  .door:hover{border-color:var(--pq-dim);transform:translateY(-2px);
-       box-shadow:0 10px 30px rgba(0,0,0,.4), 0 0 18px rgba(157,123,255,.12)}
-  .door .dg{font-size:22px;color:var(--pq);margin-bottom:8px}
-  .door b{display:block;font-size:14px;margin-bottom:6px;letter-spacing:.04em}
-  .door p{color:var(--dim);font-size:12px;margin:0 0 12px;line-height:1.55}
-  .door .cta{display:inline-block;border:1px solid var(--pq-dim);border-radius:5px;
-       padding:3px 12px;font-size:11px;letter-spacing:.14em;color:#d6c9fa;
-       background:linear-gradient(180deg,#2a2148,#161126)}
-  .door:hover .cta{border-color:var(--pq);color:#fff;
-       box-shadow:0 0 14px rgba(157,123,255,.3)}
-  .home-wrap{max-width:980px;margin:0 auto 14px}
-  .j-step{display:flex;gap:10px;align-items:baseline;padding:8px 0;
-       border-bottom:1px solid #121a24;font-size:12.5px;animation:fadeup .25s ease}
+  @keyframes tickflash{0%{color:var(--mag);text-shadow:0 0 20px var(--mag)}100%{color:#fff}}
+  b.tickflash{animation:tickflash 1.4s steps(6)}
+  /* ── HOME: the cabinet ── */
+  .hero{position:relative;text-align:center;padding:40px 16px 215px;overflow:hidden;
+        margin:-24px -22px 18px}
+  .hero > *{position:relative;z-index:2}
+  .hero > .stage{position:absolute;left:0;right:0;bottom:0;height:300px;z-index:0;
+        pointer-events:none;overflow:hidden}
+  .stage .sun{position:absolute;left:50%;bottom:34px;width:230px;height:230px;
+        transform:translateX(-50%);border-radius:50%;
+        background:linear-gradient(180deg,var(--hz) 0%,var(--or) 38%,var(--mag) 70%,var(--vi) 100%);
+        -webkit-mask:linear-gradient(180deg,#000 0 46%,transparent 46%),
+                     repeating-linear-gradient(180deg,transparent 0 5px,#000 5px 15px);
+        -webkit-mask-composite:source-over;
+        mask:linear-gradient(180deg,#000 0 46%,transparent 46%),
+             repeating-linear-gradient(180deg,transparent 0 5px,#000 5px 15px);
+        mask-composite:add;
+        opacity:.9;filter:drop-shadow(0 0 34px rgba(255,43,214,.65))}
+  .stage .grid3d{position:absolute;left:-60%;right:-60%;bottom:0;height:600px;
+        background:
+          linear-gradient(0deg, rgba(255,43,214,.85) 3px, transparent 3px) 0 0/100% 46px,
+          linear-gradient(90deg, rgba(0,240,255,.7) 3px, transparent 3px) 50% 0/64px 100%,
+          linear-gradient(180deg, #12052a 0%, #1f0636 100%);
+        transform:perspective(300px) rotateX(60deg);transform-origin:50% 100%;
+        animation:gridrun .9s linear infinite}
+  .stage .horizon{position:absolute;left:0;right:0;bottom:110px;height:3px;z-index:2;
+        background:#ff8cec;box-shadow:0 0 14px var(--mag),0 0 40px var(--mag),0 -20px 60px rgba(255,43,214,.35)}
+  .stage .fade{position:absolute;left:0;right:0;bottom:0;height:40px;z-index:3;
+        background:linear-gradient(180deg,transparent,var(--bg))}
+  @keyframes gridrun{from{background-position:0 0,50% 0,0 0}to{background-position:0 46px,50% 0,0 0}}
+  .hero .ins{display:inline-block;font:9px/1 var(--px);color:var(--hz);letter-spacing:.2em;
+        padding:6px 10px;border:2px solid var(--hz);margin-bottom:22px;
+        box-shadow:3px 3px 0 #000;animation:flick 6s infinite}
+  .hero h1{font:clamp(28px,6.2vw,66px)/1.05 var(--px);margin:0 0 18px;letter-spacing:.02em;
+        color:#fff;position:relative;display:inline-block;
+        text-shadow:4px 4px 0 var(--vi), 0 0 24px rgba(255,43,214,.6)}
+  .hero h1 .p{color:var(--cy)} .hero h1 .q{color:var(--mag)}
+  .glitch::before,.glitch::after{content:attr(data-text);position:absolute;inset:0;
+        pointer-events:none;overflow:hidden;text-shadow:none}
+  .glitch::before{color:var(--cy);transform:translate(-3px,0);mix-blend-mode:screen;
+        clip-path:inset(0 0 60% 0);animation:gl1 2.8s steps(1) infinite}
+  .glitch::after{color:var(--mag);transform:translate(3px,0);mix-blend-mode:screen;
+        clip-path:inset(60% 0 0 0);animation:gl2 3.3s steps(1) infinite}
+  @keyframes gl1{0%,86%,100%{clip-path:inset(0 0 100% 0);transform:none}
+        87%{clip-path:inset(10% 0 55% 0);transform:translate(-6px,-2px)}
+        90%{clip-path:inset(45% 0 30% 0);transform:translate(5px,1px)}
+        94%{clip-path:inset(70% 0 5% 0);transform:translate(-3px,0)}}
+  @keyframes gl2{0%,80%,100%{clip-path:inset(100% 0 0 0);transform:none}
+        81%{clip-path:inset(60% 0 15% 0);transform:translate(6px,2px)}
+        85%{clip-path:inset(20% 0 62% 0);transform:translate(-5px,-1px)}
+        88%{clip-path:inset(35% 0 40% 0);transform:translate(3px,0)}}
+  .hero .h-sub{font:clamp(18px,2.4vw,26px)/1.2 var(--vt);color:var(--hz);margin:0 0 12px;
+        text-shadow:0 0 10px rgba(255,230,0,.5);letter-spacing:.04em}
+  .hero .h-line{color:#c9bff0;font-size:15px;max-width:640px;margin:0 auto 18px;
+        background:rgba(7,4,15,.6);padding:4px 10px}
+  .hero .h-kbd{display:inline-block;color:var(--dim);font:7.5px/1 var(--px);letter-spacing:.1em;background:rgba(7,4,15,.85);padding:6px 8px}
+  .hero kbd{border:2px solid var(--line2);padding:3px 6px;background:var(--inset);
+        font:7.5px/1.5 var(--px);color:var(--cy);box-shadow:2px 2px 0 #000}
+  .hero .ctas{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin:6px 0 18px}
+  .doors{display:grid;gap:22px;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
+       max-width:1040px;margin:0 auto 22px}
+  .door{position:relative;cursor:pointer;padding:20px 20px 18px;
+       background:linear-gradient(180deg,#160c34,#0b0619);
+       box-shadow:0 -3px 0 0 var(--dc,var(--mag)), 0 3px 0 0 var(--dc,var(--mag)),
+                  -3px 0 0 0 var(--dc,var(--mag)), 3px 0 0 0 var(--dc,var(--mag)), 8px 8px 0 0 #000;
+       transition:transform .08s steps(2)}
+  .door:hover{transform:translate(-3px,-3px);
+       box-shadow:0 -3px 0 0 var(--dc,var(--mag)), 0 3px 0 0 var(--dc,var(--mag)),
+                  -3px 0 0 0 var(--dc,var(--mag)), 3px 0 0 0 var(--dc,var(--mag)), 11px 11px 0 0 #000,
+                  0 0 34px color-mix(in srgb,var(--dc,var(--mag)) 45%,transparent)}
+  .door .dg{font:22px/1 var(--px);color:var(--dc,var(--mag));margin-bottom:14px;
+       text-shadow:0 0 12px var(--dc,var(--mag))}
+  .door .lv{position:absolute;top:12px;right:14px;font:7px/1 var(--px);color:var(--dim)}
+  .door b{display:block;font:11px/1.5 var(--px);margin-bottom:10px;color:#fff;font-weight:400}
+  .door p{color:#b6acd9;font-size:14px;margin:0 0 16px;line-height:1.5}
+  .door .cta{display:inline-block;padding:8px 12px;font:8.5px/1 var(--px);letter-spacing:.08em;
+       color:#000;background:var(--dc,var(--mag));box-shadow:3px 3px 0 #000}
+  .door:hover .cta::after{content:' ▶';animation:blink .6s steps(1) infinite}
+  .home-wrap{max-width:1040px;margin:0 auto 22px}
+  .j-step{display:flex;gap:12px;align-items:baseline;padding:8px 0;
+       border-bottom:1px dashed #22163d;font-size:14px;animation:fadeup .25s steps(3)}
   .j-step:last-child{border-bottom:0}
-  .j-step .g{flex:none;width:16px;text-align:center}
-  .j-step .g.run{color:var(--pq);animation:glyphpulse 1.2s ease-in-out infinite}
-  .j-step b{flex:none;min-width:230px;font-weight:600}
+  .j-step .g{flex:none;width:16px;text-align:center;font-family:var(--px);font-size:10px}
+  .j-step .g.run{color:var(--mag);animation:blink .5s steps(1) infinite}
+  .j-step b{flex:none;min-width:250px;font:8.5px/1.6 var(--px);font-weight:400;color:var(--cy)}
   .j-step .d{word-break:break-word}
-  .j-fin{border-left:3px solid var(--pq);padding:6px 0 6px 16px;margin-top:12px;
-       color:#c3d0dd;font-size:13.5px;animation:fadeup .3s ease}
+  .j-fin{border-left:4px solid var(--mag);padding:8px 0 8px 16px;margin-top:14px;
+       color:#d8cff8;font-size:14.5px;animation:fadeup .3s steps(3);background:rgba(255,43,214,.05)}
   @media (max-width:700px){.j-step{flex-wrap:wrap}.j-step b{min-width:0}}
-  /* ── the palette: one keystroke to anywhere ── */
-  #pal-wrap{position:fixed;inset:0;z-index:40;display:none;
-       background:rgba(4,6,9,.6);backdrop-filter:blur(3px)}
+  /* ── the palette ── */
+  #pal-wrap{position:fixed;inset:0;z-index:60;display:none;background:rgba(4,2,10,.72)}
   #pal-wrap.open{display:block}
-  #pal{width:min(560px,calc(100vw - 32px));margin:12vh auto 0;
-       background:linear-gradient(180deg,#0e141d,#0b1017);
-       border:1px solid var(--line2);border-radius:12px;overflow:hidden;
-       box-shadow:0 24px 70px rgba(0,0,0,.6), 0 0 0 1px rgba(157,123,255,.1);
-       animation:fadeup .15s ease}
-  #pal-q{width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;
-       padding:13px 16px;font-size:14px;background:transparent}
+  #pal{width:min(600px,calc(100vw - 32px));margin:12vh auto 0;background:#0d0820;overflow:hidden;
+       box-shadow:0 -3px 0 var(--mag),0 3px 0 var(--mag),-3px 0 0 var(--mag),3px 0 0 var(--mag),
+                  12px 12px 0 #000, 0 0 60px rgba(255,43,214,.3);
+       animation:fadeup .12s steps(2)}
+  #pal-q{width:100%;border:0;border-bottom:2px solid var(--line2);padding:14px 16px;font-size:22px;
+       background:transparent;color:var(--hz)}
   #pal-q:focus{box-shadow:none}
-  #pal-list{max-height:320px;overflow:auto;padding:6px}
-  .pal-it{display:flex;gap:10px;align-items:baseline;padding:8px 12px;border-radius:7px;
-       cursor:pointer;font-size:13px}
-  .pal-it .k{color:var(--pq);flex:none}
-  .pal-it .h{color:var(--dim);font-size:11px;margin-left:auto;flex:none;
-       padding-left:14px}
-  .pal-it.sel,.pal-it:hover{background:rgba(157,123,255,.12)}
-  #pal-hint{padding:7px 14px;border-top:1px solid var(--line);color:var(--dim);
-       font-size:10.5px;letter-spacing:.08em}
-  .kbtn{flex:none;display:flex;align-items:center;gap:10px;border:0;border-radius:8px;
-       background:rgba(255,255,255,.06);color:#a1a1a6;
-       font:400 13px/1 var(--sans);letter-spacing:0;padding:7px 8px 7px 12px}
-  .kbtn:hover{color:#f5f5f7;background:rgba(255,255,255,.1);border:0}
-  .kbtn kbd{font:500 11px/1 var(--sans);color:#86868b;padding:3px 5px;
-       border-radius:4px;background:rgba(255,255,255,.06)}
-  @media (max-width:720px){header{gap:10px;padding:0 12px}
-       nav{justify-content:flex-start}.kbtn{padding:7px 10px}.kbtn kbd{display:none}}
+  #pal-list{max-height:340px;overflow:auto;padding:6px}
+  .pal-it{display:flex;gap:12px;align-items:baseline;padding:8px 12px;cursor:pointer;
+       font:19px/1.1 var(--vt)}
+  .pal-it .k{color:var(--mag);flex:none}
+  .pal-it .h{color:var(--dim);font-size:16px;margin-left:auto;flex:none;padding-left:14px}
+  .pal-it.sel,.pal-it:hover{background:var(--mag);color:#000}
+  .pal-it.sel .k,.pal-it.sel .h,.pal-it:hover .k,.pal-it:hover .h{color:#000}
+  #pal-hint{padding:9px 14px;border-top:2px solid var(--line);color:var(--dim);font:7px/1.5 var(--px);letter-spacing:.06em}
+  .kbtn{flex:none;display:flex;align-items:center;gap:10px;
+       background:var(--inset);color:var(--cy);border:2px solid var(--cy);
+       font:8px/1 var(--px);padding:8px 8px 8px 10px;box-shadow:3px 3px 0 #000}
+  .kbtn:hover{background:var(--cy);color:#000;border-color:var(--cy);text-shadow:none}
+  .kbtn kbd{font:7px/1 var(--px);color:inherit;padding:3px 4px;border:1px solid currentColor}
+  @media (max-width:720px){header{gap:10px;padding:0 10px}.mark .t{display:none}
+       nav{justify-content:flex-start}.kbtn kbd{display:none}}
   /* ── toasts ── */
-  #toasts{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
-       z-index:50;display:flex;flex-direction:column;gap:8px;align-items:center;
-       pointer-events:none}
-  .toast{border:1px solid var(--pq-dim);border-radius:8px;padding:7px 16px;
-       background:linear-gradient(180deg,#1b1530,#121022);color:#e6ddfd;
-       font-size:12px;box-shadow:0 8px 28px rgba(0,0,0,.5), 0 0 16px rgba(157,123,255,.18);
-       animation:fadeup .2s ease}
-  .toast.bad{border-color:#6b2c2c;color:#ffb9b9;
-       background:linear-gradient(180deg,#2a1515,#1a0e0e)}
+  #toasts{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);
+       z-index:65;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+  .toast{border:2px solid var(--ac);padding:9px 16px;background:#061204;color:var(--ac);
+       font:8.5px/1.5 var(--px);box-shadow:4px 4px 0 #000, 0 0 18px rgba(57,255,20,.35);
+       animation:fadeup .15s steps(2)}
+  .toast::before{content:'>> '}
+  .toast.bad{border-color:var(--bad);color:var(--bad);background:#1a0408;
+       box-shadow:4px 4px 0 #000, 0 0 18px rgba(255,56,96,.35)}
   /* ── BUILDER: the key type DAG ── */
-  #dag-wrap{overflow:auto;border:1px solid var(--line);border-radius:8px;
-            background:var(--inset);margin-bottom:10px}
+  #dag-wrap{overflow:auto;border:2px solid var(--line);background:
+            linear-gradient(rgba(43,26,77,.35) 1px,transparent 1px) 0 0/20px 20px,
+            linear-gradient(90deg,rgba(43,26,77,.35) 1px,transparent 1px) 0 0/20px 20px,var(--inset);
+            margin-bottom:12px}
   #dag{display:block}
-  .dnode rect{fill:#101724;stroke:var(--line2);cursor:pointer;
-              transition:stroke .12s, filter .12s}
-  .dnode:hover rect{stroke:var(--pq)}
-  .dnode.sel rect{stroke:var(--pq);stroke-width:2;
-                  filter:drop-shadow(0 0 6px rgba(157,123,255,.5))}
-  .dnode.refused rect{stroke:#5a2733;stroke-dasharray:4 3}
-  .dnode text{fill:var(--ink);font:12px ui-monospace,monospace;pointer-events:none}
-  .dnode .sub{fill:var(--dim);font-size:10px}
-  .dnode .qs{fill:var(--good)} .dnode .cl{fill:var(--gold)}
-  .dedge{fill:none;stroke:var(--pq-dim);stroke-width:1.2;opacity:.55}
-  .dedge.any{stroke:var(--gold);stroke-dasharray:5 4}
-  .proof-row{display:flex;gap:8px;align-items:baseline;padding:4px 0;
-             border-bottom:1px solid #121a24;font-size:12.5px}
+  .dnode rect{fill:#120a2a;stroke:var(--line2);stroke-width:2;cursor:pointer}
+  .dnode:hover rect{stroke:var(--cy)}
+  .dnode.sel rect{stroke:var(--mag);stroke-width:3;filter:drop-shadow(0 0 6px rgba(255,43,214,.7))}
+  .dnode.refused rect{stroke:#7a1830;stroke-dasharray:4 3}
+  .dnode text{fill:var(--ink);font:17px VT323,monospace;pointer-events:none}
+  .dnode .sub{fill:var(--dim);font-size:15px}
+  .dnode .qs{fill:var(--ac)} .dnode .cl{fill:var(--hz)}
+  .dedge{fill:none;stroke:var(--mag);stroke-width:2;opacity:.6}
+  .dedge.any{stroke:var(--hz);stroke-dasharray:6 4}
+  .dedge.threshold{stroke:var(--cy);stroke-dasharray:2 4}
+  .proof-row{display:flex;gap:10px;align-items:baseline;padding:4px 0;
+             border-bottom:1px dashed #22163d;font:17px/1.2 var(--vt)}
   .proof-row:last-child{border-bottom:0}
-  /* ── ASK: the agent ── */
-  #ask-log{display:flex;flex-direction:column;gap:10px;margin-top:12px}
-  .turn-q{align-self:flex-end;max-width:80%;background:rgba(157,123,255,.10);
-          border:1px solid var(--pq-dim);border-radius:8px;padding:7px 11px}
-  .turn-a{border:1px solid var(--line);border-radius:8px;padding:8px 11px;
-          background:var(--inset)}
+  .proof-row b{font-weight:400;color:var(--cy)}
+  .kstep{display:inline-flex;align-items:stretch}
+  .kstep button{padding:6px 9px;box-shadow:none}
+  .kstep span{display:grid;place-items:center;min-width:52px;border-top:2px solid var(--line2);
+    border-bottom:2px solid var(--line2);font:20px var(--vt);color:var(--cy)}
+  /* ── ASK ── */
+  #ask-log{display:flex;flex-direction:column;gap:12px;margin-top:14px}
+  .turn-q{align-self:flex-end;max-width:80%;background:rgba(255,43,214,.10);
+          border:2px solid var(--mag);padding:7px 12px;box-shadow:3px 3px 0 #000}
+  .turn-a{border:2px solid var(--line2);padding:9px 12px;background:var(--inset);box-shadow:3px 3px 0 #000}
   .turn-a .ans{white-space:pre-wrap;word-break:break-word}
-  .chip{display:inline-block;border:1px solid var(--line2);border-radius:12px;
-        padding:1px 8px;margin:0 6px 6px 0;font-size:11px;color:var(--dim);cursor:pointer}
-  .chip.ok{border-color:#2f5d43;color:var(--good)}
-  .chip.no{border-color:#6b2c2c;color:var(--bad)}
-  .chip.run{border-color:var(--pq-dim);color:#d6c9fa}
+  .chip{display:inline-block;border:2px solid var(--line2);padding:2px 8px;margin:0 6px 6px 0;
+        font:16px/1.1 var(--vt);color:var(--dim);cursor:pointer;background:var(--inset)}
+  .chip:hover{border-color:var(--cy);color:var(--cy)}
+  .chip.ok{border-color:#1f7a10;color:var(--good)}
+  .chip.no{border-color:#7a1830;color:var(--bad)}
+  .chip.run{border-color:var(--mag);color:var(--mag)}
   #ask-q{flex:1;min-width:240px}
-  /* ── the whitepaper ── */
-  .paper{max-width:860px;margin:0 auto;font-size:17px;line-height:1.75;
-         padding:28px 34px 60px}
-  .paper .wp-title{font-size:44px;line-height:1.1;font-weight:700;
-         letter-spacing:.06em;margin:18px 0 6px}
-  .paper .wp-title .p{background:linear-gradient(105deg,#b394ff,var(--pq) 70%);
-         -webkit-background-clip:text;background-clip:text;color:transparent}
-  .paper .wp-title .q{background:linear-gradient(105deg,var(--gold) 30%,#f2d488);
-         -webkit-background-clip:text;background-clip:text;color:transparent}
-  .paper .wp-title{text-shadow:0 0 38px rgba(157,123,255,.16)}
-  .paper .wp-sub{font-size:19px;color:var(--dim);margin:0 0 8px}
-  .paper .wp-meta{color:var(--dim);font-size:13px;letter-spacing:.12em;
-         text-transform:uppercase;border-bottom:1px solid var(--line);
-         padding-bottom:18px;margin-bottom:26px}
-  .paper h3{font-size:24px;margin:40px 0 10px;color:var(--ink);
-         letter-spacing:.02em}
-  .paper h3 .n{color:var(--pq);margin-right:10px;font-variant-numeric:tabular-nums}
-  .paper p{margin:0 0 16px;color:var(--ink)}
-  .paper .abstract{border-left:3px solid var(--pq);padding:4px 0 4px 20px;
-         color:#c3d0dd;font-size:18px;margin:0 0 8px}
+  /* ── the whitepaper: pixel heads, readable body ── */
+  .paper{max-width:860px;margin:0 auto;font:17px/1.75 var(--sans);padding:30px 36px 60px}
+  .paper .wp-title{font:clamp(26px,5vw,44px)/1.1 var(--px);letter-spacing:.02em;margin:18px 0 14px;
+         text-shadow:4px 4px 0 var(--vi)}
+  .paper .wp-title .p{color:var(--cy)} .paper .wp-title .q{color:var(--mag)}
+  .paper .wp-sub{font:24px/1.2 var(--vt);color:var(--hz);margin:0 0 10px}
+  .paper .wp-meta{color:var(--dim);font:7.5px/2 var(--px);letter-spacing:.06em;
+         text-transform:uppercase;border-bottom:2px dashed var(--line2);padding-bottom:18px;margin-bottom:26px}
+  .paper h3{font:14px/1.5 var(--px);margin:42px 0 14px;color:#fff;letter-spacing:.02em;
+         text-shadow:0 0 10px rgba(0,240,255,.35)}
+  .paper h3 .n{color:var(--mag);margin-right:12px}
+  .paper p{margin:0 0 16px;color:#ddd5f5}
+  .paper .abstract{border-left:4px solid var(--mag);padding:6px 0 6px 20px;
+         color:#e6defc;font-size:18px;margin:0 0 8px;background:rgba(255,43,214,.05)}
   .paper ul{margin:0 0 16px;padding-left:24px}
   .paper li{margin-bottom:10px}
-  .paper em{color:var(--gold);font-style:normal}
-  .paper strong{color:#fff}
-  .paper code{background:#0a0f15;border:1px solid var(--line);border-radius:3px;
-         padding:1px 6px;font-size:15px}
-  .paper .rule{border:0;border-top:1px solid var(--line);margin:36px 0}
+  .paper li::marker{content:'■  ';color:var(--mag)}
+  .paper em{color:var(--hz);font-style:normal}
+  .paper strong{color:var(--cy)}
+  .paper code{background:var(--inset);border:1px solid var(--line2);padding:0 6px;font-size:19px;color:var(--ac)}
+  .paper .rule{border:0;border-top:3px dashed var(--line2);margin:38px 0}
   .paper table{font-size:15px;margin:8px 0 16px}
   .paper th,.paper td{padding:8px 12px}
-  /* two reads of the same paper: HUMAN (plain language) and SCIENTIST */
-  .paper .wp-mode{display:flex;align-items:center;gap:7px;margin:0 0 26px}
-  .paper .wp-mode .lbl{color:var(--dim);font-size:11px;letter-spacing:.16em}
-  .paper .wp-mode button.on{box-shadow:0 0 12px rgba(157,123,255,.18)}
+  .paper .wp-mode{display:flex;align-items:center;gap:8px;margin:0 0 26px;flex-wrap:wrap}
+  .paper .wp-mode .lbl{color:var(--dim);font:7.5px/1 var(--px);letter-spacing:.08em}
   .paper.human .sci{display:none}
   .paper:not(.human) .hum{display:none}
-  /* ── the corner agent: the one agent door, floating bottom-right on
-     every tab — the same glassy violet orb as the build console's
-     .agent-fab. Closed = violet orb with a breathing halo; .is-open =
-     dark ringed orb above the unfolded chat (press again to fold). ── */
-  #wp-help{position:fixed;right:20px;bottom:20px;z-index:30;display:flex;
-           flex-direction:column;align-items:flex-end;gap:12px}
-  #wp-fab{position:relative;width:64px;height:64px;padding:0;border:0;
-          border-radius:999px;background:transparent;cursor:pointer;
-          display:grid;place-items:center;
-          transition:transform .18s cubic-bezier(.2,.8,.2,1);
-          animation:fab-in .28s cubic-bezier(.2,.8,.2,1)}
-  #wp-fab .halo{position:absolute;inset:-6px;border-radius:inherit;pointer-events:none;
-          background:radial-gradient(circle, rgba(167,139,250,.38) 0%, transparent 70%);
-          animation:fab-breathe 3.2s ease-in-out infinite}
-  #wp-fab .face{position:relative;width:100%;height:100%;border-radius:inherit;
-          display:grid;place-items:center;font-size:24px;color:#f5f3ff;
-          text-shadow:0 1px 2px rgba(30,10,70,.55);
-          background:radial-gradient(120% 90% at 30% 15%, rgba(255,255,255,.28), transparent 45%),
-                     linear-gradient(150deg,#a78bfa 0%,#7c3aed 48%,#4c1d95 100%);
-          border:1px solid rgba(221,214,254,.45);
-          box-shadow:0 14px 34px -6px rgba(76,29,149,.65), 0 4px 12px rgba(0,0,0,.45),
-                     inset 0 -6px 14px rgba(46,16,101,.55), inset 0 1px 0 rgba(255,255,255,.35);
-          transition:box-shadow .18s ease, filter .18s ease, background .18s ease}
-  #wp-fab:hover{transform:translateY(-3px) scale(1.05)}
-  #wp-fab:hover .face{filter:brightness(1.1);
-          box-shadow:0 18px 40px -6px rgba(124,58,237,.75), 0 0 0 6px rgba(167,139,250,.16),
-                     inset 0 -6px 14px rgba(46,16,101,.5), inset 0 1px 0 rgba(255,255,255,.4)}
-  #wp-fab:active{transform:scale(.95)}
+  /* ── the corner agent: a pixel orb / arcade button. Closed = magenta orb
+     with a stepped halo; .is-open = dark ringed orb above the chat. ── */
+  #wp-help{position:fixed;right:22px;bottom:22px;z-index:55;display:flex;
+           flex-direction:column;align-items:flex-end;gap:14px}
+  #wp-fab{position:relative;width:66px;height:66px;padding:0;border:0;background:transparent;
+          box-shadow:none;cursor:pointer;display:grid;place-items:center;
+          animation:fab-in .28s steps(4)}
+  #wp-fab:hover{transform:translateY(-3px);text-shadow:none}
+  #wp-fab:active{transform:translateY(3px)}
+  /* the stepped octagon: a circle drawn in pixels */
+  #wp-fab .halo,#wp-fab .face,#wp-fab::before{clip-path:polygon(30% 0,70% 0,70% 6%,82% 6%,82% 12%,88% 12%,88% 18%,94% 18%,94% 30%,100% 30%,100% 70%,94% 70%,94% 82%,88% 82%,88% 88%,82% 88%,82% 94%,70% 94%,70% 100%,30% 100%,30% 94%,18% 94%,18% 88%,12% 88%,12% 82%,6% 82%,6% 70%,0 70%,0 30%,6% 30%,6% 18%,12% 18%,12% 12%,18% 12%,18% 6%,30% 6%)}
+  #wp-fab::before{content:'';position:absolute;inset:4px -4px -4px 4px;background:#000}
+  #wp-fab .halo{position:absolute;inset:-10px;pointer-events:none;
+          background:radial-gradient(circle, rgba(255,43,214,.55) 0%, transparent 70%);
+          animation:fab-breathe 1.6s steps(3) infinite}
+  #wp-fab .face{position:relative;width:100%;height:100%;display:grid;place-items:center;
+          font:20px/1 var(--px);color:#fff;text-shadow:2px 2px 0 #5a0050;
+          background:
+            linear-gradient(#fff,#fff) 26% 20%/14% 10% no-repeat,
+            linear-gradient(180deg,#ff7ae6 0%,var(--mag) 45%,#a0128a 100%)}
+  #wp-fab:hover .face{filter:brightness(1.15) drop-shadow(0 0 10px var(--mag))}
   #wp-fab.is-open .halo{animation:none;opacity:0}
-  #wp-fab.is-open .face{color:#c4b5fd;
-          background:radial-gradient(120% 90% at 30% 15%, rgba(255,255,255,.12), transparent 45%),
-                     linear-gradient(150deg,#2e2a45 0%,#1c1830 100%);
-          border-color:rgba(167,139,250,.7);
-          box-shadow:0 10px 26px -6px rgba(0,0,0,.6), 0 0 0 3px rgba(167,139,250,.22),
-                     inset 0 1px 0 rgba(255,255,255,.1)}
-  @keyframes fab-in{from{opacity:0;transform:translateY(10px) scale(.85)}to{opacity:1;transform:none}}
-  @keyframes fab-breathe{0%,100%{transform:scale(.96);opacity:.7}50%{transform:scale(1.1);opacity:1}}
-  @media (prefers-reduced-motion: reduce){#wp-fab,#wp-fab .halo{animation:none}}
-  #wp-chat{display:none;width:min(360px,calc(100vw - 40px));
-           background:linear-gradient(180deg,#0d131c,#0b1017);
-           border:1px solid var(--line2);border-radius:12px;overflow:hidden;
-           box-shadow:0 14px 44px rgba(0,0,0,.55), 0 0 0 1px rgba(157,123,255,.08)}
-  #wp-chat.open{display:block;animation:fadeup .2s ease}
-  #wp-chat .hd{display:flex;align-items:center;gap:8px;padding:10px 12px;
-           border-bottom:1px solid var(--line);color:var(--dim);font-size:11px;
-           letter-spacing:.14em;text-transform:uppercase;font-weight:600}
-  #wp-chat .hd .dot{width:7px;height:7px;border-radius:50%;background:var(--pq);
-           box-shadow:0 0 8px rgba(157,123,255,.6);flex:none}
-  #wp-log{max-height:300px;overflow:auto;padding:10px 12px;font-size:12.5px}
-  #wp-log .q{color:var(--gold);margin:10px 0 2px}
-  #wp-log .q::before{content:'» '}
+  #wp-fab.is-open .face{color:var(--cy);text-shadow:0 0 8px var(--cy);
+          background:linear-gradient(180deg,#22164a 0%,#0d0820 100%)}
+  #wp-fab.is-open::after{content:'';position:absolute;inset:0;pointer-events:none;
+          box-shadow:inset 0 0 0 3px var(--cy);clip-path:inherit}
+  @keyframes fab-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  @keyframes fab-breathe{0%,100%{transform:scale(.92);opacity:.6}50%{transform:scale(1.08);opacity:1}}
+  #wp-chat{display:none;width:min(380px,calc(100vw - 40px));background:#0d0820;overflow:hidden;
+           box-shadow:0 -3px 0 var(--cy),0 3px 0 var(--cy),-3px 0 0 var(--cy),3px 0 0 var(--cy),9px 9px 0 #000}
+  #wp-chat.open{display:block;animation:fadeup .15s steps(2)}
+  #wp-chat .hd{display:flex;align-items:center;gap:8px;padding:11px 12px;
+           border-bottom:2px solid var(--line2);color:var(--cy);font:8px/1 var(--px);letter-spacing:.06em}
+  #wp-chat .hd .dot{width:8px;height:8px;background:var(--ac);box-shadow:0 0 8px var(--ac);flex:none;
+           animation:blink 1.2s steps(1) infinite}
+  #wp-log{max-height:300px;overflow:auto;padding:10px 12px;font:17px/1.25 var(--vt)}
+  #wp-log .q{color:var(--hz);margin:10px 0 2px}
+  #wp-log .q::before{content:'> '}
   #wp-log .a{white-space:pre-wrap;word-break:break-word}
-  #wp-chips{display:flex;flex-wrap:wrap;gap:0;padding:8px 12px 4px;
-           border-top:1px solid var(--line)}
+  #wp-chips{display:flex;flex-wrap:wrap;gap:0;padding:8px 12px 4px;border-top:2px solid var(--line)}
   #wp-row{display:flex;gap:6px;padding:4px 12px 12px}
   #wp-q{flex:1;min-width:0}
+
+  /* ════════════ shared arcade bits ════════════ */
+  /* health bars: 16 pixel segments */
+  .bar{display:flex;align-items:center;gap:8px;font:7px/1 var(--px);color:var(--dim);margin:4px 0}
+  .bar .lb{width:22px;flex:none}
+  .bar .segs{display:flex;gap:2px;flex:1}
+  .bar .segs i{flex:1;height:9px;background:#1c1238;max-width:12px}
+  .bar .segs i.on{background:var(--c,var(--cy));box-shadow:0 0 5px var(--c,var(--cy))}
+  .bar .v{width:40px;text-align:right;flex:none;font:17px/1 var(--vt);color:var(--c,var(--cy))}
+  .bar.dead .v{color:var(--bad)}
+  .rar{display:inline-block;font:6.5px/1 var(--px);padding:4px 6px;color:#000;background:var(--rc,#888);
+       letter-spacing:.06em;box-shadow:2px 2px 0 #000}
+  .bdg{display:inline-block;font:15px/1 var(--vt);padding:1px 6px;border:1px solid var(--line2);color:var(--dim);
+       margin:0 4px 4px 0;text-transform:uppercase}
+  .kchip{display:inline-block;font:6.5px/1 var(--px);padding:4px 6px;border:2px solid currentColor;letter-spacing:.06em}
+  .k-prim{color:var(--cy)} .k-keytype{color:var(--mag)} .k-private{color:var(--hz)}
+  .onchain{display:inline-block;font:6.5px/1 var(--px);padding:4px 6px;color:#031400;background:var(--ac);
+       box-shadow:0 0 8px rgba(57,255,20,.5)}
+  .ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .sortchip{font:7.5px/1 var(--px);padding:8px 10px}
+  .big-n{font:clamp(44px,7vw,84px)/1 var(--vt);color:var(--hz);text-shadow:0 0 18px rgba(255,230,0,.55), 4px 4px 0 #3a1a00}
+  .hazard{background:repeating-linear-gradient(-45deg,var(--hz) 0 10px,#111 10px 20px);height:8px;margin:0 0 14px}
+  .loadline{font:18px var(--vt);color:var(--dim)}
+  .loadline::after{content:'█';animation:blink .8s steps(1) infinite;margin-left:4px;color:var(--cy)}
+
+  /* ════════════ MARKET: trading cards ════════════ */
+  .mk-hud{display:grid;grid-template-columns:1fr auto;gap:18px;align-items:end}
+  @media (max-width:900px){.mk-hud{grid-template-columns:1fr}}
+  .mk-title{font:clamp(16px,2.6vw,26px)/1.3 var(--px);margin:0 0 8px;color:#fff;
+       text-shadow:3px 3px 0 var(--vi),0 0 18px rgba(255,43,214,.5)}
+  .mk-title .y{color:var(--hz)}
+  #mk-q{min-width:240px;flex:1;max-width:420px}
+  .cards{display:grid;gap:22px;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));margin-top:6px}
+  .card{position:relative;cursor:pointer;display:flex;flex-direction:column;
+       background:linear-gradient(180deg,#170d36 0%,#0b0619 100%);padding:0 0 10px;
+       box-shadow:0 -3px 0 0 var(--rc), 0 3px 0 0 var(--rc), -3px 0 0 0 var(--rc), 3px 0 0 0 var(--rc),
+                  7px 7px 0 0 #000;
+       transition:transform .08s steps(2);animation:fadeup .25s steps(3) both}
+  .card:hover{transform:translate(-3px,-4px);
+       box-shadow:0 -3px 0 0 var(--rc), 0 3px 0 0 var(--rc), -3px 0 0 0 var(--rc), 3px 0 0 0 var(--rc),
+                  10px 11px 0 0 #000, 0 0 30px color-mix(in srgb,var(--rc) 50%,transparent)}
+  .card .top{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px 10px;
+       background:color-mix(in srgb,var(--rc) 16%,transparent);border-bottom:2px solid var(--rc)}
+  .card .nm{font:9px/1.5 var(--px);color:#fff;padding:10px 10px 4px;word-break:break-all;min-height:40px}
+  .card .art{margin:4px 10px 8px;height:96px;display:grid;place-items:center;position:relative;
+       background:
+         linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px) 0 0/8px 8px,
+         linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px) 0 0/8px 8px,
+         radial-gradient(circle at 50% 60%, color-mix(in srgb,var(--rc) 30%,transparent), transparent 70%),#07040f;
+       border:2px solid #22163d}
+  .card .art svg{width:72px;height:72px;image-rendering:pixelated;filter:drop-shadow(0 0 8px color-mix(in srgb,var(--rc) 70%,transparent))}
+  .card .art .ops{position:absolute;left:6px;bottom:4px;font:6.5px var(--px);color:var(--dim)}
+  .card .art .dp{position:absolute;right:6px;bottom:4px;font:6.5px var(--px);color:var(--dim)}
+  .card .bars{padding:0 10px}
+  .card .meta{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:8px 10px 4px;text-align:center}
+  .card .meta div{background:#0a0618;border:1px solid #22163d;padding:4px 2px}
+  .card .meta b{display:block;font:20px/1 var(--vt);color:#fff;font-weight:400}
+  .card .meta span{font:6px/1 var(--px);color:var(--dim)}
+  .card .ft{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 10px 0;
+       font:15px/1 var(--vt);color:var(--dim);margin-top:auto}
+  .card .bdgs{padding:2px 10px 0;min-height:20px}
+  .card.refused{filter:saturate(.35)}
+  .card.refused::after{content:'REFUSED';position:absolute;top:44%;left:50%;transform:translate(-50%,-50%) rotate(-12deg);
+       font:12px var(--px);color:var(--bad);border:3px solid var(--bad);padding:6px 8px;background:rgba(10,0,4,.8)}
+  .price{font:8px var(--px);color:var(--hz);text-shadow:0 0 8px rgba(255,230,0,.5)}
+  /* drawer */
+  #drawer-wrap{position:fixed;inset:0;z-index:50;background:rgba(4,2,10,.6);display:none}
+  #drawer-wrap.open{display:block}
+  #drawer{position:absolute;top:0;right:0;bottom:0;width:min(520px,100vw);overflow:auto;
+       background:linear-gradient(180deg,#140b30,#090515);padding:18px 20px 120px;
+       border-left:4px solid var(--rc,var(--mag));box-shadow:-10px 0 0 #000, 0 0 60px rgba(255,43,214,.2);
+       animation:drawerin .18s steps(4)}
+  @keyframes drawerin{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+  #drawer .x{position:sticky;top:0;float:right;z-index:2}
+  #drawer h3{font:13px/1.5 var(--px);margin:6px 0 10px;color:#fff;word-break:break-all;
+       text-shadow:3px 3px 0 var(--vi)}
+  .dr-art{display:flex;gap:16px;align-items:center;margin:12px 0 16px}
+  .dr-art svg{width:110px;height:110px;flex:none;image-rendering:pixelated;
+       background:#07040f;border:3px solid var(--rc,var(--mag));padding:6px;box-shadow:5px 5px 0 #000}
+  .dr-sec{margin:16px 0}
+  .dr-sec > .lbl{font:7.5px var(--px);color:var(--mag);margin-bottom:8px;letter-spacing:.06em}
+  .partchip{display:inline-block;font:17px/1 var(--vt);padding:4px 9px;margin:0 6px 6px 0;cursor:pointer;
+       border:2px solid var(--cy);color:var(--cy);background:rgba(0,240,255,.06);box-shadow:2px 2px 0 #000}
+  .partchip:hover{background:var(--cy);color:#000}
+  .partop{font:7px var(--px);color:var(--hz);margin:0 6px 6px 0;display:inline-block}
+
+  /* ════════════ PRIMS: the periodic table ════════════ */
+  .ptable{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(118px,1fr))}
+  .el{position:relative;cursor:pointer;aspect-ratio:1/1.08;padding:8px;display:flex;flex-direction:column;
+      background:color-mix(in srgb,var(--ec) 10%,#0a0618);border:2px solid var(--ec);
+      box-shadow:4px 4px 0 #000;transition:transform .06s steps(2)}
+  .el:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 #000,0 0 22px color-mix(in srgb,var(--ec) 55%,transparent);
+      background:color-mix(in srgb,var(--ec) 20%,#0a0618)}
+  .el.sel{outline:3px solid #fff;outline-offset:2px}
+  .el .z{font:7px var(--px);color:var(--ec)}
+  .el .qs{position:absolute;top:7px;right:7px;font:6px var(--px);padding:2px 3px;background:var(--ac);color:#000}
+  .el .qs.no{background:var(--bad);color:#fff}
+  .el .sym{font:26px/1 var(--px);color:#fff;margin:auto 0 4px;text-shadow:3px 3px 0 color-mix(in srgb,var(--ec) 60%,#000)}
+  .el .sym sub{font:9px var(--px);color:var(--ec);vertical-align:baseline;margin-left:3px;text-shadow:none}
+  .el .nm{font:15px/1 var(--vt);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .el .ms{font:14px/1 var(--vt);color:var(--dim);display:flex;justify-content:space-between;margin-top:3px}
+  .el.refused{opacity:.55}
+  .el.unsafe::after{content:'';position:absolute;left:0;right:0;bottom:0;height:5px;
+      background:repeating-linear-gradient(-45deg,var(--hz) 0 5px,#111 5px 10px)}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font:7px var(--px);color:var(--dim);margin:0 0 14px}
+  .legend i{display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px;border:2px solid var(--ec)}
+  .screen{margin-top:14px;padding:22px 16px;text-align:center;background:#050210;
+      border:3px solid var(--sc,var(--ac));box-shadow:6px 6px 0 #000,inset 0 0 40px color-mix(in srgb,var(--sc,var(--ac)) 25%,transparent);
+      position:relative;overflow:hidden}
+  .screen::before{content:'';position:absolute;inset:0;pointer-events:none;
+      background:repeating-linear-gradient(180deg,rgba(255,255,255,.04) 0 2px,transparent 2px 4px)}
+  .screen .bigword{font:clamp(22px,4.5vw,44px)/1.1 var(--px);color:var(--sc,var(--ac));
+      text-shadow:0 0 18px var(--sc,var(--ac)), 4px 4px 0 #000;animation:flick 3s infinite;margin-bottom:12px}
+  .screen .sub{font:19px/1.3 var(--vt);color:var(--ink)}
+  .screen .kv{text-align:left;max-width:560px;margin:14px auto 0}
+  .screen pre{text-align:left}
+
+  /* ════════════ PRIVATE: the cloak ════════════ */
+  .pv-hero{display:grid;grid-template-columns:1.2fr 1fr;gap:22px;align-items:center}
+  @media (max-width:900px){.pv-hero{grid-template-columns:1fr}}
+  .pv-hero h1{font:clamp(18px,3vw,32px)/1.35 var(--px);margin:0 0 12px;color:#fff;
+      text-shadow:3px 3px 0 var(--vi),0 0 20px rgba(255,230,0,.35)}
+  .pv-hero h1 .r{background:#fff;color:#fff;padding:0 4px;text-shadow:none;animation:flick 4s infinite}
+  .anon{text-align:center;padding:16px;background:#050210;border:3px solid var(--hz);box-shadow:6px 6px 0 #000}
+  .anon .lbl{font:7.5px/1.6 var(--px);color:var(--dim)}
+  .steps{display:flex;gap:0;margin:0 0 18px}
+  .steps div{flex:1;text-align:center;font:7.5px/1 var(--px);padding:10px 4px;color:var(--dim);
+      border-bottom:3px solid var(--line)}
+  .steps div.on{color:var(--hz);border-color:var(--hz);text-shadow:0 0 8px rgba(255,230,0,.5)}
+  .deck{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));margin:6px 0 14px;perspective:900px}
+  .fc{position:relative;height:118px;cursor:pointer;transform-style:preserve-3d;transition:transform .45s steps(6)}
+  .fc.flip{transform:rotateY(180deg)}
+  .fc .f,.fc .b{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px;text-align:center;
+      box-shadow:5px 5px 0 #000}
+  .fc .b{border:3px solid var(--vi);
+      background:
+        repeating-linear-gradient(45deg,rgba(157,77,255,.25) 0 6px,transparent 6px 12px),
+        repeating-linear-gradient(-45deg,rgba(255,43,214,.18) 0 6px,transparent 6px 12px),#0d0820}
+  .fc .b span{font:18px var(--px);color:var(--hz);text-shadow:3px 3px 0 #000,0 0 12px var(--hz);
+      background:#0d0820;padding:8px 10px;border:2px solid var(--hz)}
+  .fc .f{transform:rotateY(180deg);border:3px solid var(--hz);background:linear-gradient(180deg,#2a2006,#0d0820)}
+  .fc .f b{font:8px/1.5 var(--px);color:#fff;word-break:break-all;font-weight:400}
+  .fc .f small{font:15px var(--vt);color:var(--hz);margin-top:6px}
+  .fc:hover .b{border-color:var(--hz)}
+  .fc.pick .f{box-shadow:5px 5px 0 #000,0 0 28px rgba(255,230,0,.6)}
+  .noise{font:15px/1.05 var(--vt);color:var(--ac);word-break:break-all;background:#020800;
+      border:2px solid #1f7a10;padding:10px;max-height:190px;overflow:auto;
+      text-shadow:0 0 6px rgba(57,255,20,.6);margin-top:10px}
+  .verdict{margin-top:14px}
+  .redact{background:#fff;color:#fff;user-select:none;padding:0 4px}
+  .vs{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media (max-width:800px){.vs{grid-template-columns:1fr}}
+  .vs > div{padding:14px;background:#050210;box-shadow:5px 5px 0 #000}
+  .vs .atk{border:3px solid var(--bad)} .vs .you{border:3px solid var(--ac)}
+  .vs h4{margin:0 0 10px;font:8.5px/1.4 var(--px);letter-spacing:.06em}
+  .vs .atk h4{color:var(--bad)} .vs .you h4{color:var(--ac)}
+  .vs .kv span{word-break:break-all}
+  .threat li{margin:0 0 8px;font-size:14.5px;color:#d8cff8}
+  .threat li::marker{content:'▓ ';color:var(--hz)}
+  .threat ul{padding-left:20px;margin:6px 0 0}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none !important;transition:none !important}
+    #lattice{display:none} .glitch::before,.glitch::after{display:none}}
 </style>
 </head>
 <body>
 <canvas id="lattice"></canvas>
 <header>
-  <div class="mark"><span class="glyph">▧</span>postquant</div>
+  <div class="mark"><span class="glyph">pq</span><span class="t">POSTQUANT</span></div>
   <nav>
     <button data-tab="home" class="on">Home</button>
+    <button data-tab="keymarket" class="hot">Market</button>
+    <button data-tab="prims">Prims</button>
+    <button data-tab="builder">Builder</button>
+    <button data-tab="private">Private</button>
+    <span class="sep"></span>
     <button data-tab="chain">Chain</button>
     <button data-tab="store">Store</button>
-    <button data-tab="market">Market</button>
+    <button data-tab="market">Bytes</button>
     <button data-tab="wallet">Wallet</button>
     <button data-tab="ask">Ask</button>
     <button data-tab="about">Paper</button>
-    <!-- reached from inside Store / Wallet, not from the bar -->
+    <!-- reached from inside Store, not from the bar -->
     <button data-tab="write" data-parent="store" hidden>Write</button>
-    <button data-tab="builder" data-parent="wallet" hidden>Builder</button>
   </nav>
-  <button class="kbtn" id="pal-open" title="jump anywhere, run anything">Search <kbd id="pal-key">Ctrl K</kbd></button>
+  <button class="kbtn" id="pal-open" title="jump anywhere, run anything">FIND <kbd id="pal-key">CTRL K</kbd></button>
 </header>
 
 <main>
   <!-- HOME --------------------------------------------------------------- -->
   <section id="home" class="on">
     <div class="hero">
-      <div class="big">▧</div>
-      <h1>postquant</h1>
-      <p class="h-sub">Own a name. Pay rent in bytes. Outlive the quantum computer.</p>
-      <p class="h-line">No elliptic curves anywhere — every signature is lattice or
-        pure hash, every witness re-checked inside sealed wasm, and anyone can
-        replay the whole chain from its first block.</p>
+      <div class="stage"><div class="sun"></div><div class="grid3d"></div><div class="horizon"></div><div class="fade"></div></div>
+      <div class="ins">&#9632; INSERT COIN &#9632; 1 PQ = 1 PLAY</div><br>
+      <h1 class="glitch" data-text="POSTQUANT"><span class="p">POST</span><span class="q">QUANT</span></h1>
+      <p class="h-sub">OWN A NAME. PAY RENT IN BYTES. OUTLIVE THE QUANTUM COMPUTER.</p>
+      <p class="h-line">No elliptic curves in the trust path. Every signature is lattice,
+        hash, or a key type you forged yourself from primitives — every witness
+        re-checked inside sealed wasm, and the whole chain replays from block zero.</p>
+      <div class="ctas">
+        <button class="go" id="hero-start">&#9654; PRESS START</button>
+        <button class="cy" onclick="go('keymarket')">KEY TYPE MARKET</button>
+        <button class="hz" onclick="go('private')">GO PRIVATE</button>
+      </div>
+      <p class="h-kbd"><kbd>CTRL</kbd> <kbd>K</kbd> JUMPS ANYWHERE, RUNS ANYTHING</p>
     </div>
     <div class="doors">
-      <div class="door" id="door-start">
-        <div class="dg">▶</div><b>First key in 60 seconds</b>
+      <div class="door" id="door-start" style="--dc:var(--ac)">
+        <span class="lv">LVL 1</span>
+        <div class="dg">&#9654;</div><b>FIRST KEY IN 60 SECONDS</b>
         <p>Forge a post-quantum wallet, fund it from the treasury, write a key,
           and hold the Merkle proof — four steps, every one of them real.</p>
         <span class="cta">BEGIN</span>
       </div>
-      <div class="door" data-go="ask">
-        <div class="dg">▧</div><b>Ask the chain</b>
-        <p>Plain words in, signed transactions out. "create wallet alice then
-          faucet 100 to alice" — it shows every tool it ran.</p>
-        <span class="cta">ASK</span>
+      <div class="door" data-go="keymarket" style="--dc:var(--mag)">
+        <span class="lv">LVL 2</span>
+        <div class="dg">&#9670;&#9670;</div><b>THE KEY TYPE MARKET</b>
+        <p>Key types are cards here. Remix primitives — lattice, hash, wasm you
+          wrote — into ALL / ANY / THRESHOLD hybrids, publish authorship on chain,
+          and sell it.</p>
+        <span class="cta">TRADE</span>
       </div>
-      <div class="door" data-go="about">
-        <div class="dg">✦</div><b>Read the paper</b>
-        <p>One idea in two voices — HUMAN and SCIENTIST, the same truth either
-          way, with the chain's own agent in the corner.</p>
-        <span class="cta">READ</span>
+      <div class="door" data-go="private" style="--dc:var(--hz)">
+        <span class="lv">LVL 3</span>
+        <div class="dg">&#9619;&#9618;&#9617;</div><b>PRIVATE KEY TYPES</b>
+        <p>Prove a signature is valid without revealing which algorithm made it.
+          No public key on chain, every envelope the same size — the attacker
+          does not even know what to attack.</p>
+        <span class="cta">CLOAK</span>
       </div>
     </div>
     <div class="panel home-wrap" id="journey" style="display:none">
@@ -408,9 +666,9 @@
       <div id="j-fin"></div>
     </div>
     <div class="panel home-wrap">
-      <h2>the chain, live</h2>
-      <div class="stats" id="home-stats"><span class="muted">loading…</span></div>
-      <p class="note" id="home-root" style="margin-top:10px"></p>
+      <h2>the chain, live <span class="tag">&#9679; LIVE</span></h2>
+      <div class="stats" id="home-stats"><span class="loadline">loading</span></div>
+      <p class="note" id="home-root" style="margin-top:12px"></p>
     </div>
   </section>
 
@@ -521,7 +779,7 @@
   <!-- MARKET ------------------------------------------------------------- -->
   <section id="market">
     <div class="panel">
-      <h2>the price of a byte</h2>
+      <h2>the price of a byte <span class="tag">BYTES</span></h2>
       <div class="stats" id="market-stats"><span class="muted">loading…</span></div>
       <p class="note" id="market-note" style="margin-top:10px"></p>
     </div>
@@ -546,15 +804,223 @@
     </div>
   </section>
 
+  <!-- KEY TYPE MARKET ---------------------------------------------------- -->
+  <section id="keymarket">
+    <div class="panel">
+      <div class="mk-hud">
+        <div>
+          <div class="mk-title">KEY TYPE <span class="y">MARKET</span><span class="blinker"></span></div>
+          <p class="note" style="max-width:720px">Every key type on this chain is a card. Prims are
+            the atoms — lattice, hash, curves, or wasm anyone uploaded — and key types are
+            remixes of them: <b>ALL</b> (break every part), <b>ANY</b> (break the weakest) or
+            <b>K-OF-N THRESHOLD</b>. Authorship lives on chain at <code>keytype/&lt;name&gt;</code>
+            and trades on the same key market as everything else. Nothing is secure by decree —
+            every card had to survive the proof battery to be listed.</p>
+        </div>
+        <div class="ctl" style="justify-content:flex-end">
+          <button class="go" onclick="go('builder')">+ FORGE A KEY TYPE</button>
+          <button class="cy" onclick="go('prims')">+ ADD A PRIM</button>
+        </div>
+      </div>
+      <div class="hazard" style="margin-top:6px"></div>
+      <div class="stats" id="mk-stats"><span class="loadline">loading the market</span></div>
+    </div>
+    <div class="panel">
+      <div class="row" style="margin-bottom:16px">
+        <div class="ctl" id="mk-sorts">
+          <button class="sortchip on" data-s="hot">&#9650; HOT</button>
+          <button class="sortchip" data-s="new">NEW</button>
+          <button class="sortchip" data-s="safe">SAFEST</button>
+          <button class="sortchip" data-s="cheap">CHEAPEST</button>
+          <button class="sortchip" data-s="deep">DEEPEST</button>
+        </div>
+        <span class="sep" style="flex:1"></span>
+        <div class="ctl" id="mk-kinds">
+          <button class="sm on" data-k="all">ALL</button>
+          <button class="sm" data-k="prim">PRIMS</button>
+          <button class="sm" data-k="keytype">KEY TYPES</button>
+        </div>
+        <input type="text" id="mk-q" placeholder="search name, family, author…" autocomplete="off">
+      </div>
+      <div id="mk-cards" class="cards"><span class="loadline">dealing cards</span></div>
+    </div>
+  </section>
+
+  <!-- PRIMS -------------------------------------------------------------- -->
+  <section id="prims">
+    <div class="panel">
+      <h2>the periodic table of primitives <span class="tag" id="prim-count"></span></h2>
+      <p class="note">Prims are the atoms every key type is built from: a keygen, a sign and a
+        verify that the chain can run deterministically. Builtins ship with the node, plugins
+        are python + wasm dropped in by the operator, and <b>wasm prims</b> are uploaded by
+        anyone — one sealed blob, no imports, no clock, no randomness. Click an element to
+        inspect it; remix elements in the <a href="#" onclick="go('builder');return false">BUILDER</a>.</p>
+      <div class="legend">
+        <span><i style="--ec:var(--cy)"></i>BUILTIN</span>
+        <span><i style="--ec:var(--vi)"></i>PLUGIN</span>
+        <span><i style="--ec:var(--ac)"></i>WASM</span>
+        <span><i style="--ec:var(--hz);background:repeating-linear-gradient(-45deg,var(--hz) 0 3px,#111 3px 6px)"></i>SHOR BREAKS IT</span>
+      </div>
+      <div id="ptable" class="ptable"><span class="loadline">loading elements</span></div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2>element</h2>
+        <div id="prim-detail" class="muted">click an element above.</div>
+      </div>
+      <div class="panel">
+        <h2>add a prim <span class="tag">WASM</span></h2>
+        <p class="note">Compile the whole scheme — keygen, sign, verify — to one wasm blob that
+          imports <b>nothing</b>, export the pq2 ABI, and drop it here. The node runs the full proof
+          battery, a determinism double-run and the complexity gate before the name exists;
+          refusal comes back with the measurement. <code>pq/wasm-src/examples/lamport.rs</code> is
+          the worked example.</p>
+        <div class="row">
+          <label>name</label><input type="text" id="byo-name" placeholder="my-prim">
+          <label>family</label><input class="sm" type="text" id="byo-family" placeholder="Lamport" style="width:110px">
+        </div>
+        <div class="row"><label>blob</label><input type="file" id="byo-file" accept=".wasm"></div>
+        <div class="row">
+          <label>pk B</label><input class="sm" type="text" id="byo-pk">
+          <label>sig B</label><input class="sm" type="text" id="byo-sig">
+          <label>sk B</label><input class="sm" type="text" id="byo-sk">
+          <label>basis</label><input class="sm" type="text" id="byo-basis" placeholder="hash" style="width:100px">
+        </div>
+        <div class="row">
+          <select id="byo-qs">
+            <option value="1">QUANTUM-SAFE — Grover at worst</option>
+            <option value="0">CLASSICAL — Shor breaks it (say so)</option>
+          </select>
+          <label>classical bits</label><input class="sm" type="text" id="byo-cbits" placeholder="256">
+          <label>quantum bits</label><input class="sm" type="text" id="byo-qbits" placeholder="128">
+        </div>
+        <div class="row">
+          <label>author</label><select id="byo-author"><option value="">— none —</option></select>
+          <label><input type="checkbox" id="byo-publish" checked>publish authorship on chain</label>
+        </div>
+        <div class="row">
+          <input type="text" id="byo-note" placeholder="one honest line — one-time? experimental?" style="flex:1">
+          <button class="go" id="byo-send">&#9654; SUBMIT TO THE BATTERY</button>
+        </div>
+        <div id="byo-out"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRIVATE ------------------------------------------------------------ -->
+  <section id="private">
+    <div class="panel">
+      <div class="pv-hero">
+        <div>
+          <h1>PRIVATE KEY TYPES<br>KEY TYPE: <span class="r">REDACTED</span></h1>
+          <p class="note" style="font-size:15px">Prove a signature is valid <b>without revealing which
+            algorithm made it</b>. A private wallet's address commits only to
+            <code>SHA3(salt &#8214; scheme &#8214; pk)</code> — the key type and the public key are never
+            published. Every witness rides in a sealed ML-KEM-768 envelope padded to one fixed size,
+            so ML-DSA, SLH-DSA, ed25519 and a wasm prim all look identical on chain. Shor and rho
+            both need a public key; here there isn't one to feed them, and no hint which attack to run.</p>
+          <div class="stats" id="pv-stats"><span class="loadline">loading the cloak</span></div>
+        </div>
+        <div class="anon">
+          <div class="lbl">ANONYMITY SET</div>
+          <div class="big-n" id="pv-anon">--</div>
+          <div class="lbl">KEY TYPES YOUR SIGNATURE HIDES AMONG</div>
+          <div class="hazard" style="margin:14px 0 8px"></div>
+          <div class="lbl" id="pv-seal">SEAL: --</div>
+        </div>
+      </div>
+    </div>
+    <div class="steps" id="pv-steps">
+      <div class="on" data-st="1">1 CLOAK</div><div data-st="2">2 PROVE</div><div data-st="3">3 VERIFY</div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2>1 &middot; cloak — pick a hidden key type</h2>
+        <p class="note">Cards are dealt face down. Flip one to choose the inner key type your
+          private wallet really signs with — only you will ever see this side.</p>
+        <div id="pv-deck" class="deck"><span class="loadline">dealing</span></div>
+        <div class="row">
+          <label>name</label><input type="text" id="pv-name" placeholder="ghost">
+          <span class="pill" id="pv-inner">inner: — pick a card —</span>
+          <button class="hz" id="pv-forge">&#9619; FORGE PRIVATE WALLET</button>
+        </div>
+        <div id="pv-forge-out"></div>
+      </div>
+      <div class="panel">
+        <h2>2 &middot; prove — sign without showing</h2>
+        <div class="row">
+          <label>wallet</label><select id="pv-wallet"><option value="">— no private wallets yet —</option></select>
+          <button class="sm" id="pv-faucet">FAUCET 100</button>
+          <button class="sm" id="pv-refresh">REFRESH</button>
+        </div>
+        <textarea id="pv-msg" placeholder="message to prove a signature over">I hold a key. You don't get to know which kind.</textarea>
+        <div class="row" style="margin-top:10px">
+          <button class="go" id="pv-prove">&#9654; SEAL A PROOF</button>
+          <span class="pill" id="pv-proof-meta">—</span>
+        </div>
+        <div id="pv-proof-out"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>3 &middot; verify — valid, and still redacted</h2>
+      <p class="note">Anyone can ask. The answer is <b>valid or not</b> plus the proposer's signed
+        attestation — never the key type. Paste a proof from anywhere, or seal one above and it lands here.</p>
+      <div class="row">
+        <label>address / commitment</label>
+        <input type="text" id="pv-v-addr" placeholder="pq… address or commitment hex" style="flex:1">
+      </div>
+      <textarea id="pv-v-msg" placeholder="the message"></textarea>
+      <textarea id="pv-v-proof" placeholder="proof hex" style="margin-top:8px;font-size:14px"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="go" id="pv-verify">&#9654; VERIFY</button>
+        <button id="pv-tamper" title="flip one byte of the message and verify again">TAMPER + VERIFY</button>
+      </div>
+      <div id="pv-verify-out"></div>
+    </div>
+    <div class="panel">
+      <h2>what the attacker sees vs what you hold</h2>
+      <div class="vs">
+        <div class="atk"><h4>&#9632; ATTACKER SEES</h4><div id="pv-atk" class="kv"></div></div>
+        <div class="you"><h4>&#9632; YOU HOLD</h4><div id="pv-you" class="kv"></div>
+          <div class="row" style="margin-top:12px">
+            <button class="sm" id="pv-open">SELECTIVE DISCLOSURE</button>
+            <button class="sm" id="pv-check" disabled>CHECK THE OPENING</button>
+          </div>
+          <div id="pv-open-out"></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel threat">
+      <h2>threat model <span class="tag">READ THIS</span></h2>
+      <p class="note">Hiding the key type is real defense in depth, not magic. Here is exactly who
+        has to be trusted for what.</p>
+      <ul>
+        <li><b>The attacker</b> sees an address, a 32-byte commitment and fixed-size sealed
+          envelopes. No public key, no algorithm name, no size difference between schemes. To attack
+          it they must guess the scheme <i>and</i> break it without ever seeing the key it guards.</li>
+        <li><b>The proposer</b> (this chain has one, and it already orders every block) holds the
+          ML-KEM-768 seal key. It opens envelopes, checks the inner signature, and signs an attestation.
+          Everyone else trusts that attestation — a dishonest proposer could approve a bad witness,
+          the same power it already has over ordering. A compromised seal key reveals which scheme
+          each private account uses, not its secret key.</li>
+        <li><b>You</b> can always prove what is inside: SELECTIVE DISCLOSURE hands over salt, scheme
+          and public key, and anyone can recompute the commitment with CHECK THE OPENING.</li>
+      </ul>
+      <ul id="pv-honesty"></ul>
+    </div>
+  </section>
+
   <!-- BUILDER ------------------------------------------------------------ -->
   <section id="builder">
     <div class="panel">
-      <h2>key type builder</h2>
+      <h2>key type builder <span class="tag">FORGE</span></h2>
       <p class="note">Every key type this node can witness, drawn as the graph
         it is: primitives on the left, composites built out of them to the
-        right. Solid edges feed an <b>all</b>-composite — every part must sign,
-        it falls only if every part falls. Dashed gold edges feed an
+        right. Solid magenta edges feed an <b>all</b>-composite — every part must sign,
+        it falls only if every part falls. Dashed yellow edges feed an
         <b>any</b> — one part's signature suffices, it falls at the weakest.
+        Dotted cyan edges feed a <b>k-of-n threshold</b> — k parts sign, the attacker
+        must break n-k+1.
         Click nodes to pick parts, then mint a new key type. Nothing here is
         secure by decree: the gate probes the composed keygen like any plugin,
         and TEST PROOFS runs the battery live.</p>
@@ -567,9 +1033,16 @@
         <select id="kt-op">
           <option value="all">ALL-OF — hybrid AND: break every part</option>
           <option value="any">ANY-OF — 1-of-n OR: break the weakest</option>
+          <option value="threshold">THRESHOLD — k-of-n: break n-k+1</option>
         </select>
-        <input type="text" id="kt-name" placeholder="name (auto)">
-        <button class="go" id="kt-build">BUILD KEY TYPE</button>
+        <span class="kstep" id="kt-kbox" hidden><button class="sm" id="kt-kdn">-</button><span id="kt-k">2</span><button class="sm" id="kt-kup">+</button></span>
+        <input type="text" id="kt-name" placeholder="name (auto)" style="min-width:300px;flex:1;max-width:460px">
+      </div>
+      <div class="row">
+        <label>author</label><select id="kt-author"><option value="">— anonymous —</option></select>
+        <label><input type="checkbox" id="kt-publish">publish authorship on chain (keytype/&lt;name&gt;)</label>
+        <input type="text" id="kt-note" placeholder="note (optional)" style="flex:1;min-width:160px">
+        <button class="go" id="kt-build">&#9654; FORGE KEY TYPE</button>
         <span class="pill" id="kt-meta">—</span>
       </div>
       <div id="kt-out"></div>
@@ -587,36 +1060,6 @@
           failure was found — never "secure".</p>
         <div id="proof-out" class="muted">pick a type and press TEST PROOFS.</div>
       </div>
-    </div>
-    <div class="panel">
-      <h2>bring your own</h2>
-      <p class="note">Any key type is welcome here if it can be verified
-        deterministically: compile the whole scheme — keygen, sign, verify —
-        to one wasm blob that imports <b>nothing</b> (no clock, no randomness,
-        no host), export the pq2 ABI, and register it below. The node runs
-        the full proof battery, a determinism double-run and the complexity
-        gate before the name exists; refusal comes back with the measurement.
-        <code>pq/wasm-src/examples/lamport.rs</code> is the worked example.</p>
-      <div class="row">
-        <label>name</label><input type="text" id="byo-name" placeholder="my-scheme">
-        <label>blob</label><input type="file" id="byo-file" accept=".wasm">
-        <label>family</label><input class="sm" type="text" id="byo-family" placeholder="Lamport">
-      </div>
-      <div class="row">
-        <label>pk bytes</label><input class="sm" type="text" id="byo-pk">
-        <label>sig bytes</label><input class="sm" type="text" id="byo-sig">
-        <label>sk bytes</label><input class="sm" type="text" id="byo-sk">
-        <select id="byo-qs">
-          <option value="1">quantum-safe — Grover at worst</option>
-          <option value="0">classical — Shor breaks it (say so)</option>
-        </select>
-        <input class="sm" type="text" id="byo-bits" placeholder="attack bits">
-      </div>
-      <div class="row">
-        <input type="text" id="byo-note" placeholder="one honest line — one-time? experimental?" style="flex:1">
-        <button class="go" id="byo-send">REGISTER KEY TYPE</button>
-      </div>
-      <div id="byo-out"></div>
     </div>
   </section>
 
@@ -696,6 +1139,7 @@
         <button class="go" id="nw-create">CREATE</button>
         <button id="w-refresh">REFRESH</button>
         <button style="margin-left:auto" onclick="go('builder')">KEY TYPE BUILDER</button>
+        <button class="hz" onclick="go('private')">PRIVATE WALLET</button>
       </div>
       <div id="wallets"></div>
     </div>
@@ -751,7 +1195,7 @@
         on it is an entry on a public board — a name and what it says — and
         keeping it there costs a little, like renting a mailbox. Every
         signature is built to survive quantum computers: <em>no elliptic
-        curves anywhere</em>. If any of this page loses you, the ▧ helper in
+        curves anywhere</em>. If any of this page loses you, the ? helper in
         the corner will explain.</p>
 
       <hr class="rule">
@@ -953,7 +1397,7 @@
       <button class="go" id="wp-go">ASK</button></div>
   </div>
   <button id="wp-fab" title="ask the chain" aria-label="ask the chain"
-    ><span class="halo"></span><span class="face">▧</span></button>
+    ><span class="halo"></span><span class="face">?</span></button>
 </div>
 
 <!-- the palette: one keystroke to anywhere -->
@@ -965,6 +1409,7 @@
     <div id="pal-hint">↑↓ choose · ENTER run · ESC close — anything else becomes a question for the agent</div>
   </div>
 </div>
+<div id="drawer-wrap"><div id="drawer"></div></div>
 <div id="toasts"></div>
 
 <script>
@@ -1012,8 +1457,10 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   clearInterval(_chainTimer); _chainTimer = null;
   if (b.dataset.tab === 'chain') _chainTimer = setInterval(loadChain, 5000);
   if (b.dataset.tab === 'home') _chainTimer = setInterval(loadHome, 5000);
+  closeCard();
   ({home: loadHome, chain: loadChain, ask: loadAsk, store: loadKeys, market: loadMarket,
-    builder: loadBuilder,
+    builder: () => { loadBuilder(); fillWallets(); }, keymarket: loadKeymarket,
+    prims: () => { loadPrims(); fillWallets(); }, private: loadPrivate,
     wallet: () => { loadWallets(); loadAlgos(); },
     write: fillWallets}[b.dataset.tab] || (()=>{}))();
 });
@@ -1223,6 +1670,7 @@ async function loadHome() {
 
 // ── the journey: a real wallet, real PQ, a real key, a real proof ──
 $('door-start').onclick = journey;
+$('hero-start').onclick = journey;
 let _jBusy = false;
 async function journey() {
   if (_jBusy) return;
@@ -1310,8 +1758,15 @@ const PAL = [
   ['Chain', 'blocks, mempool, verify', () => go('chain')],
   ['Ask', 'the agent — plain words in', () => { go('ask'); $('ask-q').focus(); }],
   ['Store', 'every live key', () => go('store')],
-  ['Market', 'the price of a byte', () => go('market')],
-  ['Builder', 'compose key types', () => go('builder')],
+  ['Market', 'the key type marketplace', () => go('keymarket')],
+  ['Prims', 'the periodic table of primitives', () => go('prims')],
+  ['Builder', 'forge key types: ALL / ANY / THRESHOLD', () => go('builder')],
+  ['Private', 'prove a signature, hide the key type', () => go('private')],
+  ['Bytes', 'the price of a byte', () => go('market')],
+  ['forge a private wallet', 'cloak a key type', () => { go('private'); $('pv-name').focus(); }],
+  ['add a wasm prim', 'upload a blob to the battery', () => { go('prims'); $('byo-name').focus(); }],
+  ['hottest key types', 'market sorted by heat', () => { go('keymarket'); }],
+  ['safest key types', 'market sorted by security', () => { go('keymarket'); document.querySelector('#mk-sorts [data-s=safe]').click(); }],
   ['Write a key', 'claim a key', () => { go('write'); $('w-key').focus(); }],
   ['Wallet', 'the keystore + key types', () => go('wallet')],
   ['Paper', 'two voices, one truth', () => go('about')],
@@ -1599,15 +2054,114 @@ async function loadMarket() {
   } catch (e) { out('market-stats', esc(e.message), 'err'); }
 }
 
+// ── shared arcade helpers: raw api, security bars, rarity, sprites ──
+// apiJ never throws on a refusal — the admission battery's verdict rides
+// in the error body and the UI wants to show it, not just the message.
+async function apiJ(path, body) {
+  try {
+    const r = await fetch(API + path, body === undefined ? {} : {
+      method: 'POST', headers: {'content-type': 'application/json'},
+      body: JSON.stringify(body)});
+    const j = await r.json().catch(() => ({error: 'bad response (' + r.status + ')'}));
+    return {ok: r.ok && !j.error, status: r.status, j};
+  } catch (e) { return {ok: false, status: 0, j: {error: e.message}}; }
+}
+const RM = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+const fmtB = n => n == null ? '—' : n >= 10000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'K' : String(n);
+const fmtN = n => n == null ? '—' : Number(n).toLocaleString('en-US');
+const qbitsOf = (q, safe) => {
+  if (typeof q === 'number') return q;
+  const m = /2\^(\d+)/.exec(q || '');
+  return m ? +m[1] : (safe ? null : 0);
+};
+function bar(lb, bits, color, title) {
+  const n = bits == null ? 0 : Math.max(0, Math.min(16, Math.round(bits / 16)));
+  const dead = bits === 0;
+  return `<div class="bar${dead ? ' dead' : ''}" style="--c:${dead ? 'var(--bad)' : color}" title="${esc(title || '')}">` +
+    `<span class="lb">${lb}</span><span class="segs">` +
+    Array.from({length: 16}, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('') +
+    `</span><span class="v">${bits == null ? '?' : dead ? 'X' : bits}</span></div>`;
+}
+const secBars = it => bar('CL', it.classical_bits, 'var(--cy)',
+    'classical: 2^' + it.classical_bits + ' best-known attack') +
+  bar('QU', qbitsOf(it.quantum, it.quantum_safe), 'var(--ac)', 'quantum: ' + (it.quantum || '?'));
+const RAR = {common: '#9e93c8', uncommon: '#39ff14', rare: '#00f0ff', epic: '#ff2bd6',
+             legendary: '#ffe600', mythic: '#ff7a18'};
+function rarityOf(it) {
+  if (it.rarity && RAR[String(it.rarity).toLowerCase()]) return String(it.rarity).toLowerCase();
+  const b = (it.badges || []).map(x => String(x).toLowerCase());
+  const hit = Object.keys(RAR).find(r => b.includes(r));
+  if (hit) return hit;
+  if (it.kind === 'private') return 'mythic';
+  if (!it.accepted && it.accepted !== undefined) return 'common';
+  if (it.sub === 'composite' || it.kind === 'keytype')
+    return (it.depth || 0) >= 2 ? 'legendary' : it.quantum_safe ? 'epic' : 'rare';
+  if (it.sub === 'wasm') return 'rare';
+  return it.quantum_safe ? 'uncommon' : 'common';
+}
+function hash32(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+// an 8x8 mirrored invader: every key type gets a face, deterministic in its name
+function sprite(name, color, hidden) {
+  let x = hash32(String(name)) || 1;
+  const rnd = () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 4294967296; };
+  const alt = ['#00f0ff', '#ff2bd6', '#39ff14', '#ffe600', '#9d4dff'][hash32(name + '#') % 5];
+  let r = '';
+  const Q = ['00111100','01100110','01100110','00001100','00011000','00011000','00000000','00011000'];
+  for (let y = 0; y < 8; y++) for (let i = 0; i < 4; i++) {
+    const on = hidden ? Q[y][i] === '1' || Q[y][7 - i] === '1' : rnd() < (y < 2 ? .35 : .55);
+    if (!on) continue;
+    const c = hidden ? color : (rnd() < .2 ? alt : color);
+    if (hidden) {
+      if (Q[y][i] === '1') r += `<rect x="${i}" y="${y}" width="1" height="1" fill="${c}"/>`;
+      if (Q[y][7 - i] === '1') r += `<rect x="${7 - i}" y="${y}" width="1" height="1" fill="${c}"/>`;
+    } else r += `<rect x="${i}" y="${y}" width="1" height="1" fill="${c}"/>` +
+                `<rect x="${7 - i}" y="${y}" width="1" height="1" fill="${c}"/>`;
+  }
+  return `<svg viewBox="-1 -1 10 10" shape-rendering="crispEdges">${r}</svg>`;
+}
+const opLabel = it => !it.op ? '' : it.op === 'threshold'
+  ? (it.k || '?') + '-OF-' + ((it.parts || []).length || '?') : it.op.toUpperCase() + '-OF';
+function renderProofs(id, r) {
+  out(id, `<div class="row">
+    <span class="pill ${r.ok ? 'good' : 'bad'}">${r.ok
+      ? 'ALL ' + r.passed + ' PROOFS PASSED'
+      : 'FAILED: ' + (r.failed || []).map(esc).join(', ')}</span>
+    ${r.timings_ms ? `<span class="pill">keygen ${r.timings_ms.keygen}ms · sign ` +
+      `${r.timings_ms.sign}ms · verify ${r.timings_ms.verify}ms</span>` : ''}
+    ${r.sizes ? `<span class="pill">sig ${r.sizes.sig}B</span>` : ''}
+    ${r.probe && r.probe.avalanche ? `<span class="pill">avalanche ${r.probe.avalanche}</span>` : ''}
+    </div>` + (r.proofs || []).map(p => `<div class="proof-row">
+      <span class="${p.ok ? 'good' : 'bad'}">${p.ok ? '■' : 'X'}</span>
+      <b style="min-width:170px">${esc(p.proof)}</b>
+      <span class="muted">${esc(p.detail)}</span></div>`).join(''));
+}
+async function testInto(id, name) {
+  out(id, '<span class="loadline">running the battery against ' + esc(name) + '</span>');
+  try { renderProofs(id, await api('/keytype_test?scheme=' + encodeURIComponent(name))); }
+  catch (e) { err(id, e); }
+}
+function screen(word, color, sub, kvHtml, extra) {
+  return `<div class="screen" style="--sc:${color}"><div class="bigword">${word}</div>` +
+    (sub ? `<div class="sub">${sub}</div>` : '') +
+    (kvHtml ? `<div class="kv">${kvHtml}</div>` : '') + (extra || '') + '</div>';
+}
+const kvRow = (k, v) => v === undefined || v === null || v === '' ? ''
+  : `<b>${esc(k)}</b><span>${v}</span>`;
+const brief = o => esc(typeof o === 'object' ? JSON.stringify(o) : String(o));
+
 // ── BUILDER: the key type DAG ──
-let dagData = null, ktSel = [];
+let dagData = null, ktSel = [], ktK = 2, ktKManual = false;
 async function loadBuilder() {
   try { dagData = await api('/keytype_dag'); drawDag(); ktPicked(); }
   catch (e) { err('kt-out', e); }
 }
 function drawDag() {
   const svg = $('dag'), nodes = dagData.nodes, edges = dagData.edges;
-  const W = 232, H = 56, GX = 90, GY = 14, cols = {};
+  const W = 240, H = 58, GX = 90, GY = 14, cols = {};
   nodes.forEach(n => (cols[n.depth] = cols[n.depth] || []).push(n));
   const depths = Object.keys(cols).map(Number).sort((a, b) => a - b);
   const height = Math.max(...depths.map(d => cols[d].length)) * (H + GY) + 6;
@@ -1621,28 +2175,34 @@ function drawDag() {
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.setAttribute('width', width); svg.setAttribute('height', height);
   let s = '';
+  // each target gets its own vertical bus lane so wires don't pile up
+  const lane = {}, lanes = {};
+  edges.forEach(e => { const b = pos[e.to]; if (!b || lane[e.to] !== undefined) return;
+    const col = Math.round(b.x); lanes[col] = (lanes[col] || 0); lane[e.to] = lanes[col]++; });
   edges.forEach(e => {
     const a = pos[e.from], b = pos[e.to];
     if (!a || !b) return;
     const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2,
-          mx = (x1 + x2) / 2;
-    s += `<path class="dedge ${e.op}" d="M${x1},${y1} C${mx},${y1} ` +
-         `${mx},${y2} ${x2},${y2}"/>`;
+          mx = x2 - 16 - (lane[e.to] % 6) * 11;
+    // stepped (pixel) wires instead of curves
+    s += `<path class="dedge ${esc(e.op)}" d="M${x1},${y1} H${mx} V${y2} H${x2}"/>`;
   });
   nodes.forEach(n => {
     const p = pos[n.name];
     const cls = (ktSel.includes(n.name) ? ' sel' : '') +
                 (n.accepted ? '' : ' refused');
     const bits = '2^' + n.classical_bits;
-    const kind = n.composite ? n.composite.op.toUpperCase() + '-OF composite'
-                             : n.family;
+    const c = n.composite;
+    const kind = c ? (c.op === 'threshold' ? (c.k || '?') + '-OF-' + c.parts.length + ' threshold'
+                                           : c.op.toUpperCase() + '-OF composite')
+                   : n.family;
     const q = n.quantum_safe
-      ? `<text class="sub qs" x="10" y="46">quantum-safe · ${esc(bits)} classical</text>`
-      : `<text class="sub cl" x="10" y="46">${esc(bits)} classical · quantum: Shor</text>`;
+      ? `<text class="sub qs" x="10" y="50">quantum-safe · ${esc(bits)} classical</text>`
+      : `<text class="sub cl" x="10" y="50">${esc(bits)} classical · quantum: Shor</text>`;
     s += `<g class="dnode${cls}" transform="translate(${p.x},${p.y})" ` +
-         `data-n="${esc(n.name)}"><rect width="${W}" height="${H}" rx="7"/>` +
-         `<text x="10" y="18">${esc(short(n.name, 27))}</text>` +
-         `<text class="sub" x="10" y="32">${esc(kind)} · sig ${n.sig_bytes}B` +
+         `data-n="${esc(n.name)}"><rect width="${W}" height="${H}"/>` +
+         `<text x="10" y="19">${esc(short(n.name, 27))}</text>` +
+         `<text class="sub" x="10" y="35">${esc(kind)} · sig ${n.sig_bytes}B` +
          `${n.accounts_on_chain ? ' · ' + n.accounts_on_chain + ' acct' : ''}` +
          `${n.accepted ? '' : ' · REFUSED'}</text>${q}</g>`;
   });
@@ -1658,9 +2218,20 @@ function ktClick(name) {
 function ktAutoName() {
   const e = $('kt-name');
   if (e.dataset.auto === '0' && e.value) return;
+  const op = $('kt-op').value;
   e.value = ktSel.length < 2 ? '' : (ktSel.map(n =>
     n.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 9)).join('+')
-    + '.' + $('kt-op').value).slice(0, 48);
+    + '.' + (op === 'threshold' ? ktK + 'of' + ktSel.length : op)).slice(0, 48);
+}
+function ktOpSync() {
+  const th = $('kt-op').value === 'threshold';
+  $('kt-kbox').hidden = !th;
+  const n = ktSel.length;
+  // untouched k tracks a majority (2-of-3, 3-of-4); a hand-set k only clamps
+  if (!ktKManual) ktK = n ? Math.min(n, Math.floor(n / 2) + 1) : 2;
+  else if (n) ktK = Math.max(1, Math.min(ktK, n));
+  $('kt-k').textContent = n ? ktK + ' of ' + n : 'k=' + ktK;
+  ktAutoName();
 }
 function ktPicked() {
   out('kt-picked', ktSel.length
@@ -1670,13 +2241,15 @@ function ktPicked() {
     ktSel = ktSel.filter(x => x !== c.dataset.n);
     drawDag(); ktPicked();
   });
-  ktAutoName();
+  ktOpSync();
 }
 function ktDetail(name) {
   const n = dagData.nodes.find(x => x.name === name);
   if (!n) return;
-  const kind = n.composite
-    ? n.composite.op.toUpperCase() + '-OF of ' + n.composite.parts.join(' + ')
+  const c = n.composite;
+  const kind = c
+    ? (c.op === 'threshold' ? (c.k || '?') + '-OF-' + c.parts.length : c.op.toUpperCase() + '-OF') +
+      ' of ' + c.parts.join(' + ')
     : n.family + ' (' + n.origin + ')';
   out('kt-detail', `<div class="kv">
     <b>name</b><span class="mono">${esc(n.name)}</span>
@@ -1688,12 +2261,15 @@ function ktDetail(name) {
     <b>witness</b><span>pk ${n.pk_bytes}B + sig ${n.sig_bytes}B — what witness gas bills</span>
     <b>accounts</b><span>${n.accounts_on_chain} on chain</span>
     ${n.note ? `<b>note</b><span>${esc(n.note)}</span>` : ''}</div>
+    <div style="margin:10px 0 4px">${secBars(n)}</div>
     <div class="row" style="margin-top:10px">
       <button class="go" id="kt-test">TEST PROOFS</button>
-      ${(n.composite || n.origin === 'wasm') && !n.accounts_on_chain
+      <button class="cy" id="kt-card">VIEW CARD</button>
+      ${(c || n.origin === 'wasm') && !n.accounts_on_chain
         ? '<button id="kt-del">DELETE</button>' : ''}
     </div>`);
   $('kt-test').onclick = () => ktTest(name);
+  $('kt-card').onclick = () => openCard(name);
   const del = $('kt-del');
   if (del) del.onclick = async () => {
     try {
@@ -1704,72 +2280,566 @@ function ktDetail(name) {
     } catch (e) { err('kt-out', e); }
   };
 }
-async function ktTest(name) {
-  out('proof-out', 'running the battery against ' + esc(name) + '…', 'muted');
-  try {
-    const r = await api('/keytype_test?scheme=' + encodeURIComponent(name));
-    out('proof-out', `<div class="row">
-      <span class="pill ${r.ok ? 'good' : 'bad'}">${r.ok
-        ? 'ALL ' + r.passed + ' PROOFS PASSED'
-        : 'FAILED: ' + r.failed.map(esc).join(', ')}</span>
-      <span class="pill">keygen ${r.timings_ms.keygen}ms · sign ` +
-      `${r.timings_ms.sign}ms · verify ${r.timings_ms.verify}ms</span>
-      <span class="pill">sig ${r.sizes.sig}B</span>
-      ${r.probe.avalanche ? `<span class="pill">avalanche ${r.probe.avalanche}</span>` : ''}
-      </div>` + r.proofs.map(p => `<div class="proof-row">
-        <span class="${p.ok ? 'good' : 'bad'}">${p.ok ? '✔' : '✘'}</span>
-        <b style="min-width:170px">${esc(p.proof)}</b>
-        <span class="muted">${esc(p.detail)}</span></div>`).join(''));
-  } catch (e) { err('proof-out', e); }
-}
+const ktTest = name => testInto('proof-out', name);
 $('kt-build').onclick = async () => {
+  ktAutoName();
   const name = $('kt-name').value.trim(), op = $('kt-op').value;
   if (ktSel.length < 2)
     return out('kt-out', 'pick at least two parts in the graph.', 'err');
-  $('kt-meta').textContent = 'minting…';
-  try {
-    const r = await api('/keytype', {action: 'create', name, op, parts: ktSel});
-    $('kt-meta').textContent = r.accepted ? name + ' — accepted'
-                                          : name + ' — refused';
-    out('kt-out', json({created: r.created, accepted: r.accepted,
-      security: r.security, ...(r.refused ? {refused: r.refused} : {}),
-      next: r.next}));
-    ktSel = []; $('kt-name').value = ''; $('kt-name').dataset.auto = '';
-    await loadBuilder(); ktDetail(name); ktTest(name);
-  } catch (e) { $('kt-meta').textContent = '—'; err('kt-out', e); }
+  if (!name) return out('kt-out', 'give it a name.', 'err');
+  $('kt-meta').textContent = 'forging…'; $('kt-build').disabled = true;
+  const body = {action: 'create', name, op, parts: ktSel.slice(),
+    ...(op === 'threshold' ? {k: ktK} : {}),
+    ...($('kt-author').value ? {author: $('kt-author').value} : {}),
+    publish: $('kt-publish').checked,
+    ...($('kt-note').value.trim() ? {note: $('kt-note').value.trim()} : {})};
+  const {ok, j: r} = await apiJ('/keytype', body);
+  $('kt-build').disabled = false;
+  if (!ok) {
+    $('kt-meta').textContent = '—';
+    out('kt-out', screen('REFUSED', 'var(--bad)', esc(r.error || 'refused'), '',
+      Object.keys(r).length > 1 ? json(r) : ''));
+    return;
+  }
+  $('kt-meta').textContent = name + (r.accepted ? ' — accepted' : ' — refused');
+  const sec = r.security || {};
+  out('kt-out', screen(r.accepted ? 'FORGED' : 'REFUSED', r.accepted ? 'var(--ac)' : 'var(--bad)',
+    esc(name) + ' · ' + esc(op === 'threshold' ? ktK + '-of-' + ktSel.length : op.toUpperCase() + '-OF') +
+      ' · ' + ktSel.map(esc).join(' + '),
+    kvRow('classical', sec.classical_bits != null ? '2^' + esc(sec.classical_bits) : (sec.best_classical ? esc(sec.best_classical) : '')) +
+    kvRow('quantum', esc(sec.quantum || '')) +
+    kvRow('refused', r.refused ? `<span class="bad">${esc(r.refused)}</span>` : '') +
+    kvRow('anchor', r.anchor ? `<span class="good">ON-CHAIN</span> <span class="mono">${esc(r.anchor.key || '')}</span>` +
+      (r.anchor.tx || r.anchor.hash ? ` · tx <a href="#" onclick="goInspect(${esc(JSON.stringify(r.anchor.tx || r.anchor.hash))});return false" class="mono">${short(r.anchor.tx || r.anchor.hash, 14)}</a>` : '') : '') +
+    kvRow('anchor', r.anchor_error ? `<span class="warn">${esc(r.anchor_error)}</span>` : '') +
+    kvRow('next', r.next ? esc(typeof r.next === 'string' ? r.next : JSON.stringify(r.next)) : ''),
+    `<div class="row" style="justify-content:center;margin-top:14px"><button class="cy" onclick="openCard(${esc(JSON.stringify(name))})">VIEW CARD</button></div>`));
+  if (r.accepted) toast(name + ' forged' + (r.anchor ? ' + anchored on chain' : ''));
+  ktSel = []; ktKManual = false; $('kt-name').value = ''; $('kt-name').dataset.auto = '';
+  mkCache = null;
+  await loadBuilder(); ktDetail(name); ktTest(name);
 };
 $('kt-name').addEventListener('input', () => {
   $('kt-name').dataset.auto = $('kt-name').value ? '0' : '';
 });
-$('kt-op').onchange = ktAutoName;
+$('kt-op').onchange = ktOpSync;
+$('kt-kdn').onclick = () => { ktKManual = true; ktK = Math.max(1, ktK - 1); ktOpSync(); };
+$('kt-kup').onclick = () => { ktKManual = true; ktK = Math.min(Math.max(ktSel.length, 1), ktK + 1); ktOpSync(); };
+// FORK / REMIX from a card: jump into the forge with its parts preselected
+async function remix(it) {
+  closeCard();
+  go('builder');
+  await loadBuilder();
+  if (!dagData) return;
+  const known = n => dagData.nodes.some(x => x.name === n);
+  const parts = it.parts && it.parts.length ? it.parts : [it.name];
+  ktSel = parts.filter(known);
+  if (it.op) $('kt-op').value = it.op;
+  if (it.k) { ktK = it.k; ktKManual = true; } else ktKManual = false;
+  $('kt-name').value = ''; $('kt-name').dataset.auto = '';
+  drawDag(); ktPicked();
+  toast('remixing ' + it.name + ' — add or drop parts, then FORGE');
+  $('dag-wrap').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+// ── KEY TYPE MARKET: trading cards ──
+const mk = {sort: 'hot', kind: 'all', q: '', items: [], offline: false};
+let mkCache = null, mkTimer = null;
+// Until /keymarket answers, deal the cards from the DAG so the floor isn't empty.
+async function dagAsMarket() {
+  const d = await api('/keytype_dag');
+  const forks = {};
+  d.edges.forEach(e => forks[e.from] = (forks[e.from] || 0) + 1);
+  return d.nodes.map(n => ({
+    name: n.name, kind: n.composite ? 'keytype' : 'prim',
+    sub: n.composite ? 'composite' : n.origin, op: n.composite && n.composite.op,
+    k: n.composite && n.composite.k, parts: n.composite ? n.composite.parts : [],
+    author: null, anchor: null, uses: n.accounts_on_chain || 0, forks: forks[n.name] || 0,
+    depth: n.depth, pk_bytes: n.pk_bytes, sig_bytes: n.sig_bytes,
+    witness_bytes: (n.pk_bytes || 0) + (n.sig_bytes || 0), witness_gas_nq: null,
+    classical_bits: n.classical_bits, quantum: n.quantum, quantum_safe: n.quantum_safe,
+    accepted: n.accepted, heat: (n.accounts_on_chain || 0) * 3 + (forks[n.name] || 0) * 2,
+    badges: [], note: n.note}));
+}
+function mkLocalSort(items) {
+  const q = mk.q.toLowerCase();
+  let r = items.filter(it => (mk.kind === 'all' || it.kind === mk.kind ||
+      (mk.kind === 'keytype' && it.kind === 'private')) &&
+    (!q || [it.name, it.sub, it.author, it.note, (it.parts || []).join(' ')]
+      .join(' ').toLowerCase().includes(q)));
+  const by = {hot: it => -(it.heat || 0), new: it => -(it.created || 0),
+    safe: it => -(qbitsOf(it.quantum, it.quantum_safe) || 0) * 1000 - (it.classical_bits || 0),
+    cheap: it => it.witness_bytes || 0, deep: it => -(it.depth || 0)}[mk.sort];
+  return r.sort((a, b) => by(a) - by(b));
+}
+async function loadKeymarket() {
+  const p = new URLSearchParams({sort: mk.sort, kind: mk.kind});
+  if (mk.q) p.set('q', mk.q);
+  const {ok, j} = await apiJ('/keymarket?' + p);
+  if (ok) {
+    mk.offline = false; mk.items = j.items || [];
+    const s = j.stats || {};
+    out('mk-stats',
+      stat(fmtN(s.prims), 'prims') + stat(fmtN(s.keytypes), 'key types') +
+      stat(fmtN(s.wasm), 'wasm prims') + stat(fmtN(s.composites), 'composites') +
+      stat(fmtN(s.accounts), 'accounts') + stat(fmtN(s.private_accounts), 'private accts') +
+      stat('<span class="amt">' + fmtN(s.anonymity_set) + '</span>', 'anonymity set'));
+  } else {
+    try {
+      mkCache = mkCache || await dagAsMarket();
+      mk.offline = true; mk.items = mkLocalSort(mkCache);
+      out('mk-stats', stat(mkCache.filter(x => x.kind === 'prim').length, 'prims') +
+        stat(mkCache.filter(x => x.kind === 'keytype').length, 'key types') +
+        stat(mkCache.reduce((a, x) => a + x.uses, 0), 'accounts') +
+        `<span class="pill bad" title="${esc(j.error || '')}" style="align-self:center">` +
+        `OFFLINE MODE — /keymarket not answering, dealt from the DAG</span>`);
+    } catch (e) { out('mk-stats', esc(j.error || e.message), 'err'); mk.items = []; }
+  }
+  drawCards();
+}
+function cardHtml(it, i) {
+  const rar = rarityOf(it), rc = RAR[rar];
+  const priv = it.kind === 'private';
+  const price = it.anchor && it.anchor.listed_price;
+  return `<div class="card${it.accepted === false ? ' refused' : ''}" style="--rc:${rc};animation-delay:${Math.min(i, 24) * 30}ms" data-n="${esc(it.name)}">
+    <div class="top"><span class="kchip k-${esc(it.kind)}">${esc((it.kind || '').toUpperCase())}${it.sub && it.sub !== it.kind ? ' · ' + esc(it.sub.toUpperCase()) : ''}</span>
+      <span class="rar" style="--rc:${rc}">${rar.toUpperCase()}</span></div>
+    <div class="nm">${esc(it.name)}</div>
+    <div class="art">${sprite(it.name, rc, priv)}<span class="ops">${esc(opLabel(it))}</span>
+      <span class="dp">${it.depth ? 'D' + it.depth : 'ATOM'}</span></div>
+    <div class="bars">${secBars(it)}</div>
+    <div class="meta"><div><b>${fmtB(it.witness_bytes)}</b><span>WITNESS B</span></div>
+      <div><b>${fmtN(it.uses)}</b><span>USES</span></div>
+      <div><b>${fmtN(it.forks)}</b><span>FORKS</span></div></div>
+    <div class="bdgs">${(it.badges || []).filter(b => !RAR[String(b).toLowerCase()]).slice(0, 4)
+      .map(b => `<span class="bdg">${esc(b)}</span>`).join('')}</div>
+    <div class="ft"><span>${it.author ? 'by ' + esc(short(it.author, 12)) : '<span class="muted">node</span>'}</span>
+      <span>${it.anchor ? '<span class="onchain">ON-CHAIN</span>' : ''}${price ? ' <span class="price">' + esc(pq(price)) + ' PQ</span>' : ''}</span></div>
+  </div>`;
+}
+function drawCards() {
+  const items = mk.items;
+  out('mk-cards', items.length ? items.map(cardHtml).join('')
+    : '<span class="muted">no cards match. forge one in the BUILDER.</span>', 'cards');
+  document.querySelectorAll('#mk-cards .card').forEach(c => c.onclick = () => openCard(c.dataset.n));
+}
+document.querySelectorAll('#mk-sorts button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#mk-sorts button').forEach(x => x.classList.toggle('on', x === b));
+  mk.sort = b.dataset.s; loadKeymarket();
+});
+document.querySelectorAll('#mk-kinds button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#mk-kinds button').forEach(x => x.classList.toggle('on', x === b));
+  mk.kind = b.dataset.k; loadKeymarket();
+});
+$('mk-q').oninput = () => { clearTimeout(mkTimer);
+  mkTimer = setTimeout(() => { mk.q = $('mk-q').value.trim(); loadKeymarket(); }, 250); };
+
+// the card drawer
+async function findItem(name) {
+  let it = mk.items.find(x => x.name === name);
+  if (it) return it;
+  const {ok, j} = await apiJ('/keymarket?' + new URLSearchParams({q: name, kind: 'all', sort: 'hot'}));
+  if (ok) it = (j.items || []).find(x => x.name === name);
+  if (it) return it;
+  mkCache = mkCache || await dagAsMarket().catch(() => []);
+  return mkCache.find(x => x.name === name);
+}
+function closeCard() { $('drawer-wrap').classList.remove('open'); }
+async function openCard(name) {
+  const wrap = $('drawer-wrap'), d = $('drawer');
+  wrap.classList.add('open');
+  d.innerHTML = '<button class="sm x" onclick="closeCard()">X CLOSE</button><span class="loadline">pulling ' + esc(name) + '</span>';
+  const it = await findItem(name);
+  if (!it) { d.innerHTML = '<button class="sm x" onclick="closeCard()">X CLOSE</button><p class="err">no such card: ' + esc(name) + '</p>'; return; }
+  const rar = rarityOf(it), rc = RAR[rar], priv = it.kind === 'private';
+  const a = it.anchor, price = a && a.listed_price;
+  d.style.setProperty('--rc', rc);
+  const ws = await fillWallets();
+  const wopts = (ws.wallets || []).map(w => `<option>${esc(w.name)}</option>`).join('');
+  d.innerHTML = `<button class="sm x" onclick="closeCard()">X CLOSE</button>
+    <div class="row" style="margin:0"><span class="kchip k-${esc(it.kind)}">${esc((it.kind || '').toUpperCase())}${it.sub ? ' · ' + esc(it.sub.toUpperCase()) : ''}</span>
+      <span class="rar" style="--rc:${rc}">${rar.toUpperCase()}</span>
+      ${a ? '<span class="onchain">ON-CHAIN</span>' : ''}</div>
+    <h3>${esc(it.name)}</h3>
+    <div class="dr-art">${sprite(it.name, rc, priv)}<div style="flex:1">${secBars(it)}
+      <div class="note" style="margin:8px 0 0">${esc(it.quantum || '')}${it.note ? ' — ' + esc(it.note) : ''}</div></div></div>
+    ${(it.badges || []).length ? `<div>${it.badges.map(b => `<span class="bdg">${esc(b)}</span>`).join('')}</div>` : ''}
+    ${it.parts && it.parts.length ? `<div class="dr-sec"><div class="lbl">PARTS</div>
+      <span class="partop">${esc(opLabel(it))}</span>${it.parts.map(p =>
+        `<span class="partchip" data-p="${esc(p)}">${esc(p)}</span>`).join('')}</div>`
+      : priv ? `<div class="dr-sec"><div class="lbl">PARTS</div><span class="redact">██████████</span> <span class="muted">sealed — that is the point</span></div>` : ''}
+    <div class="dr-sec"><div class="lbl">SECURITY CARD</div><div class="kv">
+      ${kvRow('accepted', it.accepted === false ? `<span class="bad">refused — ${esc(it.refused || 'at the gate')}</span>` : '<span class="good">yes — may witness here</span>')}
+      ${kvRow('classical', it.classical_bits != null ? '2^' + esc(it.classical_bits) + ' best-known attack' : '?')}
+      ${kvRow('quantum', `<span class="${it.quantum_safe ? 'good' : 'warn'}">${esc(it.quantum || '?')}</span>`)}
+      ${kvRow('witness', `pk ${fmtN(it.pk_bytes)}B + sig ${fmtN(it.sig_bytes)}B = <b style="font:inherit;color:#fff">${fmtN(it.witness_bytes)}B</b>`)}
+      ${kvRow('witness gas', it.witness_gas_nq != null ? `<span class="amt">${fmtN(it.witness_gas_nq)} nq</span> per signature` : '')}
+      ${kvRow('depth', esc(it.depth))}
+      ${kvRow('uses', fmtN(it.uses) + ' accounts on chain')}
+      ${kvRow('forks', fmtN(it.forks) + ' key types built on it')}
+      ${kvRow('author', it.author ? `<span class="mono addr" data-copy="${esc(it.author)}">${esc(it.author)}</span>` : '')}
+      ${kvRow('created', it.created ? new Date(it.created * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '')}
+      ${a ? kvRow('chain key', `<span class="mono" data-copy="${esc(a.key)}">${esc(a.key)}</span>`) +
+            kvRow('owner', `<span class="mono addr" data-copy="${esc(a.owner)}">${esc(short(a.owner, 22))}</span>`) +
+            kvRow('spec hash', `<span class="mono" data-copy="${esc(a.value)}">${esc(short(a.value, 22))}</span>`) +
+            kvRow('for sale', price ? `<span class="price">${esc(pq(price))} PQ</span>` : '') : ''}
+    </div></div>
+    <div class="dr-sec"><div class="lbl">ACTIONS</div>
+      <div class="row">
+        ${priv ? '' : '<button class="go" id="dr-remix">FORK / REMIX</button>'}
+        ${priv ? '' : '<button class="cy" id="dr-test">TEST PROOFS</button>'}
+      </div>
+      ${priv ? '' : `<div class="row"><input type="text" id="dr-wname" placeholder="new wallet name" style="min-width:150px;flex:1">
+        <button class="ac" id="dr-mint">MINT WALLET</button></div>`}
+      ${price ? `<div class="row"><label>pay from</label><select id="dr-bw">${wopts}</select>
+        <button class="hz" id="dr-buy">BUY AUTHORSHIP · ${esc(pq(price))} PQ</button></div>` : ''}
+      ${priv ? `<div class="row"><button class="hz" onclick="closeCard();go('private')">OPEN THE CLOAK</button></div>` : ''}
+      <div id="dr-out"></div><div id="dr-proofs"></div>
+    </div>`;
+  d.querySelectorAll('.partchip').forEach(c => c.onclick = () => openCard(c.dataset.p));
+  if ($('dr-remix')) $('dr-remix').onclick = () => remix(it);
+  if ($('dr-test')) $('dr-test').onclick = () => testInto('dr-proofs', it.name);
+  if ($('dr-mint')) $('dr-mint').onclick = async () => {
+    const wn = $('dr-wname').value.trim();
+    if (!wn) return out('dr-out', 'name the wallet first.', 'err');
+    out('dr-out', '<span class="loadline">minting ' + esc(wn) + ' on ' + esc(it.name) + '</span>');
+    try {
+      const w = await api('/wallet', {action: 'create', name: wn, scheme: it.name});
+      out('dr-out', screen('MINTED', 'var(--ac)', esc(wn) + ' signs with ' + esc(it.name),
+        kvRow('address', `<span class="mono addr" data-copy="${esc(w.address)}">${esc(w.address)}</span>`) +
+        kvRow('scheme', esc(w.scheme || it.name))));
+      toast('wallet ' + wn + ' minted'); fillWallets();
+    } catch (e) { err('dr-out', e); }
+  };
+  if ($('dr-buy')) $('dr-buy').onclick = async () => {
+    out('dr-out', '<span class="loadline">signing the buy</span>');
+    try {
+      const r = await api('/buy', {key: a.key, wallet: $('dr-bw').value || undefined});
+      out('dr-out', screen('YOURS', 'var(--hz)', 'authorship of ' + esc(it.name) + ' changed hands',
+        kvRow('status', esc(r.status)) + kvRow('block', esc(r.height ?? '')) +
+        kvRow('tx', `<span class="mono" data-copy="${esc(r.hash || '')}">${esc(short(r.hash, 24))}</span>`) +
+        kvRow('price', r.receipt && r.receipt.price ? `<span class="amt">${esc(pq(r.receipt.price))} PQ</span>` : '')));
+      toast('authorship bought'); mkCache = null; loadKeymarket();
+    } catch (e) { err('dr-out', e); }
+  };
+}
+$('drawer-wrap').onclick = e => { if (e.target === $('drawer-wrap')) closeCard(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCard(); });
+
+// ── PRIMS: the periodic table ──
+let primsData = [], primSel = null;
+const EC = {builtin: 'var(--cy)', plugin: 'var(--vi)', wasm: 'var(--ac)'};
+function symOf(name) {
+  // periodic-style: first letters of the first two words, trailing digits as subscript
+  const words = String(name).split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const digits = (/(\d+[a-z]?)$/i.exec(words[words.length - 1] || '') || [''])[0];
+  const alpha = words.map(w => w.replace(/[0-9]/g, '')).filter(Boolean);
+  const sym = alpha.length >= 2 ? alpha[0][0].toUpperCase() + alpha[1][0].toLowerCase()
+    : ((alpha[0] || '?')[0].toUpperCase() + ((alpha[0] || '')[1] || '').toLowerCase());
+  return {sym, sub: digits && digits.length <= 4 ? digits : ''};
+}
+async function dagAsPrims() {
+  const d = await api('/keytype_dag');
+  const used = {};
+  d.edges.forEach(e => (used[e.from] = used[e.from] || []).push(e.to));
+  return d.nodes.filter(n => !n.composite).map(n => ({
+    name: n.name, kind: n.origin === 'builtin' ? 'builtin' : n.origin === 'wasm' ? 'wasm' : 'plugin',
+    family: n.family, standard: '', basis: '', quantum_safe: n.quantum_safe,
+    pk_bytes: n.pk_bytes, sig_bytes: n.sig_bytes, witness_bytes: n.pk_bytes + n.sig_bytes,
+    accepted: n.accepted, security: {classical_bits: n.classical_bits, quantum: n.quantum},
+    used_by: used[n.name] || [], accounts_on_chain: n.accounts_on_chain, note: n.note}));
+}
+async function loadPrims() {
+  const {ok, j} = await apiJ('/prims');
+  let offline = false;
+  if (ok) primsData = j.prims || [];
+  else { try { primsData = await dagAsPrims(); offline = true; }
+         catch (e) { return err('ptable', e); } }
+  $('prim-count').textContent = primsData.length + ' ELEMENTS' + (offline ? ' · OFFLINE (from the DAG)' : '');
+  out('ptable', primsData.map((p, i) => {
+    const {sym, sub} = symOf(p.name);
+    return `<div class="el${p.accepted === false ? ' refused' : ''}${p.quantum_safe ? '' : ' unsafe'}${primSel === p.name ? ' sel' : ''}" ` +
+      `style="--ec:${EC[p.kind] || 'var(--vi)'}" data-n="${esc(p.name)}" title="${esc(p.name)} · ${esc(p.family || '')}">` +
+      `<span class="z">${i + 1}</span><span class="qs${p.quantum_safe ? '' : ' no'}">${p.quantum_safe ? 'PQ' : 'SHOR'}</span>` +
+      `<div class="sym">${esc(sym)}<sub>${esc(sub)}</sub></div>` +
+      `<div class="nm">${esc(p.name)}</div>` +
+      `<div class="ms"><span>${fmtB(p.sig_bytes)}B sig</span><span>${(p.used_by || []).length}x</span></div></div>`;
+  }).join(''), 'ptable');
+  document.querySelectorAll('#ptable .el').forEach(e => e.onclick = () => primShow(e.dataset.n));
+  if (!primSel && primsData.length) primShow(primsData[0].name);
+}
+async function primShow(name) {
+  primSel = name;
+  document.querySelectorAll('#ptable .el').forEach(e => e.classList.toggle('sel', e.dataset.n === name));
+  out('prim-detail', '<span class="loadline">reading ' + esc(name) + '</span>');
+  const {ok, j} = await apiJ('/prim?action=show&name=' + encodeURIComponent(name));
+  const p = ok ? (j.prim || j) : primsData.find(x => x.name === name);
+  if (!p) return out('prim-detail', esc(j.error || 'no such prim'), 'err');
+  const sec = p.security || {};
+  const it = {name: p.name, classical_bits: sec.classical_bits ?? p.classical_bits,
+    quantum: sec.quantum ?? p.quantum, quantum_safe: p.quantum_safe};
+  const {sym, sub} = symOf(p.name);
+  const used = p.used_by || [];
+  out('prim-detail', `<div class="row" style="align-items:flex-start;gap:16px">
+      <div class="el" style="--ec:${EC[p.kind] || 'var(--vi)'};width:110px;flex:none;cursor:default">
+        <span class="z">${esc((p.kind || '').toUpperCase())}</span><div class="sym">${esc(sym)}<sub>${esc(sub)}</sub></div>
+        <div class="nm">${esc(p.family || '')}</div></div>
+      <div style="flex:1;min-width:200px">${secBars(it)}</div></div>
+    <div class="kv" style="margin-top:8px">
+      ${kvRow('name', `<span class="mono">${esc(p.name)}</span>`)}
+      ${kvRow('kind', esc(p.kind))}
+      ${kvRow('family', esc(p.family || ''))}
+      ${kvRow('standard', esc(p.standard || ''))}
+      ${kvRow('basis', esc(p.basis || ''))}
+      ${kvRow('quantum', `<span class="${p.quantum_safe ? 'good' : 'warn'}">${esc(it.quantum || '?')}</span>`)}
+      ${kvRow('classical', it.classical_bits != null ? '2^' + esc(it.classical_bits) : '')}
+      ${kvRow('sizes', `pk ${fmtN(p.pk_bytes)}B · sig ${fmtN(p.sig_bytes)}B · witness ${fmtN(p.witness_bytes ?? (p.pk_bytes + p.sig_bytes))}B`)}
+      ${kvRow('accepted', p.accepted === false ? `<span class="bad">refused — ${esc(p.refused || '')}</span>` : '<span class="good">yes</span>')}
+      ${kvRow('author', p.author ? `<span class="mono addr" data-copy="${esc(p.author)}">${esc(short(p.author, 24))}</span>` : '')}
+      ${kvRow('blob sha3', p.blob_sha3 ? `<span class="mono" data-copy="${esc(p.blob_sha3)}">${esc(short(p.blob_sha3, 24))}</span>` : '')}
+      ${kvRow('accounts', fmtN(p.accounts_on_chain))}
+      ${kvRow('note', esc(p.note || ''))}
+      ${kvRow('used by', used.length ? used.map(u => `<span class="partchip" data-p="${esc(u)}">${esc(u)}</span>`).join('') : '<span class="muted">nothing yet — be first</span>')}
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="go" id="pr-remix">REMIX IN BUILDER</button>
+      <button class="cy" id="pr-card">VIEW CARD</button>
+      <button id="pr-test">TEST PROOFS</button>
+      ${p.kind === 'wasm' && !p.accounts_on_chain && !used.length ? '<button id="pr-del">DELETE</button>' : ''}
+    </div><div id="pr-proofs"></div>`);
+  document.querySelectorAll('#prim-detail .partchip').forEach(c => c.onclick = () => openCard(c.dataset.p));
+  $('pr-remix').onclick = () => remix({name: p.name, parts: [p.name]});
+  $('pr-card').onclick = () => openCard(p.name);
+  $('pr-test').onclick = () => testInto('pr-proofs', p.name);
+  if ($('pr-del')) $('pr-del').onclick = async () => {
+    const r = await apiJ('/prim', {action: 'delete', name: p.name});
+    if (!r.ok) return out('pr-proofs', esc(r.j.error), 'err');
+    toast(p.name + ' deleted'); primSel = null; mkCache = null;
+    out('prim-detail', 'deleted.', 'muted'); loadPrims();
+  };
+}
 $('byo-send').onclick = async () => {
   const name = $('byo-name').value.trim();
   const file = $('byo-file').files[0];
   if (!name || !file)
     return out('byo-out', 'a name and a .wasm blob are both required.', 'err');
-  $('byo-send').textContent = 'RUNNING THE BATTERY…';
-  try {
-    const buf = new Uint8Array(await file.arrayBuffer());
-    let bin = '';
-    for (let i = 0; i < buf.length; i += 0x8000)
-      bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-    const qs = $('byo-qs').value === '1';
-    const bits = parseInt($('byo-bits').value, 10);
-    const r = await api('/keytype', {
-      action: 'create', name, wasm: btoa(bin),
-      pk_bytes: parseInt($('byo-pk').value, 10),
-      sig_bytes: parseInt($('byo-sig').value, 10),
-      sk_bytes: parseInt($('byo-sk').value, 10),
-      family: $('byo-family').value.trim(),
-      quantum_safe: qs,
-      ...(bits ? (qs ? {quantum_bits: bits} : {classical_bits: bits}) : {}),
-      note: $('byo-note').value.trim()});
-    out('byo-out', json({created: r.created, accepted: r.accepted,
-      admission: r.admission, security: r.security, next: r.next}));
-    toast(name + ' admitted — the blob is the algorithm now');
-    await loadBuilder(); ktDetail(name);
-  } catch (e) { err('byo-out', e); }
-  $('byo-send').textContent = 'REGISTER KEY TYPE';
+  const btn = $('byo-send');
+  btn.textContent = 'RUNNING THE BATTERY…'; btn.disabled = true;
+  out('byo-out', screen('LOADING', 'var(--cy)', '<span class="loadline">proof battery · determinism double-run · complexity gate</span>'));
+  const buf = new Uint8Array(await file.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000)
+    bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  const int = id => { const v = parseInt($(id).value, 10); return isNaN(v) ? undefined : v; };
+  const body = {action: 'add', name, wasm: btoa(bin),
+    pk_bytes: int('byo-pk'), sig_bytes: int('byo-sig'), sk_bytes: int('byo-sk'),
+    family: $('byo-family').value.trim() || undefined,
+    basis: $('byo-basis').value.trim() || undefined,
+    quantum_safe: $('byo-qs').value === '1',
+    classical_bits: int('byo-cbits'), quantum_bits: int('byo-qbits'),
+    note: $('byo-note').value.trim() || undefined,
+    author: $('byo-author').value || undefined,
+    publish: $('byo-publish').checked};
+  const {ok, j: r} = await apiJ('/prim', body);
+  btn.innerHTML = '&#9654; SUBMIT TO THE BATTERY'; btn.disabled = false;
+  const ad = r.admission || r.battery || {};
+  const adKv = kvRow('determinism', ad.determinism !== undefined ? brief(ad.determinism) : '') +
+    kvRow('budgets', ad.budgets !== undefined ? brief(ad.budgets) : '') +
+    kvRow('proofs', ad.proofs_passed !== undefined ? brief(ad.proofs_passed) + ' passed' : '');
+  if (ok) {
+    out('byo-out', screen('ADMITTED', 'var(--ac)', esc(name) + ' is an element now — the blob IS the algorithm',
+      adKv + kvRow('anchor', r.anchor ? `<span class="good">ON-CHAIN</span> <span class="mono">${esc(r.anchor.key || '')}</span>` : '') +
+      kvRow('anchor', r.anchor_error ? `<span class="warn">${esc(r.anchor_error)}</span>` : ''),
+      `<details style="margin-top:12px;text-align:left"><summary class="muted">full response</summary>${json(r)}</details>`));
+    toast(name + ' admitted'); mkCache = null; await loadPrims(); primShow(name);
+  } else {
+    const rest = Object.assign({}, r); delete rest.error; delete rest.code;
+    out('byo-out', screen('REFUSED', 'var(--bad)', esc(r.error || 'refused') +
+      (r.code ? ` <span class="pill bad">${esc(r.code)}</span>` : ''), adKv,
+      Object.keys(rest).length ? json(rest) : ''));
+  }
+};
+
+// ── PRIVATE: the cloak ──
+let pvInfo = null, pvInner = '', pvState = {}, pvPrivWallets = [];
+function countUp(el, to) {
+  if (RM || !isFinite(to)) { el.textContent = fmtN(to); return; }
+  const t0 = performance.now(), from = 0, dur = 900;
+  (function f(t) { const k = Math.min(1, (t - t0) / dur);
+    el.textContent = fmtN(Math.round(from + (to - from) * k));
+    if (k < 1) requestAnimationFrame(f); })(t0);
+}
+function pvStep(n) {
+  document.querySelectorAll('#pv-steps div').forEach(d => d.classList.toggle('on', +d.dataset.st <= n));
+}
+async function loadPrivate() {
+  const {ok, j} = await apiJ('/private?action=info');
+  let set = [];
+  if (ok) {
+    pvInfo = j; set = j.cloak_set || [];
+    out('pv-stats', stat(fmtN(j.private_accounts), 'private accts') +
+      stat(fmtN(j.envelope_bytes) + '<span style="font-size:.6em">B</span>', 'envelope, every scheme') +
+      stat(esc((j.seal && j.seal.kem) || '—'), 'seal kem'));
+    countUp($('pv-anon'), j.anonymity_set ?? set.length);
+    $('pv-seal').innerHTML = 'SEAL: ' + esc((j.seal && j.seal.kem) || '?') + ' · EK ' +
+      `<span data-copy="${esc((j.seal && j.seal.ek_sha3) || '')}" style="color:var(--cy)">` +
+      esc(short((j.seal && j.seal.ek_sha3) || '', 14)) + '</span>';
+    $('pv-honesty').innerHTML = (j.honesty || []).map(h => `<li>${esc(h)}</li>`).join('');
+  } else {
+    out('pv-stats', `<span class="pill bad" title="${esc(j.error || '')}">CLOAK OFFLINE — /private not answering yet</span>`);
+    $('pv-anon').textContent = '--';
+    try { const h = await api('/head'); set = (h.schemes || []).filter(s => !/private/i.test(s)); } catch (e) {}
+  }
+  out('pv-deck', set.length ? set.map((n, i) => `<div class="fc${pvInner === n ? ' flip pick' : ''}" data-n="${esc(n)}">
+      <div class="b"><span>?</span></div>
+      <div class="f">${sprite(n, '#ffe600').replace('<svg', '<svg style="width:46px;height:46px;margin-bottom:6px"')}<b>${esc(n)}</b><small>HIDDEN INNER</small></div></div>`).join('')
+    : '<span class="muted">no cloakable key types.</span>', 'deck');
+  document.querySelectorAll('#pv-deck .fc').forEach(c => c.onclick = () => {
+    const was = c.classList.contains('pick');
+    document.querySelectorAll('#pv-deck .fc').forEach(x => x.classList.remove('flip', 'pick'));
+    if (!was) { c.classList.add('flip', 'pick'); pvInner = c.dataset.n; }
+    else pvInner = '';
+    $('pv-inner').textContent = 'inner: ' + (pvInner || '— pick a card —');
+  });
+  pvWallets();
+  pvRenderVs();
+}
+async function pvWallets(sel) {
+  const w = await fillWallets();
+  pvPrivWallets = (w.wallets || []).filter(x => x.scheme === 'private');
+  const cur = sel || $('pv-wallet').value;
+  $('pv-wallet').innerHTML = pvPrivWallets.length
+    ? pvPrivWallets.map(x => `<option ${x.name === cur ? 'selected' : ''}>${esc(x.name)}</option>`).join('')
+    : '<option value="">— no private wallets yet —</option>';
+  const x = pvPrivWallets.find(x => x.name === $('pv-wallet').value);
+  if (x && pvState.name !== x.name) { pvState = {name: x.name, address: x.address, commitment: x.commitment}; pvRenderVs(); }
+}
+$('pv-wallet').onchange = () => { const x = pvPrivWallets.find(x => x.name === $('pv-wallet').value);
+  pvState = x ? {name: x.name, address: x.address, commitment: x.commitment} : {}; pvRenderVs(); };
+function pvRenderVs() {
+  const s = pvState, n = pvInfo ? (pvInfo.anonymity_set ?? (pvInfo.cloak_set || []).length) : '?';
+  const env = pvInfo ? pvInfo.envelope_bytes : null;
+  $('pv-atk').innerHTML =
+    kvRow('address', s.address ? `<span class="mono addr">${esc(s.address)}</span>` : '<span class="muted">pq…</span>') +
+    kvRow('commitment', s.commitment ? `<span class="mono">${esc(short(s.commitment, 30))}</span>` : '<span class="muted">32 bytes of SHA3</span>') +
+    kvRow('key type', `<span class="redact">██████</span> <span class="muted">1 of ${esc(n)}</span>`) +
+    kvRow('public key', '<span class="bad">never published</span>') +
+    kvRow('witness', `${env ? fmtN(env) + 'B ' : ''}sealed envelope — same size for every scheme`) +
+    kvRow('attack', '<span class="warn">Shor? rho? Grover? lattice reduction? pick one, blind</span>');
+  $('pv-you').innerHTML =
+    kvRow('wallet', s.name ? esc(s.name) : '<span class="muted">forge one in step 1</span>') +
+    kvRow('inner', s.inner ? `<span class="good">${esc(s.inner)}</span>` : '<span class="muted">known to you — press SELECTIVE DISCLOSURE</span>') +
+    kvRow('salt', s.salt ? `<span class="mono" data-copy="${esc(s.salt)}">${esc(short(s.salt, 30))}</span>` : '') +
+    kvRow('pk', s.pk ? `<span class="mono" data-copy="${esc(s.pk)}">${esc(short(s.pk, 30))} (${s.pk.length / 2}B)</span>` : '') +
+    kvRow('seed', '~/.mod/postquant · mode 0600 · never leaves this node');
+  $('pv-check').disabled = !(s.inner && s.salt && s.pk && s.commitment);
+}
+$('pv-forge').onclick = async () => {
+  const name = $('pv-name').value.trim();
+  if (!name) return out('pv-forge-out', 'name the private wallet.', 'err');
+  if (!pvInner) return out('pv-forge-out', 'flip a card to pick the hidden key type.', 'err');
+  out('pv-forge-out', '<span class="loadline">forging ' + esc(name) + ' behind the cloak</span>');
+  const {ok, j: r} = await apiJ('/private', {action: 'create', name, inner: pvInner});
+  if (!ok) return out('pv-forge-out', esc(r.error), 'err');
+  out('pv-forge-out', screen('CLOAKED', 'var(--hz)', 'the chain sees an address. it does not see ' +
+    '<span class="redact">' + esc(pvInner) + '</span>.',
+    kvRow('address', `<span class="mono addr" data-copy="${esc(r.address)}">${esc(r.address)}</span>`) +
+    kvRow('commitment', `<span class="mono" data-copy="${esc(r.commitment)}">${esc(short(r.commitment, 34))}</span>`) +
+    kvRow('envelope', fmtN(r.envelope_bytes) + 'B — identical for every inner scheme'),
+    `<div class="row" style="justify-content:center;margin-top:12px"><button class="sm" id="pv-fund-new">FAUCET 100 PQ</button></div>`));
+  pvState = {name: r.name || name, address: r.address, commitment: r.commitment, inner: pvInner};
+  $('pv-fund-new').onclick = () => pvFaucet(pvState.name);
+  toast(name + ' cloaked'); pvStep(2);
+  await pvWallets(pvState.name); pvRenderVs();
+};
+async function pvFaucet(name) {
+  name = name || $('pv-wallet').value;
+  if (!name) return toast('no private wallet selected', 'bad');
+  const r = await apiJ('/faucet', {wallet: name, amount: '100'});
+  r.ok ? toast('100 PQ to ' + name + ' — signed by a key type nobody can name')
+       : toast(r.j.error, 'bad');
+}
+$('pv-faucet').onclick = () => pvFaucet();
+$('pv-refresh').onclick = () => loadPrivate();
+function scramble(el, finalText) {
+  const show = finalText.length > 1600 ? finalText.slice(0, 1600) + '…' : finalText;
+  if (RM) { el.textContent = show; return Promise.resolve(); }
+  const H = '0123456789abcdef▓▒░█';
+  return new Promise(res => {
+    const t0 = performance.now(), dur = 1100;
+    (function f(t) {
+      const k = Math.min(1, (t - t0) / dur), cut = Math.floor(show.length * k);
+      let s = show.slice(0, cut);
+      for (let i = cut; i < show.length; i++) s += H[(Math.random() * H.length) | 0];
+      el.textContent = s;
+      k < 1 ? requestAnimationFrame(f) : res();
+    })(t0);
+  });
+}
+$('pv-prove').onclick = async () => {
+  const wallet = $('pv-wallet').value, message = $('pv-msg').value;
+  if (!wallet) return out('pv-proof-out', 'forge a private wallet first (step 1).', 'err');
+  $('pv-prove').disabled = true; $('pv-proof-meta').textContent = 'sealing…';
+  out('pv-proof-out', '<div class="noise" id="pv-noise"></div>');
+  const noise = $('pv-noise');
+  let spin = !RM && setInterval(() => { let s = ''; for (let i = 0; i < 600; i++) s += '▓▒░01'[(Math.random() * 5) | 0]; noise.textContent = s; }, 60);
+  const {ok, j: r} = await apiJ('/private', {action: 'prove', wallet, message});
+  clearInterval(spin); $('pv-prove').disabled = false;
+  if (!ok) { $('pv-proof-meta').textContent = '—'; return out('pv-proof-out', esc(r.error), 'err'); }
+  $('pv-proof-meta').textContent = fmtN(r.proof_bytes) + 'B sealed · scheme: private';
+  await scramble(noise, r.proof);
+  noise.dataset.copy = r.proof; noise.title = 'click to copy the full proof';
+  noise.insertAdjacentHTML('afterend', `<div class="kv" style="margin-top:10px">` +
+    kvRow('address', `<span class="mono addr">${esc(r.address)}</span>`) +
+    kvRow('message sha3', `<span class="mono">${esc(short(r.message_sha3, 34))}</span>`) +
+    kvRow('key type', '<span class="redact">██████</span> <span class="muted">(not in the proof)</span>') + '</div>');
+  $('pv-v-addr').value = r.address || r.commitment || '';
+  $('pv-v-msg').value = message; $('pv-v-proof').value = r.proof;
+  pvState = Object.assign({}, pvState, {address: r.address, commitment: r.commitment || pvState.commitment});
+  pvRenderVs(); pvStep(3);
+  toast('proof sealed — verify it below');
+};
+async function pvVerify(message) {
+  const who = $('pv-v-addr').value.trim(), proof = $('pv-v-proof').value.trim();
+  if (!who || !proof) return out('pv-verify-out', 'an address (or commitment), a message and a proof.', 'err');
+  out('pv-verify-out', '<span class="loadline">asking the proposer to open the envelope</span>');
+  const body = {action: 'verify', message, proof,
+    ...(who.startsWith('pq') ? {address: who} : {commitment: who})};
+  const {ok, j: r} = await apiJ('/private', body);
+  if (!ok) return out('pv-verify-out', esc(r.error), 'err');
+  const at = r.attestation || {};
+  out('pv-verify-out', screen(r.valid ? 'VALID' : 'INVALID', r.valid ? 'var(--ac)' : 'var(--bad)',
+    'KEY TYPE: <span class="redact">████████</span> (REDACTED)' +
+      (r.scheme_revealed === false ? ' · scheme_revealed: false' : ''),
+    kvRow('anonymity set', `<span class="amt">${fmtN(r.anonymity_set)}</span> key types it could have been`) +
+    kvRow('attested by', at.by ? `<span class="mono addr" data-copy="${esc(at.by)}">${esc(short(at.by, 24))}</span>` : '') +
+    kvRow('attest scheme', esc(at.scheme || '')) +
+    kvRow('over', at.over ? `<span class="mono" data-copy="${esc(typeof at.over === 'string' ? at.over : JSON.stringify(at.over))}">${esc(short(typeof at.over === 'string' ? at.over : JSON.stringify(at.over), 34))}</span>` : '') +
+    kvRow('signature', at.sig ? `<span class="mono" data-copy="${esc(at.sig)}">${esc(short(at.sig, 34))}</span>` : '')));
+}
+$('pv-verify').onclick = () => pvVerify($('pv-v-msg').value);
+$('pv-tamper').onclick = () => {
+  const m = $('pv-v-msg').value;
+  const t = m ? m.slice(0, -1) + String.fromCharCode((m.charCodeAt(m.length - 1) ^ 1)) : 'x';
+  toast('flipped one bit of the message');
+  pvVerify(t);
+};
+$('pv-open').onclick = async () => {
+  const wallet = $('pv-wallet').value;
+  if (!wallet) return out('pv-open-out', 'no private wallet selected.', 'err');
+  const {ok, j: r} = await apiJ('/private', {action: 'open', wallet});
+  if (!ok) return out('pv-open-out', esc(r.error), 'err');
+  pvState = Object.assign({}, pvState, {name: wallet, commitment: r.commitment, inner: r.inner, salt: r.salt, pk: r.pk});
+  pvRenderVs();
+  out('pv-open-out', '<p class="note" style="margin-top:10px">Disclosed to <b>this screen only</b> — hand these four values to whoever you choose; CHECK recomputes the commitment.</p>');
+};
+$('pv-check').onclick = async () => {
+  const s = pvState;
+  const {ok, j: r} = await apiJ('/private', {action: 'check_open', commitment: s.commitment,
+    inner: s.inner, salt: s.salt, pk: s.pk});
+  if (!ok) return out('pv-open-out', esc(r.error), 'err');
+  out('pv-open-out', screen(r.match ? 'MATCH' : 'NO MATCH', r.match ? 'var(--ac)' : 'var(--bad)',
+    'SHA3(salt ‖ ' + esc(s.inner) + ' ‖ pk) ' + (r.match ? '=' : '≠') + ' commitment'));
 };
 
 // ── WALLET ──
@@ -1779,6 +2849,10 @@ async function fillWallets() {
     const opts = w.wallets.map(x =>
       `<option ${x.name === w.default ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
     ['w-wallet', 'm-wallet', 'x-wallet'].forEach(id => $(id).innerHTML = opts);
+    // author pickers keep their "none" first and whatever was chosen
+    ['kt-author', 'byo-author'].forEach(id => { const e = $(id), cur = e.value;
+      e.innerHTML = e.options[0].outerHTML + w.wallets.map(x =>
+        `<option ${x.name === cur ? 'selected' : ''}>${esc(x.name)}</option>`).join(''); });
     return w;
   } catch (e) { return {wallets: []}; }
 }
@@ -2010,12 +3084,13 @@ $('x-send').onclick = async () => {
       const a = pts[i], b = pts[j], dx = a.x - b.x, dy = a.y - b.y;
       const d2 = dx * dx + dy * dy;
       if (d2 > R * R) continue;
-      cx.strokeStyle = `rgba(157,123,255,${.09 * (1 - Math.sqrt(d2) / R)})`;
+      cx.strokeStyle = `rgba(0,240,255,${.08 * (1 - Math.sqrt(d2) / R)})`;
       cx.beginPath(); cx.moveTo(a.x, a.y); cx.lineTo(b.x, b.y); cx.stroke();
     }
     for (const p of pts) {
-      cx.fillStyle = p.gold ? 'rgba(232,192,90,.5)' : 'rgba(157,123,255,.45)';
-      cx.beginPath(); cx.arc(p.x, p.y, p.gold ? 1.6 : 1.2, 0, 7); cx.fill();
+      cx.fillStyle = p.gold ? 'rgba(255,230,0,.6)' : 'rgba(255,43,214,.55)';
+      const sz = p.gold ? 3 : 2;   // square pixels, not dots
+      cx.fillRect(Math.round(p.x), Math.round(p.y), sz, sz);
     }
   })();
 })();

@@ -111,8 +111,20 @@ def _save(data):
     os.replace(tmp, KEY_FILE)          # atomic: a crash never truncates keys
 
 
+HIDDEN_FIELDS = ("seed", "inner")   # a private wallet's key type is a secret
+
+
 def _public(w):
-    return {k: v for k, v in w.items() if k != "seed"}
+    return {k: v for k, v in w.items() if k not in HIDDEN_FIELDS}
+
+
+def _keygen(scheme, seed, inner=None):
+    """(pk, sk) for a wallet. A private wallet's 'pk' is its commitment and
+    its keygen needs the hidden scheme it wraps."""
+    if scheme == "private":
+        from pq import private
+        return private.keygen_inner(seed, inner or private.DEFAULT_INNER)
+    return algos.get(scheme).keygen(seed)
 
 
 def _algo_for_wallet(scheme):
@@ -126,7 +138,8 @@ def _algo_for_wallet(scheme):
     return algos.get(scheme)
 
 
-def create(name="default", seed=None, scheme=None, overwrite=False):
+def create(name="default", seed=None, scheme=None, overwrite=False,
+           inner=None):
     """A new wallet under any accepted key type. Deterministic if you pass a
     32-byte hex seed; the same seed under two schemes is two unrelated keys
     and two different addresses."""
@@ -140,9 +153,22 @@ def create(name="default", seed=None, scheme=None, overwrite=False):
     raw = bytes.fromhex(seed) if seed else secrets.token_bytes(32)
     if len(raw) != 32:
         raise StateError("seed must be 32 bytes of hex", code="bad_seed")
-    pk, _sk = algo.keygen(raw)
+    if scheme == "private":
+        r = algos.refusal(inner) if inner else None
+        if r is not None:
+            raise StateError(f"cannot hide {inner}: {r[1]}", code=r[0],
+                             status=r[2])
+        try:
+            pk, _sk = _keygen(scheme, raw, inner)
+        except ValueError as e:
+            raise StateError(str(e), code="bad_inner")
+    else:
+        pk, _sk = algo.keygen(raw)
     w = {"name": name, "address": address(pk, scheme), "scheme": scheme,
          "pk": pk.hex(), "seed": raw.hex(), "created": int(time.time())}
+    if scheme == "private":
+        from pq import private
+        w["inner"] = inner or private.DEFAULT_INNER
     data["wallets"][name] = w
     if not data["default"]:
         data["default"] = name
@@ -198,7 +224,7 @@ def remove(name):
 def secret_key(w):
     """Expand a stored seed back into the wallet's secret key — deterministic
     key generation is what every registered algorithm signed up for."""
-    _pk, sk = algos.get(w["scheme"]).keygen(bytes.fromhex(w["seed"]))
+    _pk, sk = _keygen(w["scheme"], bytes.fromhex(w["seed"]), w.get("inner"))
     return sk
 
 

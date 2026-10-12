@@ -51,7 +51,7 @@ export function parseMarkdown(md: string): Block[] {
   return out
 }
 
-function Inline({ text }: { text: string }) {
+export function Inline({ text }: { text: string }) {
   // `code` first, then **bold** inside the remaining runs.
   return (
     <>
@@ -67,7 +67,8 @@ function Inline({ text }: { text: string }) {
   )
 }
 
-export default function Whitepaper({ load }: { load: () => Promise<{ markdown: string; updated?: number }> }) {
+// `wide` = the full-page Whitepaper tab; default is the narrow sidebar.
+export default function Whitepaper({ load, wide = false }: { load: () => Promise<{ markdown: string; updated?: number }>; wide?: boolean }) {
   const [blocks, setBlocks] = useState<Block[] | null>(null)
   const [error, setError] = useState('')
   const body = useRef<HTMLDivElement>(null)
@@ -101,12 +102,12 @@ export default function Whitepaper({ load }: { load: () => Promise<{ markdown: s
     body.current?.querySelector(`#wp-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   return (
-    <div ref={body} className="px-5 py-4 text-[12.5px] leading-relaxed text-ink2">
+    <div ref={body} className={wide ? 'px-6 md:px-10 py-8 text-[14px] leading-7 text-ink2' : 'px-5 py-4 text-[12.5px] leading-relaxed text-ink2'}>
       {/* Contents — the paper is short, but the sidebar is narrow. */}
       {sections.length > 2 && (
         <nav className="mb-5 border border-hair rounded-lg bg-panel px-3 py-2.5">
           <p className="lbl-dim mb-1.5">Contents</p>
-          <ol className="space-y-0.5">
+          <ol className={wide ? 'grid grid-cols-2 gap-x-6 gap-y-0.5' : 'space-y-0.5'}>
             {sections.map(s => (
               <li key={s.id}>
                 <button onClick={() => jump(s.id)} className="text-left text-[11px] text-mute hover:text-accent transition-colors">
@@ -119,9 +120,9 @@ export default function Whitepaper({ load }: { load: () => Promise<{ markdown: s
       )}
       {blocks.map((b, i) => {
         if (b.kind === 'h') {
-          if (b.level === 1) return <h1 key={i} id={`wp-${b.id}`} className="text-xl font-bold text-ink mb-1">{b.text}</h1>
-          if (b.level === 2) return <h2 key={i} id={`wp-${b.id}`} className="scroll-mt-3 text-sm font-bold text-ink mt-6 mb-2 pb-1 border-b border-hair">{b.text}</h2>
-          return <h3 key={i} id={`wp-${b.id}`} className="scroll-mt-3 text-[12px] font-bold uppercase tracking-wider text-accent mt-4 mb-1.5">{b.text}</h3>
+          if (b.level === 1) return <h1 key={i} id={`wp-${b.id}`} className={`${wide ? 'text-3xl' : 'text-xl'} font-bold text-ink mb-1`}>{b.text}</h1>
+          if (b.level === 2) return <h2 key={i} id={`wp-${b.id}`} className={`scroll-mt-16 ${wide ? 'text-lg mt-9' : 'text-sm mt-6'} font-bold text-ink mb-2 pb-1 border-b border-hair`}>{b.text}</h2>
+          return <h3 key={i} id={`wp-${b.id}`} className="scroll-mt-16 text-[12px] font-bold uppercase tracking-wider text-accent mt-4 mb-1.5">{b.text}</h3>
         }
         if (b.kind === 'ul') {
           return (

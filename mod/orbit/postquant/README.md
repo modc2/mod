@@ -109,6 +109,66 @@ be able to re-judge every historic witness. The sub-seeds are domain-
 separated per composite name and slot, so a part key inside a hybrid is
 never the same key as a bare wallet under that part scheme.
 
+### Threshold: the dial between them
+
+`op=threshold k=2 parts=ML-DSA-44,SLH-DSA-SHAKE-128f,ed25519` is k-of-n: a
+signature is a one-byte bitmap naming exactly k parts plus their
+signatures. An attacker forges the k cheapest parts, so the card's
+classical cost is the k-th weakest part's, and it is quantum-safe only if
+fewer than k parts fall to Shor. k=1 is `any`, k=n is `all`; 2-of-3 across
+lattice + hash + curve survives any one family falling *and* any one key
+being lost. The battery adds `below_threshold_rejected` and `bitmap_bound`.
+
+## Prims and the key type market
+
+Everything that is not built from something else is a **prim** — the
+builtin ML-DSA/SLH-DSA sets, plugin schemes like ed25519, and anyone's wasm
+blob. `pq_prims` lists them with what they rest on, what breaking them
+costs, which key types use them and how many accounts sign with them;
+`pq_prim action=add wasm=<base64>` is the door for a new one (same
+admission as above: zero imports, proof battery, determinism double-run,
+complexity gate). Key types are built from prims with all / any / threshold.
+
+`pq_keymarket` is the shelf: every prim, composite and the private cloak,
+with author, accounts using it, key types forked from it, witness bytes and
+gas, classical/quantum attack cost and a rarity tier, sortable
+hot / new / safe / cheap / deep / used. Pass `author=<wallet> publish=true`
+when creating a key type or prim and the author's wallet writes
+`keytype/<name> = SHA3(spec)` on chain: **authorship is a key in the store**,
+so it is provable, and it rides the market that already exists — `pq_list`
+it, `pq_buy` it.
+
+## Private key types
+
+Every other account tells the world two things on its first spend: which
+algorithm it signs with and its public key — the hard problem to attack, and
+the input every attack (Shor, lattice reduction, forgery search) starts
+from. A **private** account shows neither. `pq_private action=create
+inner=<scheme>` makes one: its address commits to
+`SHA3(inner, salt, inner_pk)`, and every witness is a sealed envelope —
+ML-KEM-768 to the proposer's seal key, the inner scheme name, salt, public
+key and signature inside, padded to one fixed size (64 KiB,
+`POSTQUANT_SEAL_BYTES`) so ML-DSA, SLH-DSA, ed25519, wasm prims and
+composites are byte-for-byte indistinguishable. The **cloak set** (every
+accepted key type that fits) is the attacker's guessing space before they
+have seen a single public key. Private wallets work in every write tool.
+
+`pq_private action=prove wallet=… message=…` makes a standalone proof
+(bound to its own context, so it never doubles as a tx witness); `action=
+verify` answers valid / invalid with the proposer's signed attestation and
+never names the scheme; `action=open` is the owner's selective disclosure
+and `check_open` lets anyone recompute the commitment.
+
+Honestly: the proposer opens envelopes — it already orders and signs every
+block in this single-proposer chain, and it re-runs the gate and the inner
+scheme's own (wasm-enforced) verifier, so a replay audit re-judges private
+witnesses too. That makes this privacy from the world and from any future
+quantum computer replaying the public chain — not from the proposer. If the
+seal key (`~/.mod/postquant/seal.key`, never rotated) leaks, each account
+falls back to its hidden scheme's own card. A zero-knowledge proof would
+take the proposer out of the trust path; that is the upgrade, not a claim
+made here.
+
 ## Three prices, separate on purpose
 
 - **write gas** — one-time, per byte entering the state. A key byte costs 4x

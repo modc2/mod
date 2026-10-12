@@ -2,6 +2,14 @@
 
 Time as the unit of commitment. v0.1, September 2026.
 
+## In one minute
+
+- **What it is**: a staking contract where you lock tokens for a length of time you pick, and get a token called **BLOC** for doing it.
+- **How much BLOC**: dollars locked times seconds locked. $1 for one day is 86,400 BLOC. Bigger and longer locks earn more.
+- **What BLOC does**: it is your voting power, and it decides your share of a reward pot that pays out once a week, every Friday at 17:00 UTC.
+- **The catch**: locks are final until they expire. The official instance runs on a testnet, so the tokens have no real value yet.
+- **Who runs it**: anyone. The contracts, the API and the console are one open module you can deploy or fork on any EVM chain.
+
 ## Abstract
 
 BlocTime is a staking protocol that turns time into a token. You lock a native token for a length of wall-clock time you choose, and the contract mints **BLOC** in proportion to the dollars you locked multiplied by the seconds you committed: `BLOC = USD value x seconds locked`. BLOC is voting power and a claim on a weekly reward pot. Every piece of the system (contracts, API, console, registry) runs from one self-contained module that anyone can fork and redeploy on any EVM chain without asking permission.

@@ -301,6 +301,20 @@ GLOSSARY = {
         'exponent, which 256 bits absorbs. Classical key types can still '
         'register: the gate prices them by measured break cost instead of '
         'banning them (ask for "complexity" for how).'),
+    'private': (r'private key ?types?|cloak|hidden key ?type|anonymity set',
+        'A private key type hides which algorithm an account signs with: the '
+        'address commits to SHA3(key type, salt, public key) and every '
+        'witness is a fixed-size ML-KEM-768 envelope only the proposer can '
+        'open, so ML-DSA, SLH-DSA, ed25519, wasm prims and composites all '
+        'look identical on chain. An attacker has to guess the scheme out of '
+        'the whole cloak set and never sees a public key to attack.'),
+    'prims': (r'\bprims?\b|primitives?|key ?type market|marketplace',
+        'Prims are the atoms — builtin ML-DSA/SLH-DSA, plugin schemes and '
+        'anyone\'s importless wasm blob (pq_prim action=add). Key types are '
+        'built from them with all / any / threshold k-of-n, and the key type '
+        'market (pq_keymarket) shelves both with author, uses, forks and '
+        'break cost; publishing anchors keytype/<name> on chain so '
+        'authorship is a key you can sell.'),
     'complexity': (r'complexity|gate\b|2\^|min[_ ]?bits|entropy probe',
         'The complexity gate prices key types instead of banning them: any '
         'scheme witnesses if its best-known classical attack clears the '
@@ -395,6 +409,9 @@ RULES = [
     (r'^check\s+(\S+)\s*(?:=|against|matches|is)\s*(.+)$',
      lambda m, t: ('pq_check', {'key': _clean(m.group(1)), 'data': _clean(m.group(2))})),
     (r'^(?:market|listings|for sale|what(?:\'s| is) for sale)\b', lambda m, t: ('pq_market', {})),
+    (r'^(?:key ?type market|keymarket|marketplace)\b', lambda m, t: ('pq_keymarket', {})),
+    (r'^(?:prims|primitives)\b', lambda m, t: ('pq_prims', {})),
+    (r'^(?:private|cloak)(?: key ?types?)?\s*$', lambda m, t: ('pq_private', {})),
     (r'^(?:algos|algorithms|key ?types|schemes)\b', lambda m, t: ('pq_algos', {})),
     (r'^(?:mempool|pending)\b', lambda m, t: ('pq_mempool', {})),
     (r'^(?:mine|produce a block|make a block)\b',

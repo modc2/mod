@@ -236,6 +236,11 @@ pub fn compact_executor(e: &Value) -> Value {
         "down_mbps": round(f(e, "effective_download_speed_mbps"), 1),
         "location": if city.is_empty() { cc.to_string() } else { format!("{city}, {cc}") },
         "country": loc.get("country").cloned().unwrap_or(Value::Null),
+        "country_code": if cc.is_empty() { Value::Null } else { json!(cc) },
+        "city": if city.is_empty() { Value::Null } else { json!(city) },
+        // Geolocated from the node's IP upstream — what the console's map plots.
+        "lat": loc.get("lat").cloned().unwrap_or(Value::Null),
+        "lon": loc.get("lon").cloned().unwrap_or(Value::Null),
         // The Bittensor side of a node: which provider (miner) runs it and
         // which validator scored it.
         "miner_hotkey": e.get("miner_hotkey").cloned().unwrap_or(Value::Null),

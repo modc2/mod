@@ -346,3 +346,12 @@ try:
 except ImportError:                                              # run as a script
     import compose                                               # noqa: E402
 compose.load_store()
+
+# Private key types wrap any accepted scheme behind a commitment and a
+# sealed envelope (pq/private.py). Registered last: the cloak set is
+# whatever the registry holds by now, composites and wasm prims included.
+try:
+    from . import private                                        # noqa: E402
+except ImportError:                                              # run as a script
+    import private                                               # noqa: E402
+register(private.make_algo())

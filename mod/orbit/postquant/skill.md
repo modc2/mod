@@ -66,6 +66,15 @@ runs. `GET /agents` is the roster (the fleet agent contract).
    (`src/pq/wasm-src/examples/lamport.rs` is the worked example).
    `pq_keytype_test` runs the proof battery (roundtrip, tamper, ablation,
    entropy probe) on any key type.
+   `op=threshold k=…` is k-of-n. `pq_prims` lists the atoms (builtin /
+   plugin / wasm), `pq_prim action=add wasm=…` adds one, `pq_keymarket
+   sort=hot|new|safe|cheap|deep|used` is the marketplace shelf; pass
+   `author=<wallet> publish=true` to anchor `keytype/<name>` on chain
+   (authorship = a key, sellable via pq_list/pq_buy).
+   `pq_private action=create inner=<scheme>` makes an account whose key type
+   and public key never appear on chain (fixed-size ML-KEM envelopes the
+   proposer opens); `prove` / `verify` / `open` / `check_open` for
+   standalone proofs and disclosure; `info` lists the cloak set.
 2. `pq_wallet action=create scheme=…` then `pq_faucet` — writes need a funded
    wallet; scheme defaults to ML-DSA-44, `pq_algos` lists the choices.
    Amounts: a **string** ("25", "1.5") is PQ; a bare int is nq (1e-9).
@@ -103,5 +112,9 @@ runs. `GET /agents` is the roster (the fleet agent contract).
   dev-only opt-out. A new key type ships as a plugin .py (+ .wasm with its
   declared sha3) in `src/pq/algos.d/` or `~/.mod/postquant/algos/`; classical
   algorithms register but the mempool gate refuses their witnesses.
+- Private witnesses are 64 KiB each (fixed, by design — size must not leak
+  the scheme); a private wallet's `inner` is hidden from wallet list/show,
+  only `pq_private action=open` reveals it. Losing `seal.key` makes every
+  private witness unverifiable — never delete or rotate it.
 - REST mirrors the tools 1:1 (`/set` = `pq_set`, args identical; reads GET,
   writes POST). `server.secret` in the state dir gates the write routes.

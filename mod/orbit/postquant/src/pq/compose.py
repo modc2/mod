@@ -115,6 +115,11 @@ def _validate(name, op, parts, k=None):
     if missing:
         raise ComposeError(f"unknown part(s) {', '.join(missing)} — pq_algos "
                            "lists what this node knows")
+    hidden = [p for p in parts if getattr(algos.maybe(p), "private", False)]
+    if hidden:
+        raise ComposeError("a private key type cannot be a part — it hides "
+                           "its own scheme; build the composite, then hide "
+                           "it with pq_private")
 
 
 def _build(spec) -> algos.SigAlgo:
