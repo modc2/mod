@@ -26,6 +26,9 @@ const AGENTS_HTML: &str = include_str!("agents.html");
 const GAME_HTML: &str = include_str!("game.html");
 const AGENT_HTML: &str = include_str!("agent.html");
 const WHITEPAPER_HTML: &str = include_str!("whitepaper.html");
+/// The frontend a game gets when its author did not draw one: a page that
+/// reads the game's schema and its views and builds a board out of them.
+const INFERRED_FRONTEND_HTML: &str = include_str!("frontend.html");
 
 /// The execution layer, served to the browser from the same binary that
 /// stores the modules — so a tab needs nothing but this port. `pyhost.mjs` and
@@ -123,6 +126,47 @@ async fn agents_page() -> Html<&'static str> {
 /// path parameter is matched so the route exists, not so the server reads it.
 async fn game_page() -> Html<&'static str> {
     Html(GAME_HTML)
+}
+
+/// A game's own frontend — the page its author uploaded, or the inferred one.
+/// Either is somebody else's markup as far as this origin is concerned, so it
+/// is served under a CSP sandbox: an opaque origin with no cookies, no
+/// storage of ours and no network, even opened directly. It talks to the
+/// page that frames it by postMessage and nothing else.
+async fn game_frontend(Path(id): Path<String>) -> Response {
+    match arena::frontend_of(&id) {
+        Ok((m, html)) => {
+            let kind = if html.is_some() { "custom" } else { "inferred" };
+            let body = html.unwrap_or_else(|| INFERRED_FRONTEND_HTML.to_string());
+            (
+                [
+                    (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
+                    (
+                        header::CONTENT_SECURITY_POLICY,
+                        "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; \
+                         style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:"
+                            .to_string(),
+                    ),
+                    (header::HeaderName::from_static("x-arena-frontend"), kind.to_string()),
+                    (header::HeaderName::from_static("x-arena-game"), m.name.clone()),
+                    (header::CACHE_CONTROL, "no-cache".to_string()),
+                ],
+                body,
+            )
+                .into_response()
+        }
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn set_frontend(Path(id): Path<String>, Json(body): Json<Value>) -> Response {
+    let mut args = body;
+    args["module"] = json!(id);
+    via_tool("set_frontend", args).await
+}
+
+async fn clear_frontend(Path(id): Path<String>) -> Response {
+    via_tool("set_frontend", json!({ "module": id, "clear": true })).await
 }
 
 /// A GET on an MCP endpoint is somebody looking, not a client talking: say how
@@ -644,6 +688,7 @@ fn api_routes() -> Router {
         .route("/codegame", post(codegame))
         .route("/clone", post(clone_repo))
         .route("/modules/:id", get(get_module).delete(delete_module))
+        .route("/modules/:id/frontend", get(game_frontend).post(set_frontend).delete(clear_frontend))
         .route("/blob/:id", get(blob))
         .route("/wasm/:id", get(wasm))
         .route("/toolchain", get(toolchain))
@@ -728,6 +773,7 @@ pub async fn serve(port: u16) {
         // /m/<name>/mcp — one table store, so either door reaches the other's tables.
         .route("/arena/game/:id/mcp", post(module_mcp).get(game_mcp_get))
         .route("/arena/game/:id/tools", get(module_tools))
+        .route("/arena/game/:id/frontend", get(game_frontend))
         .route("/arena/agent/:id", get(agent_profile_page))
         .merge(api_routes())
         // The console lives at /arena in both worlds and always calls

@@ -403,6 +403,27 @@ leaderboard here is a claim with its working attached.
 
 ---
 
+## Every game has a frontend, and a creator
+
+A game card says who made it — `creator.name` is what the author signed as,
+`creator.address` the wallet that proved the upload (or the box's owner, for
+the example pack) — and the console, the lobby and the game page all show it.
+
+A game is played by people through its own frontend: one HTML file, at most
+256 KiB. Attach it with `frontend` on `put_class`/`put_module`, a `<name>.html`
+beside the file in the example pack, or `set_frontend` later (owner only;
+`clear=true` goes back). A game that brings none still has one — the arena
+infers it from the game's schema and the shape of its view: a grid of cells
+becomes a board, a `Legal moves:` line becomes buttons, JSON becomes a tree,
+`answer = 'code'` becomes an editor (`src/arena-rs/src/frontend.html`).
+
+Either way it is served at `/arena/game/<name>/frontend` under a CSP sandbox
+(opaque origin, no network, nothing of the arena's) and framed by the game's
+page, which holds the table on the game's MCP server and speaks
+**arena-frontend/1** to it by `postMessage`: the host sends `state`, the
+frontend sends `move`. The docs page *Writing a game* has the protocol and a
+ten-line example; ttt, connect4, rps and nim ship hand-drawn ones.
+
 ## The example pack
 
 Thirteen modules, planted on startup: eight compiled from one `.rs` file each

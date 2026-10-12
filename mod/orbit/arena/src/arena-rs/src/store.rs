@@ -87,6 +87,11 @@ pub struct WasmModule {
     /// resolvable by id (its matches point at it), hidden from the shelf.
     #[serde(default)]
     pub superseded: String,
+    /// Blob id of the game's own frontend — one HTML document played inside a
+    /// sandboxed frame. Empty = the arena infers one from the game's schema,
+    /// so every game has a face whether its author drew one or not.
+    #[serde(default)]
+    pub frontend: String,
 }
 
 impl WasmModule {
@@ -133,6 +138,42 @@ impl WasmModule {
             "made_with": self.made_with(),
             "parent": if self.parent.is_empty() { Value::Null } else { json!(self.parent) },
             "superseded": if self.superseded.is_empty() { Value::Null } else { json!(self.superseded) },
+            "creator": self.creator(),
+            "frontend": self.frontend_card(),
+        })
+    }
+
+    /// Who made it, as a card can say it: the name the author signed with
+    /// (a claim) beside the address that uploaded it (a proof).
+    pub fn creator(&self) -> Value {
+        let address = if self.owner.is_empty() { crate::ident::host() } else { self.owner.clone() };
+        let short = if address.len() > 12 {
+            format!("{}…{}", &address[..6], &address[address.len() - 4..])
+        } else {
+            address.clone()
+        };
+        let name = if !self.author.trim().is_empty() { self.author.trim().to_string() }
+            else if short.is_empty() { "this box".to_string() } else { short.clone() };
+        json!({
+            "name": name,
+            "address": address,
+            "short": short,
+            "is_host": self.owner.is_empty() || crate::ident::is_owner(&self.owner),
+            "made_with": self.made_with(),
+        })
+    }
+
+    /// A game always has a frontend: its own (`custom`), or one the arena
+    /// draws from its schema (`inferred`). Anything that is not a game has none.
+    pub fn frontend_card(&self) -> Value {
+        if self.role != "game" {
+            return Value::Null;
+        }
+        json!({
+            "kind": if self.frontend.is_empty() { "inferred" } else { "custom" },
+            "id": if self.frontend.is_empty() { Value::Null } else { json!(self.frontend) },
+            "url": format!("/arena/game/{}/frontend", self.name),
+            "protocol": "arena-frontend/1",
         })
     }
 

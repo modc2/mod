@@ -25,6 +25,14 @@ Two ways to combine, chosen because their security stories are opposite:
           parts are. Useful as an escape hatch (sign with whichever part
           still works / is cheapest) and honest about what that costs.
 
+    threshold  k-of-n — a signature is a one-byte bitmap naming exactly k
+          parts plus those parts' signatures, in order. An attacker must
+          forge k parts, so they pick the k cheapest: best classical attack
+          = the k-th weakest part, quantum-safe only if fewer than k parts
+          fall to Shor. k=1 is 'any', k=n is 'all'; everything between is
+          the dial (2-of-3 over lattice + hash + curve survives any one
+          family falling AND any one key being lost).
+
 Parts may themselves be composites, so the registry forms a DAG — acyclic
 by construction, because a part must already exist under a name that can
 never be rebound (names are hashed into addresses).
@@ -63,7 +71,7 @@ DATA_DIR = os.path.expanduser(
     os.environ.get("POSTQUANT_DATA_DIR", "~/.mod/postquant"))
 STORE_FILE = os.path.join(DATA_DIR, "keytypes.json")
 
-OPS = ("all", "any")
+OPS = ("all", "any", "threshold")
 MAX_PARTS = 6
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{2,47}$")
 
@@ -83,16 +91,20 @@ def _subseed(name: str, index: int, part_name: str, seed: bytes) -> bytes:
         + part_name.encode() + b"\x00" + seed).digest(32)
 
 
-def _validate(name, op, parts):
+def _validate(name, op, parts, k=None):
     if not isinstance(name, str) or not NAME_RE.match(name):
         raise ComposeError("a key type name is 3-48 chars of letters, digits "
                            "and _.+- (it is hashed into every address)")
     if op not in OPS:
         raise ComposeError(f"op must be one of {', '.join(OPS)} — 'all' is "
                            "the hybrid AND (break every part), 'any' the "
-                           "1-of-n OR (break the weakest)")
+                           "1-of-n OR (break the weakest), 'threshold' k-of-n "
+                           "(break the k weakest)")
     if not isinstance(parts, (list, tuple)) or not (2 <= len(parts) <= MAX_PARTS):
         raise ComposeError(f"a composite takes 2-{MAX_PARTS} parts")
+    if op == "threshold" and not (isinstance(k, int) and 1 <= k <= len(parts)):
+        raise ComposeError(f"threshold needs k between 1 and {len(parts)} — "
+                           "how many parts must sign")
     if len(set(parts)) != len(parts):
         raise ComposeError("parts must be distinct — the same scheme twice "
                            "adds bytes, not security")
@@ -143,7 +155,7 @@ def _build(spec) -> algos.SigAlgo:
                 off += s
             return True
         sig_size = sum(sig_sizes)
-    else:                                                        # any
+    elif op == "any":
         def sign(sk, msg, ctx=b""):
             # The SigAlgo interface has no sign-time choice, so this node
             # always signs with part 0; verify accepts any valid index, so
@@ -158,6 +170,34 @@ def _build(spec) -> algos.SigAlgo:
                 return False
             return parts[i].verify(_split_pk(pk)[i], msg, sig[1:], ctx)
         sig_size = 1 + sig_sizes[0]
+    else:                                                        # threshold
+        k = int(spec["k"])
+
+        def sign(sk, msg, ctx=b""):
+            # Same no-choice interface as 'any': this node signs with the
+            # first k parts; verify takes any k.
+            return bytes([(1 << k) - 1]) + b"".join(
+                parts[i].sign(sk[i], msg, ctx) for i in range(k))
+
+        def verify(pk, msg, sig, ctx=b""):
+            if len(pk) != sum(pk_sizes) or not sig:
+                return False
+            mask = sig[0]
+            chosen = [i for i in range(len(parts)) if mask >> i & 1]
+            # Exactly k, no stray bits: one message, one valid bitmap per
+            # signer set — a looser rule is a malleability bug.
+            if len(chosen) != k or mask >> len(parts):
+                return False
+            if len(sig) - 1 != sum(sig_sizes[i] for i in chosen):
+                return False
+            pks, off = _split_pk(pk), 1
+            for i in chosen:
+                s = sig_sizes[i]
+                if not parts[i].verify(pks[i], msg, sig[off:off + s], ctx):
+                    return False
+                off += s
+            return True
+        sig_size = 1 + sum(sig_sizes[:k])
 
     # The security card is arithmetic over the parts' own analytic cards:
     # 'all' must be broken everywhere (max classical, quantum-safe if any
@@ -169,15 +209,27 @@ def _build(spec) -> algos.SigAlgo:
         classical = max(part_c)
         qsafe = any(p.quantum_safe for p in parts)
         qbits = max(part_q)
-    else:
+    elif op == "any":
         classical = min(part_c)
         qsafe = all(p.quantum_safe for p in parts)
         qbits = min(part_q)
+    else:
+        # The attacker forges the k cheapest parts; their cost is the
+        # k-th weakest. Shor zeroes every non-quantum-safe part.
+        k = int(spec["k"])
+        classical = sorted(part_c)[k - 1]
+        broken = sum(1 for p in parts if not p.quantum_safe)
+        qsafe = broken < k
+        qbits = sorted(0 if not p.quantum_safe else q
+                       for p, q in zip(parts, part_q))[k - 1]
     seed_bits = 32 * 8
     story = {"all": "hybrid AND over %s — every part signs and must verify; "
                     "falls only if every part falls",
              "any": "1-of-n OR over %s — one part's signature suffices; "
-                    "falls when the weakest part falls"}[op] \
+                    "falls when the weakest part falls",
+             "threshold": f"{spec.get('k')}-of-{len(parts)} over %s — any "
+                          f"{spec.get('k')} parts sign; falls when the "
+                          f"{spec.get('k')} weakest fall"}[op] \
         % " + ".join(p.name for p in parts)
 
     algo = algos.SigAlgo(
@@ -188,7 +240,10 @@ def _build(spec) -> algos.SigAlgo:
         classical_bits=classical if classical < seed_bits else None,
         quantum_bits=qbits if qsafe else None,
         note=spec.get("note", ""))
-    algo.composite = {"op": op, "parts": list(spec["parts"])}
+    algo.composite = {"op": op, "parts": list(spec["parts"]),
+                      **({"k": int(spec["k"])} if op == "threshold" else {})}
+    algo.author = spec.get("author")
+    algo.created = spec.get("created")
     return algo
 
 
@@ -227,7 +282,7 @@ def load_store():
         if algos.maybe(spec.get("name", "")) is not None:
             continue                       # already live (a re-load)
         try:
-            _validate(spec["name"], spec["op"], spec["parts"])
+            _validate(spec["name"], spec["op"], spec["parts"], spec.get("k"))
             a = algos.register(_build(spec))
             a.origin = "composite"
         except Exception as e:                              # noqa: BLE001
@@ -235,14 +290,23 @@ def load_store():
                                  "error": f"{type(e).__name__}: {e}"})
 
 
-def create(name, op, parts, note=""):
+def create(name, op, parts, note="", k=None, author=None):
     """Build, register and persist a new composite key type. The gate still
     decides acceptance separately — origin 'composite' means the entropy
     probe runs against the composed keygen before it may witness."""
     parts = list(parts)
-    _validate(name, op, parts)
+    if k is not None:
+        try:
+            k = int(k)
+        except (TypeError, ValueError):
+            raise ComposeError("k must be an integer")
+    _validate(name, op, parts, k)
     spec = {"name": name, "op": op, "parts": parts,
             "note": str(note or ""), "created": int(time.time())}
+    if op == "threshold":
+        spec["k"] = k
+    if author:
+        spec["author"] = str(author)
     algo = algos.register(_build(spec))
     algo.origin = "composite"
     _write_store(_read_store() + [spec])
@@ -381,6 +445,29 @@ def proofs(algo):
                   "corrupting only this part's signature bytes must fail "
                   "the composite — an 'all' that ignores a part is an 'any'")
             off += s
+    if comp and comp["op"] == "threshold":
+        k, n_parts, off = comp["k"], len(comp["parts"]), 1
+        for i in range(k):
+            pname = comp["parts"][i]
+            s = algos.get(pname).sizes["sig"]
+            cut = bytearray(sig)
+            cut[off + s // 2] ^= 0x01
+            proof(f"part_load_bearing:{pname}",
+                  not _safe_verify(algo, pk, msg, bytes(cut), ctx),
+                  "every signer in the bitmap must verify — a threshold "
+                  "that skips one is a smaller threshold")
+            off += s
+        if k > 1:
+            short = bytes([(1 << (k - 1)) - 1]) + sig[1:1 + sum(
+                algos.get(p).sizes["sig"] for p in comp["parts"][:k - 1])]
+            proof("below_threshold_rejected",
+                  not _safe_verify(algo, pk, msg, short, ctx),
+                  f"{k - 1} signatures where {k} are required must fail")
+        if k < n_parts:
+            proof("bitmap_bound",
+                  not _safe_verify(algo, pk, msg,
+                                   bytes([sig[0] | (1 << k)]) + sig[1:], ctx),
+                  "claiming a signer that did not sign must fail")
     if comp and comp["op"] == "any":
         relabel = bytes([1 % len(comp["parts"])]) + sig[1:]
         proof("foreign_index_rejected",

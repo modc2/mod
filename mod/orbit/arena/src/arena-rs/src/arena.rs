@@ -235,6 +235,18 @@ pub fn put_module(args: &Value) -> Result<Value, String> {
         None => None,
     };
     let asked = parent.as_ref().map(|p| p.name.clone()).unwrap_or(asked);
+    // The game's own frontend, when it brought one. Read before anything is
+    // stored, so a page that is not a page refuses the upload with it.
+    let frontend = match args.get("frontend").and_then(|v| v.as_str()).map(str::trim).filter(|t| !t.is_empty()) {
+        Some(html) => {
+            if described["role"].as_str() != Some("game") {
+                return Err("a frontend is a game's face — this does not read as a game".into());
+            }
+            frontend_check(html)?;
+            blobs::put(html.as_bytes())?
+        }
+        None => String::new(),
+    };
     blobs::put(&raw)?;
 
     let module = store::write(|s| {
@@ -285,6 +297,13 @@ pub fn put_module(args: &Value) -> Result<Value, String> {
                 .unwrap_or_default(),
             superseded: if parent.is_some() { String::new() }
                 else { existing.as_ref().map(|e| e.superseded.clone()).unwrap_or_default() },
+            // A new face if one came and the uploader may give it one; else
+            // the one it had; else, for an edit, the face of the version it
+            // replaces — changing the rules should not wipe the board's look.
+            frontend: Some(frontend.clone()).filter(|f| !f.is_empty() && may_touch)
+                .or_else(|| existing.as_ref().map(|e| e.frontend.clone()).filter(|f| !f.is_empty()))
+                .or_else(|| parent.as_ref().map(|p| p.frontend.clone()))
+                .unwrap_or_default(),
         };
         // An edit lands under the old version's name, so the old version
         // takes its own description with it and steps off the shelf.
@@ -547,9 +566,90 @@ fn remove_one(key: &str) -> Result<Value, String> {
     if !m.src.is_empty() && !store::read(|s| s.modules.values().any(|o| o.src == m.src)) {
         blobs::remove(&m.src);
     }
+    if !m.frontend.is_empty() && !store::read(|s| s.modules.values().any(|o| o.frontend == m.frontend)) {
+        blobs::remove(&m.frontend);
+    }
     storelink::forget_later(m.cid.clone());
     storelink::forget_later(m.src_cid.clone());
     Ok(json!({ "removed": m.id, "name": m.name, "cid": m.cid }))
+}
+
+// ── frontends ───────────────────────────────────────────────────────────
+
+/// The biggest page a game may bring. A board, its art and its script fit
+/// comfortably; a bundled framework does not, and does not need to.
+pub const FRONTEND_MAX: usize = 256 * 1024;
+
+/// What a frontend has to be to be stored: an HTML document, of a size a
+/// sandboxed frame should be loading.
+fn frontend_check(html: &str) -> Result<(), String> {
+    if html.len() > FRONTEND_MAX {
+        return Err(format!("a frontend is one HTML page of at most {} KiB — this is {} KiB",
+            FRONTEND_MAX / 1024, html.len() / 1024));
+    }
+    let lower = html.trim_start().to_ascii_lowercase();
+    let page = lower.starts_with('<')
+        && ["<!doctype", "<html", "<body", "<script"].iter().any(|t| lower.contains(t));
+    if !page {
+        return Err("a frontend is an HTML document — it should start with <!doctype html> or <html>".into());
+    }
+    Ok(())
+}
+
+/// Give a game its own frontend, replace it, or (`clear`) hand it back to the
+/// inferred one. Its owner's call, like every other word on a module — and
+/// not a new version: the face is not the rules, so the id does not move.
+pub fn set_frontend(args: &Value) -> Result<Value, String> {
+    let key = args.get("module").or_else(|| args.get("game")).and_then(|v| v.as_str()).unwrap_or("").trim();
+    if key.is_empty() {
+        return Err("set_frontend needs `module` — the game whose face this is".into());
+    }
+    let m = store::read(|s| s.module(key).cloned()).ok_or_else(|| format!("no module `{key}`"))?;
+    if m.role != "game" {
+        return Err(format!("{} is a {} — only a game has a frontend", m.name, m.role));
+    }
+    let who = crate::ident::caller();
+    if !crate::ident::can_edit(&m.owner, who.as_deref()) {
+        return Err(match who {
+            None => format!("sign in to change {}'s frontend — only its owner can", m.name),
+            Some(_) => format!("{} is not yours to restyle — fork it instead", m.name),
+        });
+    }
+    let clear = args.get("clear").and_then(|v| v.as_bool()).unwrap_or(false);
+    let html = args.get("html").or_else(|| args.get("frontend")).and_then(|v| v.as_str()).unwrap_or("").trim();
+    let new_id = if clear {
+        String::new()
+    } else {
+        if html.is_empty() {
+            return Err("set_frontend needs `html` — the page — or clear=true to go back to the inferred one".into());
+        }
+        frontend_check(html)?;
+        blobs::put(html.as_bytes())?
+    };
+    let old = m.frontend.clone();
+    let card = store::write(|s| {
+        let e = s.modules.get_mut(&m.id)?;
+        e.frontend = new_id.clone();
+        Some(e.card())
+    }).ok_or_else(|| format!("no module `{key}`"))?;
+    if !old.is_empty() && old != new_id && !store::read(|s| s.modules.values().any(|o| o.frontend == old)) {
+        blobs::remove(&old);
+    }
+    Ok(json!({ "module": m.id, "name": m.name, "frontend": card["frontend"], "creator": card["creator"] }))
+}
+
+/// The page a game is played through: its own, or None when it has none and
+/// the inferred one stands in. Errors only when there is no such game.
+pub fn frontend_of(key: &str) -> Result<(WasmModule, Option<String>), String> {
+    let m = store::read(|s| s.module(key).cloned()).ok_or_else(|| format!("no module `{key}`"))?;
+    if m.role != "game" {
+        return Err(format!("no game `{key}` — {} is a {}", m.name, m.role));
+    }
+    if m.frontend.is_empty() {
+        return Ok((m, None));
+    }
+    let html = blobs::get(&m.frontend).ok().and_then(|raw| String::from_utf8(raw).ok());
+    Ok((m, html))
 }
 
 /// Describe bytes without storing them — how the console previews a file the
@@ -617,9 +717,12 @@ pub fn plant_examples() -> Value {
         } else {
             String::new()
         };
+        // And an optional <stem>.html: the game's own frontend.
+        let frontend = std::fs::read_to_string(path.with_extension("html")).unwrap_or_default();
         let args = json!({
             "bytes": blobs::to_base64(&raw),
             "source_text": source_text,
+            "frontend": frontend,
             "name": meta.get("name").and_then(|v| v.as_str()).unwrap_or(&stem),
             "description": meta.get("description").and_then(|v| v.as_str()).unwrap_or(""),
             "author": meta.get("author").and_then(|v| v.as_str()).unwrap_or("arena"),

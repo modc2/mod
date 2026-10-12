@@ -148,7 +148,8 @@
         "vibe": "GET /vibe (every session + whether the build agent is reachable) | POST /vibe {prompt?, session?, role?, lang?, from?, source?, name?, model?} | GET /vibe/:id | POST /vibe/:id/store {name?, description?, enter?} | POST /vibe/:id/cancel | DELETE /vibe/:id",
         "ab": "POST /ab {a, b, games?, count?, seed?, timeout_ms?} \u2014 A/B test two agents head to head, seats swapped, through the rated match loop | GET /ab | GET /ab/:id | DELETE /ab/:id",
         "whoami": "GET /whoami \u2014 the address a request's `token` header proves, and whether it runs this box",
-        "game_page": "GET /arena/game/:name (its own page: play it, its MCP server, board, matches) | POST /arena/game/:name/mcp (its own MCP server \u2014 the same one as /m/:name/mcp) | GET /arena/game/:name/tools"
+        "game_page": "GET /arena/game/:name (its own page: play it, its MCP server, board, matches) | POST /arena/game/:name/mcp (its own MCP server \u2014 the same one as /m/:name/mcp) | GET /arena/game/:name/tools",
+        "frontend": "GET /arena/game/:name/frontend (the game's own page, or the one inferred from its schema; CSP-sandboxed) | POST /modules/:id/frontend {html} (owner) | DELETE /modules/:id/frontend (back to inferred)"
     },
     "tools": [
         "arena_info",
@@ -160,6 +161,7 @@
         "get_module",
         "put_module",
         "put_class",
+        "set_frontend",
         "inspect_module",
         "harvest_repo",
         "delete_module",
@@ -279,5 +281,13 @@
         "edit": "only the owner or the box's owners (build's owner, the box key, ARENA_OWNERS) edit or delete. An edit (vibe edit=<module>, or put_module parent=) is the next version: same name and owner, parent link, old version hidden but kept. DELETE on the head restores the previous version; ?all=1 removes every version.",
         "vibe": "a vibe round needs a signed-in caller; the session is bound to them",
         "console": "sign in (wallet or pasted token) in the header; games shelf shows owner + made-with chips, all|mine; edit opens the studio, others get fork"
-    }
+    },
+    "frontend": {
+        "what": "every game has a frontend: its own (one HTML page, <=256 KiB) or one the arena infers from the game's schema and view shape (grid -> clickable board, `Legal moves:` -> buttons, JSON -> tree, answer=code -> editor)",
+        "protocol": "arena-frontend/1 over postMessage: frontend posts {arena:'ready'|'move'|'new'|'height'}, host posts {arena:'state', game, schema, seat, you, view, views, legal, active, your_turn, done, result, status, log}",
+        "attach": "`frontend` on put_class/put_module, a <name>.html sidecar beside an example, or set_frontend (owner only; clear=true -> inferred). Not a new version; an edit inherits it.",
+        "sandbox": "served with CSP `sandbox allow-scripts; default-src 'none'` and framed sandbox=allow-scripts: opaque origin, no network, no arena token",
+        "inferred": "src/arena-rs/src/frontend.html"
+    },
+    "creator": "every module card carries creator {name (author claim, else short address), address (verified owner, else the box), is_host, made_with}"
 }

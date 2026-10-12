@@ -1493,3 +1493,62 @@ def test_a_clone_that_holds_no_such_role_says_what_it_did_find(arena, tmp_path):
     empty = _repo(tmp_path / 'e', {'README.md': 'words\n'})
     code, out = post(arena, '/clone', {'url': str(empty)}, timeout=300)
     assert code == 400 and 'none defines' in out['error']
+
+
+def test_every_game_has_a_frontend_its_own_or_one_inferred_from_its_schema(arena):
+    # Who made it is on the card: the name it was signed with and the address
+    # that proved it. And every game has a face — none drawn means inferred.
+    alice, mallory = Account.create(), Account.create()
+    source = A_GAME + '\n# a face of its own\n'
+    r = requests.post(f'{arena}/classes', json={'source': source, 'name': 'facegame', 'author': 'alice'},
+                      headers=as_(alice), timeout=30)
+    assert r.status_code == 200, r.text
+    card = r.json()
+    assert card['creator']['name'] == 'alice'
+    assert card['creator']['address'].lower() == alice.address.lower()
+    assert card['frontend']['kind'] == 'inferred'
+    assert card['frontend']['url'] == '/arena/game/facegame/frontend'
+
+    page = requests.get(f'{arena}/arena/game/facegame/frontend', timeout=30)
+    assert page.status_code == 200 and page.headers['x-arena-frontend'] == 'inferred'
+    assert 'sandbox allow-scripts' in page.headers['content-security-policy']
+    assert 'arena-frontend/1' in page.text
+
+    html = '<!doctype html><html><body><b id=mine>alice drew this</b></body></html>'
+    anon = requests.post(f'{arena}/modules/facegame/frontend', json={'html': html}, timeout=30)
+    assert anon.status_code == 401
+    code, _ = post_as(arena, '/modules/facegame/frontend', {'html': html}, mallory)
+    assert code == 403
+    code, out = post_as(arena, '/modules/facegame/frontend', {'html': 'not a page'}, alice)
+    assert code == 400 and 'HTML' in out['error']
+    code, out = post_as(arena, '/modules/facegame/frontend', {'html': html}, alice)
+    assert code == 200 and out['frontend']['kind'] == 'custom'
+    page = requests.get(f'{arena}/arena/game/facegame/frontend', timeout=30)
+    assert page.headers['x-arena-frontend'] == 'custom' and 'alice drew this' in page.text
+
+    # An edit is new rules, not a new face: the next version keeps it.
+    edit = requests.post(f'{arena}/classes', json={'source': source + '# v2\n', 'parent': 'facegame'},
+                         headers=as_(alice), timeout=30)
+    assert edit.status_code == 200, edit.text
+    assert edit.json()['frontend']['kind'] == 'custom'
+    assert 'alice drew this' in requests.get(f'{arena}/arena/game/facegame/frontend', timeout=30).text
+
+    # Clearing it hands the game back to the inferred one.
+    r = requests.delete(f'{arena}/modules/facegame/frontend', headers=as_(alice), timeout=30)
+    assert r.status_code == 200 and r.json()['frontend']['kind'] == 'inferred'
+
+    # A page may also arrive with the upload; a player has no face at all.
+    made = mcp(arena, 'put_class', {'source': A_GAME + '\n# born with a face\n', 'name': 'faceborn',
+                                    'frontend': html})
+    assert made['frontend']['kind'] == 'custom'
+    player = mcp(arena, 'put_class', {'source': A_PLAYER + '\n# faceless\n', 'name': 'faceless'})
+    assert player['frontend'] is None
+    assert requests.get(f'{arena}/arena/game/faceless/frontend', timeout=30).status_code == 404
+
+
+def test_the_example_pack_brings_its_own_frontends(arena):
+    # <name>.html beside an example is its frontend; ttt ships one.
+    _, ttt = get(arena, '/modules/ttt')
+    assert ttt['frontend']['kind'] == 'custom'
+    page = requests.get(f'{arena}/arena/game/ttt/frontend', timeout=30)
+    assert page.headers['x-arena-frontend'] == 'custom' and 'arena-frontend/1' in page.text

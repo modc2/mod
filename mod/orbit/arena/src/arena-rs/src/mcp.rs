@@ -144,7 +144,8 @@ pub fn tool_list() -> Value {
                     "author": { "type": "string" },
                     "tags": { "type": "array", "items": { "type": "string" } },
                     "parent": { "type": "string", "description": "Edit: the module these bytes replace. Owner only — the new version keeps its name and owner, the old one leaves the shelf" },
-                    "agent": { "type": "string", "description": "What wrote it — a model, `hand`, …" }
+                    "agent": { "type": "string", "description": "What wrote it — a model, `hand`, …" },
+                    "frontend": { "type": "string", "description": "A game's own frontend, one HTML page (arena-frontend/1). Without one the arena infers a frontend from the game's schema." }
                 },
                 "required": ["bytes"]
             }
@@ -173,9 +174,23 @@ pub fn tool_list() -> Value {
                     "author": { "type": "string" },
                     "tags": { "type": "array", "items": { "type": "string" } },
                     "parent": { "type": "string", "description": "Edit: the module these bytes replace. Owner only — the new version keeps its name and owner, the old one leaves the shelf" },
-                    "agent": { "type": "string", "description": "What wrote it — a model, `hand`, …" }
+                    "agent": { "type": "string", "description": "What wrote it — a model, `hand`, …" },
+                    "frontend": { "type": "string", "description": "A game's own frontend: one HTML page, played in a sandboxed frame over postMessage (protocol arena-frontend/1 — see the `game` docs page). Leave it out and the arena infers one from the game's schema." }
                 },
                 "required": ["source"]
+            }
+        },
+        {
+            "name": "set_frontend",
+            "description": "Give a game its own frontend — one HTML page, at most 256 KiB, that the game's page plays it through. It runs in a sandboxed frame with no network and no access to the arena; it is sent each state as a postMessage and posts a move back (protocol arena-frontend/1, on the `game` docs page). Owner only. clear=true goes back to the frontend the arena infers from the game's schema. The face is not the rules: the game keeps its id, its board and its matches.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": { "type": "string", "description": "The game — id, prefix or name" },
+                    "html": { "type": "string", "description": "The page, as HTML text" },
+                    "clear": { "type": "boolean", "default": false, "description": "drop the custom frontend and use the inferred one" }
+                },
+                "required": ["module"]
             }
         },
         {
@@ -1027,6 +1042,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
         }
         "put_module" => arena::put_module(args),
         "put_class" => arena::put_class(args),
+        "set_frontend" => arena::set_frontend(args),
         "inspect_module" => arena::inspect(args),
         "delete_module" => {
             let key = s(args, "module");

@@ -245,6 +245,8 @@ def _build(spec) -> algos.SigAlgo:
     algo.wasm_enforced = True       # verify already IS the wasm dispatch
     algo.wasmtype = {"sha3_256": spec["sha3_256"], "sizes": dict(sizes),
                      "bytes": spec.get("bytes")}
+    algo.author = spec.get("author")
+    algo.created = spec.get("created")
     return algo
 
 
@@ -351,7 +353,7 @@ def load_store():
 
 
 def create(name, blob, *, sizes, family="", basis="", quantum_safe=False,
-           classical_bits=None, quantum_bits=None, note=""):
+           classical_bits=None, quantum_bits=None, note="", author=None):
     """Admit one wasm key type, or refuse it with the measurement attached.
 
     Order matters: the binary is judged before it runs, the battery runs
@@ -379,6 +381,8 @@ def create(name, blob, *, sizes, family="", basis="", quantum_safe=False,
             "basis": str(basis or ""), "quantum_safe": bool(quantum_safe),
             "classical_bits": classical_bits, "quantum_bits": quantum_bits,
             "note": str(note or ""), "created": int(time.time())}
+    if author:
+        spec["author"] = str(author)
     blob_existed = os.path.exists(_blob_path(sha3))
     _write_blob(blob, sha3)
     algo = algos.register(_build(spec))

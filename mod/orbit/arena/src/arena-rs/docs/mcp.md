@@ -7,7 +7,7 @@ no SSE stream and nothing to keep open: a client that can send one HTTP request
 can drive all of it.
 
 The server is `arena`, protocol `2025-06-18`. It offers **tools** (the
-forty-three below), **resources** (these pages) and no prompts of its own —
+forty-four below), **resources** (these pages) and no prompts of its own —
 the per-module servers have those. The full tool reference at the foot of this
 page is generated from the server's own tool table every time the page is
 read, so it cannot fall behind the code.
@@ -70,7 +70,7 @@ function; the console's upload box and `put_class` are one function.
 |---|---|
 | the arena | `arena_info`, `game_abi`, `rust_toolchain` |
 | the docs | `docs_pages`, `docs_page`, `docs_search` |
-| modules | `list_modules`, `get_module`, `inspect_module`, `put_module`, `put_class`, `delete_module` |
+| modules | `list_modules`, `get_module`, `inspect_module`, `put_module`, `put_class`, `set_frontend`, `delete_module` |
 | a repo as a game | `harvest_repo` |
 | a repo as a module | `clone_repo` |
 | players | `list_players`, `get_player`, `enter_player`, `remove_player` |

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0b0f14; --card:#121820; --line:#1f2a36; --fg:#d7e2ec; --dim:#7d8fa1; --a:#55e0c8; --b:#ffb454; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace,Menlo,Consolas,monospace; text-align:center; }
+  #st { margin:6px 0 14px; color:var(--dim); min-height:21px; } #st.turn { color:var(--a); font-weight:700; } #st.over { color:var(--fg); font-weight:700; }
+  button { font:inherit; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 14px; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--a); color:var(--a); } button:disabled { opacity:.35; cursor:default; }
+  button.go { background:var(--a); color:var(--bg); border-color:var(--a); font-weight:700; }
+  .t { letter-spacing:3px; font-size:12px; color:var(--dim); }
+</style>
+<title>NIM</title><style>
+#pile { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; max-width:420px; margin:0 auto 16px; }
+.s { width:26px; height:26px; border-radius:50%; background:radial-gradient(circle at 35% 35%, #9ff3e4, var(--a)); }
+.s.take { background:#3a2430; outline:2px solid #ff7a86; }
+#left { font-size:30px; font-weight:800; } #take { display:flex; gap:10px; justify-content:center; } #take button { width:90px; }</style></head><body>
+<div class=t>NIM</div><div id=st>waiting for the table…</div>
+<div id=left>21</div><div class=t>stones left</div><p></p><div id=pile></div><div id=take></div>
+<p><button id=again class=go onclick="send({arena:'new'})">start a game</button></p>
+<script>
+const $ = (id) => document.getElementById(id);
+const send = (m) => parent.postMessage({ protocol: "arena-frontend/1", ...m }, "*");
+const move = (mv) => send({ arena: "move", move: String(mv) });
+let S = {};
+function head(msg) {
+  $("st").textContent = msg.status || "";
+  $("st").className = msg.done ? "over" : msg.your_turn ? "turn" : "";
+  $("again").hidden = msg.started && !msg.done;
+  $("again").textContent = msg.started ? "play again" : "start a game";
+}
+addEventListener("message", (e) => { if (e.source === parent && e.data?.arena === "state") { S = e.data; head(S); draw(S); } });
+new ResizeObserver(() => send({ arena: "height", px: document.documentElement.scrollHeight })).observe(document.body);
+send({ arena: "ready" });
+
+let hover = 0;
+function draw(m) {
+  const n = +((/(\d+)\s+stones? left/i.exec(m.view || "") || [, 0])[1]);
+  $("left").textContent = n;
+  const pile = () => $("pile").replaceChildren(...Array.from({ length: n }, (_, i) => {
+    const d = document.createElement("div"); d.className = `s${i >= n - hover ? " take" : ""}`; return d; }));
+  pile();
+  $("take").replaceChildren(...(m.your_turn ? m.legal || [] : []).map((k) => {
+    const b = document.createElement("button"); b.textContent = `take ${k}`;
+    b.onmouseenter = () => { hover = +k; pile(); }; b.onmouseleave = () => { hover = 0; pile(); };
+    b.onclick = () => { hover = 0; move(k); }; return b;
+  }));
+}
+</script></body></html>

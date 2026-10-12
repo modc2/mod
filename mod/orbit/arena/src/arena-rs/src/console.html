@@ -805,6 +805,7 @@
       <span class="grow"></span>
       <button class="act sm" id="g-edit" hidden title="change the rules with the agent — saving makes the next version">edit with agent</button>
       <button class="ghost sm" id="g-fork" title="copy its source into the studio under a new name — yours">fork</button>
+      <button class="ghost sm" id="g-frontend" hidden title="give this game its own frontend — one HTML file">+ frontend</button>
       <button class="link" id="g-delete" hidden>delete</button>
     </div>
     <p class="dim small" id="g-desc" style="margin-top:-6px"></p>
@@ -1382,8 +1383,8 @@ function addrDot(a) {
 /** The owner of a module as a chip: you, the box, or an address. */
 function ownerChip(m) {
   const mine = isMine(m);
-  const who = mine ? "you" : m.owner_is_host ? "box owner" : shortAddr(m.owner);
-  return el("span", { className: `chip${mine ? " mine" : ""}`, title: `owner ${m.owner || "this box"}` },
+  const who = mine ? "you" : m.creator?.name || (m.owner_is_host ? "box owner" : shortAddr(m.owner));
+  return el("span", { className: `chip${mine ? " mine" : ""}`, title: `created by ${m.creator?.name || "?"} · owner ${m.owner || "this box"}` },
     [addrDot(m.owner), "by ", el("b", { textContent: who })]);
 }
 
@@ -1394,6 +1395,17 @@ function agentChip(m) {
   const wrote = !["uploaded", "example pack", "hand", "harvested from a repo"].includes(by);
   return el("span", { className: `chip${wrote ? " agent" : ""}`, title: wrote ? `written by the agent running ${by}` : by },
     [icon(AGENT_ICON), wrote ? "made with " : "", el("b", { textContent: by })]);
+}
+
+/** A game's face: the page its author drew, or the one inferred from its schema. */
+function frontendChip(m) {
+  if (!m.frontend) return null;
+  const custom = m.frontend.kind === "custom";
+  return el("a", { className: `chip${custom ? " agent" : ""}`, style: "text-decoration:none",
+    href: `/arena/game/${encodeURIComponent(m.name)}`, title: custom
+      ? "this game ships its own frontend — play it on its page"
+      : "no frontend of its own yet — its page infers one from the game's schema" },
+    [custom ? "own " : "inferred ", el("b", { textContent: "frontend" })]);
 }
 
 async function loadMe() {
@@ -1820,7 +1832,7 @@ function renderGames() {
         ]),
       ]),
       el("p", { className: "desc", textContent: g.description || "no description" }),
-      el("div", { className: "chips" }, [ownerChip(g), agentChip(g)]),
+      el("div", { className: "chips" }, [ownerChip(g), agentChip(g), frontendChip(g)]),
     ]);
     if (board.length) {
       board.slice(0, 3).forEach((p, i) => card.append(el("div", { className: "lead" }, [
@@ -1961,7 +1973,7 @@ function gameActions(g) {
   $("g-by").replaceChildren(...[
     el("a", { className: "chip", style: "text-decoration:none", textContent: "page ↗",
       href: `/arena/game/${encodeURIComponent(g.id)}`, title: "this game's own page" }),
-    ownerChip(g), agentChip(g),
+    ownerChip(g), agentChip(g), frontendChip(g),
     champ ? el("span", { className: "chip", title: "the agent on top of this board" },
       [rankEl(0), el("b", { textContent: champ.name }), ` ${champ.elo}`]) : null,
     history.length > 1 ? el("span", { className: "chip", title: history.map((h, i) =>
@@ -1974,7 +1986,40 @@ function gameActions(g) {
   $("g-edit").hidden = !mayEdit || g.lang === "wasm";
   $("g-fork").hidden = g.lang === "wasm";          // a fork starts from source
   $("g-delete").hidden = !mayEdit;
+  $("g-frontend").hidden = !mayEdit;
+  $("g-frontend").textContent = g.frontend?.kind === "custom" ? "frontend" : "+ frontend";
 }
+
+// The owner gives a game its own frontend: one HTML file, played in a
+// sandboxed frame on the game's page. Not a new version — the rules stay put.
+$("g-frontend").onclick = async () => {
+  const g = openGame;
+  if (!g) return;
+  const custom = g.frontend?.kind === "custom";
+  const pick = await ask({
+    title: `${g.name}'s frontend`,
+    body: (custom ? "It has its own. Replace it with another .html, or go back to the one inferred from its schema."
+      : "It is played through a frontend inferred from its schema. Upload one HTML file to give it its own.")
+      + " The page runs sandboxed and speaks arena-frontend/1 by postMessage — see docs › writing a game.",
+    choices: custom ? [["file", "replace with a file"], ["clear", "use the inferred one", true]] : [["file", "choose an .html file"]],
+  });
+  if (!pick) return;
+  try {
+    if (pick === "clear") {
+      await call(`/modules/${g.id}/frontend`, { method: "DELETE" });
+    } else {
+      const file = await new Promise((resolve) => {
+        const inp = el("input", { type: "file", accept: ".html,.htm,text/html" });
+        inp.onchange = () => resolve(inp.files[0] || null);
+        inp.click();
+      });
+      if (!file) return;
+      await post(`/modules/${g.id}/frontend`, { html: await file.text() });
+    }
+    await refresh();
+    toast(pick === "clear" ? "back to the inferred frontend" : "frontend attached — play it on its page");
+  } catch (e) { toast(e.message, true); }
+};
 
 $("g-edit").onclick = () => openGame && openStudio({ edit: openGame });
 $("g-fork").onclick = () => openGame && openStudio({ from: openGame });
@@ -3701,7 +3746,7 @@ function renderLobby() {
       monogram(g.name),
       el("div", {}, [
         el("b", { textContent: g.name }),
-        el("small", { textContent: (isMine(g) ? "yours · " : "")
+        el("small", { textContent: (isMine(g) ? "by you · " : g.creator?.name ? `by ${g.creator.name} · ` : "")
           + (champ ? `${g.runs} played · ${champ.name} leads` : "not played yet") }),
       ]),
     ]);

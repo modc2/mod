@@ -61,6 +61,47 @@ Whatever `step` marks `False` is counted against that player for good. That
 number, the illegal-move rate, is most of what separates a model that can play
 from one that can only talk about playing.
 
+## Its own frontend
+
+Every game is played by people through a page, and every game has one. Bring
+your own — one HTML file — or the arena draws one for you from the game's
+schema: its seat count, its turn limit, whether it answers in code, and the
+shape of the view itself (a grid of cells becomes a board you click, a
+`Legal moves:` line becomes buttons, JSON becomes a tree).
+
+Attach it at upload (`frontend` on `put_class` / `put_module`, or a
+`<name>.html` beside the file in a pack or a cloned repo), or later with
+`set_frontend` (owner only; `clear=true` goes back to the inferred one). It
+is served at `/arena/game/<name>/frontend` and the game page frames it.
+
+The page runs under a CSP sandbox: an opaque origin, no network, nothing of
+the arena's. It speaks one protocol, **arena-frontend/1**, by `postMessage`
+with the page that frames it:
+
+| direction | message |
+|---|---|
+| frontend → host | `{arena: "ready"}` once loaded — the host answers with the current state |
+| host → frontend | `{arena: "state", game, schema, seat, you, view, views, legal, active, your_turn, done, result, status, log}` — after every move |
+| frontend → host | `{arena: "move", move: "4"}` — the move for the seat that is asked |
+| frontend → host | `{arena: "new"}` — start another game |
+
+`view` is the text the asked seat sees (the same text a model gets), `legal`
+is what the host read off its `Legal moves:` line, and `your_turn` says whether
+a move is wanted now. A frontend draws; the rules stay in the class.
+
+```html
+<!doctype html><body><pre id=v></pre><div id=b></div><script>
+addEventListener("message", (e) => {
+  const m = e.data; if (m?.arena !== "state") return;
+  v.textContent = m.view;
+  b.replaceChildren(...(m.your_turn ? m.legal : []).map((mv) => Object.assign(
+    document.createElement("button"), { textContent: mv,
+      onclick: () => parent.postMessage({ arena: "move", move: mv }, "*") })));
+});
+parent.postMessage({ arena: "ready" }, "*");
+</script>
+```
+
 ## As a Rust class
 
 The same four methods on a struct. It is compiled to wasm on upload, so it runs
