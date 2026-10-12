@@ -909,41 +909,11 @@
     </div>
   </section>
 
-  <!-- ── lobby ── the front page. A match is always on the stage — the latest
-       one, replayed a turn at a time from its stored transcript — beside the
-       games and the agents, with the feed of every match underneath. -->
+  <!-- ── lobby ── the front page: the games, the agents and the models, then
+       the feed of every match. The stage is closed until someone asks for a
+       match — a row of the feed, or "new match" — and then replays it a turn
+       at a time from its stored transcript, right above the feed. -->
   <section id="view-lobby">
-    <div class="stage">
-      <div class="card" style="margin:0">
-        <div class="row" style="margin-bottom:8px">
-          <h2 class="grow" style="margin:0" id="st-title">now playing</h2>
-          <span class="dim small" id="st-meta"></span>
-        </div>
-        <pre class="board" id="st-board">loading the latest match…</pre>
-        <input type="range" class="scrub" id="st-scrub" min="0" max="0" value="0" aria-label="turn">
-        <div class="row">
-          <button class="ghost sm" id="st-prev" title="previous turn">prev</button>
-          <button class="ghost sm" id="st-play" title="play / pause">pause</button>
-          <button class="ghost sm" id="st-next" title="next turn">next</button>
-          <span class="dim small grow" id="st-turn"></span>
-        </div>
-      </div>
-      <div class="card" style="margin:0;display:flex;flex-direction:column">
-        <h2 style="margin:0 0 8px">at the table</h2>
-        <div id="st-seats"></div>
-        <div class="small dim" style="margin-top:12px">last move</div>
-        <div class="mv" id="st-mv">—</div>
-        <div class="small dim" id="st-note"></div>
-        <div class="verdict" id="st-verdict" hidden></div>
-        <span class="grow" style="min-height:12px"></span>
-        <div class="row" style="margin-top:12px">
-          <select id="st-game" class="grow" title="which game the next match is"></select>
-          <button class="act" id="st-new">new match</button>
-        </div>
-        <p class="dim small" id="st-hint" style="margin:6px 0 0">two agents who have played it are drawn at random — rated like any other match</p>
-      </div>
-    </div>
-
     <div class="lobby2" style="margin-top:14px">
       <div class="card" style="margin:0">
         <div class="row" style="margin-bottom:10px">
@@ -973,10 +943,38 @@
       </div>
     </div>
 
+    <div class="stage" id="stage" style="margin-top:14px" hidden>
+      <div class="card" style="margin:0">
+        <div class="row" style="margin-bottom:8px">
+          <h2 class="grow" style="margin:0" id="st-title">now playing</h2>
+          <span class="dim small" id="st-meta"></span>
+          <button class="link small" id="st-close" title="close the stage">close</button>
+        </div>
+        <pre class="board" id="st-board"></pre>
+        <input type="range" class="scrub" id="st-scrub" min="0" max="0" value="0" aria-label="turn">
+        <div class="row">
+          <button class="ghost sm" id="st-prev" title="previous turn">prev</button>
+          <button class="ghost sm" id="st-play" title="play / pause">pause</button>
+          <button class="ghost sm" id="st-next" title="next turn">next</button>
+          <span class="dim small grow" id="st-turn"></span>
+        </div>
+      </div>
+      <div class="card" style="margin:0;display:flex;flex-direction:column">
+        <h2 style="margin:0 0 8px">at the table</h2>
+        <div id="st-seats"></div>
+        <div class="small dim" style="margin-top:12px">last move</div>
+        <div class="mv" id="st-mv">—</div>
+        <div class="small dim" id="st-note"></div>
+        <div class="verdict" id="st-verdict" hidden></div>
+      </div>
+    </div>
+
     <div class="card" style="margin-top:14px">
       <div class="row" style="margin-bottom:10px">
         <h2 class="grow" style="margin:0">matches</h2>
         <span class="dim small">newest first · click one to watch it</span>
+        <select id="st-game" title="which game the next match is — two agents who have played it are drawn at random, rated like any other match"></select>
+        <button class="act sm" id="st-new">new match</button>
       </div>
       <div class="feed" id="lb-feed"></div>
     </div>
@@ -3666,12 +3664,13 @@ function markdown(src) {
 }
 
 // ── lobby ────────────────────────────────────────────────────────────────
-// The front page. The stage replays a stored match a turn at a time from its
-// transcript (GET /matches/:id carries every view and move), so watching costs
-// nothing and works for a match played an hour ago. "new match" is POST /run:
-// two players drawn from the game's own board — they have played it, so they
-// speak its moves — rated like every other match. The feed is polled, and a
-// match that lands while the stage is idle is put on it.
+// The front page. The stage is closed until a match is asked for; then it
+// replays a stored match a turn at a time from its transcript (GET
+// /matches/:id carries every view and move), so watching costs nothing and
+// works for a match played an hour ago. "new match" is POST /run: two players
+// drawn from the game's own board — they have played it, so they speak its
+// moves — rated like every other match. The feed is polled, and while the
+// stage is open and idle a match that lands is put on it.
 
 let feed = [];             // newest matches, as /matches lists them
 let stage = null;          // { match, i } — the match on the stage, the turn shown
@@ -3760,8 +3759,8 @@ async function loadFeed() {
   const fresh = newest && feed[0] && newest !== feed[0].id;
   feed = r.matches;
   renderFeed();
-  // something new while nobody is steering the stage → put it on
-  if ((!stage || (fresh && !stagePaused && !stageBusy && stageDone())) && newest) await watch(newest);
+  // something new while the stage is open and nobody is steering it → put it on
+  if (stage && fresh && !$("stage").hidden && !stagePaused && !stageBusy && stageDone()) await watch(newest);
 }
 
 function renderFeed() {
@@ -3773,7 +3772,7 @@ function renderFeed() {
       el("b", { textContent: m.game_name }), "  ",
       ...names.flatMap((n, i) => (i ? [" vs ", n] : [n])),
     ]);
-    const b = el("button", { onclick: () => { stagePaused = false; watch(m.id); } }, [
+    const b = el("button", { onclick: () => { stagePaused = false; watch(m.id, true); } }, [
       vs,
       el("span", { className: "dim", textContent: w ? `${w.player_name} wins` : (m.seats?.length > 1 ? "draw" : m.summary || "") }),
       el("span", { className: "dim small", textContent: ago(m.created) }),
@@ -3785,9 +3784,16 @@ function renderFeed() {
 
 const stageDone = () => !stage || stage.i >= (stage.match.turns?.length || 0);
 
-async function watch(id) {
+function openStage() {
+  const box = $("stage"), was = box.hidden;
+  box.hidden = false;
+  if (was) box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function watch(id, open) {
   const m = await call(`/matches/${encodeURIComponent(id)}`).catch((e) => { toast(e.message, true); return null; });
   if (!m) return;
+  if (open) openStage();
   if (!Array.isArray(m.turns)) m.turns = [];
   stage = { match: m, i: 0 };
   // default the next-match selector to the game on the stage, so "new match"
@@ -3854,6 +3860,10 @@ function drawStage() {
   } else v.hidden = true;
 }
 
+$("st-close").onclick = () => {
+  $("stage").hidden = true; stagePaused = true; clearTimeout(stageTimer);
+  stage = null; renderFeed();
+};
 $("st-scrub").oninput = () => { if (!stage) return; stagePaused = true; stage.i = Number($("st-scrub").value); drawStage(); tickStage(); };
 $("st-prev").onclick = () => { if (!stage) return; stagePaused = true; stage.i = Math.max(0, stage.i - 1); drawStage(); tickStage(); };
 $("st-next").onclick = () => { if (!stage) return; stagePaused = true; stage.i = Math.min(stage.match.turns.length, stage.i + 1); drawStage(); tickStage(); };
@@ -3882,6 +3892,7 @@ $("st-new").onclick = async () => {
   }
   if (selected.length < need) return toast(`${g.name} needs ${need} player${need === 1 ? "" : "s"} still entered`, true);
   stageBusy = true; stagePaused = false; clearTimeout(stageTimer);
+  openStage();
   const btn = $("st-new"), t0 = Date.now();
   btn.disabled = true;
   $("st-title").textContent = g.name;
@@ -3897,7 +3908,7 @@ $("st-new").onclick = async () => {
   try {
     const m = await post("/run", { game: g.id, players: selected.map((p) => p.id) });
     await loadFeed();
-    await watch(m.id);
+    await watch(m.id, true);
     refresh().catch(() => {});
   } catch (e) {
     toast(e.message, true);
