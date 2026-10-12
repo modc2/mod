@@ -115,6 +115,11 @@ impl ScanStore {
     /// Open a new scan. Returns its id (unix seconds, bumped past any
     /// existing dir so two cycles in the same second can't share one).
     pub fn begin(&self, trigger: &str) -> i64 {
+        // Prune here too, not only in finish(): cycles are routinely cut off
+        // (activator stop, restarts) before they reach finish(), and with
+        // pruning only there history grew unbounded — 908 scans / 18GB
+        // against a 400 / 2GiB cap.
+        self.prune();
         let now = chrono::Utc::now().timestamp();
         let mut id = now;
         while self.scan_dir(id).exists() {
@@ -406,6 +411,19 @@ mod tests {
         assert_eq!(scans[0].id, c);
         assert_eq!(scans[1].id, b);
         assert!(s.read_window(a, "30:0:2000").is_none(), "oldest was pruned");
+        std::fs::remove_dir_all(&s.dir).ok();
+    }
+
+    #[test]
+    fn interrupted_cycles_that_never_finish_are_still_capped() {
+        let s = tmp_store(u64::MAX, 2);
+        // Process killed mid-cycle every time: finish() is never reached.
+        for n in 1..=5 {
+            let id = s.begin("scheduled");
+            s.record_window(id, 30, 0.0, 2000, &payload(n));
+        }
+        // begin() prunes before opening, so history is cap + the open scan.
+        assert!(s.list(10).len() <= 3);
         std::fs::remove_dir_all(&s.dir).ok();
     }
 

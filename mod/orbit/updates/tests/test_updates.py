@@ -373,3 +373,94 @@ def test_x_status_reports_unreachable_api(up, monkeypatch):
 
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
+
+
+# --- merge_main: owner-only dev -> main, against throwaway git repos ---------
+
+import subprocess as _sp
+
+
+def _g(cwd, *a):
+    return _sp.run(('git', '-c', 'user.name=t', '-c', 'user.email=t@t') + a, cwd=cwd,
+                   check=True, capture_output=True, text=True).stdout.strip()
+
+
+@pytest.fixture
+def repo(tmp_path):
+    """origin (bare) + a clone on dev; main and dev both exist upstream."""
+    origin, work = tmp_path / 'origin.git', tmp_path / 'work'
+    _g(tmp_path, 'init', '--bare', '-b', 'main', str(origin))
+    _g(tmp_path, 'clone', str(origin), str(work))
+    for k, v in (('user.name', 't'), ('user.email', 't@t')):
+        _g(work, 'config', k, v)
+    (work / 'a.txt').write_text('base\n')
+    _g(work, 'add', '.'); _g(work, 'commit', '-m', 'base')
+    _g(work, 'push', 'origin', 'HEAD:main')
+    _g(work, 'checkout', '-b', 'dev'); _g(work, 'push', 'origin', 'dev')
+    return work
+
+
+def _commit_file(work, name, text, branch='dev'):
+    _g(work, 'checkout', branch)
+    (work / name).write_text(text)
+    _g(work, 'add', '.'); _g(work, 'commit', '-m', f'{branch}: {name}')
+
+
+def _remote_file(work, ref, name):
+    _g(work, 'fetch', 'origin')
+    return _g(work, 'show', f'{ref}:{name}')
+
+
+def test_merge_main_fast_forward(up, repo):
+    _commit_file(repo, 'b.txt', 'dev\n')
+    r = up.merge_main(root=str(repo))
+    assert r['ok'] and r['mode'] == 'fast-forward' and r['pushed'] and r['commits'] == 1
+    assert _g(repo, 'rev-parse', 'origin/main') == _g(repo, 'rev-parse', 'dev')
+    assert up.merge_main(root=str(repo))['mode'] == 'up-to-date'
+
+
+def test_merge_main_clean_merge_keeps_main_only_work(up, repo):
+    _commit_file(repo, 'm.txt', 'main\n', branch='main'); _g(repo, 'push', 'origin', 'main')
+    _commit_file(repo, 'b.txt', 'dev\n')
+    r = up.merge_main(root=str(repo))
+    assert r['ok'] and r['mode'] == 'merge'
+    assert _remote_file(repo, 'origin/main', 'm.txt') == 'main'
+    assert _remote_file(repo, 'origin/main', 'b.txt') == 'dev'
+
+
+def test_merge_main_conflict_forces_dev(up, repo):
+    _commit_file(repo, 'a.txt', 'main side\n', branch='main'); _g(repo, 'push', 'origin', 'main')
+    _commit_file(repo, 'a.txt', 'dev side\n')
+    dry = up.merge_main(root=str(repo), dry=True)
+    assert dry['ok'] and dry['mode'] == 'forced' and not dry['pushed']
+    r = up.merge_main(root=str(repo))
+    assert r['ok'] and r['mode'] == 'forced' and not r['force_pushed']
+    assert _remote_file(repo, 'origin/main', 'a.txt') == 'dev side'
+    # main's own history survives: its old tip is an ancestor of the new one
+    assert _sp.run(['git', 'merge-base', '--is-ancestor', dry['target_sha'], 'origin/main'],
+                   cwd=repo).returncode == 0
+
+
+def test_merge_main_never_touches_worktree(up, repo):
+    _commit_file(repo, 'b.txt', 'dev\n')
+    (repo / 'dirty.txt').write_text('uncommitted')
+    up.merge_main(root=str(repo))
+    assert _g(repo, 'rev-parse', '--abbrev-ref', 'HEAD') == 'dev'
+    assert (repo / 'dirty.txt').read_text() == 'uncommitted'
+
+
+def test_merge_main_owner_token_gate(up, monkeypatch):
+    monkeypatch.setenv('UPDATES_OWNER', '0xABC')
+    with pytest.raises(PermissionError):
+        up._owner_from_token({})
+    import time as _t
+
+    class FakeAuth:
+        def __init__(self, key): self.key = key
+        def __call__(self): return self
+        def verify(self, tok): return {'key': self.key, 'time': str(_t.time())}
+    monkeypatch.setattr(m, 'mod', lambda name: FakeAuth('0xabc'))
+    assert up._owner_from_token({'Authorization': 'Bearer x'}) == '0xabc'
+    monkeypatch.setattr(m, 'mod', lambda name: FakeAuth('0xdef'))
+    with pytest.raises(PermissionError):
+        up._owner_from_token({'Authorization': 'Bearer x'})

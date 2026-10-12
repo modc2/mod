@@ -162,6 +162,7 @@ impl PipelineState {
             self.first_trades.flush();
         }
 
+        self.scans.finish(scan_id);
         tracing::info!("warmup cycle done");
     }
 

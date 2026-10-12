@@ -147,6 +147,12 @@ def network():
     return client.info()
 
 
+# /api/* is the canonical local shape; the bare include answers the gateway,
+# which strips /arweave/api (and legacy /api/arweave) before proxying.
+app.include_router(api, prefix="/api")
+app.include_router(api)
+
+
 # ─── App (static frontend) ──────────────────────────────────────────────────
 
 if APP_DIR.is_dir():

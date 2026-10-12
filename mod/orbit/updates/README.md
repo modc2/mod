@@ -188,3 +188,21 @@ every repo you track.
 `pytest mod/orbit/updates/tests/test_updates.py` (35 cases; feed/watchlist/MCP/X
 logic runs with the API stubbed, plus a real local-`git log` smoke test — no
 network required).
+
+## Merge dev → main (owner only, temporary)
+
+A green **merge dev → main** button appears in the header when the connected
+wallet is the owner (`$UPDATES_OWNER` → `~/.mod/updates/owner.json` →
+`~/.mod/claude/owner.json`). Use the ghost **owner** button to connect if your
+wallet isn't connected yet. Clicking it does a dry run first and shows what will
+happen, then merges and pushes to GitHub — no PR.
+
+- fast-forward if possible → otherwise a clean merge commit → on conflicts, a
+  merge commit whose tree is exactly dev (dev wins). main's history is kept, so
+  no force-push is needed. `push --force` is only tried if GitHub rejects the
+  normal push.
+- Plumbing only (`merge-tree` / `commit-tree`): the working tree and checked-out
+  branch are never touched. Only work already committed on dev ships.
+- `POST /api/merge_main {dry}`: gateway callers need `Authorization: Bearer
+  <owner token>`; a direct loopback caller is the box itself. CLI:
+  `m updates/merge_main` (`dry=1` to preview).

@@ -26,6 +26,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import mod as m
 
 PRIMARY = 'modc2/mod'        # the mod repo
@@ -33,6 +34,10 @@ DEFAULT_OWNER = 'modc2'
 DEFAULT_BRANCH = 'dev'       # mod repo's default-shown branch
 APP_PORT = 50180
 X_API = os.environ.get('UPDATES_X_API', 'http://localhost:50350')  # orbit/x — holds the X account credentials
+OWNER_FILE = '~/.mod/updates/owner.json'       # {"owner": "0x…"} pins who may merge
+HOST_OWNER_FILE = '~/.mod/claude/owner.json'   # …else the host's owner of record
+MERGE_TOKEN_TTL = 3600                         # seconds a signed owner token stays valid
+_MERGE_LOCK = threading.Lock()
 GH_RE = re.compile(r'(?:https?://github\.com/|git@github\.com:)?([^/\s]+)/([^/\s]+?)(?:\.git)?/?$')
 
 
@@ -919,7 +924,7 @@ class Mod:
                 self.send_header('Content-Type', ctype)
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-                self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
                 self.send_header('Content-Length', str(len(data)))
                 self.end_headers()
                 if self.command != 'HEAD':
@@ -992,6 +997,16 @@ class Mod:
                         if resp is None:
                             return self._send(202, b'', 'text/plain')
                         return self._send(200, resp)
+                    if u.path == '/api/merge_main':
+                        # owner only: a direct loopback caller is the box itself;
+                        # anything through the gateway must carry the owner's token
+                        fwd = self.headers.get('X-Forwarded-For') or self.headers.get('X-Real-IP')
+                        if fwd or self.client_address[0] not in ('127.0.0.1', '::1', '::ffff:127.0.0.1'):
+                            try:
+                                gov._owner_from_token(self.headers)
+                            except PermissionError as e:
+                                return self._send(403, {'ok': False, 'error': str(e)})
+                        return self._send(200, gov.merge_main(dry=bool(body.get('dry'))))
                     if u.path == '/api/track':
                         return self._send(200, gov.track(body.get('repo'), body.get('branch')))
                     if u.path == '/api/untrack':
@@ -1120,6 +1135,130 @@ class Mod:
             if resp is not None:
                 print(json.dumps(resp, default=str), flush=True)
 
+    # --- owner-only: ship dev to main (temporary — until we leave GitHub) ------
+
+    def owner(self) -> str:
+        """The address allowed to merge: $UPDATES_OWNER, else ~/.mod/updates/owner.json,
+        else the host's owner of record (~/.mod/claude/owner.json), else this box's key."""
+        if os.environ.get('UPDATES_OWNER'):
+            return os.environ['UPDATES_OWNER']
+        for path in (OWNER_FILE, HOST_OWNER_FILE):
+            rec = m.get(m.abspath(path), {}) or {}
+            if rec.get('owner'):
+                return str(rec['owner'])
+        try:
+            return m.key().address
+        except Exception:
+            return None
+
+    def _owner_from_token(self, headers) -> str:
+        """Verify a Bearer mod-protocol token and require it to be the owner's."""
+        import contextlib
+        import io
+        import time
+        raw = headers.get('Authorization') or headers.get('authorization') or ''
+        tok = raw.split('Bearer ')[-1].strip()
+        if not tok:
+            raise PermissionError('owner only — sign in with the owner wallet')
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                data = m.mod('auth')().verify(tok)
+        except Exception as e:
+            raise PermissionError(f'invalid token: {type(e).__name__}')
+        if abs(time.time() - float(data.get('time', 0))) > MERGE_TOKEN_TTL:
+            raise PermissionError('token expired — sign again')
+        who, owner = str(data.get('key') or '').lower(), str(self.owner() or '').lower()
+        if not owner or who != owner:
+            raise PermissionError(f'{who} is not the owner')
+        return who
+
+    @staticmethod
+    def _git(root, *args, timeout=300):
+        # a dead VS Code server leaves GIT_ASKPASS pointing at a missing socket;
+        # scrub it so git falls through to the stored credential
+        env = {k: v for k, v in os.environ.items()
+               if k not in ('GIT_ASKPASS', 'SSH_ASKPASS', 'VSCODE_GIT_ASKPASS_NODE',
+                            'VSCODE_GIT_ASKPASS_MAIN', 'VSCODE_GIT_ASKPASS_EXTRA_ARGS',
+                            'VSCODE_GIT_IPC_HANDLE')}
+        env['GIT_TERMINAL_PROMPT'] = '0'
+        try:
+            r = subprocess.run(('git',) + args, cwd=root, capture_output=True,
+                               text=True, timeout=timeout, env=env)
+        except subprocess.TimeoutExpired:
+            return 124, f'timeout after {timeout}s: git {" ".join(args)}'
+        return r.returncode, ((r.stdout or '') + (r.stderr or '')).strip()
+
+    def merge_main(self, source='dev', target='main', remote='origin', dry=False,
+                   root=None) -> dict:
+        """Merge `source` into `target` on `remote` and push — no PR, no prompts.
+        Never touches the working tree (plumbing only). Order of preference:
+        fast-forward -> clean merge commit -> forced merge commit whose tree is
+        exactly `source` (source wins every conflict; target history is kept, so
+        no force-push is needed). The push is retried with --force only if the
+        remote rejects it. Only work committed on `source` ships."""
+        root = root or self.toplevel
+        if not root:
+            raise RuntimeError('no git checkout found')
+        with _MERGE_LOCK:
+            rc, out = self._git(root, 'fetch', remote, f'+refs/heads/{source}:refs/remotes/{remote}/{source}',
+                                f'+refs/heads/{target}:refs/remotes/{remote}/{target}')
+            if rc:
+                return {'ok': False, 'step': 'fetch', 'error': out}
+
+            def sha(ref):
+                rc, o = self._git(root, 'rev-parse', '--verify', '-q', ref + '^{commit}')
+                return o if rc == 0 else None
+
+            def ancestor(a, b):
+                return self._git(root, 'merge-base', '--is-ancestor', a, b)[0] == 0
+
+            local, upstream = sha(f'refs/heads/{source}'), sha(f'{remote}/{source}')
+            tgt = sha(f'{remote}/{target}')
+            src = local or upstream
+            if local and upstream and local != upstream and ancestor(local, upstream):
+                src = upstream               # remote is ahead of the box — ship the newer one
+            if not src or not tgt:
+                return {'ok': False, 'step': 'resolve',
+                        'error': f'missing ref: {source if not src else remote + "/" + target}'}
+            base = {'source': source, 'target': target, 'remote': remote,
+                    'source_sha': src[:8], 'target_sha': tgt[:8]}
+            if ancestor(src, tgt):
+                return {**base, 'ok': True, 'mode': 'up-to-date', 'pushed': False,
+                        'message': f'{target} already has everything on {source}'}
+            ahead = int(self._git(root, 'rev-list', '--count', f'{tgt}..{src}')[1] or 0)
+            if ancestor(tgt, src):
+                mode, new = 'fast-forward', src
+            else:
+                rc, out = self._git(root, 'merge-tree', '--write-tree', tgt, src)
+                if rc == 0:
+                    mode, tree = 'merge', out.splitlines()[0]
+                elif rc == 1:
+                    mode, tree = 'forced', self._git(root, 'rev-parse', f'{src}^{{tree}}')[1]
+                else:
+                    return {**base, 'ok': False, 'step': 'merge-tree', 'error': out}
+                msg = f'merge {source} into {target}' + (
+                    f' ({source} wins conflicts)' if mode == 'forced' else '')
+                rc, new = self._git(root, 'commit-tree', tree, '-p', tgt, '-p', src, '-m', msg)
+                if rc:
+                    return {**base, 'ok': False, 'step': 'commit-tree', 'error': new}
+            base.update(mode=mode, commits=ahead, new_sha=new[:8])
+            if dry:
+                return {**base, 'ok': True, 'dry': True, 'pushed': False}
+            refspec = f'{new}:refs/heads/{target}'
+            rc, out = self._git(root, 'push', remote, refspec)
+            forced = False
+            if rc:
+                rc, out2 = self._git(root, 'push', '--force', remote, refspec)
+                out, forced = out + '\n' + out2, True
+            if rc:
+                return {**base, 'ok': False, 'step': 'push', 'error': out}
+            # keep the local target branch in step unless a worktree has it checked out
+            if f'branch refs/heads/{target}' not in self._git(root, 'worktree', 'list', '--porcelain')[1]:
+                self._git(root, 'update-ref', f'refs/heads/{target}', new)
+            self._git(root, 'update-ref', f'refs/remotes/{remote}/{target}', new)
+            return {**base, 'ok': True, 'pushed': True, 'force_pushed': forced,
+                    'message': f'{target} <- {source}: {mode}, {ahead} commit(s), now {new[:8]}'}
+
     # --- meta ---------------------------------------------------------------
 
     def forward(self, **kwargs):
@@ -1139,6 +1278,7 @@ class Mod:
             'mcp': {'http': f'http://localhost:{APP_PORT}/mcp', 'stdio': 'm updates/mcp',
                     'tools': [x['name'] for x in self._mcp_tools()]},
             'x_api': self.x_api,
+            'owner': self.owner(),
         }
 
 
@@ -1296,6 +1436,18 @@ INDEX_HTML = r"""<!doctype html>
     background:linear-gradient(100deg,var(--panel) 30%,var(--panel2) 50%,var(--panel) 70%);
     background-size:200% 100%;animation:sh 1.2s infinite}
   @keyframes sh{to{background-position:-200% 0}}
+  /* owner-only merge */
+  button.btn.merge{background:linear-gradient(180deg,#4cc864,var(--green));border-color:transparent;
+    color:#04130a;box-shadow:0 4px 14px rgba(63,185,80,.3)}
+  button.btn.merge:hover{filter:brightness(1.07)}
+  .modal{position:fixed;inset:0;z-index:50;background:rgba(4,6,10,.7);backdrop-filter:blur(4px);
+    display:grid;place-items:center}
+  .modal .box{width:min(460px,92vw);background:var(--panel);border:1px solid var(--line2);
+    border-radius:var(--r);padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .modal h3{margin:0 0 8px;font-size:16px}
+  .modal .body{color:var(--muted);font-size:13px;white-space:pre-wrap;word-break:break-word}
+  .modal .body b{color:var(--text)}
+  .modal .btns{display:flex;gap:9px;justify-content:flex-end;margin-top:16px}
 </style>
 </head>
 <body>
@@ -1310,6 +1462,7 @@ INDEX_HTML = r"""<!doctype html>
     <span class="sub" id="status">loading…</span>
     <span class="grow"></span>
     <span id="actions"></span>
+    <span id="owner"></span>
   </div>
   <div class="row" id="filters" style="margin-top:11px"></div>
 </header>
@@ -1585,7 +1738,72 @@ function renderMods(data){
 
 /* ---------------- boot ---------------- */
 renderActions();
-loadFeed();
+/* ---------------- OWNER: merge dev -> main ---------------- */
+// Only the owner wallet sees the button. The server checks the signature
+// again, so hiding it is convenience, not the gate.
+let ME=sessionStorage.getItem('updates.me')||null;
+const isOwner=()=>!!(ME&&INFO.owner&&ME===INFO.owner.toLowerCase());
+async function ownerInit(){
+  if(window.ethereum && !ME){
+    try{ const [a]=await window.ethereum.request({method:'eth_accounts'}); if(a) ME=a.toLowerCase(); }catch(e){}
+  }
+  paintOwner();
+}
+function paintOwner(){
+  const el=$('#owner');
+  if(isOwner()) el.innerHTML=`<button class="btn merge" onclick="mergeMain()" title="merge dev into main on GitHub and push">${BR} merge dev &rarr; main</button>`;
+  else if(window.ethereum && !ME) el.innerHTML=`<button class="btn ghost" onclick="ownerConnect()" title="owner sign-in">owner</button>`;
+  else el.innerHTML='';
+}
+async function ownerConnect(){
+  try{ const [a]=await window.ethereum.request({method:'eth_requestAccounts'});
+    ME=(a||'').toLowerCase()||null; if(ME) sessionStorage.setItem('updates.me',ME); }catch(e){}
+  paintOwner();
+}
+async function ownerToken(){
+  let t=sessionStorage.getItem('updates.tok'), at=+sessionStorage.getItem('updates.tok.at')||0;
+  if(t && Date.now()/1000-at<3000) return t;
+  const data='updates', time=Math.floor(Date.now()/1000).toString();
+  const signature=await window.ethereum.request({method:'personal_sign',params:[JSON.stringify({data,time}),ME]});
+  t=btoa(JSON.stringify({data,time,key:ME,signature})).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  try{ sessionStorage.setItem('updates.tok',t); sessionStorage.setItem('updates.tok.at',time); }catch(e){}
+  return t;
+}
+function modal(title,body,buttons){
+  document.querySelector('.modal')?.remove();
+  const m=document.createElement('div'); m.className='modal';
+  m.innerHTML=`<div class="box"><h3>${title}</h3><div class="body">${body}</div><div class="btns"></div></div>`;
+  for(const [label,cls,fn] of buttons){
+    const b=document.createElement('button'); b.className='btn '+cls; b.innerHTML=label;
+    b.onclick=()=>{ if(fn) fn(); else m.remove(); }; m.querySelector('.btns').appendChild(b);
+  }
+  m.addEventListener('click',e=>{ if(e.target===m) m.remove(); });
+  document.body.appendChild(m); return m;
+}
+async function mergeCall(dry){
+  const r=await fetch(api('/api/merge_main'),{method:'POST',headers:{'Content-Type':'application/json',
+    'Authorization':'Bearer '+await ownerToken()},body:JSON.stringify({dry})});
+  const j=await r.json().catch(()=>({ok:false,error:'HTTP '+r.status}));
+  if(r.status===403){ sessionStorage.removeItem('updates.tok'); }
+  return j;
+}
+const MODES={'fast-forward':'fast-forward','merge':'clean merge','forced':'forced merge (dev wins every conflict)'};
+async function mergeMain(){
+  modal('merge dev &rarr; main','checking…',[['cancel','ghost']]);
+  let p; try{ p=await mergeCall(true); }catch(e){ p={ok:false,error:e.message||''+e}; }
+  if(!p.ok) return modal('merge failed',esc(p.error||'unknown error'),[['close','ghost']]);
+  if(p.mode==='up-to-date') return modal('nothing to merge',esc(p.message),[['close','ghost']]);
+  modal('merge dev &rarr; main',
+    `<b>${p.commits}</b> commit(s) from dev <b>${esc(p.source_sha)}</b> go onto main <b>${esc(p.target_sha)}</b>.\n`
+    +`How: <b>${esc(MODES[p.mode]||p.mode)}</b>.\nOnly committed work ships; uncommitted changes wait for the next root push.`,
+    [['cancel','ghost'],['merge now','merge',async()=>{
+      modal('merging…','pushing to GitHub…',[]);
+      let r; try{ r=await mergeCall(false); }catch(e){ r={ok:false,error:e.message||''+e}; }
+      modal(r.ok?'merged':'merge failed', esc(r.ok?r.message+(r.force_pushed?' (force-pushed)':''):r.error||'unknown error'),[['close','ghost']]);
+    }]]);
+}
+
+loadFeed().then(ownerInit);
 setInterval(()=>{ if(VIEW==='feed') loadFeed(); if(VIEW==='daily') loadDaily(); }, 300000);
 </script>
 </body>

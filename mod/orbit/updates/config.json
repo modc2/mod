@@ -36,8 +36,10 @@
         "set_branch",
         "repos",
         "modules",
+        "merge_main",
+        "owner",
         "register"
     ],
     "key": "updates",
-    "schema": "QmW8PCpjpnGmAuVJU6wcynmegfLP9m2Q4D44HU3vwSYWKm"
+    "schema": "QmbSuguqwpYfmE8woSdqY5LmYCUNeQ1omSStokpYupd6gk"
 }
