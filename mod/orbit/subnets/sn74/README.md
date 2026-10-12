@@ -2,7 +2,7 @@
 
 autonomous software development
 
-Bittensor subnet **74** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **74** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/entrius/gittensor/tree/main) · [url](https://gittensor.io) · discord ` `
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/entrius/gittensor/tree/main) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003097 | +0.11% | -0.76% | -2.10% | 16,579 | 5,838 | 35.15 |
+| 0.003087 | -0.00% | -0.31% | -2.59% | 16,546 | 5,829 | 53.10 |
 
 ## Last 24h flow
 
-31 trades by 22 coldkeys · 8 buys (6.37 τ) / 23 sells (28.52 τ) · net -22.15 τ
+31 trades by 24 coldkeys · 5 buys (22.06 τ) / 26 sells (30.70 τ) · net -8.64 τ
 
 ## News
 

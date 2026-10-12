@@ -12,11 +12,13 @@
   "url": "https://saygm.com/",
   "discord": null,
   "logo": "https://saygm.com/apple-touch-icon.png",
-  "related": [],
+  "related": [
+    "saygm"
+  ],
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-11",
+  "updated": "2026-10-12",
   "urls": {
     "bt": "/bt/markets?sn=28",
     "news": "/bt/news?netuid=28"

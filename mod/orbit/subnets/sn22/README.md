@@ -2,7 +2,7 @@
 
 Decentralized search engine
 
-Bittensor subnet **22** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **22** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/datura-ai/desearch) · [url](https://desearch.ai) · [discord](https://discord.gg/P44zrJmdFy)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/datura-ai/desearch) · [url](https://desearch
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003158 | +0.12% | +0.00% | +1.92% | 19,699 | 7,712 | 56.69 |
+| 0.003136 | +0.00% | -0.67% | +2.95% | 19,589 | 7,686 | 56.55 |
 
 ## Last 24h flow
 
-183 trades by 40 coldkeys · 32 buys (27.73 τ) / 151 sells (28.06 τ) · net -0.33 τ
+192 trades by 35 coldkeys · 17 buys (15.03 τ) / 175 sells (40.98 τ) · net -25.95 τ
 
 ## News
 
-- 2026-10-05 · commit · [Merge pull request #383 from Desearch-ai/hotfix/publish-pool](https://github.com/Desearch-ai/subnet-22/commit/7a2062746809aa6ac2728687cf9c3fac38b45a36) — datura-ai/desearch
-- 2026-10-05 · commit · [fix(task-api): judge completions when they reach the API, run storage…](https://github.com/Desearch-ai/subnet-22/commit/ab06267d1914f08a1b43d8aef06c227ef22775b5) — datura-ai/desearch
-- 2026-10-05 · commit · [Merge pull request #382 from Desearch-ai/hotfix/settle-speed](https://github.com/Desearch-ai/subnet-22/commit/45e848cd138220d8e043fb7a35e227f804e25d3d) — datura-ai/desearch
-- 2026-10-05 · commit · [fix(task-api): settle uploads in parallel reading each seed block onc…](https://github.com/Desearch-ai/subnet-22/commit/e12a068b4bb4e01fe2547daf59b013109759ef4f) — datura-ai/desearch
-- 2026-10-05 · commit · [Merge pull request #381 from Desearch-ai/feat/crawl-scale](https://github.com/Desearch-ai/subnet-22/commit/237ca4541ac4bf91a9d79f23c43e11b113197997) — datura-ai/desearch
-- 2026-10-01 · commit · [Merge pull request #380 from Desearch-ai/develop](https://github.com/Desearch-ai/subnet-22/commit/a88c51d510b9f69186ee221dac0c1ae7be54e29f) — datura-ai/desearch
-- 2026-10-01 · commit · [chore: update version to 0.0.232](https://github.com/Desearch-ai/subnet-22/commit/7845cb041b2b647ed78a59c4f7bead01d27de0e4) — datura-ai/desearch
-- 2026-10-01 · commit · [fix(validators): take an upload before waiting on its seed, so parall…](https://github.com/Desearch-ai/subnet-22/commit/fbf05aa791c323b9b87e7ef3c73bd140a29ded0f) — datura-ai/desearch
+- 2026-10-11 · commit · [Merge pull request #390 from Desearch-ai/hotfix/no-render](https://github.com/Desearch-ai/subnet-22/commit/eb56bb5e7e68f884824f2cbefbfd05005302f2ed) — datura-ai/desearch
+- 2026-10-11 · commit · [fix(validators): no JS rendering, 20 pages per 1,000-URL task, fail o…](https://github.com/Desearch-ai/subnet-22/commit/0098ed262fc5c476567ef890e36b1a247f327a0e) — datura-ai/desearch
+- 2026-10-11 · commit · [chore: update version to 0.0.236](https://github.com/Desearch-ai/subnet-22/commit/7a535d2796a77355dba42400cf4dcd2f6af1ce7c) — datura-ai/desearch
+- 2026-10-11 · commit · [Merge pull request #388 from Desearch-ai/hotfix/restore-sampling](https://github.com/Desearch-ai/subnet-22/commit/c3816958e55b2afc59bfe9c2aaafb60da07105fb) — datura-ai/desearch
+- 2026-10-11 · commit · [fix(validators): restore rendered rechecks and the 5% sample](https://github.com/Desearch-ai/subnet-22/commit/593cd20f451e68ed5341dfae61e986c7e63886dd) — datura-ai/desearch
+- 2026-10-11 · commit · [chore: update version to 0.0.235](https://github.com/Desearch-ai/subnet-22/commit/5131df14568c43c740fb38bb2126069343c8483b) — datura-ai/desearch
+- 2026-10-11 · commit · [Merge pull request #387 from Desearch-ai/hotfix/validator-provider](https://github.com/Desearch-ai/subnet-22/commit/7b398ba1580c81003e84701715215f99a10c2138) — datura-ai/desearch
+- 2026-10-11 · commit · [chore: update version to 0.0.234](https://github.com/Desearch-ai/subnet-22/commit/3cf4417defa00ba771fc022ae5230bba2a5b0d0c) — datura-ai/desearch
 
 ## Use
 

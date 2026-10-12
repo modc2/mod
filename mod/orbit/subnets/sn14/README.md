@@ -2,7 +2,7 @@
 
 A competition where miners submit optimized kernels to compete on end-to-end inference speed against target models.
 
-Bittensor subnet **14** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **14** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/latent-to/cacheon) · [url](https://cacheon.ai) · [discord](https://discord.gg/SFt8s4gJD)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/latent-to/cacheon) · [url](https://cacheon.a
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.008731 | +0.00% | -1.19% | -0.62% | 53,338 | 24,622 | 299.98 |
+| 0.008619 | -0.16% | -1.29% | -1.83% | 52,720 | 24,471 | 459.44 |
 
 ## Last 24h flow
 
-44 trades by 37 coldkeys · 10 buys (60.76 τ) / 34 sells (222.76 τ) · net -162.00 τ
+47 trades by 35 coldkeys · 9 buys (135.10 τ) / 38 sells (308.34 τ) · net -173.24 τ
 
 ## News
 

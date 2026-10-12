@@ -2,7 +2,7 @@
 
 The RL layer of Bittensor
 
-Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.reliqua.ai/) · [discord](https://discord.com/channels/799672011265015819/1493247592551678012)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005690 | -0.00% | +1.47% | -6.68% | 31,995 | 17,307 | 456.56 |
+| 0.005753 | -0.00% | +1.11% | -5.49% | 32,393 | 17,403 | 263.16 |
 
 ## Last 24h flow
 
-58 trades by 27 coldkeys · 14 buys (291.28 τ) / 44 sells (167.73 τ) · net 123.55 τ
+52 trades by 28 coldkeys · 9 buys (179.62 τ) / 43 sells (80.00 τ) · net 99.62 τ
 
 ## News
 
-- 2026-10-10 · commit · [Merge pull request #346 from reliquadotai/feat/register-reliquary-gen…](https://github.com/reliquadotai/reliquary/commit/81a26b60ad7dac1bf3f05c58947f35053939ec85) — reliquadotai/reliquary
-- 2026-10-10 · commit · [feat(env): register reliquary-general as a stage-A corpus source](https://github.com/reliquadotai/reliquary/commit/4c851b546d4aa1c2730467e85b5ecf2671fc2b55) — reliquadotai/reliquary
-- 2026-10-09 · commit · [Merge pull request #345 from reliquadotai/feat/register-reliquary-com…](https://github.com/reliquadotai/reliquary/commit/2701f005d269db9351484dcbc88580d4a84006bb) — reliquadotai/reliquary
-- 2026-10-09 · commit · [feat(env): register reliquary-competitive-code as an SFT-only corpus …](https://github.com/reliquadotai/reliquary/commit/75bff4c668f609979ee3e1a41a8d6725f45da2bc) — reliquadotai/reliquary
-- 2026-10-09 · commit · [feat(env): score reliquary/stdio-program/v1 sources in the sandbox](https://github.com/reliquadotai/reliquary/commit/0a76dc42e2bf084944ca23395327ded8982d4f1f) — reliquadotai/reliquary
-- 2026-10-09 · commit · [feat(grader): run a whole stdin program in the sandbox (stdio mode)](https://github.com/reliquadotai/reliquary/commit/7742b187851470c9a3b31f11ba00a21f1645e447) — reliquadotai/reliquary
-- 2026-10-09 · commit · [Merge pull request #344 from reliquadotai/fix/expired-leases-revoke-n…](https://github.com/reliquadotai/reliquary/commit/458c6a690a0c27340bb406ee59e44da4cae0cf02) — reliquadotai/reliquary
-- 2026-10-09 · commit · [fix(executors): expired leases bench an executor, never quarantine it](https://github.com/reliquadotai/reliquary/commit/8df9d2cc447778e88287cab5e2fe367e216b9e03) — reliquadotai/reliquary
+- 2026-10-11 · commit · [Merge pull request #349 from reliquadotai/feat/corpus-pay-route](https://github.com/reliquadotai/reliquary/commit/b1698c62da8226194a2b9bc851aebc2bb3d7b23d) — reliquadotai/reliquary
+- 2026-10-11 · commit · [feat(corpus): GET /corpus/pay estimates each active job's pay per token](https://github.com/reliquadotai/reliquary/commit/e380e2e0e4c4e7d12b8c010f7cc86df3675afb59) — reliquadotai/reliquary
+- 2026-10-11 · commit · [Merge pull request #348 from reliquadotai/feat/corpus-token-price-cei…](https://github.com/reliquadotai/reliquary/commit/03678e182dc4025138393061bff134018127b09b) — reliquadotai/reliquary
+- 2026-10-11 · commit · [test(corpus): the settlement state now records period_paid](https://github.com/reliquadotai/reliquary/commit/97a92d47a4d72b06ba6ff5694a3a5be368aeeb25) — reliquadotai/reliquary
+- 2026-10-11 · commit · [feat(corpus): a period pays at most a price per verified token](https://github.com/reliquadotai/reliquary/commit/8c5f94815ce1eda924c80931639cb354d50463dc) — reliquadotai/reliquary
+- 2026-10-11 · commit · [feat(cli): tasks set-cap sets or clears a corpus task's token price](https://github.com/reliquadotai/reliquary/commit/259c287bb9e66acd1586f0886c5b6e4957d35f48) — reliquadotai/reliquary
+- 2026-10-11 · commit · [feat(corpus): running settlers follow the price; the job status shows it](https://github.com/reliquadotai/reliquary/commit/64fcd47b40e7047c4d034f66764603722b028c77) — reliquadotai/reliquary
+- 2026-10-11 · commit · [Merge pull request #347 from reliquadotai/fix/corpus-export-finished-…](https://github.com/reliquadotai/reliquary/commit/0deae4f17851506a3deefb7cd81d909910b32d49) — reliquadotai/reliquary
 
 ## Use
 

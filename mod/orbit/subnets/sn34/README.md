@@ -2,7 +2,7 @@
 
 Deepfake Detection
 
-Bittensor subnet **34** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **34** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/BitMind-AI/bitmind-subnet) · [url](https://www.bitmind.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/BitMind-AI/bitmind-subnet) · [url](https://w
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.012210 | +0.03% | +0.46% | +2.42% | 71,468 | 35,601 | 92.88 |
+| 0.012162 | +0.01% | -0.39% | +1.90% | 71,284 | 35,544 | 486.61 |
 
 ## Last 24h flow
 
-85 trades by 57 coldkeys · 40 buys (52.27 τ) / 45 sells (4.39 τ) · net 47.89 τ
+106 trades by 50 coldkeys · 29 buys (171.87 τ) / 77 sells (277.09 τ) · net -105.21 τ
 
 ## News
 

@@ -2,7 +2,7 @@
 
 Quantum Computing
 
-Bittensor subnet **48** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **48** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/qbittensor-labs/quantum-compute) · [url](https://www.qbittensorlabs.com/) · discord `qbittensorlabs`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/qbittensor-labs/quantum-compute) · [url](htt
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004756 | +0.01% | +3.80% | +19.04% | 28,705 | 11,461 | 1,254 |
+| 0.005072 | +0.53% | +6.63% | +24.96% | 30,649 | 11,839 | 971.46 |
 
 ## Last 24h flow
 
-166 trades by 94 coldkeys · 97 buys (732.81 τ) / 69 sells (520.19 τ) · net 212.62 τ
+136 trades by 84 coldkeys · 83 buys (672.93 τ) / 53 sells (297.90 τ) · net 375.03 τ
 
 ## News
 

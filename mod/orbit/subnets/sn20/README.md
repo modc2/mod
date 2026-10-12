@@ -2,7 +2,7 @@
 
 Decentralized models to understand video
 
-Bittensor subnet **20** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **20** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/witnessvision/witness_subnet/) · [url](https://witnessvision.io/) · [discord](https://discord.gg/P2Y93BRYyC)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/witnessvision/witness_subnet/) · [url](https
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002284 | -0.00% | +0.10% | +0.49% | 13,910 | 6,398 | 6.76 |
+| 0.002423 | -0.00% | +6.08% | +6.63% | 14,774 | 6,590 | 2,035 |
 
 ## Last 24h flow
 
-4 trades by 4 coldkeys · 2 buys (5.00 τ) / 2 sells (1.57 τ) · net 3.43 τ
+88 trades by 41 coldkeys · 52 buys (1,114 τ) / 36 sells (920.90 τ) · net 192.96 τ
 
 ## News
 

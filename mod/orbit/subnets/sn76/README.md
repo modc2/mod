@@ -2,7 +2,7 @@
 
 Ormas is an Outcomes API for coding work on Bittensor subnet 76, in development. Clients post a change and the test that proves it; miners quote a firm price for the passing result and deliver a branch. Miners will be paid only when independent validators accept the delivery, and clients will be charged the accepted quote and nothing on a miss. Protocol, thin client, reference miner and reference validator: MIT.
 
-Bittensor subnet **76** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **76** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/heroncovelabs/ormas-subnet) · [url](https://ormas.ai) · discord `ormasheroncovelabs_43871`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/heroncovelabs/ormas-subnet) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004975 | -0.01% | -2.04% | -16.92% | 1,231 | 463.9895 | 8.03 |
+| 0.005290 | -0.05% | +6.33% | -5.53% | 1,347 | 478.4546 | 151.48 |
 
 ## Last 24h flow
 
-5 trades by 4 coldkeys · 3 buys (1.61 τ) / 2 sells (4.52 τ) · net -2.91 τ
+31 trades by 19 coldkeys · 16 buys (82.99 τ) / 15 sells (66.27 τ) · net 16.72 τ
 
 ## News
 
+- 2026-10-11 · commit · [Merge pull request #34 from heroncovelabs/btl/onboarding-register-bef…](https://github.com/heroncovelabs/ormas-subnet/commit/f8ad351e0934a270af6f0f6a9d84bf1d961bcc96) — heroncovelabs/ormas-subnet
+- 2026-10-11 · commit · [Fix miner registration-first onboarding](https://github.com/heroncovelabs/ormas-subnet/commit/4c422ee0a7dcae540015fd20b258159cf7f70f74) — heroncovelabs/ormas-subnet
+- 2026-10-11 · commit · [Merge pull request #33 from heroncovelabs/sync/protected-split-pins-2…](https://github.com/heroncovelabs/ormas-subnet/commit/e4d084ce2d07c1495c526f8bb105c1df1fe10a87) — heroncovelabs/ormas-subnet
+- 2026-10-11 · commit · [Merge pull request #32 from heroncovelabs/sync/protected-pluggable-wo…](https://github.com/heroncovelabs/ormas-subnet/commit/aa8e0ba979bdb11cc5703f077cf6447a8f69262c) — heroncovelabs/ormas-subnet
+- 2026-10-11 · commit · [Sync: compose_hash.py pin-state and transition-policy fixes (f46f6d46…](https://github.com/heroncovelabs/ormas-subnet/commit/22ff0d0e8d3940dde024fd8fd4debf2197a2a6d3) — heroncovelabs/ormas-subnet
+- 2026-10-11 · commit · [Sync from monorepo public_subnet: pinned split shell recipe (docker-c…](https://github.com/heroncovelabs/ormas-subnet/commit/1df6d9a13901e414c6f3274d2ac643a1823e2d0f) — heroncovelabs/ormas-subnet
+- 2026-10-10 · commit · [Sync from monorepo public_subnet: Protected pluggable worker contract…](https://github.com/heroncovelabs/ormas-subnet/commit/bf843fa9fd2817267881fcf1bfd3e502dc95a6b4) — heroncovelabs/ormas-subnet
 - 2026-10-09 · commit · [Pool deliveries: claim-refusal backoff + claim_health(); validator --…](https://github.com/heroncovelabs/ormas-subnet/commit/c9a03f33fc5dbf5cf9a32cea5d1251aba8e8a311) — heroncovelabs/ormas-subnet
-- 2026-10-09 · commit · [chore/requirements lock (#30)](https://github.com/heroncovelabs/ormas-subnet/commit/b3779155e6e4790d762d8899923ca4970d7078b3) — heroncovelabs/ormas-subnet
-- 2026-10-09 · commit · [protected/miner/manifest.json: single admitted compose hash after the…](https://github.com/heroncovelabs/ormas-subnet/commit/d67205b17e8e36bbe6420abd6a17dea83ad0a20f) — heroncovelabs/ormas-subnet
-- 2026-10-09 · commit · [Sync public_subnet: offers SDK, claim-refusal resilience, validator c…](https://github.com/heroncovelabs/ormas-subnet/commit/b6728d782d62f7de19f99248c3ba3c853de68219) — heroncovelabs/ormas-subnet
-- 2026-10-07 · commit · [Sync public_subnet: doctor cells/hotkey/cap, /runners/me, --miner-id,…](https://github.com/heroncovelabs/ormas-subnet/commit/5530cb2d62b006060992c5dd6eb34334b55bbfb3) — heroncovelabs/ormas-subnet
-- 2026-10-06 · commit · [ormas-miner CLI and user-only installer (#25)](https://github.com/heroncovelabs/ormas-subnet/commit/38a02124e987c01ad54534f3e3871d7e3afea61b) — heroncovelabs/ormas-subnet
-- 2026-10-06 · commit · [fix: login confirms the save path and never echoes any part of the key](https://github.com/heroncovelabs/ormas-subnet/commit/b8a17c14be0f635c0f7fd7ff24f9d039588a27ee) — heroncovelabs/ormas-subnet
-- 2026-10-06 · commit · [fix: installer PATH hint without quoted tilde (shellcheck SC2088)](https://github.com/heroncovelabs/ormas-subnet/commit/74ac7601a47451bbc0d07689e30092626ee82798) — heroncovelabs/ormas-subnet
 
 ## Use
 

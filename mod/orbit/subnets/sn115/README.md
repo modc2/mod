@@ -2,7 +2,7 @@
 
 An evolving AIGC Harness for creators & agents.From idea to finished work.
 
-Bittensor subnet **115** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **115** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/moirai115/MoirAI) · [discord](https://discord.com/channels/799672011265015819/1379143301478744064)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/moirai115/MoirAI) · [discord](https://discor
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002293 | -0.00% | +0.47% | -0.89% | 7,474 | 3,329 | 8.27 |
+| 0.002290 | -0.00% | -0.13% | -1.00% | 7,481 | 3,327 | 2.09 |
 
 ## Last 24h flow
 
-2 trades by 1 coldkeys · 2 buys (8.00 τ) / 0 sells (0.00 τ) · net 8.00 τ
+7 trades by 6 coldkeys · 1 buys (0.00 τ) / 6 sells (1.77 τ) · net -1.76 τ
 
 ## Use
 

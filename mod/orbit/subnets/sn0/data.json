@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9257875,
+  "block": 9265081,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6871325.541461071,
-    "tao_in": 5456386.157126865,
-    "alpha_in": 1414939.384334206,
-    "alpha_out": 5456386.157126865,
-    "volume": 58983351.20322032,
-    "vol_24h": 26450.443100623786,
+    "market_cap": 6871534.487792515,
+    "tao_in": 5453110.501441041,
+    "alpha_in": 1418423.986351474,
+    "alpha_out": 5453110.501441041,
+    "volume": 59009468.54487283,
+    "vol_24h": 26117.3416525051,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -145,6 +145,6 @@
       "publisher": "Pluang"
     }
   ],
-  "updated": 1791697261,
-  "updated_day": "2026-10-11"
+  "updated": 1791783661,
+  "updated_day": "2026-10-12"
 }

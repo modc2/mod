@@ -2,7 +2,7 @@
 
 Transforming engineering simulations through machine learning
 
-Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://carbonphysics.ai) · discord `...`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://carb
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.039275 | -1.71% | -5.63% | +1985.29% | 7,559 | 1,936 | 1,035 |
+| 0.036697 | +0.94% | -6.56% | +76.95% | 7,328 | 1,871 | 1,007 |
 
 ## Last 24h flow
 
-148 trades by 64 coldkeys · 79 buys (499.77 τ) / 69 sells (556.31 τ) · net -56.54 τ
+181 trades by 75 coldkeys · 103 buys (454.11 τ) / 78 sells (497.10 τ) · net -42.99 τ
 
 ## News
 
-- 2026-10-11 · commit · [Merge pull request #1059 from carbonphysicsai/codex/feasibility-gate-…](https://github.com/carbonphysicsai/Carbon/commit/cfb60d3d5fdc7c83ecb5ff779470dc5a0856335c) — carbonphysicsai/Carbon
-- 2026-10-11 · commit · [Make public research export LF-stable across platforms](https://github.com/carbonphysicsai/Carbon/commit/3bf5d470791176b8f72aa16d9e2eb24cb9ac62c4) — carbonphysicsai/Carbon
-- 2026-10-11 · commit · [Feasibility-gate results.json: LF, not CRLF](https://github.com/carbonphysicsai/Carbon/commit/7b83f96079c533d683c740acfab115fc8cb890c9) — carbonphysicsai/Carbon
-- 2026-10-11 · commit · [research: measure public feasibility gate trade-offs and selection ca…](https://github.com/carbonphysicsai/Carbon/commit/af92a86737dc732736c184108c1a63f730178b28) — carbonphysicsai/Carbon
-- 2026-10-11 · commit · [Merge pull request #1036 from carbonphysicsai/claude/f02-kit](https://github.com/carbonphysicsai/Carbon/commit/f4c422bdcf5b410fe8da3045ce7203ed92f22452) — carbonphysicsai/Carbon
-- 2026-10-10 · commit · [Merge pull request #1015 from carbonphysicsai/codex/investor-evidence…](https://github.com/carbonphysicsai/Carbon/commit/f1a20813bc8e389f88b4557a69b93957ddb87703) — carbonphysicsai/Carbon
-- 2026-10-10 · commit · [Merge pull request #977 from carbonphysicsai/codex/onboarding-automat…](https://github.com/carbonphysicsai/Carbon/commit/9256c812d6543bd1f4ad5744662fa7235eef5fec) — carbonphysicsai/Carbon
-- 2026-10-10 · commit · [Merge pull request #1008 from carbonphysicsai/claude/la-f19-old-revis…](https://github.com/carbonphysicsai/Carbon/commit/369a626d3d6d15a6be96cdf225c79b29fe3aa4f9) — carbonphysicsai/Carbon
+- 2026-10-12 · commit · [Merge pull request #1032 from carbonphysicsai/agent/battery-torch-pods](https://github.com/carbonphysicsai/Carbon/commit/4d512413d4641f7c588d65547440255cb5fc093d) — carbonphysicsai/Carbon
+- 2026-10-12 · commit · [Merge pull request #1136 from carbonphysicsai/claude/dashboard-02-s1](https://github.com/carbonphysicsai/Carbon/commit/8100b4c24a30b23029d7c742f357deffdf76c81c) — carbonphysicsai/Carbon
+- 2026-10-12 · commit · [Merge pull request #1134 from carbonphysicsai/codex/onboarding-automa…](https://github.com/carbonphysicsai/Carbon/commit/dcbc13d59a049e1d8bdc380d50fe15a9fa25604a) — carbonphysicsai/Carbon
+- 2026-10-12 · commit · [Merge pull request #1132 from carbonphysicsai/claude/git-fixture-main…](https://github.com/carbonphysicsai/Carbon/commit/756bfbb6674a034f5789b55f590414bfd6dd0be3) — carbonphysicsai/Carbon
+- 2026-10-12 · commit · [TORCH-POD-01: hold the fno early refusal on the v1 record; prove serv…](https://github.com/carbonphysicsai/Carbon/commit/3cfeb943b583dbdc216e87b401a5d0950094a740) — carbonphysicsai/Carbon
+- 2026-10-11 · commit · [Merge pull request #1060 from carbonphysicsai/claude/launchpad-level4…](https://github.com/carbonphysicsai/Carbon/commit/3d8694a37b57f4482a23fc51df5a165a157aeb10) — carbonphysicsai/Carbon
+- 2026-10-11 · commit · [Merge pull request #1051 from carbonphysicsai/claude/practice-retry](https://github.com/carbonphysicsai/Carbon/commit/7966a0ae6ab901991792cba937308841e5634023) — carbonphysicsai/Carbon
+- 2026-10-11 · commit · [Merge pull request #1118 from carbonphysicsai/claude/ci-devimage-budget](https://github.com/carbonphysicsai/Carbon/commit/90c1b3a0c88c6f159288b1fec8f1d4972b256de9) — carbonphysicsai/Carbon
 
 ## Use
 

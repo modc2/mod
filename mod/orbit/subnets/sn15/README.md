@@ -2,7 +2,7 @@
 
 AI commerce agents
 
-Bittensor subnet **15** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **15** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/ORO-AI/oro) · [url](https://oroagents.com) · [discord](https://discord.gg/MHqAVWTdka)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/ORO-AI/oro) · [url](https://oroagents.com) �
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.022981 | +0.03% | -1.91% | -7.47% | 52,450 | 14,010 | 602.56 |
+| 0.022571 | +0.03% | -1.79% | -13.10% | 51,720 | 13,933 | 533.07 |
 
 ## Last 24h flow
 
-156 trades by 82 coldkeys · 49 buys (175.40 τ) / 107 sells (366.68 τ) · net -191.28 τ
+100 trades by 51 coldkeys · 20 buys (146.32 τ) / 80 sells (326.56 τ) · net -180.24 τ
 
 ## News
 
+- 2026-10-11 · commit · [Fail the configured Reader's Gemini call over to Gemini 3.7 Flash, th…](https://github.com/ORO-AI/oro/commit/5753a1283dbe38f6b3620e67ee0621583363050c) — ORO-AI/oro
+- 2026-10-11 · release · [v2.4.1](https://github.com/ORO-AI/oro/releases/tag/v2.4.1) — ORO-AI/oro
 - 2026-10-08 · release · [v2.4.0: Prepare runtime 3.5 validator and practice delivery (#367)](https://github.com/ORO-AI/oro/releases/tag/v2.4.0) — ORO-AI/oro
 - 2026-10-08 · commit · [Prepare runtime 3.5 validator and practice delivery (#367)](https://github.com/ORO-AI/oro/commit/db6d80af2f8a749afb502caf5a2542ca5ff381a5) — ORO-AI/oro
 - 2026-10-07 · release · [v2.3.0](https://github.com/ORO-AI/oro/releases/tag/v2.3.0) — ORO-AI/oro
 - 2026-10-07 · commit · [Bind configured Readers to cancellable miner-funded simulator inferen…](https://github.com/ORO-AI/oro/commit/9484727b3f2674dbca49884987cfc91a2058e2c4) — ORO-AI/oro
 - 2026-10-05 · release · [Validator v2.2.0: oro-env-runtime 3.3.0, runtime contract 2 (#362)](https://github.com/ORO-AI/oro/releases/tag/v2.2.0) — ORO-AI/oro
 - 2026-10-03 · release · [Validator v2.1.0: runtime contract on claim and delivery load (#361)](https://github.com/ORO-AI/oro/releases/tag/v2.1.0) — ORO-AI/oro
-- 2026-10-02 · commit · [Validator v2.0.41: per-event market notices, preflight replay parity …](https://github.com/ORO-AI/oro/commit/35fc09ddd49f51d3898e6a26f19c49269c60e1cf) — ORO-AI/oro
-- 2026-10-02 · commit · [chore: remove unused load_problems from subnet.sandbox (#359)](https://github.com/ORO-AI/oro/commit/f3600d1fe6eef8c5476c491bf44df0736c8557f1) — ORO-AI/oro
 
 ## Use
 

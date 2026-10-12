@@ -2,7 +2,7 @@
 
 The peer to peer privacy network and encryption layer for the internet
 
-Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) · discord `xcolwell`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) ·
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006314 | +0.00% | -1.10% | -5.61% | 38,832 | 12,866 | 1,238 |
+| 0.006364 | +0.00% | +0.80% | -7.03% | 39,195 | 12,924 | 389.59 |
 
 ## Last 24h flow
 
-133 trades by 91 coldkeys · 27 buys (569.34 τ) / 106 sells (653.87 τ) · net -84.53 τ
+50 trades by 34 coldkeys · 25 buys (216.73 τ) / 25 sells (168.31 τ) · net 48.42 τ
 
 ## News
 
+- 2026-10-12 · commit · [Merge the native gap bridge's head EMA census update](https://github.com/urfoundation/sn/commit/24763c8e29a68c2a39cea8e4ded5aae7535e686e) — urfoundation/sn
+- 2026-10-12 · commit · [Count the native gap bridge in the head EMA owner field census](https://github.com/urfoundation/sn/commit/fe895756c1883535dcde9be16a14fad97b8a3100) — urfoundation/sn
+- 2026-10-12 · commit · [Merge the native gap bridge for missed native epochs](https://github.com/urfoundation/sn/commit/75923e2f1e7943e321b6ae83c10ee6740e849d07) — urfoundation/sn
+- 2026-10-12 · commit · [Admit one pinned native gap edge so the validator resumes after misse…](https://github.com/urfoundation/sn/commit/246210928b8c53677fd7433b8a4e522c16f372fa) — urfoundation/sn
+- 2026-10-11 · commit · [Merge the retained return bound's provider settings guard](https://github.com/urfoundation/sn/commit/e87c89364334a4bae061fc0665f43c31410a18d8) — urfoundation/sn
+- 2026-10-11 · release · [v2026.10.10-1068958850](https://github.com/urfoundation/sn/releases/tag/v2026.10.10-1068958850) — urfoundation/sn
+- 2026-10-11 · commit · [Test that every launched provider keeps the retained ACK bound](https://github.com/urfoundation/sn/commit/f4d94f3c5d4bf853ec0cd30883bc56c35d14ef7b) — urfoundation/sn
 - 2026-10-10 · release · [v2026.10.10-1068748650](https://github.com/urfoundation/sn/releases/tag/v2026.10.10-1068748650) — urfoundation/sn
-- 2026-10-10 · commit · [Merge plain db migrate docs now that sn is live](https://github.com/urfoundation/sn/commit/56f44577063304dcd81dc82dd1319dd4d3f942b8) — urfoundation/sn
-- 2026-10-10 · commit · [Use plain db migrate in the launch steps now that sn is live](https://github.com/urfoundation/sn/commit/2720c5dfa1be1959c4fb9a9f0b006258e99ed056) — urfoundation/sn
-- 2026-10-10 · commit · [Merge seeding validator trails from every online provider](https://github.com/urfoundation/sn/commit/7822a4e8955448b5b875204a2b9cef04d2023801) — urfoundation/sn
-- 2026-10-10 · commit · [Merge the validator trail probe](https://github.com/urfoundation/sn/commit/94b0ab678e6e9706801e289ddab38b835d079383) — urfoundation/sn
-- 2026-10-10 · release · [v2026.10.10-1068595480](https://github.com/urfoundation/sn/releases/tag/v2026.10.10-1068595480) — urfoundation/sn
-- 2026-10-10 · release · [v2026.10.10-1068549930](https://github.com/urfoundation/sn/releases/tag/v2026.10.10-1068549930) — urfoundation/sn
-- 2026-10-10 · release · [v2026.10.10-1068404160](https://github.com/urfoundation/sn/releases/tag/v2026.10.10-1068404160) — urfoundation/sn
 
 ## Use
 

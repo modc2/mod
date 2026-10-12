@@ -2,7 +2,7 @@
 
 Every frame gets craft
 
-Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-11 (block 9257875).
+Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
 
 Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url](https://everyframe.studio/) · [discord](https://discord.com/channels/799672011265015819/1544011415692644444)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002623 | -0.00% | -1.13% | -3.94% | 7,995 | 2,928 | 16.64 |
+| 0.002747 | -0.00% | +4.73% | +0.20% | 8,385 | 2,997 | 243.85 |
 
 ## Last 24h flow
 
-7 trades by 6 coldkeys · 0 buys (0.00 τ) / 7 sells (16.17 τ) · net -16.17 τ
+50 trades by 25 coldkeys · 26 buys (156.20 τ) / 24 sells (87.06 τ) · net 69.14 τ
 
 ## News
 
-- 2026-10-09 · commit · [fix: standardize EveryFrame branding](https://github.com/everyframe-studio/everyframe-miner/commit/62193e6627bfb139bfea5c9817a85498e2ab23bf) — everyframe-studios/everyframe-miner
-- 2026-10-08 · commit · [Merge pull request #7 from everyframe-studios/feat/all-video-durations](https://github.com/everyframe-studios/everyframe-miner/commit/118cd0be783639a7e80e330af320e43844d71452) — everyframe-studios/everyframe-miner
-- 2026-10-08 · commit · [feat: support variable video durations in attested workers](https://github.com/everyframe-studios/everyframe-miner/commit/5a0fc40219a2ef0029b85e7d6d8648b1f93658f1) — everyframe-studios/everyframe-miner
-- 2026-10-02 · release · [everycli v0.2.3](https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.3) — everyframe-studios/everyframe-miner
-- 2026-10-02 · commit · [Merge pull request #6 from everyframe-studios/release/everycli-v0.2.3](https://github.com/everyframe-studios/everyframe-miner/commit/38a9a5e279a23077be220ceb41f2821ffbad750a) — everyframe-studios/everyframe-miner
-- 2026-10-02 · commit · [chore: release everycli v0.2.3](https://github.com/everyframe-studios/everyframe-miner/commit/7fcd9caafcf467648ba9bdd674bc1e1266e24a85) — everyframe-studios/everyframe-miner
-- 2026-10-02 · commit · [Merge pull request #5 from everyframe-studios/fix/actionable-readines…](https://github.com/everyframe-studios/everyframe-miner/commit/6b476d37c0a41aaca2cac795531171d29419ff90) — everyframe-studios/everyframe-miner
-- 2026-10-02 · commit · [fix: replace approval catch-all with actionable readiness diagnostics](https://github.com/everyframe-studios/everyframe-miner/commit/e36e0e4a4de43a0360214730f2ee39ff26495df9) — everyframe-studios/everyframe-miner
+- 2026-10-12 · release · [everycli v0.3.2](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.2) — everyframe-studios/everyframe-miner
+- 2026-10-12 · commit · [feat(cli): show update download progress with JSON opt-in (#14)](https://github.com/everyframe-studio/everyframe-miner/commit/9e627ec2f2dd2f29c82cfc65d06214b589d5f220) — everyframe-studios/everyframe-miner
+- 2026-10-12 · release · [everycli v0.3.1](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.1) — everyframe-studios/everyframe-miner
+- 2026-10-12 · commit · [fix(cli): polish diagnostics, key management and setup guidance for v…](https://github.com/everyframe-studio/everyframe-miner/commit/f1c067f187b9c241a6a812bded7bac6978770e2c) — everyframe-studios/everyframe-miner
+- 2026-10-11 · release · [everycli v0.3.0](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.0) — everyframe-studios/everyframe-miner
+- 2026-10-11 · commit · [feat(cli): guided setup, command help, and actionable diagnostics (#12)](https://github.com/everyframe-studio/everyframe-miner/commit/e642060732aa52ff41fdc97b521288f46e65490d) — everyframe-studios/everyframe-miner
+- 2026-10-11 · release · [everycli v0.2.5](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.2.5) — everyframe-studios/everyframe-miner
+- 2026-10-11 · commit · [fix: migrate everycli downloads to everyframe-studio (#11)](https://github.com/everyframe-studio/everyframe-miner/commit/f217f8b0e3e3d6164131b97c89fc5b8877af1f41) — everyframe-studios/everyframe-miner
 
 ## Use
 
