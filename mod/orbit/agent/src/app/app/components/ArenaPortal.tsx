@@ -29,6 +29,9 @@ const ARENA = DEV ? 'http://localhost:50470' : ''
 const ARENA_API = DEV ? ARENA : '/arena/api'
 const SRC = `${ARENA}/arena?portal`
 const VIEW_KEY = 'agent_arena_view'
+// set by a /g/<name> page's "play in console": a game to open on arrival
+const GO_KEY = 'agent_arena_go'
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '/agent'
 
 // the console's skins, said in the arena's palette names
 const THEME_MAP: Record<string, string> = {
@@ -178,9 +181,14 @@ export default function ArenaPortal({ auth, theme, onSignIn, onSignOut }: Props)
       switch (m.type) {
         case 'arena-ready': {
           setReady(true); setSlow(false)
-          let last: string | null = null
-          try { last = localStorage.getItem(VIEW_KEY) } catch {}
-          if (last && last !== 'lobby' && SECTIONS.some(s => s.id === last)) go(last)
+          let last: string | null = null, pending: string | null = null
+          try {
+            last = localStorage.getItem(VIEW_KEY)
+            pending = localStorage.getItem(GO_KEY)
+            if (pending) localStorage.removeItem(GO_KEY)
+          } catch {}
+          if (pending) go(pending)
+          else if (last && last !== 'lobby' && SECTIONS.some(s => s.id === last)) go(last)
           else if (m.view) setView(m.view)
           break
         }
@@ -229,7 +237,9 @@ export default function ArenaPortal({ auth, theme, onSignIn, onSignOut }: Props)
 
         {stats && (
           <div className="ap-stats">
-            <Stat n={stats.games} label="games" />
+            <a href={`${BASE}/g`} title="every game, a page each" className="contents">
+              <Stat n={stats.games} label="games" />
+            </a>
             <Stat n={stats.ranked} label="ranked" />
             <Stat n={stats.matches} label="matches" />
           </div>

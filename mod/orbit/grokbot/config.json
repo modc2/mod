@@ -20,7 +20,7 @@
         "keys": "https://console.x.ai"
     },
     "backend": "python stdlib only (http.server + urllib) \u2014 no dependencies",
-    "frontend": "console.html \u2014 the sign-in gate, key, bots, chat, the runs board; served at /grokbot",
+    "frontend": "console.html \u2014 a self-checking GET SET UP stepper (wallet, xAI key, bot, first chat) + SETUP guide with CLI/MCP/self-host recipes, key, bots, chat, the runs board; served at /grokbot",
     "state": "~/.mod/grokbot \u2014 users/<address>.json (0600, xAI key + bots), key.json (the operator's fallback key), owner.json. Nothing private is ever written into this repo.",
     "auth": {
         "signin": "mod-protocol token \u2014 personal_sign over {data,time}, minted by the wallet in the console or by m.mod('auth')().token({})",

@@ -23,13 +23,17 @@ import shutil
 import subprocess
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-TEMPLATES = os.path.join(HERE, 'templates')
+# src/ is the implementation dir; contract submods live one level up at the
+# module root (orbit/cairo/<name>/), so every path is anchored on ROOT.
+SRC = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(SRC)
+TEMPLATES = os.path.join(SRC, 'templates')
+SERVER = os.path.join(SRC, 'api', 'server.py')
 BIN = os.path.expanduser('~/.local/bin')
 
 # dirs that are part of the module itself, never a contract submod
-RESERVED = {'templates', 'api', 'app', 'releases', 'dist', 'node_modules',
-            '__pycache__', '.git'}
+RESERVED = {'src', 'templates', 'api', 'app', 'releases', 'dist',
+            'node_modules', '__pycache__', '.git'}
 
 CAIRO_SYSTEM_PROMPT = (
     "You are a Cairo smart-contract engineer working inside a single Scarb "
@@ -74,8 +78,8 @@ class Mod:
         "A Cairo/Starknet ZK contract workbench: scaffold, vibecode, build and "
         "snforge-test Cairo 2 contracts, each one its own submod. Thin stdlib "
         "orchestration over scarb 2.8.4 + starknet-foundry 0.31.")
-    path = HERE
-    config = json.load(open(os.path.join(HERE, 'config.json')))
+    path = ROOT
+    config = json.load(open(os.path.join(ROOT, 'config.json')))
     port = config['port']
     base = config['base_path']
 
@@ -386,64 +390,23 @@ class Mod:
                            for c in self._catalog()}
         return s
 
-    # ---- optional HTTP server ----------------------------------------------
+    # ---- HTTP server (src/api/server.py) ------------------------------------
 
-    def serve(self, port=None, background=False):
-        """Run a tiny stdlib JSON API: GET /health,/status and
-        POST /cairo/<fn> with a JSON body of kwargs."""
+    def serve(self, port=None, background=True):
+        """Run the API + console (src/api/server.py) on the module port:
+        /cairo = app, /cairo/api/<fn> = protocol API, /cairo/_api/<fn> = the
+        app's self-calls. background=False runs it in the foreground."""
         port = int(port or self.port)
-        if background:
-            proc = subprocess.Popen(
-                [sys.executable, os.path.join(HERE, 'mod.py'), 'serve',
-                 str(port)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=HERE)
-            return {'pid': proc.pid, 'port': port,
-                    'api': f'http://localhost:{port}/'}
-        self._http(port)
-
-    def _http(self, port):
-        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-        mod = self
-
-        class H(BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def _send(self, obj, code=200):
-                body = json.dumps(obj, default=str).encode()
-                self.send_response(code)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def do_GET(self):
-                p = self.path.split('?')[0].rstrip('/')
-                if p in ('', '/health'):
-                    return self._send(mod.health())
-                if p == '/status':
-                    return self._send(mod.status())
-                if p in ('/info', mod.base, mod.base + '/info'):
-                    return self._send(mod.info())
-                return self._send({'error': 'not found'}, 404)
-
-            def do_POST(self):
-                fn = self.path.split('?')[0].rstrip('/').split('/')[-1]
-                if fn not in mod.config['fns'] or fn in ('serve', 'kill'):
-                    return self._send({'error': f'unknown fn {fn!r}'}, 404)
-                n = int(self.headers.get('Content-Length') or 0)
-                try:
-                    kw = json.loads(self.rfile.read(n) or b'{}')
-                except Exception:  # noqa: BLE001
-                    kw = {}
-                try:
-                    return self._send(getattr(mod, fn)(**kw))
-                except Exception as e:  # noqa: BLE001
-                    return self._send({'error': str(e)}, 400)
-
-        srv = ThreadingHTTPServer(('0.0.0.0', port), H)
-        print(f'cairo api on http://localhost:{port}/  (POST {mod.base}/<fn>)')
-        srv.serve_forever()
+        cmd = [sys.executable, SERVER, str(port)]
+        if not background:
+            os.execv(sys.executable, cmd)
+        self.kill(port)
+        log = open(os.path.join(ROOT, 'server.log'), 'a')
+        proc = subprocess.Popen(cmd, stdout=log, stderr=log, cwd=ROOT,
+                                start_new_session=True)
+        return {'pid': proc.pid, 'port': port,
+                'app': f'http://localhost:{port}{self.base}',
+                'api': f'http://localhost:{port}{self.base}/api'}
 
     def kill(self, port=None):
         port = int(port or self.port)
@@ -455,6 +418,7 @@ class Mod:
 if __name__ == '__main__':
     m = Mod()
     if len(sys.argv) > 1 and sys.argv[1] == 'serve':
-        m.serve(port=sys.argv[2] if len(sys.argv) > 2 else None)
+        m.serve(port=sys.argv[2] if len(sys.argv) > 2 else None,
+                background=False)
     else:
         print(json.dumps(m.status(), indent=2, default=str))

@@ -2,3 +2,11 @@
 **/target/
 **/.snfoundry_cache/
 __pycache__/
+# console build output + runtime
+src/app/node_modules/
+src/app/.next/
+src/app/.next-dev/
+src/app/out/
+src/dist
+src/releases/
+server.log

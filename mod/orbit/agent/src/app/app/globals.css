@@ -1743,6 +1743,7 @@ g:hover > .builder-wire {
 .ap-stat { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
 .ap-stat b { font-family: var(--mono); font-size: 13px; font-weight: 700; color: rgb(var(--g-100)); font-variant-numeric: tabular-nums; }
 .ap-stat i { font-style: normal; font-family: var(--chrome); font-size: 9px; text-transform: uppercase; letter-spacing: .14em; color: rgb(var(--g-600)); }
+.ap-stats a:hover .ap-stat i { color: rgb(var(--g-300)); }
 
 .ap-act {
   display: inline-flex; align-items: center; white-space: nowrap;

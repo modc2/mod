@@ -35,10 +35,14 @@ m cairo/test name=counter
 
 ```
 orbit/cairo/
-├── config.json          module manifest (lists submods, fns, toolchain)
-├── mod.py               the anchor: new / vibe / build / test / ...
+├── config.json          module manifest (anchor = src/mod.py)
 ├── README.md
-├── templates/           the scaffold: Scarb.toml, src/lib.cairo, tests/
+├── src/                 the module's implementation (not a submod)
+│   ├── mod.py           the anchor: new / vibe / build / test / ...
+│   ├── api/server.py    stdlib HTTP server: protocol API + jobs + console
+│   ├── app/             Next.js 14 console (static export, basePath /cairo)
+│   ├── build.sh         build the console -> src/releases/<ts>, flip src/dist
+│   └── templates/       the scaffold: Scarb.toml, src/lib.cairo, tests/
 └── counter/             ← an example contract SUBMOD
     ├── config.json      submod manifest ("submod_of": "cairo")
     ├── Scarb.toml
@@ -90,18 +94,35 @@ loop. When the CLI returns, `vibe` re-runs `build` and `test` itself (unless
 `verify=false`) so the result object carries proof the change compiles and
 passes. It uses the host Claude OAuth credentials and **spends against them**.
 
-## HTTP API (optional)
+## App + API (mod protocol)
+
+One stdlib Python process on :51291 serves both halves:
+
+| URL | what |
+|-----|------|
+| `/cairo` | the console: contract list, file editor, build/test, vibecode |
+| `/cairo/api/<fn>` | the protocol API (canonical; bare `/<fn>` also works since the gateway strips the prefix) |
+| `/api/cairo/<fn>` | legacy alias of the same API |
+| `/cairo/_api/<fn>` | the app's own self-calls, mapped onto the same handlers |
+
+GET takes query params, POST a JSON body of kwargs. `build`, `test`, `vibe`
+and `status` also take `"async": true` and return a job, polled with
+`GET /cairo/api/job?id=` (`/jobs` lists recent ones). The console uses that, so
+a multi-minute vibe never hangs on an HTTP timeout. Two runs on the same contract
+queue behind a per-contract lock instead of overlapping.
 
 ```sh
-m cairo/serve background=true          # :51291
-curl localhost:51291/health
-curl localhost:51291/status
-curl -XPOST localhost:51291/cairo/new  -d '{"name":"token"}'
-curl -XPOST localhost:51291/cairo/test -d '{"name":"token"}'
+bash src/build.sh                       # build the console (once, or after app edits)
+m cairo/serve                           # background on :51291 (log: server.log)
+curl localhost:51291/cairo/api/list
+curl -XPOST localhost:51291/cairo/api/new  -d '{"name":"token"}'
+curl -XPOST localhost:51291/cairo/api/test -d '{"name":"token","async":true}'
+curl 'localhost:51291/cairo/api/job?id=<id>'
 ```
 
-`route` is `false` by default — this is a local dev tool, not a public app. Flip
-it and `m caddy/apply` to expose it.
+The server binds `127.0.0.1` (set `CAIRO_HOST` to widen) and has no auth, and
+`route` stays `false`: `write` and `vibe` edit files and spend the host Claude
+account, so it must not be reachable from the internet as it stands.
 
 ## Safety / scope
 

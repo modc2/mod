@@ -1341,6 +1341,27 @@ def test_each_game_and_each_agent_has_its_own_page(arena):
         assert marker in r.text, path
 
 
+def test_each_game_page_is_also_its_own_mcp_server(arena):
+    # <page>/mcp is the same per-module server as /m/<name>/mcp: a table opened
+    # at one door is played at the other.
+    name = get(arena, '/modules')[1]['modules'][0]['name']
+    page_mcp = f'/arena/game/{name}/mcp'
+    _, out = post(arena, page_mcp, {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'})
+    tools = {t['name'] for t in out['result']['tools']}
+    assert 'about' in tools
+    r = requests.get(f'{arena}{page_mcp}', timeout=30)
+    assert r.status_code == 405 and r.json()['page'] == f'/arena/game/{name}'
+    assert requests.get(f'{arena}/arena/game/nope-nope/mcp', timeout=30).status_code == 404
+    games = [m for m in get(arena, '/modules')[1]['modules'] if m['role'] == 'game']
+    if games:
+        g = games[0]['name']
+        call = lambda path, tool, args: post(arena, path, {
+            'jsonrpc': '2.0', 'id': 2, 'method': 'tools/call',
+            'params': {'name': tool, 'arguments': args}})[1]['result']['structuredContent']
+        table = call(f'/arena/game/{g}/mcp', 'open', {'seed': 7})['table']
+        assert call(f'/m/{g}/mcp', 'state', {'table': table})['table'] == table
+
+
 def test_an_agent_card_follows_the_agent_protocol(arena):
     # A seat is known here even when the agent module is not reachable: the
     # card still answers — the protocol schema (or null and the error said)

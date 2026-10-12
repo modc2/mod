@@ -125,6 +125,24 @@ async fn game_page() -> Html<&'static str> {
     Html(GAME_HTML)
 }
 
+/// A GET on an MCP endpoint is somebody looking, not a client talking: say how
+/// to connect and what is on offer, rather than a bare 405.
+async fn game_mcp_get(Path(id): Path<String>) -> Response {
+    match modmcp::module_of(&id) {
+        Ok(m) => (
+            StatusCode::METHOD_NOT_ALLOWED,
+            Json(json!({
+                "error": "this is an MCP server — POST JSON-RPC 2.0 messages here (Streamable HTTP)",
+                "module": m.name, "role": m.role, "id": m.id,
+                "page": format!("/arena/game/{}", m.name),
+                "tools": modmcp::tools_for(&m.role),
+            })),
+        )
+            .into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
 async fn agent_profile_page() -> Html<&'static str> {
     Html(AGENT_HTML)
 }
@@ -705,6 +723,11 @@ pub async fn serve(port: u16) {
         .route("/arena/whitepaper", get(whitepaper_page))
         .route("/arena/agents", get(agents_page))
         .route("/arena/game/:id", get(game_page))
+        // The game's own MCP server, at its page's address: the page is where a
+        // person plays it, <page>/mcp is where an agent does. Same server as
+        // /m/<name>/mcp — one table store, so either door reaches the other's tables.
+        .route("/arena/game/:id/mcp", post(module_mcp).get(game_mcp_get))
+        .route("/arena/game/:id/tools", get(module_tools))
         .route("/arena/agent/:id", get(agent_profile_page))
         .merge(api_routes())
         // The console lives at /arena in both worlds and always calls

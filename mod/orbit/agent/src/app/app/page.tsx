@@ -640,6 +640,8 @@ export default function Home() {
       if (pane === 'chats' || pane === 'agents') setRailPane(pane)
       const hp = localStorage.getItem('agent_hub_pane')
       if (hp === 'agents' || hp === 'library' || hp === 'tasks') setHubPane(hp)
+      // a game page's "play in console" — ArenaPortal consumes the key
+      if (localStorage.getItem('agent_arena_go')) setView('arena')
       const mw = Number(localStorage.getItem('agent_market_w'))
       if (mw >= 220) setMarketWidth(mw)
       // open on a first visit — collapsed only if it was collapsed on purpose.

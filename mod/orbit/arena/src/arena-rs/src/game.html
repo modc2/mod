@@ -10,6 +10,7 @@
     --fg: #d7e2ec; --dim: #7d8fa1; --accent: #55e0c8; --bad: #ff7a86;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh;
     font: 14px/1.5 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
@@ -53,6 +54,30 @@
   p.desc { margin: 0; white-space: pre-wrap; }
   #err { color: var(--bad); padding: 14px; display: none; }
   .tw { overflow-x: auto; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  select, input[type=text], button {
+    font: inherit; font-size: 13px; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.go { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
+  button.go:hover:not(:disabled) { color: var(--bg); filter: brightness(1.1); }
+  input[type=text] { flex: 1; min-width: 140px; }
+  .label { color: var(--dim); font-size: 12px; }
+  #p-view { min-height: 120px; font-size: 14px; line-height: 1.45; }
+  #p-legal { margin: 8px 0; }
+  #p-legal button { min-width: 38px; }
+  #p-status { margin: 8px 0; }
+  #p-status.turn { color: var(--accent); font-weight: 700; }
+  #p-log { max-height: 180px; overflow: auto; font-size: 12px; color: var(--dim); margin-top: 8px; }
+  #p-log div { padding: 2px 0; border-bottom: 1px dashed var(--line); }
+  .ep { display: flex; gap: 8px; align-items: center; }
+  .ep code { flex: 1; overflow-x: auto; white-space: nowrap; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--accent); }
+  .tools-list { margin-top: 10px; font-size: 12px; }
+  .tools-list div { padding: 3px 0; }
+  .tools-list b { color: var(--fg); }
   footer { color: var(--dim); font-size: 11px; text-align: center; padding: 8px 0 18px; }
   @media (max-width: 700px) { header .sub { display: none; } header h1 { max-width: 100%; } }
 </style>
@@ -80,6 +105,33 @@
     <div class="chips" id="chips"></div>
   </section>
   <section class="card">
+    <h2>PLAY</h2>
+    <div class="row">
+      <span class="label">you are seat</span><select id="p-seat"></select>
+      <span class="label">against</span><select id="p-opp"></select>
+      <button class="go" id="p-new">new game</button>
+    </div>
+    <div id="p-status" class="dim">pick an opponent and start — the table is opened on this game's MCP server</div>
+    <pre id="p-view" hidden></pre>
+    <div class="row" id="p-legal"></div>
+    <div class="row" id="p-input" hidden>
+      <input type="text" id="p-move" placeholder="your move, as the view asks for it" autocomplete="off">
+      <button id="p-send">move</button>
+    </div>
+    <div id="p-log"></div>
+  </section>
+  <section class="card">
+    <h2>MCP SERVER</h2>
+    <p class="desc dim" style="margin-bottom:10px">This game is its own MCP server. Point any agent at it: <b>open</b> a table, <b>view</b> a seat, <b>move</b>. Tables opened here and there are the same tables.</p>
+    <div class="ep"><code id="mcp-url"></code><button id="mcp-copy">copy</button></div>
+    <div class="ep" style="margin-top:8px"><code id="mcp-cli"></code><button id="mcp-cli-copy">copy</button></div>
+    <div class="tools-list" id="mcp-tools"></div>
+    <details style="margin-top:10px"><summary>JSON CONFIG · REST</summary>
+      <pre id="mcp-json"></pre>
+      <div class="tw" style="margin-top:8px"><table><tbody id="api"></tbody></table></div>
+    </details>
+  </section>
+  <section class="card">
     <h2>LEADERBOARD</h2>
     <div class="tw"><table><thead><tr>
       <th></th><th>player</th><th>kind</th><th>elo</th><th>matches</th><th>w/d/l</th><th>avg score</th>
@@ -91,10 +143,6 @@
       <th>when</th><th>seats</th><th>score</th><th>result</th>
     </tr></thead><tbody id="matches"></tbody></table></div>
   </section>
-  <section class="card">
-    <h2>PLAY IT</h2>
-    <div class="tw"><table><tbody id="api"></tbody></table></div>
-  </section>
   <section class="card" id="src-card" hidden>
     <h2>SOURCE</h2>
     <details><summary>show</summary><pre id="src"></pre></details>
@@ -103,7 +151,7 @@
     <details><summary>REGISTRY RECORD</summary><pre id="record"></pre></details>
   </section>
 </main>
-<footer>every game is its own board — a page of the arena</footer>
+<footer>every game is its own page and its own MCP server</footer>
 <script>
 "use strict";
 // /arena/game/<id> → ROOT=/arena, API=/arena/api. The same arithmetic holds
@@ -156,17 +204,29 @@ async function load() {
     chip("id", (g.id || "").slice(0, 12)),
   ].filter(Boolean));
 
-  // The game's own MCP server and the doors a player or a script comes in by.
+  // The game's own MCP server lives at this page's address + /mcp.
+  GAME = g;
+  MCP = `${ROOT}/game/${encodeURIComponent(g.name)}/mcp`;
+  const url = location.origin + MCP;
+  const slug = `arena-${g.name}`.replace(/[^A-Za-z0-9_-]/g, "-");
+  $("mcp-url").textContent = url;
+  $("mcp-cli").textContent = `claude mcp add --transport http ${slug} ${url}`;
+  $("mcp-json").textContent = JSON.stringify({ mcpServers: { [slug]: { type: "http", url } } }, null, 2);
+  copyBtn("mcp-copy", () => url);
+  copyBtn("mcp-cli-copy", () => $("mcp-cli").textContent);
   const api = (how, what) => el("tr", {}, [
     td({ className: "dim", style: "white-space:nowrap" }, how),
     td({}, el("code", { textContent: what })),
   ]);
   $("api").replaceChildren(
-    api("its own MCP server", `POST ${ROOT}/api/m/${g.name}/mcp`),
-    api("its tools", `GET ${ROOT}/api/m/${g.name}/tools`),
+    api("its tools", `GET ${ROOT}/game/${g.name}/tools`),
+    api("also served at", `POST ${ROOT}/api/m/${g.name}/mcp`),
     api("run a match", `POST ${ROOT}/api/run {"game": "${g.name}", "players": ["a", "b"]}`),
     api("this board", `GET ${ROOT}/api/leaderboard?game=${g.name}`),
   );
+  rpc("tools/list", {}).then((r) => $("mcp-tools").replaceChildren(...(r.tools || []).map((t) =>
+    el("div", {}, [el("b", { textContent: t.name }), " — ", el("span", { className: "dim", textContent: (t.description || "").split(/(?<=\.)\s/)[0] })]))))
+    .catch((e) => $("mcp-tools").replaceChildren(el("div", { className: "bad", textContent: `tools/list: ${e.message}` })));
 
   if (g.source && g.lang !== "wasm") {
     $("src-card").hidden = false;
@@ -194,6 +254,8 @@ async function load() {
     td({ className: "n" }, String(p.avg_score ?? "")),
   ])) : [el("tr", {}, td({ className: "dim", colSpan: 7 }, "nobody has played this game yet"))]));
 
+  setupPlay(g, rows).catch(fail);
+
   $("matches").replaceChildren(...((matches.matches || []).length ? matches.matches.map((m) => {
     const seats = m.seats || [];
     const best = Math.max(...seats.map((s) => s.score));
@@ -205,6 +267,182 @@ async function load() {
       td({ className: "dim" }, seats.length <= 1 ? "—" : winners.length === seats.length ? "draw" : `${winners.map((s) => s.player_name).join(", ")} won`),
     ]);
   }) : [el("tr", {}, td({ className: "dim", colSpan: 4 }, "no matches on record"))]));
+}
+
+// ---------------------------------------------------------------- MCP + PLAY
+let GAME = null, MCP = "", rpcId = 0;
+
+function copyBtn(id, text) {
+  $(id).onclick = async () => {
+    try { await navigator.clipboard.writeText(text()); $(id).textContent = "copied"; }
+    catch { $(id).textContent = "select + copy"; }
+    setTimeout(() => { $(id).textContent = "copy"; }, 1400);
+  };
+}
+
+async function rpc(method, params) {
+  const r = await fetch(MCP, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
+  });
+  const out = await r.json().catch(() => ({ error: { message: `${r.status} from the MCP server` } }));
+  if (out.error) throw new Error(out.error.message || String(out.error));
+  return out.result;
+}
+
+// One tool call on this game's own MCP server — the page plays through the
+// same door an agent does.
+async function tool(name, args) {
+  const res = await rpc("tools/call", { name, arguments: args });
+  const text = res?.content?.[0]?.text || "";
+  if (res?.isError) throw new Error(text || `${name} failed`);
+  return res.structuredContent ?? JSON.parse(text || "{}");
+}
+
+// Opponents a tab can actually seat: wasm (and Rust classes, which run as
+// wasm) execute right here; model / agent / mcp / http seats are asked through
+// the server. A Python class needs a python process, which a tab has not got.
+let runtime = null;
+const RUNNABLE = new Set(["wasm", "model", "agent_mod", "mcp", "http"]);
+let OPPS = [];
+
+async function setupPlay(g, board) {
+  const seats = Math.max(1, Number(g.min_players) || 2);
+  $("p-seat").replaceChildren(...Array.from({ length: seats }, (_, i) =>
+    el("option", { value: String(i), textContent: String(i) })));
+
+  const [players, mods] = await Promise.all([
+    call("/players").catch(() => ({ players: [] })),
+    call("/modules").catch(() => ({ modules: [] })),
+  ]);
+  const byId = new Map((players.players || players || []).map((p) => [p.id, p]));
+  const lang = new Map((mods.modules || mods || []).map((m) => [m.id, m.lang]));
+  OPPS = board.map((r) => ({ ...(byId.get(r.id) || {}), ...r }))
+    .filter((p) => RUNNABLE.has(p.kind) || (p.kind === "class" && lang.get(p.module) === "rust"));
+  const tag = (p) => p.kind === "wasm" || p.kind === "class" ? "" : " · asks the server, slower";
+  $("p-opp").replaceChildren(
+    ...OPPS.map((p, i) => el("option", { value: String(i), textContent: `${p.name} (elo ${p.elo}${tag(p)})` })),
+    el("option", { value: "self", textContent: "nobody — I play every seat" }),
+  );
+  const firstLocal = OPPS.findIndex((p) => p.kind === "wasm" || p.kind === "class");
+  $("p-opp").value = firstLocal >= 0 ? String(firstLocal) : "self";
+  $("p-new").onclick = () => newGame().catch(playFail);
+  $("p-send").onclick = () => submit($("p-move").value);
+  $("p-move").onkeydown = (e) => { if (e.key === "Enter") submit($("p-move").value); };
+}
+
+let T = null;           // the table in play
+let waiting = null;     // resolves the human's pending move
+
+function status(text, turn = false) {
+  $("p-status").textContent = text;
+  $("p-status").className = turn ? "turn" : "dim";
+}
+function log(text) {
+  $("p-log").prepend(el("div", { textContent: text }));
+}
+function playFail(e) {
+  status(e.message || String(e));
+  $("p-status").className = "bad";
+  $("p-new").disabled = false;
+}
+
+async function newGame() {
+  if (waiting) waiting.reject(new Error("abandoned"));
+  const run = {};
+  T = run;
+  $("p-new").disabled = true;
+  $("p-log").replaceChildren();
+  status("opening a table on the MCP server…");
+  const you = Number($("p-seat").value) || 0;
+  const pick = $("p-opp").value;
+  const opp = pick === "self" ? null : OPPS[Number(pick)];
+
+  const opened = await tool("open", {});
+  Object.assign(run, { table: opened.table, seats: opened.seats, state: opened.state, you, drivers: {} });
+  log(`table ${opened.table} · seed ${opened.seed}`);
+  if (opp) {
+    runtime ??= await import(`${API}/runtime/match.mjs`);
+    const api = runtime.makeApi(API);
+    for (let s = 0; s < run.seats; s++) {
+      if (s === you) continue;
+      run.drivers[s] = await runtime.driverFor(opp, { api, seed: opened.seed + s, answer: run.state?.info?.answer || "" });
+    }
+  }
+  $("p-new").disabled = false;
+  await loop(run);
+}
+
+async function loop(run) {
+  while (T === run && !run.state.done) {
+    const active = (run.state.active || []).map(Number);
+    const moves = {};
+    for (const seat of active) {
+      const view = run.state.views?.[seat] ?? run.state.views?.[String(seat)] ?? "";
+      const d = run.drivers[seat];
+      if (d) {
+        status(`seat ${seat} is thinking…`);
+        const r = await d.move(view, seat);
+        moves[seat] = String(r.move ?? "");
+      } else {
+        moves[seat] = await askHuman(view, seat, active.length > 1);
+      }
+      if (T !== run) return;
+    }
+    const res = active.length === 1
+      ? await tool("move", { table: run.table, seat: active[0], move: moves[active[0]] })
+      : await tool("move", { table: run.table, moves });
+    if (T !== run) return;
+    log(res.note || Object.entries(res.played || moves).map(([s, m]) => `seat ${s} plays ${m}`).join(" · ")
+      + (res.legal === false ? " — illegal" : ""));
+    run.state = res.state || run.state;
+  }
+  if (T !== run) return;
+  finish(run);
+}
+
+function askHuman(view, seat, simultaneous) {
+  showView(view);
+  const hot = Object.keys(T.drivers).length === 0;
+  status(hot || simultaneous ? `seat ${seat} to move` : "your move", true);
+  const m = /legal moves?\s*:\s*([^\n]+)/i.exec(view);
+  const legal = m ? m[1].split(/\s*,\s*|\s+/).map((x) => x.replace(/[.;]+$/, "")).filter(Boolean).slice(0, 60) : [];
+  $("p-legal").replaceChildren(...legal.map((mv) => el("button", { textContent: mv, onclick: () => submit(mv) })));
+  $("p-input").hidden = false;
+  $("p-move").value = "";
+  $("p-move").focus();
+  return new Promise((resolve, reject) => { waiting = { resolve, reject }; });
+}
+
+function submit(mv) {
+  if (!waiting || !String(mv).trim()) return;
+  const w = waiting;
+  waiting = null;
+  $("p-legal").replaceChildren();
+  $("p-input").hidden = true;
+  w.resolve(String(mv).trim());
+}
+
+function showView(text) {
+  $("p-view").hidden = false;
+  $("p-view").textContent = text;
+}
+
+function finish(run) {
+  const st = run.state;
+  const view = st.views?.[run.you] ?? st.views?.[String(run.you)];
+  if (view) showView(view);
+  $("p-legal").replaceChildren();
+  $("p-input").hidden = true;
+  const scores = st.result?.scores ?? st.result;
+  const yours = Array.isArray(scores) ? scores[run.you] : null;
+  const best = Array.isArray(scores) ? Math.max(...scores) : null;
+  const verdict = yours == null ? "game over"
+    : Object.keys(run.drivers).length === 0 ? `game over · scores ${scores.join(" : ")}`
+    : yours === best && scores.filter((x) => x === best).length > 1 ? `draw · ${scores.join(" : ")}`
+    : yours === best ? `you win · ${scores.join(" : ")}` : `you lose · ${scores.join(" : ")}`;
+  status(st.result?.summary ? `${verdict} — ${st.result.summary}` : verdict, true);
+  log(`result ${JSON.stringify(st.result)}`);
 }
 
 load().catch(fail);

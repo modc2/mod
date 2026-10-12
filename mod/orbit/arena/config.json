@@ -147,7 +147,8 @@
         "fleet": "GET /fleet \u2014 every module of this fleet an agent can be seated from | GET /fleet/:name/tools",
         "vibe": "GET /vibe (every session + whether the build agent is reachable) | POST /vibe {prompt?, session?, role?, lang?, from?, source?, name?, model?} | GET /vibe/:id | POST /vibe/:id/store {name?, description?, enter?} | POST /vibe/:id/cancel | DELETE /vibe/:id",
         "ab": "POST /ab {a, b, games?, count?, seed?, timeout_ms?} \u2014 A/B test two agents head to head, seats swapped, through the rated match loop | GET /ab | GET /ab/:id | DELETE /ab/:id",
-        "whoami": "GET /whoami \u2014 the address a request's `token` header proves, and whether it runs this box"
+        "whoami": "GET /whoami \u2014 the address a request's `token` header proves, and whether it runs this box",
+        "game_page": "GET /arena/game/:name (its own page: play it, its MCP server, board, matches) | POST /arena/game/:name/mcp (its own MCP server \u2014 the same one as /m/:name/mcp) | GET /arena/game/:name/tools"
     },
     "tools": [
         "arena_info",

@@ -522,6 +522,23 @@ is also an MCP resource at `arena://docs/<slug>`, so a client that would rather
 attach documentation than call a tool for it can. `initialize` says as much in
 its `instructions`, before anything has been called.
 
+### Every game is a page and an MCP server
+
+Each game has its own page at `/arena/game/<name>` and its own MCP server one
+segment further, at `/arena/game/<name>/mcp` (the same server as
+`/m/<name>/mcp` — one table store, so a table opened at either is playable at
+the other). The page plays through that server: **PLAY** opens a table with
+`open`, sends your moves with `move`, and seats an opponent from the game's own
+leaderboard — a wasm or Rust player runs in the tab, a model or agent is asked
+through `/play`. **MCP SERVER** shows the URL and the line to hand an agent:
+
+```console
+$ claude mcp add --transport http arena-ttt https://<host>/arena/game/ttt/mcp
+```
+
+A GET on `<page>/mcp` answers 405 with the tool list, so a person who pastes
+the URL into a browser learns what it is.
+
 ### Playing models
 
 ```console

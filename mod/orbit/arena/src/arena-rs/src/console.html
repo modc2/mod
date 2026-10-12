@@ -359,8 +359,11 @@
     header { padding: 7px 12px; gap: 8px 10px; }
     nav.tabs { display: none; }
     /* The counts drop to a line of their own rather than wrapping a word at
-       a time between the brand and the buttons. */
-    .counts { order: 9; flex: 0 0 100%; font-size: 11.5px; }
+       a time between the brand and the buttons. A hairline above them keeps
+       the row reading as the bottom of the header instead of a stray line
+       floating over the page — the header tint is too faint to say so alone. */
+    .counts { order: 9; flex: 0 0 100%; font-size: 11.5px;
+              margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--line); }
     /* An elo bar inside a stacked cell is 8px of gradient in a flex row: it
        says nothing there, and the number beside it says it all. */
     table.stack .bar { display: none; }
@@ -590,6 +593,37 @@
   html.portal header, html.portal nav.bottom { display: none !important; }
   html.portal body { padding-bottom: 0 !important; }
   html.portal main { padding-top: 14px; }
+
+  /* ── profile: the account drawer off the sign-in capsule ──────────────────
+     One place for what is yours — the games you own and the agents you
+     authored — each with the same create / edit / fork / delete the rest of
+     the console offers, scoped to you. Agents of the fleet that connect over
+     the protocol are a board, not a belonging: they stay on the agents tab,
+     linked from the foot of this drawer. */
+  .drawerback { position: fixed; inset: 0; z-index: 85; opacity: 0; transition: opacity .18s ease;
+                background: color-mix(in srgb, var(--bg) 55%, transparent); backdrop-filter: blur(3px); }
+  .drawerback.in { opacity: 1; }
+  .drawer { position: fixed; top: 0; right: 0; z-index: 90; height: 100%; width: min(430px, 100%);
+            display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line);
+            box-shadow: -24px 0 60px -24px rgba(0,0,0,.6); transform: translateX(100%);
+            transition: transform .22s cubic-bezier(.2,.7,.2,1); }
+  .drawer.in { transform: none; }
+  .drawer .dh { display: flex; align-items: center; gap: 10px; padding: 16px 14px 14px;
+                border-bottom: 1px solid var(--line); }
+  .drawer .dh .who { min-width: 0; }
+  .drawer .dh .who b { display: flex; align-items: center; gap: 7px; font-size: 14px; }
+  .drawer .dh .who span { display: block; font-size: 11px; color: var(--dim); word-break: break-all; }
+  .drawer .body { flex: 1; overflow-y: auto; padding: 8px 12px 20px; }
+  .drawer .sec { margin-top: 14px; }
+  .drawer .sec > .row { align-items: center; margin: 0 4px 8px; }
+  .prow { display: flex; align-items: center; gap: 10px; padding: 9px 10px; margin-bottom: 8px;
+          border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); cursor: pointer; }
+  .prow:hover, .prow:focus-visible { border-color: var(--accent); outline: none; }
+  .prow .grow { min-width: 0; }
+  .prow .grow b { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prow .grow span { font-size: 11px; color: var(--dim); }
+  .prow .pa { display: flex; gap: 4px; flex: none; }
+  .drawer .foot { padding: 12px 16px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -1193,6 +1227,15 @@
 <nav class="bottom" id="bottom"></nav>
 <div id="toast" hidden></div>
 
+<!-- ── profile ──────────────────────────────────────────────────────────────
+     The account sidebar: who you are, the games you own and the agents you
+     authored, each with the create / edit / fork / delete the console already
+     offers — gathered behind the sign-in capsule, scoped to your wallet. Its
+     contents are drawn by renderProfile(); the markup is just the two shells
+     the drawer slides in and the scrim behind it. -->
+<div id="me-back" class="drawerback" hidden></div>
+<aside id="me-drawer" class="drawer" hidden role="dialog" aria-label="your profile"></aside>
+
 <script type="module">
 // The console talks to the server over the same REST surface the MCP tools
 // use, and executes wasm with the same runtime the node runner uses. It adds
@@ -1374,6 +1417,8 @@ async function loadMe() {
   $("g-scope").hidden = !me.address;
   toPortal({ type: "arena-me", address: me.address, box_owner: !!me.box_owner });
   renderGames();
+  if (profileOpen && !me.address) closeProfile();
+  else renderProfile();
   if (openGame && !$("view-game").hidden) gameActions(openGame);
   if (!$("view-studio").hidden) studioDraw();
 }
@@ -1412,15 +1457,157 @@ async function signIn() {
   }
 }
 
-$("me").onclick = async () => {
+// The sign-in capsule is the door to the profile drawer — or to signing in,
+// if nobody is.
+$("me").onclick = () => (me.address ? openProfile() : signIn());
+
+// ── profile drawer ─────────────────────────────────────────────────────────
+// The account sidebar. The one place a signed-in person sees and manages what
+// is theirs here: the games they own and the agents they authored, each with
+// the same edit / fork / delete the rest of the console offers, scoped to
+// them by the signature the server already checks (`isMine`). Creating or
+// editing either runs through the agent (vibecode) or a git clone, exactly as
+// the + buttons do — this adds no authority path, it only gathers the ones
+// that exist behind one face. Agents of the fleet that connect over the
+// protocol are a ranked board, not a possession: they live on the agents tab,
+// linked from the foot of the drawer.
+let profileOpen = false;
+
+/** One owned module as a row: its face, what it is, and the actions that
+ *  change it. A game opens its board; an agent opens the seat that plays it. */
+function profileRow(m, role) {
+  const row = el("div", { className: "prow", tabIndex: 0 });
+  const sub = role === "game"
+    ? `${langLabel(m.lang)} · ${m.runs || 0} matches`
+    : `${langLabel(m.lang)} agent`;
+  row.append(monogram(m.name), el("div", { className: "grow" }, [
+    el("b", { textContent: m.name }), el("span", { textContent: sub }),
+  ]));
+  const acts = el("div", { className: "pa" });
+  const act = (label, cls, fn, title) => {
+    const b = el("button", { className: cls, textContent: label, title });
+    b.onclick = (e) => { e.stopPropagation(); fn(); };
+    acts.append(b);
+  };
+  // A wasm module has no source to vibecode; everything else can be rewritten
+  // by the agent (yours) or copied (someone else's — you can't land here on
+  // one you don't own, but the box owner sees every shelf).
+  if (m.lang !== "wasm") {
+    if (canEdit(m)) act("edit", "ghost sm", () => { closeProfile(); openStudio({ edit: m }); }, "change it with the agent");
+    else act("fork", "ghost sm", () => { closeProfile(); openStudio({ from: m }); }, "a copy of it, yours to change");
+  }
+  act("delete", "link", () => deleteOwned(m), "delete it");
+  row.append(acts);
+  const open = () => {
+    closeProfile();
+    if (role === "game") return openGamePage(m.id);
+    // An agent is a module until it is seated; open the seat that plays it if
+    // there is one, else the studio so it can be changed.
+    const seat = players.find((p) => p.module === m.id);
+    if (seat) return openPlayerPage(seat.id);
+    if (m.lang !== "wasm") return openStudio(canEdit(m) ? { edit: m } : { from: m });
+    toast(`${m.name} is not seated yet — enter it from the agents tab`);
+    show("agents");
+  };
+  row.onclick = open;
+  row.onkeydown = (e) => { if (e.key === "Enter" && e.target === row) open(); };
+  return row;
+}
+
+/** Delete a game or an agent I own — the same version-aware delete the game
+ *  page offers, so a profile delete and a page delete are one behaviour. */
+async function deleteOwned(m) {
+  const versions = (m.history || []).length;
+  const pick = await ask({
+    title: `delete ${m.name}?`,
+    body: versions > 1
+      ? `This is version ${versions}. Undo it and version ${versions - 1} is it again — or delete every version. Matches already played stay on record.`
+      : "The code goes. Matches already played stay on record.",
+    choices: versions > 1 ? [["undo", `undo v${versions}`], ["all", "delete all versions", true]] : [["all", "delete", true]],
+  });
+  if (!pick) return;
+  try {
+    const r = await call(`/modules/${m.id}${pick === "all" ? "?all=1" : ""}`, { method: "DELETE" });
+    await refresh();
+    toast(r.restored ? `v${versions} undone` : `${m.name} deleted`);
+    renderProfile();
+  } catch (e) { toast(e.message, true); }
+}
+
+/** Fill the drawer from the current state — called on open and after any
+ *  change while it is open, so it never shows a stale shelf. */
+function renderProfile() {
+  if (!profileOpen || !me.address) return;
+  const myGames = games().filter(isMine);
+  const myAgents = playerModules().filter(isMine);
+
+  const head = el("div", { className: "dh" }, [
+    addrDot(me.address),
+    el("div", { className: "who grow" }, [
+      el("b", {}, [shortAddr(me.address),
+        me.box_owner ? el("span", { className: "badge", textContent: "owner" }) : null]),
+      el("span", { textContent: me.address }),
+    ]),
+    el("button", { className: "ghost sm", textContent: "sign out", onclick: signOut }),
+    el("button", { className: "link", textContent: "close", onclick: closeProfile }),
+  ]);
+
+  const section = (title, role, rows, word) => {
+    const sec = el("div", { className: "sec" });
+    sec.append(el("div", { className: "row" }, [
+      el("h2", { className: "grow", textContent: `${title} · ${rows.length}` }),
+      el("button", { className: "act sm", textContent: "+ new",
+        onclick: () => { closeProfile(); openCreate(role); } }),
+    ]));
+    if (rows.length) rows.forEach((m) => sec.append(profileRow(m, role === "game" ? "game" : "agent")));
+    else sec.append(el("p", { className: "dim small", style: "margin:4px 4px 0",
+      textContent: `no ${word} yet — make one with the agent, or clone one from a repo` }));
+    return sec;
+  };
+
+  const foot = el("div", { className: "foot" }, [
+    "agents of the fleet that connect over the protocol are ranked on the ",
+    el("a", { href: "#agents", textContent: "agents board", style: "color:var(--accent2)",
+      onclick: (e) => { e.preventDefault(); closeProfile(); show("agents"); } }),
+    ".",
+  ]);
+
+  $("me-drawer").replaceChildren(head,
+    el("div", { className: "body" }, [
+      section("MY GAMES", "game", myGames, "games"),
+      section("MY AGENTS", "player", myAgents, "agents"),
+    ]), foot);
+}
+
+function openProfile() {
   if (!me.address) return signIn();
-  const r = await ask({ title: shortAddr(me.address),
-    body: `${me.address}\n${me.box_owner ? "you run this box — you can edit every game here" : "you can edit the games you made"}`,
-    choices: [["mine", "my games"], ["out", "sign out", true]], cancel: "close" });
-  if (r === "out" && PORTAL && portalOrigin) { toPortal({ type: "mod-signout" }); return; }
-  if (r === "out") { lsSet(TOKEN_KEY, null); await loadMe(); toast("signed out"); }
-  if (r === "mine") { gameScope = "mine"; show("games"); renderGames(); }
-};
+  profileOpen = true;
+  const back = $("me-back"), d = $("me-drawer");
+  back.hidden = d.hidden = false;
+  renderProfile();
+  requestAnimationFrame(() => { back.classList.add("in"); d.classList.add("in"); });
+  back.onclick = closeProfile;
+  document.addEventListener("keydown", profileKey);
+}
+
+function closeProfile() {
+  if (!profileOpen) return;
+  profileOpen = false;
+  const back = $("me-back"), d = $("me-drawer");
+  back.classList.remove("in"); d.classList.remove("in");
+  document.removeEventListener("keydown", profileKey);
+  setTimeout(() => { back.hidden = d.hidden = true; }, 240);
+}
+function profileKey(e) { if (e.key === "Escape") closeProfile(); }
+
+/** Sign out — through the host in a portal, else by dropping the token. */
+async function signOut() {
+  closeProfile();
+  if (PORTAL && portalOrigin) { toPortal({ type: "mod-signout" }); return; }
+  lsSet(TOKEN_KEY, null); memToken = null;
+  await loadMe();
+  toast("signed out");
+}
 
 // ── state ────────────────────────────────────────────────────────────────
 let modules = [];          // everything stored
@@ -1583,6 +1770,7 @@ async function refresh() {
   renderLobby();
   renderOther();
   renderModulePicker();
+  renderProfile();
   const info = await call("/info").catch(() => null);
   if (info) {
     if (Array.isArray(info.player_kinds)) kinds = info.player_kinds;
@@ -3602,6 +3790,11 @@ async function watch(id) {
   if (!m) return;
   if (!Array.isArray(m.turns)) m.turns = [];
   stage = { match: m, i: 0 };
+  // default the next-match selector to the game on the stage, so "new match"
+  // plays another round of what you're watching rather than a random one —
+  // "any game" is still there to pick, it's just not where you land
+  const sg = $("st-game");
+  if (m.game && [...sg.options].some((o) => o.value === m.game)) sg.value = m.game;
   $("st-scrub").max = String(m.turns.length);
   drawStage();
   renderFeed();

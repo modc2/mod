@@ -16,6 +16,50 @@ the console alike. The console shows nothing but the CONNECT WALLET gate until
 a wallet has signed. A BYOK key still decides whose credits are spent; it never
 substitutes for signing in.
 
+## Setup tutorial — first chat in about two minutes
+
+The console walks you through this itself: the empty screen shows a
+**GET SET UP** stepper that ticks off from live state, and the **SETUP** pill in
+the top bar reopens it any time, with copy-paste recipes for the CLI, MCP and
+self-hosting.
+
+**1. Open the console.** `http://localhost:50890/grokbot`, or `/grokbot` on
+your deployment. Not running? `m grokbot/serve`, or `python3 api.py` (stdlib
+only, nothing to install).
+
+**2. Connect a wallet.** Press **CONNECT WALLET** and sign one message in
+MetaMask, Rabby, Coinbase Wallet or any other injected wallet. There's no
+gas and no transaction. The signature *is* your account. No extension? The
+button opens a box where you can paste a token from `m.mod("auth")().token({})`.
+
+**3. Get an xAI key.**
+1. Go to [console.x.ai](https://console.x.ai) and sign in (X or Google).
+2. **Billing** → add a few dollars of credits. Grok won't answer on an empty
+   balance.
+3. **API Keys** → **Create API key** → copy the `xai-…` string.
+
+**4. Paste it into step 2 of the stepper** (or Settings, the gear) → **SAVE KEY**.
+It's stored 0600 at `~/.mod/grokbot/users/<your address>.json`, never in this
+repo and never shown back in full. The model dropdown fills in right away.
+
+**5. Make a grokbot (optional).** **ADD SKEPTIC** creates one in a click, or
+**+** next to GROKBOTS in the sidebar lets you write your own name, model and
+system prompt.
+
+**6. Say hi.** Pick a starter card or type a message. Set **search: auto** in
+the top bar to have Grok read X and the web first; citations show up under the
+answer. Every call appears on the activity board (the pulse icon).
+
+Trouble?
+
+| symptom | fix |
+| --- | --- |
+| model dropdown is empty | no key resolved — xAI needs one even to list models |
+| `401` / bounced back to CONNECT WALLET | token expired (7 days) — sign again |
+| `403` / credits error from xAI | top up at console.x.ai → Billing |
+| no wallet popup | the extension is locked or missing — unlock it, or use the token box |
+| single-user box, no wallet at all | start with `GROKBOT_OPEN=1` |
+
 ## What a grokbot is
 
 A name, a model and a system prompt — optionally with live search turned on.
