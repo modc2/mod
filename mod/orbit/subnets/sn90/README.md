@@ -2,7 +2,7 @@
 
 KubeTEE AI Factory: Confidential Computing TEE Multi-Cluster K8s
 
-Bittensor subnet **90** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **90** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/KubeTEE-AI/kubetee-subnet) · [url](https://kubetee.ai) · [discord](https://discord.gg/KUeXm9XQG4)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/KubeTEE-AI/kubetee-subnet) · [url](https://k
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.019021 | +0.13% | -7.39% | -9.63% | 12,840 | 4,130 | 1,398 |
+| 0.021149 | +0.92% | +11.19% | +0.65% | 14,517 | 4,440 | 1,159 |
 
 ## Last 24h flow
 
-212 trades by 83 coldkeys · 108 buys (614.84 τ) / 104 sells (769.91 τ) · net -155.07 τ
+167 trades by 85 coldkeys · 75 buys (690.28 τ) / 92 sells (443.24 τ) · net 247.04 τ
 
 ## News
 

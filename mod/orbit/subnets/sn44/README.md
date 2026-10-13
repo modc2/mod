@@ -2,7 +2,7 @@
 
 Making every camera intelligent
 
-Bittensor subnet **44** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **44** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/score-technologies/turbovision) · [url](https://www.wearescore.com/)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/score-technologies/turbovision) · [url](http
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.034079 | -0.01% | -3.89% | -7.47% | 210,538 | 64,867 | 2,075 |
+| 0.034193 | +0.03% | +0.33% | -4.86% | 211,519 | 65,008 | 3,418 |
 
 ## Last 24h flow
 
-207 trades by 127 coldkeys · 74 buys (258.23 τ) / 133 sells (1,681 τ) · net -1,422 τ
+316 trades by 162 coldkeys · 185 buys (1,632 τ) / 131 sells (1,644 τ) · net -11.95 τ
 
 ## News
 
+- 2026-10-12 · commit · [add blacklist](https://github.com/score-technologies/turbovision/commit/6408194c0e4b1222af810fa41cabd9e2c352ed96) — score-technologies/turbovision
 - 2026-10-01 · commit · [change cricket weights](https://github.com/score-technologies/turbovision/commit/bef6ad70de458c16bfaa8dfe9361b65f0d42ec3b) — score-technologies/turbovision
 - 2026-09-29 · commit · [room iou](https://github.com/score-technologies/turbovision/commit/52201651f2175048a7fbdcf2c1da206667a942d2) — score-technologies/turbovision
 - 2026-09-24 · commit · [add retrys set weights+add logs long emits](https://github.com/score-technologies/turbovision/commit/f1defeea7ffdcd9c0c662ecfa7dce711574a348f) — score-technologies/turbovision

@@ -2,7 +2,7 @@
 
 Bringing liquid training to the world
 
-Bittensor subnet **9** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **9** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/macrocosm-os/iota) · [url](https://iota.macrocosmos.ai/) · [discord](https://discord.gg/adsQPnFRY)
 
@@ -10,14 +10,16 @@ Links: [github](https://github.com/macrocosm-os/iota) · [url](https://iota.macr
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.024509 | +0.01% | -0.56% | -0.66% | 154,206 | 53,557 | 388.28 |
+| 0.024510 | +0.12% | +0.01% | -1.53% | 154,415 | 53,582 | 518.42 |
 
 ## Last 24h flow
 
-200 trades by 132 coldkeys · 18 buys (31.10 τ) / 182 sells (267.58 τ) · net -236.48 τ
+157 trades by 109 coldkeys · 32 buys (171.85 τ) / 125 sells (250.81 τ) · net -78.96 τ
 
 ## News
 
+- 2026-10-12 · release · [v4.13.6](https://github.com/macrocosm-os/iota/releases/tag/v4.13.6) — macrocosm-os/iota
+- 2026-10-12 · commit · [Merge pull request #218 from macrocosm-os/IOTA-v4.13.6-1c77c802](https://github.com/macrocosm-os/iota/commit/d02b0d14ad4750fe336320d0206be4cd4674b6a7) — macrocosm-os/iota
 - 2026-10-06 · release · [v4.13.5](https://github.com/macrocosm-os/iota/releases/tag/v4.13.5) — macrocosm-os/iota
 - 2026-10-04 · release · [v4.13.4](https://github.com/macrocosm-os/iota/releases/tag/v4.13.4) — macrocosm-os/iota
 - 2026-09-24 · release · [v4.13.3](https://github.com/macrocosm-os/iota/releases/tag/v4.13.3) — macrocosm-os/iota

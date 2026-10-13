@@ -2,7 +2,7 @@
 
 Lighning Fast Uncensored Inference
 
-Bittensor subnet **46** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **46** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/Subnet46/sn46-validator) · [url](https://instantnetwork.ai) · [discord](https://discord.com/BJ7DkeUmFm)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/Subnet46/sn46-validator) · [url](https://ins
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003727 | +0.62% | +5.30% | +5.72% | 22,212 | 8,690 | 2,124 |
+| 0.003690 | -0.38% | -0.98% | +5.17% | 22,020 | 8,647 | 867.90 |
 
 ## Last 24h flow
 
-172 trades by 68 coldkeys · 69 buys (1,173 τ) / 103 sells (950.28 τ) · net 222.66 τ
+118 trades by 62 coldkeys · 40 buys (412.33 τ) / 78 sells (454.44 τ) · net -42.11 τ
 
 ## News
 
+- 2026-10-12 · commit · [docs: link Instant X account in README](https://github.com/Subnet46/sn46-validator/commit/c85abd498bf8c7f44f20639fd6ffcbab7cbf0947) — Subnet46/sn46-validator
 - 2026-10-01 · release · [v0.1.3](https://github.com/Subnet46/sn46-validator/releases/tag/v0.1.3) — Subnet46/sn46-validator
 - 2026-10-01 · commit · [Merge pull request #8 from Subnet46/feat/auto-update](https://github.com/Subnet46/sn46-validator/commit/d80a6575cf8e0c08dc6b769a0ea9f85fe077856e) — Subnet46/sn46-validator
 - 2026-10-01 · commit · [Recover updates and rollbacks interrupted midway](https://github.com/Subnet46/sn46-validator/commit/e6c8abc70979743e8f96075d944436f4b98449fb) — Subnet46/sn46-validator
@@ -25,7 +26,6 @@ Links: [github](https://github.com/Subnet46/sn46-validator) · [url](https://ins
 - 2026-10-01 · commit · [sn46-validator update: signed, scheduled self-update with rollback](https://github.com/Subnet46/sn46-validator/commit/53b1a65231b9e12c017f451f50ee3d17e703fb7d) — Subnet46/sn46-validator
 - 2026-10-01 · commit · [Sign validator releases with their own key](https://github.com/Subnet46/sn46-validator/commit/6d2a8292eee99ae3064f4dd54def594b79af8a71) — Subnet46/sn46-validator
 - 2026-09-29 · release · [v0.1.2](https://github.com/Subnet46/sn46-validator/releases/tag/v0.1.2) — Subnet46/sn46-validator
-- 2026-09-17 · release · [v0.1.1](https://github.com/Subnet46/sn46-validator/releases/tag/v0.1.1) — Subnet46/sn46-validator
 
 ## Use
 

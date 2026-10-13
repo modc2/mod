@@ -2,7 +2,7 @@
 
 Transforming engineering simulations through machine learning
 
-Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://carbonphysics.ai) · discord `...`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://carb
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.036697 | +0.94% | -6.56% | +76.95% | 7,328 | 1,871 | 1,007 |
+| 0.036092 | +0.05% | -1.65% | -10.85% | 7,467 | 1,856 | 1,370 |
 
 ## Last 24h flow
 
-181 trades by 75 coldkeys · 103 buys (454.11 τ) / 78 sells (497.10 τ) · net -42.99 τ
+248 trades by 90 coldkeys · 139 buys (677.62 τ) / 109 sells (643.16 τ) · net 34.47 τ
 
 ## News
 
-- 2026-10-12 · commit · [Merge pull request #1032 from carbonphysicsai/agent/battery-torch-pods](https://github.com/carbonphysicsai/Carbon/commit/4d512413d4641f7c588d65547440255cb5fc093d) — carbonphysicsai/Carbon
-- 2026-10-12 · commit · [Merge pull request #1136 from carbonphysicsai/claude/dashboard-02-s1](https://github.com/carbonphysicsai/Carbon/commit/8100b4c24a30b23029d7c742f357deffdf76c81c) — carbonphysicsai/Carbon
-- 2026-10-12 · commit · [Merge pull request #1134 from carbonphysicsai/codex/onboarding-automa…](https://github.com/carbonphysicsai/Carbon/commit/dcbc13d59a049e1d8bdc380d50fe15a9fa25604a) — carbonphysicsai/Carbon
-- 2026-10-12 · commit · [Merge pull request #1132 from carbonphysicsai/claude/git-fixture-main…](https://github.com/carbonphysicsai/Carbon/commit/756bfbb6674a034f5789b55f590414bfd6dd0be3) — carbonphysicsai/Carbon
-- 2026-10-12 · commit · [TORCH-POD-01: hold the fno early refusal on the v1 record; prove serv…](https://github.com/carbonphysicsai/Carbon/commit/3cfeb943b583dbdc216e87b401a5d0950094a740) — carbonphysicsai/Carbon
-- 2026-10-11 · commit · [Merge pull request #1060 from carbonphysicsai/claude/launchpad-level4…](https://github.com/carbonphysicsai/Carbon/commit/3d8694a37b57f4482a23fc51df5a165a157aeb10) — carbonphysicsai/Carbon
-- 2026-10-11 · commit · [Merge pull request #1051 from carbonphysicsai/claude/practice-retry](https://github.com/carbonphysicsai/Carbon/commit/7966a0ae6ab901991792cba937308841e5634023) — carbonphysicsai/Carbon
-- 2026-10-11 · commit · [Merge pull request #1118 from carbonphysicsai/claude/ci-devimage-budget](https://github.com/carbonphysicsai/Carbon/commit/90c1b3a0c88c6f159288b1fec8f1d4972b256de9) — carbonphysicsai/Carbon
+- 2026-10-13 · commit · [Merge pull request #1242 from carbonphysicsai/codex/opt13-attack-spec…](https://github.com/carbonphysicsai/Carbon/commit/6c5ad7ac63e5c688de008126aeca892676652125) — carbonphysicsai/Carbon
+- 2026-10-13 · commit · [Merge pull request #1240 from carbonphysicsai/agent/l4-stage-read-chunk](https://github.com/carbonphysicsai/Carbon/commit/c6b482ad695a1e2ee3e0d01c54f211a33b992654) — carbonphysicsai/Carbon
+- 2026-10-13 · commit · [Merge pull request #1236 from carbonphysicsai/executor/r8-hostile-pro…](https://github.com/carbonphysicsai/Carbon/commit/3db1fb693f2988bb8035ce35e2b39657b694b4ca) — carbonphysicsai/Carbon
+- 2026-10-13 · commit · [Use a generic campaign root in the remint runbook](https://github.com/carbonphysicsai/Carbon/commit/a82ffef0760dedeb980bda31a5db803e8aca5eb9) — carbonphysicsai/Carbon
+- 2026-10-13 · commit · [Merge remote-tracking branch 'origin/main' into codex/opt13-attack-sp…](https://github.com/carbonphysicsai/Carbon/commit/75b0851ce0093a1197a71c41a94adeb301364a34) — carbonphysicsai/Carbon
+- 2026-10-12 · commit · [Merge pull request #1217 from carbonphysicsai/codex/challenge-factory…](https://github.com/carbonphysicsai/Carbon/commit/53213682dbbab77668a658faa35d3857f4ad5bd4) — carbonphysicsai/Carbon
+- 2026-10-12 · commit · [Merge pull request #1214 from carbonphysicsai/codex/miner-status-scre…](https://github.com/carbonphysicsai/Carbon/commit/062cb822209de2fa364e8e768c1db96ecad3a256) — carbonphysicsai/Carbon
+- 2026-10-12 · commit · [Merge pull request #1206 from carbonphysicsai/codex/plt-06-hostile-mo…](https://github.com/carbonphysicsai/Carbon/commit/a7dae8b60bb95024c46bebef55e84641d72a3cf0) — carbonphysicsai/Carbon
 
 ## Use
 

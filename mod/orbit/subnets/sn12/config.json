@@ -1,7 +1,7 @@
 {
   "name": "sn12",
   "version": "1.0.0",
-  "description": "SN12 Compute Horde — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "description": "SN12 Compute Horde — Trusted compute for bittensor validators. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
   "icon": "μ",
   "chain": "bittensor",
   "netuid": 12,
@@ -9,14 +9,14 @@
   "symbol": "μ",
   "owner": "5ELzhHvgUqmnAYs74vFWjMMehXNeHkRtkreAa3g8QQS96PCp",
   "github": "https://github.com/backend-developers-ltd/ComputeHorde/",
-  "url": null,
-  "discord": null,
-  "logo": null,
+  "url": "https://computehorde.io",
+  "discord": "https://discordapp.com/channels/799672011265015819/1201941624243109888",
+  "logo": "https://raw.githubusercontent.com/backend-developers-ltd/ComputeHorde/master/CH-logo-low-res.png",
   "related": [],
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-12",
+  "updated": "2026-10-13",
   "urls": {
     "bt": "/bt/markets?sn=12",
     "news": "/bt/news?netuid=12"

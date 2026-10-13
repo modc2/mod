@@ -2,7 +2,7 @@
 
 Tag101 is a Bittensor subnet for decentralized social post tagging
 
-Bittensor subnet **101** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **101** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/tag101-ai/tag101) · [url](http://tag101.ai) · discord `Tag101`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/tag101-ai/tag101) · [url](http://tag101.ai) 
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003660 | -0.01% | -0.30% | -1.85% | 13,181 | 3,564 | 8.97 |
+| 0.003653 | -0.08% | -0.20% | -1.65% | 13,180 | 3,562 | 9.24 |
 
 ## Last 24h flow
 
-183 trades by 24 coldkeys · 1 buys (0.01 τ) / 182 sells (6.67 τ) · net -6.66 τ
+104 trades by 15 coldkeys · 0 buys (0.00 τ) / 104 sells (4.54 τ) · net -4.54 τ
 
 ## News
 

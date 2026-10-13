@@ -2,7 +2,7 @@
 
 Next-Generation Video Processing Powered By AI
 
-Bittensor subnet **85** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **85** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/vidaio-subnet/vidaio-subnet) · [url](https://vidaio.io/) · [discord](https://discord.gg/xhn4jxJMEX)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/vidaio-subnet/vidaio-subnet) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005882 | -0.22% | +2.77% | +1.60% | 31,895 | 13,722 | 808.06 |
+| 0.005932 | +0.59% | +0.85% | +4.39% | 32,209 | 13,781 | 4,486 |
 
 ## Last 24h flow
 
-122 trades by 69 coldkeys · 73 buys (496.41 τ) / 49 sells (309.17 τ) · net 187.25 τ
+337 trades by 111 coldkeys · 229 buys (2,272 τ) / 108 sells (2,209 τ) · net 63.45 τ
 
 ## Use
 

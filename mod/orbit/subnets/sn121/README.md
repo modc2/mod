@@ -2,7 +2,7 @@
 
 An enterprise AI platform that turns real business needs into ready-to-use AI solutions.
 
-Bittensor subnet **121** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **121** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/sundae-bar/bittensor-subnet) · [url](https://www.sundaebar.ai/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/sundae-bar/bittensor-subnet) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003771 | -0.00% | -0.31% | -7.15% | 17,161 | 5,710 | 8.97 |
+| 0.003799 | -0.00% | +0.74% | -6.69% | 17,316 | 5,731 | 25.42 |
 
 ## Last 24h flow
 
-16 trades by 13 coldkeys · 2 buys (0.02 τ) / 14 sells (8.54 τ) · net -8.53 τ
+8 trades by 7 coldkeys · 2 buys (23.29 τ) / 6 sells (0.56 τ) · net 22.72 τ
 
 ## Use
 

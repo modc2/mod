@@ -11,21 +11,21 @@
   "registered_at": 9155260,
   "tempo": 360,
   "active": true,
-  "block": 9250674,
+  "block": 9272278,
   "related": [],
   "market": {
-    "price": 0.024680785,
-    "moving_price": 0.0,
-    "market_cap": 3392.607827762988,
-    "tao_in": 1481.958770461,
-    "alpha_in": 60045.040397436,
-    "alpha_out": 77414.437806478,
-    "volume": 853.676685748,
-    "vol_24h": 0.0,
+    "price": 0.058428871,
+    "moving_price": 3.24759166687727e-05,
+    "market_cap": 8082.668952957803,
+    "tao_in": 2280.186561276,
+    "alpha_in": 39024.997232981,
+    "alpha_out": 99308.480970933,
+    "volume": 4586.876152225,
+    "vol_24h": 3733.199466477,
     "emission": 0.0,
-    "change_1h": 0.0,
-    "change_24h": 0.0,
-    "change_7d": 453.86365962076354
+    "change_1h": 0.12001782763637614,
+    "change_24h": 136.7383006658824,
+    "change_7d": 1211.2074157920626
   },
   "spark_24h": [
     0.024680785,
@@ -70,24 +70,55 @@
     0.024680785,
     0.024680785,
     0.024680785,
-    0.024680785,
-    0.024680785,
-    0.024680785,
-    0.024680785,
-    0.024680785,
-    0.024680785
+    0.032522077,
+    0.037451881,
+    0.058398576,
+    0.05835883,
+    0.05835883,
+    0.058428871
   ],
   "trades_24h": {
-    "trades": 0,
-    "buys": 0,
-    "sells": 0,
-    "buy_tao": 0,
-    "sell_tao": 0,
-    "net_tao": 0,
-    "traders": 0
+    "trades": 251,
+    "buys": 158,
+    "sells": 93,
+    "buy_tao": 2266.271030574,
+    "sell_tao": 1466.267775192,
+    "net_tao": 800.0032553820001,
+    "traders": 46
   },
-  "top_traders_24h": [],
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -9.267080321999979,
+      "gross_tao": 1879.30836763,
+      "trades": 24
+    },
+    {
+      "coldkey": "5DV2MzpQ6JS7yC29E7tQAgRB6Z6V9ho8fiY5JuZEHH1wfHcT",
+      "net_tao": 550.0,
+      "gross_tao": 550.0,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GGrRdUatgDLiJxnytdWfYCwsAb1Cyo4U5Dw1HmLiAcbWj88",
+      "net_tao": 200.0,
+      "gross_tao": 200.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -6.1634368990000015,
+      "gross_tao": 136.163436899,
+      "trades": 18
+    },
+    {
+      "coldkey": "5H1LrDBGzU8KVkry4vB3pa2zL2RU1aCooPtnHesZV6U3PSHp",
+      "net_tao": 7.015554131,
+      "gross_tao": 94.984445869,
+      "trades": 15
+    }
+  ],
   "news": [],
-  "updated": 1791610861,
-  "updated_day": "2026-10-10"
+  "updated": 1791870062,
+  "updated_day": "2026-10-13"
 }

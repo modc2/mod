@@ -2,7 +2,7 @@
 
 Every frame gets craft
 
-Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url](https://everyframe.studio/) · [discord](https://discord.com/channels/799672011265015819/1544011415692644444)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002747 | -0.00% | +4.73% | +0.20% | 8,385 | 2,997 | 243.85 |
+| 0.002681 | -0.00% | -2.41% | -1.78% | 8,194 | 2,960 | 272.45 |
 
 ## Last 24h flow
 
-50 trades by 25 coldkeys · 26 buys (156.20 τ) / 24 sells (87.06 τ) · net 69.14 τ
+52 trades by 21 coldkeys · 20 buys (117.83 τ) / 32 sells (152.38 τ) · net -34.55 τ
 
 ## News
 
-- 2026-10-12 · release · [everycli v0.3.2](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.2) — everyframe-studios/everyframe-miner
-- 2026-10-12 · commit · [feat(cli): show update download progress with JSON opt-in (#14)](https://github.com/everyframe-studio/everyframe-miner/commit/9e627ec2f2dd2f29c82cfc65d06214b589d5f220) — everyframe-studios/everyframe-miner
-- 2026-10-12 · release · [everycli v0.3.1](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.1) — everyframe-studios/everyframe-miner
-- 2026-10-12 · commit · [fix(cli): polish diagnostics, key management and setup guidance for v…](https://github.com/everyframe-studio/everyframe-miner/commit/f1c067f187b9c241a6a812bded7bac6978770e2c) — everyframe-studios/everyframe-miner
-- 2026-10-11 · release · [everycli v0.3.0](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.0) — everyframe-studios/everyframe-miner
-- 2026-10-11 · commit · [feat(cli): guided setup, command help, and actionable diagnostics (#12)](https://github.com/everyframe-studio/everyframe-miner/commit/e642060732aa52ff41fdc97b521288f46e65490d) — everyframe-studios/everyframe-miner
-- 2026-10-11 · release · [everycli v0.2.5](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.2.5) — everyframe-studios/everyframe-miner
-- 2026-10-11 · commit · [fix: migrate everycli downloads to everyframe-studio (#11)](https://github.com/everyframe-studio/everyframe-miner/commit/f217f8b0e3e3d6164131b97c89fc5b8877af1f41) — everyframe-studios/everyframe-miner
+- 2026-10-13 · release · [everycli v0.3.8](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.8) — everyframe-studios/everyframe-miner
+- 2026-10-13 · commit · [Release everycli v0.3.8: safe worker recovery and background CLI upda…](https://github.com/everyframe-studio/everyframe-miner/commit/2b0c48d2431b9666b347f395431bae0a64aeee2d) — everyframe-studios/everyframe-miner
+- 2026-10-12 · release · [everycli v0.3.7](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.7) — everyframe-studios/everyframe-miner
+- 2026-10-12 · commit · [feat(cli): one-command signed worker updates (v0.3.7) (#20)](https://github.com/everyframe-studio/everyframe-miner/commit/3274e4f5fe8769b18027f72f4195044d9eb9de4f) — everyframe-studios/everyframe-miner
+- 2026-10-12 · release · [everycli v0.3.6](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.6) — everyframe-studios/everyframe-miner
+- 2026-10-12 · commit · [feat(cli): add health checklist and status tables for v0.3.6 (#19)](https://github.com/everyframe-studio/everyframe-miner/commit/5f4a577391badee3b9203b0bdde9b65da2de4a4d) — everyframe-studios/everyframe-miner
+- 2026-10-12 · release · [everycli v0.3.5](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.5) — everyframe-studios/everyframe-miner
+- 2026-10-12 · commit · [fix: explain provider release readiness and support Vivix result CDN …](https://github.com/everyframe-studio/everyframe-miner/commit/9283ceea3010ea71d9722a10dfc68a91a96212f5) — everyframe-studios/everyframe-miner
 
 ## Use
 

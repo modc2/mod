@@ -2,7 +2,7 @@
 
 Ormas is an Outcomes API for coding work on Bittensor subnet 76, in development. Clients post a change and the test that proves it; miners quote a firm price for the passing result and deliver a branch. Miners will be paid only when independent validators accept the delivery, and clients will be charged the accepted quote and nothing on a miss. Protocol, thin client, reference miner and reference validator: MIT.
 
-Bittensor subnet **76** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **76** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/heroncovelabs/ormas-subnet) · [url](https://ormas.ai) · discord `ormasheroncovelabs_43871`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/heroncovelabs/ormas-subnet) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005290 | -0.05% | +6.33% | -5.53% | 1,347 | 478.4546 | 151.48 |
+| 0.006377 | +1.69% | +20.55% | +19.26% | 1,670 | 525.3102 | 1,023 |
 
 ## Last 24h flow
 
-31 trades by 19 coldkeys · 16 buys (82.99 τ) / 15 sells (66.27 τ) · net 16.72 τ
+276 trades by 68 coldkeys · 150 buys (534.87 τ) / 126 sells (478.95 τ) · net 55.92 τ
 
 ## News
 

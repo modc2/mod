@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004872 | +0.01% | +0.69% | +30.79% | 28,797 | 5,558 | 1,218 |
+| 0.005052 | +0.86% | +3.68% | +36.49% | 29,894 | 5,659 | 1,498 |
 
 ## Last 24h flow
 
-194 trades by 89 coldkeys · 106 buys (618.57 τ) / 88 sells (598.34 τ) · net 20.24 τ
+225 trades by 91 coldkeys · 128 buys (800.01 τ) / 97 sells (700.81 τ) · net 99.20 τ
 
 ## News
 
-- 2026-10-12 · commit · [Merge pull request #381 from leadpoet/fix/arena-oct12-credit-refusal-…](https://github.com/leadpoet/leadpoet/commit/47a54e3352322ed5d5747059865a7eaa634644b8) — leadpoet/leadpoet
-- 2026-10-12 · commit · [Verify miner credit diagnostics through PostgreSQL reconciliation](https://github.com/leadpoet/leadpoet/commit/52088b590f52496399527bc4714d4fb7e56a8f3d) — leadpoet/leadpoet
-- 2026-10-12 · commit · [Distinguish Deepline credit refusal diagnostics from fee finality](https://github.com/leadpoet/leadpoet/commit/8f2de028b706f6b1345a00619c19a3a887928d5d) — leadpoet/leadpoet
-- 2026-10-11 · commit · [Merge pull request #380 from leadpoet/fix/oct11-sponsor-classificatio…](https://github.com/leadpoet/leadpoet/commit/4d5a0cb357927e7228e4ef1f947dedc8aea7c1d1) — leadpoet/leadpoet
-- 2026-10-11 · commit · [Accept bounded sponsor classification certification wording](https://github.com/leadpoet/leadpoet/commit/aaf49cb8a76d06fa272c51c20b60608384ae6fac) — leadpoet/leadpoet
-- 2026-10-11 · commit · [Merge pull request #379 from leadpoet/fix/oct11-openrouter-terminal-b…](https://github.com/leadpoet/leadpoet/commit/b8fa6509f5ef3ea3a6f4a5cd2851dfd4fa8e4d51) — leadpoet/leadpoet
-- 2026-10-11 · commit · [Limit synchronous OpenRouter billing reads for complete errors](https://github.com/leadpoet/leadpoet/commit/4b0f888a8606a35d1da02a94d504d197f24103e8) — leadpoet/leadpoet
-- 2026-10-11 · commit · [Merge pull request #378 from leadpoet/codex/oct11-deepline-payment-na…](https://github.com/leadpoet/leadpoet/commit/0ac51b535a3392ff78f18ce4564a8c4f9c0eb6e9) — leadpoet/leadpoet
+- 2026-10-13 · commit · [Merge pull request #407 from leadpoet/fix/oct12-structured-investigat…](https://github.com/leadpoet/leadpoet/commit/40391ea53cbfd7ad152546b7933ca068aca15515) — leadpoet/leadpoet
+- 2026-10-13 · commit · [Bind identity review manifest to committed source](https://github.com/leadpoet/leadpoet/commit/8e26e1f5cc87ff9198ea9274dfa4bedde3282feb) — leadpoet/leadpoet
+- 2026-10-13 · commit · [Carry independently bound structured identity into company review](https://github.com/leadpoet/leadpoet/commit/512420227f70370634dc1dfa426bb803d4fbd87a) — leadpoet/leadpoet
+- 2026-10-13 · commit · [Merge pull request #406 from leadpoet/fix/oct12-diagnostic-page-fallback](https://github.com/leadpoet/leadpoet/commit/667bbf6e533089f154271924cd6cf98b5b6a4f01) — leadpoet/leadpoet
+- 2026-10-13 · commit · [Recover diagnostic page bodies through existing exact-source fallback](https://github.com/leadpoet/leadpoet/commit/5b1c4739ccf67e19eda99f6617d16d5d99abf80d) — leadpoet/leadpoet
+- 2026-10-12 · commit · [Merge pull request #400: keep resumed duplicate contact verdicts cons…](https://github.com/leadpoet/leadpoet/commit/3ede183d8fe51e1c98b265930c3139d8941574fb) — leadpoet/leadpoet
+- 2026-10-12 · commit · [Merge remote-tracking branch 'origin/main' into fix/oct12-retained-du…](https://github.com/leadpoet/leadpoet/commit/8950676c9422805829e16cf321ae31af6ce1e7a9) — leadpoet/leadpoet
+- 2026-10-12 · commit · [Merge pull request #399 from leadpoet/fix/oct12-durable-completion](https://github.com/leadpoet/leadpoet/commit/ca1093a7302c4f0ccd7d8780594c07204b7581af) — leadpoet/leadpoet
 
 ## Use
 

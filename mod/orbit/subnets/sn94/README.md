@@ -2,7 +2,7 @@
 
 CPU sandboxes powering reinforcement learning on Bittensor.
 
-Bittensor subnet **94** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **94** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/cathedralai/cathedral-sandbox) · [url](https://cathedral.computer/) · [discord](https://discord.com/channels/799672011265015819/1526241812589711571)
 
@@ -12,22 +12,22 @@ Fleet mods for this subnet: `cathedral`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004534 | -0.00% | -1.69% | -8.71% | 11,829 | 2,304 | 285.42 |
+| 0.004520 | -1.41% | -0.32% | -3.32% | 11,823 | 2,300 | 516.02 |
 
 ## Last 24h flow
 
-68 trades by 38 coldkeys · 37 buys (132.88 τ) / 31 sells (151.69 τ) · net -18.81 τ
+75 trades by 43 coldkeys · 37 buys (251.16 τ) / 38 sells (257.40 τ) · net -6.25 τ
 
 ## News
 
+- 2026-10-12 · commit · [Merge pull request #254 from skyrocket2026/feat/verifier-release-next](https://github.com/cathedralai/cathedral-sandbox/commit/30bee005c62ed65595027e27a2447dbcef163bc5) — cathedralai/cathedral-sandbox
+- 2026-10-12 · commit · [Merge pull request #253 from skyrocket2026/fix/verifier-review-followups](https://github.com/cathedralai/cathedral-sandbox/commit/5a57fb50ee5dabe012b7859d307cb5870c269a70) — cathedralai/cathedral-sandbox
+- 2026-10-12 · commit · [release(tdx-verifier): expect the Go 1.26.9 build of the next release](https://github.com/cathedralai/cathedral-sandbox/commit/78f631209fc632d10f1e8d1bf73ad557f5c14830) — cathedralai/cathedral-sandbox
+- 2026-10-12 · commit · [release(tdx-verifier): expect the digest of #253's final verifier source](https://github.com/cathedralai/cathedral-sandbox/commit/eb5bf07d6a9d5f459531a0188f938b0b95ea97a2) — cathedralai/cathedral-sandbox
+- 2026-10-12 · commit · [release(tdx-verifier): expect the digest of main after #267 plus #253](https://github.com/cathedralai/cathedral-sandbox/commit/52fdf7ff6deeab8b99837445ad3a6e5cc421f0f5) — cathedralai/cathedral-sandbox
 - 2026-10-05 · commit · [docs: mission-first miner README and one canonical operating guide (#…](https://github.com/cathedralai/cathedral-sandbox/commit/6e38541d434bdbb378052e308e636a537cc59607) — cathedralai/cathedral-sandbox
 - 2026-10-02 · commit · [Merge pull request #267 from cathedralai/fix/tdx-image-identity-v2](https://github.com/cathedralai/cathedral-sandbox/commit/a22fb1df124ed3e4414335f109f30624152ff548) — cathedralai/cathedral-sandbox
 - 2026-10-02 · commit · [Check the verdict's v1 and v2 audit values against the quote in admis…](https://github.com/cathedralai/cathedral-sandbox/commit/c47a6f733ebe8a8a6b09bfac70209d24f8178e57) — cathedralai/cathedral-sandbox
-- 2026-10-02 · commit · [Store the GCP quote fixtures as .bin; *.quote is ignored for live evi…](https://github.com/cathedralai/cathedral-sandbox/commit/e1d6f49c70eb6a92d2bc80c09af4ea042cae7418) — cathedralai/cathedral-sandbox
-- 2026-10-02 · commit · [Merge remote-tracking branch 'origin/main' into fix/tdx-image-identit…](https://github.com/cathedralai/cathedral-sandbox/commit/9eb29b09542a4310a93ac7402f310ed2fe5958aa) — cathedralai/cathedral-sandbox
-- 2026-10-02 · commit · [Add the v2 TDX image identity that leaves out host-set owner fields (…](https://github.com/cathedralai/cathedral-sandbox/commit/428a963a188fc6ed4bfe03da99bc37cc190527c8) — cathedralai/cathedral-sandbox
-- 2026-10-01 · commit · [snp friend probe: an unavailable AMD verifier is inconclusive, never …](https://github.com/cathedralai/cathedral-sandbox/commit/244f9f52eaf4b570886e6d6eab734cecd0b39d78) — cathedralai/cathedral-sandbox
-- 2026-10-01 · commit · [Merge pull request #256 from cathedralai/fix/snp-umask-and-kds-thrott…](https://github.com/cathedralai/cathedral-sandbox/commit/de8a061e1641b8e65fc4b1c5f27ff0ae4066e502) — cathedralai/cathedral-sandbox
 
 ## Use
 

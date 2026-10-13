@@ -2,7 +2,7 @@
 
 a decentralized 3D content generation competition
 
-Bittensor subnet **17** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **17** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/404-Repo/404-gen-subnet) · [url](https://www.404.xyz)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/404-Repo/404-gen-subnet) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.008185 | +0.00% | -0.79% | -2.78% | 50,749 | 24,661 | 124.00 |
+| 0.008206 | +0.00% | +0.25% | -2.47% | 50,945 | 24,701 | 134.54 |
 
 ## Last 24h flow
 
-35 trades by 28 coldkeys · 6 buys (0.34 τ) / 29 sells (108.39 τ) · net -108.04 τ
+20 trades by 17 coldkeys · 5 buys (70.51 τ) / 15 sells (48.79 τ) · net 21.72 τ
 
 ## Use
 

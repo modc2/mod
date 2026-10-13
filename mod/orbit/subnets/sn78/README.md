@@ -2,7 +2,7 @@
 
 Universal motion to meaning
 
-Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vision) · [discord](https://discord.gg/8pexneWef)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vis
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003588 | -0.21% | -3.91% | -20.43% | 5,554 | 1,429 | 149.72 |
+| 0.003632 | -0.57% | +1.23% | -13.92% | 5,648 | 1,438 | 1,026 |
 
 ## Last 24h flow
 
-166 trades by 119 coldkeys · 43 buys (60.49 τ) / 123 sells (88.24 τ) · net -27.76 τ
+454 trades by 202 coldkeys · 155 buys (517.43 τ) / 299 sells (506.03 τ) · net 11.41 τ
 
 ## News
 
-- 2026-10-12 · commit · [Merge pull request #241 from Umi-BitSign/codex/c5-retained-preparatio…](https://github.com/Umi-BitSign/umi/commit/8cb8350b84fe81719c7608d8e8fd36dba7556d2d) — Umi-BitSign/umi
-- 2026-10-11 · commit · [Report cohort work percentages and measured substage ETAs](https://github.com/Umi-BitSign/umi/commit/94191b905fccab09e0495b4b76a9b6fb31ec72d3) — Umi-BitSign/umi
-- 2026-10-11 · commit · [Release prepared graphs after cancellation and align native fixtures](https://github.com/Umi-BitSign/umi/commit/7ff8b731eaa7420a77af20e1fef95bbc16e02577) — Umi-BitSign/umi
-- 2026-10-11 · commit · [Describe cohort adoption through durable plan boundaries](https://github.com/Umi-BitSign/umi/commit/96875a5a5bd6912b3a61501aa8919c4bda2912fa) — Umi-BitSign/umi
-- 2026-10-11 · commit · [Compose cohort review budgets and support authenticated loopback tran…](https://github.com/Umi-BitSign/umi/commit/b890cf8b283e99cb616cd6d072794dbd7150f86b) — Umi-BitSign/umi
-- 2026-10-09 · commit · [Unblock C5 admission reads and correct historical block verification …](https://github.com/Umi-BitSign/umi/commit/66987885c21aedabd64087d11a22c7c4cba12ac7) — Umi-BitSign/umi
-- 2026-10-09 · commit · [Avoid repeated original roster and absent service terminal reconstruc…](https://github.com/Umi-BitSign/umi/commit/88ced6e48855b58c32d3b820026110e476dbc760) — Umi-BitSign/umi
-- 2026-10-09 · commit · [Reuse exact retained service records and static grant validation (#238)](https://github.com/Umi-BitSign/umi/commit/30e4ec5de2d53505e2c2f06a35e4b17937bc7f7b) — Umi-BitSign/umi
+- 2026-10-12 · commit · [Describe successor publication eligibility by signed plan sequence](https://github.com/Umi-BitSign/umi/commit/23f332b76d0c19afc201e4ede911d77c2ce8f807) — Umi-BitSign/umi
+- 2026-10-12 · commit · [Merge pull request #245 from Umi-BitSign/codex/c6-final-release-integ…](https://github.com/Umi-BitSign/umi/commit/03a82fe3a18e26698711329c75180d466f98a145) — Umi-BitSign/umi
+- 2026-10-12 · commit · [Pin combined maintenance runtime with original deployment authority](https://github.com/Umi-BitSign/umi/commit/c8ee08ac878e464fb01116e676fd20f8db871498) — Umi-BitSign/umi
+- 2026-10-12 · commit · [Reuse canonical bytes within synchronous settlement review](https://github.com/Umi-BitSign/umi/commit/e4b0fa145e803c4c3c2f67b03072d66f366c4e35) — Umi-BitSign/umi
+- 2026-10-12 · commit · [Complete successor budgets and recoverable miner upgrades](https://github.com/Umi-BitSign/umi/commit/588c9dc07469e1f2a442fbf2fb5540b70615d024) — Umi-BitSign/umi
+- 2026-10-12 · commit · [Merge pull request #244 from Umi-BitSign/codex/c5-reference-commitmen…](https://github.com/Umi-BitSign/umi/commit/9282301375ef87543a4394fdbf477d65bfbe528c) — Umi-BitSign/umi
+- 2026-10-12 · commit · [Fix upload signing and access logging; qualify successor lifecycle (#…](https://github.com/Umi-BitSign/umi/commit/dbab13a380a1c64c141af474c69cab7046207fd8) — Umi-BitSign/umi
+- 2026-10-12 · commit · [Preserve committed service references through certification replay](https://github.com/Umi-BitSign/umi/commit/15e490a680bea353ff8605420b8f063790f902ab) — Umi-BitSign/umi
 
 ## Use
 

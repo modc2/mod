@@ -2,7 +2,7 @@
 
 Open-Source Claude Cowork
 
-Bittensor subnet **118** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **118** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/orgs/ditto-assistant/repositories) · [url](https://heyditto.ai) · [discord](https://discord.gg/qNKYZEMpkD)
 
@@ -10,11 +10,15 @@ Links: [github](https://github.com/orgs/ditto-assistant/repositories) · [url](h
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.007008 | +1.34% | +4.20% | +0.05% | 22,686 | 6,251 | 3,878 |
+| 0.006559 | +0.01% | -6.41% | +1.07% | 21,290 | 6,058 | 4,582 |
 
 ## Last 24h flow
 
-428 trades by 162 coldkeys · 247 buys (2,002 τ) / 181 sells (1,871 τ) · net 130.64 τ
+459 trades by 193 coldkeys · 210 buys (2,188 τ) / 249 sells (2,389 τ) · net -201.18 τ
+
+## News
+
+- 2026-10-11 · news · [AI Has IQ But Amnesia. Ditto (SN118) Is Fixing It \| Founder Interview #TAO](https://news.google.com/rss/articles/CBMiXEFVX3lxTFBHb2Nkb1RjMGtjV0ktUmpVaVIwQnF4WHRhazF4dVQtbmk3SHVUQXVmblZrUk95VEdsT3J4cEJPNGN4OFlOcUtNOHBOeUEyMWhTdFRZOWs5bk10c3Ey?oc=5) — YouTube
 
 ## Use
 

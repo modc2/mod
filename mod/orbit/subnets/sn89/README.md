@@ -2,7 +2,7 @@
 
 Proof of Edge - Trading signals
 
-Bittensor subnet **89** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **89** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/DeltaCompute24/InfiniteQuant-Subnet) · [url](https://infinitequant.app)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/DeltaCompute24/InfiniteQuant-Subnet) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002979 | -0.00% | -0.22% | -0.67% | 15,062 | 6,119 | 7.19 |
+| 0.003001 | -0.03% | +0.73% | +0.19% | 15,193 | 6,142 | 154.44 |
 
 ## Last 24h flow
 
-58 trades by 42 coldkeys · 1 buys (0.01 τ) / 57 sells (6.63 τ) · net -6.62 τ
+58 trades by 46 coldkeys · 10 buys (87.86 τ) / 48 sells (64.82 τ) · net 23.04 τ
 
 ## News
 
+- 2026-10-13 · commit · [Markets vault: from the payout+vault arms a withdrawal keeps open bet…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/36eca682e13a61e752f8424e0229a6175fe003da) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-13 · commit · [README: depth allowances by vault collateral tier](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/0d57a59b2f37c874f63b4abd0580c0e00f2cbd1e) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-13 · commit · [Markets V3.3 depth by vault collateral tier + V3.4 sigma calibration …](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/83ac5c96d37f56612eacc04e8405ad9fe3f3c2ef) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-13 · commit · [Markets: grade from the record, not the clock (arm 2026-10-14 00:00 U…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/932357c3e34e8d0fbe9ce6143e5c0c7959a87066) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-13 · commit · [Markets V3.2 depth ends with the vault: 15m/1h markets starting at/af…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/a9797acacf77f92282866c0040ff592c9cd715c6) — DeltaCompute24/InfiniteQuant-Subnet
+- 2026-10-12 · commit · [Markets V6: payout-based collateral check + emission credit, daily se…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/e96a566cacc7b344b237eaef4299319367abc169) — DeltaCompute24/InfiniteQuant-Subnet
 - 2026-10-12 · commit · [Markets V3.2: finite house depth (arm 2026-10-12 05:00 UTC)](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/3f6d260696fecc8f98b0f33398e2e2216b0e356c) — DeltaCompute24/InfiniteQuant-Subnet
 - 2026-10-11 · commit · [Markets V2e: unpaid claims carry into later cycles (arm 2026-10-12 01…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/5693c4beb512e73fc87ba5278e0050827eb8915a) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-11 · commit · [README: USDC withdrawals go out automatically](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/cd691a3e3a2b1afecf40c021f589413f585fa3d0) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-11 · commit · [README: Markets real-money section (USDC/alpha withdrawals on request…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/7ce88739f7222b6c7581ee4bd4732f696515dced) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-11 · commit · [markets V2d: lock while open. An entity short of its open bets at any…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/18d2e693ef7247ce11830da666c7a1e72790545a) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-10 · commit · [markets V3.1: size 15m/1h markets from the 3 h of sealed ticks before…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/1738b1f941528c3ca4a87945a2b48ad0d8571841) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-10 · commit · [markets V2c: carry retained losses forward per entity (pay only above…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/2f7cab56e27160486a290f807fd61720e1d10bdf) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-10 · commit · [markets: daily and weekly Bitcoin Up/Down windows (5 pm New York; wee…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/798320b7e90bffa4056175a25f40fb56620f23d6) — DeltaCompute24/InfiniteQuant-Subnet
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 Blockchain-backed cloud: storage, VMs, and apps with unmatched transparency, trust, and power.
 
-Bittensor subnet **75** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **75** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/thenervelab/thebrain) · [url](https://hippius.com/)
 
@@ -12,11 +12,11 @@ Fleet mods for this subnet: `hippius`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.017448 | -0.19% | -2.09% | +8.71% | 100,934 | 33,807 | 1,484 |
+| 0.017027 | +0.00% | -2.41% | +4.99% | 98,640 | 33,415 | 5,371 |
 
 ## Last 24h flow
 
-295 trades by 180 coldkeys · 85 buys (506.30 τ) / 210 sells (915.72 τ) · net -409.42 τ
+440 trades by 187 coldkeys · 268 buys (2,422 τ) / 172 sells (2,880 τ) · net -458.02 τ
 
 ## News
 

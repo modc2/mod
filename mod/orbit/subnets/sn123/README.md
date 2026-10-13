@@ -2,7 +2,7 @@
 
 Incentivizing cooperative prediction
 
-Bittensor subnet **123** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-12 (block 9265081).
+Bittensor subnet **123** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
 
 Links: [github](https://github.com/Barbariandev/MANTIS) · [url](https://mantis123.com)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Barbariandev/MANTIS) · [url](https://mantis1
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002278 | -0.00% | -0.24% | +0.88% | 10,366 | 5,606 | 9.23 |
+| 0.002273 | -0.01% | -0.22% | +0.14% | 10,360 | 5,600 | 197.11 |
 
 ## Last 24h flow
 
-42 trades by 21 coldkeys · 3 buys (1.25 τ) / 39 sells (7.70 τ) · net -6.45 τ
+59 trades by 24 coldkeys · 10 buys (95.39 τ) / 49 sells (99.88 τ) · net -4.49 τ
 
 ## News
 

@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9265081,
+  "block": 9272278,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6871534.487792515,
-    "tao_in": 5453110.501441041,
-    "alpha_in": 1418423.986351474,
-    "alpha_out": 5453110.501441041,
-    "volume": 59009468.54487283,
-    "vol_24h": 26117.3416525051,
+    "market_cap": 6872033.586726689,
+    "tao_in": 5451531.243523579,
+    "alpha_in": 1420502.34320311,
+    "alpha_out": 5451531.243523579,
+    "volume": 59046003.56292178,
+    "vol_24h": 36535.01804894954,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,6 +81,30 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1791853475,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor (TAO) drops over 10% in 24 hours amid heavy long liquidations",
+      "url": "https://news.google.com/rss/articles/CBMiogFBVV95cUxObFJOZTg2UXUxSFlLQWFHWE1NT2FpM1duUUd5RThBWUxlUGtVRThYdURqRy1kSjFZSzV0OXJqRlhKdzQxd1B5MW5FVWlVVVJWT21aZ1BjMHFIV2NZand2NjJQSjNUbHJaUWNwS2NJNW1tUXROWFc0NWNqT21mT1AwdU5vSXM4dVRkTHJBOFNJY25oUm42aGZ3QVpSSXV2NGtvY0E?oc=5",
+      "publisher": "Pluang"
+    },
+    {
+      "ts": 1791849960,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor's 3.68% Drop: High Beta Reaction to Market Conditions",
+      "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE84ZWZiMERONi0taVZzWVZmZE9zVG5ma3FZb3pxVnF4dFU3cjM0Tm54ZjEwX184NHc4YVpVZ1ljSG9oTEpGUlg5WUxSTXkzM0pWVTlyMnNMcWlYTV9Fc1cwTkJBdnBYT3ZfN0Yyb1RxSXI?oc=5",
+      "publisher": "CoinMarketCap"
+    },
+    {
+      "ts": 1791816828,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Simple wallets and index products: How investors are getting access to Bittensor",
+      "url": "https://news.google.com/rss/articles/CBMiwAFBVV95cUxQQ08wams4Zl9ieHlVaUZ0a2dRZVlKLVVMT2owM3ZlemFNNkMyTy1UQk5adW1NLWxMblBXVXRmSS1FYU9mQjR1THZ1LURmQ05tRG5rRm5ZWXZhbmx2Wl9UVnU0b3VtN2dSdkNZZUhWZjl6WjVOYWJtbjlLUWF5Y2hGM1lSZS1iR041YjVKeHVoc2RrQnZMUDRqdmRvNnRLN3hhamlWWXdxMkVRZklVTGoxbXlhWWU0YUxxQlpEYXRNZ00?oc=5",
+      "publisher": "TheStreet"
+    },
+    {
       "ts": 1791616442,
       "kind": "news",
       "source": "gnews",
@@ -119,32 +143,8 @@
       "title": "Bittensor Drops 5.5% Amid Broad Crypto Sell-Off",
       "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE9QR2tPaS16V2tVVnhNUmNuWkRJYVh4a01GMjlFRWlZTXpWcWh6VHV0UTVna3FjR3ZHSlNYU1IxS2FsMnFJTzBjdkYwMXZ5VmpPbFV5UjVUUnpCSGZzT3J4Tm9mcHZsVkQ3bmtUdWltb0Y?oc=5",
       "publisher": "CoinMarketCap"
-    },
-    {
-      "ts": 1791389295,
-      "kind": "release",
-      "source": "feeds",
-      "title": "v475: Merge pull request #3214 from RaoFoundation/basket-min-trade-sudo",
-      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v475",
-      "publisher": "subtensor releases"
-    },
-    {
-      "ts": 1791356700,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor (TAO) Drops 3.42% Amid Market-Wide Risk-Off",
-      "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE5RU3U5ZFF6dUNWUlczLThwRVBhNlBlOGJZRVdpSC05VGg0Q2RDRjhyT3VSeDZPRnNmV2s2NE9Pb0pOOFR3dUNVbnVINVhpQnJWTGswc2Q1eVE0UGxtTDUyNTl5eFI0Wm5GNnZEeDhQRHU?oc=5",
-      "publisher": "CoinMarketCap"
-    },
-    {
-      "ts": 1791339970,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor (TAO) drops 4.61% in one hour, market cap at $3.44B, amid $650K long liquidations",
-      "url": "https://news.google.com/rss/articles/CBMilgFBVV95cUxNckpPOXpuRXplblkwN1BsZUtXS2ltcG1ZSWppRVR5Q3F4UjRtRVRtdXQ3YUcteFh6Tlo2WS1lbjdMSy03bFU1aktqU3pBZkEtMXhJV0RIRXdLeGI1YkhqMjhKcjJHS1RHckUzTGlBQVJDZDRjalFtMmstVkVVZXpKeWI0Z19WUFhBMkF2MjF4M0N2Z1BCa3c?oc=5",
-      "publisher": "Pluang"
     }
   ],
-  "updated": 1791783661,
-  "updated_day": "2026-10-12"
+  "updated": 1791870062,
+  "updated_day": "2026-10-13"
 }
