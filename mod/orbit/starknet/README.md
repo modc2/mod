@@ -152,3 +152,40 @@ explains and encodes them but leaves proving/signing to the wallet or the
 (account deployment, invoke transactions, a keystore under
 `~/.mod/starknet/`) are a later version, following the near module's shape:
 testnet by default, explicit confirm for mainnet, secrets never in the repo.
+
+## Build — the contract studio (v0.4)
+
+`/starknet/studio` is where you write Cairo contracts. Pick or create a contract (from a counter, ERC20 token, commit-reveal or Merkle allowlist template), edit `src/lib.cairo` and its tests in a highlighted editor, and click **Build & test**. Compiler errors are pinned to file:line in the gutter, and every snforge test shows pass/fail and gas. The **Agent** panel takes plain English ("add an owner-only pause"); the Cairo agent edits the contract, builds and tests it, and replies with what it did. **Interface** shows the compiled ABI.
+
+The toolchain is the `cairo` mod (`m cairo/serve`, :51291 — scarb 2.8.4, snforge 0.31, headless Claude CLI). `api/studio.py` is an auth-gated proxy onto it (`STARKNET_CAIRO` overrides the URL).
+
+- Reads (`GET /studio/{status,templates,contracts,get,tree,read,abi,job,jobs}`) are open.
+- Writes (`POST /studio/{new,write,build,test,vibe,clean,remove}`) need an owner. That is either a mod-protocol token (`token:` header, minted by "Sign in to build" with one wallet `personal_sign`) from the build private-flag owner, config `owner` or `STARKNET_STUDIO_OWNERS`, or a direct loopback call. build/test/vibe return `{job}`, which you poll with `GET /studio/job?id=`.
+- MCP adds `studio_*` tools (contracts, templates, get, read, abi, new, write, build, test, vibe). Build/test/vibe wait for their result. Over HTTP the writes follow the same owner rule; stdio is trusted. To connect your own agent: `claude mcp add starknet -- python3 api/mcp.py`.
+
+## Stablecoins and the guide agent (v0.5)
+
+`GET /stablecoins` lists every stablecoin on the network with its live
+supply (read from the token contract), how it is backed, and its USD price
+from the Pragma oracle (`get_data_median`, on chain) with the deviation from
+$1 in basis points. Mainnet today: native USDC (Circle, ~94% of supply),
+StarkGate-bridged USDC.e / USDT / DAI / DAI v0, and Opus CASH (a CDP minted
+against crypto collateral, no Pragma pair). The registry is `api/stables.py`.
+The `usdc` alias now means **native** USDC (`0x0330…35fb`); the bridged one
+is `usdc.e`. The STRK20 pool's public holdings include USDT too.
+
+`api/guide.py` is the **guide** agent, on the fleet agent contract:
+`GET /agents`, `POST /run`, `POST /run/stream` (SSE `step` … `done`),
+`GET /.well-known/agent.json`. Two brains:
+
+- **facts**: open to anyone, no model, no cost. It routes the question to
+  topics (protocol, stablecoins, launching a stablecoin, privacy pool, fees,
+  accounts, Cairo, this module), reads the live numbers each one needs, and
+  answers with them. Every read shows up as a step.
+- **claude**: owner token or loopback only, same gate as the studio. The
+  same readings go into Claude Code's system prompt through orbit/claudecode
+  (`POST :51260/run/stream`), and its steps stream through. Anyone else who
+  asks for Claude gets a facts answer and a note saying why.
+
+The app has `/stablecoins` and `/ask` pages. The MCP tools are
+`starknet_stablecoins` and `starknet_ask` (facts brain).

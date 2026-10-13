@@ -1,0 +1,71 @@
+use snforge_std::{
+    ContractClassTrait, DeclareResultTrait, declare, start_cheat_caller_address,
+    stop_cheat_caller_address,
+};
+use starknet::ContractAddress;
+use {{PKG}}::{I{{NAME}}Dispatcher, I{{NAME}}DispatcherTrait, commitment};
+
+fn alice() -> ContractAddress {
+    'alice'.try_into().unwrap()
+}
+
+fn mallory() -> ContractAddress {
+    'mallory'.try_into().unwrap()
+}
+
+fn deploy() -> I{{NAME}}Dispatcher {
+    let contract = declare("{{NAME}}").unwrap().contract_class();
+    let (addr, _) = contract.deploy(@array![]).unwrap();
+    I{{NAME}}Dispatcher { contract_address: addr }
+}
+
+#[test]
+fn test_commit_then_reveal() {
+    let c = deploy();
+    start_cheat_caller_address(c.contract_address, alice());
+    c.commit(commitment(42, 'pepper', alice()));
+    assert(!c.is_revealed(alice()), 'hidden until reveal');
+    c.reveal(42, 'pepper');
+    stop_cheat_caller_address(c.contract_address);
+    assert(c.value_of(alice()) == 42, 'value revealed');
+    assert(c.commits() == 1 && c.reveals() == 1, 'counts');
+}
+
+#[test]
+fn test_reveal_zero_is_fine() {
+    let c = deploy();
+    start_cheat_caller_address(c.contract_address, alice());
+    c.commit(commitment(0, 'salt', alice()));
+    c.reveal(0, 'salt');
+    assert(c.is_revealed(alice()), 'zero revealed');
+}
+
+#[test]
+#[should_panic(expected: 'bad reveal')]
+fn test_wrong_value_rejected() {
+    let c = deploy();
+    start_cheat_caller_address(c.contract_address, alice());
+    c.commit(commitment(42, 'pepper', alice()));
+    c.reveal(43, 'pepper');
+}
+
+#[test]
+#[should_panic(expected: 'bad reveal')]
+fn test_copied_commitment_cannot_be_revealed() {
+    // mallory copies alice's commitment, then replays her (value, salt):
+    // the hash is bound to the committer, so it does not verify for mallory
+    let c = deploy();
+    let alices = commitment(42, 'pepper', alice());
+    start_cheat_caller_address(c.contract_address, mallory());
+    c.commit(alices);
+    c.reveal(42, 'pepper');
+}
+
+#[test]
+#[should_panic(expected: 'already committed')]
+fn test_no_double_commit() {
+    let c = deploy();
+    start_cheat_caller_address(c.contract_address, alice());
+    c.commit(commitment(1, 's', alice()));
+    c.commit(commitment(2, 's', alice()));
+}

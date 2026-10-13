@@ -308,6 +308,14 @@ GLOSSARY = {
         'open, so ML-DSA, SLH-DSA, ed25519, wasm prims and composites all '
         'look identical on chain. An attacker has to guess the scheme out of '
         'the whole cloak set and never sees a public key to attack.'),
+    'cairo': (r'\bcairo\b|stark',
+        'CAIRO-MSS-SHA256 is a hash-based key type resting on SHA-256 alone — '
+        'independent of the lattices under ML-DSA and the SHAKE under SLH-DSA '
+        '— whose verifier is a Cairo program (what STARKs prove). Stack it in '
+        'an ALL-of composite and a quantum forger must break one more '
+        'unrelated assumption. It is few-time (leaf picked by message hash), '
+        'so it is a layer, not a solo wallet for heavy use. "cairo" runs a '
+        'witness through the Cairo VM.'),
     'prims': (r'\bprims?\b|primitives?|key ?type market|marketplace',
         'Prims are the atoms — builtin ML-DSA/SLH-DSA, plugin schemes and '
         'anyone\'s importless wasm blob (pq_prim action=add). Key types are '
@@ -412,6 +420,8 @@ RULES = [
     (r'^(?:key ?type market|keymarket|marketplace)\b', lambda m, t: ('pq_keymarket', {})),
     (r'^(?:prims|primitives)\b', lambda m, t: ('pq_prims', {})),
     (r'^(?:private|cloak)(?: key ?types?)?\s*$', lambda m, t: ('pq_private', {})),
+    (r'^cairo(?: check| verify| vm)?\s*$',
+     lambda m, t: ('pq_cairo', {'action': 'check' if re.search(r'check|verify|vm', t) else 'info'})),
     (r'^(?:algos|algorithms|key ?types|schemes)\b', lambda m, t: ('pq_algos', {})),
     (r'^(?:mempool|pending)\b', lambda m, t: ('pq_mempool', {})),
     (r'^(?:mine|produce a block|make a block)\b',

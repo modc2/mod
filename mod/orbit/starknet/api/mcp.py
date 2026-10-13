@@ -28,8 +28,11 @@ if HERE not in sys.path:
     sys.path.append(HERE)
 
 import abi      # noqa: E402
+import guide    # noqa: E402
 import chain    # noqa: E402
+import stables  # noqa: E402
 import strk20   # noqa: E402
+import studio   # noqa: E402
 
 SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
 DEFAULT_PROTOCOL_VERSION = '2025-03-26'
@@ -55,7 +58,16 @@ INSTRUCTIONS = (
     'action for one. strk20_docs reads/searches the official docs. Nothing '
     'here signs or submits: private transactions need the user\'s viewing '
     'key and a STARK proof, which belong in their wallet or the Privacy SDK. '
-    'Every tool takes network=mainnet|sepolia (mainnet default).'
+    'Every tool takes network=mainnet|sepolia (mainnet default). '
+    'STUDIO: studio_* tools write, build and test Cairo contracts on this box '
+    '(scarb + snforge via the cairo mod). studio_contracts / studio_templates '
+    'to look around, studio_new to scaffold from a template, studio_read / '
+    'studio_write to edit src/lib.cairo and tests/, studio_build and '
+    'studio_test to compile and run snforge (they wait for the result), '
+    'studio_abi for the compiled interface. studio_vibe hands a plain-English '
+    'change to the in-house Cairo agent, which edits, builds and tests. Studio '
+    'writes are owner-only: stdio and loopback are trusted, HTTP needs an '
+    'owner token.'
 )
 
 
@@ -134,10 +146,10 @@ TOOLS = {
         'handler': lambda a: chain.account(a['address'], network=_n(a)),
     },
     'starknet_balance': {
-        'description': 'ERC-20 balance of an address. token is eth, strk, usdc '
+        'description': 'ERC-20 balance of an address. token is eth, strk, usdc (native), usdc.e, usdt, dai '
                        'or any token contract address (decimals read live).',
         'inputSchema': _schema({'address': _ADDR,
-                                'token': _str('eth (default) | strk | usdc | 0x...')},
+                                'token': _str('eth (default) | strk | usdc | usdc.e | usdt | dai | 0x...')},
                                ['address']),
         'handler': lambda a: chain.balance(a['address'], a.get('token') or 'eth',
                                            network=_n(a)),
@@ -309,7 +321,95 @@ TOOLS = {
             'q': _str('search terms')}},
         'handler': lambda a: strk20.docs(a.get('page'), a.get('q')),
     },
+    # ── stablecoins + the guide agent ────────────────────────────
+    'starknet_stablecoins': {
+        'description': 'Every stablecoin on the network, live: supply, how it '
+                       'is backed (native fiat, StarkGate-bridged, or a '
+                       'crypto CDP), and its USD price from the Pragma '
+                       'oracle with the deviation from $1 in basis points.',
+        'inputSchema': _schema(),
+        'handler': lambda a: stables.stables(network=_n(a)),
+    },
+    'starknet_ask': {
+        'description': 'Ask the starknet guide agent a question in plain '
+                       'English ("how do stablecoins work here?", "what is a '
+                       'validity rollup?"). Answers from live chain readings '
+                       'with no model and no cost; returns the answer and the '
+                       'trace of what it read.',
+        'inputSchema': _schema({'query': _str('the question')}, ['query']),
+        'handler': lambda a: guide.run(a['query'], brain='facts', network=_n(a)),
+    },
 }
+
+# ── contract studio (studio.py → the cairo mod) ──────────────────
+
+_NAME = _str('contract name, snake_case (e.g. my_token)')
+
+
+def _wait(job, timeout=1500):
+    """Block on a cairo job: an MCP caller wants the answer, not a ticket."""
+    import time
+    jid = (job.get('job') or {}).get('id')
+    if not jid:
+        return job
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        j = studio.call('job', {'id': jid})
+        if j.get('state') in ('done', 'error'):
+            return j.get('result') if j.get('state') == 'done' else {'error': j.get('error')}
+        time.sleep(2)
+    return {'error': f'still running after {timeout}s', 'job': jid}
+
+
+def _studio(verb, long=False):
+    def run(a, writable=False):
+        out = studio.call(verb, a, writable=writable)
+        return _wait(out) if long else out
+    run.writes = verb in studio.WRITE
+    return run
+
+
+STUDIO_TOOLS = {
+    'studio_contracts': ('Every contract in the studio with its build state '
+                         '(fresh / stale / unbuilt) and template.',
+                         {}, (), _studio('contracts')),
+    'studio_templates': ('Starter contracts studio_new can scaffold: counter, '
+                         'token (ERC20), commit_reveal, merkle_allowlist.',
+                         {}, (), _studio('templates')),
+    'studio_get': ('One contract: its Scarb.toml, file list and build state.',
+                   {'name': _NAME}, ('name',), _studio('get')),
+    'studio_read': ('Read one file of a contract, e.g. src/lib.cairo or '
+                    'tests/test_<name>.cairo.',
+                    {'name': _NAME, 'path': _str('path inside the contract')},
+                    ('name', 'path'), _studio('read')),
+    'studio_abi': ('The compiled interface: functions (view/external, typed '
+                   'inputs/outputs), constructor, events, Sierra/CASM size.',
+                   {'name': _NAME}, ('name',), _studio('abi')),
+    'studio_new': ('Scaffold a new Cairo 2 contract (Scarb project + snforge '
+                   'tests) from a template. Owner-only.',
+                   {'name': _NAME, 'template': _str('template id (default counter)'),
+                    'desc': _str('one-line description')},
+                   ('name',), _studio('new')),
+    'studio_write': ('Overwrite one file of a contract. Owner-only.',
+                     {'name': _NAME, 'path': _str('path inside the contract'),
+                      'content': _str('the full new file')},
+                     ('name', 'path', 'content'), _studio('write')),
+    'studio_build': ('scarb build; returns the log, file:line diagnostics and '
+                     'artifacts. Owner-only.', {'name': _NAME}, ('name',),
+                     _studio('build', long=True)),
+    'studio_test': ('snforge test (builds first when stale); returns per-test '
+                    'pass/fail and totals. Owner-only.', {'name': _NAME},
+                    ('name',), _studio('test', long=True)),
+    'studio_vibe': ('Ask the Cairo agent to make a change in plain English; '
+                    'it edits the contract, then builds and tests it. Takes '
+                    'minutes and spends the host Claude account. Owner-only.',
+                    {'name': _NAME, 'prompt': _str('what to change or build'),
+                     'model': _str('optional Claude model id')},
+                    ('name', 'prompt'), _studio('vibe', long=True)),
+}
+for _n_, (_d, _props, _req, _h) in STUDIO_TOOLS.items():
+    TOOLS[_n_] = {'description': _d, 'inputSchema': _schema(_props, _req),
+                  'handler': _h}
 
 
 # ── JSON-RPC ─────────────────────────────────────────────────────
@@ -326,8 +426,9 @@ class ToolError(ValueError):
     pass
 
 
-def call_tool(name, args):
-    """Run one tool by name. Shared with the REST layer (POST /tools/<name>)."""
+def call_tool(name, args, writable=False):
+    """Run one tool by name. Shared with the REST layer (POST /tools/<name>).
+    `writable` says whether the caller may run studio writes."""
     tool = TOOLS.get(name)
     if not tool:
         raise ToolError(f'no tool named {name!r} — {", ".join(TOOLS)}')
@@ -335,14 +436,16 @@ def call_tool(name, args):
     for required in tool['inputSchema'].get('required', []):
         if args.get(required) in (None, ''):
             raise ToolError(f'{name} needs {required}')
+    if getattr(tool['handler'], 'writes', None) is not None:
+        return tool['handler'](args, writable=writable)
     return tool['handler'](args)
 
 
-def _call(id_, params):
+def _call(id_, params, writable=False):
     name = (params or {}).get('name')
     args = (params or {}).get('arguments') or {}
     try:
-        out = call_tool(name, args)
+        out = call_tool(name, args, writable=writable)
         return _result(id_, {'content': [{'type': 'text',
                                           'text': json.dumps(out, default=str, indent=2)}],
                              'structuredContent': out if isinstance(out, dict) else None,
@@ -355,11 +458,11 @@ def _call(id_, params):
                          'isError': True})
 
 
-def handle(body):
+def handle(body, writable=False):
     """One JSON-RPC message in, one response out (None for notifications).
-    A JSON array is a batch."""
+    A JSON array is a batch. `writable`: may this caller run studio writes."""
     if isinstance(body, list):
-        out = [r for r in (handle(b) for b in body) if r is not None]
+        out = [r for r in (handle(b, writable) for b in body) if r is not None]
         return out or None
     if not isinstance(body, dict) or not isinstance(body.get('method'), str):
         id_ = body.get('id') if isinstance(body, dict) else None
@@ -381,7 +484,7 @@ def handle(body):
     if method == 'tools/list':
         return _result(id_, {'tools': tool_list()})
     if method == 'tools/call':
-        return _call(id_, params)
+        return _call(id_, params, writable)
     return _error(id_, -32601, f'method not found: {method}')
 
 
@@ -396,7 +499,8 @@ def version():
 def tool_list():
     return [{'name': n, 'description': t['description'],
              'inputSchema': t['inputSchema'],
-             'annotations': {'readOnlyHint': True, 'openWorldHint': True}}
+             'annotations': {'readOnlyHint': not getattr(t['handler'], 'writes', False),
+                             'openWorldHint': True}}
             for n, t in TOOLS.items()]
 
 
@@ -410,7 +514,7 @@ def serve_stdio():
         except Exception:
             resp = _error(None, -32700, 'parse error: line is not valid JSON')
         else:
-            resp = handle(body)
+            resp = handle(body, writable=True)  # stdio = a process on this box
         if resp is not None:
             sys.stdout.write(json.dumps(resp, default=str) + '\n')
             sys.stdout.flush()

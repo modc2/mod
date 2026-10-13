@@ -322,6 +322,18 @@
   .toast::before{content:'>> '}
   .toast.bad{border-color:var(--bad);color:var(--bad);background:#1a0408;
        box-shadow:4px 4px 0 #000, 0 0 18px rgba(255,56,96,.35)}
+  #kt-palette{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
+  .kt-fam{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+  .kt-fam > i{font-style:normal;color:var(--dim);font:13px var(--vt);min-width:92px;text-transform:uppercase}
+  .kt-part{border:2px solid var(--line2);background:#120a2a;color:var(--ink);padding:3px 9px;
+           font:16px VT323,monospace;cursor:pointer;border-radius:0}
+  .kt-part:hover{border-color:var(--cy)}
+  .kt-part.sel{border-color:var(--mag);box-shadow:0 0 6px rgba(255,43,214,.6)}
+  .kt-part .d{display:inline-block;width:7px;height:7px;margin-right:6px;background:var(--ac)}
+  .kt-part.cl .d{background:var(--hz)}
+  .kt-part.refused{opacity:.45}
+  #kt-graph,.kt-more{margin:4px 0 8px}
+  #kt-graph summary,.kt-more summary{cursor:pointer;font-size:13px}
   /* ── BUILDER: the key type DAG ── */
   #dag-wrap{overflow:auto;border:2px solid var(--line);background:
             linear-gradient(rgba(43,26,77,.35) 1px,transparent 1px) 0 0/20px 20px,
@@ -343,6 +355,7 @@
   .proof-row:last-child{border-bottom:0}
   .proof-row b{font-weight:400;color:var(--cy)}
   .kstep{display:inline-flex;align-items:stretch}
+  .kstep[hidden],#kt-pwallet[hidden]{display:none}
   .kstep button{padding:6px 9px;box-shadow:none}
   .kstep span{display:grid;place-items:center;min-width:52px;border-top:2px solid var(--line2);
     border-bottom:2px solid var(--line2);font:20px var(--vt);color:var(--cy)}
@@ -1014,34 +1027,39 @@
   <section id="builder">
     <div class="panel">
       <h2>key type builder <span class="tag">FORGE</span></h2>
-      <p class="note">Every key type this node can witness, drawn as the graph
-        it is: primitives on the left, composites built out of them to the
-        right. Solid magenta edges feed an <b>all</b>-composite — every part must sign,
-        it falls only if every part falls. Dashed yellow edges feed an
-        <b>any</b> — one part's signature suffices, it falls at the weakest.
-        Dotted cyan edges feed a <b>k-of-n threshold</b> — k parts sign, the attacker
-        must break n-k+1.
-        Click nodes to pick parts, then mint a new key type. Nothing here is
-        secure by decree: the gate probes the composed keygen like any plugin,
-        and TEST PROOFS runs the battery live.</p>
-      <div id="dag-wrap"><svg id="dag"></svg></div>
+      <p class="note">Pick 2+ parts, choose how they combine, forge. Stack
+        unrelated parts with ALL-OF and a quantum computer has to break every one.</p>
+      <div class="row">
+        <button class="go" id="kt-hard">&#9733; QUANTUM-HARD PRESET</button>
+        <span class="muted" style="font-size:13px">lattice + hash + Cairo-verified SHA-256, all must break</span>
+      </div>
+      <div id="kt-palette"></div>
+      <details id="kt-graph"><summary class="muted">show the full key type graph</summary>
+        <div id="dag-wrap"><svg id="dag"></svg></div></details>
       <div class="row">
         <span class="pill">parts</span>
-        <span id="kt-picked" class="muted">click nodes above…</span>
+        <span id="kt-picked" class="muted">click parts above…</span>
       </div>
       <div class="row">
         <select id="kt-op">
-          <option value="all">ALL-OF — hybrid AND: break every part</option>
-          <option value="any">ANY-OF — 1-of-n OR: break the weakest</option>
-          <option value="threshold">THRESHOLD — k-of-n: break n-k+1</option>
+          <option value="all">ALL-OF — attacker must break every part</option>
+          <option value="any">ANY-OF — one part signs (weakest link)</option>
+          <option value="threshold">THRESHOLD — k of n sign</option>
         </select>
         <span class="kstep" id="kt-kbox" hidden><button class="sm" id="kt-kdn">-</button><span id="kt-k">2</span><button class="sm" id="kt-kup">+</button></span>
-        <input type="text" id="kt-name" placeholder="name (auto)" style="min-width:300px;flex:1;max-width:460px">
+        <input type="text" id="kt-name" placeholder="name (auto)" style="min-width:240px;flex:1;max-width:460px">
       </div>
       <div class="row">
+        <label title="the chain only ever sees a commitment and fixed-size envelopes — nobody learns which key type you use"><input type="checkbox" id="kt-private"> make it private (hide which key type I use)</label>
+        <input type="text" id="kt-pwallet" placeholder="private wallet name (auto)" hidden style="min-width:220px">
+      </div>
+      <details class="kt-more"><summary class="muted">author / publish / note</summary>
+      <div class="row">
         <label>author</label><select id="kt-author"><option value="">— anonymous —</option></select>
-        <label><input type="checkbox" id="kt-publish">publish authorship on chain (keytype/&lt;name&gt;)</label>
+        <label><input type="checkbox" id="kt-publish">publish authorship on chain</label>
         <input type="text" id="kt-note" placeholder="note (optional)" style="flex:1;min-width:160px">
+      </div></details>
+      <div class="row">
         <button class="go" id="kt-build">&#9654; FORGE KEY TYPE</button>
         <span class="pill" id="kt-meta">—</span>
       </div>
@@ -1050,7 +1068,7 @@
     <div class="grid">
       <div class="panel">
         <h2>the picked type</h2>
-        <div id="kt-detail" class="muted">click a node in the graph.</div>
+        <div id="kt-detail" class="muted">click a part above.</div>
       </div>
       <div class="panel">
         <h2>proofs</h2>
@@ -1207,7 +1225,8 @@
         with one of two completely different mechanisms instead: one built
         on <strong>lattice problems</strong>, one built on <strong>nothing
         but hashing</strong>. They share no weakness, so if one ever falls,
-        the other still holds.</p>
+        the other still holds — and a third, Cairo-checked SHA-256 lock
+        (section 5d) can be stacked on top.</p>
       <p class="hum">You choose your lock when you create a wallet, and your
         address is permanently stamped with the choice — a signature made
         for one kind of lock can never be replayed against another.</p>
@@ -1335,6 +1354,81 @@
         more than an empty one. Human-readable keys are the point of a
         namespace market: you cannot bid on something you cannot say.</p>
 
+      <h3><span class="n">5b</span>Build your own lock</h3>
+      <p class="hum">You can snap existing locks together into a new one.
+        <strong>ALL-OF</strong> means every lock has to open — a thief has
+        to break all of them. <strong>ANY-OF</strong> means any one opens it
+        (handy, but only as strong as the weakest). <strong>THRESHOLD</strong>
+        means "any 2 of these 3", like a bank vault with three keyholders.
+        The new lock is tested live before it's allowed in, and you can sign
+        your name to it on the chain.</p>
+      <p class="sci">Composite key types (<code>pq/compose.py</code>) are built from
+        registered ones: <code>all</code> concatenates public keys and
+        signatures and verifies every part — classical cost is the max over
+        parts and it is quantum-safe if any part is; <code>any</code> carries
+        a one-byte index and one part's signature — it falls at the weakest;
+        <code>threshold k</code> carries a k-bit bitmap and falls when the
+        k weakest fall. Sub-seeds are SHAKE-split per (composite, slot,
+        part), so a part key never equals a bare wallet's. Parts may be
+        composites, so key types form a DAG; names never rebind, so it
+        stays acyclic. The gate probes the composed keygen like any plugin,
+        and <code>pq_keytype_test</code> runs a refutation-only battery
+        (roundtrip, tamper, truncation, context and key binding, per-part
+        ablation). <code>publish=true</code> anchors
+        <code>keytype/&lt;name&gt;</code> = SHA3(spec) from the author's
+        wallet, so authorship is a key you can list and sell.</p>
+
+      <h3><span class="n">5c</span>Private locks</h3>
+      <p class="hum">A normal account tells the world which kind of lock it
+        uses the first time it signs — which tells an attacker exactly what
+        to attack. A <strong>private</strong> account never does: every
+        signature it makes is sealed in an identical-looking 64 KB envelope,
+        so a lattice lock, a hash lock and a Cairo lock all look like the
+        same noise. In the builder, tick <em>make it private</em> and the
+        lock you just built is hidden inside a new private wallet.</p>
+      <p class="sci">The <code>private</code> key type commits the address to
+        SHA3(inner, salt, inner_pk); a witness is an ML-KEM-768 envelope over
+        (inner, salt, pk, sig), padded to one fixed size, that only the
+        proposer opens — it checks the commitment, runs the gate on the
+        inner scheme and runs that scheme's verifier. The anonymity set is
+        every accepted key type that fits the envelope, composites included,
+        so the attacker never learns which problem to attack and never sees
+        a public key to start from. Trust, stated plainly: the proposer can
+        see the scheme; if the seal key leaks, each account falls back to
+        its inner scheme's own card. <code>pq_keytype create private=true</code>
+        forges and hides in one step.</p>
+
+      <h3><span class="n">5d</span>Cairo: one more wall</h3>
+      <p class="hum">Every extra lock in an ALL-OF stack only helps if it's
+        a <em>different kind</em> of lock — two copies of the same lock fall
+        to the same trick. So this chain adds a third kind, built on plain
+        SHA-256 hashing, whose checking program is written in
+        <strong>Cairo</strong> — the language behind STARK proofs, which
+        are themselves made of hashes and so stay quantum-proof. The
+        <em>QUANTUM-HARD PRESET</em> in the builder stacks lattice + hash +
+        Cairo: a quantum computer has to beat all three, and no single
+        breakthrough does it.</p>
+      <p class="sci"><code>CAIRO-MSS-SHA256</code> (<code>pq/cairomss.py</code>) is a
+        SPHINCS-shaped hypertree without FORS: four layers of 6-high Merkle
+        trees of WOTS keys (n=32, w=16, 67 chains, 2<sup>24</sup> leaves),
+        tweakable hash T = SHA-256(pub_seed | address | data), 64-byte
+        public key, 9376-byte signature. It rests on SHA-256
+        preimage/second-preimage resistance alone — an assumption
+        independent of ML-DSA's module lattices and SLH-DSA's SHAKE256 —
+        so in an <code>all</code> composite a forger needs a lattice break
+        <em>and</em> a SHA-256 inversion (Grover: ~2<sup>128</sup>). Its
+        verifier is a Cairo 2 program (<code>pq/cairo/src/lib.cairo</code>,
+        every input whole u32 words through <code>core::sha256</code>);
+        <code>pq_cairo check</code> runs a witness in the Cairo VM and
+        reports parity with the Python verifier the hot path uses
+        (~1.5 s in the VM vs ~10 ms in Python). Because a Cairo execution is
+        exactly what a STARK proves, this is the route by which a hidden
+        witness could one day be verified by a hash-based proof instead of
+        the proposer's word — this node ships the verifier, not a prover.
+        Honest limit: the leaf is chosen by the message hash, so one-time
+        key reuse has odds ~q<sup>2</sup>/2<sup>25</sup> after q
+        signatures — it is a layer, not a solo wallet for heavy use.</p>
+
       <h3><span class="n">6</span>Consensus, honestly</h3>
       <p class="hum">One operator decides the order of transactions — this
         chain doesn't pretend to be a thousand-node democracy, and says so.
@@ -1370,8 +1464,8 @@
         is the single source of truth, and any summary derived from it is
         thrown away the moment the two disagree.</p>
       <p class="sci">The same functions serve REST under
-        <span class="mono" id="about-api"></span>, MCP (28 tools,
-        <code>pq_head</code> through <code>pq_keytype_dag</code>) at
+        <span class="mono" id="about-api"></span>, MCP (33 tools,
+        <code>pq_head</code> through <code>pq_cairo</code>) at
         <code>POST /mcp</code>, and this console. State lives in
         <code>~/.mod/postquant</code>: wallet seeds mode 0600 and never
         committed, <code>blocks.jsonl</code> as the truth, and a state
@@ -2155,10 +2249,57 @@ const brief = o => esc(typeof o === 'object' ? JSON.stringify(o) : String(o));
 
 // ── BUILDER: the key type DAG ──
 let dagData = null, ktSel = [], ktK = 2, ktKManual = false;
+let ktMore = false;
 async function loadBuilder() {
-  try { dagData = await api('/keytype_dag'); drawDag(); ktPicked(); }
+  try { dagData = await api('/keytype_dag'); ktRedraw(); ktPicked(); }
   catch (e) { err('kt-out', e); }
 }
+// the compact picker: parts as chips grouped by what they rest on; the full
+// graph only draws when its fold is opened
+const ktGroup = n => n.composite ? 'yours'
+  : !n.quantum_safe ? 'classical'
+  : /CAIRO/i.test(n.family || n.name) ? 'cairo'
+  : /ML-DSA|lattice/i.test(n.family || '') ? 'lattice' : 'hash';
+const KT_GROUPS = [['lattice', 'lattice'], ['hash', 'hash'], ['cairo', 'cairo'],
+                   ['classical', 'classical'], ['yours', 'forged']];
+function ktRedraw() {
+  drawPalette();
+  if ($('kt-graph').open) drawDag();
+}
+function drawPalette() {
+  if (!dagData) return;
+  const by = {};
+  dagData.nodes.filter(n => n.name !== 'private')
+    .forEach(n => (by[ktGroup(n)] = by[ktGroup(n)] || []).push(n));
+  out('kt-palette', KT_GROUPS.filter(([g]) => by[g]).map(([g, label]) => {
+    let list = by[g], hidden = 0;
+    if (g === 'yours' && !ktMore && list.length > 6) {   // newest six + picked
+      const keep = new Set(list.slice(-6).map(n => n.name).concat(ktSel));
+      hidden = list.length - list.filter(n => keep.has(n.name)).length;
+      list = list.filter(n => keep.has(n.name));
+    }
+    return `<div class="kt-fam"><i>${label}</i>` + list.map(n =>
+      `<button class="kt-part${ktSel.includes(n.name) ? ' sel' : ''}${n.quantum_safe ? '' : ' cl'}` +
+      `${n.accepted ? '' : ' refused'}" data-n="${esc(n.name)}" title="${esc(n.name)} · sig ${n.sig_bytes}B · ` +
+      `${n.quantum_safe ? 'quantum-safe' : 'quantum: Shor'}"><span class="d"></span>${esc(short(n.name, 30))}</button>`).join('') +
+      (hidden ? `<button class="kt-part" id="kt-showmore">+${hidden} more</button>` : '') + '</div>';
+  }).join(''));
+  $('kt-palette').querySelectorAll('.kt-part[data-n]').forEach(
+    b => b.onclick = () => ktClick(b.dataset.n));
+  const m = $('kt-showmore');
+  if (m) m.onclick = () => { ktMore = true; drawPalette(); };
+}
+$('kt-graph').addEventListener('toggle', () => { if ($('kt-graph').open && dagData) drawDag(); });
+$('kt-private').onchange = () => { $('kt-pwallet').hidden = !$('kt-private').checked; };
+$('kt-hard').onclick = async () => {
+  if (!dagData) await loadBuilder();
+  const want = ['ML-DSA-44', 'SLH-DSA-SHAKE-128f', 'CAIRO-MSS-SHA256'];
+  ktSel = want.filter(n => dagData.nodes.some(x => x.name === n && x.accepted));
+  $('kt-op').value = 'all'; ktKManual = false;
+  $('kt-name').value = ''; $('kt-name').dataset.auto = '';
+  ktRedraw(); ktPicked();
+  toast('picked ' + ktSel.length + ' unrelated walls — press FORGE');
+};
 function drawDag() {
   const svg = $('dag'), nodes = dagData.nodes, edges = dagData.edges;
   const W = 240, H = 58, GX = 90, GY = 14, cols = {};
@@ -2213,7 +2354,7 @@ function drawDag() {
 function ktClick(name) {
   const i = ktSel.indexOf(name);
   if (i >= 0) ktSel.splice(i, 1); else ktSel.push(name);
-  drawDag(); ktPicked(); ktDetail(name);
+  ktRedraw(); ktPicked(); ktDetail(name);
 }
 function ktAutoName() {
   const e = $('kt-name');
@@ -2236,10 +2377,10 @@ function ktOpSync() {
 function ktPicked() {
   out('kt-picked', ktSel.length
     ? ktSel.map(n => `<span class="chip" data-n="${esc(n)}">${esc(n)} ×</span>`).join('')
-    : '<span class="muted">click nodes above — 2 to 6 parts</span>');
+    : '<span class="muted">click parts above — 2 to 6</span>');
   $('kt-picked').querySelectorAll('.chip').forEach(c => c.onclick = () => {
     ktSel = ktSel.filter(x => x !== c.dataset.n);
-    drawDag(); ktPicked();
+    ktRedraw(); ktPicked();
   });
   ktOpSync();
 }
@@ -2292,6 +2433,8 @@ $('kt-build').onclick = async () => {
     ...(op === 'threshold' ? {k: ktK} : {}),
     ...($('kt-author').value ? {author: $('kt-author').value} : {}),
     publish: $('kt-publish').checked,
+    ...($('kt-private').checked ? {private: true,
+      ...($('kt-pwallet').value.trim() ? {wallet: $('kt-pwallet').value.trim()} : {})} : {}),
     ...($('kt-note').value.trim() ? {note: $('kt-note').value.trim()} : {})};
   const {ok, j: r} = await apiJ('/keytype', body);
   $('kt-build').disabled = false;
@@ -2312,9 +2455,15 @@ $('kt-build').onclick = async () => {
     kvRow('anchor', r.anchor ? `<span class="good">ON-CHAIN</span> <span class="mono">${esc(r.anchor.key || '')}</span>` +
       (r.anchor.tx || r.anchor.hash ? ` · tx <a href="#" onclick="goInspect(${esc(JSON.stringify(r.anchor.tx || r.anchor.hash))});return false" class="mono">${short(r.anchor.tx || r.anchor.hash, 14)}</a>` : '') : '') +
     kvRow('anchor', r.anchor_error ? `<span class="warn">${esc(r.anchor_error)}</span>` : '') +
+    kvRow('private', r.private ? `<span class="good">HIDDEN</span> wallet <b>${esc(r.private.wallet)}</b> ` +
+      `<span class="mono" data-copy="${esc(r.private.address)}">${esc(short(r.private.address, 16))}</span> — ` +
+      `the chain sees a commitment, never ${esc(name)}` : '') +
+    kvRow('private', r.private_error ? `<span class="warn">${esc(r.private_error)}</span>` : '') +
     kvRow('next', r.next ? esc(typeof r.next === 'string' ? r.next : JSON.stringify(r.next)) : ''),
     `<div class="row" style="justify-content:center;margin-top:14px"><button class="cy" onclick="openCard(${esc(JSON.stringify(name))})">VIEW CARD</button></div>`));
-  if (r.accepted) toast(name + ' forged' + (r.anchor ? ' + anchored on chain' : ''));
+  if (r.accepted) toast(name + ' forged' + (r.anchor ? ' + anchored on chain' : '') +
+    (r.private ? ' + hidden in ' + r.private.wallet : ''));
+  if (r.private) fillWallets();
   ktSel = []; ktKManual = false; $('kt-name').value = ''; $('kt-name').dataset.auto = '';
   mkCache = null;
   await loadBuilder(); ktDetail(name); ktTest(name);
@@ -2337,9 +2486,9 @@ async function remix(it) {
   if (it.op) $('kt-op').value = it.op;
   if (it.k) { ktK = it.k; ktKManual = true; } else ktKManual = false;
   $('kt-name').value = ''; $('kt-name').dataset.auto = '';
-  drawDag(); ktPicked();
+  ktRedraw(); ktPicked();
   toast('remixing ' + it.name + ' — add or drop parts, then FORGE');
-  $('dag-wrap').scrollIntoView({behavior: 'smooth', block: 'center'});
+  $('kt-palette').scrollIntoView({behavior: 'smooth', block: 'center'});
 }
 
 // ── KEY TYPE MARKET: trading cards ──

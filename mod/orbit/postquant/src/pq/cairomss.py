@@ -52,6 +52,7 @@ import os
 import shutil
 import struct
 import subprocess
+import threading
 import time
 
 NAME = "CAIRO-MSS-SHA256"
@@ -68,6 +69,7 @@ SIG_BYTES = N + D * (LEN * N + H * N)       # 9376
 WOTS_HASH, WOTS_PK, TREE = 0, 1, 2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+_VM = threading.Lock()      # one Cairo VM at a time — it is public and ~1.5 s
 CAIRO_DIR = os.path.join(HERE, "cairo")
 
 
@@ -225,6 +227,15 @@ def _scarb():
     return None
 
 
+def _fresh():
+    """True when the compiled program is newer than lib.cairo — then the
+    VM runs it as-is (~1.5 s) instead of recompiling (~13 s)."""
+    art = os.path.join(CAIRO_DIR, "target", "dev", "cairo_mss.sierra.json")
+    src = os.path.join(CAIRO_DIR, "src", "lib.cairo")
+    return (os.path.exists(art) and
+            os.path.getmtime(art) >= os.path.getmtime(src))
+
+
 def cairo_status():
     s = _scarb()
     src = os.path.join(CAIRO_DIR, "src", "lib.cairo")
@@ -232,7 +243,7 @@ def cairo_status():
             "program_sha3": hashlib.sha3_256(open(src, "rb").read()).hexdigest()
             if os.path.exists(src) else None,
             "scarb": s, "available": bool(s and os.path.exists(src)),
-            "built": os.path.isdir(os.path.join(CAIRO_DIR, "target"))}
+            "built": _fresh()}
 
 
 def _words(b: bytes):
@@ -254,13 +265,20 @@ def cairo_verify(pk: bytes, msg: bytes, sig: bytes, ctx: bytes = b"",
         return {"available": True, "valid": False, "python": py,
                 "agree": not py, "note": "wrong sizes — refused before the VM"}
     words = _words(pk) + _words(mhash) + _words(sig)
-    gas = 4_000_000_000
+    gas = 40_000_000_000
     env = dict(os.environ, PATH=os.path.dirname(scarb) + ":" +
                os.environ.get("PATH", ""))
+    with _VM:
+        return _run_vm(scarb, words, gas, env, py, timeout)
+
+
+def _run_vm(scarb, words, gas, env, py, timeout):
+    built = _fresh()
     t0 = time.time()
     p = subprocess.run(
-        [scarb, "cairo-run", "--available-gas", str(gas), "--",
-         "[" + " ".join(map(str, words)) + "]"],
+        [scarb, "cairo-run", *(["--no-build"] if built else []),
+         "--available-gas", str(gas), "--",
+         json.dumps([words])],
         cwd=CAIRO_DIR, capture_output=True, text=True, timeout=timeout, env=env)
     ms = round((time.time() - t0) * 1000)
     out = p.stdout + p.stderr

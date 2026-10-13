@@ -12,7 +12,7 @@ ML-DSA-44, 17088 for SLH-DSA — billed as-is), and rent per byte-hour against
 a prepaid escrow. Expired entries pay their sweeper.
 
 API `:51030` (`/postquant/api`) · console `/postquant` · MCP `POST /mcp`
-(28 tools) · state `~/.mod/postquant`
+(33 tools) · state `~/.mod/postquant`
 
 ## When to reach for it
 
@@ -75,6 +75,12 @@ runs. `GET /agents` is the roster (the fleet agent contract).
    and public key never appear on chain (fixed-size ML-KEM envelopes the
    proposer opens); `prove` / `verify` / `open` / `check_open` for
    standalone proofs and disclosure; `info` lists the cloak set.
+   `pq_keytype action=create … private=true wallet=<name>` forges a key type
+   AND hides it in a new private wallet in one call.
+   `CAIRO-MSS-SHA256` = hash-based (SHA-256 only) key type whose verifier is
+   a Cairo program; stack it in op=all next to ML-DSA/SLH-DSA for one more
+   independent wall. `pq_cairo action=check` runs a witness in the Cairo VM
+   (parity with the Python verifier). Few-time: a layer, not a solo wallet.
 2. `pq_wallet action=create scheme=…` then `pq_faucet` — writes need a funded
    wallet; scheme defaults to ML-DSA-44, `pq_algos` lists the choices.
    Amounts: a **string** ("25", "1.5") is PQ; a bare int is nq (1e-9).

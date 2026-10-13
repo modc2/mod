@@ -2,7 +2,11 @@
 export const TOKENS: Record<string, { symbol: string; decimals: number }> = {
   '0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7': { symbol: 'ETH', decimals: 18 },
   '0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d': { symbol: 'STRK', decimals: 18 },
-  '0x53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8': { symbol: 'USDC', decimals: 6 },
+  '0x53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8': { symbol: 'USDC.e', decimals: 6 },
+  '0x68f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8': { symbol: 'USDT', decimals: 6 },
+  '0x5574eb6b8789a91466f902c380d978e472db68170ff82a5b650b95a58ddf4ad': { symbol: 'DAI', decimals: 18 },
+  '0xda114221cb83fa859dbdb4c44beeaa0bb37c7537ad5ae66fe5e0efd20e6eb3': { symbol: 'DAI v0', decimals: 18 },
+  '0x498edfaf50ca5855666a700c25dd629d577eb9afccdf3b5977aec79aee55ada': { symbol: 'CASH', decimals: 18 },
   '0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb': { symbol: 'USDC', decimals: 6 },
 };
 export const POOL = '0x40337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776ffe812a';
@@ -10,7 +14,10 @@ export const POOL = '0x40337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776f
 export const ALIASES: Record<string, string> = {
   strk: '0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d',
   eth: '0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7',
-  usdc: '0x53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8',
+  usdc: '0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb',
+  'usdc.e': '0x53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8',
+  usdt: '0x68f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8',
+  dai: '0x5574eb6b8789a91466f902c380d978e472db68170ff82a5b650b95a58ddf4ad',
   strk20: POOL, pool: POOL,
 };
 

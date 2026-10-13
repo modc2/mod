@@ -21,6 +21,16 @@ GET  /events?address=&name=&limit= decoded events, newest first
 GET  /strk20/pool | /activity?event= | /user?address= | /note?id=
      /nullifier?value= | /helpers | /helper?address= | /docs?page=&q=
 POST /strk20/invoke_action {helper, args} — InvokeExternal client action
+GET  /studio/whoami    can this caller write? (owner token or loopback)
+GET  /studio/<verb>    contract studio reads: status templates contracts get
+                       tree read abi job jobs   (proxied to the cairo mod)
+POST /studio/<verb>    owner-only writes: new write build test vibe clean
+                       remove — build/test/vibe return a job to poll
+GET  /stablecoins      every stablecoin on the network: supply, model,
+                       Pragma oracle peg   (/stablecoins/registry: static)
+GET  /agents           the agent roster — the fleet agent contract
+POST /run  /run/stream ask the guide agent in plain English (JSON | SSE)
+GET  /.well-known/agent.json   agent/1.0 card
 POST /mcp              MCP (JSON-RPC 2.0, Streamable HTTP) — tools/list etc.
 GET  /tools            the MCP tool list;  POST /tools/<name> runs one
 GET  /starknet/        the app (app/dist, a static Next export; legacy.html
@@ -46,9 +56,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import abi  # noqa: E402
+import guide  # noqa: E402
 import chain  # noqa: E402
 import mcp  # noqa: E402
+import stables  # noqa: E402
 import strk20  # noqa: E402
+import studio  # noqa: E402
 
 ROOT = os.path.dirname(HERE)
 NAME = 'starknet'
@@ -75,6 +88,11 @@ ENDPOINTS = {
     'events': 'GET /events?address=&name=&limit=',
     'strk20': 'GET /strk20/{pool,activity,user,note,nullifier,helpers,helper,docs}',
     'strk20_invoke_action': 'POST /strk20/invoke_action {helper, args}',
+    'studio': 'GET /studio/{whoami,status,templates,contracts,get,tree,read,abi,job,jobs}',
+    'studio_write': 'POST /studio/{new,write,build,test,vibe,clean,remove} (owner token)',
+    'stablecoins': 'GET /stablecoins · /stablecoins/registry',
+    'agents': 'GET /agents · /agents/<id> · /.well-known/agent.json',
+    'run': 'POST /run · POST /run/stream (SSE) {query, brain=auto|facts|claude, history}',
     'mcp': 'POST /mcp (JSON-RPC 2.0)', 'tools': 'GET /tools · POST /tools/<name>',
     'app': f'GET {BASE}/',
 }
@@ -176,6 +194,14 @@ def route(path, q, body):
                                    limit=min(int(p.get('limit') or 20), 200),
                                    network=net)
         return 200, _strk20(path[len('/strk20/'):], p, net)
+    if path == '/stablecoins':
+        return 200, stables.stables(network=net)
+    if path == '/stablecoins/registry':
+        return 200, stables.registry(network=net)
+    if path == '/agents':
+        return 200, guide.agents()
+    if path.startswith('/agents/'):
+        return 200, guide.agent(path[len('/agents/'):])
     if path == '/tools':
         return 200, {'tools': mcp.tool_list(), 'count': len(mcp.TOOLS),
                      'instructions': mcp.INSTRUCTIONS}
@@ -197,7 +223,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Token, Mcp-Session-Id, Mcp-Protocol-Version')
         self.end_headers()
         self.wfile.write(data)
 
@@ -254,13 +280,20 @@ class Handler(BaseHTTPRequestHandler):
                     return self._static(f)
                 if path.startswith('/_next/'):
                     return self._send(404, {'error': f'no file {path}'})
+        if path == '/studio' or path.startswith('/studio/'):
+            return self._studio(path[len('/studio/'):] or 'status', parsed, body)
+        if path == '/.well-known/agent.json':
+            host = self.headers.get('Host') or f'localhost:{PORT}'
+            return self._send(200, guide.card(f'http://{host}{BASE}/_api'))
+        if path in ('/run', '/run/stream'):
+            return self._run(path, body)
         if path == '/mcp':
             if self.command != 'POST':
                 return self._send(200, {'mcp': 'POST JSON-RPC 2.0 here',
                                         'tools': len(mcp.TOOLS)})
             if body is None or body == {}:
                 return self._send(400, mcp._error(None, -32700, 'empty body'))
-            resp = mcp.handle(body)
+            resp = mcp.handle(body, writable=self._who()['writable'])
             if resp is None:
                 return self._send(202, b'', 'text/plain')
             return self._send(200, resp)
@@ -277,6 +310,63 @@ class Handler(BaseHTTPRequestHandler):
         except (ConnectionError, Exception) as e:
             code, payload = 400, {'error': f'{type(e).__name__}: {e}'}
         self._send(code, payload)
+
+    def _run(self, path, body):
+        if self.command != 'POST':
+            return self._send(200, {'run': f'POST {path} {{query}}', 'try': guide.EXAMPLES,
+                                    **guide.agents()})
+        body = body or {}
+        kw = {'agent': body.get('agent_type') or body.get('agent'),
+              'brain': body.get('brain') or 'auto', 'network': body.get('network'),
+              'model': body.get('model'), 'history': body.get('history'),
+              'writable': self._who()['writable']}
+        query = body.get('query') or body.get('message') or ''
+        if path == '/run':
+            try:
+                return self._send(200, guide.run(query, **kw))
+            except Exception as e:  # noqa: BLE001
+                return self._send(400, {'error': str(e)})
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        try:
+            for ev in guide.run_stream(query, **kw):
+                line = ': ping\n\n' if ev['type'] == 'ping' else \
+                    f'data: {json.dumps(ev, default=str)}\n\n'
+                self.wfile.write(line.encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        self.close_connection = True
+
+    def _who(self):
+        hdrs = {k.lower(): v for k, v in self.headers.items()}
+        return studio.whoami(self.client_address[0], hdrs)
+
+    def _studio(self, verb, parsed, body):
+        q = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
+        who = self._who()
+        if verb == 'whoami':
+            return self._send(200, who)
+        if verb in studio.WRITE and self.command != 'POST':
+            return self._send(400, {'error': f'POST /studio/{verb}'})
+        try:
+            return self._send(200, studio.call(verb, {**q, **(body or {})},
+                                               writable=who['writable']))
+        except studio.Denied as e:
+            return self._send(403, {'error': str(e), 'whoami': who})
+        except KeyError as e:
+            if verb not in studio.READ + studio.WRITE:
+                return self._send(404, {'error': f'no studio verb {verb!r}',
+                                        'read': studio.READ, 'write': studio.WRITE})
+            return self._send(400, {'error': f'missing parameter {e}'})
+        except studio.StudioError as e:
+            return self._send(400, {'error': str(e)})
+        except Exception as e:  # noqa: BLE001
+            return self._send(400, {'error': f'{type(e).__name__}: {e}'})
 
     def do_GET(self):
         self._handle()

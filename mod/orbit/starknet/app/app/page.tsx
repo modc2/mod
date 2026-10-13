@@ -42,7 +42,9 @@ export default function Home() {
           {['strk', 'eth', 'usdc'].map(t => (
             <button key={t} className="chip" onClick={() => router.push(`/address?a=${t}`)}>{t.toUpperCase()} token</button>
           ))}
+          <Link className="chip" href="/stablecoins">Stablecoins</Link>
           <Link className="chip" href="/privacy">STRK20 privacy pool</Link>
+          <Link className="chip" href="/ask">Ask the agent</Link>
         </div>
       </div>
 

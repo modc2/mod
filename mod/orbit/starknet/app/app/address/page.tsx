@@ -18,6 +18,7 @@ function AddressPage() {
   const a = raw ? norm(raw) : null;
   const acct = useApi<any>(a ? `account?address=${a}` : null);
   const usdc = useApi<any>(a ? `balance?address=${a}&token=usdc` : null);
+  const usdt = useApi<any>(a ? `balance?address=${a}&token=usdt` : null);
   const iface = useApi<any>(a ? `contract?address=${a}` : null);
   const [tab, setTab] = useState<'read' | 'write' | 'events'>('read');
 
@@ -54,6 +55,7 @@ function AddressPage() {
                 <div className="amt">{d.balances?.[k]?.error ? '—' : num(d.balances?.[k]?.amount, 6)}</div></div>
             ))}
             <div className="token"><div className="sym">USDC</div><div className="amt">{usdc.data ? num(usdc.data.amount, 2) : usdc.error ? '—' : '…'}</div></div>
+            <div className="token"><div className="sym">USDT</div><div className="amt">{usdt.data ? num(usdt.data.amount, 2) : usdt.error ? '—' : '…'}</div></div>
           </div>
           <Card title="Details">
             <Rows rows={[

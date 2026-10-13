@@ -97,7 +97,7 @@ def state(network=None):
     version = _read('get_version', network=network)
     fee = _read('get_fee_amount', network=network)
     holdings = {}
-    for name in ('strk', 'eth', 'usdc'):
+    for name in ('strk', 'eth', 'usdc', 'usdt'):
         try:
             b = chain.balance(addr, name, network=network)
             holdings[name] = b['amount']

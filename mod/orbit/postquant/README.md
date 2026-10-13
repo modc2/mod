@@ -169,6 +169,37 @@ falls back to its hidden scheme's own card. A zero-knowledge proof would
 take the proposer out of the trust path; that is the upgrade, not a claim
 made here.
 
+**Forge it private in one step.** The BUILDER's *make it private* switch
+(`pq_keytype action=create … private=true wallet=<name>`) forges the key
+type and opens a private wallet hiding it — so a three-part composite you
+just invented joins the cloak set and never appears on chain.
+
+## Cairo: one more wall
+
+`CAIRO-MSS-SHA256` (`src/pq/cairomss.py`, plugin `src/pq/algos.d/cairo_mss.py`)
+is a hash-based key type resting on **SHA-256 alone** — independent of the
+module lattices under ML-DSA and the SHAKE256 under SLH-DSA — so stacking it
+into an ALL composite makes a quantum forger break one more unrelated
+assumption (Grover on SHA-256: ~2^128). Construction: SPHINCS-shaped
+hypertree without FORS — 4 layers of 6-high Merkle trees of WOTS keys
+(n=32, w=16, 67 chains, 2^24 leaves), T = SHA-256(pub_seed | adrs | data);
+pk 64 B, sig 9376 B; keygen ~0.15 s, sign ~0.6 s, verify ~10 ms.
+
+Its verifier is a **Cairo 2 program** (`src/pq/cairo/src/lib.cairo`, a Scarb
+package; every hash input is whole u32 words through `core::sha256`).
+`pq_cairo action=check` signs with a throwaway key and runs the witness in
+the Cairo VM (`scarb cairo-run`, ~1.5 s, serialized), reporting parity with
+the Python verifier the chain's hot path uses; `tamper=true` must come back
+invalid. A Cairo execution is what a STARK proves, and STARKs are hash-based —
+that is the route to verifying hidden witnesses without trusting the
+proposer. This node ships the verifier and the parity check, **not a prover**.
+
+Honest limit: **few-time** — the leaf is picked by the message hash, so
+one-time-key reuse odds are ~q²/2^25 after q signatures (~0.03% at 100).
+It is a layer, not a solo wallet for heavy use. The BUILDER's
+**QUANTUM-HARD PRESET** picks ML-DSA-44 + SLH-DSA-SHAKE-128f +
+CAIRO-MSS-SHA256 as ALL-of: lattice, SHAKE and SHA-256, all must fall.
+
 ## Three prices, separate on purpose
 
 - **write gas** — one-time, per byte entering the state. A key byte costs 4x
@@ -304,10 +335,12 @@ src/pq/algos.py   the key-type registry; plugins in src/pq/algos.d/
 src/pq/wasmvm.py  the enforcement layer — every witness runs its type's wasm
 src/pq/wasm/      the verifier blobs + manifest.json (SHA3-256 per blob)
 src/pq/wasm-src/  their Rust sources, build.sh (bare rustc), parity_test.py
+src/pq/cairomss.py CAIRO-MSS-SHA256 — hash-based key type + Cairo VM bridge
+src/pq/cairo/     its verifier as a Cairo 2 program (Scarb package)
 src/state.py      the state machine — pure functions of (state, tx, timestamp)
 src/keys.py       keystore, addresses, transaction signing
 src/chain.py      blocks, mempool, the proposer, replay + verify
-src/mcp.py        28 tools; call_tool() is the one door
+src/mcp.py        33 tools; call_tool() is the one door
 src/agent.py      plain English → call_tool(); rules + chat (liquidai) + llm brains
 src/lfm.py        the chat brain's model: liquidai /chat SSE + its local token mint
 src/api.py        REST + console + MCP on one port

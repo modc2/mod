@@ -10,17 +10,24 @@ export class ApiError extends Error {
   constructor(msg: string, body: any) { super(msg); this.body = body; }
 }
 
+/** The signed-in wallet's mod-protocol token (lib/wallet.ts), if any. */
+export const TOKEN_KEY = 'starknet.studio.token';
+function authHeaders(): Record<string, string> {
+  const t = typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
+  return t ? { token: t } : {};
+}
+
 export async function get<T = any>(path: string, network?: Network): Promise<T> {
   const sep = path.includes('?') ? '&' : '?';
   const url = `${API}/${path.replace(/^\//, '')}${network ? `${sep}network=${network}` : ''}`;
-  const r = await fetch(url, { headers: { Accept: 'application/json' } });
+  const r = await fetch(url, { headers: { Accept: 'application/json', ...authHeaders() } });
   return parse<T>(r);
 }
 
 export async function post<T = any>(path: string, body: any, network?: Network): Promise<T> {
   const r = await fetch(`${API}/${path.replace(/^\//, '')}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...authHeaders() },
     body: JSON.stringify({ ...body, ...(network ? { network } : {}) }),
   });
   return parse<T>(r);

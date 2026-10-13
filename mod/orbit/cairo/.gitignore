@@ -10,3 +10,5 @@ src/app/out/
 src/dist
 src/releases/
 server.log
+src/.jobs.json
+src/.jobs.tmp

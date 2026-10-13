@@ -2,8 +2,8 @@
 
 Make, **vibecode**, and test Cairo/Starknet contracts from one module. Every
 contract is a self-contained [Scarb](https://docs.swmansion.com/scarb/) project
-that lives as its own **submod** under `orbit/cairo/<name>/`, so a contract is
-a first-class mod you can version, share, and deploy on its own.
+that lives as its own **mod** under `orbit/cairo/src/mods/<name>/` (addressed
+`cairo.<name>`), so a contract is a first-class mod you can version, share, and deploy on its own.
 
 The anchor (`mod.py`) is thin orchestration — Python stdlib, no dependencies —
 over the real toolchain already installed on the box:
@@ -31,6 +31,38 @@ m cairo/vibe name=counter prompt="make it an owner-only u256 counter with increm
 m cairo/test name=counter
 ```
 
+## Starter templates
+
+`new` scaffolds from one of four starters in `src/templates/<id>/`, each with
+a test suite that passes on arrival (`m cairo/templates` lists them):
+
+| template | what you get | tests |
+|----------|--------------|-------|
+| `counter` (default) | felt252 get/set + event: the smallest thing that deploys | 2 |
+| `token` | a dependency-free ERC20: balances, allowances, `transfer_from`, events | 5 |
+| `commit_reveal` | hide a value behind a Poseidon commitment bound to the caller, reveal later: sealed bids, private votes, fair games | 5 |
+| `merkle_allowlist` | one Poseidon Merkle root on-chain, claims proven by sibling path; leaked proofs are useless to anyone else | 5 |
+
+```sh
+m cairo/new name=airdrop template=merkle_allowlist desc="claim with a Merkle proof"
+```
+
+`airdrop` ships as the worked example of `merkle_allowlist`.
+
+## What build / test return
+
+The raw logs are kept (foundry's own rustc lint noise is stripped), but the
+useful parts come back parsed:
+
+- `build` → `diagnostics` (compiler errors/warnings pinned to `path:line:col`
+  inside the contract) and `artifacts` (the ABI: entrypoints, constructor,
+  events, Sierra/CASM size). `abi name=` reads the same from `target/dev`.
+- `test` → `tests` (per-test `pass`/`fail` + L2 gas + panic reason) and
+  `totals`. snforge never compiles the deployable class, so `test` runs
+  `build` first whenever the contract is not fresh.
+- `list` → each contract's `state`: `fresh`, `stale` (a source is newer than
+  the artifacts) or `unbuilt`.
+
 ## Layout
 
 ```
@@ -42,15 +74,32 @@ orbit/cairo/
 │   ├── api/server.py    stdlib HTTP server: protocol API + jobs + console
 │   ├── app/             Next.js 14 console (static export, basePath /cairo)
 │   ├── build.sh         build the console -> src/releases/<ts>, flip src/dist
-│   └── templates/       the scaffold: Scarb.toml, src/lib.cairo, tests/
-└── counter/             ← an example contract SUBMOD
-    ├── config.json      submod manifest ("submod_of": "cairo")
-    ├── Scarb.toml
-    ├── src/lib.cairo
-    └── tests/test_counter.cairo
+│   ├── templates/       the scaffold: <template>/*.cairo.tmpl, Scarb.toml.tmpl, mod.py.tmpl
+│   └── mods/            one contract MOD per dir
+│       └── counter/     ← an example contract, addressed `cairo.counter`
+│           ├── mod.py       anchor: the parent's fns bound to this contract
+│           ├── config.json  mod manifest ("submod_of": "cairo", "anchor": "mod.py")
+│           ├── README.md
+│           ├── Scarb.toml
+│           ├── src/lib.cairo
+│           └── tests/test_counter.cairo
 ```
 
-A directory is a contract submod iff it holds a `Scarb.toml`. The package name
+Every contract is addressable on its own through the protocol:
+
+```sh
+m cairo.counter/build
+m cairo.counter/test
+m cairo.counter/vibe prompt="add an owner-only reset"
+```
+
+`path2name` drops the `src` and `mods` segments, which is why
+`orbit/cairo/src/mods/counter` is `cairo.counter`. The contract's `mod.py`
+loads the parent anchor by path and binds every fn to its own name, so the
+toolchain logic lives in one place. `m cairo/adopt` (re)writes those files for
+every contract and pulls any legacy root-level contract into `src/mods/`.
+
+A directory under `src/mods/` is a contract iff it holds a `Scarb.toml`. The package name
 is the directory name (snake_case); the contract module is its PascalCase form
 (`counter` → `mod Counter`, interface `ICounter`, `ICounterDispatcher`).
 
@@ -65,10 +114,12 @@ is the directory name (snake_case); the contract module is its PascalCase form
 | `tree name=` | file tree of a submod |
 | `read name= path=` | read a file inside a submod |
 | `write name= path= content=` | write a file inside a submod |
-| `new name= [desc=] [force=]` | scaffold a contract submod |
+| `templates` | starter contracts `new` can scaffold from |
+| `new name= [desc=] [template=counter] [force=]` | scaffold a contract submod |
 | `vibe name= prompt= [model=] [verify=] [timeout=]` | agent-edit then build + test |
-| `build name=` | `scarb build` |
-| `test [name=]` | `snforge test` a submod; no name = module self-test |
+| `build name=` | `scarb build` → log + diagnostics + ABI |
+| `abi name=` | the built class: entrypoints, constructor, events, Sierra/CASM size |
+| `test [name=]` | `snforge test` a submod → per-test verdicts + gas; no name = module self-test |
 | `clean name=` | drop a submod's `target/` + snforge cache |
 | `remove name=` | delete a submod |
 | `serve [port=] [background=]` | tiny stdlib JSON API on :51291 |

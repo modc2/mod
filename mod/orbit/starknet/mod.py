@@ -9,7 +9,10 @@ API = os.path.join(HERE, 'api')
 sys.path.insert(0, API)
 import abi  # noqa: E402
 import chain  # noqa: E402
+import guide  # noqa: E402
+import stables  # noqa: E402
 import strk20  # noqa: E402
+import studio  # noqa: E402
 
 
 class Mod:
@@ -134,6 +137,31 @@ class Mod:
 
     def strk20_docs(self, page=None, q=None):
         return strk20.docs(page, q)
+
+    # ---- contract studio (studio.py -> the cairo mod) -----------------
+    # The CLI runs on this box, so it is trusted to write.
+
+    # ---- stablecoins + the guide agent ---------------------------------
+
+    def stablecoins(self, network=None):
+        """Every stablecoin on the network: supply, backing, Pragma peg."""
+        return stables.stables(network=network)
+
+    def ask(self, query, brain='facts', network=None, model=None):
+        """Ask the guide agent; brain=claude routes through orbit/claudecode."""
+        return guide.run(query, brain=brain, network=network, model=model,
+                         writable=True)
+
+    def studio(self, verb='status', **params):
+        """One studio verb: status templates contracts get read abi new
+        write build test vibe clean remove. build/test/vibe return a job."""
+        return studio.call(verb, params, writable=True)
+
+    def vibe(self, name, prompt, model=None):
+        """Ask the Cairo agent to change a contract; waits for the result."""
+        import mcp
+        return mcp.call_tool('studio_vibe', {'name': name, 'prompt': prompt,
+                                             'model': model}, writable=True)
 
     # ---- MCP (mcp.py) --------------------------------------------------
 

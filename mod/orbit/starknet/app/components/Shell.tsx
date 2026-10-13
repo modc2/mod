@@ -8,6 +8,9 @@ import Search from './Search';
 
 const NAV = [
   { href: '/', label: 'Explore' },
+  { href: '/stablecoins', label: 'Stablecoins' },
+  { href: '/ask', label: 'Ask' },
+  { href: '/studio', label: 'Build' },
   { href: '/privacy', label: 'Privacy pool' },
   { href: '/developers', label: 'API & MCP' },
 ];
@@ -48,9 +51,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="main">{children}</main>
+      <main className={`main ${path.startsWith('/studio') ? 'wide' : ''}`}>{children}</main>
       <footer className="foot">
-        Read-only — this app holds no keys and never signs.
+        The explorer is read-only — it holds no keys and never signs.
         {' '}Data straight from Starknet RPC{status.data?.rpc ? ` (${status.data.rpc.replace(/^https?:\/\//, '')})` : ''}.
         {' '}<Link href="/developers">API &amp; MCP</Link>
       </footer>

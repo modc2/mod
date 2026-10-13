@@ -1,0 +1,1 @@
+{"title": "Merkle allowlist", "blurb": "Prove you are on a list with a Poseidon Merkle proof; the chain stores one root, not the list.", "order": 3}

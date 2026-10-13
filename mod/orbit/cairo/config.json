@@ -1,8 +1,8 @@
 {
     "name": "cairo",
-    "title": "Cairo \u00b7 a ZK contract workbench",
+    "title": "Cairo · a ZK contract workbench",
     "version": "0.1.0",
-    "description": "A Cairo/Starknet zero-knowledge contract workbench. Scaffold a Cairo 2 contract, vibecode it with an agent, build it and run its snforge tests \u2014 each contract is a self-contained Scarb project mounted as its own submod under orbit/cairo/<name>. Thin orchestration (Python stdlib) over the real toolchain already on this box: scarb 2.8.4, starknet-foundry (snforge/sncast) 0.31, universal-sierra-compiler. The 'vibecode' loop drives the headless Claude CLI, scoped to one submod, to write or edit Cairo and then verifies with build + test.",
+    "description": "A Cairo/Starknet zero-knowledge contract workbench. Scaffold a Cairo 2 contract, vibecode it with an agent, build it and run its snforge tests — each contract is a self-contained Scarb project mounted as its own mod under orbit/cairo/src/mods/<name> (addressed cairo.<name>). Thin orchestration (Python stdlib) over the real toolchain already on this box: scarb 2.8.4, starknet-foundry (snforge/sncast) 0.31, universal-sierra-compiler. The 'vibecode' loop drives the headless Claude CLI, scoped to one submod, to write or edit Cairo and then verifies with build + test.",
     "icon": "C",
     "color": "#ff6b4a",
     "anchor": "src/mod.py",
@@ -11,7 +11,7 @@
     "app_port": 51291,
     "gateway_port": 51291,
     "base_path": "/cairo",
-    "route": false,
+    "route": true,
     "urls": {
         "api": "http://localhost:51291/cairo/api",
         "app": "http://localhost:51291/cairo",
@@ -23,9 +23,10 @@
         "edition": "2024_07",
         "bin_dir": "~/.local/bin"
     },
-    "state": "Contracts live in-tree as submods at orbit/cairo/<name>/ (one Scarb project each). No external state dir; scarb target/ and .snfoundry_cache/ are gitignored.",
+    "state": "Contracts live in-tree as mods at orbit/cairo/src/mods/<name>/ (one Scarb project + mod.py anchor each, addressed cairo.<name>). No external state dir; scarb target/ and .snfoundry_cache/ are gitignored.",
     "submods": [
-        "counter"
+        "counter",
+        "airdrop"
     ],
     "fns": [
         "forward",
@@ -45,9 +46,12 @@
         "test",
         "clean",
         "remove",
+        "adopt",
         "serve",
         "kill",
-        "status"
+        "status",
+        "templates",
+        "abi"
     ],
     "endpoints": {
         "GET /cairo": "The console (static Next.js export)",
@@ -59,7 +63,7 @@
         "GET /cairo/api/get?name=": "One submod: Scarb.toml, files, build state",
         "GET /cairo/api/tree?name=": "File tree of a submod",
         "GET /cairo/api/read?name=&path=": "Read a file inside a submod",
-        "POST /cairo/api/new": "Scaffold a contract submod (name, desc?)",
+        "POST /cairo/api/new": "Scaffold a contract submod (name, desc?, template?=counter)",
         "POST /cairo/api/write": "Write a file inside a submod (name, path, content)",
         "POST /cairo/api/build": "scarb build (name); async=true -> job",
         "POST /cairo/api/test": "snforge test (name); no name = module self-test; async=true -> job",
@@ -68,9 +72,13 @@
         "POST /cairo/api/remove": "Delete a submod (name)",
         "GET /cairo/api/jobs": "Recent async jobs",
         "GET /cairo/api/job?id=": "One job: state, result",
-        "note": "The app self-calls the same handlers under /cairo/_api/*; /api/cairo/* is the permanent legacy alias."
+        "note": "The app self-calls the same handlers under /cairo/_api/*; /api/cairo/* is the permanent legacy alias.",
+        "POST /cairo/api/adopt": "Pull legacy root-level contracts into src/mods/ and (re)write each one's mod.py/README/config anchor",
+        "GET /cairo/api/templates": "Starter contracts new() can scaffold (counter, token, commit_reveal, merkle_allowlist)",
+        "GET /cairo/api/abi?name=": "Built contract classes: entrypoints, constructor, events, Sierra/CASM size",
+        "GET /cairo/api/whoami": "Can this caller write? {writable, via, address, owners}"
     },
-    "safety": "vibe() runs the Claude CLI with --permission-mode acceptEdits scoped to a single submod directory (--add-dir), so edits and scarb/snforge runs stay inside that contract's project. It uses the host Claude OAuth credentials and spends against them. No keys are deployed and nothing is sent to a live chain; sncast is present for the user to deploy by hand. The server binds 127.0.0.1 (CAIRO_HOST to widen) and has no auth, so route stays false: exposing it would let anyone write files and spend the host Claude account.",
+    "safety": "vibe() runs the Claude CLI with --permission-mode acceptEdits scoped to a single submod directory (--add-dir), so edits and scarb/snforge runs stay inside that contract's project. It uses the host Claude OAuth credentials and spends against them. No keys are deployed and nothing is sent to a live chain; sncast is present for the user to deploy by hand. Publicly routed: reads are open, but every write (write/new/vibe/build/test/clean/remove/adopt) needs a loopback request or a mod-protocol token signed by the owner (config owner, build-console private-flag owner, or CAIRO_OWNERS).",
     "schema": "QmSBPGDQaBEAqtgaC5BJ3DqRmyyjuNotWRaP48RBPk5SYf",
     "server": "src/api/server.py",
     "app": "src/app",
@@ -79,7 +87,8 @@
         "src/api/server.py": "stdlib HTTP server: protocol API + job table + serves the console",
         "src/app": "Next.js 14 console (static export, basePath /cairo)",
         "src/build.sh": "build the console -> src/releases/<ts>, flip src/dist atomically",
-        "src/templates": "contract scaffold (Scarb.toml, src/lib.cairo, tests/)",
-        "<name>/": "one contract submod per dir (a Scarb project)"
-    }
+        "src/templates": "contract scaffold: <template>/{lib,test}.cairo.tmpl, shared Scarb.toml.tmpl, mod.py.tmpl (per-contract anchor)",
+        "src/mods/<name>/": "one contract MOD per dir, addressed cairo.<name>: Scarb project + mod.py (parent fns bound to this contract) + config.json + README.md"
+    },
+    "mods_dir": "src/mods"
 }

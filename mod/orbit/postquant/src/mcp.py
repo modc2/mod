@@ -677,6 +677,72 @@ def _t_complexity(a):
     }
 
 
+def _privatize(name, a):
+    """Forge-and-hide in one step: private=true on pq_keytype create opens a
+    private wallet whose hidden scheme is the key type just forged. The
+    composite still exists publicly (that is what the gate and the replay
+    audit judge); what never appears on chain is WHICH key type this
+    account uses, or its public key. A failure here does not unwind the
+    forge — the key type is good, only the wallet is reported missing."""
+    from pq import private as PRIV
+    wname = a.get('wallet') or ('ghost-' + ''.join(
+        c for c in name.lower() if c.isalnum())[:20])
+    try:
+        w = K.create(wname, scheme=PRIV.NAME, inner=name,
+                     overwrite=bool(a.get('overwrite')))
+    except Exception as e:                                   # noqa: BLE001
+        return {'private_error': str(e)}
+    return {'private': {'wallet': w['name'], 'address': w['address'],
+                        'commitment': w['pk'], 'hidden': name,
+                        'envelope_bytes': PRIV.ENVELOPE,
+                        'anonymity_set': len(PRIV.cloak_set()),
+                        'note': 'on chain this account is a 32-byte '
+                                'commitment and fixed-size envelopes — '
+                                'nobody but the proposer learns it signs '
+                                f'with {name}'}}
+
+
+def _t_cairo(a):
+    """The Cairo verifier: info, or check = sign with a throwaway CAIRO-MSS
+    key and run the witness through lib.cairo in the Cairo VM,
+    reporting whether the VM and the chain's Python verifier agree."""
+    from pq import cairomss as CM
+    action = (a.get('action') or 'info').lower()
+    info = {'scheme': CM.NAME, 'cairo': CM.cairo_status(),
+            'params': {'n': CM.N, 'w': CM.W, 'chains': CM.LEN,
+                       'tree_height': CM.H, 'layers': CM.D,
+                       'leaves': 1 << (CM.H * CM.D)},
+            'pk_bytes': CM.PK_BYTES, 'sig_bytes': CM.SIG_BYTES,
+            'accounts_on_chain': _scheme_accounts(CM.NAME),
+            'why': [
+                'rests on SHA-256 alone — independent of the lattice under '
+                'ML-DSA and the SHAKE under SLH-DSA, so an ALL composite '
+                'with it makes a forger break one more unrelated thing',
+                'its verifier is a Cairo program — what STARKs (hash-based '
+                'proofs, no curve for Shor) prove; the prover is the '
+                'upgrade path, this node ships the verifier + parity check',
+                'few-time: ~q^2/2^25 odds of one-time-key reuse after q '
+                'signatures — a layer, not a solo wallet for heavy use']}
+    if action == 'info':
+        return info
+    if action not in ('check', 'verify'):
+        raise StateError(f'unknown action {action!r} — info | check',
+                         code='bad_args')
+    msg = str(a.get('message') or 'hello from cairo')[:1000].encode()
+    ctx = b'postquant/cairo/v1'
+    # Always a throwaway key: signing on demand with a real wallet would let
+    # any caller spend that wallet's few-time budget (leaf reuse odds grow
+    # with every signature, whatever the context).
+    pk, sk = CM.keygen(hashlib.sha3_256(b'pq_cairo/demo' + msg).digest())
+    who = 'throwaway key (seed = SHA3 of the message)'
+    sig = CM.sign(sk, msg, ctx)
+    if a.get('tamper'):
+        sig = bytes([sig[0], sig[1] ^ 1]) + sig[2:]
+    return {**{k: info[k] for k in ('scheme', 'params')}, 'signer': who,
+            'message': msg.decode(), 'tampered': bool(a.get('tamper')),
+            'vm': CM.cairo_verify(pk, msg, sig, ctx)}
+
+
 def _t_keytype(a):
     """The key type builder's write surface: create / delete / show / list
     key types built on this node — composites of registered schemes, and
@@ -733,6 +799,8 @@ def _t_keytype(a):
                 'composite': algo.composite, 'author': algo.author,
                 'accepted': r is None, **({'refused': r[1]} if r else {}),
                 **_maybe_publish(a, name, spec, author),
+                **(_privatize(name, a) if a.get('private') and r is None
+                   else {}),
                 'next': f'pq_keytype_test scheme={name} runs its proofs; '
                         f'pq_wallet action=create scheme={name} uses it'}
     if action in ('delete', 'rm'):
@@ -1353,6 +1421,11 @@ TOOLS = {
                        enum=['all', 'any', 'threshold']),
             'k': _int('threshold: how many parts must sign (1..parts)'),
             'author': _str('local wallet credited as the key type\'s author'),
+            'private': _bool('create: also open a PRIVATE wallet hiding '
+                             'this new key type — the chain sees only a '
+                             'commitment and fixed-size envelopes'),
+            'wallet': _str('create + private: name for that private wallet '
+                           '(default ghost-<name>)'),
             'publish': _bool('anchor keytype/<name> = SHA3(spec) on chain '
                              'from the author wallet — authorship becomes a '
                              'key you can list and sell'),
@@ -1738,6 +1811,29 @@ TOOLS = {
             'q': _str('text filter over name, family, parts, badges'),
             'kind': _str('all | prim | keytype | private')}},
         'handler': _t_keymarket,
+    },
+    'pq_cairo': {
+        'description': 'The Cairo-verified key type CAIRO-MSS-SHA256: a '
+                       'hash-based hypertree signature resting on SHA-256 '
+                       'alone (independent of ML-DSA\'s lattices and '
+                       'SLH-DSA\'s SHAKE), whose verifier is a Cairo '
+                       'program (src/pq/cairo/src/lib.cairo). Layer it into '
+                       'an ALL composite and a quantum forger must break '
+                       'one more unrelated assumption. action=info (params, '
+                       'program hash, toolchain) | check (sign a message '
+                       'with a throwaway key and run the witness '
+                       'through the Cairo VM; returns whether the VM and the '
+                       'chain\'s verifier agree; tamper=true flips a bit and '
+                       'must come back invalid). Read-only.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'action': _str('info | check (default info)',
+                           enum=['info', 'check']),
+            'message': _str('check: the message (default "hello from '
+                            'cairo")'),
+            'tamper': _bool('check: flip one signature bit first — the VM '
+                            'must say invalid'),
+        }},
+        'handler': _t_cairo,
     },
     'pq_private': {
         'description': 'Private key types: an account whose key type and '

@@ -16,8 +16,12 @@ table, because vibe (minutes) and a cold build (~60s) outlive any sane HTTP
 timeout. POST any of LONG_FNS with {"async": true} -> {"job": id}; poll
 GET /job?id=<id>.
 
-Binds 127.0.0.1 by default: write/vibe edit files and spend the host Claude
-credentials, and there is no auth here. CAIRO_HOST=0.0.0.0 to widen.
+Publicly routed via caddy, so writes are gated (same rule as starknet's
+studio): reads are open; WRITE_FNS need either a direct loopback request (no
+proxy headers — the CLI, curl on the box) or a mod-protocol token (`token:` /
+`Authorization: Bearer`) signed by an owner: config.json `owner`, the build
+console's private-flag owner, or CAIRO_OWNERS (comma list). GET /whoami says
+which you are.
 """
 import importlib.util
 import json
@@ -57,17 +61,90 @@ GET_FNS = {
     'get': lambda q: MOD.get(q.get('name', '')),
     'tree': lambda q: MOD.tree(q.get('name', '')),
     'read': lambda q: MOD.read(q.get('name', ''), q.get('path', '')),
+    'templates': lambda q: MOD.templates(),
+    'abi': lambda q: MOD.abi(q.get('name', '')),
     'jobs': lambda q: {'jobs': _jobs_list()},
     'job': lambda q: _job_get(q.get('id', '')),
 }
 POST_FNS = {'info', 'status', 'toolchain', 'list', 'contracts', 'get', 'tree',
-            'read', 'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove'}
+            'read', 'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove',
+            'templates', 'abi', 'adopt'}
 LONG_FNS = {'vibe', 'build', 'test', 'status'}
+# touch files on this box or spend the host Claude account -> owner only
+WRITE_FNS = {'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove', 'adopt',
+             'status'}
+TOKEN_MAX_AGE = int(os.environ.get('CAIRO_TOKEN_AGE', 7 * 86400))
+
+# ---- who may write ----------------------------------------------------------
+
+
+def _owners():
+    out = set(a for a in os.environ.get('CAIRO_OWNERS', '').split(',') if a)
+    for f in (SRC.parent / 'config.json',
+              Path.home() / '.mod/build/private' / f'{NAME}.json'):
+        try:
+            o = json.loads(f.read_text()).get('owner')
+            if o:
+                out.add(o)
+        except Exception:  # noqa: BLE001
+            pass
+    return {a.strip().lower() for a in out}
+
+
+_PROXY_HEADERS = ('x-forwarded-for', 'x-real-ip', 'cf-connecting-ip',
+                  'forwarded', 'x-forwarded-host')
+
+
+def _whoami(ip, headers):
+    own = sorted(_owners())
+    host = (headers.get('host') or '').rsplit(':', 1)[0].strip('[]')
+    if (ip in ('127.0.0.1', '::1', '::ffff:127.0.0.1')
+            and not any(headers.get(h) for h in _PROXY_HEADERS)
+            and host in ('localhost', '127.0.0.1', '::1', '')):
+        return {'writable': True, 'via': 'local', 'address': None, 'owners': own}
+    tok = headers.get('token') or ''
+    auth = headers.get('authorization') or ''
+    if not tok and auth.lower().startswith('bearer '):
+        tok = auth[7:].strip()
+    if not tok:
+        return {'writable': False, 'via': None, 'address': None, 'owners': own,
+                'why': 'sign in with the owner wallet to build'}
+    try:
+        import mod as m  # the protocol's shared Auth (not our src/mod.py)
+        addr = str(m.mod('auth')(max_age=TOKEN_MAX_AGE).verify(tok)['key']).lower()
+    except Exception as e:  # noqa: BLE001
+        return {'writable': False, 'via': None, 'address': None, 'owners': own,
+                'why': f'bad token: {e}'.split('{')[0].strip()}
+    ok = addr in own
+    return {'writable': ok, 'via': 'token' if ok else None, 'address': addr,
+            'owners': own, **({} if ok else {'why': f'{addr} is not an owner'})}
 
 # ---- jobs -------------------------------------------------------------------
 
 JOBS = {}
 JOBS_LOCK = threading.Lock()
+# the job table survives restarts (the server is restarted on every deploy);
+# a job that was mid-run when the process died comes back as 'interrupted'
+JOBS_FILE = SRC / '.jobs.json'
+
+
+def _jobs_load():
+    try:
+        for j in json.loads(JOBS_FILE.read_text()):
+            if j.get('state') in ('queued', 'running'):
+                j.update(state='error', finished=j.get('started') or j['created'],
+                         error='interrupted: the server restarted mid-run')
+            JOBS[j['id']] = j
+    except Exception:  # noqa: BLE001  (no file yet / corrupt: start empty)
+        pass
+
+
+def _jobs_save():
+    with JOBS_LOCK:
+        rows = [_public(j) for j in JOBS.values()]
+    tmp = JOBS_FILE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(rows, default=str))
+    tmp.replace(JOBS_FILE)
 # one lock per contract: scarb/snforge/claude all write target/ and the
 # sources, so two runs on the same submod must queue, not interleave
 NAME_LOCKS = {}
@@ -119,7 +196,9 @@ def _start_job(fn, kw):
                 job['state'] = 'error'
                 traceback.print_exc()
             job['finished'] = time.time()
+        _jobs_save()
 
+    _jobs_save()
     threading.Thread(target=run, daemon=True).start()
     return _public(job)
 
@@ -138,7 +217,8 @@ def _route(path):
 def _is_api_path(path):
     segs = [p for p in path.split('/') if p]
     return bool(segs) and ('api' in segs[:2] or '_api' in segs[:2]
-                           or (len(segs) == 1 and segs[0] in GET_FNS))
+                           or (len(segs) == 1 and (segs[0] in GET_FNS
+                                                   or segs[0] == 'whoami')))
 
 
 class H(BaseHTTPRequestHandler):
@@ -194,6 +274,8 @@ class H(BaseHTTPRequestHandler):
             return self._serve_static(p.path)
         fn = _route(p.path) or 'info'
         q = {k: v[0] for k, v in parse_qs(p.query).items()}
+        if fn == 'whoami':
+            return self._send(200, _whoami(self.client_address[0], self.headers))
         if fn not in GET_FNS:
             return self._send(404, {'error': f'unknown fn {fn!r}',
                                     'get': sorted(GET_FNS),
@@ -218,6 +300,12 @@ class H(BaseHTTPRequestHandler):
         if fn not in POST_FNS:
             return self._send(404, {'error': f'unknown fn {fn!r}',
                                     'post': sorted(POST_FNS)})
+        if fn in WRITE_FNS:
+            who = _whoami(self.client_address[0], self.headers)
+            if not who['writable']:
+                # 403 not 5xx: Cloudflare strips 5xx bodies
+                return self._send(403, {'error': f"{fn} is owner-only: {who.get('why')}",
+                                        'owners': who['owners']})
         if kw.pop('async', False):
             if fn not in LONG_FNS:
                 return self._send(400, {'error': f'{fn} has no async form'})
@@ -246,6 +334,7 @@ _NULL = _Null()
 if __name__ == '__main__':
     if len(sys.argv) > 1:
         PORT = int(sys.argv[1])
+    _jobs_load()
     print(f'cairo on {HOST}:{PORT} -> http://localhost:{PORT}/{NAME} '
           f'(API: /{NAME}/api/<fn>)', flush=True)
     ThreadingHTTPServer((HOST, PORT), H).serve_forever()
