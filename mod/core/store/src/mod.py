@@ -16,7 +16,11 @@ class Store:
         self.path = self.abspath(path)
         self.set_filetype(filetype)
         self.private = private
-        self.key = self.get_key(password or 'mod_default_store_password')
+        self.key = None
+        if password:
+            self.key = self.get_key(password)
+        elif private:
+            raise ValueError('private Store requires an explicit password')
         if self.private:
             self.encrypt_all()
 
@@ -125,6 +129,9 @@ class Store:
             path = self.abspath(path)
         elif not path.startswith(self.path):
             path = f'{self.path}/{path}'
+        path = os.path.normpath(path)
+        if not self.in_path(path):
+            raise ValueError(f'Path {path} outside store {self.path}')
         if filetype and not path.endswith(f'.{filetype}'):
             path += f'.{filetype}'
         return path
@@ -135,7 +142,8 @@ class Store:
         return {'path': d}
 
     def in_path(self, path):
-        return path.startswith(self.path)
+        path = os.path.abspath(path)
+        return path == self.path or path.startswith(self.path + os.sep)
 
     def set_filetype(self, filetype):
         assert filetype in ['json', 'yaml'], f'File type {filetype} not supported'
@@ -288,7 +296,8 @@ class Store:
 
     def get_key(self, password: str = None):
         if password is None:
-            assert hasattr(self, 'key')
+            if getattr(self, 'key', None) is None:
+                raise ValueError('no password given and Store has no default key')
             return self.key
         return m.mod('key.aes')(password=password)
 
