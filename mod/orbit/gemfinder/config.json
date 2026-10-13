@@ -1,0 +1,56 @@
+{
+    "name": "gemfinder",
+    "title": "gemfinder · narrative gems, crypto + stocks",
+    "description": "Scans keyless public feeds (CoinGecko trending + category momentum, DexScreener boosts and new tokens, reddit mentions via ApeWisdom, Yahoo Finance trending and small-cap/day-gainer screens, Hacker News buzz) for crypto tokens and stocks a hot narrative is starting to carry. Merges per ticker, heats 13 narratives, and ranks candidates by an attention score (attention, velocity, narrative, momentum, size) with reasons and risk flags. Stdlib-only, one SQLite cache. Attention, not a forecast.",
+    "version": "0.1.0",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51320,
+    "route": false,
+    "deps": [],
+    "urls": {
+        "api": "http://localhost:51320"
+    },
+    "state": "~/.mod/gemfinder/cache.db (raw HTTP bodies by url) · ~/.mod/gemfinder/scans.jsonl (every scan's picks + price)",
+    "endpoints": {
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness + cache size + narrative ids"
+        },
+        "scan": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?asset=all|crypto|stock&k=20&narrative=&min_score=&sources=a,b&hn=1 -> {sources, narratives:[{id,label,crypto,stock}], gems:[{asset,symbol,name,score,parts,narratives,why,flags,metrics,urls}]}"
+        },
+        "narratives": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?asset= -> heat 0-100 per narrative for crypto and stocks, with raw drivers"
+        },
+        "history": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?n=10 -> past scans, newest first"
+        },
+        "sources": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Candidate sources and what each contributes"
+        }
+    },
+    "fns": [
+        "forward",
+        "scan",
+        "top",
+        "narratives",
+        "narrative_list",
+        "history",
+        "sources",
+        "clear_cache",
+        "serve",
+        "kill",
+        "status",
+        "test"
+    ]
+}

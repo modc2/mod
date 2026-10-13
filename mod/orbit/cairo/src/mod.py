@@ -6,16 +6,24 @@ over the real toolchain already installed on the box:
 
     scarb 2.8.4        build / compile Cairo 2 -> Sierra + CASM
     snforge 0.31.0     starknet-foundry unit/integration tests
-    sncast 0.31.0      declare / deploy (left to the user, not driven here)
+    sncast 0.31.0      declare / deploy / invoke on the local sandbox
+    starknet-devnet    the sandbox chain every contract's app runs on
+                       (src/sandbox.py)
 
 Three verbs the user asked for:
     make      -> new(name)            scaffold a contract submod
     vibecode  -> vibe(name, prompt)   drive the Claude CLI on one submod,
                                        then verify with build + test
     test      -> build(name)/test(name)
+
+and one to use the result: every contract gets an app at /cairo/<name>/ — a
+plain HTML page over its ABI (reads, writes, events, act-as account) running
+against a local devnet. The default page is src/templates/app.html; a
+contract can ship its own at src/mods/<name>/app/index.html.
 """
 
 import glob
+import importlib.util
 import json
 import os
 import re
@@ -32,11 +40,21 @@ ROOT = os.path.dirname(SRC)
 MODS = os.path.join(SRC, 'mods')
 TEMPLATES = os.path.join(SRC, 'templates')
 SERVER = os.path.join(SRC, 'api', 'server.py')
+DEFAULT_APP = os.path.join(TEMPLATES, 'app.html')
 BIN = os.path.expanduser('~/.local/bin')
 
 # dirs that are part of the module itself, never a contract submod
 RESERVED = {'src', 'mods', 'templates', 'api', 'app', 'releases', 'dist',
             'node_modules', '__pycache__', '.git'}
+
+def _step_brief(s):
+    """One agent step, trimmed for the job table: tool, a short target, ok."""
+    p = s.get('params') or {}
+    what = (p.get('command') or p.get('file_path') or p.get('path')
+            or p.get('pattern') or p.get('summary') or s.get('result') or '')
+    return {'tool': s.get('tool'), 'what': str(what).strip()[:160],
+            'error': bool(s.get('error'))}
+
 
 CAIRO_SYSTEM_PROMPT = (
     "You are a Cairo smart-contract engineer working inside a single Scarb "
@@ -54,7 +72,16 @@ CAIRO_SYSTEM_PROMPT = (
     "- Edit files directly, then ALWAYS run `scarb build` and `snforge test` "
     "to prove your change compiles and passes before you finish. Fix any "
     "compiler error you introduce.\n"
-    "- Keep the public interface coherent and comment WHY, not WHAT."
+    "- Keep the public interface coherent and comment WHY, not WHAT.\n"
+    "- The contract's web app is app/index.html (plain HTML, no build step). "
+    "If it does not exist the shared default ABI-driven page is served; only "
+    "write app/index.html when asked for a custom app. It talks to "
+    "<base>/_api/{app,call,deploy,events}?name=<pkg>.\n"
+    "- app.json (next to Scarb.toml) is the plain-language layer of that "
+    "default page: friendly labels, hidden inputs/outputs, visuals (show: "
+    "big|meter|chart|yesno|address|text|list|hide), event sentences. When you "
+    "rename or add an entrypoint, keep app.json in sync. Reference: "
+    "docs/simple-apps.md in the cairo module."
 )
 
 
@@ -387,6 +414,8 @@ class Mod:
         self._emit(os.path.join(d, 'tests', f'test_{pkg}.cairo'),
                    render('test.cairo.tmpl'))
         self._emit(os.path.join(d, '.gitignore'), 'target/\n.snfoundry_cache/\n')
+        if os.path.exists(os.path.join(TEMPLATES, template, 'app.json')):
+            self._emit(os.path.join(d, 'app.json'), render('app.json'))
         self._emit(os.path.join(d, 'config.json'), json.dumps({
             'name': pkg,
             'title': cls,
@@ -411,7 +440,7 @@ class Mod:
     # every contract dir is also a protocol mod: its own mod.py anchor (the
     # parent's fns bound to this contract), README and config anchor/fns
     SUB_FNS = ['forward', 'info', 'build', 'test', 'vibe', 'abi', 'tree',
-               'read', 'write', 'clean']
+               'read', 'write', 'clean', 'app', 'deploy', 'call', 'events']
 
     def _as_mod(self, pkg, d):
         meta = self._sub_meta(d)
@@ -435,6 +464,81 @@ class Mod:
                    json.dumps(meta, indent=4) + '\n')
         return d
 
+    # ---- market: every contract as a listing, and fork one into a new mod ---
+
+    def market(self):
+        """The bazaar: every contract with what a browser wants on a card —
+        build state, ABI summary, sandbox deployment, size, last touched —
+        plus the starter templates. One call, no devnet boot."""
+        sb = self._sandbox()
+        deps = {}
+        try:
+            deps = sb.deployments()
+        except Exception:  # noqa: BLE001
+            pass
+        out = []
+        for c in self._catalog():
+            d, meta = c['path'], self._sub_meta(c['path'])
+            abi = self.abi(c['name']).get('contracts', []) if c['built'] else []
+            fns = [f for a in abi for f in a['functions']]
+            srcs = glob.glob(os.path.join(d, 'src', '**', '*.cairo'), recursive=True)
+            tests = glob.glob(os.path.join(d, 'tests', '**', '*.cairo'), recursive=True)
+            lines = sum(len((self._read(p) or '').splitlines()) for p in srcs)
+            touched = max((os.path.getmtime(p) for p in srcs + tests), default=0)
+            dep = deps.get(c['name'])
+            out.append({
+                'name': c['name'], 'mod': f"cairo.{c['name']}",
+                'title': meta.get('title') or _pascal(c['name']),
+                'description': c['description'], 'template': c['template'],
+                'forked_from': meta.get('forked_from'),
+                'state': c['state'], 'lines': lines, 'tests': len(tests),
+                'touched': touched,
+                'reads': [f['name'] for f in fns if f['mutability'] == 'view'],
+                'writes': [f['name'] for f in fns if f['mutability'] != 'view'],
+                'events': [e['name'] for a in abi for e in a['events']],
+                'sierra_felts': sum(a['sierra_felts'] for a in abi),
+                'custom_app': os.path.isfile(os.path.join(d, 'app', 'index.html')),
+                'deployed': ({'address': dep.get('address'), 'by': dep.get('by'),
+                              'at': dep.get('at')} if dep else None),
+                'url': f"{self.base}/{c['name']}/",
+            })
+        out.sort(key=lambda x: -x['touched'])
+        return {'count': len(out), 'contracts': out,
+                'templates': self.templates()['templates']}
+
+    def fork(self, src, name, desc=None):
+        """Copy a contract into a new mod under a new name: package, contract
+        module (PascalCase), dispatchers and `use <pkg>::` paths renamed so the
+        copy builds and tests on its own."""
+        spkg, sd = self._contract(src)
+        pkg, d = self._subdir(name)
+        if os.path.exists(d):
+            return {'error': f'{pkg!r} already exists'}
+        shutil.copytree(sd, d, ignore=shutil.ignore_patterns(
+            'target', '.snfoundry_cache', '__pycache__', 'Scarb.lock',
+            'mod.py', 'README.md'))
+        old, new = _pascal(spkg), _pascal(pkg)
+        # `Old` alone or as a prefix of a type (IOld, OldDispatcher, ...)
+        cls_re = re.compile(r'(?<![A-Za-z0-9_])(I?)' + re.escape(old) + r'(?![a-z0-9_])')
+        pkg_re = re.compile(r'\b' + re.escape(spkg) + r'::')
+        for p in glob.glob(os.path.join(d, '**', '*.cairo'), recursive=True):
+            s = self._read(p) or ''
+            s = cls_re.sub(lambda m: m.group(1) + new, pkg_re.sub(pkg + '::', s))
+            self._emit(p, s)
+            base = os.path.basename(p)
+            if spkg in base:
+                os.rename(p, os.path.join(os.path.dirname(p), base.replace(spkg, pkg)))
+        toml = os.path.join(d, 'Scarb.toml')
+        self._emit(toml, re.sub(r'(?m)^name = "[^"]*"', f'name = "{pkg}"',
+                                self._read(toml) or '', count=1))
+        meta = self._sub_meta(d)
+        meta.update({'name': pkg, 'title': new, 'forked_from': spkg,
+                     'description': desc or f'{new} — forked from {spkg}.'})
+        self._emit(os.path.join(d, 'config.json'), json.dumps(meta, indent=4) + '\n')
+        self._as_mod(pkg, d)
+        return {'name': pkg, 'contract': new, 'forked_from': spkg,
+                'mod': f'cairo.{pkg}', 'files': self._tree(d)}
+
     def adopt(self):
         """Give every contract under src/mods/ the protocol files (mod.py,
         README, config anchor/fns) and pull any legacy contract still at the
@@ -451,18 +555,74 @@ class Mod:
         return {'moved': moved, 'mods': [f"cairo.{c['name']}"
                                          for c in self._catalog()]}
 
-    # ---- vibecode: drive the Claude CLI on one submod ----------------------
+    # ---- vibecode: hand one submod to the claudecode agent ------------------
+    # For now vibe speaks the agent protocol (GET /agents + POST /run/stream,
+    # SSE step/done/error) to orbit/claudecode on loopback, so the CLI spawn
+    # spec, creds and cost metering live in ONE place. If that server is down
+    # we fall back to spawning the CLI ourselves, same prompt, same scope.
 
-    def vibe(self, name, prompt, model=None, verify=True, timeout=1800):
-        """Edit a contract submod with the headless Claude CLI, then (by
-        default) build + test it. The agent is scoped to the submod dir."""
-        pkg, d = self._subdir(name)
-        if not self._is_submod(d):
-            return {'error': f'no such contract {pkg!r}; run new first'}
+    AGENT_URL = os.environ.get('CAIRO_AGENT_URL', 'http://127.0.0.1:51260')
+
+    def _agent_goal(self, d):
+        # the agent server's PATH doesn't carry ~/.local/bin, so say where the
+        # toolchain is, and pin the run to this one contract dir
+        return (CAIRO_SYSTEM_PROMPT +
+                f"- Work ONLY inside {d}. Use absolute paths.\n"
+                f"- The toolchain is in {BIN}: run `export PATH={BIN}:$PATH` "
+                f"first (scarb, snforge, sncast).\n")
+
+    def _vibe_agent(self, d, prompt, model, timeout, on_step=None):
+        """POST /run/stream to the claudecode agent. Returns (ok, text, meta,
+        steps) or None when the agent server can't be reached."""
+        import urllib.request
+        import urllib.error
+        body = json.dumps({'query': str(prompt), 'goal': self._agent_goal(d),
+                           'path': d, 'model': model or None,
+                           'timeout': int(timeout)}).encode()
+        req = urllib.request.Request(self.AGENT_URL.rstrip('/') + '/run/stream',
+                                     data=body, method='POST',
+                                     headers={'Content-Type': 'application/json'})
+        try:
+            resp = urllib.request.urlopen(req, timeout=int(timeout) + 60)
+        except (urllib.error.URLError, OSError):
+            return None
+        steps, done, err = [], None, None
+        with resp:
+            for raw in resp:
+                line = raw.decode('utf-8', 'replace').strip()
+                if not line.startswith('data:'):
+                    continue
+                try:
+                    ev = json.loads(line[5:].strip())
+                except ValueError:
+                    continue
+                if ev.get('type') == 'step':
+                    steps.append(ev.get('step') or {})
+                    if on_step:
+                        try:
+                            on_step(ev.get('step') or {})
+                        except Exception:  # noqa: BLE001
+                            pass
+                elif ev.get('type') == 'done':
+                    done = ev
+                elif ev.get('type') == 'error':
+                    err = ev.get('error') or 'agent error'
+        last = steps[-1] if steps else {}
+        usage = (done or {}).get('usage') or last.get('params', {}).get('usage') or {}
+        meta = {'agent': 'orbit/claudecode', 'task_id': (done or {}).get('task_id'),
+                'num_turns': usage.get('turns'), 'total_cost_usd': usage.get('cost'),
+                'model': usage.get('model')}
+        if err:
+            return False, err, meta, steps
+        if last.get('tool') == 'error':
+            return False, last.get('error') or 'agent failed', meta, steps
+        text = last.get('params', {}).get('summary') if last.get('tool') == 'finish' else ''
+        return done is not None, text or '', meta, steps
+
+    def _vibe_cli(self, d, prompt, model, timeout):
         claude = self._tool('claude')
         if not claude:
-            return {'error': 'claude CLI not found on PATH'}
-
+            return False, 'claude CLI not found and agent server unreachable', {}, []
         cmd = [claude, '-p', str(prompt),
                '--append-system-prompt', CAIRO_SYSTEM_PROMPT,
                '--permission-mode', 'acceptEdits',
@@ -472,26 +632,37 @@ class Mod:
             cmd += ['--model', str(model)]
         env = dict(os.environ)
         env['PATH'] = BIN + os.pathsep + env.get('PATH', '')
-
         try:
             out = subprocess.run(cmd, cwd=d, capture_output=True, text=True,
                                  timeout=int(timeout), env=env)
         except subprocess.TimeoutExpired:
-            return {'error': f'vibe timed out after {timeout}s', 'name': pkg}
-
-        result_text, meta = out.stdout, {}
+            return False, f'vibe timed out after {timeout}s', {}, []
+        text, meta = out.stdout, {'agent': 'claude-cli'}
         try:
             parsed = json.loads(out.stdout)
-            result_text = parsed.get('result', out.stdout)
-            meta = {k: parsed.get(k) for k in
-                    ('num_turns', 'total_cost_usd', 'session_id', 'is_error')
-                    if k in parsed}
+            text = parsed.get('result', out.stdout)
+            meta.update({k: parsed.get(k) for k in
+                         ('num_turns', 'total_cost_usd', 'session_id', 'is_error')
+                         if k in parsed})
         except Exception:  # noqa: BLE001
             pass
+        return out.returncode == 0, (text or out.stderr or ''), meta, []
 
-        res = {'name': pkg, 'ok': out.returncode == 0, 'meta': meta,
-               'result': (result_text or out.stderr or '').strip()[-6000:]}
-        if verify and out.returncode == 0:
+    def vibe(self, name, prompt, model=None, verify=True, timeout=1800,
+             on_step=None):
+        """Edit a contract submod with the claudecode agent (agent protocol,
+        :51260; CLI fallback), then (by default) build + test it."""
+        pkg, d = self._subdir(name)
+        if not self._is_submod(d):
+            return {'error': f'no such contract {pkg!r}; run new first'}
+        r = self._vibe_agent(d, prompt, model, timeout, on_step)
+        if r is None:
+            r = self._vibe_cli(d, prompt, model, timeout)
+        ok, text, meta, steps = r
+        res = {'name': pkg, 'ok': ok, 'meta': meta,
+               'result': str(text or '').strip()[-6000:],
+               'steps': [_step_brief(s) for s in steps][-60:]}
+        if verify and ok:
             res['build'] = self.build(pkg)
             res['test'] = self.test(pkg)
         res['files'] = self._tree(d)
@@ -586,6 +757,100 @@ class Mod:
                 'inputs': [{'name': i['name'], 'type': _short(i['type'])}
                            for i in f.get('inputs', [])],
                 'outputs': [_short(o['type']) for o in f.get('outputs', [])]}
+
+    # ---- the app: a page per contract over a local devnet -------------------
+
+    def _sandbox(self):
+        # by path, same reason as mod.py itself: no bare-name imports here
+        if not hasattr(self, '_sb'):
+            spec = importlib.util.spec_from_file_location(
+                'cairo_sandbox', os.path.join(SRC, 'sandbox.py'))
+            m = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(m)
+            self._sb = m
+        return self._sb
+
+    def _contract(self, name):
+        pkg, d = self._subdir(name)
+        if not self._is_submod(d):
+            raise ValueError(f'no such contract {pkg!r}')
+        return pkg, d
+
+    def app(self, name):
+        """Everything a contract's app page needs in one call: ABI, sandbox
+        deployment, accounts to act as, and whether the page is custom."""
+        pkg, d = self._contract(name)
+        sb = self._sandbox()
+        custom = os.path.isfile(os.path.join(d, 'app', 'index.html'))
+        # app.json = the plain-language layer: labels, hidden inputs/outputs,
+        # visuals. Optional; a broken one is reported, never fatal.
+        ui, ui_error = {}, None
+        try:
+            with open(os.path.join(d, 'app.json')) as f:
+                ui = json.load(f)
+        except FileNotFoundError:
+            pass
+        except Exception as e:  # noqa: BLE001
+            ui_error = f'app.json: {e}'
+        # opening the page boots the chain (~1s, reloads its dump), so the
+        # deployment and accounts below are real, not "down"
+        if self._build_state(d) != 'unbuilt':
+            sb.start()
+        return {'name': pkg, 'title': _pascal(pkg),
+                'description': self._sub_meta(d).get('description'),
+                'url': f'{self.base}/{pkg}/', 'custom': custom,
+                'page': f'src/mods/{pkg}/app/index.html' if custom
+                else 'src/templates/app.html',
+                'state': self._build_state(d),
+                'ui': ui, 'ui_error': ui_error,
+                'abi': self.abi(pkg).get('contracts', []),
+                'devnet': {'up': sb.alive(), 'rpc': sb.RPC + '/rpc'},
+                'deployment': sb.deployment(pkg),
+                'accounts': [{'name': a['name'], 'address': a['address']}
+                             for a in sb.accounts()]}
+
+    def deploy(self, name, args=None, contract=None, account='alice'):
+        """Declare + deploy a built contract on the local devnet sandbox
+        (started on demand). args = constructor args by name."""
+        pkg, d = self._contract(name)
+        if self._build_state(d) == 'unbuilt':
+            return {'ok': False, 'error': 'build it first'}
+        try:
+            return self._sandbox().deploy(pkg, d, args, contract, account)
+        except Exception as e:  # noqa: BLE001
+            return {'ok': False, 'error': str(e)}
+
+    def call(self, name, fn, args=None, account='alice'):
+        """Call one entrypoint of the deployed contract. Views read; anything
+        else is a transaction signed by the sandbox `account`
+        (alice/bob/carol/dave). Args are typed values by name."""
+        pkg, d = self._contract(name)
+        try:
+            return self._sandbox().call(pkg, d, fn, args, account)
+        except Exception as e:  # noqa: BLE001
+            return {'ok': False, 'error': str(e)}
+
+    def events(self, name, limit=50):
+        """Decoded events the deployed contract has emitted, newest first."""
+        pkg, d = self._contract(name)
+        try:
+            return self._sandbox().events(pkg, d, limit)
+        except Exception as e:  # noqa: BLE001
+            return {'events': [], 'error': str(e)}
+
+    def sandbox(self, action='status'):
+        """The devnet: status | start | stop | reset (drops every deploy)."""
+        sb = self._sandbox()
+        if action == 'start':
+            return sb.start()
+        if action == 'stop':
+            return sb.stop()
+        if action == 'reset':
+            return sb.reset()
+        return {'up': sb.alive(), 'port': sb.DEVNET_PORT,
+                'accounts': [{'name': a['name'], 'address': a['address']}
+                             for a in sb.accounts()],
+                'deployments': sb.deployments()}
 
     def test(self, name=None, timeout=1200):
         """snforge test one submod; with no name, run the module self-test."""

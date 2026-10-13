@@ -66,3 +66,17 @@ class Mod:
 
     def clean(self):
         return self.cairo.clean(NAME)
+
+    # the app: /cairo/counter/ — a page over this contract on the local devnet
+    def app(self):
+        return self.cairo.app(NAME)
+
+    def deploy(self, args=None, contract=None, account='alice'):
+        return self.cairo.deploy(NAME, args=args, contract=contract,
+                                 account=account)
+
+    def call(self, fn, args=None, account='alice'):
+        return self.cairo.call(NAME, fn, args=args, account=account)
+
+    def events(self, limit=50):
+        return self.cairo.events(NAME, limit=limit)

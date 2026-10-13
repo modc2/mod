@@ -1,0 +1,27 @@
+{
+    "name": "subnet",
+    "title": "Subnet",
+    "description": "Subnet \u2014 a Cairo contract.",
+    "version": "0.1.0",
+    "submod_of": "cairo",
+    "kind": "cairo-contract",
+    "template": "counter",
+    "edition": "2024_07",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "deploy",
+        "call",
+        "events"
+    ]
+}

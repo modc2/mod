@@ -12,3 +12,4 @@ src/releases/
 server.log
 src/.jobs.json
 src/.jobs.tmp
+src/.sandbox/

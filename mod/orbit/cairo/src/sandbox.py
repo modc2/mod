@@ -216,13 +216,20 @@ class Codec:
                 v = v.strip().lower() in ('true', '1', 'yes')
             return [1 if v else 0]
         if ONE_FELT.match(ty):
-            return [self._felt(v, ty)]
+            n = self._felt(v, ty)
+            m = re.match(r'core::integer::u(\d+)$', ty)
+            if m and n >= 1 << int(m.group(1)):
+                raise ValueError(f'{v} does not fit in a u{m.group(1)}')
+            return [n]
         if ty == U256:
-            n = self._felt(v, ty) if not isinstance(v, int) else v
-            if isinstance(v, str) and v.strip().startswith('0x'):
-                n = int(v.strip(), 16)  # u256 may exceed the felt range
-            elif isinstance(v, str) and v.strip().isdigit():
-                n = int(v.strip())
+            # parsed here, not via _felt: a u256 may exceed the felt range
+            s = str(v).strip().replace('_', '')
+            try:
+                n = int(s, 16) if s.lower().startswith('0x') else int(s)
+            except ValueError:
+                raise ValueError(f'{s!r} is not a u256') from None
+            if not 0 <= n < 1 << 256:
+                raise ValueError(f'{s} is out of u256 range')
             return [n & ((1 << 128) - 1), n >> 128]
         if ty == BYTEARRAY:
             b = str(v).encode()

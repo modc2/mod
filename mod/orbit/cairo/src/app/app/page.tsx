@@ -2,26 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Abi, AbiContract, Diag, Diagnostics, Editor, EditorHandle, TestTable } from './views';
+import { AgentStep, BASE, BuildState, Contract, Job, STATE_TIP, Template, call, jobOk, live, secs, signIn } from './lib';
+import { Market } from './market';
+import { Create, NewSeed } from './create';
+import { Docs } from './docs';
 
-const BASE = process.env.NEXT_PUBLIC_BASE ?? '/cairo';
-// Self-calls go to /cairo/_api/* — the gateway KEEPS this prefix (routed to the
-// app), and src/api/server.py maps _api onto the same handlers as /cairo/api.
-const API = `${BASE}/_api`;
-
-type BuildState = 'fresh' | 'stale' | 'unbuilt';
-type Contract = { name: string; built: boolean; state?: BuildState; template?: string | null; description?: string | null };
-type Template = { id: string; title: string; blurb: string };
-type Job = {
-  id: string;
-  fn: string;
-  name: string | null;
-  state: 'queued' | 'running' | 'done' | 'error';
-  created: number;
-  started: number | null;
-  finished: number | null;
-  result: any;
-  error: string | null;
-};
+// Top-level views. The hash (#market, #new, #docs) makes each one linkable.
+type View = 'studio' | 'market' | 'new' | 'docs';
+const VIEWS: { id: View; label: string; tip: string }[] = [
+  { id: 'studio', label: 'Studio', tip: 'edit, build, test and vibecode a contract' },
+  { id: 'market', label: 'Market', tip: 'the bazaar: every contract here, open or fork one' },
+  { id: 'docs', label: 'Docs', tip: 'how it works, Cairo basics, the HTTP API' },
+];
+const isView = (v: string): v is View => v === 'new' || VIEWS.some((x) => x.id === v);
 
 // Starter prompts per template: the fastest way to see vibecoding work is a
 // change that is obviously the next step for the contract in front of you.
@@ -45,70 +38,6 @@ const IDEAS: Record<string, string[]> = {
 };
 const GENERIC_IDEAS = ['add tests for every revert path', 'add events for every state change'];
 
-// Writes are owner-only through the gateway (src/api/server.py). One
-// personal_sign makes a mod-protocol token; starknet's studio token is the
-// same scheme on the same origin, so it works here too.
-const TOKEN_KEY = 'cairo.token';
-const token = () => {
-  try {
-    return localStorage.getItem(TOKEN_KEY) || localStorage.getItem('starknet.studio.token');
-  } catch {
-    return null;
-  }
-};
-
-function b64url(s: string): string {
-  let bin = '';
-  new TextEncoder().encode(s).forEach((b) => { bin += String.fromCharCode(b); });
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function signIn(): Promise<void> {
-  const eth = (window as any).ethereum;
-  if (!eth) throw new Error('No browser wallet found. Install MetaMask or Rabby to sign in.');
-  const [address] = await eth.request({ method: 'eth_requestAccounts' });
-  const data = 'cairo'; // a string: verifies in Python and Rust alike
-  const time = Math.floor(Date.now() / 1000).toString();
-  const signature = await eth.request({ method: 'personal_sign', params: [JSON.stringify({ data, time }), address] });
-  const t = b64url(JSON.stringify({ data, time, key: String(address).toLowerCase(), signature }));
-  try {
-    localStorage.setItem(TOKEN_KEY, t);
-  } catch {
-    // shared-origin quota full: the token just won't survive a reload
-  }
-}
-
-async function call(fn: string, body?: Record<string, unknown>, query?: Record<string, string>): Promise<any> {
-  const qs = query ? `?${new URLSearchParams(query)}` : '';
-  const t = token();
-  const res = await fetch(`${API}/${fn}${qs}`, {
-    method: body ? 'POST' : 'GET',
-    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(t ? { token: t } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return res.json();
-}
-
-const live = (j: Job) => j.state === 'queued' || j.state === 'running';
-
-function jobOk(j: Job): boolean | null {
-  if (j.state !== 'done') return j.state === 'error' ? false : null;
-  const r = j.result || {};
-  if (r.error) return false;
-  if (j.fn === 'vibe') return !!r.ok && (r.build?.ok ?? true) && (r.test?.ok ?? true);
-  return r.ok ?? true;
-}
-
-function secs(j: Job, now: number): string {
-  if (!j.started) return '';
-  return `${Math.round((j.finished ?? now) - j.started)}s`;
-}
-
-const STATE_TIP: Record<BuildState, string> = {
-  fresh: 'built, up to date',
-  stale: 'sources changed since the last build',
-  unbuilt: 'not built yet',
-};
 
 export default function Page() {
   const [tools, setTools] = useState<Record<string, any>>({});
@@ -121,6 +50,22 @@ export default function Page() {
   const [now, setNow] = useState(Date.now() / 1000);
   const [who, setWho] = useState<{ writable: boolean; address?: string | null; why?: string } | null>(null);
   const editor = useRef<{ jump: (d: Diag) => void } | null>(null);
+  const [view, setViewState] = useState<View>('studio');
+  const [seed, setSeed] = useState<NewSeed>({});
+
+  const setView = (v: View) => {
+    setViewState(v);
+    if (typeof window !== 'undefined') history.replaceState(null, '', v === 'studio' ? window.location.pathname : `#${v}`);
+  };
+  useEffect(() => {
+    const read = () => {
+      const h = window.location.hash.slice(1);
+      setViewState(isView(h) ? h : 'studio');
+    };
+    read();
+    window.addEventListener('hashchange', read);
+    return () => window.removeEventListener('hashchange', read);
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -183,64 +128,124 @@ export default function Page() {
   const landed = jobs.find((j) => j.name === sel && j.finished)?.id ?? null;
 
   const jump = (d: Diag) => editor.current?.jump(d);
+  const doSignIn = () =>
+    signIn()
+      .then(() => call('whoami'))
+      .then(setWho)
+      .catch((e) => setErr(String(e?.message || e)));
+  const openContract = (name: string) => {
+    setSel(name);
+    setView('studio');
+  };
+  const newContract = (sd: NewSeed = {}) => {
+    setSeed(sd);
+    setView('new');
+  };
+  const removeContract = async (name: string) => {
+    const r = await call('remove', { name });
+    if (r.error) return setErr(r.error);
+    if (sel === name) setSel(null);
+    refresh();
+  };
+  // newest finished job anywhere: the market re-reads when something lands
+  const landedAny = jobs.find((j) => j.finished)?.id ?? null;
 
   return (
     <div className="wrap">
       <header className="top">
-        <div className="mark">C</div>
-        <div>
-          <h1>cairo</h1>
-          <p className="sub">make, vibecode and test Starknet contracts. Each one is its own mod.</p>
-        </div>
-        <div className="tools">
-          {['scarb', 'snforge', 'claude'].map((t) => (
-            <span key={t} className={`pill ${tools[t]?.path ? 'ok' : tools[t] ? 'bad' : ''}`}>
-              {t} {tools[t]?.version?.split(' ')[1] ?? (tools[t]?.path ? 'ok' : tools[t] ? 'missing' : '…')}
-            </span>
+        <button className="brand" onClick={() => setView('studio')} title="cairo · zero-knowledge contracts, one mod each">
+          <span className="mark">C</span>
+          <span className="name">cairo</span>
+          <span className="sub">zk contracts</span>
+        </button>
+        <nav className="views">
+          {VIEWS.map((v) => (
+            <button key={v.id} className={`view ${view === v.id ? 'on' : ''}`} title={v.tip} onClick={() => setView(v.id)}>
+              {v.label}
+              {v.id === 'studio' && active && <i className="vdot" />}
+            </button>
           ))}
+        </nav>
+        <button className={`plusbtn ${view === 'new' ? 'on' : ''}`} title="new contract: from a starter, a fork or a sentence" onClick={() => newContract()}>
+          +
+        </button>
+        <div className="tools">
+          <span className="chain" title={['scarb', 'snforge', 'claude'].map((t) => `${t}: ${tools[t]?.version ?? (tools[t]?.path ? 'ok' : tools[t] ? 'missing' : '…')}`).join('\n')}>
+            {['scarb', 'snforge', 'claude'].map((t) => (
+              <span key={t} className={`tool ${tools[t]?.path ? 'ok' : tools[t] ? 'bad' : ''}`}>
+                <i />
+                <span className="tname">{t}</span>
+              </span>
+            ))}
+          </span>
           {who && !who.writable && (
-            <button
-              className="pill"
-              title={who.why || 'sign in with the owner wallet to build, test and vibecode'}
-              onClick={() => signIn().then(() => call('whoami')).then(setWho).catch((e) => setErr(String(e?.message || e)))}
-            >
-              sign in to edit
+            <button className="signin" title={who.why || 'sign in with the owner wallet to build, test and vibecode'} onClick={doSignIn}>
+              Sign in
             </button>
           )}
           {who?.writable && who.address && (
-            <span className="pill ok" title="owner">{who.address.slice(0, 6)}…{who.address.slice(-4)}</span>
+            <span className="me" title={`owner · ${who.address}`}>
+              <i />
+              {who.address.slice(0, 6)}…{who.address.slice(-4)}
+            </span>
           )}
         </div>
       </header>
 
       {err && <p className="err">{err}</p>}
 
+      {view === 'market' && (
+        <Market refreshKey={landedAny} writable={!!who?.writable} onOpen={openContract} onNew={newContract} />
+      )}
+
+      {view === 'new' && (
+        <Create
+          templates={templates}
+          contracts={contracts.map((c) => c.name)}
+          seed={seed}
+          writable={!!who?.writable}
+          onSignIn={doSignIn}
+          start={start}
+          onDone={(name) => {
+            refresh();
+            openContract(name);
+          }}
+        />
+      )}
+
+      {view === 'docs' && <Docs />}
+
+      {view === 'studio' && (
       <div className="grid">
         <aside>
           <section className="card">
             <h2>
-              Contracts <span className="spacer" />
-              <span className="count">{contracts.length}</span>
+              My contracts <span className="count">{contracts.length}</span>
+              <span className="spacer" />
+              <button className="plusbtn sm" title="new contract" onClick={() => newContract()}>
+                +
+              </button>
             </h2>
             <div className="list">
-              {contracts.length === 0 && <div className="muted">None yet. Make one below.</div>}
-              {contracts.map((c) => (
-                <button key={c.name} className={`item ${sel === c.name ? 'on' : ''}`} onClick={() => setSel(c.name)}>
-                  <span className={`dot ${busy(c.name) ? 'run' : c.state ?? (c.built ? 'fresh' : 'unbuilt')}`} title={busy(c.name) ? 'running' : STATE_TIP[c.state ?? 'unbuilt']} />
-                  <span className="nm">{c.name}</span>
-                  {c.template && c.template !== 'counter' && <span className="tag">{c.template.replace('_', ' ')}</span>}
+              {contracts.length === 0 && (
+                <button className="item ghostitem" onClick={() => newContract()}>
+                  None yet. Press + to make one.
                 </button>
+              )}
+              {contracts.map((c) => (
+                <MyContract
+                  key={c.name}
+                  c={c}
+                  on={sel === c.name}
+                  busy={busy(c.name)}
+                  writable={!!who?.writable}
+                  onOpen={() => setSel(c.name)}
+                  onFork={() => newContract({ fork: c.name })}
+                  onRemove={() => removeContract(c.name)}
+                />
               ))}
             </div>
           </section>
-          <NewContract
-            templates={templates}
-            taken={contracts.map((c) => c.name)}
-            onDone={(name) => {
-              refresh();
-              setSel(name);
-            }}
-          />
         </aside>
 
         <main style={{ minWidth: 0 }}>
@@ -253,6 +258,7 @@ export default function Page() {
               start={start}
               landed={landed}
               lastJob={jobs.find((j) => j.name === sel && j.state === 'done') || null}
+              lastTest={jobs.find((j) => j.name === sel && j.state !== 'queued' && j.state !== 'running' && (j.fn === 'test' || (j.fn === 'vibe' && j.result?.test))) || null}
               editorRef={editor}
               onRemoved={() => {
                 setSel(null);
@@ -296,6 +302,7 @@ export default function Page() {
           </section>
         </main>
       </div>
+      )}
     </div>
   );
 }
@@ -318,6 +325,7 @@ function JobView({ job, now, onJump }: { job: Job; now: number; onJump: (d: Diag
         <div className="muted">
           {job.state === 'queued' ? 'Waiting for another run on this contract…' : `${job.fn} ${job.name} · ${secs(job, now)}`} · {hint}
         </div>
+        {job.steps && job.steps.length > 0 && <Trail steps={job.steps} live />}
       </div>
     );
   }
@@ -333,15 +341,36 @@ function JobView({ job, now, onJump }: { job: Job; now: number; onJump: (d: Diag
             agent
             {r.meta?.num_turns != null && <span className="muted"> · {r.meta.num_turns} turns</span>}
             {r.meta?.total_cost_usd != null && <span className="muted"> · ${Number(r.meta.total_cost_usd).toFixed(2)}</span>}
+            {r.meta?.agent && <span className="muted"> · via {r.meta.agent}</span>}
           </div>
           <pre className="say">{r.result || '(no reply)'}</pre>
         </div>
+        {(r.steps || []).length > 0 && (
+          <details>
+            <summary>{r.steps.length} agent steps</summary>
+            <Trail steps={r.steps} />
+          </details>
+        )}
         {r.build && <StepView fn="build" r={r.build} onJump={onJump} />}
         {r.test && <StepView fn="test" r={r.test} onJump={onJump} />}
       </div>
     );
   }
   return <StepView fn={job.fn} r={r} onJump={onJump} />;
+}
+
+// What the agent did, one line per tool call. Live: only the newest few.
+function Trail({ steps, live }: { steps: AgentStep[]; live?: boolean }) {
+  const rows = live ? steps.slice(-6) : steps;
+  return (
+    <ol className="trail">
+      {rows.map((s, i) => (
+        <li key={i} className={s.error ? 'bad' : ''}>
+          <b>{s.tool}</b> <span className="muted">{s.what}</span>
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 function StepView({ fn, r, onJump }: { fn: string; r: any; onJump: (d: Diag) => void }) {
@@ -387,59 +416,70 @@ function Log({ text }: { text: string }) {
   );
 }
 
-function NewContract({ templates, taken, onDone }: { templates: Template[]; taken: string[]; onDone: (name: string) => void }) {
-  const [name, setName] = useState('');
-  const [desc, setDesc] = useState('');
-  const [tpl, setTpl] = useState('counter');
-  const [err, setErr] = useState('');
-  const [busy, setBusy] = useState(false);
+// One contract, four views of it: the APP it ships, the API it exposes, the
+// CODE behind it, and the TESTS that hold it. Header actions work from any tab.
+type Tab = 'app' | 'api' | 'code' | 'test';
+const TABS: { id: Tab; label: string; tip: string }[] = [
+  { id: 'app', label: 'App', tip: 'the contract as a page on the local devnet' },
+  { id: 'api', label: 'API', tip: 'entrypoints, events and how to call them over HTTP' },
+  { id: 'code', label: 'Code', tip: 'edit the sources or vibecode them' },
+  { id: 'test', label: 'Test', tip: 'snforge results and the test files' },
+];
+const TAB_KEY = 'cairo.tab';
 
-  const pkg = name
-    .trim()
-    .replace(/[^0-9a-zA-Z]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase();
-  const clash = taken.includes(pkg);
-
-  const make = async () => {
-    setBusy(true);
-    setErr('');
-    try {
-      const r = await call('new', { name, desc: desc || undefined, template: tpl });
-      if (r.error) return setErr(r.error);
-      setName('');
-      setDesc('');
-      onDone(r.name);
-    } finally {
-      setBusy(false);
-    }
+// One row in the sidebar: click to open; hover shows app / fork / delete.
+// Delete is two clicks (arm, then confirm) like the Workbench button.
+function MyContract({
+  c,
+  on,
+  busy,
+  writable,
+  onOpen,
+  onFork,
+  onRemove,
+}: {
+  c: Contract;
+  on: boolean;
+  busy: boolean;
+  writable: boolean;
+  onOpen: () => void;
+  onFork: () => void;
+  onRemove: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  const state = c.state ?? (c.built ? 'fresh' : 'unbuilt');
+  const stop = (f: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    f();
   };
-
   return (
-    <section className="card">
-      <h2>New contract</h2>
-      <div className="col">
-        <div className="tpls">
-          {templates.map((t) => (
-            <button key={t.id} className={`tpl ${tpl === t.id ? 'on' : ''}`} onClick={() => setTpl(t.id)} title={t.blurb}>
-              <b>{t.title}</b>
-              <span>{t.blurb}</span>
-            </button>
-          ))}
-        </div>
-        <input
-          placeholder="name, e.g. vault"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && pkg && !clash && make()}
-        />
-        <input placeholder="what it does (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} />
-        <button className="btn primary" disabled={!pkg || clash || busy} onClick={make}>
-          {busy ? 'Making…' : clash ? `${pkg} exists` : `Make${pkg ? ` ${pkg}` : ''}`}
-        </button>
-        {err && <div className="err">{err}</div>}
-      </div>
-    </section>
+    <div className={`item mine ${on ? 'on' : ''}`} onClick={onOpen} onMouseLeave={() => setArmed(false)}>
+      <span className={`dot ${busy ? 'run' : state}`} title={busy ? 'running' : STATE_TIP[state]} />
+      <span className="nm">{c.name}</span>
+      {c.template && c.template !== 'counter' && <span className="tag">{c.template.replace('_', ' ')}</span>}
+      <span className="acts">
+        {state !== 'unbuilt' && (
+          <a className="act" href={`${BASE}/${c.name}/`} target="_blank" rel="noreferrer" title="open its app" onClick={(e) => e.stopPropagation()}>
+            app
+          </a>
+        )}
+        {writable && (
+          <button className="act" title="copy into a new contract" onClick={stop(onFork)}>
+            fork
+          </button>
+        )}
+        {writable && (
+          <button
+            className={`act ${armed ? 'danger' : ''}`}
+            disabled={busy}
+            title="delete this contract"
+            onClick={stop(() => (armed ? onRemove() : setArmed(true)))}
+          >
+            {armed ? 'sure?' : '×'}
+          </button>
+        )}
+      </span>
+    </div>
   );
 }
 
@@ -450,6 +490,7 @@ function Workbench({
   start,
   landed,
   lastJob,
+  lastTest,
   editorRef,
   onRemoved,
 }: {
@@ -459,9 +500,11 @@ function Workbench({
   start: (fn: string, body: Record<string, unknown>) => Promise<void>;
   landed: string | null;
   lastJob: Job | null;
+  lastTest: Job | null;
   editorRef: React.MutableRefObject<{ jump: (d: Diag) => void } | null>;
   onRemoved: () => void;
 }) {
+  const [tab, setTabState] = useState<Tab>('app');
   const [files, setFiles] = useState<string[]>([]);
   const [path, setPath] = useState<string | null>(null);
   const [content, setContent] = useState('');
@@ -472,6 +515,23 @@ function Workbench({
   const [abi, setAbi] = useState<AbiContract[] | null>(null);
   const ed = useRef<EditorHandle>(null);
   const pending = useRef<Diag | null>(null);
+
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    try {
+      localStorage.setItem(TAB_KEY, t);
+    } catch {
+      // not remembered, that's all
+    }
+  };
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem(TAB_KEY) as Tab | null;
+      if (t && TABS.some((x) => x.id === t)) setTabState(t);
+    } catch {
+      // default tab
+    }
+  }, []);
 
   const loadTree = useCallback(async () => {
     const r = await call('tree', undefined, { name });
@@ -503,22 +563,23 @@ function Workbench({
     loadFile();
   }, [loadFile]);
 
-  // a jump requested before its file was open lands once the file loads
+  // a jump requested before its file (or the CODE tab) was open lands once
+  // the file loads and the editor is mounted
   useEffect(() => {
     const d = pending.current;
-    if (d && d.path === path && content === saved) {
+    if (d && tab === 'code' && d.path === path && content === saved) {
       pending.current = null;
       requestAnimationFrame(() => ed.current?.jump(d.line, d.col));
     }
-  }, [path, content, saved]);
+  }, [tab, path, content, saved]);
 
-  editorRef.current = {
-    jump(d: Diag) {
-      if (d.path === path) return ed.current?.jump(d.line, d.col);
-      pending.current = d;
-      setPath(d.path);
-    },
+  const open = (d: Diag) => {
+    if (tab === 'code' && d.path === path) return ed.current?.jump(d.line, d.col);
+    pending.current = d;
+    setTab('code');
+    setPath(d.path);
   };
+  editorRef.current = { jump: open };
 
   // A job on this contract landed: vibe may have rewritten files, build has a
   // new ABI. Reload, keeping unsaved edits.
@@ -583,85 +644,267 @@ function Workbench({
             {armed ? 'Really delete?' : 'Delete'}
           </button>
         </h2>
-        <div className="split">
-          <div className="list">
-            {files.map((f) => (
-              <button key={f} className={`item file ${path === f ? 'on' : ''}`} onClick={() => setPath(f)}>
-                {f}
-              </button>
-            ))}
-          </div>
-          <div className="col" style={{ minWidth: 0 }}>
-            <Editor ref={ed} value={content} path={path} marks={marks} onChange={setContent} onSave={save} />
-            <div className="row">
-              <button className="btn" disabled={!dirty || busy} onClick={save}>
-                Save
-              </button>
-              {dirty && (
-                <button className="btn" onClick={() => setContent(saved)}>
-                  Discard
+        <nav className="tabs">
+          {TABS.map((t) => (
+            <button key={t.id} className={`tab ${tab === t.id ? 'on' : ''}`} title={t.tip} onClick={() => setTab(t.id)}>
+              {t.label}
+              {t.id === 'code' && dirty && <i className="tdot" title="unsaved" />}
+              {t.id === 'test' && lastTest && <i className={`tdot ${jobOk(lastTest) === false ? 'bad' : 'ok'}`} />}
+            </button>
+          ))}
+        </nav>
+
+        {tab === 'app' && <AppTab name={name} state={state} landed={landed} />}
+
+        {tab === 'api' && <ApiTab name={name} state={state} abi={abi} />}
+
+        {tab === 'code' && (
+          <div className="split">
+            <div className="list">
+              {files.map((f) => (
+                <button key={f} className={`item file ${path === f ? 'on' : ''}`} onClick={() => setPath(f)}>
+                  {f}
                 </button>
-              )}
-              <span className="muted">{dirty ? 'unsaved · Ctrl+S' : msg}</span>
+              ))}
+            </div>
+            <div className="col" style={{ minWidth: 0 }}>
+              <Editor ref={ed} value={content} path={path} marks={marks} onChange={setContent} onSave={save} />
+              <div className="row">
+                <button className="btn" disabled={!dirty || busy} onClick={save}>
+                  Save
+                </button>
+                {dirty && (
+                  <button className="btn" onClick={() => setContent(saved)}>
+                    Discard
+                  </button>
+                )}
+                <span className="muted">{dirty ? 'unsaved · Ctrl+S' : msg}</span>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        )}
 
-      <section className="card">
-        <h2>
-          Interface
-          <span className="spacer" />
-          {state === 'stale' && <span className="muted">from the last build · rebuild to refresh</span>}
-        </h2>
-        {abi && abi.length > 0 ? (
-          <Abi contracts={abi} />
-        ) : (
-          <div className="muted">Build to see the entrypoints, events and size of the compiled class.</div>
+        {tab === 'test' && (
+          <TestTab
+            files={files.filter((f) => f.startsWith('tests/'))}
+            job={lastTest}
+            busy={busy}
+            onRun={() => run('test')}
+            onOpen={(f) => {
+              setPath(f);
+              setTab('code');
+            }}
+            onJump={open}
+          />
         )}
       </section>
 
-      <section className="card">
-        <h2>Vibecode</h2>
-        <div className="col">
-          <textarea
-            rows={3}
-            placeholder={`Tell the agent what to change in ${name}`}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={async (e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && prompt.trim() && !busy && !dirty) {
-                await start('vibe', { name, prompt });
-                setPrompt('');
-              }
-            }}
-          />
-          <div className="ideas">
-            {ideas.map((i) => (
-              <button key={i} className="idea" onClick={() => setPrompt(i)}>
-                {i}
-              </button>
-            ))}
-          </div>
-          <div className="row">
-            <button
-              className="btn primary"
-              disabled={!prompt.trim() || busy || dirty}
-              onClick={async () => {
-                await start('vibe', { name, prompt });
-                setPrompt('');
+      {tab === 'code' && (
+        <section className="card">
+          <h2>Vibecode</h2>
+          <div className="col">
+            <textarea
+              rows={3}
+              placeholder={`Tell the agent what to change in ${name}`}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={async (e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && prompt.trim() && !busy && !dirty) {
+                  await start('vibe', { name, prompt });
+                  setPrompt('');
+                }
               }}
-            >
-              Vibe
-            </button>
-            <span className="muted">
-              {dirty
-                ? 'Save or discard your edits first.'
-                : 'Claude edits this contract only, then builds and tests it. Uses the host Claude account.'}
-            </span>
+            />
+            <div className="ideas">
+              {ideas.map((i) => (
+                <button key={i} className="idea" onClick={() => setPrompt(i)}>
+                  {i}
+                </button>
+              ))}
+            </div>
+            <div className="row">
+              <button
+                className="btn primary"
+                disabled={!prompt.trim() || busy || dirty}
+                onClick={async () => {
+                  await start('vibe', { name, prompt });
+                  setPrompt('');
+                }}
+              >
+                Vibe
+              </button>
+              <span className="muted">
+                {dirty
+                  ? 'Save or discard your edits first.'
+                  : 'Claude edits this contract only, then builds and tests it. Uses the host Claude account.'}
+              </span>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
     </>
+  );
+}
+
+// APP: the contract's own page (src/mods/<name>/app/index.html or the shared
+// ABI-driven default), framed. Reloads when a job lands so a rebuild shows.
+function AppTab({ name, state, landed }: { name: string; state: BuildState; landed: string | null }) {
+  const url = `${BASE}/${name}/`;
+  if (state === 'unbuilt') return <div className="muted">Build the contract first. Its app is generated from the compiled ABI.</div>;
+  return (
+    <div className="col">
+      <div className="framebar">
+        <span className="url">
+          <i />
+          {url}
+        </span>
+        <span className="muted small">live on the local devnet</span>
+        <span className="spacer" />
+        <a className="btn ghostbtn" href={url} target="_blank" rel="noreferrer">
+          Open ↗
+        </a>
+      </div>
+      <iframe key={landed ?? 'first'} className="appframe" src={url} title={`${name} app`} />
+    </div>
+  );
+}
+
+// Placeholder for one typed arg, in the shape the server's ABI codec accepts.
+function sample(type: string): unknown {
+  const t = type.split('::').pop() || type;
+  if (/^(u|i)(8|16|32|64|128|256)$|^usize$/.test(t)) return 1;
+  if (t === 'bool') return true;
+  if (t === 'ContractAddress') return 'bob';
+  if (t === 'ByteArray') return 'hello';
+  if (t.startsWith('Span') || t.startsWith('Array')) return '1,2';
+  return '0x1';
+}
+
+// API: the compiled interface, the deployment, and copy-paste HTTP calls for
+// every entrypoint. Calls go through /api/call (open), signed by a devnet account.
+function ApiTab({ name, state, abi }: { name: string; state: BuildState; abi: AbiContract[] | null }) {
+  const [dep, setDep] = useState<any>(null);
+  const [copied, setCopied] = useState('');
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const api = `${origin}${BASE}/api`;
+
+  useEffect(() => {
+    if (state === 'unbuilt') return;
+    call('app', undefined, { name }).then((r) => setDep(r.deployment || null)).catch(() => {});
+  }, [name, state]);
+
+  const copy = (s: string) => {
+    navigator.clipboard?.writeText(s).then(() => setCopied(s)).catch(() => {});
+    setTimeout(() => setCopied(''), 1200);
+  };
+  const post = (fn: string, body: object) =>
+    `curl -s ${api}/${fn} -H 'Content-Type: application/json' -d '${JSON.stringify(body)}'`;
+
+  const fns = (abi || []).flatMap((c) => c.functions);
+  const lines: { label: string; cmd: string }[] = [
+    { label: 'abi', cmd: `curl -s '${api}/abi?name=${name}'` },
+    ...fns.map((f) => ({
+      label: `${f.mutability === 'view' ? 'read' : 'write'} ${f.name}`,
+      cmd: post('call', {
+        name,
+        fn: f.name,
+        ...(f.inputs.length ? { args: Object.fromEntries(f.inputs.map((i) => [i.name, sample(i.type)])) } : {}),
+        ...(f.mutability === 'view' ? {} : { account: 'alice' }),
+      }),
+    })),
+    { label: 'events', cmd: `curl -s '${api}/events?name=${name}'` },
+  ];
+
+  return (
+    <div className="col">
+      <div className="row apimeta">
+        <span className="pill">mod cairo.{name}</span>
+        {dep?.address ? (
+          <span className="pill ok" title={`class ${dep.class_hash}`}>
+            {dep.contract} @ {dep.address.slice(0, 10)}…{dep.address.slice(-6)}
+          </span>
+        ) : (
+          state !== 'unbuilt' && <span className="pill">not deployed · use the App tab</span>
+        )}
+        {state === 'stale' && <span className="muted">from the last build · rebuild to refresh</span>}
+      </div>
+      {abi && abi.length > 0 ? (
+        <>
+          <Abi contracts={abi} />
+          <details open>
+            <summary>HTTP</summary>
+            <div className="curls">
+              {lines.map((l) => (
+                <div className="curl" key={l.label}>
+                  <span className="lbl">{l.label}</span>
+                  <code>{l.cmd}</code>
+                  <button className="idea" onClick={() => copy(l.cmd)}>
+                    {copied === l.cmd ? 'copied' : 'copy'}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="muted">
+              Args are typed values by name (u256 as one number, ByteArray as text, addresses or alice/bob/carol/dave). Writes
+              are signed by the given sandbox account.
+            </div>
+          </details>
+        </>
+      ) : (
+        <div className="muted">Build to see the entrypoints, events and size of the compiled class.</div>
+      )}
+    </div>
+  );
+}
+
+// TEST: the newest snforge run on this contract (a vibe's test counts too),
+// and the files that define the suite.
+function TestTab({
+  files,
+  job,
+  busy,
+  onRun,
+  onOpen,
+  onJump,
+}: {
+  files: string[];
+  job: Job | null;
+  busy: boolean;
+  onRun: () => void;
+  onOpen: (f: string) => void;
+  onJump: (d: Diag) => void;
+}) {
+  const r = job?.result ? (job.fn === 'vibe' ? job.result.test : job.result) : null;
+  return (
+    <div className="split">
+      <div className="list">
+        {files.length === 0 && <div className="muted">No test files.</div>}
+        {files.map((f) => (
+          <button key={f} className="item file" onClick={() => onOpen(f)} title="open in Code">
+            {f}
+          </button>
+        ))}
+      </div>
+      <div className="col" style={{ minWidth: 0 }}>
+        <div className="row">
+          <button className="btn primary" disabled={busy} onClick={onRun}>
+            {busy ? 'Running…' : 'Run tests'}
+          </button>
+          {job?.finished && (
+            <span className="muted">
+              last run {new Date(job.finished * 1000).toLocaleTimeString()}
+              {job.fn === 'vibe' && ' · after a vibe'}
+            </span>
+          )}
+        </div>
+        {r ? (
+          <StepView fn="test" r={r} onJump={onJump} />
+        ) : job?.error ? (
+          <pre className="log">{job.error}</pre>
+        ) : (
+          <div className="muted">Not tested yet this session. Run the suite to see each test, its gas and any revert reason.</div>
+        )}
+      </div>
+    </div>
   );
 }

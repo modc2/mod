@@ -63,12 +63,72 @@ useful parts come back parsed:
 - `list` → each contract's `state`: `fresh`, `stale` (a source is newer than
   the artifacts) or `unbuilt`.
 
+## Every contract gets an app
+
+Open `/cairo/<name>/` (or **Open app** in the console) and the contract is a
+small working app: reads (views, auto-refreshing), writes (transactions), a
+deploy form built from the constructor, and a live event log. Pick who you
+act as — `alice`, `bob`, `carol`, `dave` — and type `alice` anywhere a
+`ContractAddress` is wanted.
+
+- **The page** is one plain HTML file with no build step. By default every
+  contract gets `src/templates/app.html`, which renders itself from the ABI.
+  Want a custom UI for one contract? Put it at
+  `src/mods/<name>/app/index.html` (copying the default is the easy start);
+  only that contract changes. `vibe` knows this.
+- **The chain** is a local `starknet-devnet` 0.2.4 on :51292
+  (`src/sandbox.py`), started when the page opens, state dumped every block to
+  `src/.sandbox/` so it survives restarts. Seed-0 test accounts; nothing
+  touches a real network.
+- **Typed values, not felts**: the server encodes inputs and decodes outputs
+  and events from the ABI — `u256` as one number, `bool`, `ByteArray` as
+  text, `felt252` as a number or `'short text'`, `Span<T>` as `1, 2, 3`,
+  structs/enums as JSON. Reverts come back as the panic reason (`invalid proof`).
+
+```sh
+m cairo.counter/deploy
+m cairo.counter/call fn=set args='{"value": 42}' account=bob
+m cairo.counter/call fn=get          # -> ['42']
+m cairo.counter/events
+m cairo/sandbox action=reset          # throw the chain away (owner)
+```
+
+Access on the public route: `call` is open (it's a sandbox); `deploy` is open
+only for a built contract with no live deployment (no compiling on the box,
+no wiping someone's running instance); `sandbox` start/stop/reset is
+owner-only.
+
+## Simple view: hide inputs and outputs
+
+Each contract page has a **simple / developer** switch (top right). Simple is
+the default and is for people who don't read Cairo: plain titles, people
+(alice/bob) instead of addresses, Yes/No badges, big numbers, charts, events as
+sentences, and no types, hashes or felts. Developer is the raw page.
+
+An optional `src/mods/<name>/app.json` shapes Simple. It sets labels and help
+text, hides functions or inputs (a hidden input is sent as *you*, or as a fixed
+`value`), picks visuals (`big`, `chart`, `meter`, `yesno`, `address`, `list`,
+…), sets token `decimals` and the event sentences. Reload the page to see a
+change; nothing is rebuilt. Starters ship one.
+
+```json
+{ "title": "Shared number",
+  "fns": { "get": { "label": "The number right now", "show": "chart" },
+           "set": { "label": "Change the number", "button": "Save" },
+           "root": { "hide": true } },
+  "events": { "ValueSet": { "say": "The number was set to {value}" } } }
+```
+
+Full reference with screenshots: [docs/simple-apps.md](docs/simple-apps.md).
+New here? Start with [docs/getting-started.md](docs/getting-started.md).
+
 ## Layout
 
 ```
 orbit/cairo/
 ├── config.json          module manifest (anchor = src/mod.py)
 ├── README.md
+├── docs/                getting-started.md (plain words) · simple-apps.md (app.json reference)
 ├── src/                 the module's implementation (not a submod)
 │   ├── mod.py           the anchor: new / vibe / build / test / ...
 │   ├── api/server.py    stdlib HTTP server: protocol API + jobs + console
@@ -80,6 +140,7 @@ orbit/cairo/
 │           ├── mod.py       anchor: the parent's fns bound to this contract
 │           ├── config.json  mod manifest ("submod_of": "cairo", "anchor": "mod.py")
 │           ├── README.md
+│           ├── app.json     optional: Simple-view labels, hidden inputs/outputs, visuals
 │           ├── Scarb.toml
 │           ├── src/lib.cairo
 │           └── tests/test_counter.cairo

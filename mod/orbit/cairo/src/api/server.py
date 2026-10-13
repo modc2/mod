@@ -9,6 +9,9 @@ Mod protocol URL shapes, all on :51291:
   *    /api/cairo/<fn>       -> legacy alias of the same API
   *    /cairo/_api/<fn>      -> the app's own self-calls (gateway KEEPS the
                                 prefix); mapped onto the same handlers.
+  GET  /cairo/<contract>/    -> that contract's app: its own
+                                src/mods/<c>/app/index.html, else the shared
+                                ABI-driven default src/templates/app.html
 
 All contract logic lives in src/mod.py (the anchor). This file maps URLs onto
 Mod methods, ships the console, and adds one thing the CLI doesn't need: a job
@@ -63,16 +66,26 @@ GET_FNS = {
     'read': lambda q: MOD.read(q.get('name', ''), q.get('path', '')),
     'templates': lambda q: MOD.templates(),
     'abi': lambda q: MOD.abi(q.get('name', '')),
+    'app': lambda q: MOD.app(q.get('name', '')),
+    'events': lambda q: MOD.events(q.get('name', ''), q.get('limit', 50)),
+    'sandbox': lambda q: MOD.sandbox(),
+    'market': lambda q: MOD.market(),
     'jobs': lambda q: {'jobs': _jobs_list()},
     'job': lambda q: _job_get(q.get('id', '')),
 }
 POST_FNS = {'info', 'status', 'toolchain', 'list', 'contracts', 'get', 'tree',
             'read', 'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove',
-            'templates', 'abi', 'adopt'}
+            'templates', 'abi', 'adopt', 'app', 'deploy', 'call', 'events',
+            'sandbox', 'market', 'fork'}
 LONG_FNS = {'vibe', 'build', 'test', 'status'}
 # touch files on this box or spend the host Claude account -> owner only
 WRITE_FNS = {'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove', 'adopt',
-             'status'}
+             'status', 'fork'}
+# the sandbox is a throwaway local devnet, so its app is open to everyone:
+# `call` (views and sandbox-account txs) needs no owner. `deploy` is open
+# only for a contract that is already built and has no live deployment (no
+# compile on the box, no wiping someone else's running instance);
+# `sandbox` start/stop/reset is owner-only.
 TOKEN_MAX_AGE = int(os.environ.get('CAIRO_TOKEN_AGE', 7 * 86400))
 
 # ---- who may write ----------------------------------------------------------
@@ -118,6 +131,18 @@ def _whoami(ip, headers):
     ok = addr in own
     return {'writable': ok, 'via': 'token' if ok else None, 'address': addr,
             'owners': own, **({} if ok else {'why': f'{addr} is not an owner'})}
+
+def _sandbox_needs_owner(fn, kw):
+    if fn == 'sandbox':
+        return kw.get('action', 'status') != 'status'
+    if fn == 'deploy':
+        try:
+            st = MOD.app(kw.get('name', ''))
+        except Exception:  # noqa: BLE001
+            return True
+        live = (st.get('deployment') or {}).get('live')
+        return live or st.get('state') != 'fresh'
+    return False
 
 # ---- jobs -------------------------------------------------------------------
 
@@ -188,6 +213,12 @@ def _start_job(fn, kw):
     def run():
         with _name_lock(name):
             job['state'], job['started'] = 'running', time.time()
+            if fn == 'vibe':
+                # the agent's steps stream in while it works; the console
+                # polls /job and shows them as a live trail
+                job['steps'] = []
+                kw['on_step'] = lambda st: job['steps'].append(
+                    modpy._step_brief(st)) if len(job['steps']) < 200 else None
             try:
                 job['result'] = getattr(MOD, fn)(**kw)
                 job['state'] = 'done'
@@ -243,6 +274,42 @@ class H(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self._send(204, b'')
 
+    def _serve_app(self, path):
+        """/cairo/<contract>/[file] -> the contract's app, or None when the
+        first segment isn't a contract (so the console handles it)."""
+        segs = [p for p in path.split('/') if p]
+        if segs and segs[0] == NAME:
+            segs = segs[1:]
+        if not segs or segs[0].startswith('_'):
+            return None
+        try:
+            pkg, d = MOD._subdir(segs[0])
+        except ValueError:
+            return None
+        if pkg != segs[0] or not MOD._is_submod(d):
+            return None
+        if not path.endswith('/') and len(segs) == 1:
+            # the page resolves its API from its own URL: pin the slash
+            self.send_response(301)
+            self.send_header('Location', path + '/')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return True
+        root = Path(d) / 'app'
+        rel = '/'.join(segs[1:]) or 'index.html'
+        target = root / rel
+        try:
+            target.resolve().relative_to(root.resolve())
+        except ValueError:
+            return self._send(404, {'error': 'not found'}) or True
+        if not target.is_file():
+            if rel != 'index.html':
+                return self._send(404, {'error': 'not found'}) or True
+            target = Path(modpy.DEFAULT_APP)
+        ctype = mimetypes.guess_type(str(target))[0] or 'application/octet-stream'
+        self._send(200, target.read_bytes(), ctype)
+        return True
+
     def _serve_static(self, path):
         """dist/<route>, SPA-falling back to index.html. A 200 note (not 5xx:
         Cloudflare strips 5xx bodies) when the console hasn't been built."""
@@ -271,6 +338,8 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         p = urlparse(self.path)
         if not _is_api_path(p.path):
+            if self._serve_app(p.path):
+                return
             return self._serve_static(p.path)
         fn = _route(p.path) or 'info'
         q = {k: v[0] for k, v in parse_qs(p.query).items()}
@@ -297,10 +366,11 @@ class H(BaseHTTPRequestHandler):
             return self._send(400, {'error': 'body must be a JSON object'})
         if fn in ('job', 'jobs'):
             return self._send(200, GET_FNS[fn](kw))
+        kw.pop('on_step', None)   # a server-side hook, never from the wire
         if fn not in POST_FNS:
             return self._send(404, {'error': f'unknown fn {fn!r}',
                                     'post': sorted(POST_FNS)})
-        if fn in WRITE_FNS:
+        if fn in WRITE_FNS or _sandbox_needs_owner(fn, kw):
             who = _whoami(self.client_address[0], self.headers)
             if not who['writable']:
                 # 403 not 5xx: Cloudflare strips 5xx bodies

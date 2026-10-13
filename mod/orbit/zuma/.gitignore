@@ -1,0 +1,6 @@
+data/
+__pycache__/
+*.pyc
+contracts/target/
+contracts/.snfoundry_cache/
+prover/target/

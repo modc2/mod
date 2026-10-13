@@ -18,6 +18,10 @@
         "tree",
         "read",
         "write",
-        "clean"
+        "clean",
+        "app",
+        "deploy",
+        "call",
+        "events"
     ]
 }
