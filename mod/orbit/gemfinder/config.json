@@ -1,6 +1,6 @@
 {
     "name": "gemfinder",
-    "title": "gemfinder · narrative gems, crypto + stocks",
+    "title": "gemfinder \u00b7 narrative gems, crypto + stocks",
     "description": "Scans keyless public feeds (CoinGecko trending + category momentum, DexScreener boosts and new tokens, reddit mentions via ApeWisdom, Yahoo Finance trending and small-cap/day-gainer screens, Hacker News buzz) for crypto tokens and stocks a hot narrative is starting to carry. Merges per ticker, heats 13 narratives, and ranks candidates by an attention score (attention, velocity, narrative, momentum, size) with reasons and risk flags. Stdlib-only, one SQLite cache. Attention, not a forecast.",
     "version": "0.1.0",
     "anchor": "mod.py",
@@ -11,7 +11,7 @@
     "urls": {
         "api": "http://localhost:51320"
     },
-    "state": "~/.mod/gemfinder/cache.db (raw HTTP bodies by url) · ~/.mod/gemfinder/scans.jsonl (every scan's picks + price)",
+    "state": "~/.mod/gemfinder/cache.db (raw HTTP bodies by url) \u00b7 ~/.mod/gemfinder/scans.jsonl (every scan's picks + price)",
     "endpoints": {
         "health": {
             "method": "GET",
@@ -52,5 +52,6 @@
         "kill",
         "status",
         "test"
-    ]
+    ],
+    "schema": "Qmb92KPLspVo4TQPbKRjHFNbtvnWNyhuacSfvEkiyw1ABH"
 }
