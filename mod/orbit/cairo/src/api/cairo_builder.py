@@ -168,7 +168,8 @@ def run(r, body, ctx, start_job, get_job):
 
     if body.get('vibe') is False or not q:
         t = r.tool('cairo_test', name=pkg)
-        return (f'Made **{pkg}** from {made}; ' + _test_line(t) + '.',
+        what = f'Made **{pkg}** from {made}' if made else f'**{pkg}** is unchanged'
+        return (f'{what}; ' + _test_line(t) + '.',
                 [{'label': f'Open {pkg}', 'open': pkg}], {'contract': pkg, 'mode': mode})
 
     prompt = q
@@ -214,5 +215,5 @@ def run(r, body, ctx, start_job, get_job):
         out.append(_test_line(res['test']).capitalize() + '.')
     summary = (res.get('result') or '').strip()
     if summary:
-        out.append(summary[-1500:])
+        out.append(summary if len(summary) <= 2500 else summary[:2500].rsplit('\n', 1)[0] + '\n\n…')
     return '\n\n'.join(out), acts, extra

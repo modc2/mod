@@ -94,6 +94,9 @@ export function AgentOrb({ ctx, writable, onAction }: { ctx: AgentContext; writa
           } catch {
             continue;
           }
+          // the builder made/started something: the page re-reads its list + jobs
+          if ((ev.type === 'step' && /^(job|mcp:cairo_(new|fork|write|vibe))$/.test(ev.step?.tool || '')) || (ev.type === 'done' && ev.contract))
+            window.dispatchEvent(new Event('cairo:changed'));
           if (ev.type === 'step') patch((b) => ({ ...b, steps: [...(b.steps || []), ev.step] }));
           else if (ev.type === 'done')
             patch((b) => ({ ...b, busy: false, text: ev.answer || '(no answer)', actions: ev.actions, brain: ev.brain, note: ev.note }));

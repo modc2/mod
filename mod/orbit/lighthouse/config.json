@@ -229,5 +229,5 @@
         "LIGHTHOUSE_OWNER": "Fallback owner address when ~/.mod/lighthouse/owner.json is absent"
     },
     "credentials": "~/.mod/lighthouse/credentials.json + owner.json (off-chain, never committed)",
-    "schema": "QmVCjCtEv1MmCDEocDjmAd62BKUwMTn7wnoseofxxUnMuU"
+    "schema": "QmUxmxLaHVqHzAHEKbbZR3Ac18A8NbooNUdZuS4x5A9c4T"
 }

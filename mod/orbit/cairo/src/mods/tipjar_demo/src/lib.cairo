@@ -1,23 +1,19 @@
-// make a tip jar called tipjar_demo: anyone can tip (records an amount per tipper and a total), the owner set in the const
+// A tip jar: anyone can tip, the jar remembers how much each tipper gave and a
+// running total, and the owner (fixed at deploy) can reset the total.
 //
-// A dependency-free ERC20. Written out by hand (no OpenZeppelin dep) so every
-// line is yours to read, change or hand to the agent.
+// Tips are recorded amounts, not token transfers: this keeps the contract
+// dependency-free and easy to read. Wiring in a real ERC20 `transfer_from`
+// inside `tip` is the natural next step if the jar should hold funds.
 
 use starknet::ContractAddress;
 
 #[starknet::interface]
 pub trait ITipjarDemo<TContractState> {
-    fn name(self: @TContractState) -> felt252;
-    fn symbol(self: @TContractState) -> felt252;
-    fn decimals(self: @TContractState) -> u8;
-    fn total_supply(self: @TContractState) -> u256;
-    fn balance_of(self: @TContractState, account: ContractAddress) -> u256;
-    fn allowance(self: @TContractState, owner: ContractAddress, spender: ContractAddress) -> u256;
-    fn transfer(ref self: TContractState, to: ContractAddress, amount: u256) -> bool;
-    fn approve(ref self: TContractState, spender: ContractAddress, amount: u256) -> bool;
-    fn transfer_from(
-        ref self: TContractState, from: ContractAddress, to: ContractAddress, amount: u256,
-    ) -> bool;
+    fn tip(ref self: TContractState, amount: u256);
+    fn reset_total(ref self: TContractState);
+    fn total(self: @TContractState) -> u256;
+    fn tipped_by(self: @TContractState, tipper: ContractAddress) -> u256;
+    fn owner(self: @TContractState) -> ContractAddress;
 }
 
 #[starknet::contract]
@@ -30,118 +26,71 @@ pub mod TipjarDemo {
 
     #[storage]
     struct Storage {
-        name: felt252,
-        symbol: felt252,
-        supply: u256,
-        balances: Map<ContractAddress, u256>,
-        allowances: Map<(ContractAddress, ContractAddress), u256>,
+        owner: ContractAddress,
+        total: u256,
+        // lifetime per tipper: a reset clears the jar's running total, not
+        // anyone's record of what they gave
+        tips: Map<ContractAddress, u256>,
     }
 
     #[event]
     #[derive(Drop, starknet::Event)]
     pub enum Event {
-        Transfer: Transfer,
-        Approval: Approval,
+        Tipped: Tipped,
+        TotalReset: TotalReset,
     }
 
     #[derive(Drop, starknet::Event)]
-    pub struct Transfer {
+    pub struct Tipped {
         #[key]
-        pub from: ContractAddress,
-        #[key]
-        pub to: ContractAddress,
+        pub tipper: ContractAddress,
         pub amount: u256,
     }
 
     #[derive(Drop, starknet::Event)]
-    pub struct Approval {
+    pub struct TotalReset {
         #[key]
-        pub owner: ContractAddress,
-        #[key]
-        pub spender: ContractAddress,
-        pub amount: u256,
+        pub by: ContractAddress,
+        // what the total was, so the reset is auditable from events alone
+        pub previous: u256,
     }
 
     #[constructor]
-    fn constructor(
-        ref self: ContractState,
-        name: felt252,
-        symbol: felt252,
-        supply: u256,
-        recipient: ContractAddress,
-    ) {
-        self.name.write(name);
-        self.symbol.write(symbol);
-        self.supply.write(supply);
-        self.balances.write(recipient, supply);
-        // mint = a Transfer from the zero address, so indexers see the supply
-        let zero: ContractAddress = 0.try_into().unwrap();
-        self.emit(Transfer { from: zero, to: recipient, amount: supply });
+    fn constructor(ref self: ContractState, owner: ContractAddress) {
+        // a zero owner would make reset_total uncallable forever
+        assert(owner.into() != 0_felt252, 'owner is zero');
+        self.owner.write(owner);
     }
 
     #[abi(embed_v0)]
     impl TipjarDemoImpl of super::ITipjarDemo<ContractState> {
-        fn name(self: @ContractState) -> felt252 {
-            self.name.read()
+        fn tip(ref self: ContractState, amount: u256) {
+            // zero tips would only spam the event log
+            assert(amount > 0, 'tip must be > 0');
+            let tipper = get_caller_address();
+            self.tips.write(tipper, self.tips.read(tipper) + amount);
+            self.total.write(self.total.read() + amount);
+            self.emit(Tipped { tipper, amount });
         }
 
-        fn symbol(self: @ContractState) -> felt252 {
-            self.symbol.read()
+        fn reset_total(ref self: ContractState) {
+            let caller = get_caller_address();
+            assert(caller == self.owner.read(), 'only owner');
+            let previous = self.total.read();
+            self.total.write(0);
+            self.emit(TotalReset { by: caller, previous });
         }
 
-        fn decimals(self: @ContractState) -> u8 {
-            18
+        fn total(self: @ContractState) -> u256 {
+            self.total.read()
         }
 
-        fn total_supply(self: @ContractState) -> u256 {
-            self.supply.read()
+        fn tipped_by(self: @ContractState, tipper: ContractAddress) -> u256 {
+            self.tips.read(tipper)
         }
 
-        fn balance_of(self: @ContractState, account: ContractAddress) -> u256 {
-            self.balances.read(account)
-        }
-
-        fn allowance(
-            self: @ContractState, owner: ContractAddress, spender: ContractAddress,
-        ) -> u256 {
-            self.allowances.read((owner, spender))
-        }
-
-        fn transfer(ref self: ContractState, to: ContractAddress, amount: u256) -> bool {
-            self._transfer(get_caller_address(), to, amount);
-            true
-        }
-
-        fn approve(ref self: ContractState, spender: ContractAddress, amount: u256) -> bool {
-            let owner = get_caller_address();
-            self.allowances.write((owner, spender), amount);
-            self.emit(Approval { owner, spender, amount });
-            true
-        }
-
-        fn transfer_from(
-            ref self: ContractState, from: ContractAddress, to: ContractAddress, amount: u256,
-        ) -> bool {
-            let spender = get_caller_address();
-            let allowed = self.allowances.read((from, spender));
-            assert(allowed >= amount, 'insufficient allowance');
-            self.allowances.write((from, spender), allowed - amount);
-            self._transfer(from, to, amount);
-            true
-        }
-    }
-
-    #[generate_trait]
-    impl InternalImpl of InternalTrait {
-        fn _transfer(
-            ref self: ContractState, from: ContractAddress, to: ContractAddress, amount: u256,
-        ) {
-            let bal = self.balances.read(from);
-            // checked here, not left to u256 underflow, so the revert reason is readable
-            assert(bal >= amount, 'insufficient balance');
-            self.balances.write(from, bal - amount);
-            self.balances.write(to, self.balances.read(to) + amount);
-            self.emit(Transfer { from, to, amount });
+        fn owner(self: @ContractState) -> ContractAddress {
+            self.owner.read()
         }
     }
 }

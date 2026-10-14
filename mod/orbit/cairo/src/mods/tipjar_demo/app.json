@@ -1,108 +1,58 @@
 {
-  "title": "TipjarDemo token",
-  "intro": "A token: a balance per person that can be sent around. Amounts are shown in whole tokens.",
+  "title": "Tip jar",
+  "intro": "A tip jar: anyone can drop in a tip. It remembers how much each person gave and the total so far. Only the owner can reset the total.",
   "steps": [
     "Pick who you are at the top right.",
-    "Your balance is on the left.",
-    "To send, pick who gets it and how much, then press Send."
+    "Type an amount and press Tip.",
+    "The total and how much you gave update on the left."
   ],
   "fns": {
-    "balance_of": {
-      "label": "My balance",
-      "show": "big",
-      "decimals": 18,
+    "total": {
+      "label": "In the jar so far",
+      "show": "big"
+    },
+    "tipped_by": {
+      "label": "How much I tipped",
       "inputs": {
-        "account": {
+        "tipper": {
           "hide": true
         }
       }
     },
-    "total_supply": {
-      "label": "Total in existence",
-      "show": "number",
-      "decimals": 18
-    },
-    "transfer": {
-      "label": "Send tokens",
-      "button": "Send",
-      "decimals": 18,
+    "tip": {
+      "label": "Leave a tip",
+      "button": "Tip",
       "inputs": {
-        "to": {
-          "label": "Send to"
-        },
         "amount": {
-          "label": "How many",
-          "placeholder": "e.g. 1.5"
+          "label": "How much",
+          "placeholder": "e.g. 5"
         }
       }
     },
-    "approve": {
-      "label": "Let someone spend for me",
-      "button": "Allow",
-      "decimals": 18,
-      "inputs": {
-        "spender": {
-          "label": "Who"
-        },
-        "amount": {
-          "label": "Up to how many"
-        }
-      }
+    "reset_total": {
+      "label": "Reset the total (owner only)",
+      "button": "Reset"
     },
-    "allowance": {
-      "label": "Allowed to spend",
-      "decimals": 18,
-      "inputs": {
-        "owner": {
-          "label": "Whose tokens"
-        },
-        "spender": {
-          "label": "Who is spending"
-        }
-      }
-    },
-    "transfer_from": {
-      "hide": true
-    },
-    "name": {
-      "hide": true
-    },
-    "symbol": {
-      "hide": true
-    },
-    "decimals": {
-      "hide": true
+    "owner": {
+      "label": "Jar owner",
+      "show": "address"
     }
   },
   "constructor": {
-    "help": "Choose a name and how many tokens to create. They all start with the person you pick.",
+    "help": "Pick who owns the jar. Only they can reset the total later.",
     "inputs": {
-      "name": {
-        "label": "Token name",
-        "placeholder": "'Gold'"
-      },
-      "symbol": {
-        "label": "Short symbol",
-        "placeholder": "'GLD'"
-      },
-      "supply": {
-        "label": "How many to create",
-        "decimals": 18,
-        "default": "1000000"
-      },
-      "recipient": {
-        "label": "Who gets them first"
+      "owner": {
+        "label": "Owner",
+        "default": "me"
       }
     }
   },
   "events": {
-    "Transfer": {
-      "say": "{from} sent {amount} to {to}",
-      "decimals": 18
+    "Tipped": {
+      "say": "{tipper} tipped {amount}"
     },
-    "Approval": {
-      "say": "{owner} let {spender} spend up to {amount}",
-      "decimals": 18
+    "TotalReset": {
+      "say": "{by} reset the total (it was {previous})"
     }
   }
 }

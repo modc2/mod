@@ -154,6 +154,16 @@ export default function Page() {
     call('templates').then((r) => setTemplates(r.templates || [])).catch(() => {});
   }, [refresh, loadJobs]);
 
+  // the corner agent's builder made or started something
+  useEffect(() => {
+    const changed = () => {
+      refresh();
+      loadJobs();
+    };
+    window.addEventListener('cairo:changed', changed);
+    return () => window.removeEventListener('cairo:changed', changed);
+  }, [refresh, loadJobs]);
+
   // Poll while anything is in flight; refresh the catalog when a job lands
   // (build state, vibe-written files). The 1s tick keeps elapsed times live.
   const active = jobs.some(live);

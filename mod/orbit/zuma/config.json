@@ -62,7 +62,7 @@
         "last_sim",
         "serve"
     ],
-    "schema": "QmTeXjDrcTNAg4x1B5BznudoumKGJcnEvwycJdNRftNNnP",
+    "schema": "QmReTDsUtKejcreb7pStPrCYuMAgCZMYcFcQdrWDXmZBpv",
     "urls": {
         "app": "http://localhost:50121/zuma/",
         "api": "http://localhost:50121/zuma/api"
