@@ -49,6 +49,16 @@ _spec.loader.exec_module(modpy)
 
 MOD = modpy.Mod()
 
+# The protocol package (shared Auth for sign-in tokens). Import it NOW: the
+# sys.path insert below puts src/ first, after which `import mod` is our own
+# src/mod.py and every token fails with "module 'mod' has no attribute 'mod'".
+try:
+    import mod as PROTO
+    if not hasattr(PROTO, 'mod'):
+        raise ImportError(f'shadowed by {PROTO.__file__}')
+except Exception as e:  # noqa: BLE001
+    PROTO, PROTO_ERR = None, str(e)
+
 # cairo_mcp.py / cairo_helper.py / tutorials.py import by bare name from these two dirs
 sys.path[:0] = [str(SRC / 'api'), str(SRC)]
 import cairo_mcp as mcp  # noqa: E402  (not `mcp`: the pip SDK)
@@ -129,8 +139,9 @@ def _whoami(ip, headers):
         return {'writable': False, 'via': None, 'address': None, 'owners': own,
                 'why': 'sign in with the owner wallet to build'}
     try:
-        import mod as m  # the protocol's shared Auth (not our src/mod.py)
-        addr = str(m.mod('auth')(max_age=TOKEN_MAX_AGE).verify(tok)['key']).lower()
+        if PROTO is None:
+            raise RuntimeError(f'auth unavailable ({PROTO_ERR})')
+        addr = str(PROTO.mod('auth')(max_age=TOKEN_MAX_AGE).verify(tok)['key']).lower()
     except Exception as e:  # noqa: BLE001
         return {'writable': False, 'via': None, 'address': None, 'owners': own,
                 'why': f'bad token: {e}'.split('{')[0].strip()}

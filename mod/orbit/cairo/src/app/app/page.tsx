@@ -185,7 +185,11 @@ export default function Page() {
   const doSignIn = () =>
     signIn()
       .then(() => call('whoami'))
-      .then(setWho)
+      .then((w) => {
+        setWho(w);
+        // signed, but the server refused the token: say why, don't just show the button again
+        if (!w?.address) setErr(`Sign-in failed: ${w?.why || 'the server did not accept the signature'}`);
+      })
       .catch((e) => setErr(String(e?.message || e)));
   const openContract = (name: string) => {
     setSel(name);
