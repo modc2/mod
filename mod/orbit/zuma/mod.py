@@ -49,6 +49,8 @@ DATA = os.path.join(HERE, 'data')
 KEYS = os.path.join(DATA, 'keys.json')
 DEPLOYS = os.path.join(DATA, 'deployments.json')
 DEVNET_DIR = os.path.join(DATA, 'devnet')
+LAST_SIM = os.path.join(DATA, 'last_sim.json')
+CLASSES = os.path.join(DATA, 'classes.json')  # {network: {src, class_hash}}
 BIN = os.path.expanduser('~/.local/bin')
 
 PRIME = 2 ** 251 + 17 * 2 ** 192 + 1
@@ -93,6 +95,12 @@ def _rand():
 
 def _hex(v):
     return hex(int(v))
+
+
+def _selector(name):
+    """starknet_keccak(name): keccak256 truncated to 250 bits."""
+    from eth_hash.auto import keccak
+    return hex(int.from_bytes(keccak(name.encode()), 'big') & ((1 << 250) - 1))
 
 
 def _env():
@@ -355,7 +363,7 @@ class Mod:
                 {'jsonrpc': '2.0', 'id': 1, 'method': method,
                  'params': params}).encode(),
             headers={'Content-Type': 'application/json',
-                     'User-Agent': 'zuma/0.1'})
+                     'User-Agent': 'zuma/0.2'})
         r = json.loads(urllib.request.urlopen(req, timeout=15).read())
         if 'error' in r:
             raise RuntimeError(r['error'])
@@ -428,14 +436,14 @@ class Mod:
         return r.get('transaction_hash')
 
     def _call(self, network, fn, calldata=()):
-        net = self._ctx(network)
+        """View call over raw JSON-RPC (ms, not an sncast process per read)."""
+        if network == 'devnet' and not self._devnet_alive():
+            self._ctx(network)  # boots the devnet
         addr = self._deployment(network)['address']
-        args = ['call', '--contract-address', addr, '--function', fn]
-        if calldata:
-            args += ['--calldata', *map(_hex, calldata)]
-        r = self._sncast(net, args, net['owner'])
-        return [int(x, 16) for x in
-                re.findall(r'0x[0-9a-fA-F]+', str(r.get('response', '')))]
+        r = self._rpc(network, 'starknet_call', [{
+            'contract_address': addr, 'entry_point_selector': _selector(fn),
+            'calldata': [_hex(c) for c in calldata]}, 'latest'])
+        return [int(x, 16) for x in r]
 
     # ---- deploy + registry ---------------------------------------------------
 
@@ -447,16 +455,27 @@ class Mod:
         actions), accounts_file=, rpc=. tempo = blocks per epoch."""
         net = self._ctx(network, account, accounts_file, rpc)
         tempo = int(tempo or (50 if network == 'devnet' else 360))
-        dec = None
-        try:
-            dec = self._sncast(net, ['declare', '--contract-name', 'Zuma',
-                                     '--fee-token', net['fee']], net['owner'])
-            class_hash = dec['class_hash']
-        except RuntimeError as e:
-            m = re.search(r'(0x[0-9a-fA-F]+) is already declared', str(e))
-            if not m:
-                return {'ok': False, 'stage': 'declare', 'error': str(e)}
-            class_hash = m.group(1)
+        # declare is the slow step (sncast builds the package); skip it when
+        # this exact source was already declared on this network's chain
+        src = self._src_hash()
+        known = _load(CLASSES, {}).get(network, {})
+        class_hash = known.get('class_hash') if known.get('src') == src else None
+        if class_hash and not self._class_declared(network, class_hash):
+            class_hash = None
+        if not class_hash:
+            try:
+                dec = self._sncast(net, ['declare', '--contract-name', 'Zuma',
+                                         '--fee-token', net['fee']],
+                                   net['owner'])
+                class_hash = dec['class_hash']
+            except RuntimeError as e:
+                m = re.search(r'(0x[0-9a-fA-F]+) is already declared', str(e))
+                if not m:
+                    return {'ok': False, 'stage': 'declare', 'error': str(e)}
+                class_hash = m.group(1)
+            c = _load(CLASSES, {})
+            c[network] = {'src': src, 'class_hash': class_hash}
+            _save(CLASSES, c)
         owner_addr = _load(net['accounts_file'], {}).get(
             net['section'], {}).get(net['owner'], {}).get('address')
         if not owner_addr:
@@ -482,6 +501,26 @@ class Mod:
         d[network] = rec
         _save(DEPLOYS, d)
         return {'ok': True, 'network': network, **rec}
+
+    def _src_hash(self):
+        import hashlib
+        h = hashlib.sha256()
+        root = os.path.join(HERE, 'contracts')
+        for dp, dn, fn in sorted(os.walk(root)):
+            dn[:] = sorted(d for d in dn if d != 'target')
+            for f in sorted(fn):
+                if f.endswith(('.cairo', '.toml')):
+                    fp = os.path.join(dp, f)
+                    h.update(fp[len(root):].encode())
+                    h.update(open(fp, 'rb').read())
+        return h.hexdigest()
+
+    def _class_declared(self, network, class_hash):
+        try:
+            self._rpc(network, 'starknet_getClass', ['latest', class_hash])
+            return True
+        except Exception:  # noqa: BLE001
+            return False
 
     def register(self, name, role, network='devnet'):
         """Owner registers a member key (public: set membership is what
@@ -609,53 +648,125 @@ class Mod:
         while self._block(network) < to_block:
             self._devnet_post('/create_block')
 
-    def simulate(self, miners=4, validators=4):
-        """Full anonymous epoch on a fresh local devnet: deploy, register
-        sim keys, 3 miners submit, every validator scores every tag, roll
-        the epoch, one miner claims. Proves the contract end to end."""
+    def simulate(self, miners=4, validators=4, on_event=None):
+        """Full anonymous epoch on the local devnet: deploy, register sim
+        keys, 3 miners submit, every validator scores every tag, roll the
+        epoch, one miner claims, and its replay is rejected. Proves the
+        contract end to end. `on_event(dict)` streams each step (the console
+        animates them); the whole run is kept in data/last_sim.json."""
         t0 = time.time()
         net = 'devnet'
-        steps = []
+        events = []
+
+        def ev(kind, **kw):
+            e = {'kind': kind, 't': round(time.time() - t0, 2), **kw}
+            events.append(e)
+            if on_event:
+                on_event(e)
+
+        miners, validators = int(miners), int(validators)
+        if not (3 <= miners <= MAX_RING and 3 <= validators <= MAX_RING):
+            raise ValueError(f'miners/validators must be 3..{MAX_RING} '
+                             '(min_ring is 3)')
         self.devnet('start')
+        ev('devnet', block=self._block(net))
+        ev('deploying')
         dep = self.deploy(net, tempo=60, min_ring=3, emission=1000)
         if not dep.get('ok'):
+            ev('error', error=dep.get('error'), stage=dep.get('stage'))
             return dep
-        steps.append(f"deployed {dep['address']}")
-        mk = [f'sim-m{i}' for i in range(int(miners))]
-        vk = [f'sim-v{i}' for i in range(int(validators))]
+        ev('deploy', address=dep['address'], tempo=dep['tempo'],
+           min_ring=dep['min_ring'], emission=dep['emission'])
+        mk = [f'sim-m{i}' for i in range(miners)]
+        vk = [f'sim-v{i}' for i in range(validators)]
         for n in mk + vk:
             self.keygen(n)  # no-op if it exists
-        for n in mk:
-            self.register(n, 'miner', net)
-        for n in vk:
-            self.register(n, 'validator', net)
-        steps.append(f'registered {len(mk)} miners, {len(vk)} validators')
+        for role, names in (('miner', mk), ('validator', vk)):
+            for n in names:
+                self.register(n, role, net)
+                ev('register', role=role, x=self.pubkey(n)['x'])
         tempo = dep['tempo']
         b = self._block(net)
         self._advance(net, (b // tempo + 1) * tempo)  # start of a fresh epoch
-        subs = [self.submit(n, f'work from {n}', network=net) for n in mk[:3]]
+        subs = []
+        for n in mk[:3]:
+            s0 = time.time()
+            s = self.submit(n, f'work from {n}', network=net)
+            subs.append(s)
+            ev('submit', epoch=s['epoch'], tag=s['tag'], ring=s['ring_size'],
+               ms=int((time.time() - s0) * 1000), tx=s['tx'])
         e = subs[0]['epoch']
-        steps.append(f'epoch {e}: {len(subs)} anonymous submissions')
         for v in vk:
             for i, s in enumerate(subs):
-                self.score(v, s['tag'], 90 - 20 * i, network=net)
-        steps.append(f'{len(vk) * len(subs)} anonymous scores')
+                r = self.score(v, s['tag'], 90 - 20 * i, network=net)
+                ev('score', tag=s['tag'], score=r['score'],
+                   nullifier=r['nullifier'], ring=len(vk), tx=r['tx'])
         self._advance(net, (e + 1) * tempo)
+        ev('close', epoch=e, block=self._block(net))
         payee = _load(os.path.join(DEVNET_DIR, 'accounts.json'), {})[
             NETWORKS[net]['section']]['payee']['address']
         c = self.claim(mk[0], e, payee, network=net)
-        steps.append(f"{mk[0]} claimed {c['earned']} to payee")
+        ev('claim', epoch=e, tag=c['tag'], recipient=c['recipient'],
+           earned=c['earned'], tx=c['tx'])
         # the replay must fail: same key, same epoch -> same tag
         try:
             self.claim(mk[0], e, payee, network=net)
             replay = 'ACCEPTED (bug)'
         except RuntimeError as ex:
             replay = f'rejected: {ex}'
-        return {'ok': True, 'contract': dep['address'], 'epoch': e,
-                'steps': steps, 'tally': self.tally(e, net), 'claim': c,
-                'double_claim': replay,
-                'seconds': round(time.time() - t0, 1)}
+        ev('replay', ok=replay.startswith('rejected'), result=replay)
+        out = {'ok': True, 'contract': dep['address'], 'epoch': e,
+               'steps': [f"{x['kind']}" for x in events],
+               'tally': self.tally(e, net), 'claim': c,
+               'double_claim': replay,
+               'seconds': round(time.time() - t0, 1)}
+        ev('done', seconds=out['seconds'])
+        _save(LAST_SIM, {'at': int(time.time()), 'events': events,
+                         'result': out})
+        return out
 
+    def last_sim(self):
+        """The most recent simulate() run, event by event (public replay)."""
+        return _load(LAST_SIM, None)
+
+    # ---- console view --------------------------------------------------------
+
+    def board(self, network='devnet', epochs=6):
+        """Everything the console draws in one read: params, epoch clock,
+        both member SETS (public keys only), and the recent epochs' tags.
+        Never touches a secret — it is exactly what any chain reader sees."""
+        d = _load(DEPLOYS, {}).get(network)
+        out = {'network': network, 'deployed': bool(d),
+               'devnet_up': self._devnet_alive() if network == 'devnet'
+               else None}
+        if not d or (network == 'devnet' and not out['devnet_up']):
+            return out
+        owner, tempo, min_ring, emission, is_open = self._call(network,
+                                                               'params')
+        b = self._block(network)
+        e = b // tempo
+        out.update(contract=d['address'], owner=hex(owner), tempo=tempo,
+                   min_ring=min_ring, emission=emission, open=bool(is_open),
+                   block=b, epoch=e, blocks_left=tempo - b % tempo,
+                   miners=self.members('miner', network),
+                   validators=self.members('validator', network))
+        rows = []
+        for ep in range(e, max(-1, e - int(epochs)), -1):
+            t = self.tally(ep, network)
+            if t['tags']:
+                t['open'] = ep == e
+                rows.append(t)
+        out['epochs'] = rows
+        return out
+
+    # ---- HTTP server (console + API) ----------------------------------------
+
+    def serve(self, port=None):
+        """Run server.py: the console at /zuma and the JSON API at
+        /zuma/api/<fn>, one stdlib process."""
+        port = int(port or self.config['port'])
+        subprocess.run([sys.executable, os.path.join(HERE, 'server.py'),
+                        str(port)], cwd=HERE)
 
 if __name__ == '__main__':
     m = Mod()

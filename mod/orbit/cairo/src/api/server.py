@@ -86,13 +86,15 @@ GET_FNS = {
     'sandbox': lambda q: MOD.sandbox(),
     'market': lambda q: MOD.market(),
     'tutorials': lambda q: MOD.tutorials(q.get('id')),
+    'fleet': lambda q: MOD.fleet(refresh=q.get('refresh') in ('1', 'true')),
+    'whitepaper': lambda q: MOD.whitepaper(),
     'jobs': lambda q: {'jobs': _jobs_list()},
     'job': lambda q: _job_get(q.get('id', '')),
 }
 POST_FNS = {'info', 'status', 'toolchain', 'list', 'contracts', 'get', 'tree',
             'read', 'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove',
             'templates', 'abi', 'adopt', 'app', 'deploy', 'call', 'events',
-            'sandbox', 'market', 'fork', 'tutorials'}
+            'sandbox', 'market', 'fork', 'tutorials', 'fleet', 'whitepaper'}
 LONG_FNS = {'vibe', 'build', 'test', 'status'}
 # touch files on this box or spend the host Claude account -> owner only
 WRITE_FNS = {'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove', 'adopt',
@@ -183,6 +185,8 @@ def _special(path):
     segs = [p for p in path.split('/') if p and p not in (NAME, 'api', '_api')]
     if segs == ['mcp']:
         return ('mcp',)
+    if segs[:1] == ['agents'] and segs[2:] in (['run'], ['run', 'stream']):
+        return ('run', len(segs) == 4, segs[1])
     if segs[:1] == ['agents'] and len(segs) <= 2:
         return ('agents', segs[1] if len(segs) == 2 else None)
     if segs == ['.well-known', 'agent.json']:
@@ -439,7 +443,7 @@ class H(BaseHTTPRequestHandler):
                 return self._send(202, b'')
             return self._send(200, out if isinstance(kw, list) else out[0])
         if sp and sp[0] == 'run':
-            return self._agent_run(kw, stream=sp[1])
+            return self._agent_run(kw, stream=sp[1], agent=sp[2] if len(sp) > 2 else None)
         if not isinstance(kw, dict):
             return self._send(400, {'error': 'body must be a JSON object'})
         if fn in ('job', 'jobs'):
@@ -465,19 +469,20 @@ class H(BaseHTTPRequestHandler):
             return self._send(400, {'error': str(e)})
 
 
-    def _agent_run(self, body, stream):
+    def _agent_run(self, body, stream, agent=None):
         if not isinstance(body, dict):
             return self._send(400, {'error': 'body must be a JSON object'})
         ip, hd = self.client_address[0], self.headers
         args = dict(mod=MOD, body=body, who=_whoami(ip, hd), gate=_gate(ip, hd),
                     jobs=_jobs_list, base_url=self._base_url(), root=str(SRC.parent),
-                    mods_dir=modpy.MODS)
+                    mods_dir=modpy.MODS, agent=agent, start_job=_start_job, get_job=_job_get)
         if not stream:
             try:
                 ev = helper.run(emit=lambda e: None, **args)
             except Exception as e:  # noqa: BLE001
                 return self._send(400, {'error': str(e)})
-            return self._send(200 if ev.get('type') == 'done' else 400, ev)
+            code = 200 if ev.get('type') == 'done' else 403 if ev.get('owner_only') else 400
+            return self._send(code, ev)
         # SSE: no Content-Length, connection closes when the run ends
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
@@ -519,6 +524,8 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         PORT = int(sys.argv[1])
     _jobs_load()
+    # MCP cairo_vibe/cairo_job ride the same job table as REST async=true
+    mcp.HOOKS.update(start=_start_job, get=_job_get)
     print(f'cairo on {HOST}:{PORT} -> http://localhost:{PORT}/{NAME} '
           f'(API: /{NAME}/api/<fn>)', flush=True)
     ThreadingHTTPServer((HOST, PORT), H).serve_forever()

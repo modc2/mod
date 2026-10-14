@@ -87,7 +87,7 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'],
 async def api_alias(request, call_next):
     """`/lighthouse/_api/*` is this same API, one path segment along.
 
-    Behind the gateway the API answers on /api/lighthouse and the console on
+    Behind the gateway the API answers on /lighthouse/api and the console on
     /lighthouse; on a bare port both are here. The page always asks its own
     origin for `_api`, so one build works in both places with no CORS preflight
     on the hot path and no API url baked into the console.
@@ -178,14 +178,12 @@ def get(cid: str, download: bool = False, filename: Optional[str] = None):
     it. Access *control* is the store's job, and the store gates on its own
     side — this route is the plain gateway, not a way around that.
     """
-    lh = lighthouse()
-    url = f"{lh.gateway.rstrip('/')}/ipfs/{cid}"
     try:
-        r = requests.get(url, stream=True, timeout=120)
-    except requests.RequestException as e:
-        raise HTTPException(502, f'gateway unreachable: {e}')
-    if r.status_code >= 400:
-        raise HTTPException(404, f'gateway {r.status_code} for {cid}')
+        r, _ = lighthouse().fetch(cid, timeout=120)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
     headers = {}
     if download:
         headers['Content-Disposition'] = f'attachment; filename="{filename or cid}"'
@@ -559,9 +557,9 @@ def _mcp_url(request: Request, suffix: str = '/mcp') -> str:
     rather than baked into the config:
 
         the gateway   https://modc2.com/lighthouse/api/mcp — caddy strips
-                      `/api/lighthouse` before proxying and does not say so, so
+                      `/lighthouse/api` before proxying and does not say so, so
                       the prefix is put back from the fleet's own routing
-                      convention (`/api/<module>`), keyed off the forwarded host.
+                      convention (`/<module>/api`), keyed off the forwarded host.
         the console   its page fetches `_api/mcp` on its own origin; the app
                       server proxies that here, forwarding the same
                       x-forwarded-* headers, so it lands in the case above and
@@ -573,7 +571,7 @@ def _mcp_url(request: Request, suffix: str = '/mcp') -> str:
     proto = request.headers.get('x-forwarded-proto') or request.url.scheme
     forwarded = request.headers.get('x-forwarded-host')
     if forwarded:
-        return f"{proto}://{forwarded.split(',')[0].strip()}/api/{CONFIG['name']}{suffix}"
+        return f"{proto}://{forwarded.split(',')[0].strip()}/{CONFIG['name']}/api{suffix}"
     host = request.headers.get('host') or request.url.netloc
     path = request.scope.get('lighthouse_path') or request.url.path
     prefix = path.rsplit('/mcp', 1)[0] if '/mcp' in path else path.rstrip('/')

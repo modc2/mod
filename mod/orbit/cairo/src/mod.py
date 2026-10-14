@@ -525,6 +525,138 @@ class Mod:
         return {'count': len(out), 'contracts': out,
                 'templates': self.templates()['templates']}
 
+    # ---- the fleet: who else on this box speaks Cairo -----------------------
+
+    _fleet_cache = (0.0, None)
+
+    def fleet(self, refresh=False):
+        """Scan every mod on this box (orbit/ + core/) for a Cairo setup.
+
+        A mod is any dir with a config.json. Evidence, strongest first:
+          contract  a Scarb.toml that builds a starknet contract
+          cairo     a Scarb.toml (plain Cairo program / circuit)
+          mentions  only its config.json talks about cairo/starknet/scarb
+        Each Scarb.toml belongs to the nearest enclosing mod, so
+        cairo.counter's project is not also counted as cairo's. Cached 60s."""
+        at, hit = self.__class__._fleet_cache
+        if hit is not None and not refresh and time.time() - at < 60:
+            return hit
+        t0 = time.time()
+        top = os.path.dirname(os.path.dirname(ROOT))  # .../mod (orbit, core)
+        skip = {'node_modules', 'target', '.git', 'releases', 'dist', 'out',
+                '.next', '__pycache__', '.venv', 'venv', '.snfoundry_cache',
+                '.sandbox', 'data', 'cache', '.cache', 'build', 'vendor'}
+        # 'devnet' alone is every chain's sandbox (solana, sui...) -> not evidence
+        words = re.compile(r'\b(cairo|starknet|scarb|snforge|sncast|katana)\b', re.I)
+        mods, scarbs, cairo_files = {}, [], {}
+        for base in ('orbit', 'core'):
+            for d, dirs, files in os.walk(os.path.join(top, base)):
+                depth = os.path.relpath(d, top).count(os.sep)
+                dirs[:] = [x for x in dirs if x not in skip and not x.startswith('.')
+                           and depth < 7]
+                if 'config.json' in files and d != os.path.join(top, base):
+                    mods[d] = None
+                if 'Scarb.toml' in files:
+                    scarbs.append(d)
+                n = sum(f.endswith('.cairo') for f in files)
+                if n:
+                    cairo_files[d] = n
+
+        def owner(p):  # nearest enclosing mod dir
+            while p.startswith(top) and p != top:
+                if p in mods:
+                    return p
+                p = os.path.dirname(p)
+            return None
+
+        def name_of(d):
+            parts = os.path.relpath(d, top).split(os.sep)
+            return '.'.join(x for x in parts if x not in ('orbit', 'core', 'src', 'mods')) or parts[-1]
+
+        found = {}
+        for s in scarbs:
+            m = owner(s)
+            if not m:
+                continue
+            toml = self._read(os.path.join(s, 'Scarb.toml')) or ''
+            pkg = re.search(r'^\s*name\s*=\s*"([^"]+)"', toml, re.M)
+            ver = re.search(r'^\s*cairo-version\s*=\s*"([^"]+)"', toml, re.M)
+            found.setdefault(m, []).append({
+                'path': os.path.relpath(s, m) if s != m else '.',
+                'package': pkg.group(1) if pkg else None,
+                'cairo': ver.group(1) if ver else None,
+                'contract': bool(re.search(r'starknet-contract|^\s*starknet\s*=', toml, re.M)),
+                'snforge': 'snforge_std' in toml,
+                'cairo_test': 'cairo_test' in toml,
+            })
+        nfiles = {}
+        for d, n in cairo_files.items():
+            m = owner(d)
+            if m:
+                nfiles[m] = nfiles.get(m, 0) + n
+
+        # a mod whose contracts live in nested mods (this workbench, starknet)
+        inner = {}
+        for m, ps in found.items():
+            p = owner(os.path.dirname(m))
+            while p:
+                inner[p] = inner.get(p, 0) + len(ps)
+                p = owner(os.path.dirname(p))
+
+        out = []
+        for d in mods:
+            try:
+                cfg = json.load(open(os.path.join(d, 'config.json')))
+            except Exception:  # noqa: BLE001
+                cfg = {}
+            if not isinstance(cfg, dict):
+                cfg = {}
+            projects = found.get(d, [])
+            keys = sorted(k for k, v in cfg.items()
+                          if words.search(k) or words.search(json.dumps(v)))
+            kw = sorted({w.lower() for w in words.findall(json.dumps(cfg))})
+            if not projects and not keys:
+                continue
+            level = ('contract' if any(p['contract'] for p in projects)
+                     else 'cairo' if projects else 'mentions')
+            rel = os.path.relpath(d, top)
+            name = name_of(d)
+            out.append({
+                'name': name,
+                'path': rel,
+                'title': cfg.get('title') or cfg.get('name') or name,
+                'description': (cfg.get('description') or '')[:240] or None,
+                'level': level,
+                'here': rel == 'orbit/cairo' or rel.startswith('orbit/cairo/'),
+                'projects': projects,
+                'cairo_files': nfiles.get(d, 0),
+                'tested': any(p['snforge'] or p['cairo_test'] for p in projects),
+                'nested_projects': inner.get(d, 0),
+                'keywords': kw,
+                'config_keys': keys[:12],
+                'port': cfg.get('port'),
+                'url': (f"/{name.replace('.', '/')}/" if cfg.get('route') else None),
+                'private': bool(cfg.get('private')),
+            })
+        rank = {'contract': 0, 'cairo': 1, 'mentions': 2}
+        out.sort(key=lambda x: (rank[x['level']], -x['nested_projects'], x['here'], x['name']))
+        res = {
+            'count': len(out),
+            'scanned': len(mods),
+            'levels': {k: sum(x['level'] == k for x in out) for k in rank},
+            'mods': out,
+            'took_ms': int((time.time() - t0) * 1000),
+            'at': time.time(),
+        }
+        self.__class__._fleet_cache = (time.time(), res)
+        return res
+
+    def whitepaper(self):
+        """The design paper (WHITEPAPER.md at the module root), as markdown."""
+        p = os.path.join(ROOT, 'WHITEPAPER.md')
+        return {'markdown': self._read(p) if os.path.exists(p) else None,
+                'path': 'WHITEPAPER.md'}
+
     def fork(self, src, name, desc=None):
         """Copy a contract into a new mod under a new name: package, contract
         module (PascalCase), dispatchers and `use <pkg>::` paths renamed so the

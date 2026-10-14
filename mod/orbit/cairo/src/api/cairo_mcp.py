@@ -55,6 +55,10 @@ TOOLS = {
     'cairo_deploy': ('deploy', 'Start (deploy) a built contract on the practice chain. args = constructor args by name.',
                      S(name=STR('contract name', True), args=OBJ('constructor args by name'),
                        account=STR('deployer: alice|bob|carol|dave')), False, None),
+    'cairo_fleet': ('fleet', 'Every mod on this box with a Cairo setup (Scarb projects, starknet contracts, '
+                    'or a config that mentions cairo/starknet), strongest evidence first.',
+                    S(refresh={'type': 'boolean', 'description': 'skip the 60s cache'}), False, None),
+    'cairo_whitepaper': ('whitepaper', 'The design paper of this workbench, as markdown.', S(), False, None),
     'cairo_jobs': (None, 'Recent build/test/vibe jobs with results (why did my test fail?).', S(), False, None),
     'cairo_new': ('new', 'OWNER. Make a new contract from a starter template.',
                   S(name=STR('snake_case name', True), template=STR('template id'), desc=STR('one-line description')),
@@ -66,13 +70,26 @@ TOOLS = {
                     S(name=STR('contract name', True)), True, None),
     'cairo_test': ('test', 'OWNER. snforge test a contract (~30-60s); per-test pass/fail, gas and reasons.',
                    S(name=STR('contract name', True)), True, None),
+    'cairo_fork': ('fork', 'OWNER. Copy a contract into a new one (package, module, dispatchers renamed).',
+                   S(src=STR('contract to copy', True), name=STR('new snake_case name', True),
+                     desc=STR('one-line description')), True, None),
+    'cairo_vibe': ('vibe', 'OWNER. Hand a contract to the coding agent (orbit/claudecode) with a plain-English '
+                   'ask; it edits the Cairo + tests, then builds and tests. Starts a job: poll cairo_job '
+                   '(minutes). To make AND shape a new contract in one go, POST /cairo/agents/builder/run.',
+                   S(name=STR('contract name (must exist; cairo_new/cairo_fork first)', True),
+                     prompt=STR('what to change', True), model=STR('model for the agent')), True, None),
+    'cairo_job': ('job', 'One job by id: state, live agent steps, result.',
+                  S(id=STR('job id', True)), False, None),
 }
+# set by server.py: start(fn, kw) -> job, get(id) -> job (the REST job table)
+HOOKS = {'start': None, 'get': None}
 
 
 def tools_list():
     return [{'name': n, 'description': t[1], 'inputSchema': t[2],
              'annotations': {'readOnlyHint': t[0] in (None, 'tutorials', 'templates', 'market', 'get',
-                                                      'read', 'abi', 'app', 'events'),
+                                                      'read', 'abi', 'app', 'events', 'fleet',
+                                                      'whitepaper'),
                              'title': n.replace('cairo_', '').replace('_', ' ')},
              '_meta': {'access': 'owner' if t[3] else 'open'}}
             for n, t in TOOLS.items()]
@@ -85,12 +102,16 @@ def call_tool(mod, name, args, gate, jobs=None):
     fn, _, _, owner, _ = TOOLS[name]
     kw = dict(args or {})
     kw.pop('on_step', None)
+    if fn == 'job':
+        return HOOKS['get'](kw.get('id', '')) if HOOKS['get'] else {'error': 'no job table'}
     if fn is None:
         return {'jobs': [{k: j.get(k) for k in ('id', 'fn', 'name', 'state', 'error', 'result')}
                          for j in (jobs() if jobs else [])[:8]]}
     no = gate(fn, kw, owner)
     if no:
         return {'error': no, 'owner_only': True}
+    if fn == 'vibe' and HOOKS['start']:
+        return {'job': HOOKS['start']('vibe', kw)}
     return getattr(mod, fn)(**kw)
 
 

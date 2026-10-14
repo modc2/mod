@@ -7,15 +7,19 @@ import { Market } from './market';
 import { Create, NewSeed } from './create';
 import { Docs } from './docs';
 import { Learn } from './learn';
+import { Fleet } from './fleet';
+import { Paper } from './paper';
 import { AgentOrb, AgentAction } from './agent';
 
 // Top-level views. The hash (#market, #new, #docs) makes each one linkable.
-type View = 'studio' | 'market' | 'new' | 'docs' | 'learn';
+type View = 'studio' | 'market' | 'fleet' | 'new' | 'docs' | 'learn' | 'paper';
 const VIEWS: { id: View; label: string; tip: string }[] = [
   { id: 'studio', label: 'Studio', tip: 'edit, build, test and vibecode a contract' },
   { id: 'market', label: 'Market', tip: 'the bazaar: every contract here, open or fork one' },
+  { id: 'fleet', label: 'Fleet', tip: 'every mod on this box with a Cairo setup' },
   { id: 'learn', label: 'Learn', tip: 'stablecoins from zero: short plain-English lessons' },
   { id: 'docs', label: 'Docs', tip: 'how it works, Cairo basics, the HTTP API' },
+  { id: 'paper', label: 'Paper', tip: 'the whitepaper: why and how this workbench works' },
 ];
 const isView = (v: string): v is View => v === 'new' || VIEWS.some((x) => x.id === v);
 
@@ -229,41 +233,24 @@ export default function Page() {
           +
         </button>
         <div className="tools">
-          <span className="chain" title={['scarb', 'snforge', 'claude'].map((t) => `${t}: ${tools[t]?.version ?? (tools[t]?.path ? 'ok' : tools[t] ? 'missing' : '…')}`).join('\n')}>
-            {['scarb', 'snforge', 'claude'].map((t) => (
-              <span key={t} className={`tool ${tools[t]?.path ? 'ok' : tools[t] ? 'bad' : ''}`}>
-                <i />
-                <span className="tname">{t}</span>
-              </span>
-            ))}
-          </span>
-          {who && !who.address && who.via !== 'local' && (
-            <button className="signin" title={who.why || 'sign in with the owner wallet to build, test and vibecode'} onClick={doSignIn}>
-              Sign in
-            </button>
-          )}
-          {who?.via === 'local' && !who.address && (
-            <span className="me" title="local owner: this machine can build, test and vibecode">
-              <i />
-              local
-            </span>
-          )}
-          {who?.address && (
-            <button
-              className={`me ${who.writable ? '' : 'guest'}`}
-              title={`${who.writable ? 'owner' : 'signed in, read-only (not an owner)'} · ${who.address}\nclick to sign in with another wallet`}
-              onClick={doSignIn}
-            >
-              <i />
-              {who.address.slice(0, 6)}…{who.address.slice(-4)}
-            </button>
-          )}
           <button
-            className={`sidebtn ${drawer ? 'on' : ''}`}
-            title={drawer ? 'close the sidebar' : 'open the sidebar: my contracts'}
+            className={`acct ${drawer ? 'on' : ''} ${who?.address && !who.writable ? 'guest' : ''}`}
+            title={[
+              drawer ? 'close the sidebar' : 'open the sidebar: my contracts + account',
+              who?.address ? `${who.writable ? 'owner' : 'signed in, read-only (not an owner)'} · ${who.address}` : who?.via === 'local' ? 'local owner: this machine can build, test and vibecode' : 'not signed in',
+              ...['scarb', 'snforge', 'claude'].map((t) => `${t}: ${tools[t]?.version ?? (tools[t]?.path ? 'ok' : tools[t] ? 'missing' : '…')}`),
+            ].join('\n')}
             aria-expanded={drawer}
             onClick={() => setDrawer(!drawer)}
           >
+            <span className="dots">
+              {['scarb', 'snforge', 'claude'].map((t) => (
+                <i key={t} className={tools[t]?.path ? 'ok' : tools[t] ? 'bad' : ''} />
+              ))}
+            </span>
+            <span className="who">
+              {who?.address ? `${who.address.slice(0, 6)}…${who.address.slice(-4)}` : who?.via === 'local' ? 'local' : 'sign in'}
+            </span>
             <SideIcon open={drawer} />
           </button>
         </div>
@@ -280,6 +267,29 @@ export default function Page() {
             ×
           </button>
         </h2>
+        <div className="acctrow">
+          <span className="chain">
+            {['scarb', 'snforge', 'claude'].map((t) => (
+              <span key={t} className={`tool ${tools[t]?.path ? 'ok' : tools[t] ? 'bad' : ''}`} title={`${t}: ${tools[t]?.version ?? (tools[t]?.path ? 'ok' : tools[t] ? 'missing' : '…')}`}>
+                <i />
+                {t}
+              </span>
+            ))}
+          </span>
+          {who?.address ? (
+            <button className={`me ${who.writable ? '' : 'guest'}`} title={`${who.writable ? 'owner' : 'signed in, read-only (not an owner)'} · ${who.address}\nclick to sign in with another wallet`} onClick={doSignIn}>
+              <i />
+              {who.address.slice(0, 6)}…{who.address.slice(-4)}
+              <span className="sw">switch</span>
+            </button>
+          ) : who?.via === 'local' ? (
+            <span className="me" title="local owner: this machine can build, test and vibecode"><i />local owner</span>
+          ) : (
+            <button className="signin" title={who?.why || 'sign in with the owner wallet to build, test and vibecode'} onClick={doSignIn}>
+              Sign in
+            </button>
+          )}
+        </div>
         <div className="list">
           {contracts.length === 0 && (
             <button className="item ghostitem" onClick={() => newContract()}>
@@ -305,6 +315,7 @@ export default function Page() {
       {err && <p className="err">{err}</p>}
 
       {view === 'docs' && <Docs />}
+      {view === 'paper' && <Paper />}
       {view === 'learn' && (
         <Learn
           lesson={lesson}
@@ -314,12 +325,13 @@ export default function Page() {
         />
       )}
 
-      {view !== 'docs' && view !== 'learn' && (
+      {view !== 'docs' && view !== 'learn' && view !== 'paper' && (
       <div>
         <main style={{ minWidth: 0 }}>
         {view === 'market' && (
           <Market refreshKey={landedAny} writable={!!who?.writable} onOpen={openContract} onNew={newContract} />
         )}
+        {view === 'fleet' && <Fleet onOpen={openContract} />}
 
         {view === 'new' && (
           <Create
@@ -730,11 +742,9 @@ function Workbench({
     <>
       <section className="card">
         <h2>
-          <span className="title">{name}</span>
-          <span className={`badge ${state}`} title={STATE_TIP[state]}>
+          <span className={`badge ${state}`} title={`${name} · ${STATE_TIP[state]}`}>
             {state === 'fresh' ? 'built' : state}
           </span>
-          {contract?.description && <span className="desc">{contract.description}</span>}
           <span className="spacer" />
           <button className="btn" disabled={busy} onClick={() => run('build')} title={dirty ? 'saves first' : ''}>
             Build

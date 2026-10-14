@@ -410,7 +410,7 @@ def test_the_advertised_url_is_the_one_the_caller_reached(client):
 
     assert url('/mcp/config').endswith('/mcp')
     assert url('/lighthouse/_api/mcp/config').endswith('/lighthouse/_api/mcp')
-    # Caddy strips /api/lighthouse and never says so, so the prefix has to be
+    # Caddy strips /lighthouse/api and never says so, so the prefix has to be
     # put back — a forwarded host means the gateway's own route, not this port.
     assert url('/mcp/config', **{'x-forwarded-host': 'modc2.com',
                                  'x-forwarded-proto': 'https'}) \

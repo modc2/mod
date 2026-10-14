@@ -1,0 +1,6 @@
+{
+  "name": "cycle",
+  "description": "A Light Cycles rider: flood-fills every safe direction and steers into the biggest pocket of open cells.",
+  "author": "arena",
+  "tags": ["example", "player", "class", "python", "lightcycles"]
+}

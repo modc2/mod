@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>zuma · anonymous subnets on Starknet</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%2314b8a6%22/%3E%3Ctext x=%2216%22 y=%2223%22 text-anchor=%22middle%22 font-family=%22monospace%22 font-weight=%22800%22 font-size=%2220%22 fill=%22%23031311%22%3EZ%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#05080a;--panel:#0b1114;--panel2:#0f171b;--line:#1a262c;--line2:#24343b;
+  --ink:#e6f2f1;--dim:#8aa3a6;--mute:#566d71;
+  --teal:#14b8a6;--teal2:#5eead4;--amber:#f59e0b;--violet:#a78bfa;--red:#f43f5e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
+body{background:
+  radial-gradient(900px 500px at 15% -10%,rgba(20,184,166,.13),transparent 60%),
+  radial-gradient(800px 500px at 100% 0%,rgba(167,139,250,.10),transparent 60%),var(--bg)}
+a{color:var(--teal2)}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 20px 60px}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;
+  font:800 22px var(--mono);color:#031311;background:linear-gradient(135deg,var(--teal2),var(--teal));
+  box-shadow:0 0 30px rgba(20,184,166,.45)}
+h1{margin:0;font-size:20px;letter-spacing:.3px}
+.sub{color:var(--dim);font-size:13px}
+.sp{flex:1}
+.chip{font:12px var(--mono);border:1px solid var(--line2);background:var(--panel);
+  padding:5px 10px;border-radius:999px;color:var(--dim);display:inline-flex;gap:6px;align-items:center;cursor:default}
+.chip b{color:var(--ink);font-weight:600}
+.chip.click{cursor:pointer}.chip.click:hover{border-color:var(--teal)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--mute)}
+.dot.on{background:var(--teal);box-shadow:0 0 10px var(--teal)}
+.hero{margin:26px 0 18px;display:grid;grid-template-columns:1.25fr 1fr;gap:22px;align-items:end}
+.hero h2{font-size:34px;line-height:1.1;margin:0 0 10px;letter-spacing:-.5px}
+.hero h2 em{font-style:normal;background:linear-gradient(90deg,var(--teal2),var(--violet));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--dim);margin:0;max-width:620px}
+.actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+button{font:600 13px var(--sans)!important;border-radius:10px;border:1px solid var(--line2);
+  background:var(--panel2);color:var(--ink);padding:11px 16px;cursor:pointer;transition:.15s}
+button:hover:not(:disabled){border-color:var(--teal);color:var(--teal2)}
+button.go{background:linear-gradient(135deg,var(--teal),#0d9488);border-color:transparent;color:#021412;
+  box-shadow:0 6px 30px rgba(20,184,166,.35)}
+button.go:hover:not(:disabled){color:#021412;filter:brightness(1.1)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.clock{display:flex;align-items:center;gap:14px;margin:4px 0 14px;font:12px var(--mono);color:var(--dim)}
+.bar{flex:1;height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--teal),var(--violet));width:0;transition:width .6s}
+.stage{position:relative;background:linear-gradient(180deg,var(--panel),#070c0e);border:1px solid var(--line);
+  border-radius:16px;overflow:hidden}
+.stage svg{display:block;width:100%;height:auto}
+.caption{position:absolute;left:0;right:0;bottom:14px;text-align:center;font:600 13px var(--mono);
+  color:var(--teal2);text-shadow:0 0 18px rgba(20,184,166,.6);pointer-events:none;transition:opacity .3s}
+.grid{display:grid;grid-template-columns:1.35fr 1fr;gap:18px;margin-top:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card h3{margin:0 0 12px;font-size:12px;letter-spacing:1.4px;color:var(--dim);font-weight:700;
+  display:flex;align-items:center;gap:8px}
+.card h3 .sp{flex:1}
+table{width:100%;border-collapse:collapse;font:12px var(--mono)}
+th{color:var(--mute);text-align:left;font-weight:500;padding:6px 6px;border-bottom:1px solid var(--line)}
+td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.tag{color:var(--teal2)}
+.sbar{height:6px;background:var(--panel2);border-radius:9px;overflow:hidden;min-width:80px}
+.sbar i{display:block;height:100%;background:var(--teal);border-radius:9px;transition:width .5s}
+.pill{font:600 10px var(--mono);padding:2px 7px;border-radius:99px;border:1px solid var(--line2);color:var(--dim)}
+.pill.ok{color:var(--amber);border-color:rgba(245,158,11,.4)}
+.pill.open{color:var(--teal2);border-color:rgba(20,184,166,.4)}
+.log{font:12px/1.65 var(--mono);height:340px;overflow:auto;color:var(--dim)}
+.log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log .k{display:inline-block;width:82px;font-weight:700}
+.log .t{color:var(--mute);display:inline-block;width:48px}
+.k.submit{color:var(--teal2)}.k.score{color:var(--violet)}.k.claim{color:var(--amber)}
+.k.replay{color:var(--red)}.k.deploy,.k.deploying,.k.register,.k.devnet,.k.close,.k.done{color:var(--ink)}.k.error{color:var(--red)}
+.empty{color:var(--mute);font:12px var(--mono);padding:18px 0;text-align:center}
+.how{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
+.how .card p{color:var(--dim);margin:0;font-size:13px}
+.how .card code{font:12px var(--mono);color:var(--teal2)}
+.how .n{font:700 11px var(--mono);color:var(--mute);letter-spacing:1.2px}
+.how h4{margin:4px 0 6px;font-size:16px}
+.limits{margin-top:18px}
+.limits ul{margin:0;padding-left:18px;color:var(--dim)}
+.limits li{margin:4px 0}
+.limits b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font:12px var(--mono)}
+.kv span:nth-child(odd){color:var(--mute)}
+.kv span:nth-child(even){color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toast{position:fixed;right:18px;bottom:18px;background:var(--panel2);border:1px solid var(--line2);
+  padding:10px 14px;border-radius:10px;font:12px var(--mono);opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none}
+.toast.on{opacity:1;transform:none}
+footer{margin-top:30px;color:var(--mute);font:12px var(--mono);text-align:center}
+@media (max-width:860px){.hero,.grid,.how{grid-template-columns:1fr}.actions{justify-content:flex-start}.hero h2{font-size:26px}}
+/* svg */
+.ringline{fill:none;stroke:var(--line2);stroke-dasharray:3 6}
+.node{transition:fill .25s}
+.lbl{font:600 10px var(--mono);fill:var(--mute);letter-spacing:1.5px}
+.keylbl{font:9px var(--mono);fill:var(--mute)}
+.glow{filter:url(#glow)}
+.ringline{animation:dash 40s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-900}}
+.node{animation:breathe 3.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{stroke-opacity:1}50%{stroke-opacity:.35}}
+.facts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.fact{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);background:rgba(11,17,20,.7);
+  padding:4px 9px;border-radius:7px;display:inline-flex;gap:6px;align-items:center}
+.fact b{color:var(--teal2);font-weight:600}.fact.red b{color:var(--red)}.fact.amb b{color:var(--amber)}
+.fact svg{width:10px;height:10px}
+.hist{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.hist .h{font:600 10px var(--mono);letter-spacing:1.4px;color:var(--mute);margin-bottom:6px}
+.hrow{display:grid;grid-template-columns:70px 1fr 60px 64px;gap:10px;align-items:center;font:12px var(--mono);
+  color:var(--dim);padding:5px 0}
+.hrow .spark{display:flex;gap:3px;height:16px;align-items:flex-end}
+.hrow .spark i{flex:1;max-width:22px;background:var(--teal);opacity:.75;border-radius:2px 2px 0 0}
+.hrow .spark i.c{background:var(--amber)}
+.log .sep{color:var(--mute);font-size:11px;letter-spacing:1px;margin:2px 0 6px;border-bottom:1px dashed var(--line);padding-bottom:4px}
+button.go.running{background:linear-gradient(90deg,#0d9488,var(--violet),#0d9488);background-size:200% 100%;
+  animation:sweep 1.6s linear infinite;opacity:1!important}
+@keyframes sweep{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.ringline,.node,button.go.running{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">Z</div>
+    <div><h1>zuma</h1><div class="sub">anonymous subnets on Starknet</div></div>
+    <div class="sp"></div>
+    <span class="chip"><span class="dot" id="netdot"></span><b id="net">devnet</b><span id="blk">-</span></span>
+    <span class="chip click" id="addrchip" title="copy contract address">contract <b id="addr">not deployed</b></span>
+  </header>
+
+  <section class="hero">
+    <div>
+      <h2>Miners and validators who <em>never learn who the other is.</em></h2>
+      <p>Each one only knows that the other is in the registered set. Every submit, score and claim is a
+        ring signature over the STARK curve, and a Cairo contract verifies it on-chain. A validator scores a
+        <b>tag</b>, never a miner. A miner gets paid and never learns which validators scored it.</p>
+      <div class="facts" id="facts"></div>
+    </div>
+    <div class="actions">
+      <button id="replay" title="replay the last recorded epoch">Replay last epoch</button>
+      <button class="go" id="run">Run an anonymous epoch</button>
+    </div>
+  </section>
+
+  <div class="clock">
+    <span>EPOCH <b id="ep" style="color:var(--ink)">-</b></span>
+    <div class="bar"><i id="epbar"></i></div>
+    <span id="left">-</span>
+  </div>
+
+  <div class="stage">
+    <svg id="svg" viewBox="0 0 1140 440" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="caption" id="cap"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>TAGS <span class="sp"></span><span class="pill" id="tallyep">-</span></h3>
+      <div id="tally"><div class="empty">no tags yet. Run an epoch.</div></div>
+    </div>
+    <div class="card">
+      <h3>ON-CHAIN EVENTS <span class="sp"></span><span class="pill" id="logstate">idle</span></h3>
+      <div class="log" id="log"><div class="empty">waiting for a run</div></div>
+    </div>
+  </div>
+
+  <div class="how">
+    <div class="card"><div class="n">01 · MINER</div><h4>submit</h4>
+      <p>The miner signs <code>work</code> with a ring of miners in scope <code>H(mine, subnet, epoch)</code>.
+        The key image is its <b>tag</b> for this epoch. That gives one submission per miner per epoch, and
+        the tag can't be linked to its key or to its tags in other epochs.</p></div>
+    <div class="card"><div class="n">02 · VALIDATOR</div><h4>score</h4>
+      <p>The validator signs a 0-100 score with a ring of validators in scope <code>H(score, subnet, epoch, tag)</code>.
+        The key image is a <b>nullifier</b>. That gives one score per validator per tag, and its scores on
+        different tags can't be linked.</p></div>
+    <div class="card"><div class="n">03 · MINER</div><h4>claim</h4>
+      <p>After the epoch closes, the miner re-signs in the same mine scope. The same key gives the
+        <b>same image</b>, which proves it owns the tag. It credits <code>emission x sum / total</code> to any
+        recipient, and a replay is rejected.</p></div>
+  </div>
+
+  <div class="grid limits">
+    <div class="card">
+      <h3>READ THIS · THE SET-SIZE LIMIT</h3>
+      <ul>
+        <li><b>Your anonymity set is the ring, nothing more.</b> With 3 validators each score points to 1 of 3.
+          The contract enforces <code>min_ring</code> and rejects padded rings (key ids strictly increasing).</li>
+        <li><b>Cost is linear in the ring.</b> A ring of 4 is about 16k Cairo steps and 19 <code>ec_op</code>. The cap is 64.</li>
+        <li><b>The tx sender is public.</b> Actions go through a relayer, because the contract never checks the caller.
+          Timing, IP and work content can still identify you.</li>
+        <li><b>Payouts are public books.</b> Points are credited in storage, and no token moves.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>SUBNET</h3>
+      <div class="kv" id="params"><span>status</span><span>loading</span></div>
+    </div>
+  </div>
+
+  <footer>LSAG over the STARK curve · Poseidon challenges · key image I = x · Hp(scope) · Cairo 2.8 · <a id="apilink" href="#">api</a></footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const BASE = location.pathname.startsWith('/zuma') ? '/zuma' : '';
+const API = fn => `${BASE}/_api/${fn}`;
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+const short = h => h ? (h.length > 14 ? h.slice(0, 8) + '..' + h.slice(-4) : h) : '-';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+$('apilink').href = `${BASE}/api/info`;
+
+async function get(fn, q = '') {
+  const r = await fetch(API(fn) + q); return r.json();
+}
+async function post(fn, body = {}) {
+  const r = await fetch(API(fn), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  return r.json();
+}
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600);
+}
+
+/* ---------------- stage ---------------- */
+// two stage layouts: side by side on wide screens, stacked on phones
+const LAYOUTS = {
+  wide: {W: 1140, H: 440, m: [210, 210, 120], v: [930, 210, 120], tagx: 570, tagy0: 70, title: 40,
+    mIn: T => [T.p.x - 130, T.p.y + 25], vIn: T => [T.p.x + 130, T.p.y + 25], payY: () => 370},
+  tall: {W: 440, H: 900, m: [220, 160, 86], v: [220, 730, 86], tagx: 220, tagy0: 310, title: 292,
+    mIn: T => [T.p.x, T.p.y], vIn: T => [T.p.x, T.p.y + 50], payY: n => 310 + Math.max(3, n) * 62 + 6},
+};
+let L, W, H, TAGX, TAGY0, mode;
+const SETS = {miner: {color: '#14b8a6', label: 'MINERS'}, validator: {color: '#a78bfa', label: 'VALIDATORS'}};
+let S = {miner: [], validator: [], tags: new Map()};
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const svg = $('svg');
+function initStage() {
+  mode = innerWidth < 700 ? 'tall' : 'wide';
+  L = LAYOUTS[mode]; W = L.W; H = L.H; TAGX = L.tagx; TAGY0 = L.tagy0;
+  [SETS.miner.cx, SETS.miner.cy, SETS.miner.r] = L.m;
+  [SETS.validator.cx, SETS.validator.cy, SETS.validator.r] = L.v;
+  S = {miner: [], validator: [], tags: new Map()};
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = '';
+  const defs = el('defs', {}, svg);
+  const f = el('filter', {id: 'glow', x: '-50%', y: '-50%', width: '200%', height: '200%'}, defs);
+  el('feGaussianBlur', {stdDeviation: '6', result: 'b'}, f);
+  const m = el('feMerge', {}, f); el('feMergeNode', {in: 'b'}, m); el('feMergeNode', {in: 'SourceGraphic'}, m);
+  const g = el('pattern', {id: 'grid', width: 28, height: 28, patternUnits: 'userSpaceOnUse'}, defs);
+  el('path', {d: 'M28 0H0V28', fill: 'none', stroke: '#0f1a1e', 'stroke-width': 1}, g);
+  el('rect', {width: W, height: H, fill: 'url(#grid)'}, svg);
+  S.layers = {sets: el('g', {}, svg), tags: el('g', {}, svg), fx: el('g', {}, svg)};
+  for (const role of ['miner', 'validator']) {
+    const s = SETS[role], g = el('g', {}, S.layers.sets);
+    s.g = g;
+    s.halo = el('circle', {cx: s.cx, cy: s.cy, r: s.r + 26, fill: s.color, opacity: 0}, g);
+    el('circle', {cx: s.cx, cy: s.cy, r: s.r, class: 'ringline'}, g);
+    el('text', {x: s.cx, y: s.cy - s.r - 34, 'text-anchor': 'middle', class: 'lbl'}, g).textContent = s.label;
+    s.count = el('text', {x: s.cx, y: s.cy + 6, 'text-anchor': 'middle', fill: s.color,
+      style: 'font:700 30px var(--mono)'}, g);
+    s.sub = el('text', {x: s.cx, y: s.cy + 26, 'text-anchor': 'middle', class: 'keylbl'}, g);
+    s.nodes = el('g', {}, g);
+    // a comet orbiting each set: the ring is alive even when idle
+    const orb = el('g', {}, g);
+    el('circle', {cx: s.cx, cy: s.cy - s.r, r: 3, fill: s.color, class: 'glow'}, orb);
+    for (let k = 1; k < 7; k++) {
+      const a = -Math.PI / 2 - k * 0.07;
+      el('circle', {cx: s.cx + s.r * Math.cos(a), cy: s.cy + s.r * Math.sin(a), r: 2.6 - k * .3,
+        fill: s.color, opacity: .5 - k * .07}, orb);
+    }
+    if (!reduced) el('animateTransform', {attributeName: 'transform', type: 'rotate',
+      from: `0 ${s.cx} ${s.cy}`, to: `${role === 'miner' ? 360 : -360} ${s.cx} ${s.cy}`,
+      dur: role === 'miner' ? '14s' : '17s', repeatCount: 'indefinite'}, orb);
+  }
+  const t = el('text', {x: TAGX, y: L.title, 'text-anchor': 'middle', class: 'lbl'}, S.layers.sets);
+  t.textContent = 'TAGS · ANONYMOUS';
+  S.tagTitle = t;
+  S.payeeG = el('g', {opacity: 0}, S.layers.sets);
+  el('rect', {x: TAGX - 110, y: 0, width: 220, height: 36, rx: 10, fill: '#120d03', stroke: '#f59e0b'}, S.payeeG);
+  S.payeeT = el('text', {x: TAGX, y: 23, 'text-anchor': 'middle', fill: '#f59e0b',
+    style: 'font:600 12px var(--mono)'}, S.payeeG);
+}
+function drawSet(role, keys) {
+  const s = SETS[role]; s.nodes.innerHTML = '';
+  S[role] = keys;
+  s.count.textContent = keys.length || '0';
+  s.sub.textContent = keys.length ? `ring of ${Math.min(keys.length, 64)} · any one of these` : 'no members';
+  keys.forEach((k, i) => {
+    const a = -Math.PI / 2 + i * 2 * Math.PI / keys.length;
+    const x = s.cx + s.r * Math.cos(a), y = s.cy + s.r * Math.sin(a);
+    const c = el('circle', {cx: x, cy: y, r: 9, fill: '#0b1114', stroke: s.color, 'stroke-width': 2, class: 'node',
+      style: `animation-delay:${(-i * 0.45).toFixed(2)}s`}, s.nodes);
+    el('title', {}, c).textContent = `${role} public key\nx = ${k.x}`;
+    const lx = s.cx + (s.r + 24) * Math.cos(a), ly = s.cy + (s.r + 24) * Math.sin(a) + 3;
+    el('text', {x: lx, y: ly, 'text-anchor': Math.abs(Math.cos(a)) < .3 ? 'middle' : (Math.cos(a) > 0 ? 'start' : 'end'),
+      class: 'keylbl'}, s.nodes).textContent = (k.x || '').slice(0, 7);
+    k._el = c; k._x = x; k._y = y;
+  });
+}
+function tagPos(i) { return {x: TAGX, y: TAGY0 + i * 62}; }
+function drawTag(tag, sum = 0, n = 0, claimed = false) {
+  if (S.tags.has(tag)) return S.tags.get(tag);
+  const i = S.tags.size, p = tagPos(i);
+  const g = el('g', {transform: `translate(${p.x - 130},${p.y})`, opacity: 0}, S.layers.tags);
+  const box = el('rect', {width: 260, height: 50, rx: 10, fill: '#071513', stroke: '#14b8a6', 'stroke-opacity': .5}, g);
+  el('text', {x: 14, y: 20, fill: '#5eead4', style: 'font:600 12px var(--mono)'}, g).textContent = short(tag);
+  const sc = el('text', {x: 246, y: 20, 'text-anchor': 'end', fill: '#e6f2f1', style: 'font:700 12px var(--mono)'}, g);
+  el('rect', {x: 14, y: 30, width: 232, height: 6, rx: 3, fill: '#0f171b'}, g);
+  const bar = el('rect', {x: 14, y: 30, width: 0, height: 6, rx: 3, fill: '#a78bfa'}, g);
+  const dots = el('g', {transform: 'translate(14,44)'}, g);
+  const T = {g, box, sc, bar, dots, sum, n, claimed, p, tag};
+  S.tags.set(tag, T); updTag(T);
+  requestAnimationFrame(() => { g.style.transition = 'opacity .4s'; g.setAttribute('opacity', 1); });
+  return T;
+}
+function updTag(T) {
+  T.sc.textContent = T.claimed ? 'CLAIMED' : `${T.sum} · ${T.n}x`;
+  T.sc.setAttribute('fill', T.claimed ? '#f59e0b' : '#e6f2f1');
+  T.box.setAttribute('stroke', T.claimed ? '#f59e0b' : '#14b8a6');
+  const max = Math.max(100 * Math.max(1, S.validator.length), 1);
+  T.bar.setAttribute('width', Math.min(232, 232 * T.sum / max));
+  T.dots.innerHTML = '';
+  for (let k = 0; k < T.n; k++) el('circle', {cx: k * 9, cy: 0, r: 2.5, fill: '#a78bfa'}, T.dots);
+}
+function pulse(role) {
+  const s = SETS[role];
+  s.halo.style.transition = 'none'; s.halo.setAttribute('opacity', .22);
+  for (const k of S[role]) k._el && k._el.setAttribute('fill', s.color);
+  requestAnimationFrame(() => {
+    s.halo.style.transition = 'opacity .9s'; s.halo.setAttribute('opacity', 0);
+    setTimeout(() => { for (const k of S[role]) k._el && k._el.setAttribute('fill', '#0b1114'); }, 450);
+  });
+}
+async function signRing(role, fast) {
+  const s = SETS[role], keys = S[role].filter(k => k._el);
+  if (!keys.length) return pulse(role);
+  for (const k of keys) {
+    const ln = el('line', {x1: k._x, y1: k._y, x2: s.cx, y2: s.cy, stroke: s.color, 'stroke-width': 1.2,
+      'stroke-opacity': .7}, S.layers.fx);
+    setTimeout(() => { ln.style.transition = 'stroke-opacity .7s'; ln.setAttribute('stroke-opacity', 0);
+      setTimeout(() => ln.remove(), 800); }, fast ? 120 : 380);
+  }
+  if (!fast && !reduced) {
+    for (let j = 0; j < 7; j++) {
+      const k = keys[Math.floor(Math.random() * keys.length)];
+      k._el.setAttribute('fill', s.color); await sleep(42); k._el.setAttribute('fill', '#0b1114');
+    }
+  }
+  pulse(role);
+}
+function fly(x1, y1, x2, y2, color, ms = 650) {
+  return new Promise(res => {
+    const c = el('circle', {cx: x1, cy: y1, r: 6, fill: color, class: 'glow'}, S.layers.fx);
+    const trail = el('line', {x1, y1, x2: x1, y2: y1, stroke: color, 'stroke-width': 1.5, 'stroke-opacity': .5}, S.layers.fx);
+    const t0 = performance.now();
+    (function step(t) {
+      const k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+      const horiz = Math.abs(x2 - x1) > Math.abs(y2 - y1);
+      const mx = (x1 + x2) / 2 + (horiz ? 0 : 70), my = horiz ? Math.min(y1, y2) - 60 : (y1 + y2) / 2;
+      const x = (1 - e) * (1 - e) * x1 + 2 * (1 - e) * e * mx + e * e * x2;
+      const y = (1 - e) * (1 - e) * y1 + 2 * (1 - e) * e * my + e * e * y2;
+      c.setAttribute('cx', x); c.setAttribute('cy', y);
+      trail.setAttribute('x2', x); trail.setAttribute('y2', y);
+      if (k < 1) requestAnimationFrame(step);
+      else { c.remove(); trail.style.transition = 'opacity .5s'; trail.setAttribute('stroke-opacity', 0); setTimeout(() => trail.remove(), 600); res(); }
+    })(t0);
+  });
+}
+function caption(t) { const c = $('cap'); c.style.opacity = 0; setTimeout(() => { c.textContent = t; c.style.opacity = 1; }, 120); }
+
+/* ---------------- event playback ---------------- */
+let logN = 0;
+function logEv(e) {
+  const L = $('log'); if (!logN) L.innerHTML = '';
+  logN++;
+  const txt = {
+    devnet: () => `starknet-devnet up at block ${e.block}`,
+    deploying: () => 'declaring + deploying the Cairo verifier',
+    deploy: () => `Zuma ${short(e.address)} · tempo ${e.tempo} · min_ring ${e.min_ring}`,
+    register: () => `${e.role} key ${short(e.x)}`,
+    submit: () => `tag ${short(e.tag)} · ring ${e.ring} · signed ${e.ms}ms`,
+    score: () => `${e.score} -> ${short(e.tag)} · nullifier ${short(e.nullifier)}`,
+    close: () => `epoch ${e.epoch} closed at block ${e.block}`,
+    claim: () => `${e.earned} pts -> ${short(e.recipient)}`,
+    replay: () => `double claim ${e.result}`,
+    done: () => `epoch proved end to end in ${e.seconds}s`,
+    error: () => e.error,
+  }[e.kind];
+  const d = document.createElement('div');
+  d.innerHTML = `<span class="t">${e.t != null ? e.t.toFixed(1) + 's' : ''}</span><span class="k ${e.kind}">${e.kind}</span>`;
+  d.appendChild(document.createTextNode(txt ? txt() : JSON.stringify(e)));
+  L.appendChild(d); L.scrollTop = L.scrollHeight;
+}
+async function playEvent(e, fast) {
+  logEv(e);
+  const s = SETS;
+  switch (e.kind) {
+    case 'devnet':
+    case 'deploying':
+      // the old epoch fades out while the new contract lands
+      S.layers.tags.style.transition = 'opacity .6s'; S.layers.tags.style.opacity = .18;
+      for (const r of ['miner', 'validator']) SETS[r].g.style.opacity = .35;
+      caption(e.kind === 'devnet' ? 'starknet-devnet up. Deploying a fresh subnet contract'
+        : 'declaring + deploying the Cairo ring-signature verifier');
+      break;
+    case 'deploy':
+      S.layers.tags.style.opacity = 1;
+      for (const r of ['miner', 'validator']) { SETS[r].g.style.transition = 'opacity .5s'; SETS[r].g.style.opacity = 1; }
+      S.tags.clear(); S.layers.tags.innerHTML = ''; S.payeeG.setAttribute('opacity', 0);
+      drawSet('miner', []); drawSet('validator', []);
+      $('addr').textContent = short(e.address); caption('contract deployed. Registering the public sets');
+      break;
+    case 'register':
+      S[e.role].push({x: e.x}); drawSet(e.role, S[e.role]);
+      break;
+    case 'submit': {
+      caption(`a miner submitted. Ring of ${e.ring}: nobody can tell which one`);
+      await signRing('miner', fast);
+      const T = drawTag(e.tag); T.g.setAttribute('opacity', 0);
+      await fly(s.miner.cx, s.miner.cy, ...L.mIn(T), '#14b8a6', fast ? 250 : 700);
+      T.g.setAttribute('opacity', 1);
+      S.tagTitle.textContent = `TAGS · EPOCH ${e.epoch}`;
+      break;
+    }
+    case 'score': {
+      caption(`a validator scored a tag ${e.score}. One nullifier, no identity`);
+      await signRing('validator', fast);
+      const T = drawTag(e.tag);
+      await fly(s.validator.cx, s.validator.cy, ...L.vIn(T), '#a78bfa', fast ? 180 : 420);
+      T.sum += e.score; T.n += 1; updTag(T);
+      break;
+    }
+    case 'close': caption(`epoch ${e.epoch} closed. Claims open`); break;
+    case 'claim': {
+      const T = drawTag(e.tag);
+      caption('the owner of one tag re-signed and proved the same key image');
+      await signRing('miner', fast);
+      const py = L.payY(S.tags.size);
+      S.payeeG.setAttribute('transform', `translate(0,${py})`);
+      await fly(T.p.x, T.p.y + 50, TAGX, py + 18, '#f59e0b', fast ? 300 : 800);
+      T.claimed = true; updTag(T);
+      S.payeeT.textContent = `+${e.earned} pts -> ${short(e.recipient)}`;
+      S.payeeG.setAttribute('opacity', 1);
+      break;
+    }
+    case 'replay':
+      caption(e.ok ? 'replayed claim REJECTED: same key, same tag' : 'replay ACCEPTED (bug)');
+      { const r = el('rect', {x: 0, y: 0, width: W, height: H, fill: '#f43f5e', opacity: .14}, S.layers.fx);
+        setTimeout(() => { r.style.transition = 'opacity .8s'; r.setAttribute('opacity', 0); setTimeout(() => r.remove(), 900); }, 120); }
+      break;
+    case 'done': caption(`proved on-chain in ${e.seconds}s. Every tag is scored, nobody is named`); break;
+    case 'error': caption('error: ' + e.error); break;
+  }
+  if (!fast) await sleep(e.kind === 'register' ? 60 : 120);
+}
+
+/* ---------------- board (idle state) ---------------- */
+let busy = false, lastBoard = null;
+function renderTally(b) {
+  const box = $('tally');
+  const ep = (b.epochs || [])[0];
+  if (!ep) { box.innerHTML = '<div class="empty">no tags yet. Run an epoch.</div>'; $('tallyep').textContent = '-'; return; }
+  $('tallyep').textContent = `epoch ${ep.epoch}${ep.open ? ' · open' : ''}`;
+  const max = Math.max(1, ...ep.tags.map(t => t.score_sum));
+  let h = '<table><tr><th>tag</th><th>score</th><th></th><th>share</th><th></th></tr>';
+  for (const t of ep.tags) {
+    const share = ep.total ? Math.floor((b.emission || 0) * t.score_sum / ep.total) : 0;
+    h += `<tr><td class="tag">${short(t.tag)}</td><td>${t.score_sum} <span style="color:var(--mute)">/${t.scores}</span></td>
+      <td style="width:35%"><div class="sbar"><i style="width:${100 * t.score_sum / max}%"></i></div></td>
+      <td>${share}</td><td>${t.claimed ? '<span class="pill ok">claimed</span>' : (ep.open ? '<span class="pill open">open</span>' : '<span class="pill">claimable</span>')}</td></tr>`;
+  }
+  h += '</table>';
+  const old = (b.epochs || []).slice(1);
+  if (old.length) {
+    h += '<div class="hist"><div class="h">EARLIER EPOCHS</div>';
+    for (const o of old) {
+      const mx = Math.max(1, ...o.tags.map(t => t.score_sum));
+      const bars = o.tags.map(t => `<i class="${t.claimed ? 'c' : ''}" style="height:${Math.max(12, 100 * t.score_sum / mx)}%" title="${short(t.tag)} · ${t.score_sum}"></i>`).join('');
+      const cl = o.tags.filter(t => t.claimed).length;
+      h += `<div class="hrow"><span>epoch ${o.epoch}</span><span class="spark">${bars}</span><span>${o.tags.length} tags</span><span style="color:${cl ? 'var(--amber)' : 'var(--mute)'}">${cl} claimed</span></div>`;
+    }
+    h += '</div>';
+  }
+  box.innerHTML = h;
+}
+const ago = s => s < 90 ? `${Math.round(s)}s ago` : s < 5400 ? `${Math.round(s / 60)}m ago` : s < 129600 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`;
+const tick = '<svg viewBox="0 0 10 10"><path d="M1.5 5.5l2.3 2.3L8.5 2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+function renderFacts(sim) {
+  const f = $('facts');
+  if (!sim || !sim.result) { f.innerHTML = ''; return; }
+  const r = sim.result, ok = String(r.double_claim || '').startsWith('rejected');
+  const sub = (sim.events || []).find(e => e.kind === 'submit');
+  const n = (sim.events || []).filter(e => e.kind === 'score').length;
+  f.innerHTML = [
+    `<span class="fact" style="color:var(--teal2)">${tick}<b>proved on-chain</b> ${ago(Date.now() / 1000 - sim.at)}</span>`,
+    `<span class="fact">full epoch <b>${r.seconds}s</b></span>`,
+    sub ? `<span class="fact">ring sig <b>${sub.ms}ms</b> · ring ${sub.ring}</span>` : '',
+    `<span class="fact">${n} anonymous scores</span>`,
+    `<span class="fact ${ok ? 'red' : ''}">double claim <b>${ok ? 'rejected' : 'ACCEPTED'}</b></span>`,
+  ].join('');
+}
+function preloadLog(sim) {
+  if (!sim || !sim.events || logN) return;
+  const box = $('log'); box.innerHTML = `<div class="sep">LAST RUN · ${ago(Date.now() / 1000 - sim.at).toUpperCase()}</div>`;
+  logN = 1;
+  for (const e of sim.events) logEv(e);
+  box.scrollTop = 0;
+}
+function renderParams(b) {
+  const rows = b.deployed && b.contract ? [
+    ['contract', b.contract], ['owner', b.owner], ['tempo', `${b.tempo} blocks / epoch`],
+    ['min_ring', b.min_ring], ['emission', `${b.emission} pts / epoch`],
+    ['registration', b.open ? 'open' : 'owner only'],
+    ['miners', (b.miners || []).length], ['validators', (b.validators || []).length],
+  ] : [['status', b.devnet_up === false ? 'devnet down' : 'not deployed. Run an epoch']];
+  $('params').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span title="${v}">${v}</span>`).join('');
+}
+async function refresh() {
+  let b;
+  try { b = await get('board'); } catch { return; }
+  if (b.error) return;
+  lastBoard = b;
+  $('netdot').classList.toggle('on', !!b.devnet_up);
+  $('blk').textContent = b.block != null ? `#${b.block}` : 'offline';
+  $('addr').textContent = b.contract ? short(b.contract) : 'not deployed';
+  if (b.tempo) {
+    $('ep').textContent = b.epoch;
+    $('epbar').style.width = `${100 * (b.tempo - b.blocks_left) / b.tempo}%`;
+    $('left').textContent = `${b.blocks_left} blocks left · tempo ${b.tempo}`;
+  }
+  renderParams(b);
+  if (busy) return;
+  renderTally(b);
+  // idle stage = the chain as any reader sees it
+  if ((b.miners || []).length !== S.miner.length || (b.validators || []).length !== S.validator.length) {
+    drawSet('miner', (b.miners || []).map(k => ({x: k.x}))); drawSet('validator', (b.validators || []).map(k => ({x: k.x})));
+  }
+  const ep = (b.epochs || [])[0];
+  if (ep) {
+    S.tagTitle.textContent = `TAGS · EPOCH ${ep.epoch}`;
+    const want = ep.tags.map(t => t.tag).join();
+    if ([...S.tags.keys()].join() !== want) { S.tags.clear(); S.layers.tags.innerHTML = ''; }
+    for (const t of ep.tags.slice(0, 5)) { const T = drawTag(t.tag); T.sum = t.score_sum; T.n = t.scores; T.claimed = t.claimed; updTag(T); }
+  }
+}
+
+/* ---------------- actions ---------------- */
+function setBusy(on, label) {
+  busy = on; $('run').disabled = on; $('replay').disabled = on;
+  $('logstate').textContent = label || (on ? 'live' : 'idle');
+  $('logstate').className = 'pill' + (on ? ' open' : '');
+}
+async function run() {
+  const r = await post('simulate', {miners: 4, validators: 4});
+  if (r.cooldown) return toast(`cooling down: ${r.cooldown}s. Try the replay meanwhile`);
+  if (!r.started && !r.running) return toast(r.error || 'could not start');
+  setBusy(true, 'live · on-chain');
+  const btn = $('run'), t0 = Date.now(); btn.classList.add('running');
+  const timer = setInterval(() => { btn.textContent = `Proving on-chain · ${Math.floor((Date.now() - t0) / 1000)}s`; }, 250);
+  logN = 0; $('log').innerHTML = '';
+  caption('booting a fresh contract on starknet-devnet');
+  let since = 0, queue = [], done = false;
+  const pump = (async () => {
+    while (!done || queue.length) {
+      if (queue.length) await playEvent(queue.shift(), queue.length > 6);
+      else await sleep(120);
+    }
+  })();
+  while (true) {
+    const s = await get('sim', `?since=${since}`);
+    queue.push(...s.events); since = s.next;
+    if (!s.running) { done = true; break; }
+    await sleep(500);
+  }
+  await pump;
+  clearInterval(timer); btn.classList.remove('running'); btn.textContent = 'Run an anonymous epoch';
+  setBusy(false); refresh(); get('last_sim').then(renderFacts);
+}
+async function replay() {
+  const r = await get('last_sim');
+  if (!r || !r.events) return toast('no recorded run yet. Run one first');
+  setBusy(true, 'replay');
+  logN = 0; $('log').innerHTML = '';
+  for (const e of r.events) await playEvent(e, false);
+  setBusy(false);
+  setTimeout(refresh, 2500);
+}
+$('run').onclick = run;
+$('replay').onclick = replay;
+$('addrchip').onclick = () => {
+  if (lastBoard && lastBoard.contract) { navigator.clipboard && navigator.clipboard.writeText(lastBoard.contract); toast('contract address copied'); }
+};
+
+initStage();
+refresh();
+get('last_sim').then(sim => { renderFacts(sim); preloadLog(sim); }).catch(() => {});
+let rz;
+addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => {
+  if (busy || (innerWidth < 700 ? 'tall' : 'wide') === mode) return;
+  initStage(); refresh();
+}, 200); });
+setInterval(refresh, 4000);
+get('sim').then(s => { if (s.running) { toast('an epoch is running: following it'); followRunning(); } });
+async function followRunning() {
+  setBusy(true, 'live · on-chain'); logN = 0;
+  let since = 0;
+  while (true) {
+    const s = await get('sim', `?since=${since}`);
+    for (const e of s.events) await playEvent(e, true);
+    since = s.next; if (!s.running) break; await sleep(500);
+  }
+  setBusy(false); refresh();
+}
+</script>
+</body>
+</html>

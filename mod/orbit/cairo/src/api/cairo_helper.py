@@ -33,6 +33,7 @@ import re
 import urllib.error
 import urllib.request
 
+import cairo_builder as builder
 import cairo_mcp as mcp
 
 CLAUDE = os.environ.get('CAIRO_AGENT_URL', 'http://127.0.0.1:51260').rstrip('/')
@@ -49,6 +50,7 @@ AGENTS = {
         'brains': ['helper', 'claude'],
         'mcp': '/cairo/mcp',
     },
+    'builder': builder.AGENT,
 }
 EXAMPLES = [
     'What is a stablecoin, like I\'m 10?',
@@ -67,6 +69,8 @@ def card(base='/cairo'):
                           'stream': f'{base}/run/stream', 'mcp': f'{base}/mcp'},
             'brains': {'helper': 'open, free, no model',
                        'claude': 'owner-only, via orbit/claudecode'},
+            'agents': {'helper': f'{base}/agents/helper/run/stream',
+                       'builder': f'{base}/agents/builder/run/stream'},
             'examples': EXAMPLES}
 
 
@@ -410,15 +414,34 @@ def _actions_from_text(text):
 
 # ---- entry ------------------------------------------------------------------
 
-def run(mod, body, who, gate, jobs, emit, base_url, root, mods_dir):
-    """Answer one question. Returns the done event (also emitted)."""
+def run(mod, body, who, gate, jobs, emit, base_url, root, mods_dir,
+        agent=None, start_job=None, get_job=None):
+    """Answer one question. Returns the done event (also emitted).
+    agent = 'builder' (path /agents/builder/run, or body agent/brain) makes
+    or edits a contract instead of answering."""
     query = str(body.get('query') or body.get('prompt') or '').strip()
     ctx = body.get('context') if isinstance(body.get('context'), dict) else {}
     ctx = {k: ctx.get(k) for k in ('contract', 'view', 'lesson', 'account') if ctx.get(k)}
+    agent = agent or body.get('agent') or ('builder' if body.get('brain') == 'builder' else 'helper')
     want = body.get('brain') or 'helper'
     r = Run(mod, gate, jobs, emit)
-    if not query:
+    if agent not in AGENTS:
+        ev = {'type': 'error', 'error': f'no agent {agent!r}', 'agents': list(AGENTS)}
+        emit(ev)
+        return ev
+    if not query and not (agent == 'builder' and body.get('vibe') is False):
         ev = {'type': 'error', 'error': 'empty query'}
+        emit(ev)
+        return ev
+    if agent == 'builder':
+        if not who.get('writable'):
+            ev = {'type': 'error', 'owner_only': True,
+                  'error': f"the builder is owner-only: {who.get('why') or 'not an owner'}"}
+            emit(ev)
+            return ev
+        answer, actions, extra = builder.run(r, body, ctx, start_job, get_job)
+        ev = {'type': 'done', 'result': r.steps, 'answer': answer, 'actions': actions,
+              'agent': 'builder', 'brain': 'claude', **extra}
         emit(ev)
         return ev
     brain, note = 'helper', None

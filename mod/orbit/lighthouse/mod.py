@@ -57,6 +57,14 @@ UPLOAD_ENDPOINTS = [
 ]
 API_BASE = 'https://api.lighthouse.storage'
 GATEWAY = 'https://gateway.lighthouse.storage'
+# Lighthouse's gateway answers 402 for CIDs it does not host itself, and the
+# big public gateways rate-limit hard (429), so reads walk this list in order.
+FALLBACK_GATEWAYS = [
+    'https://gateway.pinata.cloud',
+    'https://4everland.io',
+    'https://dweb.link',
+    'https://ipfs.io',
+]
 
 
 class Mod:
@@ -180,24 +188,41 @@ class Mod:
         out = Path(os.path.expanduser(out)) if out else (self.state / 'cache' / cid)
         out.parent.mkdir(parents=True, exist_ok=True)
 
-        candidates = [
-            f"{self.gateway.rstrip('/')}/ipfs/{cid}",
-            f'https://gateway.ipfs.io/ipfs/{cid}',
-            f'https://ipfs.io/ipfs/{cid}',
-        ]
-        last = None
-        for url in candidates:
+        r, url = self.fetch(cid, timeout=60)
+        with open(out, 'wb') as f:
+            for chunk in r.iter_content(8192):
+                f.write(chunk)
+        return {'cid': cid, 'path': str(out), 'gateway': url}
+
+    def gateways(self) -> list:
+        """Read gateways in the order they are tried — this deployment's first."""
+        out = [self.gateway.rstrip('/')]
+        for g in [GATEWAY] + FALLBACK_GATEWAYS:
+            if g not in out:
+                out.append(g)
+        return out
+
+    def fetch(self, cid: str, timeout: int = 60):
+        """Open a streaming GET for a CID on the first gateway that serves it.
+
+        Returns (response, url). Raises LookupError when every gateway answered
+        with an error status, RuntimeError when none could be reached at all.
+        """
+        statuses, errors = [], []
+        for g in self.gateways():
+            url = f'{g}/ipfs/{cid}'
             try:
-                r = requests.get(url, stream=True, timeout=60)
-                if r.status_code == 200:
-                    with open(out, 'wb') as f:
-                        for chunk in r.iter_content(8192):
-                            f.write(chunk)
-                    return {'cid': cid, 'path': str(out), 'gateway': url}
-                last = f'{url} -> {r.status_code}'
-            except Exception as e:
-                last = f'{url} -> {e}'
-        raise RuntimeError(f'gateway retrieval failed (last: {last})')
+                r = requests.get(url, stream=True, timeout=timeout)
+            except requests.RequestException as e:
+                errors.append(f'{g}: {type(e).__name__}')
+                continue
+            if r.status_code < 400:
+                return r, url
+            r.close()
+            statuses.append(f'{g.split("//")[-1]} {r.status_code}')
+        if statuses:
+            raise LookupError(f'no gateway served {cid} ({", ".join(statuses + errors)})')
+        raise RuntimeError(f'gateway unreachable: {", ".join(errors)}')
 
     def preview(self, cid: str, max_bytes: int = 65536) -> dict:
         """Peek at a CID without downloading it: decoded text when it is text,
@@ -208,13 +233,7 @@ class Mod:
         can never be two different opinions about the same CID.
         """
         max_bytes = max(1, min(int(max_bytes), 1 << 20))
-        url = f"{self.gateway.rstrip('/')}/ipfs/{cid}"
-        try:
-            r = requests.get(url, stream=True, timeout=60)
-        except requests.RequestException as e:
-            raise RuntimeError(f'gateway unreachable: {e}')
-        if r.status_code >= 400:
-            raise LookupError(f'gateway {r.status_code} for {cid}')
+        r, url = self.fetch(cid, timeout=60)
         chunk = next(r.iter_content(max_bytes + 1), b'') or b''
         r.close()
         truncated = len(chunk) > max_bytes

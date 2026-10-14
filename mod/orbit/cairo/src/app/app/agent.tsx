@@ -8,12 +8,16 @@ import './learn.css';
 // (POST /cairo/run/stream, SSE step ... done) and every fact it reads comes
 // through the cairo MCP tools, shown as a fold-out trail under each answer.
 // Two brains: "Quick" (free, instant, anyone) and "Smart" (Claude via
-// orbit/claudecode; owner only, since it bills the host account).
+// orbit/claudecode; owner only, since it bills the host account), plus
+// "Build" = the builder agent (owner only): makes or edits a contract
+// ("make a tip jar called tips", "add a pause switch" on the open one).
 
 export type AgentAction = { label: string; lesson?: string; new?: string; open?: string; ask?: string };
 export type AgentContext = { contract?: string | null; view?: string; lesson?: string | null };
 type Step = { tool: string; params?: any; result?: any };
 type Msg = { role: 'me' | 'bot'; text: string; steps?: Step[]; actions?: AgentAction[]; brain?: string; note?: string; busy?: boolean };
+
+type Brain = 'helper' | 'claude' | 'builder';
 
 const STARTERS = [
   'What is a stablecoin, like I\'m 10?',
@@ -26,20 +30,21 @@ export function AgentOrb({ ctx, writable, onAction }: { ctx: AgentContext; writa
   const [open, setOpenState] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [q, setQ] = useState('');
-  const [brain, setBrainState] = useState<'helper' | 'claude'>('helper');
+  const [brain, setBrainState] = useState<Brain>('helper');
   const [running, setRunning] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setOpenState(localStorage.getItem('cairo.agent.open') === '1');
-    if (localStorage.getItem('cairo.agent.brain') === 'claude') setBrainState('claude');
+    const saved = localStorage.getItem('cairo.agent.brain');
+    if (saved === 'claude' || saved === 'builder') setBrainState(saved);
   }, []);
   const setOpen = (v: boolean) => {
     setOpenState(v);
     localStorage.setItem('cairo.agent.open', v ? '1' : '0');
   };
-  const setBrain = (b: 'helper' | 'claude') => {
+  const setBrain = (b: Brain) => {
     setBrainState(b);
     localStorage.setItem('cairo.agent.brain', b);
   };
@@ -117,9 +122,10 @@ export function AgentOrb({ ctx, writable, onAction }: { ctx: AgentContext; writa
             <span className="agentsub">{ctx.contract ? `looking at ${ctx.contract}` : 'ask me anything'}</span>
             <span className="spacer" />
             {writable && (
-              <span className="brainpick" title="Quick: instant and free. Smart: Claude reads your contracts through the cairo MCP server and can answer anything (slower, uses your Claude account).">
+              <span className="brainpick" title="Quick: instant and free. Smart: Claude reads your contracts through the cairo MCP server and can answer anything (slower, uses your Claude account). Build: make or change a contract.">
                 <button className={brain === 'helper' ? 'on' : ''} onClick={() => setBrain('helper')}>Quick</button>
                 <button className={brain === 'claude' ? 'on' : ''} onClick={() => setBrain('claude')}>Smart</button>
+                <button className={brain === 'builder' ? 'on' : ''} onClick={() => setBrain('builder')} title="Build: make a new contract or change the open one; the agent writes the Cairo and tests, then builds and tests it (minutes, uses your Claude account).">Build</button>
               </span>
             )}
             {msgs.length > 0 && (
@@ -158,7 +164,7 @@ export function AgentOrb({ ctx, writable, onAction }: { ctx: AgentContext; writa
                       <i />
                       <i />
                       <i />
-                      <span>{m.steps?.length ? stepLabel(m.steps[m.steps.length - 1]) : brain === 'claude' && writable ? 'thinking (this can take a minute)…' : 'thinking…'}</span>
+                      <span>{m.steps?.length ? stepLabel(m.steps[m.steps.length - 1]) : brain === 'builder' && writable ? 'building (a few minutes)…' : brain === 'claude' && writable ? 'thinking (this can take a minute)…' : 'thinking…'}</span>
                     </div>
                   )}
                   {m.text && <Md text={m.text} />}
@@ -201,7 +207,9 @@ export function AgentOrb({ ctx, writable, onAction }: { ctx: AgentContext; writa
               ref={input}
               rows={1}
               value={q}
-              placeholder={ctx.contract ? `Ask about ${ctx.contract}, or anything…` : 'Ask anything, e.g. what is collateral?'}
+              placeholder={writable && brain === 'builder'
+                ? (ctx.contract ? `Change ${ctx.contract}, or "make a … called …"` : 'e.g. make a tip jar called tips')
+                : ctx.contract ? `Ask about ${ctx.contract}, or anything…` : 'Ask anything, e.g. what is collateral?'}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {

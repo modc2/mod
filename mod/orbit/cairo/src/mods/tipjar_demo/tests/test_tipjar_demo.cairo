@@ -1,0 +1,82 @@
+use snforge_std::{
+    ContractClassTrait, DeclareResultTrait, declare, start_cheat_caller_address,
+    stop_cheat_caller_address,
+};
+use starknet::ContractAddress;
+use tipjar_demo::{ITipjarDemoDispatcher, ITipjarDemoDispatcherTrait};
+
+const SUPPLY: u256 = 1_000_000;
+
+fn owner() -> ContractAddress {
+    'owner'.try_into().unwrap()
+}
+
+fn alice() -> ContractAddress {
+    'alice'.try_into().unwrap()
+}
+
+fn bob() -> ContractAddress {
+    'bob'.try_into().unwrap()
+}
+
+fn deploy() -> ITipjarDemoDispatcher {
+    let contract = declare("TipjarDemo").unwrap().contract_class();
+    let mut calldata = array![];
+    Serde::serialize(@'Vibe', ref calldata);
+    Serde::serialize(@'VIBE', ref calldata);
+    Serde::serialize(@SUPPLY, ref calldata);
+    Serde::serialize(@owner(), ref calldata);
+    let (addr, _) = contract.deploy(@calldata).unwrap();
+    ITipjarDemoDispatcher { contract_address: addr }
+}
+
+#[test]
+fn test_metadata_and_mint() {
+    let t = deploy();
+    assert(t.name() == 'Vibe', 'name');
+    assert(t.symbol() == 'VIBE', 'symbol');
+    assert(t.decimals() == 18, 'decimals');
+    assert(t.total_supply() == SUPPLY, 'supply');
+    assert(t.balance_of(owner()) == SUPPLY, 'owner holds supply');
+}
+
+#[test]
+fn test_transfer() {
+    let t = deploy();
+    start_cheat_caller_address(t.contract_address, owner());
+    t.transfer(alice(), 250);
+    stop_cheat_caller_address(t.contract_address);
+    assert(t.balance_of(alice()) == 250, 'alice got 250');
+    assert(t.balance_of(owner()) == SUPPLY - 250, 'owner debited');
+}
+
+#[test]
+#[should_panic(expected: 'insufficient balance')]
+fn test_transfer_over_balance_reverts() {
+    let t = deploy();
+    start_cheat_caller_address(t.contract_address, alice());
+    t.transfer(bob(), 1);
+}
+
+#[test]
+fn test_approve_and_transfer_from() {
+    let t = deploy();
+    start_cheat_caller_address(t.contract_address, owner());
+    t.approve(alice(), 100);
+    stop_cheat_caller_address(t.contract_address);
+
+    start_cheat_caller_address(t.contract_address, alice());
+    t.transfer_from(owner(), bob(), 60);
+    stop_cheat_caller_address(t.contract_address);
+
+    assert(t.balance_of(bob()) == 60, 'bob got 60');
+    assert(t.allowance(owner(), alice()) == 40, 'allowance spent');
+}
+
+#[test]
+#[should_panic(expected: 'insufficient allowance')]
+fn test_transfer_from_over_allowance_reverts() {
+    let t = deploy();
+    start_cheat_caller_address(t.contract_address, alice());
+    t.transfer_from(owner(), bob(), 1);
+}

@@ -62,7 +62,9 @@
         "sandbox",
         "market",
         "fork",
-        "tutorials"
+        "tutorials",
+        "fleet",
+        "whitepaper"
     ],
     "endpoints": {
         "GET /cairo": "The console (static Next.js export)",
@@ -101,7 +103,9 @@
         "GET /cairo/agents": "Agent contract: the cairo helper (brains: helper = free/open, claude = owner-only via orbit/claudecode)",
         "POST /cairo/run/stream": "Ask the helper {query, brain?, context:{contract,view,lesson,account}} -> SSE step... done{answer, actions}; every read is an MCP tool call",
         "POST /cairo/run": "Same as /run/stream, one JSON answer",
-        "GET /cairo/.well-known/agent.json": "agent/1.0 card"
+        "GET /cairo/.well-known/agent.json": "agent/1.0 card",
+        "GET /cairo/api/fleet": "Every mod on this box with a Cairo setup (Scarb.toml -> contract|cairo, else config mentions), nearest-mod attribution; ?refresh=1 skips the 60s cache",
+        "GET /cairo/api/whitepaper": "The design paper (WHITEPAPER.md) as markdown"
     },
     "safety": "vibe() runs the Claude CLI with --permission-mode acceptEdits scoped to a single submod directory (--add-dir), so edits and scarb/snforge runs stay inside that contract's project. It uses the host Claude OAuth credentials and spends against them. No keys are deployed and nothing is sent to a live chain; sncast is present for the user to deploy by hand. Publicly routed: reads are open, but every write (write/new/vibe/build/test/clean/remove/adopt) needs a loopback request or a mod-protocol token signed by the owner (config owner, build-console private-flag owner, or CAIRO_OWNERS). The per-contract apps run on a local starknet-devnet with its public seed-0 test accounts; nothing reaches a real network. call() is open to anyone; deploy() is open only for a built contract with no live deployment; sandbox start/stop/reset is owner-only.",
     "schema": "QmSBPGDQaBEAqtgaC5BJ3DqRmyyjuNotWRaP48RBPk5SYf",
@@ -121,12 +125,14 @@
         "src/mods/<name>/app.json": "optional Simple-view layer: labels, hidden inputs/outputs, visuals, event sentences",
         "src/tutorials.py": "LEARN lessons + glossary (plain data; console, MCP and helper all read it)",
         "src/api/cairo_mcp.py": "MCP server: tools = thin wrappers over mod.py fns, same gate as REST",
-        "src/api/cairo_helper.py": "the corner helper on the agent contract; reads via MCP tools in-process"
+        "src/api/cairo_helper.py": "the corner helper on the agent contract; reads via MCP tools in-process",
+        "WHITEPAPER.md": "the whitepaper (console: Paper view; MCP: cairo_whitepaper)"
     },
     "mods_dir": "src/mods",
     "sandbox_port": 51292,
     "mcp": {
         "url": "http://localhost:51291/cairo/mcp",
         "add": "claude mcp add --transport http cairo http://localhost:51291/cairo/mcp"
-    }
+    },
+    "whitepaper": "WHITEPAPER.md"
 }

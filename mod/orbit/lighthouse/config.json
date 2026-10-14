@@ -1,8 +1,9 @@
 {
     "name": "lighthouse",
     "version": "1.0.0",
-    "description": "Lighthouse Labs perpetual decentralized storage (lighthouse.storage) \u2014 API-key uploads to IPFS/Filecoin with perpetual pinning, gateway retrieval, and a bridge that registers every CID in the store module so it gets the store's visibility, grants, pools and marketplace without the store holding the bytes. API + console, mod-protocol wallet auth, bring-your-own-key.",
+    "description": "Store files forever on IPFS/Filecoin via Lighthouse. Upload once, get a permanent link, and every file shows up in your store with its sharing and permissions.",
     "icon": "\u25ce",
+    "color": "#f5b942",
     "anchor": "mod.py",
     "protocol": "lighthouse/1.0",
     "port": 50680,
