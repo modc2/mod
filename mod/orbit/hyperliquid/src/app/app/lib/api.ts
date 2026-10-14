@@ -46,8 +46,10 @@ export type Expected = {
   per_day: number;
   /** The raw window pace, pnl ÷ days — what per_day is a haircut of. */
   pace_per_day: number;
-  /** USD/day per $1,000 copied. null on a dust basis (< $1k). */
+  /** USD/day per $1,000 copied, net of `copy_fee_1k`. null on a dust basis (< $1k). */
   per_1k: number | null;
+  /** Extra taker fees/day per $1,000 a copy pays over what the trader paid. */
+  copy_fee_1k?: number | null;
   basis: number;
   edge_per_close: number;
   closes_per_day: number;
@@ -637,6 +639,9 @@ export type ScoutCell = {
   trusted: boolean;
   pnl: number | null;
   per_day: number | null;
+  /** Before the copy's extra fees, and the fees themselves, on $1,000. */
+  gross_pnl?: number | null;
+  fees?: number | null;
   roi_pct: number | null;
   max_drawdown_pct: number | null;
   flags: string[];
@@ -657,6 +662,11 @@ export type ScoutPick = {
   trusted_windows: number;
   green_windows: number;
   verdict: "consistent" | "mixed" | "losing" | "unverified";
+  /** $1,000 over the longest window that replayed: [ms, equity] net of the
+   *  copy's fees, and the same before fees. */
+  curve_days?: number;
+  curve?: [number, number][];
+  gross_curve?: [number, number][];
 };
 export type ScoutState = {
   method: string;

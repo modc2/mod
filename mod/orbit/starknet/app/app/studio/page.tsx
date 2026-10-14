@@ -95,14 +95,6 @@ function Studio() {
             Write a Cairo contract, compile it, test it — or tell the agent what you want and let it do the typing.
           </div>
         </div>
-        <div className="studio-head-right">
-          {status && (status.ok
-            ? <span className="tool-pill" title={status.cairo}>
-                <span className="dot ok" />scarb {ver(tc?.scarb)} · snforge {ver(tc?.snforge)}{tc?.claude?.creds ? ' · agent ready' : ''}
-              </span>
-            : <span className="tool-pill bad" title={status.error}><span className="dot" />toolchain offline</span>)}
-          <Account who={who} onChange={loadWho} />
-        </div>
       </div>
 
       {err && <ErrorBox error={err} onRetry={loadList} />}
@@ -124,9 +116,17 @@ function Studio() {
               </button>
             ))}
           </div>
-          {who && !who.writable && (
-            <div className="rail-note">Browsing read-only. Sign in with the owner wallet to create, edit and build.</div>
-          )}
+          <div className="rail-foot">
+            {who && !who.writable && (
+              <div className="rail-note">Browsing read-only. Sign in with the owner wallet to create, edit and build.</div>
+            )}
+            <Account who={who} onChange={loadWho} />
+            {status && (status.ok
+              ? <div className="rail-tool" title={status.cairo}>
+                  <span className="dot ok" />scarb {ver(tc?.scarb)} · snforge {ver(tc?.snforge)}{tc?.claude?.creds ? ' · agent ready' : ''}
+                </div>
+              : <div className="rail-tool bad" title={status.error}><span className="dot" />toolchain offline</div>)}
+          </div>
         </aside>
 
         {sel ? <Workspace key={sel} name={sel} who={who} onChanged={loadList} />
@@ -146,14 +146,15 @@ function Account({ who, onChange }: { who: Who | null; onChange: () => void }) {
   if (!who) return null;
   if (who.writable) {
     return (
-      <span className="acct on" title={who.via === 'local' ? 'Running on this machine' : who.address || ''}>
-        <span className="dot ok" />{who.via === 'local' ? 'local owner' : short(who.address || '', 4)}
+      <div className="acct on" title={who.via === 'local' ? 'Running on this machine' : who.address || ''}>
+        <span className="dot ok" />
+        <span className="acct-id">{who.via === 'local' ? 'local owner' : short(who.address || '', 4)}</span>
         {who.via === 'token' && <button className="acct-x" onClick={() => { signOut(); onChange(); }}>sign out</button>}
-      </span>
+      </div>
     );
   }
   return (
-    <span className="acct-wrap">
+    <div className="acct-wrap">
       <button className="btn" disabled={busy || !hasWallet()} title={hasWallet() ? '' : 'Install a browser wallet to sign in'}
         onClick={async () => {
           setBusy(true); setErr(null);
@@ -161,7 +162,7 @@ function Account({ who, onChange }: { who: Who | null; onChange: () => void }) {
           setBusy(false);
         }}>{busy ? 'Waiting for wallet…' : 'Sign in to build'}</button>
       {(err || (who.address && who.why)) && <span className="acct-err">{err || who.why}</span>}
-    </span>
+    </div>
   );
 }
 

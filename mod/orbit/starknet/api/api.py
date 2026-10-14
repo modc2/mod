@@ -28,6 +28,13 @@ POST /studio/<verb>    owner-only writes: new write build test vibe clean
                        remove — build/test/vibe return a job to poll
 GET  /stablecoins      every stablecoin on the network: supply, model,
                        Pragma oracle peg   (/stablecoins/registry: static)
+GET  /contracts        your Cairo contracts (+ devnet addresses) and the
+                       well-known mainnet ones
+GET  /mods             the Starknet mod family (cairo, starktime, zquorum,
+                       zuma, zkwasm): up/down, live numbers, app links
+GET  /fund             ETH + STRK of every devnet account and contract the
+                       Starknet mods own (cairo sandbox, zuma)
+POST /fund {target}    top them all up to target tokens (owner/loopback)
 GET  /agents           the agent roster — the fleet agent contract
 POST /run  /run/stream ask the guide agent in plain English (JSON | SSE)
 GET  /.well-known/agent.json   agent/1.0 card
@@ -58,6 +65,9 @@ sys.path.insert(0, HERE)
 import abi  # noqa: E402
 import guide  # noqa: E402
 import chain  # noqa: E402
+import contracts  # noqa: E402
+import family  # noqa: E402
+import fund  # noqa: E402
 import mcp  # noqa: E402
 import stables  # noqa: E402
 import strk20  # noqa: E402
@@ -91,6 +101,8 @@ ENDPOINTS = {
     'studio': 'GET /studio/{whoami,status,templates,contracts,get,tree,read,abi,job,jobs}',
     'studio_write': 'POST /studio/{new,write,build,test,vibe,clean,remove} (owner token)',
     'stablecoins': 'GET /stablecoins · /stablecoins/registry',
+    'contracts': 'GET /contracts',
+    'mods': 'GET /mods  the other Starknet mods on this node, live',
     'agents': 'GET /agents · /agents/<id> · /.well-known/agent.json',
     'run': 'POST /run · POST /run/stream (SSE) {query, brain=auto|facts|claude, history}',
     'mcp': 'POST /mcp (JSON-RPC 2.0)', 'tools': 'GET /tools · POST /tools/<name>',
@@ -198,6 +210,10 @@ def route(path, q, body):
         return 200, stables.stables(network=net)
     if path == '/stablecoins/registry':
         return 200, stables.registry(network=net)
+    if path == '/contracts':
+        return 200, contracts.contracts(network=net)
+    if path == '/mods':
+        return 200, family.mods(fresh=bool(q.get('fresh')))
     if path == '/agents':
         return 200, guide.agents()
     if path.startswith('/agents/'):
@@ -287,6 +303,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, guide.card(f'http://{host}{BASE}/_api'))
         if path in ('/run', '/run/stream'):
             return self._run(path, body)
+        if path == '/fund':
+            return self._fund(body)
         if path == '/mcp':
             if self.command != 'POST':
                 return self._send(200, {'mcp': 'POST JSON-RPC 2.0 here',
@@ -341,6 +359,17 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
         self.close_connection = True
+
+    def _fund(self, body):
+        try:
+            if self.command != 'POST':
+                return self._send(200, fund.balances())
+            who = self._who()
+            if not who['writable']:
+                return self._send(403, {'error': 'funding is owner-only', 'whoami': who})
+            return self._send(200, fund.fund((body or {}).get('target') or 1000))
+        except Exception as e:  # noqa: BLE001
+            return self._send(400, {'error': f'{type(e).__name__}: {e}'})
 
     def _who(self):
         hdrs = {k.lower(): v for k, v in self.headers.items()}

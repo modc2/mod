@@ -1,7 +1,7 @@
 {
     "name": "x402",
     "title": "x402 \u00b7 every paid API",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Every x402 (HTTP 402 pay-per-request) service that exists, in one local index. Facilitators are discovered from the coinbase/x402 ecosystem registry and crawled through the spec's discovery API (Coinbase CDP Bazaar, PayAI and any other that lists); find() searches them by meaning (local MiniLM vectors fused with FTS, encoder shared via modsearch) and kind=mcp ranks paid MCP servers; any URL can be probed for its 402 and pinned. Keyless, stdlib-only, one SQLite file; re-crawls itself every 6h.",
     "icon": "402",
     "color": "#facc15",
@@ -17,7 +17,8 @@
     "urls": {
         "app": "http://localhost:51110/x402/",
         "api": "http://localhost:51110",
-        "mcp": "http://localhost:51110/x402/mcp"
+        "mcp": "http://localhost:51110/x402/mcp",
+        "ask": "http://localhost:51110/x402/api/ask"
     },
     "fns": [
         "forward",
@@ -86,7 +87,8 @@
         "policy",
         "wallet",
         "whoami",
-        "tools"
+        "tools",
+        "ask"
     ],
     "schema": "QmT6r3Bnua5UexwoqD6THKtX1Dmd7mhsTZfq6o4V6oYESB",
     "mcp": {

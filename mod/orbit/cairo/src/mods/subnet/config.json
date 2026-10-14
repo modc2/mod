@@ -1,7 +1,7 @@
 {
     "name": "subnet",
-    "title": "Subnet",
-    "description": "Subnet \u2014 a Cairo contract.",
+    "title": "Private subnet",
+    "description": "Yuma consensus with sealed (commit-reveal) weights: validators can't copy each other, outliers get clipped to the stake-weighted median.",
     "version": "0.1.0",
     "submod_of": "cairo",
     "kind": "cairo-contract",

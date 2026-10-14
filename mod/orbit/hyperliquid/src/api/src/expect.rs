@@ -21,6 +21,12 @@
 // dollars, so `per_1k = per_day × 1000 / basis` where `basis` is the equity
 // the window opened on (same basis the backtest scales by). Under $1k of
 // basis the division turns noise into ROI, so `per_1k` is withheld there.
+//
+// `per_1k` is also net of the COPY's fees, which are not the trader's: the
+// trader's own fees are already in `per_day`, but a copy pays the base-tier
+// taker rate on every fill it mirrors (backtest::COPY_TAKER_FEE). Whatever
+// that costs above what the trader paid comes off as `copy_fee_1k`/day —
+// the term that sinks high-turnover books whose edge is a rebate.
 
 use crate::traders::TopTrader;
 use serde::{Deserialize, Serialize};
@@ -36,7 +42,11 @@ pub struct Expected {
     /// The window's raw pace, `pnl / days` — what `per_day` is a haircut of.
     pub pace_per_day: f64,
     /// `per_day` per $1,000 copied proportionally. `None` on a dust basis.
+    /// Net of `copy_fee_1k`.
     pub per_1k: Option<f64>,
+    /// Extra fees a proportional copy pays per day per $1,000 over what the
+    /// trader paid: max(0, volume × taker − fees) / days, scaled.
+    pub copy_fee_1k: Option<f64>,
     /// Equity the window opened on (account value − window pnl).
     pub basis: f64,
     /// Expected USD per close at the defensible win rate.
@@ -97,12 +107,15 @@ pub fn expected(t: &TopTrader, days: u32) -> Option<Expected> {
     let per_day = edge * closes_per_day + drag;
     let pace = t.pnl / days;
     let basis = t.account_value - t.pnl;
-    let per_1k = (basis >= MIN_BASIS_USD).then(|| round(per_day * 1000.0 / basis, 2));
+    let extra_fees = (t.volume * crate::backtest::COPY_TAKER_FEE - t.fees).max(0.0) / days;
+    let copy_fee_1k = (basis >= MIN_BASIS_USD).then(|| round(extra_fees * 1000.0 / basis, 2));
+    let per_1k = (basis >= MIN_BASIS_USD).then(|| round((per_day - extra_fees) * 1000.0 / basis, 2));
     let haircut = (pace > 0.0 && per_day > 0.0).then(|| round((per_day / pace).min(9.99), 3));
     Some(Expected {
         per_day: round(per_day, 2),
         pace_per_day: round(pace, 2),
         per_1k,
+        copy_fee_1k,
         basis: round(basis, 2),
         edge_per_close: round(edge, 4),
         closes_per_day: round(closes_per_day, 2),
@@ -158,6 +171,24 @@ mod tests {
         assert!(small.per_day < 0.0, "3/5 at even payoff can't defend an edge: {small:?}");
         assert!(big.haircut.unwrap() > 0.5);
         assert!(small.thin);
+    }
+
+    #[test]
+    fn a_copy_pays_taker_fees_the_trader_did_not() {
+        let mut t = row(600, 400, 6000.0, 4000.0, 102_000.0, 2000.0);
+        let free = expected(&t, 10).unwrap();
+        assert_eq!(free.copy_fee_1k, Some(0.0));
+        // $10M of volume in 10 days at 4.5bps = $4,500, trader paid $1,500
+        // as a VIP: the copy is $300/day worse, $3/day per $1k on $100k.
+        t.volume = 10_000_000.0;
+        t.fees = 1_500.0;
+        let e = expected(&t, 10).unwrap();
+        assert_eq!(e.copy_fee_1k, Some(3.0));
+        assert!((e.per_1k.unwrap() - (free.per_1k.unwrap() - 3.0)).abs() < 0.011, "{e:?}");
+        assert_eq!(e.per_day, free.per_day, "the trader's own number is unchanged");
+        // A trader who paid more than taker (builder fees) gets no credit.
+        t.fees = 9_000.0;
+        assert_eq!(expected(&t, 10).unwrap().copy_fee_1k, Some(0.0));
     }
 
     #[test]

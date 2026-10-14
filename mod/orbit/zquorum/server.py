@@ -46,8 +46,16 @@ GET_FNS = {
     "tally": lambda q: MOD.tally(q.get("name", "")),
     "get": lambda q: MOD.get(q.get("name", "")),
     "toolchain": lambda q: MOD.toolchain(),
+    "onchain": lambda q: MOD.onchain(q.get("name", ""), q.get("network") or None),
+    "chain": lambda q: MOD.chain(q.get("network") or "devnet"),
+    "deployments": lambda q: MOD.deployments(),
 }
-POST_FNS = {"commit", "create", "join", "vote", "tally", "get", "remove"}
+POST_FNS = {"commit", "create", "join", "vote", "tally", "get", "remove",
+            "anchor", "onchain", "chain", "deploy", "devnet"}
+# Writes that move the ledger or spend from the tallier's Starknet account.
+# Reachable only from loopback without proxy headers (the anchor's own box),
+# so the public route can read and vote but not deploy/reset chains.
+LOCAL_FNS = {"deploy", "devnet"}
 
 
 def _route(path):
@@ -80,6 +88,11 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
+
+    def _local(self):
+        proxied = any(self.headers.get(h) for h in
+                      ("X-Forwarded-For", "X-Real-IP", "Forwarded", "CF-Connecting-IP"))
+        return self.client_address[0] in ("127.0.0.1", "::1") and not proxied
 
     def do_OPTIONS(self):
         self._send(204, b"")
@@ -123,11 +136,18 @@ class H(BaseHTTPRequestHandler):
         fn = _route(p.path)
         if fn not in POST_FNS:
             return self._send(404, {"error": f"unknown fn {fn!r}"})
+        if fn in LOCAL_FNS and not self._local():
+            return self._send(403, {"error": f"{fn} is local-only (run it on the anchor host: m zquorum/{fn})"})
         n = int(self.headers.get("Content-Length") or 0)
         try:
             kw = json.loads(self.rfile.read(n) or b"{}")
         except Exception:  # noqa: BLE001
             kw = {}
+        if not isinstance(kw, dict):
+            kw = {}
+        if (fn in ("anchor", "create") and (kw.get("network") or "devnet") != "devnet"
+                and not self._local()):
+            return self._send(403, {"error": "anchoring on a paid network is local-only"})
         try:
             return self._send(200, getattr(MOD, fn)(**kw))
         except TypeError as e:  # bad/missing kwargs

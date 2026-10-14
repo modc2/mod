@@ -17,8 +17,15 @@ type Tally = {
   members: number;
   frozen: boolean;
   root: string | null;
+  chain?: { network: string; address: string; txs: number; last_tx?: string } | null;
   error?: string;
 };
+
+type Health = {
+  starknet?: { devnet_up: boolean; deployments: Record<string, string>; anchored: number };
+};
+
+const short = (h?: string | null) => (h ? `${h.slice(0, 8)}…${h.slice(-4)}` : '');
 
 async function call(fn: string, body?: Record<string, unknown>): Promise<any> {
   const res = await fetch(`${API}/${fn}`, {
@@ -32,11 +39,13 @@ async function call(fn: string, body?: Record<string, unknown>): Promise<any> {
 export default function Page() {
   const [quorums, setQuorums] = useState<Tally[]>([]);
   const [loading, setLoading] = useState(true);
+  const [health, setHealth] = useState<Health>({});
 
   const refresh = useCallback(async () => {
     try {
-      const r = await call('list');
+      const [r, h] = await Promise.all([call('list'), call('health')]);
       setQuorums(r.quorums || []);
+      setHealth(h || {});
     } catch {
       /* panels fail soft */
     } finally {
@@ -54,15 +63,18 @@ export default function Page() {
         <div className="mark">Q</div>
         <div>
           <h1>zQuorum</h1>
-          <p className="sub">anonymous quorums, Cairo-verified</p>
+          <p className="sub">anonymous quorums, Cairo-verified, on Starknet</p>
         </div>
+        <ChainChip h={health} />
       </header>
 
       <p className="tagline">
         A group reaches a quorum <strong>without revealing who voted</strong>. Members register a
         Pedersen <code>commitment</code> derived from a private secret; a vote reveals only a{' '}
         <code>nullifier</code> — unlinkable to any member, and a repeated nullifier is a rejected
-        double vote. Every hash runs in one Cairo program (<code>circuit/</code>).
+        double vote. Every hash runs in one Cairo program (<code>circuit/</code>), and the books
+        (members, nullifiers, tally, frozen root) can live on the <code>ZQuorum</code> Starknet
+        contract.
       </p>
 
       <Create onDone={refresh} />
@@ -82,7 +94,9 @@ export default function Page() {
       <p className="footer">
         Trust model v0.1: this local anchor is a <strong>trusted tallier</strong> — it sees a secret
         transiently while the Cairo circuit verifies membership and derives the nullifier, then
-        persists only <code>(nullifier, choice)</code>. No identities are ever stored. v0.2 replaces
+        persists only <code>(nullifier, choice)</code>. No identities are ever stored. On Starknet the
+        tallier&apos;s account posts every transaction, so the sender never identifies a voter; the
+        contract itself enforces the freeze, one vote per nullifier and the threshold. v0.2 replaces
         execution with a STARK proof so no party sees a secret at all. API: <code>{BASE}/api/&lt;fn&gt;</code>.
       </p>
     </div>
@@ -93,6 +107,7 @@ function Create({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('');
   const [threshold, setThreshold] = useState('2');
   const [desc, setDesc] = useState('');
+  const [onchain, setOnchain] = useState(true);
   const [out, setOut] = useState<string>('');
   const [busy, setBusy] = useState(false);
 
@@ -101,8 +116,15 @@ function Create({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setOut('');
     try {
-      const r = await call('create', { name, threshold, desc });
-      setOut(r.error ? `error: ${r.error}` : `opened "${r.created}" · threshold ${r.threshold}`);
+      const r = await call('create', { name, threshold, desc, network: onchain ? 'devnet' : null });
+      const chainErr = r.chain?.error;
+      setOut(
+        r.error
+          ? `error: ${r.error}`
+          : `opened "${r.created}" · threshold ${r.threshold}` +
+              (r.chain?.address ? ` · on Starknet at ${short(r.chain.address)}` : '') +
+              (chainErr ? ` · error: Starknet: ${chainErr}` : ''),
+      );
       if (!r.error) {
         setName('');
         setDesc('');
@@ -138,6 +160,10 @@ function Create({ onDone }: { onDone: () => void }) {
           {busy ? '…' : 'Open'}
         </button>
       </div>
+      <label className="check">
+        <input type="checkbox" checked={onchain} onChange={(e) => setOnchain(e.target.checked)} />
+        Keep the books on Starknet (local devnet)
+      </label>
       {out && <div className={`out ${out.startsWith('error') ? 'err' : ''}`}>{out}</div>}
     </section>
   );
@@ -282,7 +308,79 @@ function Quorum({ q, onChange }: { q: Tally; onChange: () => void }) {
         </button>
       </div>
 
+      <ChainRow q={q} onChange={onChange} />
+
       {msg && <div className={`out ${msg.startsWith('error') ? 'err' : ''}`}>{msg}</div>}
+    </div>
+  );
+}
+
+function ChainChip({ h }: { h: Health }) {
+  const sn = h.starknet;
+  if (!sn) return null;
+  const dep = sn.deployments?.devnet;
+  const live = sn.devnet_up && dep;
+  return (
+    <span className={`pill chip ${live ? 'reached' : 'open'}`} title={dep || 'not deployed yet'}>
+      STARKNET {live ? `devnet · ${short(dep)}` : dep ? 'devnet asleep' : 'not deployed'}
+    </span>
+  );
+}
+
+function ChainRow({ q, onChange }: { q: Tally; onChange: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  async function verify() {
+    setBusy(true);
+    setMsg('');
+    try {
+      const r = await call(`onchain?name=${encodeURIComponent(q.quorum)}`);
+      if (r.error) setMsg(`error: ${r.error}`);
+      else if (!r.onchain) setMsg('error: not found on chain');
+      else if (r.match)
+        setMsg(`chain agrees · yes ${r.chain.yes} · no ${r.chain.no} · ${r.chain.members} member(s)` +
+          (r.chain.root ? ` · root ${short(r.chain.root)}` : ''));
+      else setMsg(`error: chain differs on ${r.diff.join(', ')}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function anchor() {
+    setBusy(true);
+    setMsg('');
+    try {
+      const r = await call('anchor', { name: q.quorum, network: 'devnet' });
+      setMsg(r.error ? `error: ${r.error}` : `on Starknet · ${r.txs.length} tx(s) replayed`);
+      onChange();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="chain">
+      {q.chain ? (
+        <>
+          <span className="pill reached">STARKNET</span>
+          <span>{q.chain.network}</span>
+          <code title={q.chain.address}>{short(q.chain.address)}</code>
+          <span>{q.chain.txs} tx</span>
+          <button className="ghost small" disabled={busy} onClick={verify}>
+            {busy ? '…' : 'Check on-chain'}
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="pill frozen">OFF-CHAIN</span>
+          <span>local ledger only</span>
+          <button className="ghost small" disabled={busy} onClick={anchor}>
+            {busy ? '…' : 'Put on Starknet'}
+          </button>
+        </>
+      )}
+      {msg && <span className={msg.startsWith('error') ? 'err' : 'ok'}>{msg.replace(/^error: /, '')}</span>}
     </div>
   );
 }

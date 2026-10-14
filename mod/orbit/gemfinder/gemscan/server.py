@@ -1,6 +1,7 @@
 """
 gemscan.server — REST on one port, stdlib only.
 
+    GET /            the app (app/index.html)
     GET /health
     GET /scan?asset=all|crypto|stock&k=20&narrative=&min_score=&sources=a,b&hn=1
     GET /narratives?asset=
@@ -16,10 +17,12 @@ import argparse
 import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from . import engine, http, narratives, sources
 
 PREFIXES = ('/gemfinder/api', '/gemfinder', '/api')
+APP = Path(__file__).resolve().parent.parent / 'app' / 'index.html'
 
 
 def route(path: str) -> str:
@@ -54,6 +57,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _html(self, data: bytes):
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(data)))
+        self.send_header('Cache-Control', 'no-cache')
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_OPTIONS(self):
         self._send(204, {})
 
@@ -61,15 +72,17 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = {k: v[-1] for k, v in urllib.parse.parse_qs(u.query).items()}
         path = route(u.path).rstrip('/') or '/'
+        if path in ('/', '/index.html') and APP.exists():
+            return self._html(APP.read_bytes())
         try:
-            if path in ('/', '/health'):
+            if path == '/health':
                 body = {'ok': True, 'module': 'gemfinder', 'cache': http.stats(),
                         'narratives': narratives.ids()}
             elif path == '/scan':
                 body = engine.scan(asset=q.get('asset', 'all'), k=int(q.get('k', 20)),
                                    narrative=q.get('narrative') or None, min_score=float(q.get('min_score', 0)),
                                    sources=[s for s in q.get('sources', '').split(',') if s] or None,
-                                   hn=_bool(q.get('hn', '1')))
+                                   hn=_bool(q.get('hn', '1')), save=_bool(q.get('save', '1')))
             elif path == '/narratives':
                 body = engine.narratives(asset=q.get('asset', 'all'), hn=_bool(q.get('hn', '1')))
             elif path == '/history':

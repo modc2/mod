@@ -8,17 +8,20 @@ import Search from './Search';
 
 const NAV = [
   { href: '/', label: 'Explore' },
+  { href: '/contracts', label: 'Contracts' },
+  { href: '/mods', label: 'Mods' },
   { href: '/stablecoins', label: 'Stablecoins' },
-  { href: '/ask', label: 'Ask' },
+  { href: '/privacy', label: 'Privacy' },
   { href: '/studio', label: 'Build' },
-  { href: '/privacy', label: 'Privacy pool' },
-  { href: '/developers', label: 'API & MCP' },
+  { href: '/ask', label: 'Ask' },
+  { href: '/developers', label: 'API' },
 ];
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname() || '/';
   const { net, setNet } = useNet();
   const status = useApi<any>('status', 30000);
+  const family = useApi<any>('mods', 60000);
   const live = !!status.data;
 
   return (
@@ -28,34 +31,36 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           {/* plain <a>: the root route's RSC payload lives outside /starknet/* */}
           <a href={`${BASE}/`} className="brand">
             <span className="mark">S</span>
-            <span className="word"><b>stark</b>net</span>
+            <span className="word"><b>stark</b><i>//</i>net</span>
           </a>
-          <nav>
+          <nav className="nav">
             {NAV.map(n => {
               const on = n.href === '/' ? ['/', '/block', '/tx', '/address'].includes(path) : path.startsWith(n.href);
+              const badge = n.href === '/mods' && family.data
+                ? <span className="nav-n">{family.data.up}</span> : null;
               return n.href === '/'
                 ? <a key={n.href} href={`${BASE}/`} className={on ? 'on' : ''}>{n.label}</a>
-                : <Link key={n.href} href={n.href} className={on ? 'on' : ''}>{n.label}</Link>;
+                : <Link key={n.href} href={n.href} className={on ? 'on' : ''}>{n.label}{badge}</Link>;
             })}
           </nav>
-          {path !== '/' && <div className="top-search"><Search /></div>}
           <div className="top-right">
             <span className={`live ${live ? 'on' : status.error ? 'off' : ''}`} title={status.data?.rpc || status.error || ''}>
               <span className="dot" />
               {live ? `#${status.data.block_number.toLocaleString()}` : status.error ? 'offline' : '…'}
             </span>
-            <select value={net} onChange={e => setNet(e.target.value as any)} aria-label="network">
+            <select className="net" value={net} onChange={e => setNet(e.target.value as any)} aria-label="network">
               <option value="mainnet">Mainnet</option>
               <option value="sepolia">Sepolia</option>
             </select>
           </div>
+          {path !== '/' && path !== '/mods' && !path.startsWith('/studio') && <div className="top-search"><Search /></div>}
         </div>
       </header>
       <main className={`main ${path.startsWith('/studio') ? 'wide' : ''}`}>{children}</main>
       <footer className="foot">
         The explorer is read-only — it holds no keys and never signs.
         {' '}Data straight from Starknet RPC{status.data?.rpc ? ` (${status.data.rpc.replace(/^https?:\/\//, '')})` : ''}.
-        {' '}<Link href="/developers">API &amp; MCP</Link>
+        {' '}<Link href="/mods">Starknet mods</Link> · <Link href="/developers">API &amp; MCP</Link>
       </footer>
     </div>
   );

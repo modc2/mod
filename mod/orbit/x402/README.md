@@ -129,6 +129,23 @@ A refusal for missing standing costs nothing. State lives in `~/.mod/x402/`
 The REST faces (`POST /x402/api/{call,quote,register,…}`, `GET users`,
 `trust`, `whoami`, `tools`) run as the caller, never as the box.
 
+## Finder agent (ask it to find one)
+
+The SERVICES and PROVIDERS tabs are square tiles. "Ask the agent" opens the
+FINDER AGENT panel: describe the job ("cheap token rug check on base") and the
+host's `claude` CLI (headless, `--tools ""`, `--strict-mcp-config`) searches this
+module's own live MCP server with read-only tools only (`x402_find`, `_search`,
+`_mcp`, `_service`, `_providers`, `_stats`, `_facilitators`). It cannot call,
+quote, probe or pay. It ends with a `PICKS:` line; those URLs are resolved
+against the index and shown as tiles, and any URL not in the index is dropped.
+
+    GET  /x402/api/ask                              the agent card
+    POST /x402/api/ask {question, session?, model?} SSE: start, tool, text, done|error
+
+Follow-ups resume the Claude session. Anonymous callers: 12 questions/hour/IP,
+2 at once; calls from this box are not limited. Code: `x402agent.py`
+(env `X402_AGENT_MODEL|TIMEOUT|RATE|CONCURRENCY`).
+
 ## Where services come from
 
 | source | how | finds |

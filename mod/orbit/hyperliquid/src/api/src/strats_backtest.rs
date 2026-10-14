@@ -48,7 +48,11 @@ pub struct Cell {
     pub ok: bool,
     /// Equity model: your $N riding the book, realised + unrealised.
     pub roi_pct: Option<f64>,
+    /// Net of the copy's fees (see backtest::COPY_TAKER_FEE).
     pub pnl: Option<f64>,
+    /// Before the copy's extra fees, and the fees that separate the two.
+    pub gross_pnl: Option<f64>,
+    pub fees: Option<f64>,
     pub final_value: Option<f64>,
     pub max_drawdown_pct: Option<f64>,
     /// Realised-only fills mirror, for the gap the checks already name.
@@ -70,6 +74,8 @@ impl From<&Backtest> for Cell {
             ok: b.ok,
             roi_pct: some(b.roi_pct),
             pnl: some(b.pnl),
+            gross_pnl: some(b.gross_pnl),
+            fees: some(b.fees),
             final_value: some(b.final_value),
             max_drawdown_pct: some(b.max_drawdown_pct),
             realized_roi_pct: b.mirror.as_ref().filter(|_| b.available).map(|m| m.roi_pct),
@@ -298,6 +304,7 @@ mod tests {
     fn cell(days: u32, roi: Option<f64>, ok: bool) -> Cell {
         Cell {
             days, available: roi.is_some(), ok, roi_pct: roi, pnl: roi.map(|r| r * 10.0),
+            gross_pnl: roi.map(|r| r * 10.0), fees: roi.map(|_| 0.0),
             final_value: roi.map(|r| 1000.0 + r * 10.0), max_drawdown_pct: Some(0.0),
             realized_roi_pct: None, wiped: false, flags: vec![], note: None,
         }

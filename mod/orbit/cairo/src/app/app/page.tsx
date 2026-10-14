@@ -6,12 +6,15 @@ import { AgentStep, BASE, BuildState, Contract, Job, STATE_TIP, Template, call, 
 import { Market } from './market';
 import { Create, NewSeed } from './create';
 import { Docs } from './docs';
+import { Learn } from './learn';
+import { AgentOrb, AgentAction } from './agent';
 
 // Top-level views. The hash (#market, #new, #docs) makes each one linkable.
-type View = 'studio' | 'market' | 'new' | 'docs';
+type View = 'studio' | 'market' | 'new' | 'docs' | 'learn';
 const VIEWS: { id: View; label: string; tip: string }[] = [
   { id: 'studio', label: 'Studio', tip: 'edit, build, test and vibecode a contract' },
   { id: 'market', label: 'Market', tip: 'the bazaar: every contract here, open or fork one' },
+  { id: 'learn', label: 'Learn', tip: 'stablecoins from zero: short plain-English lessons' },
   { id: 'docs', label: 'Docs', tip: 'how it works, Cairo basics, the HTTP API' },
 ];
 const isView = (v: string): v is View => v === 'new' || VIEWS.some((x) => x.id === v);
@@ -38,6 +41,38 @@ const IDEAS: Record<string, string[]> = {
 };
 const GENERIC_IDEAS = ['add tests for every revert path', 'add events for every state change'];
 
+// The mark: a pyramid, lit face + shade face over a base line.
+function Pyramid({ size = 28 }: { size?: number }) {
+  return (
+    <svg className="pyramid" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <defs>
+        <linearGradient id="pyr-lit" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ffb199" />
+          <stop offset="1" stopColor="#ff6b4a" />
+        </linearGradient>
+        <linearGradient id="pyr-shade" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#c4472a" />
+          <stop offset="1" stopColor="#7a2a17" />
+        </linearGradient>
+      </defs>
+      <path d="M16 3 L3 27 L19 27 Z" fill="url(#pyr-lit)" />
+      <path d="M16 3 L19 27 L29 27 Z" fill="url(#pyr-shade)" />
+      <path d="M16 3 L19 27" stroke="rgba(255,255,255,0.35)" strokeWidth="0.8" />
+    </svg>
+  );
+}
+
+// Sidebar toggle icon: a panel with its left column filled when open.
+function SideIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
+      <rect x="2.5" y="3.5" width="15" height="13" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="11.75" y="4.25" width="5" height="11.5" rx="1.5" fill={open ? 'currentColor' : 'none'} opacity={open ? 0.9 : 0} />
+      <path d="M11.5 3.5 V16.5" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 
 export default function Page() {
   const [tools, setTools] = useState<Record<string, any>>({});
@@ -48,10 +83,29 @@ export default function Page() {
   const [shown, setShown] = useState<string | null>(null);
   const [err, setErr] = useState('');
   const [now, setNow] = useState(Date.now() / 1000);
-  const [who, setWho] = useState<{ writable: boolean; address?: string | null; why?: string } | null>(null);
+  const [who, setWho] = useState<{ writable: boolean; via?: string | null; address?: string | null; why?: string } | null>(null);
   const editor = useRef<{ jump: (d: Diag) => void } | null>(null);
   const [view, setViewState] = useState<View>('studio');
   const [seed, setSeed] = useState<NewSeed>({});
+  // the open lesson in LEARN (null = the lesson list); remembered
+  const [lesson, setLessonState] = useState<string | null>(null);
+  useEffect(() => setLessonState(localStorage.getItem('cairo.lesson') || null), []);
+  const setLesson = (id: string | null) => {
+    setLessonState(id);
+    if (id) localStorage.setItem('cairo.lesson', id);
+    else localStorage.removeItem('cairo.lesson');
+  };
+  // the right drawer (My contracts), toggled from the top-right; remembered
+  const [drawer, setDrawerState] = useState(false);
+  useEffect(() => {
+    const saved = localStorage.getItem('cairo.drawer');
+    setDrawerState(saved === null ? window.innerWidth >= 1100 : saved === '1');
+  }, []);
+  const setDrawer = (open: boolean) => {
+    setDrawerState(open);
+    localStorage.setItem('cairo.drawer', open ? '1' : '0');
+  };
+  const narrow = () => typeof window !== 'undefined' && window.innerWidth < 1100;
 
   const setView = (v: View) => {
     setViewState(v);
@@ -136,6 +190,7 @@ export default function Page() {
   const openContract = (name: string) => {
     setSel(name);
     setView('studio');
+    if (narrow()) setDrawerState(false);
   };
   const newContract = (sd: NewSeed = {}) => {
     setSeed(sd);
@@ -151,10 +206,10 @@ export default function Page() {
   const landedAny = jobs.find((j) => j.finished)?.id ?? null;
 
   return (
-    <div className="wrap">
+    <div className={`wrap ${drawer ? 'shift' : ''}`}>
       <header className="top">
         <button className="brand" onClick={() => setView('studio')} title="cairo · zero-knowledge contracts, one mod each">
-          <span className="mark">C</span>
+          <span className="mark"><Pyramid /></span>
           <span className="name">cairo</span>
           <span className="sub">zk contracts</span>
         </button>
@@ -178,131 +233,174 @@ export default function Page() {
               </span>
             ))}
           </span>
-          {who && !who.writable && (
+          {who && !who.address && who.via !== 'local' && (
             <button className="signin" title={who.why || 'sign in with the owner wallet to build, test and vibecode'} onClick={doSignIn}>
               Sign in
             </button>
           )}
-          {who?.writable && who.address && (
-            <span className="me" title={`owner · ${who.address}`}>
+          {who?.via === 'local' && !who.address && (
+            <span className="me" title="local owner: this machine can build, test and vibecode">
               <i />
-              {who.address.slice(0, 6)}…{who.address.slice(-4)}
+              local
             </span>
           )}
+          {who?.address && (
+            <button
+              className={`me ${who.writable ? '' : 'guest'}`}
+              title={`${who.writable ? 'owner' : 'signed in, read-only (not an owner)'} · ${who.address}\nclick to sign in with another wallet`}
+              onClick={doSignIn}
+            >
+              <i />
+              {who.address.slice(0, 6)}…{who.address.slice(-4)}
+            </button>
+          )}
+          <button
+            className={`sidebtn ${drawer ? 'on' : ''}`}
+            title={drawer ? 'close the sidebar' : 'open the sidebar: my contracts'}
+            aria-expanded={drawer}
+            onClick={() => setDrawer(!drawer)}
+          >
+            <SideIcon open={drawer} />
+          </button>
         </div>
       </header>
 
+      <aside className={`drawer ${drawer ? 'open' : ''}`} aria-hidden={!drawer}>
+        <h2>
+          My contracts <span className="count">{contracts.length}</span>
+          <span className="spacer" />
+          <button className="plusbtn sm" title="new contract" onClick={() => newContract()}>
+            +
+          </button>
+          <button className="xbtn" title="close" onClick={() => setDrawer(false)}>
+            ×
+          </button>
+        </h2>
+        <div className="list">
+          {contracts.length === 0 && (
+            <button className="item ghostitem" onClick={() => newContract()}>
+              None yet. Press + to make one.
+            </button>
+          )}
+          {contracts.map((c) => (
+            <MyContract
+              key={c.name}
+              c={c}
+              on={view === 'studio' && sel === c.name}
+              busy={busy(c.name)}
+              writable={!!who?.writable}
+              onOpen={() => openContract(c.name)}
+              onFork={() => newContract({ fork: c.name })}
+              onRemove={() => removeContract(c.name)}
+            />
+          ))}
+        </div>
+      </aside>
+      {drawer && <div className="scrim" onClick={() => setDrawer(false)} />}
+
       {err && <p className="err">{err}</p>}
 
-      {view === 'market' && (
-        <Market refreshKey={landedAny} writable={!!who?.writable} onOpen={openContract} onNew={newContract} />
-      )}
-
-      {view === 'new' && (
-        <Create
-          templates={templates}
-          contracts={contracts.map((c) => c.name)}
-          seed={seed}
-          writable={!!who?.writable}
-          onSignIn={doSignIn}
-          start={start}
-          onDone={(name) => {
-            refresh();
-            openContract(name);
-          }}
+      {view === 'docs' && <Docs />}
+      {view === 'learn' && (
+        <Learn
+          lesson={lesson}
+          setLesson={setLesson}
+          onNew={(template) => newContract({ template })}
+          onAsk={() => window.dispatchEvent(new Event('cairo:agent-open'))}
         />
       )}
 
-      {view === 'docs' && <Docs />}
-
-      {view === 'studio' && (
-      <div className="grid">
-        <aside>
-          <section className="card">
-            <h2>
-              My contracts <span className="count">{contracts.length}</span>
-              <span className="spacer" />
-              <button className="plusbtn sm" title="new contract" onClick={() => newContract()}>
-                +
-              </button>
-            </h2>
-            <div className="list">
-              {contracts.length === 0 && (
-                <button className="item ghostitem" onClick={() => newContract()}>
-                  None yet. Press + to make one.
-                </button>
-              )}
-              {contracts.map((c) => (
-                <MyContract
-                  key={c.name}
-                  c={c}
-                  on={sel === c.name}
-                  busy={busy(c.name)}
-                  writable={!!who?.writable}
-                  onOpen={() => setSel(c.name)}
-                  onFork={() => newContract({ fork: c.name })}
-                  onRemove={() => removeContract(c.name)}
-                />
-              ))}
-            </div>
-          </section>
-        </aside>
-
+      {view !== 'docs' && view !== 'learn' && (
+      <div>
         <main style={{ minWidth: 0 }}>
-          {sel ? (
-            <Workbench
-              key={sel}
-              name={sel}
-              contract={selContract}
-              busy={busy(sel)}
-              start={start}
-              landed={landed}
-              lastJob={jobs.find((j) => j.name === sel && j.state === 'done') || null}
-              lastTest={jobs.find((j) => j.name === sel && j.state !== 'queued' && j.state !== 'running' && (j.fn === 'test' || (j.fn === 'vibe' && j.result?.test))) || null}
-              editorRef={editor}
-              onRemoved={() => {
-                setSel(null);
-                refresh();
-              }}
-            />
-          ) : (
-            <section className="card muted">Pick a contract, or make a new one.</section>
-          )}
+        {view === 'market' && (
+          <Market refreshKey={landedAny} writable={!!who?.writable} onOpen={openContract} onNew={newContract} />
+        )}
 
-          <section className="card">
-            <h2>
-              Output
-              <span className="spacer" />
-              {shownJob && (
-                <span className={`pill ${jobOk(shownJob) === true ? 'ok' : jobOk(shownJob) === false ? 'bad' : ''}`}>
-                  {shownJob.fn} {shownJob.name} · {shownJob.state} {secs(shownJob, now)}
-                </span>
+        {view === 'new' && (
+          <Create
+            templates={templates}
+            contracts={contracts.map((c) => c.name)}
+            seed={seed}
+            writable={!!who?.writable}
+            onSignIn={doSignIn}
+            start={start}
+            onDone={(name) => {
+              refresh();
+              openContract(name);
+            }}
+          />
+        )}
+
+          {view === 'studio' && (
+            <>
+              {sel ? (
+                <Workbench
+                  key={sel}
+                  name={sel}
+                  contract={selContract}
+                  busy={busy(sel)}
+                  start={start}
+                  landed={landed}
+                  lastJob={jobs.find((j) => j.name === sel && j.state === 'done') || null}
+                  lastTest={jobs.find((j) => j.name === sel && j.state !== 'queued' && j.state !== 'running' && (j.fn === 'test' || (j.fn === 'vibe' && j.result?.test))) || null}
+                  editorRef={editor}
+                  onRemoved={() => {
+                    setSel(null);
+                    refresh();
+                  }}
+                />
+              ) : (
+                <section className="card muted">Pick a contract, or make a new one.</section>
               )}
-            </h2>
-            {shownJob ? (
-              <JobView job={shownJob} now={now} onJump={jump} />
-            ) : (
-              <div className="muted">Build, test or vibe a contract to see its output here.</div>
-            )}
-            {jobs.length > 0 && (
-              <div className="jobs">
-                {jobs.slice(0, 8).map((j) => (
-                  <button className={`job ${shown === j.id ? 'on' : ''}`} key={j.id} onClick={() => setShown(j.id)}>
-                    <span className={`state ${live(j) ? j.state : jobOk(j) === false ? 'error' : 'done'}`}>
-                      {live(j) ? j.state : jobOk(j) === false ? 'failed' : 'ok'}
+
+              <section className="card">
+                <h2>
+                  Output
+                  <span className="spacer" />
+                  {shownJob && (
+                    <span className={`pill ${jobOk(shownJob) === true ? 'ok' : jobOk(shownJob) === false ? 'bad' : ''}`}>
+                      {shownJob.fn} {shownJob.name} · {shownJob.state} {secs(shownJob, now)}
                     </span>
-                    <span>
-                      {j.fn} {j.name}
-                    </span>
-                    <span className="muted">{secs(j, now)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
+                  )}
+                </h2>
+                {shownJob ? (
+                  <JobView job={shownJob} now={now} onJump={jump} />
+                ) : (
+                  <div className="muted">Build, test or vibe a contract to see its output here.</div>
+                )}
+                {jobs.length > 0 && (
+                  <div className="jobs">
+                    {jobs.slice(0, 8).map((j) => (
+                      <button className={`job ${shown === j.id ? 'on' : ''}`} key={j.id} onClick={() => setShown(j.id)}>
+                        <span className={`state ${live(j) ? j.state : jobOk(j) === false ? 'error' : 'done'}`}>
+                          {live(j) ? j.state : jobOk(j) === false ? 'failed' : 'ok'}
+                        </span>
+                        <span>
+                          {j.fn} {j.name}
+                        </span>
+                        <span className="muted">{secs(j, now)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
         </main>
       </div>
       )}
+      <AgentOrb
+        ctx={{ contract: view === 'studio' ? sel : null, view, lesson: view === 'learn' ? lesson : null }}
+        writable={!!who?.writable}
+        onAction={(a: AgentAction) => {
+          if (a.lesson) {
+            setLesson(a.lesson);
+            setView('learn');
+          } else if (a.new) newContract({ template: a.new });
+          else if (a.open) openContract(a.open);
+        }}
+      />
     </div>
   );
 }
@@ -659,27 +757,30 @@ function Workbench({
         {tab === 'api' && <ApiTab name={name} state={state} abi={abi} />}
 
         {tab === 'code' && (
-          <div className="split">
-            <div className="list">
-              {files.map((f) => (
-                <button key={f} className={`item file ${path === f ? 'on' : ''}`} onClick={() => setPath(f)}>
-                  {f}
-                </button>
-              ))}
-            </div>
-            <div className="col" style={{ minWidth: 0 }}>
-              <Editor ref={ed} value={content} path={path} marks={marks} onChange={setContent} onSave={save} />
-              <div className="row">
-                <button className="btn" disabled={!dirty || busy} onClick={save}>
-                  Save
-                </button>
-                {dirty && (
-                  <button className="btn" onClick={() => setContent(saved)}>
-                    Discard
+          <div className="codepane">
+            <div className="filetabs" role="tablist">
+              {files.map((f) => {
+                const cut = f.lastIndexOf('/') + 1;
+                return (
+                  <button key={f} title={f} className={`ftab ${path === f ? 'on' : ''}`} onClick={() => setPath(f)}>
+                    {cut > 0 && <span className="dir">{f.slice(0, cut)}</span>}
+                    {f.slice(cut)}
+                    {path === f && dirty && <i className="tdot" title="unsaved" />}
                   </button>
-                )}
-                <span className="muted">{dirty ? 'unsaved · Ctrl+S' : msg}</span>
-              </div>
+                );
+              })}
+            </div>
+            <Editor ref={ed} value={content} path={path} marks={marks} onChange={setContent} onSave={save} />
+            <div className="codebar">
+              <span className="muted">{dirty ? 'unsaved · Ctrl+S' : msg}</span>
+              {dirty && (
+                <button className="btn" onClick={() => setContent(saved)}>
+                  Discard
+                </button>
+              )}
+              <button className="btn" disabled={!dirty || busy} onClick={save}>
+                Save
+              </button>
             </div>
           </div>
         )}

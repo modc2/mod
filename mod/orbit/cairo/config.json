@@ -1,7 +1,7 @@
 {
     "name": "cairo",
     "title": "Cairo \u00b7 a ZK contract workbench",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "A Cairo/Starknet zero-knowledge contract workbench. Scaffold a Cairo 2 contract, vibecode it with an agent, build it and run its snforge tests \u2014 each contract is a self-contained Scarb project mounted as its own mod under orbit/cairo/src/mods/<name> (addressed cairo.<name>). Thin orchestration (Python stdlib) over the real toolchain already on this box: scarb 2.8.4, starknet-foundry (snforge/sncast) 0.31, universal-sierra-compiler. The 'vibecode' loop drives the headless Claude CLI, scoped to one submod, to write or edit Cairo and then verifies with build + test.",
     "icon": "C",
     "color": "#ff6b4a",
@@ -27,7 +27,9 @@
     "state": "Contracts live in-tree as mods at orbit/cairo/src/mods/<name>/ (one Scarb project + mod.py anchor each, addressed cairo.<name>). No external state dir; scarb target/ and .snfoundry_cache/ are gitignored. The sandbox chain (starknet-devnet) keeps its state in src/.sandbox/ (gitignored, dumped every block).",
     "submods": [
         "counter",
-        "airdrop"
+        "airdrop",
+        "usd",
+        "vaultusd"
     ],
     "fns": [
         "forward",
@@ -59,7 +61,8 @@
         "events",
         "sandbox",
         "market",
-        "fork"
+        "fork",
+        "tutorials"
     ],
     "endpoints": {
         "GET /cairo": "The console (static Next.js export)",
@@ -92,7 +95,13 @@
         "GET /cairo/api/events?name=": "Decoded events of the deployed contract, newest first",
         "GET /cairo/api/sandbox": "Devnet status, accounts, deployments; POST action=start|stop|reset is owner-only",
         "GET /cairo/api/market": "The bazaar: every contract with build state, ABI summary (reads/writes/events), devnet deployment, size, last touched; plus starter templates",
-        "POST /cairo/api/fork": "Copy a contract into a new mod (src, name, desc?): package, contract module, dispatchers and use-paths renamed. Owner-only"
+        "POST /cairo/api/fork": "Copy a contract into a new mod (src, name, desc?): package, contract module, dispatchers and use-paths renamed. Owner-only",
+        "GET /cairo/api/tutorials?id=": "The LEARN track: stablecoin + Cairo lessons for beginners (no id = index + glossary)",
+        "POST /cairo/mcp": "MCP server (JSON-RPC 2.0, streamable HTTP): cairo_tutorials/lesson/templates/contracts/app/read/abi/call/events/deploy/jobs open; cairo_new/write/build/test owner-only. GET = card",
+        "GET /cairo/agents": "Agent contract: the cairo helper (brains: helper = free/open, claude = owner-only via orbit/claudecode)",
+        "POST /cairo/run/stream": "Ask the helper {query, brain?, context:{contract,view,lesson,account}} -> SSE step... done{answer, actions}; every read is an MCP tool call",
+        "POST /cairo/run": "Same as /run/stream, one JSON answer",
+        "GET /cairo/.well-known/agent.json": "agent/1.0 card"
     },
     "safety": "vibe() runs the Claude CLI with --permission-mode acceptEdits scoped to a single submod directory (--add-dir), so edits and scarb/snforge runs stay inside that contract's project. It uses the host Claude OAuth credentials and spends against them. No keys are deployed and nothing is sent to a live chain; sncast is present for the user to deploy by hand. Publicly routed: reads are open, but every write (write/new/vibe/build/test/clean/remove/adopt) needs a loopback request or a mod-protocol token signed by the owner (config owner, build-console private-flag owner, or CAIRO_OWNERS). The per-contract apps run on a local starknet-devnet with its public seed-0 test accounts; nothing reaches a real network. call() is open to anyone; deploy() is open only for a built contract with no live deployment; sandbox start/stop/reset is owner-only.",
     "schema": "QmSBPGDQaBEAqtgaC5BJ3DqRmyyjuNotWRaP48RBPk5SYf",
@@ -109,8 +118,15 @@
         "src/templates/app.html": "the default per-contract app (one plain HTML file, no build)",
         "src/.sandbox/": "devnet dump, sncast accounts file, deployments.json (gitignored)",
         "docs/": "plain-language guide + app.json reference (docs/simple-apps.md)",
-        "src/mods/<name>/app.json": "optional Simple-view layer: labels, hidden inputs/outputs, visuals, event sentences"
+        "src/mods/<name>/app.json": "optional Simple-view layer: labels, hidden inputs/outputs, visuals, event sentences",
+        "src/tutorials.py": "LEARN lessons + glossary (plain data; console, MCP and helper all read it)",
+        "src/api/cairo_mcp.py": "MCP server: tools = thin wrappers over mod.py fns, same gate as REST",
+        "src/api/cairo_helper.py": "the corner helper on the agent contract; reads via MCP tools in-process"
     },
     "mods_dir": "src/mods",
-    "sandbox_port": 51292
+    "sandbox_port": 51292,
+    "mcp": {
+        "url": "http://localhost:51291/cairo/mcp",
+        "add": "claude mcp add --transport http cairo http://localhost:51291/cairo/mcp"
+    }
 }

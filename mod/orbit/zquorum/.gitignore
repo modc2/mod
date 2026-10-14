@@ -9,3 +9,5 @@ app/next-env.d.ts
 app/tsconfig.tsbuildinfo
 dist
 releases/
+contract/target/
+contract/.snfoundry_cache/

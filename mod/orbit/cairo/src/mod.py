@@ -45,6 +45,7 @@ BIN = os.path.expanduser('~/.local/bin')
 
 # dirs that are part of the module itself, never a contract submod
 RESERVED = {'src', 'mods', 'templates', 'api', 'app', 'releases', 'dist',
+            'mcp', 'agents', 'run', 'learn',  # server routes (api/server.py)
             'node_modules', '__pycache__', '.git'}
 
 def _step_brief(s):
@@ -202,6 +203,23 @@ class Mod:
             'fns': self.config['fns'],
             'endpoints': self.config['endpoints'],
         }
+
+    def tutorials(self, id=None):
+        """The LEARN track (src/tutorials.py): stablecoins + Cairo for
+        beginners. No id -> the index + glossary; id -> one full lesson."""
+        spec = importlib.util.spec_from_file_location(
+            'cairo_tutorials', os.path.join(SRC, 'tutorials.py'))
+        t = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(t)  # re-read each call: edit it, reload the page
+        if id:
+            x = t.lesson(id)
+            if not x:
+                return {'error': f'no lesson {id!r}', 'lessons': [l['id'] for l in t.LESSONS]}
+            ids = [l['id'] for l in t.LESSONS]
+            i = ids.index(id)
+            return {**x, 'prev': ids[i - 1] if i else None,
+                    'next': ids[i + 1] if i + 1 < len(ids) else None}
+        return {'lessons': t.index(), 'glossary': t.GLOSSARY}
 
     def health(self):
         return {'ok': True, 'module': 'cairo',
@@ -459,7 +477,8 @@ class Mod:
                 f'tests.\n\n```sh\nm cairo.{pkg}/build\n'
                 f'm cairo.{pkg}/test\nm cairo.{pkg}/vibe prompt="..."\n```\n'))
         meta.update({'name': pkg, 'submod_of': 'cairo', 'anchor': 'mod.py',
-                     'fns': self.SUB_FNS})
+                     'fns': self.SUB_FNS + [f for f in meta.get('ext_fns', [])
+                                            if f not in self.SUB_FNS]})
         self._emit(os.path.join(d, 'config.json'),
                    json.dumps(meta, indent=4) + '\n')
         return d

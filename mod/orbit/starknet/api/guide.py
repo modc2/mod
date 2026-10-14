@@ -40,6 +40,7 @@ import time
 import urllib.request
 
 import chain
+import family
 import stables
 import strk20
 
@@ -66,6 +67,7 @@ EXAMPLES = [
     'How does the STRK20 privacy pool hide payments?',
     'What do I pay fees in?',
     'How could I launch my own stablecoin?',
+    'What Starknet mods run on this node?',
 ]
 
 
@@ -112,12 +114,19 @@ def read_pool(net):
                ', '.join(f'{v:,.2f} {k.upper()}' for k, v in hold.items()))
 
 
-READS = {'network': read_network, 'stables': read_stables, 'pool': read_pool}
+def read_mods(net):
+    f = family.mods()
+    return f, f"{f['up']}/{f['count']} Starknet mods live: " + ', '.join(
+        m['name'] + ('' if m['up'] else ' (down)') for m in f['mods'])
+
+
+READS = {'mods': read_mods, 'network': read_network, 'stables': read_stables, 'pool': read_pool}
 
 
 # ── the facts brain ──────────────────────────────────────────────────────────
 
 TOPICS = [
+    ('mods', r'\bmods?\b|modules?|starktime|zquorum|\bzuma\b|zkwasm|workbench|on this node|family'),
     ('stables', r'stable|usdc|usdt|tether|\bdai\b|peg|dollar|\bcash\b|opus|circle'),
     ('privacy', r'privacy|private|strk20|pool|note|nullif|anonym|shield'),
     ('fees', r'\bfee|gas|\bstrk\b|token|pay for|cost'),
@@ -127,7 +136,7 @@ TOPICS = [
     ('protocol', r'starknet|rollup|stark|proof|prover|l1|ethereum|sequencer|how does|what is|work|secur|finality|block'),
 ]
 
-NEEDS = {'protocol': ['network'], 'stables': ['stables'], 'privacy': ['pool'],
+NEEDS = {'mods': ['mods'], 'protocol': ['network'], 'stables': ['stables'], 'privacy': ['pool'],
          'fees': ['network'], 'accounts': [], 'cairo': [], 'module': []}
 
 
@@ -138,6 +147,9 @@ def topics_of(query):
     if 'stables' in hit and 'cairo' in hit:
         hit.remove('cairo')
         hit.append('issue')
+    # "which starknet mods..." is about the mods, not the rollup
+    if 'mods' in hit and 'protocol' in hit:
+        hit.remove('protocol')
     return hit[:3] or ['protocol']
 
 
@@ -151,6 +163,18 @@ def _peg_line(t):
 
 def explain(topic, r):
     n, s, p = r.get('network'), r.get('stables'), r.get('pool')
+    if topic == 'mods':
+        f = r.get('mods')
+        if not f:
+            return ''
+        rows = '\n'.join(
+            f"- **{m['title']}** (`{m['name']}`, {'live' if m['up'] else 'down'}) — {m['pitch']}"
+            + (' Now: ' + ', '.join(f'{k} {v}' for k, v in m['facts']) + '.' if m['facts'] else '')
+            for m in f['mods'])
+        return ("**The Starknet mods on this node.** This explorer is the front door; the "
+                "rest of the Starknet work runs as separate mods, each on its own port "
+                f"({f['up']} of {f['count']} live right now):\n\n" + rows +
+                "\n\nThe MODS tab shows them all with live numbers and links to their apps.")
     if topic == 'protocol':
         live = (f" Right now it is at block #{n['block_number']:,}, producing a block "
                 f"about every {n['block_time_s']:.1f} seconds ({n['tx_last_12_blocks']} "

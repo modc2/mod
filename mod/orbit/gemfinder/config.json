@@ -9,10 +9,16 @@
     "route": false,
     "deps": [],
     "urls": {
+        "app": "http://localhost:51320/",
         "api": "http://localhost:51320"
     },
     "state": "~/.mod/gemfinder/cache.db (raw HTTP bodies by url) \u00b7 ~/.mod/gemfinder/scans.jsonl (every scan's picks + price)",
     "endpoints": {
+        "app": {
+            "method": "GET",
+            "auth": false,
+            "docs": "/ -> the app: feeds, narrative heat, ranked gems with score breakdown, past scans"
+        },
         "health": {
             "method": "GET",
             "auth": false,
@@ -21,7 +27,7 @@
         "scan": {
             "method": "GET",
             "auth": false,
-            "docs": "?asset=all|crypto|stock&k=20&narrative=&min_score=&sources=a,b&hn=1 -> {sources, narratives:[{id,label,crypto,stock}], gems:[{asset,symbol,name,score,parts,narratives,why,flags,metrics,urls}]}"
+            "docs": "?asset=all|crypto|stock&k=20&narrative=&min_score=&sources=a,b&hn=1&save=1 -> {sources, narratives:[{id,label,crypto,stock}], gems:[{asset,symbol,name,score,parts,narratives,why,flags,metrics,urls}]}"
         },
         "narratives": {
             "method": "GET",

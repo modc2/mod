@@ -9,6 +9,9 @@ API = os.path.join(HERE, 'api')
 sys.path.insert(0, API)
 import abi  # noqa: E402
 import chain  # noqa: E402
+import contracts  # noqa: E402
+import family  # noqa: E402
+import fund  # noqa: E402
 import guide  # noqa: E402
 import stables  # noqa: E402
 import strk20  # noqa: E402
@@ -146,6 +149,19 @@ class Mod:
     def stablecoins(self, network=None):
         """Every stablecoin on the network: supply, backing, Pragma peg."""
         return stables.stables(network=network)
+
+    def mods(self, fresh=False):
+        """The Starknet mod family on this node: up/down, live numbers, apps."""
+        return family.mods(fresh=fresh)
+
+    def contracts(self, network=None):
+        """Your Cairo contracts (with devnet addresses) + well-known mainnet ones."""
+        return contracts.contracts(network=network)
+
+    def fund(self, target=1000, dry=False):
+        """Top every devnet account and contract of the Starknet mods up to
+        `target` ETH + STRK (dry=True just reads balances)."""
+        return fund.balances() if dry else fund.fund(target)
 
     def ask(self, query, brain='facts', network=None, model=None):
         """Ask the guide agent; brain=claude routes through orbit/claudecode."""

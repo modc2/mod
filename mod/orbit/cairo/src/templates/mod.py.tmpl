@@ -29,7 +29,20 @@ def _parent():
     return m.Mod()
 
 
-class Mod:
+def _ext():
+    # optional ext.py next to this file: a class `Ext` whose methods become
+    # this contract's own extra fns (listed in config.json `ext_fns`). Kept
+    # out of mod.py because adopt() re-renders mod.py from the template.
+    p = os.path.join(HERE, 'ext.py')
+    if not os.path.exists(p):
+        return object
+    spec = importlib.util.spec_from_file_location(f'cairo_ext_{NAME}', p)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m.Ext
+
+
+class Mod(_ext()):
     description = {{DESC_PY}}
     path = HERE
 

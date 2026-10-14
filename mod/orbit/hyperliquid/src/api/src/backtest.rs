@@ -16,6 +16,15 @@
 //!   reported `closedPnl` and `fee`, scaled by capital / trader-equity.
 //!   The same convention the live engine and the Python strat base use.
 //!
+//! **Fees are the copier's, not the trader's.** The trader's own fees are
+//! already inside both models, but a whale on a VIP tier (or a maker taking
+//! rebates) pays far less than a copy does: a copy follows with taker
+//! orders at the base tier. So every in-window fill is re-priced at
+//! `COPY_TAKER_FEE` on its scaled notional, and wherever that costs more
+//! than the trader's own fee the difference comes off YOUR curve at the
+//! fill's timestamp. A copy is never charged less than the trader paid.
+//! `gross_points` / `gross_pnl` keep the before-fees curve for comparison.
+//!
 //! The two legitimately disagree on any wallet holding risk overnight, and
 //! `checks` names the gap instead of letting the reader discover it.
 //!
@@ -40,6 +49,23 @@ pub const FILLS_CAP: usize = 2000;
 /// Below this equity at window start, dividing by it turns noise into ROI.
 /// Same guard the vaults board uses against dust-basis APRs.
 pub const MIN_BASIS_USD: f64 = 1_000.0;
+
+/// What a copy pays per fill: Hyperliquid's base-tier perp TAKER fee
+/// (0.045%). A copy follows after the fact with marketable orders, so it
+/// never earns the maker rate or a volume discount. Slippage is not in here.
+pub const COPY_TAKER_FEE: f64 = 0.000_45;
+
+/// Spot fills never reach a perp copy — HL names spot pairs "@107" or "PURR/USDC".
+fn is_spot(f: &Fill) -> bool { f.coin.starts_with('@') || f.coin.contains('/') }
+
+/// The fee a copy pays on one of the trader's fills at `ratio` size, and how
+/// much of it is EXTRA over the trader's own (already in the curve).
+pub fn copy_fee(f: &Fill, ratio: f64) -> (f64, f64) {
+    let notional = (parse_f(&f.px) * parse_f(&f.sz)).abs() * ratio;
+    let theirs = parse_f(&f.fee) * ratio;
+    let ours = (notional * COPY_TAKER_FEE).max(theirs);
+    (ours, ours - theirs)
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Check {
@@ -66,7 +92,8 @@ pub struct Mirror {
     pub fills: usize,
     /// Σ closedPnl × ratio, the trader's realised result at your size.
     pub realized_pnl: f64,
-    /// Σ fee × ratio.
+    /// Σ the fee a copy pays: max(taker fee on the scaled notional, the
+    /// trader's own fee × ratio) per fill.
     pub fees: f64,
     /// realized − fees.
     pub net_pnl: f64,
@@ -88,13 +115,22 @@ pub struct Backtest {
     /// publishes no perp slot for this wallet).
     pub source: String,
     /// [ms epoch, your equity in USD], oldest first, starting at `capital`.
+    /// NET of the copy's extra fees.
     pub points: Vec<[f64; 2]>,
+    /// The same curve before the copy's extra fees — the trader's own
+    /// return at your size.
+    pub gross_points: Vec<[f64; 2]>,
     pub start_ms: i64,
     pub end_ms: i64,
     /// Where your $N ends the window.
     pub final_value: f64,
-    /// final_value − capital.
+    /// final_value − capital, net of fees.
     pub pnl: f64,
+    /// pnl before the copy's extra fees.
+    pub gross_pnl: f64,
+    /// Fees a copy pays on top of what the trader paid (already in the
+    /// gross curve): what separates `gross_pnl` from `pnl`.
+    pub fees: f64,
     pub roi_pct: f64,
     /// Deepest peak→trough fall of YOUR equity, in USD and as % of the peak.
     pub max_drawdown: f64,
@@ -268,16 +304,39 @@ pub fn shape(
         Check::warn("scale", format!("your ${capital:.0} is {ratio:.1}× the trader's own equity — a real copy at this size would move the market more than they did"))
     });
 
-    // Build YOUR equity curve. Once it touches zero it stays there: a wiped
-    // account does not ride the rest of the trader's recovery.
-    let mut wiped = false;
-    let scaled: Vec<(i64, f64)> = pts.iter().map(|(t, v)| {
-        let equity = if wiped { 0.0 } else {
-            let e = capital * (1.0 + (v - base_pnl) / basis);
-            if e <= 0.0 { wiped = true; 0.0 } else { e }
-        };
-        (*t, equity)
+    // The copy's extra fees, as a running total by fill time. Fills after
+    // the curve's first sample are the ones its pnl moved on.
+    let book: Vec<&Fill> = fills.iter()
+        .filter(|f| source != "perp" || !is_spot(f)).collect();
+    let mut extra: Vec<(i64, f64)> = book.iter().filter(|f| f.time > t0)
+        .map(|f| (f.time, copy_fee(f, ratio).1)).collect();
+    extra.sort_by_key(|(t, _)| *t);
+    let (mut acc, mut k) = (0.0, 0usize);
+    let fee_at: Vec<f64> = pts.iter().map(|(t, _)| {
+        while k < extra.len() && extra[k].0 <= *t { acc += extra[k].1; k += 1; }
+        acc
     }).collect();
+
+    // Build YOUR equity curve, net of those fees. Once it touches zero it
+    // stays there: a wiped account does not ride the trader's recovery.
+    let ride = |fees: &dyn Fn(usize) -> f64| -> (Vec<(i64, f64)>, bool) {
+        let mut wiped = false;
+        let v = pts.iter().enumerate().map(|(i, (t, v))| {
+            let equity = if wiped { 0.0 } else {
+                let e = capital * (1.0 + (v - base_pnl) / basis) - fees(i);
+                if e <= 0.0 { wiped = true; 0.0 } else { e }
+            };
+            (*t, equity)
+        }).collect();
+        (v, wiped)
+    };
+    let (gross, _) = ride(&|_| 0.0);
+    let (scaled, wiped) = ride(&|i| fee_at[i]);
+    // A wiped copy stops trading, so it stops paying.
+    let alive = scaled.iter().position(|(_, v)| *v <= 0.0).unwrap_or(scaled.len() - 1);
+    // And it can't pay more than it held: at the wipe, fees take what's left.
+    let fees_paid = if wiped { fee_at[alive].min(gross[alive].1) } else { fee_at[alive] };
+    let gross_final = gross[gross.len() - 1].1;
     if wiped {
         checks.push(Check::fail("wipeout", format!("${capital:.0} riding this book at 1:1 leverage-parity hit zero inside the window — the curve is floored from that point")));
     }
@@ -296,22 +355,22 @@ pub fn shape(
     }
 
     // The realised-only mirror off the fills tape, same scaling.
-    let in_window: Vec<&Fill> = fills.iter().filter(|f| f.time >= cutoff).collect();
+    let in_window: Vec<&Fill> = book.iter().copied().filter(|f| f.time >= cutoff).collect();
     let earliest_any = fills.iter().map(|f| f.time).min().unwrap_or(i64::MAX);
     let truncated = fills.len() >= FILLS_CAP && earliest_any > cutoff;
     let realized: f64 = in_window.iter().map(|f| parse_f(&f.closed_pnl)).sum();
-    let fees: f64 = in_window.iter().map(|f| parse_f(&f.fee)).sum();
+    let fees: f64 = in_window.iter().map(|f| copy_fee(f, ratio).0).sum();
     let mirror = Mirror {
         ratio: (ratio * 1e6).round() / 1e6,
         fills: in_window.len(),
         realized_pnl: cents(realized * ratio),
-        fees: cents(fees * ratio),
-        net_pnl: cents((realized - fees) * ratio),
-        roi_pct: cents((realized - fees) * ratio / capital * 100.0),
+        fees: cents(fees),
+        net_pnl: cents(realized * ratio - fees),
+        roi_pct: cents((realized * ratio - fees) / capital * 100.0),
         truncated,
     };
     checks.push(if truncated {
-        Check::warn("fills", format!("fills call hit hyperliquid's ~{FILLS_CAP}-row cap before reaching the window start — the realised mirror covers only the last part of the window"))
+        Check::warn("fills", format!("fills call hit hyperliquid's ~{FILLS_CAP}-row cap before reaching the window start — the realised mirror and the copy's fees cover only the last part of the window, so fees are understated"))
     } else if in_window.is_empty() {
         Check::warn("fills", "no fills inside the window — the realised mirror is $0 by construction".into())
     } else {
@@ -331,9 +390,19 @@ pub fn shape(
         Check::pass("agreement", format!("equity model {scaled_curve_pnl:+.0} vs realised fills {:+.0} — gap {gap:+.0} is funding + positions still open at the marks", mirror.net_pnl))
     });
 
+    let gross_pnl = cents(gross_final - capital);
+    checks.push(if gross_pnl > 0.0 && scaled_curve_pnl <= 0.0 {
+        Check::warn("fees", format!("the trader made {gross_pnl:+.2} at your size, but a copy pays {fees_paid:.2} more in taker fees ({:.3}%/fill) — fees eat the whole edge", COPY_TAKER_FEE * 100.0))
+    } else {
+        Check::pass("fees", format!("copy pays {fees_paid:.2} more in fees than the trader did at your size (taker {:.3}%/fill) — already taken off the curve", COPY_TAKER_FEE * 100.0))
+    });
+
     let ok = !checks.iter().any(|c| c.status == "fail");
-    let points: Vec<[f64; 2]> = downsample(scaled, MAX_POINTS)
-        .into_iter().map(|(t, v)| [t as f64, cents(v)]).collect();
+    let pts2 = |v: Vec<(i64, f64)>| -> Vec<[f64; 2]> {
+        downsample(v, MAX_POINTS).into_iter().map(|(t, v)| [t as f64, cents(v)]).collect()
+    };
+    let points = pts2(scaled);
+    let gross_points = pts2(gross);
 
     Backtest {
         address: address.to_string(),
@@ -344,6 +413,8 @@ pub fn shape(
         end_ms: t_end,
         final_value: cents(final_value),
         pnl: scaled_curve_pnl,
+        gross_pnl,
+        fees: cents(fees_paid),
         roi_pct: cents(scaled_curve_pnl / capital * 100.0),
         max_drawdown: cents(dd),
         max_drawdown_pct: (dd_pct * 10.0).round() / 10.0,
@@ -356,6 +427,7 @@ pub fn shape(
         available: true,
         note: None,
         points,
+        gross_points,
     }
 }
 
@@ -508,6 +580,37 @@ mod tests {
         assert_eq!(m.fees, 3.0);
         assert_eq!(m.net_pnl, 97.0);
         assert!(!m.truncated);
+    }
+
+    #[test]
+    fn a_copy_pays_the_taker_fee_on_its_curve() {
+        // Trader +10% on $10k; a VIP who paid nothing on $50k of notional
+        // two days in. Your $1k (ratio 0.1) trades $5k at 4.5bps = $2.25.
+        let p = portfolio(&[0.0, 500.0, 1_000.0], &[10_000.0, 10_500.0, 11_000.0]);
+        let mut f = fill(NOW - 2 * DAY, 0.0, 0.0);
+        f.px = "50000".into();
+        let mut spot = f.clone();
+        spot.coin = "@107".into(); // never reaches a perp copy
+        let b = shape("0xA", 7, 1_000.0, &p, &[f, spot], NOW);
+        assert_eq!(b.gross_pnl, 100.0);
+        assert_eq!(b.fees, 2.25);
+        assert_eq!(b.pnl, 97.75);
+        assert_eq!(b.points.last().unwrap()[1], 1_097.75);
+        assert_eq!(b.gross_points.last().unwrap()[1], 1_100.0);
+        assert_eq!(b.points.first().unwrap()[1], 1_000.0, "fees land when the fill does");
+        assert_eq!(b.mirror.as_ref().unwrap().fees, 2.25);
+        assert_eq!(check(&b, "fees").status, "pass");
+    }
+
+    #[test]
+    fn fees_that_eat_the_edge_warn() {
+        let p = portfolio(&[0.0, 5.0, 10.0], &[10_000.0, 10_005.0, 10_010.0]);
+        let mut f = fill(NOW - DAY, 0.0, 0.0);
+        f.px = "1000000".into(); // $1M notional → your $100k → $45 of fees
+        let b = shape("0xA", 7, 1_000.0, &p, &[f], NOW);
+        assert_eq!(b.gross_pnl, 1.0);
+        assert!(b.pnl < 0.0);
+        assert_eq!(check(&b, "fees").status, "warn");
     }
 
     #[test]

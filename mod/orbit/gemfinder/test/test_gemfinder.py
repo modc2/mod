@@ -72,3 +72,28 @@ def test_routes_accept_gateway_prefixes():
     assert route('/gemfinder/api/scan') == '/scan'
     assert route('/gemfinder/scan') == '/scan'
     assert route('/scan') == '/scan'
+
+
+def test_server_serves_app_and_health():
+    import json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from gemscan.server import Handler
+    srv = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f'http://127.0.0.1:{srv.server_address[1]}'
+    try:
+        for p in ('/', '/gemfinder/', '/gemfinder'):
+            with urllib.request.urlopen(base + p) as r:
+                assert r.headers['Content-Type'].startswith('text/html') and b'gemfinder' in r.read()
+        with urllib.request.urlopen(base + '/gemfinder/api/health') as r:
+            assert json.loads(r.read())['ok'] is True
+        try:
+            urllib.request.urlopen(base + '/nope')
+            assert False
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
+    finally:
+        srv.shutdown()

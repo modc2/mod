@@ -72,6 +72,9 @@ header.top .me {
   font-family: var(--mono); font-size: 11.5px; color: var(--text); border: 1px solid rgba(52, 211, 153, 0.3); background: rgba(52, 211, 153, 0.06);
 }
 header.top .me i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+header.top button.me { cursor: pointer; }
+header.top .me.guest { border-color: rgba(251, 191, 36, 0.35); background: rgba(251, 191, 36, 0.06); }
+header.top .me.guest i { background: #fbbf24; }
 @media (max-width: 1100px) { header.top .sub, header.top .tname { display: none; } header.top .chain { gap: 5px; } }
 @media (max-width: 720px) {
   header.top { grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 8px; padding: 0 12px; margin: -24px -20px 18px; }
@@ -518,3 +521,52 @@ ol.trail { list-style: none; margin: 8px 0 0; padding: 0; font: 12px/1.5 ui-mono
 ol.trail li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 1px 0; }
 ol.trail li b { display: inline-block; min-width: 56px; font-weight: 600; }
 ol.trail li.bad b { color: #e5484d; }
+
+/* ---- pyramid mark + right drawer (toggled from the top-right) ------------ */
+header.top .mark { background: none; box-shadow: none; border-radius: 0; filter: drop-shadow(0 4px 10px rgba(255, 107, 74, 0.45)); }
+header.top .sidebtn {
+  width: 34px; height: 34px; display: grid; place-items: center; padding: 0; cursor: pointer; flex: none;
+  border-radius: 10px; color: var(--muted); background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08); transition: color .15s, border-color .15s, background .15s;
+}
+header.top .sidebtn:hover { color: var(--text); border-color: rgba(255, 138, 107, 0.5); }
+header.top .sidebtn.on { color: var(--accent); border-color: rgba(255, 107, 74, 0.45); background: rgba(255, 107, 74, 0.1); }
+
+aside.drawer {
+  position: fixed; top: 56px; right: 0; bottom: 0; width: 280px; z-index: 19; overflow-y: auto; align-self: stretch;
+  padding: 16px 14px 24px; background: rgba(18, 15, 13, 0.96); backdrop-filter: blur(14px);
+  border-left: 1px solid rgba(255, 255, 255, 0.07); box-shadow: -20px 0 40px -30px rgba(0, 0, 0, 0.9);
+  transform: translateX(100%); visibility: hidden;
+  transition: transform .22s cubic-bezier(.2, .8, .2, 1), visibility 0s linear .22s;
+}
+aside.drawer.open { transform: none; visibility: visible; transition: transform .22s cubic-bezier(.2, .8, .2, 1); }
+aside.drawer h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 10.5px; letter-spacing: 0.12em; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+aside.drawer .xbtn {
+  width: 26px; height: 26px; border-radius: 8px; padding: 0; cursor: pointer; font-size: 16px; line-height: 1;
+  color: var(--muted); background: none; border: 1px solid transparent;
+}
+aside.drawer .xbtn:hover { color: var(--text); border-color: rgba(255, 255, 255, 0.1); }
+.scrim { display: none; }
+/* wide: the drawer docks and pushes the page; narrow: it overlays with a scrim */
+@media (min-width: 1100px) {
+  .wrap { transition: padding-right .22s cubic-bezier(.2, .8, .2, 1); }
+  .wrap.shift { max-width: 1540px; padding-right: 300px; }
+  /* keep the ? helper clear of the docked drawer */
+  body:has(.wrap.shift) .agentorb, body:has(.wrap.shift) .agentpanel { right: 302px; }
+}
+@media (max-width: 1099px) {
+  .scrim { display: block; position: fixed; inset: 56px 0 0; z-index: 18; background: rgba(0, 0, 0, 0.5); }
+}
+
+/* CODE tab: files as an editor tab strip on top of the editor (was a stacked list that pushed the editor off-screen) */
+.codepane { border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: #0c0a09; overflow: hidden; }
+.codepane:focus-within { border-color: var(--accent-dim); }
+.filetabs { display: flex; gap: 2px; padding: 6px 6px 0; overflow-x: auto; scrollbar-width: none; background: rgba(255, 255, 255, 0.025); border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.filetabs::-webkit-scrollbar { display: none; }
+.ftab { flex: none; display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; line-height: 1; padding: 8px 12px 9px; border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; background: none; color: var(--muted); cursor: pointer; margin-bottom: -1px; white-space: nowrap; }
+.ftab:hover { color: var(--text, #e9dfd8); background: rgba(255, 255, 255, 0.03); }
+.ftab.on { color: var(--text, #e9dfd8); background: #0c0a09; border-color: rgba(255, 255, 255, 0.07); box-shadow: inset 0 2px 0 var(--accent); }
+.ftab .dir { opacity: 0.5; margin-right: -6px; }
+.codepane .editor { border: 0; border-radius: 0; background: transparent; }
+.codebar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 8px 10px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.codebar .muted { margin-right: auto; font-size: 12px; }

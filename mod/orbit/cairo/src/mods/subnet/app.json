@@ -1,31 +1,68 @@
 {
-  "title": "Shared number",
-  "intro": "One number that lives on the chain. Anyone can see it, anyone can change it, and every change is recorded.",
+  "title": "Private subnet",
+  "intro": "Validators score miners in secret. Nobody can see or copy a score until every validator has locked theirs in. Then the scores are opened, and Yuma consensus pays the miners the majority agrees on. A validator who tries to boost a miner the others don't rate gets cut back to the consensus.",
   "steps": [
-    "Pick who you are at the top right.",
-    "The big number on the left is the current value. The chart under it fills in as it changes.",
-    "Type a new number on the right and press Save. Then switch person and try again."
+    "The owner adds validators with their stake (Add validator).",
+    "Each validator picks themselves at the top right, types one score per miner (e.g. 4,3,2,1) plus a secret word, and copies the seal.",
+    "Lock in the seal. Once every validator has locked in, the reveal opens.",
+    "Each validator reveals the same scores and secret. Once everyone has revealed, anyone presses Run consensus."
   ],
+  "constructor": {
+    "help": "How many miners, how long validators get to lock in and to reveal (seconds), and how much is paid out each round.",
+    "inputs": {
+      "owner": { "hide": true },
+      "miners": { "label": "Miners", "default": "4" },
+      "commit_secs": { "label": "Lock-in window (s)", "default": "600" },
+      "reveal_secs": { "label": "Reveal window (s)", "default": "600" },
+      "emission": { "label": "Paid per round", "default": "1000" }
+    }
+  },
   "fns": {
-    "get": {
-      "label": "The number right now",
-      "show": "chart"
-    },
-    "set": {
-      "label": "Change the number",
-      "button": "Save",
-      "help": "Whatever you save replaces the old number for everybody.",
+    "phase": { "label": "Stage (0 lock in, 1 reveal, 2 ready to run)", "show": "big" },
+    "epoch": { "label": "Round", "show": "big" },
+    "sealed": { "label": "Scores locked in", "show": "big" },
+    "revealed": { "label": "Scores revealed", "show": "big" },
+    "has_sealed": { "label": "Have I locked in?", "yes": "Locked in", "no": "Not yet", "inputs": { "who": { "hide": true } } },
+    "validators": { "label": "Validators", "show": "list" },
+    "stake_of": { "label": "My stake", "show": "number", "inputs": { "who": { "hide": true } } },
+    "validator_earned": { "label": "I have earned", "show": "number", "inputs": { "who": { "hide": true } } },
+    "miners": { "label": "Miners", "show": "number" },
+    "incentive": { "label": "Miner share last round (of 1e9)", "show": "list", "inputs": { "epoch": { "label": "Round", "placeholder": "0" } } },
+    "consensus": { "label": "Consensus score per miner (of 1e9)", "show": "list", "inputs": { "epoch": { "label": "Round", "placeholder": "0" } } },
+    "dividends": { "label": "Validator share (of 1e9)", "show": "list", "inputs": { "epoch": { "label": "Round", "placeholder": "0" } } },
+    "weights_of": { "label": "A validator's opened scores", "show": "list", "inputs": { "epoch": { "label": "Round" }, "who": { "label": "Validator" } } },
+    "miner_earned": { "label": "Miner has earned", "show": "number", "inputs": { "miner": { "label": "Miner #" } } },
+    "seal": {
+      "label": "Make my seal",
+      "help": "Computed by the node, not sent on-chain. Keep your secret: you need it to reveal.",
+      "show": "text",
       "inputs": {
-        "value": {
-          "label": "New number",
-          "placeholder": "e.g. 42"
-        }
+        "who": { "hide": true },
+        "weights": { "label": "Scores, one per miner", "placeholder": "4,3,2,1" },
+        "salt": { "label": "Secret word", "placeholder": "pepper" }
       }
+    },
+    "commit": { "label": "Lock in my scores", "button": "Lock in", "inputs": { "seal": { "label": "Seal" } } },
+    "reveal": {
+      "label": "Reveal my scores",
+      "button": "Reveal",
+      "inputs": {
+        "weights": { "label": "Same scores", "placeholder": "4,3,2,1" },
+        "salt": { "label": "Same secret word" }
+      }
+    },
+    "finalize": { "label": "Run consensus", "button": "Run consensus", "help": "Pays miners and validators and starts the next round." },
+    "set_validator": {
+      "label": "Add validator / set stake",
+      "button": "Save",
+      "help": "Owner only. New validators can only join before anyone locks in this round.",
+      "inputs": { "who": { "label": "Validator" }, "stake": { "label": "Stake" } }
     }
   },
   "events": {
-    "ValueSet": {
-      "say": "The number was set to {value}"
-    }
+    "ValidatorSet": { "say": "{who} now has stake {stake}" },
+    "Sealed": { "say": "{who} locked in scores for round {epoch}" },
+    "Revealed": { "say": "{who} revealed their scores for round {epoch}" },
+    "Finalized": { "say": "Round {epoch} settled with {voters} validators" }
   }
 }

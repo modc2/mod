@@ -1,7 +1,7 @@
 {
     "name": "starknet",
-    "version": "0.5.0",
-    "description": "Starknet explorer + contract studio, one port. The app: live blocks, transactions, wallets, any contract read through its own on-chain ABI, the STRK20 privacy pool's public side, every stablecoin with its live supply and oracle peg, an ASK agent that explains the protocol on the fleet agent contract, and a BUILD studio where you write, build and test Cairo contracts with an agent that edits them for you (via the cairo mod's scarb + snforge). The API: JSON-RPC reads over a failover pool of free public endpoints, Cairo ABI codec, STRK20 pool tools, studio verbs, and 32 MCP tools over stdio and POST /mcp. Backend is Python stdlib only.",
+    "version": "0.6.0",
+    "description": "Starknet explorer + contract studio, one port. The app: live blocks, transactions, wallets, any contract read through its own on-chain ABI, the STRK20 privacy pool's public side, every stablecoin with its live supply and oracle peg, an ASK agent that explains the protocol on the fleet agent contract, and a BUILD studio where you write, build and test Cairo contracts with an agent that edits them for you (via the cairo mod's scarb + snforge). The API: JSON-RPC reads over a failover pool of free public endpoints, Cairo ABI codec, STRK20 pool tools, studio verbs, and 34 MCP tools over stdio and POST /mcp. Backend is Python stdlib only.",
     "icon": "S",
     "anchor": "mod.py",
     "port": 51020,
@@ -54,13 +54,16 @@
         "strk20_docs": "GET /strk20/docs?page=&q=",
         "mcp": "POST /mcp",
         "tools": "GET /tools \u00b7 POST /tools/<name>",
-        "app": "GET /starknet/  (pages: /, /block?n=, /tx?h=, /address?a=, /studio, /privacy, /developers)",
+        "app": "GET /starknet/  (pages: /, /block?n=, /tx?h=, /address?a=, /contracts, /studio, /mods, /privacy, /developers)",
         "studio_whoami": "GET /studio/whoami  (can this caller write?)",
         "studio_read": "GET /studio/{status,templates,contracts,get,tree,read,abi,job,jobs}?name=&path=&id=",
         "studio_write": "POST /studio/{new,write,build,test,vibe,clean,remove} \u2014 owner token (header token: or Authorization: Bearer) or loopback; build/test/vibe return {job} to poll",
         "stablecoins": "GET /stablecoins \u00b7 /stablecoins/registry  (supply, backing model, Pragma peg)",
         "agents": "GET /agents \u00b7 /agents/<id> \u00b7 /.well-known/agent.json  (fleet agent contract)",
-        "run": "POST /run \u00b7 POST /run/stream (SSE) {query, brain=auto|facts|claude, history}"
+        "run": "POST /run \u00b7 POST /run/stream (SSE) {query, brain=auto|facts|claude, history}",
+        "mods": "GET /mods  (the Starknet mod family: cairo, starktime, zquorum, zuma, zkwasm \u2014 live status + numbers)",
+        "contracts": "GET /contracts  (your Cairo contracts with devnet addresses + well-known mainnet contracts)",
+        "fund": "GET /fund (balances) \u00b7 POST /fund {target=1000} \u2014 top every devnet account + contract of the Starknet mods up to target ETH+STRK (owner/loopback)"
     },
     "fns": [
         "info",
@@ -104,7 +107,10 @@
         "test",
         "readme",
         "stablecoins",
-        "ask"
+        "ask",
+        "mods",
+        "fund",
+        "contracts"
     ],
     "backend": "python stdlib only (http.server + urllib) in api/; keccak-256 and starknet_keccak in-tree; Cairo ABI codec in-tree (api/abi.py); MCP server in-tree (api/mcp.py). App: Next 14 static export in app/, no node process at runtime.",
     "auth": "Chain side is read-only \u2014 no keys held, nothing signed or submitted. The contract studio's reads are open; its writes (new/write/build/test/vibe/clean/remove) edit files on this box and vibe spends the host Claude account, so they need a mod-protocol token signed by an owner (config owner, the build private-flag owner, or STARKNET_STUDIO_OWNERS) or a direct loopback call. STRK20 private transactions need the user's viewing key and a STARK proof; this module never asks for one.",
@@ -119,7 +125,7 @@
         "STARKNET_STUDIO_OWNERS": "extra addresses allowed to write in the studio (comma list)",
         "STARKNET_AGENT_CLAUDE": "orbit/claudecode base url for the ask agent's claude brain (default http://127.0.0.1:51260; empty disables)"
     },
-    "schema": "QmRXSwDJ3aMdW1eceYiXLzkeK9wyZ6bKr9CNDTrRnrePnt",
+    "schema": "QmZUyXcL64swhZPooP3z189cntiiTdefqwZfgoL324d6id",
     "mcp": {
         "endpoint": "POST /mcp",
         "transport": "Streamable HTTP (JSON-RPC 2.0)",
@@ -156,6 +162,8 @@
             "studio_test",
             "studio_vibe",
             "starknet_stablecoins",
+            "starknet_mods",
+            "starknet_fund",
             "starknet_ask"
         ]
     },
@@ -167,11 +175,15 @@
         }
     },
     "layout": {
-        "api": "api/ \u2014 api.py (server), chain.py, abi.py, strk20.py, studio.py (contract studio -> cairo mod), mcp.py (python stdlib)",
+        "api": "api/ \u2014 api.py (server), chain.py, abi.py, strk20.py, studio.py (contract studio -> cairo mod), fund.py (devnet funding), mcp.py (python stdlib)",
         "app": "app/ \u2014 Next.js static export, built by app/build.sh into app/dist, served by api/api.py"
     },
     "depends": [
-        "cairo"
+        "cairo",
+        "starktime",
+        "zquorum",
+        "zuma",
+        "zkwasm"
     ],
     "agent": {
         "roster": "GET /agents",

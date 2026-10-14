@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>gemfinder</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #121211; --surface-1: #1a1a19; --surface-2: #232321; --line: #33332f;
+  --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8d8c84;
+  /* categorical, dark steps, fixed order */
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --series-5: #d55181;
+  /* status */
+  --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text-primary); font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+a { color: var(--text-secondary); }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 18px 20px 60px; }
+header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; letter-spacing: .02em; }
+h1 b { color: var(--series-4); }
+.sub { color: var(--text-muted); font-size: 13px; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-secondary); margin: 0 0 10px; font-weight: 600; }
+.card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.grid { display: grid; grid-template-columns: 340px 1fr; gap: 16px; margin-top: 16px; align-items: start; }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 14px 0 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+button, select { background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
+.seg button { border-radius: 0; }
+button.on { background: var(--text-primary); color: var(--bg); }
+button.go { background: var(--series-1); border-color: var(--series-1); font-weight: 600; }
+button:disabled { opacity: .5; cursor: wait; }
+.spacer { flex: 1; }
+
+/* pipeline */
+.pipe { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.feeds { display: flex; gap: 6px; flex-wrap: wrap; flex: 1 1 520px; }
+.feed { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; min-width: 120px; cursor: default; }
+.feed .n { font: 600 18px var(--mono); }
+.feed .l { font-size: 12px; color: var(--text-secondary); }
+.feed .t { font-size: 11px; color: var(--text-muted); font-family: var(--mono); }
+.feed.bad { border-color: var(--critical); }
+.st { font-size: 11px; font-weight: 600; }
+.st.ok { color: var(--good); } .st.bad { color: var(--critical); }
+.arrow { color: var(--text-muted); align-self: center; font-size: 18px; }
+.stage { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; text-align: center; min-width: 96px; }
+.stage .n { font: 600 22px var(--mono); }
+.stage .l { font-size: 12px; color: var(--text-secondary); }
+
+/* narratives */
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.nar { padding: 6px 4px; border-radius: 6px; cursor: pointer; }
+.nar:hover, .nar.sel { background: var(--surface-2); }
+.nar .top { display: flex; justify-content: space-between; font-size: 13px; }
+.nar .top span:last-child { color: var(--text-muted); font-family: var(--mono); font-size: 12px; }
+.bars { display: flex; flex-direction: column; gap: 2px; margin-top: 3px; }
+.bar { height: 6px; background: var(--surface-2); border-radius: 0 4px 4px 0; position: relative; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0; min-width: 2px; }
+.nar:hover .bar { background: var(--line); }
+
+/* gems */
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+td { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr.g { cursor: pointer; }
+tr.g:hover td { background: var(--surface-2); }
+.rank { color: var(--text-muted); font-family: var(--mono); width: 26px; }
+.sym { font: 700 14px var(--mono); }
+.nm { color: var(--text-secondary); font-size: 12px; }
+.tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; margin-right: 4px; }
+.score { font: 700 16px var(--mono); width: 54px; }
+.stack { display: flex; gap: 2px; height: 12px; width: 220px; background: var(--surface-2); border-radius: 0 4px 4px 0; }
+.stack i { height: 100%; }
+.stack i:last-child { border-radius: 0 4px 4px 0; }
+.pen { font: 600 11px var(--mono); color: var(--critical); margin-left: 6px; }
+.why { font-size: 12px; color: var(--text-secondary); }
+.flag { display: inline-block; font-size: 11px; color: var(--warning); margin-right: 8px; }
+.flag::before { content: "! "; font-weight: 700; }
+tr.detail td { background: var(--surface-2); }
+.kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 16px; font-size: 12px; }
+.kv div span { color: var(--text-muted); margin-right: 6px; }
+.kv div b { font-family: var(--mono); font-weight: 500; }
+.links { margin-top: 8px; font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+
+.hist { font-size: 12px; }
+.hist .row { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.hist .when { color: var(--text-muted); font-family: var(--mono); }
+.hist .sy { font-family: var(--mono); color: var(--text-secondary); }
+details { margin-top: 16px; }
+summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+.explain { font-size: 13px; color: var(--text-secondary); max-width: 900px; }
+.explain td, .explain th { padding: 4px 8px; }
+.err { color: var(--critical); }
+.loading { color: var(--text-muted); padding: 30px 0; text-align: center; }
+.disc { color: var(--text-muted); font-size: 12px; margin-top: 12px; }
+#tip { position: fixed; pointer-events: none; background: #000; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 12px; max-width: 320px; z-index: 9; display: none; white-space: pre-line; color: var(--text-primary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><b>gem</b>finder</h1>
+    <span class="sub">what the internet is starting to pile into, inside a hot narrative, before it has gone vertical</span>
+    <span class="spacer"></span>
+    <span class="sub" id="when"></span>
+  </header>
+
+  <div class="controls">
+    <div class="seg" id="asset">
+      <button data-v="all" class="on">all</button><button data-v="crypto">crypto</button><button data-v="stock">stocks</button>
+    </div>
+    <select id="narrative"><option value="">every narrative</option></select>
+    <select id="k"><option>10</option><option selected>25</option><option>50</option></select>
+    <span class="spacer"></span>
+    <button class="go" id="scan">Scan now</button>
+  </div>
+
+  <div class="pipe" id="pipe"></div>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>Narrative heat</h2>
+        <div class="legend" id="narLegend"></div>
+        <div id="nars"></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h2>Past scans</h2>
+        <div class="hist" id="hist"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2 id="gemsTitle">Gems</h2>
+      <div class="legend" id="partsLegend"></div>
+      <div id="gems"><div class="loading">scanning...</div></div>
+      <div class="disc" id="disc"></div>
+    </div>
+  </div>
+
+  <details>
+    <summary>How the score works</summary>
+    <div class="explain">
+      <p>Every feed above is fetched in parallel (cached 10 min). Results are merged per ticker, matched to narratives by keywords and category, and each narrative gets a <b>heat</b> from its CoinGecko category move, seed-stock move, Hacker News story count (7d) and how many scanned candidates fall into it. Then each candidate is scored 0-100:</p>
+      <table>
+        <tr><th>part</th><th>max</th><th>meaning</th></tr>
+        <tr><td><i class="sw" style="background:var(--series-1)"></i>attention</td><td>30</td><td>how many independent feeds list it, and how high</td></tr>
+        <tr><td><i class="sw" style="background:var(--series-2)"></i>velocity</td><td>20</td><td>reddit mentions vs 24h ago, 1h volume pace, buy/sell ratio, relative volume</td></tr>
+        <tr><td><i class="sw" style="background:var(--series-3)"></i>narrative</td><td>25</td><td>heat of the hottest theme it belongs to</td></tr>
+        <tr><td><i class="sw" style="background:var(--series-4)"></i>momentum</td><td>15</td><td>rising, but not already vertical (best 0..+60%; above +150% = already mooned)</td></tr>
+        <tr><td><i class="sw" style="background:var(--series-5)"></i>size</td><td>10</td><td>small enough to move (crypto $5M-100M, stocks $300M-2B)</td></tr>
+        <tr><td style="color:var(--critical)">− penalty</td><td></td><td>thin liquidity, no pool, FDV &gt;100x liquidity, pair &lt;24h old, sell pressure, penny stock</td></tr>
+      </table>
+      <p>It measures attention, not a forecast. Most narrative pumps round-trip and many micro-cap DEX tokens are rugs.</p>
+    </div>
+  </details>
+</div>
+<div id="tip"></div>
+
+<script>
+const BASE = location.pathname.startsWith('/gemfinder') ? '/gemfinder/api' : '';
+const PARTS = [['attention', 30], ['velocity', 20], ['narrative', 25], ['momentum', 15], ['size', 10]];
+const COLOR = { attention: 'var(--series-1)', velocity: 'var(--series-2)', narrative: 'var(--series-3)', momentum: 'var(--series-4)', size: 'var(--series-5)' };
+const FEED_LABEL = { coingecko_trending: 'CoinGecko trending', dexscreener: 'DexScreener', reddit_crypto: 'reddit crypto', reddit_stocks: 'reddit stocks', yahoo_trending: 'Yahoo trending', yahoo_screeners: 'Yahoo screeners', coingecko_categories: 'CoinGecko categories', yahoo_seeds: 'Yahoo seed quotes' };
+const state = { asset: 'all', narrative: '', k: 25, open: new Set(), docs: {} };
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function usd(v) {
+  if (v == null) return '–';
+  const a = Math.abs(v);
+  if (a >= 1e12) return '$' + (v / 1e12).toFixed(2) + 'T';
+  if (a >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B';
+  if (a >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+  if (a >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K';
+  if (a >= 1) return '$' + v.toFixed(2);
+  return '$' + v.toPrecision(3);
+}
+const pct = v => v == null ? '–' : (v > 0 ? '+' : '') + Number(v).toFixed(1) + '%';
+const ago = ts => { const s = Date.now() / 1000 - ts; return s < 90 ? Math.round(s) + 's ago' : s < 5400 ? Math.round(s / 60) + 'm ago' : s < 129600 ? Math.round(s / 3600) + 'h ago' : Math.round(s / 86400) + 'd ago'; };
+
+async function api(path) {
+  const r = await fetch(BASE + path);
+  const j = await r.json().catch(() => ({ error: 'HTTP ' + r.status }));
+  if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
+  return j;
+}
+
+// ── tooltip ──
+const tip = $('tip');
+document.addEventListener('mousemove', e => {
+  const t = e.target.closest('[data-tip]');
+  if (!t) { tip.style.display = 'none'; return; }
+  tip.textContent = t.dataset.tip;
+  tip.style.display = 'block';
+  const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8);
+  const y = e.clientY + 16 + tip.offsetHeight > innerHeight ? e.clientY - tip.offsetHeight - 10 : e.clientY + 16;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+});
+
+// ── render ──
+function renderPipe(r) {
+  const feeds = Object.entries(r.sources).map(([n, s]) => {
+    const docs = state.docs[n] ? state.docs[n] + '\n' : '';
+    const t = s.ok ? `${docs}${s.n} signals in ${s.s}s` : `${docs}FAILED: ${s.error}`;
+    return `<div class="feed ${s.ok ? '' : 'bad'}" data-tip="${esc(t)}">
+      <div class="l">${esc(FEED_LABEL[n] || n)} <span class="st ${s.ok ? 'ok' : 'bad'}">${s.ok ? 'OK' : 'FAIL'}</span></div>
+      <div class="n">${s.ok ? (s.n ?? '–') : '0'}</div><div class="t">${s.s != null ? s.s + 's' : ''}</div></div>`;
+  }).join('');
+  const failed = Object.values(r.sources).filter(s => !s.ok).length;
+  $('pipe').innerHTML = `<div class="feeds">${feeds}</div>
+    <span class="arrow">→</span><div class="stage" data-tip="raw mentions/listings across every feed"><div class="n">${r.signals ?? '–'}</div><div class="l">signals</div></div>
+    <span class="arrow">→</span><div class="stage" data-tip="merged into one row per ticker (DEX tokens with different contracts stay separate)"><div class="n">${r.candidates}</div><div class="l">tickers</div></div>
+    <span class="arrow">→</span><div class="stage" data-tip="scored, filtered, top ${r.gems.length} shown"><div class="n">${r.gems.length}</div><div class="l">gems</div></div>`;
+  $('when').innerHTML = `scanned ${ago(r.ts)} · ${r.took_s}s` + (failed ? ` · <span class="err">${failed} feed${failed > 1 ? 's' : ''} down</span>` : '');
+}
+
+function renderNars(r) {
+  // single-asset scans only compute that asset's heat; the other column is meaningless there
+  const col = state.asset === 'all' ? null : state.asset;
+  const rows = col ? [...r.narratives].sort((a, b) => b[col] - a[col]) : r.narratives;
+  $('nars').innerHTML = rows.map(n => {
+    const d = n.drivers || {};
+    const t = `${n.label}\ncrypto heat ${n.crypto} · stock heat ${n.stock}\n` +
+      `crypto categories 24h: ${pct(d.crypto_move)}\ntrending CG categories: ${d.trending_cats ?? 0}\n` +
+      `seed stocks 24h: ${pct(d.stock_move)}\nHN stories 7d: ${d.hn_7d ?? '–'}\n` +
+      `crowding: crypto ${d.crowd_crypto ?? 0}, stock ${d.crowd_stock ?? 0}`;
+    const bar = (v, c) => `<div class="bar"><i style="width:${v}%;background:${c}"></i></div>`;
+    const nums = col ? n[col] : `${n.crypto} · ${n.stock}`;
+    const bars = (col !== 'stock' ? bar(n.crypto, 'var(--series-1)') : '') + (col !== 'crypto' ? bar(n.stock, 'var(--series-2)') : '');
+    return `<div class="nar ${state.narrative === n.id ? 'sel' : ''}" data-id="${n.id}" data-tip="${esc(t)}">
+      <div class="top"><span>${esc(n.label)}</span><span>${nums}</span></div>
+      <div class="bars">${bars}</div></div>`;
+  }).join('');
+  $('nars').querySelectorAll('.nar').forEach(el => el.onclick = () => {
+    state.narrative = state.narrative === el.dataset.id ? '' : el.dataset.id;
+    $('narrative').value = state.narrative; scan();
+  });
+  $('narLegend').innerHTML = (col !== 'stock' ? '<span><i class="sw" style="background:var(--series-1)"></i>crypto</span>' : '') +
+    (col !== 'crypto' ? '<span><i class="sw" style="background:var(--series-2)"></i>stocks</span>' : '') +
+    '<span style="color:var(--text-muted)">0-100 · hover for why · click to filter</span>';
+  const sel = $('narrative');
+  if (sel.options.length <= 1) {
+    [...r.narratives].sort((a, b) => a.label.localeCompare(b.label)).forEach(n => sel.add(new Option(n.label, n.id)));
+    sel.value = state.narrative;
+  }
+}
+
+function metricRows(g) {
+  const m = g.metrics, rows = [];
+  const add = (k, v) => v != null && v !== '–' && rows.push(`<div><span>${k}</span><b>${esc(v)}</b></div>`);
+  add('price', m.price != null ? usd(m.price) : null);
+  add('24h', m.chg24 != null ? pct(m.chg24) : null);
+  add('5d', m.chg5d != null ? pct(m.chg5d) : null);
+  add('1h', m.chg1h != null ? pct(m.chg1h) : null);
+  add('mcap', m.mcap != null ? usd(m.mcap) : null);
+  add('fdv', m.fdv != null ? usd(m.fdv) : null);
+  add('liquidity', m.liq != null ? usd(m.liq) : null);
+  add('volume 24h', m.vol24 != null ? usd(m.vol24) : null);
+  add('volume 1h', m.vol1h != null ? usd(m.vol1h) : null);
+  add('rel volume', m.relvol != null ? m.relvol + 'x' : null);
+  add('buys/sells 24h', m.buys24 != null ? `${m.buys24} / ${m.sells24 ?? '?'}` : null);
+  add('reddit mentions', m.mentions != null ? `${m.mentions_24h_ago ?? 0} → ${m.mentions}` : null);
+  add('reddit rank', m.rank != null ? `${m.rank_24h_ago ?? '?'} → ${m.rank}` : null);
+  add('pair age', m.age_h != null ? m.age_h + 'h' : null);
+  add('chain', g.ids.chain);
+  for (const [k, v] of Object.entries(m)) if (!['price', 'chg24', 'chg5d', 'chg1h', 'mcap', 'fdv', 'liq', 'vol24', 'vol1h', 'relvol', 'buys24', 'sells24', 'mentions', 'mentions_24h_ago', 'rank', 'rank_24h_ago', 'age_h'].includes(k) && typeof v !== 'object') add(k, typeof v === 'number' ? +v.toFixed(3) : v);
+  return rows.join('');
+}
+
+function renderGems(r) {
+  $('partsLegend').innerHTML = PARTS.map(([p, w]) => `<span><i class="sw" style="background:${COLOR[p]}"></i>${p} /${w}</span>`).join('') + '<span style="color:var(--critical)">− penalty</span>';
+  const nl = state.narrative ? r.narratives.find(n => n.id === state.narrative)?.label : '';
+  $('gemsTitle').textContent = `Gems · ${state.asset === 'all' ? 'crypto + stocks' : state.asset === 'stock' ? 'stocks' : 'crypto'}${nl ? ' · ' + nl : ''}`;
+  $('disc').textContent = r.disclaimer || '';
+  if (!r.gems.length) { $('gems').innerHTML = '<div class="loading">nothing scored for this filter</div>'; return; }
+  const W = 220;
+  $('gems').innerHTML = `<table><tr><th></th><th>gem</th><th>score</th><th>breakdown</th><th>why it ranked / what could go wrong</th></tr>` +
+    r.gems.map((g, i) => {
+      const key = g.asset + ':' + g.symbol;
+      const segs = PARTS.map(([p, w]) => {
+        const v = g.parts[p] || 0;
+        return v > 0 ? `<i style="width:${(v / 100) * W}px;background:${COLOR[p]}" data-tip="${p}: ${v} of ${w}"></i>` : '';
+      }).join('');
+      const why = g.why.slice(1).map(esc).join(' · ');
+      const feeds = g.why[0];
+      const flags = g.flags.map(f => `<span class="flag">${esc(f)}</span>`).join('');
+      const links = Object.entries(g.urls).filter(([, u]) => u).map(([s, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(FEED_LABEL[s] || s)} ↗</a>`).join('');
+      const extra = g.asset === 'stock' ? `<a href="https://finance.yahoo.com/quote/${encodeURIComponent(g.symbol)}" target="_blank" rel="noopener">Yahoo quote ↗</a>` : '';
+      const open = state.open.has(key);
+      return `<tr class="g" data-k="${esc(key)}"><td class="rank">${i + 1}</td>
+        <td><span class="tag">${g.asset}</span><span class="sym">${esc(g.symbol)}</span><div class="nm">${esc(g.name)}</div></td>
+        <td class="score">${g.score.toFixed(1)}</td>
+        <td><div style="display:flex;align-items:center"><div class="stack">${segs}</div>${g.penalty ? `<span class="pen" data-tip="penalty from flags">−${g.penalty}</span>` : ''}</div>
+          <div class="nm" style="margin-top:3px">${esc(g.narratives.join(', ') || 'no narrative')}</div></td>
+        <td><div class="why">${esc(feeds)}${why ? ' · ' + why : ''}</div>${flags ? `<div style="margin-top:3px">${flags}</div>` : ''}</td></tr>` +
+        (open ? `<tr class="detail"><td></td><td colspan="4"><div class="kv">${metricRows(g)}</div><div class="links">${links}${extra}</div></td></tr>` : '');
+    }).join('') + '</table>';
+  $('gems').querySelectorAll('tr.g').forEach(tr => tr.onclick = e => {
+    if (e.target.closest('a')) return;
+    const k = tr.dataset.k; state.open.has(k) ? state.open.delete(k) : state.open.add(k); renderGems(r);
+  });
+}
+
+async function renderHist() {
+  try {
+    const h = await api('/history?n=12');
+    $('hist').innerHTML = h.length ? h.map(s => `<div class="row"><span class="when">${ago(s.ts)}</span> · ${esc(s.asset)}${s.narrative ? ' · ' + esc(s.narrative) : ''}
+      <div class="sy">${s.gems.slice(0, 8).map(g => esc(g.symbol)).join(' ')}${s.gems.length > 8 ? ' …' : ''}</div></div>`).join('') : '<div class="sub">no scans yet</div>';
+  } catch (e) { $('hist').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+let last = null, busy = false;
+async function scan() {
+  if (busy) return;
+  busy = true; $('scan').disabled = true; $('scan').textContent = 'Scanning...';
+  if (!last) $('gems').innerHTML = '<div class="loading">fetching CoinGecko, DexScreener, reddit, Yahoo, Hacker News... (~5s cold)</div>';
+  try {
+    const q = new URLSearchParams({ asset: state.asset, k: state.k });
+    if (state.narrative) q.set('narrative', state.narrative);
+    const r = await api('/scan?' + q);
+    last = r;
+    renderPipe(r); renderNars(r); renderGems(r); renderHist();
+  } catch (e) {
+    $('gems').innerHTML = `<div class="err">scan failed: ${esc(e.message)}</div>`;
+  } finally {
+    busy = false; $('scan').disabled = false; $('scan').textContent = 'Scan now';
+  }
+}
+
+$('asset').querySelectorAll('button').forEach(b => b.onclick = () => {
+  $('asset').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  state.asset = b.dataset.v; scan();
+});
+$('narrative').onchange = e => { state.narrative = e.target.value; scan(); };
+$('k').onchange = e => { state.k = +e.target.value; scan(); };
+$('scan').onclick = scan;
+setInterval(() => last && renderPipe(last), 30000);
+api('/sources').then(s => { for (const [n, v] of Object.entries(s)) state.docs[n] = v.docs; }).catch(() => {});
+scan();
+</script>
+</body>
+</html>

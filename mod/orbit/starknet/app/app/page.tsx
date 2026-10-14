@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { FamilyStrip } from '@/components/Family';
 import Search from '@/components/Search';
 import { BlockLink, Card, Empty, ErrorBox, Loading, Stat, TxLink, Badge } from '@/components/ui';
 import { ago, num } from '@/lib/format';
@@ -18,6 +19,7 @@ export default function Home() {
   const blocks = useApi<{ head: number; blocks: B[] }>('blocks?limit=12', 8000);
   const pool = useApi<any>(net === 'mainnet' ? 'strk20/pool' : null, 60000);
   const tape = useApi<any>(net === 'mainnet' ? 'strk20/activity?limit=6' : null, 30000);
+  const family = useApi<any>('mods', 60000);
   const [now, setNow] = useState(Date.now() / 1000);
   useEffect(() => { const t = setInterval(() => setNow(Date.now() / 1000), 1000); return () => clearInterval(t); }, []);
 
@@ -55,6 +57,12 @@ export default function Home() {
         <Stat label="Transactions" value={bs.length ? txs.toLocaleString() : '—'} sub={`in the last ${bs.length || 12} blocks`} />
         <Stat label="Network" value={status.data?.chain || '—'} sub={status.data ? `RPC spec ${status.data.spec_version}` : ' '} />
       </div>
+
+      {family.data && (
+        <Card className="fam-card" title="Starknet mods" right={<Link href="/mods" className="hash">{family.data.up}/{family.data.count} live · all ›</Link>}>
+          <FamilyStrip mods={family.data.mods} />
+        </Card>
+      )}
 
       <div className="grid g32">
         <Card title="Latest blocks" right={<><span className="spin" style={{ width: 10, height: 10, opacity: blocks.loading ? 1 : 0 }} /> live</>}>

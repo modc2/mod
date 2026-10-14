@@ -41,7 +41,7 @@ def _family(source: str) -> str:
 def _usd(v) -> str:
     if v is None:
         return '?'
-    for div, suf in ((1e9, 'B'), (1e6, 'M'), (1e3, 'K')):
+    for div, suf in ((1e12, 'T'), (1e9, 'B'), (1e6, 'M'), (1e3, 'K')):
         if abs(v) >= div:
             return f'${v / div:.1f}{suf}'
     return f'${v:.0f}'
@@ -322,15 +322,16 @@ def scan(asset: str = 'all', k: int = 20, narrative: Optional[str] = None, min_s
         c['narratives'] = nar.match(c['text'], c['symbol'], c['asset'])
     h = heat(cands, asset, hn)
     status.update({n: {'ok': False, 'error': e} for n, e in h['errors'].items()})
-    gems = [score(c, h['narratives']) for c in cands.values()]
+    gems = gems_all = [score(c, h['narratives']) for c in cands.values()]
     if narrative:
         label = nar.NARRATIVES[narrative]['label']
         gems = [g for g in gems if label in g['narratives']]
     gems = sorted((g for g in gems if g['score'] >= float(min_score)), key=lambda g: -g['score'])[:int(k)]
-    hot = sorted(({'id': n, 'label': v['label'], 'crypto': v['crypto'], 'stock': v['stock']}
+    hot = sorted(({'id': n, 'label': v['label'], 'crypto': v['crypto'], 'stock': v['stock'],
+                   'drivers': v['drivers']}
                   for n, v in h['narratives'].items()), key=lambda x: -max(x['crypto'], x['stock']))
     res = {'ts': int(time.time()), 'asset': asset, 'narrative': narrative, 'took_s': round(time.time() - t0, 1),
-           'candidates': len(cands), 'sources': status, 'narratives': hot, 'gems': gems,
+           'signals': len(signals), 'candidates': len(cands), 'scored': len(gems_all), 'sources': status, 'narratives': hot, 'gems': gems,
            'disclaimer': 'Attention score, not a forecast. Most narrative pumps round-trip. Not financial advice.'}
     if save:
         _save(res)

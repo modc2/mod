@@ -36,6 +36,11 @@ const token = () => {
   }
 };
 
+export const authHeaders = (): Record<string, string> => {
+  const t = token();
+  return t ? { token: t } : {};
+};
+
 function b64url(s: string): string {
   let bin = '';
   new TextEncoder().encode(s).forEach((b) => { bin += String.fromCharCode(b); });

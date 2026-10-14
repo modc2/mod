@@ -251,3 +251,38 @@ account, so it must not be reachable from the internet as it stands.
   (`Dirpath ... does not exist` from `m cairo/*`); fix with `rm -rf ~/.mod/tree`.
 - Related: [`starktime`](../starktime) (Rust API + a Cairo 2 contract),
   [`starknet`](../starknet) (explorer + RPC/ABI API).
+
+## Learn: stablecoins from zero
+
+The **Learn** tab is seven short plain-English lessons (`src/tutorials.py`):
+what a stablecoin is, smart contracts as vending machines, building a
+cash-backed dollar (like USDC) and a crypto-backed one (like DAI), tests,
+changing it with the agent, and what changes before real money. The two
+"build" lessons make a working contract in one click from new starters:
+
+| starter | like | the rule it enforces |
+|---|---|---|
+| `stablecoin` | USDC | the issuer can never mint more coins than the dollars it reports in reserve |
+| `vault_stable` | DAI | borrow at most 2/3 of your collateral's value; under 150% anyone may liquidate |
+
+Examples: `cairo.usd` (5 tests) and `cairo.vaultusd` (6 tests, including a
+price crash followed by a liquidation).
+
+## The helper (bottom-right) and the MCP server
+
+The round **?** button opens a helper that speaks the fleet agent contract
+(`GET /cairo/agents`, `POST /cairo/run[/stream]`). Every fact it looks up is a
+call to a cairo **MCP** tool, and the trail under each answer shows which.
+It has two brains:
+
+- **Quick**: free, instant, open to everyone. It routes your question to
+  lessons, glossary words and the contract you have open.
+- **Smart**: owner only. Claude runs through orbit/claudecode and calls the
+  MCP server itself with curl.
+
+The MCP server is at `POST /cairo/mcp` (JSON-RPC 2.0). To use it from Claude Code:
+
+    claude mcp add --transport http cairo http://localhost:51291/cairo/mcp
+
+Reads and practice-chain calls are open. `cairo_new`, `cairo_write`,
+`cairo_build` and `cairo_test` follow the same owner rule as the REST API.

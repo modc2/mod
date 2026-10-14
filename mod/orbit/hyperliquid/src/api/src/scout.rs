@@ -9,6 +9,9 @@
 //   3. takes the best CANDIDATES by expected $/day per $1k and BACKTESTS each
 //      with $1,000 at 1, 7 and 30 days (backtest::run_windows — two upstream
 //      calls per wallet for all three windows),
+//      Both are NET of the copier's fees: a copy pays the base-tier taker
+//      fee on every fill it mirrors (backtest::COPY_TAKER_FEE), which for a
+//      VIP or maker-rebate book is far more than the trader paid,
 //   4. scores each pick by the LOWER of the two answers — the model's
 //      expected $/day per $1k, and the median $/day the trusted backtest
 //      windows actually paid — so a wallet only ranks high when its fills
@@ -46,8 +49,9 @@ const HISTORY: usize = 48;
 
 pub const METHOD: &str = "expected $/day per $1k copied = min(model, backtest). \
 model = (winRateLo·avgWin − (1−winRateLo)·avgLoss) × closes/day, scaled by 1000/basis — the \
-profit factor's halves priced at the win rate the sample can defend. backtest = median $/day \
-of the trusted 1/7/30d replays of $1,000 riding the trader's book.";
+profit factor's halves priced at the win rate the sample can defend, minus the extra taker fees \
+a copy pays on the trader's volume. backtest = median $/day of the trusted 1/7/30d replays of \
+$1,000 riding the trader's book, each fill re-priced at the 0.045% taker fee.";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -55,9 +59,13 @@ pub struct ScoutCell {
     pub days: u32,
     /// No failed check and a non-dust basis — the only cells that count.
     pub trusted: bool,
+    /// Net of the copy's fees.
     pub pnl: Option<f64>,
     /// pnl ÷ days on $1,000.
     pub per_day: Option<f64>,
+    /// Before the copy's extra fees, and those fees, on $1,000.
+    pub gross_pnl: Option<f64>,
+    pub fees: Option<f64>,
     pub roi_pct: Option<f64>,
     pub max_drawdown_pct: Option<f64>,
     pub flags: Vec<String>,
@@ -85,6 +93,11 @@ pub struct Pick {
     pub green_windows: usize,
     /// "consistent" | "mixed" | "losing" | "unverified".
     pub verdict: String,
+    /// $1,000 over the longest window that replayed: [ms, equity] net of
+    /// fees, and the same before fees.
+    pub curve_days: u32,
+    pub curve: Vec<[f64; 2]>,
+    pub gross_curve: Vec<[f64; 2]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -144,6 +157,8 @@ pub fn judge(t: &TopTrader, board_rank: usize, cells: &[Cell]) -> Pick {
         trusted: trusted(c),
         pnl: c.pnl,
         per_day: c.pnl.map(|p| r2(p / c.days.max(1) as f64)),
+        gross_pnl: c.gross_pnl,
+        fees: c.fees,
         roi_pct: c.roi_pct,
         max_drawdown_pct: c.max_drawdown_pct,
         flags: c.flags.clone(),
@@ -182,6 +197,20 @@ pub fn judge(t: &TopTrader, board_rank: usize, cells: &[Cell]) -> Pick {
         trusted_windows,
         green_windows,
         verdict,
+        ..Default::default()
+    }
+}
+
+/// Hang a curve on a pick: the longest TRUSTED window's, else the longest
+/// that replayed at all.
+pub fn attach_curve(p: &mut Pick, runs: &[crate::backtest::Backtest]) {
+    let drawn = || runs.iter().filter(|b| b.available && b.points.len() >= 2);
+    let pick = drawn().filter(|b| trusted(&Cell::from(*b))).max_by_key(|b| b.days)
+        .or_else(|| drawn().max_by_key(|b| b.days));
+    if let Some(b) = pick {
+        p.curve_days = b.days;
+        p.curve = b.points.clone();
+        p.gross_curve = b.gross_points.clone();
     }
 }
 
@@ -269,9 +298,11 @@ impl Scout {
         let mut picks: Vec<Pick> = stream::iter(pool.into_iter().map(|(rank, t)| {
             let hl = hl.clone();
             async move {
-                let cells: Vec<Cell> = run_windows(hl, &t.address, &WINDOWS, CAPITAL).await
-                    .iter().map(Cell::from).collect();
-                judge(&t, rank, &cells)
+                let runs = run_windows(hl, &t.address, &WINDOWS, CAPITAL).await;
+                let cells: Vec<Cell> = runs.iter().map(Cell::from).collect();
+                let mut p = judge(&t, rank, &cells);
+                attach_curve(&mut p, &runs);
+                p
             }
         }))
         .buffer_unordered(CONCURRENCY)
@@ -321,6 +352,7 @@ mod tests {
     fn cell(days: u32, pnl: Option<f64>, ok: bool) -> Cell {
         Cell {
             days, available: pnl.is_some(), ok, roi_pct: pnl.map(|p| p / 10.0), pnl,
+            gross_pnl: pnl, fees: pnl.map(|_| 0.0),
             final_value: pnl.map(|p| 1000.0 + p), max_drawdown_pct: Some(1.0),
             realized_roi_pct: None, wiped: false, flags: vec![], note: None,
         }

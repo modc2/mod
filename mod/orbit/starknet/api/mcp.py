@@ -30,6 +30,8 @@ if HERE not in sys.path:
 import abi      # noqa: E402
 import guide    # noqa: E402
 import chain    # noqa: E402
+import family   # noqa: E402
+import fund     # noqa: E402
 import stables  # noqa: E402
 import strk20   # noqa: E402
 import studio   # noqa: E402
@@ -112,6 +114,17 @@ def _encode(a):
         return abi.encode(a['contract'], a['function'], a.get('args'),
                           network=_n(a))
     return {'name': a['function'], 'selector': chain.selector(a['function'])}
+
+
+def _fund(a, writable=False):
+    if a.get('target') in (None, ''):
+        return fund.balances()
+    if not writable:
+        raise ToolError('funding is owner-only (mod token or loopback)')
+    return fund.fund(a['target'])
+
+
+_fund.writes = True
 
 
 TOOLS = {
@@ -329,6 +342,26 @@ TOOLS = {
                        'oracle with the deviation from $1 in basis points.',
         'inputSchema': _schema(),
         'handler': lambda a: stables.stables(network=_n(a)),
+    },
+    'starknet_mods': {
+        'description': 'The other Starknet mods on this node — cairo (contract '
+                       'workbench), starktime (time-weighted STRK staking), '
+                       'zquorum (anonymous quorums), zuma (anonymous subnet) '
+                       'and zkwasm — each with up/down, live numbers and '
+                       'where its app lives.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': lambda a: family.mods(),
+    },
+    'starknet_fund': {
+        'description': 'ETH and STRK balances of every devnet account and '
+                       'contract the Starknet mods own (cairo sandbox '
+                       'accounts + every deployed contract, zuma accounts + '
+                       'the Zuma contract). Pass target=N to top each one up '
+                       'to N tokens of both (free devnet mint, owner only). '
+                       'Mainnet is never touched.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'target': {'type': 'number', 'description': 'tokens per address; omit to just read'}}},
+        'handler': _fund,
     },
     'starknet_ask': {
         'description': 'Ask the starknet guide agent a question in plain '

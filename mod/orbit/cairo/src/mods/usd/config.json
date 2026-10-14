@@ -1,0 +1,27 @@
+{
+    "name": "usd",
+    "title": "Usd",
+    "description": "A cash-backed digital dollar",
+    "version": "0.1.0",
+    "submod_of": "cairo",
+    "kind": "cairo-contract",
+    "template": "stablecoin",
+    "edition": "2024_07",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "deploy",
+        "call",
+        "events"
+    ]
+}

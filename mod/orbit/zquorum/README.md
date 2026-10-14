@@ -49,6 +49,47 @@ Secrets may be any felt (decimal/0x-hex) or an arbitrary passphrase
 (hashed `sha256 % PRIME` client-side, so the same passphrase works from
 any client).
 
+## On Starknet — the `ZQuorum` contract
+
+`contract/` (Scarb package `zquorum`, path-depends on `circuit/` so it
+hashes with the very same `zq` functions) keeps a quorum's books on-chain:
+
+| on-chain | enforced by the contract |
+|----------|--------------------------|
+| member commitments | no duplicates, max 64, none after the freeze |
+| frozen root | computed at the first vote as `zq::root` over the **sorted** set — byte-identical to the anchor's |
+| spent nullifiers | one vote per nullifier per topic; never more votes than members |
+| yes/no tally | `reached` = yes ≥ threshold, `Reached` event when it trips |
+
+The anchor is the contract's **tallier**: it checks membership by running
+the circuit (as in v0.1) and posts only `(nullifier, choice)`. Every
+transaction comes from the tallier's account, so the sender reveals nothing
+about who voted. Anyone can read the books and diff them against the ledger.
+
+```sh
+m zquorum/create name=launch threshold=2 network=devnet   # deploys on demand
+m zquorum/join name=launch commitment=<C>                 # mirrored on-chain
+m zquorum/vote name=launch secret=... choice=yes          # mirrored on-chain
+m zquorum/onchain name=launch        # contract tally vs ledger -> match: true
+m zquorum/anchor name=old network=devnet   # move an existing quorum on-chain (replays it)
+m zquorum/chain                      # devnet + deployment + quorums on-chain
+m zquorum/contract_test              # snforge, 8 tests
+```
+
+- **devnet**: zquorum's own `starknet-devnet` on `:51302` (seed 0, account 0
+  = tallier). It starts on demand and dumps its state to `data/devnet/`
+  on every block, so the contract and its books survive restarts.
+- **sepolia / mainnet**: `m zquorum/deploy network=sepolia account=<sncast
+  account>` (fund it with STRK, then `sncast account deploy`). After that,
+  `create ... network=sepolia` or `anchor` works the same. Each join or vote
+  is one invoke paid by the tallier. Not exercised yet: it needs a funded
+  account.
+- `deploy`, `devnet` and anchoring on a paid network are **loopback-only** on
+  the HTTP API. The public route can read, join and vote, but it cannot
+  spend.
+- The starknet module's MODS hub (`/starknet/mods`) shows zquorum's
+  contract, devnet status and how many quorums are on-chain.
+
 ## Trust model (v0.1) and the proof upgrade (v0.2)
 
 v0.1 verifies a vote by **executing** the circuit (`scarb cairo-run`):
@@ -98,7 +139,9 @@ app/               Next.js console (static export) — create/join/vote/tally UI
 build.sh           next export -> releases/<ts> -> atomic dist symlink
 dist -> releases/  published console (gitignored symlink)
 circuit/           Cairo 2.8.4 package `zq` — THE protocol (hashes, vote check, CLI main)
-data/quorums.json  runtime ledger (gitignored); secrets are never stored
+contract/          Starknet package `zquorum` — ZQuorum contract (books on-chain) + snforge tests
+tests/             pytest: ledger + full on-chain ceremony on the devnet
+data/              quorums.json ledger, deployments.json, devnet/ (gitignored); secrets never stored
 ```
 
 - Circuit ground truth: `cd circuit && scarb cairo-test` (6 tests) or

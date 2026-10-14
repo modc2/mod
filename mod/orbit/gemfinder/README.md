@@ -9,8 +9,10 @@ m gemfinder/scan asset=crypto k=10            # full JSON: score parts, why, fla
 m gemfinder/scan asset=stock narrative=quantum
 m gemfinder/narratives                        # which themes are hot right now, and why
 m gemfinder/history                           # past scans with price at scan time
-m gemfinder/serve                             # REST on :51320 (pm2 `gemfinder`)
+m gemfinder/serve                             # app + REST on :51320 (pm2 `gemfinder`)
 ```
+
+**App:** open `http://localhost:51320/`. It shows each feed's status and count, the signals → tickers → gems funnel, narrative heat (hover a row to see its drivers, click it to filter), the ranked gems with a stacked score breakdown (click a row for metrics and links) and past scans.
 
 No API keys. Stdlib only. Run `top` to scan everything (about 4s cold; cached after that).
 
@@ -60,6 +62,7 @@ gemscan/http.py     JSON fetch + SQLite cache of raw bodies (stale copy served w
 gemscan/sources.py  one function per feed -> Signals
 gemscan/narratives.py  the themes (edit me)
 gemscan/engine.py   gather -> merge -> enrich -> heat -> score -> scan
+app/index.html      the app (single static page, no build), served at /
 gemscan/server.py   REST: /health /scan /narratives /history /sources (also under /gemfinder/api)
 test/               offline tests (m gemfinder/test)
 ```
@@ -71,4 +74,4 @@ State is stored in `~/.mod/gemfinder/`: `cache.db` holds the raw HTTP bodies and
 - `review`: re-price the picks in `scans.jsonl` after 1d/7d/30d, then tune the weights against actual hit rate.
 - More feeds: X/Twitter cashtags (via orbit/x), the `news` module for headline velocity, Google Trends, and pump.fun/GeckoTerminal new pools.
 - An LLM pass that reads the top N's descriptions and news to judge how strong each narrative fit is.
-- An MCP endpoint and a small app.
+- An MCP endpoint.

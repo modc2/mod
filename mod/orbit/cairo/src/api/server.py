@@ -48,6 +48,11 @@ modpy = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(modpy)
 
 MOD = modpy.Mod()
+
+# cairo_mcp.py / cairo_helper.py / tutorials.py import by bare name from these two dirs
+sys.path[:0] = [str(SRC / 'api'), str(SRC)]
+import cairo_mcp as mcp  # noqa: E402  (not `mcp`: the pip SDK)
+import cairo_helper as helper  # noqa: E402
 NAME = 'cairo'
 PORT = int(os.environ.get('CAIRO_PORT', MOD.port))
 HOST = os.environ.get('CAIRO_HOST', '127.0.0.1')
@@ -70,13 +75,14 @@ GET_FNS = {
     'events': lambda q: MOD.events(q.get('name', ''), q.get('limit', 50)),
     'sandbox': lambda q: MOD.sandbox(),
     'market': lambda q: MOD.market(),
+    'tutorials': lambda q: MOD.tutorials(q.get('id')),
     'jobs': lambda q: {'jobs': _jobs_list()},
     'job': lambda q: _job_get(q.get('id', '')),
 }
 POST_FNS = {'info', 'status', 'toolchain', 'list', 'contracts', 'get', 'tree',
             'read', 'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove',
             'templates', 'abi', 'adopt', 'app', 'deploy', 'call', 'events',
-            'sandbox', 'market', 'fork'}
+            'sandbox', 'market', 'fork', 'tutorials'}
 LONG_FNS = {'vibe', 'build', 'test', 'status'}
 # touch files on this box or spend the host Claude account -> owner only
 WRITE_FNS = {'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove', 'adopt',
@@ -143,6 +149,37 @@ def _sandbox_needs_owner(fn, kw):
         live = (st.get('deployment') or {}).get('live')
         return live or st.get('state') != 'fresh'
     return False
+
+def _gate(ip, headers):
+    """The REST write rule as a callback for MCP tools and the helper:
+    gate(fn, kw, owner_tool) -> None (go) | why not."""
+    cache = {}
+
+    def gate(fn, kw, owner=False):
+        if owner or fn in WRITE_FNS or _sandbox_needs_owner(fn, kw):
+            if 'who' not in cache:
+                cache['who'] = _whoami(ip, headers)
+            if not cache['who']['writable']:
+                return f"{fn} is owner-only: {cache['who'].get('why')}"
+        return None
+    return gate
+
+
+def _special(path):
+    """MCP + agent-contract routes, under any gateway prefix:
+    /cairo/mcp, /cairo/agents[/<id>], /cairo/.well-known/agent.json,
+    /cairo/run, /cairo/run/stream  ->  ('mcp',) ('agents', id) ..."""
+    segs = [p for p in path.split('/') if p and p not in (NAME, 'api', '_api')]
+    if segs == ['mcp']:
+        return ('mcp',)
+    if segs[:1] == ['agents'] and len(segs) <= 2:
+        return ('agents', segs[1] if len(segs) == 2 else None)
+    if segs == ['.well-known', 'agent.json']:
+        return ('card',)
+    if segs in (['run'], ['run', 'stream']):
+        return ('run', len(segs) == 2)
+    return None
+
 
 # ---- jobs -------------------------------------------------------------------
 
@@ -335,8 +372,26 @@ class H(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(str(target))[0] or 'application/octet-stream'
         return self._send(200, target.read_bytes(), ctype)
 
+    def _base_url(self):
+        # the helper's claude brain curls MCP on this box, never the public URL
+        return f'http://127.0.0.1:{PORT}'
+
     def do_GET(self):
         p = urlparse(self.path)
+        sp = _special(p.path)
+        if sp:
+            if sp[0] == 'mcp':
+                return self._send(200, mcp.card())
+            if sp[0] == 'card':
+                return self._send(200, helper.card(MOD.base))
+            if sp[0] == 'agents':
+                if sp[1]:
+                    a = helper.AGENTS.get(sp[1])
+                    return self._send(200 if a else 404, a or {'error': f'no agent {sp[1]!r}'})
+                return self._send(200, {'agents': list(helper.AGENTS.values()),
+                                        'examples': helper.EXAMPLES,
+                                        'whoami': _whoami(self.client_address[0], self.headers)})
+            return self._send(405, {'error': 'POST /run or /run/stream'})
         if not _is_api_path(p.path):
             if self._serve_app(p.path):
                 return
@@ -360,9 +415,21 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get('Content-Length') or 0)
         try:
             kw = json.loads(self.rfile.read(n) or b'{}')
-            if not isinstance(kw, dict):
+            if not isinstance(kw, (dict, list)):
                 raise ValueError
         except Exception:  # noqa: BLE001
+            return self._send(400, {'error': 'body must be a JSON object'})
+        sp = _special(p.path)
+        if sp and sp[0] == 'mcp':
+            gate = _gate(self.client_address[0], self.headers)
+            msgs = kw if isinstance(kw, list) else [kw]
+            out = [r for r in (mcp.handle(m, MOD, gate, _jobs_list) for m in msgs) if r]
+            if not out:
+                return self._send(202, b'')
+            return self._send(200, out if isinstance(kw, list) else out[0])
+        if sp and sp[0] == 'run':
+            return self._agent_run(kw, stream=sp[1])
+        if not isinstance(kw, dict):
             return self._send(400, {'error': 'body must be a JSON object'})
         if fn in ('job', 'jobs'):
             return self._send(200, GET_FNS[fn](kw))
@@ -385,6 +452,42 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, getattr(MOD, fn)(**kw))
         except Exception as e:  # noqa: BLE001  (TypeError = bad kwargs)
             return self._send(400, {'error': str(e)})
+
+
+    def _agent_run(self, body, stream):
+        if not isinstance(body, dict):
+            return self._send(400, {'error': 'body must be a JSON object'})
+        ip, hd = self.client_address[0], self.headers
+        args = dict(mod=MOD, body=body, who=_whoami(ip, hd), gate=_gate(ip, hd),
+                    jobs=_jobs_list, base_url=self._base_url(), root=str(SRC.parent),
+                    mods_dir=modpy.MODS)
+        if not stream:
+            try:
+                ev = helper.run(emit=lambda e: None, **args)
+            except Exception as e:  # noqa: BLE001
+                return self._send(400, {'error': str(e)})
+            return self._send(200 if ev.get('type') == 'done' else 400, ev)
+        # SSE: no Content-Length, connection closes when the run ends
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.close_connection = True
+
+        def emit(ev):
+            try:
+                self.wfile.write(f'data: {json.dumps(ev, default=str)}\n\n'.encode())
+                self.wfile.flush()
+            except OSError:
+                pass
+        try:
+            helper.run(emit=emit, **args)
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            emit({'type': 'error', 'error': str(e)})
 
 
 H.do_HEAD = H.do_GET

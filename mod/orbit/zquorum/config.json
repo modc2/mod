@@ -1,13 +1,13 @@
 {
     "name": "zquorum",
-    "title": "zQuorum \u00b7 anonymous quorums in Cairo",
-    "version": "0.2.0",
-    "description": "A group reaches a quorum without revealing who voted. Members register Pedersen commitments; a vote reveals only a nullifier \u2014 unlinkable to any member without their secret, and a repeated nullifier is a rejected double vote. All cryptography (commit, nullifier, set root, vote check) runs as a Cairo 2 program in circuit/ so the anchor never reimplements a hash, and the statement is already prover-shaped for the v0.2 STARK upgrade. A static Next.js console (app/) is served by the Python-stdlib anchor (server.py) next to the JSON API, behind the mod-protocol gateway.",
+    "title": "zQuorum \u00b7 anonymous quorums in Cairo, on Starknet",
+    "version": "0.3.0",
+    "description": "A group reaches a quorum without revealing who voted. Members register Pedersen commitments; a vote reveals only a nullifier \u2014 unlinkable to any member without their secret, and a repeated nullifier is a rejected double vote. All cryptography (commit, nullifier, set root, vote check) runs as a Cairo 2 program in circuit/ so the anchor never reimplements a hash, and the statement is already prover-shaped for the v0.2 STARK upgrade. The books (member commitments, spent nullifiers, tally, frozen root) can live on the ZQuorum Starknet contract (contract/), which recomputes the root with the same zq code and enforces the freeze, one vote per nullifier and the threshold on-chain. A static Next.js console (app/) is served by the Python-stdlib anchor (server.py) next to the JSON API, behind the mod-protocol gateway.",
     "icon": "Q",
     "color": "#8b5cf6",
     "anchor": "mod.py",
     "server": "server.py",
-    "network": "local",
+    "network": "starknet",
     "port": 51300,
     "app_port": 51300,
     "gateway_port": 51300,
@@ -25,14 +25,19 @@
         "freeze": "the member set freezes at the first vote",
         "circuit": "circuit/ (Cairo package zq); run via scarb cairo-run, tested via scarb cairo-test",
         "trust_v0_1": "anchor = trusted tallier; sees a secret transiently during verification, persists only (nullifier, choice)",
-        "upgrade_v0_2": "STARK-prove the same circuit so votes verify without the tallier seeing secrets; commit/nullifier derivation moves client-side"
+        "upgrade_v0_2": "STARK-prove the same circuit so votes verify without the tallier seeing secrets; commit/nullifier derivation moves client-side",
+        "contract": "contract/ (Scarb package zquorum, path-depends on circuit/ zq): ZQuorum keeps commitments, nullifiers, tally and the zq::root of the sorted set at freeze; tallier-only writes; snforge tests",
+        "onchain_trust": "the tallier attests membership (it ran the circuit); the contract enforces everything else publicly. Every tx is sent by the tallier account, so the sender never identifies a voter"
     },
     "toolchain": {
         "scarb": "2.8.4",
         "edition": "2024_07",
-        "bin_dir": "~/.local/bin"
+        "bin_dir": "~/.local/bin",
+        "snforge": "0.31.0",
+        "sncast": "0.31.0",
+        "starknet-devnet": "0.2.4"
     },
-    "state": "data/quorums.json (gitignored runtime ledger). Secrets are never stored anywhere.",
+    "state": "data/quorums.json (ledger), data/deployments.json, data/devnet/ (chain state + tallier account, 0600) \u2014 all gitignored. Secrets are never stored anywhere.",
     "fns": [
         "forward",
         "info",
@@ -48,6 +53,14 @@
         "list",
         "quorums",
         "remove",
+        "anchor",
+        "onchain",
+        "chain",
+        "deploy",
+        "deployments",
+        "devnet",
+        "contract_build",
+        "contract_test",
         "build",
         "test",
         "status",
@@ -63,12 +76,24 @@
         "GET /zquorum/api/tally?name=": "Counts + reached, never identities",
         "GET /zquorum/api/get?name=": "One quorum's public record",
         "POST /zquorum/api/commit": "Derive a commitment from a secret (secret=)",
-        "POST /zquorum/api/create": "Open a quorum (name=, threshold=, desc=)",
+        "POST /zquorum/api/create": "Open a quorum (name=, threshold=, desc=, network=devnet|sepolia|mainnet to keep the books on Starknet)",
         "POST /zquorum/api/join": "Register a member commitment (name=, commitment=)",
         "POST /zquorum/api/vote": "Cast an anonymous vote (name=, secret=, choice=yes|no)",
         "POST /zquorum/api/remove": "Delete a quorum (name=)",
+        "POST /zquorum/api/anchor": "Put an existing quorum on the ZQuorum contract and replay its members + votes (name=, network=)",
+        "GET /zquorum/api/onchain?name=": "Read the quorum's books off Starknet and diff them against the ledger (match, diff)",
+        "GET /zquorum/api/chain?network=": "Devnet liveness, the deployment, quorums on-chain",
+        "GET /zquorum/api/deployments": "ZQuorum contract addresses per network",
+        "POST /zquorum/api/deploy": "Declare + deploy ZQuorum (network=, account=) \u2014 loopback only",
+        "POST /zquorum/api/devnet": "start|stop|reset|status the local devnet (action=) \u2014 loopback only",
         "note": "The app self-calls the same handlers under /zquorum/_api/* (gateway keeps the prefix); /api/zquorum/* is the permanent legacy alias."
     },
-    "safety": "No chain, no keys, no funds: a local ceremony ledger. Secrets are verified by executing the Cairo circuit and are never persisted; the ledger stores commitments, nullifiers and choices only. route=true links the module onto the gateway at {host}/zquorum (app) and {host}/zquorum/api (API).",
-    "schema": "QmXt2qp3EEwcaxQcKVomj2jwzTMbX8AoTdM9GT9GGcnbbJ"
+    "safety": "Devnet by default: no real funds. Secrets are verified by executing the Cairo circuit and are never persisted; the ledger and the contract store commitments, nullifiers and choices only. deploy/devnet and anchoring on sepolia/mainnet are loopback-only. route=true links the module onto the gateway at {host}/zquorum (app) and {host}/zquorum/api (API).",
+    "schema": "QmNdCN1wpgc31yCo7FkFcnJcof9mo5pcRnnNdDb8RWL5EE",
+    "networks": {
+        "devnet": "local starknet-devnet on :51302 (seed 0, account 0 = tallier); started on demand, state dumped to data/devnet/",
+        "sepolia": "m zquorum/deploy network=sepolia account=<sncast account funded with STRK>",
+        "mainnet": "m zquorum/deploy network=mainnet account=<sncast account funded with STRK>"
+    },
+    "devnet_port": 51302
 }

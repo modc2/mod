@@ -46,6 +46,7 @@ MOD = _anchor.Mod(local=False)
 
 import x402mcp as mcp            # noqa: E402 — the one MCP dispatch
 import x402trust as trust        # noqa: E402 — who is calling
+import x402agent as agent        # noqa: E402 — the finder (claude over /mcp)
 
 mcp.SYNC, mcp.MOD = MOD.sync, MOD
 
@@ -60,7 +61,8 @@ WRITE_FNS = ('sync', 'discover', 'add_source', 'remove_source', 'probe', 'forget
 # Agent actions run as the CALLER (token / key / anon), gated by their trust
 # tier inside x402mcp — never as this box, which is what Mod's methods do.
 AGENT_FNS = ('call', 'quote', 'register', 'revoke', 'set_trust', 'policy', 'wallet')
-API_FNS = READ_FNS + WRITE_FNS + AGENT_FNS
+# The finder agent: GET = its card, POST = a question, answered as SSE.
+API_FNS = READ_FNS + WRITE_FNS + AGENT_FNS + ('ask',)
 
 FLAGS = ('priced', 'background', 'pin', 'discover')
 JSONS = ()
@@ -176,7 +178,30 @@ class Handler(SimpleHTTPRequestHandler):
                 return path[len(pre):]
         return None
 
+    def _ask(self, args):
+        a = {k: (v[0] if isinstance(v, list) else v) for k, v in args.items()}
+        who = self._who()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        port = self.server.server_address[1]
+        try:
+            for ev in agent.stream(a.get('question'), port, MOD.service,
+                                   session=a.get('session'), model=a.get('model'),
+                                   ip=who['id'], owner=who.get('kind') == 'local'):
+                self.wfile.write(b'data: ' + json.dumps(ev, default=str).encode() + b'\n\n')
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def _dispatch(self, fn, args, method):
+        if fn == 'ask':
+            if method == 'POST':
+                return self._ask(args)
+            return self._json(agent.card(self.server.server_address[1]))
         if fn == 'whoami':
             return self._json(trust.standing(self._who()['id']))
         if fn in AGENT_FNS:
