@@ -110,7 +110,7 @@
         "POST /cairo/agents/builder/run": "Same, one JSON answer"
     },
     "safety": "vibe() runs the Claude CLI with --permission-mode acceptEdits scoped to a single submod directory (--add-dir), so edits and scarb/snforge runs stay inside that contract's project. It uses the host Claude OAuth credentials and spends against them. No keys are deployed and nothing is sent to a live chain; sncast is present for the user to deploy by hand. Publicly routed: reads are open, but every write (write/new/vibe/build/test/clean/remove/adopt) needs a loopback request or a mod-protocol token signed by the owner (config owner, build-console private-flag owner, or CAIRO_OWNERS). The per-contract apps run on a local starknet-devnet with its public seed-0 test accounts; nothing reaches a real network. call() is open to anyone; deploy() is open only for a built contract with no live deployment; sandbox start/stop/reset is owner-only.",
-    "schema": "QmSBPGDQaBEAqtgaC5BJ3DqRmyyjuNotWRaP48RBPk5SYf",
+    "schema": "QmceQ5wRX6FpqPLh3jivno26hK98Do33NWJPJUDe1PdV2T",
     "server": "src/api/server.py",
     "app": "src/app",
     "layout": {

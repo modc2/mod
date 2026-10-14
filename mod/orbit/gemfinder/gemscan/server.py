@@ -3,15 +3,17 @@ gemscan.server — REST on one port, stdlib only.
 
     GET /            the app (app/index.html)
     GET /health
-    GET /scan?asset=all|crypto|stock&k=20&narrative=&q=&min_score=&sources=a,b&hn=1&fresh=0
+    GET /scan?asset=all|crypto|stock&k=20&narrative=&q=&min_score=&sources=a,b&hn=1&fresh=0&sort=upside|score
     GET /narratives?asset=
     GET /history?n=10
+    GET /review?n=12    past picks priced now vs then (did they go up?)
     GET /sources
     GET /cache          scan-cache state;  DELETE /cache  (or GET /cache/clear) drops it
 
 Scans are cached in-process (SCAN_TTL, default 10 min) and a warmer refreshes
 the asset=all base on boot and every TTL, so the app opens from cache in
-milliseconds. ?fresh=1 forces a live rescan. ?q= is a typed theme.
+milliseconds. ?fresh=1 forces a live rescan. ?q= is a typed theme, matched by
+words and by meaning (gemscan.semantic via the modsearch module when it is up).
 
 Paths are also accepted under /gemfinder and /gemfinder/api (gateway convention).
 Failures are 4xx with a JSON {error}: Cloudflare eats 5xx bodies.
@@ -27,7 +29,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import engine, http, narratives, sources
+from . import engine, http, narratives, semantic, sources
 
 PREFIXES = ('/gemfinder/api', '/gemfinder', '/api')
 APP = Path(__file__).resolve().parent.parent / 'app' / 'index.html'
@@ -109,13 +111,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == '/health':
                 body = {'ok': True, 'module': 'gemfinder', 'cache': http.stats(),
-                        'narratives': narratives.ids()}
+                        'narratives': narratives.ids(), 'semantic': semantic.status()}
             elif path == '/scan':
                 body = engine.scan(asset=q.get('asset', 'all'), k=int(q.get('k', 20)),
                                    narrative=q.get('narrative') or None, min_score=float(q.get('min_score', 0)),
                                    sources=[s for s in q.get('sources', '').split(',') if s] or None,
                                    hn=_bool(q.get('hn', '1')), save=_bool(q.get('save', '1')),
-                                   q=q.get('q') or None, fresh=_bool(q.get('fresh', '0')))
+                                   q=q.get('q') or None, fresh=_bool(q.get('fresh', '0')),
+                                   sort=q.get('sort') or 'upside')
+            elif path == '/review':
+                body = engine.review(int(q.get('n', 12)), fresh=_bool(q.get('fresh', '0')))
             elif path == '/cache':
                 body = engine.cache_stats()
             elif path == '/cache/clear':

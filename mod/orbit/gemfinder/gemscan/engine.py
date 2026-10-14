@@ -23,8 +23,17 @@ warms the asset=all base on boot and every TTL so the app opens from cache.
 Typed themes: scan(q='nuclear drones') builds a 14th narrative from the words
 typed (gemscan.narratives.custom), runs the live search feeds
 (sources.THEME_SOURCES) on top of the cached base, tags every candidate the
-words hit, heats the theme against the other 13 and returns only the gems that
-fit it.
+words hit — and every candidate whose *meaning* is close (gemscan.semantic:
+MiniLM embeddings via the modsearch module; "humanoid robots" finds Figure,
+"anon" finds privacy coins). Each gem carries `fit` (0-1 similarity to the
+theme). The theme also inherits the nearest built-in narrative's seed stocks
+and categories, so "drones" gets the defense names.
+
+Upside: every gem also gets `upside` = score x fit x room-to-run (hard flags —
+thin liquidity, brand-new pair, already vertical, penny — cut it), and the scan
+names one `pick`: the highest-upside gem with no hard flag. Results are sorted
+by upside unless sort='score'. `review()` prices past picks now vs then, so the
+"most likely to go up" claim can be checked against what happened.
 """
 from __future__ import annotations
 
@@ -38,6 +47,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from . import narratives as nar
+from . import semantic as sem
 from . import sources as src
 from .http import HOME
 
@@ -45,7 +55,7 @@ WEIGHTS = {'attention': 30, 'velocity': 20, 'narrative': 25, 'momentum': 15, 'si
 SCANS = HOME / 'scans.jsonl'
 SCAN_TTL = int(os.environ.get('GEMFINDER_SCAN_TTL', 600))
 
-_cache = {'base': {}, 'result': {}}
+_cache = {'base': {}, 'result': {}, 'review': {}}
 _cache_lock = threading.Lock()
 _inflight = {}
 
@@ -97,8 +107,8 @@ def cache_stats() -> dict:
 def clear_scan_cache() -> dict:
     with _cache_lock:
         n = sum(len(v) for v in _cache.values())
-        _cache['base'].clear()
-        _cache['result'].clear()
+        for layer in _cache.values():
+            layer.clear()
     return {'cleared': n}
 
 
@@ -400,11 +410,55 @@ def score(c: dict, heat_map: dict) -> dict:
     parts = {'attention': attention, 'velocity': velocity, 'narrative': narrative,
              'momentum': momentum, 'size': size}
     s = sum(WEIGHTS[k] * v for k, v in parts.items()) - penalty
-    return {'asset': c['asset'], 'symbol': c['symbol'], 'name': c['name'].strip(),
-            'score': round(_clamp(s, 0, 100), 1),
-            'parts': {k: round(WEIGHTS[k] * v, 1) for k, v in parts.items()}, 'penalty': penalty,
-            'narratives': [heat_map[n]['label'] for _, n in hot], 'why': why, 'flags': flags,
-            'metrics': m, 'sources': fams, 'urls': c['urls'], 'ids': c['ids']}
+    g = {'asset': c['asset'], 'symbol': c['symbol'], 'name': c['name'].strip(),
+         'score': round(_clamp(s, 0, 100), 1),
+         'parts': {k: round(WEIGHTS[k] * v, 1) for k, v in parts.items()}, 'penalty': penalty,
+         'narratives': [heat_map[n]['label'] for _, n in hot], 'why': why, 'flags': flags,
+         'fit': round(c['fit'], 3) if c.get('fit') is not None else 1.0,
+         'metrics': m, 'sources': fams, 'urls': c['urls'], 'ids': c['ids']}
+    g.update(upside(g))
+    return g
+
+
+# ── upside: which of these is most likely to actually go up ───────────────
+# The score says where attention is. Upside asks the second question: given
+# that attention, how much room is left and how likely is it to be a trap.
+HARD = ('thin liquidity', 'no pooled liquidity', 'pair ', 'already +', 'micro cap', 'penny stock',
+        'sell pressure', 'fdv >')
+
+
+def upside(g: dict) -> dict:
+    """score x fit-to-theme x room-to-run -> {upside, risk}. Hard flags (rug-shaped or
+    already-vertical) each cut it; a +200% week cuts it too. fit=1 when no theme is typed."""
+    risk = sum(1 for f in g['flags'] if f.startswith(HARD))
+    room = max(0.3, 0.65 ** risk)
+    wk = (g['metrics'] or {}).get('chg7d')
+    if wk is not None and wk > 200:
+        room *= 0.75
+    fit = g.get('fit', 1.0)
+    return {'upside': round(_clamp(g['score'] * (0.55 + 0.45 * fit) * room, 0, 100), 1), 'risk': risk}
+
+
+def pick(gems: list) -> Optional[dict]:
+    """The one to look at first: highest upside among gems with no hard flag
+    (else the least-flagged). None when there is nothing."""
+    if not gems:
+        return None
+    best = sorted(gems, key=lambda g: (g['risk'], -g['upside'], -g['score']))[0]
+    why = [f"upside {best['upside']}: score {best['score']}"]
+    if best['fit'] < 1.0:
+        why.append(f"fits the theme {best['fit']:.0%}")
+    why.append('no hard flags' if not best['risk'] else f"{best['risk']} hard flag{'s' * (best['risk'] > 1)}")
+    return {'asset': best['asset'], 'symbol': best['symbol'], 'name': best['name'], 'upside': best['upside'],
+            'score': best['score'], 'fit': best['fit'], 'risk': best['risk'],
+            'why': ' · '.join(why + best['why'][1:]), 'flags': best['flags'], 'urls': best['urls']}
+
+
+def near_narratives(q: str) -> list:
+    """Built-in narratives whose meaning is close to the typed theme -> [(id, sim)], best first."""
+    docs = {nid: f"{n['label']}: {' '.join(n['keywords'])}" for nid, n in nar.NARRATIVES.items()}
+    sims = sem.rank(q, docs) or {}
+    return sorted(((nid, v) for nid, v in sims.items() if v >= 0.45), key=lambda x: -x[1])[:2]
 
 
 # ── scan ─────────────────────────────────────────────────────────────────
@@ -424,6 +478,7 @@ def base(asset: str = 'all', sources: Optional[list] = None, hn: bool = True, fr
             enrich_stocks(cands)
         for c in cands.values():
             c['narratives'] = nar.match(c['text'], c['symbol'], c['asset'])
+        sem.prime(cands)  # vectors ready before anyone types a theme
         raw, errors = heat_raw(nar.NARRATIVES, cands, asset, hn)
         status.update({n: {'ok': False, 'error': e} for n, e in errors.items()})
         return {'ts': int(time.time()), 'took_s': round(time.time() - t0, 1), 'signals': len(signals),
@@ -447,13 +502,16 @@ def _add(cands: dict, signals: list, asset: str) -> dict:
 
 def scan(asset: str = 'all', k: int = 20, narrative: Optional[str] = None, min_score: float = 0,
          sources: Optional[list] = None, hn: bool = True, save: bool = True, q: Optional[str] = None,
-         fresh: bool = False) -> dict:
+         fresh: bool = False, sort: str = 'upside') -> dict:
     """Ranked gems. asset: all|crypto|stock. narrative: an id from narratives (e.g. 'quantum').
     q: anything you think is dope ('quantum', 'frog', 'nuclear drones') — becomes a live theme:
-    its words are matched against every candidate, and CoinGecko search + categories,
-    DexScreener search and Yahoo search pull in more. fresh: skip the scan cache."""
+    its words AND its meaning are matched against every candidate, and CoinGecko search +
+    categories, DexScreener search and Yahoo search pull in more. sort: upside (default,
+    most likely to go up first) | score (most attention first). fresh: skip the scan cache."""
     if asset not in ('all', 'crypto', 'stock'):
         raise ValueError("asset must be all|crypto|stock")
+    if sort not in ('upside', 'score'):
+        raise ValueError("sort must be upside|score")
     if narrative and narrative not in nar.NARRATIVES:
         raise ValueError(f'unknown narrative {narrative!r}; one of {nar.ids()}')
     q = (q or '').strip()[:80] or None
@@ -484,13 +542,48 @@ def scan(asset: str = 'all', k: int = 20, narrative: Optional[str] = None, min_s
                 cats = []
             theme = nar.custom(q, cats)
             themes[nar.CUSTOM_ID] = theme
+            t_sem = time.time()
+            near = near_narratives(q)
+            theme['near'] = [nid for nid, _ in near]
+            if near:
+                nn = nar.NARRATIVES[near[0][0]]
+                if not theme['cg']:  # "drones" names no CoinGecko category: borrow defense's
+                    theme['cg'] = [c['id'] for c in sorted(cats, key=lambda c: -(c.get('market_cap') or 0))
+                                   if any(s in (c.get('id') or '') for s in nn['cg'])][:2]
+                if asset in ('all', 'stock'):
+                    _add(cands, [src._sig('stock', t, '', 'narrative_seed', 0.0)
+                                 for t in nn['stocks'] if ('stock', t) not in cands], asset)
             extra, st = theme_signals(theme, asset)
             status.update(st)
             n_signals += len(extra)
             _add(cands, extra, asset)
-            for c in cands.values():
-                if nar.hit(theme, c['text'], c['symbol'], c['name']) and nar.CUSTOM_ID not in c['narratives']:
+            words = semantic = 0
+            for key_, c in cands.items():
+                if nar.hit(theme, c['text'], c['symbol'], c['name']):
+                    if nar.CUSTOM_ID not in c['narratives']:
+                        c['narratives'].append(nar.CUSTOM_ID)
+                    c['fit'] = 0.75  # a word hit is a strong fit; similarity may raise it below
+                    words += 1
+                elif near and c['asset'] == 'stock' and c['symbol'] in nn['stocks']:
                     c['narratives'].append(nar.CUSTOM_ID)
+                    c['fit'] = round(near[0][1], 3)
+            sims = sem.rank(q, {key_: sem.doc_text(c) for key_, c in cands.items()})
+            if sims is not None:
+                floor = max(sem.FLOOR, 0.6 * max(sims.values(), default=0))
+                for key_, v in sims.items():
+                    c = cands[key_]
+                    if v >= floor and nar.CUSTOM_ID not in c['narratives']:
+                        c['narratives'].append(nar.CUSTOM_ID)
+                        semantic += 1
+                    if nar.CUSTOM_ID in c['narratives']:
+                        c['fit'] = max(c.get('fit') or 0, v)
+                    else:
+                        c['fit'] = v
+                status['semantic'] = {'ok': True, 'n': semantic, 's': round(time.time() - t_sem, 2)}
+            else:
+                status['semantic'] = {'ok': False, 'error': sem.status().get('error') or 'encoder off',
+                                      's': round(time.time() - t_sem, 2)}
+            theme['word_matches'], theme['semantic_matches'] = words, semantic
             # the theme's own drivers; its stock side is the day move of the stocks it matched
             tr, _ = heat_raw({nar.CUSTOM_ID: theme}, {}, asset, hn)
             raw[nar.CUSTOM_ID] = tr[nar.CUSTOM_ID]
@@ -511,6 +604,9 @@ def scan(asset: str = 'all', k: int = 20, narrative: Optional[str] = None, min_s
                 'narratives': hot, 'gems_all': gems_all,
                 'theme': {'id': nar.CUSTOM_ID, 'label': theme['label'], 'query': q, 'keywords': theme['keywords'],
                           'categories': theme['cg'], 'hn': theme['hn'],
+                          'near': [nar.NARRATIVES[n]['label'] for n in theme['near']],
+                          'semantic': status.get('semantic', {}).get('ok', False),
+                          'word_matches': theme['word_matches'], 'semantic_matches': theme['semantic_matches'],
                           'crypto': hm[nar.CUSTOM_ID]['crypto'], 'stock': hm[nar.CUSTOM_ID]['stock'],
                           'matches': sum(1 for g in gems_all if theme['label'] in g['narratives'])} if theme else None,
                 'disclaimer': 'Attention score, not a forecast. Most narrative pumps round-trip. Not financial advice.'}
@@ -523,9 +619,11 @@ def scan(asset: str = 'all', k: int = 20, narrative: Optional[str] = None, min_s
     if q:
         label = full['theme']['label']
         gems = [g for g in gems if label in g['narratives']]
-    gems = sorted((g for g in gems if g['score'] >= float(min_score)), key=lambda g: -g['score'])[:int(k)]
+    gems = [g for g in gems if g['score'] >= float(min_score)]
+    gems = sorted(gems, key=(lambda g: (-g['upside'], -g['score'])) if sort == 'upside' else (lambda g: -g['score']))[:int(k)]
     res = {k_: v for k_, v in full.items() if k_ != 'gems_all'}
-    res.update({'gems': gems, 'cached': cached, 'age_s': int(time.time() - full['ts']), 'ttl_s': SCAN_TTL})
+    res.update({'gems': gems, 'pick': pick(gems), 'sort': sort, 'cached': cached,
+                'age_s': int(time.time() - full['ts']), 'ttl_s': SCAN_TTL})
     if save and not cached:
         _save(res)
     return res
@@ -542,8 +640,9 @@ def narratives(asset: str = 'all', hn: bool = True) -> dict:
 def _save(res: dict) -> None:
     HOME.mkdir(parents=True, exist_ok=True)
     slim = {'ts': res['ts'], 'asset': res['asset'], 'narrative': res['narrative'], 'q': res.get('q'),
-            'gems': [{'asset': g['asset'], 'symbol': g['symbol'], 'score': g['score'],
-                      'price': g['metrics'].get('price'), 'ids': g['ids']} for g in res['gems']]}
+            'pick': (res.get('pick') or {}).get('symbol'),
+            'gems': [{'asset': g['asset'], 'symbol': g['symbol'], 'score': g['score'], 'upside': g.get('upside'),
+                      'fit': g.get('fit'), 'price': g['metrics'].get('price'), 'ids': g['ids']} for g in res['gems']]}
     with open(SCANS, 'a') as f:
         f.write(json.dumps(slim) + '\n')
 
@@ -554,3 +653,63 @@ def history(n: int = 10) -> list:
         return []
     lines = SCANS.read_text().splitlines()[-int(n):]
     return [json.loads(x) for x in reversed(lines)]
+
+
+# ── review: did the picks go up? ──────────────────────────────────────────
+
+def _prices_now(items: list) -> dict:
+    """{(asset, symbol): price} for past picks: CoinGecko for listed coins, Yahoo for stocks.
+    DEX-only tokens (symbol@addr, or address-only ids) are skipped — no stable price feed."""
+    out = {}
+    cg = sorted({s for a, s in items if a == 'crypto' and '@' not in s and s.isalnum()})
+    if cg:
+        try:
+            for sym, hit in src.coingecko_markets(cg).items():
+                if hit['metrics'].get('price'):
+                    out[('crypto', sym)] = hit['metrics']['price']
+        except Exception:
+            pass
+    st = sorted({s for a, s in items if a == 'stock'})
+    if st:
+        for sym, ch in src.yahoo_charts(st[:60]).items():
+            if ch['metrics'].get('price'):
+                out[('stock', sym)] = ch['metrics']['price']
+    return out
+
+
+def review(n: int = 12, fresh: bool = False) -> dict:
+    """Past scans' picks priced now vs at scan time (first time each was listed) -> per pick
+    return % and a summary (hit rate, median). The honest check on 'most likely to go up'.
+    Cached 5 min."""
+    def build():
+        first = {}
+        for s_ in reversed(history(int(n))):  # oldest first: keep the first sighting
+            for g in s_['gems']:
+                key_ = (g['asset'], g['symbol'])
+                if g.get('price') and key_ not in first:
+                    first[key_] = {'asset': g['asset'], 'symbol': g['symbol'], 'ts': s_['ts'], 'then': g['price'],
+                                   'score': g['score'], 'upside': g.get('upside'),
+                                   'picked': s_.get('pick') == g['symbol'], 'q': s_.get('q')}
+        now = _prices_now(list(first))
+        rows = []
+        for key_, r in first.items():
+            px = now.get(key_)
+            r['now'] = px
+            r['ret_pct'] = round((px / r['then'] - 1) * 100, 1) if px else None
+            r['age_h'] = round((time.time() - r['ts']) / 3600, 1)
+            rows.append(r)
+        priced = [r for r in rows if r['ret_pct'] is not None]
+        rets = sorted(r['ret_pct'] for r in priced)
+        picks = [r for r in priced if r['picked']]
+        med = rets[len(rets) // 2] if rets else None
+        rows.sort(key=lambda r: (r['ret_pct'] is None, -(r['ret_pct'] or 0)))
+        return {'ts': int(time.time()), 'scans': min(int(n), len(history(int(n)))), 'picks': rows,
+                'summary': {'listed': len(rows), 'priced': len(priced), 'up': sum(1 for r in priced if r['ret_pct'] > 0),
+                            'down': sum(1 for r in priced if r['ret_pct'] < 0), 'median_ret_pct': med,
+                            'mean_ret_pct': round(sum(rets) / len(rets), 1) if rets else None,
+                            'hit_rate': round(sum(1 for r in priced if r['ret_pct'] > 0) / len(priced), 2) if priced else None,
+                            'top_picks': {'n': len(picks), 'up': sum(1 for r in picks if r['ret_pct'] > 0),
+                                          'mean_ret_pct': round(sum(r['ret_pct'] for r in picks) / len(picks), 1) if picks else None}},
+                'note': 'return since the scan that first listed it; hours old, not a track record. DEX-only tokens are unpriced.'}
+    val, cached = _cached('review', int(n), build, ttl=300, fresh=fresh)
+    return {**val, 'cached': cached}

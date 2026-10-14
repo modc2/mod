@@ -86,6 +86,6 @@
             "docs": "{model:ref, query, documents:[str]} -> {results:[{index,score,document}]}"
         }
     },
-    "schema": "QmaqjvB9Pkx7coKbBDweraZnTjD64kKztMQrbGTzs72TsC",
+    "schema": "QmQrXYy85rW5JQgCKS8KKGLsHQeMYPrqvE7yaCEKQGH1Pr",
     "gateway_port": 50110
 }

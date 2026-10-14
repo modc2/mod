@@ -131,7 +131,7 @@
         "STARKNET_STUDIO_OWNERS": "extra addresses allowed to write in the studio (comma list)",
         "STARKNET_AGENT_CLAUDE": "orbit/claudecode base url for the ask agent's claude brain (default http://127.0.0.1:51260; empty disables)"
     },
-    "schema": "QmYRaMNuPUxYuom8EYeG5rMgtudTVzgnMbyyXyZ7zF2gob",
+    "schema": "QmSqKGWrPf1ZevpfLGX4f64oCeHmcuqkEKCwX86ZmGxvAN",
     "mcp": {
         "endpoint": "POST /mcp",
         "transport": "Streamable HTTP (JSON-RPC 2.0)",

@@ -1,8 +1,8 @@
 {
     "name": "gemfinder",
     "title": "gemfinder \u00b7 narrative gems, crypto + stocks",
-    "description": "Scans keyless public feeds (CoinGecko trending + category momentum, DexScreener boosts and new tokens, reddit mentions via ApeWisdom, Yahoo Finance trending and small-cap/day-gainer screens, Hacker News buzz) for crypto tokens and stocks a hot narrative is starting to carry. Merges per ticker, heats 13 narratives, and ranks candidates by an attention score (attention, velocity, narrative, momentum, size) with reasons and risk flags. Type anything (\"quantum\", \"frog\", \"nuclear drones\") and it becomes a live theme: matched against every candidate, plus CoinGecko/DexScreener/Yahoo search. Scans are cached 10 min in-process and warmed in the background so the app opens instantly. Stdlib-only, one SQLite cache. Attention, not a forecast.",
-    "version": "0.2.0",
+    "description": "Scans keyless public feeds (CoinGecko trending + category momentum, DexScreener boosts and new tokens, reddit mentions via ApeWisdom, Yahoo Finance trending and small-cap/day-gainer screens, Hacker News buzz) for crypto tokens and stocks a hot narrative is starting to carry. Merges per ticker, heats 13 narratives, and scores candidates by attention (attention, velocity, narrative, momentum, size) with reasons and risk flags. Type anything (\"quantum\", \"frog\", \"nuclear drones\") and it becomes a live theme matched by words AND by meaning: semantic search (MiniLM embeddings via the modsearch module, words-only fallback) gives every gem a fit 0-1, the nearest built-in narrative lends its seed stocks and categories, and CoinGecko/DexScreener/Yahoo search pull in more. Every gem gets an upside = score x fit x room-to-run (hard flags cut it); results sort by upside and the scan names one pick, the gem most likely to go up. /review prices past picks now vs then. Scans cached 10 min and warmed in the background. Stdlib-only, one SQLite cache. Attention, not a forecast.",
+    "version": "0.3.0",
     "anchor": "mod.py",
     "network": "local",
     "port": 51320,
@@ -12,7 +12,7 @@
         "app": "http://localhost:51320/",
         "api": "http://localhost:51320"
     },
-    "state": "~/.mod/gemfinder/cache.db (raw HTTP bodies by url) \u00b7 ~/.mod/gemfinder/scans.jsonl (every scan's picks + price) \u00b7 in-process scan cache (SCAN_TTL 600s, GEMFINDER_SCAN_TTL to change; GEMFINDER_WARM=0 disables the warmer)",
+    "state": "~/.mod/gemfinder/cache.db (raw HTTP bodies by url) \u00b7 ~/.mod/gemfinder/scans.jsonl (every scan's picks + price) \u00b7 in-process scan cache (SCAN_TTL 600s, GEMFINDER_SCAN_TTL to change; GEMFINDER_WARM=0 disables the warmer) \u00b7 semantic: modsearch :51090 /embed (GEMFINDER_SEMANTIC=url|0, GEMFINDER_SEMANTIC_FLOOR 0.32), vectors cached in-process",
     "endpoints": {
         "app": {
             "method": "GET",
@@ -22,12 +22,12 @@
         "health": {
             "method": "GET",
             "auth": false,
-            "docs": "Liveness + cache size + narrative ids"
+            "docs": "Liveness + cache size + narrative ids + semantic encoder state"
         },
         "scan": {
             "method": "GET",
             "auth": false,
-            "docs": "?asset=all|crypto|stock&k=20&narrative=&q=<anything dope>&min_score=&sources=a,b&hn=1&fresh=0&save=1 -> {cached, age_s, ttl_s, theme?:{label,keywords,categories,crypto,stock,matches}, sources, narratives:[{id,label,crypto,stock}], gems:[{asset,symbol,name,score,parts,narratives,why,flags,metrics,urls}]}. Served from the scan cache unless fresh=1."
+            "docs": "?asset=all|crypto|stock&k=20&narrative=&q=<anything dope>&sort=upside|score&min_score=&sources=a,b&hn=1&fresh=0&save=1 -> {cached, age_s, ttl_s, sort, pick:{asset,symbol,name,upside,score,fit,risk,why,flags,urls}|null, theme?:{label,keywords,categories,near,semantic,word_matches,semantic_matches,crypto,stock,matches}, sources (incl. semantic), narratives:[{id,label,crypto,stock}], gems:[{asset,symbol,name,score,upside,fit,risk,parts,narratives,why,flags,metrics,urls}]}. Sorted by upside (most likely to go up) unless sort=score. Served from the scan cache unless fresh=1."
         },
         "narratives": {
             "method": "GET",
@@ -48,6 +48,11 @@
             "method": "GET",
             "auth": false,
             "docs": "scan-cache state (base scans + results with ages). DELETE /cache or GET /cache/clear drops it"
+        },
+        "review": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?n=12&fresh=0 -> every gem listed in the last n scans priced now vs when first listed: {picks:[{asset,symbol,ts,age_h,then,now,ret_pct,score,upside,picked,q}], summary:{listed,priced,up,down,median_ret_pct,mean_ret_pct,hit_rate,top_picks}}. Cached 5 min."
         }
     },
     "fns": [
@@ -57,6 +62,7 @@
         "top",
         "narratives",
         "narrative_list",
+        "review",
         "history",
         "sources",
         "cache",
@@ -66,5 +72,5 @@
         "status",
         "test"
     ],
-    "schema": "QmRazH31DQSUusLo9cSnhXX9mDqjdvVGv3tV972WGfvdcZ"
+    "schema": "QmdR9MqejcrwNfB4PiWXR8T86yb8V5aF1sP2ijfQ4ZarkT"
 }
