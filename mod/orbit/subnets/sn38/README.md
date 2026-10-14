@@ -2,7 +2,7 @@
 
 Competitive training of chronologically consistent Large Language Models
 
-Bittensor subnet **38** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **38** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/chronollm/sn38) · [url](https://chronollm.crunchdao.com/) · [discord](https://discord.com/channels/799672011265015819/1485634202895519844)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/chronollm/sn38) · [url](https://chronollm.cr
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.018806 | +0.02% | -2.97% | +4.31% | 47,008 | 8,670 | 292.42 |
+| 0.018645 | +0.70% | -0.85% | -3.22% | 46,774 | 8,670 | 380.22 |
 
 ## Last 24h flow
 
-64 trades by 32 coldkeys · 16 buys (31.54 τ) / 48 sells (201.59 τ) · net -170.05 τ
+51 trades by 24 coldkeys · 22 buys (123.97 τ) / 29 sells (178.83 τ) · net -54.86 τ
 
 ## News
 

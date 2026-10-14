@@ -2,7 +2,7 @@
 
 Yanez SN54 generates synthetic identities for challenging Yanez humanhood, presence, and uniqueness detection models.
 
-Bittensor subnet **54** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **54** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/yanez-compliance/MIID-subnet) · [url](https://www.yanez.ai) · [discord](https://discord.com/channels/799672011265015819/1351934165964296232)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/yanez-compliance/MIID-subnet) · [url](https:
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005781 | +0.70% | -2.01% | -4.63% | 35,151 | 9,648 | 1,120 |
+| 0.006034 | +0.47% | +4.37% | -2.47% | 36,734 | 9,859 | 2,896 |
 
 ## Last 24h flow
 
-113 trades by 61 coldkeys · 40 buys (511.03 τ) / 73 sells (606.84 τ) · net -95.81 τ
+374 trades by 165 coldkeys · 182 buys (1,553 τ) / 192 sells (1,360 τ) · net 192.99 τ
 
 ## News
 
+- 2026-10-13 · commit · [P5 c1 exec (#120)](https://github.com/yanez-compliance/MIID-subnet/commit/b307cf28b4a62aec00de74596ea85d9560e7f6c2) — yanez-compliance/MIID-subnet
+- 2026-10-13 · commit · [for the image for](https://github.com/yanez-compliance/MIID-subnet/commit/2283a3c8f9e8a4b10038df1769e431a187033157) — yanez-compliance/MIID-subnet
+- 2026-10-13 · commit · [adding in query from validators](https://github.com/yanez-compliance/MIID-subnet/commit/24ca671a4c4799bbc7ffb26225962d34b2db027b) — yanez-compliance/MIID-subnet
+- 2026-10-13 · commit · [adding in new image path](https://github.com/yanez-compliance/MIID-subnet/commit/7b3b5026184b00671fa9e5470532bf718d20e87b) — yanez-compliance/MIID-subnet
+- 2026-10-12 · commit · [adding in more words](https://github.com/yanez-compliance/MIID-subnet/commit/01b9906e4169fee4b3227c758ccdc93787664f53) — yanez-compliance/MIID-subnet
 - 2026-10-07 · commit · [P5 c1 exec (#119)](https://github.com/yanez-compliance/MIID-subnet/commit/7018f075944447003b063379302ddac75db6867c) — yanez-compliance/MIID-subnet
 - 2026-10-07 · commit · [fixing the time line](https://github.com/yanez-compliance/MIID-subnet/commit/16819c52172776ec9c50cbd84ca2c792edc7f8c9) — yanez-compliance/MIID-subnet
 - 2026-10-07 · commit · [changing the wordings](https://github.com/yanez-compliance/MIID-subnet/commit/60426dcee0b145619f80f2c61a3bcc72fb8e6257) — yanez-compliance/MIID-subnet
-- 2026-10-07 · commit · [adding in testnet/ sandbox voices](https://github.com/yanez-compliance/MIID-subnet/commit/262601d02465b2c6d1ac0087eb448e38533f7a71) — yanez-compliance/MIID-subnet
-- 2026-10-06 · commit · [P5 c1 voice api (#117)](https://github.com/yanez-compliance/MIID-subnet/commit/97b9e16be0f012385e00b49ce57892d13d86e866) — yanez-compliance/MIID-subnet
-- 2026-09-29 · blog · [Give Your Agent a Pulse](https://www.yanez.ai/post/give-your-agent-a-pulse) — www.yanez.ai
-- 2026-09-25 · commit · [uav -> partner when empty (#114)](https://github.com/yanez-compliance/MIID-subnet/commit/a0218c09a7a9737071aa08cf19e934782196982c) — yanez-compliance/MIID-subnet
-- 2026-09-25 · commit · [uav -> partner when empty](https://github.com/yanez-compliance/MIID-subnet/commit/e989f2ee36e9a2336c0d8859cb9c6d7adf305026) — yanez-compliance/MIID-subnet
 
 ## Use
 

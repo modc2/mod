@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9272278,
+  "block": 9279460,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6872033.586726689,
-    "tao_in": 5451531.243523579,
-    "alpha_in": 1420502.34320311,
-    "alpha_out": 5451531.243523579,
-    "volume": 59046003.56292178,
-    "vol_24h": 36535.01804894954,
+    "market_cap": 6872395.00400833,
+    "tao_in": 5450631.632969115,
+    "alpha_in": 1421763.371039216,
+    "alpha_out": 5450631.632969115,
+    "volume": 59088403.74988292,
+    "vol_24h": 42400.18696114421,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,12 +81,28 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1791921931,
+      "kind": "release",
+      "source": "feeds",
+      "title": "Runtime 478 (proposed)",
+      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v478",
+      "publisher": "subtensor releases"
+    },
+    {
       "ts": 1791853475,
       "kind": "news",
       "source": "gnews",
       "title": "Bittensor (TAO) drops over 10% in 24 hours amid heavy long liquidations",
       "url": "https://news.google.com/rss/articles/CBMiogFBVV95cUxObFJOZTg2UXUxSFlLQWFHWE1NT2FpM1duUUd5RThBWUxlUGtVRThYdURqRy1kSjFZSzV0OXJqRlhKdzQxd1B5MW5FVWlVVVJWT21aZ1BjMHFIV2NZand2NjJQSjNUbHJaUWNwS2NJNW1tUXROWFc0NWNqT21mT1AwdU5vSXM4dVRkTHJBOFNJY25oUm42aGZ3QVpSSXV2NGtvY0E?oc=5",
       "publisher": "Pluang"
+    },
+    {
+      "ts": 1791852600,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor Drops 7.1% in Four Hours to $265 as Losses Deepen",
+      "url": "https://news.google.com/rss/articles/CBMiWkFVX3lxTFBwMTBOcWN0OEF4cE1ka1B0UXl1cUhVRWJBLWhudVdRejJCZWlROE44LVF4V3g5OF9uVHJxWEp2ZElLS1FJX0loSWQzNkdoZGJXbm1xSjMtNzZqUQ?oc=5",
+      "publisher": "www.tokenpost.com"
     },
     {
       "ts": 1791849960,
@@ -127,24 +143,8 @@
       "title": "Runtime 477 (proposed)",
       "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v477",
       "publisher": "subtensor releases"
-    },
-    {
-      "ts": 1791486054,
-      "kind": "release",
-      "source": "feeds",
-      "title": "Runtime 476 (proposed)",
-      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v476",
-      "publisher": "subtensor releases"
-    },
-    {
-      "ts": 1791446640,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor Drops 5.5% Amid Broad Crypto Sell-Off",
-      "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE9QR2tPaS16V2tVVnhNUmNuWkRJYVh4a01GMjlFRWlZTXpWcWh6VHV0UTVna3FjR3ZHSlNYU1IxS2FsMnFJTzBjdkYwMXZ5VmpPbFV5UjVUUnpCSGZzT3J4Tm9mcHZsVkQ3bmtUdWltb0Y?oc=5",
-      "publisher": "CoinMarketCap"
     }
   ],
-  "updated": 1791870062,
-  "updated_day": "2026-10-13"
+  "updated": 1791956461,
+  "updated_day": "2026-10-14"
 }

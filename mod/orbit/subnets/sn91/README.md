@@ -2,7 +2,7 @@
 
 SOTA Time Series Foundation Models
 
-Bittensor subnet **91** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **91** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/TensorLink-AI/cascade) · [url](https://cascadesub.net) · discord `christensor_49068`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/TensorLink-AI/cascade) · [url](https://casca
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004635 | +0.00% | -7.43% | -3.27% | 8,940 | 3,231 | 349.13 |
+| 0.004748 | -0.04% | +2.44% | -1.11% | 9,193 | 3,275 | 387.86 |
 
 ## Last 24h flow
 
-48 trades by 24 coldkeys · 9 buys (109.50 τ) / 39 sells (235.16 τ) · net -125.66 τ
+55 trades by 32 coldkeys · 21 buys (210.05 τ) / 34 sells (172.24 τ) · net 37.81 τ
 
 ## News
 
+- 2026-10-14 · commit · [Merge pull request #365 from TensorLink-AI/fix/staged-promotion-carry](https://github.com/TensorLink-AI/cascade/commit/4e97f00053be4408fca542d035191f7f001fb2bc) — TensorLink-AI/cascade
+- 2026-10-14 · commit · [fix(validator): carry staged promotions across a dethrone (DEC-CA-005…](https://github.com/TensorLink-AI/cascade/commit/b309c3819c494f7a822020512d217a3d03d91111) — TensorLink-AI/cascade
+- 2026-10-13 · commit · [king sync (finney): vault/direct@sha256:f33f40a427ba15e1fee088763b1e9…](https://github.com/TensorLink-AI/cascade/commit/e9ea521b765dfc2c234a1eab664bd7e660c7f954) — TensorLink-AI/cascade
+- 2026-10-13 · commit · [Merge pull request #364 from TensorLink-AI/fix/funded-rent-fcfs](https://github.com/TensorLink-AI/cascade/commit/025ed1cae91dfb677eb5556fbb933c465df2d673) — TensorLink-AI/cascade
+- 2026-10-13 · commit · [fix(trainer): first-come-first-served funded rents (seniority-ordered…](https://github.com/TensorLink-AI/cascade/commit/61fc73fcf305478f7b069a05a7c158b9940c89b6) — TensorLink-AI/cascade
 - 2026-10-10 · commit · [king sync (finney): vault/direct@sha256:a3e342a16db6cb6da0b24e4771813…](https://github.com/TensorLink-AI/cascade/commit/0fba3c0dcfd38aa6f9901ba4a9ec3f4ec20d843e) — TensorLink-AI/cascade
 - 2026-10-10 · commit · [Merge pull request #363 from TensorLink-AI/fix/rediscover-king-pod-af…](https://github.com/TensorLink-AI/cascade/commit/321b9402a5df4aa7ac3761c0df344263af67edc5) — TensorLink-AI/cascade
 - 2026-10-10 · commit · [Rolling: re-find a finished era's king pod after a restart](https://github.com/TensorLink-AI/cascade/commit/ac9883829c056c03a9fb72103fccaeb5d00550f4) — TensorLink-AI/cascade
-- 2026-10-10 · commit · [Merge pull request #362 from TensorLink-AI/fix/era-end-admission-max-…](https://github.com/TensorLink-AI/cascade/commit/26b3d7324f8d1d69d0c12387d31a37c775e83d04) — TensorLink-AI/cascade
-- 2026-10-10 · commit · [Merge remote-tracking branch 'origin/main' into fix/era-end-admission…](https://github.com/TensorLink-AI/cascade/commit/41e11505ff4766cbb1ee91a13e1952df4836f68c) — TensorLink-AI/cascade
-- 2026-10-10 · commit · [Merge pull request #361 from TensorLink-AI/fix/step0-nan-new-host](https://github.com/TensorLink-AI/cascade/commit/fef4d7eac22062b7ef6b7204708df5e1b3d4d66a) — TensorLink-AI/cascade
-- 2026-10-10 · commit · [Era cap: a fail-open module function, so partial runners keep their d…](https://github.com/TensorLink-AI/cascade/commit/df12796001ffbf4f3debd8ad7e93b8bf601b3742) — TensorLink-AI/cascade
-- 2026-10-09 · commit · [Merge pull request #356 from TensorLink-AI/funded/expired-key-operato…](https://github.com/TensorLink-AI/cascade/commit/8202f4477620b5e0929250440b700d31a236be06) — TensorLink-AI/cascade
 
 ## Use
 

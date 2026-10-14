@@ -2,7 +2,7 @@
 
 Accelerating drug discovery.
 
-Bittensor subnet **68** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **68** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/metanova-labs/nova/) · [url](https://www.metanova-labs.ai)
 
@@ -10,18 +10,22 @@ Links: [github](https://github.com/metanova-labs/nova/) · [url](https://www.met
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.019980 | +0.02% | +0.59% | -7.60% | 119,840 | 43,126 | 661.93 |
+| 0.019796 | +0.01% | -0.92% | -2.56% | 118,881 | 42,946 | 753.41 |
 
 ## Last 24h flow
 
-74 trades by 52 coldkeys · 30 buys (312.55 τ) / 44 sells (259.99 τ) · net 52.56 τ
+67 trades by 54 coldkeys · 28 buys (171.70 τ) / 39 sells (467.91 τ) · net -296.21 τ
 
 ## News
 
-- 2026-09-16 · commit · [Update config.yaml](https://github.com/metanova-labs/nova/commit/623f3456088f651609a1bcb870ab0587b0dc0520) — metanova-labs/nova
-- 2026-09-16 · commit · [update submodule to include retry of TNP errors](https://github.com/metanova-labs/nova/commit/e510bf77db2f90d2386945cf72ec2156b45753f5) — metanova-labs/nova
-- 2026-09-16 · commit · [Merge pull request #92 from thomasvangurp/fix/retry-tnp-compute-errors](https://github.com/metanova-labs/nova/commit/dc42566c760f3fb9d69aa4207b99ff976796baf7) — metanova-labs/nova
-- 2026-09-15 · commit · [Retry TNP profiles that failed to compute, before rejecting the submi…](https://github.com/metanova-labs/nova/commit/161b7d3c566828ad2d1e021fd3f046b5b430f9da) — metanova-labs/nova
+- 2026-10-13 · commit · [read molecule filter thresholds from filters config in save_data](https://github.com/metanova-labs/nova/commit/15c59f2de81035401031c22755f7cb02013b9947) — metanova-labs/nova
+- 2026-10-13 · commit · [Point immunebuilder installation to fixed repo](https://github.com/metanova-labs/nova/commit/c340b912b7140448c47f087a88ff5b13ada528e0) — metanova-labs/nova
+- 2026-10-13 · commit · [restore min_heavy_atoms to default Compound value](https://github.com/metanova-labs/nova/commit/e0ace9c6e204cf537ce275291394805d5d2e789a) — metanova-labs/nova
+- 2026-10-13 · commit · [Merge pull request #99 from metanova-labs/feat/sanqi-molecule-filters](https://github.com/metanova-labs/nova/commit/610325697266a86a96d1866185da9f16441c8a2e) — metanova-labs/nova
+- 2026-10-13 · commit · [update molecule filters for sanqi combinatorial db](https://github.com/metanova-labs/nova/commit/de21e073756d25644e0554ac6e5a8319ed57ab74) — metanova-labs/nova
+- 2026-10-13 · commit · [Merge pull request #97 from metanova-labs/feat/sanqi-combinatorial-db](https://github.com/metanova-labs/nova/commit/d98e6f7b9be20e36bcc9e46e52e6f6bea34313bb) — metanova-labs/nova
+- 2026-10-13 · commit · [Merge pull request #95 from metanova-labs/fix/subtensor-connection-ha…](https://github.com/metanova-labs/nova/commit/cf4e0a1892f96457e02a2fb190a27ab4ca17f521) — metanova-labs/nova
+- 2026-10-08 · commit · [support sanqi combinatorial db](https://github.com/metanova-labs/nova/commit/d237a7d9ccda9f274b525e103755618f71167a40) — metanova-labs/nova
 
 ## Use
 

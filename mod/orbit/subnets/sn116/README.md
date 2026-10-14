@@ -2,7 +2,7 @@
 
 Transforming engineering simulations through machine learning
 
-Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://carbonphysics.ai) · discord `...`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://carb
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.036092 | +0.05% | -1.65% | -10.85% | 7,467 | 1,856 | 1,370 |
+| 0.034807 | -0.11% | -3.56% | -24.43% | 7,451 | 1,823 | 2,261 |
 
 ## Last 24h flow
 
-248 trades by 90 coldkeys · 139 buys (677.62 τ) / 109 sells (643.16 τ) · net 34.47 τ
+418 trades by 104 coldkeys · 241 buys (1,119 τ) / 177 sells (1,129 τ) · net -10.26 τ
 
 ## News
 
-- 2026-10-13 · commit · [Merge pull request #1242 from carbonphysicsai/codex/opt13-attack-spec…](https://github.com/carbonphysicsai/Carbon/commit/6c5ad7ac63e5c688de008126aeca892676652125) — carbonphysicsai/Carbon
-- 2026-10-13 · commit · [Merge pull request #1240 from carbonphysicsai/agent/l4-stage-read-chunk](https://github.com/carbonphysicsai/Carbon/commit/c6b482ad695a1e2ee3e0d01c54f211a33b992654) — carbonphysicsai/Carbon
-- 2026-10-13 · commit · [Merge pull request #1236 from carbonphysicsai/executor/r8-hostile-pro…](https://github.com/carbonphysicsai/Carbon/commit/3db1fb693f2988bb8035ce35e2b39657b694b4ca) — carbonphysicsai/Carbon
-- 2026-10-13 · commit · [Use a generic campaign root in the remint runbook](https://github.com/carbonphysicsai/Carbon/commit/a82ffef0760dedeb980bda31a5db803e8aca5eb9) — carbonphysicsai/Carbon
-- 2026-10-13 · commit · [Merge remote-tracking branch 'origin/main' into codex/opt13-attack-sp…](https://github.com/carbonphysicsai/Carbon/commit/75b0851ce0093a1197a71c41a94adeb301364a34) — carbonphysicsai/Carbon
-- 2026-10-12 · commit · [Merge pull request #1217 from carbonphysicsai/codex/challenge-factory…](https://github.com/carbonphysicsai/Carbon/commit/53213682dbbab77668a658faa35d3857f4ad5bd4) — carbonphysicsai/Carbon
-- 2026-10-12 · commit · [Merge pull request #1214 from carbonphysicsai/codex/miner-status-scre…](https://github.com/carbonphysicsai/Carbon/commit/062cb822209de2fa364e8e768c1db96ecad3a256) — carbonphysicsai/Carbon
-- 2026-10-12 · commit · [Merge pull request #1206 from carbonphysicsai/codex/plt-06-hostile-mo…](https://github.com/carbonphysicsai/Carbon/commit/a7dae8b60bb95024c46bebef55e84641d72a3cf0) — carbonphysicsai/Carbon
+- 2026-10-14 · commit · [Merge pull request #1343 from carbonphysicsai/codex/plt29-pinned-mani…](https://github.com/carbonphysicsai/Carbon/commit/8dc35eb30ca090e25c44b9038825dd8fbd32c753) — carbonphysicsai/Carbon
+- 2026-10-14 · commit · [Merge pull request #1331 from carbonphysicsai/codex/plt-24-starter-pa…](https://github.com/carbonphysicsai/Carbon/commit/6c1fa7113f708240a63d470e3e62b521a965fa62) — carbonphysicsai/Carbon
+- 2026-10-14 · commit · [Merge pull request #1325 from carbonphysicsai/codex/plt22-role-grant-…](https://github.com/carbonphysicsai/Carbon/commit/1ac383afa65f74d1cf4aa80f6f23bfc01198910f) — carbonphysicsai/Carbon
+- 2026-10-14 · commit · [Merge pull request #1330 from carbonphysicsai/codex/plt-18-l4-inert-f…](https://github.com/carbonphysicsai/Carbon/commit/2a83c9aac9bb2181bf36bb6056a56e6efd3c6936) — carbonphysicsai/Carbon
+- 2026-10-14 · commit · [test: give Torch pod fixture a valid anchored manifest](https://github.com/carbonphysicsai/Carbon/commit/ad506414690d0a3b4e8fb74cc086d6b348852270) — carbonphysicsai/Carbon
+- 2026-10-13 · commit · [Merge pull request #1315 from carbonphysicsai/codex/opt11-phase4-reco…](https://github.com/carbonphysicsai/Carbon/commit/29fa548c45ad7fe7cf71d871c0c1bddc400497e8) — carbonphysicsai/Carbon
+- 2026-10-13 · commit · [Merge pull request #1307 from carbonphysicsai/codex/pkt14-gate-negati…](https://github.com/carbonphysicsai/Carbon/commit/07314d0bde9138c55452aec06e5448816b2a7b63) — carbonphysicsai/Carbon
+- 2026-10-13 · commit · [Merge pull request #1305 from carbonphysicsai/codex/pkt17-silent-defa…](https://github.com/carbonphysicsai/Carbon/commit/a2d772cb0ed0758f5d66ed5df7944bd00444ed6e) — carbonphysicsai/Carbon
 
 ## Use
 

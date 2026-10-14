@@ -2,7 +2,7 @@
 
 Supply liquidity on external chains via uniswap, incentivize any project
 
-Bittensor subnet **77** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **77** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/creativebuilds/sn77) · [url](https://sn77.xyz) · discord `CreativeBuilds`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/creativebuilds/sn77) · [url](https://sn77.xy
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004947 | +0.01% | -0.17% | -1.90% | 28,518 | 11,578 | 12.31 |
+| 0.004921 | -0.00% | -0.53% | -2.14% | 28,408 | 11,552 | 30.47 |
 
 ## Last 24h flow
 
-16 trades by 13 coldkeys · 2 buys (1.12 τ) / 14 sells (9.87 τ) · net -8.75 τ
+16 trades by 8 coldkeys · 0 buys (0.00 τ) / 16 sells (29.73 τ) · net -29.73 τ
 
 ## Use
 

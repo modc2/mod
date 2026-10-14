@@ -2,7 +2,7 @@
 
 Decentralized Alignment of Artificial Intelligence
 
-Bittensor subnet **37** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **37** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/Aurelius-Protocol/Aurelius-Protocol) · [url](https://aureliusaligned.ai)
 
@@ -10,14 +10,16 @@ Links: [github](https://github.com/Aurelius-Protocol/Aurelius-Protocol) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002779 | -0.00% | +0.34% | +0.73% | 17,332 | 7,272 | 324.64 |
+| 0.002819 | -0.00% | +1.43% | +2.94% | 17,599 | 7,324 | 94.85 |
 
 ## Last 24h flow
 
-28 trades by 20 coldkeys · 15 buys (168.49 τ) / 13 sells (155.34 τ) · net 13.16 τ
+21 trades by 14 coldkeys · 14 buys (73.27 τ) / 7 sells (21.12 τ) · net 52.16 τ
 
 ## News
 
+- 2026-10-13 · commit · [Delete docs/evidence directory](https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/3e38c9f7141ecc90523ee9925316a3a14bab55c7) — Aurelius-Protocol/Aurelius-Protocol
+- 2026-10-13 · commit · [Replace the legacy public tree with the v5 miner and participant guid…](https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/31b119e481696276435eefd12d6e5d41fbd9157f) — Aurelius-Protocol/Aurelius-Protocol
 - 2026-10-06 · commit · [feat(validator)!: default-off master switch VALIDATOR_ENABLED (#26)](https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/99ef804cc9cd4a627f2edd112100202ad7f989fa) — Aurelius-Protocol/Aurelius-Protocol
 
 ## Use

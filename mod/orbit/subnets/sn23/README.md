@@ -2,7 +2,7 @@
 
 Trishool is the AI alignment protocol built on Bittensor
 
-Bittensor subnet **23** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **23** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/TrishoolAI/trishool-phase2) · [url](https://trishool.ai) · [discord](https://discord.com/channels/799672011265015819/1437447445176127618)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/TrishoolAI/trishool-phase2) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004676 | +0.21% | -6.72% | -11.27% | 29,016 | 7,817 | 752.89 |
+| 0.004854 | -0.06% | +3.81% | -9.46% | 30,156 | 7,965 | 394.11 |
 
 ## Last 24h flow
 
-80 trades by 50 coldkeys · 24 buys (238.13 τ) / 56 sells (513.78 τ) · net -275.65 τ
+36 trades by 25 coldkeys · 21 buys (270.83 τ) / 15 sells (122.71 τ) · net 148.12 τ
 
 ## News
 
+- 2026-10-13 · commit · [Refactor objectives and questions data for improved safety and compli…](https://github.com/TrishoolAI/trishool-phase2/commit/92af62f7bc8004196ef3b8fba6ff00f917e6db4b) — TrishoolAI/trishool-phase2
 - 2026-10-06 · commit · [Update version to 2.0.32 and modify questions for enhanced safety and…](https://github.com/TrishoolAI/trishool-phase2/commit/b392682a18feedf0eba29a6d9f2a6de53a104db5) — TrishoolAI/trishool-phase2
 - 2026-09-30 · commit · [Merge branch 'main' of https://github.com/TrishoolAI/trishool-phase2](https://github.com/TrishoolAI/trishool-phase2/commit/d67f9ce48656d0ba497d4ad33105512f3704f033) — TrishoolAI/trishool-phase2
 - 2026-09-30 · commit · [Remove example exploit markdown file due to safety concerns and compl…](https://github.com/TrishoolAI/trishool-phase2/commit/c6a7ef7609537ca6c9fe9f41af8c2d1657f0a43c) — TrishoolAI/trishool-phase2

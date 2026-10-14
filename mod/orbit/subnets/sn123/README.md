@@ -2,7 +2,7 @@
 
 Incentivizing cooperative prediction
 
-Bittensor subnet **123** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **123** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/Barbariandev/MANTIS) · [url](https://mantis123.com)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Barbariandev/MANTIS) · [url](https://mantis1
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002273 | -0.01% | -0.22% | +0.14% | 10,360 | 5,600 | 197.11 |
+| 0.002268 | -0.00% | -0.22% | +0.02% | 10,353 | 5,594 | 74.21 |
 
 ## Last 24h flow
 
-59 trades by 24 coldkeys · 10 buys (95.39 τ) / 49 sells (99.88 τ) · net -4.49 τ
+19 trades by 15 coldkeys · 5 buys (34.01 τ) / 14 sells (39.73 τ) · net -5.72 τ
 
 ## News
 
@@ -22,7 +22,6 @@ Links: [github](https://github.com/Barbariandev/MANTIS) · [url](https://mantis1
 - 2026-09-30 · commit · [Update ledger.py](https://github.com/Barbariandev/MANTIS/commit/75ee146676150902a770fc6208df5a9663a3a18d) — Barbariandev/MANTIS
 - 2026-09-18 · commit · [Update config.py](https://github.com/Barbariandev/MANTIS/commit/3d41501adc82ad1d8d6892a0027b22cf8b04d220) — Barbariandev/MANTIS
 - 2026-09-18 · commit · [Update flow.py](https://github.com/Barbariandev/MANTIS/commit/8d9ad06335631ff726c1cc83fd951243b8fd9a17) — Barbariandev/MANTIS
-- 2026-09-13 · commit · [Update flow_collateral.py](https://github.com/Barbariandev/MANTIS/commit/663c4b657347be7f1dc240198e40453a99c06089) — Barbariandev/MANTIS
 
 ## Use
 

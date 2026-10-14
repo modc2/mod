@@ -2,7 +2,7 @@
 
 The Intelligence Layer for AI Inference
 
-Bittensor subnet **10** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **10** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pareton.ai/)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pare
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005994 | -0.00% | -2.21% | -2.29% | 36,820 | 15,955 | 1,629 |
+| 0.005901 | -0.01% | -1.54% | -7.87% | 36,295 | 15,832 | 2,157 |
 
 ## Last 24h flow
 
-117 trades by 55 coldkeys · 54 buys (724.65 τ) / 63 sells (901.42 τ) · net -176.77 τ
+147 trades by 64 coldkeys · 72 buys (1,017 τ) / 75 sells (1,138 τ) · net -120.83 τ
 
 ## News
 
+- 2026-10-13 · commit · [feat: Kimi K3 B300 campaign fixture with DSPARK draft staging (#193)](https://github.com/Pareton-ai/pareton/commit/307b54be2d89a2de7f2a7439aa0d4423523ee6d0) — Pareton-ai/pareton
 - 2026-10-08 · commit · [fix(gpu): normalize RTX PRO names for static SSH hosts (#192)](https://github.com/Pareton-ai/pareton/commit/2f990c31a2f9f9d3ba856e3655b669f26f11cab6) — Pareton-ai/pareton
 - 2026-10-06 · commit · [fix(api): distinguish v5 completion failures from timing diagnostics …](https://github.com/Pareton-ai/pareton/commit/80540d9715fe73bd77651b4ab401b5336c361e72) — Pareton-ai/pareton
 - 2026-10-06 · commit · [fix(gpu): recover Lium RTX PRO 6000 inventory identity (#190)](https://github.com/Pareton-ai/pareton/commit/dfaf4bda1665373e6b5f615518054d388442d274) — Pareton-ai/pareton
@@ -25,7 +26,6 @@ Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pare
 - 2026-10-05 · commit · [feat(bench): add tier concurrency scoring with failure penalties (#187)](https://github.com/Pareton-ai/pareton/commit/8ca3970fb075d953597d2359492667c88bce3da9) — Pareton-ai/pareton
 - 2026-10-05 · commit · [feat: configure campaign patch visibility outside the manifest hash (…](https://github.com/Pareton-ai/pareton/commit/25e21a5fde77fe40f568d3e98f0f9552e712a188) — Pareton-ai/pareton
 - 2026-09-27 · commit · [Merge pull request #182 from Pareton-ai/bohdan/par-136-builder-cleanu…](https://github.com/Pareton-ai/pareton/commit/36852d8533b4d73e0392ea113bd803c8e8f50b3d) — Pareton-ai/pareton
-- 2026-09-24 · commit · [fix(ops): page a full disk while a build holds the cleanup lock](https://github.com/Pareton-ai/pareton/commit/bfc99f86cd976b65b4e790007012d054052c9f23) — Pareton-ai/pareton
 
 ## Use
 

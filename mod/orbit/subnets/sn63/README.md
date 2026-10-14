@@ -2,7 +2,7 @@
 
 Breaking today to build tomorrow
 
-Bittensor subnet **63** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **63** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/qbittensor-labs/enigma) · [url](https://www.qbittensorlabs.com/) · discord `qbittensorlabs`
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/qbittensor-labs/enigma) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004029 | -0.00% | +0.51% | +1.76% | 24,850 | 10,895 | 998.59 |
+| 0.003896 | -0.03% | -3.30% | -1.50% | 24,062 | 10,717 | 617.68 |
 
 ## Last 24h flow
 
-65 trades by 36 coldkeys · 32 buys (513.25 τ) / 33 sells (483.76 τ) · net 29.49 τ
+54 trades by 33 coldkeys · 22 buys (218.37 τ) / 32 sells (398.50 τ) · net -180.13 τ
 
 ## News
 
+- 2026-10-13 · commit · [Track whether a terminal verify update reached the platform and HQP L…](https://github.com/qbittensor-labs/enigma/commit/9860c5c90e06359c5b17944ba9c6992b87e11f31) — qbittensor-labs/enigma
 - 2026-09-16 · commit · [\[create-pull-request\] automated change (#44)](https://github.com/qbittensor-labs/enigma/commit/feafea5a481712228268b70db54ab31f304b7e89) — qbittensor-labs/enigma
 - 2026-09-14 · commit · [\[create-pull-request\] automated change (#43)](https://github.com/qbittensor-labs/enigma/commit/2d5efee5460e3a68493cca0019964e78114324ee) — qbittensor-labs/enigma
 

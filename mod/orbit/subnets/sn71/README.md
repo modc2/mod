@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-13 (block 9272278).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005052 | +0.86% | +3.68% | +36.49% | 29,894 | 5,659 | 1,498 |
+| 0.005419 | +0.79% | +7.28% | +31.83% | 32,108 | 5,862 | 3,617 |
 
 ## Last 24h flow
 
-225 trades by 91 coldkeys · 128 buys (800.01 τ) / 97 sells (700.81 τ) · net 99.20 τ
+382 trades by 150 coldkeys · 206 buys (1,910 τ) / 176 sells (1,700 τ) · net 209.98 τ
 
 ## News
 
-- 2026-10-13 · commit · [Merge pull request #407 from leadpoet/fix/oct12-structured-investigat…](https://github.com/leadpoet/leadpoet/commit/40391ea53cbfd7ad152546b7933ca068aca15515) — leadpoet/leadpoet
-- 2026-10-13 · commit · [Bind identity review manifest to committed source](https://github.com/leadpoet/leadpoet/commit/8e26e1f5cc87ff9198ea9274dfa4bedde3282feb) — leadpoet/leadpoet
-- 2026-10-13 · commit · [Carry independently bound structured identity into company review](https://github.com/leadpoet/leadpoet/commit/512420227f70370634dc1dfa426bb803d4fbd87a) — leadpoet/leadpoet
-- 2026-10-13 · commit · [Merge pull request #406 from leadpoet/fix/oct12-diagnostic-page-fallback](https://github.com/leadpoet/leadpoet/commit/667bbf6e533089f154271924cd6cf98b5b6a4f01) — leadpoet/leadpoet
-- 2026-10-13 · commit · [Recover diagnostic page bodies through existing exact-source fallback](https://github.com/leadpoet/leadpoet/commit/5b1c4739ccf67e19eda99f6617d16d5d99abf80d) — leadpoet/leadpoet
-- 2026-10-12 · commit · [Merge pull request #400: keep resumed duplicate contact verdicts cons…](https://github.com/leadpoet/leadpoet/commit/3ede183d8fe51e1c98b265930c3139d8941574fb) — leadpoet/leadpoet
-- 2026-10-12 · commit · [Merge remote-tracking branch 'origin/main' into fix/oct12-retained-du…](https://github.com/leadpoet/leadpoet/commit/8950676c9422805829e16cf321ae31af6ce1e7a9) — leadpoet/leadpoet
-- 2026-10-12 · commit · [Merge pull request #399 from leadpoet/fix/oct12-durable-completion](https://github.com/leadpoet/leadpoet/commit/ca1093a7302c4f0ccd7d8780594c07204b7581af) — leadpoet/leadpoet
+- 2026-10-14 · commit · [Merge pull request #419 from leadpoet/codex/oct14-generic-http-401-pr…](https://github.com/leadpoet/leadpoet/commit/f42015438a0d0348fbf9f840f2d58a31edc48dcb) — leadpoet/leadpoet
+- 2026-10-14 · commit · [Classify typed generic HTTP 401 as a request refusal](https://github.com/leadpoet/leadpoet/commit/584b670019713994c2ee8b078094c4dff47cfb70) — leadpoet/leadpoet
+- 2026-10-14 · commit · [Merge pull request #418: Preserve verified headcount ranges](https://github.com/leadpoet/leadpoet/commit/db9d8c67169a587e9ce1b1bd203d7529b9e16fda) — leadpoet/leadpoet
+- 2026-10-14 · commit · [Normalize verified investigator headcount before fit decision](https://github.com/leadpoet/leadpoet/commit/65806e1e4bff557a9ea57e20b759a1ab6b54066f) — leadpoet/leadpoet
+- 2026-10-13 · commit · [Merge pull request #417: Restore runtime478 confirmation and frozen-f…](https://github.com/leadpoet/leadpoet/commit/ce7b0949991ce2c9f628fdfd61f54054da3a9da5) — leadpoet/leadpoet
+- 2026-10-13 · commit · [Merge pull request #416: Avoid repeated polling in delayed Deepline b…](https://github.com/leadpoet/leadpoet/commit/771ac8a2214ed7cf0e2b2ce1174a7fa64a4cc8df) — leadpoet/leadpoet
+- 2026-10-13 · commit · [Remove trailing blank line from billing regression test](https://github.com/leadpoet/leadpoet/commit/d6898472ef45e5be7033622730ad2b674949bd7a) — leadpoet/leadpoet
+- 2026-10-13 · commit · [Read retained Deepline bills once per driver pass](https://github.com/leadpoet/leadpoet/commit/901f541b970144a3f46a4c0b9f75894824620680) — leadpoet/leadpoet
 
 ## Use
 
