@@ -120,14 +120,46 @@ def owner_caller(authorization: Optional[str]) -> str:
 
 
 def lighthouse(byok: Optional[str] = None):
-    """A client bound to the caller's key if they brought one, else the box's."""
-    return CORE.Mod(api_key=(byok or '').strip() or None)
+    """A client bound to the caller's key if they brought one, else the box's —
+    which the box mints from its own wallet the first time it is needed."""
+    lh = CORE.Mod(api_key=(byok or '').strip() or None)
+    if not (byok or '').strip():
+        lh.ensure_key()
+    return lh
 
 
 def key_source(byok: Optional[str]) -> str:
     if (byok or '').strip():
         return 'byok'
-    return 'module' if lighthouse().api_key else 'none'
+    lh = lighthouse()
+    return lh.key_source() if lh.api_key else 'none'
+
+
+def caller_or_anon(authorization: Optional[str]) -> str:
+    """Who an upload is recorded under: the signer, or `anon` when nobody
+    signed. A bad token is still a 401 — silence is anonymous, lying is not."""
+    if not identity.strip(authorization):
+        return CORE.ANON
+    return caller(authorization)
+
+
+def no_key_error(lh) -> HTTPException:
+    why = CORE.Mod._mint_error
+    return HTTPException(400, 'no Lighthouse API key and the deployment could not '
+                              f'mint one from its wallet ({why}) — send x-lh-key, '
+                              'or on the box run `m lighthouse/mint_key`' if why else
+                              'no Lighthouse API key: auto-enrolment is off '
+                              '(LIGHTHOUSE_AUTO_KEY=0) — send x-lh-key, or on the '
+                              'box run `m lighthouse/mint_key` or `m lighthouse/set_key` '
+                              '(dashboard key: files.lighthouse.storage)')
+
+
+def anon_guard(lh, address: str, byok: Optional[str], size: int) -> None:
+    if address == CORE.ANON and not (byok or '').strip():
+        try:
+            lh.anon_check(size)
+        except PermissionError as e:
+            raise HTTPException(429, str(e))
 
 
 def token_of(authorization: Optional[str]) -> str:
@@ -285,6 +317,12 @@ def _register_after_put(result: dict, token: Optional[str], public: bool,
     failed request. So the outcome is reported *inside* the result and the
     caller keeps their CID either way.
     """
+    if not token:
+        return {'registered': False,
+                'error': 'not signed in — the store only hears from a signer; '
+                         'the CID is pinned, register it later with POST '
+                         '/store/register',
+                'status': 401}
     try:
         reg = STORE.register(token, cid=result['cid'], key=result.get('key'),
                              size=result.get('size'), url=result.get('url'),
@@ -302,19 +340,22 @@ async def put(file: UploadFile = File(...),
               pool: Optional[str] = Form(default=None),
               authorization: Optional[str] = Header(default=None),
               x_lh_key: Optional[str] = Header(default=None)):
-    """Upload bytes to Lighthouse and (by default) register the CID in the store."""
-    address = caller(authorization)
+    """Upload bytes to Lighthouse and (by default) register the CID in the store.
+
+    No token needed for the upload itself: an anonymous caller gets a CID,
+    recorded under `anon` and spending the deployment key within its budget.
+    The store half needs a signer and is reported, not demanded."""
+    address = caller_or_anon(authorization)
     lh = lighthouse(x_lh_key)
     if not lh.api_key:
-        raise HTTPException(400, 'no Lighthouse API key: send x-lh-key, or ask '
-                                 'the owner to POST /key (get one at '
-                                 'https://files.lighthouse.storage)')
+        raise no_key_error(lh)
     name = key or file.filename or 'upload'
     tmp = Path(tempfile.mkdtemp(prefix='lighthouse-')) / Path(name).name
     try:
         with open(tmp, 'wb') as f:
             while chunk := await file.read(1 << 20):
                 f.write(chunk)
+        anon_guard(lh, address, x_lh_key, tmp.stat().st_size)
         try:
             result = lh.put(str(tmp), owner=address, key=name)
         except Exception as e:
@@ -343,11 +384,11 @@ class TextBody(BaseModel):
 def put_text(body: TextBody, authorization: Optional[str] = Header(default=None),
              x_lh_key: Optional[str] = Header(default=None)):
     """The same as /put for a string — what a console's text box needs."""
-    address = caller(authorization)
+    address = caller_or_anon(authorization)
     lh = lighthouse(x_lh_key)
     if not lh.api_key:
-        raise HTTPException(400, 'no Lighthouse API key: send x-lh-key, or ask '
-                                 'the owner to POST /key')
+        raise no_key_error(lh)
+    anon_guard(lh, address, x_lh_key, len(body.text.encode()))
     name = body.key or f'text-{int(time.time())}.txt'
     tmp = Path(tempfile.mkdtemp(prefix='lighthouse-')) / Path(name).name
     try:
@@ -374,8 +415,9 @@ def put_text(body: TextBody, authorization: Optional[str] = Header(default=None)
 def list_objects(limit: int = Query(default=100, ge=1, le=1000),
                  scope: str = Query(default='mine', pattern='^(mine|all)$'),
                  authorization: Optional[str] = Header(default=None)):
-    """What this module has pushed: the caller's rows, or all of them (owner)."""
-    address = caller(authorization)
+    """What this module has pushed: the caller's rows (the `anon` rows without
+    a token), or all of them (owner)."""
+    address = caller_or_anon(authorization)
     if scope == 'all' and not identity.is_owner(address) and address != 'open-mode':
         raise HTTPException(403, 'scope=all is owner only')
     rows = lighthouse().list(owner=None if scope == 'all' else address, limit=limit)
@@ -396,7 +438,7 @@ def pin(body: PinBody, authorization: Optional[str] = Header(default=None)):
     Lighthouse uploads are already pinned perpetually, so for our own CIDs this
     is bookkeeping. For a foreign CID it is an intent, and it says so.
     """
-    address = caller(authorization)
+    address = caller_or_anon(authorization)
     return lighthouse().pin(cid=body.cid, owner=address)
 
 
@@ -608,20 +650,21 @@ async def mcp_rpc(request: Request,
                   x_lh_key: Optional[str] = Header(default=None)):
     """MCP over Streamable HTTP.
 
-    Auth is the module's, unchanged: a tool that acts for a signer needs the
-    signer's token, and the 401 arrives at the transport where a client can see
-    it rather than buried in a tool result. The context is built without the
-    box's own keys — an HTTP caller gets their token and their Lighthouse key,
-    never this deployment's identity.
+    Nothing is required to get in: no API key, no token. A caller with no
+    Authorization header is `anon` — they can store, preview and list; a tool
+    that acts in the store answers an isError result naming the token it needs.
+    That refusal lives in the tool result on purpose: a transport 401 sends an
+    MCP client off to discover an OAuth server this module does not have,
+    whereas a model that reads "send a Bearer token" can simply do so. A token
+    that IS sent but does not verify is still a 401 — silence is anonymous,
+    lying is not. The context is built without the box's own keys either way.
     """
     if isinstance(body, list):
         raise HTTPException(400, 'JSON-RPC batching is not supported — send one '
                                  'message per request (MCP dropped batching in '
                                  '2025-06-18)')
-    if isinstance(body, dict) and body.get('method') == 'tools/call':
-        name = (body.get('params') or {}).get('name')
-        if mcp.needs_auth(name):
-            caller(authorization)
+    if identity.strip(authorization):
+        caller(authorization)                 # a bad token is refused, not ignored
     ctx = mcp.Ctx(token=identity.strip(authorization), key=x_lh_key, local=False)
     response = mcp.handle(body, ctx)
     if response is None:

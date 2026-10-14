@@ -22,9 +22,14 @@ store_link.py; `m lighthouse/store` says whether the link is usable.
 Credentials (checked in order):
     1. LIGHTHOUSE_API_KEY env var
     2. ~/.mod/lighthouse/credentials.json  {"api_key": "..."}   (never committed)
+    3. none of the above → the module MINTS one from this box's own wallet.
+       Lighthouse hands out an API key to anyone who signs a nonce with an
+       Ethereum key, and the fleet's mod key is one, so a fresh deployment
+       needs no dashboard visit, no pasted secret: `m lighthouse/mint_key`,
+       or just upload and it happens on the way (LIGHTHOUSE_AUTO_KEY=0 to
+       turn that off).
 
-Get a key at https://files.lighthouse.storage (sign in, API Key tab), then:
-    m lighthouse/set_key <api_key>
+A key from the dashboard still works: m lighthouse/set_key <api_key>
 
 Usage (Python):
     import mod as m
@@ -56,6 +61,14 @@ UPLOAD_ENDPOINTS = [
     'https://node.api.lighthouse.storage/api/v0/add',
 ]
 API_BASE = 'https://api.lighthouse.storage'
+
+# Uploads that arrive with no signed caller are recorded under this owner and
+# spend the deployment's key, so they get a budget: per upload, and per rolling
+# day across all of them. 0 for either closes the anonymous door entirely.
+ANON = 'anon'
+ANON_MAX_BYTES = int(os.environ.get('LIGHTHOUSE_ANON_MAX_BYTES', 8 << 20))
+ANON_DAILY_BYTES = int(os.environ.get('LIGHTHOUSE_ANON_DAILY_BYTES', 256 << 20))
+AUTO_KEY = os.environ.get('LIGHTHOUSE_AUTO_KEY', '1') not in ('0', 'false', '')
 GATEWAY = 'https://gateway.lighthouse.storage'
 # Lighthouse's gateway answers 402 for CIDs it does not host itself, and the
 # big public gateways rate-limit hard (429), so reads walk this list in order.
@@ -73,7 +86,7 @@ class Mod:
 
     fns = [
         'forward', 'put', 'get', 'preview', 'pin', 'list', 'rm',
-        'status', 'usage', 'uploads', 'set_key', 'key_status', 'install',
+        'status', 'usage', 'uploads', 'set_key', 'mint_key', 'key_status', 'install',
         'store', 'push', 'mirror', 'mcp', 'mcp_tools', 'mcp_call',
         'serve', 'stop', 'app', 'api',
     ]
@@ -89,6 +102,7 @@ class Mod:
         self.creds_path = self.state / 'credentials.json'
         self.gateway = os.environ.get('LIGHTHOUSE_GATEWAY') or GATEWAY
         self._api_key = api_key
+        self._call_key = bool(api_key)      # handed in, as opposed to loaded
         self._init_db()
 
     # ── credentials ───────────────────────────────────────────────
@@ -105,23 +119,121 @@ class Mod:
         except Exception:
             return None
 
+    def creds(self) -> dict:
+        try:
+            return json.loads(self.creds_path.read_text()) or {}
+        except Exception:
+            return {}
+
     def set_key(self, api_key: str, **kw) -> dict:
         """Persist the Lighthouse API key off-chain (~/.mod/lighthouse/)."""
         api_key = (api_key or '').strip()
         if not api_key:
             return {'error': 'empty api_key'}
-        self.creds_path.write_text(json.dumps({'api_key': api_key}, indent=2))
-        os.chmod(self.creds_path, 0o600)
-        self._api_key = api_key
+        self._write_creds({'api_key': api_key, 'source': 'pasted'})
         return self.key_status()
+
+    def _write_creds(self, creds: dict):
+        self.creds_path.parent.mkdir(parents=True, exist_ok=True)
+        self.creds_path.write_text(json.dumps(creds, indent=2))
+        os.chmod(self.creds_path, 0o600)
+        self._api_key = creds.get('api_key')
+
+    # ── a key from nothing ────────────────────────────────────────
+    #
+    # Lighthouse's own sign-in is "prove you hold an Ethereum key": GET a nonce
+    # message, sign it (EIP-191 personal_sign), POST the signature back and an
+    # API key comes out. This box signs every protocol token with exactly such
+    # a key, so the deployment can enrol itself. The account that results is
+    # the box's — its free allowance, its file listing — and the key is stored
+    # where set_key would have put it, 0600, off-chain.
+
+    _mint_failed_at = 0.0
+    _mint_error = None
+
+    def _signer(self):
+        """This box's own key, as an eth_account signer (same address the fleet
+        token carries)."""
+        import importlib.util
+        from eth_account import Account
+        spec = importlib.util.spec_from_file_location('lighthouse_protocol',
+                                                      DIR / 'protocol.py')
+        protocol = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(protocol)
+        key = protocol.protocol().key()
+        pk = key.private_key
+        return Account.from_key(pk.hex() if isinstance(pk, bytes) else pk)
+
+    def mint_key(self, **kw) -> dict:
+        """Enrol this box with Lighthouse using its own wallet and keep the key.
+
+        No dashboard, no pasted secret: the nonce Lighthouse hands out is signed
+        with the same key that signs this deployment's protocol tokens, so the
+        Lighthouse account is simply the box's address. Re-running mints a fresh
+        key for the same account.
+        """
+        from eth_account.messages import encode_defunct
+        signer = self._signer()
+        r = requests.get(f'{API_BASE}/api/auth/get_message',
+                         params={'publicKey': signer.address}, timeout=20)
+        r.raise_for_status()
+        message = r.json() if r.text.startswith('"') else r.text
+        sig = signer.sign_message(encode_defunct(text=str(message))).signature.hex()
+        if not sig.startswith('0x'):
+            sig = '0x' + sig
+        r = requests.post(f'{API_BASE}/api/auth/create_api_key',
+                          json={'publicKey': signer.address, 'signedMessage': sig},
+                          timeout=20)
+        r.raise_for_status()
+        body = r.json()
+        api_key = body.get('apiKey') if isinstance(body, dict) else body
+        if not api_key or not isinstance(api_key, str):
+            raise RuntimeError(f'lighthouse returned no key: {r.text[:200]}')
+        self._write_creds({'api_key': api_key, 'source': 'wallet',
+                           'address': signer.address, 'minted': int(time.time())})
+        Mod._mint_error = None
+        out = self.key_status()
+        out['minted'] = True
+        return out
+
+    def ensure_key(self) -> str:
+        """The key this instance will spend — minting one first if the
+        deployment has none and auto-enrolment is on. Never raises: a mint that
+        fails is remembered for a minute (so a burst of requests does not hammer
+        Lighthouse) and reported by key_status()/status() as `auto_key.error`."""
+        key = self.api_key
+        if key or not AUTO_KEY or self._call_key:
+            return key
+        if time.time() - Mod._mint_failed_at < 60:
+            return None
+        try:
+            self.mint_key()
+        except Exception as e:
+            Mod._mint_failed_at = time.time()
+            Mod._mint_error = f'{type(e).__name__}: {e}'
+            return None
+        return self.api_key
+
+    def key_source(self) -> str:
+        """Where the key this instance spends comes from: call, env, wallet,
+        pasted, or none."""
+        if self._call_key:
+            return 'call'
+        if os.environ.get('LIGHTHOUSE_API_KEY'):
+            return 'env'
+        creds = self.creds()
+        if creds.get('api_key'):
+            return creds.get('source') or 'file'
+        return 'none'
 
     def key_status(self, **kw) -> dict:
         """Is a key configured, and does Lighthouse accept it?"""
         key = self.api_key
+        creds = self.creds()
         out = {'configured': bool(key), 'needs_key': not key,
-               'source': ('init' if self._api_key else
-                          'env' if os.environ.get('LIGHTHOUSE_API_KEY') else
-                          'file' if self.creds_path.exists() else None)}
+               'source': self.key_source(),
+               'address': creds.get('address') if creds.get('source') == 'wallet' else None,
+               'auto_key': {'enabled': AUTO_KEY, 'error': Mod._mint_error}}
         if key:
             try:
                 r = requests.get(f'{API_BASE}/api/user/user_data_usage',
@@ -135,11 +247,13 @@ class Mod:
         return out
 
     def _auth(self):
-        key = self.api_key
+        key = self.ensure_key()
         if not key:
+            why = f' (auto-mint failed: {Mod._mint_error})' if Mod._mint_error else ''
             raise RuntimeError(
-                'no Lighthouse API key: m lighthouse/set_key <key> '
-                '(create one at https://files.lighthouse.storage) or set LIGHTHOUSE_API_KEY'
+                'no Lighthouse API key: m lighthouse/mint_key (this box enrols with its '
+                'own wallet), m lighthouse/set_key <key> from files.lighthouse.storage, '
+                f'or set LIGHTHOUSE_API_KEY{why}'
             )
         return {'Authorization': f'Bearer {key}'}
 
@@ -274,6 +388,39 @@ class Mod:
         conn.close()
         return {'cid': cid, 'removed': True}
 
+    # ── the anonymous door ────────────────────────────────────────
+
+    def anon_budget(self) -> dict:
+        """What the no-token path may still spend today, from the index."""
+        conn = self._db()
+        used = conn.execute(
+            'SELECT COALESCE(SUM(size),0) FROM objects WHERE owner=? AND timestamp>?',
+            (ANON, int(time.time()) - 86_400)).fetchone()[0]
+        conn.close()
+        enabled = ANON_MAX_BYTES > 0 and ANON_DAILY_BYTES > 0
+        return {'enabled': enabled, 'owner': ANON,
+                'max_bytes': ANON_MAX_BYTES, 'daily_bytes': ANON_DAILY_BYTES,
+                'used_today': int(used),
+                'remaining_today': max(0, ANON_DAILY_BYTES - int(used)) if enabled else 0}
+
+    def anon_check(self, size: int) -> None:
+        """Raise PermissionError with a sentence when an anonymous upload of
+        `size` bytes would overspend; return quietly when it fits."""
+        b = self.anon_budget()
+        if not b['enabled']:
+            raise PermissionError('anonymous uploads are off on this deployment '
+                                  '(LIGHTHOUSE_ANON_DAILY_BYTES=0) — send a '
+                                  'protocol token or your own Lighthouse key')
+        if size > b['max_bytes']:
+            raise PermissionError(f'{size} bytes is over the anonymous per-upload '
+                                  f'cap of {b["max_bytes"]} — sign in, or pass '
+                                  'your own Lighthouse key')
+        if size > b['remaining_today']:
+            raise PermissionError(f'the anonymous daily budget is spent '
+                                  f'({b["used_today"]} of {b["daily_bytes"]} bytes '
+                                  'in the last 24h) — sign in, or pass your own '
+                                  'Lighthouse key')
+
     # ── account / remote state ────────────────────────────────────
 
     def usage(self) -> dict:
@@ -294,7 +441,7 @@ class Mod:
         conn = self._db()
         n = conn.execute('SELECT COUNT(*) FROM objects').fetchone()[0]
         conn.close()
-        key = self.api_key
+        key = self.ensure_key()
         return {
             'name': 'lighthouse',
             'objects': n,
@@ -303,6 +450,10 @@ class Mod:
             'api': API_BASE,
             'configured': bool(key),
             'needs_key': not key,
+            'key_source': self.key_source(),
+            'key_address': self.creds().get('address'),
+            'auto_key': {'enabled': AUTO_KEY, 'error': Mod._mint_error},
+            'anon': self.anon_budget(),
         }
 
     def install(self) -> dict:
@@ -310,6 +461,9 @@ class Mod:
             'docs': 'https://docs.lighthouse.storage',
             'signup': 'https://files.lighthouse.storage',
             'env': 'export LIGHTHOUSE_API_KEY=...  (or m lighthouse/set_key <key>)',
+            'keyless': 'm lighthouse/mint_key — this box signs a Lighthouse nonce with '
+                       'its own wallet and keeps the key it gets back; uploads do '
+                       'this on their own when no key is set (LIGHTHOUSE_AUTO_KEY)',
             'note': 'No daemon needed — uploads hit the Lighthouse node API over HTTPS.',
         }
 

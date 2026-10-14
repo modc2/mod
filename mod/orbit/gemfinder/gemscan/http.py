@@ -11,6 +11,7 @@ import os
 import sqlite3
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -48,14 +49,25 @@ def _put(url: str, body: bytes) -> None:
         c.commit()
 
 
+def _fetch(url: str, timeout: float) -> bytes:
+    req = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept': 'application/json'})
+    for attempt in (0, 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt:
+                raise
+            time.sleep(2.5)  # one polite retry on rate limit (CoinGecko keyless tier)
+    raise RuntimeError('unreachable')
+
+
 def get_json(url: str, ttl: int = 600, timeout: float = 12):
     """Fresh cache hit, else fetch; on fetch failure fall back to any cached copy."""
     body = _get(url, ttl)
     if body is None:
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept': 'application/json'})
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                body = r.read()
+            body = _fetch(url, timeout)
             json.loads(body)  # only cache what parses
             _put(url, body)
         except Exception:

@@ -18,6 +18,10 @@
  *                        this tab. modc2.com is one origin shared by every
  *                        module, so a long-lived API key in storage would be
  *                        readable by all of them.
+ *
+ * Neither is required. The deployment mints its own Lighthouse key from the
+ * box wallet, and an upload with no token is recorded under `anon` within a
+ * budget the lighthouse panel shows; sign-in only unlocks the store half.
  */
 
 const API = '_api';
@@ -149,18 +153,59 @@ const bytes = (n) => {
 
 function dot(id, level) { $(id).className = `dot ${level}`; }
 
+/** An 8-bit meter: `used` of `limit`, in blocks. Hot past 90%. */
+function meter(used, limit) {
+  if (!limit) return '';
+  const pct = Math.min(100, Math.round((Number(used) / Number(limit)) * 100));
+  return `<span class="meter${pct >= 90 ? ' hot' : ''}" title="${pct}%"><i style="width:${pct}%"></i></span>`;
+}
+
+function keyWords(s) {
+  if (byok) return ['your key (this tab)', 'ok'];
+  if (!s.configured) {
+    const why = s.auto_key && s.auto_key.error;
+    if (s.auto_key && !s.auto_key.enabled) return ['none — auto-enrolment is off', 'bad'];
+    return [why ? `none — minting failed: ${why}` : 'none yet — minted on first upload', why ? 'bad' : 'warn'];
+  }
+  switch (s.key_source) {
+    case 'wallet': return [`minted by this box${s.key_address ? ` · ${short(s.key_address)}` : ''}`, 'ok'];
+    case 'env': return ['LIGHTHOUSE_API_KEY (env)', 'ok'];
+    case 'pasted': return ['the deployment key (pasted by the owner)', 'ok'];
+    default: return ['the deployment key', 'ok'];
+  }
+}
+
 function renderLighthouse(s) {
   const configured = !!s.configured;
-  const source = byok ? 'your key (this tab)' : (configured ? 'the deployment key' : 'none');
-  dot('dot-lh', byok || configured ? 'ok' : 'warn');
-  facts($('lh-facts'), [
-    ['key', esc(source), byok || configured ? 'ok' : 'bad'],
+  const [source, level] = keyWords(s);
+  dot('dot-lh', level === 'ok' ? 'ok' : (level === 'warn' ? 'warn' : 'bad'));
+  const anon = s.anon || {};
+  const rows = [
+    ['key', esc(source), level],
     ['gateway', esc(s.gateway || '—')],
     ['indexed', `${s.objects ?? 0} object${s.objects === 1 ? '' : 's'}`],
     ['pinning', 'perpetual (IPFS + Filecoin)'],
-  ]);
+  ];
+  if (anon.enabled) {
+    rows.push(['anon today', `${bytes(anon.used_today)} of ${bytes(anon.daily_bytes)} · ${bytes(anon.max_bytes)} per upload`
+      + meter(anon.used_today, anon.daily_bytes)]);
+  } else if (anon.owner) {
+    rows.push(['anon', 'uploads without sign-in are off here', 'warn']);
+  }
+  facts($('lh-facts'), rows);
+  // The BYOK hint is for when the box has nothing to spend; the key hint is
+  // the keyless story and reads differently once a key has been minted.
   $('byok-hint').style.display = byok || configured ? 'none' : '';
+  $('key-hint').style.display = byok ? 'none' : '';
+  $('key-hint').textContent = configured && s.key_source === 'wallet'
+    ? 'No key was pasted: this box signed a Lighthouse nonce with its own wallet and keeps the key it got back. Anyone can upload.'
+    : (configured ? 'A deployment key is set. Anyone can upload; sign in to register in the store.'
+      : 'No key to paste: on first upload this box signs a Lighthouse nonce with its own wallet and keeps the key it gets back.');
   document.body.classList.toggle('owner', !!(state.me && state.me.owner));
+  const hint = $('put-hint');
+  hint.innerHTML = token
+    ? 'Signed in — the CID is registered in the store under your address.'
+    : `Not signed in — the upload still lands (recorded as <code>anon</code>${anon.enabled ? `, ${esc(bytes(anon.remaining_today))} left today` : ''}); sign in to register it in the store.`;
 }
 
 function renderStore(s) {
@@ -178,7 +223,7 @@ function renderStore(s) {
     ['terms', s.authenticated ? (s.terms_accepted ? `accepted v${esc((s.terms || {}).version || '')}` : 'not accepted') : '—',
       s.terms_accepted ? 'ok' : (s.authenticated ? 'bad' : '')],
     ['quota', q.unlimited ? 'unlimited'
-      : (q.limit_bytes ? `${bytes(q.used_bytes)} of ${bytes(q.limit_bytes)}` : '—')],
+      : (q.limit_bytes ? `${bytes(q.used_bytes)} of ${bytes(q.limit_bytes)}${meter(q.used_bytes, q.limit_bytes)}` : '—')],
   ]);
   $('store-blockers').innerHTML = blockers.map((b) => {
     // A store that is merely asleep is the common case, and asking again is
@@ -229,7 +274,7 @@ function putResult(el, r) {
   if (s) {
     rows.push(['store', s.registered
       ? `registered${s.public ? ' (public)' : ' (private)'}`
-      : `<span style="color:var(--bad)">not registered — ${esc(s.error || '')}</span>`]);
+      : `<span style="color:${s.status === 401 ? 'var(--warn)' : 'var(--bad)'}">not registered — ${esc(s.error || '')}</span>`]);
   }
   result(el, rows);
   refreshObjects();
@@ -255,7 +300,7 @@ function objectCard(o, source) {
     <div class="acts">
       <button data-copy="${esc(o.cid)}">copy</button>
       <a href="${esc(url)}" target="_blank" rel="noreferrer"><button>open</button></a>
-      ${source === 'module' ? `<button data-rm="${esc(o.cid)}">forget</button>` : ''}
+      ${source === 'module' && token ? `<button data-rm="${esc(o.cid)}">forget</button>` : ''}
       ${source === 'store' && o.backend !== 'lighthouse' ? `<button data-mirror="${esc(o.cid)}">mirror</button>` : ''}
     </div>
   </div>`;
@@ -263,7 +308,10 @@ function objectCard(o, source) {
 
 async function refreshObjects() {
   const box = $('objects');
-  if (!token) { box.innerHTML = '<p class="hint">sign in to see your objects.</p>'; return; }
+  if (!token && listSource === 'store') {
+    box.innerHTML = '<p class="hint">the store only talks to a signer — sign in to see your store objects.</p>';
+    return;
+  }
   try {
     let objects;
     if (listSource === 'module') {
@@ -271,11 +319,13 @@ async function refreshObjects() {
     } else {
       objects = (await call('/store/objects?all_backends=1&limit=100')).objects || [];
     }
-    box.innerHTML = objects.length
+    const lead = !token && listSource === 'module'
+      ? '<p class="hint">uploads made without sign-in, by anyone — sign in to see yours.</p>' : '';
+    box.innerHTML = lead + (objects.length
       ? objects.map((o) => objectCard(o, listSource)).join('')
       : `<p class="hint">${listSource === 'module'
-        ? 'nothing uploaded through this module yet.'
-        : 'no objects in the store for this address yet.'}</p>`;
+        ? (token ? 'nothing uploaded through this module yet.' : 'no anonymous uploads yet.')
+        : 'no objects in the store for this address yet.'}</p>`);
     box.querySelectorAll('[data-copy]').forEach((b) => {
       b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast('CID copied'); };
     });
@@ -323,10 +373,10 @@ function argRows(schema) {
 
 function toolCard(t) {
   const read = t.annotations && t.annotations.readOnlyHint;
+  const auth = { none: ['free', 'no token'], optional: ['free', 'token optional'], token: ['', 'token'], stdio: ['loc', 'stdio only'] }[t.auth] || ['', t.auth];
   const pills = [
     `<span class="pill ${read ? '' : 'wr'}">${read ? 'read' : 'write'}</span>`,
-    `<span class="pill">${t.auth === 'none' ? 'no token' : 'token'}</span>`,
-    ...(t.transports.includes('http') ? [] : ['<span class="pill loc">stdio only</span>']),
+    `<span class="pill ${auth[0]}">${auth[1]}</span>`,
   ];
   return `<details class="tool">
     <summary>
@@ -346,20 +396,27 @@ async function loadMcp() {
     const d = await call('/mcp');
     const url = d.transports.http.url;
     $('mcp-url').textContent = url;
-    $('mcp-count').textContent = `${d.count} tools · protocol ${d.protocol.default}`;
+    $('mcp-count').textContent = `${d.count} tools · ${d.protocol.default}`;
+    $('mcp-cli').textContent = d.config.claude_code;
     $('mcp-conf').textContent = JSON.stringify(d.config.http, null, 2);
-    $('mcp-auth').innerHTML = `${esc(d.auth.protocol_token)} <br>`
-      + `Or on stdio: <code>${esc(d.transports.stdio.command)}</code> — `
-      + `${esc(d.transports.stdio.note)}.`;
+    const names = (auth) => d.tools.filter((t) => auth.includes(t.auth)).map((t) => t.name.replace('lighthouse_', ''));
+    $('mcp-auth').innerHTML = `<b>Without a token:</b> ${esc(names(['none', 'optional']).join(' · '))}. `
+      + `<b>With one</b> (<code>Authorization: Bearer</code>, the store half): ${esc(names(['token']).join(' · '))}. `
+      + `<b>Stdio only</b> (${esc(names(['stdio']).join(' · '))}): <code>${esc(d.transports.stdio.command)}</code> — ${esc(d.transports.stdio.note)}.`;
     box.innerHTML = d.tools.map(toolCard).join('');
     dot('dot-mcp', 'ok');
     $('mcp-copy').onclick = () => {
       navigator.clipboard.writeText(JSON.stringify(d.config.http, null, 2));
       toast('MCP client config copied');
     };
+    $('mcp-cli-copy').onclick = () => {
+      navigator.clipboard.writeText(d.config.claude_code);
+      toast('claude mcp add … copied');
+    };
   } catch (e) {
     dot('dot-mcp', 'bad');
     $('mcp-conf').textContent = '';
+    $('mcp-cli').textContent = '';
     box.innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`;
   }
 }
@@ -400,6 +457,7 @@ async function refresh() {
     $('signin').textContent = 'sign in';
     $('signin').onclick = signIn;
     document.body.classList.remove('owner');
+    renderLighthouse(state.lh);
   }
   refreshObjects();
 }
@@ -468,7 +526,6 @@ function init() {
   };
 
   $('put').onclick = async () => {
-    if (!token) return toast('sign in first', true);
     const btn = $('put');
     const out = $('put-out');
     const textPane = $('pane-text').classList.contains('on');
@@ -497,7 +554,7 @@ function init() {
         r = await call('/put', { method: 'POST', form });
       }
       putResult(out, r);
-      toast('stored forever');
+      toast(token ? 'stored forever' : 'stored forever — sign in to register it in the store');
     } catch (e) {
       result(out, [['error', esc(e.message)]], true);
     } finally { btn.disabled = false; }

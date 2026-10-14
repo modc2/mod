@@ -7,12 +7,18 @@ IPFS/Filecoin with a perpetual pin, and the CID is then *registered* in the
 **store** module, which is where visibility, grants, pools and the marketplace
 live. Nothing is copied into the store — it keeps the gateway url.
 
-Two secrets travel with a call, and they are not the same thing:
+Two secrets MAY travel with a call, and neither is required:
 
     protocol token   `{data, time, key, signature}` — who you are to the fleet
                      and to the store. Forwarded verbatim; this server never
-                     signs for anybody.
-    Lighthouse key   what pays for the pin. Per-call, or the deployment's.
+                     signs for anybody. Without one you are `anon`: you can
+                     still store, preview and list what anon stored, but the
+                     store module (visibility, grants, pools) only ever hears
+                     from a signer, so registration waits for a token.
+    Lighthouse key   what pays for the pin. Per-call, or the deployment's —
+                     and the deployment mints its own from the box's wallet
+                     when it has none (mod.py `mint_key`), so a fresh box
+                     answers an upload with a CID, not a request for a key.
 
 Two transports, and they are deliberately not equal:
 
@@ -20,8 +26,11 @@ Two transports, and they are deliberately not equal:
              it may touch the filesystem (`path`, `out`) and persist the
              deployment key.
     http     POST /mcp on the API — a remote caller. Filesystem tools are
-             refused with a message saying which route to use instead, and
-             anything that writes needs a signed token.
+             refused with a message saying which route to use instead. No
+             header is required to connect or to call: a tool that needs a
+             signer says so in its result, never with a transport 401 (a
+             client that gets 401 goes looking for an OAuth server that
+             does not exist; a model that reads "send a token" can act).
 
 Self-contained JSON-RPC 2.0 on the stdlib — no `mcp` package.
 
@@ -62,6 +71,10 @@ INSTRUCTIONS = (
     'Lighthouse key is configured and whether the store will accept this caller '
     '(`store.blockers` names what is in the way, `store.can_push` is the verdict '
     '— check it BEFORE uploading rather than reading a failure afterwards). '
+    'No credential is needed to connect: without a protocol token you are '
+    '`anon`, lighthouse_put still returns a CID (spending the deployment\'s '
+    'own key, within a daily anonymous budget reported under `anon`), and the '
+    'store half simply waits for a signer. '
     'lighthouse_mirror makes something the store already holds perpetual. '
     'Every store call forwards the CALLER\'S OWN protocol token, so the store\'s '
     'whitelist, terms and quota apply to whoever signed — this server holds no '
@@ -109,6 +122,15 @@ class Ctx:
         self.key = (key or '').strip() or None
         self.local = bool(local)
 
+    @property
+    def anonymous(self) -> bool:
+        """An HTTP caller who sent no token. Not nobody — `anon` — but not a
+        signer either, so nothing that reaches the store runs for them."""
+        return not self.local and not self._token
+
+    def who(self) -> str:
+        return 'local' if self.local else ('signed' if self._token else 'anonymous')
+
     def with_key(self, key):
         """The same caller, spending a key they passed on this one call."""
         if not (key or '').strip():
@@ -117,20 +139,30 @@ class Ctx:
 
     # the Lighthouse key
     def lh(self):
-        return CORE.Mod(api_key=self.key)
+        lh = CORE.Mod(api_key=self.key)
+        if not self.key:
+            lh.ensure_key()           # mints from the box wallet on first need
+        return lh
 
     def key_source(self) -> str:
         if self.key:
             return 'call'
-        return 'deployment' if CORE.Mod().api_key else 'none'
+        lh = CORE.Mod()
+        return f'deployment ({lh.key_source()})' if lh.ensure_key() else 'none'
 
     def paying_key(self):
         """The client for an upload, or a refusal that says how to get a key."""
         lh = self.lh()
         if not lh.api_key:
-            raise Refused('no Lighthouse API key: pass `key` on this call, or '
-                          'set the deployment key with lighthouse_set_key '
-                          '(get one at https://files.lighthouse.storage)')
+            why = CORE.Mod._mint_error
+            raise Refused('no Lighthouse API key and the deployment could not mint '
+                          f'one from its wallet ({why}): pass `key` on this call '
+                          '(files.lighthouse.storage), or on the box run '
+                          '`m lighthouse/mint_key`' if why else
+                          'no Lighthouse API key: auto-enrolment is off on this '
+                          'deployment (LIGHTHOUSE_AUTO_KEY=0) — pass `key` on this '
+                          'call, or on the box run `m lighthouse/mint_key` or '
+                          'lighthouse_set_key over stdio')
         return lh
 
     # the protocol token
@@ -138,9 +170,10 @@ class Ctx:
         if self._token:
             return self._token
         if not self.local:
-            raise Refused('the store needs your protocol token — send it as '
-                          '`Authorization: Bearer <token>` on the MCP request '
-                          '(mint one with m.mod("auth")().token({}))')
+            raise Refused('the store only hears from a signer — send a mod-protocol '
+                          'token as `Authorization: Bearer <token>` on the MCP '
+                          'request (mint one with m.mod("auth")().token({})). '
+                          'Everything that does not touch the store works without it')
         return store_link.local_token()          # this box's own key: stdio only
 
     def maybe_token(self):
@@ -157,7 +190,7 @@ class Ctx:
                 return identity.from_token(self._token)
             except Exception:
                 return None
-        return store_link.local_address() if self.local else None
+        return store_link.local_address() if self.local else CORE.ANON
 
     def filesystem(self, what: str):
         if not self.local:
@@ -179,9 +212,14 @@ def _t_status(a, ctx):
     out.update({
         'version': CONFIG.get('version'),
         'key_source': ctx.key_source(),
+        'caller': ctx.who(),
         'perpetual': True,
         'store': STORE.status(ctx.maybe_token()),
     })
+    if ctx.anonymous:
+        out['note'] = ('no token sent — uploads work and are recorded under '
+                       '`anon`; the store (visibility, grants, pools) needs a '
+                       'signed token, so `store` below is the unauthenticated view')
     return out
 
 
@@ -195,7 +233,8 @@ def _register(result, ctx, public, pool):
     try:
         token = ctx.token()
     except Refused as e:
-        return {'registered': False, 'error': str(e)}
+        return {'registered': False, 'error': str(e),
+                'later': 'lighthouse_register with this CID once you have a token'}
     try:
         reg = STORE.register(token, cid=result['cid'], key=result.get('key'),
                              size=result.get('size'), url=result.get('url'),
@@ -215,6 +254,13 @@ def _t_put(a, ctx):
     if path is not None:
         ctx.filesystem('`path`')
     lh = ctx.paying_key()
+    if ctx.anonymous and not ctx.key:
+        # Spending the deployment's key with no signer behind it is allowed,
+        # within a budget the status tool reports — the refusal names it.
+        try:
+            lh.anon_check(len(str(text).encode()) if text is not None else 0)
+        except PermissionError as e:
+            raise Refused(str(e))
     if path is not None:
         result = lh.put(path=path, owner=ctx.address(), key=a.get('key'))
     else:
@@ -270,6 +316,9 @@ def _t_pin(a, ctx):
 
 def _t_forget(a, ctx):
     cid = a['cid']
+    if ctx.anonymous:
+        raise Refused('forgetting needs a signed token — anonymous rows stay in '
+                      'the index (the pin is perpetual either way)')
     lh = ctx.lh()
     address = ctx.address()
     if not ctx.local:
@@ -290,7 +339,13 @@ def _t_account(a, ctx):
         raise Refused('no Lighthouse API key to report on: pass `key`, or set the '
                       'deployment key with lighthouse_set_key')
     out = {'key_source': ctx.key_source(), 'usage': lh.usage()}
-    if a.get('uploads', True):
+    if ctx.anonymous and not ctx.key:
+        # Headroom is everybody's business (it says whether an upload will
+        # land); the deployment's file listing is not.
+        out['uploads'] = None
+        out['note'] = ('the deployment key\'s file listing is shown to signed '
+                       'callers, or pass your own `key`')
+    elif a.get('uploads', True):
         out['uploads'] = lh.uploads(page=int(a.get('page') or 1))
     return out
 
@@ -331,8 +386,10 @@ def _t_objects(a, ctx):
 
 def _t_mirror(a, ctx):
     import shutil
-    lh = ctx.paying_key()
+    # The store is this tool's gate, so the token question is settled before
+    # the key question: an anonymous caller hears "sign", not "pay".
     token = ctx.token()
+    lh = ctx.paying_key()
     tmpdir = Path(tempfile.mkdtemp(prefix='lighthouse-mcp-mirror-'))
     try:
         info = {}
@@ -412,7 +469,10 @@ TOOLS = {
                        'a file on the box (stdio only). Returns the CID, the '
                        'gateway url and a `store` block saying whether the '
                        'registration landed — if it did not, the bytes ARE still '
-                       'pinned and lighthouse_register can add them later.',
+                       'pinned and lighthouse_register can add them later. Needs '
+                       'no token: an anonymous call still gets a CID, recorded '
+                       'under `anon` and spending the deployment key within its '
+                       'anonymous budget.',
         'inputSchema': {'type': 'object', 'properties': {
             'text': _str('the content to store, as a string'),
             'path': _str('a file on the server\'s filesystem — stdio transport only'),
@@ -424,6 +484,7 @@ TOOLS = {
             'api_key': _KEY,
         }},
         'annotations': _WRITE,
+        'auth': 'optional',
         'key_arg': 'api_key',
         'handler': _t_put,
     },
@@ -458,12 +519,14 @@ TOOLS = {
         'description': "This module's own index — what you have pushed through it: "
                        'CID, name, size, when, and the gateway url. This is not the '
                        'store\'s list (lighthouse_objects) nor Lighthouse\'s '
-                       '(lighthouse_account); it is the local record.',
+                       '(lighthouse_account); it is the local record. Without a '
+                       'token you see the `anon` rows.',
         'inputSchema': {'type': 'object', 'properties': {
             'limit': _num('rows to return (default 100, max 1000)'),
             'scope': _str('whose rows', enum=['mine', 'all']),
         }},
         'annotations': _READ,
+        'auth': 'optional',
         'handler': _t_list,
     },
     'lighthouse_pin': {
@@ -474,6 +537,7 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {'cid': _CID},
                         'required': ['cid']},
         'annotations': _WRITE,
+        'auth': 'optional',
         'handler': _t_pin,
     },
     'lighthouse_forget': {
@@ -499,6 +563,7 @@ TOOLS = {
             'key': _KEY,
         }},
         'annotations': _READ,
+        'auth': 'optional',
         'key_arg': 'key',
         'handler': _t_account,
     },
@@ -592,10 +657,26 @@ def version() -> str:
     return CONFIG.get('version') or '0.0.0'
 
 
-def needs_auth(name) -> bool:
-    """Does this tool act for a signer? Public reads say no."""
+def auth_of(name) -> str:
+    """'none' (anyone), 'optional' (a token adds the store half / your own
+    rows), 'token' (the tool is meaningless without a signer) or 'stdio'
+    (local process only — it never sees HTTP, so the question does not arise)."""
     tool = TOOLS.get(name)
-    return bool(tool) and tool.get('auth', True)
+    if not tool:
+        return 'token'
+    if tool.get('local'):
+        return 'stdio'            # the box's own process: no token, no HTTP
+    auth = tool.get('auth', True)
+    if auth is False:
+        return 'none'
+    return 'optional' if auth == 'optional' else 'token'
+
+
+def needs_auth(name) -> bool:
+    """Does this tool act for a signer and nobody else? Reads and the
+    anonymous-capable writes say no. Nothing is enforced at the transport —
+    this is what the schema reports and what the tool itself refuses on."""
+    return auth_of(name) == 'token'
 
 
 def is_local_only(name) -> bool:
@@ -643,14 +724,24 @@ def describe(url=None):
                       'note': 'runs with this box\'s own keys — every tool available'},
         },
         'auth': {
+            'required': False,
+            'summary': 'none — connect and call with no header and no key. A '
+                       'protocol token unlocks the store half; a Lighthouse key '
+                       'is optional because the deployment mints its own.',
             'protocol_token': 'Authorization: Bearer <mod-protocol token> — who you '
                               'are to this module and to the store, forwarded '
-                              'verbatim. Required for every tool except '
-                              + ', '.join(n for n in TOOLS if not needs_auth(n)),
+                              'verbatim. Optional: without it you are `anon`. '
+                              'Only these tools need it: '
+                              + ', '.join(n for n in TOOLS if needs_auth(n)),
             'lighthouse_key': 'the `key` argument (or `api_key` on the upload '
                               'tools) — spends YOUR Lighthouse account for this '
                               'call and is never written to disk. Omit it to use '
-                              "the deployment's key.",
+                              "the deployment's key, which the box mints from its "
+                              'own wallet when it has none.',
+            'anonymous': 'uploads with no token spend the deployment key within '
+                         'LIGHTHOUSE_ANON_MAX_BYTES per upload and '
+                         'LIGHTHOUSE_ANON_DAILY_BYTES per day (lighthouse_status '
+                         'reports both under `anon`)',
             'stdio': 'a stdio server mints the token with the box\'s own mod key, '
                      'so local tools need no argument',
         },
@@ -660,7 +751,7 @@ def describe(url=None):
                    'description': tool['description'],
                    'inputSchema': tool['inputSchema'],
                    'annotations': tool['annotations'],
-                   'auth': 'token' if tool.get('auth', True) else 'none',
+                   'auth': auth_of(name),
                    'transports': ['stdio'] if tool.get('local') else ['stdio', 'http']}
                   for name, tool in TOOLS.items()],
         'config': client_config(url),

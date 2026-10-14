@@ -7,6 +7,8 @@ to carry, and ranks them by how fast attention is piling in.
 m gemfinder/top                               # one line per gem, crypto + stocks
 m gemfinder/scan asset=crypto k=10            # full JSON: score parts, why, flags, metrics, links
 m gemfinder/scan asset=stock narrative=quantum
+m gemfinder/find "nuclear drones"             # type anything dope: it becomes a live theme for that scan
+m gemfinder/scan fresh=1                      # skip the 10-minute scan cache
 m gemfinder/narratives                        # which themes are hot right now, and why
 m gemfinder/history                           # past scans with price at scan time
 m gemfinder/serve                             # app + REST on :51320 (pm2 `gemfinder`)
@@ -14,7 +16,11 @@ m gemfinder/serve                             # app + REST on :51320 (pm2 `gemfi
 
 **App:** open `http://localhost:51320/`. It shows each feed's status and count, the signals → tickers → gems funnel, narrative heat (hover a row to see its drivers, click it to filter), the ranked gems with a stacked score breakdown (click a row for metrics and links) and past scans.
 
-No API keys. Stdlib only. Run `top` to scan everything (about 4s cold; cached after that).
+**Type something dope.** The box at the top of the app (or `find`, or `scan q=...`) turns any words into a theme for that scan: "quantum", "frog", "nuclear drones", "solana agents". The words are matched against every candidate's name and description (short words like `ai` must stand alone, longer ones may be a prefix, so `robot` also finds robotics; a few aliases apply, `ai` also means artificial intelligence), CoinGecko search and the two biggest CoinGecko categories the words name, DexScreener search and Yahoo search pull in more candidates, and the theme is heated against the 13 built-in narratives. Only gems that fit the theme are listed, scored the same way as everything else.
+
+**Cache.** Scans are cached in the server for 10 minutes (`GEMFINDER_SCAN_TTL`), in two layers: the gathered + enriched base per asset, and each finished scan per filter. A warmer refreshes the asset=all base on boot and every TTL (`GEMFINDER_WARM=0` or `--no-warm` turns it off), so the app opens from cache instantly and a typed theme costs only its own four searches (1-2s, then instant). `Rescan live` / `fresh=1` skips the cache; `GET /cache` shows what is hot; `DELETE /cache` or `m gemfinder/clear_cache` drops it. Raw HTTP bodies are cached separately in SQLite, so a feed that is down still answers from its last good copy.
+
+No API keys. Stdlib only. Run `top` to scan everything (about 5s cold; instant after that).
 
 ## Where it looks
 
@@ -26,6 +32,9 @@ No API keys. Stdlib only. Run `top` to scan everything (about 4s cold; cached af
 | ApeWisdom | both | ticker mentions across crypto and WSB/stock subreddits, with the count from 24h earlier |
 | Yahoo Finance | stock | trending tickers; small-cap gainers, day gainers and most-active screens (relative volume, market cap) |
 | Hacker News | — | story count per narrative over 7 days: whether the wider internet is talking about it |
+| CoinGecko search + categories | crypto | typed themes only: coins whose name matches, and the coins inside the categories the words name |
+| DexScreener search | crypto | typed themes only: on-chain tokens named like the words, deepest pool per token |
+| Yahoo search | stock | typed themes only: US-listed stocks (not ETFs) whose name matches |
 
 Stocktwits and reddit's own JSON are blocked by Cloudflare when called from a server, so ApeWisdom supplies the reddit data.
 

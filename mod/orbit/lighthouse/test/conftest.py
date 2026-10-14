@@ -23,6 +23,9 @@ os.environ.setdefault('LIGHTHOUSE_STORE_URL', 'http://127.0.0.1:50152')
 # would otherwise start the fleet's actual store module as a side effect. The
 # wake tests pass an explicit stub activator instead.
 os.environ['LIGHTHOUSE_ACTIVATOR_URL'] = ''
+# Nor enrol with Lighthouse: a test that minted a real key would leave the
+# throwaway state dir holding a real credential. The mint test stubs the HTTP.
+os.environ['LIGHTHOUSE_AUTO_KEY'] = '0'
 
 # Repo root first so `import mod` is the protocol package; the module root is
 # added after, so `import identity` / `import store_link` resolve too. Both are

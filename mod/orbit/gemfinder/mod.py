@@ -11,7 +11,9 @@ CLI:
     m gemfinder/scan                            # top 20 across crypto + stocks
     m gemfinder/scan asset=crypto k=10
     m gemfinder/scan asset=stock narrative=quantum
+    m gemfinder/find "nuclear drones"           # type anything dope: it becomes a live theme
     m gemfinder/top                             # one line per gem
+    m gemfinder/scan fresh=1                    # skip the 10-min scan cache
     m gemfinder/narratives                      # which themes are hot right now
     m gemfinder/history                         # past scans (price at scan time)
     m gemfinder/serve                           # REST on :51320 (pm2 `gemfinder`)
@@ -40,6 +42,10 @@ def _list(v):
     return [s for s in str(v).split(',') if s]
 
 
+def _truthy(v) -> bool:
+    return str(v).lower() not in ('0', 'false', 'no', 'off', '', 'none')
+
+
 class Mod:
     description = 'Narrative gem scanner for crypto + stocks — CoinGecko, DexScreener, reddit, Yahoo, HN; keyless'
 
@@ -52,17 +58,31 @@ class Mod:
         return self.scan(asset, **kwargs)
 
     def scan(self, asset: str = 'all', k: int = 20, narrative: Optional[str] = None, min_score: float = 0,
-             sources=None, hn: bool = True) -> dict:
-        """Ranked gems with score breakdown, reasons and risk flags. asset: all|crypto|stock."""
+             sources=None, hn: bool = True, q: Optional[str] = None, fresh: bool = False) -> dict:
+        """Ranked gems with score breakdown, reasons and risk flags. asset: all|crypto|stock.
+        q: a typed theme ('quantum', 'frog', 'nuclear drones'). fresh: skip the scan cache."""
         return engine.scan(asset=asset, k=int(k), narrative=narrative, min_score=float(min_score),
-                           sources=_list(sources), hn=hn)
+                           sources=_list(sources), hn=_truthy(hn), q=q, fresh=_truthy(fresh))
 
-    def top(self, asset: str = 'all', k: int = 15, narrative: Optional[str] = None) -> list:
-        """Just the lines: 'score  ASSET SYMBOL  name — why  [flags]'."""
-        res = self.scan(asset, k=k, narrative=narrative)
+    def find(self, q: str, asset: str = 'all', k: int = 15, fresh: bool = False) -> dict:
+        """Type something dope. Its words become a live theme: matched against every candidate,
+        plus CoinGecko search + categories, DexScreener search and Yahoo search. Returns the theme's
+        heat, which feeds answered, and the gems that fit."""
+        res = self.scan(asset, k=k, q=q, fresh=fresh)
+        return {'theme': res['theme'], 'cached': res['cached'], 'age_s': res['age_s'],
+                'sources': {n: s for n, s in res['sources'].items() if n in ('cg_search', 'cg_category', 'dex_search', 'yahoo_search')},
+                'gems': self._lines(res['gems'])}
+
+    @staticmethod
+    def _lines(gems: list) -> list:
         return [f"{g['score']:5.1f}  {g['asset'][:6]:6} {g['symbol']:10} {g['name'][:28]:28} — "
                 f"{'; '.join(g['why'][1:])}{'  [' + ', '.join(g['flags']) + ']' if g['flags'] else ''}"
-                for g in res['gems']]
+                for g in gems]
+
+    def top(self, asset: str = 'all', k: int = 15, narrative: Optional[str] = None, q: Optional[str] = None,
+            fresh: bool = False) -> list:
+        """Just the lines: 'score  ASSET SYMBOL  name — why  [flags]'."""
+        return self._lines(self.scan(asset, k=k, narrative=narrative, q=q, fresh=fresh)['gems'])
 
     def narratives(self, asset: str = 'all', hn: bool = True) -> dict:
         """Heat 0-100 per narrative for crypto and stocks, with the raw drivers."""
@@ -79,7 +99,12 @@ class Mod:
         return source_list()
 
     def clear_cache(self) -> dict:
-        return http.clear()
+        """Drop both the scan cache (in-process, 10 min) and the raw HTTP body cache (SQLite)."""
+        return {'scans': engine.clear_scan_cache(), 'http': http.clear()}
+
+    def cache(self) -> dict:
+        """What is hot right now: scan-cache keys with ages, plus HTTP cache size."""
+        return {'scans': engine.cache_stats(), 'http': http.stats()}
 
     def serve(self, port: Optional[int] = None, host: str = '127.0.0.1') -> dict:
         port = int(port or self.port)

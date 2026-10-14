@@ -1,6 +1,6 @@
 ---
 name: lighthouse
-description: Perpetual IPFS/Filecoin storage (lighthouse.storage) with a bridge that registers every CID in the store module — CLI, API :50680, console :50681/lighthouse, MCP server (14 tools, schema at GET /mcp).
+description: Perpetual IPFS/Filecoin storage (lighthouse.storage) with a bridge that registers every CID in the store module — CLI, API :50680, console :50681/lighthouse (8-bit, light+dark), MCP server (14 tools, schema at GET /mcp, no key or token needed to connect; the box mints its own Lighthouse key).
 type: orbit-module
 ---
 
@@ -19,17 +19,20 @@ pools and the marketplace — without the store ever holding the bytes.
 
 ## Auth in one line
 
-Everything authed takes a mod-protocol token (`m.mod('auth')().token({})`) as
-`Authorization: Bearer …`, and the **store bridge forwards that same token** —
-this module holds no store credential, so the store's whitelist, terms and
-quota apply to whoever signed.
+Nothing is required: no Lighthouse key (the box mints its own from its wallet)
+and no token (an unsigned caller is `anon` and can upload within a daily
+budget). A mod-protocol token (`m.mod('auth')().token({})`) as
+`Authorization: Bearer …` unlocks the **store bridge, which forwards that same
+token** — this module holds no store credential, so the store's whitelist,
+terms and quota apply to whoever signed.
 
 ## CLI
 
 ```bash
 m lighthouse/status                 # key configured? gateway? index size?
 m lighthouse/store                  # the store link + blockers (can_push)
-m lighthouse/set_key lh_...         # owner: persist the deployment key (0600)
+m lighthouse/mint_key               # enrol this box with its own wallet (0600) — optional, happens on first upload
+m lighthouse/set_key lh_...         # or persist a dashboard key instead
 
 m lighthouse/put ./file.pdf         # upload only            → cid
 m lighthouse/push ./file.pdf public=true pool=<id>
@@ -92,10 +95,11 @@ m lighthouse/mcp_call tool=status    # run one locally
 `lighthouse_register` · `lighthouse_objects` · `lighthouse_mirror` ·
 `lighthouse_set_key`
 
-- Auth is unchanged: a tool that acts for a signer needs `Authorization: Bearer
-  <protocol token>` on the MCP request, and that token is what reaches the
-  store. `lighthouse_status`, `lighthouse_preview` and `lighthouse_store` need
-  none.
+- No key and no token to connect. Without a token you are `anon`: `status`,
+  `preview`, `store`, `put`, `list`, `pin`, `account` all answer. `terms`,
+  `register`, `objects`, `mirror`, `forget` need `Authorization: Bearer
+  <protocol token>` on the MCP request and say so in an isError result (never a
+  transport 401); that token is what reaches the store.
 - `lighthouse_get`, `lighthouse_set_key` and `path` on `lighthouse_put` are
   **stdio only** — over HTTP they refuse and name the route to use instead.
   Send `text` rather than `path` when you are a remote caller.
@@ -118,8 +122,11 @@ m lighthouse/mcp_call tool=status    # run one locally
 
 ## Gotchas
 
-- No Lighthouse key ⇒ every upload path 400s with instructions. Reads and the
-  whole store bridge still work.
+- No Lighthouse key and `LIGHTHOUSE_AUTO_KEY=0` ⇒ every upload path 400s with
+  instructions. With auto on (default) the box mints one; a failed mint is
+  reported under `auto_key.error` and retried after a minute.
+- Anonymous uploads are budgeted (`LIGHTHOUSE_ANON_MAX_BYTES` 8 MiB,
+  `LIGHTHOUSE_ANON_DAILY_BYTES` 256 MiB; 0 closes the door) — 429 past it.
 - `scope=all` on `/list` is owner-only; the owner is the first address that
   signed in against the deployment (`~/.mod/lighthouse/owner.json`).
 - The store must be reachable on `:50152` for the bridge; `m lighthouse/store`

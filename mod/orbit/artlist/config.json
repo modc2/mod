@@ -1,16 +1,19 @@
 {
     "name": "artlist",
     "title": "artlist \u00b7 royalty-free music, SFX & footage search",
-    "description": "Interface to Artlist.io: search 25k+ royalty-free songs, SFX, stock footage and video templates through Artlist's public search GraphQL API. Keyless for search/preview/metadata; streams AAC previews from Artlist's CDN. Licensed downloads require your own Artlist account token (kept off-chain). Stdlib-only. Also an MCP server (HTTP /mcp and stdio).",
-    "version": "0.1.0",
+    "description": "Interface to Artlist.io: search 25k+ royalty-free songs, SFX, stock footage and video templates through Artlist's public search GraphQL API, with a console to search and listen in the browser. Keyless for search/preview/metadata; streams AAC previews from Artlist's CDN (relayed through the module, the CDN wants an artlist.io Referer). Licensed downloads require your own Artlist account token (kept off-chain). Stdlib-only. Also an MCP server (HTTP /mcp and stdio).",
+    "version": "0.2.0",
     "anchor": "mod.py",
     "network": "local",
     "port": 51190,
-    "route": false,
+    "route": true,
     "deps": [],
     "urls": {
+        "app": "http://localhost:51190/artlist/",
         "api": "http://localhost:51190",
-        "mcp": "http://localhost:51190/mcp"
+        "mcp": "http://localhost:51190/mcp",
+        "gateway_app": "https://modc2.com/artlist",
+        "gateway_api": "https://modc2.com/artlist/api"
     },
     "mcp": {
         "http": "http://localhost:51190/mcp",
@@ -29,6 +32,16 @@
             "method": "GET",
             "auth": false,
             "docs": "Liveness + cache size"
+        },
+        "app": {
+            "method": "GET",
+            "auth": false,
+            "docs": "/artlist/ -> the console (search + player); app.css, app.js, fonts/ beside it"
+        },
+        "stream": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?u=<https://*.artlist.io preview url> -> relays the AAC with the Referer the CDN requires; Range passes through"
         },
         "music": {
             "method": "GET|POST",
@@ -97,5 +110,11 @@
         "status",
         "test"
     ],
-    "schema": "QmXJcB4FQT27HU5MpyFZaMiDismjCvwyNgPvjmWCMFEo6i"
+    "schema": "QmXJcB4FQT27HU5MpyFZaMiDismjCvwyNgPvjmWCMFEo6i",
+    "icon": "\u2592",
+    "color": "#b48cff",
+    "app_port": 51190,
+    "base_path": "/artlist",
+    "frontend": "app/ (index.html + app.css + app.js, plain ES module, served by artlistapi/server.py on the same port at /artlist/)",
+    "backend": "artlistapi/server.py (stdlib \u2014 REST + MCP + /stream relay, :51190)"
 }

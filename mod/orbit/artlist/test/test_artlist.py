@@ -86,3 +86,67 @@ def test_live_templates_search():
 def test_live_voices():
     r = api.voices(k=2)
     assert r['results'] and r['results'][0]['accents']
+
+
+# ── server: console + stream relay (offline, ephemeral port) ─────────────────
+
+@pytest.fixture(scope='module')
+def srv():
+    import threading
+    from http.server import ThreadingHTTPServer
+    from artlistapi import server
+    s = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    yield f'http://127.0.0.1:{s.server_address[1]}'
+    s.shutdown()
+
+
+def _get(url):
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url, timeout=5) as r:
+            return r.status, r.headers.get('Content-Type', ''), r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers.get('Content-Type', ''), e.read()
+
+
+def test_console_served_bare_and_prefixed(srv):
+    for path in ('/', '/artlist/', '/artlist', '/index.html'):
+        code, ctype, body = _get(srv + path)
+        assert code == 200 and ctype.startswith('text/html'), path
+        assert b'<base href="/artlist/">' in body
+    code, ctype, _ = _get(srv + '/artlist/app.js')
+    assert code == 200 and ctype == 'text/javascript'
+    code, ctype, _ = _get(srv + '/app.css')
+    assert code == 200 and ctype == 'text/css'
+    code, ctype, _ = _get(srv + '/fonts/vt323-latin.woff2')
+    assert code == 200 and ctype == 'font/woff2'
+
+
+def test_console_does_not_shadow_api_or_leak_files(srv):
+    code, ctype, body = _get(srv + '/health')
+    assert code == 200 and json.loads(body)['ok'] is True
+    code, _, body = _get(srv + '/artlist/api/health')
+    assert code == 200 and json.loads(body)['ok'] is True
+    code, _, _ = _get(srv + '/fonts/../../config.json')
+    assert code == 404
+    code, _, _ = _get(srv + '/artlistapi/client.py')
+    assert code == 404
+
+
+def test_stream_refuses_foreign_hosts(srv):
+    from urllib.parse import quote
+    for bad in ('https://evil.example.com/x.aac', 'http://cms-public-artifacts.artlist.io/x', 'https://notartlist.io/x'):
+        code, _, body = _get(srv + '/stream?u=' + quote(bad, safe=''))
+        assert code == 400 and b'artlist.io' in body, bad
+
+
+@live
+def test_live_stream_relays_audio_with_range(srv):
+    import urllib.request
+    from urllib.parse import quote
+    url = api.music('jazz', k=1)['results'][0]['preview_url']
+    req = urllib.request.Request(srv + '/stream?u=' + quote(url, safe=''), headers={'Range': 'bytes=0-99'})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        assert r.status == 206 and r.headers['Content-Type'].startswith('audio/')
+        assert len(r.read()) == 100

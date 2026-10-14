@@ -9,12 +9,14 @@ Three things are worth a test here and the rest is Lighthouse's business:
     reported state, a caller the store rejects gets the store's own verdict
     (403/451) and not a flattened 502, and an upload never loses its CID
     because the registration afterwards went wrong;
-  * nothing here can act for a caller who did not sign — every write path is
-    401 without a token, and the token that reaches the store is the caller's.
-
-Uploads to Lighthouse itself need a real API key and are not simulated: the
-tests assert the *refusal* is clear, which is what an unconfigured deployment
-actually does.
+  * nothing here can act IN THE STORE for a caller who did not sign — the
+    store routes and tools are 401/refused without a token, and the token that
+    reaches the store is always the caller's. Uploading, listing and pinning
+    are open: an unsigned caller is `anon`, budgeted, and never borrows the
+    box's own identity;
+  * the deployment needs no pasted key — it mints one from its own wallet.
+    Lighthouse itself is never called from here (the enrolment is stubbed), so
+    the tests also assert the refusal is clear when minting is off.
 """
 import json
 from pathlib import Path
@@ -129,8 +131,10 @@ def test_health_and_status_need_nothing(client):
     assert 'store' in body and 'url' in body['store']
 
 
-def test_writes_need_a_signature(client):
-    for method, path in (('get', '/list'), ('get', '/me'), ('get', '/store/objects'),
+def test_store_routes_need_a_signature(client):
+    """The store only hears from a signer; everything that reaches it is 401
+    without a token. Uploading and listing are NOT in this list on purpose."""
+    for method, path in (('get', '/me'), ('get', '/store/objects'),
                          ('post', '/store/register'), ('post', '/store/mirror'),
                          ('post', '/store/terms/accept')):
         r = getattr(client, method)(path, **({'json': {'cid': 'x'}}
@@ -138,10 +142,36 @@ def test_writes_need_a_signature(client):
         assert r.status_code == 401, f'{method.upper()} {path} answered {r.status_code}'
 
 
+def test_a_bad_token_is_refused_not_treated_as_anonymous(client):
+    for path in ('/list', '/put/text'):
+        r = (client.post(path, json={'text': 'x'}) if path.endswith('text')
+             else client.get(path))
+        assert r.status_code != 401, f'{path} should be open to silence'
+        r = (client.post(path, json={'text': 'x'}, headers={'Authorization': 'Bearer nope'})
+             if path.endswith('text') else
+             client.get(path, headers={'Authorization': 'Bearer nope'}))
+        assert r.status_code == 401, f'{path} accepted a token that does not verify'
+
+
+def test_anonymous_callers_list_and_pin_as_anon(client, core):
+    assert client.post('/pin', json={'cid': 'bafyANON'}).status_code == 200
+    body = client.get('/list').json()
+    assert body['owner'] == core.ANON
+    assert any(o['cid'] == 'bafyANON' for o in body['objects'])
+    core.Mod().rm('bafyANON')
+
+
 def test_upload_without_a_key_says_how_to_get_one(client, token):
+    """Auto-enrolment is off in tests (conftest), so this is the refusal a
+    deployment with LIGHTHOUSE_AUTO_KEY=0 and no key gives — and it must name
+    both ways out."""
     r = client.post('/put', headers={'Authorization': f'Bearer {token}'},
                     files={'file': ('t.txt', b'hi')})
     assert r.status_code == 400
+    assert 'mint_key' in r.json()['detail'] and 'x-lh-key' in r.json()['detail']
+    # the same door, with nobody signing
+    r = client.post('/put/text', json={'text': 'hi'})
+    assert r.status_code == 400, 'an anonymous upload is open — it fails on the key, not the token'
     assert 'x-lh-key' in r.json()['detail']
     assert 'files.lighthouse.storage' in r.json()['detail']
 
@@ -364,12 +394,97 @@ def test_the_filesystem_belongs_to_stdio(token):
 
 
 def test_a_remote_caller_never_borrows_the_box_key():
-    """Without a token an HTTP context has no standing at all — it must not
-    quietly fall back to the mod key this box signs with."""
+    """Without a token an HTTP context is `anon` — recorded as such, and never
+    quietly handed the mod key this box signs with for the store."""
     import mcp
+    anon = mcp.Ctx(local=False)
+    assert anon.anonymous and anon.who() == 'anonymous'
+    assert anon.address() == 'anon'
     with pytest.raises(mcp.Refused):
-        mcp.Ctx(local=False).token()
+        anon.token()
     assert mcp.Ctx(token='abc', local=False).token() == 'abc'
+    assert not mcp.Ctx(token='abc', local=False).anonymous
+
+
+def test_anonymous_tools_work_and_store_tools_say_why_not(token):
+    """The whole point of the keyless server: no token, and the tools that do
+    not need the store still answer — the ones that do name the token."""
+    import mcp
+    anon = mcp.Ctx(local=False)
+    out = mcp.call_tool('lighthouse_status', {}, anon)
+    assert out['caller'] == 'anonymous' and 'anon' in out and 'note' in out
+    mcp.call_tool('lighthouse_pin', {'cid': 'bafyMCPANON'}, anon)
+    listed = mcp.call_tool('lighthouse_list', {}, anon)
+    assert listed['owner'] == 'anon'
+    assert any(o['cid'] == 'bafyMCPANON' for o in listed['objects'])
+    for name, args in (('lighthouse_objects', {}), ('lighthouse_register', {'cid': 'x'}),
+                       ('lighthouse_forget', {'cid': 'bafyMCPANON'}),
+                       ('lighthouse_terms', {'accept': True})):
+        with pytest.raises(mcp.Refused) as e:
+            mcp.call_tool(name, args, anon)
+        assert 'token' in str(e.value), name
+    assert mcp.auth_of('lighthouse_put') == 'optional'
+    assert mcp.auth_of('lighthouse_objects') == 'token'
+    assert mcp.auth_of('lighthouse_preview') == 'none'
+    assert mcp.describe()['auth']['required'] is False
+    mcp.CORE.Mod().rm('bafyMCPANON')
+
+
+def test_anonymous_uploads_are_budgeted(core, monkeypatch):
+    lh = core.Mod()
+    budget = lh.anon_budget()
+    assert budget['enabled'] and budget['owner'] == core.ANON
+    with pytest.raises(PermissionError) as e:
+        lh.anon_check(budget['max_bytes'] + 1)
+    assert 'cap' in str(e.value)
+    monkeypatch.setattr(core, 'ANON_DAILY_BYTES', 0)
+    with pytest.raises(PermissionError) as e:
+        lh.anon_check(1)
+    assert 'off' in str(e.value)
+
+
+def test_the_box_enrols_itself_with_its_own_wallet(core, monkeypatch):
+    """Lighthouse's sign-in is a signed nonce; the fleet key is an Ethereum key;
+    so the deployment can mint its own API key. The HTTP is stubbed — the
+    signature it produces is checked to recover the box's own address."""
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+    seen = {}
+
+    class R:
+        def __init__(self, body, text=None):
+            self._body, self.text, self.status_code = body, text or json.dumps(body), 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._body
+
+    def get(url, params=None, **kw):
+        assert url.endswith('/api/auth/get_message')
+        seen['address'] = params['publicKey']
+        return R('sign this, nonce=42')
+
+    def post(url, json=None, **kw):
+        assert url.endswith('/api/auth/create_api_key')
+        recovered = Account.recover_message(encode_defunct(text='sign this, nonce=42'),
+                                            signature=json['signedMessage'])
+        assert recovered == json['publicKey'] == seen['address']
+        return R({'apiKey': 'lh-minted-key'})
+
+    monkeypatch.setattr(core.requests, 'get', get)
+    monkeypatch.setattr(core.requests, 'post', post)
+    monkeypatch.setattr(core.Mod, 'key_status', lambda self, **kw: {'configured': True})
+    lh = core.Mod()
+    out = lh.mint_key()
+    assert out['minted'] is True
+    assert lh.api_key == 'lh-minted-key'
+    creds = json.loads(lh.creds_path.read_text())
+    assert creds['source'] == 'wallet' and creds['address'] == seen['address']
+    assert oct(lh.creds_path.stat().st_mode)[-3:] == '600'
+    assert lh.key_source() == 'wallet'
+    lh.creds_path.unlink()
 
 
 def test_a_key_passed_to_a_tool_is_spent_not_echoed(token):
@@ -380,17 +495,29 @@ def test_a_key_passed_to_a_tool_is_spent_not_echoed(token):
     assert 'lh-secret-key' not in json.dumps(out, default=str)
 
 
-def test_mcp_writes_need_a_signature(client):
-    """The 401 belongs at the transport, where a client can act on it."""
-    def rpc(name, **args):
-        return client.post('/mcp', json={'jsonrpc': '2.0', 'id': 1,
-                                         'method': 'tools/call',
-                                         'params': {'name': name, 'arguments': args}})
+def test_mcp_transport_never_401s_silence(client):
+    """No header, no key: every call is answered as JSON-RPC. A store tool
+    without a token is an isError RESULT that names the token — a transport
+    401 would send an MCP client looking for an OAuth server. A token that is
+    sent and does not verify is the one thing still refused at the door."""
+    def rpc(name, headers=None, **args):
+        return client.post('/mcp', headers=headers or {},
+                           json={'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                                 'params': {'name': name, 'arguments': args}})
     for name in ('lighthouse_put', 'lighthouse_list', 'lighthouse_mirror',
-                 'lighthouse_register', 'lighthouse_objects'):
-        assert rpc(name, cid='x', text='x').status_code == 401, name
-    # …and the public reads stay public, or the schema is unreachable in practice.
+                 'lighthouse_register', 'lighthouse_objects', 'lighthouse_status'):
+        r = rpc(name, cid='x', text='x')
+        assert r.status_code == 200, name
+        assert 'result' in r.json(), name
+    for name in ('lighthouse_mirror', 'lighthouse_register', 'lighthouse_objects'):
+        out = rpc(name, cid='x').json()['result']
+        assert out['isError'] is True and 'token' in out['content'][0]['text'], name
     assert rpc('lighthouse_status').json()['result']['isError'] is False
+    assert rpc('lighthouse_list').json()['result']['structuredContent']['owner'] == 'anon'
+    assert rpc('lighthouse_status', headers={'Authorization': 'Bearer nope'}).status_code == 401
+    init = client.post('/mcp', json={'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+                                     'params': {'protocolVersion': '2025-06-18'}})
+    assert init.status_code == 200 and 'anon' in init.json()['result']['instructions']
 
 
 def test_the_schema_is_served_without_a_token(client):

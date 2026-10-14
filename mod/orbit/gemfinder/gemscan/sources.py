@@ -264,6 +264,99 @@ def hn_count(query: str, days: int = 7) -> int:
     return int(get_json(f'{HN}?{q}', ttl=3600).get('nbHits', 0))
 
 
+# ── typed theme: live search in every venue ──────────────────────────────
+# Each takes the theme (see narratives.custom) and returns signals; only hits
+# whose name/symbol/category actually contain a typed word survive, so
+# CoinGecko's fuzzy "quantum" -> "nextplace" noise is dropped.
+
+def _theme_ok(theme, *parts) -> bool:
+    return bool(theme['pattern'].search(' '.join(str(x or '') for x in parts)))
+
+
+def cg_search(theme: dict) -> list:
+    """CoinGecko /search: coins whose name or ticker matches what you typed."""
+    d = get_json(f"{CG}/search?{urllib.parse.urlencode({'query': theme['query']})}", ttl=900)
+    coins = [c for c in d.get('coins', []) if _theme_ok(theme, c.get('name'), c.get('symbol'), c.get('id'))][:12]
+    return [_sig('crypto', c.get('symbol'), c.get('name'), 'cg_search', _strength(i, len(coins)),
+                 text=f"{c.get('name', '')} {theme['query']}", metrics={'mcap_rank': c.get('market_cap_rank')},
+                 url=f"https://www.coingecko.com/en/coins/{c.get('id')}", ids={'coingecko': c.get('id')})
+            for i, c in enumerate(coins)]
+
+
+def cg_category(theme: dict) -> list:
+    """CoinGecko coins inside the categories your words name (e.g. 'ai agents', 'meme', 'depin'), by volume."""
+    out, seen = [], set()
+    for cat in theme['cg'][:2]:  # CoinGecko's keyless tier is ~10 calls/min: two categories, biggest first
+        q = urllib.parse.urlencode({'vs_currency': 'usd', 'category': cat, 'order': 'volume_desc', 'per_page': 40,
+                                    'price_change_percentage': '1h,24h,7d'})
+        try:
+            rows = get_json(f'{CG}/coins/markets?{q}', ttl=900) or []
+        except Exception:
+            continue
+        for i, c in enumerate(rows):
+            if c.get('id') in seen:
+                continue
+            seen.add(c.get('id'))
+            out.append(_sig('crypto', c.get('symbol'), c.get('name'), 'cg_category', _strength(i, len(rows)),
+                            text=f"{c.get('name', '')} {cat.replace('-', ' ')}",
+                            metrics={'price': c.get('current_price'), 'mcap': c.get('market_cap'),
+                                     'vol24': c.get('total_volume'), 'chg24': c.get('price_change_percentage_24h'),
+                                     'chg1h': c.get('price_change_percentage_1h_in_currency'),
+                                     'chg7d': c.get('price_change_percentage_7d_in_currency'),
+                                     'mcap_rank': c.get('market_cap_rank')},
+                            url=f"https://www.coingecko.com/en/coins/{c.get('id')}", ids={'coingecko': c.get('id')}))
+    return out
+
+
+def dex_search(theme: dict) -> list:
+    """DexScreener pair search: on-chain tokens named like what you typed, deepest pool per token."""
+    d = get_json(f"{DEX}/latest/dex/search?{urllib.parse.urlencode({'q': theme['query']})}", ttl=600)
+    best = {}
+    for p in d.get('pairs') or []:
+        bt = p.get('baseToken') or {}
+        if not _theme_ok(theme, bt.get('name'), bt.get('symbol')):
+            continue
+        key = (p.get('chainId'), (bt.get('address') or '').lower())
+        liq = (p.get('liquidity') or {}).get('usd') or 0
+        if key not in best or liq > ((best[key].get('liquidity') or {}).get('usd') or 0):
+            best[key] = p
+    rows = sorted(best.values(), key=lambda p: -((p.get('volume') or {}).get('h24') or 0))[:20]
+    now = time.time() * 1000
+    out = []
+    for i, p in enumerate(rows):
+        bt = p.get('baseToken') or {}
+        chg, vol, tx = p.get('priceChange') or {}, p.get('volume') or {}, (p.get('txns') or {}).get('h24') or {}
+        created = p.get('pairCreatedAt')
+        out.append(_sig('crypto', bt.get('symbol'), bt.get('name'), 'dex_search', _strength(i, len(rows)),
+                        text=f"{bt.get('name', '')} {theme['query']}",
+                        metrics={'price': _money(p.get('priceUsd')), 'mcap': p.get('marketCap') or p.get('fdv'),
+                                 'fdv': p.get('fdv'), 'liq': (p.get('liquidity') or {}).get('usd'),
+                                 'vol24': vol.get('h24'), 'vol1h': vol.get('h1'),
+                                 'chg1h': chg.get('h1'), 'chg24': chg.get('h24'),
+                                 'buys24': tx.get('buys'), 'sells24': tx.get('sells'),
+                                 'age_h': round((now - created) / 3.6e6, 1) if created else None},
+                        url=p.get('url', ''), ids={'chain': p.get('chainId'), 'address': bt.get('address')}))
+    return out
+
+
+def yahoo_search(theme: dict) -> list:
+    """Yahoo Finance search: US-listed stocks (not ETFs) whose name matches what you typed."""
+    q = urllib.parse.urlencode({'q': theme['query'], 'quotesCount': 20, 'newsCount': 0})
+    d = get_json(f'{YF}/v1/finance/search?{q}', ttl=900)
+    qs = [x for x in d.get('quotes', []) if x.get('quoteType') == 'EQUITY' and x.get('symbol')
+          and '.' not in x['symbol'] and _theme_ok(theme, x.get('shortname'), x.get('longname'), x.get('symbol'))]
+    return [_sig('stock', x['symbol'], x.get('longname') or x.get('shortname') or '', 'yahoo_search',
+                 _strength(i, len(qs)), text=f"{x.get('longname') or x.get('shortname') or ''} {theme['query']}",
+                 url=f"https://finance.yahoo.com/quote/{x['symbol']}") for i, x in enumerate(qs)]
+
+
+THEME_SOURCES = {
+    'cg_search': {'asset': 'crypto', 'fn': cg_search},
+    'cg_category': {'asset': 'crypto', 'fn': cg_category},
+    'dex_search': {'asset': 'crypto', 'fn': dex_search},
+    'yahoo_search': {'asset': 'stock', 'fn': yahoo_search},
+}
+
 CANDIDATE_SOURCES = {
     'coingecko_trending': {'asset': 'crypto', 'fn': coingecko_trending},
     'dexscreener': {'asset': 'crypto', 'fn': dexscreener},

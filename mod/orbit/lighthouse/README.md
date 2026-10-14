@@ -21,9 +21,14 @@ Four faces, one module:
 | face | where | what |
 | --- | --- | --- |
 | CLI | `mod.py` | `m lighthouse/put`, `m lighthouse/push`, `m lighthouse/store` |
-| API | `api/api.py` → `:50680` | FastAPI, mod-protocol auth, BYOK header |
-| console | `app/server.py` → `:50681/lighthouse` | plain ES modules, no build step |
-| MCP | `mcp.py` → `POST /mcp` or stdio | 14 tools; schema at `GET /mcp` |
+| API | `api/api.py` → `:50680` | FastAPI, mod-protocol auth (optional), BYOK header |
+| console | `app/server.py` → `:50681/lighthouse` | plain ES modules, no build step, 8-bit, light + dark |
+| MCP | `mcp.py` → `POST /mcp` or stdio | 14 tools; schema at `GET /mcp`; **no key, no token to connect** |
+
+**Nothing to paste.** The deployment mints its own Lighthouse key from the box
+wallet (`m lighthouse/mint_key`, or automatically on first upload), and the MCP
+server takes callers with no credential at all — an unsigned caller is `anon`,
+can store within a daily budget, and the store half waits for a signer.
 
 Behind the gateway: `modc2.com/lighthouse` (console) and
 `modc2.com/lighthouse/api` (API). The console always calls its own origin at
@@ -74,8 +79,9 @@ down store.
 ## Quickstart
 
 ```bash
-# 1. a Lighthouse key (https://files.lighthouse.storage → API Key tab)
-m lighthouse/set_key lh_...
+# 1. a Lighthouse key — none needed. The box enrols itself with its own wallet:
+m lighthouse/mint_key               # (or skip it: the first upload does this)
+#    a dashboard key still works:  m lighthouse/set_key lh_...
 
 # 2. is the store link usable?
 m lighthouse/store
@@ -164,13 +170,14 @@ argument, the raw `inputSchema`, and a copy button for the client config.
 
 | tool | needs | what |
 | --- | --- | --- |
-| `lighthouse_status` | — | key, gateway, index, and the store's verdict on you (`can_push`) |
-| `lighthouse_put` | token | `text` (or `path`, stdio) → CID, registered in the store |
+| `lighthouse_status` | — | key, gateway, index, anon budget, and the store's verdict on you (`can_push`) |
+| `lighthouse_put` | — (token optional) | `text` (or `path`, stdio) → CID; registered in the store when a token came along |
 | `lighthouse_preview` | — | peek at a CID through the gateway |
 | `lighthouse_get` | stdio | download a CID to a path on the box |
-| `lighthouse_list` | token | this module's index |
-| `lighthouse_pin` `lighthouse_forget` | token | index bookkeeping — `forget` never unpins |
-| `lighthouse_account` | token | Lighthouse's own usage + file listing for the key |
+| `lighthouse_list` | — (token optional) | this module's index — the `anon` rows without a token |
+| `lighthouse_pin` | — (token optional) | index bookkeeping |
+| `lighthouse_forget` | token | drop one of your rows — never unpins |
+| `lighthouse_account` | — (token optional) | Lighthouse's own usage for the key; the file listing for signed callers |
 | `lighthouse_store` | — | the link + blockers |
 | `lighthouse_terms` | token | read the store's terms; `accept=true` signs them |
 | `lighthouse_register` | token | reference an existing CID in the store |
@@ -180,10 +187,16 @@ argument, the raw `inputSchema`, and a copy button for the client config.
 
 Three rules hold across the transports:
 
-- **Auth is the module's, unchanged.** A tool that acts for a signer needs that
-  signer's token as `Authorization: Bearer …` on the MCP request, and the 401
-  arrives at the transport where a client can see it. The token is forwarded to
-  the store verbatim, exactly as the REST routes do.
+- **Nothing is required to connect.** No API key, no token: `claude mcp add`
+  and go. Without a token you are `anon` — `put`, `list`, `pin`, `account`,
+  `status`, `preview` and `store` all answer. The five tools that act *in the
+  store* (`terms`, `register`, `objects`, `mirror`) or on a signer's own rows
+  (`forget`) answer an `isError` result naming the `Authorization: Bearer …`
+  token they want. That refusal is a tool result on purpose: a transport 401
+  sends an MCP client off to look for an OAuth server this module does not
+  have. A token that is sent and does not verify is still refused at the door.
+  Whatever token arrives is forwarded to the store verbatim, exactly as the
+  REST routes do; the box's own identity is never lent to an HTTP caller.
 - **The filesystem is stdio's alone.** `lighthouse_get`, `lighthouse_set_key`
   and `path` on `lighthouse_put` refuse over HTTP with a message naming the
   route to use instead — a remote caller shares no filesystem with the server,
@@ -193,15 +206,36 @@ Three rules hold across the transports:
 
 ## Keys
 
-Tried in this order, and `/status` always says which one is in play:
+Tried in this order, and `/status` always says which one is in play
+(`key_source`):
 
 1. **`x-lh-key` header** — the caller's own Lighthouse key. Never written to
-   disk, discarded when the request ends. This is how a visitor uses the console
-   without trusting the box. The console keeps it in a variable for the tab and
-   never in `localStorage`: modc2.com is one origin shared by every module.
+   disk, discarded when the request ends. This is how a visitor spends their
+   own allowance instead of the box's. The console keeps it in a variable for
+   the tab and never in `localStorage`: modc2.com is one origin shared by every
+   module.
 2. **the deployment key** — `~/.mod/lighthouse/credentials.json` (0600) or
-   `LIGHTHOUSE_API_KEY`, set by the owner via `POST /key` or
-   `m lighthouse/set_key`. Off-chain, never `config.json`.
+   `LIGHTHOUSE_API_KEY`. Off-chain, never `config.json`.
+3. **minted.** With neither, the box *enrols itself*: Lighthouse's sign-in is
+   "sign this nonce with an Ethereum key", and the key that signs every
+   protocol token on this box is one. `mint_key` GETs the nonce, signs it
+   (EIP-191), POSTs the signature and keeps the key it gets back under
+   `source: wallet` with the box address. It happens on its own the first
+   time a key is needed (`LIGHTHOUSE_AUTO_KEY=0` to forbid it), and a mint
+   that fails is remembered for a minute and reported as `auto_key.error`.
+   The Lighthouse account that results is simply the box's address, with the
+   free allowance Lighthouse gives a new wallet.
+
+### The anonymous door
+
+An upload with no token is recorded under owner `anon` and spends the
+deployment key, so it is budgeted: `LIGHTHOUSE_ANON_MAX_BYTES` per upload
+(8 MiB) and `LIGHTHOUSE_ANON_DAILY_BYTES` per rolling day (256 MiB), both read
+off the index and reported by `/status` and `lighthouse_status` under `anon`.
+Past the budget the API answers 429 and the tool refuses, each naming the two
+ways on: sign in, or bring your own key. Set either knob to 0 and the door is
+closed (uploads need a token or `x-lh-key` again). Anonymous callers cannot
+`forget` and cannot see the deployment key's file listing.
 
 The **owner** is the first address to sign in against a fresh deployment; the
 claim lives in `~/.mod/lighthouse/owner.json`. Owner is a small privilege: it
@@ -213,6 +247,9 @@ any signed caller with their own key.
 - **`rm` does not unpin.** A Lighthouse pin is perpetual and paid for; the CID
   stays retrievable by anyone who has it. `DELETE /rm` drops the row from this
   module's index, and says so in the response.
+- **`anon` is a shared name.** Everything uploaded without a token lists under
+  it, for everyone; it is bookkeeping, not ownership. Sign in for rows that
+  are yours and for the store.
 - **`/get` is unauthenticated.** An IPFS CID is public bytes to whoever holds
   it. Access *control* is the store's job, gated on the store's side — this
   route is the plain gateway, not a way around that.

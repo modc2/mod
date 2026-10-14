@@ -1,6 +1,12 @@
 # artlist
 
-Search [Artlist.io](https://artlist.io)'s royalty-free catalog — music, sound effects, stock footage, templates — from the CLI, REST or MCP. Not to be confused with `orbit/artist` (the media studio).
+Search [Artlist.io](https://artlist.io)'s royalty-free catalog — music, sound effects, stock footage, templates — from the browser, the CLI, REST or MCP. Not to be confused with `orbit/artist` (the media studio).
+
+## Console
+
+`m artlist/serve`, then open `http://localhost:51190/artlist/` (or `{host}/artlist` behind the gateway). Five tabs — music, sfx, footage, templates, voices — one search box, cards, and a player bar at the bottom. Press play on a card and the preview streams; **open** goes to the track on artlist.io where licensing lives. Deep links are the hash: `#music/lofi%20study`, `#voices`.
+
+It is three files in `app/` (plain ES module, no build step) served by the same stdlib server as the API, with `<base href="/artlist/">` so one copy works on the bare port and behind the gateway. Audio goes through `GET /stream?u=<cdn url>`: Artlist's CDN 403s any Referer but `https://artlist.io/`, so a browser can't load previews directly — the relay adds that Referer, forwards `Range` for seeking, and only ever fetches `https://*.artlist.io`.
 
 - **Keyless for search & previews**: talks to Artlist's public search GraphQL (`search-api.artlist.io/v1/graphql`) with browser-shaped headers (required — their edge 403s bare clients). Python stdlib only. One SQLite TTL cache at `~/.mod/artlist/cache.db`.
 - **Previews are real audio**: every song result carries a `preview_url` (AAC on `cms-public-artifacts.artlist.io`); `m artlist/preview <id>` downloads it. `fetch_preview` refuses non-artlist hosts (SSRF guard).
@@ -42,14 +48,15 @@ Tools: `artlist_music`, `artlist_sfx`, `artlist_footage`, `artlist_templates`, `
 
 ## REST
 
-`GET /music?q=&k=&page=` · `GET /sfx?q=` · `GET /footage?q=` · `GET /templates?q=` · `GET /voices` · `GET /song?ids=1,2` · `POST /gq {query,variables}` · `POST /mcp` — also served under `/artlist/api/…`. Errors come back as 4xx JSON, because Cloudflare strips the body of any 5xx.
+`GET /music?q=&k=&page=&sort=` · `GET /sfx?q=&sort=` · `GET /footage?q=` · `GET /templates?q=&sort=` · `GET /voices` · `GET /song?ids=1,2` · `GET /stream?u=` · `POST /gq {query,variables}` · `POST /mcp` — also served under `/artlist/api/…`. Errors come back as 4xx JSON, because Cloudflare strips the body of any 5xx.
 
 ## Layout
 
 ```
 artlistapi/client.py   transport: headers, TTL cache, token, preview downloader
 artlistapi/api.py      verified GraphQL documents + flat-dict normalization
-artlistapi/mcp_server.py / server.py   transports
+artlistapi/mcp_server.py / server.py   transports; server.py also serves app/ and the /stream relay
+app/index.html app.css app.js          the console (fonts/ vendored, OFL)
 ```
 
 ToS note: this reads the same public API the artlist.io web app uses, at human rates (cached 15 min). Anything behind a license — full downloads, account data — requires your own paid account token and stays between you and Artlist.

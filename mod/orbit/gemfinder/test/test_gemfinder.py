@@ -97,3 +97,78 @@ def test_server_serves_app_and_health():
             assert e.code == 404
     finally:
         srv.shutdown()
+
+
+# ── typed themes + scan cache (offline: feeds are monkeypatched) ─────────
+
+def test_custom_theme_keywords_and_boundaries():
+    assert nar.keywords('the next quantum computing plays') == ['quantum', 'computing']
+    assert nar.keywords('AI') == ['ai']
+    t = nar.custom('ai agents', [{'id': 'ai-agents', 'name': 'AI Agents', 'market_cap': 1},
+                                 {'id': 'binance-hodler-airdrops', 'name': 'Airdrops', 'market_cap': 9}])
+    assert t['cg'] == ['ai-agents']                              # "ai" is not "airdrops"
+    assert not nar.hit(t, 'American Airlines', 'AAL')
+    assert nar.hit(t, 'Virtuals ai agent launchpad', 'VIRTUAL')
+    assert nar.hit(nar.custom('robot'), 'Figure humanoid robotics', 'FIG')   # prefix + alias
+    try:
+        nar.custom('the of')
+        assert False
+    except ValueError:
+        pass
+
+
+def test_merge_into_existing_keeps_dex_split():
+    m = engine.merge([sig('crypto', 'PEPE', 'dexscreener_boost', ids={'address': 'aaa111'})])
+    engine.merge([sig('crypto', 'PEPE', 'dex_search', ids={'address': 'bbb222'}),
+                  sig('crypto', 'PEPE', 'cg_search')], into=m)
+    assert set(m) == {('crypto', 'PEPE'), ('crypto', 'PEPE@bbb222')}
+    assert len(m[('crypto', 'PEPE')]['signals']) == 2
+
+
+def test_scan_cache_and_typed_theme(monkeypatch):
+    calls = {'gather': 0, 'theme': 0}
+
+    def fake_gather(asset='all', only=None):
+        calls['gather'] += 1
+        return [sig('crypto', 'QRL', 'coingecko_trending', text='Quantum Resistant Ledger',
+                    metrics={'chg24': 12, 'mcap': 3e7, 'price': 1}),
+                sig('stock', 'IONQ', 'yahoo_trending', text='IonQ', metrics={'chg24': 5, 'mcap': 9e9, 'price': 40}),
+                sig('crypto', 'PEPE', 'reddit_apewisdom', text='Pepe frog', metrics={'chg24': 2, 'mcap': 4e9, 'price': 0.00001})], \
+               {'coingecko_trending': {'ok': True, 'n': 3, 's': 0}}
+
+    def fake_theme(theme, asset='all'):
+        calls['theme'] += 1
+        return [sig('crypto', 'FROGE', 'dex_search', text='Froge frog', metrics={'chg24': 30, 'mcap': 2e6, 'liq': 1e5, 'price': 0.1},
+                    ids={'address': 'ccc333', 'chain': 'base'})], {'dex_search': {'ok': True, 'n': 1, 's': 0}}
+
+    def fake_raw(themes, cands, asset='all', hn=True):
+        raw = {n: {'crypto_move': i, 'trending_cats': 0, 'stock_move': i, 'hn_7d': i, 'crowd_crypto': 0.0, 'crowd_stock': 0.0}
+               for i, n in enumerate(themes)}
+        engine.crowd(raw, cands)
+        return raw, {}
+
+    monkeypatch.setattr(engine, 'gather', fake_gather)
+    monkeypatch.setattr(engine, 'theme_signals', fake_theme)
+    monkeypatch.setattr(engine, 'heat_raw', fake_raw)
+    monkeypatch.setattr(engine, 'enrich_crypto', lambda c: None)
+    monkeypatch.setattr(engine, 'enrich_stocks', lambda c, limit=120: None)
+    monkeypatch.setattr(engine.src, 'coingecko_categories', lambda: [{'id': 'frog-themed-coins', 'name': 'Frog', 'market_cap': 1}])
+    engine.clear_scan_cache()
+
+    a = engine.scan('all', k=10, save=False)
+    assert a['cached'] is False and calls['gather'] == 1
+    b = engine.scan('all', k=2, save=False)                    # k is a post-filter: same cache entry
+    assert b['cached'] is True and calls['gather'] == 1 and len(b['gems']) == 2
+    c = engine.scan('all', k=10, save=False, fresh=True)
+    assert c['cached'] is False and calls['gather'] == 2
+
+    f = engine.scan('all', k=10, save=False, q='frog')
+    assert calls['gather'] == 2 and calls['theme'] == 1          # theme rides on the cached base
+    assert f['theme']['keywords'] == ['frog'] and f['theme']['categories'] == ['frog-themed-coins']
+    assert {g['symbol'] for g in f['gems']} == {'PEPE', 'FROGE'}  # matched by word, and pulled in by search
+    assert f['narratives'][0]['id'] == 'q' and f['theme']['matches'] == 2
+    assert all('"frog"' in g['narratives'] for g in f['gems'])
+    assert engine.scan('all', k=10, save=False, q='Frog ')['cached'] is True
+    assert engine.scan('all', k=10, save=False, q='quantum')['gems'][0]['symbol'] in ('QRL', 'IONQ')
+    assert any(x['key'][2] == 'frog' for x in engine.cache_stats()['results'])
+    engine.clear_scan_cache()
