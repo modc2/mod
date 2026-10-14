@@ -979,12 +979,12 @@ function StartCard({ model, rt, browserDevice, onPick }: {
       {/* auto-rows-fr + flex-1: the starters stretch to fill whatever the
           transcript pane isn't using, so an empty console reads as a menu
           rather than as a mistake. */}
-      <div className="grid sm:grid-cols-2 gap-1.5 flex-1 auto-rows-fr">
+      <div className="lq-starters grid sm:grid-cols-2 gap-1.5 flex-1 auto-rows-fr">
         {STARTERS.map((s) => (
           <button
             key={s}
             onClick={() => onPick(s)}
-            className="pixel-btn px-3 py-2 !justify-start !items-start text-left font-mono text-xs leading-snug normal-case"
+            className="lq-starter pixel-btn px-3 py-2 !justify-start !items-start text-left font-mono text-xs leading-snug normal-case"
           >
             {s}
           </button>

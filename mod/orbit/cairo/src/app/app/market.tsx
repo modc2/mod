@@ -120,7 +120,17 @@ export function Market({
       <div className="cards">
         {items === null && [0, 1, 2].map((i) => <div className="mcard ghost" key={i} />)}
         {shown.map((c) => (
-          <article className="mcard" key={c.name} style={{ ['--h' as any]: hue(c.name) }}>
+          <article
+            className="mcard click"
+            key={c.name}
+            style={{ ['--h' as any]: hue(c.name) }}
+            title={`open ${c.name}: its Cairo source, tests, API and app`}
+            onClick={(e) => {
+              // buttons and links inside the card do their own thing
+              if ((e.target as HTMLElement).closest('a,button')) return;
+              onOpen(c.name);
+            }}
+          >
             <header>
               <div className="glyph">{c.title.slice(0, 1)}</div>
               <div className="who">

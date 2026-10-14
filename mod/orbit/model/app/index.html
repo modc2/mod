@@ -3,377 +3,1270 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>model gateway</title>
+  <title>model — every model, one place</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%238b7bff'/%3E%3Cstop offset='1' stop-color='%235ad1ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Crect x='8' y='8' width='16' height='16' rx='4' fill='%2308090c'/%3E%3C/svg%3E" />
   <style>
     :root {
-      --bg: #0a0a0a;
-      --panel: #111;
-      --border: #2a2a2a;
-      --fg: #e6e6e6;
-      --muted: #8a8a8a;
-      --green: #4ade80;
-      --red: #f87171;
-      --amber: #fbbf24;
-      --user: #1e293b;
-      --asst: #0b1a12;
+      --bg: #08090c;
+      --side: #0d0f14;
+      --panel: #12151c;
+      --panel2: #171b24;
+      --line: #222734;
+      --line2: #2d3343;
+      --fg: #e8eaf0;
+      --dim: #a3a9b8;
+      --muted: #6b7286;
+      --accent: #8b7bff;
+      --accent2: #5ad1ff;
+      --good: #4ade80;
+      --warn: #fbbf24;
+      --bad: #f87171;
+      --r: 10px;
+      --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      /* kind identity (always shown with a text label) */
+      --k-chat: #8b7bff; --k-image: #f472b6; --k-video: #fb923c; --k-embedding: #34d399;
+      --k-speech: #60a5fa; --k-transcription: #22d3ee; --k-rerank: #facc15; --k-moderation: #94a3b8;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; }
     body {
-      background: var(--bg); color: var(--fg);
-      font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      display: grid; grid-template-rows: auto 1fr auto; min-height: 100vh;
+      background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans);
+      -webkit-font-smoothing: antialiased; overflow: hidden;
     }
-    header {
-      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-      padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border);
-    }
-    header .title { font-weight: 700; letter-spacing: 0.1em; margin-right: 8px; }
-    header .lozenge { color: var(--muted); font-size: 11px; }
-    select, input, textarea, button {
-      background: var(--bg); color: var(--fg); border: 1px solid var(--border);
-      font: inherit; padding: 5px 8px;
-    }
+    button, input, select, textarea { font: inherit; color: inherit; }
     button { cursor: pointer; }
-    button:hover { border-color: var(--fg); }
-    button.primary { background: var(--green); color: #000; border-color: var(--green); font-weight: 700; }
-    button.primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
-    .row { display: flex; gap: 6px; align-items: center; }
-    .row > label { color: var(--muted); font-size: 11px; letter-spacing: 0.05em; }
-    .key-state { font-size: 11px; padding: 2px 6px; border: 1px solid var(--border); }
-    .key-state.ok { color: var(--green); border-color: var(--green); }
-    .key-state.no { color: var(--amber); border-color: var(--amber); }
+    a { color: var(--accent2); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    ::selection { background: rgba(139,123,255,.35); }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #232838; border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+    .mono { font-family: var(--mono); }
 
-    main {
-      overflow-y: auto; padding: 16px;
-      display: flex; flex-direction: column; gap: 10px; max-width: 980px; width: 100%;
-      margin: 0 auto;
-    }
-    .msg { padding: 10px 12px; border: 1px solid var(--border); white-space: pre-wrap; word-wrap: break-word; }
-    .msg .who { font-size: 10px; color: var(--muted); letter-spacing: 0.1em; margin-bottom: 6px; }
-    .msg.user { background: var(--user); }
-    .msg.assistant { background: var(--asst); }
-    .msg.error { border-color: var(--red); color: var(--red); }
+    .app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
 
-    footer {
-      display: flex; gap: 6px; padding: 10px; background: var(--panel);
-      border-top: 1px solid var(--border);
+    /* ── sidebar ─────────────────────────────────────── */
+    aside {
+      background: var(--side); border-right: 1px solid var(--line);
+      display: flex; flex-direction: column; min-height: 0;
     }
-    footer textarea {
-      flex: 1; min-height: 60px; resize: vertical; font: inherit;
+    .brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; }
+    .logo {
+      width: 28px; height: 28px; border-radius: 8px; flex: none;
+      background: conic-gradient(from 210deg, var(--k-chat), var(--k-image), var(--k-video), var(--k-speech), var(--k-embedding), var(--k-chat));
+      box-shadow: 0 0 24px rgba(139,123,255,.35);
+      position: relative;
     }
-    .empty { color: var(--muted); padding: 32px; text-align: center; }
-    .info { color: var(--muted); font-size: 11px; }
-    .pill { padding: 2px 6px; border: 1px solid var(--border); border-radius: 0; font-size: 11px; }
-    dialog {
-      background: var(--panel); color: var(--fg); border: 1px solid var(--border); padding: 16px;
-      min-width: 360px;
+    .logo::after { content: ""; position: absolute; inset: 7px; border-radius: 4px; background: var(--side); }
+    .brand h1 { font-size: 15px; margin: 0; letter-spacing: .02em; }
+    .brand .sub { font-size: 11.5px; color: var(--muted); }
+    .brand .x { margin-left: auto; display: none; }
+
+    .tabs { display: flex; gap: 4px; margin: 0 12px 10px; background: var(--panel); padding: 3px; border-radius: 9px; border: 1px solid var(--line); }
+    .tabs button {
+      flex: 1; border: 0; background: transparent; color: var(--dim); padding: 6px 8px; border-radius: 7px;
+      font-size: 12.5px; font-weight: 600; letter-spacing: .03em;
     }
-    dialog::backdrop { background: rgba(0,0,0,0.6); }
-    .form { display: grid; gap: 8px; }
-    .form label { color: var(--muted); font-size: 11px; }
-    .form input { width: 100%; }
-    .key-hint { color: var(--muted); font-size: 11px; }
+    .tabs button.on { background: var(--panel2); color: var(--fg); box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 0 0 1px var(--line2); }
+    .tabs .n { color: var(--muted); font-weight: 500; margin-left: 4px; }
+
+    .pane { display: none; flex: 1; min-height: 0; flex-direction: column; }
+    .pane.on { display: flex; }
+
+    .search { position: relative; margin: 0 12px 8px; }
+    .search input {
+      width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+      padding: 8px 34px 8px 32px; outline: none;
+    }
+    .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139,123,255,.15); }
+    .search .ic { position: absolute; left: 11px; top: 8px; color: var(--muted); font-size: 13px; }
+    .search kbd { position: absolute; right: 9px; top: 8px; }
+    kbd { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line2); border-radius: 5px; padding: 0 5px; background: var(--panel2); }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 12px 8px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel);
+      color: var(--dim); border-radius: 999px; padding: 3px 9px; font-size: 12px; white-space: nowrap;
+    }
+    .chip:hover { border-color: var(--line2); color: var(--fg); }
+    .chip.on { color: var(--fg); border-color: var(--c, var(--accent)); background: color-mix(in srgb, var(--c, var(--accent)) 14%, var(--panel)); }
+    .chip .d { width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--muted)); }
+    .chip .n { color: var(--muted); font-size: 11px; }
+
+    .filters { display: flex; gap: 6px; margin: 0 12px 8px; align-items: center; }
+    .filters select {
+      flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 6px; font-size: 12.5px; color: var(--dim);
+    }
+    .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); cursor: pointer; user-select: none; white-space: nowrap; }
+    .toggle input { display: none; }
+    .toggle .sw { width: 28px; height: 16px; border-radius: 10px; background: var(--line2); position: relative; transition: .15s; flex: none; }
+    .toggle .sw::after { content: ""; position: absolute; width: 12px; height: 12px; top: 2px; left: 2px; border-radius: 50%; background: var(--dim); transition: .15s; }
+    .toggle input:checked + .sw { background: var(--accent); }
+    .toggle input:checked + .sw::after { left: 14px; background: #fff; }
+
+    .list { flex: 1; overflow-y: auto; padding: 2px 8px 12px; min-height: 0; }
+    .sect { font-size: 10.5px; letter-spacing: .12em; color: var(--muted); font-weight: 700; padding: 10px 8px 4px; display: flex; justify-content: space-between; }
+    .hint {
+      margin: 6px 4px; padding: 9px 11px; border: 1px dashed var(--line2); border-radius: 9px; font-size: 12.5px; color: var(--dim);
+      cursor: pointer; background: transparent; text-align: left; width: calc(100% - 8px);
+    }
+    .hint:hover { border-color: var(--accent); color: var(--fg); }
+
+    .mrow {
+      display: grid; grid-template-columns: 4px 1fr auto; gap: 9px; align-items: center;
+      padding: 6px 8px 6px 6px; border-radius: 8px; cursor: pointer; position: relative;
+    }
+    .mrow:hover { background: var(--panel); }
+    .mrow.on { background: var(--panel2); box-shadow: 0 0 0 1px var(--line2) inset; }
+    .mrow .bar { width: 4px; height: 26px; border-radius: 3px; background: var(--c); opacity: .85; }
+    .mrow .t { min-width: 0; }
+    .mrow .nm { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mrow .meta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mrow .meta b { color: var(--dim); font-weight: 500; }
+    .mrow .acts { display: flex; gap: 2px; align-items: center; }
+    .ib {
+      border: 0; background: transparent; color: var(--muted); width: 24px; height: 24px; border-radius: 6px; font-size: 13px; line-height: 1;
+      display: inline-grid; place-items: center;
+    }
+    .ib:hover { background: var(--line); color: var(--fg); }
+    .ib.fav { color: var(--warn); }
+    .mrow .ib.hov { opacity: 0; }
+    .mrow:hover .ib.hov { opacity: 1; }
+    .mrow .ib.cmp.on { opacity: 1; color: var(--accent); }
+    .lock { font-size: 10px; color: var(--muted); border: 1px solid var(--line2); border-radius: 4px; padding: 0 4px; font-family: var(--mono); }
+    .more { display: block; margin: 8px auto; }
+
+    /* providers pane */
+    .pv-sum { margin: 0 12px 8px; font-size: 12.5px; color: var(--dim); display: flex; align-items: center; gap: 8px; }
+    .meter { flex: 1; height: 5px; border-radius: 4px; background: var(--line); overflow: hidden; }
+    .meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 4px; }
+    .pcard { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); margin: 0 4px 6px; overflow: hidden; }
+    .pcard.off { opacity: .55; }
+    .phead { display: flex; align-items: center; gap: 9px; padding: 9px 10px; cursor: pointer; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
+    .dot.ok { background: var(--good); box-shadow: 0 0 8px rgba(74,222,128,.6); }
+    .dot.pub { background: var(--accent2); }
+    .dot.err { background: var(--bad); }
+    .phead .pl { font-weight: 600; font-size: 13px; }
+    .phead .ps { font-size: 11.5px; color: var(--muted); }
+    .phead .grow { flex: 1; min-width: 0; }
+    .pbody { display: none; padding: 0 10px 10px; border-top: 1px solid var(--line); }
+    .pcard.open .pbody { display: block; }
+    .pbody .row { display: flex; gap: 6px; margin-top: 9px; align-items: center; }
+    .pbody .note { font-size: 11.5px; color: var(--muted); margin-top: 7px; word-break: break-word; }
+    .pbody .note.err { color: var(--bad); }
+    .pbody .note.ok { color: var(--good); }
+
+    .field {
+      width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; outline: none; min-width: 0;
+    }
+    .field:focus { border-color: var(--accent); }
+    .btn {
+      border: 1px solid var(--line2); background: var(--panel2); color: var(--fg); border-radius: 8px; padding: 6px 11px; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+    }
+    .btn:hover { border-color: var(--dim); }
+    .btn.pri { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.pri:hover { filter: brightness(1.1); }
+    .btn.pri:disabled { background: var(--line2); border-color: var(--line2); color: var(--muted); cursor: not-allowed; filter: none; }
+    .btn.ghost { background: transparent; }
+    .btn.sm { padding: 3px 8px; font-size: 11.5px; }
+    .btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+
+    .side-foot { border-top: 1px solid var(--line); padding: 9px 14px; font-size: 11.5px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+    .side-foot .lockic { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--good); flex: none; }
+
+    /* ── stage ───────────────────────────────────────── */
+    .stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative;
+      background: radial-gradient(1200px 500px at 70% -10%, rgba(139,123,255,.08), transparent 60%), var(--bg); }
+    .top {
+      display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line);
+      background: rgba(8,9,12,.7); backdrop-filter: blur(10px); min-height: 64px;
+    }
+    .menu { display: none; }
+    .ident { min-width: 0; flex: 1; }
+    .ident .nm { font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 8px; }
+    .ident .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; align-items: center; }
+    .tag { font-size: 11px; color: var(--dim); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; white-space: nowrap; }
+    .tag.k { color: var(--fg); border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 14%, transparent); }
+    .tag.ref { font-family: var(--mono); cursor: copy; max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
+    .top .acts { display: flex; gap: 6px; align-items: center; }
+
+    .lineup { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 20px 0; }
+    .lineup:empty { display: none; }
+    .lchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; border: 1px solid var(--line2); background: var(--panel); border-radius: 999px; padding: 2px 4px 2px 10px; }
+    .lchip .ib { width: 18px; height: 18px; font-size: 11px; }
+
+    .work { flex: 1; overflow-y: auto; min-height: 0; }
+    .inner { max-width: 920px; margin: 0 auto; padding: 22px 22px 30px; }
+    .inner.wide { max-width: 1400px; }
+
+    /* hero / empty */
+    .hero { text-align: center; padding: 7vh 10px 20px; }
+    .hero h2 { font-size: 30px; margin: 0 0 6px; letter-spacing: -.01em;
+      background: linear-gradient(90deg, #fff, #c9c2ff 50%, var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero p { color: var(--dim); margin: 0 auto; max-width: 560px; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 26px; text-align: left; }
+    .tile {
+      border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 13px 14px; cursor: pointer; position: relative; overflow: hidden;
+    }
+    .tile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c); }
+    .tile:hover { border-color: var(--line2); transform: translateY(-1px); }
+    .tile .v { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .tile .l { font-size: 12px; color: var(--dim); text-transform: capitalize; }
+    .tile .s { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .starters { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 22px; }
+
+    /* chat */
+    .turn { margin-bottom: 22px; }
+    .ubub {
+      margin-left: auto; max-width: 80%; width: fit-content; background: var(--panel2); border: 1px solid var(--line2);
+      border-radius: 14px 14px 4px 14px; padding: 9px 13px; white-space: pre-wrap; word-wrap: break-word; margin-bottom: 10px;
+    }
+    .replies { display: grid; gap: 10px; }
+    .reply { min-width: 0; }
+    .reply.card { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 10px 13px; }
+    .rhead { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
+    .rhead .who { color: var(--dim); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rhead .sp { flex: 1; }
+    .md { word-wrap: break-word; line-height: 1.6; }
+    .md p { margin: 0 0 10px; white-space: pre-wrap; }
+    .md p:last-child { margin-bottom: 0; }
+    .md code { font-family: var(--mono); font-size: 12.5px; background: var(--panel2); border: 1px solid var(--line); padding: 0 4px; border-radius: 4px; }
+    .md pre { position: relative; background: #0b0d12; border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; overflow-x: auto; margin: 8px 0 12px; }
+    .md pre code { background: none; border: 0; padding: 0; font-size: 12.5px; white-space: pre; }
+    .md pre .lang { position: absolute; top: 4px; right: 8px; font-size: 10.5px; color: var(--muted); font-family: var(--mono); }
+    .md pre .cp { position: absolute; bottom: 6px; right: 6px; opacity: 0; }
+    .md pre:hover .cp { opacity: 1; }
+    .md h3, .md h4 { margin: 12px 0 6px; font-size: 15px; }
+    .err { color: var(--bad); }
+    .caret::after { content: ""; display: inline-block; width: 7px; height: 15px; background: var(--accent); vertical-align: -2px; margin-left: 2px; animation: blink 1s steps(2) infinite; border-radius: 1px; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .composer { padding: 10px 20px 16px; }
+    .cbox {
+      max-width: 920px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line2); border-radius: 14px; padding: 10px 10px 8px 14px;
+      box-shadow: 0 10px 40px rgba(0,0,0,.35);
+    }
+    .cbox:focus-within { border-color: var(--accent); }
+    .cbox textarea { width: 100%; border: 0; background: transparent; resize: none; outline: none; min-height: 24px; max-height: 240px; line-height: 1.5; }
+    .cbar { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+    .cbar .sp { flex: 1; }
+    details.settings { max-width: 920px; margin: 0 auto 8px; font-size: 12.5px; color: var(--dim); }
+    details.settings summary { cursor: pointer; list-style: none; color: var(--muted); font-size: 12px; width: fit-content; }
+    details.settings summary::-webkit-details-marker { display: none; }
+    .sgrid { display: grid; grid-template-columns: 1fr 160px 160px; gap: 10px; margin-top: 8px; align-items: start; }
+    .sgrid label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; letter-spacing: .04em; }
+    .sgrid textarea { resize: vertical; min-height: 34px; }
+
+    /* forms for other kinds */
+    .card { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+    .card h3 { margin: 0 0 10px; font-size: 13px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; font-weight: 700; }
+    .frow { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+    .frow label { font-size: 12px; color: var(--muted); }
+    .frow select, .frow input:not([type=file]) { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+    textarea.field { resize: vertical; min-height: 90px; line-height: 1.5; }
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+    .gimg { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); }
+    .gimg img { width: 100%; display: block; aspect-ratio: 1; object-fit: cover; background: #0b0d12; }
+    .gimg .cap { padding: 7px 10px; font-size: 11.5px; color: var(--dim); display: flex; gap: 6px; align-items: center; }
+    .gimg .cap span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .shimmer { background: linear-gradient(90deg, var(--panel) 0%, var(--panel2) 50%, var(--panel) 100%); background-size: 200% 100%; animation: sh 1.2s linear infinite; }
+    @keyframes sh { to { background-position: -200% 0; } }
+
+    table.heat { border-collapse: separate; border-spacing: 2px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+    table.heat td, table.heat th { padding: 6px 8px; text-align: center; border-radius: 4px; }
+    table.heat th { color: var(--muted); font-weight: 500; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    table.heat th.rh { text-align: right; }
+    .vec { display: flex; align-items: flex-end; gap: 1px; height: 34px; }
+    .vec i { flex: 1; background: var(--k-embedding); border-radius: 2px 2px 0 0; min-height: 1px; opacity: .85; }
+    .vec i.neg { background: var(--muted); }
+    .rank { display: grid; grid-template-columns: 30px 1fr 140px; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+    .rank .sbar { height: 6px; border-radius: 4px; background: var(--line); overflow: hidden; }
+    .rank .sbar i { display: block; height: 100%; background: var(--k-rerank); border-radius: 4px; }
+    .audio { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--dim); }
+    .audio audio { height: 34px; flex: none; }
+    pre.snippet { background: #0b0d12; border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; overflow-x: auto; font: 12px/1.55 var(--mono); color: var(--dim); margin: 0; white-space: pre; }
+
+    .lockcard { max-width: 520px; margin: 9vh auto 0; text-align: center; }
+    .lockcard .card { text-align: left; }
+
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(20px); opacity: 0; transition: .2s;
+      background: var(--panel2); border: 1px solid var(--line2); padding: 8px 14px; border-radius: 10px; font-size: 13px; pointer-events: none; z-index: 50;
+    }
+    .toast.on { opacity: 1; transform: translateX(-50%); }
+    .scrim { display: none; }
+
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; }
+      aside { position: fixed; inset: 0 auto 0 0; width: min(340px, 88vw); z-index: 40; transform: translateX(-100%); transition: transform .2s; }
+      aside.open { transform: none; box-shadow: 20px 0 60px rgba(0,0,0,.6); }
+      .scrim.on { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 30; }
+      .menu, .brand .x { display: inline-grid; }
+      .top { padding: 10px 12px; }
+      .sgrid { grid-template-columns: 1fr 1fr; }
+      .sgrid > :first-child { grid-column: 1 / -1; }
+      .tag.ref { max-width: 200px; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <span class="title">MODEL GATEWAY</span>
-    <span class="lozenge">BYOK — keys stay in your browser</span>
-
-    <div class="row">
-      <label>PROVIDER</label>
-      <select id="provider"></select>
-    </div>
-
-    <div class="row">
-      <label>MODEL</label>
-      <select id="model" style="min-width: 220px;"></select>
-      <button id="reload-models" title="Reload model list">↻</button>
-    </div>
-
-    <div class="row">
-      <label>KEY</label>
-      <span id="key-state" class="key-state no">NO KEY</span>
-      <button id="set-key">SET</button>
-      <button id="clear-key">CLEAR</button>
-    </div>
-
-    <div class="row" style="margin-left: auto;">
-      <button id="clear-chat">NEW CHAT</button>
-    </div>
-  </header>
-
-  <main id="chat"></main>
-
-  <footer>
-    <textarea id="input" placeholder="Type a message — Cmd/Ctrl+Enter to send"></textarea>
-    <button id="send" class="primary">SEND</button>
-  </footer>
-
-  <dialog id="key-dialog">
-    <form id="key-form" class="form" method="dialog">
-      <strong id="key-dialog-title">Set API key</strong>
-      <span class="key-hint" id="key-dialog-hint"></span>
-      <label>API key (stored only in this browser's localStorage)</label>
-      <input id="key-input" type="password" autocomplete="off" />
-      <div class="row" style="justify-content: flex-end;">
-        <button type="button" id="key-cancel">CANCEL</button>
-        <button type="submit" class="primary">SAVE</button>
+<div class="app">
+  <aside id="side">
+    <div class="brand">
+      <div class="logo"></div>
+      <div>
+        <h1>model</h1>
+        <div class="sub" id="brand-sub">loading catalog…</div>
       </div>
-    </form>
-  </dialog>
+      <button class="ib x" id="side-close" title="Close">✕</button>
+    </div>
 
-  <script>
-    const $ = (id) => document.getElementById(id);
-    // Behind the fleet gateway the app lives at /model but the API at /api/model
-    const API = location.pathname.startsWith('/model') ? '/model/api' : '';
-    const KEY_PREFIX = 'modelgw_key_';
-    const SEL_KEY = 'modelgw_last_provider';
-    const MODEL_KEY = 'modelgw_last_model_';
+    <div class="tabs">
+      <button data-tab="models" class="on">MODELS<span class="n" id="tab-n-models"></span></button>
+      <button data-tab="providers">PROVIDERS<span class="n" id="tab-n-providers"></span></button>
+    </div>
 
-    const state = {
-      providers: [],   // [{id,label,url,default_model,key_hint,docs}]
-      currentProvider: null,
-      models: [],
-      messages: [],    // [{role, content}]
-      streaming: false,
-    };
+    <section class="pane on" id="pane-models">
+      <div class="search">
+        <span class="ic">⌕</span>
+        <input id="q" placeholder="Search every model…" autocomplete="off" spellcheck="false" />
+        <kbd>/</kbd>
+      </div>
+      <div class="chips" id="kinds"></div>
+      <div class="filters">
+        <select id="f-provider" title="Provider"></select>
+        <select id="f-sort" title="Sort">
+          <option value="smart">Sort: favorites first</option>
+          <option value="name">Sort: name</option>
+          <option value="new">Sort: newest</option>
+          <option value="cheap">Sort: cheapest</option>
+          <option value="ctx">Sort: longest context</option>
+        </select>
+      </div>
+      <div class="filters">
+        <label class="toggle" title="Only models whose provider you have a key for"><input type="checkbox" id="f-ready" /><span class="sw"></span>Ready to run</label>
+        <label class="toggle" title="Free models only"><input type="checkbox" id="f-free" /><span class="sw"></span>Free</label>
+        <span style="flex:1"></span>
+        <button class="ib" id="reload" title="Refresh catalog">↻</button>
+      </div>
+      <div class="list" id="mlist"></div>
+    </section>
 
-    function getKey(pid) { return localStorage.getItem(KEY_PREFIX + pid) || ''; }
-    function setKey(pid, k) { if (k) localStorage.setItem(KEY_PREFIX + pid, k); }
-    function clearKey(pid) { localStorage.removeItem(KEY_PREFIX + pid); }
+    <section class="pane" id="pane-providers">
+      <div class="pv-sum"><span id="pv-sum-t"></span><div class="meter"><i id="pv-meter"></i></div></div>
+      <div class="list" id="plist"></div>
+    </section>
 
-    function refreshKeyBadge() {
-      const pid = state.currentProvider;
-      const has = !!getKey(pid);
-      $('key-state').textContent = has ? 'KEY SET' : 'NO KEY';
-      $('key-state').className = 'key-state ' + (has ? 'ok' : 'no');
+    <div class="side-foot"><span class="lockic"></span>Keys stay in this browser. Each one is sent only with requests to its own provider.</div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <main class="stage">
+    <div class="top">
+      <button class="ib menu" id="menu" title="Models">☰</button>
+      <div class="ident" id="ident"></div>
+      <div class="acts" id="top-acts"></div>
+    </div>
+    <div class="lineup" id="lineup"></div>
+    <div class="work" id="work"></div>
+    <div id="dock"></div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const h = (tag, attrs = {}, ...kids) => {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k === 'style') el.style.cssText = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'html') el.innerHTML = v;
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) el.append(c.nodeType ? c : String(c));
+  return el;
+};
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Behind the fleet gateway the app lives at /model and the API at /model/api
+const API = location.pathname.startsWith('/model') ? '/model/api' : '';
+
+const KINDS = {
+  chat:          { label: 'Chat',        verb: 'Chat with' },
+  image:         { label: 'Image',       verb: 'Generate images' },
+  video:         { label: 'Video',       verb: 'Video' },
+  embedding:     { label: 'Embedding',   verb: 'Embed text' },
+  speech:        { label: 'Speech',      verb: 'Text to speech' },
+  transcription: { label: 'Transcribe',  verb: 'Speech to text' },
+  rerank:        { label: 'Rerank',      verb: 'Rank documents' },
+  moderation:    { label: 'Moderation',  verb: 'Moderation' },
+};
+const RUNNABLE = new Set(['chat', 'image', 'embedding', 'speech', 'transcription', 'rerank']);
+const GROUPS = { router: 'ROUTERS & INFERENCE', lab: 'MODEL LABS', network: 'DECENTRALIZED NETWORKS', custom: 'YOUR ENDPOINTS' };
+const kc = (k) => `var(--k-${KINDS[k] ? k : 'moderation'})`;
+
+// ── persistence (browser only) ─────────────────────────────────────
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem('modelgw_' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('modelgw_' + k, JSON.stringify(v)); } catch {} },
+};
+// keys keep their original raw-string storage so existing users keep them
+const getKey = (pid) => localStorage.getItem('modelgw_key_' + pid) || '';
+const setKey = (pid, k) => k ? localStorage.setItem('modelgw_key_' + pid, k) : localStorage.removeItem('modelgw_key_' + pid);
+
+const S = {
+  providers: [],             // registry + custom endpoints
+  custom: LS.get('custom', {}),   // {c-id: {url, label}}
+  hidden: new Set(LS.get('hidden', [])),
+  favs: new Set(LS.get('favs', [])),
+  models: [],                // catalog rows
+  byRef: new Map(),
+  errors: {}, counts: {},
+  kind: LS.get('kind', 'all'),
+  fprov: 'all', sort: 'smart', ready: false, free: false, q: '',
+  limit: 200,
+  active: LS.get('active', null),
+  compare: LS.get('compare', []),
+  settings: LS.get('settings', { system: '', temperature: 0.7, max_tokens: 4096 }),
+  turns: LS.get('turns', []),     // [{user, replies: {ref: {content, error, ms, usage}}}]
+  streams: new Map(),            // ref -> AbortController
+  gallery: [], embeds: null, audios: [], ranks: null, transcripts: [],
+  checks: {},                    // pid -> {ok, detail, count}
+  openCard: null,
+  loading: true,
+};
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), 1800);
+}
+async function copy(text, what = 'Copied') {
+  try { await navigator.clipboard.writeText(text); toast(what); } catch { toast('Copy failed'); }
+}
+
+const cfgOf = (pid) => S.providers.find((p) => p.id === pid);
+const plabel = (pid) => cfgOf(pid)?.label || pid;
+const hasKey = (pid) => !!getKey(pid) || !!cfgOf(pid)?.custom;
+const customHeader = () => Object.keys(S.custom).length ? { 'X-Custom-Providers': JSON.stringify(S.custom) } : {};
+const runHeaders = (pid, json = true) => {
+  const k = getKey(pid);
+  return { ...(json ? { 'Content-Type': 'application/json' } : {}), ...(k ? { 'X-API-Key': k } : {}), ...customHeader() };
+};
+function parseRef(ref) {
+  const i = (ref || '').indexOf(':');
+  if (i > 0 && cfgOf(ref.slice(0, i))) return [ref.slice(0, i), ref.slice(i + 1)];
+  return [null, ref];
+}
+async function apiErr(res) {
+  const txt = await res.text();
+  try { const j = JSON.parse(txt); return `${res.status}: ${typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail || j)}`; }
+  catch { return `${res.status}: ${txt.slice(0, 300)}`; }
+}
+
+// ── formatting ─────────────────────────────────────────────────────
+const fmtN = (n) => n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(n);
+const fmtUsd = (v) => v == null ? null : v === 0 ? 'free' : v < 0.01 ? '$' + v.toFixed(4) : v < 1 ? '$' + v.toFixed(2) : '$' + (v < 10 ? v.toFixed(2) : v.toFixed(0));
+const isFree = (m) => (m.price_in === 0 && (m.price_out ?? 0) === 0 && !m.price_image) || /:free$/.test(m.id);
+function priceText(m) {
+  if (isFree(m)) return 'free';
+  if (m.price_image != null && m.kind === 'image') return fmtUsd(m.price_image) + '/img';
+  if (m.price_in != null) return fmtUsd(m.price_in) + (m.price_out ? ' / ' + fmtUsd(m.price_out) : '') + ' per 1M';
+  return null;
+}
+const shortName = (m) => {
+  let n = m.name || m.id;
+  return n.length > 64 ? n.slice(0, 62) + '…' : n;
+};
+
+// ── data ───────────────────────────────────────────────────────────
+async function loadProviders() {
+  const res = await fetch(`${API}/providers`);
+  const base = await res.json();
+  const customs = Object.entries(S.custom).map(([id, c]) => ({ id, label: c.label || id.slice(2), group: 'custom', url: c.url, docs: c.url, key_hint: 'optional', custom: true, public_models: true }));
+  S.providers = [...base, ...customs];
+}
+
+async function loadCatalog(refresh = false) {
+  S.loading = true; renderSide();
+  const keys = {};
+  for (const p of S.providers) { const k = getKey(p.id); if (k && !S.hidden.has(p.id)) keys[p.id] = k; }
+  let data = { models: [], errors: {}, counts: {} };
+  try {
+    const res = await fetch(`${API}/catalog${refresh ? '?refresh=true' : ''}`, { headers: { 'X-API-Keys': JSON.stringify(keys), ...customHeader() } });
+    if (!res.ok) throw new Error(await apiErr(res));
+    data = await res.json();
+  } catch (e) {
+    data.errors = { catalog: e.message };
+    toast('Catalog failed: ' + e.message.slice(0, 80));
+  }
+  S.models = (data.models || []).filter((m) => !S.hidden.has(m.provider));
+  S.byRef = new Map(S.models.map((m) => [m.ref, m]));
+  S.errors = data.errors || {}; S.counts = data.counts || {};
+  S.loading = false;
+  if (!S.active || !S.byRef.has(S.active)) {
+    // keep a remembered ref even if its provider is temporarily unreachable
+    if (S.active && !parseRef(S.active)[0]) S.active = null;
+  }
+  renderAll();
+}
+
+function modelOf(ref) {
+  if (!ref) return null;
+  const m = S.byRef.get(ref);
+  if (m) return m;
+  const [pid, id] = parseRef(ref);
+  if (!pid) return null;
+  return { provider: pid, id, ref, name: id, kind: guessKind(id), context_length: null, price_in: null, price_out: null, ghost: true };
+}
+function guessKind(id) {
+  const l = id.toLowerCase();
+  if (/embed/.test(l)) return 'embedding';
+  if (/rerank/.test(l)) return 'rerank';
+  if (/whisper|transcri/.test(l)) return 'transcription';
+  if (/tts|speech|voice/.test(l)) return 'speech';
+  if (/dall-e|gpt-image|flux|imagen|diffusion/.test(l)) return 'image';
+  return 'chat';
+}
+
+// ── sidebar: models ───────────────────────────────────────────────
+function filtered() {
+  const q = S.q.trim().toLowerCase();
+  const terms = q ? q.split(/\s+/) : [];
+  let rows = S.models.filter((m) => {
+    if (S.kind !== 'all' && m.kind !== S.kind) return false;
+    if (S.fprov !== 'all' && m.provider !== S.fprov) return false;
+    if (S.ready && !hasKey(m.provider)) return false;
+    if (S.free && !isFree(m)) return false;
+    if (terms.length) {
+      const hay = (m.ref + ' ' + m.name + ' ' + plabel(m.provider)).toLowerCase();
+      if (!terms.every((t) => hay.includes(t))) return false;
     }
+    return true;
+  });
+  const by = {
+    name: (a, b) => a.name.localeCompare(b.name),
+    new: (a, b) => (b.created || 0) - (a.created || 0),
+    cheap: (a, b) => (a.price_in ?? a.price_image ?? 1e9) - (b.price_in ?? b.price_image ?? 1e9),
+    ctx: (a, b) => (b.context_length || 0) - (a.context_length || 0),
+    smart: (a, b) => (hasKey(b.provider) - hasKey(a.provider)) || ((b.created || 0) - (a.created || 0)),
+  }[S.sort];
+  return rows.sort(by);
+}
 
-    function setProvider(pid) {
-      state.currentProvider = pid;
-      localStorage.setItem(SEL_KEY, pid);
-      $('provider').value = pid;
-      refreshKeyBadge();
-      loadModels();
+function mrow(m) {
+  const fav = S.favs.has(m.ref);
+  const inCmp = S.compare.includes(m.ref);
+  const ready = hasKey(m.provider);
+  const meta = [h('b', {}, plabel(m.provider))];
+  if (m.context_length) meta.push(' · ' + fmtN(m.context_length));
+  const pt = priceText(m);
+  if (pt) meta.push(' · ' + pt);
+  const activeKind = modelOf(S.active)?.kind;
+  return h('div', { class: 'mrow' + (m.ref === S.active ? ' on' : ''), style: `--c:${kc(m.kind)}`, title: `${m.ref}\n${KINDS[m.kind]?.label || m.kind}${m.description ? '\n\n' + m.description : ''}`,
+      onclick: () => select(m.ref) },
+    h('span', { class: 'bar' }),
+    h('div', { class: 't' }, h('div', { class: 'nm' }, shortName(m)), h('div', { class: 'meta' }, ...meta)),
+    h('div', { class: 'acts' },
+      !ready ? h('span', { class: 'lock', title: 'Add a ' + plabel(m.provider) + ' key to run' }, 'KEY') : null,
+      m.kind === 'chat' && activeKind === 'chat' && m.ref !== S.active
+        ? h('button', { class: 'ib hov cmp' + (inCmp ? ' on' : ''), title: inCmp ? 'Remove from compare' : 'Compare side by side', onclick: (e) => { e.stopPropagation(); toggleCompare(m.ref); } }, inCmp ? '◧' : '+')
+        : null,
+      h('button', { class: 'ib ' + (fav ? 'fav' : 'hov'), title: fav ? 'Unfavorite' : 'Favorite', onclick: (e) => { e.stopPropagation(); toggleFav(m.ref); } }, fav ? '★' : '☆'),
+    ));
+}
+
+function renderKinds() {
+  const counts = {};
+  for (const m of S.models) {
+    if (S.fprov !== 'all' && m.provider !== S.fprov) continue;
+    counts[m.kind] = (counts[m.kind] || 0) + 1;
+  }
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const root = $('kinds'); root.innerHTML = '';
+  const chip = (k, label, n, c) => h('button', { class: 'chip' + (S.kind === k ? ' on' : ''), style: c ? `--c:${c}` : '', onclick: () => setKind(k) },
+    c ? h('span', { class: 'd' }) : null, label, h('span', { class: 'n' }, n));
+  root.append(chip('all', 'All', total));
+  for (const k of Object.keys(KINDS)) if (counts[k]) root.append(chip(k, KINDS[k].label, counts[k], kc(k)));
+}
+
+function renderProvFilter() {
+  const sel = $('f-provider'); const cur = S.fprov; sel.innerHTML = '';
+  sel.append(h('option', { value: 'all' }, 'All providers'));
+  for (const p of S.providers) {
+    if (S.hidden.has(p.id) || !S.counts[p.id]) continue;
+    sel.append(h('option', { value: p.id }, `${p.label} (${S.counts[p.id]})`));
+  }
+  sel.value = [...sel.options].some((o) => o.value === cur) ? cur : 'all';
+  S.fprov = sel.value;
+}
+
+function renderModelList() {
+  const root = $('mlist'); root.innerHTML = '';
+  if (S.loading && !S.models.length) {
+    for (let i = 0; i < 10; i++) root.append(h('div', { class: 'mrow shimmer', style: 'height:42px;margin:4px 0' }));
+    return;
+  }
+  const rows = filtered();
+  const searching = S.q.trim() || S.fprov !== 'all';
+  const favs = rows.filter((m) => S.favs.has(m.ref));
+  if (favs.length && S.sort === 'smart' && !searching) {
+    root.append(h('div', { class: 'sect' }, h('span', {}, 'FAVORITES'), h('span', {}, favs.length)));
+    favs.forEach((m) => root.append(mrow(m)));
+  }
+  const rest = S.sort === 'smart' && !searching ? rows.filter((m) => !S.favs.has(m.ref)) : rows;
+  const unkeyed = S.providers.filter((p) => !p.public_models && !getKey(p.id) && !S.hidden.has(p.id));
+  root.append(h('div', { class: 'sect' }, h('span', {}, S.kind === 'all' ? 'ALL MODELS' : KINDS[S.kind].label.toUpperCase()), h('span', {}, rows.length)));
+  if (unkeyed.length && !searching) {
+    root.append(h('button', { class: 'hint', onclick: () => setTab('providers') },
+      `+ ${unkeyed.length} more providers (${unkeyed.slice(0, 3).map((p) => p.label).join(', ')}…) — add a key to merge their models in`));
+  }
+  if (!rows.length) root.append(h('div', { class: 'hint', style: 'cursor:default' }, 'Nothing matches. Clear a filter, or add a provider key.'));
+  rest.slice(0, S.limit).forEach((m) => root.append(mrow(m)));
+  if (rest.length > S.limit) root.append(h('button', { class: 'btn sm ghost more', onclick: () => { S.limit += 400; renderModelList(); } }, `Show ${Math.min(400, rest.length - S.limit)} more of ${rest.length - S.limit}`));
+}
+
+// ── sidebar: providers ────────────────────────────────────────────
+function pstatus(p) {
+  if (S.hidden.has(p.id)) return { cls: '', text: 'hidden' };
+  if (S.errors[p.id]) return { cls: 'err', text: 'error — open to see' };
+  const n = S.counts[p.id];
+  if (getKey(p.id)) return { cls: 'ok', text: n ? `${n} models · key set` : 'key set' };
+  if (p.custom) return { cls: 'ok', text: n ? `${n} models` : 'no models yet' };
+  if (p.public_models) return { cls: 'pub', text: n ? `${n} models · browse free, key to run` : 'public catalog' };
+  return { cls: '', text: 'add key to load models' };
+}
+
+function pcard(p) {
+  const st = pstatus(p);
+  const open = S.openCard === p.id;
+  const keyIn = h('input', { class: 'field mono', type: 'password', placeholder: p.custom ? 'API key (optional)' : (p.key_hint || 'API key'), value: getKey(p.id), autocomplete: 'off', spellcheck: 'false' });
+  const note = S.checks[p.id];
+  const save = async () => {
+    const k = keyIn.value.trim();
+    setKey(p.id, k);
+    S.checks[p.id] = null;
+    toast(k ? `${p.label} key saved` : `${p.label} key removed`);
+    if (k) await testKey(p.id);
+    await loadCatalog();
+  };
+  keyIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+  return h('div', { class: 'pcard' + (open ? ' open' : '') + (S.hidden.has(p.id) ? ' off' : '') },
+    h('div', { class: 'phead', onclick: () => { S.openCard = open ? null : p.id; renderProviders(); if (!open) setTimeout(() => keyIn.focus(), 0); } },
+      h('span', { class: 'dot ' + st.cls }),
+      h('div', { class: 'grow' }, h('div', { class: 'pl' }, p.label), h('div', { class: 'ps' }, st.text)),
+      h('span', { class: 'ib' }, open ? '▴' : '▾')),
+    h('div', { class: 'pbody' },
+      h('div', { class: 'row' }, keyIn, h('button', { class: 'btn pri', onclick: save }, 'Save')),
+      h('div', { class: 'row' },
+        getKey(p.id) || p.custom ? h('button', { class: 'btn sm', onclick: () => testKey(p.id) }, 'Test') : null,
+        getKey(p.id) ? h('button', { class: 'btn sm danger', onclick: async () => { setKey(p.id, ''); keyIn.value = ''; S.checks[p.id] = null; toast('Key removed'); await loadCatalog(); } }, 'Remove key') : null,
+        h('label', { class: 'toggle', style: 'margin-left:auto', title: 'Show this provider’s models in the catalog' },
+          h('input', { type: 'checkbox', checked: !S.hidden.has(p.id), onchange: (e) => setHidden(p.id, !e.target.checked) }), h('span', { class: 'sw' }), 'Show')),
+      note ? h('div', { class: 'note ' + (note.ok ? 'ok' : 'err') }, note.ok ? `Key works — ${note.count} models (${note.ms} ms)` : note.detail) : null,
+      S.errors[p.id] ? h('div', { class: 'note err' }, S.errors[p.id]) : null,
+      h('div', { class: 'note' }, h('span', { class: 'mono' }, p.url), ' · ',
+        p.custom ? h('a', { href: '#', onclick: (e) => { e.preventDefault(); removeCustom(p.id); } }, 'remove endpoint')
+                 : h('a', { href: p.docs, target: '_blank', rel: 'noopener' }, 'get a key ↗'))));
+}
+
+function customForm() {
+  const label = h('input', { class: 'field', placeholder: 'Name, e.g. My vLLM' });
+  const url = h('input', { class: 'field mono', placeholder: 'https://host/v1' });
+  const key = h('input', { class: 'field mono', type: 'password', placeholder: 'API key (optional)' });
+  const add = async () => {
+    const u = url.value.trim().replace(/\/+$/, '');
+    if (!/^https:\/\/[^/\s]+/.test(u)) { toast('Use an https:// base URL (OpenAI-compatible)'); return; }
+    const base = (label.value.trim() || new URL(u).hostname.split('.').slice(-2, -1)[0] || 'custom').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+/, '').slice(0, 24) || 'custom';
+    let id = 'c-' + base, i = 2;
+    while (S.custom[id] || cfgOf(id)) id = `c-${base}-${i++}`;
+    S.custom[id] = { url: u, label: label.value.trim() || base };
+    LS.set('custom', S.custom);
+    if (key.value.trim()) setKey(id, key.value.trim());
+    await loadProviders();
+    S.openCard = id;
+    await testKey(id);
+    await loadCatalog();
+  };
+  return h('div', { class: 'pcard open' },
+    h('div', { class: 'phead', style: 'cursor:default' }, h('span', { class: 'dot', style: 'background:var(--accent)' }),
+      h('div', { class: 'grow' }, h('div', { class: 'pl' }, 'Add any endpoint'), h('div', { class: 'ps' }, 'Any OpenAI-compatible API: vLLM, LiteLLM, Ollama behind https, …'))),
+    h('div', { class: 'pbody' },
+      h('div', { class: 'row' }, label), h('div', { class: 'row' }, url),
+      h('div', { class: 'row' }, key, h('button', { class: 'btn pri', onclick: add }, 'Add')),
+      h('div', { class: 'note' }, 'This server fetches it for you, so the host must be public (not localhost or a LAN address).')));
+}
+
+function renderProviders() {
+  const root = $('plist'); root.innerHTML = '';
+  const live = S.providers.filter((p) => !S.hidden.has(p.id) && (getKey(p.id) || p.custom || p.public_models));
+  $('pv-sum-t').textContent = `${S.providers.filter((p) => getKey(p.id) || p.custom).length} of ${S.providers.length} connected`;
+  $('pv-meter').style.width = (100 * S.providers.filter((p) => getKey(p.id) || p.custom).length / Math.max(1, S.providers.length)) + '%';
+  for (const g of Object.keys(GROUPS)) {
+    const ps = S.providers.filter((p) => (p.group || 'router') === g);
+    if (!ps.length) continue;
+    root.append(h('div', { class: 'sect' }, h('span', {}, GROUPS[g]), h('span', {}, ps.filter((p) => getKey(p.id) || p.custom).length + '/' + ps.length)));
+    ps.forEach((p) => root.append(pcard(p)));
+  }
+  root.append(h('div', { class: 'sect' }, h('span', {}, 'CUSTOM'), h('span', {})));
+  root.append(customForm());
+  $('tab-n-providers').textContent = live.length;
+}
+
+async function testKey(pid) {
+  try {
+    const res = await fetch(`${API}/check?provider=${encodeURIComponent(pid)}`, { headers: runHeaders(pid, false) });
+    S.checks[pid] = res.ok ? await res.json() : { ok: false, detail: await apiErr(res) };
+  } catch (e) { S.checks[pid] = { ok: false, detail: e.message }; }
+  renderProviders();
+  return S.checks[pid];
+}
+
+function setHidden(pid, hide) {
+  hide ? S.hidden.add(pid) : S.hidden.delete(pid);
+  LS.set('hidden', [...S.hidden]);
+  loadCatalog();
+}
+function removeCustom(pid) {
+  delete S.custom[pid]; LS.set('custom', S.custom); setKey(pid, '');
+  S.providers = S.providers.filter((p) => p.id !== pid);
+  toast('Endpoint removed'); loadCatalog();
+}
+
+function renderSide() {
+  const total = S.models.length;
+  const nprov = Object.keys(S.counts).length;
+  $('brand-sub').textContent = S.loading ? 'loading catalog…' : `${total.toLocaleString()} models · ${nprov} providers · ${new Set(S.models.map((m) => m.kind)).size} types`;
+  $('tab-n-models').textContent = total ? fmtN(total) : '';
+  renderKinds(); renderProvFilter(); renderModelList(); renderProviders();
+}
+
+// ── actions ───────────────────────────────────────────────────────
+function setTab(t) {
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
+  document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.id === 'pane-' + t));
+  openSide(true);
+}
+function setKind(k) { S.kind = k; S.limit = 200; LS.set('kind', k); renderKinds(); renderModelList(); }
+function toggleFav(ref) {
+  S.favs.has(ref) ? S.favs.delete(ref) : S.favs.add(ref);
+  LS.set('favs', [...S.favs]); renderModelList(); renderTop();
+}
+function toggleCompare(ref) {
+  const i = S.compare.indexOf(ref);
+  if (i >= 0) S.compare.splice(i, 1);
+  else if (S.compare.length >= 3) { toast('Compare up to 4 models at once'); return; }
+  else S.compare.push(ref);
+  LS.set('compare', S.compare); renderModelList(); renderTop(); renderWork();
+}
+function select(ref) {
+  S.active = ref; LS.set('active', ref);
+  S.compare = S.compare.filter((r) => r !== ref);
+  if (modelOf(ref)?.kind !== 'chat') S.compare = [];
+  LS.set('compare', S.compare);
+  openSide(false);
+  renderModelList(); renderMain();
+}
+function openSide(on) {
+  if (window.innerWidth > 860) return;
+  $('side').classList.toggle('open', on); $('scrim').classList.toggle('on', on);
+}
+
+// ── main: header ──────────────────────────────────────────────────
+function lineup() { return S.active ? [S.active, ...S.compare.filter((r) => r !== S.active)] : []; }
+
+function renderTop() {
+  const ident = $('ident'); const acts = $('top-acts'); ident.innerHTML = ''; acts.innerHTML = '';
+  const m = modelOf(S.active);
+  if (!m) {
+    ident.append(h('div', { class: 'nm' }, 'Every model, one place'), h('div', { class: 'tags' }, h('span', { class: 'tag' }, 'pick a model from the sidebar')));
+    $('lineup').innerHTML = '';
+    return;
+  }
+  const tags = [
+    h('span', { class: 'tag k', style: `--c:${kc(m.kind)}` }, KINDS[m.kind]?.label || m.kind),
+    h('span', { class: 'tag' }, plabel(m.provider)),
+    m.context_length ? h('span', { class: 'tag' }, fmtN(m.context_length) + ' ctx') : null,
+    priceText(m) ? h('span', { class: 'tag' }, priceText(m)) : null,
+    m.vision ? h('span', { class: 'tag' }, 'vision') : null,
+    h('span', { class: 'tag ref', title: 'Copy ref', onclick: () => copy(m.ref, 'Ref copied') }, m.ref),
+  ];
+  ident.append(h('div', { class: 'nm' }, m.name), h('div', { class: 'tags' }, ...tags));
+  const fav = S.favs.has(m.ref);
+  acts.append(
+    h('button', { class: 'ib' + (fav ? ' fav' : ''), title: fav ? 'Unfavorite' : 'Favorite', onclick: () => toggleFav(m.ref) }, fav ? '★' : '☆'),
+    h('button', { class: 'btn sm ghost', title: 'Show how to call this model', onclick: () => { S.showApi = !S.showApi; renderWork(); } }, S.showApi ? 'Close API' : '</> API'),
+    m.kind === 'chat' ? h('button', { class: 'btn sm', title: 'New chat', onclick: newChat }, 'New chat') : '',
+  );
+  const lu = $('lineup'); lu.innerHTML = '';
+  if (m.kind === 'chat' && S.compare.length) {
+    for (const r of lineup()) {
+      const x = modelOf(r);
+      lu.append(h('span', { class: 'lchip' }, h('span', { class: 'mono', style: 'font-size:11.5px' }, x ? x.name : r),
+        r === S.active ? h('span', { class: 'tag', style: 'margin-right:4px' }, 'main') : h('button', { class: 'ib', title: 'Remove', onclick: () => toggleCompare(r) }, '✕')));
     }
+  }
+}
 
-    async function loadProviders() {
-      const res = await fetch(`${API}/providers`);
-      state.providers = await res.json();
-      const sel = $('provider');
-      sel.innerHTML = '';
-      for (const p of state.providers) {
-        const opt = document.createElement('option');
-        opt.value = p.id; opt.textContent = p.label;
-        sel.appendChild(opt);
-      }
-      const last = localStorage.getItem(SEL_KEY);
-      const initial = last && state.providers.find(p => p.id === last)
-        ? last : state.providers[0]?.id;
-      if (initial) setProvider(initial);
-    }
+// ── main: workspaces ──────────────────────────────────────────────
+function renderMain() { renderTop(); renderWork(); }
 
-    async function loadModels() {
-      const pid = state.currentProvider;
-      const sel = $('model');
-      sel.innerHTML = '<option>loading…</option>';
-      const key = getKey(pid);
-      const cfg = state.providers.find(p => p.id === pid);
-      if (!key) {
-        // No key: just show the default
-        sel.innerHTML = '';
-        const opt = document.createElement('option');
-        opt.value = cfg.default_model;
-        opt.textContent = cfg.default_model + ' (set key to load full list)';
-        sel.appendChild(opt);
-        return;
-      }
-      try {
-        const res = await fetch(`${API}/models?provider=${encodeURIComponent(pid)}`, {
-          headers: { 'X-API-Key': key },
-        });
-        if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(`models: ${res.status} ${txt.slice(0, 200)}`);
-        }
-        const data = await res.json();
-        state.models = data.models || [];
-        sel.innerHTML = '';
-        const seen = new Set();
-        for (const m of state.models) {
-          if (seen.has(m.id)) continue;
-          seen.add(m.id);
-          const opt = document.createElement('option');
-          opt.value = m.id; opt.textContent = m.id;
-          sel.appendChild(opt);
-        }
-        const lastModel = localStorage.getItem(MODEL_KEY + pid);
-        if (lastModel && seen.has(lastModel)) {
-          sel.value = lastModel;
-        } else if (seen.has(cfg.default_model)) {
-          sel.value = cfg.default_model;
-        }
-      } catch (e) {
-        sel.innerHTML = '';
-        const opt = document.createElement('option');
-        opt.value = cfg.default_model;
-        opt.textContent = cfg.default_model + ' (model list failed: ' + e.message + ')';
-        sel.appendChild(opt);
-      }
-    }
+function renderWork() {
+  const work = $('work'); const dock = $('dock'); work.innerHTML = ''; dock.innerHTML = '';
+  const m = modelOf(S.active);
+  if (!m) return renderHero(work);
+  const inner = h('div', { class: 'inner' + (m.kind === 'chat' && S.compare.length ? ' wide' : '') });
+  work.append(inner);
+  if (S.showApi) inner.append(apiCard(m));
+  if (!hasKey(m.provider)) return renderLocked(inner, m);
+  ({ chat: renderChat, image: renderImage, embedding: renderEmbed, speech: renderSpeech, transcription: renderTranscribe, rerank: renderRerank }[m.kind] || renderCatalogOnly)(inner, m, dock);
+}
 
-    function renderMessages() {
-      const root = $('chat');
-      root.innerHTML = '';
-      if (state.messages.length === 0) {
-        const e = document.createElement('div');
-        e.className = 'empty';
-        e.textContent = 'Pick a provider, set your key, and start chatting. Keys never leave your browser except in the request that uses them.';
-        root.appendChild(e);
-        return;
-      }
-      for (const m of state.messages) {
-        const el = document.createElement('div');
-        el.className = 'msg ' + (m.error ? 'error' : m.role);
-        const who = document.createElement('div');
-        who.className = 'who';
-        who.textContent = (m.role || 'sys').toUpperCase();
-        const body = document.createElement('div');
-        body.textContent = m.content;
-        body.id = m.id || '';
-        el.appendChild(who); el.appendChild(body);
-        root.appendChild(el);
-      }
-      root.scrollTop = root.scrollHeight;
-    }
+function renderHero(work) {
+  const inner = h('div', { class: 'inner' });
+  const counts = {};
+  for (const m of S.models) counts[m.kind] = (counts[m.kind] || 0) + 1;
+  const prov = (k) => new Set(S.models.filter((m) => m.kind === k).map((m) => m.provider)).size;
+  inner.append(h('div', { class: 'hero' },
+    h('h2', {}, 'Every model, one place'),
+    h('p', {}, 'Chat, image, video, speech, transcription, embedding and rerank models from every provider, in one catalog. Bring your own keys; they never leave this browser except to reach their own provider.'),
+    h('div', { class: 'tiles' }, ...Object.keys(KINDS).filter((k) => counts[k]).map((k) =>
+      h('div', { class: 'tile', style: `--c:${kc(k)}`, onclick: () => { setKind(k); setTab('models'); } },
+        h('div', { class: 'v' }, counts[k].toLocaleString()), h('div', { class: 'l' }, KINDS[k].label),
+        h('div', { class: 's' }, `${prov(k)} provider${prov(k) === 1 ? '' : 's'}${RUNNABLE.has(k) ? '' : ' · browse only'}`)))),
+    h('div', { class: 'starters' },
+      h('button', { class: 'btn', onclick: () => setTab('providers') }, 'Connect providers'),
+      h('button', { class: 'btn ghost', onclick: () => { setKind('all'); $('q').focus(); openSide(true); } }, 'Search models  /'))));
+  work.append(inner);
+}
 
-    async function send() {
-      if (state.streaming) return;
-      const text = $('input').value.trim();
-      if (!text) return;
-      const pid = state.currentProvider;
-      const key = getKey(pid);
-      if (!key) {
-        openKeyDialog();
-        return;
-      }
-      const model = $('model').value;
-      localStorage.setItem(MODEL_KEY + pid, model);
+function renderLocked(inner, m) {
+  const p = cfgOf(m.provider) || { id: m.provider, label: m.provider, key_hint: 'API key' };
+  const keyIn = h('input', { class: 'field mono', type: 'password', placeholder: p.key_hint || 'API key', autocomplete: 'off' });
+  const save = async () => {
+    const k = keyIn.value.trim(); if (!k) return;
+    setKey(p.id, k); toast(`${p.label} key saved`);
+    const r = await testKey(p.id);
+    if (r && !r.ok) toast('Saved, but the key test failed: ' + r.detail.slice(0, 60));
+    await loadCatalog(); renderMain();
+  };
+  keyIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+  inner.append(h('div', { class: 'lockcard' },
+    h('div', { class: 'card' },
+      h('h3', {}, `Connect ${p.label}`),
+      h('div', { style: 'color:var(--dim);font-size:13.5px;margin-bottom:10px' }, `To run ${m.name}, add your ${p.label} API key. It’s stored only in this browser.`),
+      h('div', { class: 'frow' }, keyIn, h('button', { class: 'btn pri', onclick: save }, 'Save key')),
+      p.docs ? h('div', { style: 'margin-top:10px;font-size:12.5px' }, h('a', { href: p.docs, target: '_blank', rel: 'noopener' }, `Get a ${p.label} key ↗`)) : null),
+    m.provider !== 'openrouter' && S.models.some((x) => x.provider === 'openrouter' && x.id.endsWith(m.id.split('/').pop()))
+      ? h('div', { style: 'font-size:12.5px;color:var(--muted)' }, 'Tip: the same model may be on OpenRouter, so one key covers hundreds of models.') : null));
+  setTimeout(() => keyIn.focus(), 0);
+}
 
-      state.messages.push({ role: 'user', content: text });
-      const asstId = 'asst-' + Date.now();
-      const asst = { role: 'assistant', content: '', id: asstId };
-      state.messages.push(asst);
-      renderMessages();
-      $('input').value = '';
-      state.streaming = true; $('send').disabled = true;
+function apiCard(m) {
+  const base = location.origin + API;
+  const hdr = `-H "X-API-Key: $${(m.provider + '_key').toUpperCase().replace(/[^A-Z0-9_]/g, '_')}"`;
+  const body = {
+    chat: [`/chat`, { model: m.ref, messages: [{ role: 'user', content: 'hello' }], stream: false }],
+    image: [`/images`, { model: m.ref, prompt: 'a lighthouse at dusk' }],
+    embedding: [`/embeddings`, { model: m.ref, input: ['hello', 'world'] }],
+    speech: [`/speech`, { model: m.ref, input: 'hello', voice: 'alloy' }],
+    rerank: [`/rerank`, { model: m.ref, query: 'fruit', documents: ['apple', 'car'] }],
+  }[m.kind];
+  let snip;
+  if (m.kind === 'transcription') snip = `curl ${base}/transcribe ${hdr} \\\n  -F model=${m.ref} -F file=@audio.mp3`;
+  else if (body) snip = `curl ${base}${body[0]} ${hdr} \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(body[1])}'` + (m.kind === 'speech' ? ' -o out.mp3' : '');
+  else snip = `# ${KINDS[m.kind]?.label || m.kind} models are listed here but not run by this gateway yet.\n# Call the provider directly:\n# ${cfgOf(m.provider)?.url || ''}  model="${m.id}"`;
+  const py = `import mod as m\nm.mod('model')().forward('hello', model='${m.ref}')`;
+  return h('div', { class: 'card' },
+    h('h3', {}, 'Call it from anywhere'),
+    h('pre', { class: 'snippet' }, snip),
+    m.kind === 'chat' ? h('pre', { class: 'snippet', style: 'margin-top:8px' }, py) : null,
+    h('div', { class: 'frow' }, h('button', { class: 'btn sm', onclick: () => copy(snip, 'Snippet copied') }, 'Copy curl'), h('span', { style: 'font-size:12px;color:var(--muted)' }, 'Every model is addressed as provider:model.')));
+}
 
-      try {
-        const res = await fetch(API + '/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
-          body: JSON.stringify({
-            provider: pid,
-            model,
-            messages: state.messages
-              .filter(m => !m.error && (m.role === 'user' || m.role === 'assistant') && m !== asst)
-              .map(m => ({ role: m.role, content: m.content })),
-            stream: true,
-          }),
-        });
+function renderCatalogOnly(inner, m) {
+  const p = cfgOf(m.provider);
+  inner.append(h('div', { class: 'card' },
+    h('h3', {}, `${KINDS[m.kind]?.label || m.kind} model`),
+    m.description ? h('p', { style: 'color:var(--dim);margin:0 0 10px' }, m.description) : null,
+    h('div', { style: 'color:var(--muted);font-size:13px' }, `${KINDS[m.kind]?.label || 'These'} models are in the catalog so you can find and compare them, but this gateway does not run them yet. Use the provider directly:`),
+    h('div', { class: 'frow' }, h('span', { class: 'tag ref', onclick: () => copy(m.id, 'Model id copied') }, m.id), p?.docs ? h('a', { href: p.docs, target: '_blank', rel: 'noopener' }, `${p.label} ↗`) : null)));
+}
 
-        if (!res.ok || !res.body) {
-          const txt = await res.text();
-          throw new Error(`${res.status}: ${txt.slice(0, 400)}`);
-        }
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          let idx;
-          while ((idx = buf.indexOf('\n\n')) >= 0) {
-            const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
-            if (!frame.startsWith('data:')) continue;
-            const payload = frame.slice(5).trim();
-            if (!payload) continue;
-            try {
-              const obj = JSON.parse(payload);
-              if (obj.delta) {
-                asst.content += obj.delta;
-                const node = document.getElementById(asstId);
-                if (node) node.textContent = asst.content;
-              } else if (obj.error) {
-                asst.error = true;
-                asst.content += '\n[stream error] ' + obj.error;
-                const node = document.getElementById(asstId);
-                if (node) {
-                  node.textContent = asst.content;
-                  node.parentElement.classList.add('error');
-                }
-              }
-            } catch (_) { /* ignore */ }
-          }
-        }
-        const root = $('chat');
-        root.scrollTop = root.scrollHeight;
-      } catch (e) {
-        asst.error = true;
-        asst.content = '[request error] ' + e.message;
-        renderMessages();
-      } finally {
-        state.streaming = false; $('send').disabled = false;
+// ── chat ──────────────────────────────────────────────────────────
+function md(src) {
+  const out = [];
+  const parts = String(src).split(/```([\w+-]*)\n?([\s\S]*?)(?:```|$)/g);
+  for (let i = 0; i < parts.length; i += 3) {
+    const text = parts[i];
+    if (text && text.trim()) {
+      for (const para of text.split(/\n{2,}/)) {
+        if (!para.trim()) continue;
+        let x = esc(para.replace(/^\n+|\n+$/g, ''));
+        const hm = x.match(/^(#{1,4})\s+(.*)$/);
+        if (hm && !x.includes('\n')) { out.push(`<h4>${hm[2]}</h4>`); continue; }
+        x = x.replace(/`([^`\n]+)`/g, '<code>$1</code>')
+             .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+             .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+             .replace(/^#{1,4}\s+(.*)$/gm, '<strong>$1</strong>');
+        out.push(`<p>${x}</p>`);
       }
     }
-
-    function openKeyDialog() {
-      const pid = state.currentProvider;
-      const cfg = state.providers.find(p => p.id === pid);
-      $('key-dialog-title').textContent = 'Set ' + cfg.label + ' API key';
-      $('key-dialog-hint').textContent = 'Format hint: ' + cfg.key_hint + '  ·  ' + cfg.docs;
-      $('key-input').value = getKey(pid) || '';
-      $('key-dialog').showModal();
-      $('key-input').focus();
+    if (i + 2 < parts.length) {
+      const lang = parts[i + 1] || '';
+      out.push(`<pre>${lang ? `<span class="lang">${esc(lang)}</span>` : ''}<code>${esc(parts[i + 2])}</code><button class="btn sm cp">Copy</button></pre>`);
     }
+  }
+  return out.join('');
+}
 
-    // ── wire up ─────────────────────────────────────────────
-    document.addEventListener('DOMContentLoaded', () => {
-      $('provider').addEventListener('change', (e) => setProvider(e.target.value));
-      $('reload-models').addEventListener('click', loadModels);
-      $('set-key').addEventListener('click', openKeyDialog);
-      $('clear-key').addEventListener('click', () => {
-        clearKey(state.currentProvider);
-        refreshKeyBadge();
-        loadModels();
-      });
-      $('clear-chat').addEventListener('click', () => {
-        if (state.streaming) return;
-        state.messages = [];
-        renderMessages();
-      });
-      $('send').addEventListener('click', send);
-      $('input').addEventListener('keydown', (e) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); }
-      });
-      $('key-form').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const k = $('key-input').value.trim();
-        if (k) {
-          setKey(state.currentProvider, k);
-          refreshKeyBadge();
-          loadModels();
-        }
-        $('key-dialog').close();
-      });
-      $('key-cancel').addEventListener('click', () => $('key-dialog').close());
+function newChat() {
+  for (const c of S.streams.values()) c.abort();
+  S.turns = []; LS.set('turns', []); renderWork();
+}
 
-      loadProviders().then(renderMessages);
+function historyFor(ref, uptoTurn) {
+  const msgs = [];
+  if (S.settings.system.trim()) msgs.push({ role: 'system', content: S.settings.system.trim() });
+  for (let i = 0; i < uptoTurn; i++) {
+    const t = S.turns[i];
+    msgs.push({ role: 'user', content: t.user });
+    const r = t.replies[ref] || t.replies[Object.keys(t.replies)[0]];
+    if (r && !r.error && r.content) msgs.push({ role: 'assistant', content: r.content });
+  }
+  msgs.push({ role: 'user', content: S.turns[uptoTurn].user });
+  return msgs;
+}
+
+function replyEl(t, ti, ref, multi) {
+  const r = t.replies[ref] || {};
+  const m = modelOf(ref);
+  const body = h('div', { class: 'md' + (r.streaming && !r.error ? ' caret' : ''), html: r.error ? `<p class="err">${esc(r.content || 'error')}</p>` : md(r.content || '') });
+  body.addEventListener('click', (e) => {
+    if (e.target.classList.contains('cp')) copy(e.target.previousElementSibling.textContent, 'Code copied');
+  });
+  const stats = [];
+  if (r.ms) stats.push((r.ms / 1000).toFixed(1) + 's');
+  if (r.usage?.completion_tokens) stats.push(r.usage.completion_tokens + ' tok');
+  return h('div', { class: 'reply' + (multi ? ' card' : ''), 'data-ref': ref, 'data-turn': ti },
+    h('div', { class: 'rhead' },
+      h('span', { class: 'who' }, m ? m.name : ref), h('span', {}, m ? plabel(m.provider) : ''), h('span', { class: 'sp' }),
+      h('span', {}, stats.join(' · ')),
+      r.content && !r.streaming ? h('button', { class: 'btn sm ghost', title: 'Copy', onclick: () => copy(r.content) }, 'Copy') : null,
+      r.streaming ? h('button', { class: 'ib', title: 'Stop', onclick: () => S.streams.get(ref + '#' + ti)?.abort() }, '■') : null,
+      !r.streaming && ti === S.turns.length - 1 ? h('button', { class: 'ib', title: 'Regenerate', onclick: () => runTurn(ti, [ref]) }, '↻') : null),
+    body);
+}
+
+function renderChat(inner, m, dock) {
+  const lu = lineup();
+  if (!S.turns.length) {
+    inner.append(h('div', { class: 'hero', style: 'padding-top:10vh' },
+      h('h2', { style: 'font-size:24px' }, m.name),
+      h('p', {}, S.compare.length ? `Comparing ${lu.length} models side by side. Every message goes to all of them.` : 'Ask anything. Add more chat models with + in the sidebar to compare answers side by side.'),
+      h('div', { class: 'starters' }, ...['Explain transformers like I’m 12', 'Write a Python CLI that renames photos by date', 'Give me 5 startup ideas around open models'].map((s) =>
+        h('button', { class: 'btn ghost', onclick: () => { $('input').value = s; send(); } }, s)))));
+  }
+  S.turns.forEach((t, ti) => {
+    const refs = Object.keys(t.replies);
+    const multi = refs.length > 1;
+    const grid = h('div', { class: 'replies', style: multi ? `grid-template-columns:repeat(${refs.length}, minmax(0,1fr))` : '' }, ...refs.map((r) => replyEl(t, ti, r, multi)));
+    inner.append(h('div', { class: 'turn' }, h('div', { class: 'ubub' }, t.user), grid));
+  });
+
+  const ta = h('textarea', { id: 'input', rows: 1, placeholder: `Message ${m.name}${S.compare.length ? ` + ${S.compare.length} more` : ''}…` });
+  const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(240, ta.scrollHeight) + 'px'; };
+  ta.addEventListener('input', grow);
+  ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+  const busy = S.streams.size > 0;
+  const st = S.settings;
+  const sys = h('textarea', { class: 'field', rows: 2, placeholder: 'You are a helpful assistant…' }, st.system);
+  const temp = h('input', { class: 'field', type: 'number', step: '0.1', min: '0', max: '2', value: st.temperature });
+  const maxt = h('input', { class: 'field', type: 'number', step: '256', min: '16', value: st.max_tokens });
+  const saveSt = () => { S.settings = { system: sys.value, temperature: parseFloat(temp.value) || 0, max_tokens: parseInt(maxt.value) || 4096 }; LS.set('settings', S.settings); };
+  [sys, temp, maxt].forEach((el) => el.addEventListener('change', saveSt));
+  dock.append(h('div', { class: 'composer' },
+    h('details', { class: 'settings', open: S.settingsOpen || null, ontoggle: (e) => { S.settingsOpen = e.target.open; } },
+      h('summary', {}, `Settings · temp ${st.temperature} · max ${st.max_tokens}${st.system.trim() ? ' · system prompt' : ''}`),
+      h('div', { class: 'sgrid' }, h('div', {}, h('label', {}, 'SYSTEM PROMPT'), sys), h('div', {}, h('label', {}, 'TEMPERATURE'), temp), h('div', {}, h('label', {}, 'MAX TOKENS'), maxt))),
+    h('div', { class: 'cbox' }, ta,
+      h('div', { class: 'cbar' },
+        h('span', {}, 'Enter to send · Shift+Enter for a new line'), h('span', { class: 'sp' }),
+        busy ? h('button', { class: 'btn sm', onclick: () => { for (const c of S.streams.values()) c.abort(); } }, 'Stop') : null,
+        h('button', { class: 'btn pri sm', id: 'send', disabled: busy || null, onclick: send }, lu.length > 1 ? `Send to ${lu.length}` : 'Send')))));
+  requestAnimationFrame(() => { $('work').scrollTop = $('work').scrollHeight; if (!busy) ta.focus(); });
+}
+
+function send() {
+  const ta = $('input'); if (!ta || S.streams.size) return;
+  const text = ta.value.trim(); if (!text) return;
+  const refs = lineup().filter((r) => hasKey(parseRef(r)[0]));
+  if (!refs.length) { renderWork(); return; }
+  S.turns.push({ user: text, replies: {} });
+  runTurn(S.turns.length - 1, refs);
+}
+
+function runTurn(ti, refs) {
+  const t = S.turns[ti];
+  for (const r of refs) t.replies[r] = { content: '', streaming: true };
+  renderWork();
+  Promise.all(refs.map((r) => streamOne(ti, r))).then(() => {
+    LS.set('turns', S.turns.slice(-40).map((x) => ({ user: x.user, replies: Object.fromEntries(Object.entries(x.replies).map(([k, v]) => [k, { content: v.content, error: v.error, ms: v.ms, usage: v.usage }])) })));
+    renderWork();
+  });
+}
+
+async function streamOne(ti, ref) {
+  const [pid] = parseRef(ref);
+  const t = S.turns[ti]; const r = t.replies[ref];
+  const ctl = new AbortController(); const sk = ref + '#' + ti;
+  S.streams.set(sk, ctl);
+  const t0 = performance.now();
+  let pending = false;
+  const paint = () => {
+    if (pending) return; pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      const el = document.querySelector(`.reply[data-ref="${CSS.escape(ref)}"][data-turn="${ti}"] .md`);
+      if (el) { el.innerHTML = r.error ? `<p class="err">${esc(r.content)}</p>` : md(r.content); const w = $('work'); if (w.scrollHeight - w.scrollTop - w.clientHeight < 200) w.scrollTop = w.scrollHeight; }
     });
-  </script>
+  };
+  try {
+    const res = await fetch(API + '/chat', {
+      method: 'POST', signal: ctl.signal, headers: runHeaders(pid),
+      body: JSON.stringify({ model: ref, messages: historyFor(ref, ti), stream: true, temperature: S.settings.temperature, max_tokens: S.settings.max_tokens }),
+    });
+    if (!res.ok || !res.body) throw new Error(await apiErr(res));
+    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!frame.startsWith('data:')) continue;
+        let o; try { o = JSON.parse(frame.slice(5).trim()); } catch { continue; }
+        if (o.delta) { r.content += o.delta; paint(); }
+        else if (o.error) { r.error = true; r.content = (r.content ? r.content + '\n\n' : '') + o.error; }
+        else if (o.done) r.usage = o.usage;
+      }
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') { r.content += r.content ? '' : '(stopped)'; }
+    else { r.error = true; r.content = e.message; }
+  } finally {
+    r.streaming = false; r.ms = Math.round(performance.now() - t0);
+    S.streams.delete(sk);
+  }
+}
+
+// ── image ─────────────────────────────────────────────────────────
+function renderImage(inner, m) {
+  const prompt = h('textarea', { class: 'field', placeholder: 'A cozy cabin in a snowy forest at blue hour, cinematic light…' }, S.lastImagePrompt || '');
+  const size = h('select', {}, ...['1024x1024', '1792x1024', '1024x1792', '512x512'].map((s) => h('option', { value: s }, s)));
+  const n = h('select', {}, ...[1, 2, 4].map((x) => h('option', { value: x }, x + (x === 1 ? ' image' : ' images'))));
+  const go = h('button', { class: 'btn pri' }, 'Generate');
+  const gal = h('div', { class: 'gallery' });
+  const paintGallery = () => {
+    gal.innerHTML = '';
+    for (const g of S.gallery) {
+      if (g.pending) { gal.append(h('div', { class: 'gimg' }, h('div', { class: 'shimmer', style: 'aspect-ratio:1' }), h('div', { class: 'cap' }, h('span', {}, 'generating with ' + g.name + '…')))); continue; }
+      if (g.error) { gal.append(h('div', { class: 'gimg' }, h('div', { class: 'cap err', style: 'padding:14px' }, g.error))); continue; }
+      gal.append(h('div', { class: 'gimg' }, h('a', { href: g.url, target: '_blank', rel: 'noopener' }, h('img', { src: g.url, alt: g.prompt, loading: 'lazy' })),
+        h('div', { class: 'cap' }, h('span', { title: g.prompt }, g.prompt), h('a', { href: g.url, download: 'image.png', title: 'Download' }, '↓'))));
+    }
+  };
+  go.onclick = async () => {
+    const p = prompt.value.trim(); if (!p) return;
+    S.lastImagePrompt = p; go.disabled = true;
+    const slot = { pending: true, name: m.name }; S.gallery.unshift(slot); paintGallery();
+    try {
+      const res = await fetch(API + '/images', { method: 'POST', headers: runHeaders(m.provider), body: JSON.stringify({ model: m.ref, prompt: p, size: size.value, n: +n.value }) });
+      if (!res.ok) throw new Error(await apiErr(res));
+      const d = await res.json();
+      S.gallery.splice(S.gallery.indexOf(slot), 1, ...d.images.map((url) => ({ url, prompt: p, ref: m.ref })));
+    } catch (e) { Object.assign(slot, { pending: false, error: e.message }); }
+    go.disabled = false; paintGallery();
+  };
+  prompt.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) go.click(); });
+  inner.append(h('div', { class: 'card' }, h('h3', {}, 'Prompt'), prompt,
+    h('div', { class: 'frow' }, h('label', {}, 'Size'), size, n, h('span', { style: 'flex:1' }), h('span', { style: 'font-size:11.5px;color:var(--muted)' }, 'Ctrl+Enter'), go)), gal);
+  paintGallery();
+}
+
+// ── embeddings ────────────────────────────────────────────────────
+function heatColor(v) {
+  // sequential, single hue: low similarity recedes into the surface, high reads as the embedding green
+  const a = Math.max(0, Math.min(1, (v - 0) / 1));
+  return `color-mix(in srgb, var(--k-embedding) ${Math.round(8 + a * 72)}%, var(--panel))`;
+}
+function renderEmbed(inner, m) {
+  const ta = h('textarea', { class: 'field', placeholder: 'One text per line — compare how close they are:\nThe cat sat on the mat\nA kitten rests on a rug\nQuarterly revenue grew 12%' }, S.embedText || '');
+  const go = h('button', { class: 'btn pri' }, 'Embed');
+  const out = h('div');
+  const paint = () => {
+    out.innerHTML = '';
+    const d = S.embeds; if (!d) return;
+    if (d.error) { out.append(h('div', { class: 'card err' }, d.error)); return; }
+    out.append(h('div', { class: 'card' }, h('h3', {}, `Vectors · ${d.dims} dimensions`),
+      ...d.input.map((t, i) => {
+        const v = d.vectors[i].slice(0, 48); const mx = Math.max(...v.map(Math.abs)) || 1;
+        return h('div', { style: 'display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)' },
+          h('div', { style: 'font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: t }, t),
+          h('div', { class: 'vec', title: 'first 48 dimensions' }, ...v.map((x) => h('i', { class: x < 0 ? 'neg' : '', style: `height:${Math.max(3, Math.abs(x) / mx * 100)}%`, title: x.toFixed(4) }))));
+      }),
+      h('div', { class: 'frow' }, h('button', { class: 'btn sm', onclick: () => copy(JSON.stringify(d.vectors), 'Vectors copied as JSON') }, 'Copy vectors'))));
+    if (d.input.length > 1) {
+      const lab = (t) => t.length > 22 ? t.slice(0, 21) + '…' : t;
+      out.append(h('div', { class: 'card', style: 'overflow-x:auto' }, h('h3', {}, 'Cosine similarity'),
+        h('table', { class: 'heat' },
+          h('tr', {}, h('th', {}), ...d.input.map((t) => h('th', { title: t }, lab(t)))),
+          ...d.similarity.map((row, i) => h('tr', {}, h('th', { class: 'rh', title: d.input[i] }, lab(d.input[i])),
+            ...row.map((v, j) => h('td', { style: `background:${heatColor(v)};color:${v > .6 ? '#06150e' : 'var(--fg)'}`, title: `${d.input[i]}\n${d.input[j]}\ncosine ${v.toFixed(4)}` }, v.toFixed(2))))))));
+    }
+  };
+  go.onclick = async () => {
+    const lines = ta.value.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (!lines.length) return;
+    S.embedText = ta.value; go.disabled = true; go.textContent = 'Embedding…';
+    try {
+      const res = await fetch(API + '/embeddings', { method: 'POST', headers: runHeaders(m.provider), body: JSON.stringify({ model: m.ref, input: lines }) });
+      if (!res.ok) throw new Error(await apiErr(res));
+      S.embeds = await res.json();
+    } catch (e) { S.embeds = { error: e.message }; }
+    go.disabled = false; go.textContent = 'Embed'; paint();
+  };
+  inner.append(h('div', { class: 'card' }, h('h3', {}, 'Texts'), ta, h('div', { class: 'frow' }, h('span', { style: 'flex:1;font-size:12px;color:var(--muted)' }, 'Up to 32 lines'), go)), out);
+  paint();
+}
+
+// ── speech ────────────────────────────────────────────────────────
+function renderSpeech(inner, m) {
+  const ta = h('textarea', { class: 'field', placeholder: 'Type something to hear it spoken…' }, S.speechText || '');
+  const voice = h('input', { list: 'voices', value: S.voice || 'alloy', style: 'width:140px' });
+  const fmt = h('select', {}, ...['mp3', 'wav', 'opus'].map((f) => h('option', { value: f }, f)));
+  const go = h('button', { class: 'btn pri' }, 'Speak');
+  const list = h('div');
+  const paint = () => { list.innerHTML = ''; for (const a of S.audios) list.append(a.error ? h('div', { class: 'audio err' }, a.error) : h('div', { class: 'audio' }, h('audio', { controls: true, src: a.url }), h('span', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, a.text), h('a', { href: a.url, download: 'speech.' + a.fmt }, '↓'))); };
+  go.onclick = async () => {
+    const t = ta.value.trim(); if (!t) return;
+    S.speechText = ta.value; S.voice = voice.value; go.disabled = true; go.textContent = 'Speaking…';
+    try {
+      const res = await fetch(API + '/speech', { method: 'POST', headers: runHeaders(m.provider), body: JSON.stringify({ model: m.ref, input: t, voice: voice.value || 'alloy', format: fmt.value }) });
+      if (!res.ok) throw new Error(await apiErr(res));
+      const url = URL.createObjectURL(await res.blob());
+      S.audios.unshift({ url, text: t, fmt: fmt.value });
+      paint(); list.querySelector('audio')?.play().catch(() => {});
+    } catch (e) { S.audios.unshift({ error: e.message }); paint(); }
+    go.disabled = false; go.textContent = 'Speak';
+  };
+  inner.append(h('div', { class: 'card' }, h('h3', {}, 'Text'), ta,
+    h('datalist', { id: 'voices' }, ...['alloy', 'ash', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'af_sky', 'af_bella', 'am_adam'].map((v) => h('option', { value: v }))),
+    h('div', { class: 'frow' }, h('label', {}, 'Voice'), voice, fmt, h('span', { style: 'flex:1' }), go)),
+    h('div', { class: 'card' }, h('h3', {}, 'Takes'), list));
+  paint();
+}
+
+// ── transcription ─────────────────────────────────────────────────
+function renderTranscribe(inner, m) {
+  const file = h('input', { type: 'file', accept: 'audio/*,video/*' });
+  const rec = h('button', { class: 'btn' }, 'Record');
+  const status = h('span', { style: 'font-size:12px;color:var(--muted);flex:1' }, 'Upload a file or record from your microphone');
+  const out = h('div');
+  const paint = () => { out.innerHTML = ''; for (const t of S.transcripts) out.append(h('div', { class: 'card' }, h('h3', {}, t.name), t.error ? h('div', { class: 'err' }, t.error) : h('div', { style: 'white-space:pre-wrap' }, t.text), t.text ? h('div', { class: 'frow' }, h('button', { class: 'btn sm', onclick: () => copy(t.text) }, 'Copy')) : null)); };
+  const upload = async (blob, name) => {
+    status.textContent = 'Transcribing ' + name + '…';
+    const fd = new FormData(); fd.append('model', m.ref); fd.append('file', blob, name);
+    try {
+      const res = await fetch(API + '/transcribe', { method: 'POST', headers: runHeaders(m.provider, false), body: fd });
+      if (!res.ok) throw new Error(await apiErr(res));
+      S.transcripts.unshift({ name, text: (await res.json()).text });
+    } catch (e) { S.transcripts.unshift({ name, error: e.message }); }
+    status.textContent = 'Done'; paint();
+  };
+  file.onchange = () => file.files[0] && upload(file.files[0], file.files[0].name);
+  let mr = null, chunks = [];
+  rec.onclick = async () => {
+    if (mr) { mr.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mr = new MediaRecorder(stream); chunks = [];
+      mr.ondataavailable = (e) => chunks.push(e.data);
+      mr.onstop = () => { stream.getTracks().forEach((t) => t.stop()); rec.textContent = 'Record'; rec.classList.remove('pri'); const b = new Blob(chunks, { type: mr.mimeType }); mr = null; upload(b, 'recording.webm'); };
+      mr.start(); rec.textContent = 'Stop recording'; rec.classList.add('pri'); status.textContent = 'Recording…';
+    } catch (e) { status.textContent = 'Microphone unavailable: ' + e.message; }
+  };
+  inner.append(h('div', { class: 'card' }, h('h3', {}, 'Audio'), h('div', { class: 'frow' }, file, rec), h('div', { class: 'frow' }, status)), out);
+  paint();
+}
+
+// ── rerank ────────────────────────────────────────────────────────
+function renderRerank(inner, m) {
+  const q = h('input', { class: 'field', placeholder: 'Query, e.g. how do I reset my password', value: S.rq || '' });
+  const docs = h('textarea', { class: 'field', placeholder: 'One document per line…' }, S.rdocs || '');
+  const go = h('button', { class: 'btn pri' }, 'Rank');
+  const out = h('div');
+  const paint = () => {
+    out.innerHTML = ''; const d = S.ranks; if (!d) return;
+    if (d.error) { out.append(h('div', { class: 'card err' }, d.error)); return; }
+    const mx = Math.max(...d.results.map((r) => r.score || 0)) || 1;
+    out.append(h('div', { class: 'card' }, h('h3', {}, 'Ranked'), ...d.results.map((r, i) => h('div', { class: 'rank' },
+      h('span', { class: 'mono', style: 'color:var(--muted)' }, '#' + (i + 1)), h('span', {}, r.document ?? `doc ${r.index}`),
+      h('div', { title: String(r.score) }, h('div', { class: 'sbar' }, h('i', { style: `width:${Math.max(2, (r.score || 0) / mx * 100)}%` })), h('div', { class: 'mono', style: 'font-size:11px;color:var(--muted);margin-top:2px' }, (r.score ?? 0).toFixed(4)))))));
+  };
+  go.onclick = async () => {
+    const lines = docs.value.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (!q.value.trim() || !lines.length) return;
+    S.rq = q.value; S.rdocs = docs.value; go.disabled = true;
+    try {
+      const res = await fetch(API + '/rerank', { method: 'POST', headers: runHeaders(m.provider), body: JSON.stringify({ model: m.ref, query: q.value, documents: lines }) });
+      if (!res.ok) throw new Error(await apiErr(res));
+      S.ranks = await res.json();
+    } catch (e) { S.ranks = { error: e.message }; }
+    go.disabled = false; paint();
+  };
+  inner.append(h('div', { class: 'card' }, h('h3', {}, 'Query'), q, h('div', { style: 'height:8px' }), docs, h('div', { class: 'frow' }, h('span', { style: 'flex:1' }), go)), out);
+  paint();
+}
+
+// ── boot ──────────────────────────────────────────────────────────
+function renderAll() { renderSide(); renderMain(); }
+
+document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
+let qT;
+$('q').addEventListener('input', (e) => { clearTimeout(qT); qT = setTimeout(() => { S.q = e.target.value; S.limit = 200; renderModelList(); }, 80); });
+$('q').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { e.target.value = ''; S.q = ''; renderModelList(); e.target.blur(); }
+  if (e.key === 'Enter') { const first = filtered()[0]; if (first) select(first.ref); }
+});
+$('f-provider').addEventListener('change', (e) => { S.fprov = e.target.value; S.limit = 200; renderKinds(); renderModelList(); });
+$('f-sort').addEventListener('change', (e) => { S.sort = e.target.value; renderModelList(); });
+$('f-ready').addEventListener('change', (e) => { S.ready = e.target.checked; renderModelList(); });
+$('f-free').addEventListener('change', (e) => { S.free = e.target.checked; renderModelList(); });
+$('reload').addEventListener('click', () => loadCatalog(true));
+$('menu').addEventListener('click', () => openSide(true));
+$('side-close').addEventListener('click', () => openSide(false));
+$('scrim').addEventListener('click', () => openSide(false));
+document.addEventListener('keydown', (e) => {
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+  if (e.key === '/' && !typing) { e.preventDefault(); setTab('models'); $('q').focus(); }
+});
+
+(async () => {
+  // migrate the old single-provider choice into a sensible start
+  const legacy = localStorage.getItem('modelgw_last_provider');
+  if (!S.active && legacy && legacy !== 'all') {
+    const last = localStorage.getItem('modelgw_last_model_' + legacy);
+    if (last) S.active = last.includes(':') ? last : legacy + ':' + last;
+  }
+  renderAll();
+  try { await loadProviders(); } catch (e) { toast('Gateway unreachable'); }
+  await loadCatalog();
+})();
+</script>
 </body>
 </html>

@@ -41,7 +41,7 @@ export default function ModelPage({ params: route }: { params: { id: string } })
     <div className="flex flex-col gap-2">
       <div className="page-head">
         <div className="page-head-band !py-2 !px-3">
-          <h1 className="font-display text-sm sm:text-base truncate">{m.id}</h1>
+          <h1 className="font-display normal-case text-sm sm:text-base truncate">{m.id}</h1>
           <span className="inline-flex flex-wrap gap-1">
             <KindBadge kind={m.kind} />
             <RoleBadge role={m.role} />

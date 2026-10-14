@@ -579,3 +579,6 @@ aside.drawer .xbtn:hover { color: var(--text); border-color: rgba(255, 255, 255,
 .codepane .editor { border: 0; border-radius: 0; background: transparent; }
 .codebar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 8px 10px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
 .codebar .muted { margin-right: auto; font-size: 12px; }
+.mcard.click { cursor: pointer; }
+.wbname { text-transform: none; letter-spacing: 0; font-size: 17px; font-weight: 700; color: var(--text); display: inline-flex; align-items: baseline; gap: 8px; margin-right: 10px; }
+.wbname small { font-family: var(--mono, monospace); font-size: 12px; font-weight: 400; color: var(--muted); }

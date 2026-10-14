@@ -111,14 +111,18 @@ export default function Page() {
   };
   const narrow = () => typeof window !== 'undefined' && window.innerWidth < 1100;
 
-  const setView = (v: View) => {
+  const setView = (v: View, contract?: string) => {
     setViewState(v);
-    if (typeof window !== 'undefined') history.replaceState(null, '', v === 'studio' ? window.location.pathname : `#${v}`);
+    if (typeof window !== 'undefined')
+      history.replaceState(null, '', v === 'studio' ? (contract ? `#studio/${contract}` : window.location.pathname) : `#${v}`);
   };
   useEffect(() => {
     const read = () => {
       const h = window.location.hash.slice(1);
-      setViewState(isView(h) ? h : 'studio');
+      // #studio/<name> opens that contract
+      const m = h.match(/^studio\/([a-z0-9_]+)$/);
+      if (m) setSel(m[1]);
+      setViewState(m ? 'studio' : isView(h) ? h : 'studio');
     };
     read();
     window.addEventListener('hashchange', read);
@@ -205,10 +209,14 @@ export default function Page() {
         if (!w?.address) setErr(`Sign-in failed: ${w?.why || 'the server did not accept the signature'}`);
       })
       .catch((e) => setErr(String(e?.message || e)));
-  const openContract = (name: string) => {
+  // the tab a caller asked for (market cards land on the Cairo source)
+  const [want, setWant] = useState<{ tab: Tab; n: number } | null>(null);
+  const openContract = (name: string, tab?: Tab) => {
     setSel(name);
-    setView('studio');
+    setView('studio', name);
+    if (tab) setWant((w) => ({ tab, n: (w?.n ?? 0) + 1 }));
     if (narrow()) setDrawerState(false);
+    window.scrollTo({ top: 0 });
   };
   const newContract = (sd: NewSeed = {}) => {
     setSeed(sd);
@@ -339,7 +347,7 @@ export default function Page() {
       <div>
         <main style={{ minWidth: 0 }}>
         {view === 'market' && (
-          <Market refreshKey={landedAny} writable={!!who?.writable} onOpen={openContract} onNew={newContract} />
+          <Market refreshKey={landedAny} writable={!!who?.writable} onOpen={(n) => openContract(n, 'code')} onNew={newContract} />
         )}
         {view === 'fleet' && <Fleet onOpen={openContract} />}
 
@@ -371,6 +379,7 @@ export default function Page() {
                   lastJob={jobs.find((j) => j.name === sel && j.state === 'done') || null}
                   lastTest={jobs.find((j) => j.name === sel && j.state !== 'queued' && j.state !== 'running' && (j.fn === 'test' || (j.fn === 'vibe' && j.result?.test))) || null}
                   editorRef={editor}
+                  want={want}
                   onRemoved={() => {
                     setSel(null);
                     refresh();
@@ -616,6 +625,7 @@ function Workbench({
   lastJob,
   lastTest,
   editorRef,
+  want,
   onRemoved,
 }: {
   name: string;
@@ -626,6 +636,7 @@ function Workbench({
   lastJob: Job | null;
   lastTest: Job | null;
   editorRef: React.MutableRefObject<{ jump: (d: Diag) => void } | null>;
+  want: { tab: Tab; n: number } | null;
   onRemoved: () => void;
 }) {
   const [tab, setTabState] = useState<Tab>('app');
@@ -656,6 +667,10 @@ function Workbench({
       // default tab
     }
   }, []);
+  // an explicit open (market card) wins over the remembered tab
+  useEffect(() => {
+    if (want) setTabState(want.tab);
+  }, [want]);
 
   const loadTree = useCallback(async () => {
     const r = await call('tree', undefined, { name });
@@ -752,6 +767,9 @@ function Workbench({
     <>
       <section className="card">
         <h2>
+          <span className="wbname">
+            {name} <small>cairo.{name}</small>
+          </span>
           <span className={`badge ${state}`} title={`${name} · ${STATE_TIP[state]}`}>
             {state === 'fresh' ? 'built' : state}
           </span>

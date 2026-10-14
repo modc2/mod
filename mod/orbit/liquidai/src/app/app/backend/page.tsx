@@ -402,7 +402,7 @@ function ProviderCard({ p, busiest, hours }: {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-pixel-gray-light">
-        <span title="who pays for a run here">💲{p.cost}</span>
+        <span title="who pays for a run here"><span className="text-pixel-gray mr-1" aria-hidden>$</span>{p.cost}</span>
         {p.base && <span className="text-pixel-gray">{p.base}</span>}
       </div>
 
@@ -704,7 +704,7 @@ function Mcp({ mcp, stats }: { mcp: McpDescriptor | null; stats: CallStats | nul
       <div className="pixel-panel p-3 flex flex-col gap-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="pixel-badge text-cyan-400 border-cyan-400">MCP</span>
-          <h2 className="font-display text-xs">{mcp.server.title}</h2>
+          <h2 className="font-display normal-case text-xs">{mcp.server.title}</h2>
           <span className="font-mono text-sm text-pixel-gray-light">
             protocol {mcp.protocol} · {mcp.transport} · {mcp.tools.length} tools
           </span>
