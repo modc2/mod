@@ -1,0 +1,22 @@
+{
+    "name": "starknet.stablecoins",
+    "submod_of": "starknet",
+    "version": "0.1.0",
+    "description": "Every stablecoin on Starknet with its live supply, how it is backed, and its peg from the Pragma oracle.",
+    "anchor": "mod.py",
+    "app": {
+        "title": "Stablecoins",
+        "icon": "$",
+        "tone": "#39ff88",
+        "tag": "money",
+        "kind": "page",
+        "page": "/stablecoins",
+        "order": 10,
+        "pitch": "Every dollar on Starknet: native USDC, bridged USDC.e and USDT, DAI and CASH, with live supply and the Pragma oracle peg."
+    },
+    "fns": [
+        "facts",
+        "stablecoins",
+        "registry"
+    ]
+}

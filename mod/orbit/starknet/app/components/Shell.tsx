@@ -8,20 +8,22 @@ import Search from './Search';
 
 const NAV = [
   { href: '/', label: 'Explore' },
-  { href: '/contracts', label: 'Contracts' },
-  { href: '/mods', label: 'Mods' },
-  { href: '/stablecoins', label: 'Stablecoins' },
-  { href: '/privacy', label: 'Privacy' },
+  { href: '/apps', label: 'Apps' },
   { href: '/studio', label: 'Build' },
   { href: '/ask', label: 'Ask' },
   { href: '/developers', label: 'API' },
 ];
 
+/** Pages that are apps: the nav lights Apps and an app bar sits on top. */
+const APP_PAGES = ['/apps', '/mods', '/stablecoins', '/privacy', '/contracts'];
+
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname() || '/';
   const { net, setNet } = useNet();
   const status = useApi<any>('status', 30000);
-  const family = useApi<any>('mods', 60000);
+  const apps = useApi<any>('apps', 60000);
+  const inApp = APP_PAGES.some(p => path.startsWith(p));
+  const pageApps = (apps.data?.apps || []).filter((a: any) => a.kind === 'page');
   const live = !!status.data;
 
   return (
@@ -35,9 +37,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </a>
           <nav className="nav">
             {NAV.map(n => {
-              const on = n.href === '/' ? ['/', '/block', '/tx', '/address'].includes(path) : path.startsWith(n.href);
-              const badge = n.href === '/mods' && family.data
-                ? <span className="nav-n">{family.data.up}</span> : null;
+              const on = n.href === '/' ? ['/', '/block', '/tx', '/address'].includes(path)
+                : n.href === '/apps' ? inApp : path.startsWith(n.href);
+              const badge = n.href === '/apps' && apps.data
+                ? <span className="nav-n">{apps.data.count}</span> : null;
               return n.href === '/'
                 ? <a key={n.href} href={`${BASE}/`} className={on ? 'on' : ''}>{n.label}</a>
                 : <Link key={n.href} href={n.href} className={on ? 'on' : ''}>{n.label}{badge}</Link>;
@@ -53,14 +56,26 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               <option value="sepolia">Sepolia</option>
             </select>
           </div>
-          {path !== '/' && path !== '/mods' && !path.startsWith('/studio') && <div className="top-search"><Search /></div>}
+          {path !== '/' && !path.startsWith('/apps') && !path.startsWith('/mods') && !path.startsWith('/studio') && <div className="top-search"><Search /></div>}
         </div>
       </header>
-      <main className={`main ${path.startsWith('/studio') ? 'wide' : ''}`}>{children}</main>
+      <main className={`main ${path.startsWith('/studio') ? 'wide' : ''}`}>
+        {inApp && !path.startsWith('/apps') && !path.startsWith('/mods') && (
+          <nav className="appbar">
+            <Link href="/apps" className="appbar-all">‹ All apps</Link>
+            {pageApps.map((a: any) => (
+              <Link key={a.name} href={a.page} className={path.startsWith(a.page) ? 'on' : ''} style={{ ['--tone' as any]: a.tone }}>
+                <span className="appbar-i">{a.icon}</span>{a.title}
+              </Link>
+            ))}
+          </nav>
+        )}
+        {children}
+      </main>
       <footer className="foot">
         The explorer is read-only — it holds no keys and never signs.
         {' '}Data straight from Starknet RPC{status.data?.rpc ? ` (${status.data.rpc.replace(/^https?:\/\//, '')})` : ''}.
-        {' '}<Link href="/mods">Starknet mods</Link> · <Link href="/developers">API &amp; MCP</Link>
+        {' '}<Link href="/apps">Apps on Starknet</Link> · <Link href="/developers">API &amp; MCP</Link>
       </footer>
     </div>
   );

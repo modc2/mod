@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { FamilyStrip } from '@/components/Family';
+import { AppStrip } from '@/components/Apps';
 import Search from '@/components/Search';
 import { BlockLink, Card, Empty, ErrorBox, Loading, Stat, TxLink, Badge } from '@/components/ui';
 import { ago, num } from '@/lib/format';
@@ -19,7 +19,7 @@ export default function Home() {
   const blocks = useApi<{ head: number; blocks: B[] }>('blocks?limit=12', 8000);
   const pool = useApi<any>(net === 'mainnet' ? 'strk20/pool' : null, 60000);
   const tape = useApi<any>(net === 'mainnet' ? 'strk20/activity?limit=6' : null, 30000);
-  const family = useApi<any>('mods', 60000);
+  const apps = useApi<any>('apps', 60000);
   const [now, setNow] = useState(Date.now() / 1000);
   useEffect(() => { const t = setInterval(() => setNow(Date.now() / 1000), 1000); return () => clearInterval(t); }, []);
 
@@ -46,6 +46,7 @@ export default function Home() {
           ))}
           <Link className="chip" href="/stablecoins">Stablecoins</Link>
           <Link className="chip" href="/privacy">STRK20 privacy pool</Link>
+          <Link className="chip" href="/apps">All apps</Link>
           <Link className="chip" href="/ask">Ask the agent</Link>
         </div>
       </div>
@@ -58,9 +59,9 @@ export default function Home() {
         <Stat label="Network" value={status.data?.chain || '—'} sub={status.data ? `RPC spec ${status.data.spec_version}` : ' '} />
       </div>
 
-      {family.data && (
-        <Card className="fam-card" title="Starknet mods" right={<Link href="/mods" className="hash">{family.data.up}/{family.data.count} live · all ›</Link>}>
-          <FamilyStrip mods={family.data.mods} />
+      {apps.data && (
+        <Card className="fam-card" title="Apps on Starknet" right={<Link href="/apps" className="hash">{apps.data.up}/{apps.data.count} live · all ›</Link>}>
+          <AppStrip apps={apps.data.apps} />
         </Card>
       )}
 

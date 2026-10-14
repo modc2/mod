@@ -443,6 +443,40 @@ a.mod-item:hover { border-color: var(--tone, var(--accent)); }
 .fam-chip .dot { margin-left: auto; }
 .fam-card { margin-bottom: 16px; }
 
+/* ── apps: every app is a submod at mods/<name> (components/Apps.tsx) ── */
+.appbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0 0 18px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.appbar a { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 6px; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; color: var(--ink2); background: var(--panel); }
+.appbar a:hover { color: var(--ink); border-color: var(--tone, var(--cyan)); }
+.appbar a.on { color: var(--ink); border-color: var(--tone, var(--cyan)); box-shadow: 0 0 14px color-mix(in srgb, var(--tone, var(--cyan)) 30%, transparent); }
+.appbar .appbar-all { padding: 5px 12px; border-style: dashed; color: var(--ink3); }
+.appbar-i { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 900; color: #0b0d14; background: var(--tone, var(--cyan)); }
+.app-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.app-fns { font: 11px var(--mono); color: var(--ink3); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+.app-card .mod-foot .app-x { margin-left: auto; background: transparent; }
+.app-card .mod-foot .app-x.armed { color: var(--err); border-color: var(--err); }
+.app-new { align-items: flex-start; border-style: dashed; cursor: pointer; text-align: left; font: inherit; color: var(--ink2); min-height: 180px; justify-content: center; }
+button.app-new:hover { border-color: var(--accent); color: var(--ink); }
+.app-new .plus { font: 300 40px/1 var(--display); color: var(--accent); }
+.app-new .t { font-size: 16px; font-weight: 700; color: var(--ink); }
+.app-new .s { font-size: 13px; }
+.app-new.open { cursor: default; border-style: solid; border-color: var(--accent); }
+.app-new.open .mod-icon { background: var(--accent); }
+.app-form { display: flex; flex-direction: column; gap: 10px; }
+.app-form label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--ink3); text-transform: uppercase; letter-spacing: 1px; }
+.app-form input { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); padding: 8px 10px; font: 13px var(--mono); text-transform: none; letter-spacing: 0; }
+.app-form input:focus { outline: none; border-color: var(--accent); }
+.app-form .btn { align-self: flex-start; }
+.stack-sm > * + * { margin-top: 10px; }
+.app-code { margin: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; font: 12px/1.55 var(--mono); color: var(--ink2); overflow-x: auto; white-space: pre; }
+.app-how { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px; border: 1px solid var(--line); border-radius: 16px; padding: 24px; background: var(--panel); }
+.app-how h2 { margin: 0 0 8px; font-size: 22px; }
+.app-how code { font: 12px var(--mono); color: var(--cyan); }
+.app-how-code { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.app-steps { margin: 14px 0 0; padding-left: 20px; color: var(--ink2); }
+.app-steps li { margin-bottom: 10px; line-height: 1.55; }
+.app-steps b { color: var(--ink); }
+@media (max-width: 860px) { .app-how { grid-template-columns: 1fr; } }
+
 /* ── cyber layer (theme overrides; new rules go ABOVE this section) ──────── */
 ::selection { background: rgba(var(--accent-rgb), .45); color: #fff; }
 * { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }

@@ -40,7 +40,7 @@ import time
 import urllib.request
 
 import chain
-import family
+import apps
 import stables
 import strk20
 
@@ -115,9 +115,9 @@ def read_pool(net):
 
 
 def read_mods(net):
-    f = family.mods()
-    return f, f"{f['up']}/{f['count']} Starknet mods live: " + ', '.join(
-        m['name'] + ('' if m['up'] else ' (down)') for m in f['mods'])
+    f = apps.apps()
+    return f, f"{f['up']}/{f['count']} Starknet apps live: " + ', '.join(
+        m['name'] + ('' if m.get('up') else ' (down)') for m in f['apps'])
 
 
 READS = {'mods': read_mods, 'network': read_network, 'stables': read_stables, 'pool': read_pool}
@@ -126,7 +126,7 @@ READS = {'mods': read_mods, 'network': read_network, 'stables': read_stables, 'p
 # ── the facts brain ──────────────────────────────────────────────────────────
 
 TOPICS = [
-    ('mods', r'\bmods?\b|modules?|starktime|zquorum|\bzuma\b|zkwasm|workbench|on this node|family'),
+    ('mods', r'\bapps?\b|\bmods?\b|modules?|starktime|zquorum|\bzuma\b|zkwasm|workbench|on this node|family'),
     ('stables', r'stable|usdc|usdt|tether|\bdai\b|peg|dollar|\bcash\b|opus|circle'),
     ('privacy', r'privacy|private|strk20|pool|note|nullif|anonym|shield'),
     ('fees', r'\bfee|gas|\bstrk\b|token|pay for|cost'),
@@ -168,13 +168,15 @@ def explain(topic, r):
         if not f:
             return ''
         rows = '\n'.join(
-            f"- **{m['title']}** (`{m['name']}`, {'live' if m['up'] else 'down'}) — {m['pitch']}"
-            + (' Now: ' + ', '.join(f'{k} {v}' for k, v in m['facts']) + '.' if m['facts'] else '')
-            for m in f['mods'])
-        return ("**The Starknet mods on this node.** This explorer is the front door; the "
-                "rest of the Starknet work runs as separate mods, each on its own port "
-                f"({f['up']} of {f['count']} live right now):\n\n" + rows +
-                "\n\nThe MODS tab shows them all with live numbers and links to their apps.")
+            f"- **{m['title']}** (`starknet.{m['name']}`, {'live' if m.get('up') else 'down'}) — {m.get('pitch', '')}"
+            + (' Now: ' + ', '.join(f'{k} {v}' for k, v in m['facts']) + '.' if m.get('facts') else '')
+            for m in f['apps'])
+        how = '\n'.join(f'{i}. {x}' for i, x in enumerate(f['how']['steps'], 1))
+        return ("**The apps on Starknet on this node.** Every app is a submod of starknet "
+                "at `mods/<name>` — some are pages of this app, some are sibling mods with "
+                f"their own app ({f['up']} of {f['count']} live right now):\n\n" + rows +
+                "\n\n**Make your own app.**\n" + how +
+                "\n\nThe APPS tab shows them all with live numbers, and has a + New app card.")
     if topic == 'protocol':
         live = (f" Right now it is at block #{n['block_number']:,}, producing a block "
                 f"about every {n['block_time_s']:.1f} seconds ({n['tx_last_12_blocks']} "

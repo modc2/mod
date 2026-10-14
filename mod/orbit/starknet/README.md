@@ -153,6 +153,43 @@ explains and encodes them but leaves proving/signing to the wallet or the
 `~/.mod/starknet/`) are a later version, following the near module's shape:
 testnet by default, explicit confirm for mainnet, secrets never in the repo.
 
+## Apps — every app on Starknet is a submod (v0.9)
+
+The nav is **Explore · Apps · Build · Ask · API**. The old Mods, Stablecoins,
+Contracts and Privacy tabs are now apps. They live under **Apps**, and a bar
+on each app page switches between them. `/mods` redirects to `/apps`.
+
+Each app is a folder at `mods/<name>/`, and the core addresses it as
+`starknet.<name>`:
+
+| app | kind | opens |
+|---|---|---|
+| stablecoins, privacy, contracts | `page` | a page of this Next app |
+| cairo, starktime, zquorum, zuma, zkwasm | `mod` | the sibling mod's own app; its `facts()` probes that mod |
+| gas_meter (example), anything you make | `html` | `mods/<name>/app/index.html` at `/starknet/apps/<name>/` |
+
+```
+mods/<name>/config.json     "app": {kind, title, icon, tone, tag, pitch, order}, "fns", "write_fns"
+mods/<name>/mod.py          class Mod: facts() -> the card's numbers; every other listed fn is API
+mods/<name>/app/index.html  (html apps) plain HTML, no build
+```
+
+**To make a new app**, use **+ New app** in the Apps tab (owner only), run
+`m starknet/new_app name=my_app title="My app"`, or send
+`POST /starknet/_api/apps/new {name,title,pitch}`. Any of these copies
+`api/app_template/` into `mods/my_app/`. Next, add a fn to `mod.py`, list it
+under `fns`, and call it from the page with `api('fn', {...})`. `mod.py` is
+reloaded whenever it changes, so you never need a rebuild or a restart.
+
+The ways to call an app:
+
+- `GET|POST /_api/apps/<name>/<fn>`
+- `m starknet.<name>/<fn>`
+- the MCP tools `starknet_apps`, `starknet_app_call` and `starknet_new_app`
+
+Fns listed in `write_fns`, plus new and remove, need the owner (the same
+check as the studio). Only apps made with `new_app` can be removed.
+
 ## Build — the contract studio (v0.4)
 
 `/starknet/studio` is where you write Cairo contracts. Pick or create a contract (from a counter, ERC20 token, commit-reveal or Merkle allowlist template), edit `src/lib.cairo` and its tests in a highlighted editor, and click **Build & test**. Compiler errors are pinned to file:line in the gutter, and every snforge test shows pass/fail and gas. The **Agent** panel takes plain English ("add an owner-only pause"); the Cairo agent edits the contract, builds and tests it, and replies with what it did. **Interface** shows the compiled ABI.

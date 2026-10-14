@@ -28,6 +28,7 @@ if HERE not in sys.path:
     sys.path.append(HERE)
 
 import abi      # noqa: E402
+import apps     # noqa: E402
 import guide    # noqa: E402
 import chain    # noqa: E402
 import family   # noqa: E402
@@ -125,6 +126,27 @@ def _fund(a, writable=False):
 
 
 _fund.writes = True
+
+
+def _app_call(a, writable=False):
+    try:
+        return apps.call(a['app'], a['fn'], a.get('args') or {}, writable=writable)
+    except (apps.Denied, apps.AppError) as e:
+        raise ToolError(str(e))
+
+
+_app_call.writes = True
+
+
+def _new_app(a, writable=False):
+    try:
+        return apps.new(a['name'], a.get('title'), a.get('pitch'), a.get('icon'),
+                        a.get('tag') or 'yours', writable=writable)
+    except (apps.Denied, apps.AppError) as e:
+        raise ToolError(str(e))
+
+
+_new_app.writes = True
 
 
 TOOLS = {
@@ -351,6 +373,37 @@ TOOLS = {
                        'where its app lives.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': lambda a: family.mods(),
+    },
+    'starknet_apps': {
+        'description': 'Every app on Starknet on this node. Each app is a submod '
+                       'of starknet at mods/<name> (stablecoins, privacy, '
+                       'contracts, cairo, starktime, zquorum, zuma, zkwasm, and '
+                       'any made with starknet_new_app): kind, live numbers, '
+                       'its fns, and where it opens. Includes how to make one.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': lambda a: apps.apps(),
+    },
+    'starknet_app_call': {
+        'description': 'Run one fn of an app (see starknet_apps for each '
+                       'app\'s fns), e.g. app=stablecoins fn=stablecoins, or '
+                       'app=privacy fn=activity args={limit: 5}. Fns an app '
+                       'marks as writes are owner-only.',
+        'inputSchema': _schema({'app': _str('app name'), 'fn': _str('fn name'),
+                                'args': {'type': 'object', 'description': 'keyword args'}},
+                               ['app', 'fn']),
+        'handler': _app_call,
+    },
+    'starknet_new_app': {
+        'description': 'Make a new app on Starknet: scaffolds mods/<name>/ '
+                       '(config.json, mod.py with example fns, app/index.html '
+                       'served at /starknet/apps/<name>/, README). Shows up in '
+                       'the Apps tab at once. Owner only.',
+        'inputSchema': _schema({'name': _str('snake_case name, e.g. my_app'),
+                                'title': _str('display title'),
+                                'pitch': _str('one sentence: what it does'),
+                                'icon': _str('1-2 characters'),
+                                'tag': _str('a category, default yours')}, ['name']),
+        'handler': _new_app,
     },
     'starknet_fund': {
         'description': 'ETH and STRK balances of every devnet account and '

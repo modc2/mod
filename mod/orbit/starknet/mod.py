@@ -8,6 +8,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 API = os.path.join(HERE, 'api')
 sys.path.insert(0, API)
 import abi  # noqa: E402
+import apps  # noqa: E402
 import chain  # noqa: E402
 import contracts  # noqa: E402
 import family  # noqa: E402
@@ -149,6 +150,24 @@ class Mod:
     def stablecoins(self, network=None):
         """Every stablecoin on the network: supply, backing, Pragma peg."""
         return stables.stables(network=network)
+
+    # ---- apps: every app on Starknet is a submod at mods/<name> ---------
+
+    def apps(self, fresh=False):
+        """Every app on Starknet here (stablecoins, privacy, contracts, cairo, ...)."""
+        return apps.apps(fresh=fresh)
+
+    def app(self, name, fn=None, **args):
+        """One app; with fn=, run that fn of it: m starknet/app name=privacy fn=activity."""
+        return apps.call(name, fn, args, writable=True) if fn else apps.app(name)
+
+    def new_app(self, name, title=None, pitch=None, icon=None, tag='yours'):
+        """Scaffold mods/<name>/ (config, mod.py, app/index.html) — live in the Apps tab at once."""
+        return apps.new(name, title, pitch, icon, tag, writable=True)
+
+    def remove_app(self, name):
+        """Delete an app made with new_app (built-ins are refused)."""
+        return apps.remove(name, writable=True)
 
     def mods(self, fresh=False):
         """The Starknet mod family on this node: up/down, live numbers, apps."""

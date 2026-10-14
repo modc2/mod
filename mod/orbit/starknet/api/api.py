@@ -30,6 +30,10 @@ GET  /stablecoins      every stablecoin on the network: supply, model,
                        Pragma oracle peg   (/stablecoins/registry: static)
 GET  /contracts        your Cairo contracts (+ devnet addresses) and the
                        well-known mainnet ones
+GET  /apps             every app on Starknet — each a submod at mods/<name>
+                       (stablecoins, privacy, contracts, cairo, starktime, ...)
+GET|POST /apps/<name>/<fn>   call an app's fn;  POST /apps/new  make one (owner)
+GET  /starknet/apps/<name>/  the app itself (html apps served from mods/<name>/app)
 GET  /mods             the Starknet mod family (cairo, starktime, zquorum,
                        zuma, zkwasm): up/down, live numbers, app links
 GET  /fund             ETH + STRK of every devnet account and contract the
@@ -63,6 +67,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import abi  # noqa: E402
+import apps  # noqa: E402
 import guide  # noqa: E402
 import chain  # noqa: E402
 import contracts  # noqa: E402
@@ -102,7 +107,9 @@ ENDPOINTS = {
     'studio_write': 'POST /studio/{new,write,build,test,vibe,clean,remove} (owner token)',
     'stablecoins': 'GET /stablecoins · /stablecoins/registry',
     'contracts': 'GET /contracts',
-    'mods': 'GET /mods  the other Starknet mods on this node, live',
+    'apps': 'GET /apps · /apps/<name> · GET|POST /apps/<name>/<fn> · POST /apps/new {name,title,pitch} · POST /apps/remove {name}  (every app on Starknet = a submod at mods/<name>)',
+    'app_page': f'GET {BASE}/apps/<name>/  the app itself',
+    'mods': 'GET /mods  the sibling Starknet mods (the kind=mod apps), live',
     'agents': 'GET /agents · /agents/<id> · /.well-known/agent.json',
     'run': 'POST /run · POST /run/stream (SSE) {query, brain=auto|facts|claude, history}',
     'mcp': 'POST /mcp (JSON-RPC 2.0)', 'tools': 'GET /tools · POST /tools/<name>',
@@ -283,10 +290,14 @@ class Handler(BaseHTTPRequestHandler):
         prefixed = path.startswith(BASE + '/')
         if prefixed:
             path = path[len(BASE):]
-        if path == '/_api' or path.startswith('/_api/'):
+        via_api = path == '/_api' or path.startswith('/_api/')
+        html = 'text/html' in (self.headers.get('Accept') or '')
+        if not via_api and self.command == 'GET' and (prefixed or html) and \
+                path.startswith('/apps/') and path[len('/apps/'):].strip('/'):
+            return self._app_page(path[len('/apps/'):])
+        if via_api:
             path = path[len('/_api'):] or '/'
         elif self.command == 'GET':
-            html = 'text/html' in (self.headers.get('Accept') or '')
             if path.startswith('/_next/') or path in ('/app', '/console') or \
                     (path == '/' and (prefixed or html)) or \
                     (html and '.' not in path.rsplit('/', 1)[-1]) or \
@@ -305,6 +316,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(path, body)
         if path == '/fund':
             return self._fund(body)
+        if path == '/apps' or path.startswith('/apps/'):
+            return self._apps(path[len('/apps'):].strip('/'), parsed, body)
         if path == '/mcp':
             if self.command != 'POST':
                 return self._send(200, {'mcp': 'POST JSON-RPC 2.0 here',
@@ -368,6 +381,60 @@ class Handler(BaseHTTPRequestHandler):
             if not who['writable']:
                 return self._send(403, {'error': 'funding is owner-only', 'whoami': who})
             return self._send(200, fund.fund((body or {}).get('target') or 1000))
+        except Exception as e:  # noqa: BLE001
+            return self._send(400, {'error': f'{type(e).__name__}: {e}'})
+
+    def _app_page(self, rest):
+        """/starknet/apps/<name>/... — every app has this address. html apps are
+        served from mods/<name>/app/; page and mod apps redirect to where they live."""
+        name, _, sub = rest.partition('/')
+        try:
+            cfg = apps.config(name)
+        except apps.AppError as e:
+            return self._send(404, {'error': str(e)})
+        a = cfg.get('app') or {}
+        to = None
+        if a.get('kind') == 'page':
+            to = BASE + (a.get('page') or f'/{name}')
+        elif a.get('kind') == 'mod':
+            row = apps._row(name, apps._routed())
+            to = row['href'] or f'{BASE}/apps#{name}'
+        elif '/' not in rest:          # /apps/<name> -> /apps/<name>/ so relative URLs resolve
+            to = f'{BASE}/apps/{name}/'
+        if to:
+            self.send_response(302)
+            self.send_header('Location', to)
+            self.end_headers()
+            return
+        f = apps.static(name, sub)
+        return self._static(f) if f else self._send(404, {'error': f'no file {sub or "index.html"} in {name}/app'})
+
+    def _apps(self, rest, parsed, body):
+        """GET /apps · GET /apps/<name> · GET|POST /apps/<name>/<fn> ·
+        POST /apps/new {name,title,pitch,icon,tag} · POST /apps/remove {name}"""
+        q = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
+        args = {**q, **(body or {})}
+        try:
+            if not rest:
+                return self._send(200, apps.apps(fresh=bool(q.get('fresh'))))
+            if rest in ('new', 'remove'):
+                if self.command != 'POST':
+                    return self._send(400, {'error': f'POST /apps/{rest}', 'how': apps.HOW})
+                writable = self._who()['writable']
+                if rest == 'new':
+                    keep = ('name', 'title', 'pitch', 'icon', 'tag', 'tone')
+                    return self._send(200, apps.new(writable=writable,
+                                                    **{k: args[k] for k in keep if k in args}))
+                return self._send(200, apps.remove(args.get('name'), writable=writable))
+            name, _, fn = rest.partition('/')
+            if not fn:
+                return self._send(200, apps.app(name))
+            writable = self._who()['writable']
+            return self._send(200, apps.call(name, fn, args, writable=writable))
+        except apps.Denied as e:
+            return self._send(403, {'error': str(e), 'whoami': self._who()})
+        except (apps.AppError, TypeError) as e:
+            return self._send(400, {'error': str(e)})
         except Exception as e:  # noqa: BLE001
             return self._send(400, {'error': f'{type(e).__name__}: {e}'})
 

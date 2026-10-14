@@ -1,0 +1,25 @@
+{
+    "name": "starknet.privacy",
+    "submod_of": "starknet",
+    "version": "0.1.0",
+    "description": "The public side of the STRK20 privacy pool: deposits, withdrawals, notes, nullifiers and helpers. Never asks for a viewing key.",
+    "anchor": "mod.py",
+    "app": {
+        "title": "Privacy",
+        "icon": "Z",
+        "tone": "#ff2a6d",
+        "tag": "privacy",
+        "kind": "page",
+        "page": "/privacy",
+        "order": 20,
+        "pitch": "The STRK20 shielded pool: what it holds, its live activity, and the helpers that act on shielded notes. Read-only, no keys."
+    },
+    "fns": [
+        "facts",
+        "pool",
+        "activity",
+        "user",
+        "helpers",
+        "docs"
+    ]
+}

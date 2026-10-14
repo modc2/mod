@@ -262,7 +262,8 @@ def new(name, title=None, pitch=None, icon=None, tag='yours', tone=None, writabl
            'tone': tone if isinstance(tone, str) and re.match(r'^#[0-9a-fA-F]{6}$', tone)
            else TONES[sum(map(ord, name)) % len(TONES)],
            'created': time.strftime('%Y-%m-%d')}
-    ctx = {k: v.replace('\\', '\\\\').replace('"', '\\"') if k in ('title', 'pitch') else v
+    # the same text lands in JSON, a Python docstring and HTML: drop what breaks any of them
+    ctx = {k: re.sub(r'["\\<>{}`]', '', v) if k in ('title', 'pitch', 'icon') else v
            for k, v in ctx.items()}
     for src_dir, _, files in os.walk(TEMPLATE):
         rel = os.path.relpath(src_dir, TEMPLATE)

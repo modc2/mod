@@ -1,0 +1,21 @@
+{
+    "name": "starknet.contracts",
+    "submod_of": "starknet",
+    "version": "0.1.0",
+    "description": "Every contract this node knows: your Cairo contracts with their devnet address, then the well-known mainnet ones.",
+    "anchor": "mod.py",
+    "app": {
+        "title": "Contracts",
+        "icon": "C",
+        "tone": "#00f0ff",
+        "tag": "build",
+        "kind": "page",
+        "page": "/contracts",
+        "order": 30,
+        "pitch": "Your Cairo contracts with their devnet address and build state, plus the well-known mainnet contracts to read by ABI."
+    },
+    "fns": [
+        "facts",
+        "contracts"
+    ]
+}
