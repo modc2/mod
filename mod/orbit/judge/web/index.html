@@ -61,13 +61,18 @@
   .msg { margin-top:8px; }
   code { color:var(--accent); }
   .hide { display:none; }
+  .try { border:1px dashed var(--line); border-radius:8px; padding:8px 10px; margin:4px 0 10px; }
+  .try textarea { min-height:64px; }
+  .score { font-size:22px; font-weight:700; color:var(--accent); }
+  .score small { font-size:12px; color:var(--dim); font-weight:400; margin-left:4px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1><span>JD</span> judge</h1>
-  <p class="sub">a multisig of agents — judges can be rules, LLMs, agent-protocol
-     agents, or whole other panels; the bench's average must reach the threshold</p>
+  <p class="sub">a multisig of agents — every judge is an agent that scores an
+     input <b>0–100</b> against its criteria; the bench's weighted average must
+     reach the panel's threshold or the verdict is FAIL</p>
 
   <div class="tabs">
     <button id="tab-judge" class="on">JUDGE</button>
@@ -122,10 +127,10 @@
       <div id="e-judges"></div>
       <div class="row">
         <select id="e-kind">
-          <option value="rule">rule — offline checks</option>
-          <option value="llm">llm — criteria prompt</option>
-          <option value="agent">agent — agent protocol</option>
-          <option value="panel">panel — another panel votes</option>
+          <option value="llm">llm — a model scores your criteria 0–100</option>
+          <option value="agent">agent — an agent-protocol run scores 0–100</option>
+          <option value="panel">panel — another panel's average votes</option>
+          <option value="rule">rule — offline checks, no agent</option>
         </select>
         <button id="e-add" class="ghost">+ add judge</button>
       </div>
@@ -145,8 +150,8 @@
         <input id="m-q" placeholder="search judges…" style="flex:1">
         <select id="m-kind">
           <option value="">all kinds</option>
-          <option>rule</option><option>llm</option>
-          <option>agent</option><option>panel</option>
+          <option>llm</option><option>agent</option>
+          <option>panel</option><option>rule</option>
         </select>
       </div>
       <div id="listings" class="dim">loading…</div>
@@ -157,13 +162,23 @@
         <input id="p-name" placeholder="listing name (a-z 0-9 - _)">
         <input id="p-author" placeholder="you (author)">
         <select id="p-kind">
-          <option value="rule">rule</option><option value="llm">llm</option>
-          <option value="agent">agent</option><option value="panel">panel</option>
+          <option value="llm">llm — a model scores your criteria 0–100</option>
+          <option value="agent">agent — an agent-protocol run scores 0–100</option>
+          <option value="panel">panel — another panel's average votes</option>
+          <option value="rule">rule — offline checks, no agent</option>
         </select>
       </div>
+      <p class="dim" id="p-hint" style="margin:0 0 8px"></p>
       <input id="p-desc" placeholder="one-line description" style="width:100%;margin-bottom:6px">
       <input id="p-tags" placeholder="tags, comma, separated" style="width:100%;margin-bottom:6px">
       <div id="p-fields"></div>
+      <div class="try">
+        <textarea id="p-sample" placeholder="try it — paste a sample input and the judge scores it 0–100 (nothing is recorded)"></textarea>
+        <div class="row">
+          <button id="p-try" class="ghost">score sample</button>
+          <span id="p-score"></span>
+        </div>
+      </div>
       <button id="p-go">publish</button>
       <div id="p-msg" class="msg"></div>
     </div>
@@ -302,14 +317,22 @@ $('unlock').onclick = async () => {
 };
 
 /* ── panel editor ─────────────────────────────────────────── */
+const KIND_HINT = {
+  llm:   'the judge is an agent: it reads the input, applies your criteria and returns {"score": 0–100, "reason"} — via the openrouter mod by default, or any OpenAI-compatible endpoint',
+  agent: 'the judge is an orbit/agent run: the input is posed as a run and its finish summary is parsed as {"score": 0–100, "reason"}',
+  panel: 'the judge is a whole panel: its weighted average becomes this vote (judges of judges)',
+  rule:  'no agent — offline length/word checks, −50 per fault; handy as a cheap gate beside agent judges',
+};
 const KIND_FIELDS = {
   rule:  [['min_len', 'min length', 'num'], ['max_len', 'max length', 'num'],
           ['require', 'require words (comma)', 'list'],
           ['forbid', 'forbid words (comma)', 'list']],
-  llm:   [['prompt', 'criteria prompt', 'wide'], ['model', 'model (optional)', 'txt'],
+  llm:   [['prompt', 'criteria — what earns 100, what earns 0', 'wide'],
+          ['model', 'model (optional)', 'txt'],
           ['url', 'endpoint url (optional)', 'txt']],
-  agent: [['agent_type', 'agent type', 'agent'], ['prompt', 'criteria prompt', 'wide'],
-          ['model', 'model (optional)', 'txt'], ['steps', 'steps (default 6)', 'num']],
+  agent: [['agent_type', 'agent type', 'agent'],
+          ['prompt', 'criteria — what earns 100, what earns 0', 'wide'],
+          ['model', 'model (optional)', 'txt'], ['steps', 'steps (default 3)', 'num']],
   panel: [['panel', 'panel that votes', 'panelref']],
 };
 
@@ -317,7 +340,7 @@ function judgeRow(j, i) {
   const fields = (KIND_FIELDS[j.kind] || []).map(([k, label, t]) => {
     const v = j[k] ?? '';
     if (t === 'wide')
-      return `<input class="wide" data-k="${k}" placeholder="${label}" value="${esc(v)}">`;
+      return `<textarea class="wide" data-k="${k}" placeholder="${label}" rows="2">${esc(v)}</textarea>`;
     if (t === 'panelref')
       return `<select data-k="${k}">` + PANELS
         .filter(p => p.name !== (EDIT.orig || $('e-name').value))
@@ -446,15 +469,19 @@ function renderPublishFields() {
       return `<select data-pk="${k}">${PANELS.map(p =>
         `<option>${esc(p.name)}</option>`).join('')}</select>`;
     const list = t === 'agent' ? 'list="agentlist"' : '';
-    const wide = t === 'wide' ? 'style="width:100%;margin-bottom:6px"' : '';
-    return `<input data-pk="${k}" ${list} ${wide} placeholder="${label}"
+    if (t === 'wide')
+      return `<textarea data-pk="${k}" placeholder="${label}" rows="3"
+              style="width:100%;margin-bottom:6px"></textarea>`;
+    return `<input data-pk="${k}" ${list} placeholder="${label}"
             style="margin:0 6px 6px 0">`;
   }).join('');
+  $('p-hint').textContent = KIND_HINT[kind] || '';
+  $('p-score').innerHTML = '';
 }
-const EDITPUB = {kind: 'rule'};
+const EDITPUB = {kind: 'llm'};
 $('p-kind').onchange = renderPublishFields;
 
-$('p-go').onclick = async () => {
+function readPublishSpec() {
   const spec = {kind: $('p-kind').value};
   $('p-fields').querySelectorAll('[data-pk]').forEach(el => {
     const k = el.dataset.pk, v = el.value.trim();
@@ -464,6 +491,31 @@ $('p-go').onclick = async () => {
       spec[k] = v.split(',').map(s => s.trim()).filter(Boolean);
     else spec[k] = v;
   });
+  return spec;
+}
+
+$('p-try').onclick = async () => {
+  const input = $('p-sample').value.trim();
+  if (!input) { $('p-score').innerHTML = '<span class="dim">paste a sample input first</span>'; return; }
+  if (!TRUSTED) {
+    $('p-score').innerHTML = '<span class="dim">trying a judge runs it — unlock with the box token on the PANELS tab</span>';
+    return;
+  }
+  const spec = readPublishSpec();
+  spec.name = $('p-name').value.trim() || 'try';
+  $('p-score').innerHTML = '<span class="dim">scoring…</span>';
+  $('p-try').disabled = true;
+  try {
+    const r = await post('score', {spec, input});
+    $('p-score').innerHTML = r.error
+      ? `<span class="fail">${esc(r.error)}</span>`
+      : `<span class="score">${Math.round(r.score)}<small>/ 100</small></span>
+         <span class="dim">${esc(r.reason)}</span>`;
+  } finally { $('p-try').disabled = false; }
+};
+
+$('p-go').onclick = async () => {
+  const spec = readPublishSpec();
   const r = await post('publish_judge', {
     name: $('p-name').value.trim(), author: $('p-author').value.trim(),
     description: $('p-desc').value.trim(), tags: $('p-tags').value, spec });

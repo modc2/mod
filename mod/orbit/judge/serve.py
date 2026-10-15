@@ -44,9 +44,9 @@ import panel  # noqa: E402
 READ_FNS = ('health', 'info', 'readme', 'panels', 'panel', 'verdict',
             'verdicts', 'verify', 'key_kinds', 'market', 'listing',
             'agents', 'auth')
-WRITE_FNS = ('judge', 'create_panel', 'update_panel', 'remove_panel',
+WRITE_FNS = ('judge', 'score', 'create_panel', 'update_panel', 'remove_panel',
              'publish_judge', 'unpublish_judge', 'install_judge')
-LOCAL_ONLY = ('create_panel', 'update_panel', 'remove_panel', 'install_judge')
+LOCAL_ONLY = ('score', 'create_panel', 'update_panel', 'remove_panel', 'install_judge')
 
 _book = None
 _shop = None
@@ -143,6 +143,8 @@ def api(fn, a):
                                        a.get('limit', 50), a.get('offset', 0))}
     if fn == 'judge':
         return b.judge(a.get('panel', ''), a.get('input', ''))
+    if fn == 'score':
+        return b.score(a.get('spec'), a.get('input', ''))
     if fn == 'create_panel':
         return b.create(a.get('name', ''), a.get('creator', ''),
                         a.get('judges'), a.get('threshold', 60),

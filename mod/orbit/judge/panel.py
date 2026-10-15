@@ -341,6 +341,29 @@ class Panels:
         return {'id': v['id'], 'panel': v['panel'], 'verified': all_ok,
                 'judges': judges}
 
+    def score(self, spec, input):
+        """Try one judge spec on an input without a panel: the judge's
+        0-100 score and reason, nothing recorded or signed. The spec is
+        checked exactly as a bench seat would be."""
+        if isinstance(spec, str):
+            try:
+                spec = json.loads(spec)
+            except Exception:
+                return {'error': 'spec must be a JSON object'}
+        if not isinstance(spec, dict):
+            return {'error': 'spec must be a JSON object'}
+        if not input:
+            return {'error': 'nothing to score'}
+        spec = dict(spec, name=spec.get('name') or 'try')
+        err = self._check_judges([spec])
+        if isinstance(err, dict):
+            return err
+        s = self._score(spec, input)
+        if s['score'] is None:
+            return {'error': s['reason'], 'name': s['name'], 'kind': s['kind']}
+        return {'name': s['name'], 'kind': s['kind'], 'score': s['score'],
+                'reason': s['reason']}
+
     def verdict(self, id):
         r = self.db.execute('SELECT * FROM verdicts WHERE id=?', (id,)).fetchone()
         if not r:

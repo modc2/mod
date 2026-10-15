@@ -121,6 +121,11 @@ class Mod:
         weighted average must reach the threshold, else the verdict is FAIL."""
         return self.book.judge(panel, input)
 
+    def score(self, spec, input):
+        """Try one judge spec on an input without a panel — its 0-100 score
+        and reason, nothing recorded. spec = the same JSON a bench seat takes."""
+        return self.book.score(spec, input)
+
     def verdict(self, id):
         """One verdict, with every judge's score and reason."""
         return self.book.verdict(int(id))
