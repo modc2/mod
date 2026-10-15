@@ -1,12 +1,12 @@
-"""drills - the agent board plays the arena module's drill games
+"""drills - the agent board plays the arena module's drill arenas
 
 `orbit/arena` is the other arena in this fleet: you upload a Python class or a
-wasm module and it *is* a game, and players — bots, models, agents — are seated
-at it and rated. Most of what lives there is a game in the ordinary sense, two
+wasm module and it *is* an arena, and players — bots, models, agents — are seated
+at it and rated. Most of what lives there is a match in the ordinary sense, two
 seats taking turns, which does not fit a board that runs an agent once and
 scores what it left behind.
 
-Its *drills* do fit, exactly. A drill is a game whose questions are generated
+Its *drills* do fit, exactly. A drill is an arena whose questions are generated
 from the seed and graded on the spot: `addup`, `times`, `jsonpath`, `jsonfix`,
 `invoice` — adding, multiplying, reading a JSON document, repairing a broken
 one, and an invoice that needs all four. One round is one question with one
@@ -19,7 +19,7 @@ right answer, which is precisely the shape of a task here:
                 "path": "answer.txt"}]
 
 At scoring time the `arena` scorer takes what the agent wrote and plays it into
-a table at that game, over the game's own MCP server, and reads back whether it
+a table at that arena, over the arena's own MCP server, and reads back whether it
 stood. **The arena grades it, in its own sandbox, running its own class.** This
 module never evaluates a drill's answer and never holds a copy of one, so an
 agent rated here on `invoice` was rated by the same code that rates `calc` and
@@ -62,8 +62,8 @@ DEFAULT_BASE = "http://127.0.0.1:50470"
 
 SUITE = "arena"
 
-# the tag a drill carries in the arena's registry. A game without it is a game
-# in the ordinary sense — two seats, many turns — and does not belong here
+# the tag a drill carries in the arena's registry. An arena without it is a
+# match in the ordinary sense — two seats, many turns — and does not belong here
 DRILL_TAG = "drill"
 
 # One question is one answer: no file to compile, no test to run. Four steps is
@@ -87,7 +87,7 @@ T_LIST = 5.0
 T_PLAY = 90.0
 
 _lock = threading.Lock()
-_games: Dict[str, Any] = {"ts": 0.0, "rows": []}
+_arenas: Dict[str, Any] = {"ts": 0.0, "rows": []}
 _sheets: Dict[str, str] = {}
 
 
@@ -130,10 +130,10 @@ def _get(path: str, timeout: float = T_LIST) -> Any:
     return r.json()
 
 
-def _rpc(game: str, tool: str, args: Dict[str, Any], timeout: float = T_PLAY) -> Dict[str, Any]:
-    """Call one tool on a game's own MCP server — `/m/<game>/mcp`.
+def _rpc(arena: str, tool: str, args: Dict[str, Any], timeout: float = T_PLAY) -> Dict[str, Any]:
+    """Call one tool on an arena's own MCP server — `/m/<arena>/mcp`.
 
-    Every game in that registry has one, and it is the turn-taking door: `open`
+    Every arena in that registry has one, and it is the turn-taking door: `open`
     a table, read the `view`, send a `move`. We speak it directly rather than
     through a client library because it is four lines of JSON-RPC and a
     dependency is a thing that can be missing.
@@ -143,20 +143,20 @@ def _rpc(game: str, tool: str, args: Dict[str, Any], timeout: float = T_PLAY) ->
     body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": tool, "arguments": args}}
     try:
-        r = requests.post(f"{base()}/m/{game}/mcp", json=body, timeout=timeout)
+        r = requests.post(f"{base()}/m/{arena}/mcp", json=body, timeout=timeout)
     except Exception as e:
         raise Unavailable(f"the arena is unreachable at {base()}: {e}")
     try:
         out = r.json()
     except Exception:
-        raise Unavailable(f"arena /m/{game}/mcp -> {r.status_code} {r.text[:160]}")
+        raise Unavailable(f"arena /m/{arena}/mcp -> {r.status_code} {r.text[:160]}")
 
     result = out.get("result") or {}
     if out.get("error"):
         raise Unavailable(f"arena {tool}: {str(out['error'])[:200]}")
     if result.get("isError"):
-        # A tool error is the arena saying no to *this call* — an unknown game,
-        # a table that aged out, a move at a finished game. That is a real
+        # A tool error is the arena saying no to *this call* — an unknown arena,
+        # a table that aged out, a move at a finished arena. That is a real
         # answer, not an outage, but nothing here can proceed on it.
         text = ""
         for block in result.get("content") or []:
@@ -189,55 +189,55 @@ def available() -> bool:
 def status() -> Dict[str, Any]:
     """A card for the console: is it up, and what can be played."""
     try:
-        rows = games(ttl=0.0)
+        rows = arenas(ttl=0.0)
     except Unavailable as e:
-        return {"available": False, "base": base(), "error": str(e), "games": []}
+        return {"available": False, "base": base(), "error": str(e), "arenas": []}
     return {
         "available": True,
         "base": base(),
-        "games": [{"name": g["name"], "description": g.get("description", ""),
+        "arenas": [{"name": g["name"], "description": g.get("description", ""),
                    "rounds": rounds_of(g)} for g in rows],
     }
 
 
 # ── the drills over there ────────────────────────────────────────────
 
-def games(ttl: float = LIST_TTL) -> List[Dict[str, Any]]:
-    """Every drill game in the arena's registry. Cached briefly — the console
+def arenas(ttl: float = LIST_TTL) -> List[Dict[str, Any]]:
+    """Every drill arena in the arena's registry. Cached briefly — the console
     polls, and anyone can upload a new one at any moment."""
     import time
     with _lock:
-        if ttl and _games["rows"] and (time.time() - _games["ts"]) < ttl:
-            return list(_games["rows"])
+        if ttl and _arenas["rows"] and (time.time() - _arenas["ts"]) < ttl:
+            return list(_arenas["rows"])
     body = _get(f"/modules?role=game&tag={DRILL_TAG}")
     rows = [m for m in (body.get("modules") or [])
             if DRILL_TAG in (m.get("tags") or [])]
     rows.sort(key=lambda m: m.get("name", ""))
     with _lock:
-        _games["rows"], _games["ts"] = rows, time.time()
+        _arenas["rows"], _arenas["ts"] = rows, time.time()
     return list(rows)
 
 
-def rounds_of(game: Dict[str, Any]) -> int:
+def rounds_of(arena: Dict[str, Any]) -> int:
     """How many rounds a drill runs, off its declared `max_turns`."""
-    for attr in (game.get("info") or {}).get("attributes") or []:
+    for attr in (arena.get("info") or {}).get("attributes") or []:
         if attr.get("name") == "max_turns":
             digits = re.findall(r"\d+", str(attr.get("value") or ""))
             if digits:
                 return int(digits[0])
-    return int((game.get("info") or {}).get("max_turns") or 6)
+    return int((arena.get("info") or {}).get("max_turns") or 6)
 
 
 def forget() -> None:
     """Drop the caches. Only the tests and a fresh upload need this."""
     with _lock:
-        _games["rows"], _games["ts"] = [], 0.0
+        _arenas["rows"], _arenas["ts"] = [], 0.0
         _sheets.clear()
 
 
 # ── a table, walked to a round ───────────────────────────────────────
 
-def _walk(game: str, seed: int, round: int) -> Dict[str, Any]:
+def _walk(arena: str, seed: int, round: int) -> Dict[str, Any]:
     """Open a table and blank-move it forward to `round`.
 
     The blanks are not a trick played on the drill: an empty answer is illegal
@@ -245,51 +245,51 @@ def _walk(game: str, seed: int, round: int) -> Dict[str, Any]:
     depend on its answers. So the table arrives at round 4 with a clean slate
     and the same question, which is what makes "round 4" addressable at all.
     """
-    opened = _rpc(game, "open", {"seats": 1, "seed": int(seed)})
+    opened = _rpc(arena, "open", {"seats": 1, "seed": int(seed)})
     table = opened.get("table")
     if not table:
-        raise Unavailable(f"the arena opened no table at {game}")
+        raise Unavailable(f"the arena opened no table at {arena}")
     state = opened.get("state") or {}
     for _ in range(max(0, int(round))):
         if state.get("done"):
             break
-        state = (_rpc(game, "move", {"table": table, "seat": 0, "move": ""})
+        state = (_rpc(arena, "move", {"table": table, "seat": 0, "move": ""})
                  or {}).get("state") or {}
     return {"table": table, "state": state}
 
 
-def sheet(game: str, seed: int = DEFAULT_SEED, round: int = 0) -> str:
+def sheet(arena: str, seed: int = DEFAULT_SEED, round: int = 0) -> str:
     """The view a seat is shown at that round — the whole of what it gets.
 
-    Cached forever by (game, seed, round): a drill is deterministic in its seed,
-    so this text cannot change without the game's bytes changing, and its bytes
+    Cached forever by (arena, seed, round): a drill is deterministic in its seed,
+    so this text cannot change without the arena's bytes changing, and its bytes
     are its id.
     """
-    key = f"{game}@{seed}@{round}"
+    key = f"{arena}@{seed}@{round}"
     with _lock:
         if key in _sheets:
             return _sheets[key]
-    state = _walk(game, seed, round)["state"]
+    state = _walk(arena, seed, round)["state"]
     views = state.get("views") or {}
     view = str(views.get("0") or views.get(0) or "")
     if not view.strip():
-        raise Unavailable(f"{game} round {round} showed seat 0 nothing")
+        raise Unavailable(f"{arena} round {round} showed seat 0 nothing")
     with _lock:
         _sheets[key] = view
     return view
 
 
-def grade(game: str, seed: int, round: int, answer: str) -> Dict[str, Any]:
-    """Play one answer into a table at that game and read back how it went.
+def grade(arena: str, seed: int, round: int, answer: str) -> Dict[str, Any]:
+    """Play one answer into a table at that arena and read back how it went.
 
     Returns `{correct, legal, note, answer}`. The judgement is the arena's: we
     walk a table to the round, play the answer, and look at what the drill says
     afterwards — its own "Correct so far" line, or its result if that was the
     last round. Nothing here knows what the right answer was.
     """
-    walked = _walk(game, seed, round)
+    walked = _walk(arena, seed, round)
     before = _correct_in(walked["state"])
-    played = _rpc(game, "move",
+    played = _rpc(arena, "move",
                   {"table": walked["table"], "seat": 0, "move": str(answer)})
     state = played.get("state") or {}
     legal = played.get("legal")
@@ -307,7 +307,7 @@ def grade(game: str, seed: int, round: int, answer: str) -> Dict[str, Any]:
         "legal": bool(legal) if legal is not None else True,
         "note": str(played.get("note") or ""),
         "answer": str(answer)[:400],
-        "game": game, "seed": int(seed), "round": int(round),
+        "arena": arena, "seed": int(seed), "round": int(round),
     }
 
 
@@ -341,16 +341,16 @@ def task_rounds(total: int, want: int) -> List[int]:
                    for i in range(want)})
 
 
-def as_arena_task(game: Dict[str, Any], round: int, seed: int = DEFAULT_SEED,
+def as_arena_task(arena: Dict[str, Any], round: int, seed: int = DEFAULT_SEED,
                   steps: int = None) -> Dict[str, Any]:
     """One round of one drill, as a task on this board."""
-    name = game.get("name") or ""
+    name = arena.get("name") or ""
     view = sheet(name, seed, round)
     return {
         "suite": SUITE,
         "key": f"{SUITE}#{name}@{round}",
         "title": f"{name} · round {round + 1}",
-        "description": game.get("description", ""),
+        "description": arena.get("description", ""),
         "prompt": (
             f"You are sitting at `{name}`, a drill in the arena module. This is "
             f"the view your seat is shown, and it is the whole of what you get:\n\n"
@@ -361,6 +361,8 @@ def as_arena_task(game: Dict[str, Any], round: int, seed: int = DEFAULT_SEED,
             f"arena decides whether it stood."
         ),
         "steps": int(steps or DEFAULT_STEPS),
+        # "game" is the arena mod's word, and the key stays: the scorers are
+        # part of a task's fingerprint, so renaming it would re-run every drill
         "scorers": [{"type": SUITE, "game": name, "seed": int(seed),
                      "round": int(round), "path": "answer.txt"}],
     }
@@ -371,15 +373,15 @@ def pool(rounds: int = DEFAULT_ROUNDS, seed: int = DEFAULT_SEED,
     """The arena's drills as tasks. Never raises: a neighbour that is down
     means no drill tasks this round, not a round that fell over."""
     try:
-        rows = games()
+        rows = arenas()
     except Exception:
         return []
     out: List[Dict[str, Any]] = []
-    for game in rows:
+    for arena in rows:
         try:
-            total = rounds_of(game)
+            total = rounds_of(arena)
             for r in task_rounds(total, rounds):
-                out.append(as_arena_task(game, r, seed=seed, steps=steps))
+                out.append(as_arena_task(arena, r, seed=seed, steps=steps))
         except Exception:
             # one unreadable drill is one drill missing from the pool
             continue
@@ -398,7 +400,7 @@ def task(key: str, seed: int = DEFAULT_SEED, steps: int = None) -> Optional[Dict
     if not name:
         return None
     try:
-        row = next((g for g in games() if g.get("name") == name), None)
+        row = next((g for g in arenas() if g.get("name") == name), None)
         if row is None:
             return None
         return as_arena_task(row, int(tail or 0), seed=seed, steps=steps)

@@ -401,7 +401,7 @@ def arena(trace, spec) -> Dict[str, Any]:
     """Play the run's answer into a drill at the arena module and read it back.
 
     The sibling of `openarena`, and the same bargain: the neighbour grades. A
-    drill over there is a game class in its own sandbox, and the only way to
+    drill over there is an arena class in its own sandbox, and the only way to
     find out whether an answer is right is to play it into a table and look at
     what the drill says afterwards — so that is what this does. No drill's
     answer is computed in this process, and none is stored here.
@@ -418,10 +418,12 @@ def arena(trace, spec) -> Dict[str, Any]:
     """
     from src.arena import drills as dr
 
-    game = str(spec.get('game') or '').strip()
-    if not game:
+    # `game` is the key the arena mod and every stored drill spec carry;
+    # `arena` is read too, for a spec written with this module's word
+    name = str(spec.get('arena') or spec.get('game') or '').strip()
+    if not name:
         return {'passed': False, 'score': 0.0, 'void': True,
-                'reason': 'arena scorer needs `game`'}
+                'reason': 'arena scorer needs `arena`'}
 
     answer = ''
     path = spec.get('path') or ''
@@ -440,7 +442,7 @@ def arena(trace, spec) -> Dict[str, Any]:
                 'reason': f"nothing to play — no {entry} and nothing said"}
 
     try:
-        out = dr.grade(game, int(spec.get('seed') or dr.DEFAULT_SEED),
+        out = dr.grade(name, int(spec.get('seed') or dr.DEFAULT_SEED),
                        int(spec.get('round') or 0), answer)
     except Exception as e:
         # the arena, not the agent — see the docstring
@@ -455,7 +457,7 @@ def arena(trace, spec) -> Dict[str, Any]:
     return {
         'passed': right,
         'score': 1.0 if right else 0.0,
-        'reason': f"{game} round {int(spec.get('round') or 0) + 1}: {shape}"
+        'reason': f"{name} round {int(spec.get('round') or 0) + 1}: {shape}"
                   + (f" — {out['note']}" if out.get('note') else ''),
         'legal': bool(out.get('legal')),
     }

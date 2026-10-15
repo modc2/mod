@@ -1824,7 +1824,7 @@ g:hover > .builder-wire {
 .ap-tick { display: inline-flex; align-items: center; gap: 7px; padding: 0 16px; height: 100%; white-space: nowrap;
   font-size: 11px; color: rgb(var(--g-400)); border-right: 1px solid rgb(var(--ink) / 0.05); }
 .ap-tick:hover { color: rgb(var(--g-100)); background: rgb(var(--ink) / 0.03); }
-.ap-tick-game { font-family: var(--chrome); font-size: 9.5px; text-transform: uppercase; letter-spacing: .1em; color: rgb(var(--i-300)); }
+.ap-tick-arena { font-family: var(--chrome); font-size: 9.5px; text-transform: uppercase; letter-spacing: .1em; color: rgb(var(--i-300)); }
 .ap-tick-ago { font-family: var(--mono); font-size: 10px; color: rgb(var(--g-600)); }
 .ap-up { font-family: var(--mono); font-size: 10px; color: rgb(var(--a-300)); }
 .ap-dn { font-family: var(--mono); font-size: 10px; color: rgb(var(--d-300)); }

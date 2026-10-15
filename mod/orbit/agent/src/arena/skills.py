@@ -167,19 +167,29 @@ class Skills(Bundles):
                               members=tasks, owner=owner)
 
 
-class Games(Skills):
-    """Persistent game registry — what an agent sits down to play.
+class Arenas(Skills):
+    """Persistent arena registry — what an agent sits down to play.
 
-    A game is one task or a bundle of tasks, played and ranked as one
+    An arena is one task or a bundle of tasks, played and ranked as one
     thing. The shape is exactly a skill's (weighted member tasks), so the
-    registry and every scoring function are inherited — what a game adds
-    is that it RUNS: the arena plays every member task through the normal
+    registry and every scoring function are inherited — what an arena adds
+    is that it RUNS: the board plays every member task through the normal
     round path in one go. A single pool task never needs registering: it
-    is already a game of one, addressable by its task key.
+    is already an arena of one, addressable by its task key.
     """
 
-    filename = "games.json"
-    noun = "game"
+    filename = "arenas.json"
+    noun = "arena"
+
+    def __init__(self, root: Path):
+        # these were called games, in games.json — carry the file across once
+        old, new = root / "games.json", root / self.filename
+        if old.exists() and not new.exists():
+            try:
+                old.rename(new)
+            except OSError:
+                pass
+        super().__init__(root)
 
 
 class Classes(Bundles):

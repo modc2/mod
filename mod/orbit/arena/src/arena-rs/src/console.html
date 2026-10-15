@@ -344,7 +344,12 @@
   .doc a { color: var(--accent); text-decoration: none; }
   .doc a:hover { text-decoration: underline; }
   .doc .art { display: block; overflow-x: auto; }
-  @media (max-width: 720px) { .docs { grid-template-columns: minmax(0, 1fr); } .toc { position: static; } }
+  @media (max-width: 900px) { .docs { grid-template-columns: 160px minmax(0, 1fr); gap: 12px; }
+                              .toc a { padding: 4px 6px; font-size: 12px; } }
+  @media (max-width: 480px) { .docs { grid-template-columns: minmax(0, 1fr); } .toc { position: static; }
+                              #doc-list { display: flex; gap: 4px; overflow-x: auto; white-space: nowrap; }
+                              .toc a { border-left: 0; border-bottom: 2px solid transparent; }
+                              .toc a[aria-current="true"] { border-bottom-color: var(--accent); } }
   #toast {
     position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom));
     transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line);

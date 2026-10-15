@@ -29,10 +29,16 @@ CRATE = os.path.join(HERE, 'near')
 SANDBOX_HOME = os.path.join(HERE, 'data', 'near-sandbox')
 SANDBOX_PORT = int(os.environ.get('ZUMA_NEAR_PORT', 51333))
 SANDBOX_BIN = os.path.expanduser('~/.local/bin/near-sandbox')
-# shared warm target dir (orbit/near's contracts): a cold near-sdk build is minutes
-TARGET = os.environ.get('ZUMA_NEAR_TARGET', os.path.join(
-    os.path.dirname(HERE), 'near', 'contracts', '.target'))
-WASM = os.path.join(TARGET, 'wasm32-unknown-unknown', 'release', 'zuma_near.wasm')
+# own target dir: the MVP flags below change every artifact, so sharing
+# orbit/near's warm dir would make the two thrash (cold build ~1 min)
+TARGET = os.environ.get('ZUMA_NEAR_TARGET', os.path.join(CRATE, 'target'))
+# nearcore 2.0 (protocol 69) parses MVP wasm (+sign-ext) only; rustc >= 1.82
+# emits reference-types/bulk-memory by default -> PrepareError: Deserialization
+RUSTFLAGS = '-C target-cpu=mvp -C link-arg=-s'
+RAW_WASM = os.path.join(TARGET, 'wasm32-unknown-unknown', 'release', 'zuma_near.wasm')
+WASM = RAW_WASM.replace('.wasm', '.lowered.wasm')  # what gets deployed
+LOWER_SRC = os.path.join(HERE, 'tools', 'wasmlower')
+LOWER_BIN = os.path.join(TARGET, 'release', 'wasmlower')
 NEAR_KEYS = os.path.expanduser('~/.mod/near/keys.json')
 TGAS = 10 ** 12
 YOCTO = 10 ** 24
@@ -169,7 +175,9 @@ class NearZuma:
             'account_id': account,
             'public_key': 'ed25519:' + b58encode(pub)})
         nonce = int(key['nonce']) + 1
-        bh = b58decode(self._rpc(net, 'block', {'finality': 'final'})
+        # optimistic head: after a sandbox fast-forward the final block can
+        # sit hundreds of heights back, past the tx validity window (Expired)
+        bh = b58decode(self._rpc(net, 'block', {'finality': 'optimistic'})
                        ['header']['hash'])
         tx = (_bstr(account) + _pk(pub) + _u64(nonce) + _bstr(receiver) + bh
               + _u32(len(actions)) + b''.join(actions))
@@ -249,19 +257,51 @@ class NearZuma:
         self._rpc(net, 'sandbox_fast_forward', {'delta_height': int(blocks)})
         while self.block(net) < target:
             time.sleep(0.2)
+        # let finality catch up, so final-block reads see the new epoch too
+        while self._rpc(net, 'block', {'finality': 'final'})['header'][
+                'height'] < target:
+            time.sleep(0.2)
 
     # ---- build + deploy ----------------------------------------------------
 
     def build(self):
-        env = dict(os.environ, CARGO_TARGET_DIR=TARGET)
+        """cargo build (MVP flags) -> tools/wasmlower -> WASM. The std that
+        rustup ships still carries memory.copy/fill and overlong
+        call_indirect; wasmlower rewrites them and validates the result as
+        MVP + sign-ext, which is what nearcore (sandbox AND testnet) loads."""
+        env = dict(os.environ, CARGO_TARGET_DIR=TARGET, RUSTFLAGS=RUSTFLAGS)
         out = subprocess.run(['cargo', 'build', '--offline', '--release',
                               '--target', 'wasm32-unknown-unknown'],
                              cwd=CRATE, capture_output=True, text=True,
                              timeout=900, env=env)
-        ok = out.returncode == 0 and os.path.exists(WASM)
-        return {'ok': ok, 'wasm': WASM if ok else None,
-                'bytes': os.path.getsize(WASM) if ok else None,
-                'log': out.stderr.strip()[-1500:]}
+        if out.returncode != 0 or not os.path.exists(RAW_WASM):
+            return {'ok': False, 'stage': 'cargo', 'wasm': None,
+                    'log': out.stderr.strip()[-1500:]}
+        if not os.path.exists(LOWER_BIN):
+            lb = subprocess.run(['cargo', 'build', '--offline', '--release'],
+                                cwd=LOWER_SRC, capture_output=True, text=True,
+                                timeout=600, env=dict(os.environ,
+                                                      CARGO_TARGET_DIR=TARGET))
+            if lb.returncode != 0:
+                return {'ok': False, 'stage': 'wasmlower build', 'wasm': None,
+                        'log': lb.stderr.strip()[-1500:]}
+        lo = subprocess.run([LOWER_BIN, RAW_WASM, WASM], capture_output=True,
+                            text=True, timeout=60)
+        if lo.returncode != 0:
+            return {'ok': False, 'stage': 'wasmlower', 'wasm': None,
+                    'log': (lo.stdout + lo.stderr).strip()[-1500:]}
+        return {'ok': True, 'wasm': WASM, 'bytes': os.path.getsize(WASM),
+                'lowered': json.loads(lo.stdout.strip().splitlines()[-1]),
+                'log': out.stderr.strip()[-600:]}
+
+    def _stale(self):
+        if not os.path.exists(WASM):
+            return True
+        t = os.path.getmtime(WASM)
+        srcs = [os.path.join(CRATE, 'Cargo.toml')] + [
+            os.path.join(CRATE, 'src', f) for f in os.listdir(
+                os.path.join(CRATE, 'src'))]
+        return any(os.path.getmtime(p) > t for p in srcs)
 
     def test(self):
         env = dict(os.environ, CARGO_TARGET_DIR=TARGET)
@@ -317,7 +357,7 @@ class NearZuma:
         """Sandbox: a fresh zuma-<ts>.test.near per deploy. Testnet: deploys
         to `contract` (default: the signer `account` itself; NEAR accounts
         ARE contracts) — needs ~5 NEAR for storage of a 440 KB wasm."""
-        if not os.path.exists(WASM):
+        if self._stale():
             b = self.build()
             if not b['ok']:
                 return {'ok': False, 'stage': 'build', 'error': b['log']}

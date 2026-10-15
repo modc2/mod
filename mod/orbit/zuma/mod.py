@@ -1,4 +1,4 @@
-"""zuma — an anonymous subnet on Starknet.
+"""zuma — an anonymous subnet on Starknet AND NEAR.
 
 Bittensor-style miners and validators where neither side knows who the
 other is — only that they are in the registered set. Every action is a
@@ -26,6 +26,13 @@ Layout:
                 via `scarb cairo-run`), so signer and verifier never drift
     data/       keys.json (0600, secrets — never leave this box),
                 deployments.json, devnet/ (local chain state)
+
+Two contracts, one signature scheme:
+    starknet    contracts/ (Cairo) — the EC builtin verifies natively
+    near        near/ (Rust -> wasm, near-sdk 5) — lsag.rs is a port of
+                lsag.cairo and verifies the SAME prover output; driven by
+                near_chain.py (local near-sandbox :51333 or NEAR testnet)
+Every write fn takes network=devnet|sepolia|mainnet|near|near-testnet.
 
 Toolchain: scarb 2.8.4, snforge/sncast 0.31, starknet-devnet 0.2.4 in
 ~/.local/bin (shared with orbit/cairo).
@@ -71,6 +78,8 @@ NETWORKS = {
         'ZUMA_RPC_MAINNET', 'https://starknet-rpc.publicnode.com'),
         'section': 'alpha-mainnet', 'fee': 'strk'},
 }
+NEAR_NETS = ('near', 'near-testnet')
+CHAINS = {'starknet': 'devnet', 'near': 'near'}  # simulate(chain=) -> local net
 DEFAULT_ACCOUNTS = os.path.expanduser(
     '~/.starknet_accounts/starknet_open_zeppelin_accounts.json')
 
@@ -101,6 +110,33 @@ def _selector(name):
     """starknet_keccak(name): keccak256 truncated to 250 bits."""
     from eth_hash.auto import keccak
     return hex(int.from_bytes(keccak(name.encode()), 'big') & ((1 << 250) - 1))
+
+
+_NEAR = None
+
+
+def _near():
+    """near_chain.NearZuma, loaded by path (a bare import could resolve to
+    another module's near_chain)."""
+    global _NEAR
+    if _NEAR is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'zuma_near_chain', os.path.join(HERE, 'near_chain.py'))
+        m = importlib.util.module_from_spec(spec)
+        sys.modules['zuma_near_chain'] = m
+        spec.loader.exec_module(m)
+        _NEAR = m.NearZuma(DATA)
+    return _NEAR
+
+
+def _near_wasm():
+    return sys.modules[type(_near()).__module__].WASM
+
+
+def _sim_path(chain):
+    return LAST_SIM if chain == 'starknet' else os.path.join(
+        DATA, f'last_sim_{chain}.json')
 
 
 def _env():
@@ -142,7 +178,7 @@ class Mod:
         return {'name': 'zuma', 'description': self.description,
                 'version': self.config.get('version'),
                 'protocol': self.config.get('protocol'),
-                'networks': sorted(NETWORKS),
+                'networks': sorted(NETWORKS) + list(NEAR_NETS),
                 'deployments': _load(DEPLOYS, {}),
                 'keys': self.keys(),
                 'fns': self.config.get('fns')}
@@ -155,7 +191,11 @@ class Mod:
                     CONTRACTS, 'target', 'dev',
                     'zuma_Zuma.contract_class.json')),
                 'prover_built': os.path.isdir(os.path.join(PROVER, 'target')),
-                'devnet_up': self._devnet_alive()}
+                'devnet_up': self._devnet_alive(),
+                'near': {'sandbox_up': _near()._alive(),
+                         'wasm_built': os.path.exists(_near_wasm()),
+                         'sandbox_bin': os.path.exists(os.path.expanduser(
+                             '~/.local/bin/near-sandbox'))}}
 
     def readme(self):
         p = os.path.join(HERE, 'README.md')
@@ -170,21 +210,41 @@ class Mod:
                         if not l.startswith(('warning:', '   ', ' -->')))
         return {'ok': out.returncode == 0, 'log': log.strip()[-4000:]}
 
-    def build(self):
-        """Compile the contract (Sierra+CASM) and the prover."""
-        c = self._run([os.path.join(BIN, 'scarb'), 'build'], CONTRACTS)
-        p = self._run([os.path.join(BIN, 'scarb'), 'build'], PROVER)
-        return {'ok': c['ok'] and p['ok'], 'contracts': c, 'prover': p}
+    def build(self, chain='all'):
+        """Compile the Cairo contract (Sierra+CASM) + prover, and the NEAR
+        contract (wasm, lowered to MVP). chain = starknet | near | all."""
+        out = {}
+        if chain in ('all', 'starknet'):
+            out['contracts'] = self._run([os.path.join(BIN, 'scarb'), 'build'],
+                                         CONTRACTS)
+            out['prover'] = self._run([os.path.join(BIN, 'scarb'), 'build'],
+                                      PROVER)
+        if chain in ('all', 'near'):
+            out['near'] = _near().build()
+        out['ok'] = all(v['ok'] for v in out.values())
+        return out
 
-    def test(self):
-        """snforge suite: LSAG soundness/linkability + the full epoch flow
-        and every rejection path. First run compiles snforge_std (~1 min)."""
-        r = self._run([os.path.join(BIN, 'snforge'), 'test'], CONTRACTS)
-        m = re.search(r'Tests: (\d+) passed, (\d+) failed', r['log'])
-        r['passed'], r['failed'] = (int(m.group(1)), int(m.group(2))) if m \
-            else (0, None)
-        r['tests'] = re.findall(r'\[(PASS|FAIL)\] \S+::(\w+)', r['log'])
-        return r
+    def test(self, chain='all'):
+        """Both suites. starknet: snforge (LSAG soundness/linkability, full
+        epoch, every rejection path). near: cargo test (the same cases plus
+        fixtures pinning the Rust port to Cairo output: hash-to-point,
+        key ids, scopes, and a Cairo-made signature verifying in Rust)."""
+        out = {}
+        if chain in ('all', 'starknet'):
+            r = self._run([os.path.join(BIN, 'snforge'), 'test'], CONTRACTS)
+            m = re.search(r'Tests: (\d+) passed, (\d+) failed', r['log'])
+            r['passed'], r['failed'] = (int(m.group(1)), int(m.group(2))) \
+                if m else (0, None)
+            r['tests'] = re.findall(r'\[(PASS|FAIL)\] \S+::(\w+)', r['log'])
+            out['starknet'] = r
+        if chain in ('all', 'near'):
+            out['near'] = _near().test()
+        out['ok'] = all(v['ok'] for v in out.values())
+        out['passed'] = sum(v.get('passed') or 0 for v in out.values()
+                            if isinstance(v, dict))
+        out['failed'] = sum(v.get('failed') or 0 for v in out.values()
+                            if isinstance(v, dict))
+        return out
 
     # ---- the prover (Cairo, same lsag module the contract runs) ------------
 
@@ -275,8 +335,12 @@ class Mod:
 
     def mytag(self, name, epoch, network='devnet'):
         """Your own tag for an epoch — only the key holder can compute it."""
-        addr = self._deployment(network)['address']
-        sc = self.scope('mine', addr, epoch)
+        if network in NEAR_NETS:
+            sc = _felt(_near().view(network, 'mine_scope',
+                                    {'epoch': int(epoch)}))
+        else:
+            sc = self.scope('mine', self._deployment(network)['address'],
+                            epoch)
         return {'epoch': int(epoch),
                 'tag': hex(self._prove([4, self._secret(name), sc])[2])}
 
@@ -452,7 +516,12 @@ class Mod:
         """Declare + deploy the Zuma contract. devnet needs nothing; for
         sepolia/mainnet pass account= (an sncast account, funded with STRK)
         and optionally relayer= (a second account that posts the anonymous
-        actions), accounts_file=, rpc=. tempo = blocks per epoch."""
+        actions), accounts_file=, rpc=. tempo = blocks per epoch.
+        network=near deploys the wasm to a fresh account on the local
+        near-sandbox; near-testnet deploys to account= (near keystore)."""
+        if network in NEAR_NETS:
+            return _near().deploy(network, tempo=tempo, min_ring=min_ring,
+                                  emission=emission, account=account)
         net = self._ctx(network, account, accounts_file, rpc)
         tempo = int(tempo or (50 if network == 'devnet' else 360))
         # declare is the slow step (sncast builds the package); skip it when
@@ -527,6 +596,11 @@ class Mod:
         makes the subnet permissioned). role = miner | validator."""
         k = self.pubkey(name)
         r = ROLES[str(role)]
+        if network in NEAR_NETS:
+            t = _near().invoke(network, 'register', {
+                'role': r, 'key': {'x': k['x'], 'y': k['y']}}, as_owner=True)
+            return {'ok': True, 'name': name, 'role': role, 'tx': t['hash'],
+                    'tgas': t['tgas']}
         tx = self._invoke(network, 'register',
                           [r, int(k['x'], 16), int(k['y'], 16)],
                           as_owner=True)
@@ -535,11 +609,17 @@ class Mod:
     def set_open(self, open=True, network='devnet'):
         """Let anyone register (open) or only the owner (closed)."""
         flag = str(open).lower() in ('1', 'true', 'yes', 'on')
+        if network in NEAR_NETS:
+            t = _near().invoke(network, 'set_open', {'open': flag},
+                               as_owner=True)
+            return {'open': flag, 'tx': t['hash']}
         return {'open': flag, 'tx': self._invoke(network, 'set_open',
                                                  [int(flag)], as_owner=True)}
 
     def members(self, role, network='devnet'):
         r = ROLES[str(role)]
+        if network in NEAR_NETS:
+            return _near().view(network, 'members', {'role': r})
         n = self._call(network, 'member_count', [r])[0]
         out = []
         for i in range(n):
@@ -548,6 +628,11 @@ class Mod:
         return out
 
     def epoch(self, network='devnet'):
+        if network in NEAR_NETS:
+            nz = _near()
+            p, b = nz.view(network, 'params'), nz.block(network)
+            return {'epoch': b // p['tempo'], 'block': b, 'tempo': p['tempo'],
+                    'blocks_left': p['tempo'] - b % p['tempo']}
         d = self._deployment(network)
         b = self._block(network)
         return {'epoch': self._call(network, 'epoch')[0], 'block': b,
@@ -579,6 +664,9 @@ class Mod:
     def submit(self, name, work, ring_size=None, network='devnet'):
         """Miner: post a work commitment for the current epoch, anonymously.
         Returns your tag (validators see only this)."""
+        if network in NEAR_NETS:
+            return self._near_act(network, 'submit', name, work=work,
+                                  ring_size=ring_size)
         addr = self._deployment(network)['address']
         e = self._call(network, 'epoch')[0]
         sig = self.sign(name, self.scope('mine', addr, e), work,
@@ -590,6 +678,9 @@ class Mod:
 
     def score(self, name, tag, score, ring_size=None, network='devnet'):
         """Validator: score a tag (0-100) in the current epoch, anonymously."""
+        if network in NEAR_NETS:
+            return self._near_act(network, 'score', name, tag=tag,
+                                  score=score, ring_size=ring_size)
         addr = self._deployment(network)['address']
         e = self._call(network, 'epoch')[0]
         s = int(score)
@@ -602,7 +693,11 @@ class Mod:
                 'nullifier': sig['tag'], 'tx': tx}
 
     def claim(self, name, epoch, recipient, ring_size=None, network='devnet'):
-        """Miner: after `epoch` closed, credit your share to `recipient`."""
+        """Miner: after `epoch` closed, credit your share to `recipient`
+        (a felt/address on Starknet, an account id on NEAR)."""
+        if network in NEAR_NETS:
+            return self._near_act(network, 'claim', name, epoch=epoch,
+                                  recipient=recipient, ring_size=ring_size)
         addr = self._deployment(network)['address']
         to = _felt(recipient)
         sig = self.sign(name, self.scope('mine', addr, epoch), to,
@@ -614,8 +709,53 @@ class Mod:
                 'recipient': hex(to),
                 'earned': self._call(network, 'earned', [to])[0], 'tx': tx}
 
+    def _near_act(self, net, kind, name, ring_size=None, **kw):
+        """submit | score | claim on NEAR. The scope comes from the contract
+        (subnet = felt(sha256(account id))); the signature from the same
+        Cairo prover the Starknet path uses."""
+        nz = _near()
+        role = 'validator' if kind == 'score' else 'miner'
+        ring = self._ring(name, role, net, ring_size)
+        if kind == 'submit':
+            e = nz.view(net, 'epoch')
+            scope, msg = nz.view(net, 'mine_scope', {'epoch': e}), \
+                hex(_felt(kw['work']))
+        elif kind == 'score':
+            e, tag = nz.view(net, 'epoch'), hex(_felt(kw['tag']))
+            scope = nz.view(net, 'score_scope', {'epoch': e, 'tag': tag})
+            msg = int(kw['score'])
+        else:
+            e = int(kw['epoch'])
+            scope = nz.view(net, 'mine_scope', {'epoch': e})
+            msg = nz.view(net, 'recipient_felt',
+                          {'recipient': kw['recipient']})
+        s0 = time.time()
+        sig = self.sign(name, scope, msg, ring)
+        sign_ms = int((time.time() - s0) * 1000)
+        wire = {'ring': sig['ring'], 'sig': {'c0': sig['c0'], 's': sig['s'],
+                                             'image': sig['image']}}
+        if kind == 'submit':
+            t = nz.invoke(net, 'submit', {**wire, 'work': msg})
+            return {'ok': True, 'epoch': e, 'tag': t['result'],
+                    'ring_size': len(sig['ring']), 'tx': t['hash'],
+                    'tgas': t['tgas'], 'sign_ms': sign_ms}
+        if kind == 'score':
+            t = nz.invoke(net, 'score', {**wire, 'tag': tag, 'score': msg})
+            return {'ok': True, 'epoch': e, 'tag': tag, 'score': msg,
+                    'nullifier': t['result'], 'tx': t['hash'],
+                    'tgas': t['tgas'], 'sign_ms': sign_ms}
+        t = nz.invoke(net, 'claim', {**wire, 'epoch': e,
+                                     'recipient': kw['recipient']})
+        return {'ok': True, 'epoch': e, 'tag': sig['tag'],
+                'recipient': kw['recipient'], 'amount': int(t['result']),
+                'earned': int(nz.view(net, 'earned',
+                                      {'who': kw['recipient']})),
+                'tx': t['hash'], 'tgas': t['tgas'], 'sign_ms': sign_ms}
+
     def tally(self, epoch=None, network='devnet'):
         """Every tag in an epoch with its score sum/count — never identities."""
+        if network in NEAR_NETS:
+            return _near().tally(network, epoch)
         e = int(epoch) if epoch is not None else self._call(network, 'epoch')[0]
         n = self._call(network, 'epoch_tags', [e])[0]
         rows = []
@@ -629,6 +769,9 @@ class Mod:
                 'tags': rows}
 
     def earned(self, recipient, network='devnet'):
+        if network in NEAR_NETS:
+            return {'recipient': recipient, 'earned': int(_near().view(
+                network, 'earned', {'who': recipient}))}
         return {'recipient': hex(_felt(recipient)),
                 'earned': self._call(network, 'earned', [_felt(recipient)])[0]}
 
@@ -644,49 +787,90 @@ class Mod:
 
     # ---- end-to-end demo -----------------------------------------------------
 
+    def _bn(self, network):
+        return _near().block(network) if network in NEAR_NETS \
+            else self._block(network)
+
     def _advance(self, network, to_block):
+        if network in NEAR_NETS:
+            gap = to_block - _near().block(network)
+            if gap > 0:
+                _near().fast_forward(network, gap)
+            return
         while self._block(network) < to_block:
             self._devnet_post('/create_block')
 
-    def simulate(self, miners=4, validators=4, on_event=None):
-        """Full anonymous epoch on the local devnet: deploy, register sim
-        keys, 3 miners submit, every validator scores every tag, roll the
-        epoch, one miner claims, and its replay is rejected. Proves the
-        contract end to end. `on_event(dict)` streams each step (the console
-        animates them); the whole run is kept in data/last_sim.json."""
+    def _steps(self, tx):
+        """Cairo VM cost of a devnet tx: steps + ec_op builtin calls."""
+        try:
+            r = self._rpc('devnet', 'starknet_getTransactionReceipt', [tx])
+            er = r.get('execution_resources') or {}
+            return {'steps': er.get('steps'),
+                    'ec_op': er.get('ec_op_builtin_applications')}
+        except Exception:  # noqa: BLE001
+            return {}
+
+    def simulate(self, miners=4, validators=4, on_event=None,
+                 chain='starknet'):
+        """Full anonymous epoch on a LOCAL chain: deploy, register sim keys,
+        3 miners submit, every validator scores every tag, roll the epoch,
+        one miner claims, and its replay is rejected. chain = starknet
+        (starknet-devnet :51332) | near (near-sandbox :51333). Same keys,
+        same prover, same signatures — only the verifier differs.
+        `on_event(dict)` streams each step (the console animates them); the
+        run is kept in data/last_sim[_near].json."""
+        if chain not in CHAINS:
+            raise ValueError(f'chain must be one of {sorted(CHAINS)}')
         t0 = time.time()
-        net = 'devnet'
+        net = CHAINS[chain]
+        near = net in NEAR_NETS
         events = []
 
         def ev(kind, **kw):
-            e = {'kind': kind, 't': round(time.time() - t0, 2), **kw}
+            e = {'kind': kind, 't': round(time.time() - t0, 2),
+                 'chain': chain, **kw}
             events.append(e)
             if on_event:
                 on_event(e)
+
+        def cost(r):
+            return {'tgas': r.get('tgas')} if near else self._steps(r['tx'])
 
         miners, validators = int(miners), int(validators)
         if not (3 <= miners <= MAX_RING and 3 <= validators <= MAX_RING):
             raise ValueError(f'miners/validators must be 3..{MAX_RING} '
                              '(min_ring is 3)')
-        self.devnet('start')
-        ev('devnet', block=self._block(net))
+        if near:
+            st = _near().sandbox('start')
+            if not st.get('up'):
+                ev('error', error=st.get('error'), stage='sandbox')
+                return {'ok': False, **st}
+        else:
+            self.devnet('start')
+        ev('devnet', block=self._bn(net))
         ev('deploying')
-        dep = self.deploy(net, tempo=60, min_ring=3, emission=1000)
+        # NEAR makes ~1 block/s on its own, so its epoch must outlast the
+        # 3 submits + every score; starknet-devnet only moves when told to
+        tempo = 600 if near else 60
+        dep = self.deploy(net, tempo=tempo, min_ring=3, emission=1000)
         if not dep.get('ok'):
             ev('error', error=dep.get('error'), stage=dep.get('stage'))
             return dep
-        ev('deploy', address=dep['address'], tempo=dep['tempo'],
-           min_ring=dep['min_ring'], emission=dep['emission'])
+        contract = dep.get('address') or dep.get('account')
+        ev('deploy', address=contract, tempo=dep['tempo'],
+           min_ring=dep['min_ring'], emission=dep['emission'],
+           **({'tgas': dep.get('tgas'), 'wasm_bytes': dep.get('wasm_bytes')}
+              if near else {'class_hash': dep.get('class_hash')}))
         mk = [f'sim-m{i}' for i in range(miners)]
         vk = [f'sim-v{i}' for i in range(validators)]
         for n in mk + vk:
             self.keygen(n)  # no-op if it exists
         for role, names in (('miner', mk), ('validator', vk)):
             for n in names:
-                self.register(n, role, net)
-                ev('register', role=role, x=self.pubkey(n)['x'])
-        tempo = dep['tempo']
-        b = self._block(net)
+                r = self.register(n, role, net)
+                ev('register', role=role, x=self.pubkey(n)['x'],
+                   **({'tgas': r.get('tgas')} if near else {}))
+        b = self._bn(net)
         self._advance(net, (b // tempo + 1) * tempo)  # start of a fresh epoch
         subs = []
         for n in mk[:3]:
@@ -694,20 +878,24 @@ class Mod:
             s = self.submit(n, f'work from {n}', network=net)
             subs.append(s)
             ev('submit', epoch=s['epoch'], tag=s['tag'], ring=s['ring_size'],
-               ms=int((time.time() - s0) * 1000), tx=s['tx'])
+               ms=int((time.time() - s0) * 1000), tx=s['tx'], **cost(s))
         e = subs[0]['epoch']
         for v in vk:
             for i, s in enumerate(subs):
                 r = self.score(v, s['tag'], 90 - 20 * i, network=net)
                 ev('score', tag=s['tag'], score=r['score'],
-                   nullifier=r['nullifier'], ring=len(vk), tx=r['tx'])
+                   nullifier=r['nullifier'], ring=len(vk), tx=r['tx'],
+                   **cost(r))
         self._advance(net, (e + 1) * tempo)
-        ev('close', epoch=e, block=self._block(net))
-        payee = _load(os.path.join(DEVNET_DIR, 'accounts.json'), {})[
-            NETWORKS[net]['section']]['payee']['address']
+        ev('close', epoch=e, block=self._bn(net))
+        if near:
+            payee = dep['payee']
+        else:
+            payee = _load(os.path.join(DEVNET_DIR, 'accounts.json'), {})[
+                NETWORKS[net]['section']]['payee']['address']
         c = self.claim(mk[0], e, payee, network=net)
         ev('claim', epoch=e, tag=c['tag'], recipient=c['recipient'],
-           earned=c['earned'], tx=c['tx'])
+           earned=c['earned'], tx=c['tx'], **cost(c))
         # the replay must fail: same key, same epoch -> same tag
         try:
             self.claim(mk[0], e, payee, network=net)
@@ -715,26 +903,27 @@ class Mod:
         except RuntimeError as ex:
             replay = f'rejected: {ex}'
         ev('replay', ok=replay.startswith('rejected'), result=replay)
-        out = {'ok': True, 'contract': dep['address'], 'epoch': e,
+        out = {'ok': True, 'chain': chain, 'network': net,
+               'contract': contract, 'epoch': e,
                'steps': [f"{x['kind']}" for x in events],
                'tally': self.tally(e, net), 'claim': c,
                'double_claim': replay,
                'seconds': round(time.time() - t0, 1)}
         ev('done', seconds=out['seconds'])
-        _save(LAST_SIM, {'at': int(time.time()), 'events': events,
-                         'result': out})
+        _save(_sim_path(chain), {'at': int(time.time()), 'chain': chain,
+                                 'events': events, 'result': out})
         return out
 
-    def last_sim(self):
-        """The most recent simulate() run, event by event (public replay)."""
-        return _load(LAST_SIM, None)
-
-    # ---- console view --------------------------------------------------------
+    def last_sim(self, chain='starknet'):
+        """The most recent simulate() run on `chain`, event by event."""
+        return _load(_sim_path(chain), None)
 
     def board(self, network='devnet', epochs=6):
         """Everything the console draws in one read: params, epoch clock,
         both member SETS (public keys only), and the recent epochs' tags.
         Never touches a secret — it is exactly what any chain reader sees."""
+        if network in NEAR_NETS:
+            return _near().board(network, epochs)
         d = _load(DEPLOYS, {}).get(network)
         out = {'network': network, 'deployed': bool(d),
                'devnet_up': self._devnet_alive() if network == 'devnet'

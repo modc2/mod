@@ -1,0 +1,39 @@
+{
+    "name": "passport",
+    "version": "0.1.0",
+    "description": "The fleet's one auth protocol. A caller signs in once (wallet, local key, or a build console session) and every module recognises them: modules ask passport who a token belongs to instead of each carrying its own verifier. The protocol lives in protocol.json + src/schemes.py and is re-read on change, so editing it changes the whole system on the next request with no restarts. Ships a Python client (2-line adoption, falls back to an in-process verify when the service is down) and a browser SDK (/passport/passport.js) that shares one sign-in across consoles and adopts the build console's session.",
+    "icon": "P",
+    "color": "#7aa2ff",
+    "anchor": "src/mod.py",
+    "network": "local",
+    "port": 51390,
+    "app_port": 51390,
+    "gateway_port": 51390,
+    "base_path": "/passport",
+    "route": true,
+    "deps": [],
+    "urls": {
+        "app": "http://localhost:51390/passport/",
+        "api": "http://localhost:51390",
+        "sdk": "http://localhost:51390/passport/passport.js"
+    },
+    "fns": [
+        "forward",
+        "verify",
+        "address",
+        "role",
+        "protocol",
+        "health",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "api_fns": [
+        "verify",
+        "role",
+        "protocol",
+        "health"
+    ],
+    "state": "none on disk \u2014 verdicts cached in memory for cache_ttl seconds",
+    "schema": "Qmak8kisAXnxN7HduDXBstwBYXseecmH7CAN2dFo2KKb21"
+}

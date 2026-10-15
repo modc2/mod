@@ -139,7 +139,7 @@ DEFAULTS = {
     "openarena_tasks": 24,
     # a program task is write-then-check, so it gets more room than `steps`
     "openarena_steps": oa.DEFAULT_STEPS,
-    # the arena module's drill games (drills.py), graded by its own sandbox
+    # the arena module's drill arenas (drills.py), graded by its own sandbox
     "arena": True,           # pull them into the pool at all
     # how many rounds of each drill, spread across its difficulty ramp. Five
     # drills x 2 rounds is ten tasks, which is a pool and not a benchmark
@@ -301,7 +301,7 @@ class Arena:
         self.scheduler: Optional["Scheduler"] = None
         self.skills = sk.Skills(self.root)
         self.classes = sk.Classes(self.root)
-        self.games = sk.Games(self.root)
+        self.arenas = sk.Arenas(self.root)
 
     # ── config ─────────────────────────────────────────────────────
 
@@ -1411,7 +1411,7 @@ class Arena:
         rows = []
         for agent, r in self._state.get("ratings", {}).items():
             n = max(1, r.get("matches", 0))
-            games = r.get("wins", 0) + r.get("losses", 0) + r.get("draws", 0)
+            played = r.get("wins", 0) + r.get("losses", 0) + r.get("draws", 0)
             rows.append({
                 "agent": agent,
                 "icon": self.icon(agent),
@@ -1421,7 +1421,7 @@ class Arena:
                 "wins": r.get("wins", 0),
                 "losses": r.get("losses", 0),
                 "draws": r.get("draws", 0),
-                "win_rate": round((r.get("wins", 0) + 0.5 * r.get("draws", 0)) / games, 3) if games else 0.0,
+                "win_rate": round((r.get("wins", 0) + 0.5 * r.get("draws", 0)) / played, 3) if played else 0.0,
                 "avg_score": round(r.get("score_sum", 0.0) / n, 4),
                 "pass_rate": round(r.get("passed_sum", 0) / n, 3),
                 "avg_seconds": round(r.get("seconds_sum", 0.0) / n, 2),
@@ -1676,7 +1676,7 @@ class Arena:
 
     def _bundle_results(self, bundle: Dict[str, Any],
                         noun: str = "skill") -> Dict[str, Any]:
-        """The answer sheet for any task bundle — skills and games share it."""
+        """The answer sheet for any task bundle — skills and arenas share it."""
         pool = {t["key"]: t for t in self.tasks()}
         members = bundle.get("tasks", [])
         weights = {m["key"]: float(m.get("weight", 1.0)) for m in members}
@@ -1741,26 +1741,26 @@ class Arena:
         skill is assembled through. Entirely local (BM25-lite, no service)."""
         return sk.search_tasks(query, self.tasks(), k=k)
 
-    # ── games ──────────────────────────────────────────────────────
+    # ── arenas ──────────────────────────────────────────────────────
     #
-    # A game is what an agent sits down to play: ONE task, or a named
+    # An arena is what an agent sits down to play: ONE task, or a named
     # bundle of tasks played and ranked as one thing. Every pool task is
-    # already a game of one — addressable by its task key, nothing to
-    # register — and a created game combines tasks under a name with a
+    # already an arena of one — addressable by its task key, nothing to
+    # register — and a created arena combines tasks under a name with a
     # weight per task. Scoring is the skill machinery unchanged (the
-    # shape is identical); what a game adds is that it RUNS: run_game
+    # shape is identical); what an arena adds is that it RUNS: run_arena
     # plays every member task through the normal round path, with the
     # same skip, budget and rating rules a round has.
 
-    def _game_of(self, game_id: str) -> Optional[Dict[str, Any]]:
-        """Resolve an id to a playable game: a registered bundle by id, or
-        any pool task as the implicit single-task game it already is."""
-        game = self.games.get(game_id)
-        if game:
-            game = dict(game)
-            game["kind"] = "bundle" if len(game.get("tasks", [])) > 1 else "single"
-            return game
-        spec = next((t for t in self.tasks() if t["key"] == game_id), None)
+    def _arena_of(self, arena_id: str) -> Optional[Dict[str, Any]]:
+        """Resolve an id to a playable arena: a registered bundle by id, or
+        any pool task as the implicit single-task arena it already is."""
+        arena = self.arenas.get(arena_id)
+        if arena:
+            arena = dict(arena)
+            arena["kind"] = "bundle" if len(arena.get("tasks", [])) > 1 else "single"
+            return arena
+        spec = next((t for t in self.tasks() if t["key"] == arena_id), None)
         if spec:
             return {"id": spec["key"], "name": spec.get("title", spec["key"]),
                     "description": (spec.get("prompt") or "")[:240],
@@ -1769,103 +1769,103 @@ class Arena:
                     "kind": "task"}
         return None
 
-    def list_games(self) -> List[Dict[str, Any]]:
-        """Every created game, with the same summary card a skill gets
+    def list_arenas(self) -> List[Dict[str, Any]]:
+        """Every created arena, with the same summary card a skill gets
         (best agent, best model) plus its kind and member titles. Single
         pool tasks are not repeated here — the task board already lists
-        every one of them, and each is a game by key."""
+        every one of them, and each is an arena by key."""
         ratings = self._state.get("ratings", {})
         agents_meta = self._agents_meta()
         all_matches = self.all_matches()
         titles = {t["key"]: t["title"] for t in self.tasks()}
         out = []
-        for game in self.games.list():
-            lb = sk.skill_leaderboard(game, ratings, agents_meta)
-            mb_rows = sk.skill_model_leaderboard(game, all_matches)
-            card = sk.skill_summary(game, lb, mb_rows)
-            members = game.get("tasks", [])
+        for arena in self.arenas.list():
+            lb = sk.skill_leaderboard(arena, ratings, agents_meta)
+            mb_rows = sk.skill_model_leaderboard(arena, all_matches)
+            card = sk.skill_summary(arena, lb, mb_rows)
+            members = arena.get("tasks", [])
             card["kind"] = "bundle" if len(members) > 1 else "single"
             card["task_titles"] = [titles.get(m["key"], m["key"]) for m in members]
             out.append(card)
         return out
 
-    def game_view(self, game_id: str) -> Dict[str, Any]:
-        """One game's leaderboard — bundle id or bare task key alike."""
-        game = self._game_of(game_id)
-        if not game:
-            return {"error": f"game not found: {game_id}"}
+    def arena_view(self, arena_id: str) -> Dict[str, Any]:
+        """One arena's leaderboard — bundle id or bare task key alike."""
+        arena = self._arena_of(arena_id)
+        if not arena:
+            return {"error": f"arena not found: {arena_id}"}
         ratings = self._state.get("ratings", {})
         agents_meta = self._agents_meta()
         all_matches = self.all_matches()
-        lb = sk.skill_leaderboard(game, ratings, agents_meta)
-        mb_rows = sk.skill_model_leaderboard(game, all_matches)
+        lb = sk.skill_leaderboard(arena, ratings, agents_meta)
+        mb_rows = sk.skill_model_leaderboard(arena, all_matches)
         titles = {t["key"]: t["title"] for t in self.tasks()}
         return {
-            "game": game,
+            "arena": arena,
             "leaderboard": lb,
             "best_model": mb_rows[0] if mb_rows else None,
             "model_board": mb_rows,
             "tasks": [{"key": t["key"], "weight": t.get("weight", 1.0),
                        "title": titles.get(t["key"], t["key"])}
-                      for t in game.get("tasks", [])],
+                      for t in arena.get("tasks", [])],
         }
 
-    def game_results(self, game_id: str) -> Dict[str, Any]:
-        """The game's answer sheet: prompts, per-agent scores and answers."""
-        game = self._game_of(game_id)
-        if not game:
-            return {"error": f"game not found: {game_id}"}
-        return self._bundle_results(game, noun="game")
+    def arena_results(self, arena_id: str) -> Dict[str, Any]:
+        """The arena's answer sheet: prompts, per-agent scores and answers."""
+        arena = self._arena_of(arena_id)
+        if not arena:
+            return {"error": f"arena not found: {arena_id}"}
+        return self._bundle_results(arena, noun="arena")
 
-    def create_game(self, name: str, description: str = "",
+    def create_arena(self, name: str, description: str = "",
                     tasks: List[Any] = None, owner: str = "") -> Dict[str, Any]:
-        """A single key or a list both work — a game of one is still a game.
+        """A single key or a list both work — an arena of one is still an arena.
 
-        Member keys are checked against the pool: a game exists to be
+        Member keys are checked against the pool: an arena exists to be
         played, so a key nothing can play is refused at the door."""
         if isinstance(tasks, str):
             tasks = [tasks]
-        members = sk.Games._normalize(tasks or [])
+        members = sk.Arenas._normalize(tasks or [])
         if not members:
-            raise ValueError("a game needs at least one task")
+            raise ValueError("an arena needs at least one task")
         pool = {t["key"] for t in self.tasks()}
         unknown = [m["key"] for m in members if m["key"] not in pool]
         if unknown:
             raise ValueError(f"unknown tasks: {', '.join(unknown)}")
-        return self.games.create(name, description=description,
+        return self.arenas.create(name, description=description,
                                  tasks=members, owner=owner)
 
-    def update_game(self, game_id: str, name: str = None,
+    def update_arena(self, arena_id: str, name: str = None,
                     description: str = None, tasks: List[Any] = None,
                     owner: str = None) -> Dict[str, Any]:
         if isinstance(tasks, str):
             tasks = [tasks]
-        game = self.games.update(game_id, name=name, description=description,
+        arena = self.arenas.update(arena_id, name=name, description=description,
                                  tasks=tasks, owner=owner)
-        if not game:
-            return {"error": f"game not found: {game_id}"}
-        return game
+        if not arena:
+            return {"error": f"arena not found: {arena_id}"}
+        return arena
 
-    def remove_game(self, game_id: str) -> Dict[str, Any]:
-        removed = self.games.remove(game_id)
-        return {"removed": removed, "id": game_id}
+    def remove_arena(self, arena_id: str) -> Dict[str, Any]:
+        removed = self.arenas.remove(arena_id)
+        return {"removed": removed, "id": arena_id}
 
-    def run_game(self, game_id: str, agents: List[str] = None,
+    def run_arena(self, arena_id: str, agents: List[str] = None,
                  force: bool = False, reason: str = None) -> Dict[str, Any]:
-        """Play a game: every member task through the normal round path —
+        """Play an arena: every member task through the normal round path —
         the skip-unchanged rule, budget caps and pairwise rating all
-        apply, so a game whose record is current plays zero matches
+        apply, so an arena whose record is current plays zero matches
         (force=True replays the field)."""
-        game = self._game_of(game_id)
-        if not game:
-            return {"error": f"game not found: {game_id}"}
-        keys = [m["key"] for m in game.get("tasks", [])]
+        arena = self._arena_of(arena_id)
+        if not arena:
+            return {"error": f"arena not found: {arena_id}"}
+        keys = [m["key"] for m in arena.get("tasks", [])]
         summary = self.run_round(agents=agents, tasks=keys,
-                                 reason=reason or f"game:{game['id']}",
+                                 reason=reason or f"arena:{arena['id']}",
                                  force=force)
         if isinstance(summary, dict) and "error" not in summary:
-            summary["game"] = {"id": game["id"], "name": game["name"],
-                               "kind": game.get("kind")}
+            summary["arena"] = {"id": arena["id"], "name": arena["name"],
+                               "kind": arena.get("kind")}
         return summary
 
     # ── classes: skills bundled one level up ───────────────────────
@@ -2068,15 +2068,15 @@ class Arena:
         forward('skill_rm', id=)                   -> delete a skill
         forward('task_search', query=, k=)         -> the pool ranked to bundle from
 
-        Games — what an agent sits down to play: one task or a bundle,
+        Arenas — what an agent sits down to play: one task or a bundle,
         readable and runnable by one id (a bundle id, or any bare task key):
-        forward('games')                           -> every created game
-        forward('game', id=)                       -> one game + its leaderboard
-        forward('game_results', id=)               -> its tasks + every agent's answer
-        forward('game_create', name=, tasks=, description=, owner=)
-        forward('game_update', id=, name=, tasks=, description=)
-        forward('game_rm', id=)                    -> delete a game
-        forward('game_run', id=, agents=, force=)  -> play every member task
+        forward('arenas')                           -> every created arena
+        forward('arena_view', id=)                  -> one arena + its leaderboard
+        forward('arena_results', id=)               -> its tasks + every agent's answer
+        forward('arena_create', name=, tasks=, description=, owner=)
+        forward('arena_update', id=, name=, tasks=, description=)
+        forward('arena_rm', id=)                    -> delete an arena
+        forward('arena_run', id=, agents=, force=)  -> play every member task
 
         Classes — named bundles of skills, scores rolled up one more level:
         forward('classes')                         -> all classes
@@ -2092,7 +2092,7 @@ class Arena:
 
         The arena module's drills — one generated question, graded over there:
         forward('arena')                           -> is it up, which drills
-        forward('drill', game=, round=, seed=)     -> the view, unplayed
+        forward('drill', arena=, round=, seed=)    -> the view, unplayed
 
         The openarena schema — statement plus graded cases, judged next door:
         forward('openarena')                       -> is it up, what it holds
@@ -2187,39 +2187,41 @@ class Arena:
             return {"query": kwargs.get("query", ""),
                     "results": self.search_tasks(kwargs.get("query", ""),
                                                  k=int(kwargs.get("k", 20)))}
-        # ── games ────────────────────────────────────────────────────
-        if action == "games":
-            return {"games": self.list_games()}
-        if action == "game":
-            game_id = kwargs.get("id") or kwargs.get("game") or ""
-            if not game_id:
-                return {"error": "game id required"}
-            return self.game_view(game_id)
-        if action in ("game_results", "game_answers"):
-            game_id = kwargs.get("id") or kwargs.get("game") or ""
-            if not game_id:
-                return {"error": "game id required"}
-            return self.game_results(game_id)
-        if action in ("game_create", "create_game"):
+        # ── arenas ────────────────────────────────────────────────────
+        if action == "arenas":
+            return {"arenas": self.list_arenas()}
+        if action in ("arena_view", "arena_get"):
+            # not plain "arena" — that word is the arena module's drill
+            # status further down, and it was there first
+            arena_id = kwargs.get("id") or kwargs.get("arena") or ""
+            if not arena_id:
+                return {"error": "arena id required"}
+            return self.arena_view(arena_id)
+        if action in ("arena_results", "arena_answers"):
+            arena_id = kwargs.get("id") or kwargs.get("arena") or ""
+            if not arena_id:
+                return {"error": "arena id required"}
+            return self.arena_results(arena_id)
+        if action in ("arena_create", "create_arena"):
             try:
-                return self.create_game(
+                return self.create_arena(
                     name=kwargs.get("name", ""),
                     description=kwargs.get("description", ""),
                     tasks=kwargs.get("tasks") or [],
                     owner=kwargs.get("owner", ""))
             except ValueError as e:
                 return {"error": str(e)}
-        if action in ("game_update", "update_game"):
-            return self.update_game(
-                game_id=kwargs.get("id") or kwargs.get("game") or "",
+        if action in ("arena_update", "update_arena"):
+            return self.update_arena(
+                arena_id=kwargs.get("id") or kwargs.get("arena") or "",
                 name=kwargs.get("name"),
                 description=kwargs.get("description"),
                 tasks=kwargs.get("tasks"),
                 owner=kwargs.get("owner"))
-        if action in ("game_rm", "remove_game", "delete_game"):
-            return self.remove_game(kwargs.get("id") or kwargs.get("game") or "")
-        if action in ("game_run", "run_game"):
-            return self.run_game(kwargs.get("id") or kwargs.get("game") or "",
+        if action in ("arena_rm", "remove_arena", "delete_arena"):
+            return self.remove_arena(kwargs.get("id") or kwargs.get("arena") or "")
+        if action in ("arena_run", "run_arena"):
+            return self.run_arena(kwargs.get("id") or kwargs.get("arena") or "",
                                  agents=kwargs.get("agents"),
                                  force=bool(kwargs.get("force", False)),
                                  reason=kwargs.get("reason"))
@@ -2271,10 +2273,11 @@ class Arena:
         if action in ("drill", "arena_sheet"):
             # the view a seat is shown, without playing anything — what the
             # console puts on the card, and what a task's prompt is built from
-            return {"game": kwargs.get("game", ""),
+            name = kwargs.get("arena") or kwargs.get("game") or ""
+            return {"arena": name,
                     "round": int(kwargs.get("round", 0) or 0),
                     "seed": int(kwargs.get("seed", dr.DEFAULT_SEED) or 0),
-                    "view": dr.sheet(kwargs.get("game", ""),
+                    "view": dr.sheet(name,
                                      seed=int(kwargs.get("seed", dr.DEFAULT_SEED) or 0),
                                      round=int(kwargs.get("round", 0) or 0))}
         # ── the openarena schema ──────────────────────────────────

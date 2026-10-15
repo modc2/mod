@@ -252,6 +252,13 @@ type AuthInfo = { address: string; token: string; isOwner: boolean; local?: bool
 const AUTH_KEY = 'agent_auth'
 // the arena mod's own sign-in slot — shared origin, so shared sign-in
 const ARENA_TOKEN_KEY = 'arena_token'
+// passport (orbit/passport) — the fleet's one sign-in slot, and the build
+// console's own session, both readable on this origin. Either signs you in
+// here: the API resolves every token through the passport protocol.
+const PASSPORT_KEY = 'mod_passport'
+const BUILD_TOKEN_KEY = 'build_jobs_token'
+// build session bearer: address:unix-seconds[:ho]:hmac
+const isBuildToken = (t: string) => /^[^:\s]+:\d{9,12}(:ho)?:[0-9a-f]{64}$/.test(t)
 const TOKEN_TTL_MS = 23 * 3600 * 1000 // server max_age is 24h — refresh before that
 
 const eth = () => (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
@@ -266,6 +273,7 @@ const b64url = (obj: unknown): string => {
 // drop it up front so the UI shows "sign in" instead of failing requests
 const tokenFresh = (token: string | null | undefined): boolean => {
   if (!token) return false
+  if (isBuildToken(token)) return Date.now() - Number(token.split(':')[1]) * 1000 < TOKEN_TTL_MS
   try {
     const b64 = token.replace(/-/g, '+').replace(/_/g, '/')
     const env = JSON.parse(decodeURIComponent(escape(atob(b64))))
@@ -640,7 +648,7 @@ export default function Home() {
       if (pane === 'chats' || pane === 'agents') setRailPane(pane)
       const hp = localStorage.getItem('agent_hub_pane')
       if (hp === 'agents' || hp === 'library' || hp === 'tasks') setHubPane(hp)
-      // a game page's "play in console" — ArenaPortal consumes the key
+      // an arena page's "play in console" — ArenaPortal consumes the key
       if (localStorage.getItem('agent_arena_go')) setView('arena')
       const mw = Number(localStorage.getItem('agent_market_w'))
       if (mw >= 220) setMarketWidth(mw)
@@ -1345,8 +1353,10 @@ export default function Home() {
       const accounts = await provider.request({ method: 'eth_requestAccounts' })
       const address = String(accounts?.[0] || '').toLowerCase()
       if (!address) throw new Error('no account selected')
-      const data = { scope: 'agent' }
-      const time = (Date.now() / 1000).toString()
+      // canonical passport shape — string data, whole seconds — so this same
+      // token is also accepted by build's API (and every other module)
+      const data = 'agent'
+      const time = Math.floor(Date.now() / 1000).toString()
       // sig payload must match the server's sig_data: compact {"data":…,"time":…}
       const signature: string = await provider.request({
         method: 'personal_sign',
@@ -1386,8 +1396,10 @@ export default function Home() {
         id = sessionIdentity() || getOrCreateLocalIdentity()
         persist = id.saved
       }
-      const data = { scope: 'agent' }
-      const time = (Date.now() / 1000).toString()
+      // canonical passport shape — string data, whole seconds — so this same
+      // token is also accepted by build's API (and every other module)
+      const data = 'agent'
+      const time = Math.floor(Date.now() / 1000).toString()
       const signature = await localSign(id, JSON.stringify({ data, time }))
       signed = await finishSignIn(id.address, b64url({ data, time, key: id.address, signature }), true, persist)
       setShowPwWallet(false)
@@ -1488,10 +1500,18 @@ export default function Home() {
   useEffect(() => {
     try {
       if (auth && !auth.ephemeral) {
-        localStorage.setItem(ARENA_TOKEN_KEY, auth.token)
+        // the arena verifies mod-protocol tokens offline — a build session
+        // bearer means nothing there, so only a signed token is mirrored
+        if (!isBuildToken(auth.token)) localStorage.setItem(ARENA_TOKEN_KEY, auth.token)
+        localStorage.setItem(PASSPORT_KEY, JSON.stringify({ address: auth.address, token: auth.token,
+          scheme: isBuildToken(auth.token) ? 'build' : 'mod' }))
         arenaMirror.current = auth.token
       } else if (!auth && arenaMirror.current) {
         if (localStorage.getItem(ARENA_TOKEN_KEY) === arenaMirror.current) localStorage.removeItem(ARENA_TOKEN_KEY)
+        try {
+          const pp = JSON.parse(localStorage.getItem(PASSPORT_KEY) || 'null')
+          if (pp?.token === arenaMirror.current) localStorage.removeItem(PASSPORT_KEY)
+        } catch {}
         arenaMirror.current = null
       }
     } catch {}
@@ -1510,19 +1530,52 @@ export default function Home() {
   }
   const authAskRef = useRef<AuthNeed | null>(null)
   authAskRef.current = authAsk
-  // signed in nowhere here yet, but the arena has someone: that's us
+  // the session another console already holds on this origin, best first:
+  // the passport slot, build's own session, then the arena's
+  const sharedToken = (): string | null => {
+    try {
+      const pp = JSON.parse(localStorage.getItem(PASSPORT_KEY) || 'null')
+      if (pp?.token && tokenFresh(pp.token)) return pp.token
+    } catch {}
+    try {
+      const b = localStorage.getItem(BUILD_TOKEN_KEY)
+      if (b && b !== 'local' && tokenFresh(b)) return b
+      const a = localStorage.getItem(ARENA_TOKEN_KEY)
+      if (a && tokenFresh(a)) return a
+    } catch {}
+    return null
+  }
+  const tokenOf = (key: string | null, raw: string | null): string | null => {
+    if (!raw) return null
+    if (key !== PASSPORT_KEY) return raw
+    try { return JSON.parse(raw)?.token || null } catch { return null }
+  }
+  // signed in nowhere here yet, but another console has someone: that's us.
+  // Embedded in build (a frame), ask it — build answers mod.session.request.
   useEffect(() => {
     try {
       if (localStorage.getItem(AUTH_KEY)) return
-      void adoptArenaToken(localStorage.getItem(ARENA_TOKEN_KEY))
+      const t = sharedToken()
+      if (t) { void adoptArenaToken(t); return }
     } catch {}
+    if (window.parent === window) return
+    const onMsg = (e: MessageEvent) => {
+      const d = e.data || {}
+      if (e.source !== window.parent) return
+      if (d.type === 'mod.session' && d.token) void adoptArenaToken(String(d.token))
+      else if (d.type === 'mod.session.end') signOut()
+    }
+    window.addEventListener('message', onMsg)
+    try { window.parent.postMessage({ type: 'mod.session.request' }, '*') } catch {}
+    return () => window.removeEventListener('message', onMsg)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  // and while open: an arena tab signing in or out moves this console with it
+  // and while open: another console signing in or out moves this one with it
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== ARENA_TOKEN_KEY) return
-      if (e.newValue && e.newValue !== auth?.token) void adoptArenaToken(e.newValue)
-      else if (!e.newValue && auth && e.oldValue === auth.token) signOut()
+      if (e.key !== ARENA_TOKEN_KEY && e.key !== PASSPORT_KEY && e.key !== BUILD_TOKEN_KEY) return
+      const next = tokenOf(e.key, e.newValue), prev = tokenOf(e.key, e.oldValue)
+      if (next && next !== 'local' && next !== auth?.token) void adoptArenaToken(next)
+      else if (!next && auth && prev === auth.token) signOut()
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
@@ -4923,7 +4976,7 @@ export default function Home() {
           so the tabs stay first without hiding one. */}
       <header className="site-header border-b border-white/[0.06] px-3 min-h-12 py-1.5 flex items-center gap-x-3 shrink-0 bg-surface-0">
         {/* the brand is the way home to the chat — the nav is AGENTS ·
-            GAMES only, so the console itself needs no tab of its own */}
+            ARENA only, so the console itself needs no tab of its own */}
         <button type="button" onClick={() => { setView('chat'); if (activeTab === 'agents') setActiveTab('output') }}
           className="flex items-center gap-2.5 shrink-0" title="Chat — talk to an agent">
           <div className="brand-mark w-7 h-7 flex items-center justify-center shrink-0">
@@ -4950,7 +5003,7 @@ export default function Home() {
                   lit ? 'nav-tab--on text-emerald-200' : 'text-gray-600 hover:text-gray-300'
                 }`}
                 title={v === 'agents' ? 'Agents, the library and every run on the server'
-                  : 'The arena — every game, every agent ranked, signed in as you'}>
+                  : 'The arena — every arena, every agent ranked, signed in as you'}>
                 {v}
                 {v === 'agents' && runningCount > 0 && (
                   <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-300"

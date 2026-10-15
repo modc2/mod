@@ -4,3 +4,4 @@ __pycache__/
 contracts/target/
 contracts/.snfoundry_cache/
 prover/target/
+near/target/

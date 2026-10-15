@@ -93,13 +93,13 @@ Endpoints:
     POST /arena/skills - signed in: create a skill (name=, tasks=, description=)
     PUT  /arena/skills/{id} - signed in: update tasks or weights
     DELETE /arena/skills/{id} - signed in: remove a skill
-    GET  /arena/games  - every created game: one task or a bundle, played as one
-    GET  /arena/game?id= - one game's leaderboard (bundle id or bare task key)
-    GET  /arena/game/results?id= - its tasks + every agent's answer
-    POST /arena/games  - signed in: combine tasks into a game (name=, tasks=)
-    PUT  /arena/games/{id} - signed in: update a game
-    DELETE /arena/games/{id} - signed in: remove a game
-    POST /arena/game/run - admin: play every member task (id=, force=)
+    GET  /arena/arenas  - every created arena: one task or a bundle, played as one
+    GET  /arena/arena?id= - one arena's leaderboard (bundle id or bare task key)
+    GET  /arena/arena/results?id= - its tasks + every agent's answer
+    POST /arena/arenas  - signed in: combine tasks into an arena (name=, tasks=)
+    PUT  /arena/arenas/{id} - signed in: update an arena
+    DELETE /arena/arenas/{id} - signed in: remove an arena
+    POST /arena/arena/run - admin: play every member task (id=, force=)
     POST /arena/gauntlet - admin: one agent, one task set, N models
     POST /arena/run    - admin: play a match (agent=, task=) or a whole round
     POST /arena/config - admin: the board's knobs + scheduler on/off
@@ -1238,24 +1238,20 @@ def set_owners(req: OwnersRequest):
 def whoami(key: Optional[str] = None):
     """Resolve a signed protocol-auth token to a verified address + role.
 
-    The token is the fleet-standard base64url of {data, time, key, signature}
-    where signature = personal_sign of the compact JSON {"data":…,"time":…}.
+    The token is anything the passport protocol accepts: the fleet-standard
+    base64url of {data, time, key, signature} (signature = personal_sign of
+    the compact JSON {"data":…,"time":…}), or a build console session.
     """
     mod = get_mod()
     out = {"signed_in": False, "address": None, "is_owner": False,
            "owner": mod._owner}
     if not key:
         return out
-    addr = None
-    if mod.auth:
-        try:
-            addr = mod.auth.verify(key)['key']
-        except Exception:
-            return {**out, "error": "invalid or expired token"}
-    else:
-        addr = _caller_address(key)
+    # through passport, the fleet auth protocol — so a build console session
+    # (or any token the protocol accepts) signs a caller in here too
+    addr = _caller_address(key)
     if not addr:
-        return {**out, "error": "could not resolve address"}
+        return {**out, "error": "invalid or expired token"}
     out.update(signed_in=True, address=addr.lower(),
                is_owner=mod.is_owner(key))
     # the harnesses this caller may hand a run to — the host gets them all,
@@ -2835,78 +2831,78 @@ def arena_task_search(q: str = "", k: int = 20):
     nothing leaves the box and no sign-in is needed to look."""
     return get_mod().forward('arena_task_search', query=q, k=k)
 
-# ── games: one task or a bundle of tasks, played as one thing ────────
+# ── arenas: one task or a bundle of tasks, played as one thing ────────
 
-@app.get("/arena/games")
-def arena_games():
-    """Every created game — a named bundle of one or more tasks, with the
-    same composite leaderboard a skill gets. A single pool task is a game
-    too, by its bare task key: read it via /arena/game?id=."""
-    return get_mod().forward('arena_games')
+@app.get("/arena/arenas")
+def arena_arenas():
+    """Every created arena — a named bundle of one or more tasks, with the
+    same composite leaderboard a skill gets. A single pool task is an arena
+    too, by its bare task key: read it via /arena/arena?id=."""
+    return get_mod().forward('arena_arenas')
 
-@app.get("/arena/game")
-def arena_game(id: str):
-    """One game's leaderboard. A query param, not a path one — a game id
+@app.get("/arena/arena")
+def arena_arena(id: str):
+    """One arena's leaderboard. A query param, not a path one — an arena id
     can be a bare task key ('code/python#4'), which carries slashes and a
     fragment marker no path segment survives."""
-    return get_mod().forward('arena_game', id=id)
+    return get_mod().forward('arena_arena', id=id)
 
-@app.get("/arena/game/results")
-def arena_game_results(id: str):
-    """The game's answer sheet: each member task's full prompt, and per
+@app.get("/arena/arena/results")
+def arena_arena_results(id: str):
+    """The arena's answer sheet: each member task's full prompt, and per
     agent its standing score plus the answer it actually gave."""
-    return get_mod().forward('arena_game_results', id=id)
+    return get_mod().forward('arena_arena_results', id=id)
 
-@app.post("/arena/games")
-def arena_game_create(req: dict):
-    """Combine tasks into a game — one task key or many, weights optional.
+@app.post("/arena/arenas")
+def arena_arena_create(req: dict):
+    """Combine tasks into an arena — one task key or many, weights optional.
 
-    Signed in: the game is filed under the caller's address.
+    Signed in: the arena is filed under the caller's address.
     tasks is a list of keys or {key, weight} objects (weight defaults 1.0).
     """
     key = req.get("key")
     if not signed_in(key):
-        return {"error": "sign in to create a game", "code": 401}
+        return {"error": "sign in to create an arena", "code": 401}
     try:
-        return get_mod().forward('arena_game_create', key=key,
+        return get_mod().forward('arena_arena_create', key=key,
                                  name=req.get("name", ""),
                                  description=req.get("description", ""),
                                  tasks=req.get("tasks") or [])
     except ValueError as e:
         return {"error": str(e)}
 
-@app.put("/arena/games/{game_id}")
-def arena_game_update(game_id: str, req: dict):
-    """Update a game's name, description or task weights."""
+@app.put("/arena/arenas/{arena_id}")
+def arena_arena_update(arena_id: str, req: dict):
+    """Update an arena's name, description or task weights."""
     key = req.get("key")
     if not signed_in(key):
-        return {"error": "sign in to update a game", "code": 401}
-    return get_mod().forward('arena_game_update', key=key, id=game_id,
+        return {"error": "sign in to update an arena", "code": 401}
+    return get_mod().forward('arena_arena_update', key=key, id=arena_id,
                              name=req.get("name"),
                              description=req.get("description"),
                              tasks=req.get("tasks"))
 
-@app.delete("/arena/games/{game_id}")
-def arena_game_rm(game_id: str, key: Optional[str] = None):
-    """Remove a game."""
+@app.delete("/arena/arenas/{arena_id}")
+def arena_arena_rm(arena_id: str, key: Optional[str] = None):
+    """Remove an arena."""
     if not signed_in(key):
-        return {"error": "sign in to remove a game", "code": 401}
-    return get_mod().forward('arena_game_rm', key=key, id=game_id)
+        return {"error": "sign in to remove an arena", "code": 401}
+    return get_mod().forward('arena_arena_rm', key=key, id=arena_id)
 
-@app.post("/arena/game/run")
-def arena_game_run(req: dict):
-    """Play a game now: every member task through the normal round path,
+@app.post("/arena/arena/run")
+def arena_arena_run(req: dict):
+    """Play an arena now: every member task through the normal round path,
     with the round's skip-unchanged rule and budget caps intact.
 
-    Admin, like /arena/run — a game run spends real steps on the module's
+    Admin, like /arena/run — an arena run spends real steps on the module's
     provider key. id is a bundle id or any bare task key.
     """
     key = req.get("key")
     if not signed_in(key):
-        return {"error": "sign in — a game run spends steps on the host's key",
+        return {"error": "sign in — an arena run spends steps on the host's key",
                 "code": 401}
     try:
-        return get_mod().forward('arena_game_run', key=key,
+        return get_mod().forward('arena_arena_run', key=key,
                                  id=req.get("id", ""),
                                  agents=req.get("agents"),
                                  force=bool(req.get("force", False)))

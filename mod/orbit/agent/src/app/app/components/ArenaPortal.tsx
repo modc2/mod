@@ -3,7 +3,9 @@
 // ArenaPortal — the arena mod, whole, inside the agent console, as you.
 //
 // The arena's own console (/arena?portal) is framed edge to edge: its lobby,
-// agents, games, studio and docs, nothing copied, nothing that can drift.
+// agents, arenas, studio and docs, nothing copied, nothing that can drift.
+// The arena mod still calls them games on the wire — its section id, its
+// `game/<id>` routes, `arc.games`, `m.game` — so only the words shown change.
 // This file draws only what a frame cannot: the chrome around it (sections,
 // the + buttons, live numbers, a match ticker) and the identity.
 //
@@ -29,7 +31,7 @@ const ARENA = DEV ? 'http://localhost:50470' : ''
 const ARENA_API = DEV ? ARENA : '/arena/api'
 const SRC = `${ARENA}/arena?portal`
 const VIEW_KEY = 'agent_arena_view'
-// set by a /g/<name> page's "play in console": a game to open on arrival
+// set by an /arenas/<name> page's "play in console": an arena to open on arrival
 const GO_KEY = 'agent_arena_go'
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '/agent'
 
@@ -41,15 +43,15 @@ const THEME_MAP: Record<string, string> = {
 
 type Section = 'lobby' | 'agents' | 'games' | 'docs'
 const SECTIONS: { id: Section; label: string; hint: string }[] = [
-  { id: 'lobby', label: 'arena', hint: 'the lobby — a match on the stage, games, the ranking, the feed' },
+  { id: 'lobby', label: 'arena', hint: 'the lobby — a match on the stage, arenas, the ranking, the feed' },
   { id: 'agents', label: 'agents', hint: 'every player ranked — models, agents, classes, wasm' },
-  { id: 'games', label: 'games', hint: 'every game stored — yours, everyone’s' },
+  { id: 'games', label: 'arenas', hint: 'every arena stored — yours, everyone’s' },
   { id: 'docs', label: 'docs', hint: 'how the arena works, the ABI, the protocol' },
 ]
 
 type Seat = { player_name: string; score: number; delta?: number }
 type Match = { id: string; game: string; game_name?: string; created: number; seats: Seat[]; summary?: string }
-type Stats = { games: number; matches: number; ranked: number; players: number }
+type Stats = { arenas: number; matches: number; ranked: number; players: number }
 
 type Props = {
   auth: { address: string; token: string; isOwner: boolean; local?: boolean; ephemeral?: boolean } | null
@@ -107,10 +109,10 @@ function Stat({ n, label }: { n: number; label: string }) {
 
 function matchLine(m: Match) {
   const s = [...(m.seats || [])].sort((a, b) => b.score - a.score)
-  const game = m.game_name || 'match'
-  if (s.length < 2) return { game, text: s[0]?.player_name || m.summary || '', delta: s[0]?.delta }
-  if (s[0].score === s[1].score) return { game, text: `${s[0].player_name} drew ${s[1].player_name}`, delta: undefined }
-  return { game, text: `${s[0].player_name} beat ${s[1].player_name}`, delta: s[0].delta }
+  const arena = m.game_name || 'match'
+  if (s.length < 2) return { arena, text: s[0]?.player_name || m.summary || '', delta: s[0]?.delta }
+  if (s[0].score === s[1].score) return { arena, text: `${s[0].player_name} drew ${s[1].player_name}`, delta: undefined }
+  return { arena, text: `${s[0].player_name} beat ${s[1].player_name}`, delta: s[0].delta }
 }
 
 export default function ArenaPortal({ auth, theme, onSignIn, onSignOut }: Props) {
@@ -137,11 +139,11 @@ export default function ArenaPortal({ auth, theme, onSignIn, onSignOut }: Props)
         fetch(`${ARENA_API}/players`, { cache: 'no-store' }).then(r => r.json()),
         fetch(`${ARENA_API}/matches?limit=16`, { cache: 'no-store' }).then(r => r.json()),
       ])
-      const games = arc.games || []
+      const arenas = arc.games || []
       const players = pl.players || []
       setStats({
-        games: arc.count ?? games.length,
-        matches: games.reduce((n: number, g: { runs?: number }) => n + (g.runs || 0), 0),
+        arenas: arc.count ?? arenas.length,
+        matches: arenas.reduce((n: number, g: { runs?: number }) => n + (g.runs || 0), 0),
         ranked: players.filter((p: { matches?: number; kind?: string }) => (p.matches || 0) > 0 && p.kind !== 'gone').length,
         players: pl.count ?? players.length,
       })
@@ -237,8 +239,8 @@ export default function ArenaPortal({ auth, theme, onSignIn, onSignOut }: Props)
 
         {stats && (
           <div className="ap-stats">
-            <a href={`${BASE}/g`} title="every game, a page each" className="contents">
-              <Stat n={stats.games} label="games" />
+            <a href={`${BASE}/arenas`} title="every arena, a page each" className="contents">
+              <Stat n={stats.arenas} label="arenas" />
             </a>
             <Stat n={stats.ranked} label="ranked" />
             <Stat n={stats.matches} label="matches" />
@@ -247,7 +249,7 @@ export default function ArenaPortal({ auth, theme, onSignIn, onSignOut }: Props)
 
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
           <button type="button" className="ap-act ap-act--hot" onClick={() => go('vibe')}
-            title="a new game — say what it is, the agent writes it">+ game</button>
+            title="a new arena — say what it is, the agent writes it">+ arena</button>
           <button type="button" className="ap-act ap-w720" onClick={() => go('vibe-agent')}
             title="a new player — vibecode it, or clone it from a git url">+ agent</button>
           <button type="button" className="ap-act ap-w820" onClick={() => go('upload')}
@@ -308,8 +310,8 @@ export default function ArenaPortal({ auth, theme, onSignIn, onSignOut }: Props)
                     const l = matchLine(m)
                     return (
                       <button key={`${copy}-${m.id}`} type="button" className="ap-tick"
-                        onClick={() => go(`game/${m.game}`)} title={`open ${l.game}`}>
-                        <span className="ap-tick-game">{l.game}</span>
+                        onClick={() => go(`game/${m.game}`)} title={`open ${l.arena}`}>
+                        <span className="ap-tick-arena">{l.arena}</span>
                         <span>{l.text}</span>
                         {typeof l.delta === 'number' && l.delta !== 0 && (
                           <span className={l.delta > 0 ? 'ap-up' : 'ap-dn'}>
