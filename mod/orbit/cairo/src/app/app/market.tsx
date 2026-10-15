@@ -149,21 +149,25 @@ export function Market({
             </header>
             <p className="mdesc">{c.description || 'No description.'}</p>
             <div className="fnchips">
-              {c.reads.slice(0, 4).map((f) => (
+              {c.reads.slice(0, 3).map((f) => (
                 <span className="fchip r" key={`r${f}`}>
                   {f}
                 </span>
               ))}
-              {c.writes.slice(0, 4).map((f) => (
+              {c.writes.slice(0, 3).map((f) => (
                 <span className="fchip w" key={`w${f}`}>
                   {f}
                 </span>
               ))}
-              {c.events.slice(0, 2).map((f) => (
+              {c.events.slice(0, 1).map((f) => (
                 <span className="fchip e" key={`e${f}`}>
                   {f}
                 </span>
               ))}
+              {(() => {
+                const more = Math.max(0, c.reads.length - 3) + Math.max(0, c.writes.length - 3) + Math.max(0, c.events.length - 1);
+                return more > 0 ? <span className="fchip">+{more} more</span> : null;
+              })()}
               {c.state === 'unbuilt' && <span className="muted small">build to see its interface</span>}
             </div>
             <div className="mmeta">
@@ -177,11 +181,11 @@ export function Market({
             </div>
             <footer>
               <button className="btn primary" onClick={() => onOpen(c.name)}>
-                Open
+                Edit
               </button>
               {c.state !== 'unbuilt' && (
                 <a className="btn" href={`${BASE}/${c.name}/`} target="_blank" rel="noreferrer">
-                  App
+                  Open app
                 </a>
               )}
               <span className="grow" />

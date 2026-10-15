@@ -64,6 +64,7 @@ PRIME = 2 ** 251 + 17 * 2 ** 192 + 1
 ORDER = 0x800000000000010ffffffffffffffffb781126dcae7b2321e66a241adc64d2f
 ROLES = {'miner': 1, 'validator': 2}
 MAX_RING = 64
+NEAR_MAX_RING = 32  # gas-bound: ~7.5 Tgas/member, 300 Tgas per call
 
 DEVNET_PORT = int(os.environ.get('ZUMA_DEVNET_PORT', 51332))
 NETWORKS = {
@@ -79,6 +80,37 @@ NETWORKS = {
         'section': 'alpha-mainnet', 'fee': 'strk'},
 }
 NEAR_NETS = ('near', 'near-testnet')
+TESTS = os.path.join(DATA, 'tests.json')
+# measured 2026-10-15 on near-sandbox (neard 2.0): submit, fresh deploy
+NEAR_GAS_MEASURED = {'at': None, 'limit_tgas': 300, 'max_ring': 32, 'rows': [
+    {'ring': 4, 'tgas': 36.27}, {'ring': 8, 'tgas': 66.51},
+    {'ring': 16, 'tgas': 126.33}, {'ring': 24, 'tgas': 186.68},
+    {'ring': 32, 'tgas': 246.66},
+    {'ring': 40, 'error': 'Exceeded the maximum amount of gas allowed to '
+                          'burn per contract.'}]}
+# (group, chain, [(path, note)]) — the CODE tab and source()
+SOURCES = [
+    ('Starknet · Cairo', 'starknet', [
+        ('contracts/src/lsag.cairo', 'the scheme: LSAG over the STARK curve'),
+        ('contracts/src/zuma.cairo', 'the subnet contract'),
+        ('contracts/tests/test_zuma.cairo', 'snforge suite'),
+        ('prover/src/lib.cairo', 'the signer (cairo-run), shared by both'),
+        ('contracts/Scarb.toml', 'package')]),
+    ('NEAR · Rust', 'near', [
+        ('near/src/lsag.rs', 'the same scheme, ported line by line'),
+        ('near/src/lib.rs', 'the subnet contract (near-sdk 5)'),
+        ('near/src/fp.rs', 'fast field + curve for wasm'),
+        ('near/src/poseidon.rs', 'Poseidon on the fast field (generated)'),
+        ('near/src/tests.rs', 'cargo test suite + Cairo fixtures'),
+        ('near/src/bench.rs', 'in-contract gas probes'),
+        ('near/Cargo.toml', 'crate + build profile')]),
+    ('Driver · both chains', 'both', [
+        ('mod.py', 'keys, prover, deploy, actions, simulate'),
+        ('near_chain.py', 'NEAR: borsh txs, sandbox, deploy'),
+        ('server.py', 'this console + JSON API'),
+        ('tools/wasmlower/src/main.rs', 'wasm -> MVP lowering for nearcore'),
+        ('tools/gen_fp.py', 'generates fp.rs core + poseidon.rs')]),
+]
 CHAINS = {'starknet': 'devnet', 'near': 'near'}  # simulate(chain=) -> local net
 DEFAULT_ACCOUNTS = os.path.expanduser(
     '~/.starknet_accounts/starknet_open_zeppelin_accounts.json')
@@ -244,6 +276,96 @@ class Mod:
                             if isinstance(v, dict))
         out['failed'] = sum(v.get('failed') or 0 for v in out.values()
                             if isinstance(v, dict))
+        cache = _load(TESTS, {})
+        for c in ('starknet', 'near'):
+            if c in out:
+                cache[c] = {'at': int(time.time()), 'ok': out[c]['ok'],
+                            'passed': out[c].get('passed'),
+                            'failed': out[c].get('failed'),
+                            'tests': [list(t) for t in out[c].get('tests', [])]}
+        _save(TESTS, cache)
+        return out
+
+    def tests(self):
+        """The last test run per chain (public: names + pass/fail only)."""
+        return _load(TESTS, {})
+
+    # ---- the code, the paper, the numbers (all public reads) ---------------
+
+    def files(self):
+        """Every source file of both versions, grouped, with line counts."""
+        out = []
+        for group, chain, paths in SOURCES:
+            rows = []
+            for rel, note in paths:
+                fp = os.path.join(HERE, rel)
+                if os.path.exists(fp):
+                    rows.append({'path': rel, 'note': note,
+                                 'lines': sum(1 for _ in open(fp))})
+            out.append({'group': group, 'chain': chain, 'files': rows})
+        return out
+
+    def source(self, path):
+        """One whitelisted source file (never data/ or keys)."""
+        allowed = {r for _, _, ps in SOURCES for r, _ in ps}
+        if path not in allowed:
+            raise ValueError(f'not a published source file: {path!r}')
+        return {'path': path, 'text': open(os.path.join(HERE, path)).read()}
+
+    def whitepaper(self):
+        p = os.path.join(HERE, 'WHITEPAPER.md')
+        return open(p).read() if os.path.exists(p) else None
+
+    def gas(self):
+        """NEAR verification gas by ring size (measured by gas_sweep)."""
+        return _load(os.path.join(DATA, 'near_gas.json'), NEAR_GAS_MEASURED)
+
+    def gas_sweep(self, sizes='4,8,16,24,32'):
+        """Measure NEAR submit gas per ring size on the sandbox: fresh
+        deploy, len(sizes) miners each submit with a ring of that size."""
+        net = 'near'
+        sizes = [int(x) for x in str(sizes).split(',')]
+        self.deploy(net, tempo=5000, min_ring=3)
+        names = [f'ring-m{i}' for i in range(max(sizes))]
+        for n in names:
+            self.keygen(n)
+            self.register(n, 'miner', net)
+        b = _near().block(net)
+        self._advance(net, (b // 5000 + 1) * 5000)
+        rows = []
+        for i, k in enumerate(sizes):
+            try:
+                r = self.submit(names[i], f'gas {k}', ring_size=k, network=net)
+                rows.append({'ring': k, 'tgas': r['tgas']})
+            except Exception as e:  # noqa: BLE001
+                rows.append({'ring': k, 'error': str(e)[:200]})
+        out = {'at': int(time.time()), 'limit_tgas': 300,
+               'max_ring': NEAR_MAX_RING, 'rows': rows}
+        _save(os.path.join(DATA, 'near_gas.json'), out)
+        return out
+
+    def compare(self):
+        """Both versions side by side: what is the same, what differs,
+        and the numbers from each chain's last full epoch."""
+        out = {}
+        for chain in CHAINS:
+            sim = self.last_sim(chain) or {}
+            ev = sim.get('events') or []
+            acts = [e for e in ev if e['kind'] in ('submit', 'score', 'claim')]
+            dep = next((e for e in ev if e['kind'] == 'deploy'), {})
+            out[chain] = {
+                'at': sim.get('at'), 'seconds': (sim.get('result') or {}).get(
+                    'seconds'),
+                'contract': dep.get('address'),
+                'double_claim': (sim.get('result') or {}).get('double_claim'),
+                'actions': len(acts),
+                'ring': next((e.get('ring') for e in acts if e.get('ring')),
+                             None),
+                'tgas': [e.get('tgas') for e in acts if e.get('tgas')],
+                'steps': [e.get('steps') for e in acts if e.get('steps')],
+                'ec_op': [e.get('ec_op') for e in acts if e.get('ec_op')],
+                'tests': self.tests().get(chain)}
+        out['gas'] = self.gas()
         return out
 
     # ---- the prover (Cairo, same lsag module the contract runs) ------------
@@ -649,7 +771,8 @@ class Mod:
         others = [p for p in everyone if int(p['x'], 16) != int(me['x'], 16)]
         if len(others) == len(everyone):
             raise ValueError(f'{name!r} is not a registered {role}')
-        size = min(int(ring_size or MAX_RING), MAX_RING, len(others) + 1)
+        cap = NEAR_MAX_RING if network in NEAR_NETS else MAX_RING
+        size = min(int(ring_size or cap), cap, len(others) + 1)
         return random.sample(others, size - 1) + [me]
 
     @staticmethod
@@ -732,8 +855,11 @@ class Mod:
         s0 = time.time()
         sig = self.sign(name, scope, msg, ring)
         sign_ms = int((time.time() - s0) * 1000)
+        # Hp(scope) from a (free) view call: the contract checks it instead
+        # of taking an on-chain square root (~6 Tgas saved per action)
+        hp = nz.view(net, 'hash_point', {'scope': hex(_felt(scope))})
         wire = {'ring': sig['ring'], 'sig': {'c0': sig['c0'], 's': sig['s'],
-                                             'image': sig['image']}}
+                                             'image': sig['image'], 'hp': hp}}
         if kind == 'submit':
             t = nz.invoke(net, 'submit', {**wire, 'work': msg})
             return {'ok': True, 'epoch': e, 'tag': t['result'],

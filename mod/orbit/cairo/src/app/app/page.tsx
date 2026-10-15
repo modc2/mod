@@ -8,20 +8,37 @@ import { Create, NewSeed } from './create';
 import { Docs } from './docs';
 import { Learn } from './learn';
 import { Fleet } from './fleet';
+import { Agents } from './agents';
 import { Paper } from './paper';
 import { AgentOrb, AgentAction } from './agent';
+import { Home } from './home';
 
 // Top-level views. The hash (#market, #new, #docs) makes each one linkable.
-type View = 'studio' | 'market' | 'fleet' | 'new' | 'docs' | 'learn' | 'paper';
-const VIEWS: { id: View; label: string; tip: string }[] = [
+// Three in the bar (the front door, the workbench, the school); the rest, for
+// people who know what they want, sit under More.
+type View = 'home' | 'studio' | 'market' | 'fleet' | 'agents' | 'new' | 'docs' | 'learn' | 'paper';
+type ViewDef = { id: View; label: string; tip: string };
+const VIEWS: ViewDef[] = [
+  { id: 'home', label: 'Home', tip: 'what this is, your contracts, where to start' },
   { id: 'studio', label: 'Studio', tip: 'edit, build, test and vibecode a contract' },
-  { id: 'market', label: 'Market', tip: 'the bazaar: every contract here, open or fork one' },
-  { id: 'fleet', label: 'Fleet', tip: 'every mod on this box with a Cairo setup' },
   { id: 'learn', label: 'Learn', tip: 'stablecoins from zero: short plain-English lessons' },
+];
+const MORE: ViewDef[] = [
+  { id: 'market', label: 'Market', tip: 'every contract here with search, filters and sort; open or fork one' },
+  { id: 'fleet', label: 'Fleet', tip: 'every mod on this box with a Cairo setup' },
+  { id: 'agents', label: 'Agents', tip: 'every agent on this box: the request it takes, its skills, its tools' },
   { id: 'docs', label: 'Docs', tip: 'how it works, Cairo basics, the HTTP API' },
   { id: 'paper', label: 'Paper', tip: 'the whitepaper: why and how this workbench works' },
 ];
-const isView = (v: string): v is View => v === 'new' || VIEWS.some((x) => x.id === v);
+const isView = (v: string): v is View => v === 'new' || VIEWS.some((x) => x.id === v) || MORE.some((x) => x.id === v);
+
+function Chevron() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M2.5 4.5 L6 8 L9.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 // Starter prompts per template: the fastest way to see vibecoding work is a
 // change that is obviously the next step for the contract in front of you.
@@ -89,7 +106,19 @@ export default function Page() {
   const [now, setNow] = useState(Date.now() / 1000);
   const [who, setWho] = useState<{ writable: boolean; via?: string | null; address?: string | null; why?: string } | null>(null);
   const editor = useRef<{ jump: (d: Diag) => void } | null>(null);
-  const [view, setViewState] = useState<View>('studio');
+  const moreRef = useRef<HTMLDetailsElement>(null);
+  // the More menu closes on any click outside it
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      const d = moreRef.current;
+      if (d?.open && !d.contains(e.target as Node)) d.open = false;
+    };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, []);
+  const [view, setViewState] = useState<View>('home');
+  // the Runs tray under the workbench: folded until something runs
+  const [runsOpen, setRunsOpen] = useState(false);
   const [seed, setSeed] = useState<NewSeed>({});
   // the open lesson in LEARN (null = the lesson list); remembered
   const [lesson, setLessonState] = useState<string | null>(null);
@@ -114,7 +143,7 @@ export default function Page() {
   const setView = (v: View, contract?: string) => {
     setViewState(v);
     if (typeof window !== 'undefined')
-      history.replaceState(null, '', v === 'studio' ? (contract ? `#studio/${contract}` : window.location.pathname) : `#${v}`);
+      history.replaceState(null, '', v === 'home' ? window.location.pathname : v === 'studio' && contract ? `#studio/${contract}` : `#${v}`);
   };
   useEffect(() => {
     const read = () => {
@@ -122,7 +151,7 @@ export default function Page() {
       // #studio/<name> opens that contract
       const m = h.match(/^studio\/([a-z0-9_]+)$/);
       if (m) setSel(m[1]);
-      setViewState(m ? 'studio' : isView(h) ? h : 'studio');
+      setViewState(m ? 'studio' : isView(h) ? h : 'home');
     };
     read();
     window.addEventListener('hashchange', read);
@@ -189,6 +218,7 @@ export default function Page() {
     const r = await call(fn, { ...body, async: true });
     if (r.error) return setErr(r.error);
     setShown(r.job.id);
+    setRunsOpen(true);
     setNow(Date.now() / 1000);
     loadJobs();
   };
@@ -234,7 +264,7 @@ export default function Page() {
   return (
     <div className={`wrap ${drawer ? 'shift' : ''}`}>
       <header className="top">
-        <button className="brand" onClick={() => setView('studio')} title="cairo · zero-knowledge contracts, one mod each">
+        <button className="brand" onClick={() => setView('home')} title="cairo · zero-knowledge contracts, one mod each">
           <span className="mark"><Pyramid /></span>
           <span className="name">cairo</span>
           <span className="sub">zk contracts</span>
@@ -246,6 +276,27 @@ export default function Page() {
               {v.id === 'studio' && active && <i className="vdot" />}
             </button>
           ))}
+          <details className="more" ref={moreRef}>
+            <summary className={`view ${MORE.some((m) => m.id === view) ? 'on' : ''}`} title="market, fleet, docs and the paper">
+              {MORE.find((m) => m.id === view)?.label ?? 'More'}
+              <Chevron />
+            </summary>
+            <div className="moremenu">
+              {MORE.map((v) => (
+                <button
+                  key={v.id}
+                  className={view === v.id ? 'on' : ''}
+                  onClick={() => {
+                    setView(v.id);
+                    if (moreRef.current) moreRef.current.open = false;
+                  }}
+                >
+                  <b>{v.label}</b>
+                  <span>{v.tip}</span>
+                </button>
+              ))}
+            </div>
+          </details>
         </nav>
         <button className={`plusbtn ${view === 'new' ? 'on' : ''}`} title="new contract: from a starter, a fork or a sentence" onClick={() => newContract()}>
           +
@@ -286,14 +337,6 @@ export default function Page() {
           </button>
         </h2>
         <div className="acctrow">
-          <span className="chain">
-            {['scarb', 'snforge', 'claude'].map((t) => (
-              <span key={t} className={`tool ${tools[t]?.path ? 'ok' : tools[t] ? 'bad' : ''}`} title={`${t}: ${tools[t]?.version ?? (tools[t]?.path ? 'ok' : tools[t] ? 'missing' : '…')}`}>
-                <i />
-                {t}
-              </span>
-            ))}
-          </span>
           {who?.address ? (
             <button className={`me ${who.writable ? '' : 'guest'}`} title={`${who.writable ? 'owner' : 'signed in, read-only (not an owner)'} · ${who.address}\nclick to sign in with another wallet`} onClick={doSignIn}>
               <i />
@@ -307,6 +350,9 @@ export default function Page() {
               Sign in
             </button>
           )}
+          <span className="muted small acctwhy">
+            {who?.address ? (who.writable ? 'you can build, test and vibecode' : 'read-only: not an owner') : who?.via === 'local' ? 'you can build, test and vibecode' : 'reads are open; sign in to make changes'}
+          </span>
         </div>
         <div className="list">
           {contracts.length === 0 && (
@@ -332,6 +378,16 @@ export default function Page() {
 
       {err && <p className="err">{err}</p>}
 
+      {view === 'home' && (
+        <Home
+          refreshKey={landedAny}
+          writable={!!who?.writable}
+          onOpen={(n) => openContract(n)}
+          onNew={newContract}
+          onLearn={() => setView('learn')}
+          onMarket={() => setView('market')}
+        />
+      )}
       {view === 'docs' && <Docs />}
       {view === 'paper' && <Paper />}
       {view === 'learn' && (
@@ -343,13 +399,14 @@ export default function Page() {
         />
       )}
 
-      {view !== 'docs' && view !== 'learn' && view !== 'paper' && (
+      {view !== 'home' && view !== 'docs' && view !== 'learn' && view !== 'paper' && (
       <div>
         <main style={{ minWidth: 0 }}>
         {view === 'market' && (
           <Market refreshKey={landedAny} writable={!!who?.writable} onOpen={(n) => openContract(n, 'code')} onNew={newContract} />
         )}
         {view === 'fleet' && <Fleet onOpen={openContract} />}
+        {view === 'agents' && <Agents onAsk={() => window.dispatchEvent(new Event('cairo:agent-open'))} />}
 
         {view === 'new' && (
           <Create
@@ -386,37 +443,56 @@ export default function Page() {
                   }}
                 />
               ) : (
-                <section className="card muted">Pick a contract, or make a new one.</section>
+                <section className="card sempty">
+                  <b>{contracts.length ? 'Pick a contract' : 'No contracts yet'}</b>
+                  <span>{contracts.length ? 'Choose one from the sidebar, or start a new one.' : 'Start from a starter or describe one in a sentence.'}</span>
+                  <div className="row">
+                    <button className="btn primary" onClick={() => newContract()}>
+                      New contract
+                    </button>
+                    {contracts.length > 0 && (
+                      <button className="btn ghostbtn" onClick={() => setDrawer(true)}>
+                        Show my contracts
+                      </button>
+                    )}
+                  </div>
+                </section>
               )}
 
-              <section className="card">
-                <h2>
-                  Output
-                  <span className="spacer" />
-                  {shownJob && (
-                    <span className={`pill ${jobOk(shownJob) === true ? 'ok' : jobOk(shownJob) === false ? 'bad' : ''}`}>
-                      {shownJob.fn} {shownJob.name} · {shownJob.state} {secs(shownJob, now)}
+              <section className={`card runs ${runsOpen ? 'open' : ''}`}>
+                <button className="runsbar" onClick={() => setRunsOpen(!runsOpen)} aria-expanded={runsOpen}>
+                  <span className="rlabel">Runs</span>
+                  {shownJob ? (
+                    <span className={`rstate ${live(shownJob) ? 'run' : jobOk(shownJob) === false ? 'bad' : 'ok'}`}>
+                      <i />
+                      {shownJob.fn} {shownJob.name} · {live(shownJob) ? shownJob.state : jobOk(shownJob) === false ? 'failed' : 'ok'}
+                      {secs(shownJob, now) && ` · ${secs(shownJob, now)}`}
                     </span>
+                  ) : (
+                    <span className="muted">Build, test or vibe a contract and its output lands here.</span>
                   )}
-                </h2>
-                {shownJob ? (
-                  <JobView job={shownJob} now={now} onJump={jump} />
-                ) : (
-                  <div className="muted">Build, test or vibe a contract to see its output here.</div>
-                )}
-                {jobs.length > 0 && (
-                  <div className="jobs">
-                    {jobs.slice(0, 8).map((j) => (
-                      <button className={`job ${shown === j.id ? 'on' : ''}`} key={j.id} onClick={() => setShown(j.id)}>
-                        <span className={`state ${live(j) ? j.state : jobOk(j) === false ? 'error' : 'done'}`}>
-                          {live(j) ? j.state : jobOk(j) === false ? 'failed' : 'ok'}
-                        </span>
-                        <span>
-                          {j.fn} {j.name}
-                        </span>
-                        <span className="muted">{secs(j, now)}</span>
-                      </button>
-                    ))}
+                  <span className="spacer" />
+                  {jobs.length > 0 && <span className="muted small">{jobs.length} recent</span>}
+                  <span className="chev">
+                    <Chevron />
+                  </span>
+                </button>
+                {runsOpen && (
+                  <div className="runsbody">
+                    {shownJob ? <JobView job={shownJob} now={now} onJump={jump} /> : <div className="muted">Nothing has run yet.</div>}
+                    {jobs.length > 0 && (
+                      <div className="jobs">
+                        {jobs.slice(0, 8).map((j) => (
+                          <button className={`job ${shown === j.id ? 'on' : ''}`} key={j.id} onClick={() => setShown(j.id)}>
+                            <i className={`jdot ${live(j) ? 'run' : jobOk(j) === false ? 'bad' : 'ok'}`} />
+                            <span className="jfn">{j.fn}</span>
+                            <span className="jname">{j.name}</span>
+                            <span className="muted">{live(j) ? j.state : jobOk(j) === false ? 'failed' : 'ok'}</span>
+                            <span className="muted jsecs">{secs(j, now)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </section>
@@ -768,20 +844,23 @@ function Workbench({
       <section className="card">
         <h2>
           <span className="wbname">
-            {name} <small>cairo.{name}</small>
-          </span>
-          <span className={`badge ${state}`} title={`${name} · ${STATE_TIP[state]}`}>
-            {state === 'fresh' ? 'built' : state}
+            <span className="wbtitle">
+              {name}
+              <span className={`badge ${state}`} title={`${name} · ${STATE_TIP[state]}`}>
+                {state === 'fresh' ? 'built' : state === 'stale' ? 'edited' : 'not built'}
+              </span>
+            </span>
+            <small>{contract?.description || `cairo.${name}`}</small>
           </span>
           <span className="spacer" />
-          <button className="btn" disabled={busy} onClick={() => run('build')} title={dirty ? 'saves first' : ''}>
-            Build
-          </button>
-          <button className="btn primary" disabled={busy} onClick={() => run('test')} title={dirty ? 'saves first' : ''}>
-            Test
-          </button>
-          <button className={`btn ${armed ? 'danger' : ''}`} disabled={busy} onClick={remove} onMouseLeave={() => setArmed(false)}>
+          <button className={`btn quiet ${armed ? 'danger' : ''}`} disabled={busy} onClick={remove} onMouseLeave={() => setArmed(false)}>
             {armed ? 'Really delete?' : 'Delete'}
+          </button>
+          <button className="btn" disabled={busy} onClick={() => run('build')} title={dirty ? 'saves first' : 'compile to Sierra and CASM'}>
+            {busy ? 'Working…' : 'Build'}
+          </button>
+          <button className="btn primary" disabled={busy} onClick={() => run('test')} title={dirty ? 'saves first' : 'build, then run the snforge tests'}>
+            Test
           </button>
         </h2>
         <nav className="tabs">

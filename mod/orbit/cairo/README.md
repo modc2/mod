@@ -268,6 +268,26 @@ changing it with the agent, and what changes before real money. The two
 Examples: `cairo.usd` (5 tests) and `cairo.vaultusd` (6 tests, including a
 price crash followed by a liquidation).
 
+## Agents: every agent on this box
+
+The **Agents** view (More ▸ Agents, `#agents`) lists every mod on the box that
+speaks the fleet agent contract — `GET /agents` plus `POST /run/stream` (SSE
+`step…` then `done` or `error`) — found live by asking each running mod, not
+from a hand-kept list. Pick an agent and three tabs show what you need to use it:
+
+- **Schema** — its endpoints, the request body to POST (with the agent's own
+  declared params and examples), the SSE events, who may call it, and a
+  ready-to-paste `curl`. The cairo helper and builder get an "Ask it here" button
+  that opens the orb.
+- **Skill** — the mod's `skill.md`, rendered: how an agent is meant to use it.
+- **Tools** — what its MCP server answers to `tools/list`: every tool with its
+  input schema (required params starred) and access.
+
+Offline mods that declare the contract in their `config.json` and mods that only
+ship a `skill.md` are listed too (filters: live · offline · skill · all). Behind
+it: `GET /cairo/api/agents` (`?refresh=1` skips the 60s cache), the `agents()`
+fn in `src/mod.py`, and the `cairo_agents` MCP tool.
+
 ## The helper (bottom-right) and the MCP server
 
 The round **?** button opens a helper that speaks the fleet agent contract

@@ -7,6 +7,9 @@ description = "zuma on NEAR: anonymous Bittensor-style subnet. Verifies the same
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+bench = []
+
 [dependencies]
 near-sdk = "5"
 starknet-types-core = { version = "0.2.4", default-features = false, features = ["curve", "hash", "alloc"] }
@@ -24,4 +27,8 @@ opt-level = 3
 lto = true
 debug = false
 panic = "abort"
-overflow-checks = true
+# OFF on purpose. In wasm a checked u64/u128 multiply becomes a `__multi3`
+# call, and lambdaworks' generic field/Poseidon code is inlined into THIS
+# crate, so checks here doubled the cost of every hash and field op. The
+# contract's own sums are checked explicitly (lib.rs `add`, checked_mul).
+overflow-checks = false

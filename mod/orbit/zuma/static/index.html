@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>zuma · anonymous subnets on Starknet</title>
+<title>zuma · anonymous subnets on Starknet + NEAR</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%2314b8a6%22/%3E%3Ctext x=%2216%22 y=%2223%22 text-anchor=%22middle%22 font-family=%22monospace%22 font-weight=%22800%22 font-size=%2220%22 fill=%22%23031311%22%3EZ%3C/text%3E%3C/svg%3E">
 <style>
 :root{
@@ -120,24 +120,120 @@ button.go.running{background:linear-gradient(90deg,#0d9488,var(--violet),#0d9488
   animation:sweep 1.6s linear infinite;opacity:1!important}
 @keyframes sweep{to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.ringline,.node,button.go.running{animation:none}}
+/* chain switch + tabs */
+:root{--sn:#ff875b;--nr:#00ec97}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:12px;padding:3px;background:var(--panel);gap:2px}
+.seg button{border:0;background:transparent;padding:7px 14px;border-radius:9px;color:var(--dim);
+  display:inline-flex;align-items:center;gap:8px;letter-spacing:.6px}
+.seg button i{width:8px;height:8px;border-radius:50%;background:var(--mute)}
+.seg button.on{background:var(--panel2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line2)}
+.seg button[data-chain=starknet].on i{background:var(--sn);box-shadow:0 0 10px var(--sn)}
+.seg button[data-chain=near].on i{background:var(--nr);box-shadow:0 0 10px var(--nr)}
+nav.tabs{display:flex;gap:4px;margin:20px 0 0;border-bottom:1px solid var(--line);overflow-x:auto}
+nav.tabs a{font:700 12px var(--mono);letter-spacing:1.4px;color:var(--mute);text-decoration:none;padding:10px 14px;
+  border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+nav.tabs a:hover{color:var(--ink)}
+nav.tabs a.on{color:var(--teal2);border-bottom-color:var(--teal)}
+nav.tabs .cnt{color:var(--mute);font-weight:500;margin-left:4px}
+.pane{display:none}.pane.on{display:block}
+.chainbadge{font:700 10px var(--mono);letter-spacing:1.2px;padding:3px 8px;border-radius:6px;border:1px solid}
+.chainbadge.starknet{color:var(--sn);border-color:rgba(255,135,91,.4)}
+.chainbadge.near{color:var(--nr);border-color:rgba(0,236,151,.4)}
+.chainbadge.both{color:var(--teal2);border-color:rgba(20,184,166,.4)}
+/* code */
+.code{display:grid;grid-template-columns:270px 1fr;gap:16px;margin-top:18px}
+.tree{display:flex;flex-direction:column;gap:14px;position:sticky;top:12px;align-self:start}
+.tree h5{margin:0 0 6px;font:700 10px var(--mono);letter-spacing:1.4px;color:var(--mute);display:flex;gap:8px;align-items:center}
+.tree a{display:block;padding:7px 10px;border-radius:8px;color:var(--dim);text-decoration:none;border:1px solid transparent}
+.tree a b{display:block;font:600 12px var(--mono);color:var(--ink)}
+.tree a span{font-size:11px}
+.tree a:hover{border-color:var(--line2)}
+.tree a.on{background:var(--panel2);border-color:var(--line2)}
+.tree a.on b{color:var(--teal2)}
+.viewer{min-width:0}
+.vbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.vbar .path{font:600 13px var(--mono)}
+.vbar .meta{color:var(--mute);font:12px var(--mono)}
+.vbar button{padding:7px 12px}
+.src{display:grid;gap:14px}
+.src.two{grid-template-columns:1fr 1fr}
+.srcbox{background:#070c0e;border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:76vh}
+.srcbox .h{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:8px 12px;
+  font:600 12px var(--mono);display:flex;gap:8px;align-items:center;z-index:1}
+pre.cl{margin:0;padding:10px 0;font:12.5px/1.6 var(--mono);counter-reset:ln;tab-size:4}
+pre.cl span.l{display:block;padding:0 14px 0 0;white-space:pre}
+pre.cl span.l::before{counter-increment:ln;content:counter(ln);display:inline-block;width:46px;padding-right:14px;
+  text-align:right;color:#2c3d43;user-select:none}
+pre.cl span.l:hover{background:rgba(94,234,212,.04)}
+.tk-c{color:#5b7378;font-style:italic}.tk-s{color:#fcd34d}.tk-k{color:#c4b5fd}.tk-n{color:#fda4af}
+.tk-f{color:#5eead4}.tk-t{color:#93c5fd}.tk-a{color:#8aa3a6}
+/* compare */
+.cmp{width:100%;border-collapse:collapse;font:13px var(--sans)}
+.cmp th,.cmp td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.cmp th{font:700 11px var(--mono);letter-spacing:1.2px;color:var(--mute)}
+.cmp td:first-child{color:var(--dim);width:22%}
+.cmp td code{font:12px var(--mono);color:var(--teal2)}
+.cmp tr.same td:not(:first-child){color:var(--ink)}
+.big{font:700 26px var(--mono);letter-spacing:-.5px}
+.big small{font:500 12px var(--mono);color:var(--mute);margin-left:6px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.stat .lab{font:700 10px var(--mono);letter-spacing:1.3px;color:var(--mute);margin-bottom:6px}
+.stat .sub2{color:var(--dim);font-size:12px;margin-top:4px}
+.chart{position:relative}
+.chart svg{display:block;width:100%;height:auto}
+.chart .tip{position:absolute;pointer-events:none;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;
+  padding:6px 9px;font:12px var(--mono);color:var(--ink);opacity:0;transition:opacity .12s;white-space:nowrap}
+/* tests */
+.tl{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.trow{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font:12px var(--mono)}
+.trow:last-child{border-bottom:0}
+.ok2{color:var(--teal2);font-weight:700;width:38px}.bad2{color:var(--red);font-weight:700;width:38px}
+/* paper */
+.paper{max-width:820px;margin:26px auto 0;font-size:15px;line-height:1.7}
+.paper h1{font-size:30px;letter-spacing:-.4px;margin:0 0 6px}
+.paper h2{font-size:20px;margin:34px 0 10px;padding-top:14px;border-top:1px solid var(--line)}
+.paper h3{font-size:16px;margin:24px 0 8px}
+.paper p,.paper li{color:#c6d6d7}
+.paper em{color:var(--dim)}
+.paper code{font:13px var(--mono);color:var(--teal2);background:var(--panel2);padding:1px 5px;border-radius:5px}
+.paper pre{background:#070c0e;border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto}
+.paper pre code{background:none;padding:0;color:var(--ink)}
+.paper table{margin:14px 0;font:13px var(--sans)}
+.paper th{color:var(--dim)}
+.paper td,.paper th{padding:7px 10px}
+@media (max-width:860px){.code,.tl,.src.two{grid-template-columns:1fr}.tree{position:static}.stats{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <div class="logo">Z</div>
-    <div><h1>zuma</h1><div class="sub">anonymous subnets on Starknet</div></div>
+    <div><h1>zuma</h1><div class="sub">anonymous subnets · one protocol, two chains</div></div>
     <div class="sp"></div>
+    <div class="seg" id="chainsw" role="tablist" aria-label="chain">
+      <button data-chain="starknet"><i></i>STARKNET</button>
+      <button data-chain="near"><i></i>NEAR</button>
+    </div>
     <span class="chip"><span class="dot" id="netdot"></span><b id="net">devnet</b><span id="blk">-</span></span>
     <span class="chip click" id="addrchip" title="copy contract address">contract <b id="addr">not deployed</b></span>
   </header>
 
+  <nav class="tabs" id="tabs">
+    <a href="#live" data-tab="live">LIVE</a>
+    <a href="#code" data-tab="code">CODE</a>
+    <a href="#compare" data-tab="compare">COMPARE</a>
+    <a href="#tests" data-tab="tests">TESTS<span class="cnt" id="tcount"></span></a>
+    <a href="#paper" data-tab="paper">WHITEPAPER</a>
+  </nav>
+
+  <div class="pane" id="pane-live">
   <section class="hero">
     <div>
       <h2>Miners and validators who <em>never learn who the other is.</em></h2>
       <p>Each one only knows that the other is in the registered set. Every submit, score and claim is a
-        ring signature over the STARK curve, and a Cairo contract verifies it on-chain. A validator scores a
-        <b>tag</b>, never a miner. A miner gets paid and never learns which validators scored it.</p>
+        ring signature over the STARK curve, verified on-chain <span id="verifier">by a Cairo contract</span>.
+        A validator scores a <b>tag</b>, never a miner. A miner gets paid and never learns which validators scored it.</p>
       <div class="facts" id="facts"></div>
     </div>
     <div class="actions">
@@ -189,7 +285,7 @@ button.go.running{background:linear-gradient(90deg,#0d9488,var(--violet),#0d9488
       <ul>
         <li><b>Your anonymity set is the ring, nothing more.</b> With 3 validators each score points to 1 of 3.
           The contract enforces <code>min_ring</code> and rejects padded rings (key ids strictly increasing).</li>
-        <li><b>Cost is linear in the ring.</b> A ring of 4 is about 16k Cairo steps and 19 <code>ec_op</code>. The cap is 64.</li>
+        <li id="costli"></li>
         <li><b>The tx sender is public.</b> Actions go through a relayer, because the contract never checks the caller.
           Timing, IP and work content can still identify you.</li>
         <li><b>Payouts are public books.</b> Points are credited in storage, and no token moves.</li>
@@ -201,7 +297,42 @@ button.go.running{background:linear-gradient(90deg,#0d9488,var(--violet),#0d9488
     </div>
   </div>
 
-  <footer>LSAG over the STARK curve · Poseidon challenges · key image I = x · Hp(scope) · Cairo 2.8 · <a id="apilink" href="#">api</a></footer>
+  </div>
+
+  <div class="pane" id="pane-code">
+    <div class="code">
+      <div class="tree" id="tree"></div>
+      <div class="viewer">
+        <div class="vbar"><span class="path" id="vpath">-</span><span class="meta" id="vmeta"></span><span class="sp"></span>
+          <button id="sbs" title="the verifier on both chains, side by side">Verifier side by side</button>
+          <button id="copysrc">Copy</button></div>
+        <div class="src" id="src"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-compare">
+    <div class="stats" id="cstats"></div>
+    <div class="grid" style="grid-template-columns:1.1fr 1fr">
+      <div class="card"><h3>WHAT IS THE SAME · WHAT DIFFERS</h3><div id="ctable"></div></div>
+      <div class="card"><h3>NEAR GAS PER SUBMIT, BY RING SIZE <span class="sp"></span><span class="pill" id="gasnote">measured</span></h3>
+        <div class="chart" id="gaschart"></div>
+        <p style="color:var(--dim);font-size:13px;margin:10px 0 0">One action verifies one ring signature. NEAR caps a call at
+          300 Tgas, so the NEAR contract caps rings at 32. Starknet verifies on the native EC builtin and allows 64.</p>
+        <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--mute);font:12px var(--mono)">table view</summary><div id="gastable"></div></details>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-tests">
+    <div class="tl" id="tlists"></div>
+  </div>
+
+  <div class="pane" id="pane-paper">
+    <article class="paper" id="paper"><div class="empty">loading the paper</div></article>
+  </div>
+
+  <footer>LSAG over the STARK curve · Poseidon challenges · key image I = x · Hp(scope) · Cairo 2.8 + near-sdk 5 · <a id="apilink" href="#">api</a></footer>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -213,6 +344,17 @@ const NS = 'http://www.w3.org/2000/svg';
 const short = h => h ? (h.length > 14 ? h.slice(0, 8) + '..' + h.slice(-4) : h) : '-';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 $('apilink').href = `${BASE}/api/info`;
+const esc = t => String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+/* the chain this page is looking at: ?chain= > localStorage > starknet */
+const CH = {
+  starknet: {name: 'Starknet', net: 'devnet', local: 'starknet-devnet', verifier: 'by a Cairo contract (native EC builtin)',
+    cap: 64, deploying: 'declaring + deploying the Cairo verifier'},
+  near: {name: 'NEAR', net: 'near', local: 'near-sandbox', verifier: 'by a Rust/wasm contract on NEAR (same signatures, own curve math)',
+    cap: 32, deploying: 'deploying the wasm verifier to a fresh NEAR account'},
+};
+let CHAIN = new URLSearchParams(location.search).get('chain') || localStorage.getItem('zuma.chain') || 'starknet';
+if (!CH[CHAIN]) CHAIN = 'starknet';
+const NET = () => CH[CHAIN].net;
 
 async function get(fn, q = '') {
   const r = await fetch(API(fn) + q); return r.json();
@@ -296,7 +438,7 @@ function drawSet(role, keys) {
   const s = SETS[role]; s.nodes.innerHTML = '';
   S[role] = keys;
   s.count.textContent = keys.length || '0';
-  s.sub.textContent = keys.length ? `ring of ${Math.min(keys.length, 64)} · any one of these` : 'no members';
+  s.sub.textContent = keys.length ? `ring of ${Math.min(keys.length, CH[CHAIN].cap)} · any one of these` : 'no members';
   keys.forEach((k, i) => {
     const a = -Math.PI / 2 + i * 2 * Math.PI / keys.length;
     const x = s.cx + s.r * Math.cos(a), y = s.cy + s.r * Math.sin(a);
@@ -382,18 +524,19 @@ function caption(t) { const c = $('cap'); c.style.opacity = 0; setTimeout(() => 
 
 /* ---------------- event playback ---------------- */
 let logN = 0;
+const cost = e => e.tgas ? `${e.tgas} Tgas` : e.steps ? `${(e.steps / 1000).toFixed(1)}k steps · ${e.ec_op} ec_op` : (e.ms ? `signed ${e.ms}ms` : 'verified');
 function logEv(e) {
   const L = $('log'); if (!logN) L.innerHTML = '';
   logN++;
   const txt = {
-    devnet: () => `starknet-devnet up at block ${e.block}`,
-    deploying: () => 'declaring + deploying the Cairo verifier',
-    deploy: () => `Zuma ${short(e.address)} · tempo ${e.tempo} · min_ring ${e.min_ring}`,
+    devnet: () => `${CH[e.chain || 'starknet'].local} up at block ${e.block}`,
+    deploying: () => CH[e.chain || 'starknet'].deploying,
+    deploy: () => `Zuma ${short(e.address)} · tempo ${e.tempo} · min_ring ${e.min_ring}${e.tgas ? ` · ${e.tgas} Tgas` : ''}`,
     register: () => `${e.role} key ${short(e.x)}`,
-    submit: () => `tag ${short(e.tag)} · ring ${e.ring} · signed ${e.ms}ms`,
-    score: () => `${e.score} -> ${short(e.tag)} · nullifier ${short(e.nullifier)}`,
+    submit: () => `tag ${short(e.tag)} · ring ${e.ring} · ${cost(e)}`,
+    score: () => `${e.score} -> ${short(e.tag)} · nullifier ${short(e.nullifier)} · ${cost(e)}`,
     close: () => `epoch ${e.epoch} closed at block ${e.block}`,
-    claim: () => `${e.earned} pts -> ${short(e.recipient)}`,
+    claim: () => `${e.earned} pts -> ${short(e.recipient)} · ${cost(e)}`,
     replay: () => `double claim ${e.result}`,
     done: () => `epoch proved end to end in ${e.seconds}s`,
     error: () => e.error,
@@ -412,8 +555,8 @@ async function playEvent(e, fast) {
       // the old epoch fades out while the new contract lands
       S.layers.tags.style.transition = 'opacity .6s'; S.layers.tags.style.opacity = .18;
       for (const r of ['miner', 'validator']) SETS[r].g.style.opacity = .35;
-      caption(e.kind === 'devnet' ? 'starknet-devnet up. Deploying a fresh subnet contract'
-        : 'declaring + deploying the Cairo ring-signature verifier');
+      caption(e.kind === 'devnet' ? `${CH[CHAIN].local} up. Deploying a fresh subnet contract`
+        : CH[CHAIN].deploying);
       break;
     case 'deploy':
       S.layers.tags.style.opacity = 1;
@@ -504,9 +647,9 @@ function renderFacts(sim) {
   const sub = (sim.events || []).find(e => e.kind === 'submit');
   const n = (sim.events || []).filter(e => e.kind === 'score').length;
   f.innerHTML = [
-    `<span class="fact" style="color:var(--teal2)">${tick}<b>proved on-chain</b> ${ago(Date.now() / 1000 - sim.at)}</span>`,
+    `<span class="fact" style="color:var(--teal2)">${tick}<b>proved on ${CH[sim.chain || 'starknet'].name}</b> ${ago(Date.now() / 1000 - sim.at)}</span>`,
     `<span class="fact">full epoch <b>${r.seconds}s</b></span>`,
-    sub ? `<span class="fact">ring sig <b>${sub.ms}ms</b> · ring ${sub.ring}</span>` : '',
+    sub ? `<span class="fact">ring ${sub.ring} verify <b>${cost(sub)}</b></span>` : '',
     `<span class="fact">${n} anonymous scores</span>`,
     `<span class="fact ${ok ? 'red' : ''}">double claim <b>${ok ? 'rejected' : 'ACCEPTED'}</b></span>`,
   ].join('');
@@ -524,13 +667,14 @@ function renderParams(b) {
     ['min_ring', b.min_ring], ['emission', `${b.emission} pts / epoch`],
     ['registration', b.open ? 'open' : 'owner only'],
     ['miners', (b.miners || []).length], ['validators', (b.validators || []).length],
-  ] : [['status', b.devnet_up === false ? 'devnet down' : 'not deployed. Run an epoch']];
+  ] : [['status', b.devnet_up === false ? `${CH[CHAIN].local} down. Run an epoch to boot it` : 'not deployed. Run an epoch']];
   $('params').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span title="${v}">${v}</span>`).join('');
 }
 async function refresh() {
   let b;
-  try { b = await get('board'); } catch { return; }
-  if (b.error) return;
+  const want = CHAIN;
+  try { b = await get('board', `?network=${NET()}`); } catch { return; }
+  if (b.error || want !== CHAIN) return;
   lastBoard = b;
   $('netdot').classList.toggle('on', !!b.devnet_up);
   $('blk').textContent = b.block != null ? `#${b.block}` : 'offline';
@@ -563,14 +707,14 @@ function setBusy(on, label) {
   $('logstate').className = 'pill' + (on ? ' open' : '');
 }
 async function run() {
-  const r = await post('simulate', {miners: 4, validators: 4});
+  const r = await post('simulate', {miners: 4, validators: 4, chain: CHAIN});
   if (r.cooldown) return toast(`cooling down: ${r.cooldown}s. Try the replay meanwhile`);
   if (!r.started && !r.running) return toast(r.error || 'could not start');
   setBusy(true, 'live · on-chain');
   const btn = $('run'), t0 = Date.now(); btn.classList.add('running');
   const timer = setInterval(() => { btn.textContent = `Proving on-chain · ${Math.floor((Date.now() - t0) / 1000)}s`; }, 250);
   logN = 0; $('log').innerHTML = '';
-  caption('booting a fresh contract on starknet-devnet');
+  caption(`booting a fresh contract on ${CH[CHAIN].local}`);
   let since = 0, queue = [], done = false;
   const pump = (async () => {
     while (!done || queue.length) {
@@ -586,10 +730,10 @@ async function run() {
   }
   await pump;
   clearInterval(timer); btn.classList.remove('running'); btn.textContent = 'Run an anonymous epoch';
-  setBusy(false); refresh(); get('last_sim').then(renderFacts);
+  setBusy(false); refresh(); get('last_sim', `?chain=${CHAIN}`).then(renderFacts);
 }
 async function replay() {
-  const r = await get('last_sim');
+  const r = await get('last_sim', `?chain=${CHAIN}`);
   if (!r || !r.events) return toast('no recorded run yet. Run one first');
   setBusy(true, 'replay');
   logN = 0; $('log').innerHTML = '';
@@ -603,16 +747,30 @@ $('addrchip').onclick = () => {
   if (lastBoard && lastBoard.contract) { navigator.clipboard && navigator.clipboard.writeText(lastBoard.contract); toast('contract address copied'); }
 };
 
+function setChain(c, user) {
+  if (!CH[c] || (busy && user)) return busy && user && toast('an epoch is running. Switch when it finishes');
+  CHAIN = c; localStorage.setItem('zuma.chain', c);
+  document.querySelectorAll('#chainsw button').forEach(b => b.classList.toggle('on', b.dataset.chain === c));
+  $('net').textContent = CH[c].local; $('verifier').textContent = CH[c].verifier;
+  $('costli').innerHTML = c === 'near'
+    ? '<b>Cost is linear in the ring.</b> On NEAR a ring of 4 is about 36 Tgas, roughly 7.5 Tgas per member. A call may burn 300 Tgas, so the cap is 32.'
+    : '<b>Cost is linear in the ring.</b> A ring of 4 is about 16k Cairo steps and 19 <code>ec_op</code>. The cap is 64.';
+  if (!busy) {
+    initStage(); logN = 0; $('log').innerHTML = '<div class="empty">waiting for a run</div>';
+    $('tally').innerHTML = '<div class="empty">loading</div>'; $('facts').innerHTML = '';
+    refresh(); get('last_sim', `?chain=${c}`).then(sim => { renderFacts(sim); preloadLog(sim); }).catch(() => {});
+  }
+}
+document.querySelectorAll('#chainsw button').forEach(b => b.onclick = () => setChain(b.dataset.chain, true));
 initStage();
-refresh();
-get('last_sim').then(sim => { renderFacts(sim); preloadLog(sim); }).catch(() => {});
+setChain(CHAIN);
 let rz;
 addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => {
   if (busy || (innerWidth < 700 ? 'tall' : 'wide') === mode) return;
   initStage(); refresh();
 }, 200); });
 setInterval(refresh, 4000);
-get('sim').then(s => { if (s.running) { toast('an epoch is running: following it'); followRunning(); } });
+get('sim').then(s => { if (s.running) { if (s.chain && s.chain !== CHAIN) setChain(s.chain); toast('an epoch is running: following it'); followRunning(); } });
 async function followRunning() {
   setBusy(true, 'live · on-chain'); logN = 0;
   let since = 0;
@@ -623,6 +781,214 @@ async function followRunning() {
   }
   setBusy(false); refresh();
 }
+
+/* ---------------- tabs ---------------- */
+const TABS = ['live', 'code', 'compare', 'tests', 'paper'];
+const loaded = {};
+function route() {
+  const [tab, ...rest] = (location.hash.slice(1) || 'live').split('/');
+  const t = TABS.includes(tab) ? tab : 'live';
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + t));
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === t));
+  if (t === 'code') openCode(rest.join('/'));
+  if (t === 'compare' && !loaded.compare) { loaded.compare = 1; loadCompare(); }
+  if (t === 'tests' && !loaded.tests) { loaded.tests = 1; loadTests(); }
+  if (t === 'paper' && !loaded.paper) { loaded.paper = 1; loadPaper(); }
+}
+addEventListener('hashchange', route);
+
+/* ---------------- code ---------------- */
+const KW = {
+  rs: 'as|break|const|continue|crate|else|enum|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|type|unsafe|use|where|while|true|false|Some|None|Ok|Err',
+  cairo: 'as|break|const|continue|else|enum|fn|for|if|impl|let|loop|match|mod|mut|pub|ref|return|self|struct|super|trait|type|use|while|true|false|Option|Some|None|Array|Span|felt252|u8|u32|u64|u128|u256|bool|ContractAddress|of',
+  py: 'and|as|assert|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|None|not|or|pass|raise|return|True|False|try|while|with|yield|self',
+  toml: 'true|false',
+};
+function lang(path) {
+  const e = path.split('.').pop();
+  return {rs: 'rs', cairo: 'cairo', py: 'py', toml: 'toml'}[e] || 'rs';
+}
+function highlight(code, lg) {
+  const cm = lg === 'py' || lg === 'toml' ? '#[^\\n]*' : '//[^\\n]*';
+  const st = lg === 'py' ? '"""[\\s\\S]*?"""|\'\'\'[\\s\\S]*?\'\'\'|"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\''
+    : lg === 'cairo' ? '"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\'' : '"(?:\\\\.|[^"\\\\])*"|b\'(?:\\\\.|[^\'\\\\])\'|\'(?:\\\\.|[^\'\\\\])\'(?!\\w)';
+  const re = new RegExp(`(${cm})|(${st})|\\b(${KW[lg] || KW.rs})\\b|\\b(0x[0-9a-fA-F_]+|\\d[\\d_]*(?:\\.\\d+)?)\\b|(#!?\\[[^\\]\\n]*\\]|@\\w+)|\\b([A-Z][A-Za-z0-9_]*)\\b|\\b([a-z_][a-z0-9_]*)(?=\\s*(?:!|::<[^>]*>)?\\()`, 'g');
+  let out = '', last = 0, m;
+  while ((m = re.exec(code))) {
+    out += esc(code.slice(last, m.index));
+    const cls = m[1] ? 'c' : m[2] ? 's' : m[3] ? 'k' : m[4] ? 'n' : m[5] ? 'a' : m[6] ? 't' : 'f';
+    out += `<span class="tk-${cls}">${esc(m[0])}</span>`;
+    last = re.lastIndex;
+  }
+  out += esc(code.slice(last));
+  // one span per line (comments/strings may span lines: close+reopen per line)
+  const open = [];
+  return out.split('\n').map(line => {
+    const pre = open.join('');
+    for (const t of line.match(/<span class="tk-\w">|<\/span>/g) || []) t === '</span>' ? open.pop() : open.push(t);
+    return `<span class="l">${pre}${line || ' '}${'</span>'.repeat(open.length)}</span>`;
+  }).join('');
+}
+let FILES = null, CUR = null;
+const srcCache = {};
+async function source(path) {
+  if (!srcCache[path]) srcCache[path] = get('source', `?path=${encodeURIComponent(path)}`);
+  return srcCache[path];
+}
+async function loadTree() {
+  if (FILES) return FILES;
+  FILES = await get('files');
+  $('tree').innerHTML = FILES.map(g => `<div><h5><span class="chainbadge ${g.chain}">${g.chain === 'both' ? 'BOTH' : g.chain.toUpperCase()}</span>${esc(g.group.split(' · ')[1] || '')}</h5>` +
+    g.files.map(f => `<a href="#code/${f.path}" data-path="${esc(f.path)}"><b>${esc(f.path.split('/').pop())}</b><span>${esc(f.note)} · ${f.lines} lines</span></a>`).join('') + '</div>').join('');
+  return FILES;
+}
+function box(path, text) {
+  return `<div class="srcbox"><div class="h">${esc(path)}<span class="sp" style="flex:1"></span><span style="color:var(--mute)">${text.split('\n').length} lines</span></div><pre class="cl">${highlight(text, lang(path))}</pre></div>`;
+}
+async function openCode(path) {
+  await loadTree();
+  if (path === 'side-by-side') return sideBySide();
+  path = path || CUR || (CHAIN === 'near' ? 'near/src/lsag.rs' : 'contracts/src/lsag.cairo');
+  CUR = path;
+  document.querySelectorAll('#tree a').forEach(a => a.classList.toggle('on', a.dataset.path === path));
+  const r = await source(path);
+  if (r.error) { $('src').innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
+  const f = FILES.flatMap(g => g.files.map(x => ({...x, chain: g.chain}))).find(x => x.path === path) || {};
+  $('vpath').textContent = path; $('vmeta').textContent = f.note || '';
+  $('src').className = 'src'; $('src').innerHTML = box(path, r.text);
+  $('copysrc').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(r.text); toast('copied ' + path); };
+}
+/* the verify loop on both chains, next to each other */
+function slice(text, start, endPat) {
+  const i = text.indexOf(start); if (i < 0) return text;
+  const j = text.indexOf(endPat, i + start.length);
+  return text.slice(i, j < 0 ? undefined : j).trimEnd();
+}
+async function sideBySide() {
+  CUR = null;
+  document.querySelectorAll('#tree a').forEach(a => a.classList.remove('on'));
+  const [c, r] = await Promise.all([source('contracts/src/lsag.cairo'), source('near/src/lsag.rs')]);
+  const cv = slice(c.text, 'pub fn verify(', '\n}\n') + '\n}';
+  const rv = slice(r.text, 'pub fn verify_hinted(', '\n}\n') + '\n}';
+  $('vpath').textContent = 'verify(): Starknet vs NEAR';
+  $('vmeta').textContent = 'same ring equation, same Poseidon challenges, same wire format';
+  $('src').className = 'src two';
+  $('src').innerHTML = box('contracts/src/lsag.cairo · verify', cv) + box('near/src/lsag.rs · verify_hinted', rv);
+  $('copysrc').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(cv + '\n\n' + rv); toast('copied both'); };
+}
+$('sbs').onclick = () => { location.hash = 'code/side-by-side'; };
+
+/* ---------------- compare ---------------- */
+async function loadCompare() {
+  const c = await get('compare');
+  const sn = c.starknet || {}, nr = c.near || {}, g = c.gas || {rows: []};
+  const avg = a => a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+  const t = (x, k) => x.tests ? `${x.tests.passed}/${x.tests.passed + (x.tests.failed || 0)}` : '-';
+  const stat = (lab, big, unit, sub, chain) => `<div class="stat"><div class="lab"><span class="chainbadge ${chain}">${chain.toUpperCase()}</span> ${lab}</div><div class="big">${big}<small>${unit}</small></div><div class="sub2">${sub}</div></div>`;
+  const sStep = avg(sn.steps), sEc = avg(sn.ec_op), nGas = avg(nr.tgas);
+  $('cstats').innerHTML = [
+    stat('VERIFY COST', sStep ? (sStep / 1000).toFixed(1) + 'k' : '-', 'steps', sEc ? `${Math.round(sEc)} ec_op · ring ${sn.ring || 4}` : 'run a Starknet epoch', 'starknet'),
+    stat('VERIFY COST', nGas ? nGas.toFixed(1) : '-', 'Tgas', nGas ? `ring ${nr.ring || 4} · was 214 Tgas before fp.rs` : 'run a NEAR epoch', 'near'),
+    stat('FULL EPOCH', sn.seconds || '-', 's', `tests ${t(sn)} · double claim ${String(sn.double_claim || '-').split(':')[0]}`, 'starknet'),
+    stat('FULL EPOCH', nr.seconds || '-', 's', `tests ${t(nr)} · double claim ${String(nr.double_claim || '-').split(':')[0]}`, 'near'),
+  ].join('');
+  const rows = [
+    ['same', 'signature scheme', 'LSAG over the STARK curve, Poseidon challenges', null],
+    ['same', 'signer', '<code>prover/</code> (Cairo, cairo-run). One signature verifies on both', null],
+    ['same', 'rules', 'one submit per miner per epoch · one score per validator per tag · one claim per tag', null],
+    ['', 'contract', '<code>contracts/src/zuma.cairo</code>', '<code>near/src/lib.rs</code> (near-sdk 5)'],
+    ['', 'curve math', 'native EC builtin', '<code>fp.rs</code>: 29-bit limbs, Straus windows, in wasm'],
+    ['', 'Poseidon', 'native builtin', '<code>poseidon.rs</code> on the fast field'],
+    ['', 'subnet felt', 'contract address', 'sha256(account id), top 5 bits cleared'],
+    ['', 'recipient', 'a felt (address)', 'a NEAR account (signed as sha256)'],
+    ['', 'max ring', '64', '32 (300 Tgas per call)'],
+    ['', 'tests', 'snforge', 'cargo test + Cairo fixtures'],
+    ['', 'last contract', `<code>${esc(short(sn.contract || '-'))}</code>`, `<code>${esc(nr.contract || '-')}</code>`],
+  ];
+  $('ctable').innerHTML = `<table class="cmp"><tr><th></th><th><span class="chainbadge starknet">STARKNET</span></th><th><span class="chainbadge near">NEAR</span></th></tr>` +
+    rows.map(([k, a, b, c2]) => c2 === null ? `<tr class="same"><td>${a}</td><td colspan="2">${b}</td></tr>` : `<tr><td>${a}</td><td>${b}</td><td>${c2}</td></tr>`).join('') + '</table>';
+  $('gasnote').textContent = g.at ? `measured ${ago(Date.now() / 1000 - g.at)}` : 'near-sandbox';
+  gasChart(g);
+}
+function gasChart(g) {
+  const rows = g.rows || [], lim = g.limit_tgas || 300;
+  const W = 560, H = 280, l = 46, r = 16, t = 18, b = 38;
+  const x = i => l + (i + .5) * (W - l - r) / rows.length, bw = Math.min(46, (W - l - r) / rows.length - 14);
+  const y = v => t + (H - t - b) * (1 - v / 320);
+  let h = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="NEAR gas per submit by ring size">`;
+  for (const v of [0, 100, 200, 300]) h += `<line x1="${l}" x2="${W - r}" y1="${y(v)}" y2="${y(v)}" stroke="#152126"/><text x="${l - 8}" y="${y(v) + 4}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${v}</text>`;
+  h += `<line x1="${l}" x2="${W - r}" y1="${y(lim)}" y2="${y(lim)}" stroke="#f43f5e" stroke-dasharray="5 4" stroke-width="1.5"/>`;
+  h += `<text x="${W - r}" y="${y(lim) - 6}" text-anchor="end" fill="#8aa3a6" style="font:11px var(--mono)">300 Tgas per-call limit</text>`;
+  rows.forEach((d, i) => {
+    const cx = x(i);
+    if (d.tgas != null) {
+      const top = y(d.tgas), base = y(0), rr = 4;
+      h += `<path d="M${cx - bw / 2},${base} V${top + rr} Q${cx - bw / 2},${top} ${cx - bw / 2 + rr},${top} H${cx + bw / 2 - rr} Q${cx + bw / 2},${top} ${cx + bw / 2},${top + rr} V${base} Z" fill="#14b8a6"/>`;
+      h += `<text x="${cx}" y="${top - 6}" text-anchor="middle" fill="#e6f2f1" style="font:600 11px var(--mono)">${Math.round(d.tgas)}</text>`;
+    } else {
+      h += `<text x="${cx}" y="${y(lim) + 18}" text-anchor="middle" fill="#f43f5e" style="font:600 11px var(--mono)">over</text>`;
+    }
+    h += `<text x="${cx}" y="${H - b + 18}" text-anchor="middle" fill="#8aa3a6" style="font:11px var(--mono)">${d.ring}</text>`;
+    h += `<rect x="${cx - (W - l - r) / rows.length / 2}" y="${t}" width="${(W - l - r) / rows.length}" height="${H - t - b}" fill="transparent" data-i="${i}"/>`;
+  });
+  h += `<text x="${l + (W - l - r) / 2}" y="${H - 4}" text-anchor="middle" fill="#566d71" style="font:10px var(--mono);letter-spacing:1.2px">RING SIZE (MEMBERS)</text></svg><div class="tip"></div>`;
+  const el2 = $('gaschart'); el2.innerHTML = h;
+  const tip = el2.querySelector('.tip');
+  el2.querySelectorAll('rect[data-i]').forEach(rc => {
+    rc.onmousemove = ev => {
+      const d = rows[+rc.dataset.i], bb = el2.getBoundingClientRect();
+      tip.innerHTML = d.tgas != null ? `ring ${d.ring} · <b>${d.tgas} Tgas</b> · ${(d.tgas / d.ring).toFixed(1)} per member` : `ring ${d.ring} · exceeds 300 Tgas`;
+      tip.style.left = Math.min(ev.clientX - bb.left + 12, bb.width - 220) + 'px'; tip.style.top = (ev.clientY - bb.top - 34) + 'px'; tip.style.opacity = 1;
+    };
+    rc.onmouseleave = () => { tip.style.opacity = 0; };
+  });
+  $('gastable').innerHTML = `<table><tr><th>ring</th><th>Tgas</th><th>per member</th></tr>${rows.map(d => `<tr><td>${d.ring}</td><td>${d.tgas ?? 'over limit'}</td><td>${d.tgas ? (d.tgas / d.ring).toFixed(2) : '-'}</td></tr>`).join('')}</table>`;
+}
+
+/* ---------------- tests ---------------- */
+async function loadTests() {
+  const t = await get('tests');
+  const col = (chain, label, how) => {
+    const x = t[chain];
+    if (!x) return `<div class="card"><h3><span class="chainbadge ${chain}">${chain.toUpperCase()}</span> ${label}</h3><div class="empty">not run yet: <code>m zuma/test</code></div></div>`;
+    return `<div class="card"><h3><span class="chainbadge ${chain}">${chain.toUpperCase()}</span> ${label}<span class="sp"></span>
+      <span class="pill ${x.ok ? 'open' : ''}">${x.passed} passed${x.failed ? ` · ${x.failed} failed` : ''}</span></h3>
+      <div style="color:var(--mute);font:12px var(--mono);margin-bottom:8px">${how} · ran ${ago(Date.now() / 1000 - x.at)}</div>
+      ${x.tests.map(([st, n]) => `<div class="trow"><span class="${st === 'PASS' ? 'ok2' : 'bad2'}">${st}</span><span>${esc(n.replace(/_/g, ' '))}</span></div>`).join('')}</div>`;
+  };
+  $('tlists').innerHTML = col('starknet', 'SNFORGE', 'contracts/tests/test_zuma.cairo') + col('near', 'CARGO TEST', 'near/src/tests.rs');
+}
+get('tests').then(t => { const n = ['starknet', 'near'].reduce((a, c) => a + ((t[c] || {}).passed || 0), 0); if (n) $('tcount').textContent = n; }).catch(() => {});
+
+/* ---------------- paper ---------------- */
+function inline(t) {
+  return esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+function md(src) {
+  const lines = src.split('\n'); let h = '', i = 0;
+  while (i < lines.length) {
+    const ln = lines[i];
+    if (ln.startsWith('```')) { const buf = []; i++; while (i < lines.length && !lines[i].startsWith('```')) buf.push(lines[i++]); i++; h += `<pre><code>${esc(buf.join('\n'))}</code></pre>`; continue; }
+    const hm = ln.match(/^(#{1,3}) (.*)/); if (hm) { h += `<h${hm[1].length}>${inline(hm[2])}</h${hm[1].length}>`; i++; continue; }
+    if (ln.startsWith('|')) { const rows = []; while (i < lines.length && lines[i].startsWith('|')) rows.push(lines[i++]);
+      const cells = r => r.split('|').slice(1, -1).map(c => c.trim());
+      h += '<table class="cmp"><tr>' + cells(rows[0]).map(c => `<th>${inline(c)}</th>`).join('') + '</tr>' +
+        rows.slice(2).map(r => '<tr>' + cells(r).map(c => `<td>${inline(c)}</td>`).join('') + '</tr>').join('') + '</table>'; continue; }
+    if (/^(- |\d+\. )/.test(ln)) { const ol = /^\d/.test(ln), items = [];
+      while (i < lines.length && (/^(- |\d+\. )/.test(lines[i]) || (/^ {2,}\S/.test(lines[i]) && items.length))) {
+        if (/^ {2,}\S/.test(lines[i])) items[items.length - 1] += ' ' + lines[i].trim(); else items.push(lines[i].replace(/^(- |\d+\. )/, '')); i++; }
+      h += `<${ol ? 'ol' : 'ul'}>${items.map(x => `<li>${inline(x)}</li>`).join('')}</${ol ? 'ol' : 'ul'}>`; continue; }
+    if (!ln.trim()) { i++; continue; }
+    const buf = []; while (i < lines.length && lines[i].trim() && !/^(#|```|\||- |\d+\. )/.test(lines[i])) buf.push(lines[i++]);
+    h += `<p>${inline(buf.join(' '))}</p>`;
+  }
+  return h;
+}
+async function loadPaper() {
+  const t = await get('whitepaper');
+  $('paper').innerHTML = t ? md(t) : '<div class="empty">no WHITEPAPER.md</div>';
+}
+route();
 </script>
 </body>
 </html>

@@ -48,6 +48,12 @@ RESERVED = {'src', 'mods', 'templates', 'api', 'app', 'releases', 'dist',
             'mcp', 'agents', 'run', 'learn',  # server routes (api/server.py)
             'node_modules', '__pycache__', '.git'}
 
+def _clip(text, n):
+    """str(text) cut to n chars with an ellipsis, or None when empty."""
+    t = str(text or '').strip()
+    return (t[:n - 1].rstrip() + '…') if len(t) > n else (t or None)
+
+
 def _step_brief(s):
     """One agent step, trimmed for the job table: tool, a short target, ok."""
     p = s.get('params') or {}
@@ -649,6 +655,275 @@ class Mod:
             'at': time.time(),
         }
         self.__class__._fleet_cache = (time.time(), res)
+        return res
+
+    # ---- agents: every agent on this box --------------------------------------
+    _agents_cache = (0.0, None)
+
+    def agents(self, refresh=False, brief=False, mod=None):
+        """Every agent on this box, with the schema a caller needs and its skills.
+
+        An agent is any mod that speaks the fleet agent contract:
+            GET  <base>/agents          {"agents": [...]}
+            POST <base>/run/stream      {query, ...} -> SSE step... done | error
+        Discovery is LIVE: every mod whose config.json port is listening is
+        asked for /agents (its base_path first, then bare). Beside the
+        contract, each mod contributes what it has on disk and on the wire:
+            skill   its skill.md (what the agent is for and how to talk to it)
+            mcp     its MCP server's tools/list (the tool schemas)
+            card    /.well-known/agent.json
+            roster  how orbit/build mounts it (value, CID), when it does
+        Mods that only declare the contract in config.json but are not up are
+        reported as `offline`; mods with just a skill.md as `skill`. Cached 60s.
+        brief=True drops the skill bodies and tool schemas (the MCP tool uses it);
+        mod='<name>' returns that one mod in full."""
+        res = self._agents_scan(refresh)
+        if mod:
+            hit = next((m for m in res['mods'] if m['name'] == mod or m['ref'] == mod), None)
+            return hit or {'error': f'no agent mod {mod!r}', 'mods': [m['name'] for m in res['mods']]}
+        if not brief:
+            return res
+        slim = []
+        for m in res['mods']:
+            if m['level'] == 'skill':  # no contract: just where the skill is
+                slim.append({k: m[k] for k in ('name', 'ref', 'title', 'level', 'port', 'url', 'skill_file')})
+                continue
+            m = dict(m)
+            m['description'] = _clip(m['description'], 160)
+            m['skill'] = (m['skill'] or '')[:200] or None
+            m['card'] = None
+            m['harness'] = bool(m['harness'])
+            if m['mcp'] and m['mcp'].get('tools'):
+                m['mcp'] = {'url': m['mcp']['url'], 'tools': [t['name'] for t in m['mcp']['tools']]}
+            n = len(m['agents'])
+            m['agents'] = [{'id': a['id'], 'name': a['name'],
+                            'description': (a['description'] or '')[:140] or None,
+                            'access': a['access'], 'params': sorted(a['params']),
+                            'stream': a['stream']}
+                           for a in m['agents'][:20]]
+            if n > 20:
+                m['agents_total'] = n
+            slim.append(m)
+        return {**res, 'mods': slim, 'brief': True,
+                'full': 'GET /cairo/api/agents (no brief) or agents(mod=<name>) for one mod with its skill + tool schemas'}
+
+    def _agents_scan(self, refresh=False):
+        import socket
+        import urllib.request
+        from concurrent.futures import ThreadPoolExecutor
+        at, hit = self.__class__._agents_cache
+        if hit is not None and not refresh and time.time() - at < 60:
+            return hit
+        t0 = time.time()
+        top = os.path.dirname(os.path.dirname(ROOT))
+        skip = {'node_modules', 'target', '.git', 'releases', 'dist', 'out',
+                '.next', '__pycache__', '.venv', 'venv', '.snfoundry_cache',
+                '.sandbox', 'data', 'cache', '.cache', 'build', 'vendor'}
+
+        # listening TCP ports, from /proc (no ss/netstat dependency)
+        listening = set()
+        for f in ('/proc/net/tcp', '/proc/net/tcp6'):
+            try:
+                for line in open(f).read().splitlines()[1:]:
+                    cols = line.split()
+                    if len(cols) > 3 and cols[3] == '0A':
+                        listening.add(int(cols[1].rsplit(':', 1)[1], 16))
+            except Exception:  # noqa: BLE001
+                pass
+
+        def http(url, body=None, timeout=1.0):
+            """GET (or POST json) -> parsed JSON, else None. Never raises."""
+            try:
+                req = urllib.request.Request(
+                    url, data=json.dumps(body).encode() if body is not None else None,
+                    headers={'Accept': 'application/json, text/event-stream',
+                             **({'Content-Type': 'application/json'} if body is not None else {})})
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    ct = r.headers.get('Content-Type', '')
+                    raw = r.read(400_000)
+                if 'json' not in ct and not raw.lstrip().startswith((b'{', b'[')):
+                    return None
+                return json.loads(raw)
+            except (OSError, ValueError, socket.timeout):
+                return None
+
+        mods = []
+        for base in ('orbit', 'core'):
+            for d, dirs, files in os.walk(os.path.join(top, base)):
+                depth = os.path.relpath(d, top).count(os.sep)
+                dirs[:] = [x for x in dirs if x not in skip and not x.startswith('.') and depth < 5]
+                if 'config.json' in files and d != os.path.join(top, base):
+                    mods.append(d)
+
+        def name_of(d):
+            parts = os.path.relpath(d, top).split(os.sep)
+            return '.'.join(x for x in parts if x not in ('orbit', 'core', 'src', 'mods')) or parts[-1]
+
+        def mcp_url(cfg, base_path, port):
+            m = cfg.get('mcp')
+            if isinstance(m, str) and m.startswith('http'):
+                return m
+            if isinstance(m, dict) and isinstance(m.get('url'), str):
+                return m['url']
+            for k in (cfg.get('endpoints') or {}) if isinstance(cfg.get('endpoints'), dict) else []:
+                mm = re.match(r'^(?:POST|GET)?\s*(/\S*/mcp)\b', k)
+                if mm and port:
+                    return f'http://127.0.0.1:{port}{mm.group(1)}'
+            if m and port:
+                return f'http://127.0.0.1:{port}{base_path}/mcp'
+            return None
+
+        def normalize(a, base_path, i):
+            """One agent as the contract lists it -> one shape the console reads."""
+            if not isinstance(a, dict):
+                a = {'id': str(a)}
+            aid = str(a.get('id') or a.get('value') or a.get('name') or f'agent{i}')
+            known = {'id', 'name', 'label', 'title', 'description', 'writes', 'access',
+                     'icon', 'brains', 'params', 'examples', 'run', 'stream', 'mcp',
+                     'available', 'harness', 'module', 'model', 'provider', 'local',
+                     'sandbox', 'color', 'default', 'owner', 'tools', 'goal'}
+            params = a.get('params') if isinstance(a.get('params'), dict) else {}
+            return {
+                'id': aid,
+                'name': str(a.get('label') or a.get('name') or a.get('title') or aid),
+                'description': _clip(a.get('description') or a.get('goal'), 600),
+                'writes': bool(a.get('writes')),
+                'access': a.get('access') or ('owner' if a.get('writes') else 'open'),
+                'icon': a.get('icon'),
+                'brains': a.get('brains') if isinstance(a.get('brains'), list) else None,
+                'params': {str(k): str(v) for k, v in params.items()},
+                'examples': [str(x) for x in a.get('examples') or [] if x][:8],
+                'run': a.get('run') or f'{base_path}/run',
+                'stream': a.get('stream') or f'{base_path}/run/stream',
+                'available': a.get('available', True) is not False,
+                'harness': bool(a.get('harness')),
+                'model': a.get('model'),
+                'provider': a.get('provider'),
+                'tools': a.get('tools') if isinstance(a.get('tools'), list) else None,
+                'extra': {k: v for k, v in a.items() if k not in known},
+            }
+
+        def probe(d):
+            try:
+                cfg = json.load(open(os.path.join(d, 'config.json')))
+            except Exception:  # noqa: BLE001
+                cfg = {}
+            if not isinstance(cfg, dict):
+                return None
+            rel = os.path.relpath(d, top)
+            name = name_of(d)
+            base_path = cfg.get('base_path') if isinstance(cfg.get('base_path'), str) else ''
+            base_path = base_path.rstrip('/')
+            ports = [p for p in (cfg.get('port'), cfg.get('app_port'), cfg.get('gateway_port'))
+                     if isinstance(p, int) and p]
+            eps = cfg.get('endpoints') if isinstance(cfg.get('endpoints'), dict) else {}
+            declares = any(('/agents' in k or '/run/stream' in k or 'agent.json' in k) for k in eps) \
+                or isinstance(cfg.get('agents'), (list, dict)) or isinstance(cfg.get('harness'), dict)
+            skill_path = next((os.path.join(d, f) for f in ('skill.md', 'SKILL.md')
+                               if os.path.isfile(os.path.join(d, f))), None)
+            skill = self._read(skill_path) if skill_path else None
+            if skill:
+                skill = skill[:60_000]
+            if not declares and not skill and not any(p in listening for p in ports):
+                return None
+
+            live_port, base, agents, card = None, None, None, None
+            for p in ports:
+                if p not in listening:
+                    continue
+                for bp in dict.fromkeys([base_path, '']):
+                    r = http(f'http://127.0.0.1:{p}{bp}/agents')
+                    if isinstance(r, dict) and isinstance(r.get('agents'), (list, dict)):
+                        raw = r['agents']
+                        if isinstance(raw, dict):
+                            raw = [{'id': k, **(v if isinstance(v, dict) else {'description': str(v)})}
+                                   for k, v in raw.items()]
+                        live_port, base = p, f'http://127.0.0.1:{p}{bp}'
+                        agents = [normalize(a, bp, i) for i, a in enumerate(raw)]
+                        card = http(f'{base}/.well-known/agent.json')
+                        if not isinstance(card, dict):
+                            card = None
+                        break
+                if agents is not None:
+                    break
+            if agents is None and not declares and not skill:
+                return None
+
+            mcp = None
+            murl = mcp_url(cfg, base_path, live_port or (ports[0] if ports else None))
+            if murl and (agents is not None or declares) and \
+                    any(f':{p}' in murl for p in ports if p in listening):
+                r = http(murl, {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list', 'params': {}}, timeout=1.5)
+                tools = (r or {}).get('result', {}).get('tools') if isinstance(r, dict) else None
+                if isinstance(tools, list):
+                    mcp = {'url': murl, 'tools': [{
+                        'name': t.get('name'),
+                        'description': (t.get('description') or '')[:400],
+                        'input': t.get('inputSchema') or t.get('input_schema') or {},
+                        'access': ((t.get('_meta') or {}).get('access')
+                                   or ('read' if (t.get('annotations') or {}).get('readOnlyHint') else None)),
+                    } for t in tools if isinstance(t, dict)]}
+                else:
+                    mcp = {'url': murl, 'tools': None}
+            elif murl:
+                mcp = {'url': murl, 'tools': None}
+
+            level = 'agent' if agents is not None else 'offline' if declares else 'skill'
+            return {
+                'name': name,
+                'ref': rel,
+                'title': cfg.get('title') or cfg.get('name') or name,
+                'description': _clip(cfg.get('description'), 300),
+                'level': level,
+                'here': rel == 'orbit/cairo',
+                'port': live_port or (ports[0] if ports else None),
+                'base': base,
+                'base_path': base_path or None,
+                'url': (f"/{name.replace('.', '/')}/" if cfg.get('route') else None),
+                'private': bool(cfg.get('private')),
+                'agents': agents or [],
+                'card': card,
+                'mcp': mcp,
+                'skill': skill,
+                'skill_file': os.path.relpath(skill_path, d) if skill_path else None,
+                'harness': cfg.get('harness') if isinstance(cfg.get('harness'), dict) else None,
+                'declared': sorted(k for k in eps if '/agents' in k or '/run' in k or 'agent.json' in k)[:8],
+                'roster': None,
+            }
+
+        with ThreadPoolExecutor(max_workers=24) as ex:
+            found = [m for m in ex.map(probe, mods) if m]
+
+        # how orbit/build mounts them (value + CID), when build is up
+        roster = None
+        try:
+            bcfg = json.load(open(os.path.join(top, 'orbit', 'build', 'config.json')))
+            bport = bcfg.get('port') if isinstance(bcfg, dict) else None
+        except Exception:  # noqa: BLE001
+            bport = None
+        if bport in listening:
+            r = http(f'http://127.0.0.1:{bport}/agents/mods')
+            if isinstance(r, dict) and isinstance(r.get('agents'), list):
+                roster = r['agents']
+        by_ref = {m['ref']: m for m in found}
+        for row in roster or []:
+            m = by_ref.get(str(row.get('mod') or ''))
+            if m:
+                m['roster'] = {'value': row.get('value'), 'cid': row.get('cid'),
+                               'builtin': bool(row.get('builtin')), 'base_url': row.get('base_url')}
+
+        rank = {'agent': 0, 'offline': 1, 'skill': 2}
+        found.sort(key=lambda m: (rank[m['level']], not m['here'], m['name']))
+        res = {
+            'count': sum(len(m['agents']) for m in found),
+            'mods': found,
+            'scanned': len(mods),
+            'levels': {k: sum(m['level'] == k for m in found) for k in rank},
+            'roster': roster is not None,
+            'took_ms': int((time.time() - t0) * 1000),
+            'at': time.time(),
+        }
+        self.__class__._agents_cache = (time.time(), res)
         return res
 
     def whitepaper(self):

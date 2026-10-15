@@ -1,4 +1,4 @@
-# zuma: anonymous subnets on Starknet
+# zuma: anonymous subnets on Starknet and NEAR
 
 zuma runs a Bittensor-style subnet where **miners and validators don't know
 each other.** Each one only knows that the other is in the registered set.
@@ -21,6 +21,31 @@ the miner's key. Miners see their scores but never learn who gave them. When
 one validator scores two different tags, the two scores can't be linked to
 each other either. Payouts are **public books**: every credit is visible, but
 nobody can tell which member it belongs to.
+
+## Two chains, one protocol
+
+| | Starknet | NEAR |
+|---|---|---|
+| contract | `contracts/src/zuma.cairo` | `near/src/lib.rs` (near-sdk 5) |
+| verifier | `lsag.cairo` on the native EC builtin | `lsag.rs` + `fp.rs` + `poseidon.rs`, in wasm |
+| local chain | starknet-devnet :51332 | near-sandbox :51333 |
+| ring ≤ | 64 | 32 (gas: ~7.5 Tgas/member, 300 Tgas per call) |
+| verify, ring 4 | ~15.8k steps, 19 ec_op | ~37 Tgas |
+| tests | snforge (10) | cargo test (25, incl. Cairo fixtures + fast-vs-reference) |
+
+One prover (`prover/`, Cairo) signs for both. On NEAR the scope comes from
+the contract (`mine_scope` / `score_scope` views; subnet felt =
+sha256(account id)), and the signature is identical. Every write fn takes
+`network=devnet|sepolia|mainnet|near|near-testnet`; `simulate chain=near`
+runs a full epoch on the sandbox. WHITEPAPER.md explains the scheme and how
+the NEAR verifier went from 214 to ~37 Tgas.
+
+**NEAR build traps (all handled by `near_chain.build`):** modern rustc's std
+carries bulk-memory + overlong call_indirect → `PrepareError:
+Deserialization`; `tools/wasmlower` lowers and validates to MVP. Without
+`--cfg near`, near-sdk 5.2x panics are a bare `unreachable` trap and sha256
+runs in wasm. Sandbox txs must reference the OPTIMISTIC head (after
+`sandbox_fast_forward` the final block is outside the validity window).
 
 ## The scheme
 
@@ -67,8 +92,10 @@ Your anonymity set is the ring, and nothing more:
 
 ```bash
 m zuma/build                     # contract (Sierra+CASM) + prover
-m zuma/test                      # snforge: 10 tests, soundness + full epoch + every rejection
-m zuma/simulate                  # fresh local devnet, deploy, 4+4 members, submit, score, claim (~45s)
+m zuma/test                      # snforge (10) + cargo test (25); chain=starknet|near for one
+m zuma/simulate                  # fresh local devnet, deploy, 4+4 members, submit, score, claim (~20s)
+m zuma/simulate chain=near       # the same epoch on near-sandbox (~75s)
+m zuma/gas_sweep                 # NEAR gas per ring size -> data/near_gas.json
 
 m zuma/keygen name=alice         # random secret -> data/keys.json (0600); prints the public key
 m zuma/deploy network=devnet tempo=50 min_ring=3 emission=1000
@@ -124,6 +151,10 @@ speaks RPC 0.7. The accounts file defaults to
 
 ```
 contracts/   Scarb pkg `zuma`: src/lsag.cairo (scheme), src/zuma.cairo (contract), tests/
+near/        crate `zuma_near`: lsag.rs (port), lib.rs (contract), fp.rs + poseidon.rs (fast wasm math), tests.rs, bench.rs
+near_chain.py  NEAR driver: borsh+ed25519 txs, near-sandbox :51333, build -> wasmlower -> deploy
+tools/       wasmlower (wasm -> MVP for nearcore), gen_fp.py (generates fp.rs core + poseidon.rs)
+WHITEPAPER.md  the paper (also the console's WHITEPAPER tab)
 prover/      Cairo program over zuma::lsag; ops: keygen, sign, verify, image, scope
 mod.py       anchor: keys, prover bridge, devnet on :51332, sncast deploy/invoke, RPC views
 server.py    console + JSON API on :50121 (public reads, loopback-only key ops)

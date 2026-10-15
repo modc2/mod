@@ -64,6 +64,7 @@
         "fork",
         "tutorials",
         "fleet",
+        "agents",
         "whitepaper"
     ],
     "endpoints": {
@@ -99,18 +100,19 @@
         "GET /cairo/api/market": "The bazaar: every contract with build state, ABI summary (reads/writes/events), devnet deployment, size, last touched; plus starter templates",
         "POST /cairo/api/fork": "Copy a contract into a new mod (src, name, desc?): package, contract module, dispatchers and use-paths renamed. Owner-only",
         "GET /cairo/api/tutorials?id=": "The LEARN track: stablecoin + Cairo lessons for beginners (no id = index + glossary)",
-        "POST /cairo/mcp": "MCP server (JSON-RPC 2.0, streamable HTTP): cairo_tutorials/lesson/templates/contracts/app/read/abi/call/events/deploy/jobs open; cairo_new/write/build/test owner-only. GET = card; cairo_fork/cairo_vibe owner-only (vibe starts a job), cairo_job open",
+        "POST /cairo/mcp": "MCP server (JSON-RPC 2.0, streamable HTTP): cairo_tutorials/lesson/templates/contracts/app/read/abi/call/events/deploy/jobs/fleet/agents/whitepaper open; cairo_new/write/build/test owner-only. GET = card; cairo_fork/cairo_vibe owner-only (vibe starts a job), cairo_job open",
         "GET /cairo/agents": "Agent contract: the cairo helper (brains: helper = free/open, claude = owner-only via orbit/claudecode)",
         "POST /cairo/run/stream": "Ask the helper {query, brain?, context:{contract,view,lesson,account}} -> SSE step... done{answer, actions}; every read is an MCP tool call",
         "POST /cairo/run": "Same as /run/stream, one JSON answer",
         "GET /cairo/.well-known/agent.json": "agent/1.0 card",
         "GET /cairo/api/fleet": "Every mod on this box with a Cairo setup (Scarb.toml -> contract|cairo, else config mentions), nearest-mod attribution; ?refresh=1 skips the 60s cache",
+        "GET /cairo/api/agents": "Every agent on this box: mods that answer GET /agents (the fleet agent contract), each with its agents, the request schema the console derives, its skill.md, its MCP tools/list and how orbit/build mounts it; offline (declared, not up) and skill-only mods too; ?refresh=1 skips the 60s cache",
         "GET /cairo/api/whitepaper": "The design paper (WHITEPAPER.md) as markdown",
         "POST /cairo/agents/builder/run/stream": "The BUILDER agent (owner-only, agent contract SSE): {query, name?, template?, fork?, new?, vibe?, model?, context:{contract}} -> makes a contract (new from a guessed/given starter, or fork) or edits an existing one via orbit/claudecode, then build + snforge test. Runs as a normal 'vibe' job; streams its steps; done{answer, contract, mode: make|edit, job, actions}. Same as POST /cairo/run/stream with agent:'builder'",
         "POST /cairo/agents/builder/run": "Same, one JSON answer"
     },
     "safety": "vibe() runs the Claude CLI with --permission-mode acceptEdits scoped to a single submod directory (--add-dir), so edits and scarb/snforge runs stay inside that contract's project. It uses the host Claude OAuth credentials and spends against them. No keys are deployed and nothing is sent to a live chain; sncast is present for the user to deploy by hand. Publicly routed: reads are open, but every write (write/new/vibe/build/test/clean/remove/adopt) needs a loopback request or a mod-protocol token signed by the owner (config owner, build-console private-flag owner, or CAIRO_OWNERS). The per-contract apps run on a local starknet-devnet with its public seed-0 test accounts; nothing reaches a real network. call() is open to anyone; deploy() is open only for a built contract with no live deployment; sandbox start/stop/reset is owner-only.",
-    "schema": "QmceQ5wRX6FpqPLh3jivno26hK98Do33NWJPJUDe1PdV2T",
+    "schema": "QmUgY5ifC1TAQvHtHxcEHUMXbq6QJSJwc1YrsJJh1zHdk1",
     "server": "src/api/server.py",
     "app": "src/app",
     "layout": {
@@ -129,7 +131,8 @@
         "src/api/cairo_mcp.py": "MCP server: tools = thin wrappers over mod.py fns, same gate as REST",
         "src/api/cairo_helper.py": "the corner helper on the agent contract; reads via MCP tools in-process",
         "WHITEPAPER.md": "the whitepaper (console: Paper view; MCP: cairo_whitepaper)",
-        "src/api/cairo_builder.py": "the builder agent: make-or-edit a contract over the agent contract (new/fork -> vibe job -> build + test)"
+        "src/api/cairo_builder.py": "the builder agent: make-or-edit a contract over the agent contract (new/fork -> vibe job -> build + test)",
+        "src/app/app/agents.tsx": "AGENTS view: browse every agent on the box; per agent SCHEMA (endpoints, request body, SSE events, curl) \u00b7 SKILL (its skill.md) \u00b7 TOOLS (its MCP tools/list)"
     },
     "mods_dir": "src/mods",
     "sandbox_port": 51292,

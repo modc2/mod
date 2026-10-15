@@ -63,7 +63,13 @@ GET_FNS = {
                                      _q(q, 'network', 'devnet')),
     'tally': lambda q: MOD.tally(_q(q, 'epoch'), _q(q, 'network', 'devnet')),
     'earned': lambda q: MOD.earned(q['recipient'], _q(q, 'network', 'devnet')),
-    'last_sim': lambda q: MOD.last_sim(),
+    'last_sim': lambda q: MOD.last_sim(_q(q, 'chain', 'starknet')),
+    'files': lambda q: MOD.files(),
+    'source': lambda q: MOD.source(q['path']),
+    'whitepaper': lambda q: MOD.whitepaper(),
+    'tests': lambda q: MOD.tests(),
+    'gas': lambda q: MOD.gas(),
+    'compare': lambda q: MOD.compare(),
     'readme': lambda q: MOD.readme(),
 }
 # local key names are operator data: which nickname holds which public key
@@ -71,7 +77,7 @@ GET_FNS = {
 LOCAL_GET = {'keys': lambda q: MOD.keys()}
 PUBLIC_POST = {'verify', 'scope', 'simulate'} | set(GET_FNS)
 LOCAL_POST = {'keys', 'keygen', 'sign', 'mytag', 'register', 'set_open', 'submit',
-              'score', 'claim', 'deploy', 'devnet', 'build', 'test'}
+              'score', 'claim', 'deploy', 'devnet', 'build', 'test', 'gas_sweep'}
 
 
 def _route(path):
@@ -79,12 +85,13 @@ def _route(path):
     return parts[-1] if parts else ''
 
 
-def _sim_job(miners, validators):
+def _sim_job(miners, validators, chain):
     def on_event(e):
         JOB['events'].append(e)
     try:
         with WRITE:
-            JOB['result'] = MOD.simulate(miners, validators, on_event=on_event)
+            JOB['result'] = MOD.simulate(miners, validators, on_event=on_event,
+                                         chain=chain)
     except Exception as e:  # noqa: BLE001
         JOB['error'] = str(e)
         JOB['events'].append({'kind': 'error', 'error': str(e)})
@@ -99,17 +106,20 @@ def _start_sim(kw, local):
     wait = SIM_COOLDOWN - (time.time() - JOB['finished'])
     if not local and JOB['finished'] and wait > 0:
         return {'started': False, 'cooldown': int(wait) + 1}
-    n = lambda k: max(3, min(int(kw.get(k) or 4), 8 if not local else 64))
+    chain = kw.get('chain') or 'starknet'
+    if chain not in modpy.CHAINS:
+        return {'started': False, 'error': f'chain is one of {sorted(modpy.CHAINS)}'}
+    n = lambda k: max(3, min(int(kw.get(k) or 4), 8 if not local else 32))
     JOB.update(running=True, id=JOB['id'] + 1, events=[], result=None,
-               error=None, started=time.time())
-    threading.Thread(target=_sim_job, args=(n('miners'), n('validators')),
+               error=None, started=time.time(), chain=chain)
+    threading.Thread(target=_sim_job, args=(n('miners'), n('validators'), chain),
                      daemon=True).start()
-    return {'started': True, 'id': JOB['id']}
+    return {'started': True, 'id': JOB['id'], 'chain': chain}
 
 
 def _sim_state(q):
     since = int(_q(q, 'since', 0))
-    return {'id': JOB['id'], 'running': JOB['running'],
+    return {'id': JOB['id'], 'running': JOB['running'], 'chain': JOB.get('chain'),
             'events': JOB['events'][since:], 'next': len(JOB['events']),
             'result': JOB['result'], 'error': JOB['error']}
 

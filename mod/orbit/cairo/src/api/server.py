@@ -87,6 +87,8 @@ GET_FNS = {
     'market': lambda q: MOD.market(),
     'tutorials': lambda q: MOD.tutorials(q.get('id')),
     'fleet': lambda q: MOD.fleet(refresh=q.get('refresh') in ('1', 'true')),
+    'agents': lambda q: MOD.agents(refresh=q.get('refresh') in ('1', 'true'),
+                                   brief=q.get('brief') in ('1', 'true'), mod=q.get('mod')),
     'whitepaper': lambda q: MOD.whitepaper(),
     'jobs': lambda q: {'jobs': _jobs_list()},
     'job': lambda q: _job_get(q.get('id', '')),
@@ -94,7 +96,7 @@ GET_FNS = {
 POST_FNS = {'info', 'status', 'toolchain', 'list', 'contracts', 'get', 'tree',
             'read', 'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove',
             'templates', 'abi', 'adopt', 'app', 'deploy', 'call', 'events',
-            'sandbox', 'market', 'fork', 'tutorials', 'fleet', 'whitepaper'}
+            'sandbox', 'market', 'fork', 'tutorials', 'fleet', 'whitepaper', 'agents'}
 LONG_FNS = {'vibe', 'build', 'test', 'status'}
 # touch files on this box or spend the host Claude account -> owner only
 WRITE_FNS = {'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove', 'adopt',
@@ -182,7 +184,10 @@ def _special(path):
     """MCP + agent-contract routes, under any gateway prefix:
     /cairo/mcp, /cairo/agents[/<id>], /cairo/.well-known/agent.json,
     /cairo/run, /cairo/run/stream  ->  ('mcp',) ('agents', id) ..."""
-    segs = [p for p in path.split('/') if p and p not in (NAME, 'api', '_api')]
+    raw = [p for p in path.split('/') if p]
+    if 'api' in raw[:2] or '_api' in raw[:2]:
+        return None  # /cairo/api/agents is the protocol fn agents(), not the contract
+    segs = [p for p in raw if p != NAME]
     if segs == ['mcp']:
         return ('mcp',)
     if segs[:1] == ['agents'] and segs[2:] in (['run'], ['run', 'stream']):

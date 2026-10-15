@@ -160,7 +160,7 @@ fn sorted(v: &[Pt]) -> Vec<Pt> {
 fn wire(ring: &[Pt], s: &Sig) -> (Vec<Point>, Signature) {
     (
         ring.iter().map(p).collect(),
-        Signature { c0: hex(&s.c0), s: s.s.iter().map(hex).collect(), image: p(&s.image) },
+        Signature { c0: hex(&s.c0), s: s.s.iter().map(hex).collect(), image: p(&s.image), hp: None },
     )
 }
 
@@ -289,7 +289,7 @@ fn padded_ring_rejected() {
     let mut w = world();
     at(120, accounts(5));
     let ring = vec![w.miners[0], w.miners[0], w.miners[1]];
-    let sig = Signature { c0: "0x1".into(), s: vec!["0x1".into(); 3], image: p(&w.miners[0]) };
+    let sig = Signature { c0: "0x1".into(), s: vec!["0x1".into(); 3], image: p(&w.miners[0]), hp: None };
     w.z.submit(ring.iter().map(p).collect(), "0x1".into(), sig);
 }
 
@@ -299,7 +299,7 @@ fn small_ring_rejected() {
     let mut w = world();
     at(120, accounts(5));
     let ring = sorted(&w.miners[..2]);
-    let sig = Signature { c0: "0x1".into(), s: vec!["0x1".into(); 2], image: p(&w.miners[0]) };
+    let sig = Signature { c0: "0x1".into(), s: vec!["0x1".into(); 2], image: p(&w.miners[0]), hp: None };
     w.z.submit(ring.iter().map(p).collect(), "0x1".into(), sig);
 }
 
@@ -335,4 +335,167 @@ fn score_range() {
     at(120, accounts(5));
     let t = w.submit(0, 1);
     w.score(10, &t, 101);
+}
+
+// ---- fast arithmetic (fp.rs) == the reference group law ---------------------
+
+use crate::fp::{self, Aff, Fp, Jac};
+use starknet_types_core::curve::ProjectivePoint;
+
+/// Deterministic pseudo-random felts (xorshift; no rand dep).
+fn rnd(seed: &mut u64) -> Felt {
+    let mut b = [0u8; 32];
+    for c in b.chunks_mut(8) {
+        *seed ^= *seed << 13;
+        *seed ^= *seed >> 7;
+        *seed ^= *seed << 17;
+        c.copy_from_slice(&seed.to_be_bytes());
+    }
+    b[0] &= 0x07;
+    Felt::from_bytes_be(&b)
+}
+
+fn ref_pt(p: &ProjectivePoint) -> Pt {
+    match p.to_affine() {
+        Ok(a) if !p.is_identity() => Pt { x: a.x(), y: a.y() },
+        _ => Pt { x: Felt::ZERO, y: Felt::ZERO },
+    }
+}
+
+fn fast_pt(j: &Jac) -> Pt {
+    let a = fp::normalize(&[*j])[0];
+    if a.inf { Pt { x: Felt::ZERO, y: Felt::ZERO } } else { Pt { x: a.x.to_felt(), y: a.y.to_felt() } }
+}
+
+fn aff_of(p: &Pt) -> Aff {
+    Aff { x: Fp::from_felt(&p.x), y: Fp::from_felt(&p.y), inf: false }
+}
+
+#[test]
+fn field_ops_match_felt() {
+    let mut s = 0x1234_5678_9abc_def1u64;
+    let edge = [Felt::ZERO, Felt::ONE, Felt::MAX, Felt::MAX - Felt::ONE, Felt::from(2u64)];
+    let mut xs: Vec<Felt> = edge.to_vec();
+    xs.extend((0..200).map(|_| rnd(&mut s)));
+    for w in xs.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let (fa, fb) = (Fp::from_felt(&a), Fp::from_felt(&b));
+        assert_eq!(fa.to_felt(), a, "roundtrip");
+        assert_eq!(fa.mul(&fb).to_felt(), a * b, "mul {a} {b}");
+        assert_eq!(fa.add(&fb).to_felt(), a + b, "add");
+        assert_eq!(fa.sq().to_felt(), a * a, "sq");
+        assert_eq!(fa.sub(&fb).to_felt(), a - b, "sub");
+        if a != Felt::ZERO {
+            assert_eq!(fa.inv().to_felt(), a.inverse().unwrap(), "inv");
+        }
+    }
+    for e in edge {
+        for f in edge {
+            assert_eq!(Fp::from_felt(&e).mul(&Fp::from_felt(&f)).to_felt(), e * f);
+        }
+    }
+}
+
+#[test]
+fn double_scalar_mul_matches_reference() {
+    let mut s = 77u64;
+    let g = lsag::generator();
+    for _ in 0..12 {
+        let (k1, k2, a, b) = (rnd(&mut s), rnd(&mut s), rnd(&mut s), rnd(&mut s));
+        let (pa, pb) = (&g * k1, &g * k2);
+        let (aa, ab) = (ref_pt(&pa), ref_pt(&pb));
+        let want = ref_pt(&(&(&pa * a) + &(&pb * b)));
+        let got = fast_pt(&fp::mul2(&fp::nibbles(&a), &fp::table(&aff_of(&aa)),
+                                    &fp::nibbles(&b), &fp::table(&aff_of(&ab))));
+        assert_eq!(got, want);
+    }
+}
+
+#[test]
+fn group_law_edge_cases_match_reference() {
+    let g = lsag::generator();
+    let gp = ref_pt(&g);
+    let tg = fp::table(&aff_of(&gp));
+    let neg = Pt { x: gp.x, y: -gp.y };
+    let tn = fp::table(&aff_of(&neg));
+    let (one, two, zero) = (Felt::ONE, Felt::from(2u64), Felt::ZERO);
+    let n = |f: &Felt| fp::nibbles(f);
+    // a*G + b*G (same base: the add hits the doubling branch)
+    for (a, b) in [(one, one), (two, two), (one, two), (Felt::from(15u64), Felt::from(15u64))] {
+        let want = ref_pt(&(&g * (a + b)));
+        assert_eq!(fast_pt(&fp::mul2(&n(&a), &tg, &n(&b), &tg)), want, "{a}+{b}");
+    }
+    // a*G + a*(-G) = infinity -> (0,0), as the Cairo/ref serialization
+    for a in [one, Felt::from(7u64), Felt::from(123456789u64)] {
+        assert_eq!(fast_pt(&fp::mul2(&n(&a), &tg, &n(&a), &tn)), Pt { x: zero, y: zero });
+    }
+    // zero scalars
+    assert_eq!(fast_pt(&fp::mul2(&n(&zero), &tg, &n(&zero), &tg)), Pt { x: zero, y: zero });
+    assert_eq!(fast_pt(&fp::mul2(&n(&zero), &tg, &n(&one), &tg)), gp);
+    // scalar >= ORDER wraps exactly like the reference (Cairo EC semantics)
+    let big = Felt::MAX;
+    assert_eq!(fast_pt(&fp::mul2(&n(&big), &tg, &n(&zero), &tg)), ref_pt(&(&g * big)));
+}
+
+#[test]
+fn hinted_hash_to_point_never_changes_the_point() {
+    for sc in [0u64, 1, 42, 7777, 123456] {
+        let scope = Felt::from(sc);
+        let want = lsag::hash_to_point(&scope);
+        assert_eq!(lsag::hash_to_point_hinted(&scope, None), want);
+        assert_eq!(lsag::hash_to_point_hinted(&scope, Some(&want)), want);
+        // the other root, a wrong x, garbage: all ignored
+        let other = Pt { x: want.x, y: -want.y };
+        assert_eq!(lsag::hash_to_point_hinted(&scope, Some(&other)), want);
+        let junk = Pt { x: Felt::from(5u64), y: Felt::from(9u64) };
+        assert_eq!(lsag::hash_to_point_hinted(&scope, Some(&junk)), want);
+    }
+}
+
+#[test]
+fn fast_verify_agrees_with_reference() {
+    let mut s = 4242u64;
+    let mut ring: Vec<Pt> = (1..=4u64).map(|i| signer::public_key(&Felt::from(i * 31337))).collect();
+    signer::sort_ring(&mut ring);
+    for k in 0..4u64 {
+        let scope = rnd(&mut s);
+        let msg = rnd(&mut s);
+        let fill: Vec<Felt> = (0..4).map(|_| rnd(&mut s)).collect();
+        let sig = signer::sign(&ring, &Felt::from((k + 1) * 31337), &scope, &msg, &rnd(&mut s), &fill);
+        assert!(lsag::verify_ref(&ring, &scope, &msg, &sig));
+        assert!(lsag::verify(&ring, &scope, &msg, &sig));
+        let hp = lsag::hash_to_point(&scope);
+        assert!(lsag::verify_hinted(&ring, &scope, &msg, &sig, Some(&hp)));
+        // tamper: every verifier must reject
+        let bad = Sig { c0: sig.c0 + Felt::ONE, s: sig.s.clone(), image: sig.image };
+        assert!(!lsag::verify_ref(&ring, &scope, &msg, &bad));
+        assert!(!lsag::verify(&ring, &scope, &msg, &bad));
+        assert!(!lsag::verify(&ring, &scope, &(msg + Felt::ONE), &sig));
+    }
+}
+
+#[test]
+fn hp_hint_from_the_view_is_accepted() {
+    let mut w = world();
+    let ring = sorted(&w.miners);
+    at(5 * TEMPO, accounts(1));
+    let e = w.z.epoch();
+    let scope_hex = w.z.mine_scope(e);
+    let scope = felt(&scope_hex).unwrap();
+    let s = signer::sign(&ring, &sec(0), &scope, &Felt::from(9u64), &Felt::from(11u64), &fill(ring.len(), 3));
+    let (r, mut sg) = wire(&ring, &s);
+    sg.hp = Some(w.z.hash_point(scope_hex));
+    let tag = w.z.submit(r, "0x9".into(), sg);
+    assert_eq!(tag, hex(&lsag::key_id(&s.image)));
+}
+
+#[test]
+fn poseidon_matches_reference() {
+    let mut s = 99u64;
+    for n in 0..9usize {
+        let v: Vec<Felt> = (0..n).map(|_| rnd(&mut s)).collect();
+        assert_eq!(lsag::h(&v), lsag::h_ref(&v), "len {n}");
+    }
+    let edge = [Felt::ZERO, Felt::MAX, Felt::ONE];
+    assert_eq!(lsag::h(&edge), lsag::h_ref(&edge));
 }

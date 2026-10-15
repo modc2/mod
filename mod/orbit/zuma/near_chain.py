@@ -34,7 +34,10 @@ SANDBOX_BIN = os.path.expanduser('~/.local/bin/near-sandbox')
 TARGET = os.environ.get('ZUMA_NEAR_TARGET', os.path.join(CRATE, 'target'))
 # nearcore 2.0 (protocol 69) parses MVP wasm (+sign-ext) only; rustc >= 1.82
 # emits reference-types/bulk-memory by default -> PrepareError: Deserialization
-RUSTFLAGS = '-C target-cpu=mvp -C link-arg=-s'
+# `--cfg near` is what cargo-near passes: without it near-sdk-env (5.2x)
+# compiles its LOCAL fallbacks into the wasm — panics become a bare
+# `unreachable` trap (no message) and sha256 runs in wasm, not the host
+RUSTFLAGS = '-C target-cpu=mvp -C link-arg=-s --cfg near'
 RAW_WASM = os.path.join(TARGET, 'wasm32-unknown-unknown', 'release', 'zuma_near.wasm')
 WASM = RAW_WASM.replace('.wasm', '.lowered.wasm')  # what gets deployed
 LOWER_SRC = os.path.join(HERE, 'tools', 'wasmlower')

@@ -25,15 +25,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>contract app</title>
 <style>
+  /* the same Inter + JetBrains Mono the console ships (src/app/public/fonts) */
+  @font-face { font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
+    src: url('/cairo/fonts/inter-latin.woff2') format('woff2'); }
+  @font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 100 800; font-display: swap;
+    src: url('/cairo/fonts/jetbrains-mono-latin.woff2') format('woff2'); }
   :root {
     --bg: #0d0b0a; --panel: #171311; --panel-2: #201a17; --line: #3a2f29;
     --text: #f1ebe7; --muted: #a3958c; --accent: #ff6b4a; --accent-dim: #d4502f;
     --ok: #34d399; --bad: #f87171; --r: 10px;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    font: 14px/1.45 var(--sans); }
   .wrap { max-width: 1080px; margin: 0 auto; padding: 22px 18px 60px; }
   header { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
   .logo { width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center;
@@ -68,11 +74,11 @@
   .fn { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
   .fn b { font: 600 14px var(--mono); }
   .fn .sig { color: var(--muted); font: 12px var(--mono); overflow-wrap: anywhere; }
-  .simple .fn b { font: 600 15px system-ui, sans-serif; }
+  .simple .fn b { font: 600 15px var(--sans); }
   .help { color: var(--muted); font-size: 12.5px; margin: -4px 0 10px; }
   .field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
   .field > span { font: 11px var(--mono); color: var(--muted); }
-  .simple .field > span { font: 12.5px system-ui, sans-serif; }
+  .simple .field > span { font: 12.5px var(--sans); }
   input, select { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
     border-radius: 7px; padding: 7px 9px; font: 13px var(--mono); }
   input:focus, select:focus { outline: none; border-color: var(--accent); }
@@ -93,7 +99,7 @@
   .meter-cap { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
   .spark { display: block; width: 100%; height: 44px; margin-top: 8px; overflow: visible; }
   .spark-cap { font-size: 11px; color: var(--muted); }
-  .badge { display: inline-flex; align-items: center; gap: 7px; font: 600 15px system-ui, sans-serif;
+  .badge { display: inline-flex; align-items: center; gap: 7px; font: 600 15px var(--sans);
     padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); }
   .badge::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
   .badge.yes { color: var(--ok); border-color: #1f5b45; }

@@ -78,9 +78,9 @@ export function Create({
     <div className="create">
       <section className="hero slim">
         <div className="hero-copy">
-          <div className="eyebrow">new</div>
+          <div className="eyebrow">new contract</div>
           <h2>Start a contract.</h2>
-          <p>Pick a starting point, name it, and optionally tell the agent what to turn it into. It becomes its own mod.</p>
+          <p>Pick a starting point, give it a name, and if you like, tell the agent what to turn it into. One button does the rest.</p>
         </div>
       </section>
 
@@ -96,23 +96,31 @@ export function Create({
                 className={`pick ${from.kind === 'template' && from.id === t.id ? 'on' : ''}`}
                 onClick={() => setFrom({ kind: 'template', id: t.id })}
               >
-                <span className="ptag">starter</span>
                 <b>{t.title}</b>
                 <span>{t.blurb}</span>
               </button>
             ))}
-            {contracts.map((c) => (
-              <button
-                key={`fork-${c}`}
-                className={`pick fork ${from.kind === 'fork' && from.id === c ? 'on' : ''}`}
-                onClick={() => setFrom({ kind: 'fork', id: c })}
-              >
-                <span className="ptag">fork</span>
-                <b>{c}</b>
-                <span>Copy this contract, its tests and its app, renamed.</span>
-              </button>
-            ))}
           </div>
+          {contracts.length > 0 && (
+            <details className="forkfold" open={from.kind === 'fork'}>
+              <summary>
+                Or copy one of your contracts
+                {from.kind === 'fork' && <b> · {from.id}</b>}
+              </summary>
+              <div className="forkrow">
+                {contracts.map((c) => (
+                  <button
+                    key={`fork-${c}`}
+                    className={`pick fork ${from.kind === 'fork' && from.id === c ? 'on' : ''}`}
+                    onClick={() => setFrom({ kind: 'fork', id: c })}
+                    title="copy this contract, its tests and its app under a new name"
+                  >
+                    <b>{c}</b>
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
         </section>
 
         <section className="card">

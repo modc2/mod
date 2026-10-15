@@ -15,6 +15,8 @@ use starknet_types_core::curve::{AffinePoint, ProjectivePoint};
 use starknet_types_core::felt::Felt;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 
+use crate::fp::{mul2, nibbles, normalize, table, Aff, Fp};
+
 /// STARK curve beta (alpha = 1).
 const BETA: Felt =
     Felt::from_hex_unchecked("0x6f21413efbe40de150e596d72f7a8c5609ad26c15c915c1f4cdfcb99cee9e89");
@@ -23,7 +25,13 @@ pub fn short(s: &str) -> Felt {
     Felt::from_bytes_be_slice(s.as_bytes())
 }
 
+/// Cairo's poseidon_hash_span. The fast port (poseidon.rs) on wasm; the
+/// lambdaworks implementation stays as `h_ref`, the tested reference.
 pub fn h(parts: &[Felt]) -> Felt {
+    crate::poseidon::hash_many(parts)
+}
+
+pub fn h_ref(parts: &[Felt]) -> Felt {
     Poseidon::hash_array(parts)
 }
 
@@ -124,8 +132,108 @@ fn challenge(d: &Felt, l: &ProjectivePoint, r: &ProjectivePoint) -> Felt {
     h(&[short("zuma-chal"), *d, l.x, l.y, r.x, r.y])
 }
 
-/// Verify a ring signature. Pure: no storage, no host calls.
+/// x^((p-1)/2): 1 for a nonzero square, p-1 for a non-square. (p-1)/2 =
+/// 2^250 + 2^195 + 2^191, so it is 250 squarings and 2 multiplies.
+fn euler(x: &Fp) -> Fp {
+    let mut acc = *x;
+    let (mut a191, mut a195) = (Fp::ZERO, Fp::ZERO);
+    for i in 1..=250 {
+        acc = acc.sq();
+        if i == 191 {
+            a191 = acc;
+        }
+        if i == 195 {
+            a195 = acc;
+        }
+    }
+    acc.mul(&a191).mul(&a195)
+}
+
+/// hash_to_point with an optional y hint. Same output as `hash_to_point`
+/// (the hint can only make it cheaper, never change it): every counter
+/// before the hit must be proven a non-square (Euler), and the hint must be
+/// a root of the hit's rhs AND the smaller one. A wrong hint costs the full
+/// sqrt, it is never trusted. Saves ~6 Tgas per verify on NEAR.
+pub fn hash_to_point_hinted(scope: &Felt, hint: Option<&Pt>) -> Pt {
+    let beta = Fp::from_felt(&BETA);
+    let one = Fp::ONE;
+    let mut ctr = Felt::ZERO;
+    loop {
+        let x = h(&[short("zuma-h2p"), *scope, ctr]);
+        if let Some(hp) = hint {
+            if hp.x == x {
+                let (xf, yf) = (Fp::from_felt(&x), Fp::from_felt(&hp.y));
+                let rhs = xf.sq().mul(&xf).add(&xf).add(&beta);
+                if yf.sq() == rhs && hp.y.to_bytes_be() <= (-hp.y).to_bytes_be() {
+                    return *hp;
+                }
+            }
+        }
+        let xf = Fp::from_felt(&x);
+        let rhs = xf.sq().mul(&xf).add(&xf).add(&beta);
+        if rhs.is_zero() || euler(&rhs) == one {
+            return hash_to_point_at(&x);
+        }
+        ctr += Felt::ONE;
+    }
+}
+
+/// The smaller root at a known-square x (the slow sqrt; hint misses only).
+fn hash_to_point_at(x: &Felt) -> Pt {
+    let rhs = *x * *x * *x + *x + BETA;
+    let r = rhs.sqrt().expect("euler said square");
+    let other = -r;
+    let y = if r.to_bytes_be() <= other.to_bytes_be() { r } else { other };
+    Pt { x: *x, y }
+}
+
+fn aff(p: &Pt) -> Aff {
+    Aff { x: Fp::from_felt(&p.x), y: Fp::from_felt(&p.y), inf: false }
+}
+
+/// Verify a ring signature. Pure: no storage, no host calls besides gas.
+/// Fast path (fp.rs): per member two Straus double-scalar multiplies
+///   L = s*G + c*P,  R = s*Hp + c*I
+/// with the G, Hp and I window tables built once per call.
 pub fn verify(ring: &[Pt], scope: &Felt, msg: &Felt, sig: &Sig) -> bool {
+    verify_hinted(ring, scope, msg, sig, None)
+}
+
+pub fn verify_hinted(ring: &[Pt], scope: &Felt, msg: &Felt, sig: &Sig, hp: Option<&Pt>) -> bool {
+    let n = ring.len();
+    if n == 0 || sig.s.len() != n || !on_curve(&sig.image) {
+        return false;
+    }
+    for p in ring {
+        if !on_curve(p) {
+            return false;
+        }
+    }
+    let hp = hash_to_point_hinted(scope, hp);
+    let g = AffinePoint::generator();
+    let tg = table(&aff(&Pt { x: g.x(), y: g.y() }));
+    let th = table(&aff(&hp));
+    let ti = table(&aff(&sig.image));
+    let d = digest(ring, scope, msg, &sig.image);
+    let mut c = sig.c0;
+    for (p, s) in ring.iter().zip(sig.s.iter()) {
+        let tp = table(&aff(p));
+        let (sn, cn) = (nibbles(s), nibbles(&c));
+        let lr = normalize(&[mul2(&sn, &tg, &cn, &tp), mul2(&sn, &th, &cn, &ti)]);
+        let pt = |a: &Aff| if a.inf {
+            Pt { x: Felt::ZERO, y: Felt::ZERO }
+        } else {
+            Pt { x: a.x.to_felt(), y: a.y.to_felt() }
+        };
+        let (l, r) = (pt(&lr[0]), pt(&lr[1]));
+        c = h(&[short("zuma-chal"), d, l.x, l.y, r.x, r.y]);
+    }
+    c == sig.c0
+}
+
+/// The original verifier on starknet-types-core's group law: the reference
+/// the fast path is tested against (and the cost baseline: ~50 Tgas/member).
+pub fn verify_ref(ring: &[Pt], scope: &Felt, msg: &Felt, sig: &Sig) -> bool {
     let n = ring.len();
     if n == 0 || sig.s.len() != n {
         return false;

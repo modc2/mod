@@ -20,7 +20,9 @@
 //!
 //! No method checks the caller except owner admin, so a relayer can post on a
 //! member's behalf (the signer of a NEAR tx is public).
+pub mod fp;
 pub mod lsag;
+pub mod poseidon;
 
 use lsag::{felt, hex, Pt, Sig};
 use near_sdk::json_types::U128;
@@ -30,7 +32,10 @@ use starknet_types_core::felt::Felt;
 
 pub const ROLE_MINER: u8 = 1;
 pub const ROLE_VALIDATOR: u8 = 2;
-pub const MAX_RING: u32 = 64;
+/// Gas-bound, not a protocol choice: verification costs ~7.5 Tgas per ring
+/// member + ~6 Tgas fixed (measured on near-sandbox: ring 32 = 247 Tgas,
+/// ring 40 exceeds the 300 Tgas per-call limit). Starknet's cap is 64.
+pub const MAX_RING: u32 = 32;
 pub const MAX_SCORE: u8 = 100;
 
 #[derive(BorshStorageKey)]
@@ -62,6 +67,11 @@ pub struct Signature {
     pub c0: String,
     pub s: Vec<String>,
     pub image: Point,
+    /// Optional Hp(scope) hint (NEAR only; Starknet computes it). Checked,
+    /// never trusted: a wrong hint just costs the slow sqrt. Get it free
+    /// from the `hash_point` view.
+    #[serde(default)]
+    pub hp: Option<Point>,
 }
 
 #[near(serializers = [json])]
@@ -108,6 +118,13 @@ pub fn text_felt(s: &str) -> Felt {
     let mut b: [u8; 32] = env::sha256_array(s.as_bytes());
     b[0] &= 0x07;
     Felt::from_bytes_be(&b)
+}
+
+/// Checked add. The release profile turns overflow-checks OFF (they make
+/// every u64/u128 multiply in the inlined field/Poseidon code a `__multi3`
+/// call in wasm), so the contract's own arithmetic is checked explicitly.
+fn add(a: u128, b: u128) -> u128 {
+    a.checked_add(b).unwrap_or_else(|| env::panic_str("overflow"))
 }
 
 fn ek(epoch: u64, tag: &str) -> String {
@@ -197,7 +214,7 @@ impl Zuma {
         let ring = self.check_ring(&ring, ROLE_MINER);
         let epoch = self.epoch();
         let w = f(&work, "work");
-        require!(lsag::verify(&ring, &self.scope_mine(epoch), &w, &self.sig(&sig)), "bad ring signature");
+        require!(self.check_sig(&ring, &self.scope_mine(epoch), &w, &sig), "bad ring signature");
         let tag = hex(&lsag::key_id(&pt(&sig.image)));
         let k = ek(epoch, &tag);
         require!(!self.work.contains_key(&k), "already submitted this epoch");
@@ -218,13 +235,13 @@ impl Zuma {
         let k = ek(epoch, &tag);
         require!(self.work.contains_key(&k), "no such tag this epoch");
         let scope = self.scope_score_f(epoch, &f(&tag, "tag"));
-        require!(lsag::verify(&ring, &scope, &Felt::from(score), &self.sig(&sig)), "bad ring signature");
+        require!(self.check_sig(&ring, &scope, &Felt::from(score), &sig), "bad ring signature");
         let nullifier = hex(&lsag::key_id(&pt(&sig.image)));
         require!(self.spent.insert(nullifier.clone()), "already scored this tag");
         let (s, n) = self.tally.get(&k).copied().unwrap_or((0, 0));
-        self.tally.insert(k, (s + score as u128, n + 1));
+        self.tally.insert(k, (add(s, score as u128), n.checked_add(1).unwrap_or_else(|| env::panic_str("overflow"))));
         let t = self.total.get(&epoch).copied().unwrap_or(0);
-        self.total.insert(epoch, t + score as u128);
+        self.total.insert(epoch, add(t, score as u128));
         event("scored", format!(
             "{{\"epoch\":{epoch},\"tag\":\"{tag}\",\"score\":{score},\"nullifier\":\"{nullifier}\",\"ring_size\":{}}}",
             ring.len()));
@@ -235,16 +252,24 @@ impl Zuma {
         require!(epoch < self.epoch(), "epoch still open");
         let ring = self.check_ring(&ring, ROLE_MINER);
         let msg = text_felt(recipient.as_str());
-        require!(lsag::verify(&ring, &self.scope_mine(epoch), &msg, &self.sig(&sig)), "bad ring signature");
+        require!(self.check_sig(&ring, &self.scope_mine(epoch), &msg, &sig), "bad ring signature");
         let tag = hex(&lsag::key_id(&pt(&sig.image)));
         let k = ek(epoch, &tag);
         require!(self.work.contains_key(&k), "tag did not submit");
         require!(self.claimed.insert(k.clone()), "already claimed");
         let total = self.total.get(&epoch).copied().unwrap_or(0);
         let sum = self.tally.get(&k).map(|t| t.0).unwrap_or(0);
-        let amount = if total == 0 { 0 } else { self.emission * sum / total };
+        // emission * sum / total without overflow: sum <= total, so split
+        // emission = q*total + r  ->  q*sum + r*sum/total, each term fits
+        let amount = if total == 0 {
+            0
+        } else {
+            let (q, r) = (self.emission / total, self.emission % total);
+            add(q.checked_mul(sum).unwrap_or_else(|| env::panic_str("overflow")),
+                r.checked_mul(sum).unwrap_or_else(|| env::panic_str("overflow")) / total)
+        };
         let c = self.credit.get(&recipient).copied().unwrap_or(0);
-        self.credit.insert(recipient.clone(), c + amount);
+        self.credit.insert(recipient.clone(), add(c, amount));
         event("claimed", format!(
             "{{\"epoch\":{epoch},\"tag\":\"{tag}\",\"recipient\":\"{recipient}\",\"amount\":\"{amount}\"}}"));
         U128(amount)
@@ -324,7 +349,14 @@ impl Zuma {
     /// (no state change; handy for clients).
     pub fn verify(&self, ring: Vec<Point>, scope: String, msg: String, sig: Signature) -> bool {
         let ring: Vec<Pt> = ring.iter().map(pt).collect();
-        lsag::verify(&ring, &f(&scope, "scope"), &f(&msg, "msg"), &self.sig(&sig))
+        self.check_sig(&ring, &f(&scope, "scope"), &f(&msg, "msg"), &sig)
+    }
+
+    /// Hp(scope), the point key images are taken over. Pass it back as
+    /// `sig.hp` to skip the on-chain square root (~6 Tgas).
+    pub fn hash_point(&self, scope: String) -> Point {
+        let p = lsag::hash_to_point(&f(&scope, "scope"));
+        Point { x: hex(&p.x), y: hex(&p.y) }
     }
 }
 
@@ -339,6 +371,11 @@ impl Zuma {
 
     fn scope_score_f(&self, epoch: u64, tag: &Felt) -> Felt {
         lsag::h(&[lsag::short("zuma-score"), self.subnet_f(), Felt::from(epoch), *tag])
+    }
+
+    fn check_sig(&self, ring: &[Pt], scope: &Felt, msg: &Felt, s: &Signature) -> bool {
+        let hint = s.hp.as_ref().map(pt);
+        lsag::verify_hinted(ring, scope, msg, &self.sig(s), hint.as_ref())
     }
 
     fn sig(&self, s: &Signature) -> Sig {
@@ -368,6 +405,9 @@ impl Zuma {
             .collect()
     }
 }
+
+#[cfg(feature = "bench")]
+pub mod bench;
 
 #[cfg(test)]
 mod tests;

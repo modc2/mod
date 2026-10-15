@@ -58,6 +58,12 @@ TOOLS = {
     'cairo_fleet': ('fleet', 'Every mod on this box with a Cairo setup (Scarb projects, starknet contracts, '
                     'or a config that mentions cairo/starknet), strongest evidence first.',
                     S(refresh={'type': 'boolean', 'description': 'skip the 60s cache'}), False, None),
+    'cairo_agents': ('agents', 'Every agent on this box that speaks the fleet agent contract (GET /agents + '
+                     'POST /run/stream), with the request schema each needs, its skill.md and its MCP tools.',
+                     S(refresh={'type': 'boolean', 'description': 'skip the 60s cache'},
+                       mod=STR('one mod by name (e.g. hermes) -> its full record: skill.md + tool schemas'),
+                       brief={'type': 'boolean', 'description': 'default true: skill bodies and tool schemas trimmed'}),
+                     False, lambda kw: {'brief': kw.get('brief', True), **{k: v for k, v in kw.items() if k != 'brief'}}),
     'cairo_whitepaper': ('whitepaper', 'The design paper of this workbench, as markdown.', S(), False, None),
     'cairo_jobs': (None, 'Recent build/test/vibe jobs with results (why did my test fail?).', S(), False, None),
     'cairo_new': ('new', 'OWNER. Make a new contract from a starter template.',
@@ -89,7 +95,7 @@ def tools_list():
     return [{'name': n, 'description': t[1], 'inputSchema': t[2],
              'annotations': {'readOnlyHint': t[0] in (None, 'tutorials', 'templates', 'market', 'get',
                                                       'read', 'abi', 'app', 'events', 'fleet',
-                                                      'whitepaper'),
+                                                      'whitepaper', 'agents'),
                              'title': n.replace('cairo_', '').replace('_', ' ')},
              '_meta': {'access': 'owner' if t[3] else 'open'}}
             for n, t in TOOLS.items()]
@@ -99,8 +105,10 @@ def call_tool(mod, name, args, gate, jobs=None):
     """Run one tool. gate(fn, kw) -> None | refusal text. Returns a dict."""
     if name not in TOOLS:
         raise KeyError(f'unknown tool {name!r}')
-    fn, _, _, owner, _ = TOOLS[name]
+    fn, _, _, owner, mapper = TOOLS[name]
     kw = dict(args or {})
+    if mapper:
+        kw = mapper(kw)
     kw.pop('on_step', None)
     if fn == 'job':
         return HOOKS['get'](kw.get('id', '')) if HOOKS['get'] else {'error': 'no job table'}

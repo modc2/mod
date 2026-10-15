@@ -91,6 +91,47 @@ function parse(md: string): Block[] {
   return out;
 }
 
+// Markdown as React elements: what Paper renders, reusable by any view that
+// shows a markdown file (the Agents view shows each mod's skill.md with it).
+export function Markdown({ md, prefix = 'p' }: { md: string; prefix?: string }) {
+  const blocks = useMemo(() => parse(md), [md]);
+  return <>{renderBlocks(blocks, prefix)}</>;
+}
+
+function renderBlocks(blocks: Block[], prefix: string): ReactNode[] {
+  return blocks.map((b, i) => {
+    switch (b.t) {
+      case 'h': {
+        const Tag = (`h${Math.min(b.level, 3)}` as 'h1' | 'h2' | 'h3');
+        return <Tag key={i} id={`${prefix}-${b.id}`}>{inline(b.text, i)}</Tag>;
+      }
+      case 'p':
+        return <p key={i}>{inline(b.text, i)}</p>;
+      case 'ul':
+        return <ul key={i}>{b.items.map((x, j) => <li key={j}>{inline(x, i * 100 + j)}</li>)}</ul>;
+      case 'ol':
+        return <ol key={i}>{b.items.map((x, j) => <li key={j}>{inline(x, i * 100 + j)}</li>)}</ol>;
+      case 'code':
+        return <pre key={i} className="dcode">{b.text}</pre>;
+      case 'hr':
+        return <hr key={i} />;
+      case 'table':
+        return (
+          <div key={i} className="ptable">
+            <table>
+              <thead><tr>{b.head.map((c, j) => <th key={j}>{inline(c, j)}</th>)}</tr></thead>
+              <tbody>
+                {b.rows.map((r, j) => (
+                  <tr key={j}>{r.map((c, k) => <td key={k}>{inline(c, j * 100 + k)}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+    }
+  });
+}
+
 // PAPER: the whitepaper (WHITEPAPER.md at the module root, via whitepaper()).
 export function Paper() {
   const [md, setMd] = useState<string | null>(null);
@@ -141,37 +182,7 @@ export function Paper() {
       <article className="dbody">
         {err && <p className="err">{err}</p>}
         {md === null && !err && <p className="muted">Loading the paper…</p>}
-        {blocks.map((b, i) => {
-          switch (b.t) {
-            case 'h': {
-              const Tag = (`h${Math.min(b.level, 3)}` as 'h1' | 'h2' | 'h3');
-              return <Tag key={i} id={`p-${b.id}`}>{inline(b.text, i)}</Tag>;
-            }
-            case 'p':
-              return <p key={i}>{inline(b.text, i)}</p>;
-            case 'ul':
-              return <ul key={i}>{b.items.map((x, j) => <li key={j}>{inline(x, i * 100 + j)}</li>)}</ul>;
-            case 'ol':
-              return <ol key={i}>{b.items.map((x, j) => <li key={j}>{inline(x, i * 100 + j)}</li>)}</ol>;
-            case 'code':
-              return <pre key={i} className="dcode">{b.text}</pre>;
-            case 'hr':
-              return <hr key={i} />;
-            case 'table':
-              return (
-                <div key={i} className="ptable">
-                  <table>
-                    <thead><tr>{b.head.map((c, j) => <th key={j}>{inline(c, j)}</th>)}</tr></thead>
-                    <tbody>
-                      {b.rows.map((r, j) => (
-                        <tr key={j}>{r.map((c, k) => <td key={k}>{inline(c, j * 100 + k)}</td>)}</tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              );
-          }
-        })}
+        {renderBlocks(blocks, 'p')}
       </article>
     </div>
   );
