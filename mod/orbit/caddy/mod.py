@@ -83,7 +83,8 @@ class Mod:
             'host': s["host"],
             'state_dir': self.STATE_DIR,
             'fns': ['settings', 'host', 'add_host', 'remove_host', 'discover',
-                    'routes', 'generate', 'migrate', 'apply', 'reload'],
+                    'routes', 'generate', 'migrate', 'apply', 'reload',
+                    'alias', 'unalias', 'aliases'],
         }
 
     def readme(self):
@@ -230,6 +231,7 @@ class Mod:
                     "dir": d,
                     "api_port": api,
                     "app_port": app,
+                    "aliases": [a for a in (cfg.get("aliases") or []) if isinstance(a, str)],
                 })
         return out
 
@@ -311,7 +313,8 @@ class Mod:
         opted-in module gets defaults from its config.json ports."""
         s = self.settings()
         table = {}
-        for mod in self.discover():
+        discovered = self.discover()
+        for mod in discovered:
             n = mod["name"]
             spec = {}
             if mod["api_port"]:
@@ -322,9 +325,159 @@ class Mod:
                 table[n] = spec
         overridden = self.overrides()
         table.update(overridden)   # overrides win entirely per module
+        alias_info = self._resolve_aliases(table, discovered)
         return {"host": s["host"], "routes": table,
                 "overridden": sorted(overridden.keys()),
-                "auto": sorted(set(table) - set(overridden))}
+                "auto": sorted(set(table) - set(overridden)),
+                "aliases": alias_info["aliases"],
+                "alias_conflicts": alias_info["conflicts"]}
+
+    # ── aliases ──────────────────────────────────────────────────────────────
+    # An alias is a second public name for a routed module: {host}/{alias}/...
+    # 308-redirects to {host}/{target}/... (path, query, method and body kept).
+    # A redirect, not a proxy, because Next apps bake their basePath into every
+    # asset URL — proxying /hub to an app built for /build would load a page
+    # whose CSS/JS all point back at /build anyway.
+    #
+    # Two sources:
+    #   config.json "aliases": ["studio", ...]  — ships with the module; only
+    #       takes a name nobody else uses (never a module dir or a route).
+    #   overrides.json "<alias>": {"alias": "<target>"}  — a deliberate
+    #       takeover of a name that IS in use; written by alias(force=True).
+    ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+    RESERVED = {"api", "_next", "_api", "static", "public", "favicon.ico"}
+
+    def _module_names(self):
+        names = set()
+        for root in self.ROOTS:
+            if os.path.isdir(root):
+                names.update(n.lower() for n in os.listdir(root)
+                             if os.path.isdir(os.path.join(root, n)))
+        return names
+
+    def _resolve_aliases(self, table, discovered):
+        """Fold config.json aliases into the route table (in place). Returns
+        {aliases: {alias: target}, conflicts: {alias: reason}}."""
+        aliases, conflicts = {}, {}
+        taken = self._module_names()
+        for alias, spec in table.items():
+            if isinstance(spec, dict) and spec.get("alias"):
+                aliases[alias] = spec["alias"]
+        for mod in discovered:
+            target = mod["name"]
+            for alias in mod.get("aliases", []):
+                alias = alias.lower()
+                if alias in aliases and aliases[alias] == target:
+                    continue
+                reason = None
+                if not self.ALIAS_RE.match(alias) or alias in self.RESERVED:
+                    reason = "invalid name"
+                elif alias in table or alias in taken:
+                    reason = f"name in use — `m caddy/alias {alias} {target} force=True` takes it over"
+                elif target not in table:
+                    reason = f"{target} is not routed"
+                if reason:
+                    conflicts[alias] = reason
+                    continue
+                table[alias] = {"alias": target}
+                aliases[alias] = target
+        # an alias must land on a real route, never on another alias
+        for alias, target in list(aliases.items()):
+            t = table.get(target)
+            if not isinstance(t, dict) or "alias" in t or not (t.get("app") or t.get("api")):
+                conflicts[alias] = f"{target} is not routed"
+                table.pop(alias, None)
+                aliases.pop(alias)
+        return {"aliases": dict(sorted(aliases.items())), "conflicts": conflicts}
+
+    def aliases(self):
+        """Every live alias → target, plus any declared alias that was refused."""
+        r = self.routes()
+        return {"aliases": r["aliases"], "conflicts": r["alias_conflicts"]}
+
+    def _config_for(self, name):
+        for mod in self.discover(live_only=False):
+            if mod["name"] == name:
+                return os.path.join(mod["dir"], "config.json")
+        return None
+
+    def alias(self, name, to, force=False, apply=True):
+        """Give module `to` a second public name.
+
+            m caddy/alias studio build              # {host}/studio → {host}/build
+            m caddy/alias hub build force=True      # take over a name in use
+
+        Without force the alias is written to the target's config.json
+        ("aliases": [...]) and only claims a free name. With force it goes in
+        overrides.json and REPLACES whatever {host}/{name} served before —
+        that module's own route is gone until you `m caddy/unalias {name}`."""
+        name = str(name).lower().strip("/")
+        if not self.ALIAS_RE.match(name) or name in self.RESERVED:
+            return {"error": f"invalid alias name: {name!r}"}
+        if name == to:
+            return {"error": "an alias can't point at itself"}
+        table = self.routes()["routes"]
+        target = table.get(to)
+        if not isinstance(target, dict) or "alias" in target or not (target.get("app") or target.get("api")):
+            return {"error": f"{to} is not a routed module (needs route:true + a live port, or an override)"}
+        in_use = (name in table and table[name].get("alias") != to) or name in self._module_names()
+        if force:
+            ov = self.overrides()
+            prev = ov.get(name)
+            ov[name] = {"alias": to}
+            if prev and "alias" not in prev:
+                # keep the displaced route so unalias can put it back
+                ov[name]["displaced"] = prev
+            self._write_json(self._overrides_path(), ov)
+            where = "overrides.json"
+        else:
+            if in_use:
+                return {"error": f"/{name} is already in use — pass force=True to take it over",
+                        "current": table.get(name)}
+            cfg_path = self._config_for(to)
+            if not cfg_path:
+                return {"error": f"{to} has no config.json under {self.ROOTS} — use force=True to alias via overrides"}
+            cfg = json.load(open(cfg_path))
+            al = [a for a in (cfg.get("aliases") or []) if a != name] + [name]
+            cfg["aliases"] = al
+            with open(cfg_path, "w") as f:
+                json.dump(cfg, f, indent=4)
+                f.write("\n")
+            where = cfg_path
+        out = {"alias": name, "to": to, "stored_in": where, "took_over": bool(force and in_use)}
+        if apply:
+            out["apply"] = self.apply()
+        return out
+
+    def unalias(self, name, apply=True):
+        """Remove an alias wherever it was declared. A forced takeover restores
+        the route it displaced."""
+        name = str(name).lower().strip("/")
+        removed = []
+        ov = self.overrides()
+        spec = ov.get(name)
+        if isinstance(spec, dict) and "alias" in spec:
+            if spec.get("displaced"):
+                ov[name] = spec["displaced"]
+            else:
+                del ov[name]
+            self._write_json(self._overrides_path(), ov)
+            removed.append("overrides.json")
+        for mod in self.discover(live_only=False):
+            if name in [a.lower() for a in mod.get("aliases", [])]:
+                p = os.path.join(mod["dir"], "config.json")
+                cfg = json.load(open(p))
+                cfg["aliases"] = [a for a in cfg.get("aliases", []) if a.lower() != name]
+                if not cfg["aliases"]:
+                    del cfg["aliases"]
+                with open(p, "w") as f:
+                    json.dump(cfg, f, indent=4)
+                    f.write("\n")
+                removed.append(p)
+        out = {"alias": name, "removed_from": removed}
+        if apply and removed:
+            out["apply"] = self.apply()
+        return out
 
     # ── generation ───────────────────────────────────────────────────────────
     def _site_lines(self, host, routes, root_redirect, fallback):
@@ -334,6 +487,19 @@ class Mod:
         lines = [f"{host} {{"]
         for n in sorted(routes):
             spec = routes[n]
+            if spec.get("alias"):
+                # {host}/{n}/rest?q → 308 {host}/{target}/rest?q — redirect
+                # (not proxy) so basePath-baked apps load their own assets.
+                lines.append(f"    @{n}_alias path /{n} /{n}/*")
+                # The inner `route` pins strip-then-redir order (Caddy sorts
+                # redir before uri inside a plain handle).
+                lines.append(f"    handle @{n}_alias {{")
+                lines.append("        route {")
+                lines.append(f"            uri strip_prefix /{n}")
+                lines.append(f"            redir * /{spec['alias']}{{uri}} 308")
+                lines.append("        }")
+                lines.append("    }")
+                continue
             api = spec.get("api")
             if api:
                 # Canonical API route is {host}/{n}/api — emitted BEFORE the

@@ -96,6 +96,10 @@ def clean(g: dict) -> dict:
             out.pop(k, None)
     if out.get('status') not in T.STATUS:
         out['status'] = 'unknown'
+    # "open" with a deadline already behind us is the agent reading a stale page
+    if out['status'] == 'open' and re.match(r'\d{4}-\d{2}-\d{2}$', str(out.get('deadline', ''))) \
+            and out['deadline'] < time.strftime('%Y-%m-%d'):
+        out['status'] = 'closed'
     return out
 
 

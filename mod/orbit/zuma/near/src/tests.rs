@@ -104,7 +104,8 @@ fn rust_sign_roundtrip_and_linkability() {
 #[test]
 fn felt_parsing_is_strict() {
     assert!(felt("0x0").is_some());
-    assert!(felt("0x800000000000011000000000000000000000000000000000000000000000000").is_none()); // = PRIME
+    assert!(felt("0x800000000000011000000000000000000000000000000000000000000000001").is_none()); // = PRIME
+    assert!(felt("0x800000000000011000000000000000000000000000000000000000000000000").is_some()); // PRIME - 1
     assert!(felt("0xzz").is_none());
     assert_eq!(hex(&felt("0x00ab").unwrap()), "0xab");
 }

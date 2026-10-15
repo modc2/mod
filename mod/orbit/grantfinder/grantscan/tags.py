@@ -63,7 +63,10 @@ def norm(tag: str) -> str:
             'web3': 'crypto', 'blockchain': 'crypto', 'zero-knowledge': 'zk', 'zkp': 'zk',
             'retro': 'retroactive', 'retropgf': 'retroactive', 'qf': 'quadratic',
             'public-good': 'public-goods', 'eth': 'ethereum', 'btc': 'bitcoin',
-            'machine-learning': 'ai', 'infra': 'infrastructure'}.get(t, t)
+            'machine-learning': 'ai', 'infra': 'infrastructure', 'quadratic-funding': 'quadratic',
+            'retroactive-funding': 'retroactive', 'retro-funding': 'retroactive', 'bounties': 'bounty',
+            'developer-tools': 'devtools', 'developer-tooling': 'devtools', 'zk-proofs': 'zk',
+            'rolling-program': 'rolling', 'stipends': 'stipend', 'fellowships': 'fellowship'}.get(t, t)
 
 
 def bucket(usd_max) -> str:

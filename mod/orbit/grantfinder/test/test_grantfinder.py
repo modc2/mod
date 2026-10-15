@@ -122,3 +122,9 @@ def test_retag_keeps_lanes_and_counts_total():
     assert {tuple(g['lanes']) for g in store.grants()} == {('crypto-ethereum',), ('oss-foundations',)}
     page, n = store.grants(k=1, total=True)
     assert len(page) == 1 and n == 2
+
+
+def test_past_deadline_is_not_open():
+    assert store.clean({**NGI, 'deadline': '2020-01-01'})['status'] == 'closed'
+    assert store.clean({**NGI, 'deadline': '2999-01-01'})['status'] == 'open'
+    assert tags.norm('Quadratic Funding') == 'quadratic'

@@ -99,7 +99,6 @@
 
 @media (max-width: 899px) {
   .nav-inner { padding: 0 12px; }
-  .nav-logo { display: inline-flex; margin-right: 2px; }
   .wb-t, .wb-c, #skinBtn, .jump-k { display: none; }
   .wb-v { border-left: none; padding-left: 0; }
   .wpop { right: 12px; }

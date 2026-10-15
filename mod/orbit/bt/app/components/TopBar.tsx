@@ -100,7 +100,7 @@ function WalletPopover() {
           <Ident addr={wal.addr} size={40} />
           <div className="wme-t">
             <b>{wal.local ? wal.name : wal.ext ? (wal.name || wal.ext) : 'Watch-only'}</b>
-            <button className="wme-a" onClick={copy} title="Copy address">{copied ? 'Copied ✓' : short(wal.addr) + '  ⧉'}</button>
+            <button className="wme-a" onClick={copy} title="Copy address">{copied ? 'Copied ✓' : short(wal.addr) + '  · copy'}</button>
           </div>
           <div className="wme-v">
             <b>{wal.tao == null ? 'τ —' : 'τ ' + compact(wal.tao)}</b>

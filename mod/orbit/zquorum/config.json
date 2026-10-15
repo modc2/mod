@@ -91,7 +91,7 @@
         "GET /zquorum/api/boot": "Auto-run status: circuit compiled, devnet up, ZQuorum deployed, console built (runs on every server start)"
     },
     "safety": "Devnet by default: no real funds. Secrets are verified by executing the Cairo circuit and are never persisted; the ledger and the contract store commitments, nullifiers and choices only. deploy/devnet and anchoring on sepolia/mainnet are loopback-only. route=true links the module onto the gateway at {host}/zquorum (app) and {host}/zquorum/api (API).",
-    "schema": "QmaFb56VPQxEhvYdR1fhAsv3x4VCtL9WNdYEGjEfQeKSg3",
+    "schema": "QmUgnoC7fncotEeNvzqh1KsfP8itoxLVt79GbHzLSVN4Tf",
     "networks": {
         "devnet": "local starknet-devnet on :51302 (seed 0, account 0 = tallier); started on demand, state dumped to data/devnet/",
         "sepolia": "m zquorum/deploy network=sepolia account=<sncast account funded with STRK>",
