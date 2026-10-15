@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import bt_registry
 import bt_contracts
 import agent
+import shadow
 
 app = FastAPI(title="BlocTime API", description="Time-weighted staking")
 
@@ -1614,3 +1615,106 @@ def set_inflation_params(req: SetInflationReq):
         return {"result": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── ShadowBloc: private staking on Starknet (cairo/ + api/shadow.py) ─────
+# Positions are owned by one-time Stark keys made in the browser; the
+# server only ever relays. Every route is a plain `def` (devnet RPC and
+# sncast block). Reverts surface as 400s with the contract's reason.
+
+_shadow_hits: dict = {}
+SHADOW_STAKES_PER_HOUR = 12
+
+
+def _shadow(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=409, detail=f"Shadow devnet unreachable: {e}")
+
+
+class ShadowStakeReq(BaseModel):
+    key: str
+    denom: int
+    tier: int
+
+
+class ShadowSignedReq(BaseModel):
+    id: int
+    arg: str  # recipient address (claim/unstake) or new key (rekey)
+    r: str
+    s: str
+
+
+class ShadowFundReq(BaseModel):
+    amount: float
+
+
+class ShadowWarpReq(BaseModel):
+    to: str = "friday"
+
+
+@app.get("/shadow")
+def shadow_info():
+    return _shadow(shadow.info)
+
+
+@app.get("/shadow/notes")
+def shadow_notes(limit: int = 100):
+    return {"notes": _shadow(shadow.notes, min(max(limit, 1), 200))}
+
+
+@app.get("/shadow/note/{id}")
+def shadow_note(id: int):
+    return _shadow(shadow.note, id)
+
+
+@app.get("/shadow/balance/{address}")
+def shadow_balance(address: str):
+    return {"address": address, "balance": _shadow(shadow.balance, address)}
+
+
+@app.post("/shadow/stake")
+def shadow_stake(req: ShadowStakeReq, request: Request):
+    caller = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "?")
+    now = time.time()
+    hits = [t for t in _shadow_hits.get(caller, []) if now - t < 3600]
+    if len(hits) >= SHADOW_STAKES_PER_HOUR:
+        raise HTTPException(status_code=429, detail="Paper stake limit reached — try again within the hour")
+    _shadow_hits[caller] = hits + [now]
+    return _shadow(shadow.stake, req.key, req.denom, req.tier)
+
+
+@app.post("/shadow/claim")
+def shadow_claim(req: ShadowSignedReq):
+    return _shadow(shadow.claim, req.id, req.arg, req.r, req.s)
+
+
+@app.post("/shadow/unstake")
+def shadow_unstake(req: ShadowSignedReq):
+    return _shadow(shadow.unstake, req.id, req.arg, req.r, req.s)
+
+
+@app.post("/shadow/rekey")
+def shadow_rekey(req: ShadowSignedReq):
+    return _shadow(shadow.rekey, req.id, req.arg, req.r, req.s)
+
+
+@app.post("/shadow/distribute")
+def shadow_distribute():
+    return _shadow(shadow.distribute)
+
+
+@app.post("/shadow/fund_pot", dependencies=OWNER)
+def shadow_fund_pot(req: ShadowFundReq):
+    return _shadow(shadow.fund_pot, req.amount)
+
+
+@app.post("/shadow/warp", dependencies=OWNER)
+def shadow_warp(req: ShadowWarpReq):
+    return _shadow(shadow.warp, req.to)

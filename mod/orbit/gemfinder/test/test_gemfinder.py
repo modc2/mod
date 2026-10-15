@@ -172,3 +172,107 @@ def test_scan_cache_and_typed_theme(monkeypatch):
     assert engine.scan('all', k=10, save=False, q='quantum')['gems'][0]['symbol'] in ('QRL', 'IONQ')
     assert any(x['key'][2] == 'frog' for x in engine.cache_stats()['results'])
     engine.clear_scan_cache()
+
+
+# ── identity: the mod protocol's one door ───────────────────────────────
+
+def test_identity_strip_and_decode():
+    from gemscan import identity
+    assert identity.strip(None) is None
+    assert identity.strip('  ') is None
+    assert identity.strip('Bearer abc') == 'abc'
+    assert identity.strip('bearer abc') == 'abc'
+    assert identity.strip('abc') == 'abc'
+    try:
+        identity._decode('not-a-token')
+        assert False
+    except identity.AuthError:
+        pass
+
+
+def test_identity_fallback_verifies_browser_flavour():
+    import base64
+    import json as _json
+    import time as _time
+    from gemscan import identity
+    try:
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+    except ImportError:
+        import pytest
+        pytest.skip('eth_account not installed')
+    acct = Account.create()
+    data, t = {'mod': 'gemfinder'}, str(_time.time())
+    msg = _json.dumps({'data': data, 'time': t}, separators=(',', ':'))
+    sig = Account.sign_message(encode_defunct(text=msg), acct.key).signature.hex()
+    env = {'data': data, 'time': t, 'key': acct.address.lower(), 'signature': sig}
+    assert identity._verify_fallback(env) == acct.address.lower()
+    # a tampered key does not verify
+    bad = dict(env, key='0x' + '1' * 40)
+    try:
+        identity._verify_fallback(bad)
+        assert False
+    except identity.AuthError:
+        pass
+    # an expired token does not verify
+    old = dict(env, time=str(_time.time() - 10 * 86_400))
+    try:
+        identity._verify_fallback(old)
+        assert False
+    except identity.AuthError:
+        pass
+
+
+def test_server_whoami_and_local_signin():
+    import json as _json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from gemscan.server import Handler
+    srv = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f'http://127.0.0.1:{srv.server_address[1]}'
+
+    def get(path, headers=None, method='GET'):
+        req = urllib.request.Request(base + path, headers=headers or {}, method=method)
+        with urllib.request.urlopen(req) as r:
+            return r.status, _json.loads(r.read())
+
+    try:
+        # anon whoami: no token, no address, never an error
+        st, j = get('/gemfinder/api/whoami')
+        assert st == 200 and j['address'] is None and j['signed'] is False
+        # a garbage token is a 401, not a 5xx
+        try:
+            get('/whoami', {'Authorization': 'Bearer garbage'})
+            assert False
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+        # a proxied caller may not use local sign-in
+        try:
+            get('/auth/local', {'X-Forwarded-For': '203.0.113.9'})
+            assert False
+        except urllib.error.HTTPError as e:
+            assert e.code == 403
+        # ...and may not clear the cache anonymously
+        try:
+            get('/cache', {'X-Forwarded-For': '203.0.113.9'}, method='DELETE')
+            assert False
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+        # the box itself: local sign-in mints a token whoami recognises as owner
+        # (424 is acceptable on a bare checkout without the protocol package)
+        try:
+            st, j = get('/auth/local')
+        except urllib.error.HTTPError as e:
+            assert e.code == 424
+        else:
+            assert st == 200 and j['owner'] is True and j['token']
+            st2, who = get('/whoami', {'Authorization': 'Bearer ' + j['token']})
+            assert st2 == 200 and who['owner'] is True and who['address'] == j['address']
+        # the box may clear the cache without any token
+        st3, cleared = get('/cache', method='DELETE')
+        assert st3 == 200
+    finally:
+        srv.shutdown()

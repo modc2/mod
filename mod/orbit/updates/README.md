@@ -129,6 +129,18 @@ m updates/kill                  # stop it
 
 The UI has three views, switched with the segmented control in the header:
 
+- **Feed** opens with a **Changes over time** chart: one bar per UTC day
+  (zero-filled, so quiet days show as gaps) for the selected repo (the repo
+  filter pill, else modc2/mod@dev). Switch the measure — Files changed ·
+  Commits · Modules touched — and the window — 14D · 30D · 90D · 1Y; both
+  stick. Stat tiles total the window, hovering a bar shows that day's numbers
+  and its top modules, and *show data* opens the table. If one day dwarfs the
+  rest (a vendored tree), the axis caps near the 95th percentile and the
+  clipped bar gets a break mark. Data: `GET /api/activity?days=N[&repo=]`
+  (= `m updates/activity days=90`, MCP tool `activity`), one
+  `git log --name-only` for a local checkout, commit counts only via the API
+  otherwise. Cached 60s.
+
 - **Daily** — one card per day: the date, the repo and its **branch chip**, the
   day's stats, module chips, and the rendered post with a **copy** button.
   Switch the format with the X / Twitter · Discord · Plain control (the choice
@@ -137,6 +149,17 @@ The UI has three views, switched with the segmented control in the header:
 - **Feed** — the merged commit feed (mod `dev` by default), repo filter pills, a
   **NEW** badge on unseen commits, a "track owner/repo" box, and a "mark read"
   button; auto-refreshes every 5 minutes.
+- **Changes** — everything in the local checkout that is **not committed to
+  dev yet** (`git status`, untracked files listed one by one), grouped by module
+  with +/− lines, size, and a pink **too big** chip on files over 50 MB (GitHub
+  rejects 100 MB). A banner says when the hourly root push (orbit/github) is
+  stuck, e.g. on its size guard. Anyone can see the list. The **owner** also
+  gets per-file diffs (click a path) and checkboxes. Modules holding a too-big
+  file start unticked. They can write a message and **commit & push to dev**,
+  which commits exactly the picked paths (`git commit -- <paths>`, so anything
+  else already staged stays out), pushes `HEAD:dev` without `--force`, and
+  leaves the rest untouched. If the push is refused, the commit stays local and
+  the reason is shown.
 - **Modules** — a launcher backed by the **registrar** (`core/registry`): every
   module it knows about as a card with a registered/local chip, last-updated time,
   and an **open ↗** link to the module's live app (gateway path `modc2.com/<name>`).
@@ -147,7 +170,9 @@ JSON API (same port): `GET /api/daily?days=&repo=&branch=`,
 `GET /api/updates?n=&repo=`, `GET /api/commits?repo=&branch=&n=`,
 `GET /api/repos`, `GET /api/modules?search=&refresh=`, `GET /api/poll`,
 `GET /api/info`, `POST /api/track {repo,branch}`, `POST /api/untrack {repo}`,
-`POST /api/set_branch {repo,branch}`.
+`POST /api/set_branch {repo,branch}`, `GET /api/pending` (public list),
+`GET /api/pending_diff?path=` (owner), `POST /api/commit_pending
+{paths,modules,message,push}` (owner; same hour-fresh token as merge).
 
 ## MCP server + the X account
 
@@ -185,16 +210,41 @@ every repo you track.
 
 ## Tests
 
-`pytest mod/orbit/updates/tests/test_updates.py` (35 cases; feed/watchlist/MCP/X
+`pytest mod/orbit/updates/tests/test_updates.py` (57 cases; feed/watchlist/MCP/X
 logic runs with the API stubbed, plus a real local-`git log` smoke test — no
 network required).
 
+## Auth (mod protocol)
+
+Identity is the mod protocol's own token, verified by `m.mod('auth')` (the same
+class the `m` CLI mints with): `base64url({data, time, key, signature})`, sent
+as `Authorization: Bearer <token>`. The **sign in** button mints one with a
+single wallet `personal_sign` over `JSON.stringify({data:'updates', time})`
+(whole-second time). The token is kept in `localStorage['updates.token']` and
+dropped automatically when it stops verifying (max age 1 day).
+
+| standing | who | may |
+|---|---|---|
+| `box` | direct loopback client, no `X-Forwarded-For` | everything (CLI, cron, local MCP) |
+| `owner` | valid token whose key is `owner()` | every write, merge, commit pending, diffs |
+| `signed` | valid token, any other key | read only |
+| `anon` | no token | read only |
+
+Writes are `POST /api/track|untrack|set_branch|mark_posted|merge_main` and
+`GET /api/poll` (it advances the seen-markers). Everyone else gets a 403 with the reason.
+Over `POST /mcp` the same rule applies to `track/untrack/set_branch/mark_posted/poll`.
+For readers, `updates`/`post` run with `mark_seen`/`mark` forced off. `post_to_x`
+stays box-only. `GET /api/whoami` reports `{key, standing, can_write, owner}`.
+The UI hides write controls from non-writers, but the server is the real gate.
+The `github: no token` chip in the status line is about the GitHub API rate
+limit (`$GITHUB_TOKEN`), not your sign-in.
+
 ## Merge dev → main (owner only, temporary)
 
-A green **merge dev → main** button appears in the header when the connected
-wallet is the owner (`$UPDATES_OWNER` → `~/.mod/updates/owner.json` →
-`~/.mod/claude/owner.json`). Use the ghost **owner** button to connect if your
-wallet isn't connected yet. Clicking it does a dry run first and shows what will
+A green **merge dev → main** button appears in the header once you have **signed
+in** as the owner (`$UPDATES_OWNER` → `~/.mod/updates/owner.json` →
+`~/.mod/claude/owner.json`); see *Auth* below. The merge itself wants a token
+signed within the hour; the app re-signs if yours is older. Clicking it does a dry run first and shows what will
 happen, then merges and pushes to GitHub — no PR.
 
 - fast-forward if possible → otherwise a clean merge commit → on conflicts, a

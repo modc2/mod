@@ -1,0 +1,37 @@
+{
+    "name": "custom",
+    "title": "Any framework (runner protocol) \u00b7 zkworld",
+    "description": "The Any framework (runner protocol) framework as a running submod of zkworld: its toolchain, starters and every Any framework (runner protocol) project here. Bring any ZK toolchain: the project's config.json `zk` block names its build/test/run commands, and its runner speaks the two-call protocol (--abi, <input.json>). zkVMs and libraries plug in here.",
+    "version": "0.2.0",
+    "submod_of": "zkworld",
+    "kind": "framework",
+    "framework_id": "custom",
+    "anchor": "mod.py",
+    "server": "../../api/fwserver.py",
+    "port": 51360,
+    "host": "127.0.0.1",
+    "route": "/zkworld/custom/",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "toolchain",
+        "templates",
+        "projects",
+        "build",
+        "test",
+        "vibe",
+        "clean",
+        "abi",
+        "witness",
+        "serve",
+        "kill"
+    ],
+    "write_fns": [
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean"
+    ]
+}

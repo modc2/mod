@@ -11,14 +11,15 @@
 //   backtest  replay the active strat on history (Workspace)
 //   live      run it against the real book (Workspace)
 //   trades    every position the account has held, with its P&L
+//   agents    every AI agent (each its own mod in src/agents/) with on/off
 //
 // The URL is the state, so a tab is linkable and the back button works. The
 // old "open the panel" events still fire all over the console (wallet chip,
 // FUND NOW, SHOW PANEL →); StratsNav turns each into a navigation here.
 
-export type StratsView = "strats" | "copy" | "money" | "backtest" | "live" | "trades";
+export type StratsView = "strats" | "copy" | "money" | "backtest" | "live" | "trades" | "agents";
 
-export const STRATS_VIEWS: StratsView[] = ["strats", "copy", "money", "backtest", "live", "trades"];
+export const STRATS_VIEWS: StratsView[] = ["strats", "copy", "money", "backtest", "live", "trades", "agents"];
 
 export const isStratsView = (v: unknown): v is StratsView => STRATS_VIEWS.includes(v as StratsView);
 

@@ -15,6 +15,7 @@ import {
   autoStratActive, listRuns, readSettings, triggerAutoStrat, writeSettings,
 } from "../../lib/server/autoStrat";
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
+import { agentOff } from "../../lib/server/agentMods";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -49,6 +50,8 @@ export async function POST(req: Request) {
   }
 
   if (url.searchParams.get("run") === "1") {
+    const off = agentOff("autostrat");
+    if (off) return off;
     try {
       const run = triggerAutoStrat("click",
         typeof body.theme === "string" ? body.theme.slice(0, 200) : undefined);

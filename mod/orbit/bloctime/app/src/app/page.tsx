@@ -34,12 +34,15 @@ import {
   ChevronRightIcon,
   DocumentTextIcon,
   HomeIcon,
+  EyeSlashIcon,
+  WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline'
 import { useThemeColors } from './theme'
 import ThemePicker from './ThemePicker'
 import Whitepaper from './Whitepaper'
 import Intro from './Intro'
 import Agent from './Agent'
+import Private from './Private'
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
@@ -385,7 +388,12 @@ interface BridgeInfo {
   api: string
 }
 
-type Tab = 'intro' | 'paper' | 'stake' | 'rewards' | 'market' | 'deploy' | 'bridge' | 'contracts'
+type Tab = 'intro' | 'paper' | 'stake' | 'private' | 'rewards' | 'market' | 'deploy' | 'bridge' | 'contracts'
+
+// Deploy, Bridge and Contracts are builder tools — one BUILD tab in the rail,
+// with its own segmented switch underneath.
+const BUILD_TABS: [Tab, string][] = [['deploy', 'Deploy'], ['bridge', 'Bridge'], ['contracts', 'Contracts']]
+const isBuildTab = (t: Tab) => BUILD_TABS.some(([b]) => b === t)
 
 // First visit lands on the intro; after that, straight to the stake form.
 const SEEN_INTRO_KEY = 'bloctime_seen_intro'
@@ -2957,7 +2965,7 @@ function BlocTimePageInner() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'intro'
     const h = window.location.hash.slice(1)
-    if (h === 'intro' || h === 'paper') return h
+    if (h === 'intro' || h === 'paper' || h === 'private') return h
     return localStorage.getItem(SEEN_INTRO_KEY) ? 'stake' : 'intro'
   })
   useEffect(() => { try { localStorage.setItem(SEEN_INTRO_KEY, '1') } catch {} }, [])
@@ -3544,27 +3552,28 @@ function BlocTimePageInner() {
           <div className="tabbar flex-1 min-w-0">
             {([
               ['intro', 'Intro', HomeIcon],
-              ['paper', 'Whitepaper', DocumentTextIcon],
               ['stake', 'Stake', LockClosedIcon],
+              ['private', 'Private', EyeSlashIcon],
               ['rewards', 'Rewards', GiftIcon],
               ['market', 'Market', BuildingStorefrontIcon],
-              ['deploy', 'Deploy', RocketLaunchIcon],
-              ['bridge', 'Bridge', ArrowsRightLeftIcon],
-              ['contracts', 'Contracts', CodeBracketIcon],
-            ] as [Tab, string, any][]).map(([t, label, Icon]) => (
+              ['deploy', 'Build', WrenchScrewdriverIcon],
+              ['paper', 'Paper', DocumentTextIcon],
+            ] as [Tab, string, any][]).map(([t, label, Icon]) => {
+              const on = tab === t || (t === 'deploy' && isBuildTab(tab))
+              return (
               <button
                 key={t}
-                onClick={() => setTab(t)}
-                aria-current={tab === t}
+                onClick={() => setTab(t === 'deploy' && isBuildTab(tab) ? tab : t)}
+                aria-current={on}
                 title={label}
-                className={`tab ${tab === t ? 'tab-on' : ''}`}
+                className={`tab ${on ? 'tab-on' : ''}`}
               >
-                <Icon className={`w-3.5 h-3.5 shrink-0 ${tab === t ? 'text-accent' : ''}`} />
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${on ? 'text-accent' : ''}`} />
                 {/* Below sm the icons carry the tabs alone — the wallet and
                     network controls share this row now. */}
                 <span className="hidden sm:inline">{label}</span>
               </button>
-            ))}
+            )})}
           </div>
 
           {/* One button. Wallet, network, skin, refresh and the
@@ -3631,7 +3640,7 @@ function BlocTimePageInner() {
         )}
 
         {/* Stats — the intro and the paper carry their own framing */}
-        {stats && tab !== 'intro' && tab !== 'paper' && (
+        {stats && tab !== 'intro' && tab !== 'paper' && tab !== 'private' && (
           <StatGrid>
             <Stat label="Total Stakes" tone="accent" value={stats.totalStakes} />
             <Stat label="Total BlocTime" tone="gold" value={fmtEth(stats.totalBlocTime)} />
@@ -3641,7 +3650,7 @@ function BlocTimePageInner() {
         )}
 
         {/* Account overview with rewards info */}
-        {connected && overview && tab !== 'intro' && tab !== 'paper' && (
+        {connected && overview && tab !== 'intro' && tab !== 'paper' && tab !== 'private' && (
           <StatGrid>
             <Stat label="My BLOC" tone="accent" value={fmtEth(overview.totalBlocTime)} />
             <Stat label="Staked" tone="gold" value={fmtEth(overview.totalStaked)} />
@@ -3660,6 +3669,7 @@ function BlocTimePageInner() {
               priceUsd: stats.priceUsd,
             } : null}
             onStake={() => setTab('stake')}
+            onPrivate={() => setTab('private')}
             onPaper={() => setTab('paper')}
             onAsk={openAgent}
             onDeploy={() => setTab('deploy')}
@@ -4195,6 +4205,21 @@ function BlocTimePageInner() {
               onUse={handleUse}
               onRefresh={loadMarket}
             />
+          </div>
+        )}
+
+        {/* ── Private Tab (ShadowBloc, Cairo) ──────────────────────────── */}
+        {tab === 'private' && <Private key="private" api={api} />}
+
+        {/* Build: one tab, three tools */}
+        {isBuildTab(tab) && (
+          <div className="tabbar w-fit">
+            {BUILD_TABS.map(([t, label]) => (
+              <button key={t} onClick={() => setTab(t)} aria-current={tab === t} className={`tab ${tab === t ? 'tab-on' : ''}`}>
+                {t === 'deploy' ? <RocketLaunchIcon className="w-3.5 h-3.5" /> : t === 'bridge' ? <ArrowsRightLeftIcon className="w-3.5 h-3.5" /> : <CodeBracketIcon className="w-3.5 h-3.5" />}
+                {label}
+              </button>
+            ))}
           </div>
         )}
 

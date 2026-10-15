@@ -1,0 +1,22 @@
+[package]
+name = "counter"
+version = "0.1.0"
+edition = "2021"
+description = "The smallest real contract: one number in storage, a view that reads it, two changes that move it, an owner-only reset, and a log line per change"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5"
+
+[dev-dependencies]
+near-sdk = { version = "5", features = ["unit-testing"] }
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true

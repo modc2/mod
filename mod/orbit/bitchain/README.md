@@ -8,7 +8,11 @@ Mod protocol module.
 - **App** — zero-dep console page (`app/server.py` + `app/index.html`) on `:50261`,
   pm2 `bitchain-app`. Public at `modc2.com/bitchain` (prefix kept — the page links
   and API calls are absolute `/bitchain` / `/api/bitchain` paths). Shows module
-  identity, function list, and a live call console against the API.
+  identity, function list, and a call console against the API. Every call
+  "mines" a block: SHA-256 of (prev hash + fn + params + response + time),
+  linked into a per-browser chain kept in localStorage (`bitchain.chain.v1`).
+  The app server also proxies `POST /bitchain/api/<fn>` to `:50260`, so the
+  page works when opened directly on the app port.
 - **Routing** — opted in via `"route": true` in `config.json`; regenerate with
   `m caddy/apply`.
 

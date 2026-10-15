@@ -14,6 +14,13 @@ affordable stock and tenant savings under assumptions you control.
     m mandamistan/critiques             # the fight: claims and counters
     m mandamistan/simulate new_per_year=25000 freeze_years=3
     m mandamistan/sources               # every number's citation
+    m mandamistan/live                  # the crisis tiles with today's numbers (via nyc)
+    m mandamistan/scorecard             # every pillar: promise → metric → now (via nyc)
+    m mandamistan/borough name=Bronx    # one borough's profile + the sim re-seeded to it
+    m mandamistan/find income=45000 household=2 bedrooms=1 borough=Bronx
+    m mandamistan/neighborhoods         # wealthy neighborhoods that built nothing
+    m mandamistan/nyc                   # is the nyc dependency reachable, and what are we serving
+    m mandamistan/snapshot              # re-bake snapshot.json (the offline fallback) from nyc
     m mandamistan/serve                 # visual console + API on :51240
     m mandamistan/test                  # offline tests
     m mandamistan/kill                  # stop it
@@ -35,14 +42,20 @@ if HERE not in sys.path:
     sys.path.append(HERE)
 
 import housing  # noqa: E402
+import nycbridge  # noqa: E402
+import reality  # noqa: E402
 
 
 class Mod:
     description = """
     mandamistan — the case that Mamdani can fix the New York housing crisis,
-    with receipts. Crisis numbers, the Block by Block plan, a delivered/next
-    timeline, the critiques and their counters, a what-if simulator, and a
-    visual console. Static data + stdlib only; every figure is sourced.
+    with receipts, measured against the real city. Crisis numbers, the Block
+    by Block plan, a delivered/next timeline, the critiques and their
+    counters, a what-if simulator, and — through the nyc module — a live
+    scorecard (promise → metric → now), borough-grounded projections, a
+    home finder for one household, and the wealthy neighborhoods that
+    built nothing. Stdlib only; every figure is sourced; degrades to a
+    baked snapshot when nyc is away.
     """
 
     def __init__(self, port=None, **kwargs):
@@ -68,6 +81,7 @@ class Mod:
                 'app': f'http://localhost:{self.port}{self.base}/',
                 'plan': housing.PLAN['name'],
                 'status': 'rent freeze in effect since 2026-10-01',
+                'deps': cfg.get('deps', []), 'nyc': nycbridge.nyc_url(),
                 'endpoints': cfg.get('endpoints', {})}
 
     forward = info
@@ -114,12 +128,54 @@ class Mod:
 
     def simulate(self, new_per_year=20000, preserved_per_year=20000,
                  freeze_years=2, rgb_hike=3.0, attrition_per_year=10000,
-                 median_stabilized_rent=1500, years=10):
+                 median_stabilized_rent=1500, years=10,
+                 base_pace=7000, stabilized=1_000_000):
         """Project affordable stock and tenant savings, plan vs status quo.
         A transparent toy — every assumption is an input you can change."""
         return housing.simulate(new_per_year, preserved_per_year, freeze_years,
                                 rgb_hike, attrition_per_year,
-                                median_stabilized_rent, years)
+                                median_stabilized_rent, years,
+                                base_pace, stabilized)
+
+    # ── reality, through the nyc module ──────────────────────────
+
+    def live(self):
+        """The crisis tiles with today's numbers (rent burden, median rent,
+        renters, pipeline) from nyc's open-data engine; HVS/shelter stay static."""
+        return reality.live_crisis()
+
+    def scorecard(self):
+        """Every pillar: the promise, the metric that will settle it, and
+        where that metric stands now — all via nyc."""
+        return reality.scorecard()
+
+    def borough(self, name='Brooklyn', **sim):
+        """One borough's live housing profile, and the simulator re-seeded
+        with its share of the plan and its real median rent."""
+        return reality.borough(name, **sim)
+
+    def find(self, income=45000, household=1, bedrooms='', borough='', limit=12):
+        """The dream for one household: AMI band, affordable rent at 30% of
+        income, lotteries open to that band now, listings under the number."""
+        return reality.find(income, household, bedrooms, borough, int(limit))
+
+    def neighborhoods(self, min_income=120000, min_population=15000, limit=12):
+        """Wealthy neighborhoods ranked by how little they have built since
+        2020 — the zoning pillar's target list."""
+        return reality.neighborhoods(int(min_income), int(min_population), int(limit))
+
+    def nyc(self):
+        """The dependency: is nyc reachable, and what are we serving from."""
+        return nycbridge.status()
+
+    def snapshot(self):
+        """Re-bake snapshot.json — the offline fallback and test fixture —
+        from the live nyc service."""
+        return nycbridge.snapshot()
+
+    def warm(self):
+        """Pull every scorecard read now so the console's first load is instant."""
+        return nycbridge.warm(background=False)
 
     def sources(self):
         """Every citation behind the numbers."""

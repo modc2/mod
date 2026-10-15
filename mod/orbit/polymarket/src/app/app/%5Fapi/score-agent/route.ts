@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 
 import { AGENT_MODEL, digJson, runClaude } from "../../lib/server/agentCli";
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
+import { agentOff } from "../../lib/server/agentMods";
 import { FORMULA_VARS, SCORE_PRESETS, SCORE_VAR_HINTS } from "../../lib/scoreFormula";
 
 export const dynamic = "force-dynamic";
@@ -76,6 +77,8 @@ function buildPrompt(body: AskRequest): string {
 
 export async function POST(req: Request) {
   if (!verifyOwnerToken(bearer(req))) return deny();
+  const off = agentOff("score");
+  if (off) return off;
 
   let body: AskRequest;
   try {

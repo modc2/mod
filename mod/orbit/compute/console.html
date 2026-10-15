@@ -889,7 +889,7 @@
      unless you tick <i>show private keys</i>. Fund the address it hands back and the
      market is usable. The key-custody markets can't be created by code &mdash; you
      (or a browser agent) make the account privately, then <code>set_key</code> drops
-     the key in. Owner-only: set the token in the header first.</p>
+     the key in. Owner-only: sign in from the header first.</p>
   <div id="c-out" class="cards"></div>
   <p class="note">Keys stay in this browser tab (sessionStorage) and ride along as an
      <code>x-compute-keys</code> header. They are never written to the server.
@@ -916,7 +916,27 @@ const API = (location.pathname.replace(/\/$/,'') || '') + '/_api';
 const KEYS = 'compute_keys', TOK = 'compute_token';
 const keys = () => { try { return JSON.parse(sessionStorage.getItem(KEYS) || '{}') } catch { return {} } };
 const setKeys = k => sessionStorage.setItem(KEYS, JSON.stringify(k));
-let token = window.__COMPUTE_TOKEN || localStorage.getItem(TOK) || '';
+let token = window.__COMPUTE_TOKEN || localStorage.getItem(TOK) ||
+            localStorage.getItem('build_jobs_token') || '';
+
+// Signing in once is enough. Served under the same host as the build console,
+// its session is already in this origin's storage; embedded in it, we ask the
+// parent for it (mod.session) and follow when it signs in or out.
+let adopted = '';
+function adopt(t) {
+  if (!t || t === token) return;
+  token = adopted = t; localStorage.setItem(TOK, token); stats(); loadNodes();
+}
+addEventListener('message', e => {
+  const d = e.data;
+  if (!d || typeof d !== 'object' || e.source !== parent) return;
+  try { if (new URL(e.origin).hostname !== location.hostname) return } catch { return }
+  if (d.type === 'mod.session' && d.token) adopt(String(d.token));
+  if (d.type === 'mod.session.end' && token && token === adopted) {
+    token = ''; localStorage.removeItem(TOK); stats();
+  }
+});
+if (parent !== window) { try { parent.postMessage({type: 'mod.session.request'}, '*') } catch {} }
 
 async function call(path, opts = {}) {
   const h = {'content-type': 'application/json'};
@@ -962,14 +982,41 @@ async function stats() {
     if (n.burn_usd_hr) chips.push(`<span class="chip warn">burn <b>${plain(n.burn_usd_hr)}</b>/hr</span>`);
     chips.push('<span class="chip hot lock" onclick="setToken()">owner <b>yes</b></span>');
   } catch (e) {
-    chips.push('<span class="chip warn lock" onclick="setToken()">locked &mdash; <b>set token</b></span>');
+    // a stale stored token must not hide a live console session
+    const live = localStorage.getItem('build_jobs_token');
+    if (live && live !== token) { token = adopted = live; localStorage.setItem(TOK, token); return stats() }
+    chips.push('<span class="chip warn lock" onclick="setToken()">locked &mdash; <b>sign in</b></span>');
   }
   el.innerHTML = chips.join('');
 }
-function setToken() {
-  const t = prompt('bearer token for the owner-only routes\n(`m compute/token` on the box)', token || '');
-  if (t === null) return;
-  token = t.trim(); localStorage.setItem(TOK, token); stats(); loadNodes();
+async function setToken() {
+  // The owner's wallet signs a mod-protocol token (no gas, no transaction);
+  // build vouches that the address is the owner. No wallet? Paste one.
+  const eth = window.ethereum;
+  if (eth) {
+    try {
+      const [addr] = await eth.request({method: 'eth_requestAccounts'});
+      const data = 'compute', time = Math.floor(Date.now() / 1000).toString();
+      const signature = await eth.request({method: 'personal_sign',
+        params: [JSON.stringify({data, time}), addr]});
+      const b64 = btoa(JSON.stringify({data, time, key: addr.toLowerCase(), signature}))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      token = b64; localStorage.setItem(TOK, token); await stats(); loadNodes();
+      return;
+    } catch (e) { if (e && e.code === 4001) return }
+  }
+  const el = document.getElementById('stats');
+  if (document.getElementById('tok-in')) return;
+  el.insertAdjacentHTML('beforeend', `<span class="chip" id="tok-box">
+    <input id="tok-in" type="password" placeholder="owner token (m compute/token)"
+      style="min-width:220px" onkeydown="if(event.key==='Enter')pasteToken()">
+    <button class="ghost" onclick="pasteToken()">USE</button></span>`);
+  document.getElementById('tok-in').focus();
+}
+function pasteToken() {
+  const t = (document.getElementById('tok-in')?.value || '').trim();
+  if (!t) return;
+  token = t; localStorage.setItem(TOK, token); stats(); loadNodes();
 }
 
 // ── market ──
@@ -1513,7 +1560,7 @@ async function chatStream(body, onEv) {
   if (!r.ok) {
     const b = await r.json().catch(() => ({}));
     throw new Error((b.error || 'http ' + r.status) +
-      (r.status === 401 ? ' - press the owner chip up top to set it' : ''));
+      (r.status === 401 ? ' - press "sign in" up top' : ''));
   }
   const rd = r.body.getReader(), dec = new TextDecoder();
   let buf = '';
@@ -2462,7 +2509,7 @@ async function connect() {
   const flash = document.getElementById('c-flash');
   const out = document.getElementById('c-out');
   const reveal = document.getElementById('c-reveal').checked;
-  if (!token) { flash.textContent = 'set the owner token first (header, top-right)'; return; }
+  if (!token) { flash.textContent = 'sign in as the owner first (header, top-right)'; return; }
   flash.textContent = 'connecting…'; out.innerHTML = '';
   try {
     const d = await post('/connect', {reveal, web_agent: true});

@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9279460,
+  "block": 9286668,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6872395.00400833,
-    "tao_in": 5450631.632969115,
-    "alpha_in": 1421763.371039216,
-    "alpha_out": 5450631.632969115,
-    "volume": 59088403.74988292,
-    "vol_24h": 42400.18696114421,
+    "market_cap": 6872608.406726328,
+    "tao_in": 5442490.04760662,
+    "alpha_in": 1430118.359119708,
+    "alpha_out": 5442490.04760662,
+    "volume": 59136539.98313564,
+    "vol_24h": 48070.79632907361,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,6 +81,22 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1792004077,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor's TAO falls over 3%, must hold $265–$269 to avoid deeper losses toward $215 forecast.",
+      "url": "https://news.google.com/rss/articles/CBMiowFBVV95cUxNbjJGX1ZTQlNlcGdDUzFBRXI2NFZJMHBSU2tDMVZmZTBjWmVSUk1sTHI2S29ZYVdiVEVSeTE4bU5zVURod1ZlUUZNVGFuZ3kybk85ZXhWX2JudmZmVE53S09Hd2VFeUs5N3FsMnRnWHY2c0daRXdvczctdjhRc3lINkpBbTJZLTBUOExYTnREQnNHckxBNlpHU0phVmlBVTBSYnZj?oc=5",
+      "publisher": "Pluang"
+    },
+    {
+      "ts": 1791996732,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor TAO Outlook: Could TAO Rally Toward $1400?",
+      "url": "https://news.google.com/rss/articles/CBMirgFBVV95cUxQRWVKSDg2NktGOHd4QjJ3eV9ibXdFMDdCUy05ZTVtTGhUSWN3TVBGUHpxOUtsU1c3SzlFU2pXSVNRbUplVjk5QURoM2QwSXNuYnJHOGFuNjY3WGpZdl8tTTRCMHpwTC1RckFSNGhoeldZTUJpcVJYZ1lpMy1pb0pwY3dzLTlDajQ4NzdZMmU0cjhldW9ES2ZEYlVmaXRFLWs1SGJfemd5YXNTZ19wOWc?oc=5",
+      "publisher": "TradingView"
+    },
+    {
       "ts": 1791921931,
       "kind": "release",
       "source": "feeds",
@@ -127,24 +143,8 @@
       "title": "AI News: Majors Stall, Trending Tokens Pump, Bittensor Governance Reset",
       "url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxPeVN1azRReEIyME1hS1k0OXk4TlVFS19yOUtZUHZyS2MxdV9YdU5CS05QT2VGTUFVME1UWlRQVVdsUkRqV1FUZFdQTnp2MlFBZGNIMFRidWtubXVGbmZteUZtUGRvRTRwRHJqVElmd2VJUFl1RTFoSmQwb3YwaS15M0U0WEtkRHhfMnRDUzNDdlRJd25vbmphWkloZ2ZUMVBWc0V6TERSbi1QbXZzeEw4?oc=5",
       "publisher": "CoinMarketCap"
-    },
-    {
-      "ts": 1791538788,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor (TAO): Grayscale adds Coinbase as a second custodian, price 10.7 percent below the weekly high",
-      "url": "https://news.google.com/rss/articles/CBMifEFVX3lxTE50Z1NPenB1cDczV2U4VTB5eEJoN2lnT01wbFR5WHZrWUZGd21vNzhpUDAyVHAzcXFXY2E4SEhCMVhyZWJYdjQxZGZldElTYUNKSUg1Y3dSM1RXclVwT0V6bVhBcWNPVDBFOEY2eENocHdnSS0tSnU5N3pBQ0o?oc=5",
-      "publisher": "CryptoTicker"
-    },
-    {
-      "ts": 1791496519,
-      "kind": "release",
-      "source": "feeds",
-      "title": "Runtime 477 (proposed)",
-      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v477",
-      "publisher": "subtensor releases"
     }
   ],
-  "updated": 1791956461,
-  "updated_day": "2026-10-14"
+  "updated": 1792042861,
+  "updated_day": "2026-10-15"
 }

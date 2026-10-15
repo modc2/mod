@@ -1,0 +1,205 @@
+<!doctype html>
+<!--
+  The page of a framework submod (zkworld.<fid>), served by that framework's
+  own server (src/api/fwserver.py) and proxied by the parent at /zkworld/<fid>/.
+
+  One plain file, no build step. Everything comes from ./api/info: the
+  toolchain with versions, the starters, and the projects written in this
+  framework (each one a zkworld.<name> submod with its own app). Building,
+  testing and new projects are owner-only; the parent gates them.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zkworld framework</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #13171c; --panel-2: #1a2027; --line: #2a333d;
+    --text: #e9eef3; --muted: #93a1b0; --accent: #7c9cff;
+    --ok: #34d399; --bad: #f87171; --warn: #f5a524; --r: 10px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 22px 18px 60px; }
+  header { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .logo { width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center;
+    font-weight: 800; font-size: 18px; color: #0b0d10; background: var(--accent); }
+  html.embedded .logo, html.embedded #bench { display: none; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .grow { flex: 1; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px;
+    font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
+    padding: 16px; margin-top: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { text-align: left; padding: 7px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; border-top: 0; }
+  code, .mono { font-family: var(--mono); font-size: 13px; }
+  .state { font-size: 12px; }
+  .state.fresh { color: var(--ok); } .state.stale { color: var(--warn); } .state.unbuilt { color: var(--muted); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input, select { background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font: 14px var(--mono); }
+  button { background: var(--accent); color: #0b0d10; border: 0; border-radius: 8px; padding: 8px 14px;
+    font-weight: 700; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500;
+    padding: 4px 10px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .msg { margin-top: 10px; font-size: 13px; color: var(--muted); white-space: pre-wrap; }
+  .msg.bad { color: var(--bad); } .msg.ok { color: var(--ok); }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo" id="logo">ZK</div>
+    <div class="grow">
+      <h1 id="title">framework</h1>
+      <div class="sub" id="blurb"></div>
+    </div>
+    <span class="pill" id="live"><span class="dot"></span>…</span>
+    <a id="bench" class="pill" href="../">zkworld</a>
+  </header>
+
+  <div class="card">
+    <h2>Projects</h2>
+    <div id="projects" class="empty">loading…</div>
+    <div class="msg" id="pmsg"></div>
+  </div>
+
+  <div class="card" id="newcard">
+    <h2>New project</h2>
+    <div class="row">
+      <input id="nname" placeholder="name, e.g. my_proof">
+      <select id="ntpl"></select>
+      <button id="nbtn">Create</button>
+    </div>
+    <div class="msg" id="nmsg">Owner only. Sign in on the zkworld console first, or run it on the box:
+<code id="ncli"></code></div>
+  </div>
+
+  <div class="card">
+    <h2>Toolchain</h2>
+    <table id="tools"></table>
+    <div class="msg" id="install"></div>
+  </div>
+
+  <div class="card">
+    <h2>Use it</h2>
+    <div class="mono" id="usage"></div>
+  </div>
+</div>
+<script>
+// the API sits next to this page: /zkworld/<fid>/api/<fn> through the
+// parent, /api/<fn> on the framework's own port
+if (window.top !== window) document.documentElement.classList.add('embedded');
+if (!location.pathname.endsWith('/')) location.replace(location.pathname + '/' + location.search);
+const API = location.pathname + 'api/';
+const tok = localStorage.getItem('zkworld.token') || localStorage.getItem('cairo.token') || '';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function call(fn, body) {
+  const r = await fetch(API + fn, body ? {
+    method: 'POST', body: JSON.stringify(body),
+    headers: {'Content-Type': 'application/json', ...(tok ? {token: tok} : {})},
+  } : {});
+  const j = await r.json().catch(() => ({error: `HTTP ${r.status}`}));
+  if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+async function poll(id) {
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const j = await call('job?id=' + id);
+    if (j.state !== 'running') return j;
+  }
+}
+
+function projects(rows) {
+  if (!rows.length) return '<span class="empty">No projects in this framework yet.</span>';
+  return '<table><tr><th>project</th><th>state</th><th>statement</th><th></th></tr>' + rows.map((p) =>
+    `<tr><td><a href="${esc(p.app)}">${esc(p.name)}</a><div class="sub mono">${esc(p.mod)}</div></td>
+      <td class="state ${esc(p.state)}">${esc(p.state)}</td>
+      <td class="mono">${esc(p.statement || '')}</td>
+      <td><div class="row"><button class="ghost" data-act="build" data-n="${esc(p.name)}">build</button>
+        <button class="ghost" data-act="test" data-n="${esc(p.name)}">test</button></div></td></tr>`).join('') + '</table>';
+}
+
+async function load() {
+  const i = await call('info');
+  document.title = `zkworld.${i.framework} · ${i.title}`;
+  $('title').textContent = `${i.title}  ·  zkworld.${i.framework}`;
+  $('logo').textContent = (i.framework || 'zk').slice(0, 2).toUpperCase();
+  $('blurb').textContent = [i.blurb, i.proof && `Proofs: ${i.proof}`].filter(Boolean).join('  ·  ');
+  $('live').innerHTML = `<span class="dot ok"></span>running on :${i.port}`;
+  $('projects').innerHTML = projects(i.projects);
+  $('projects').classList.remove('empty');
+  $('tools').innerHTML = '<tr><th>tool</th><th>version</th><th>path</th></tr>' +
+    Object.entries(i.toolchain || {}).map(([t, v]) =>
+      `<tr><td class="mono">${esc(t)}</td><td>${v.path ? esc(v.version || '?') : '<span class="msg bad">missing</span>'}</td>
+        <td class="mono sub">${esc(v.path || '')}</td></tr>`).join('');
+  $('install').textContent = i.installed ? '' : `Install: ${i.install}`;
+  const tpls = i.templates || [];
+  $('ntpl').innerHTML = tpls.map((t) => `<option>${esc(t)}</option>`).join('');
+  $('newcard').style.display = i.framework === 'custom' ? 'none' : '';
+  $('ncli').textContent = `m zkworld.${i.framework}/new name=my_proof template=${tpls[0] || ''}`;
+  $('usage').innerHTML = [
+    `m zkworld.${i.framework}/projects`,
+    `m zkworld.${i.framework}/witness name=&lt;project&gt; input='{"a": 3}'`,
+    `curl ${esc(location.origin + API)}info`,
+  ].map((l) => `<div>${l}</div>`).join('');
+}
+
+$('projects').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const msg = $('pmsg');
+  b.disabled = true;
+  msg.className = 'msg'; msg.textContent = `${b.dataset.act} ${b.dataset.n} …`;
+  try {
+    const {job} = await call(b.dataset.act, {name: b.dataset.n, async: true});
+    const j = await poll(job.id);
+    const r = j.result || {};
+    const ok = j.state === 'done' && r.ok !== false;
+    msg.className = 'msg ' + (ok ? 'ok' : 'bad');
+    msg.textContent = ok ? `${b.dataset.act} ${b.dataset.n}: ok` +
+      (r.totals ? ` (${r.totals.passed}/${r.totals.passed + r.totals.failed} passed)` : '')
+      : `${b.dataset.act} ${b.dataset.n} failed: ${j.error || r.error || r.log?.slice(-400) || ''}`;
+    load();
+  } catch (err) {
+    msg.className = 'msg bad'; msg.textContent = err.message;
+  }
+  b.disabled = false;
+});
+
+$('nbtn').onclick = async () => {
+  const msg = $('nmsg');
+  try {
+    const r = await call('new', {name: $('nname').value, template: $('ntpl').value});
+    msg.className = 'msg ok'; msg.textContent = `made ${r.mod} — open it at ../${r.name}/`;
+    load();
+  } catch (err) {
+    msg.className = 'msg bad'; msg.textContent = err.message;
+  }
+};
+
+load().catch((e) => {
+  $('live').innerHTML = '<span class="dot bad"></span>down';
+  $('projects').textContent = e.message;
+});
+</script>
+</body>
+</html>

@@ -28,6 +28,7 @@ import { declineRunLeftovers, listApprovals } from "../../../lib/server/agentApp
 import { CONSOLE_MAP } from "../../../lib/server/consoleMap";
 import { mcpServerPath } from "../../../lib/server/lab";
 import { bearer, verifyOwnerToken } from "../../../lib/server/ownerToken";
+import { agentOff } from "../../../lib/server/agentMods";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -114,6 +115,8 @@ function* cliEvents(msg: Record<string, unknown>): Generator<Ev> {
 
 export async function POST(req: Request) {
   if (!verifyOwnerToken(bearer(req))) return deny();
+  const off = agentOff("desk");
+  if (off) return off;
 
   let body: ChatBody;
   try {

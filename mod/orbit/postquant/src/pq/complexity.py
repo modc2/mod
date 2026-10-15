@@ -42,6 +42,7 @@ from __future__ import annotations
 import hashlib
 import os
 import random
+import threading
 
 # Below this many bits of best-known classical attack, a key is not a lock.
 # 100 is the line, not 128, deliberately: the floor compares BEST-KNOWN
@@ -58,6 +59,11 @@ SENSITIVITY_SPOTS = 8
 
 _VERDICTS: dict[str, dict] = {}     # algo name -> cached verdict
 _PROBES: dict[str, dict] = {}       # algo name -> cached probe result
+# Single flight per scheme: a cold probe takes seconds to a minute, and every
+# /head poll asks for the verdict — without this, N waiting requests each
+# start their own copy of the same probe and none of them ever finishes.
+_FLIGHT_LOCK = threading.Lock()
+_FLIGHT: dict[str, threading.Lock] = {}
 
 
 def _pow2(bits):
@@ -197,6 +203,16 @@ def verdict(algo) -> dict:
     cached = _VERDICTS.get(algo.name)
     if cached is not None:
         return cached
+    with _FLIGHT_LOCK:
+        lock = _FLIGHT.setdefault(algo.name, threading.Lock())
+    with lock:                       # the first caller probes; the rest wait
+        cached = _VERDICTS.get(algo.name)
+        if cached is not None:
+            return cached
+        return _verdict(algo)
+
+
+def _verdict(algo) -> dict:
     a = analytic(algo)
     out = {"ok": True, "code": None, "reason": None}
     if not a["meets_floor"]:

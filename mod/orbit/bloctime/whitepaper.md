@@ -94,13 +94,26 @@ Every moving part runs on hardware you control.
 
 If the host that served you this page disappears, the contracts keep working and any fork of the module can serve them again.
 
-## 8. Governance and risk
+## 8. Private staking (ShadowBloc)
+
+On the main contract BLOC is minted to your wallet address, so anyone can read who staked, how much, for how long and what slice of the pot they take. **ShadowBloc** is the same system written in Cairo for Starknet, with the owner removed from the record.
+
+- **Notes, not balances.** A stake is a note owned by a one-time Stark key that your browser makes. The contract stores the public half of that key and never stores a wallet address. No event names an account either.
+- **Signed actions, relayed.** Claiming, unstaking and handing a note to someone else are signatures from the note's key. Starknet checks them natively with ECDSA, and any account can post them. A relayer posts them, so your own account never touches the contract. Each signature covers the payout address and a per-note nonce, so a relayer can't redirect your funds and nobody can replay a signature.
+- **Fixed menus.** Stakes come in four sizes (10 / 100 / 1,000 / 10,000) and six locks (1 day to 8 years). Your note looks the same as every other note in its bucket, and the console shows how many notes share it.
+- **Same economics.** BLOC = dollars × seconds, and the whole pot is paid out once a week after Friday 17:00 UTC, pro-rata by BLOC. Payouts are pulled per note, to whatever address the key signs for.
+
+**What stays public, on purpose:** totals, the pot, each note's bucket and BLOC, and every token transfer, including the address a payout lands on. You can follow a note from stake to payout. ShadowBloc hides *who owns* a position, not *what moved*: it is not a mixer. The relayer sees your IP address and a note's public key, but never its secret. Your keys live in your browser and in the backup you download. Lose both and you lose the note.
+
+The contract is `cairo/src/shadowbloc.cairo`, covered by a snforge suite in `cairo/tests/`. It currently runs on a local Starknet devnet with paper NAT.
+
+## 9. Governance and risk
 
 - **Owner powers**: set the price, the multiplier curve, the maximum lock and the inflation schedule; emergency-withdraw stray tokens. A deployment can renounce ownership once it is configured.
 - **Price is an input, not an oracle**: a dishonest owner can misprice the native token. The treasury model (1 token = $1 reserve) is the remedy.
 - **Locks are final**: there is no early exit. Choose a lock you can live with.
 - **Testnet**: the official instance runs on Base Sepolia. Nothing here is investment advice.
 
-## 9. Summary
+## 10. Summary
 
 BlocTime measures commitment in the one currency everybody spends at the same rate: time. Lock dollars for seconds, receive BLOC, vote with it, and share a pot that pays once a week. Fork it, deploy it anywhere, and run it yourself.

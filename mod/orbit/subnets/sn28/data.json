@@ -11,116 +11,164 @@
   "registered_at": 4878363,
   "tempo": 360,
   "active": true,
-  "block": 9279460,
+  "block": 9286668,
   "related": [
     "saygm"
   ],
   "market": {
-    "price": 0.030351397,
-    "moving_price": 0.02995595382526517,
-    "market_cap": 191788.86025874293,
-    "tao_in": 27432.695785984,
-    "alpha_in": 903836.386438301,
-    "alpha_out": 5415110.324935246,
-    "volume": 6669662.810104648,
-    "vol_24h": 10666.639065497555,
+    "price": 0.033340248,
+    "moving_price": 0.032100445590913296,
+    "market_cap": 210947.62559362926,
+    "tao_in": 28783.294365902,
+    "alpha_in": 863319.793949954,
+    "alpha_out": 5463796.476859706,
+    "volume": 6681652.051759061,
+    "vol_24h": 11944.373345525004,
     "emission": 0.0,
-    "change_1h": -1.262634995173162,
-    "change_24h": 2.6089950646837945,
-    "change_7d": 33.2913130034864
+    "change_1h": 0.49684377752228226,
+    "change_24h": 9.489568289850038,
+    "change_7d": 41.1292900614564
   },
   "spark_24h": [
-    0.029580408,
-    0.029688456,
-    0.029848598,
-    0.02977159,
-    0.029604403,
-    0.029264482,
-    0.02999726,
-    0.030039445,
-    0.030116298,
-    0.030406706,
-    0.030375715,
-    0.030349206,
-    0.030447088,
-    0.03009215,
-    0.029368497,
-    0.029785821,
-    0.029999685,
-    0.030389212,
-    0.030370279,
-    0.030318938,
-    0.030236703,
-    0.030248771,
-    0.030193891,
-    0.030343918,
-    0.030199792,
-    0.029866932,
-    0.029854767,
-    0.029872713,
-    0.029874965,
-    0.029987054,
-    0.029900675,
-    0.030224368,
-    0.030316406,
-    0.03028089,
-    0.030371608,
-    0.030257983,
-    0.030508391,
-    0.030533819,
-    0.030431194,
-    0.030495228,
-    0.030613464,
-    0.030759881,
-    0.031172664,
-    0.03106232,
-    0.030848503,
-    0.030751989,
-    0.030759183,
-    0.030351397
+    0.030450616,
+    0.030678155,
+    0.030652426,
+    0.030657971,
+    0.030653877,
+    0.030748931,
+    0.030787123,
+    0.031043158,
+    0.031025222,
+    0.031053041,
+    0.031160266,
+    0.031450003,
+    0.031503957,
+    0.031209619,
+    0.031289265,
+    0.031729375,
+    0.031069435,
+    0.0312882,
+    0.031036385,
+    0.031207085,
+    0.03164482,
+    0.03161037,
+    0.031871954,
+    0.032367877,
+    0.032367006,
+    0.032395659,
+    0.032352375,
+    0.032240953,
+    0.032193873,
+    0.032372098,
+    0.032572886,
+    0.032561964,
+    0.032670859,
+    0.032637301,
+    0.032676988,
+    0.03267498,
+    0.032690864,
+    0.032938003,
+    0.032904901,
+    0.03290801,
+    0.032997901,
+    0.032954377,
+    0.03286107,
+    0.032903131,
+    0.032734426,
+    0.032879339,
+    0.033175418,
+    0.033340248
   ],
   "trades_24h": {
-    "trades": 902,
-    "buys": 451,
-    "sells": 451,
-    "buy_tao": 5452.328584317,
-    "sell_tao": 5137.588763959,
-    "net_tao": 314.73982035799963,
-    "traders": 359
+    "trades": 957,
+    "buys": 566,
+    "sells": 391,
+    "buy_tao": 6506.2331675039995,
+    "sell_tao": 5324.618212062,
+    "net_tao": 1181.6149554419999,
+    "traders": 346
   },
   "top_traders_24h": [
     {
-      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
-      "net_tao": -49.144148337,
-      "gross_tao": 469.144148337,
-      "trades": 23
-    },
-    {
-      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
-      "net_tao": 2.9388663269999995,
-      "gross_tao": 367.061133673,
-      "trades": 18
-    },
-    {
-      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
-      "net_tao": 48.793468653000005,
-      "gross_tao": 361.206531347,
-      "trades": 21
-    },
-    {
-      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
-      "net_tao": -0.7812376599999986,
-      "gross_tao": 300.78123766,
-      "trades": 8
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -1.0620411190000318,
+      "gross_tao": 2543.224802885,
+      "trades": 14
     },
     {
       "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
-      "net_tao": -0.3575438739999992,
-      "gross_tao": 290.357543874,
-      "trades": 8
+      "net_tao": -0.4700080760000134,
+      "gross_tao": 594.470008076,
+      "trades": 6
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -4.040954755000001,
+      "gross_tao": 564.040954755,
+      "trades": 22
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": -0.5891814209999957,
+      "gross_tao": 360.589181421,
+      "trades": 28
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": 27.512728463999995,
+      "gross_tao": 342.487271536,
+      "trades": 17
     }
   ],
   "news": [
+    {
+      "ts": 1792014704,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.0",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.0",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792013581,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): promote gm-miner 0.5.0 (#322)",
+      "url": "https://github.com/taostat/gm-miner/commit/9324860559305fb65993490c624f4b390aeafc0c",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792003513,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.4.29-dev",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.4.29-dev",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792002619,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): gm-miner 0.4.29-dev (#320)",
+      "url": "https://github.com/taostat/gm-miner/commit/e1f325c20c301b5fe9ea48a6e6238a25a488a2ff",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792002438,
+      "kind": "commit",
+      "source": "github",
+      "title": "Pin dstack-0.5.12 as the deploy OS image (#318)",
+      "url": "https://github.com/taostat/gm-miner/commit/5b895ddb560cfa79271f15e4fc117930e9f60a4e",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792002210,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update rustls to 0.23.46 (#319)",
+      "url": "https://github.com/taostat/gm-miner/commit/bcabe40d7f5fb47a0a74a033b8f7f80557cb729c",
+      "publisher": "taostat/gm-miner"
+    },
     {
       "ts": 1791840501,
       "kind": "release",
@@ -136,56 +184,8 @@
       "title": "chore(release): promote gm-miner 0.4.28 (#317)",
       "url": "https://github.com/taostat/gm-miner/commit/025fcb1077f0d363f9b56dd8097c79f957b2073a",
       "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1791836243,
-      "kind": "release",
-      "source": "github",
-      "title": "v0.4.28-dev",
-      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.4.28-dev",
-      "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1791835031,
-      "kind": "commit",
-      "source": "github",
-      "title": "chore(release): gm-miner 0.4.28-dev (#316)",
-      "url": "https://github.com/taostat/gm-miner/commit/5ff22f12b72767f2e96a479f7deadbf5f70dbb58",
-      "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1791834754,
-      "kind": "commit",
-      "source": "github",
-      "title": "gmcli: parse Envoy templates with serde-saphyr (#315)",
-      "url": "https://github.com/taostat/gm-miner/commit/ed77456c2252211c122c2d25673f9c4749476f05",
-      "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1791829647,
-      "kind": "commit",
-      "source": "github",
-      "title": "gmcli: accept only registry-attested instance types (#314)",
-      "url": "https://github.com/taostat/gm-miner/commit/115b7ac717ddb3adbb7993fc335001ea79211ceb",
-      "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1791804797,
-      "kind": "release",
-      "source": "github",
-      "title": "v0.4.27",
-      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.4.27",
-      "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1791804056,
-      "kind": "commit",
-      "source": "github",
-      "title": "chore(release): promote gm-miner 0.4.27 (#313)",
-      "url": "https://github.com/taostat/gm-miner/commit/30220e7f3fcb5ca12beeae05212dddc0cdb1e239",
-      "publisher": "taostat/gm-miner"
     }
   ],
-  "updated": 1791956461,
-  "updated_day": "2026-10-14"
+  "updated": 1792042861,
+  "updated_day": "2026-10-15"
 }

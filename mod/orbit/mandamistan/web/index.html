@@ -134,6 +134,42 @@
   a:hover { text-decoration: underline; }
   footer { margin-top: 56px; color: var(--muted); font-size: 12px;
            border-top: 1px solid var(--grid); padding-top: 16px; }
+
+  /* reality (via nyc) */
+  .src { display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+         font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+         color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
+         padding: 2px 9px; vertical-align: middle; }
+  .src.live { color: var(--good); border-color: var(--good); }
+  .src.stale, .src.snapshot { color: var(--quo); border-color: var(--quo); }
+  .tile .tag { float: right; font-size: 10px; color: var(--aqua); font-weight: 700;
+               letter-spacing: .08em; text-transform: uppercase; }
+  .score .card { display: grid; grid-template-rows: auto auto 1fr auto; }
+  .score .metric { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .score .now { font-size: 30px; font-weight: 700; line-height: 1.1; margin-top: 2px;
+                font-variant-numeric: tabular-nums; }
+  .score .now small { font-size: 13px; font-weight: 600; color: var(--ink-2); margin-left: 6px; }
+  .score .pace { height: 6px; border-radius: 3px; background: var(--grid); margin: 10px 0 4px; overflow: hidden; }
+  .score .pace i { display: block; height: 100%; background: var(--plan); }
+  .score .foot { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  .score .promise { color: var(--ink-2); font-size: 13px; }
+  .pick { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .pick button, .finder button, select, input[type=number] {
+    font: inherit; font-size: 13px; color: var(--ink-2); background: var(--page);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  .pick button.on { color: var(--page); background: var(--plan); border-color: var(--plan); font-weight: 700; }
+  .finder { display: grid; grid-template-columns: 280px 1fr; gap: 16px; }
+  @media (max-width: 860px) { .finder { grid-template-columns: 1fr; } }
+  .finder .ctl label { display: block; margin-bottom: 6px; }
+  .finder select, .finder input[type=number] { width: 100%; cursor: auto; }
+  .finder button.go { width: 100%; color: var(--page); background: var(--plan);
+                      border-color: var(--plan); font-weight: 700; padding: 9px; }
+  .finder .band { font-size: 22px; font-weight: 700; }
+  .lots { list-style: none; padding: 0; margin: 8px 0 0; }
+  .lots li { padding: 8px 0; border-bottom: 1px solid var(--grid); font-size: 13px; color: var(--ink-2); }
+  .lots li b { color: var(--ink); font-weight: 600; }
+  .lots li .d { color: var(--muted); font-size: 12px; }
+  .muted { color: var(--muted); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -150,11 +186,16 @@
   <div class="live"><span class="dot"></span>
     <span><b>Rent freeze in effect</b> for ~1,000,000 stabilized homes · Oct 1, 2026 → Sep 30, 2027</span>
   </div>
+  <div class="live" id="depPill" style="margin-left:8px"><span class="dot" id="depDot" style="background:var(--muted);box-shadow:none"></span>
+    <span id="depText">Measured against the real city via the <b>nyc</b> module…</span>
+  </div>
 </header>
 
 <h2>The crisis</h2>
 <p class="lede">New York is not short on buildings; it is short on homes people
-can afford. The numbers below are why half-measures stopped being an option.</p>
+can afford. The numbers below are why half-measures stopped being an option.
+Tiles marked <span class="tag" style="color:var(--aqua);font-size:11px;font-weight:700">VIA NYC</span>
+are today's figures from the city's open data, read through the nyc module.</p>
 <div class="tiles" id="crisisTiles"></div>
 
 <div class="chart-card" style="margin-top:12px">
@@ -173,11 +214,25 @@ capital in the first five years.</p>
 <h2>Promised → delivered</h2>
 <div class="tl" id="timeline"></div>
 
+<h2>Reality check <span class="src" id="scoreSrc">loading</span></h2>
+<p class="lede">A promise is only a promise until a number moves. For every pillar:
+the metric that will settle it, and where that metric stands in the city right
+now — read live from NYC Open Data through the <a href="/nyc/" target="_blank" rel="noopener">nyc</a> module.</p>
+<div class="cards score" id="scorecard"><div class="card muted">Reading the city…</div></div>
+
+<div class="chart-card" style="margin-top:12px">
+  <div class="chart-title">Who builds nothing</div>
+  <div class="chart-sub">New homes per 1,000 residents since 2020 in the wealthiest neighborhoods (median income $120k+) vs. the city — the zoning pillar's target list</div>
+  <div id="ntaChart" class="muted">Reading neighborhoods…</div>
+</div>
+
 <h2>The math — run it yourself</h2>
 <p class="lede">A transparent toy, not a forecast: every assumption is a
 slider. The orange line is the city on autopilot — losing affordable homes
 every year. The blue line is the plan. Move the sliders and see what has to
 be true for it to work.</p>
+<div class="pick" id="boroPick"></div>
+<p class="muted" id="boroNote" style="margin:-6px 0 12px"></p>
 <div class="sim">
   <div class="controls">
     <div class="ctl"><label>New homes built / yr <output id="o_new">20,000</output></label>
@@ -219,6 +274,26 @@ be true for it to work.</p>
   </div>
 </div>
 
+<h2>Find a home <span class="src" id="findSrc"></span></h2>
+<p class="lede">The dream, for one household. Your income and household size put
+you in an Area Median Income band; the plan's homes are priced by band. Below:
+the rent you can afford at 30% of income, the Housing Connect lotteries open to
+your band right now, and affordable listings under your number — through nyc.</p>
+<div class="finder">
+  <div class="controls">
+    <div class="ctl"><label>Household income / yr</label><input type="number" id="f_income" value="52000" min="0" step="1000"></div>
+    <div class="ctl"><label>Household size</label><select id="f_hh">
+      <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></div>
+    <div class="ctl"><label>Bedrooms</label><select id="f_bed">
+      <option value="">any</option><option value="0">studio</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></div>
+    <div class="ctl"><label>Borough</label><select id="f_boro">
+      <option value="">anywhere</option><option>Bronx</option><option>Brooklyn</option><option>Manhattan</option><option>Queens</option><option>Staten Island</option></select></div>
+    <button class="go" id="f_go">Find my band</button>
+    <p class="muted" style="margin:10px 0 0">2026 AMI from <a href="https://www.nyc.gov/site/hpd/services-and-information/area-median-income.page" target="_blank" rel="noopener">NYC HPD</a>.</p>
+  </div>
+  <div id="findOut"><div class="card muted">Enter your numbers.</div></div>
+</div>
+
 <h2>The fight</h2>
 <p class="lede">A plan this size draws real objections. Here are the strongest
 ones, stated fairly — and what the plan answers.</p>
@@ -227,9 +302,11 @@ ones, stated fairly — and what the plan answers.</p>
 <h2>Sources</h2>
 <ul class="sources" id="sources"></ul>
 
-<footer>mandamistan · a mod-orbit module · data in <code>housing.py</code>, same
-numbers served at <code>api/crisis</code>, <code>api/plan</code>,
-<code>api/simulate</code> · the simulator is an illustration, not a forecast.</footer>
+<footer>mandamistan · a mod-orbit module · depends on <b>nyc</b> for every live
+number (<code>api/scorecard</code>, <code>api/borough</code>, <code>api/find</code>,
+<code>api/neighborhoods</code>) · plan data in <code>housing.py</code>
+(<code>api/crisis</code>, <code>api/plan</code>, <code>api/simulate</code>) · the
+simulator is an illustration, not a forecast.</footer>
 </div>
 
 <script>
@@ -369,7 +446,7 @@ vacancyChart();
 
 /* ── the model (mirrors housing.simulate in housing.py) ───────── */
 function simulate(a) {
-  const BASE = 7000, STAB = 1e6, Y = 10;
+  const BASE = a.base ?? 7000, STAB = a.stab ?? 1e6, Y = 10;
   const plan = [0], quo = [0], pr = [a.rent], qr = [a.rent];
   let savings = 0;
   for (let y = 1; y <= Y; y++) {
@@ -438,9 +515,11 @@ function lineChart(el, years, a, b, opts) {
 
 /* ── wire the simulator ───────────────────────────────────────── */
 const S = {nw: 's_new', pres: 's_pres', attr: 's_attr', frz: 's_frz', hike: 's_hike', rent: 's_rent'};
+let SCALE = {base: 7000, stab: 1e6, name: 'New York City'};   // set by the borough picker
 function args() {
   return {nw: +$(S.nw).value, pres: +$(S.pres).value, attr: +$(S.attr).value,
-          frz: +$(S.frz).value, hike: +$(S.hike).value, rent: +$(S.rent).value};
+          frz: +$(S.frz).value, hike: +$(S.hike).value, rent: +$(S.rent).value,
+          base: SCALE.base, stab: SCALE.stab};
 }
 function render() {
   const a = args();
@@ -450,7 +529,7 @@ function render() {
   const r = simulate(a);
   $('simHeadline').innerHTML =
     `<div class="tile ${r.gained >= 0 ? 'good' : 'bad'}"><div class="v">${r.gained >= 0 ? '+' : ''}${fmt(r.gained)}</div>
-       <div class="l">net affordable homes in 10 yrs</div></div>
+       <div class="l">net affordable homes in 10 yrs · ${SCALE.name}</div></div>
      <div class="tile good"><div class="v">+${fmt(r.vs)}</div>
        <div class="l">vs. the status quo</div></div>
      <div class="tile good"><div class="v">${usd(r.savings)}</div>
@@ -469,6 +548,145 @@ function render() {
 }
 Object.values(S).forEach(id => $(id).addEventListener('input', render));
 render();
+
+/* ── reality, via the nyc module ──────────────────────────────── */
+const API = 'api/';
+const get = (fn, q) => fetch(API + fn + (q ? '?' + new URLSearchParams(q) : ''), {cache: 'no-store'}).then(r => r.json());
+const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const srcPill = (el, m) => {
+  if (!el) return;
+  el.className = 'src ' + (m.source || '');
+  el.textContent = m.source === 'live' ? 'live via nyc' : m.source === 'snapshot' ? 'snapshot' :
+                   m.source === 'stale' ? 'stale cache' : m.source || '';
+  if (m.fetched_at) el.title = 'fetched ' + m.fetched_at;
+};
+const n1 = v => v == null ? '—' : typeof v === 'number' ? (Number.isInteger(v) ? fmt(v) : v.toLocaleString('en-US', {maximumFractionDigits: 1})) : esc(v);
+
+get('nyc').then(st => {
+  $('depDot').style.background = st.reachable ? css('--good') : css('--quo');
+  $('depDot').style.boxShadow = st.reachable ? '0 0 8px ' + css('--good') : 'none';
+  $('depText').innerHTML = st.reachable
+    ? 'Measured against the real city — live via the <b>nyc</b> module'
+    : 'nyc is away — showing the baked snapshot' + (st.snapshot_taken_at ? ' from ' + esc(st.snapshot_taken_at.slice(0, 10)) : '');
+}).catch(() => {});
+
+get('live').then(lc => {
+  if (!lc.tiles) return;
+  $('crisisTiles').innerHTML = lc.tiles.map(t =>
+    `<div class="tile ${t.bad ? 'bad' : 'good'}">${t.static ? '' : '<span class="tag">via nyc</span>'}
+       <div class="v">${t.unit === '$/mo' ? '$' : ''}${n1(t.value)}<small>${t.unit === '%' ? '%' : t.unit === '$/mo' ? '/mo' : ''}</small></div>
+       <div class="l">${esc(t.label)}</div><div class="n">${esc(t.note)}</div></div>`).join('');
+}).catch(() => {});
+
+const GLYPH = {freeze: 'F', build: 'B', preserve: 'P', nycha: 'N', zoning: 'Z', tenants: 'T'};
+function scoreCard(r) {
+  const d = r.detail || {};
+  let now = n1(r.now), unit = r.unit, pace = '', foot = '';
+  if (r.id === 'freeze') foot = `median rent $${n1(d.median_rent)}/mo · income $${n1(d.median_income)} · ${n1(d.severe_burden_pct)}% pay half or more`;
+  if (r.id === 'build') {
+    const pct = Math.min(100, (r.now / r.target_per_year) * 100);
+    pace = `<div class="pace"><i style="width:${pct.toFixed(0)}%"></i></div><div class="muted">all-housing pace vs. the ${fmt(r.target_per_year)}/yr the plan needs in <i>affordable</i> homes</div>`;
+    foot = `${n1(d.pipeline_units)} in the pipeline · ${n1(d.permitted_units)} permitted · HPD has financed ${n1(d.hpd_affordable_since_2014)} affordable units since 2014`;
+  }
+  if (r.id === 'preserve') foot = `${n1(d.open_class_c)} immediately-hazardous violations open · worst: ${esc((d.worst_buildings || [])[0]?.address || '—')}`;
+  if (r.id === 'nycha') foot = `${n1(d.developments)} developments · ${n1(d.population)} residents · avg rent $${n1(d.avg_monthly_rent)}/mo`;
+  if (r.id === 'zoning') foot = `${n1(d.pipeline_per_1k)} per 1k in the pipeline · housing stock +${n1(d.units_growth_pct)}% since 2020 · see "who builds nothing"`;
+  if (r.id === 'tenants') foot = `${n1(d.lottery_units)} lottery units · next deadline ${esc(d.next_deadline || '—')} · ${n1(d.homes_under_1500)} listings under $1,500`;
+  return `<div class="card"><h3><span class="glyph">${GLYPH[r.id] || '?'}</span>${esc(PILLARS.find(p => p.g === GLYPH[r.id])?.name || r.id)}
+      <span class="badge ${r.status}">${r.status === 'delivered' ? 'delivered' : 'in motion'}</span></h3>
+    <div class="promise">${esc(r.promise)}</div>
+    <div><div class="metric">${esc(r.metric)}</div>
+      <div class="now">${now}<small>${esc(unit)}</small></div>${pace}</div>
+    <div class="foot">${foot}<br>${esc(r.source)}</div></div>`;
+}
+get('scorecard').then(sc => {
+  srcPill($('scoreSrc'), sc);
+  $('scorecard').innerHTML = (sc.rows || []).map(scoreCard).join('');
+}).catch(() => { $('scorecard').innerHTML = '<div class="card muted">The nyc module did not answer.</div>'; });
+
+function ntaChart(n) {
+  const rows = (n.least_building || []).slice(0, 8), city = n.city_new_units_per_1k || 0;
+  if (!rows.length) { $('ntaChart').textContent = 'No neighborhood data.'; return; }
+  const W = 1000, H = 40 + rows.length * 34, m = {t: 16, r: 60, b: 28, l: 300};
+  const max = Math.max(city * 1.1, ...rows.map(r => r.new_units_per_1k)) || 1;
+  const iw = W - m.l - m.r, ih = H - m.t - m.b, bh = 22, gap = (ih - rows.length * bh) / (rows.length + 1);
+  const x = v => m.l + v / max * iw;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="New homes per 1,000 residents, wealthy neighborhoods vs city">`;
+  for (let g = 0; g <= max; g += max > 20 ? 10 : 5)
+    s += `<line x1="${x(g)}" y1="${m.t}" x2="${x(g)}" y2="${H - m.b}" stroke="${g ? css('--grid') : css('--baseline')}"/><text class="tick" x="${x(g)}" y="${H - 8}" text-anchor="middle">${g}</text>`;
+  s += `<line x1="${x(city)}" y1="${m.t}" x2="${x(city)}" y2="${H - m.b}" stroke="${css('--quo')}" stroke-dasharray="3 4"/>`;
+  s += `<text x="${x(city) + 6}" y="${m.t + 10}" fill="${css('--quo')}">city ${city}</text>`;
+  rows.forEach((r, i) => {
+    const y = m.t + gap + i * (bh + gap), w = Math.max(x(r.new_units_per_1k) - m.l, 3);
+    s += `<rect x="${m.l}" y="${y}" width="${w}" height="${bh}" rx="3" fill="${css('--plan')}" data-i="${i}" class="bar"/>`;
+    s += `<text class="dlabel" x="${m.l + w + 8}" y="${y + bh / 2 + 4}">${r.new_units_per_1k}</text>`;
+    s += `<text x="${m.l - 10}" y="${y + bh / 2 + 4}" text-anchor="end" fill="${css('--ink-2')}">${esc(r.name)} · $${Math.round(r.median_income / 1000)}k</text>`;
+  });
+  s += '</svg>';
+  $('ntaChart').className = ''; $('ntaChart').innerHTML = s;
+  $('ntaChart').querySelectorAll('.bar').forEach(b => {
+    b.addEventListener('mousemove', e => { const r = rows[+b.dataset.i];
+      showTip(`${esc(r.name)}, ${esc(r.borough)}<br>${fmt(r.population)} people · median income $${fmt(r.median_income)}<br><b>${r.new_units_per_1k}</b> new homes per 1k since 2020 · pipeline ${r.pipeline_per_1k}`, e.clientX, e.clientY); });
+    b.addEventListener('mouseleave', hideTip);
+  });
+}
+get('neighborhoods').then(ntaChart).catch(() => { $('ntaChart').textContent = 'The nyc module did not answer.'; });
+
+/* borough picker → re-seed the simulator with the real numbers */
+const BOROS = ['New York City', 'Manhattan', 'Brooklyn', 'Queens', 'Bronx', 'Staten Island'];
+const setSlider = (id, v) => { const el = $(id); el.value = Math.max(el.min, Math.min(el.max, v)); };
+function pickBoro(name) {
+  $('boroPick').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.textContent === name));
+  if (name === 'New York City') {
+    SCALE = {base: 7000, stab: 1e6, name};
+    setSlider('s_new', 20000); setSlider('s_pres', 20000); setSlider('s_attr', 10000); setSlider('s_rent', 1500);
+    $('boroNote').textContent = 'City-wide: the plan\'s own targets, ~1M stabilized homes, ~7k/yr status-quo pace.';
+    render(); return;
+  }
+  $('boroNote').textContent = 'Reading ' + name + ' via nyc…';
+  get('borough', {name}).then(b => {
+    const a = b.simulation.assumptions, p = b.profile || {};
+    SCALE = {base: a.status_quo_pace, stab: a.stabilized_units, name};
+    setSlider('s_new', a.new_per_year); setSlider('s_pres', a.preserved_per_year);
+    setSlider('s_attr', a.attrition_per_year); setSlider('s_rent', a.median_stabilized_rent);
+    $('boroNote').innerHTML = `${esc(name)}: ${(b.share_of_renters * 100).toFixed(0)}% of the city's renters, so ${fmt(a.new_per_year)} of the plan's 20,000 homes a year · median rent $${fmt(p.median_rent)} · ${n1(p.rent_burden_pct)}% rent-burdened · ${fmt(a.stabilized_units)} stabilized homes (scaled) · ${n1(b.lotteries_open)} lotteries open now`;
+    render();
+  }).catch(() => { $('boroNote').textContent = 'The nyc module did not answer for ' + name + '.'; });
+}
+$('boroPick').innerHTML = BOROS.map(b => `<button>${b}</button>`).join('');
+$('boroPick').querySelectorAll('button').forEach(b => b.addEventListener('click', () => pickBoro(b.textContent)));
+pickBoro('New York City');
+
+/* find a home */
+function findHome() {
+  $('findOut').innerHTML = '<div class="card muted">Asking nyc…</div>';
+  get('find', {income: $('f_income').value, household: $('f_hh').value,
+               bedrooms: $('f_bed').value, borough: $('f_boro').value}).then(f => {
+    srcPill($('findSrc'), f);
+    if (f.error) { $('findOut').innerHTML = `<div class="card muted">${esc(f.error)}</div>`; return; }
+    const lots = f.lotteries || {}, homes = f.homes || {};
+    $('findOut').innerHTML = `
+      <div class="headline">
+        <div class="tile"><div class="band">${esc(f.band.label)}</div><div class="l">${esc(f.band.range)} · you are at ${n1(f.pct_ami)}% of AMI</div>
+          <div class="n">100% AMI for ${f.household} = $${fmt(f.ami_100pct)} (HPD 2026)</div></div>
+        <div class="tile good"><div class="v">$${fmt(f.affordable_rent)}<small>/mo</small></div><div class="l">rent you can afford</div><div class="n">${esc(f.rule)}</div></div>
+        <div class="tile ${lots.open_for_your_band ? 'good' : ''}"><div class="v">${n1(lots.open_for_your_band)}<small> of ${n1(lots.open_total)}</small></div><div class="l">lotteries open to your band</div><div class="n">next deadline ${esc(lots.next_deadline || '—')}</div></div>
+        <div class="tile"><div class="v">${n1(homes.matched)}</div><div class="l">affordable listings under your number</div><div class="n">Local Law 44 rent roll via nyc</div></div>
+      </div>
+      <div class="charts2">
+        <div class="card"><h3>Apply now <a href="${esc(lots.apply_at)}" target="_blank" rel="noopener" style="margin-left:auto;font-size:12px">Housing Connect ↗</a></h3>
+          ${lots.items?.length ? '<ul class="lots">' + lots.items.map(L => `<li><b>${esc(L.name)}</b> · ${esc(L.borough)} · ${n1(L.units)} units<br><span class="d">${Object.entries(L.unit_mix || {}).map(([k, v]) => v + ' ' + k).join(', ')} · deadline ${esc(L.deadline || '—')}</span></li>`).join('') + '</ul>'
+                              : '<p class="muted">No lottery for your band is open right now; new ones post weekly.</p>'}</div>
+        <div class="card"><h3>Buildings in your range</h3>
+          ${homes.items?.length ? '<ul class="lots">' + homes.items.map(h => `<li><b>${esc(h.name)}</b> · ${esc(h.bedrooms)} · $${fmt(h.rent)}/mo<br><span class="d">${esc(h.address)}, ${esc(h.borough)} ${esc(h.zip)} · ${esc(h.band)} ${esc(h.ami_range || '')}</span></li>`).join('') + '</ul>'
+                               : '<p class="muted">Nothing under that rent in this slice — widen the borough or bedrooms.</p>'}
+          <p class="muted" style="margin:10px 0 0">Legal regulated rents from the city's rent roll, not current vacancies; use them to see what the stock costs, then apply through lotteries.</p></div>
+      </div>`;
+  }).catch(() => { $('findOut').innerHTML = '<div class="card muted">The nyc module did not answer.</div>'; });
+}
+$('f_go').addEventListener('click', findHome);
+$('f_income').addEventListener('keydown', e => { if (e.key === 'Enter') findHome(); });
+findHome();
 </script>
 </body>
 </html>

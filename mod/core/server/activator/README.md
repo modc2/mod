@@ -14,6 +14,10 @@ modules to sleep when idle and wakes them on demand.
   a pinned module's stopped pm2 procs, so a reboot, a crash or a stray
   `pm2 stop` doesn't quietly leave it down. Pin with `ACTIVATOR_PIN` (env,
   default `web,claude`) or per module at runtime with `actl pin <mod>`.
+- **`"always_on": true` in a module's config.json** is a pin nobody can lift
+  at runtime: it overrides `disabled` in overrides.json (ignored, logged once),
+  `actl disable|sleep|unpin` answer 409, and revive retries at most every 60s
+  instead of backing off to 15 min. Remove the flag to turn it off. (polymarket.)
 - **OOM guard:** when `MemAvailable` drops below `MIN_FREE_MB` (or a wake would
   exceed `MAX_RUNNING` concurrent apps), the least-recently-used managed modules
   are stopped until the box has headroom again — a cold-start on the next hit

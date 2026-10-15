@@ -186,3 +186,87 @@ def test_hash_key_exhaustion_degrades_gracefully(book):
     # Still verified: ml-dsa-65 keeps the quantum-resistant attestation.
     assert r['verified'] == any(
         keys.kinds()[k]['quantum_resistant'] for k in others)
+
+
+# ── v0.3: goals, adding judges one at a time, and public keyrings ──────
+
+def test_goal_is_kept_and_enough_for_an_llm_judge(book):
+    goal = 'approve only clear, specific writing'
+    p = book.create('g', 'alice', [dict(LONG, goal='  ' + goal + '  ')])
+    assert p['judges'][0]['goal'] == goal                  # trimmed, stored
+    # A goal alone seats an llm judge; neither goal nor prompt does not.
+    ok = book.create('g2', 'alice', [{'name': 'c', 'kind': 'llm', 'goal': goal}])
+    assert 'error' not in ok and ok['judges'][0]['goal'] == goal
+    assert book.create('g3', 'alice', [{'name': 'c', 'kind': 'llm'}])['error']
+    assert book.create('g4', 'alice', [dict(LONG, goal='x' * 601)])['error']
+    # An empty goal is dropped rather than stored as ''.
+    assert 'goal' not in book.create('g5', 'alice', [dict(LONG, goal='   ')])['judges'][0]
+
+
+def test_goal_goes_before_the_model():
+    import market
+    assert market.judge_brief({'goal': 'G', 'prompt': 'P'}) == 'Goal: G Criteria: P'
+    assert market.judge_brief({'goal': 'G'}) == 'Goal: G'
+    assert market.judge_brief({'prompt': 'P'}) == 'Criteria: P'
+
+
+def test_add_judge_creator_only_keeps_quorum(book):
+    book.create('a', 'alice', [LONG], threshold=60)
+    assert book.add_judge('a', 'bob', CLEAN)['error']       # not the creator
+    assert book.add_judge('a', 'alice', 'not json')['error']
+    assert book.add_judge('a', 'alice', LONG)['error']      # duplicate name
+    r = book.add_judge('a', 'alice', dict(CLEAN, goal='no TODO markers'))
+    assert r['added'] == 'clean' and r['judge']['goal'] == 'no TODO markers'
+    p = book.get('a')
+    assert [j['name'] for j in p['judges']] == ['long', 'clean']
+    assert p['min_votes'] == 1                              # quorum unchanged
+    # The new seat got a full keyring like any other judge.
+    assert set(r['judge']['keys']) == set(keys.available())
+    # A JSON string body works too (the CLI path).
+    r2 = book.add_judge('a', 'alice', json.dumps({'name': 'short', 'kind': 'rule', 'max_len': 500}))
+    assert r2['added'] == 'short'
+    assert book.add_judge('nope', 'alice', CLEAN)['error']
+
+
+def test_judge_keys_public_side_only(book):
+    book.create('k', 'alice', [dict(LONG, goal='be long')])
+    r = book.judge_keys('k', 'long')
+    assert r['panel'] == 'k' and r['judge'] == 'long' and r['goal'] == 'be long'
+    assert set(r['keys']) == set(keys.available())
+    for kt, k in r['keys'].items():
+        assert k['public'] and k['fingerprint'] and 'algo' in k
+        assert 'secret' not in k and 'state' not in k
+        assert k['quantum_resistant'] == bool(keys.kinds()[kt].get('quantum_resistant'))
+    assert book.judge_keys('k', 'ghost')['error']
+    assert book.judge_keys('ghost', 'long')['error']
+
+
+def test_llm_default_is_liquidai_via_protocol(book, monkeypatch):
+    """No url on an llm judge = the LFM weights on this box, reached through
+    the mod protocol; the reply's JSON is the vote."""
+    import identity
+    calls = []
+
+    class _Liquid:
+        def chat(self, **kw):
+            calls.append(kw)
+            return {'ok': True, 'text': '{"score": 72, "reason": "solid"}'}
+
+    class _Proto:
+        @staticmethod
+        def mod(name):
+            assert name == 'liquidai'
+            return _Liquid
+    monkeypatch.setattr(identity, 'protocol', lambda: _Proto)
+    monkeypatch.setattr(panel, 'DEFAULT_LLM_URL', '')
+    r = book.score({'kind': 'llm', 'prompt': 'is it clear?'}, 'some input')
+    assert r['score'] == 72.0 and r['reason'] == 'solid'
+    assert calls[0]['model'] == panel.DEFAULT_LLM_MODEL
+    assert calls[0]['runtime'] == 'server' and calls[0]['temperature'] == 0
+    assert 'is it clear?' in calls[0]['system'] and 'some input' in calls[0]['prompt']
+    # a liquidai failure is a judge error, never a score
+    _Liquid.chat = lambda self, **kw: {'ok': False, 'error': 'no weights'}
+    assert 'no weights' in book.score({'kind': 'llm', 'prompt': 'p'}, 'x')['error']
+    # no protocol at all fails closed with a pointer, not a crash
+    monkeypatch.setattr(identity, 'protocol', lambda: None)
+    assert 'JUDGE_LLM_URL' in book.score({'kind': 'llm', 'prompt': 'p'}, 'x')['error']

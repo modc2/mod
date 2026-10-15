@@ -171,7 +171,8 @@
         "COMPUTE_TEST_LIVE": "0 to skip the tests that touch live catalogs",
         "COMPUTE_TICK_SEC": "seconds between price-index ticks for the prediction game (default 1200)",
         "COMPUTE_ORACLE": "0 to keep the ticker from running in the API server",
-        "COMPUTE_ORACLE_DB": "where the game lives (default ~/.mod/compute/oracle.db)"
+        "COMPUTE_ORACLE_DB": "where the game lives (default ~/.mod/compute/oracle.db)",
+        "COMPUTE_BUILD_URL": "where build answers whoami / auth/role for owner sign-in (default http://127.0.0.1:8890)"
     },
     "schema": "QmYckGKquK33nuSLEEDkqkgbk4XzoSKCYHi8fRew1vy6o8",
     "mod_lane": {
@@ -199,7 +200,7 @@
         "open": "info, health, providers, search, offer, quote, mods, tools \u2014 reading a market spends nothing, and the /oracle game (each call signed by the player's own key)",
         "byok": "instances, status, logs, balance, keys \u2014 allowed when the caller brings their own provider key",
         "owner": "rent, stop, exec, raw, set_key and every /node route",
-        "proof": "Authorization: Bearer `m compute/token`, or a request from localhost that did not pass through the gateway",
+        "proof": "the owner signed in \u2014 the build console session (handed down to the embedded console, verified by build's whoami) or a wallet-signed mod-protocol token whose address build says is the owner; or Authorization: Bearer `m compute/token`; or a request from localhost that did not pass through the gateway",
         "secret": "~/.mod/compute/server.secret (0600, off-tree, minted on first need)"
     },
     "geo": {

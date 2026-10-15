@@ -372,6 +372,19 @@ m polymarket/mcp
 m polymarket/test
 ```
 
+## Agents (each one a mod)
+
+Every AI agent in the console is its own mod under `src/agents/<name>/`
+(`config.json` + `mod.py` + `README.md`, base class in `src/agents/base/mod.py`):
+desk · help · scout · score · stratchat · vibe · lab · autostrat.
+**STRATS ▸ AGENTS** (`/strats?tab=agents`) lists them with ALL · CHAT · BACKGROUND
+filters and an ON/OFF switch each. Add a folder → it appears; delete it → it is off.
+
+- `GET /polymarket/_api/agents` roster (public) · `POST {name, enabled}` (owner token)
+- `cd src && python3 -m agents.<name>.mod on|off|toggle|info`
+- state: `~/.mod/polymarket/agents.json`; an OFF agent's route returns 409 `agent off`,
+  autostrat's loop skips ticks. Money paths (live sessions, exits, the lab bench) are never gated.
+
 ## API Endpoints
 
 Every route except `/health` and `/access/*` is behind the owner access gate —

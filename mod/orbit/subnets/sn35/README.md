@@ -1,16 +1,16 @@
 # sn35 — logic ך
 
-Bittensor subnet **35** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **35** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001913 | +0.14% | -12.44% | -16.12% | 677.5157 | 370.3952 | 629.02 |
+| 0.001511 | -0.03% | -21.01% | -29.68% | 546.0665 | 329.1951 | 99.07 |
 
 ## Last 24h flow
 
-122 trades by 41 coldkeys · 62 buys (301.85 τ) / 60 sells (325.57 τ) · net -23.72 τ
+81 trades by 29 coldkeys · 16 buys (28.94 τ) / 65 sells (69.33 τ) · net -40.39 τ
 
 ## Use
 

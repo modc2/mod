@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005419 | +0.79% | +7.28% | +31.83% | 32,108 | 5,862 | 3,617 |
+| 0.005364 | -1.28% | -1.02% | +29.37% | 31,819 | 5,831 | 2,291 |
 
 ## Last 24h flow
 
-382 trades by 150 coldkeys · 206 buys (1,910 τ) / 176 sells (1,700 τ) · net 209.98 τ
+271 trades by 115 coldkeys · 132 buys (1,131 τ) / 139 sells (1,159 τ) · net -28.08 τ
 
 ## News
 
-- 2026-10-14 · commit · [Merge pull request #419 from leadpoet/codex/oct14-generic-http-401-pr…](https://github.com/leadpoet/leadpoet/commit/f42015438a0d0348fbf9f840f2d58a31edc48dcb) — leadpoet/leadpoet
-- 2026-10-14 · commit · [Classify typed generic HTTP 401 as a request refusal](https://github.com/leadpoet/leadpoet/commit/584b670019713994c2ee8b078094c4dff47cfb70) — leadpoet/leadpoet
-- 2026-10-14 · commit · [Merge pull request #418: Preserve verified headcount ranges](https://github.com/leadpoet/leadpoet/commit/db9d8c67169a587e9ce1b1bd203d7529b9e16fda) — leadpoet/leadpoet
-- 2026-10-14 · commit · [Normalize verified investigator headcount before fit decision](https://github.com/leadpoet/leadpoet/commit/65806e1e4bff557a9ea57e20b759a1ab6b54066f) — leadpoet/leadpoet
-- 2026-10-13 · commit · [Merge pull request #417: Restore runtime478 confirmation and frozen-f…](https://github.com/leadpoet/leadpoet/commit/ce7b0949991ce2c9f628fdfd61f54054da3a9da5) — leadpoet/leadpoet
-- 2026-10-13 · commit · [Merge pull request #416: Avoid repeated polling in delayed Deepline b…](https://github.com/leadpoet/leadpoet/commit/771ac8a2214ed7cf0e2b2ce1174a7fa64a4cc8df) — leadpoet/leadpoet
-- 2026-10-13 · commit · [Remove trailing blank line from billing regression test](https://github.com/leadpoet/leadpoet/commit/d6898472ef45e5be7033622730ad2b674949bd7a) — leadpoet/leadpoet
-- 2026-10-13 · commit · [Read retained Deepline bills once per driver pass](https://github.com/leadpoet/leadpoet/commit/901f541b970144a3f46a4c0b9f75894824620680) — leadpoet/leadpoet
+- 2026-10-15 · commit · [Merge pull request #444 from leadpoet/fix/arena-host-quarantine-paid-…](https://github.com/leadpoet/leadpoet/commit/a1588888aaf6f54aeb617d1a95597f41b2eb3610) — leadpoet/leadpoet
+- 2026-10-15 · commit · [Count verified paid host interruptions in round claim quarantine](https://github.com/leadpoet/leadpoet/commit/087b3a1cf571e0c682ec841783c703871ea10742) — leadpoet/leadpoet
+- 2026-10-15 · commit · [Merge pull request #443 from leadpoet/codex/arena-continuity-ingress-…](https://github.com/leadpoet/leadpoet/commit/b50f9e9e13d4dcca3ad86e08af3da76a496851d1) — leadpoet/leadpoet
+- 2026-10-15 · commit · [Retain the paid review drain regression in source control](https://github.com/leadpoet/leadpoet/commit/9bfd25a6f1f0c8d98626f80b3cce2470e059bf1c) — leadpoet/leadpoet
+- 2026-10-15 · commit · [Keep Arena ingress available during canonical gateway restarts](https://github.com/leadpoet/leadpoet/commit/d2d5f66fb3a83cb2f4d71d652f36099d541c3b45) — leadpoet/leadpoet
+- 2026-10-14 · commit · [Merge pull request #440 from leadpoet/codex/arena-denial-telemetry-20…](https://github.com/leadpoet/leadpoet/commit/7070fa3b11554a087198e59eab3285ff599007d3) — leadpoet/leadpoet
+- 2026-10-14 · commit · [Keep existing Arena refusal reasons visible in telemetry](https://github.com/leadpoet/leadpoet/commit/e538df5ef9544aef5b39b126cc268ea45b1a50cf) — leadpoet/leadpoet
+- 2026-10-14 · commit · [Merge pull request #439 from leadpoet/codex/arena-shutdown-lifecycle-…](https://github.com/leadpoet/leadpoet/commit/40503e5218891af2a2e85a1e87aa57398fbbadcd) — leadpoet/leadpoet
 
 ## Use
 

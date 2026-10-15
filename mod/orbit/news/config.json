@@ -1,14 +1,16 @@
 {
     "name": "news",
     "title": "news \u00b7 any topic, every outlet",
-    "description": "News aggregator for any query. Fans out to keyless open sources (GDELT, Hacker News, your RSS/Atom feeds; reddit and google opt-in), merges duplicate stories across outlets and ranks them locally by relevance, freshness and coverage. Stdlib-only, one SQLite cache, no keys. Also an MCP server (HTTP /mcp and stdio).",
-    "version": "0.1.0",
+    "description": "News aggregator for any query. Fans out to keyless open sources (GDELT, Hacker News, your RSS/Atom feeds; reddit and google opt-in), merges duplicate stories across outlets and ranks them locally by relevance, freshness and coverage. Stdlib-only, one SQLite cache, no keys. Web app at /news (search, reader, feeds), plus an MCP server (HTTP /mcp and stdio).",
+    "version": "0.2.0",
     "anchor": "mod.py",
     "network": "local",
     "port": 51120,
-    "route": false,
+    "app_port": 51120,
+    "route": true,
     "deps": [],
     "urls": {
+        "app": "http://localhost:51120/news",
         "api": "http://localhost:51120",
         "mcp": "http://localhost:51120/mcp"
     },
@@ -25,6 +27,11 @@
     },
     "state": "~/.mod/news/cache.db (raw HTTP bodies by url) \u00b7 ~/.mod/news/feeds.json",
     "endpoints": {
+        "app": {
+            "method": "GET",
+            "auth": false,
+            "docs": "GET / (Accept: text/html) or /app -> the one-file web app (web/index.html): search, reader, feeds, endpoints"
+        },
         "health": {
             "method": "GET",
             "auth": false,

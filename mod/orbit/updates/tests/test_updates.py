@@ -434,11 +434,25 @@ def test_merge_main_conflict_forces_dev(up, repo):
     dry = up.merge_main(root=str(repo), dry=True)
     assert dry['ok'] and dry['mode'] == 'forced' and not dry['pushed']
     r = up.merge_main(root=str(repo))
-    assert r['ok'] and r['mode'] == 'forced' and not r['force_pushed']
+    assert r['ok'] and r['mode'] == 'forced' and r['pushed']
     assert _remote_file(repo, 'origin/main', 'a.txt') == 'dev side'
     # main's own history survives: its old tip is an ancestor of the new one
     assert _sp.run(['git', 'merge-base', '--is-ancestor', dry['target_sha'], 'origin/main'],
                    cwd=repo).returncode == 0
+
+
+def test_merge_main_rejected_push_is_never_forced(up, repo):
+    """A protected main (GitHub GH006) must fail cleanly, not retry with --force."""
+    hook = repo.parent / 'origin.git' / 'hooks' / 'pre-receive'
+    hook.write_text('#!/bin/sh\necho "error: GH006: Protected branch update failed for refs/heads/main." >&2\nexit 1\n')
+    hook.chmod(0o755)
+    before = _g(repo, 'rev-parse', 'origin/main')
+    _commit_file(repo, 'b.txt', 'dev\n')
+    r = up.merge_main(root=str(repo))
+    assert not r['ok'] and r['step'] == 'push'
+    assert r['error'].startswith('GitHub refused: main is a protected branch')
+    assert r['error'].count('GH006') == 1                 # one attempt, not two
+    assert _g(repo.parent / 'origin.git', 'rev-parse', 'main') == before
 
 
 def test_merge_main_never_touches_worktree(up, repo):
@@ -464,3 +478,234 @@ def test_merge_main_owner_token_gate(up, monkeypatch):
     monkeypatch.setattr(m, 'mod', lambda name: FakeAuth('0xdef'))
     with pytest.raises(PermissionError):
         up._owner_from_token({'Authorization': 'Bearer x'})
+
+
+def test_activity_zero_fills_and_buckets_local(up, monkeypatch):
+    Mod._ACT_CACHE.clear()
+    today = up._today()
+    monkeypatch.setattr(up, '_is_local', lambda repo: True)
+    monkeypatch.setattr(up, '_local_activity', lambda branch, since: [
+        {'sha': 'a', 'date': today + 'T01:00:00Z', 'files': ['mod/orbit/x/a.py', 'mod/orbit/x/b.py']},
+        {'sha': 'b', 'date': today + 'T02:00:00Z', 'files': ['mod/orbit/x/a.py', 'core/api/z.py']},
+        {'sha': 'c', 'date': '1999-01-01T00:00:00Z', 'files': ['old.py']},   # outside the window
+    ])
+    a = up.activity(days=5)
+    assert len(a['days']) == 5 and a['days'][-1]['date'] == today and a['source'] == 'git'
+    last = a['days'][-1]
+    assert (last['commits'], last['files'], last['modules']) == (2, 3, 2)
+    assert last['top'][0] == {'name': 'x', 'files': 2}
+    assert all(d['commits'] == 0 for d in a['days'][:-1])
+    assert a['totals'] == {'commits': 2, 'active_days': 1, 'files': 3, 'modules': 2}
+
+
+def test_activity_remote_is_commit_counts_only(up, monkeypatch):
+    Mod._ACT_CACHE.clear()
+    today = up._today()
+    monkeypatch.setattr(up, '_is_local', lambda repo: False)
+    monkeypatch.setattr(up, 'commits', lambda *a, **k: [_commit('o/r', 'f' * 40, today + 'T03:00:00Z')])
+    a = up.activity(repo='o/r', days=3)
+    assert a['source'] == 'api' and a['days'][-1]['commits'] == 1
+    assert a['days'][-1]['files'] is None and a['totals']['files'] is None
+
+
+def test_activity_smoke_over_local_dev_branch(up):
+    Mod._ACT_CACHE.clear()
+    a = up.activity(days=14)
+    assert len(a['days']) == 14 and a['source'] == 'git'
+
+
+# --- mod-protocol auth: every write is box-or-owner ------------------------
+
+def _fake_auth(monkeypatch, key):
+    import time as _t
+
+    class FakeAuth:
+        def __call__(self): return self
+        def verify(self, tok): return {'key': key, 'time': str(_t.time())}
+    monkeypatch.setattr(m, 'mod', lambda name: FakeAuth())
+
+
+def test_whoami_standings(up, monkeypatch):
+    monkeypatch.setenv('UPDATES_OWNER', '0xABC')
+    gw = {'X-Forwarded-For': '1.2.3.4'}
+    assert up.whoami({}, '127.0.0.1')['standing'] == 'box'
+    assert up.whoami(gw, '127.0.0.1')['standing'] == 'anon'
+    assert up.whoami({}, '10.0.0.9')['can_write'] is False
+    _fake_auth(monkeypatch, '0xabc')
+    w = up.whoami({**gw, 'Authorization': 'Bearer t'}, '127.0.0.1')
+    assert w['standing'] == 'owner' and w['can_write'] and w['key'] == '0xabc'
+    _fake_auth(monkeypatch, '0xdef')
+    w = up.whoami({**gw, 'Authorization': 'Bearer t'}, '127.0.0.1')
+    assert w['standing'] == 'signed' and not w['can_write']
+
+
+def test_bad_token_is_reported_not_trusted(up, monkeypatch):
+    class Boom:
+        def __call__(self): return self
+        def verify(self, tok): raise ValueError('Invalid signature')
+    monkeypatch.setattr(m, 'mod', lambda name: Boom())
+    w = up.whoami({'X-Forwarded-For': '1.2.3.4', 'Authorization': 'Bearer junk'}, '127.0.0.1')
+    assert w['standing'] == 'anon' and 'invalid token' in w['error']
+
+
+def test_mcp_writes_need_a_writer(up, monkeypatch):
+    out = up._mcp_rpc({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                       'params': {'name': 'track', 'arguments': {'repo': 'foo/bar'}}},
+                      local=False, writer=False)['result']
+    assert out['isError'] and 'owner only' in out['content'][0]['text']
+    seen = {}
+    monkeypatch.setattr(up, 'updates', lambda **k: seen.update(k) or {'ok': 1})
+    up._mcp_rpc({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                 'params': {'name': 'updates', 'arguments': {'mark_seen': True}}},
+                local=False, writer=False)
+    assert seen['mark_seen'] is False          # a reader can't advance markers
+    up._mcp_rpc({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                 'params': {'name': 'track', 'arguments': {'repo': 'foo/bar'}}},
+                local=False, writer=True)
+    assert 'foo/bar' in up._load()['repos']
+
+
+def test_http_writes_gated_by_real_protocol_token(up, monkeypatch):
+    """End to end: gateway-shaped requests, a token minted by m.mod('auth')."""
+    import json as _j
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    key = m.key()
+    monkeypatch.setenv('UPDATES_OWNER', key.address)
+    httpd = ThreadingHTTPServer(('127.0.0.1', 0), up._make_handler())
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f'http://127.0.0.1:{httpd.server_address[1]}'
+
+    def post(path, body, **hdr):
+        req = urllib.request.Request(base + path, _j.dumps(body).encode(), method='POST',
+                                     headers={'Content-Type': 'application/json',
+                                              'X-Forwarded-For': '1.2.3.4', **hdr})
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, _j.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, _j.loads(e.read())
+    try:
+        code, j = post('/api/track', {'repo': 'foo/bar'})
+        assert code == 403 and 'owner only' in j['error']
+        assert 'foo/bar' not in up._load()['repos']
+        tok = m.mod('auth')().token('updates', key=key)
+        code, j = post('/api/track', {'repo': 'foo/bar'}, Authorization='Bearer ' + tok)
+        assert code == 200, j
+        assert 'foo/bar' in up._load()['repos']
+        req = urllib.request.Request(base + '/api/whoami',
+                                     headers={'Authorization': 'Bearer ' + tok,
+                                              'X-Forwarded-For': '1.2.3.4'})
+        with urllib.request.urlopen(req) as r:
+            assert _j.loads(r.read())['standing'] == 'owner'
+    finally:
+        httpd.shutdown()
+
+
+# --- Changes tab: uncommitted work -> owner commits to dev --------------------
+
+def _dirty(repo):
+    """a modified file, a new file in a module dir, a deletion, and a pre-staged
+    stray that the owner did NOT pick."""
+    (repo / 'mod' / 'orbit' / 'foo').mkdir(parents=True)
+    _commit_file(repo, 'gone.txt', 'bye\n'); _g(repo, 'push', 'origin', 'dev')
+    (repo / 'a.txt').write_text('base\nmore\n')
+    (repo / 'mod' / 'orbit' / 'foo' / 'new.py').write_text('x = 1\ny = 2\n')
+    (repo / 'gone.txt').unlink()
+    (repo / 'stray.txt').write_text('staged by someone else\n')
+    _g(repo, 'add', 'stray.txt')
+
+
+def test_pending_lists_and_groups_uncommitted_work(up, repo):
+    _dirty(repo)
+    p = up.pending(root=str(repo))
+    by = {f['path']: f for f in p['files']}
+    assert by['a.txt']['status'] == 'modified' and by['a.txt']['add'] == 1
+    assert by['mod/orbit/foo/new.py']['status'] == 'new' and by['mod/orbit/foo/new.py']['add'] == 2
+    assert by['gone.txt']['status'] == 'deleted' and by['gone.txt']['rem'] == 1
+    assert by['stray.txt']['staged']
+    assert p['count'] == 4 and p['branch'] == 'dev' and p['ahead'] == 0
+    assert {g['name'] for g in p['modules']} >= {'foo', 'root'}
+
+
+def test_pending_diff_serves_only_pending_paths(up, repo):
+    _dirty(repo)
+    d = up.pending_diff('mod/orbit/foo/new.py', root=str(repo))
+    assert '+x = 1' in d['diff'] and '/dev/null' in d['diff']
+    assert '+more' in up.pending_diff('a.txt', root=str(repo))['diff']
+    with pytest.raises(ValueError):
+        up.pending_diff('.git/config', root=str(repo))      # never an arbitrary file
+
+
+def test_commit_pending_commits_only_what_was_picked(up, repo):
+    _dirty(repo)
+    r = up.commit_pending(paths=['a.txt', 'gone.txt'], modules=['foo'], root=str(repo))
+    assert r['ok'] and r['pushed'] and r['files'] == 3, r
+    assert _g(repo, 'rev-parse', 'HEAD') == _g(repo.parent / 'origin.git', 'rev-parse', 'dev')
+    shipped = set(_g(repo, 'show', '--name-only', '--format=', 'HEAD').split())
+    assert shipped == {'a.txt', 'gone.txt', 'mod/orbit/foo/new.py'}
+    # the stray someone else staged is still staged and still uncommitted
+    left = up.pending(root=str(repo))
+    assert [f['path'] for f in left['files']] == ['stray.txt'] and left['files'][0]['staged']
+
+
+def test_commit_pending_refuses_oversize_wrong_branch_and_junk(up, repo, monkeypatch):
+    _dirty(repo)
+    monkeypatch.setattr(_updates, 'PENDING_MAX_FILE', 5)
+    r = up.commit_pending(paths=['a.txt'], root=str(repo))
+    assert not r['ok'] and r['step'] == 'size' and 'a.txt' in r['error']
+    monkeypatch.setattr(_updates, 'PENDING_MAX_FILE', 50_000_000)
+    assert up.commit_pending(paths=['nope.txt'], root=str(repo))['step'] == 'select'
+    _g(repo, 'checkout', '-q', 'main')
+    r = up.commit_pending(root=str(repo))
+    assert not r['ok'] and r['step'] == 'branch'
+    _g(repo, 'checkout', '-q', 'dev')
+
+
+def test_commit_pending_rejected_push_keeps_local_commit(up, repo):
+    _dirty(repo)
+    hook = repo.parent / 'origin.git' / 'hooks' / 'pre-receive'
+    hook.write_text('#!/bin/sh\necho nope >&2\nexit 1\n'); hook.chmod(0o755)
+    r = up.commit_pending(paths=['a.txt'], message='hello', root=str(repo))
+    assert r['ok'] and not r['pushed'] and 'nope' in r['push_error']
+    assert _g(repo, 'log', '-1', '--format=%s') == 'hello'
+
+
+def test_http_commit_pending_is_owner_only(up, monkeypatch, repo):
+    import json as _j
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    monkeypatch.setenv('UPDATES_OWNER', '0xABC')
+    up._toplevel = str(repo)
+    _dirty(repo)
+    httpd = ThreadingHTTPServer(('127.0.0.1', 0), up._make_handler())
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f'http://127.0.0.1:{httpd.server_address[1]}'
+    gw = {'X-Forwarded-For': '1.2.3.4'}
+
+    def call(path, body=None):
+        req = urllib.request.Request(base + path, None if body is None else _j.dumps(body).encode(),
+                                     method='GET' if body is None else 'POST',
+                                     headers={'Content-Type': 'application/json', **gw})
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, _j.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, _j.loads(e.read())
+    try:
+        code, j = call('/api/pending')
+        assert code == 200 and j['count'] == 4               # the list is public
+        assert call('/api/pending_diff?path=a.txt')[0] == 403  # contents are not
+        code, j = call('/api/commit_pending', {'paths': ['a.txt']})
+        assert code == 403
+        assert _g(repo, 'log', '-1', '--format=%s') == 'dev: gone.txt'
+        _fake_auth(monkeypatch, '0xabc')
+        gw['Authorization'] = 'Bearer t'
+        code, j = call('/api/commit_pending', {'paths': ['a.txt'], 'push': False})
+        assert code == 200 and j['ok'] and not j['pushed'], j
+    finally:
+        httpd.shutdown()

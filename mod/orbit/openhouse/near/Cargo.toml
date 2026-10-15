@@ -1,0 +1,22 @@
+[package]
+name = "openhouse_proofs"
+version = "0.1.0"
+edition = "2021"
+description = "OpenHouse proof-of-rent verifier for NEAR: checks a bank's ed25519 attestation over a Cairo fact (keccak256(program_hash || keccak256(outputs))), pins the program hash and the property's rent due, burns the nullifier. Nothing about the tenant touches the chain."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5"
+
+[dev-dependencies]
+near-sdk = { version = "5", features = ["unit-testing"] }
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true

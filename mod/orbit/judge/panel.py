@@ -9,8 +9,9 @@ the verdict fails closed.
 
 Judge kinds:
   rule  — deterministic, offline: length bounds, required / forbidden words.
-  llm   — asks an OpenAI-compatible chat endpoint to score the input
-          against the judge's criteria prompt.
+  llm   — a model scores the input against the judge's criteria: the
+          LFM weights on this box via the liquidai module by default, or
+          any OpenAI-compatible chat endpoint when the spec names a url.
   agent — an agent-protocol agent (orbit/agent POST /run with an
           agent_type); its finish summary is parsed as the score.
   panel — another panel sits as one judge: its vote is that panel's
@@ -34,11 +35,15 @@ import sqlite3
 import time
 import urllib.request
 
+import identity
 import keys
 import market
 
-DEFAULT_LLM_URL = os.environ.get('JUDGE_LLM_URL',
-                                 'http://localhost:50600/v1/chat/completions')
+# Where an llm judge runs when its spec names no `url`: the LFM weights on
+# this box, through the mod protocol (keyless, same route orbit/agent takes).
+# JUDGE_LLM_URL swaps that for any OpenAI-compatible chat endpoint.
+DEFAULT_LLM_URL = os.environ.get('JUDGE_LLM_URL', '')
+DEFAULT_LLM_MODEL = os.environ.get('JUDGE_LLM_MODEL', 'LiquidAI/LFM2.5-1.2B-Instruct')
 
 
 def _store_dir():
@@ -170,6 +175,42 @@ class Panels:
         self._ensure_keys(name, stored)
         return self.get(name)
 
+    def add_judge(self, name, creator, judge):
+        """Seat one more judge on a panel — creator only. Same checks as
+        the bench takes at create time; the quorum stays where it was, so
+        adding a judge never makes a panel harder to pass unless the
+        creator also raises min_votes."""
+        p = self.get(name)
+        if 'error' in p:
+            return p
+        if creator != p['creator']:
+            return {'error': 'only the creator can add a judge'}
+        if isinstance(judge, str):
+            try:
+                judge = json.loads(judge)
+            except Exception:
+                return {'error': 'judge must be a JSON object'}
+        if not isinstance(judge, dict):
+            return {'error': 'judge must be a JSON object'}
+        stored = [{k: v for k, v in j.items() if k != 'keys'} for j in p['judges']]
+        out = self.update(name, creator, judges=stored + [dict(judge)])
+        if 'error' in out:
+            return out
+        seat = next((j for j in out['judges'] if j['name'] == judge.get('name')), None)
+        return {'added': judge.get('name'), 'judge': seat, 'panel': out}
+
+    def judge_keys(self, name, judge):
+        """One judge's keyring, public side: per key type the public key,
+        its fingerprint, the algorithm and whether it is quantum-resistant."""
+        p = self.get(name)
+        if 'error' in p:
+            return p
+        j = next((x for x in p['judges'] if x['name'] == judge), None)
+        if not j:
+            return {'error': f'no judge {judge!r} on panel {name!r}'}
+        return {'panel': name, 'judge': judge, 'kind': j.get('kind', 'llm'),
+                'goal': j.get('goal'), 'keys': j['keys']}
+
     def remove(self, name, creator):
         p = self.get(name)
         if 'error' in p:
@@ -200,8 +241,17 @@ class Panels:
             kind = j.get('kind', 'llm')
             if kind not in ('llm', 'rule', 'agent', 'panel'):
                 return {'error': f'judge {j["name"]!r}: kind must be llm, rule, agent or panel'}
-            if kind == 'llm' and not j.get('prompt'):
-                return {'error': f'judge {j["name"]!r}: llm judge needs a criteria prompt'}
+            goal = j.get('goal')
+            if goal is not None:
+                if not isinstance(goal, str) or len(goal) > 600:
+                    return {'error': f'judge {j["name"]!r}: goal must be a string '
+                                     'under 600 characters'}
+                j['goal'] = goal.strip()
+                if not j['goal']:
+                    j.pop('goal')
+            if kind == 'llm' and not (j.get('prompt') or j.get('goal')):
+                return {'error': f'judge {j["name"]!r}: llm judge needs a goal '
+                                 'or a criteria prompt'}
             err = market.check_judge(self, j, kind, panel_name)
             if err:
                 return err
@@ -445,24 +495,18 @@ def _rule_score(j, text):
 
 
 def _llm_score(j, text):
-    """Agent judge: ask an OpenAI-compatible endpoint to score 0-100."""
+    """Model judge: a chat model scores the input 0-100 — local LFM weights
+    by default, an OpenAI-compatible endpoint when the spec has a url."""
     url = j.get('url') or DEFAULT_LLM_URL
+    user = f'INPUT:\n{text}'
     system = (f'You are {j["name"]!r}, one judge on a review panel. '
-              f'Criteria: {j["prompt"]} '
-              'Score the INPUT from 0 (worst) to 100 (best) against the criteria. '
+              f'{market.judge_brief(j)} '
+              'Score the INPUT from 0 (worst) to 100 (best) against the goal and criteria. '
               'Reply with ONLY a JSON object: {"score": <number>, "reason": "<one line>"}')
-    body = {'model': j.get('model', 'auto'),
-            'messages': [{'role': 'system', 'content': system},
-                         {'role': 'user', 'content': f'INPUT:\n{text}'}],
-            'temperature': 0, 'max_tokens': 200}
-    headers = {'Content-Type': 'application/json'}
-    key_env = j.get('api_key_env')
-    if key_env and os.environ.get(key_env):
-        headers['Authorization'] = f'Bearer {os.environ[key_env]}'
-    req = urllib.request.Request(url, json.dumps(body).encode(), headers)
-    with urllib.request.urlopen(req, timeout=float(j.get('timeout', 60))) as r:
-        data = json.loads(r.read().decode())
-    content = data['choices'][0]['message']['content']
+    if url:
+        content = _chat_http(j, url, system, user)
+    else:
+        content = _chat_local(j, system, user)
     m = re.search(r'\{.*\}', content, re.S)
     if m:
         try:
@@ -474,3 +518,36 @@ def _llm_score(j, text):
     if not m:
         raise ValueError(f'no score in reply: {content[:120]!r}')
     return float(m.group(0)), content.strip()[:400]
+
+
+def _chat_http(j, url, system, user):
+    """One turn against an OpenAI-compatible chat endpoint."""
+    body = {'model': j.get('model', 'auto'),
+            'messages': [{'role': 'system', 'content': system},
+                         {'role': 'user', 'content': user}],
+            'temperature': 0, 'max_tokens': 200}
+    headers = {'Content-Type': 'application/json'}
+    key_env = j.get('api_key_env')
+    if key_env and os.environ.get(key_env):
+        headers['Authorization'] = f'Bearer {os.environ[key_env]}'
+    req = urllib.request.Request(url, json.dumps(body).encode(), headers)
+    with urllib.request.urlopen(req, timeout=float(j.get('timeout', 60))) as r:
+        data = json.loads(r.read().decode())
+    return data['choices'][0]['message']['content']
+
+
+def _chat_local(j, system, user):
+    """One turn on the LFM weights this box runs, via the liquidai module.
+    `model` is a HuggingFace repo id liquidai's server runtime can load;
+    `runtime` may be 'cloud' for Liquid's hosted API on the operator's key."""
+    m = identity.protocol()
+    if m is None:
+        raise RuntimeError('mod protocol unavailable — set JUDGE_LLM_URL or give the judge a url')
+    out = m.mod('liquidai')().chat(
+        prompt=user, system=system, model=j.get('model') or DEFAULT_LLM_MODEL,
+        runtime=j.get('runtime', 'server'), max_tokens=200, temperature=0)
+    if not isinstance(out, dict):
+        return str(out)
+    if not out.get('ok'):
+        raise RuntimeError(f'liquidai: {out.get("error") or "chat failed"}')
+    return out.get('text') or ''

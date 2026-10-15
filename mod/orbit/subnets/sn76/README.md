@@ -2,7 +2,7 @@
 
 Ormas is an Outcomes API for coding work on Bittensor subnet 76, in development. Clients post a change and the test that proves it; miners quote a firm price for the passing result and deliver a branch. Miners will be paid only when independent validators accept the delivery, and clients will be charged the accepted quote and nothing on a miss. Protocol, thin client, reference miner and reference validator: MIT.
 
-Bittensor subnet **76** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **76** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/heroncovelabs/ormas-subnet) · [url](https://ormas.ai) · discord `ormasheroncovelabs_43871`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/heroncovelabs/ormas-subnet) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006004 | -0.33% | -5.86% | +12.36% | 1,615 | 509.6897 | 551.26 |
+| 0.005832 | -0.03% | -2.87% | +11.07% | 1,611 | 502.3310 | 60.45 |
 
 ## Last 24h flow
 
-165 trades by 48 coldkeys · 97 buys (267.88 τ) / 68 sells (278.86 τ) · net -10.98 τ
+28 trades by 17 coldkeys · 16 buys (26.55 τ) / 12 sells (31.22 τ) · net -4.67 τ
 
 ## News
 
-- 2026-10-11 · commit · [Merge pull request #34 from heroncovelabs/btl/onboarding-register-bef…](https://github.com/heroncovelabs/ormas-subnet/commit/f8ad351e0934a270af6f0f6a9d84bf1d961bcc96) — heroncovelabs/ormas-subnet
-- 2026-10-11 · commit · [Fix miner registration-first onboarding](https://github.com/heroncovelabs/ormas-subnet/commit/4c422ee0a7dcae540015fd20b258159cf7f70f74) — heroncovelabs/ormas-subnet
-- 2026-10-11 · commit · [Merge pull request #33 from heroncovelabs/sync/protected-split-pins-2…](https://github.com/heroncovelabs/ormas-subnet/commit/e4d084ce2d07c1495c526f8bb105c1df1fe10a87) — heroncovelabs/ormas-subnet
-- 2026-10-11 · commit · [Merge pull request #32 from heroncovelabs/sync/protected-pluggable-wo…](https://github.com/heroncovelabs/ormas-subnet/commit/aa8e0ba979bdb11cc5703f077cf6447a8f69262c) — heroncovelabs/ormas-subnet
-- 2026-10-11 · commit · [Sync: compose_hash.py pin-state and transition-policy fixes (f46f6d46…](https://github.com/heroncovelabs/ormas-subnet/commit/22ff0d0e8d3940dde024fd8fd4debf2197a2a6d3) — heroncovelabs/ormas-subnet
-- 2026-10-11 · commit · [Sync from monorepo public_subnet: pinned split shell recipe (docker-c…](https://github.com/heroncovelabs/ormas-subnet/commit/1df6d9a13901e414c6f3274d2ac643a1823e2d0f) — heroncovelabs/ormas-subnet
-- 2026-10-10 · commit · [Sync from monorepo public_subnet: Protected pluggable worker contract…](https://github.com/heroncovelabs/ormas-subnet/commit/bf843fa9fd2817267881fcf1bfd3e502dc95a6b4) — heroncovelabs/ormas-subnet
-- 2026-10-09 · commit · [Pool deliveries: claim-refusal backoff + claim_health(); validator --…](https://github.com/heroncovelabs/ormas-subnet/commit/c9a03f33fc5dbf5cf9a32cea5d1251aba8e8a311) — heroncovelabs/ormas-subnet
+- 2026-10-14 · commit · [Merge pull request #44 from heroncovelabs/fix/accept-deployed-catalog…](https://github.com/heroncovelabs/ormas-subnet/commit/e732c923a81a98b6be98e0dc928a8df5aa914aba) — heroncovelabs/ormas-subnet
+- 2026-10-14 · commit · [docs: clarify qualification and queued-job upgrade guidance](https://github.com/heroncovelabs/ormas-subnet/commit/8eed2b9999e9dada78d260b830e6e95a6abb22b7) — heroncovelabs/ormas-subnet
+- 2026-10-14 · commit · [fix: accept deployed catalog with scoped draining compiler](https://github.com/heroncovelabs/ormas-subnet/commit/b370cbd1d5103cd256a5fd32d2164a483e0e22d1) — heroncovelabs/ormas-subnet
+- 2026-10-14 · commit · [Merge pull request #41 from heroncovelabs/codex/security-public-combi…](https://github.com/heroncovelabs/ormas-subnet/commit/ec10e9b6e2fad6ba7d5c5a73c0bcb34ff828f116) — heroncovelabs/ormas-subnet
+- 2026-10-14 · commit · [security: harden public miner and validator boundaries](https://github.com/heroncovelabs/ormas-subnet/commit/c4652f383a5e4f86d2d7bb1b6eaf8e01d9044acd) — heroncovelabs/ormas-subnet
+- 2026-10-14 · commit · [Merge pull request #40 from heroncovelabs/codex/security-publication-…](https://github.com/heroncovelabs/ormas-subnet/commit/76df5635e02737fadc95aa4fea1271ad2b3bec60) — heroncovelabs/ormas-subnet
+- 2026-10-14 · commit · [security: enforce publication path scope](https://github.com/heroncovelabs/ormas-subnet/commit/57b8da81ca4f561109faf3330cf11ff97fac8584) — heroncovelabs/ormas-subnet
+- 2026-10-14 · commit · [Merge pull request #39 from heroncovelabs/codex/security-acceptance-d…](https://github.com/heroncovelabs/ormas-subnet/commit/65f14f203fdd611d87928ac2e003c273ba6534a1) — heroncovelabs/ormas-subnet
 
 ## Use
 

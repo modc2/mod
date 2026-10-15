@@ -68,6 +68,7 @@ import { shortAddress } from "../lib/auth";
 import { askDeskAgent } from "../lib/agentAsk";
 import { isStratsSection, isStratsView, stratsHref, type StratsSection, type StratsView } from "../lib/stratsNav";
 import AccountsPanel from "./AccountsPanel";
+import AgentsPanel from "./AgentsPanel";
 import AutoStratPanel from "./AutoStratPanel";
 import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
 import CopyPanel from "./CopyPanel";
@@ -125,6 +126,7 @@ const VIEW_TABS: [StratsView, string, string][] = [
   ["backtest", "BACKTEST", "Replay the active strat on history — simulated money, no wallet touched"],
   ["live", "LIVE", "Run the active strat against the real book with real money"],
   ["trades", "TRADES", "Every trade this account has made, each with its P&L"],
+  ["agents", "AGENTS", "Every AI agent in this console — each is its own mod; switch them on and off"],
 ];
 
 function SectionHeader({ label, hint }: { label: string; hint: string }) {
@@ -395,6 +397,9 @@ export default function StratsTab() {
         /* Keyed so a half-run replay never leaks into LIVE and back. */
         <Workspace key={view} mode={view === "live" ? "LIVE" : "BACKTEST"} bare />
       )}
+
+      {/* ── AGENTS — the agent mods (src/agents/), each with its switch ── */}
+      {view === "agents" && <AgentsPanel />}
 
       {/* ── TRADES — the trading record, one row per position with its P&L ── */}
       {view === "trades" && (

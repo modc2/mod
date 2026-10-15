@@ -2,7 +2,7 @@
 
 The peer to peer privacy network and encryption layer for the internet
 
-Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) · discord `xcolwell`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) ·
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005830 | -0.00% | -10.13% | -14.88% | 36,002 | 12,382 | 4,214 |
+| 0.005745 | -0.03% | -1.46% | -16.12% | 35,522 | 12,296 | 1,046 |
 
 ## Last 24h flow
 
-210 trades by 65 coldkeys · 113 buys (1,764 τ) / 97 sells (2,444 τ) · net -680.06 τ
+83 trades by 44 coldkeys · 34 buys (474.42 τ) / 49 sells (567.46 τ) · net -93.03 τ
 
 ## News
 
-- 2026-10-14 · commit · [Bring the handoff note to the deposit floors, the apps' gas hints and…](https://github.com/urfoundation/sn/commit/37364436d18ddb15191050d4e88929ad1010480a) — urfoundation/sn
-- 2026-10-14 · commit · [Select the deposit-key gas-floor and pending-reservation tests in the…](https://github.com/urfoundation/sn/commit/839c906b473df52023a16a0337c9b03486065032) — urfoundation/sn
-- 2026-10-14 · commit · [Bring the runbook and the handoff note to the dual-stack hops, the st…](https://github.com/urfoundation/sn/commit/8381bb598db75bc16ceee14f8115d2e5911734f2) — urfoundation/sn
-- 2026-10-14 · commit · [Merge v2/dual-stack-hops into main](https://github.com/urfoundation/sn/commit/00e383fe2dd4805be897ff03f1aea5631ecc10f6) — urfoundation/sn
-- 2026-10-14 · release · [v2026.10.13-1071380620](https://github.com/urfoundation/sn/releases/tag/v2026.10.13-1071380620) — urfoundation/sn
-- 2026-10-14 · commit · [Merge v2/gate-selection into main](https://github.com/urfoundation/sn/commit/6caf96674e4656933568c4437acc02526b228e13) — urfoundation/sn
-- 2026-10-13 · commit · [Sign the printed escrow envelope and register the pool through regist…](https://github.com/urfoundation/sn/commit/188c15471dff763ce974b4ed68469cb494c9dd71) — urfoundation/sn
-- 2026-10-13 · commit · [Merge v2/launch-tools into main](https://github.com/urfoundation/sn/commit/c7ab626006f75692b49b4b603d248247a05ba704) — urfoundation/sn
+- 2026-10-15 · commit · [Never let a nested gate fixture remove its parent gate's mainnet exports](https://github.com/urfoundation/sn/commit/819f00c52492f262a0fe5b57d622a98eb79d064e) — urfoundation/sn
+- 2026-10-15 · commit · [Merge v2/gate-more-shards into main](https://github.com/urfoundation/sn/commit/6b007ed183e4f5be8f32de2c6036a836bd337dc1) — urfoundation/sn
+- 2026-10-15 · commit · [Select the startup verified tests and pin the memo's replay edge](https://github.com/urfoundation/sn/commit/c22d715f1cfcff4c20e8d8b3fb3d63e7fcda3efd) — urfoundation/sn
+- 2026-10-15 · commit · [Give the isolation job's two runs of the gate pins ten minutes](https://github.com/urfoundation/sn/commit/b000670d0c22ffd37b0985c2f4f8067f3da1d465) — urfoundation/sn
+- 2026-10-15 · commit · [Run ./validator, ./sim-testnet and connect's race runs in hash shards](https://github.com/urfoundation/sn/commit/2ce50cf9054ed90921aa228a5b357663326da16b) — urfoundation/sn
+- 2026-10-14 · commit · [Merge v2/mainnet-export-fixes-a into main](https://github.com/urfoundation/sn/commit/5eb6af92e06ad17a116d6ad84e3dcc118f4ed094) — urfoundation/sn
+- 2026-10-14 · commit · [Merge v2/request-checkpoint-xattr into main](https://github.com/urfoundation/sn/commit/27e786d9773dfdad1d1b770d08a9bb8f1fa95c0c) — urfoundation/sn
+- 2026-10-14 · commit · [Merge v2/whitepaper-accuracy into main](https://github.com/urfoundation/sn/commit/98f64496be129be04c36c0799850106110de4cbe) — urfoundation/sn
 
 ## Use
 

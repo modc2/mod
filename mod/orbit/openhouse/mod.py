@@ -1225,7 +1225,7 @@ class Mod:
 
     def bank_reconcile(self, connection: str = '', account: str = '', since: int = 0,
                        dry_run: bool = False, rate: Optional[float] = None,
-                       key: str = '') -> dict:
+                       key: str = '', issue_proofs: bool = False) -> dict:
         """Book every linked incoming transfer onto the rent ledger, once.
 
         Each credit carrying a renter's reference code (or from their linked
@@ -1235,6 +1235,9 @@ class Mod:
         claims come back `unmatched` for the owner to look at.
 
         rate: fiat per 1 Ξ; default is the live fx rail (fx()).
+        issue_proofs: after each booking, issue a proof-of-rent receipt
+                      (proof_issue) for that transfer — the tenant's address
+                      stays with the bank, the chain gets a commitment.
         """
         blocked = self._bank_gate(key, connection=connection)
         if blocked:
@@ -1261,6 +1264,12 @@ class Mod:
                         'owner_income': split['owner_income'],
                         'fee_pct': split['fee_pct'], 'credit_pct': split['credit_pct']}
             record_fn = _record_dry
+        elif issue_proofs:
+            def record_fn(renter, units, kind, source):
+                res = self.pay_rent(renter, units, kind=kind, source=source)
+                if res.get('success'):
+                    res['proof'] = self._proof_for_booking(renter, units, source)
+                return res
         else:
             record_fn = lambda renter, units, kind, source: self.pay_rent(renter, units, kind=kind, source=source)
         return self._bank_run(
@@ -1268,6 +1277,23 @@ class Mod:
             record=record_fn,
             to_units=lambda amount, ccy: self._to_eth(amount, ccy, rate),
             conn_id=connection, account=account, since=int(since or 0), dry_run=bool(dry_run))
+
+    def _proof_for_booking(self, renter: str, units: float, source: dict) -> dict:
+        """One receipt per booked transfer: period from the bank's booking
+        date, rent due from the live terms, amount from the booking. A
+        payment short of the rent due gets the program's refusal, recorded
+        on the ledger line, never a receipt."""
+        pm = self._proofs_mod()
+        period = pm.period_of(int((source or {}).get('booked_at_bank') or time.time()))
+        due = pm.units(self.terms().get('monthly_rent') or 0)
+        if due <= 0:
+            return {'error': 'no monthly rent set — nothing to prove against'}
+        out = self._proof_run(self._proofs().issue, self._proof_property_id(), period, due,
+                              renter, pm.units(units), source=source)
+        if 'error' in out:
+            return out
+        return {'nullifier': out['nullifier'], 'commitment': out['commitment'],
+                'period': out['period'], 'fact': out['fact']}
 
     def bank_pay(self, amount: float, to_iban: str, to_name: str = '', account: str = '',
                  connection: str = '', currency: str = '', reference: str = '',
@@ -1306,6 +1332,258 @@ class Mod:
         return self._examples_mod().run(name, type(self))
 
     # ━━ Health & Status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+    # ━━ Proofs — proof of rent paid, without the tenant ━━━━━━━━━━━━
+
+    def _proofs_mod(self):
+        """proofs.py loaded by path (peers.py/fx.py pattern)."""
+        if getattr(self, '_proofs_mod_cache', None) is None:
+            import importlib.util
+            import sys
+            name = 'openhouse_proofs'
+            if name not in sys.modules:
+                spec = importlib.util.spec_from_file_location(name, self.module_dir / 'proofs.py')
+                mod_ = importlib.util.module_from_spec(spec)
+                sys.modules[name] = mod_
+                spec.loader.exec_module(mod_)
+            self._proofs_mod_cache = sys.modules[name]
+        return self._proofs_mod_cache
+
+    def _proofs(self):
+        if getattr(self, '_proofs_cache', None) is None:
+            pm = self._proofs_mod()
+            self._proofs_cache = pm.Proofs(self.store_dir, self.secrets_dir, config=self.config,
+                                           network=self.network, near=lambda: m.mod('near')())
+        return self._proofs_cache
+
+    def _proof_run(self, fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except self._proofs_mod().ProofError as e:
+            return {'error': str(e)}
+        except (ValueError, TypeError) as e:
+            return {'error': str(e)}
+
+    def _proof_property_id(self) -> int:
+        return int((self.config.get('proofs') or {}).get('property_id', 1))
+
+    def proof_status(self) -> dict:
+        """The proof rail at a glance: the Cairo statement and its hash, this
+        node's issuer keys (public halves), receipts issued and submitted,
+        and where the NEAR/Ethereum verifiers live."""
+        out = self._proof_run(self._proofs().status)
+        if 'error' not in out:
+            out['property_id'] = self._proof_property_id()
+            t = self.terms()
+            out['rent_due'] = self._proofs_mod().units(t.get('monthly_rent') or 0)
+        return out
+
+    def proof_program(self) -> dict:
+        """The statement: proof/src/lib.cairo, its program hash, the output
+        layout and how the fact is derived from it."""
+        pm = self._proofs_mod()
+        info = self._proof_run(pm.program_info)
+        src = self.module_dir / 'proof' / 'src' / 'lib.cairo'
+        if src.exists():
+            info['source'] = src.read_text()
+        return info
+
+    def proof_issue(self, property_id=None, period=None, rent_due=None, tenant: str = '',
+                    amount=None, salt: str = '', note: str = '', key: str = '') -> dict:
+        """The bank's move (this node acting as the bank): run the Cairo
+        statement over the private facts — tenant, salt, amount — sign the
+        fact for NEAR and Ethereum, keep the receipt. The receipt carries no
+        tenant data. Amounts are integers × 1e6 of the deal currency;
+        rent_due defaults to the live terms' monthly rent, period to this
+        month. Needs the operator bank key off testnet."""
+        if self.network != 'testnet':
+            blocked = self._bank_gate(key, kind='proof')
+            if blocked:
+                return blocked
+        if not tenant:
+            return {'error': 'tenant required (an address, a NEAR account, any stable identity)'}
+        if amount in (None, ''):
+            return {'error': 'amount required (integer units × 1e6 of the deal currency)'}
+        pm = self._proofs_mod()
+        pid = int(property_id or self._proof_property_id())
+        per = int(period or pm.period_of(int(time.time())))
+        if rent_due in (None, ''):
+            rent_due = pm.units(self.terms().get('monthly_rent') or 0)
+        return self._proof_run(self._proofs().issue, pid, per, int(rent_due), tenant,
+                               int(amount), salt=salt or None, note=note)
+
+    def proofs(self, property_id=None, period=None) -> list:
+        """Every receipt this node issued, newest period first (no tenant data)."""
+        return self._proofs().list(property_id, period)
+
+    def proof(self, nullifier: str) -> dict:
+        """One receipt by nullifier, with where it stands on each chain."""
+        r = self._proof_run(self._proofs().get, nullifier)
+        if r is None:
+            return {'error': 'no such receipt'}
+        if 'error' in r:
+            return r
+        return {**r, 'chains': self._proofs().chain_status(r)}
+
+    def proof_verify(self, receipt=None, nullifier: str = '') -> dict:
+        """Anyone, offline: recompute the fact, check both bank signatures,
+        the statement version and the program hash this node runs. Pass a
+        receipt object (any node's) or a nullifier known here."""
+        floor = None
+        try:
+            floor = self._proofs_mod().units(self.terms().get('monthly_rent') or 0) or None
+        except Exception:
+            pass
+        return self._proof_run(self._proofs().verify, receipt=receipt, nullifier=nullifier,
+                               rent_due_floor=floor)
+
+    def proof_open(self, tenant: str, salt: str, receipt=None, nullifier: str = '') -> dict:
+        """The tenant's move: show (tenant, salt) to whoever needs convincing;
+        the commitment either matches the receipt's or it does not. Nothing
+        is stored or signed."""
+        if not tenant or not salt:
+            return {'error': 'tenant and salt required'}
+        return self._proof_run(self._proofs().open, tenant, salt, receipt=receipt, nullifier=nullifier)
+
+    def proof_salt(self, tenant: str, key: str = '') -> dict:
+        """The salt this node drew for a tenant — what the tenant needs to
+        open their own commitments. Operator key off testnet."""
+        if self.network != 'testnet':
+            blocked = self._bank_gate(key, kind='proof')
+            if blocked:
+                return blocked
+        if not tenant:
+            return {'error': 'tenant required'}
+        pm = self._proofs_mod()
+        return {'tenant': tenant, 'salt': pm.hex32(self._proofs().salt_for(tenant)),
+                'tenant_felt': pm.hex32(pm.tenant_felt(tenant))}
+
+    def proof_submit(self, nullifier: str, chain: str = 'near', account: str = '',
+                     address: str = '', url: str = '', signer: str = '', key: str = '') -> dict:
+        """Relay a receipt to a verifier: chain='near' (the wasm contract,
+        signed by the orbit/near keystore) or 'eth' (OpenHouseProofs.sol,
+        signed by the issuer's own key unless key= is given). The chain
+        re-checks the signature, the program hash, the property's rent due
+        and burns the nullifier."""
+        p = self._proofs()
+        r = p.get(nullifier) if nullifier else None
+        if r is None:
+            return {'error': 'no such receipt'}
+        if chain == 'near':
+            return self._proof_run(p.submit_near, r, account=account, signer=signer)
+        if chain in ('eth', 'ethereum'):
+            return self._proof_run(p.submit_eth, r, address=address, url=url, key=key)
+        return {'error': "chain must be 'near' or 'eth'"}
+
+    def proof_chain(self, nullifier: str) -> dict:
+        """Ask both verifiers whether this receipt's property/period is paid."""
+        r = self._proofs().get(nullifier)
+        if r is None:
+            return {'error': 'no such receipt'}
+        return self._proofs().chain_status(r)
+
+    def proof_build(self, target: str = 'all') -> dict:
+        """Compile the proof toolchain: 'cairo' (scarb build → program hash),
+        'near' (cargo → .wasm), 'eth' (forge build), or 'all'."""
+        out = {}
+        if target in ('all', 'cairo'):
+            pm = self._proofs_mod()
+            b = pm.build()
+            if b.get('ok'):
+                pm._PH_CACHE.clear()
+                b['program_hash'] = pm.program_hash()
+            out['cairo'] = b
+        if target in ('all', 'near'):
+            out['near'] = self._near_build()
+        if target in ('all', 'eth'):
+            forge = Path(os.path.expanduser('~/.foundry/bin/forge'))
+            if not forge.exists():
+                out['eth'] = {'ok': False, 'error': 'forge not installed'}
+            else:
+                r = subprocess.run([str(forge), 'build'], cwd=self.module_dir / 'contracts',
+                                   capture_output=True, text=True, timeout=600)
+                out['eth'] = {'ok': r.returncode == 0, 'log': (r.stdout + r.stderr)[-1500:]}
+        return out
+
+    _NEAR_TARGET = Path(os.path.expanduser('~/mod/mod/orbit/near/contracts/.target'))
+
+    def _near_build(self) -> dict:
+        cargo = Path(os.path.expanduser('~/.cargo/bin/cargo'))
+        if not cargo.exists():
+            return {'ok': False, 'error': 'cargo not installed'}
+        env = dict(os.environ, CARGO_TARGET_DIR=str(self._NEAR_TARGET), CARGO_TERM_COLOR='never')
+        env['PATH'] = str(cargo.parent) + os.pathsep + env.get('PATH', '')
+        r = subprocess.run([str(cargo), 'build', '--target', 'wasm32-unknown-unknown', '--release'],
+                           cwd=self.module_dir / 'near', capture_output=True, text=True,
+                           timeout=900, env=env)
+        wasm = self._near_wasm()
+        out = {'ok': r.returncode == 0 and wasm is not None, 'log': (r.stdout + r.stderr)[-1500:]}
+        if wasm:
+            import hashlib
+            out['wasm'] = str(wasm)
+            out['bytes'] = wasm.stat().st_size
+            out['sha256'] = hashlib.sha256(wasm.read_bytes()).hexdigest()
+        return out
+
+    def _near_wasm(self):
+        w = self._NEAR_TARGET / 'wasm32-unknown-unknown' / 'release' / 'openhouse_proofs.wasm'
+        return w if w.exists() else None
+
+    def proof_deploy_near(self, account: str = '', signer: str = '', network: str = '',
+                          create: bool = False, fund_near: float = 5.0, bank_name: str = '',
+                          rent_due=None, label: str = '', key: str = '') -> dict:
+        """Deploy near/ to a NEAR account via the orbit/near keystore, init it
+        with this node's program hash, seat this node's ed25519 key as a bank
+        and register the property. create=True first makes `account` as a
+        sub-account of the signer. Testnet by default; off testnet needs the
+        operator bank key."""
+        network = network or self.network
+        if network != 'testnet':
+            blocked = self._bank_gate(key, kind='proof')
+            if blocked:
+                return blocked
+        wasm = self._near_wasm()
+        if wasm is None:
+            b = self._near_build()
+            if not b.get('ok'):
+                return {'error': 'near build failed', **b}
+            wasm = self._near_wasm()
+        pm = self._proofs_mod()
+        p = self._proofs()
+        near = m.mod('near')()
+        steps = []
+        try:
+            if create and account:
+                steps.append({'step': 'create_account',
+                              'result': near.create_account(account, initial_near=fund_near,
+                                                            account_id=signer or None, network=network)})
+            target = account or (signer or '')
+            ph = pm.program_hash()
+            owner = signer or near.wallet('status', network=network).get('default') or target
+            dep = near.deploy(wasm_path=str(wasm), account_id=target, init_method='new',
+                              init_args={'owner': owner, 'program_hash': ph}, network=network)
+            steps.append({'step': 'deploy', 'result': dep})
+            if not dep.get('ok'):
+                return {'error': 'deploy failed', 'steps': steps}
+            pub = p.issuer().public()
+            steps.append({'step': 'set_bank', 'result': near.call(
+                target, 'set_bank', {'bank': pub['near'], 'name': bank_name or pub['name'], 'active': True},
+                account_id=owner, network=network)})
+            due = int(rent_due) if rent_due not in (None, '') else pm.units(self.terms().get('monthly_rent') or 0) or 1
+            steps.append({'step': 'register_property', 'result': near.call(
+                target, 'register_property',
+                {'id': self._proof_property_id(), 'owner': owner, 'rent_due': str(due),
+                 'label': label or self.terms().get('model_name', 'OpenHouse property')},
+                account_id=owner, network=network)})
+        except Exception as e:
+            return {'error': f'{type(e).__name__}: {e}', 'steps': steps}
+        cfg = self.config.setdefault('proofs', {}).setdefault('near', {}).setdefault(network, {})
+        cfg['account'] = target
+        cfg['explorer'] = 'https://testnet.nearblocks.io' if network == 'testnet' else 'https://nearblocks.io'
+        self._save_json(self.module_dir / 'config.json', self.config)
+        return {'success': True, 'account': target, 'program_hash': ph, 'bank': pub['near'],
+                'steps': steps}
 
     def health(self):
         """Service health check."""
@@ -1695,6 +1973,19 @@ class Mod:
 
     # Whitelisted, human-meaningful source files surfaced to the app.
     _SOURCE_FILES = [
+        ('proof/src/lib.cairo', 'cairo',
+         'The statement a bank proves about a rent payment: commitment = '
+         'Poseidon(tenant, salt), nullifier = Poseidon(commitment, property, '
+         'period), amount >= rent due. Private: who paid and how much. Public: '
+         'that the rent for this home, this month, was paid.'),
+        ('near/src/lib.rs', 'rust',
+         'The NEAR verifier (WASM): checks the bank\'s ed25519 signature over '
+         'the fact keccak256(program_hash || keccak256(outputs)), pins the '
+         'program hash and the property\'s rent due, burns the nullifier.'),
+        ('contracts/OpenHouseProofs.sol', 'solidity',
+         'The Ethereum verifier: the same fact, carried by the bank\'s ECDSA '
+         'signature today or a STARK fact registry (SHARP) tomorrow — one '
+         'proof books one month once, and nothing about the tenant is stored.'),
         ('contracts/OpenHouse.sol', 'solidity',
          'The single-renter contract: rent credited as principal, the quarterly '
          'BLOCTIME pool, governance. Rent is payable in any approved token — '

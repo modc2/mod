@@ -230,3 +230,63 @@ def test_wasm_loader_rejects_junk():
         wallet._load_wasm(wasm='bm90IHdhc20=')               # b64("not wasm")
     with pytest.raises(chain.NearError):
         wallet._load_wasm()
+
+
+# ── contracts: stale-while-revalidate ───────────────────────────
+
+def test_contracts_serves_stale_and_reprobes_in_background(monkeypatch):
+    """Past its TTL the cached grid is answered at once, flagged stale, and
+    exactly one background probe refreshes it — a caller never blocks on
+    the view_account fan-out once anything is cached."""
+    import threading
+    import time as _t
+    c = chain.Client('mainnet')
+    calls = []
+    gate = threading.Event()
+
+    def fake_query(req):
+        calls.append(req['account_id'])
+        gate.wait(5)                           # the background probe parks here
+        return {'code_hash': 'A' * 44, 'storage_usage': 10,
+                'amount': '1' + '0' * 24, 'locked': '0'}
+    monkeypatch.setattr(c, '_query', fake_query)
+    monkeypatch.setattr(c, '_note_contract', lambda *a, **k: None)
+    monkeypatch.setattr(chain, 'CONTRACTS_TTL', 60)
+    chain._contracts_cache.clear()
+
+    gate.set()
+    first = c.contracts()                      # cold: probes synchronously
+    assert first['live'] == first['count'] > 0
+    assert 'stale' not in first and first['checked_at']
+    n_probe = len(calls)
+
+    assert c.contracts() is first              # warm: straight from cache
+    assert len(calls) == n_probe
+
+    key = ('mainnet', ())
+    chain._contracts_cache[key]['at'] -= 120   # expire it
+    gate.clear()
+    t0 = _t.time()
+    stale = c.contracts()
+    assert _t.time() - t0 < 1                  # did not wait on the probe
+    assert stale['stale'] and stale['refreshing'] and stale['age_s'] >= 120
+    assert stale['contracts'] == first['contracts']
+    again = c.contracts()                      # still refreshing: one thread only
+    assert again['stale']
+    deadline = _t.time() + 2
+    while len(calls) < n_probe + 1 and _t.time() < deadline:
+        _t.sleep(0.01)
+    assert key in chain._contracts_refreshing
+    gate.set()
+    deadline = _t.time() + 5
+    while key in chain._contracts_refreshing and _t.time() < deadline:
+        _t.sleep(0.02)
+    assert key not in chain._contracts_refreshing
+    fresh = c.contracts()
+    assert 'stale' not in fresh
+    assert fresh['checked_at'] >= first['checked_at']
+    assert len(calls) == 2 * n_probe           # exactly one re-probe happened
+
+    # refresh=True is the RE-CHECK button: it blocks and probes now.
+    forced = c.contracts(refresh=True)
+    assert 'stale' not in forced and len(calls) == 3 * n_probe

@@ -1,7 +1,7 @@
 'use client';
 /* Small shared pieces — every page is assembled from these. No UI library:
  * the whole look is app/globals.css. */
-import { ReactNode, useState } from 'react';
+import { ReactNode, useId, useState } from 'react';
 import { RANGES } from '@/lib/format';
 import { useCopy } from '@/lib/hooks';
 
@@ -27,15 +27,22 @@ export function Pct({ v }: { v?: number | null }) {
 }
 
 export function Spark({ pts, dir, w = 110, h = 30 }: { pts?: number[] | null; dir?: number | null; w?: number; h?: number }) {
+  const gid = 'sp' + useId().replace(/:/g, '');
   if (!pts || pts.length < 2) return <span className="muted" style={{ fontSize: 11 }}>soon</span>;
   const min = Math.min(...pts), max = Math.max(...pts), pad = 2, span = max - min || 1;
   const X = (i: number) => pad + i * (w - 2 * pad) / (pts.length - 1);
   const Y = (v: number) => h - pad - (v - min) * (h - 2 * pad) / span;
   const d = pts.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join('');
   const cls = dir == null ? 'flat' : dir >= 0 ? 'up' : 'down';
+  const last = pts.length - 1;
   return (
     <svg className={`spark ${cls}`} width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden>
+      <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor="currentColor" stopOpacity=".22" /><stop offset="1" stopColor="currentColor" stopOpacity="0" />
+      </linearGradient></defs>
+      <path className="a" d={`${d}L${X(last).toFixed(1)},${h}L${X(0).toFixed(1)},${h}Z`} fill={`url(#${gid})`} />
       <path className="l" d={d} />
+      <circle className="e" cx={X(last)} cy={Y(pts[last])} r="1.8" />
     </svg>
   );
 }

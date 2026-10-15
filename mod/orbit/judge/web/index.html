@@ -60,7 +60,29 @@
              margin-bottom:10px; background:var(--bg); }
   .msg { margin-top:8px; }
   code { color:var(--accent); }
-  .hide { display:none; }
+  .hide { display:none !important; }
+  .head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .who { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .who .chip { background:var(--card); border:1px solid var(--line); color:var(--ink);
+               border-radius:99px; padding:5px 12px; display:inline-flex; gap:8px;
+               align-items:center; }
+  .who .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); display:inline-block; }
+  .who .dot.box { background:#d8b85a; }
+  .who .role { color:var(--dim); font-size:12px; }
+  .judge { border-top:1px solid var(--line); padding:8px 0 6px; }
+  .judge:first-child { border-top:none; }
+  .goal { color:var(--ink); margin:2px 0 4px; }
+  .goal .dim { margin-right:6px; }
+  .keys { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+  .key { border:1px solid var(--line); border-radius:6px; padding:2px 8px; font-size:12px;
+         color:var(--dim); cursor:pointer; }
+  .key b { color:var(--ink); font-weight:400; }
+  .key.qr { border-color:#3e6f55; }
+  .key .fp { font-variant-numeric:tabular-nums; letter-spacing:.03em; }
+  .pub { display:block; word-break:break-all; font-size:11px; color:var(--dim);
+         background:var(--bg); border:1px solid var(--line); border-radius:6px;
+         padding:6px 8px; margin:4px 0; }
+  .tiny { font-size:12px; color:var(--dim); }
   .try { border:1px dashed var(--line); border-radius:8px; padding:8px 10px; margin:4px 0 10px; }
   .try textarea { min-height:64px; }
   .score { font-size:22px; font-weight:700; color:var(--accent); }
@@ -69,7 +91,10 @@
 </head>
 <body>
 <div class="wrap">
-  <h1><span>JD</span> judge</h1>
+  <div class="head">
+    <h1><span>JD</span> judge</h1>
+    <div class="who" id="idbox"></div>
+  </div>
   <p class="sub">a multisig of agents — every judge is an agent that scores an
      input <b>0–100</b> against its criteria; the bench's weighted average must
      reach the panel's threshold or the verdict is FAIL</p>
@@ -102,17 +127,43 @@
   <!-- ── PANELS ────────────────────────────────────────────── -->
   <div id="view-panels" class="hide">
     <div id="lock" class="banner hide">
-      panel changes need this box — or its write token
-      (<code>~/.mod/judge/token</code> on the host):
+      <span id="lock-msg">sign in with your wallet to create panels and add judges —
+      panels you make are yours (the mod-protocol token names you as creator).</span>
       <div class="row" style="margin-top:8px">
-        <input id="token" type="password" placeholder="paste token" style="flex:1">
-        <button id="unlock" class="ghost">unlock</button>
+        <button id="lock-signin">connect wallet</button>
+        <span class="tiny">or paste a token:</span>
+        <input id="paste-auth" type="password" placeholder="mod-protocol token" style="flex:1">
+        <button id="paste-go" class="ghost">use token</button>
       </div>
+      <details style="margin-top:6px"><summary class="tiny">on the host? use the box token</summary>
+        <div class="row" style="margin-top:6px">
+          <input id="token" type="password" placeholder="~/.mod/judge/token" style="flex:1">
+          <button id="unlock" class="ghost">unlock</button>
+        </div>
+      </details>
     </div>
     <div class="card">
       <h2>Panels</h2>
       <div id="panels" class="dim">loading…</div>
       <button id="new-panel" class="ghost" style="margin-top:10px">+ new panel</button>
+    </div>
+    <div class="card hide" id="adder">
+      <h2 id="adder-title">Add a judge</h2>
+      <div class="row">
+        <select id="a-kind">
+          <option value="llm">llm — an agent scores against a goal</option>
+          <option value="agent">agent — agent protocol</option>
+          <option value="rule">rule — offline checks</option>
+          <option value="panel">panel — another panel votes</option>
+        </select>
+        <span class="tiny">give the judge a goal: what it is judging for</span>
+      </div>
+      <div id="a-judge"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="a-save">add judge</button>
+        <button id="a-cancel" class="ghost">cancel</button>
+      </div>
+      <div id="a-msg" class="msg"></div>
     </div>
     <div class="card hide" id="editor">
       <h2 id="editor-title">New panel</h2>
@@ -191,13 +242,19 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const $ = id => document.getElementById(id);
 const TK = () => localStorage.getItem('judge_token') || '';
-const ghdrs = () => TK() ? {'X-Judge-Token': TK()} : {};
+const AUTH = () => localStorage.getItem('judge_auth') || '';
+const ghdrs = () => ({ ...(TK() ? {'X-Judge-Token': TK()} : {}),
+                       ...(AUTH() ? {'Authorization': 'Bearer ' + AUTH()} : {}) });
 const api = p => fetch('api/' + p, {headers: ghdrs()}).then(r => r.json());
 const post = (fn, body) => fetch('api/' + fn, { method: 'POST',
   headers: {'Content-Type': 'application/json', ...ghdrs()},
   body: JSON.stringify(body) }).then(r => r.json());
 
-let PANELS = [], LISTINGS = [], TRUSTED = false, EDIT = null;
+let PANELS = [], LISTINGS = [], TRUSTED = false, EDIT = null, ADD = null;
+let ME = {role: 'anon', address: null};
+const CAN = () => TRUSTED || !!ME.address;          // may change panels
+const mine = p => TRUSTED || (ME.address && p.creator === ME.address);
+const short = a => a && a.length > 14 ? a.slice(0, 6) + '…' + a.slice(-4) : (a || '');
 
 /* ── tabs ─────────────────────────────────────────────────── */
 const VIEWS = ['judge', 'panels', 'market'];
@@ -216,6 +273,21 @@ function kindPill(j) {
   const ref = j.kind === 'panel' ? ' → ' + esc(j.panel)
             : j.kind === 'agent' ? ' · ' + esc(j.agent_type) : '';
   return `<span class="pill kind-${esc(j.kind)}">${esc(j.name)} (${esc(j.kind)}${ref}${w})</span>`;
+}
+
+function judgeCard(j) {
+  const keys = Object.entries(j.keys || {}).map(([kt, k]) =>
+    `<span class="key ${k.quantum_resistant ? 'qr' : ''}" data-pub="${esc(k.public)}"
+       data-kt="${esc(kt)}" data-algo="${esc(k.algo || '')}"
+       title="${esc(k.algo || kt)}${k.quantum_resistant ? ' · quantum-resistant' : ''}${
+         k.sigs_left != null ? ' · ' + k.sigs_left + ' signatures left' : ''} — click for the full key">
+       <b>${esc(kt)}</b> <span class="fp">${esc(k.fingerprint)}</span></span>`).join('');
+  return `<div class="judge">${kindPill(j)}
+    <div class="goal"><span class="dim">goal</span>${j.goal ? esc(j.goal)
+      : '<span class="dim">' + esc(j.prompt ? j.prompt.slice(0, 120) : 'none set') + '</span>'}</div>
+    <div class="keys">${keys || '<span class="tiny">no keys issued yet</span>'}</div>
+    <code class="pub hide"></code>
+  </div>`;
 }
 
 function showParams() {
@@ -238,13 +310,32 @@ async function loadPanels() {
         <b>${esc(p.name)}</b>
         <span class="dim">by ${esc(p.creator)} · threshold ${p.threshold} ·
           quorum ${p.min_votes}/${p.judges.length} · ${p.verdicts} verdicts</span>
+        ${mine(p) ? `<button class="ghost" data-add="${esc(p.name)}">+ add judge</button>
         <button class="ghost" data-edit="${esc(p.name)}">edit</button>
-        <button class="danger" data-del="${esc(p.name)}">delete</button><br>
-        ${p.judges.map(kindPill).join('')}
+        <button class="danger" data-del="${esc(p.name)}">delete</button>` : ''}
+        <div style="margin-top:6px">${p.judges.map(judgeCard).join('')}</div>
       </div>`).join('')
-    : 'no panels yet — create one below';
+    : 'no panels yet — ' + (CAN() ? 'create one below' : 'sign in to create one');
+  $('new-panel').classList.toggle('hide', !CAN());
   $('panels').querySelectorAll('[data-edit]').forEach(b =>
     b.onclick = () => openEditor(PANELS.find(p => p.name === b.dataset.edit)));
+  $('panels').querySelectorAll('[data-add]').forEach(b =>
+    b.onclick = () => openAdder(PANELS.find(p => p.name === b.dataset.add)));
+  $('panels').querySelectorAll('[data-pub]').forEach(k =>
+    k.onclick = () => {                      // click a key: show / hide the full public key
+      const box = k.parentElement.nextElementSibling;
+      const open = box.dataset.for === k.dataset.pub && !box.classList.contains('hide');
+      box.classList.toggle('hide', open);
+      if (!open) { box.dataset.for = k.dataset.pub;
+        box.innerHTML = `<span class="dim">${esc(k.dataset.kt)} public key · ${esc(k.dataset.algo)}</span>
+          <button class="ghost" style="float:right;padding:0 8px" data-copy="${esc(k.dataset.pub)}">copy</button>
+          <br>${esc(k.dataset.pub)}`;
+        box.querySelector('[data-copy]').onclick = e => {
+          navigator.clipboard?.writeText(e.target.dataset.copy)
+            .then(() => { e.target.textContent = 'copied'; });
+        };
+      }
+    });
   $('panels').querySelectorAll('[data-del]').forEach(b =>
     b.onclick = async () => {
       if (b.dataset.armed !== '1') {        // inline confirm, no native dialog
@@ -306,19 +397,119 @@ $('go').onclick = async () => {
 
 /* ── trust / unlock ───────────────────────────────────────── */
 async function checkAuth() {
-  try { TRUSTED = (await api('auth')).trusted === true; }
-  catch (e) { TRUSTED = false; }
-  $('lock').classList.toggle('hide', TRUSTED);
+  try {
+    const d = await api('auth');
+    TRUSTED = d.trusted === true;
+    ME = {role: d.role || 'anon', address: d.address || null, auth: d.auth};
+  } catch (e) { TRUSTED = false; ME = {role: 'anon', address: null}; }
+  if (AUTH() && !ME.address) {           // saved token no longer verifies
+    localStorage.removeItem('judge_auth');
+    $('lock-msg').textContent = 'your saved sign-in is no longer valid — sign in again.';
+  }
+  $('lock').classList.toggle('hide', CAN());
+  drawIdentity();
+  if (ME.address) {                       // the creator / author is who signed
+    $('e-creator').value = ME.address; $('e-creator').disabled = true;
+    $('p-author').value = ME.address; $('p-author').disabled = true;
+  } else {
+    $('e-creator').disabled = false; $('p-author').disabled = false;
+    if ($('p-author').value.startsWith('0x')) $('p-author').value = '';
+  }
 }
 $('unlock').onclick = async () => {
   localStorage.setItem('judge_token', $('token').value.trim());
   await checkAuth();
-  if (!TRUSTED) $('lock').firstChild.textContent = 'that token was refused — ';
+  if (!TRUSTED) $('lock-msg').textContent = 'that box token was refused.';
+  else loadPanels();
 };
+$('paste-go').onclick = async () => {
+  const t = $('paste-auth').value.trim();
+  if (!t) return;
+  localStorage.setItem('judge_auth', t);
+  await checkAuth();
+  if (!ME.address) $('lock-msg').textContent = 'that token did not verify — mint one with m.mod("auth")().token({}) on a box holding your key, or connect a wallet.';
+  else loadPanels();
+};
+$('lock-signin').onclick = () => signIn(false);
+
+/* ── sign in: the mod protocol's one door ─────────────────────
+   A mod-protocol token is base64url({data, time, key, signature}) where the
+   signature is an EIP-191 personal_sign over JSON.stringify({data, time}) —
+   no spaces, that key order — which is byte-for-byte what m.mod('auth')
+   re-serializes and verifies. One wallet signature, no transaction. */
+function b64url(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  let bin = ''; bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function wallet() {
+  const eth = window.ethereum;
+  if (!eth) return null;
+  if (Array.isArray(eth.providers) && eth.providers.length)
+    return eth.providers.find(p => p.isMetaMask) || eth.providers[0];
+  return eth;
+}
+async function mint(provider, address) {
+  const data = {mod: 'judge'};
+  const time = (Date.now() / 1000).toString();
+  const signature = await provider.request({
+    method: 'personal_sign', params: [JSON.stringify({data, time}), address]});
+  return b64url({data, time, key: address, signature});
+}
+async function signIn(pick) {
+  const p = wallet();
+  if (!p) {
+    $('lock').classList.remove('hide');
+    $('lock-msg').textContent = 'no wallet extension in this browser — install MetaMask, or paste a mod-protocol token below.';
+    $('paste-auth').focus();
+    return;
+  }
+  try {
+    if (pick) { try { await p.request({method: 'wallet_requestPermissions',
+                                        params: [{eth_accounts: {}}]}); } catch (e) {} }
+    const accounts = await p.request({method: 'eth_requestAccounts'});
+    const address = (accounts && accounts[0] || '').toLowerCase();
+    if (!address) throw new Error('the wallet returned no account');
+    localStorage.setItem('judge_auth', await mint(p, address));
+    await checkAuth();
+    loadPanels();
+  } catch (e) {
+    $('lock').classList.remove('hide');
+    $('lock-msg').textContent = e.code === 4001 ? 'the signature was refused.'
+                                                : (e.message || 'the wallet refused.');
+  }
+}
+function signOut() {
+  localStorage.removeItem('judge_auth');
+  checkAuth().then(loadPanels);
+}
+function drawIdentity() {
+  const box = $('idbox');
+  if (ME.address) {
+    box.innerHTML = `<span class="chip" title="${esc(ME.address)}">
+        <span class="dot"></span>${esc(short(ME.address))}
+        <span class="role">signed in${TRUSTED ? ' · box' : ''}</span></span>
+      <button class="ghost" id="id-copy" title="copy address">copy</button>
+      <button class="ghost" id="id-switch" title="sign in as another account">switch</button>
+      <button class="ghost" id="id-out">sign out</button>`;
+    $('id-copy').onclick = () => navigator.clipboard?.writeText(ME.address)
+      .then(() => { $('id-copy').textContent = 'copied'; });
+    $('id-switch').onclick = () => signIn(true);
+    $('id-out').onclick = signOut;
+  } else if (TRUSTED) {
+    box.innerHTML = `<span class="chip"><span class="dot box"></span>box
+        <span class="role">loopback / box token</span></span>
+      <button class="ghost" id="id-in">connect wallet</button>`;
+    $('id-in').onclick = () => signIn(false);
+  } else {
+    box.innerHTML = `<button id="id-in">connect wallet</button>`;
+    $('id-in').onclick = () => signIn(false);
+  }
+}
 
 /* ── panel editor ─────────────────────────────────────────── */
 const KIND_HINT = {
-  llm:   'the judge is an agent: it reads the input, applies your criteria and returns {"score": 0–100, "reason"} — via the openrouter mod by default, or any OpenAI-compatible endpoint',
+  llm:   'the judge is an agent: it reads the input, applies your criteria and returns {"score": 0–100, "reason"} — on this box\'s LFM weights (liquidai) by default, or any OpenAI-compatible endpoint when you give a url',
   agent: 'the judge is an orbit/agent run: the input is posed as a run and its finish summary is parsed as {"score": 0–100, "reason"}',
   panel: 'the judge is a whole panel: its weighted average becomes this vote (judges of judges)',
   rule:  'no agent — offline length/word checks, −50 per fault; handy as a cheap gate beside agent judges',
@@ -358,6 +549,8 @@ function judgeRow(j, i) {
     <input data-k="weight" placeholder="weight" value="${esc(j.weight ?? 1)}"
            style="width:70px">
     <button class="danger" data-rm="${i}" style="float:right">remove</button>
+    <input class="wide" data-k="goal" value="${esc(j.goal ?? '')}"
+           placeholder="goal — what this judge is judging for (e.g. 'approve only PRs that keep the API backwards compatible')">
     <div>${fields}</div>
   </div>`;
 }
@@ -368,9 +561,9 @@ function renderJudges() {
     b.onclick = () => { readJudges(); EDIT.judges.splice(+b.dataset.rm, 1); renderJudges(); });
 }
 
-function readJudges() {
-  $('e-judges').querySelectorAll('.jrow').forEach(row => {
-    const j = EDIT.judges[+row.dataset.i];
+function readJudges(root = $('e-judges'), list = EDIT && EDIT.judges) {
+  root.querySelectorAll('.jrow').forEach(row => {
+    const j = list[+row.dataset.i];
     row.querySelectorAll('[data-k]').forEach(el => {
       const k = el.dataset.k, v = el.value.trim();
       if (!v) { delete j[k]; return; }
@@ -399,6 +592,36 @@ function openEditor(p) {
   $('editor').classList.remove('hide');
   $('editor').scrollIntoView({behavior: 'smooth'});
 }
+
+/* ── add one judge to a panel ───────────────────────────────── */
+function openAdder(p) {
+  const kind = $('a-kind').value;
+  const j = {kind, name: kind + '-' + (p.judges.length + 1)};
+  if (kind === 'panel' && PANELS.length) j.panel = PANELS.find(x => x.name !== p.name)?.name;
+  if (kind === 'agent') j.agent_type = 'default';
+  ADD = {panel: p, judges: [j]};
+  const keep = EDIT; EDIT = {orig: p.name, judges: ADD.judges};   // judgeRow reads EDIT.orig
+  $('a-judge').innerHTML = judgeRow(j, 0);
+  EDIT = keep;
+  $('a-judge').querySelector('[data-rm]')?.remove();
+  $('adder-title').textContent = 'Add a judge — ' + p.name;
+  $('a-msg').textContent = '';
+  $('adder').classList.remove('hide');
+  $('adder').scrollIntoView({behavior: 'smooth'});
+  $('a-judge').querySelector('[data-k="goal"]')?.focus();
+}
+$('a-kind').onchange = () => { if (ADD) openAdder(ADD.panel); };
+$('a-cancel').onclick = () => { $('adder').classList.add('hide'); ADD = null; };
+$('a-save').onclick = async () => {
+  if (!ADD) return;
+  readJudges($('a-judge'), ADD.judges);
+  const r = await post('add_judge', {name: ADD.panel.name, creator: ADD.panel.creator,
+                                     judge: ADD.judges[0]});
+  if (r.error) { $('a-msg').innerHTML = `<span class="fail">${esc(r.error)}</span>`; return; }
+  $('a-msg').innerHTML = `<span class="pass">seated ${esc(r.added)} on ${esc(ADD.panel.name)}</span>`;
+  $('adder').classList.add('hide'); ADD = null;
+  loadPanels();
+};
 
 $('new-panel').onclick = () => openEditor(null);
 $('e-cancel').onclick = () => { $('editor').classList.add('hide'); EDIT = null; };
@@ -532,8 +755,7 @@ async function loadAgents() {
     `<option value="${esc(a)}">`).join('');
 }
 
-checkAuth();
-loadPanels().then(() => { loadMarket(); renderPublishFields(); });
+checkAuth().then(loadPanels).then(() => { loadMarket(); renderPublishFields(); });
 loadVerdicts();
 loadAgents();
 </script>

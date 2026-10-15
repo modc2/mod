@@ -113,3 +113,31 @@ def test_feed_store_roundtrip(monkeypatch):
     assert store.add('https://feeds.example.org/rss', 'Ex')['items'] == 2
     assert len(store.feeds()) == n0 + 1
     assert store.remove('Ex')['removed'] == 1
+
+
+def test_http_serves_app_and_api(monkeypatch):
+    """One port, three doors: HTML for browsers, JSON for everything else,
+    and the same under the gateway's kept /news prefix."""
+    import threading
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from newsagg import server
+
+    stub(monkeypatch, one=lambda q, n: [sources.item('Bittensor news', 'https://a.com/1', 'one', time.time())])
+    srv = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f'http://127.0.0.1:{srv.server_port}'
+
+    def get(path, accept='*/*'):
+        with urllib.request.urlopen(urllib.request.Request(base + path, headers={'Accept': accept})) as r:
+            return r.headers.get('Content-Type', ''), r.read()
+    try:
+        for path in ('/', '/news', '/news/', '/app', '/news/app'):
+            ctype, body = get(path, 'text/html,*/*')
+            assert ctype.startswith('text/html') and b'<title>news' in body, path
+        ctype, body = get('/')
+        assert ctype.startswith('application/json') and json.loads(body)['ok'] is True
+        ctype, body = get('/news/api/search?q=bittensor')
+        assert json.loads(body)['results'][0]['url'] == 'https://a.com/1'
+    finally:
+        srv.shutdown()

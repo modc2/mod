@@ -2,7 +2,7 @@
 
 SOTA Time Series Foundation Models
 
-Bittensor subnet **91** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **91** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/TensorLink-AI/cascade) · [url](https://cascadesub.net) · discord `christensor_49068`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/TensorLink-AI/cascade) · [url](https://casca
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004748 | -0.04% | +2.44% | -1.11% | 9,193 | 3,275 | 387.86 |
+| 0.004662 | -0.01% | -1.81% | -5.57% | 9,063 | 3,249 | 222.78 |
 
 ## Last 24h flow
 
-55 trades by 32 coldkeys · 21 buys (210.05 τ) / 34 sells (172.24 τ) · net 37.81 τ
+48 trades by 24 coldkeys · 16 buys (94.51 τ) / 32 sells (113.83 τ) · net -19.32 τ
 
 ## News
 

@@ -2,7 +2,7 @@
 
 Finsight is a decentralized personal investment intelligence. Turn the financial news, filings, and market data that touch an investor's holdings into scored, portfolio-aware signals. Bittensor powers finsight.tech, a Canada-first portfolio platform with native TFSA/RRSP logic, CRA-ready cost-basis tracking, and superficial-loss awareness. Built for Canadians by Canadians.
 
-Bittensor subnet **109** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **109** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [url](https://finsight.tech/)
 
@@ -10,11 +10,11 @@ Links: [url](https://finsight.tech/)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002958 | -0.03% | -6.56% | -4.16% | 6,885 | 1,423 | 131.14 |
+| 0.002894 | +0.06% | -2.17% | +1.09% | 6,757 | 1,407 | 114.73 |
 
 ## Last 24h flow
 
-29 trades by 19 coldkeys · 12 buys (41.05 τ) / 17 sells (89.10 τ) · net -48.05 τ
+31 trades by 24 coldkeys · 10 buys (49.60 τ) / 21 sells (64.49 τ) · net -14.89 τ
 
 ## Use
 

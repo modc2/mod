@@ -44,6 +44,8 @@ def test_catalog_describes_every_example(oh):
 
 @pytest.mark.parametrize('name', _names())
 def test_every_example_passes(oh, name):
+    if not oh._examples_mod().available(name):
+        pytest.skip(f'{name} needs a toolchain this host lacks')
     r = oh.example(name)
     assert r['ok'], (r['error'], r['steps'][-1:])
     assert r['steps'] and r['checks'] and all(c['ok'] for c in r['checks'])

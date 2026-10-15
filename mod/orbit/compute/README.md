@@ -325,14 +325,18 @@ shell on a machine they own.
 | --- | --- | --- |
 | open | info, health, providers, search, offer, quote, mods, tools | anyone |
 | byok | instances, status, logs, balance, keys | anyone who brings their own provider key — it is their account being read |
-| owner | rent, stop, exec, raw, set_key, **every `/node` route** | the token, or localhost |
+| owner | rent, stop, exec, raw, set_key, **every `/node` route** | the owner signed in, the token, or localhost |
 
 ```bash
 m compute/token          # the bearer token, minted into ~/.mod/compute/server.secret
 ```
 
-The console is handed the token automatically when you open it from the box
-itself, and asks for it when you open it through the gateway. A proxied request
+Signing in once is enough. Opened inside the build console (or on the same
+host), the console picks up that session — it asks the parent frame for it
+(`mod.session`) — and the server asks build's `whoami` whether it is the owner.
+Outside it, **sign in** in the header signs a mod-protocol token with your
+wallet (no gas), and build's `/auth/role` decides. Opened from the box itself
+the console is the owner already; the secret token still works as a bearer. A proxied request
 can never look like localhost: Caddy stamps `X-Forwarded-For` on everything it
 forwards, and that is what the check reads.
 

@@ -10,11 +10,19 @@ without importing the orbit loader.
 
 Reads are GET with query args. Writes are POST with a JSON body. The panel
 params are the multisig itself, so create_panel / update_panel / remove_panel
-/ install_judge answer only a trusted caller: loopback, or a request carrying
-the box's token (minted once to ~/.mod/judge/token, sent as X-Judge-Token) so
-the owner can manage panels through the gateway console too. Anyone you share
-the console with can submit inputs for judgment and publish to / browse the
-judge market — a listing is just a spec, it runs nothing until it is seated.
+/ add_judge / install_judge / score answer only a caller who has said who
+they are (identity.py):
+
+  box     loopback, or a request carrying the box's token (minted once to
+          ~/.mod/judge/token, sent as X-Judge-Token). `creator` passes
+          through as given — the CLI path.
+  signed  a mod-protocol token (m.mod('auth').token, or a browser wallet's
+          personal_sign) as `Authorization: Bearer <token>`. The signer's
+          address IS the creator/author on every write, so a signed caller
+          manages exactly the panels and listings they made.
+
+Anyone else can submit inputs for judgment and browse the judge market — a
+listing is just a spec, it runs nothing until it is seated.
 
     python3 serve.py [--port 51150] [--host 0.0.0.0]
 """
@@ -38,15 +46,24 @@ MAX_BODY = 1 * 1024 * 1024
 if MODULE_DIR not in sys.path:
     sys.path.append(MODULE_DIR)
 
+import identity  # noqa: E402
 import market  # noqa: E402
 import panel  # noqa: E402
 
 READ_FNS = ('health', 'info', 'readme', 'panels', 'panel', 'verdict',
             'verdicts', 'verify', 'key_kinds', 'market', 'listing',
-            'agents', 'auth')
+            'agents', 'auth', 'whoami', 'judge_keys')
 WRITE_FNS = ('judge', 'score', 'create_panel', 'update_panel', 'remove_panel',
-             'publish_judge', 'unpublish_judge', 'install_judge')
-LOCAL_ONLY = ('score', 'create_panel', 'update_panel', 'remove_panel', 'install_judge')
+             'add_judge', 'publish_judge', 'unpublish_judge', 'install_judge')
+# Need a known caller: the box, or a signed address.
+GATED = ('score', 'create_panel', 'update_panel', 'remove_panel', 'add_judge',
+         'install_judge')
+LOCAL_ONLY = GATED  # the v0.2 name, kept for anything that imports it
+# A signed caller acts as themself: the field the signer's address pins.
+SIGNER_FIELD = {'create_panel': 'creator', 'update_panel': 'creator',
+                'remove_panel': 'creator', 'add_judge': 'creator',
+                'install_judge': 'creator', 'publish_judge': 'author',
+                'unpublish_judge': 'author'}
 
 _book = None
 _shop = None
@@ -154,6 +171,12 @@ def api(fn, a):
                         a.get('judges'), a.get('threshold'), a.get('min_votes'))
     if fn == 'remove_panel':
         return b.remove(a.get('name', ''), a.get('creator', ''))
+    if fn == 'add_judge':
+        return b.add_judge(a.get('name', '') or a.get('panel', ''),
+                           a.get('creator', ''), a.get('judge'))
+    if fn == 'judge_keys':
+        return b.judge_keys(a.get('panel', '') or a.get('name', ''),
+                            a.get('judge', ''))
     if fn == 'market':
         return {'listings': shop().list(a.get('q', ''), a.get('kind', ''))}
     if fn == 'listing':
@@ -194,7 +217,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers',
-                         'Content-Type, X-Judge-Token')
+                         'Content-Type, X-Judge-Token, Authorization')
         self.end_headers()
 
     def _fn(self, path, allowed):
@@ -223,15 +246,27 @@ class Handler(SimpleHTTPRequestHandler):
         t = self.headers.get('X-Judge-Token', '')
         return bool(t) and hmac.compare_digest(t, token())
 
+    def _caller(self):
+        """Who is asking: {box, address, role}. The box (loopback / box
+        token) outranks a signature so the CLI keeps passing `creator`
+        through; otherwise a valid mod-protocol token names the caller."""
+        box = self._trusted()
+        address = identity.whoami(self.headers.get('Authorization', ''))
+        role = 'box' if box else 'signed' if address else 'anon'
+        return {'box': box, 'address': address, 'role': role}
+
     def do_POST(self):
         path = urlparse(self.path).path.rstrip('/')
         fn = self._fn(path, WRITE_FNS)
         if not fn:
             return self._json({'error': 'not found'}, 404)
-        if fn in LOCAL_ONLY and not self._trusted():
+        who = self._caller()
+        if fn in GATED and who['role'] == 'anon':
             return self._json(
-                {'error': f'{fn} needs loopback or the box token '
-                          '(X-Judge-Token, minted at ~/.mod/judge/token)'}, 403)
+                {'error': f'{fn} needs a signed-in caller: send a mod-protocol '
+                          'token as Authorization: Bearer <token> (sign in with '
+                          'your wallet in the console), or the box token '
+                          '(X-Judge-Token, minted at ~/.mod/judge/token)'}, 401)
         n = int(self.headers.get('Content-Length') or 0)
         if n > MAX_BODY:
             return self._json({'error': 'body too large'}, 413)
@@ -241,6 +276,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({'error': 'body must be JSON'}, 400)
         if not isinstance(args, dict):
             return self._json({'error': 'body must be a JSON object'}, 400)
+        # A signed caller is whoever signed — not whoever they claim to be.
+        if who['role'] == 'signed' and fn in SIGNER_FIELD:
+            args[SIGNER_FIELD[fn]] = who['address']
         return self._run(fn, args)
 
     def do_GET(self):
@@ -248,8 +286,12 @@ class Handler(SimpleHTTPRequestHandler):
         raw = parsed.path
         path = raw.rstrip('/') or '/'
         fn = self._fn(path, READ_FNS)
-        if fn == 'auth':  # needs the request context, not the store
-            return self._json({'trusted': self._trusted()})
+        if fn in ('auth', 'whoami'):  # needs the request context, not the store
+            who = self._caller()
+            return self._json({'trusted': who['box'], 'address': who['address'],
+                               'role': who['role'],
+                               'can_change_panels': who['role'] != 'anon',
+                               'auth': identity.status()})
         if fn:
             args = {k: v[0] for k, v in parse_qs(parsed.query).items()}
             return self._run(fn, args)

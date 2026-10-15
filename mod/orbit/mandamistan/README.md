@@ -1,13 +1,45 @@
 # mandamistan
 
-How Mamdani fixes the New York housing crisis — with receipts.
+How Mamdani fixes the New York housing crisis — with receipts, measured
+against the real city.
 
 A research-backed explainer packaged as a mod-orbit module: the crisis in
 sourced numbers, the **Block by Block** plan pillar by pillar, a
 promised-to-delivered timeline, the strongest critiques stated fairly with
 their counters, and a transparent simulator where you set the assumptions
-and watch the math. Static data + Python stdlib only; every figure cites
-its source.
+and watch the math. Python stdlib only; every figure cites its source.
+
+**Depends on [`nyc`](../nyc/)** — the fleet's open-data GIS and MCP server
+for New York City. Every live number here (rent burden, build pace,
+violations, NYCHA, lotteries, listings, neighborhood stats) is read through
+nyc's API rather than re-implemented; nyc already handles every NYC Open
+Data trap. When nyc is away the console degrades to a baked snapshot and
+says so.
+
+## Reality check — what the dependency buys
+
+Promises are only promises until a number moves. For each pillar the
+module names the metric that will settle it and reads it live:
+
+| pillar | metric (via nyc) | now |
+|---|---|---|
+| Freeze | renters paying 30%+ of income | 52.4% |
+| Build 200k | all-housing completions/yr vs the 20k/yr affordable the plan needs | ~34k |
+| Preserve 200k | class-C (immediately hazardous) violations per 1,000 renter households | ~262 |
+| NYCHA | apartments / residents / avg rent | 183k / 360k / $593 |
+| Zoning | new homes per 1k residents since 2020; wealthy neighborhoods that built nothing | city 24.4; UES 0.7, UWS 0.2 |
+| Tenants | Housing Connect lotteries open right now, listings under $1,500 | live |
+
+Plus:
+
+- **Borough picker** — the simulator re-seeds itself with a borough's share
+  of the plan (by renter households), its real median rent and scaled
+  stabilized stock (`/borough?name=Bronx`).
+- **Find a home** — income + household size → 2026 HPD AMI band → rent
+  affordable at 30% of income → lotteries open to that band now + affordable
+  listings under the number (`/find?income=52000&household=3&bedrooms=2`).
+- **Who builds nothing** — neighborhoods with median income $120k+ ranked
+  by new homes per 1k residents since 2020 (`/neighborhoods`).
 
 ## The short version
 
@@ -63,6 +95,15 @@ All reads, all GET:
     /sources      every citation
     /info /health /readme
 
+Through the nyc dependency (each answer stamped `source: live|cache|stale|snapshot`):
+
+    /live           the crisis tiles with today's numbers
+    /scorecard      every pillar: promise → metric → now
+    /borough        name=Bronx (+ any simulate arg): profile + re-seeded simulation
+    /find           income, household (1-8), bedrooms, borough
+    /neighborhoods  min_income, min_population, limit
+    /nyc            is nyc reachable, what are we serving from
+
 Also served under `/mandamistan/api/{fn}` and `/api/mandamistan/{fn}` for
 the gateway.
 
@@ -75,12 +116,32 @@ completions/yr against ~10k/yr attrition), and the output says so:
 be true for the plan to work."* The console mirrors the same arithmetic in
 JS so the sliders respond instantly.
 
+## How the dependency works
+
+`nycbridge.py` is the one seam. It finds nyc's API port in `../nyc/config.json`
+(`NYC_API` env overrides), reads over HTTP, and resolves in order: memory TTL
+cache → live → disk cache at `~/.mod/mandamistan/cache` (any age, marked
+stale) → `snapshot.json` (baked by `m mandamistan/snapshot`). It never
+raises. HTTP rather than an in-process import on purpose: nyc pulls a GIS
+stack, and every mod's `mod.py` shadows the protocol package when imported
+from the wrong cwd. `serve.py` warms every scorecard read in a background
+thread at startup so the first paint never waits on the 11M-row violations
+file.
+
+`reality.py` is pure reshaping of nyc answers plus the plan's targets, so
+the tests run offline against the snapshot (`tests/test_reality.py` points
+nyc at a dead port).
+
 ## Files
 
     mod.py        anchor — the orbit loader instantiates Mod
-    housing.py    the data core: CRISIS, PLAN, TIMELINE, CRITIQUES, SOURCES, simulate()
+    housing.py    the plan's data core: CRISIS, PLAN, TIMELINE, CRITIQUES, SOURCES, simulate()
+    nycbridge.py  the nyc dependency seam: fetch / cache / snapshot / warm
+    reality.py    scorecard, live crisis, borough, find, neighborhoods
+    snapshot.json baked nyc answers — offline floor and test fixture
     serve.py      static console + JSON API on one port (stdlib http.server)
     web/          the console (one self-contained index.html, hand-rolled SVG charts)
-    tests/        offline tests
+    tests/        offline tests (plan + reality)
 
-No state, no keys, no network calls at runtime. Data updated 2026-10-07.
+No keys. The only runtime network call is to the nyc module on localhost.
+Plan data updated 2026-10-07; live data is whatever nyc says today.

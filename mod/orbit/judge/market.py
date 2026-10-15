@@ -35,8 +35,8 @@ def check_judge(panels, j, kind, panel_name=None):
     if kind == 'agent':
         if not j.get('agent_type'):
             return {'error': f'judge {j["name"]!r}: agent judge needs an agent_type'}
-        if not j.get('prompt'):
-            return {'error': f'judge {j["name"]!r}: agent judge needs a criteria prompt'}
+        if not (j.get('prompt') or j.get('goal')):
+            return {'error': f'judge {j["name"]!r}: agent judge needs a goal or a criteria prompt'}
     if kind == 'panel':
         sub = j.get('panel')
         if not sub:
@@ -48,12 +48,24 @@ def check_judge(panels, j, kind, panel_name=None):
     return None
 
 
+def judge_brief(j):
+    """A judge's standing instructions: its goal — what it is judging
+    for, set by the panel's creator — and its criteria prompt. Either may
+    stand alone; both are put before the model when both are set."""
+    parts = []
+    if j.get('goal'):
+        parts.append(f'Goal: {j["goal"]}')
+    if j.get('prompt'):
+        parts.append(f'Criteria: {j["prompt"]}')
+    return ' '.join(parts)
+
+
 def agent_score(j, text):
     """Agent-protocol judge: pose the input as a run, read the finish summary."""
     url = j.get('url') or DEFAULT_AGENT_URL
     query = (f'You are {j["name"]!r}, one judge on a review panel. '
-             f'Criteria: {j["prompt"]} '
-             'Score the INPUT from 0 (worst) to 100 (best) against the criteria. '
+             f'{judge_brief(j)} '
+             'Score the INPUT from 0 (worst) to 100 (best) against the goal and criteria. '
              'Finish with ONLY a JSON object: '
              '{"score": <number>, "reason": "<one line>"}'
              f'\n\nINPUT:\n{text}')

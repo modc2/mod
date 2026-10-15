@@ -2,7 +2,7 @@
 
 Predictive intelligence for financial markets and beyond
 
-Bittensor subnet **50** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **50** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/mode-network/synth-subnet) · [url](https://synthdata.co)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/mode-network/synth-subnet) · [url](https://s
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004608 | +1.09% | +3.47% | +1.63% | 27,414 | 10,983 | 3,700 |
+| 0.004375 | +0.45% | -5.05% | +0.72% | 26,060 | 10,706 | 3,341 |
 
 ## Last 24h flow
 
-326 trades by 139 coldkeys · 198 buys (1,940 τ) / 128 sells (1,754 τ) · net 185.92 τ
+294 trades by 109 coldkeys · 127 buys (1,525 τ) / 167 sells (1,809 τ) · net -283.85 τ
 
 ## News
 
+- 2026-10-14 · commit · [Scope the cycle's asset rotation to its own asset list (#339)](https://github.com/synthdataco/synth-subnet/commit/d2daf2052a6b7821512ac55f3cc2d1986798be9d) — mode-network/synth-subnet
 - 2026-10-09 · commit · [Cast the start_time bound operands so param types resolve (#338)](https://github.com/synthdataco/synth-subnet/commit/dda9b34cae0c76b8eed76538c5749b24266943e6) — mode-network/synth-subnet
 - 2026-10-09 · commit · [Avoid a full miner_predictions scan when loading scores (#337)](https://github.com/synthdataco/synth-subnet/commit/f18efc654aa99ffc0bb70918de46085d5981e0a0) — mode-network/synth-subnet
 - 2026-10-07 · release · [v1.14.0](https://github.com/synthdataco/synth-subnet/releases/tag/v1.14.0) — mode-network/synth-subnet
@@ -25,7 +26,6 @@ Links: [github](https://github.com/mode-network/synth-subnet) · [url](https://s
 - 2026-10-06 · commit · [perf(validator): validate and encode miner responses in the dendrite …](https://github.com/synthdataco/synth-subnet/commit/e9495db80f2b69fa678d149bf0f5219626d673ff) — mode-network/synth-subnet
 - 2026-10-06 · commit · [perf(validator): convert each Bigtable prediction to an array once (#…](https://github.com/synthdataco/synth-subnet/commit/c8f427f53d738e41825b901842bf40e0c58409f1) — mode-network/synth-subnet
 - 2026-10-05 · commit · [chore(deps): bump virtualenv from 21.4.3 to 21.7.13 (#329)](https://github.com/synthdataco/synth-subnet/commit/d7693a264979b2808e6a8695e304ed1822037c8a) — mode-network/synth-subnet
-- 2026-10-05 · commit · [chore(deps): bump gitpython from 3.1.59 to 3.1.62 (#331)](https://github.com/synthdataco/synth-subnet/commit/cbfc2380e0528eecab3d697a8c16c1d0509c4e59) — mode-network/synth-subnet
 
 ## Use
 

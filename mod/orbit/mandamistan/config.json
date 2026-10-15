@@ -1,7 +1,7 @@
 {
     "name": "mandamistan",
-    "version": "0.1.0",
-    "description": "How Mamdani fixes the New York housing crisis, with receipts. The crisis in sourced numbers (1.41% vacancy, 51.6% rent-burdened, 100k in shelters), the Block by Block plan pillar by pillar (freeze + 200k built + 200k preserved + NYCHA + rezoning + tenant power), a promised-to-delivered timeline (the Oct 1 2026 rent freeze is live), the strongest critiques with their counters, and a transparent what-if simulator. Visual console + JSON API, static data, stdlib only, every figure cited.",
+    "version": "0.2.0",
+    "description": "How Mamdani fixes the New York housing crisis, with receipts \u2014 measured against the real city. The crisis in sourced numbers, the Block by Block plan pillar by pillar (freeze + 200k built + 200k preserved + NYCHA + rezoning + tenant power), a promised-to-delivered timeline (the Oct 1 2026 rent freeze is live), the strongest critiques with their counters, a transparent what-if simulator \u2014 and, through the nyc module, a live scorecard that puts a measurable number next to every promise (rent burden, build pace, class-C violations per 1k renters, NYCHA, who builds nothing, lotteries open now), borough-grounded projections, and a home finder: income + household size \u2192 2026 AMI band \u2192 affordable rent \u2192 lotteries and listings open to you today. Visual console + JSON API, stdlib only, every figure cited; degrades to a baked snapshot when nyc is away.",
     "icon": "\u2744",
     "color": "#3987e5",
     "anchor": "mod.py",
@@ -11,12 +11,15 @@
     "gateway_port": 51240,
     "base_path": "/mandamistan",
     "route": true,
-    "deps": [],
+    "deps": [
+        "nyc"
+    ],
     "urls": {
         "app": "http://localhost:51240/mandamistan/",
-        "api": "http://localhost:51240"
+        "api": "http://localhost:51240",
+        "nyc": "http://localhost:50310"
     },
-    "state": "none \u2014 static data in housing.py",
+    "state": "read-only cache of nyc answers in ~/.mod/mandamistan/cache; snapshot.json is the offline floor",
     "fns": [
         "forward",
         "info",
@@ -29,6 +32,14 @@
         "critiques",
         "simulate",
         "sources",
+        "live",
+        "scorecard",
+        "borough",
+        "find",
+        "neighborhoods",
+        "nyc",
+        "snapshot",
+        "warm",
         "serve",
         "test",
         "kill"
@@ -43,7 +54,13 @@
         "timeline",
         "critiques",
         "simulate",
-        "sources"
+        "sources",
+        "live",
+        "scorecard",
+        "borough",
+        "find",
+        "neighborhoods",
+        "nyc"
     ],
     "endpoints": {
         "GET /info": "Null call \u2014 what this module is",
@@ -54,9 +71,15 @@
         "GET /pillar": "One pillar in full (id=freeze|build|preserve|nycha|zoning|tenants)",
         "GET /timeline": "Promised \u2192 delivered, dated",
         "GET /critiques": "The strongest objections, and the counters",
-        "GET /simulate": "Project affordable stock + tenant savings (new_per_year, preserved_per_year, freeze_years, rgb_hike, attrition_per_year, median_stabilized_rent, years)",
-        "GET /sources": "Every citation behind the numbers"
+        "GET /simulate": "Project affordable stock + tenant savings (new_per_year, preserved_per_year, freeze_years, rgb_hike, attrition_per_year, median_stabilized_rent, years, base_pace, stabilized)",
+        "GET /sources": "Every citation behind the numbers",
+        "GET /live": "The crisis tiles with today's numbers via nyc (rent burden, median rent, renters, pipeline); HVS/shelter static",
+        "GET /scorecard": "Every pillar: promise \u2192 the metric that settles it \u2192 where it stands now, via nyc; stamped live|cache|stale|snapshot",
+        "GET /borough": "One borough's live profile + the simulator re-seeded to its share of the plan (name=Brooklyn|Bronx|Queens|Manhattan|Staten Island, plus any simulate arg)",
+        "GET /find": "A home for one household: income, household (1-8), bedrooms, borough \u2192 2026 AMI band, affordable rent at 30%, lotteries open to that band, listings under the number",
+        "GET /neighborhoods": "Wealthy neighborhoods ranked by how little they built since 2020 (min_income, min_population, limit)",
+        "GET /nyc": "The dependency: is nyc reachable, and what are we serving from"
     },
     "key": "mandamistan",
-    "schema": "QmRAC6Uxkf7s9vvqzsVjcGFJ3AqSzbx8JCiLjp3C8FW2PQ"
+    "schema": "QmcrMd5qsmgXcrarYn9HCFH23mFPgTaSutGMSk94jPcKg6"
 }

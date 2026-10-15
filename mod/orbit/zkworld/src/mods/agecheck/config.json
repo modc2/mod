@@ -1,0 +1,25 @@
+{
+    "name": "agecheck",
+    "title": "Agecheck",
+    "description": "Prove you are old enough without saying your age.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "framework": "circom",
+    "kind": "circom-project",
+    "template": "age_check",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "witness"
+    ]
+}

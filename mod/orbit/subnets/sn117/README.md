@@ -2,7 +2,7 @@
 
 Every frame gets craft
 
-Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url](https://everyframe.studio/) · [discord](https://discord.com/channels/799672011265015819/1544011415692644444)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002626 | -1.02% | -2.07% | -0.36% | 8,035 | 2,930 | 41.56 |
+| 0.002645 | -0.00% | +0.74% | +1.04% | 8,106 | 2,940 | 112.25 |
 
 ## Last 24h flow
 
-10 trades by 6 coldkeys · 4 buys (5.35 τ) / 6 sells (32.58 τ) · net -27.23 τ
+17 trades by 8 coldkeys · 11 buys (61.49 τ) / 6 sells (50.22 τ) · net 11.27 τ
 
 ## News
 
-- 2026-10-14 · release · [everycli v0.4.1](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.4.1) — everyframe-studios/everyframe-miner
-- 2026-10-14 · commit · [fix: native Vivix W-credit telemetry and zero-balance gating support …](https://github.com/everyframe-studio/everyframe-miner/commit/3856aad6b477b68166b966ee783599b95cfa1612) — everyframe-studios/everyframe-miner
-- 2026-10-14 · commit · [fix: report safe provider rejections without retrying uncertain submi…](https://github.com/everyframe-studio/everyframe-miner/commit/ac2c0d9c67c6a2e1a4260c2fd58fd8d7e9b66581) — everyframe-studios/everyframe-miner
-- 2026-10-13 · commit · [docs: clarify v0.4.0 worker upgrades and verified mining coverage (#24)](https://github.com/everyframe-studio/everyframe-miner/commit/6308225c18a016839accf88ca66f01e37699dd1f) — everyframe-studios/everyframe-miner
-- 2026-10-13 · release · [everycli v0.4.0](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.4.0) — everyframe-studios/everyframe-miner
-- 2026-10-13 · commit · [feat: add H3 reference, image and audio workers for v0.4.0 (#23)](https://github.com/everyframe-studio/everyframe-miner/commit/73a8b68c893b22d96b85cb2dbd901eb095c7ae3b) — everyframe-studios/everyframe-miner
-- 2026-10-13 · release · [everycli v0.3.9](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.3.9) — everyframe-studios/everyframe-miner
-- 2026-10-13 · commit · [feat: add settings-bound Studio video workers and live balances (v0.3…](https://github.com/everyframe-studio/everyframe-miner/commit/af5d03f4678e6987d8919f930aa1a8e51d1de190) — everyframe-studios/everyframe-miner
+- 2026-10-14 · release · [everycli v0.5.6](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.5.6) — everyframe-studios/everyframe-miner
+- 2026-10-14 · commit · [Merge pull request #35 from everyframe-studio/release/v0.5.6-recovery…](https://github.com/everyframe-studio/everyframe-miner/commit/9fe18293c7e83ac56ef7ed7c7dc3a4d8a3d1729d) — everyframe-studios/everyframe-miner
+- 2026-10-14 · commit · [fix: reconcile abandoned deployment preparation and release v0.5.6](https://github.com/everyframe-studio/everyframe-miner/commit/a9c90e6d28fbbbc9d78aae06b276012c12c76f11) — everyframe-studios/everyframe-miner
+- 2026-10-14 · commit · [feat: report Fal, BFL and Runway balances from the keys workers run with](https://github.com/everyframe-studio/everyframe-miner/commit/33d893eb78d591e35a5d855dccf1f60e40e85724) — everyframe-studios/everyframe-miner
+- 2026-10-14 · release · [everycli v0.5.5](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.5.5) — everyframe-studios/everyframe-miner
+- 2026-10-14 · commit · [release: everycli v0.5.5 dashboard and atomic batch offers (#34)](https://github.com/everyframe-studio/everyframe-miner/commit/60b471926f98e88867af11ae3010c9b867f85be2) — everyframe-studios/everyframe-miner
+- 2026-10-14 · commit · [fix: streamline model offers and miner dashboard reporting (#33)](https://github.com/everyframe-studio/everyframe-miner/commit/930701e49f0650e0ce4cbdfe9d085c530c32dbda) — everyframe-studios/everyframe-miner
+- 2026-10-14 · release · [everycli v0.5.4](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.5.4) — everyframe-studios/everyframe-miner
 
 ## Use
 

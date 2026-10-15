@@ -2,7 +2,7 @@
 
 ChipForge decentralizes silicon design. Miners anywhere compete to build chips that accelerate AI, scored on real AI models.
 
-Bittensor subnet **108** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **108** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/TatsuProject/ChipForge_SN108) · [url](https://www.chipforge.io/) · [discord](https://discord.com/channels/799672011265015819/1408463235082092564)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/TatsuProject/ChipForge_SN108) · [url](https:
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.011264 | +1.00% | -11.40% | -38.59% | 1,964 | 811.6709 | 517.86 |
+| 0.010534 | +1.61% | -6.48% | -20.48% | 1,913 | 784.9336 | 267.36 |
 
 ## Last 24h flow
 
-170 trades by 58 coldkeys · 90 buys (233.25 τ) / 80 sells (278.19 τ) · net -44.93 τ
+103 trades by 48 coldkeys · 43 buys (120.33 τ) / 60 sells (142.59 τ) · net -22.26 τ
 
 ## News
 
+- 2026-10-14 · commit · [Validator sends its EDA server the batch's time: time_limit_s (deadli…](https://github.com/TatsuProject/ChipForge_SN108/commit/a113ad925e4594d84f7d2fa549e1d968fbe9cfcf) — TatsuProject/ChipForge_SN108
 - 2026-10-10 · commit · [On a baseline_epoch change the validator's bar is exactly the server'…](https://github.com/TatsuProject/ChipForge_SN108/commit/4b8de64382a5fe68a159c5bfca5bc45e06fd0df7) — TatsuProject/ChipForge_SN108
 - 2026-10-10 · commit · [Validator resets its local challenge best and winner to the server's …](https://github.com/TatsuProject/ChipForge_SN108/commit/4af91b3aa4a8dfc96a4e284a058a984348a0db41) — TatsuProject/ChipForge_SN108
 - 2026-10-06 · social · [SN108 Chipforge // Why +300% in 24h](https://www.reddit.com/r/bittensor_/comments/1wz0mjr/sn108_chipforge_why_300_in_24h/) — r/bittensor_
@@ -25,7 +26,6 @@ Links: [github](https://github.com/TatsuProject/ChipForge_SN108) · [url](https:
 - 2026-10-06 · commit · [.env.example updated](https://github.com/TatsuProject/ChipForge_SN108/commit/3cd9f3cf6f75061f67ae7085d9fea6748a8ed02f) — TatsuProject/ChipForge_SN108
 - 2026-10-05 · commit · [docs: validator hardware requirements (min 16 physical cores + 32 GB,…](https://github.com/TatsuProject/ChipForge_SN108/commit/3e019f6fed612b085ca944cb1956d6aa16b015d2) — TatsuProject/ChipForge_SN108
 - 2026-10-05 · commit · [Stop tracking CHANGES_V2.md (local change log only) and ignore it](https://github.com/TatsuProject/ChipForge_SN108/commit/9a399e47329879b7be44f135add1c3dfd0f007b0) — TatsuProject/ChipForge_SN108
-- 2026-10-01 · commit · [Validator logs explain the MIN_IMPROVEMENT_PERCENT decision: % gain o…](https://github.com/TatsuProject/ChipForge_SN108/commit/c834a38011fa514a7101b5b52a4659373552a891) — TatsuProject/ChipForge_SN108
 
 ## Use
 

@@ -43,7 +43,7 @@ def _version():
 
 app = FastAPI(
     title="OpenHouse API",
-    description="Collective asset ownership platform — fractional property ownership",
+    description="Rent-to-own, on-chain — with proof of rent paid, without the tenant",
     version=_version(),
 )
 
@@ -537,6 +537,111 @@ def toggle_active(req: ToggleActiveRequest = ToggleActiveRequest()):
 
 
 # ── Source ──────────────────────────────────────────────────────
+# ── Proofs — proof of rent paid, without the tenant ─────────────
+# The bank runs the Cairo statement over the private payment and signs the
+# fact; NEAR (near/) and Ethereum (contracts/OpenHouseProofs.sol) verify it.
+# Receipts carry no tenant data. Testnet: issuing is open; off testnet it
+# needs the operator bank key.
+
+class ProofIssueRequest(BaseModel):
+    tenant: str
+    amount: int
+    property_id: Optional[int] = None
+    period: Optional[int] = None
+    rent_due: Optional[int] = None
+    salt: str = ""
+    note: str = ""
+    key: str = ""
+
+class ProofVerifyRequest(BaseModel):
+    receipt: Optional[dict] = None
+    nullifier: str = ""
+
+class ProofOpenRequest(BaseModel):
+    tenant: str
+    salt: str
+    receipt: Optional[dict] = None
+    nullifier: str = ""
+
+class ProofSaltRequest(BaseModel):
+    tenant: str
+    key: str = ""
+
+class ProofSubmitRequest(BaseModel):
+    nullifier: str
+    chain: str = "near"
+    account: str = ""
+    address: str = ""
+    url: str = ""
+    signer: str = ""
+    key: str = ""
+
+class ProofBuildRequest(BaseModel):
+    target: str = "all"
+    key: str = ""
+
+def _proof_out(result):
+    if isinstance(result, dict) and "error" in result:
+        code = 403 if "key=" in str(result["error"]) else 400
+        raise HTTPException(status_code=code, detail=result["error"])
+    return result
+
+@app.get("/proofs")
+def proofs(property_id: Optional[int] = None, period: Optional[int] = None):
+    return get_openhouse().proofs(property_id, period)
+
+@app.get("/proofs/status")
+def proof_status():
+    return get_openhouse().proof_status()
+
+@app.get("/proofs/program")
+def proof_program():
+    return get_openhouse().proof_program()
+
+@app.get("/proofs/{nullifier}")
+def proof(nullifier: str):
+    result = get_openhouse().proof(nullifier)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+@app.get("/proofs/{nullifier}/chain")
+def proof_chain(nullifier: str):
+    result = get_openhouse().proof_chain(nullifier)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+@app.post("/proofs/issue")
+def proof_issue(req: ProofIssueRequest, request: Request):
+    return _proof_out(get_openhouse().proof_issue(
+        property_id=req.property_id, period=req.period, rent_due=req.rent_due,
+        tenant=req.tenant, amount=req.amount, salt=req.salt, note=req.note,
+        key=_bk(request, req.key)))
+
+@app.post("/proofs/verify")
+def proof_verify(req: ProofVerifyRequest):
+    return _proof_out(get_openhouse().proof_verify(receipt=req.receipt, nullifier=req.nullifier))
+
+@app.post("/proofs/open")
+def proof_open(req: ProofOpenRequest):
+    return _proof_out(get_openhouse().proof_open(req.tenant, req.salt, receipt=req.receipt,
+                                                 nullifier=req.nullifier))
+
+@app.post("/proofs/salt")
+def proof_salt(req: ProofSaltRequest, request: Request):
+    return _proof_out(get_openhouse().proof_salt(req.tenant, key=_bk(request, req.key)))
+
+@app.post("/proofs/submit")
+def proof_submit(req: ProofSubmitRequest, request: Request):
+    return _proof_out(get_openhouse().proof_submit(
+        req.nullifier, chain=req.chain, account=req.account, address=req.address,
+        url=req.url, signer=req.signer, key=_bk(request, req.key)))
+
+@app.post("/proofs/build")
+def proof_build(req: ProofBuildRequest = ProofBuildRequest()):
+    return get_openhouse().proof_build(req.target)
+
 
 @app.get("/source")
 def source():

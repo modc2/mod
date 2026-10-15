@@ -200,6 +200,47 @@ It is a layer, not a solo wallet for heavy use. The BUILDER's
 **QUANTUM-HARD PRESET** picks ML-DSA-44 + SLH-DSA-SHAKE-128f +
 CAIRO-MSS-SHA256 as ALL-of: lattice, SHAKE and SHA-256, all must fall.
 
+## The vault: encrypted before it leaves you
+
+The chain stores 32-byte commitments; the **vault** stores the file, and
+the nodes that hold it can't read it. The client seals with AES-256-GCM
+(WebCrypto in the browser, byte-identical pure Python in `src/pq/aesgcm.py`,
+pinned by NIST SP 800-38D vectors) into a `PQV1` envelope: a 37-byte header
+(magic, mode, PBKDF2 rounds, salt, IV) bound as AEAD data, then the
+ciphertext of `u32 meta-length | {name,type,size} | data | zero pad` to a
+power-of-two bucket. The node stores ciphertext only, under
+`cid = SHA3-256(blob)`. It refuses blobs with no valid header or with a body
+below 7.5 bits/byte of entropy (an accident guard; no node can prove a blob
+is encrypted), and keeps a blob as long as a live chain entry commits to its
+cid. Rent on the 32-byte pointer keeps the bytes.
+
+```
+pq_vault action=put blob=<base64 PQV1> key=vault/notes wallet=pioneer days=7
+pq_vault action=get key=vault/notes          # ciphertext + cid check
+mod.py vault_put path=~/notes.md key=vault/notes   # seals HERE, uploads ciphertext
+mod.py vault_get secret=pqv1:<cid>#<key>           # fetches, opens HERE
+```
+
+Key mode returns a share link `pqv1:<cid>#<key>`. The key sits after the
+`#`, which browsers never send. Passphrase mode uses PBKDF2-HMAC-SHA256 at
+600k rounds. Env: `POSTQUANT_VAULT_MAX` (8 MiB per blob),
+`POSTQUANT_VAULT_QUOTA` (1 GiB), `POSTQUANT_VAULT_GRACE` (3600 s before an
+unanchored blob is pruned).
+
+## Smart contracts: stored by hash, owned by key
+
+*Store, don't execute.* `pq_contract action=deploy name=counter lang=cairo
+code=…` (or `code_b64=` for wasm, `file=` locally) checks that the code is
+what it claims to be (wasm starts with `\0asm`, sierra has
+`sierra_program`) and stores it public in the vault. It then writes
+`contract/<name> = SHA3-256(code)`. The anchor key has an owner, rent and a
+market price like any key. Re-deploying the name is an upgrade, and the block
+log keeps every version. `show` returns the code, the hash check and a Merkle
+proof to the state root. Contract state lives at `contract/<name>/<k>`, and
+only the anchor's owner can write it. Execution is off consensus: anyone
+fetches the code by cid and re-runs it. A Cairo run can be STARK-proven and
+its proof hash anchored next to the code.
+
 ## Three prices, separate on purpose
 
 - **write gas** — one-time, per byte entering the state. A key byte costs 4x
@@ -337,10 +378,12 @@ src/pq/wasm/      the verifier blobs + manifest.json (SHA3-256 per blob)
 src/pq/wasm-src/  their Rust sources, build.sh (bare rustc), parity_test.py
 src/pq/cairomss.py CAIRO-MSS-SHA256 — hash-based key type + Cairo VM bridge
 src/pq/cairo/     its verifier as a Cairo 2 program (Scarb package)
+src/pq/aesgcm.py  AES-256-GCM, pure python — the vault's client-side cipher
+src/vault.py      PQV1 envelope (seal/open) + the ciphertext-only blob store
 src/state.py      the state machine — pure functions of (state, tx, timestamp)
 src/keys.py       keystore, addresses, transaction signing
 src/chain.py      blocks, mempool, the proposer, replay + verify
-src/mcp.py        33 tools; call_tool() is the one door
+src/mcp.py        35 tools; call_tool() is the one door
 src/agent.py      plain English → call_tool(); rules + chat (liquidai) + llm brains
 src/lfm.py        the chat brain's model: liquidai /chat SSE + its local token mint
 src/api.py        REST + console + MCP on one port

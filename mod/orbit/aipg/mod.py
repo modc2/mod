@@ -33,7 +33,8 @@ Two facts shape this module, and both were measured rather than assumed:
     same model "FLUX.2 Klein 4B FP8" in the roster and "flux.2 klein 4b fp8"
     in the price book.
 
-Stdlib only — urllib, no service, no port. The three public reads need no key;
+Stdlib only — urllib and http.server. `serve()` puts the fn surface on :50147
+in the mod protocol's wire shape. The public reads need no key;
 generation and credits need one, and it lives in ~/.mod/aipg, never in the repo.
 """
 from __future__ import annotations
@@ -43,7 +44,9 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -56,8 +59,15 @@ BASE = os.environ.get('AIPG_API', 'https://api.aipowergrid.io/v1').rstrip('/')
 STATE = Path(os.environ.get('AIPG_DIR', Path.home() / '.mod' / 'aipg'))
 KEY_FILE = STATE / 'key.json'
 OUT = STATE / 'out'
-UA = 'mod-aipg/0.1.0'
+UA = 'mod-aipg/0.2.0'
 TIMEOUT = float(os.environ.get('AIPG_TIMEOUT', 180))
+CONFIG = json.loads((HERE / 'config.json').read_text(encoding='utf-8'))
+PORT = int(os.environ.get('AIPG_PORT', CONFIG.get('port', 50147)))
+HOST = os.environ.get('AIPG_HOST', '127.0.0.1')
+# reachable by anyone who can reach the port: the free reads
+PUBLIC = set(CONFIG.get('public_fns', []))
+# never over HTTP, from anywhere: it would hand out the raw key, or re-serve
+NEVER = {'key', 'serve', 'call'}
 
 # which rate in the price book actually applies, per job type
 UNIT = {
@@ -246,28 +256,69 @@ class Mod:
             rows = [w for w in rows if w.get('online')]
         return {'count': len(rows), 'online_only': online, 'workers': rows}
 
-    def pricing(self, model: Optional[str] = None) -> Any:
-        """GET /v1/pricing — the price book, whole or for one model.
+    def price_book(self) -> Dict[str, Any]:
+        """GET /v1/pricing, verbatim — schema, book, aliases, evidence and all."""
+        return self._req('/pricing')
 
-        Matched case-insensitively: the book lowercases names the roster does
-        not. A hit here means a rate is configured, NOT that anyone is serving
-        it — `models()` is where those two facts meet.
+    def pricing(self, model: Optional[str] = None) -> Any:
+        """GET /v1/pricing — the price book, whole or resolved for one model.
+
+        Resolution follows the book's own rules, in order: an exact name
+        (case-insensitive — the book lowercases what the roster does not),
+        then the book's `aliases` (the roster says `deepseek-v4-flash-nvfp4`,
+        the book bills it as `deepseek-v4-flash`). A hit means a rate is
+        configured, NOT that anyone is serving it — `models()` is where those
+        two facts meet, and where `default_text` fills in for unpriced text.
         """
-        book = self._req('/pricing')
-        rows = book.get('price_book', {}).get('models', [])
+        book = self.price_book()
+        pb = book.get('price_book', {}) or {}
+        rows = pb.get('models', []) or []
         if model is None:
-            return {'version': book.get('price_book', {}).get('version'),
+            return {'schema': book.get('schema'),
+                    'version': pb.get('version'),
                     'currency': book.get('currency'),
                     'ledger_unit': book.get('ledger_unit'),
+                    'availability': pb.get('availability'),
+                    'aliases': pb.get('aliases') or {},
+                    'default_text': pb.get('default_text'),
+                    'comparison_evidence': book.get('comparison_evidence'),
+                    'source': f'{BASE}/pricing',
                     'count': len(rows), 'models': rows}
+        hit = self._resolve(str(model), self._index(book))
+        if hit:
+            row, via = hit
+            return {**row, 'requested': str(model), 'via': via,
+                    'version': pb.get('version')}
         want = str(model).strip().lower()
-        for row in rows:
-            if str(row.get('model', '')).lower() == want:
-                return row
         near = [r['model'] for r in rows if want in str(r.get('model', '')).lower()]
+        near += [a for a in (pb.get('aliases') or {}) if want in a.lower()]
         raise KeyError(f'no rate for {model!r}' +
                        (f' — did you mean {near}?' if near else
                         ' (a model can be online and unpriced)'))
+
+    @staticmethod
+    def _index(book: Dict[str, Any]) -> Dict[str, Any]:
+        """The book, keyed for lookup: lowercased rows and lowercased aliases."""
+        pb = book.get('price_book', {}) or {}
+        return {
+            'rows': {str(r.get('model', '')).lower(): r
+                     for r in pb.get('models', []) or []},
+            'aliases': {str(k).lower(): str(v).lower()
+                        for k, v in (pb.get('aliases') or {}).items()},
+            'default_text': pb.get('default_text'),
+            'version': pb.get('version'),
+        }
+
+    @staticmethod
+    def _resolve(name: str, idx: Dict[str, Any]) -> Optional[tuple]:
+        """(row, via) for a model name — 'book' or 'alias:<target>' — or None."""
+        key = name.strip().lower()
+        if key in idx['rows']:
+            return idx['rows'][key], 'book'
+        target = idx['aliases'].get(key)
+        if target and target in idx['rows']:
+            return idx['rows'][target], f'alias:{target}'
+        return None
 
     def models(self, type: Optional[str] = None, online: Optional[bool] = None,
                sort: str = 'type') -> List[Dict[str, Any]]:
@@ -279,10 +330,10 @@ class Mod:
         """
         rows = self.roster()
         try:
-            book = {str(r.get('model', '')).lower(): r.get('rates', {})
-                    for r in self.pricing()['models']}
-        except (Refused, KeyError, TypeError):
-            book = {}
+            idx = self._index(self.price_book())
+        except (Refused, KeyError, TypeError, AttributeError, ValueError):
+            idx = {'rows': {}, 'aliases': {}, 'default_text': None,
+                   'version': None}
         try:
             visible = {m.lower() for m in self.openai_models()}
         except Refused:
@@ -291,15 +342,16 @@ class Mod:
         for r in rows:
             name = r.get('name', '')
             kind = r.get('type', 'text')
-            rates = book.get(name.lower(), {})
+            price, source = self._rate(name, kind, r, idx)
             out.append({
                 'model': name,
                 'type': kind,
                 'online': (r.get('count') or 0) > 0,
                 'workers': r.get('count') or 0,
                 'context': r.get('max_context_length'),
-                'price': self._price(kind, rates),
-                'priced': bool(self._price(kind, rates)),
+                'price': price,
+                'priced': bool(price),
+                'price_source': source,
                 'openai_visible': name.lower() in visible,
                 'tokens_per_s': r.get('tokens_per_s'),
                 'avg_latency_s': r.get('avg_latency_s'),
@@ -312,6 +364,31 @@ class Mod:
                 'model': lambda r: r['model'].lower(),
                 'workers': lambda r: -r['workers']}
         return sorted(out, key=keys.get(sort, keys['type']))
+
+    @classmethod
+    def _rate(cls, name: str, kind: str, roster_row: Dict[str, Any],
+              idx: Dict[str, Any]) -> tuple:
+        """(price, source) for one roster row.
+
+        Sources, most specific first: the book row ('book'), the book's alias
+        table ('alias:<target>'), the rate the roster itself carries
+        ('roster'), and for text only the book's `default_text` ('default') —
+        which is what the grid bills an unlisted text model at. An unpriced
+        model comes back ({}, None) rather than guessed at.
+        """
+        hit = cls._resolve(name, idx)
+        if hit:
+            price = cls._price(kind, hit[0].get('rates', {}) or {})
+            if price:
+                return price, hit[1]
+        inline = cls._price(kind, roster_row.get('pricing') or {})
+        if inline:
+            return inline, 'roster'
+        if kind == 'text' and idx.get('default_text'):
+            price = cls._price(kind, idx['default_text'])
+            if price:
+                return price, 'default'
+        return {}, None
 
     @staticmethod
     def _price(kind: str, rates: Dict[str, Any]) -> Dict[str, Any]:
@@ -351,18 +428,48 @@ class Mod:
         }
 
     def estimate(self, model: str, input_tokens: int = 0,
-                 output_tokens: int = 0) -> Dict[str, Any]:
-        """What a text call of this shape would cost, at book rates."""
-        rates = self.pricing(model).get('rates', {})
-        rin, rout = rates.get('input_per_mtok_usd'), rates.get('output_per_mtok_usd')
-        if rin is None and rout is None:
-            raise KeyError(f'{model} has no per-token rate — not a text model?')
-        usd = (int(input_tokens) / 1e6) * (rin or 0) + \
-              (int(output_tokens) / 1e6) * (rout or 0)
-        return {'model': model, 'input_tokens': int(input_tokens),
+                 output_tokens: int = 0, images: int = 0, seconds: float = 0,
+                 generations: int = 0) -> Dict[str, Any]:
+        """What a call of this shape would cost, at book rates.
+
+        Text bills per million tokens in and out; image per image, video and
+        audio per second, 3d per generation. Names resolve through the book's
+        aliases, and an unlisted text model falls back to `default_text` —
+        the same rule the grid bills by.
+        """
+        book = self.price_book()
+        idx = self._index(book)
+        hit = self._resolve(str(model), idx)
+        if hit:
+            rates, via = hit[0].get('rates', {}) or {}, hit[1]
+        elif idx.get('default_text') and (input_tokens or output_tokens):
+            rates, via = idx['default_text'], 'default'
+        else:
+            raise KeyError(f'no rate for {model!r} — m aipg/pricing')
+        parts = {
+            'input_tokens': (int(input_tokens) / 1e6, 'input_per_mtok_usd'),
+            'output_tokens': (int(output_tokens) / 1e6, 'output_per_mtok_usd'),
+            'images': (int(images), 'per_image_usd'),
+            'video_seconds': (float(seconds), 'per_video_second_usd'),
+            'audio_seconds': (float(seconds), 'per_audio_second_usd'),
+            'generations': (int(generations), 'per_3d_generation_usd'),
+        }
+        used = {k: (q, f) for k, (q, f) in parts.items()
+                if q and rates.get(f) is not None}
+        if not used:
+            have = {f: v for f, v in rates.items() if v is not None}
+            raise KeyError(f'{model} is billed by {sorted(have)} — pass the '
+                           'matching quantity (input_tokens/output_tokens, '
+                           'images, seconds or generations)')
+        usd = sum(q * rates[f] for q, f in used.values())
+        return {'model': model, 'via': via, 'version': idx.get('version'),
+                'input_tokens': int(input_tokens),
                 'output_tokens': int(output_tokens),
-                'usd': round(usd, 8), 'rates': {'input_per_mtok_usd': rin,
-                                                'output_per_mtok_usd': rout}}
+                'usd': round(usd, 8),
+                'rates': {f: rates[f] for _, f in used.values()},
+                **({'images': int(images)} if images else {}),
+                **({'seconds': float(seconds)} if seconds else {}),
+                **({'generations': int(generations)} if generations else {})}
 
     # ── spending the key ─────────────────────────────────────────────
 
@@ -513,6 +620,50 @@ class Mod:
             out.append(str(p))
         return out
 
+    # ── the protocol surface ─────────────────────────────────────────
+
+    def serve(self, port: Optional[int] = None, host: Optional[str] = None) -> None:
+        """Serve the fn surface over HTTP, in the mod protocol's wire shape.
+
+        `POST /{fn}` with a JSON object of params answers `{"result": ...}`,
+        exactly like core/server — so `{host}/aipg/api/{fn}` and the legacy
+        `/api/aipg/{fn}` both work behind the router. GET with a query string
+        works too, so `curl .../aipg/api/pricing?model=gpt-oss-120b` does.
+
+        This exists because the generic core gate only knows one fleet-wide
+        public list, which refuses every read here. Instead: `public_fns` from
+        config.json are open to anyone; everything else (credits, chat, media,
+        set_key — the calls that spend the key) answers only to a direct
+        loopback caller, i.e. the operator on this box, never to a request
+        relayed by a proxy. `key` and `serve` are never callable over HTTP.
+
+        Blocks. core/server hands off here when it sees a module-owned serve,
+        so the existing `m.serve('aipg')` pm2 entry runs this unchanged.
+        """
+        port, host = int(port or PORT), host or HOST
+        srv = ThreadingHTTPServer((host, port), _handler(self))
+        print(f'aipg serving the mod protocol on http://{host}:{port} '
+              f'({len(PUBLIC)} public fns, upstream {BASE})', flush=True)
+        try:
+            srv.serve_forever()
+        finally:
+            srv.server_close()
+
+    def call(self, fn: str, params: Optional[Dict[str, Any]] = None,
+             local: bool = False) -> Any:
+        """Run one fn under the same rules the HTTP surface enforces."""
+        fn = str(fn).strip('/').split('/')[-1]
+        if fn in NEVER or fn.startswith('_') or fn not in CONFIG.get('fns', []):
+            raise PermissionError(f'{fn!r} is not callable over the protocol')
+        if fn not in PUBLIC and not local:
+            raise PermissionError(f'{fn!r} spends the key — loopback only, '
+                                  f'public fns: {sorted(PUBLIC)}')
+        params = dict(params or {})
+        params.pop('token', None)
+        if fn == 'chat':
+            params['stream'] = False   # nobody is watching this stdout
+        return getattr(self, fn)(**params)
+
     # ── does it work ─────────────────────────────────────────────────
 
     def test(self) -> Dict[str, Any]:
@@ -530,3 +681,100 @@ class Mod:
                 'models': len(rows),
                 'online': sum(1 for r in rows if r['online']),
                 'key': self.key_status()['present']}
+
+
+# ── HTTP ─────────────────────────────────────────────────────────────
+
+# where a fn name can sit in the path, depending on who relayed the request:
+# direct, core/server's /mod/{name}/, the canonical router, the legacy alias
+_PREFIXES = ('/aipg/api/', '/api/aipg/', '/mod/aipg/', '/')
+_FORWARDED = ('x-forwarded-for', 'x-real-ip', 'forwarded', 'cf-connecting-ip')
+_STATUS = ((PermissionError, 403), (NoKey, 401), (KeyError, 404),
+           (Refused, 424), (TypeError, 400), (ValueError, 400))
+
+
+def _query_value(v: str) -> Any:
+    """Query strings are text; `online=false` must not arrive as truthy."""
+    try:
+        return json.loads(v)
+    except ValueError:
+        return v
+
+
+def _handler(mod: 'Mod') -> type:
+    class Handler(BaseHTTPRequestHandler):
+        server_version = UA
+
+        def log_message(self, fmt: str, *args: Any) -> None:
+            pass
+
+        def _local(self) -> bool:
+            if self.client_address[0] not in ('127.0.0.1', '::1'):
+                return False
+            return not any(self.headers.get(h) for h in _FORWARDED)
+
+        def _send(self, code: int, payload: Any) -> None:
+            body = json.dumps(payload, default=str).encode()
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_OPTIONS(self) -> None:
+            self.send_response(204)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers',
+                             'Content-Type, Authorization, token')
+            self.end_headers()
+
+        def _route(self, params: Dict[str, Any]) -> None:
+            path = urllib.parse.urlsplit(self.path).path
+            fn = ''
+            for pre in _PREFIXES:
+                if path.startswith(pre) or path + '/' == pre:
+                    fn = path[len(pre):].strip('/')
+                    break
+            fn = fn or 'info'
+            # core clients wrap path calls as fn='call' {fn, params}
+            if fn in ('call', 'forward') and isinstance(params.get('fn'), str):
+                fn, params = params['fn'], params.get('params') or {}
+            if fn == 'health':
+                return self._send(200, {'ok': True, 'mod': 'aipg',
+                                        'upstream': BASE})
+            try:
+                result = mod.call(fn, params, local=self._local())
+            except Exception as e:  # noqa: BLE001 — every error gets a status
+                code = next((c for t, c in _STATUS if isinstance(e, t)), 400)
+                msg = e.args[0] if isinstance(e, KeyError) and e.args else str(e)
+                return self._send(code, {'error': str(msg), 'fn': fn})
+            self._send(200, {'result': result})
+
+        def do_GET(self) -> None:
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            self._route({k: _query_value(v[-1]) for k, v in q.items()})
+
+        def do_POST(self) -> None:
+            n = int(self.headers.get('Content-Length') or 0)
+            raw = self.rfile.read(n) if n else b''
+            try:
+                params = json.loads(raw) if raw.strip() else {}
+            except ValueError:
+                return self._send(400, {'error': 'body must be JSON'})
+            if not isinstance(params, dict):
+                return self._send(400, {'error': 'body must be a JSON object'})
+            # core clients wrap params as {"params": {...}}; accept both
+            if set(params) <= {'params', 'token'} and isinstance(
+                    params.get('params'), dict):
+                params = params['params']
+            self._route(params)
+
+    return Handler
+
+
+if __name__ == '__main__':
+    import sys
+    if sys.argv[1:2] == ['serve']:
+        Mod().serve(*(sys.argv[2:3] or [None]))

@@ -139,3 +139,31 @@ export interface BankKind {
   kind: string; label: string; live: boolean; caps: string[]; doc: string
   fields: { name: string; required: boolean; secret: boolean; help: string }[]
 }
+
+/* ── proofs: proof of rent paid, without the tenant ─────────── */
+
+export interface ProofChainInfo { configured?: boolean; paid?: boolean; error?: string }
+export interface ProofReceipt {
+  kind: string; version: number; program_hash: string; outputs: string[]
+  property_id: number; period: number; rent_due: number
+  commitment: string; nullifier: string; fact: string
+  bank: { name: string; near: string; near_hex: string; eth: string }
+  sig: { near: string; eth: string }
+  issued: number; note?: string
+  source?: { bank?: string; txn?: string; booked_at_bank?: number; matched_by?: string }
+  chain: Record<string, { ok?: boolean; hash?: string; explorer?: string; contract?: string; why?: string; at?: number }>
+  chains?: Record<string, ProofChainInfo>
+}
+export interface ProofVerdict {
+  ok: boolean; checks: { claim: string; ok: boolean | null }[]; fact?: string; nullifier?: string
+  kind?: string; known_here?: boolean; error?: string
+}
+export interface ProofStatus {
+  program: { program_hash: string | null; built: boolean; scarb: boolean; path: string; version: number
+    public_outputs: string[]; private_inputs: string[]; fact: string; source_sha256?: string; error?: string }
+  issuer: { name: string; near: string; near_hex: string; eth: string } | null
+  receipts: number; submitted: { near: number; eth: number }
+  chains: { near: { network: string; account: string; explorer: string }
+            eth: { network: string; address: string; url: string; chainId: string | number; explorer: string } }
+  property_id: number; rent_due: number; unit: string; kinds: Record<string, string>
+}

@@ -114,6 +114,24 @@ class Mod:
         """Delete a panel — creator only. Its verdicts stay on record."""
         return self.book.remove(name, creator)
 
+    def add_judge(self, name, creator, judge):
+        """Seat one more judge on a panel — creator only. judge = the same
+        JSON a bench seat takes, plus an optional `goal`: what this judge is
+        judging for, put before the model with the criteria prompt."""
+        return self.book.add_judge(name, creator, judge)
+
+    def judge_keys(self, panel, judge):
+        """One judge's keyring, public side only: per key type the public
+        key, fingerprint, algorithm and whether it is quantum-resistant."""
+        return self.book.judge_keys(panel, judge)
+
+    def whoami(self, token=None):
+        """The address a mod-protocol token proves (m.mod('auth').token or a
+        wallet personal_sign), or None. The console's sign-in goes through
+        the same door over HTTP (GET /whoami, Authorization: Bearer)."""
+        import identity
+        return {'address': identity.whoami(token), **identity.status()}
+
     # ── judging ──────────────────────────────────────────────────
 
     def judge(self, panel, input):

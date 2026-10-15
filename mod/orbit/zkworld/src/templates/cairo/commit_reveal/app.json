@@ -1,0 +1,70 @@
+{
+  "title": "Sealed answers",
+  "intro": "Lock in a hidden answer now, show it later. Nobody can peek at it, and you cannot change it once locked.",
+  "steps": [
+    "Pick who you are at the top right.",
+    "Lock in: paste the seal of your answer and press Lock in.",
+    "Reveal: enter your answer and the secret you used, then press Reveal."
+  ],
+  "fns": {
+    "commits": {
+      "label": "Answers locked in",
+      "show": "big"
+    },
+    "reveals": {
+      "label": "Answers revealed",
+      "show": "big"
+    },
+    "is_revealed": {
+      "label": "Have I revealed?",
+      "yes": "Revealed",
+      "no": "Not yet",
+      "inputs": {
+        "who": {
+          "hide": true
+        }
+      }
+    },
+    "value_of": {
+      "label": "My revealed answer",
+      "show": "text",
+      "inputs": {
+        "who": {
+          "hide": true
+        }
+      }
+    },
+    "commit": {
+      "label": "Lock in",
+      "button": "Lock in",
+      "inputs": {
+        "commitment": {
+          "label": "Seal of your answer"
+        }
+      }
+    },
+    "reveal": {
+      "label": "Reveal",
+      "button": "Reveal",
+      "inputs": {
+        "value": {
+          "label": "Your answer"
+        },
+        "salt": {
+          "label": "Your secret"
+        }
+      }
+    },
+    "commitment_of": {
+      "hide": true
+    }
+  },
+  "events": {
+    "Committed": {
+      "say": "{who} locked in an answer"
+    },
+    "Revealed": {
+      "say": "{who} revealed {value}"
+    }
+  }
+}

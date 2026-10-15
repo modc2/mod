@@ -128,7 +128,13 @@ class SigAlgo:
             "origin": self.origin,
             "note": self.note,
             "security": complexity.summary(self),
+            "pq_score": _pqscore().score_algo(self),
         }
+
+
+def _pqscore():
+    from . import pqscore         # imports algos back — load lazily
+    return pqscore
 
 
 REGISTRY: dict[str, SigAlgo] = {}

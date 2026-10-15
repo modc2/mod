@@ -245,6 +245,158 @@ def test_fns_in_config_all_exist():
     assert set(cfg['public_fns']) <= set(cfg['fns'])
 
 
+# ── the price book's own resolution rules ────────────────────────────
+
+BOOK_V2 = json.loads(json.dumps(BOOK))
+BOOK_V2['schema'] = 'aipg.pricing.v1'
+BOOK_V2['price_book'].update({
+    'availability': 'Configured rates do not assert that a model is online.',
+    'aliases': {'deepseek-v4-flash-nvfp4': 'deepseek-v4-flash',
+                'ltx director 2.0': 'ltx-2.3'},
+    'default_text': {'input_per_mtok_usd': 0.075, 'output_per_mtok_usd': 0.3,
+                     'source': 'default'},
+})
+BOOK_V2['price_book']['models'].append(
+    {'model': 'deepseek-v4-flash', 'rates': {'input_per_mtok_usd': 0.07,
+                                             'output_per_mtok_usd': 0.14}})
+BOOK_V2['comparison_evidence'] = {'status': 'stale', 'items': []}
+ROSTER_V2 = ROSTER + [
+    {'name': 'deepseek-v4-flash-nvfp4', 'count': 1, 'type': 'text'},
+    {'name': 'LTX Director 2.0', 'count': 1, 'type': 'video'},
+    {'name': 'inline-priced', 'count': 1, 'type': 'text',
+     'pricing': {'input_per_mtok_usd': 1.0, 'output_per_mtok_usd': 2.0}},
+    {'name': 'nobody-priced-me', 'count': 1, 'type': 'text'},
+    {'name': 'mystery-image', 'count': 1, 'type': 'image'},
+]
+
+
+@pytest.fixture
+def mod2(mod, monkeypatch):
+    routes = {'/status/models': ROSTER_V2, '/pricing': BOOK_V2,
+              '/models': OPENAI, '/workers': WORKERS}
+    real_key = aipg.Mod.key
+
+    def fake(path, body=None, keyed=False, **kw):
+        if keyed:
+            real_key(mod)      # same order as the real wire: key first
+        return json.loads(json.dumps(routes[path]))
+    monkeypatch.setattr(mod, '_req', fake)
+    return mod
+
+
+def test_aliases_price_the_roster_name(mod2):
+    rows = {r['model']: r for r in mod2.models()}
+    ds = rows['deepseek-v4-flash-nvfp4']
+    assert ds['price'] == {'input_per_mtok_usd': 0.07, 'output_per_mtok_usd': 0.14}
+    assert ds['price_source'] == 'alias:deepseek-v4-flash'
+    assert rows['LTX Director 2.0']['price'] == {'per_video_second_usd': 0.05}
+    assert rows['FLUX.2 Klein 4B FP8']['price_source'] == 'book'
+
+
+def test_roster_inline_then_default_then_nothing(mod2):
+    rows = {r['model']: r for r in mod2.models()}
+    assert rows['inline-priced']['price_source'] == 'roster'
+    assert rows['nobody-priced-me']['price_source'] == 'default'
+    assert rows['nobody-priced-me']['price']['output_per_mtok_usd'] == 0.3
+    # default_text is a TEXT rule — media never inherits it
+    assert rows['mystery-image']['priced'] is False
+    assert rows['mystery-image']['price_source'] is None
+
+
+def test_pricing_returns_the_whole_book(mod2):
+    got = mod2.pricing()
+    assert got['schema'] == 'aipg.pricing.v1'
+    assert got['aliases']['ltx director 2.0'] == 'ltx-2.3'
+    assert got['default_text']['output_per_mtok_usd'] == 0.3
+    assert got['comparison_evidence']['status'] == 'stale'
+    assert got['source'].endswith('/pricing')
+    one = mod2.pricing('LTX Director 2.0')
+    assert one['model'] == 'ltx-2.3' and one['via'] == 'alias:ltx-2.3'
+
+
+def test_estimate_media_alias_and_default(mod2):
+    assert mod2.estimate('FLUX.2 Klein 4B FP8', images=3)['usd'] == \
+        pytest.approx(0.03)
+    vid = mod2.estimate('LTX Director 2.0', seconds=10)
+    assert vid['usd'] == pytest.approx(0.5) and vid['via'] == 'alias:ltx-2.3'
+    dflt = mod2.estimate('nobody-priced-me', output_tokens=1_000_000)
+    assert dflt['via'] == 'default' and dflt['usd'] == pytest.approx(0.3)
+    with pytest.raises(KeyError, match='per_image_usd'):
+        mod2.estimate('flux.2 klein 4b fp8', input_tokens=10)
+
+
+# ── the protocol surface ─────────────────────────────────────────────
+
+@pytest.fixture
+def server(mod2):
+    import threading
+    srv = aipg.ThreadingHTTPServer(('127.0.0.1', 0), aipg._handler(mod2))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f'http://127.0.0.1:{srv.server_address[1]}'
+    srv.shutdown()
+    srv.server_close()
+
+
+def _hit(url, body=None, headers=None):
+    import urllib.error
+    import urllib.request
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, headers={
+        'Content-Type': 'application/json', **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def test_protocol_wire_shape_post_and_get(server):
+    code, got = _hit(f'{server}/pricing', {'model': 'gpt-oss-120b'})
+    assert code == 200 and got['result']['rates']['input_per_mtok_usd'] == 0.05
+    code, got = _hit(f'{server}/pricing?model=LTX%20Director%202.0')
+    assert code == 200 and got['result']['via'] == 'alias:ltx-2.3'
+    code, got = _hit(f'{server}/models?type=video&online=false')
+    assert code == 200 and [r['model'] for r in got['result']] == ['LTX-2.3']
+
+
+def test_protocol_accepts_every_router_prefix(server):
+    for pre in ('', '/aipg/api', '/api/aipg', '/mod/aipg'):
+        code, got = _hit(f'{server}{pre}/price_book', {})
+        assert code == 200 and got['result']['schema'] == 'aipg.pricing.v1', pre
+    code, got = _hit(f'{server}/call', {'fn': 'aipg/pricing', 'params': {}})
+    assert code == 200 and got['result']['count'] == len(BOOK_V2['price_book']['models'])
+
+
+def test_protocol_errors_are_4xx_json(server):
+    code, got = _hit(f'{server}/pricing', {'model': 'no-such'})
+    assert code == 404 and 'no rate' in got['error']
+    code, got = _hit(f'{server}/nope', {})
+    assert code == 403
+
+
+def test_spending_fns_refuse_relayed_callers(server):
+    """Through a proxy is the public internet. credits/chat/set_key must refuse."""
+    fwd = {'X-Forwarded-For': '203.0.113.9'}
+    for fn in ('credits', 'chat', 'set_key', 'image'):
+        code, got = _hit(f'{server}/{fn}', {'prompt': 'x', 'key': 'k'}, fwd)
+        assert code == 403 and 'loopback' in got['error'], fn
+    # a public read still works through the proxy
+    assert _hit(f'{server}/pricing', {}, fwd)[0] == 200
+
+
+def test_raw_key_never_leaves_over_http(server, mod2):
+    mod2.set_key('sk-abcdef0123456789')
+    code, got = _hit(f'{server}/key', {})
+    assert code == 403 and 'abcdef0123456789' not in json.dumps(got)
+    assert _hit(f'{server}/serve', {})[0] == 403
+
+
+def test_loopback_operator_reaches_keyed_fns(server):
+    """Direct loopback (no proxy headers) is the operator: NoKey, not 403."""
+    code, got = _hit(f'{server}/credits', {})
+    assert code == 401 and 'console.aipowergrid.io' in got['error']
+
+
 # ── live, opt-in with -m live, still no key needed ───────────────────
 
 @pytest.mark.live

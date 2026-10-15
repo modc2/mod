@@ -178,7 +178,8 @@ SOURCES = [
 
 def simulate(new_per_year=20000, preserved_per_year=20000,
              freeze_years=2, rgb_hike=3.0, attrition_per_year=10000,
-             median_stabilized_rent=1500, years=10):
+             median_stabilized_rent=1500, years=10,
+             base_pace=7000, stabilized=1_000_000):
     """Project the affordable stock and tenant savings, plan vs status quo.
 
     A deliberately small, transparent model — every assumption is an input:
@@ -191,6 +192,9 @@ def simulate(new_per_year=20000, preserved_per_year=20000,
                           distress and decay if nobody intervenes
       median_stabilized_rent  $/mo, for the savings arithmetic
       years               horizon
+      base_pace           status-quo subsidized completions/yr (city: ~7k)
+      stabilized          homes under the freeze (city: ~1M) — reality.borough()
+                          scales both to one borough's share of renters
 
     Status quo = no new subsidized pipeline beyond replacement (~7k/yr, the
     pre-plan pace), no preservation push, rents rise rgb_hike every year.
@@ -204,8 +208,8 @@ def simulate(new_per_year=20000, preserved_per_year=20000,
     attrition = max(0, int(attrition_per_year))
     rent0 = max(1, float(median_stabilized_rent))
 
-    base_pace = 7000          # pre-plan subsidized completions/yr
-    stabilized = 1_000_000    # homes under the freeze
+    base_pace = max(0, int(base_pace))      # pre-plan subsidized completions/yr
+    stabilized = max(0, int(stabilized))    # homes under the freeze
 
     plan_stock, sq_stock = [0], [0]
     plan_rent, sq_rent = [rent0], [rent0]

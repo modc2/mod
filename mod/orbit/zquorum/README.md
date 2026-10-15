@@ -9,7 +9,7 @@ Cairo-native sibling).
 ## How it works
 
 Commit/nullifier scheme (Semaphore-style), Pedersen over the STARK field.
-**Every hash lives in one Cairo program** — `circuit/` (package `zq`) — so
+**Every hash lives in one Cairo program** — `src/circuit/` (package `zq`) — so
 the anchor, a future on-chain verifier and a future STARK prover can never
 disagree:
 
@@ -35,7 +35,7 @@ root        R = fold pedersen('zq-root', ...) over sorted commitments
 m zquorum/create name=launch threshold=2 desc='ship it?'
 
 # each member, CLIENT-SIDE (the secret never travels):
-python3 mod.py commit secret='my passphrase'     # -> C
+python3 src/mod.py commit secret='my passphrase'     # -> C
 m zquorum/join name=launch commitment=<C>
 
 # voting (freezes the member set on the first vote)
@@ -51,7 +51,7 @@ any client).
 
 ## On Starknet — the `ZQuorum` contract
 
-`contract/` (Scarb package `zquorum`, path-depends on `circuit/` so it
+`src/contract/` (Scarb package `zquorum`, path-depends on `circuit/` so it
 hashes with the very same `zq` functions) keeps a quorum's books on-chain:
 
 | on-chain | enforced by the contract |
@@ -126,25 +126,35 @@ an API — the same shape as its sibling `orbit/ztensor`, kept Python-stdlib:
   | `{host}/api/zquorum/<fn>` | permanent legacy alias |
 
 ```sh
-bash build.sh        # build + publish the console
-m zquorum/serve      # run server.py (app + API) on :51300
+bash src/build.sh    # build + publish the console
+m zquorum/serve      # run src/server.py (app + API) on :51300
 ```
+
+## Runs by itself
+
+`src/server.py` calls `boot()` in a background thread every time it starts:
+compile the circuit if stale, start the devnet on `:51302`, make sure ZQuorum
+is deployed there, and build the console if `dist/` is missing. The port
+answers immediately; `GET /zquorum/api/boot` shows each step. The pm2 process
+`zquorum` runs `src/server.py` with autorestart and is saved in the pm2 dump
+(restored by `pm2-root` on boot), so it comes back after a crash or a reboot.
 
 ## Layout
 
 ```
-mod.py             stdlib anchor: ledger + scarb orchestration + CLI (port 51300)
-server.py          stdlib HTTP server: static console (dist/) + JSON API
-app/               Next.js console (static export) — create/join/vote/tally UI
-build.sh           next export -> releases/<ts> -> atomic dist symlink
-dist -> releases/  published console (gitignored symlink)
-circuit/           Cairo 2.8.4 package `zq` — THE protocol (hashes, vote check, CLI main)
-contract/          Starknet package `zquorum` — ZQuorum contract (books on-chain) + snforge tests
-tests/             pytest: ledger + full on-chain ceremony on the devnet
+config.json        module manifest (anchor = src/mod.py, server = src/server.py)
 data/              quorums.json ledger, deployments.json, devnet/ (gitignored); secrets never stored
+src/mod.py         stdlib anchor: ledger + scarb orchestration + boot() + CLI (port 51300)
+src/server.py      stdlib HTTP server: static console (dist/) + JSON API; runs boot() on start
+src/app/           Next.js console (static export) — create/join/vote/tally UI
+src/build.sh       next export -> releases/<ts> -> atomic dist symlink
+src/dist           published console (gitignored symlink)
+src/circuit/       Cairo 2.8.4 package `zq` — THE protocol (hashes, vote check, CLI main)
+src/contract/      Starknet package `zquorum` — ZQuorum contract (books on-chain) + snforge tests
+src/tests/         pytest: ledger + full on-chain ceremony on the devnet
 ```
 
-- Circuit ground truth: `cd circuit && scarb cairo-test` (6 tests) or
+- Circuit ground truth: `cd src/circuit && scarb cairo-test` (6 tests) or
   `m zquorum/test`.
 - Circuit CLI: `scarb cairo-run --available-gas 800000000 '[[4, <secret>, <topic>, <leaf>...]]'`
   returns `(root, nullifier, ok)`.

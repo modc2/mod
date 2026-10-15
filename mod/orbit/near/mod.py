@@ -8,6 +8,7 @@ chain. This module reads all of it.
     m near/account root.near             # balances, storage, contract flag
     m near/keys root.near                # access keys and what each may do
     m near/contract wrap.near            # callable methods, from the WASM
+    m near/abi wrap.near                 # the interface, inferred: kinds, typed args
     m near/view wrap.near ft_metadata    # a free view call
     m near/ft usdt.tether-token.near account_id=root.near
     m near/history root.near             # recent txns, via the indexer
@@ -104,6 +105,19 @@ class Mod:
     def contract(self, account_id, network=None, rpc=None):
         """Callable methods, parsed from the deployed WASM's export section."""
         return self.client(network, rpc).contract(account_id)
+
+    def abi(self, account_id, method=None, refresh=False, deep=True,
+            network=None, rpc=None):
+        """The contract's interface, inferred: each method's kind (view /
+        change / init), typed args with examples, deposit rules, confidence.
+        Embedded near-abi when present; otherwise probed off the chain."""
+        import mcp
+        return mcp.call_tool('near_abi', {'account_id': account_id,
+                                          'method': method,
+                                          'refresh': _truthy(refresh),
+                                          'deep': _truthy(deep),
+                                          'network': network or self._network,
+                                          'rpc': rpc or self._rpc}, local=True)
 
     def contracts(self, network=None, rpc=None, refresh=False):
         """The contracts that are ON — the curated directory plus your own
@@ -270,3 +284,110 @@ class Mod:
     def readme(self):
         with open(os.path.join(HERE, 'README.md')) as f:
             return f.read()
+
+    # ── LEARN + BUILD: the workshop (studio.py, lessons.py, tutor.py) ──
+
+    def lessons(self, id=None, **kwargs):
+        """The school: every lesson + glossary, or one lesson by id."""
+        import lessons
+        return lessons.lesson(id) or {'error': f'no lesson {id!r}'} if id else lessons.index()
+
+    lesson = lessons
+
+    def templates(self):
+        """Starters a project can be made from (counter, token, commit_reveal, merkle_allowlist)."""
+        import studio
+        return studio.templates()
+
+    def projects(self):
+        """Every project in contracts/: starter, build state, where it shipped."""
+        import studio
+        return studio.projects()
+
+    def project(self, name):
+        """One project: files, parsed methods, walkthrough pinned to lines, artifact."""
+        import studio
+        return studio.project(name)
+
+    def new(self, name, template='counter', desc=None):
+        """Scaffold a project from a starter."""
+        import studio
+        return studio.new(name, template, desc)
+
+    def build(self, name):
+        """cargo build --target wasm32-unknown-unknown --release → .wasm + diagnostics."""
+        import studio
+        return studio.build(name)
+
+    def verify(self, name):
+        """cargo test: the unit tests inside lib.rs, per-test pass/fail + reason."""
+        import studio
+        return studio.verify(name)
+
+    def check(self, name):
+        """build + verify."""
+        import studio
+        return studio.check(name)
+
+    def vibe(self, name, prompt, model=None):
+        """orbit/claudecode edits the crate to the prompt, then build + test."""
+        import studio
+        return studio.vibe(name, prompt, model)
+
+    def ship(self, name, account_id=None, network='testnet', init_method=None,
+             init_args=None, confirm=False, **kwargs):
+        """Deploy the built .wasm via the keystore (testnet default; mainnet
+        needs confirm=true). Batches the starter's init the first time."""
+        import json as _json
+        import studio
+        if isinstance(init_args, str) and init_args.strip():
+            init_args = _json.loads(init_args)
+        return studio.ship(name, account_id, network, init_method, init_args,
+                           _truthy(confirm))
+
+    def remove(self, name):
+        """Delete a project."""
+        import studio
+        return studio.remove(name)
+
+    def merkle(self, accounts):
+        """Root + proofs for the merkle_allowlist starter (sorted-pair sha256)."""
+        import studio
+        return studio.merkle(accounts)
+
+    def seal(self, contract, who, value, salt):
+        """The commit_reveal starter's seal, hex."""
+        import studio
+        return studio.seal(contract, who, value, salt)
+
+    def toolchain(self):
+        """cargo + wasm32 target present? claudecode reachable?"""
+        import studio
+        return studio.toolchain()
+
+    def agents(self):
+        """The agent-protocol card: tutor (open) + builder (token)."""
+        import tutor
+        return {'agents': list(tutor.AGENTS.values()), 'card': tutor.card(self.base)}
+
+    def ask(self, query, brain='tutor', **context):
+        """Ask the tutor from the shell (local = may use brain=claude)."""
+        import studio
+        import tutor
+        j = studio.jobs()
+        return tutor.run({'query': query, 'brain': brain, 'context': context},
+                         who={'writable': True, 'why': 'local'}, emit=lambda e: None,
+                         start_job=j.start, get_job=j.get, agent='tutor',
+                         mcp_url=f'http://127.0.0.1:{self.port}/mcp')
+
+    def make(self, query, name=None, template=None, zk=False, vibe=True, model=None):
+        """Ask the builder from the shell: scaffold + claudecode + build + test;
+        zk=true (or zk words in the ask) forwards to the cairo mod's builder."""
+        import studio
+        import tutor
+        j = studio.jobs()
+        body = {'query': query, 'name': name, 'template': template, 'model': model,
+                'zk': _truthy(zk), 'vibe': _truthy(vibe)}
+        return tutor.run({k: v for k, v in body.items() if v not in (None, '')},
+                         who={'writable': True, 'why': 'local'}, emit=lambda e: None,
+                         start_job=j.start, get_job=j.get, agent='builder')

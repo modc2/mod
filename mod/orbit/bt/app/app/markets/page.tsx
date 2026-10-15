@@ -89,7 +89,7 @@ function FlowBoard({ q, ccy, rate, cv, sign }: {
               <tr key={r.netuid} onClick={() => openSubnet(r.netuid)}>
                 <td className="num">{r.netuid}</td>
                 <td><div className="sn-cell"><SubnetLogo logo={r.logo} symbol={r.symbol} />
-                  <div><div className="sn-name">{r.name || '—'}</div><div className="sn-sym">{r.symbol}</div></div></div></td>
+                  <div><div className="sn-name">{r.name || '—'}</div><div className="sn-sym">SN{r.netuid}{r.symbol ? <> · {r.symbol}</> : null}</div></div></div></td>
                 <td className={'num flow-net ' + (r.net_tao >= 0 ? 'up' : 'down')}>
                   {r.net_tao >= 0 ? '+' : '−'}{compact(Math.abs(cv(r.net_tao)!))}</td>
                 <td className="flow-barcell"><span className={'flow-bar ' + (r.net_tao >= 0 ? 'up' : 'down')}
@@ -187,7 +187,7 @@ export default function Markets() {
             <tr key={r.netuid} onClick={() => openSubnet(r.netuid)}>
               <td className="num">{r.netuid}</td>
               <td><div className="sn-cell"><SubnetLogo logo={r.logo} symbol={r.symbol} />
-                <div><div className="sn-name">{r.name || '—'}</div><div className="sn-sym">{r.symbol}</div></div></div></td>
+                <div><div className="sn-name">{r.name || '—'}</div><div className="sn-sym">SN{r.netuid}{r.symbol ? <> · {r.symbol}</> : null}</div></div></div></td>
               <td className="num">{fmtPrice(cv(r.price))}</td>
               <td className="num"><Pct v={r.change_1h} /></td>
               <td className="num"><Pct v={r.change_24h} /></td>

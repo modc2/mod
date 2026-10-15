@@ -32,6 +32,7 @@ import chain as C                                              # noqa: E402
 import keys as K                                               # noqa: E402
 import state as S                                              # noqa: E402
 from pq import algos as ALGOS                                  # noqa: E402
+from pq import pqscore as PQSCORE                              # noqa: E402
 from state import StateError, to_pq                            # noqa: E402
 
 SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
@@ -91,9 +92,16 @@ _NODE_LOCK = threading.Lock()
 _CALLER = threading.local()
 
 
-def set_remote(flag):
-    """api.py calls this at the top of every HTTP dispatch."""
+def set_remote(flag, owner=None):
+    """api.py calls this at the top of every HTTP dispatch. owner = the
+    caller proved the server.secret bearer (only meaningful when one exists);
+    a local caller is always the owner."""
     _CALLER.remote = bool(flag)
+    _CALLER.owner = (not flag) if owner is None else bool(owner)
+
+
+def _is_owner():
+    return getattr(_CALLER, 'owner', True)
 
 
 def _file_digest(path):
@@ -892,15 +900,20 @@ def _t_wallet(a):
     if action in ('list', 'ls'):
         out = K.wallets()
         n = node()
+        full = {x['name']: x for x in K._load()['wallets'].values()}
         for w in out['wallets']:
             w['balance'] = _money(n.state.balance(w['address']))
             w['nonce'] = n.state.accounts.get(w['address'], {}).get('nonce', 0)
+            w['pq_score'] = PQSCORE.score_wallet(
+                full.get(w['name'], w), pk_exposed=w['nonce'] > 0,
+                owner=_is_owner())
         return out
     if action == 'create':
         # keys.create runs the complexity gate itself and its refusal names the
         # escape hatch; nothing to pre-check here.
         w = K.create(a.get('name') or 'default', seed=a.get('seed'),
-                     scheme=a.get('scheme'), overwrite=bool(a.get('overwrite')))
+                     scheme=a.get('scheme'), overwrite=bool(a.get('overwrite')),
+                     inner=a.get('inner'))
         sz = ALGOS.get(w['scheme']).sizes
         return {**w, 'sig_bytes': sz['sig'],
                 'note': 'the seed stays in the keystore and never leaves '
@@ -911,9 +924,43 @@ def _t_wallet(a):
     if action in ('remove', 'delete'):
         return K.remove(a['name'])
     if action in ('show', 'get'):
-        return K._public(K.get(a.get('name')))
+        w = K.get(a.get('name'))
+        nonce = node().state.accounts.get(w['address'], {}).get('nonce', 0)
+        return {**K._public(w), 'pq_score': PQSCORE.score_wallet(
+            w, pk_exposed=nonce > 0, owner=_is_owner())}
+    if action == 'export':
+        return _export_wallet(a.get('name'))
     raise StateError(f'unknown wallet action {action!r} — list, create, use, '
-                     'show or remove', code='bad_action')
+                     'show, export or remove', code='bad_action')
+
+
+def _export_wallet(name):
+    """Hand the owner their private key: the 32-byte seed (plus the hidden
+    inner key type for a private wallet) is the whole key — every scheme's
+    keygen is deterministic from it, so these fields restore the wallet
+    anywhere with pq_wallet action=create. Owner only: local callers, or a
+    remote caller holding the server.secret bearer. With no server.secret the
+    write gate is open to the internet, so remote export is refused outright
+    — an open node must never hand its keys to whoever asks."""
+    if not _is_owner():
+        raise StateError(
+            'exporting a private key is owner-only: open the console on this '
+            'node (http://localhost:51030/postquant), or create '
+            '~/.mod/postquant/server.secret and send it as the bearer',
+            code='owner_only', status=403)
+    w = K.get(name)
+    restore = {'action': 'create', 'name': w['name'], 'scheme': w['scheme'],
+               'seed': w['seed']}
+    if w.get('inner'):
+        restore['inner'] = w['inner']
+    out = {'name': w['name'], 'address': w['address'], 'scheme': w['scheme'],
+           'seed': w['seed'], 'restore': restore,
+           'warning': 'this seed IS the private key — anyone holding it can '
+                      'sign as this address. Store it offline; never paste '
+                      'it into a chat or a website.'}
+    if w.get('inner'):
+        out['inner'] = w['inner']
+    return out
 
 
 def _t_faucet(a):
@@ -1660,8 +1707,13 @@ TOOLS = {
                        'is stored is a 32-byte seed, mode 0600, off the '
                        'source tree.',
         'inputSchema': {'type': 'object', 'properties': {
-            'action': _str('list, create, use, show or remove',
-                           enum=['list', 'create', 'use', 'show', 'remove']),
+            'action': _str('list, create, use, show, export or remove — '
+                           'export returns the seed (the private key) and '
+                           'is owner-only (local or server.secret bearer)',
+                           enum=['list', 'create', 'use', 'show', 'export',
+                                 'remove']),
+            'inner': _str('private wallets only: the hidden key type (as '
+                          'returned by export) to restore it'),
             'name': _str('wallet name'),
             'scheme': _str('key type for a new wallet (default '
                            'ML-DSA-44; pq_algos lists the choices and what '
@@ -1870,9 +1922,300 @@ TOOLS = {
     },
 }
 
+
+# ── the vault: off-chain bytes, on-chain pointers ─────────────────
+
+
+def _vault_store():
+    import vault as V
+    return V.Store(node().dir)          # per chain: its anchors keep it
+
+
+def _vault_err(fn):
+    """VaultError → StateError, so REST answers with its status code."""
+    import vault as V
+
+    def wrapped(a):
+        try:
+            return fn(a)
+        except V.VaultError as e:
+            raise StateError(str(e), code=e.code, status=e.status) from None
+    return wrapped
+
+
+def _live_anchors():
+    """cid -> [keys] for every unexpired hash entry: what keeps a blob."""
+    n = node()
+    now = int(time.time())
+    out = {}
+    for key in n.state.store:
+        e = n.state.entry(key, now)
+        if e and not e['expired'] and e.get('value_kind') == 'hash':
+            out.setdefault(e['value'], []).append(key)
+    return out
+
+
+def _unb64(s, what):
+    import base64
+    import binascii
+    s = (s or '').strip().replace('-', '+').replace('_', '/')
+    try:
+        return base64.b64decode(s + '=' * (-len(s) % 4), validate=True)
+    except (binascii.Error, ValueError):
+        raise StateError(f'{what} must be base64', code='bad_args') from None
+
+
+def _anchor(a, key, cid):
+    """Write key = cid as a hash commitment, from the caller's wallet."""
+    return _t_set({**{k: a[k] for k in ('wallet', 'days', 'hours', 'seconds',
+                                        'deposit', 'dry_run') if k in a},
+                   'key': key, 'value': cid, 'value_kind': 'hash'})
+
+
+def _local_bytes(path):
+    """file= for contracts: local callers only, like pq_set file=."""
+    if getattr(_CALLER, 'remote', False):
+        raise StateError('file= reads this node\'s disk and is local-only — '
+                         'send code= instead', code='local_only', status=403)
+    p = os.path.realpath(os.path.expanduser(str(path)))
+    try:
+        with open(p, 'rb') as f:
+            return f.read()
+    except OSError as e:
+        raise StateError(f'cannot read {p}: {e.strerror or e}',
+                         code='bad_file') from None
+
+
+@_vault_err
+def _t_vault(a):
+    import vault as V
+    st = _vault_store()
+    action = a.get('action') or 'info'
+    if action == 'info':
+        items = st.list()
+        return {
+            'what': 'off-chain storage the node holds but cannot read: the '
+                    'client seals with AES-256-GCM before upload, the node '
+                    'stores ciphertext under cid = SHA3-256(blob), and the '
+                    'chain holds the 32-byte cid as a rent-paying hash entry',
+            'envelope': {'magic': 'PQV1', 'header_bytes': V.HEADER,
+                         'cipher': 'AES-256-GCM, aad = header',
+                         'modes': {'key': 'random 32-byte key, returned to '
+                                          'the client only',
+                                   'passphrase': f'PBKDF2-HMAC-SHA256, '
+                                                 f'{V.PBKDF2_ITERS} rounds'},
+                         'inside': 'u32 meta length | {name,type,size} | '
+                                   'data | zero pad to a power of two '
+                                   f'(min {V.MIN_BUCKET} B)'},
+            'limits': {'max_blob': V.MAX_BLOB, 'quota': V.QUOTA,
+                       'used': st.used(), 'blobs': len(items),
+                       'grace_seconds': V.GRACE},
+            'retention': 'kept while any live chain entry commits to its '
+                         'cid; unanchored blobs are pruned after the grace '
+                         'window',
+            'node_sees': ['ciphertext length bucket', 'arrival time',
+                          'which key anchors it'],
+            'node_never_sees': ['plaintext', 'file name', 'exact size',
+                                'the key or passphrase'],
+            'how': 'seal on the client (console VAULT tab, or mod.py '
+                   'vault_put), then pq_vault action=put blob=<base64> '
+                   'key=vault/<name> wallet=<w>',
+        }
+    if action == 'put':
+        if not a.get('blob'):
+            raise StateError('put needs blob= (base64 of a PQV1 envelope '
+                             'sealed on the client)', code='missing_arg')
+        blob = _unb64(a['blob'], 'blob')
+        live = _live_anchors()
+        out = st.put(blob, kind='sealed', live=live)
+        out['anchors'] = live.get(out['cid'], [])
+        if a.get('key'):
+            out['anchor'] = _anchor(a, a['key'], out['cid'])
+            out['anchors'] = sorted(set(out['anchors']) | {a['key']})
+        elif not out['anchors']:
+            out['warning'] = (f'unanchored: pruned after {V.GRACE}s unless a '
+                              'chain key commits to this cid')
+        return out
+    if action == 'get':
+        cid = a.get('cid')
+        if not cid and a.get('key'):
+            e = node().state.entry(a['key'], int(time.time()))
+            if e is None:
+                raise StateError(f'no entry at {a["key"]!r}', code='no_entry',
+                                 status=404)
+            cid = e['value']
+        if not cid:
+            raise StateError('get needs cid= or key=', code='missing_arg')
+        import base64
+        blob = st.get(cid)
+        return {**st.listing(cid), 'blob': base64.b64encode(blob).decode(),
+                'verified': V.cid_of(blob) == cid,
+                'anchors': _live_anchors().get(cid, []),
+                'note': 'ciphertext — open it on the client with its key or '
+                        'passphrase'}
+    if action == 'list':
+        live = _live_anchors()
+        return {'blobs': [{**i, 'anchors': live.get(i['cid'], [])}
+                          for i in st.list()]}
+    raise StateError(f'unknown vault action {action!r} — info, put, get, '
+                     'list', code='bad_action')
+
+
+def _contract_names():
+    n = node()
+    now = int(time.time())
+    out = []
+    for key in sorted(n.state.store):
+        if not key.startswith('contract/') or key.count('/') != 1:
+            continue
+        e = n.state.entry(key, now)
+        out.append({'name': key[9:], 'key': key, 'cid': e['value'],
+                    'owner': e['owner'], 'expired': e['expired'],
+                    'expires_in': e['expires_in']})
+    return out
+
+
+@_vault_err
+def _t_contract(a):
+    import base64
+    import vault as V
+    st = _vault_store()
+    action = a.get('action') or 'info'
+    if action == 'info':
+        return {
+            'model': 'store, don\'t execute: a contract is content-addressed '
+                     'code in the vault (PUBLIC — code nobody can read cannot '
+                     'be audited) plus one chain key contract/<name> = '
+                     'SHA3-256(code). The anchor key is owned, rented, '
+                     'listed and sold like any key; rewriting it is an '
+                     'upgrade, and the block log keeps every version.',
+            'state': 'contract/<name>/<k> keys, written by the anchor\'s '
+                     'owner — the chain enforces ownership, not semantics',
+            'execution': 'off consensus: anyone fetches the code by hash and '
+                         're-runs it. Cairo/sierra code is STARK-provable, '
+                         'so a run can be proven and its proof hash anchored '
+                         'next to the code',
+            'langs': list(V.LANGS),
+            'contracts': len(_contract_names()),
+        }
+    if action == 'deploy':
+        name = a.get('name')
+        if not name or '/' in name:
+            raise StateError('deploy needs name= (no slashes)',
+                             code='missing_arg')
+        lang = a.get('lang') or 'source'
+        if a.get('file'):
+            code = _local_bytes(a['file'])
+        elif a.get('code_b64'):
+            code = _unb64(a['code_b64'], 'code_b64')
+        elif a.get('code') is not None:
+            code = str(a['code']).encode()
+        else:
+            raise StateError('deploy needs code=, code_b64= or file=',
+                             code='missing_arg')
+        live = _live_anchors()
+        out = st.put(code, kind='code', lang=lang, live=live)
+        out['anchor'] = _anchor(a, 'contract/' + name, out['cid'])
+        out['key'] = 'contract/' + name
+        return out
+    if action == 'show':
+        name = a.get('name') or ''
+        key = name if name.startswith('contract/') else 'contract/' + name
+        e = node().state.entry(key, int(time.time()))
+        if e is None:
+            raise StateError(f'no contract at {key!r}', code='no_entry',
+                             status=404)
+        cid = e['value']
+        out = {'name': key[9:], 'key': key, 'cid': cid, 'owner': e['owner'],
+               'expired': e['expired'], 'expires_in': e['expires_in']}
+        try:
+            code = st.get(cid)
+        except V.VaultError:
+            out['code'] = None
+            out['verified'] = False
+            out['note'] = 'the chain commits to this code but this node does ' \
+                          'not hold the bytes — fetch them from any node by cid'
+            return out
+        meta = st.meta(cid) or {}
+        out['lang'] = meta.get('lang')
+        out['bytes'] = len(code)
+        out['verified'] = V.cid_of(code) == cid
+        if meta.get('lang') == 'wasm':
+            out['code_b64'] = base64.b64encode(code).decode()
+        else:
+            out['code'] = code.decode('utf-8', 'replace')
+        proof = node().state.proof(key)
+        out['proof_valid'] = S.check_proof(proof['leaf'], proof['path'],
+                                           proof['root'])
+        out['state_root'] = proof['root']
+        return out
+    if action == 'list':
+        return {'contracts': _contract_names()}
+    raise StateError(f'unknown contract action {action!r} — info, deploy, '
+                     'show, list', code='bad_action')
+
+
+TOOLS.update({
+    'pq_vault': {
+        'description': 'Off-chain encrypted storage. The CLIENT seals a file '
+                       '(AES-256-GCM, PQV1 envelope — the console VAULT tab '
+                       'or mod.py vault_put do it); the node stores only the '
+                       'ciphertext under cid = SHA3-256(blob) and refuses '
+                       'anything that does not look sealed; key= anchors the '
+                       'cid on chain as a rent-paying 32-byte hash entry, and '
+                       'the blob is kept as long as an anchor lives. '
+                       'action=info | put (blob base64, key, wallet, days) | '
+                       'get (cid or key -> ciphertext) | list.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'action': _str('info | put | get | list (default info)',
+                           enum=['info', 'put', 'get', 'list']),
+            'blob': _str('put: base64 of the sealed PQV1 envelope'),
+            'cid': _str('get: SHA3-256 of the blob, hex'),
+            'key': _str('put: chain key to anchor the cid at (e.g. '
+                        'vault/notes); get: resolve the cid from this key'),
+            'wallet': _str('put: wallet that signs the anchor'),
+            'days': _str('put: anchor lease in days'),
+            'hours': _str('put: anchor lease in hours'),
+            'dry_run': _bool('put: quote the anchor without signing'),
+        }},
+        'handler': _t_vault,
+    },
+    'pq_contract': {
+        'description': 'Store smart contracts: code (wasm, sierra, cairo or '
+                       'any source) goes into the vault PUBLIC and '
+                       'content-addressed, and the chain key '
+                       'contract/<name> commits to SHA3-256(code) — owned, '
+                       'rented and sellable like any key; rewriting it is an '
+                       'upgrade with the old versions in the block log. '
+                       'Execution is off consensus and re-runnable by '
+                       'anyone. action=info | deploy (name, code|code_b64|'
+                       'file, lang, wallet, days) | show (name -> code, '
+                       'hash check, Merkle proof) | list.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'action': _str('info | deploy | show | list (default info)',
+                           enum=['info', 'deploy', 'show', 'list']),
+            'name': _str('deploy/show: contract name (key contract/<name>)'),
+            'lang': _str('deploy: wasm | sierra | cairo | source (default '
+                         'source)', enum=['wasm', 'sierra', 'cairo',
+                                          'source']),
+            'code': _str('deploy: code as text'),
+            'code_b64': _str('deploy: code as base64 (wasm)'),
+            'file': _str('deploy: local path (local callers only)'),
+            'wallet': _str('deploy: wallet that signs the anchor'),
+            'days': _str('deploy: anchor lease in days'),
+            'hours': _str('deploy: anchor lease in hours'),
+            'dry_run': _bool('deploy: quote the anchor without signing'),
+        }},
+        'handler': _t_contract,
+    },
+})
+
+
 WRITE_TOOLS = {'pq_set', 'pq_del', 'pq_fund', 'pq_sweep', 'pq_list', 'pq_buy',
                'pq_transfer', 'pq_wallet', 'pq_faucet', 'pq_mine',
                'pq_keytype', 'pq_prim', 'pq_private'}
+
+WRITE_TOOLS |= {'pq_vault', 'pq_contract'}
 
 
 def call_tool(name, args):

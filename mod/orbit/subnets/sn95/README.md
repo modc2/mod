@@ -2,7 +2,7 @@
 
 Heterogeneous inference network by Actual Computer Inc.
 
-Bittensor subnet **95** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **95** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/actual-computer/actual-subnet-95) · [url](https://actual.inc)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/actual-computer/actual-subnet-95) · [url](ht
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.034833 | -0.01% | +0.83% | -4.26% | 133,086 | 24,795 | 877.51 |
+| 0.035179 | +0.02% | +0.99% | +3.91% | 134,661 | 24,918 | 343.45 |
 
 ## Last 24h flow
 
-74 trades by 47 coldkeys · 23 buys (490.13 τ) / 51 sells (379.21 τ) · net 110.92 τ
+87 trades by 51 coldkeys · 31 buys (204.57 τ) / 56 sells (104.67 τ) · net 99.90 τ
 
 ## Use
 

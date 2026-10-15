@@ -372,8 +372,9 @@ def serve(port=PORT, base=BASE):
                     return self._send(401, {
                         'error': 'chat runs an agent on this box with the '
                                  'operator\'s credentials — owner only',
-                        'hint': 'send Authorization: Bearer <token from '
-                                '`m compute/token`>'})
+                        'hint': 'sign in as the owner (wallet or the build '
+                                'console session), or send Authorization: '
+                                'Bearer <token from `m compute/token`>'})
                 return self._stream_chat(self._read())
             if p == '/mcp':
                 if self.command != 'POST':

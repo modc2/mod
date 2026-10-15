@@ -1,6 +1,6 @@
 {
     "name": "updates",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "GitHub commit-feed monitor + daily update digest. Tracks the mod repo (modc2/mod) on its dev branch by default, shows the commit feed with the branch on every card, and rolls each calendar day up into ONE paste-ready update for X/Twitter or Discord (commits, files, and which modules were touched), marked posted so it goes out once per day. Any other GitHub repo can be attached into the same feed. Uses the GitHub REST API (optionally authenticated via $GITHUB_TOKEN) with a local `git log` fallback. Ships an MCP server (POST /mcp on the app port, or stdio via `m updates/mcp`) whose post_to_x tool tweets the digest from the connected X account through orbit/x (:50350); that write tool is loopback-only.",
     "anchor": "mod.py",
     "icon": "\ud83d\udce1",
@@ -29,6 +29,8 @@
         "paste",
         "digest",
         "daily",
+        "activity",
+        "timeline",
         "track",
         "attach",
         "untrack",
@@ -36,10 +38,12 @@
         "set_branch",
         "repos",
         "modules",
+        "pending",
         "merge_main",
         "owner",
+        "whoami",
         "register"
     ],
     "key": "updates",
-    "schema": "QmcLrPEkytsYwHW64Mv28cnKF12Uc5cCTaPVwxURYPTg4e"
+    "schema": "QmZsnpQC1wXTyohnYAK47ivL7dJ136GsgK2k36WsyqNxda"
 }

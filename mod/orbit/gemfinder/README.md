@@ -11,7 +11,8 @@ m gemfinder/find "nuclear drones"             # type anything dope: it becomes a
 m gemfinder/scan fresh=1                      # skip the 10-minute scan cache
 m gemfinder/narratives                        # which themes are hot right now, and why
 m gemfinder/history                           # past scans with price at scan time
-m gemfinder/serve                             # app + REST on :51320 (pm2 `gemfinder`)
+m gemfinder/docs                              # docs for agents: MCP tools, REST routes, how to read a gem
+m gemfinder/serve                             # app + REST + MCP (POST /mcp) on :51320 (pm2 `gemfinder`)
 ```
 
 **App:** open `http://localhost:51320/`. It shows each feed's status and count, the signals → tickers → gems funnel, narrative heat (hover a row to see its drivers, click it to filter), the ranked gems with a stacked score breakdown (click a row for metrics and links) and past scans.
@@ -63,6 +64,15 @@ Every gem includes `why` (the reasons it ranked) and `flags` (the reasons it cou
 
 **What the score is not:** it measures attention, not a forecast. It surfaces the usual early shape of a pump: a hot theme, rising mentions and volume, a small cap and a move that hasn't finished. Most of these still round-trip, and many micro-cap DEX tokens are rugs. This is not financial advice.
 
+## Sign-in
+
+The app's **INSERT COIN** button connects a mod-protocol identity — the same signed `{data, time, key, signature}` envelope every module in this fleet verifies, sent as `Authorization: Bearer <token>`:
+
+- **Browser wallet** (MetaMask et al.): one EIP-191 `personal_sign` over `JSON.stringify({data, time})` — no transaction, no gas. The token is good for 7 days (`GEMFINDER_TOKEN_MAX_AGE`).
+- **Local key**: `GET /auth/local` from the box itself (loopback, no proxy header) mints a token with the box's own mod key. Remote callers get a 403 and use the wallet path.
+
+`GET /whoami` says who a token is (`{address, signed, owner}`; owner means the box's own key). Identity is not authorization: every scan, narrative and history read stays public. The one gated write is `DELETE /cache`, which asks for the box or its owner. Verification goes through `m.mod('auth')` when the protocol package is importable, with a stdlib + eth_account fallback for bare checkouts (`gemscan/identity.py`).
+
 ## Layout
 
 ```
@@ -71,8 +81,10 @@ gemscan/http.py     JSON fetch + SQLite cache of raw bodies (stale copy served w
 gemscan/sources.py  one function per feed -> Signals
 gemscan/narratives.py  the themes (edit me)
 gemscan/engine.py   gather -> merge -> enrich -> heat -> score -> scan
+gemscan/mcp_server.py  MCP: the JSON-RPC dispatch behind POST /mcp and the stdio transport
 app/index.html      the app (single static page, no build), served at /
-gemscan/server.py   REST: /health /scan /narratives /history /sources (also under /gemfinder/api)
+gemscan/identity.py who is calling: mod-protocol token verify + loopback local-key mint
+gemscan/server.py   REST: /health /scan /narratives /history /sources /whoami /auth/local (also under /gemfinder/api)
 test/               offline tests (m gemfinder/test)
 ```
 
@@ -83,4 +95,28 @@ State is stored in `~/.mod/gemfinder/`: `cache.db` holds the raw HTTP bodies and
 - `review`: re-price the picks in `scans.jsonl` after 1d/7d/30d, then tune the weights against actual hit rate.
 - More feeds: X/Twitter cashtags (via orbit/x), the `news` module for headline velocity, Google Trends, and pump.fun/GeckoTerminal new pools.
 - An LLM pass that reads the top N's descriptions and news to judge how strong each narrative fit is.
-- An MCP endpoint.
+
+## For agents
+
+gemfinder is also an **MCP server**. Same scanner, as tools, strictly read-only
+(the one write, clearing the cache, stays on REST where it is gated to the box
+or its owner). Keyless — every upstream is a public feed.
+
+```
+claude mcp add --transport http gemfinder http://localhost:51320/mcp   # streamable HTTP, JSON responses (no SSE)
+claude mcp add gemfinder -- python3 -m gemscan.mcp_server              # stdio (cwd = this dir)
+```
+
+| tool | what it answers |
+|---|---|
+| `gem_scan` | ranked gems with score breakdown (`parts`), `upside`, `why`, risk `flags`, and `pick` — the one most likely to go up |
+| `gem_find` | type anything ("quantum", "frog", "nuclear drones") → a live theme matched by words AND meaning |
+| `gem_review` | did past picks go up? every gem from the last n scans priced now vs when listed |
+| `gem_narratives` | heat 0-100 per built-in narrative, with raw drivers |
+| `gem_history` / `gem_sources` / `gem_status` | past scans / the feeds / cache + semantic state |
+
+**`GET /docs`** returns all of this machine-readable: every tool schema, every
+REST route, and how to read a gem (also `m gemfinder/docs`). The short version:
+sort key is **upside** = score × theme-fit × room-to-run; `why` is what ranked
+it; `flags` are the risks and are never optional reading; scans are cached ~10
+minutes, and `fresh=true` re-hits every feed (10-30s). Attention, not advice.

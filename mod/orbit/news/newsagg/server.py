@@ -1,6 +1,7 @@
 """
 newsagg.server — REST + MCP on one port, stdlib only.
 
+    GET  /            the web app (web/index.html) when the client wants HTML, else /health
     GET  /health
     GET  /search?q=&k=&hours=&sources=gdelt,hn
     GET  /read?url=&max_chars=
@@ -17,11 +18,13 @@ import argparse
 import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from . import cache, engine, sources, store
 from .mcp_server import SERVER_INFO, handle_message
 
 PREFIXES = ('/news/api', '/news', '/api')
+WEB = Path(__file__).resolve().parents[1] / 'web' / 'index.html'
 
 
 def route(path: str) -> str:
@@ -60,6 +63,21 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send(424, {'error': f'{type(e).__name__}: {e}'})   # upstream failed; not 5xx
 
+    def _app(self):
+        """The one-file web app. Read per request (no restart to restyle);
+        it is small. The gateway keeps the /news prefix, so the page calls
+        /news/api/... when served there and /... on the bare port."""
+        try:
+            html = WEB.read_bytes()
+        except OSError:
+            return self._send(404, {'error': 'web/index.html is missing'})
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(html)))
+        self.send_header('Cache-Control', 'no-cache')
+        self.end_headers()
+        self.wfile.write(html)
+
     def do_OPTIONS(self):
         self._send(204, b'')
 
@@ -67,6 +85,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlsplit(self.path)
         q = {k: v[-1] for k, v in urllib.parse.parse_qs(u.query).items()}
         path = route(u.path)
+        if path == '/app' or (path == '/' and 'text/html' in self.headers.get('Accept', '')):
+            return self._app()
         if path in ('/', '/health'):
             return self._send(200, {'ok': True, **SERVER_INFO, 'cache': cache.stats()})
         if path == '/search':
@@ -111,7 +131,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(port: int = 51120, host: str = '127.0.0.1') -> None:
     srv = ThreadingHTTPServer((host, port), Handler)
-    print(f'news on http://{host}:{port}  (mcp: /mcp)', flush=True)
+    print(f'news on http://{host}:{port}  (app: /app · mcp: /mcp)', flush=True)
     srv.serve_forever()
 
 

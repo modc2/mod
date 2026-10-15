@@ -322,18 +322,78 @@
   .toast::before{content:'>> '}
   .toast.bad{border-color:var(--bad);color:var(--bad);background:#1a0408;
        box-shadow:4px 4px 0 #000, 0 0 18px rgba(255,56,96,.35)}
-  #kt-palette{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px}
-  .kt-fam{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
-  .kt-fam > i{font-style:normal;color:var(--dim);font:13px var(--vt);min-width:92px;text-transform:uppercase}
-  .kt-part{border:2px solid var(--line2);background:#120a2a;color:var(--ink);padding:3px 9px;
-           font:16px VT323,monospace;cursor:pointer;border-radius:0}
-  .kt-part:hover{border-color:var(--cy)}
-  .kt-part.sel{border-color:var(--mag);box-shadow:0 0 6px rgba(255,43,214,.6)}
-  .kt-part .d{display:inline-block;width:7px;height:7px;margin-right:6px;background:var(--ac)}
-  .kt-part.cl .d{background:var(--hz)}
-  .kt-part.refused{opacity:.45}
-  #kt-graph,.kt-more{margin:4px 0 8px}
+  /* ── BUILDER: parts on the left, the recipe card on the right ── */
+  .kt-wrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:22px;align-items:start;margin-top:6px}
+  @media (max-width:980px){.kt-wrap{grid-template-columns:1fr}}
+  #kt-palette{display:flex;flex-direction:column;gap:14px}
+  .kt-fam{display:grid;grid-template-columns:96px minmax(0,1fr);gap:10px;align-items:start}
+  .kt-fam > i{font:7px/1 var(--px);letter-spacing:.1em;color:var(--fc);padding-top:11px;
+    text-transform:uppercase;opacity:.9}
+  .kt-fam > i small{display:block;font:15px/1 var(--vt);letter-spacing:0;color:var(--dim);margin-top:6px;text-transform:none}
+  .kt-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .f-lattice{--fc:var(--cy)} .f-hash{--fc:var(--ac)} .f-cairo{--fc:var(--or)}
+  .f-classical{--fc:var(--hz)} .f-yours{--fc:var(--mag)}
+  .kt-part{display:inline-flex;align-items:center;gap:8px;max-width:100%;
+    border:1px solid var(--line2);border-left:3px solid var(--fc);background:rgba(18,10,42,.75);
+    color:var(--ink);padding:5px 10px 5px 9px;font:17px/1.1 var(--vt);text-transform:none;letter-spacing:0;
+    box-shadow:none;cursor:pointer}
+  .kt-part:hover{border-color:var(--fc);color:#fff;text-shadow:none;background:rgba(40,22,80,.8)}
+  .kt-part:active{transform:none}
+  .kt-part .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}
+  .kt-part .sz{color:var(--dim);font-size:14px}
+  .kt-part .ck{width:12px;height:12px;flex:none;border:1px solid var(--fc);display:grid;place-items:center;font-size:12px;line-height:1}
+  .kt-part.sel{background:color-mix(in srgb,var(--fc) 18%,#0d0820);border-color:var(--fc);
+    box-shadow:0 0 10px color-mix(in srgb,var(--fc) 45%,transparent)}
+  .kt-part.sel .ck{background:var(--fc);color:#000}
+  .kt-part.sel .ck::after{content:'\2713'}
+  .kt-part.refused{opacity:.4}
+  .kt-part.more{border-left-color:var(--line2);color:var(--dim)}
+  #kt-graph,.kt-more{margin:14px 0 0}
   #kt-graph summary,.kt-more summary{cursor:pointer;font-size:13px}
+  #kt-graph[open] #dag-wrap{margin-top:10px}
+  .kt-recipe{position:sticky;top:76px;background:linear-gradient(180deg,#140b2e,#0b0619);
+    border:2px solid var(--line2);box-shadow:4px 4px 0 #000,0 0 30px rgba(157,77,255,.15);padding:14px 14px 16px;
+    display:flex;flex-direction:column;gap:8px}
+  .kt-rhd{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    font:8px/1 var(--px);letter-spacing:.1em;color:var(--mag);padding-bottom:10px;border-bottom:1px dashed var(--line2)}
+  .kt-rhd button{font-size:6.5px;color:var(--hz);border-color:#6b5a10;padding:6px 7px}
+  .kt-rhd button:hover{border-color:var(--hz);text-shadow:0 0 6px var(--hz)}
+  #kt-picked{display:flex;flex-direction:column;gap:0;min-height:44px}
+  .kt-empty{border:1px dashed var(--line2);padding:12px;text-align:center;color:var(--dim);font:16px/1.2 var(--vt)}
+  .kt-pk{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--inset);
+    border:1px solid var(--line);border-left:3px solid var(--fc);font:17px/1.1 var(--vt)}
+  .kt-pk .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .kt-pk .sz{color:var(--dim);font-size:14px}
+  .kt-pk .x{cursor:pointer;color:var(--dim);padding:0 2px}
+  .kt-pk .x:hover{color:var(--bad)}
+  .kt-join{align-self:center;font:6.5px/1 var(--px);letter-spacing:.1em;color:var(--dim);padding:5px 0}
+  .kt-lbl{font:6.5px/1 var(--px);letter-spacing:.12em;color:var(--dim);margin-top:12px}
+  .kt-seg{display:grid;grid-template-columns:repeat(3,1fr)}
+  .kt-seg button{box-shadow:none;font-size:7px;padding:9px 4px;margin-left:-2px}
+  .kt-seg button:first-child{margin-left:0}
+  .kt-seg button.on{background:var(--mag);color:#14001a;border-color:var(--mag);text-shadow:none;position:relative}
+  .kt-seg button:active{transform:none}
+  .kt-ophint{font:15px/1.2 var(--vt);color:var(--dim)}
+  .kt-recipe .kstep{align-self:flex-start}
+  .kt-recipe input[type=text],.kt-recipe select{width:100%;font-size:17px;padding:6px 9px}
+  .kt-switch{display:flex;align-items:center;gap:10px;cursor:pointer;margin-top:6px;user-select:none}
+  .kt-switch input{position:absolute;opacity:0;pointer-events:none}
+  .kt-switch i{flex:none;width:34px;height:18px;border:2px solid var(--line2);background:var(--inset);position:relative}
+  .kt-switch i::after{content:'';position:absolute;top:2px;left:2px;width:10px;height:10px;background:var(--dim);transition:left .1s}
+  .kt-switch input:checked + i{border-color:var(--hz)}
+  .kt-switch input:checked + i::after{left:18px;background:var(--hz);box-shadow:0 0 8px var(--hz)}
+  .kt-switch input:focus-visible + i{outline:2px solid var(--cy)}
+  .kt-switch span{font:17px/1.1 var(--vt);text-transform:none;letter-spacing:0}
+  .kt-switch em{font-style:normal;color:var(--dim);font-size:15px;display:block}
+  .kt-more{margin:4px 0 0}
+  .kt-more[open]{display:flex;flex-direction:column;gap:6px}
+  .kt-chk{font:16px var(--vt);color:var(--dim)}
+  #kt-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+  #kt-stats div{background:var(--inset);border:1px solid var(--line);padding:6px 8px}
+  #kt-stats b{display:block;font:6px/1 var(--px);letter-spacing:.1em;color:var(--dim);font-weight:400;margin-bottom:5px}
+  #kt-stats span{font:19px/1 var(--vt)}
+  .kt-forge{width:100%;padding:13px;font-size:10px;margin-top:4px}
+  .kt-meta{font:15px/1.2 var(--vt);color:var(--dim);text-align:center;min-height:1px}
   /* ── BUILDER: the key type DAG ── */
   #dag-wrap{overflow:auto;border:2px solid var(--line);background:
             linear-gradient(rgba(43,26,77,.35) 1px,transparent 1px) 0 0/20px 20px,
@@ -399,6 +459,45 @@
   .paper .wp-mode .lbl{color:var(--dim);font:7.5px/1 var(--px);letter-spacing:.08em}
   .paper.human .sci{display:none}
   .paper:not(.human) .hum{display:none}
+  /* ── whitepaper figures: validated pair (blue/orange pass every CVD check on --panel) ── */
+  .paper{--s1:#3987e5;--s2:#d95926;--gridc:rgba(143,132,184,.18)}
+  .fig{margin:22px 0 26px;border:2px solid var(--line2);background:var(--inset);padding:14px 16px 10px}
+  .fig-h{font:15px/1.4 var(--sans);color:var(--ink);display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:10px}
+  .fig-h b{font:9px/1 var(--px);color:var(--mag);letter-spacing:.06em}
+  .fig-h .live{margin-left:auto;font:7px/1 var(--px);color:var(--dim);border:1px solid var(--line2);padding:4px 6px;letter-spacing:.08em}
+  .fig-cap{font-size:14px!important;color:var(--dim)!important;margin:10px 0 2px!important;line-height:1.55}
+  .fig svg{width:100%;height:auto;display:block;overflow:visible}
+  .fig svg text{font-family:var(--sans);fill:var(--dim);font-size:12px}
+  .fig svg .lab{fill:var(--ink);font-size:13px}
+  .fig svg .val{fill:var(--ink);font-size:12px}
+  .fig svg .bad{fill:#ff6b88;font-size:12px}
+  .fig svg .gl{stroke:var(--gridc);stroke-width:1}
+  .fig svg .hit{fill:transparent;cursor:crosshair}
+  .fig svg .hit:hover{fill:rgba(236,228,255,.05)}
+  .fig .legend{display:flex;gap:16px;font:13px/1.4 var(--sans);letter-spacing:0;color:var(--ink);margin:0 0 8px;flex-wrap:wrap}
+  .fig .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  .fig details{margin-top:6px;font-size:13px;color:var(--dim)} .fig details summary{cursor:pointer}
+  .fig details table{margin:6px 0 0;font-size:13px}
+  .fig .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+  .fig .tile{border:2px solid var(--line2);padding:12px 14px;background:var(--panel)}
+  .fig .tile .k{font:7.5px/1.6 var(--px);color:var(--dim);letter-spacing:.06em}
+  .fig .tile .v{font:30px/1.1 var(--vt);color:var(--ink);margin-top:6px}
+  .fig .tile .u{font-size:13px;color:var(--dim)}
+  .fig .tile.win{border-color:var(--s1)}
+  .dg rect{stroke-width:2;fill:var(--panel)} .dg .b0{stroke:var(--line2)} .dg .b1{stroke:var(--s1)}
+  .dg .b2{stroke:var(--line2);stroke-dasharray:6 4} .dg .b3{stroke:var(--s2)}
+  .dg text{text-anchor:middle} .dg .t{fill:var(--ink)!important;font:9px var(--px)!important;letter-spacing:.04em}
+  .dg .s{fill:var(--dim)} .dg .k{fill:var(--ink)!important;font-weight:600}
+  .dg .ar{stroke:var(--ink);stroke-width:2;fill:none;marker-end:url(#wp-arrow)}
+  .paper table.cmp{font-size:14px;width:100%} .paper table.cmp td{vertical-align:top}
+  .paper table.cmp .ok{color:#9be89b} .paper table.cmp .ok::before{content:'✓ ';font-weight:700}
+  .paper table.cmp .no{color:var(--dim)} .paper table.cmp .no::before{content:'✗ ';color:#ff6b88;font-weight:700}
+  .paper table.cmp .mid{color:var(--dim)} .paper table.cmp .mid::before{content:'~ ';color:var(--hz)}
+  .paper table.cmp th:last-child,.paper table.cmp td:last-child{background:rgba(57,135,229,.08)}
+  .wp-code{background:var(--inset);border:1px solid var(--line2);padding:12px 14px;font:16px/1.5 var(--vt);color:var(--ac);overflow-x:auto;white-space:pre;margin:0 0 16px}
+  #wp-tip{position:fixed;z-index:60;pointer-events:none;background:#14092e;border:2px solid var(--line2);
+    padding:6px 10px;font:13px/1.45 var(--sans);color:var(--ink);display:none;max-width:280px;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+  #wp-tip b{color:#fff}
   /* ── the corner agent: a pixel orb / arcade button. Closed = magenta orb
      with a stepped halo; .is-open = dark ringed orb above the chat. ── */
   #wp-help{position:fixed;right:22px;bottom:22px;z-index:55;display:flex;
@@ -558,50 +657,9 @@
   .screen .kv{text-align:left;max-width:560px;margin:14px auto 0}
   .screen pre{text-align:left}
 
-  /* ════════════ PRIVATE: the cloak ════════════ */
-  .pv-hero{display:grid;grid-template-columns:1.2fr 1fr;gap:22px;align-items:center}
-  @media (max-width:900px){.pv-hero{grid-template-columns:1fr}}
-  .pv-hero h1{font:clamp(18px,3vw,32px)/1.35 var(--px);margin:0 0 12px;color:#fff;
-      text-shadow:3px 3px 0 var(--vi),0 0 20px rgba(255,230,0,.35)}
-  .pv-hero h1 .r{background:#fff;color:#fff;padding:0 4px;text-shadow:none;animation:flick 4s infinite}
-  .anon{text-align:center;padding:16px;background:#050210;border:3px solid var(--hz);box-shadow:6px 6px 0 #000}
-  .anon .lbl{font:7.5px/1.6 var(--px);color:var(--dim)}
-  .steps{display:flex;gap:0;margin:0 0 18px}
-  .steps div{flex:1;text-align:center;font:7.5px/1 var(--px);padding:10px 4px;color:var(--dim);
-      border-bottom:3px solid var(--line)}
-  .steps div.on{color:var(--hz);border-color:var(--hz);text-shadow:0 0 8px rgba(255,230,0,.5)}
-  .deck{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));margin:6px 0 14px;perspective:900px}
-  .fc{position:relative;height:118px;cursor:pointer;transform-style:preserve-3d;transition:transform .45s steps(6)}
-  .fc.flip{transform:rotateY(180deg)}
-  .fc .f,.fc .b{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;
-      display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px;text-align:center;
-      box-shadow:5px 5px 0 #000}
-  .fc .b{border:3px solid var(--vi);
-      background:
-        repeating-linear-gradient(45deg,rgba(157,77,255,.25) 0 6px,transparent 6px 12px),
-        repeating-linear-gradient(-45deg,rgba(255,43,214,.18) 0 6px,transparent 6px 12px),#0d0820}
-  .fc .b span{font:18px var(--px);color:var(--hz);text-shadow:3px 3px 0 #000,0 0 12px var(--hz);
-      background:#0d0820;padding:8px 10px;border:2px solid var(--hz)}
-  .fc .f{transform:rotateY(180deg);border:3px solid var(--hz);background:linear-gradient(180deg,#2a2006,#0d0820)}
-  .fc .f b{font:8px/1.5 var(--px);color:#fff;word-break:break-all;font-weight:400}
-  .fc .f small{font:15px var(--vt);color:var(--hz);margin-top:6px}
-  .fc:hover .b{border-color:var(--hz)}
-  .fc.pick .f{box-shadow:5px 5px 0 #000,0 0 28px rgba(255,230,0,.6)}
-  .noise{font:15px/1.05 var(--vt);color:var(--ac);word-break:break-all;background:#020800;
-      border:2px solid #1f7a10;padding:10px;max-height:190px;overflow:auto;
-      text-shadow:0 0 6px rgba(57,255,20,.6);margin-top:10px}
-  .verdict{margin-top:14px}
+  /* ════════════ PRIVATE: builder switch ════════════ */
   .redact{background:#fff;color:#fff;user-select:none;padding:0 4px}
-  .vs{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-  @media (max-width:800px){.vs{grid-template-columns:1fr}}
-  .vs > div{padding:14px;background:#050210;box-shadow:5px 5px 0 #000}
-  .vs .atk{border:3px solid var(--bad)} .vs .you{border:3px solid var(--ac)}
-  .vs h4{margin:0 0 10px;font:8.5px/1.4 var(--px);letter-spacing:.06em}
-  .vs .atk h4{color:var(--bad)} .vs .you h4{color:var(--ac)}
-  .vs .kv span{word-break:break-all}
-  .threat li{margin:0 0 8px;font-size:14.5px;color:#d8cff8}
-  .threat li::marker{content:'▓ ';color:var(--hz)}
-  .threat ul{padding-left:20px;margin:6px 0 0}
+  #pv-panel .kv span{word-break:break-all}
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation:none !important;transition:none !important}
     #lattice{display:none} .glitch::before,.glitch::after{display:none}}
@@ -616,12 +674,12 @@
     <button data-tab="keymarket" class="hot">Market</button>
     <button data-tab="prims">Prims</button>
     <button data-tab="builder">Builder</button>
-    <button data-tab="private">Private</button>
     <span class="sep"></span>
     <button data-tab="chain">Chain</button>
     <button data-tab="store">Store</button>
     <button data-tab="market">Bytes</button>
     <button data-tab="wallet">Wallet</button>
+    <button data-tab="vault">Vault</button>
     <button data-tab="ask">Ask</button>
     <button data-tab="about">Paper</button>
     <!-- reached from inside Store, not from the bar -->
@@ -644,7 +702,7 @@
       <div class="ctas">
         <button class="go" id="hero-start">&#9654; PRESS START</button>
         <button class="cy" onclick="go('keymarket')">KEY TYPE MARKET</button>
-        <button class="hz" onclick="go('private')">GO PRIVATE</button>
+        <button class="hz" onclick="goPrivate()">GO PRIVATE</button>
       </div>
       <p class="h-kbd"><kbd>CTRL</kbd> <kbd>K</kbd> JUMPS ANYWHERE, RUNS ANYTHING</p>
     </div>
@@ -664,7 +722,7 @@
           and sell it.</p>
         <span class="cta">TRADE</span>
       </div>
-      <div class="door" data-go="private" style="--dc:var(--hz)">
+      <div class="door" onclick="goPrivate()" style="--dc:var(--hz)">
         <span class="lv">LVL 3</span>
         <div class="dg">&#9619;&#9618;&#9617;</div><b>PRIVATE KEY TYPES</b>
         <p>Prove a signature is valid without revealing which algorithm made it.
@@ -921,149 +979,74 @@
   </section>
 
   <!-- PRIVATE ------------------------------------------------------------ -->
-  <section id="private">
-    <div class="panel">
-      <div class="pv-hero">
-        <div>
-          <h1>PRIVATE KEY TYPES<br>KEY TYPE: <span class="r">REDACTED</span></h1>
-          <p class="note" style="font-size:15px">Prove a signature is valid <b>without revealing which
-            algorithm made it</b>. A private wallet's address commits only to
-            <code>SHA3(salt &#8214; scheme &#8214; pk)</code> — the key type and the public key are never
-            published. Every witness rides in a sealed ML-KEM-768 envelope padded to one fixed size,
-            so ML-DSA, SLH-DSA, ed25519 and a wasm prim all look identical on chain. Shor and rho
-            both need a public key; here there isn't one to feed them, and no hint which attack to run.</p>
-          <div class="stats" id="pv-stats"><span class="loadline">loading the cloak</span></div>
-        </div>
-        <div class="anon">
-          <div class="lbl">ANONYMITY SET</div>
-          <div class="big-n" id="pv-anon">--</div>
-          <div class="lbl">KEY TYPES YOUR SIGNATURE HIDES AMONG</div>
-          <div class="hazard" style="margin:14px 0 8px"></div>
-          <div class="lbl" id="pv-seal">SEAL: --</div>
-        </div>
-      </div>
-    </div>
-    <div class="steps" id="pv-steps">
-      <div class="on" data-st="1">1 CLOAK</div><div data-st="2">2 PROVE</div><div data-st="3">3 VERIFY</div>
-    </div>
-    <div class="grid">
-      <div class="panel">
-        <h2>1 &middot; cloak — pick a hidden key type</h2>
-        <p class="note">Cards are dealt face down. Flip one to choose the inner key type your
-          private wallet really signs with — only you will ever see this side.</p>
-        <div id="pv-deck" class="deck"><span class="loadline">dealing</span></div>
-        <div class="row">
-          <label>name</label><input type="text" id="pv-name" placeholder="ghost">
-          <span class="pill" id="pv-inner">inner: — pick a card —</span>
-          <button class="hz" id="pv-forge">&#9619; FORGE PRIVATE WALLET</button>
-        </div>
-        <div id="pv-forge-out"></div>
-      </div>
-      <div class="panel">
-        <h2>2 &middot; prove — sign without showing</h2>
-        <div class="row">
-          <label>wallet</label><select id="pv-wallet"><option value="">— no private wallets yet —</option></select>
-          <button class="sm" id="pv-faucet">FAUCET 100</button>
-          <button class="sm" id="pv-refresh">REFRESH</button>
-        </div>
-        <textarea id="pv-msg" placeholder="message to prove a signature over">I hold a key. You don't get to know which kind.</textarea>
-        <div class="row" style="margin-top:10px">
-          <button class="go" id="pv-prove">&#9654; SEAL A PROOF</button>
-          <span class="pill" id="pv-proof-meta">—</span>
-        </div>
-        <div id="pv-proof-out"></div>
-      </div>
-    </div>
-    <div class="panel">
-      <h2>3 &middot; verify — valid, and still redacted</h2>
-      <p class="note">Anyone can ask. The answer is <b>valid or not</b> plus the proposer's signed
-        attestation — never the key type. Paste a proof from anywhere, or seal one above and it lands here.</p>
-      <div class="row">
-        <label>address / commitment</label>
-        <input type="text" id="pv-v-addr" placeholder="pq… address or commitment hex" style="flex:1">
-      </div>
-      <textarea id="pv-v-msg" placeholder="the message"></textarea>
-      <textarea id="pv-v-proof" placeholder="proof hex" style="margin-top:8px;font-size:14px"></textarea>
-      <div class="row" style="margin-top:10px">
-        <button class="go" id="pv-verify">&#9654; VERIFY</button>
-        <button id="pv-tamper" title="flip one byte of the message and verify again">TAMPER + VERIFY</button>
-      </div>
-      <div id="pv-verify-out"></div>
-    </div>
-    <div class="panel">
-      <h2>what the attacker sees vs what you hold</h2>
-      <div class="vs">
-        <div class="atk"><h4>&#9632; ATTACKER SEES</h4><div id="pv-atk" class="kv"></div></div>
-        <div class="you"><h4>&#9632; YOU HOLD</h4><div id="pv-you" class="kv"></div>
-          <div class="row" style="margin-top:12px">
-            <button class="sm" id="pv-open">SELECTIVE DISCLOSURE</button>
-            <button class="sm" id="pv-check" disabled>CHECK THE OPENING</button>
-          </div>
-          <div id="pv-open-out"></div>
-        </div>
-      </div>
-    </div>
-    <div class="panel threat">
-      <h2>threat model <span class="tag">READ THIS</span></h2>
-      <p class="note">Hiding the key type is real defense in depth, not magic. Here is exactly who
-        has to be trusted for what.</p>
-      <ul>
-        <li><b>The attacker</b> sees an address, a 32-byte commitment and fixed-size sealed
-          envelopes. No public key, no algorithm name, no size difference between schemes. To attack
-          it they must guess the scheme <i>and</i> break it without ever seeing the key it guards.</li>
-        <li><b>The proposer</b> (this chain has one, and it already orders every block) holds the
-          ML-KEM-768 seal key. It opens envelopes, checks the inner signature, and signs an attestation.
-          Everyone else trusts that attestation — a dishonest proposer could approve a bad witness,
-          the same power it already has over ordering. A compromised seal key reveals which scheme
-          each private account uses, not its secret key.</li>
-        <li><b>You</b> can always prove what is inside: SELECTIVE DISCLOSURE hands over salt, scheme
-          and public key, and anyone can recompute the commitment with CHECK THE OPENING.</li>
-      </ul>
-      <ul id="pv-honesty"></ul>
-    </div>
-  </section>
-
   <!-- BUILDER ------------------------------------------------------------ -->
   <section id="builder">
     <div class="panel">
       <h2>key type builder <span class="tag">FORGE</span></h2>
-      <p class="note">Pick 2+ parts, choose how they combine, forge. Stack
-        unrelated parts with ALL-OF and a quantum computer has to break every one.</p>
-      <div class="row">
-        <button class="go" id="kt-hard">&#9733; QUANTUM-HARD PRESET</button>
-        <span class="muted" style="font-size:13px">lattice + hash + Cairo-verified SHA-256, all must break</span>
-      </div>
-      <div id="kt-palette"></div>
-      <details id="kt-graph"><summary class="muted">show the full key type graph</summary>
-        <div id="dag-wrap"><svg id="dag"></svg></div></details>
-      <div class="row">
-        <span class="pill">parts</span>
-        <span id="kt-picked" class="muted">click parts above…</span>
-      </div>
-      <div class="row">
-        <select id="kt-op">
-          <option value="all">ALL-OF — attacker must break every part</option>
-          <option value="any">ANY-OF — one part signs (weakest link)</option>
-          <option value="threshold">THRESHOLD — k of n sign</option>
-        </select>
-        <span class="kstep" id="kt-kbox" hidden><button class="sm" id="kt-kdn">-</button><span id="kt-k">2</span><button class="sm" id="kt-kup">+</button></span>
-        <input type="text" id="kt-name" placeholder="name (auto)" style="min-width:240px;flex:1;max-width:460px">
-      </div>
-      <div class="row">
-        <label title="the chain only ever sees a commitment and fixed-size envelopes — nobody learns which key type you use"><input type="checkbox" id="kt-private"> make it private (hide which key type I use)</label>
-        <input type="text" id="kt-pwallet" placeholder="private wallet name (auto)" hidden style="min-width:220px">
-      </div>
-      <details class="kt-more"><summary class="muted">author / publish / note</summary>
-      <div class="row">
-        <label>author</label><select id="kt-author"><option value="">— anonymous —</option></select>
-        <label><input type="checkbox" id="kt-publish">publish authorship on chain</label>
-        <input type="text" id="kt-note" placeholder="note (optional)" style="flex:1;min-width:160px">
-      </div></details>
-      <div class="row">
-        <button class="go" id="kt-build">&#9654; FORGE KEY TYPE</button>
-        <span class="pill" id="kt-meta">—</span>
+      <p class="note">Pick 2+ parts, choose how they combine, forge — or pick one and turn on
+        <b>private</b> to hide which key type you sign with.</p>
+      <div class="kt-wrap">
+        <div class="kt-left">
+          <div id="kt-palette"></div>
+          <details id="kt-graph"><summary class="muted">show the full key type graph</summary>
+            <div id="dag-wrap"><svg id="dag"></svg></div></details>
+        </div>
+        <aside class="kt-recipe">
+          <div class="kt-rhd"><span>YOUR KEY TYPE</span>
+            <button class="sm" id="kt-hard" title="ML-DSA-44 + SLH-DSA-SHAKE-128f + CAIRO-MSS-SHA256, ALL-OF">&#9733; quantum-hard preset</button></div>
+          <div id="kt-picked"></div>
+          <div class="kt-lbl">combine</div>
+          <div class="kt-seg" id="kt-seg">
+            <button data-op="all" title="attacker must break every part">ALL-OF</button>
+            <button data-op="any" title="any one part signs — weakest link">ANY-OF</button>
+            <button data-op="threshold" title="k of n parts sign">K-OF-N</button>
+          </div>
+          <select id="kt-op" hidden>
+            <option value="all">all</option><option value="any">any</option><option value="threshold">threshold</option>
+          </select>
+          <div class="kt-ophint" id="kt-ophint"></div>
+          <span class="kstep" id="kt-kbox" hidden><button class="sm" id="kt-kdn">-</button><span id="kt-k">2</span><button class="sm" id="kt-kup">+</button></span>
+          <div class="kt-lbl">name</div>
+          <input type="text" id="kt-name" placeholder="auto from parts">
+          <label class="kt-switch" title="the chain only ever sees a commitment and fixed-size envelopes — nobody learns which key type you use">
+            <input type="checkbox" id="kt-private"><i></i><span>private <em>hide which key type I use</em></span></label>
+          <input type="text" id="kt-pwallet" placeholder="private wallet name (auto)" hidden>
+          <details class="kt-more"><summary class="muted">author / publish / note</summary>
+            <select id="kt-author"><option value="">— anonymous —</option></select>
+            <label class="kt-chk"><input type="checkbox" id="kt-publish"> publish authorship on chain</label>
+            <input type="text" id="kt-note" placeholder="note (optional)">
+          </details>
+          <div class="kt-stats" id="kt-stats"></div>
+          <button class="go kt-forge" id="kt-build">&#9654; FORGE KEY TYPE</button>
+          <div class="kt-meta" id="kt-meta"></div>
+        </aside>
       </div>
       <div id="kt-out"></div>
+    </div>
+    <div class="panel" id="pv-panel" hidden>
+      <h2>private wallets <span class="tag hz">KEY TYPE HIDDEN</span> <span id="pv-stats" style="font:15px var(--vt);color:var(--dim);letter-spacing:0;text-shadow:none;margin-left:10px"></span></h2>
+      <div class="row">
+        <select id="pv-wallet"><option value="">— no private wallets yet —</option></select>
+        <button class="sm" id="pv-faucet">FAUCET 100</button>
+        <input type="text" id="pv-msg" value="I hold a key. You don't get to know which kind." style="flex:1;min-width:200px">
+        <button class="go sm" id="pv-prove">&#9654; PROVE</button>
+        <span class="pill" id="pv-proof-meta">—</span>
+      </div>
+      <div id="pv-proof-out"></div>
+      <details id="pv-vfold"><summary class="muted">verify a proof · disclose what's inside</summary>
+        <input type="text" id="pv-v-addr" placeholder="pq… address or commitment hex" style="width:100%;margin-top:8px">
+        <input type="text" id="pv-v-msg" placeholder="the message" style="width:100%;margin-top:6px">
+        <textarea id="pv-v-proof" placeholder="proof hex" style="margin-top:6px;font-size:13px;min-height:60px"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="go sm" id="pv-verify">&#9654; VERIFY</button>
+          <button class="sm" id="pv-tamper" title="flip one bit of the message and verify again">TAMPER + VERIFY</button>
+          <button class="sm" id="pv-open" style="margin-left:auto" title="reveal salt, inner key type and pk — to this screen only">DISCLOSE</button>
+          <button class="sm" id="pv-check" disabled>CHECK OPENING</button>
+          <button class="sm" id="pv-copykey" title="export the seed — the private key">COPY KEY</button>
+        </div>
+        <div id="pv-verify-out"></div><div id="pv-you" class="kv"></div><div id="pv-open-out"></div><div id="pv-key"></div>
+        <p class="note" style="font-size:12px">Trust: the proposer holds the seal key, opens envelopes and attests. It learns the scheme, never your secret. <span id="pv-honesty"></span></p>
+      </details>
     </div>
     <div class="grid">
       <div class="panel">
@@ -1157,7 +1140,7 @@
         <button class="go" id="nw-create">CREATE</button>
         <button id="w-refresh">REFRESH</button>
         <button style="margin-left:auto" onclick="go('builder')">KEY TYPE BUILDER</button>
-        <button class="hz" onclick="go('private')">PRIVATE WALLET</button>
+        <button class="hz" onclick="goPrivate()">PRIVATE WALLET</button>
       </div>
       <div id="wallets"></div>
     </div>
@@ -1186,12 +1169,78 @@
     </div>
   </section>
 
+  <!-- VAULT: sealed in the browser before anything leaves it ---------------- -->
+  <section id="vault">
+    <div class="panel">
+      <h2>vault — encrypted before it leaves you</h2>
+      <p class="note">Your file is locked <b>in this browser</b> with AES-256-GCM. The storage node only ever
+        receives scrambled bytes, and the chain keeps a 32-byte fingerprint under a key you own and pay rent on.
+        No passphrase? You get a share link — the key rides after the <code>#</code>, which is never sent to any server.
+        Lose the link and nobody, including us, can open the file.</p>
+      <div class="row">
+        <input type="file" id="v-file">
+        <label>or text</label><input type="text" id="v-text" placeholder="a secret note">
+      </div>
+      <div class="row">
+        <label>chain key</label><input type="text" id="v-key" placeholder="vault/my-file (default: vault/&lt;file name&gt;)">
+        <label>passphrase</label><input type="password" id="v-pass" placeholder="optional" autocomplete="new-password">
+      </div>
+      <div class="row">
+        <label>wallet</label><select id="v-wallet"></select>
+        <label>keep for</label><input class="sm" type="text" id="v-days" value="7"><span class="muted">days</span>
+        <button class="go" id="v-seal">ENCRYPT + STORE</button>
+      </div>
+      <div id="v-out" class="muted">—</div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2>open a file</h2>
+        <div class="row"><input type="text" id="v-link" placeholder="pqv1:&lt;cid&gt;#&lt;key&gt;, a cid, or a chain key" style="flex:1"></div>
+        <div class="row"><label>passphrase</label><input type="password" id="v-open-pass" placeholder="if it has one">
+          <button class="go" id="v-open">DECRYPT HERE</button></div>
+        <div id="v-open-out" class="muted">—</div>
+      </div>
+      <div class="panel">
+        <h2>on this node</h2>
+        <p class="note">Ciphertext only. A blob is kept while a live chain key points at it.</p>
+        <div id="v-list"><span class="loadline">loading</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>smart contracts — stored by hash, owned by key</h2>
+      <p class="note">Contract code is stored <b>public</b> (code nobody can read can't be trusted) and the chain key
+        <code>contract/&lt;name&gt;</code> commits to its SHA3-256. Re-deploying the same name is an upgrade; the block log keeps
+        every version. This node stores and verifies code — it does not run it in consensus.</p>
+      <div class="row">
+        <label>name</label><input type="text" id="c-name" placeholder="counter">
+        <select id="c-lang"><option value="cairo">cairo source</option><option value="sierra">sierra JSON</option>
+          <option value="wasm">wasm</option><option value="source">other source</option></select>
+        <input type="file" id="c-file">
+      </div>
+      <textarea id="c-code" placeholder="paste source here, or pick a file above">#[starknet::contract]
+mod Counter {
+    #[storage] struct Storage { value: u128 }
+}</textarea>
+      <div class="row" style="margin-top:8px">
+        <label>wallet</label><select id="c-wallet"></select>
+        <label>keep for</label><input class="sm" type="text" id="c-days" value="30"><span class="muted">days</span>
+        <button class="go" id="c-deploy">STORE CONTRACT</button>
+      </div>
+      <div id="c-out" class="muted">—</div>
+      <div id="c-list" style="margin-top:10px"><span class="loadline">loading</span></div>
+    </div>
+  </section>
+
   <!-- WHITEPAPER --------------------------------------------------------- -->
   <section id="about">
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+      <marker id="wp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" fill="#ece4ff"/></marker></defs></svg>
+    <div id="wp-tip"></div>
     <div class="panel paper human">
       <div class="wp-title"><span class="p">POST</span><span class="q">QUANT</span></div>
       <p class="wp-sub">a key/value market where every byte pays rent</p>
-      <div class="wp-meta">ML-DSA (FIPS 204) · SLH-DSA (FIPS 205) · SHA3-256 · wasm-verified witnesses · no elliptic curves · v0.7</div>
+      <div class="wp-meta">ML-DSA (FIPS 204) · SLH-DSA (FIPS 205) · SHA3-256 · wasm-verified witnesses · no elliptic curves · client-side encrypted vault · v0.12</div>
 
       <div class="wp-mode"><span class="lbl">READ AS</span>
         <button class="sm" id="wp-hum">HUMAN</button>
@@ -1207,16 +1256,94 @@
         prepaid escrow. Every signature is lattice or hash-based, every
         commitment is a hash, nothing in the trust path is an elliptic curve —
         and every witness is checked by the wasm module that <em>is</em> its
-        key type.</p>
+        key type. Data lives off-chain in a vault that encrypts on the client
+        before any node sees it, and smart contracts are stored as
+        content-addressed code behind owned, rent-paying keys.</p>
       <p class="abstract hum">
         This is a small blockchain with one idea. The only thing you can own
         on it is an entry on a public board — a name and what it says — and
         keeping it there costs a little, like renting a mailbox. Every
         signature is built to survive quantum computers: <em>no elliptic
-        curves anywhere</em>. If any of this page loses you, the ? helper in
+        curves anywhere</em>. Your files are locked on your own device
+        before they're stored, so the computers keeping them can't read
+        them. If any of this page loses you, the ? helper in
         the corner will explain.</p>
 
       <hr class="rule">
+
+      <h3><span class="n">0</span>Why this design</h3>
+      <p class="hum">There are three questions to ask of any chain that wants
+        to still be trustworthy in twenty years. <em>Will a quantum computer
+        open your lock?</em> <em>If one kind of lock is broken tomorrow, are
+        you stuck?</em> <em>Who pays for the data everyone has to keep
+        forever?</em> Most chains answer the first with "we'll upgrade later",
+        the second with a hard fork, and the third by not charging for it.
+        This chain answers all three in its rules, today — and the figures
+        below are drawn from this running node, not from a slide.</p>
+      <p class="sci">A long-lived ledger has to survive three failures that
+        current designs leave open: (i) Shor's algorithm against every curve
+        signature, (ii) a cryptanalytic break of whichever single
+        post-quantum family a chain standardises on, and (iii) unpriced state
+        growth that makes every node's disk a commons. The design choices
+        here are the minimal set that closes all three at once: two
+        unrelated signature families plus a third Cairo-verified hash wall
+        (closes i and ii), key types as hash-pinned wasm so a new family is a
+        plugin and not a fork (closes ii going forward), and write gas +
+        witness gas + rent priced per byte (closes iii). Off-chain data goes
+        to a vault that encrypts on the client (5e), and contracts are
+        stored as content-addressed code (5f), so the chain only ever holds
+        32-byte commitments.</p>
+
+      <div class="fig" id="fig-bits"><div class="fig-h">
+        <b>Figure 1</b> · security left standing, in bits of work — classical vs quantum attacker
+        <span class="live">LIVE /algos</span></div>
+        <div class="fig-body"><span class="loadline">drawing</span></div>
+        <p class="fig-cap">Each pair is one key type. Curves (ed25519) keep
+          their classical strength but fall to <b>0</b> under Shor —
+          polynomial time. Lattice and hash schemes lose only Grover's square
+          root and keep ≥128 bits. Bits are log<sub>2</sub> of the best-known
+          attack's work, as the complexity gate prices them.</p></div>
+
+      <div class="fig" id="fig-bytes"><div class="fig-h">
+        <b>Figure 2</b> · bytes on the wire per signed transaction (public key + signature)
+        <span class="live">LIVE /algos</span></div>
+        <div class="fig-body"><span class="loadline">drawing</span></div>
+        <p class="fig-cap">The price of quantum safety is size. A chain that
+          charges a flat fee per transfer hides this cost in everyone's disk;
+          this one bills each key type for exactly these bytes (witness gas,
+          §3) — and a private key type pays for its full 64 KiB envelope.</p></div>
+
+      <table class="cmp">
+        <thead><tr><th>requirement</th><th>typical curve chain</th>
+          <th>single-PQ-scheme chain</th><th>postquant</th></tr></thead>
+        <tbody>
+          <tr><td>survives Shor (a large quantum computer)</td><td class="no">no — every exposed public key falls</td><td class="ok">yes</td><td class="ok">yes</td></tr>
+          <tr><td>survives a break of one PQ family</td><td class="no">—</td><td class="no">no — one assumption</td><td class="ok">yes — ALL composites need lattice <i>and</i> SHAKE <i>and</i> SHA-256 broken</td></tr>
+          <tr><td>new signature algorithm without a hard fork</td><td class="no">no</td><td class="no">no</td><td class="ok">yes — one plugin + one hash-pinned wasm blob</td></tr>
+          <tr><td>signature size billed honestly</td><td class="mid">flat fee (sigs are small anyway)</td><td class="no">usually flat — big sigs subsidised</td><td class="ok">yes — witness gas per byte, per scheme</td></tr>
+          <tr><td>state growth priced (rent + expiry)</td><td class="no">usually pay once, store forever</td><td class="no">usually pay once</td><td class="ok">yes — rent per byte-hour, sweepable expiry</td></tr>
+          <tr><td>attacker can't tell which scheme to attack</td><td class="no">no</td><td class="no">no</td><td class="ok">yes — private key types (§5c)</td></tr>
+          <tr><td>off-chain data the nodes cannot read</td><td class="mid">bolt-on</td><td class="mid">bolt-on</td><td class="ok">built in — client-side AES-256-GCM vault (§5e)</td></tr>
+          <tr><td>contract code verifiable by hash</td><td class="ok">yes</td><td class="ok">yes</td><td class="ok">yes — and the anchor is an owned, sellable key (§5f)</td></tr>
+          <tr><td>decentralised consensus</td><td class="ok">yes</td><td class="ok">yes</td><td class="no">no — single proposer, fully replayable (§6)</td></tr>
+        </tbody>
+      </table>
+      <p class="hum">That last row matters: this is the best design we know
+        for <em>owning something that must stay yours after quantum
+        computers arrive</em> — not the best at everything. One operator
+        orders the blocks, quantum-safe signatures are big, and the vault
+        keeps your bytes only while someone pays rent on the pointer. Every
+        one of those limits is written into the rules below rather than left
+        for you to discover.</p>
+      <p class="sci">"Best" is claimed against the stated objective — durable,
+        priced ownership under a quantum adversary — and on that objective
+        every row above is a rule enforced by the node, not a roadmap item.
+        Where the design pays a cost it says so: single-proposer ordering
+        (§6, mitigated by full replay, not consensus), 2–65 KB witnesses
+        (Fig. 2, priced not hidden), proposer trust for private key types
+        (§5c), and vault availability that depends on a node holding the
+        ciphertext (§5e — anyone may mirror it; the cid makes every copy
+        self-verifying).</p>
 
       <h3><span class="n">1</span>No curves</h3>
       <p class="hum">Most blockchains guard your money with a kind of math —
@@ -1343,6 +1470,16 @@
         block against it. If the store grows faster than target, writing
         gets more expensive until it stops. The base fee is burned; the tip
         goes to the proposer.</p>
+      <div class="fig" id="fig-fee"><div class="fig-h">
+        <b>Figure 3</b> · the base fee follows state growth (simulated with this chain's own rule)
+        <span class="live">RULE state.py</span></div>
+        <div class="fig-body"><span class="loadline">drawing</span></div>
+        <p class="fig-cap">Top: bytes added per block in a made-up burst — a
+          quiet start, a rush at 3× target, then silence. Bottom: the base
+          fee the rule answers with, ±12.5% per block around the 4096-byte
+          target. Congestion prices itself out, and the fee drifts back down
+          once the rush ends. The fee is burned, so nobody profits from the
+          spike.</p></div>
 
       <h3><span class="n">5</span>The market for keys</h3>
       <p class="hum">Names can be put up for sale and bought. The buyer gets
@@ -1429,6 +1566,143 @@
         key reuse has odds ~q<sup>2</sup>/2<sup>25</sup> after q
         signatures — it is a layer, not a solo wallet for heavy use.</p>
 
+      <h3><span class="n">5e</span>The vault: encrypted before it leaves you</h3>
+      <p class="hum">The chain only stores fingerprints. The <strong>vault</strong>
+        is where the actual file goes — and it is built so the computers
+        holding it <em>cannot read it</em>. Your browser locks the file with a
+        key that never leaves your device, uploads only the scrambled bytes,
+        and the chain records the scrambled file's fingerprint as a key you
+        own and pay rent on. Share the link (the key rides after the
+        <code>#</code>, which browsers never send to a server) or use a
+        passphrase. Stop paying rent and the pointer expires — then the
+        bytes are cleaned up too.</p>
+      <p class="sci">The client seals with <strong>AES-256-GCM</strong>
+        (WebCrypto in the browser; byte-identical pure Python in
+        <code>pq/aesgcm.py</code>, pinned by the NIST SP 800-38D vectors).
+        The 37-byte <code>PQV1</code> header — magic, mode, PBKDF2 rounds,
+        salt, IV — is the AEAD's associated data, so it cannot be altered
+        without failing the tag. The file name and type are encrypted
+        <em>inside</em> the ciphertext and the plaintext is zero-padded to a
+        power-of-two bucket (min 1 KiB), so the node learns neither the name
+        nor the exact size. The node stores the blob under
+        <code>cid = SHA3-256(blob)</code>, refuses anything without a valid
+        header or whose body reads below 7.5 bits/byte of entropy (an
+        accident guard — no node can prove a blob is encrypted), and keeps it
+        exactly as long as a live chain entry commits to its cid. AES-256
+        under Grover keeps 128 bits, the same margin as the chain's SHA3-256
+        commitments; key mode uses a fresh random 256-bit key, passphrase
+        mode PBKDF2-HMAC-SHA256 at 600 000 rounds.</p>
+
+      <div class="fig" id="fig-vault"><div class="fig-h">
+        <b>Figure 4</b> · where the key lives, and what each party ever holds</div>
+        <div class="fig-body">
+          <svg viewBox="0 0 760 210" role="img" aria-label="vault data flow: the client encrypts, the node stores ciphertext, the chain stores a 32-byte commitment">
+            <g class="dg">
+              <rect x="8" y="40" width="210" height="120" rx="8" class="b1"/>
+              <text x="113" y="66" class="t">YOUR DEVICE</text>
+              <text x="113" y="92" class="s">file + key</text>
+              <text x="113" y="112" class="s">AES-256-GCM seal</text>
+              <text x="113" y="140" class="k">key never leaves</text>
+              <rect x="275" y="40" width="210" height="120" rx="8" class="b2"/>
+              <text x="380" y="66" class="t">STORAGE NODE</text>
+              <text x="380" y="92" class="s">ciphertext only</text>
+              <text x="380" y="112" class="s">blobs/&lt;cid&gt;</text>
+              <text x="380" y="140" class="k">can't read it</text>
+              <rect x="542" y="40" width="210" height="120" rx="8" class="b3"/>
+              <text x="647" y="66" class="t">CHAIN</text>
+              <text x="647" y="92" class="s">vault/&lt;name&gt; = cid</text>
+              <text x="647" y="112" class="s">32 bytes, rent-paying</text>
+              <text x="647" y="140" class="k">proves which file</text>
+              <path d="M218 100 H268" class="ar"/><path d="M485 100 H535" class="ar"/>
+              <text x="246" y="122" class="s" style="font-size:11px">blob</text>
+              <text x="513" y="122" class="s" style="font-size:11px">cid</text>
+              <text x="380" y="24" class="s">share link: pqv1:&lt;cid&gt;#&lt;key&gt; — the part after # is never sent</text>
+            </g>
+          </svg>
+        </div></div>
+
+      <div class="fig" id="fig-cost"><div class="fig-h">
+        <b>Figure 5</b> · keeping 1 MiB for 30 days at this chain's rent
+        <span class="live">LIVE /genesis</span></div>
+        <div class="fig-body"><span class="loadline">computing</span></div>
+        <p class="fig-cap">Rent is per byte-hour, so the chain stores a 32-byte
+          pointer and the vault stores the megabyte. ("On-chain" is
+          hypothetical — values are capped at 8 KiB precisely so nobody
+          tries.)</p></div>
+
+      <table>
+        <thead><tr><th>the node can see</th><th>the node never sees</th></tr></thead>
+        <tbody><tr><td>ciphertext size bucket · arrival time · which chain key anchors it</td>
+          <td>the bytes · the file name · its exact size · the key or passphrase</td></tr></tbody>
+      </table>
+      <p class="sci">Interfaces: <code>pq_vault</code> (info · put · get · list),
+        <code>POST /vault</code>, the console's VAULT tab, and
+        <code>mod.py vault_put / vault_get</code>, which seal and open on the
+        caller's machine — the node API accepts ciphertext only, so there is
+        no call that would let a server see a plaintext. Next step, stated as
+        such: wrapping the file key to a recipient's <strong>ML-KEM-768</strong>
+        public key, so a share needs no link at all.</p>
+
+      <h3><span class="n">5f</span>Storing smart contracts</h3>
+      <p class="hum">A smart contract is a program, and this chain keeps
+        programs the same way it keeps everything else: the program goes into
+        the vault <em>in the open</em> (code nobody can read can't be trusted),
+        and the chain keeps its fingerprint under a name you own —
+        <code>contract/&lt;name&gt;</code>. Anyone can download the code,
+        check it matches the fingerprint, and run it themselves. Upgrading
+        means pointing your name at new code; the chain's history keeps every
+        old version, so nothing is silently replaced. And because the name is
+        a key, you can rent it, sell it, or let it expire.</p>
+      <p class="sci">The contract model is <em>store, don't execute</em>. Code
+        (<code>wasm</code>, Cairo <code>sierra</code> JSON, Cairo source, or
+        any source) is checked for what it claims to be (wasm must start with
+        <code>\0asm</code>, sierra must carry <code>sierra_program</code>) and
+        stored public in the vault under <code>SHA3-256(code)</code>; the
+        anchor <code>contract/&lt;name&gt;</code> commits to that hash and
+        inherits every property of a key: an owner, rent, listing and sale.
+        <code>pq_contract show</code> returns the code, recomputes its hash
+        and a Merkle proof to the state root, so a light client can trust it
+        without the store. Contract state lives at
+        <code>contract/&lt;name&gt;/&lt;k&gt;</code>, writable only by the
+        anchor's owner — the chain enforces ownership, not semantics.
+        Execution is off consensus and deterministic: anyone fetches by cid
+        and re-runs. Cairo is the bridge to more: a Cairo execution is what a
+        STARK proves, so a run can be proven and its proof hash anchored next
+        to the code — hash-based, and therefore quantum-safe, end to end.
+        This node stores and verifies code; it does not run contracts in
+        consensus, and does not claim to.</p>
+
+      <div class="fig" id="fig-contract"><div class="fig-h">
+        <b>Figure 6</b> · a contract on postquant: one owned key, one hash, every version in the log</div>
+        <div class="fig-body">
+          <svg viewBox="0 0 760 200" role="img" aria-label="contract storage: the chain key contract/name points at a code hash in the vault; upgrades rewrite the key and the block log keeps old versions">
+            <g class="dg">
+              <rect x="8" y="30" width="230" height="64" rx="8" class="b3"/>
+              <text x="123" y="56" class="t">contract/counter</text>
+              <text x="123" y="78" class="s">owner · rent · sellable</text>
+              <rect x="300" y="30" width="200" height="64" rx="8" class="b2"/>
+              <text x="400" y="56" class="t">cid v2</text>
+              <text x="400" y="78" class="s">SHA3-256(code)</text>
+              <rect x="560" y="30" width="192" height="64" rx="8" class="b1"/>
+              <text x="656" y="56" class="t">code blob</text>
+              <text x="656" y="78" class="s">wasm · sierra · cairo</text>
+              <path d="M238 62 H293" class="ar"/><path d="M500 62 H553" class="ar"/>
+              <rect x="8" y="128" width="230" height="56" rx="8" class="b0"/>
+              <text x="123" y="152" class="s">contract/counter/&lt;k&gt;</text>
+              <text x="123" y="170" class="s">state, owner-written</text>
+              <rect x="300" y="128" width="200" height="56" rx="8" class="b0"/>
+              <text x="400" y="152" class="s">block log: cid v1, v2…</text>
+              <text x="400" y="170" class="s">every upgrade on record</text>
+              <rect x="560" y="128" width="192" height="56" rx="8" class="b0"/>
+              <text x="656" y="152" class="s">anyone re-runs it</text>
+              <text x="656" y="170" class="s">Cairo → STARK proof</text>
+            </g>
+          </svg>
+        </div></div>
+<pre class="wp-code">mod.py contract deploy name=counter lang=cairo file=src/lib.cairo wallet=pioneer days=30
+POST /contract {"action":"show","name":"counter"}   → code, cid, verified, proof_valid
+POST /vault    {"action":"put","blob":"&lt;sealed base64&gt;","key":"vault/notes","wallet":"pioneer"}</pre>
+
       <h3><span class="n">6</span>Consensus, honestly</h3>
       <p class="hum">One operator decides the order of transactions — this
         chain doesn't pretend to be a thousand-node democracy, and says so.
@@ -1464,8 +1738,8 @@
         is the single source of truth, and any summary derived from it is
         thrown away the moment the two disagree.</p>
       <p class="sci">The same functions serve REST under
-        <span class="mono" id="about-api"></span>, MCP (33 tools,
-        <code>pq_head</code> through <code>pq_cairo</code>) at
+        <span class="mono" id="about-api"></span>, MCP (35 tools,
+        <code>pq_head</code> through <code>pq_contract</code>) at
         <code>POST /mcp</code>, and this console. State lives in
         <code>~/.mod/postquant</code>: wallet seeds mode 0600 and never
         committed, <code>blocks.jsonl</code> as the truth, and a state
@@ -1517,10 +1791,16 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+// The node's server.secret, if the owner pasted it (COPY KEY asks) — sent as
+// the bearer so a remote owner can export keys; kept in this browser only.
+const ownerKey = () => { try { return localStorage.getItem('pq-owner') || ''; } catch (e) { return ''; } };
+function req(body) {
+  const h = ownerKey() ? {authorization: 'Bearer ' + ownerKey()} : {};
+  return body === undefined ? {headers: h} : {method: 'POST',
+    headers: {...h, 'content-type': 'application/json'}, body: JSON.stringify(body)};
+}
 async function api(path, body) {
-  const r = await fetch(API + path, body === undefined ? {} : {
-    method: 'POST', headers: {'content-type': 'application/json'},
-    body: JSON.stringify(body)});
+  const r = await fetch(API + path, req(body));
   const j = await r.json().catch(() => ({error: 'bad response'}));
   if (!r.ok || j.error) throw new Error(j.error || r.status);
   return j;
@@ -1553,8 +1833,8 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   if (b.dataset.tab === 'home') _chainTimer = setInterval(loadHome, 5000);
   closeCard();
   ({home: loadHome, chain: loadChain, ask: loadAsk, store: loadKeys, market: loadMarket,
-    builder: () => { loadBuilder(); fillWallets(); }, keymarket: loadKeymarket,
-    prims: () => { loadPrims(); fillWallets(); }, private: loadPrivate,
+    builder: () => { loadBuilder(); fillWallets(); loadPrivate(); }, keymarket: loadKeymarket,
+    prims: () => { loadPrims(); fillWallets(); },
     wallet: () => { loadWallets(); loadAlgos(); },
     write: fillWallets}[b.dataset.tab] || (()=>{}))();
 });
@@ -1855,9 +2135,8 @@ const PAL = [
   ['Market', 'the key type marketplace', () => go('keymarket')],
   ['Prims', 'the periodic table of primitives', () => go('prims')],
   ['Builder', 'forge key types: ALL / ANY / THRESHOLD', () => go('builder')],
-  ['Private', 'prove a signature, hide the key type', () => go('private')],
-  ['Bytes', 'the price of a byte', () => go('market')],
-  ['forge a private wallet', 'cloak a key type', () => { go('private'); $('pv-name').focus(); }],
+    ['Bytes', 'the price of a byte', () => go('market')],
+  ['forge a private wallet', 'cloak a key type', () => goPrivate()],
   ['add a wasm prim', 'upload a blob to the battery', () => { go('prims'); $('byo-name').focus(); }],
   ['hottest key types', 'market sorted by heat', () => { go('keymarket'); }],
   ['safest key types', 'market sorted by security', () => { go('keymarket'); document.querySelector('#mk-sorts [data-s=safe]').click(); }],
@@ -2153,12 +2432,57 @@ async function loadMarket() {
 // in the error body and the UI wants to show it, not just the message.
 async function apiJ(path, body) {
   try {
-    const r = await fetch(API + path, body === undefined ? {} : {
-      method: 'POST', headers: {'content-type': 'application/json'},
-      body: JSON.stringify(body)});
+    const r = await fetch(API + path, req(body));
     const j = await r.json().catch(() => ({error: 'bad response (' + r.status + ')'}));
     return {ok: r.ok && !j.error, status: r.status, j};
   } catch (e) { return {ok: false, status: 0, j: {error: e.message}}; }
+}
+// ── post-quantum score: SAFE / NOT SAFE + 0-100, reasons on hover ──
+function scoreBadge(s) {
+  if (!s) return '<span class="muted">—</span>';
+  const cls = s.verdict === 'SAFE' ? 'good' : s.verdict === 'NOT SAFE' ? 'bad' : '';
+  return `<span class="pill ${cls}" title="${esc((s.reasons || []).join('\n'))}">` +
+    `${esc(s.verdict)}${s.score == null ? '' : ' · ' + s.score}</span>`;
+}
+// ── COPY KEY: export a wallet's seed (= its private key) to the owner ──
+function copyKey(name, el) {
+  el.innerHTML = `<div class="kv" style="margin-top:8px;border:2px solid var(--bad);padding:10px">` +
+    `<b class="bad">private key</b><span>The seed of <b>${esc(name)}</b> IS its private key. Anyone holding ` +
+    `it can sign as this address. Store it offline and never paste it into a chat or a website.</span>` +
+    `<b></b><span><button class="sm" data-reveal>REVEAL SEED</button> <button class="sm" data-cancel>CANCEL</button></span></div>`;
+  el.querySelector('[data-cancel]').onclick = () => el.innerHTML = '';
+  el.querySelector('[data-reveal]').onclick = async () => {
+    const {ok, status, j} = await apiJ('/wallet', {action: 'export', name});
+    if (!ok && status === 403) {
+      el.innerHTML = `<div class="kv" style="margin-top:8px"><b class="warn">owner only</b><span>${esc(j.error)}</span>` +
+        `<b>server secret</b><span><input type="password" data-sec placeholder="paste ~/.mod/postquant/server.secret"> ` +
+        `<button class="sm" data-save>SAVE + RETRY</button></span></div>`;
+      el.querySelector('[data-save]').onclick = () => {
+        try { localStorage.setItem('pq-owner', el.querySelector('[data-sec]').value.trim()); } catch (e) {}
+        copyKey(name, el);
+      };
+      return;
+    }
+    if (!ok) return el.innerHTML = `<p class="err">${esc(j.error)}</p>`;
+    const backup = JSON.stringify(j.restore, null, 1);
+    el.innerHTML = `<div class="kv" style="margin-top:8px;border:2px solid var(--bad);padding:10px">` +
+      kvRow('wallet', esc(j.name) + ' · ' + esc(j.scheme)) +
+      kvRow('address', `<span class="mono addr">${esc(j.address)}</span>`) +
+      kvRow('seed', `<span class="mono" data-copy="${esc(j.seed)}" title="click to copy" style="word-break:break-all">${esc(j.seed)}</span>`) +
+      (j.inner ? kvRow('hidden type', `<span class="mono">${esc(j.inner)}</span> <span class="muted">(needed to restore)</span>`) : '') +
+      kvRow('', `<button class="sm" data-copy="${esc(j.seed)}">COPY SEED</button> ` +
+        `<button class="sm" data-copy="${esc(backup)}">COPY BACKUP JSON</button> ` +
+        `<button class="sm" data-dl>DOWNLOAD</button> <button class="sm" data-hide>HIDE</button>`) +
+      kvRow('restore', '<span class="muted">WALLETS ▸ paste the backup into pq_wallet action=create — same seed, same address</span>') +
+      `</div>`;
+    el.querySelector('[data-hide]').onclick = () => el.innerHTML = '';
+    el.querySelector('[data-dl]').onclick = () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([backup], {type: 'application/json'}));
+      a.download = `postquant-${j.name}.key.json`; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    };
+  };
 }
 const RM = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 const fmtB = n => n == null ? '—' : n >= 10000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1) + 'K' : String(n);
@@ -2278,11 +2602,11 @@ function drawPalette() {
       hidden = list.length - list.filter(n => keep.has(n.name)).length;
       list = list.filter(n => keep.has(n.name));
     }
-    return `<div class="kt-fam"><i>${label}</i>` + list.map(n =>
-      `<button class="kt-part${ktSel.includes(n.name) ? ' sel' : ''}${n.quantum_safe ? '' : ' cl'}` +
-      `${n.accepted ? '' : ' refused'}" data-n="${esc(n.name)}" title="${esc(n.name)} · sig ${n.sig_bytes}B · ` +
-      `${n.quantum_safe ? 'quantum-safe' : 'quantum: Shor'}"><span class="d"></span>${esc(short(n.name, 30))}</button>`).join('') +
-      (hidden ? `<button class="kt-part" id="kt-showmore">+${hidden} more</button>` : '') + '</div>';
+    return `<div class="kt-fam f-${g}"><i>${label}<small>${by[g].length}</small></i><div class="kt-chips">` + list.map(n =>
+      `<button class="kt-part${ktSel.includes(n.name) ? ' sel' : ''}${n.accepted ? '' : ' refused'}" ` +
+      `data-n="${esc(n.name)}" title="${esc(n.name)}${n.quantum_safe ? '' : ' · broken by Shor'}${n.accepted ? '' : ' · refused here'}">` +
+      `<span class="ck"></span><span class="nm">${esc(n.name)}</span><span class="sz">${fmtB(n.sig_bytes)}B</span></button>`).join('') +
+      (hidden ? `<button class="kt-part more" id="kt-showmore">+${hidden} more</button>` : '') + '</div></div>';
   }).join(''));
   $('kt-palette').querySelectorAll('.kt-part[data-n]').forEach(
     b => b.onclick = () => ktClick(b.dataset.n));
@@ -2290,7 +2614,15 @@ function drawPalette() {
   if (m) m.onclick = () => { ktMore = true; drawPalette(); };
 }
 $('kt-graph').addEventListener('toggle', () => { if ($('kt-graph').open && dagData) drawDag(); });
-$('kt-private').onchange = () => { $('kt-pwallet').hidden = !$('kt-private').checked; };
+$('kt-private').onchange = () => {
+  const on = $('kt-private').checked;
+  $('kt-pwallet').hidden = !on;
+  $('pv-panel').hidden = !on && !pvPrivWallets.length;
+  $('kt-build').innerHTML = on && ktSel.length === 1 ? '&#9654; FORGE PRIVATE WALLET' : '&#9654; FORGE KEY TYPE';
+  const e = document.querySelector('#kt-picked .kt-empty');
+  if (e && ktSel.length === 1) e.textContent = on
+    ? 'forges a private wallet of this type — or pick more' : 'pick one more part — or turn on private';
+};
 $('kt-hard').onclick = async () => {
   if (!dagData) await loadBuilder();
   const want = ['ML-DSA-44', 'SLH-DSA-SHAKE-128f', 'CAIRO-MSS-SHA256'];
@@ -2372,17 +2704,44 @@ function ktOpSync() {
   if (!ktKManual) ktK = n ? Math.min(n, Math.floor(n / 2) + 1) : 2;
   else if (n) ktK = Math.max(1, Math.min(ktK, n));
   $('kt-k').textContent = n ? ktK + ' of ' + n : 'k=' + ktK;
+  const op = $('kt-op').value;
+  $('kt-seg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.op === op));
+  $('kt-ophint').textContent = op === 'all' ? 'an attacker must break every part'
+    : op === 'any' ? 'any one part signs — only as strong as the weakest'
+    : 'any ' + ktK + ' of ' + (n || 'n') + ' parts sign';
+  $('kt-picked').querySelectorAll('.kt-join').forEach(j => j.textContent = ktJoin());
+  ktStats();
   ktAutoName();
 }
+const ktJoin = () => ({all: '+ AND +', any: '/ OR /', threshold: '· ' + ktK + ' OF ' + ktSel.length + ' ·'})[$('kt-op').value];
+const ktNode = name => dagData && dagData.nodes.find(x => x.name === name);
+function ktStats() {
+  const ps = ktSel.map(ktNode).filter(Boolean), op = $('kt-op').value;
+  if (ps.length < 2) { out('kt-stats', ''); return; }
+  const sizes = ps.map(p => p.sig_bytes || 0).sort((a, b) => b - a);
+  const sig = op === 'any' ? sizes[0] : op === 'threshold' ? sizes.slice(0, ktK).reduce((a, b) => a + b, 0)
+                           : sizes.reduce((a, b) => a + b, 0);
+  const weak = ps.filter(p => !p.quantum_safe).length;
+  const qs = op === 'all' ? weak < ps.length : op === 'any' ? weak === 0 : weak < ktK;
+  out('kt-stats', `<div><b>SIGNATURE</b><span>${op === 'all' ? '' : '≤ '}${fmtB(sig)}B</span></div>` +
+    `<div><b>QUANTUM</b><span class="${qs ? 'good' : 'warn'}">${qs ? 'SAFE' : 'SHOR-BREAKABLE'}</span></div>`);
+}
+$('kt-seg').querySelectorAll('button').forEach(b => b.onclick = () => { $('kt-op').value = b.dataset.op; ktOpSync(); });
 function ktPicked() {
   out('kt-picked', ktSel.length
-    ? ktSel.map(n => `<span class="chip" data-n="${esc(n)}">${esc(n)} ×</span>`).join('')
-    : '<span class="muted">click parts above — 2 to 6</span>');
-  $('kt-picked').querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    ? ktSel.map((n, i) => { const nd = ktNode(n) || {};
+        return (i ? `<div class="kt-join"></div>` : '') +
+          `<div class="kt-pk f-${nd.name ? ktGroup(nd) : 'hash'}"><span class="nm" title="${esc(n)}">${esc(n)}</span>` +
+          `<span class="sz">${fmtB(nd.sig_bytes)}B</span><span class="x" data-n="${esc(n)}" title="remove">✕</span></div>`; }).join('') +
+      (ktSel.length < 2 ? `<div class="kt-empty">${$('kt-private').checked
+        ? 'forges a private wallet of this type — or pick more' : 'pick one more part — or turn on private'}</div>` : '')
+    : '<div class="kt-empty">pick 2 to 6 parts on the left</div>');
+  $('kt-picked').querySelectorAll('.x').forEach(c => c.onclick = () => {
     ktSel = ktSel.filter(x => x !== c.dataset.n);
     ktRedraw(); ktPicked();
   });
   ktOpSync();
+  $('kt-private').onchange();
 }
 function ktDetail(name) {
   const n = dagData.nodes.find(x => x.name === name);
@@ -2421,12 +2780,29 @@ function ktDetail(name) {
     } catch (e) { err('kt-out', e); }
   };
 }
+async function ktForgePrivate(inner) {
+  const name = $('kt-pwallet').value.trim() ||
+    'ghost-' + inner.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 10) + '-' + Date.now().toString(36).slice(-4);
+  $('kt-meta').textContent = 'cloaking…'; $('kt-build').disabled = true;
+  const {ok, j: r} = await apiJ('/private', {action: 'create', name, inner});
+  $('kt-build').disabled = false;
+  if (!ok) { $('kt-meta').textContent = ''; return out('kt-out', esc(r.error || 'refused'), 'err'); }
+  $('kt-meta').textContent = (r.name || name) + ' — hidden';
+  out('kt-out', `<div class="kv">` +
+    kvRow('private', `<span class="good">HIDDEN</span> wallet <b>${esc(r.name || name)}</b> ` +
+      `<span class="mono" data-copy="${esc(r.address)}">${esc(short(r.address, 16))}</span> — the chain never sees ` +
+      `<span class="redact">${esc(inner)}</span>`) + '</div>');
+  toast(name + ' cloaked');
+  $('kt-pwallet').value = '';
+  await pvWallets(r.name || name);
+}
 const ktTest = name => testInto('proof-out', name);
 $('kt-build').onclick = async () => {
   ktAutoName();
   const name = $('kt-name').value.trim(), op = $('kt-op').value;
+  if (ktSel.length === 1 && $('kt-private').checked) return ktForgePrivate(ktSel[0]);
   if (ktSel.length < 2)
-    return out('kt-out', 'pick at least two parts in the graph.', 'err');
+    return out('kt-out', 'pick two or more parts — or one part with private on.', 'err');
   if (!name) return out('kt-out', 'give it a name.', 'err');
   $('kt-meta').textContent = 'forging…'; $('kt-build').disabled = true;
   const body = {action: 'create', name, op, parts: ktSel.slice(),
@@ -2439,7 +2815,7 @@ $('kt-build').onclick = async () => {
   const {ok, j: r} = await apiJ('/keytype', body);
   $('kt-build').disabled = false;
   if (!ok) {
-    $('kt-meta').textContent = '—';
+    $('kt-meta').textContent = '';
     out('kt-out', screen('REFUSED', 'var(--bad)', esc(r.error || 'refused'), '',
       Object.keys(r).length > 1 ? json(r) : ''));
     return;
@@ -2463,7 +2839,7 @@ $('kt-build').onclick = async () => {
     `<div class="row" style="justify-content:center;margin-top:14px"><button class="cy" onclick="openCard(${esc(JSON.stringify(name))})">VIEW CARD</button></div>`));
   if (r.accepted) toast(name + ' forged' + (r.anchor ? ' + anchored on chain' : '') +
     (r.private ? ' + hidden in ' + r.private.wallet : ''));
-  if (r.private) fillWallets();
+  if (r.private) pvWallets(r.private.wallet);
   ktSel = []; ktKManual = false; $('kt-name').value = ''; $('kt-name').dataset.auto = '';
   mkCache = null;
   await loadBuilder(); ktDetail(name); ktTest(name);
@@ -2642,7 +3018,7 @@ async function openCard(name) {
         <button class="ac" id="dr-mint">MINT WALLET</button></div>`}
       ${price ? `<div class="row"><label>pay from</label><select id="dr-bw">${wopts}</select>
         <button class="hz" id="dr-buy">BUY AUTHORSHIP · ${esc(pq(price))} PQ</button></div>` : ''}
-      ${priv ? `<div class="row"><button class="hz" onclick="closeCard();go('private')">OPEN THE CLOAK</button></div>` : ''}
+      ${priv ? `<div class="row"><button class="hz" onclick="closeCard();goPrivate()">OPEN THE CLOAK</button></div>` : ''}
       <div id="dr-out"></div><div id="dr-proofs"></div>
     </div>`;
   d.querySelectorAll('.partchip').forEach(c => c.onclick = () => openCard(c.dataset.p));
@@ -2810,48 +3186,22 @@ $('byo-send').onclick = async () => {
 };
 
 // ── PRIVATE: the cloak ──
-let pvInfo = null, pvInner = '', pvState = {}, pvPrivWallets = [];
-function countUp(el, to) {
-  if (RM || !isFinite(to)) { el.textContent = fmtN(to); return; }
-  const t0 = performance.now(), from = 0, dur = 900;
-  (function f(t) { const k = Math.min(1, (t - t0) / dur);
-    el.textContent = fmtN(Math.round(from + (to - from) * k));
-    if (k < 1) requestAnimationFrame(f); })(t0);
-}
-function pvStep(n) {
-  document.querySelectorAll('#pv-steps div').forEach(d => d.classList.toggle('on', +d.dataset.st <= n));
+let pvInfo = null, pvState = {}, pvPrivWallets = [];
+function goPrivate() {
+  go('builder');
+  $('kt-private').checked = true; $('kt-private').onchange();
+  $('kt-private').closest('.panel').scrollIntoView({behavior: RM ? 'auto' : 'smooth'});
 }
 async function loadPrivate() {
   const {ok, j} = await apiJ('/private?action=info');
-  let set = [];
   if (ok) {
-    pvInfo = j; set = j.cloak_set || [];
-    out('pv-stats', stat(fmtN(j.private_accounts), 'private accts') +
-      stat(fmtN(j.envelope_bytes) + '<span style="font-size:.6em">B</span>', 'envelope, every scheme') +
-      stat(esc((j.seal && j.seal.kem) || '—'), 'seal kem'));
-    countUp($('pv-anon'), j.anonymity_set ?? set.length);
-    $('pv-seal').innerHTML = 'SEAL: ' + esc((j.seal && j.seal.kem) || '?') + ' · EK ' +
-      `<span data-copy="${esc((j.seal && j.seal.ek_sha3) || '')}" style="color:var(--cy)">` +
-      esc(short((j.seal && j.seal.ek_sha3) || '', 14)) + '</span>';
-    $('pv-honesty').innerHTML = (j.honesty || []).map(h => `<li>${esc(h)}</li>`).join('');
-  } else {
-    out('pv-stats', `<span class="pill bad" title="${esc(j.error || '')}">CLOAK OFFLINE — /private not answering yet</span>`);
-    $('pv-anon').textContent = '--';
-    try { const h = await api('/head'); set = (h.schemes || []).filter(s => !/private/i.test(s)); } catch (e) {}
-  }
-  out('pv-deck', set.length ? set.map((n, i) => `<div class="fc${pvInner === n ? ' flip pick' : ''}" data-n="${esc(n)}">
-      <div class="b"><span>?</span></div>
-      <div class="f">${sprite(n, '#ffe600').replace('<svg', '<svg style="width:46px;height:46px;margin-bottom:6px"')}<b>${esc(n)}</b><small>HIDDEN INNER</small></div></div>`).join('')
-    : '<span class="muted">no cloakable key types.</span>', 'deck');
-  document.querySelectorAll('#pv-deck .fc').forEach(c => c.onclick = () => {
-    const was = c.classList.contains('pick');
-    document.querySelectorAll('#pv-deck .fc').forEach(x => x.classList.remove('flip', 'pick'));
-    if (!was) { c.classList.add('flip', 'pick'); pvInner = c.dataset.n; }
-    else pvInner = '';
-    $('pv-inner').textContent = 'inner: ' + (pvInner || '— pick a card —');
-  });
+    pvInfo = j;
+    $('pv-stats').textContent = fmtN(j.private_accounts) + ' on chain · hides among ' +
+      fmtN(j.anonymity_set ?? (j.cloak_set || []).length) + ' key types · ' +
+      fmtN(j.envelope_bytes) + 'B envelope';
+    $('pv-honesty').textContent = (j.honesty || []).join(' ');
+  } else $('pv-stats').textContent = 'cloak offline';
   pvWallets();
-  pvRenderVs();
 }
 async function pvWallets(sel) {
   const w = await fillWallets();
@@ -2860,47 +3210,30 @@ async function pvWallets(sel) {
   $('pv-wallet').innerHTML = pvPrivWallets.length
     ? pvPrivWallets.map(x => `<option ${x.name === cur ? 'selected' : ''}>${esc(x.name)}</option>`).join('')
     : '<option value="">— no private wallets yet —</option>';
-  const x = pvPrivWallets.find(x => x.name === $('pv-wallet').value);
-  if (x && pvState.name !== x.name) { pvState = {name: x.name, address: x.address, commitment: x.commitment}; pvRenderVs(); }
+  $('pv-panel').hidden = !pvPrivWallets.length && !$('kt-private').checked;
+  pvPick();
 }
-$('pv-wallet').onchange = () => { const x = pvPrivWallets.find(x => x.name === $('pv-wallet').value);
-  pvState = x ? {name: x.name, address: x.address, commitment: x.commitment} : {}; pvRenderVs(); };
-function pvRenderVs() {
-  const s = pvState, n = pvInfo ? (pvInfo.anonymity_set ?? (pvInfo.cloak_set || []).length) : '?';
-  const env = pvInfo ? pvInfo.envelope_bytes : null;
-  $('pv-atk').innerHTML =
-    kvRow('address', s.address ? `<span class="mono addr">${esc(s.address)}</span>` : '<span class="muted">pq…</span>') +
-    kvRow('commitment', s.commitment ? `<span class="mono">${esc(short(s.commitment, 30))}</span>` : '<span class="muted">32 bytes of SHA3</span>') +
-    kvRow('key type', `<span class="redact">██████</span> <span class="muted">1 of ${esc(n)}</span>`) +
-    kvRow('public key', '<span class="bad">never published</span>') +
-    kvRow('witness', `${env ? fmtN(env) + 'B ' : ''}sealed envelope — same size for every scheme`) +
-    kvRow('attack', '<span class="warn">Shor? rho? Grover? lattice reduction? pick one, blind</span>');
-  $('pv-you').innerHTML =
-    kvRow('wallet', s.name ? esc(s.name) : '<span class="muted">forge one in step 1</span>') +
-    kvRow('inner', s.inner ? `<span class="good">${esc(s.inner)}</span>` : '<span class="muted">known to you — press SELECTIVE DISCLOSURE</span>') +
-    kvRow('salt', s.salt ? `<span class="mono" data-copy="${esc(s.salt)}">${esc(short(s.salt, 30))}</span>` : '') +
-    kvRow('pk', s.pk ? `<span class="mono" data-copy="${esc(s.pk)}">${esc(short(s.pk, 30))} (${s.pk.length / 2}B)</span>` : '') +
-    kvRow('seed', '~/.mod/postquant · mode 0600 · never leaves this node');
+function pvPick() {
+  const x = pvPrivWallets.find(x => x.name === $('pv-wallet').value);
+  pvState = x ? {name: x.name, address: x.address, commitment: x.commitment, pq_score: x.pq_score} : {};
+  $('pv-key').innerHTML = '';
+  pvRenderYou();
+}
+$('pv-wallet').onchange = pvPick;
+$('pv-copykey').onclick = () => {
+  const name = $('pv-wallet').value;
+  if (!name) return toast('no private wallet selected', 'bad');
+  copyKey(name, $('pv-key'));
+};
+function pvRenderYou() {
+  const s = pvState;
+  $('pv-you').innerHTML = (s.pq_score ? kvRow('quantum', scoreBadge(s.pq_score) +
+      ` <span class="muted">${esc((s.pq_score.reasons || []).slice(-1)[0] || '')}</span>`) : '') + (s.inner ?
+    kvRow('inner', `<span class="good">${esc(s.inner)}</span>`) +
+    kvRow('salt', `<span class="mono" data-copy="${esc(s.salt)}">${esc(short(s.salt, 30))}</span>`) +
+    kvRow('pk', `<span class="mono" data-copy="${esc(s.pk)}">${esc(short(s.pk, 30))} (${s.pk.length / 2}B)</span>`) : '');
   $('pv-check').disabled = !(s.inner && s.salt && s.pk && s.commitment);
 }
-$('pv-forge').onclick = async () => {
-  const name = $('pv-name').value.trim();
-  if (!name) return out('pv-forge-out', 'name the private wallet.', 'err');
-  if (!pvInner) return out('pv-forge-out', 'flip a card to pick the hidden key type.', 'err');
-  out('pv-forge-out', '<span class="loadline">forging ' + esc(name) + ' behind the cloak</span>');
-  const {ok, j: r} = await apiJ('/private', {action: 'create', name, inner: pvInner});
-  if (!ok) return out('pv-forge-out', esc(r.error), 'err');
-  out('pv-forge-out', screen('CLOAKED', 'var(--hz)', 'the chain sees an address. it does not see ' +
-    '<span class="redact">' + esc(pvInner) + '</span>.',
-    kvRow('address', `<span class="mono addr" data-copy="${esc(r.address)}">${esc(r.address)}</span>`) +
-    kvRow('commitment', `<span class="mono" data-copy="${esc(r.commitment)}">${esc(short(r.commitment, 34))}</span>`) +
-    kvRow('envelope', fmtN(r.envelope_bytes) + 'B — identical for every inner scheme'),
-    `<div class="row" style="justify-content:center;margin-top:12px"><button class="sm" id="pv-fund-new">FAUCET 100 PQ</button></div>`));
-  pvState = {name: r.name || name, address: r.address, commitment: r.commitment, inner: pvInner};
-  $('pv-fund-new').onclick = () => pvFaucet(pvState.name);
-  toast(name + ' cloaked'); pvStep(2);
-  await pvWallets(pvState.name); pvRenderVs();
-};
 async function pvFaucet(name) {
   name = name || $('pv-wallet').value;
   if (!name) return toast('no private wallet selected', 'bad');
@@ -2909,43 +3242,21 @@ async function pvFaucet(name) {
        : toast(r.j.error, 'bad');
 }
 $('pv-faucet').onclick = () => pvFaucet();
-$('pv-refresh').onclick = () => loadPrivate();
-function scramble(el, finalText) {
-  const show = finalText.length > 1600 ? finalText.slice(0, 1600) + '…' : finalText;
-  if (RM) { el.textContent = show; return Promise.resolve(); }
-  const H = '0123456789abcdef▓▒░█';
-  return new Promise(res => {
-    const t0 = performance.now(), dur = 1100;
-    (function f(t) {
-      const k = Math.min(1, (t - t0) / dur), cut = Math.floor(show.length * k);
-      let s = show.slice(0, cut);
-      for (let i = cut; i < show.length; i++) s += H[(Math.random() * H.length) | 0];
-      el.textContent = s;
-      k < 1 ? requestAnimationFrame(f) : res();
-    })(t0);
-  });
-}
 $('pv-prove').onclick = async () => {
   const wallet = $('pv-wallet').value, message = $('pv-msg').value;
-  if (!wallet) return out('pv-proof-out', 'forge a private wallet first (step 1).', 'err');
+  if (!wallet) return out('pv-proof-out', 'forge a private wallet first — tick private above.', 'err');
   $('pv-prove').disabled = true; $('pv-proof-meta').textContent = 'sealing…';
-  out('pv-proof-out', '<div class="noise" id="pv-noise"></div>');
-  const noise = $('pv-noise');
-  let spin = !RM && setInterval(() => { let s = ''; for (let i = 0; i < 600; i++) s += '▓▒░01'[(Math.random() * 5) | 0]; noise.textContent = s; }, 60);
   const {ok, j: r} = await apiJ('/private', {action: 'prove', wallet, message});
-  clearInterval(spin); $('pv-prove').disabled = false;
+  $('pv-prove').disabled = false;
   if (!ok) { $('pv-proof-meta').textContent = '—'; return out('pv-proof-out', esc(r.error), 'err'); }
-  $('pv-proof-meta').textContent = fmtN(r.proof_bytes) + 'B sealed · scheme: private';
-  await scramble(noise, r.proof);
-  noise.dataset.copy = r.proof; noise.title = 'click to copy the full proof';
-  noise.insertAdjacentHTML('afterend', `<div class="kv" style="margin-top:10px">` +
-    kvRow('address', `<span class="mono addr">${esc(r.address)}</span>`) +
-    kvRow('message sha3', `<span class="mono">${esc(short(r.message_sha3, 34))}</span>`) +
+  $('pv-proof-meta').textContent = fmtN(r.proof_bytes) + 'B sealed';
+  out('pv-proof-out', `<div class="kv" style="margin-top:6px">` +
+    kvRow('proof', `<span class="mono" data-copy="${esc(r.proof)}" title="click to copy">${esc(short(r.proof, 40))}</span>`) +
     kvRow('key type', '<span class="redact">██████</span> <span class="muted">(not in the proof)</span>') + '</div>');
   $('pv-v-addr').value = r.address || r.commitment || '';
   $('pv-v-msg').value = message; $('pv-v-proof').value = r.proof;
   pvState = Object.assign({}, pvState, {address: r.address, commitment: r.commitment || pvState.commitment});
-  pvRenderVs(); pvStep(3);
+  $('pv-vfold').open = true;
   toast('proof sealed — verify it below');
 };
 async function pvVerify(message) {
@@ -2957,14 +3268,11 @@ async function pvVerify(message) {
   const {ok, j: r} = await apiJ('/private', body);
   if (!ok) return out('pv-verify-out', esc(r.error), 'err');
   const at = r.attestation || {};
-  out('pv-verify-out', screen(r.valid ? 'VALID' : 'INVALID', r.valid ? 'var(--ac)' : 'var(--bad)',
-    'KEY TYPE: <span class="redact">████████</span> (REDACTED)' +
-      (r.scheme_revealed === false ? ' · scheme_revealed: false' : ''),
-    kvRow('anonymity set', `<span class="amt">${fmtN(r.anonymity_set)}</span> key types it could have been`) +
+  out('pv-verify-out', `<div class="kv" style="margin-top:8px">` +
+    kvRow('result', r.valid ? '<span class="good">VALID</span>' : '<span class="bad">INVALID</span>') +
+    kvRow('key type', `<span class="redact">████████</span> <span class="muted">1 of ${fmtN(r.anonymity_set)}</span>`) +
     kvRow('attested by', at.by ? `<span class="mono addr" data-copy="${esc(at.by)}">${esc(short(at.by, 24))}</span>` : '') +
-    kvRow('attest scheme', esc(at.scheme || '')) +
-    kvRow('over', at.over ? `<span class="mono" data-copy="${esc(typeof at.over === 'string' ? at.over : JSON.stringify(at.over))}">${esc(short(typeof at.over === 'string' ? at.over : JSON.stringify(at.over), 34))}</span>` : '') +
-    kvRow('signature', at.sig ? `<span class="mono" data-copy="${esc(at.sig)}">${esc(short(at.sig, 34))}</span>` : '')));
+    '</div>');
 }
 $('pv-verify').onclick = () => pvVerify($('pv-v-msg').value);
 $('pv-tamper').onclick = () => {
@@ -2979,16 +3287,16 @@ $('pv-open').onclick = async () => {
   const {ok, j: r} = await apiJ('/private', {action: 'open', wallet});
   if (!ok) return out('pv-open-out', esc(r.error), 'err');
   pvState = Object.assign({}, pvState, {name: wallet, commitment: r.commitment, inner: r.inner, salt: r.salt, pk: r.pk});
-  pvRenderVs();
-  out('pv-open-out', '<p class="note" style="margin-top:10px">Disclosed to <b>this screen only</b> — hand these four values to whoever you choose; CHECK recomputes the commitment.</p>');
+  pvRenderYou();
+  out('pv-open-out', '<p class="note" style="font-size:12px">Shown on this screen only — hand these to whoever you choose; CHECK recomputes the commitment.</p>');
 };
 $('pv-check').onclick = async () => {
   const s = pvState;
   const {ok, j: r} = await apiJ('/private', {action: 'check_open', commitment: s.commitment,
     inner: s.inner, salt: s.salt, pk: s.pk});
   if (!ok) return out('pv-open-out', esc(r.error), 'err');
-  out('pv-open-out', screen(r.match ? 'MATCH' : 'NO MATCH', r.match ? 'var(--ac)' : 'var(--bad)',
-    'SHA3(salt ‖ ' + esc(s.inner) + ' ‖ pk) ' + (r.match ? '=' : '≠') + ' commitment'));
+  out('pv-open-out', `<p class="${r.match ? 'good' : 'bad'}">` +
+    'SHA3(salt ‖ ' + esc(s.inner) + ' ‖ pk) ' + (r.match ? '= commitment — MATCH' : '≠ commitment') + '</p>');
 };
 
 // ── WALLET ──
@@ -3011,7 +3319,7 @@ async function loadAlgos() {
     const wasm = (r.wasm && r.wasm.algorithms) || {};
     out('algos', '<table><tr><th>key type</th><th>family</th>' +
       '<th class="num">sig bytes</th><th class="num">pk bytes</th>' +
-      '<th>break (classical / quantum)</th>' +
+      '<th>break (classical / quantum)</th><th>pq score</th>' +
       '<th class="num">accounts</th><th>gate</th><th>verified by</th></tr>' +
       r.algorithms.map(a => {
         const wv = wasm[a.name];
@@ -3025,6 +3333,7 @@ async function loadAlgos() {
           `<td class="mono" title="brute force ${esc(sec.brute_force || '?')} ` +
           `assuming maximal entropy · floor ${esc(sec.floor || '')} · ` +
           `probe ${esc(sec.probe || '')}">${esc(sec.best_classical || '?')} / ${q}</td>` +
+          `<td>${scoreBadge(a.pq_score)}</td>` +
           `<td class="num">${a.accounts_on_chain}</td>` +
           `<td class="${a.accepted ? 'good' : 'bad'}" ` +
           `title="${esc(a.refused || '')}">${a.accepted ? 'accepted' : 'refused'}</td>` +
@@ -3047,18 +3356,22 @@ async function loadWallets() {
   try {
     const w = await fillWallets();
     out('wallets', w.wallets.length
-      ? '<table><tr><th>name</th><th>address</th><th>key type</th>' +
+      ? '<table><tr><th>name</th><th>address</th><th>key type</th><th>quantum</th>' +
         '<th class="num">balance PQ</th><th class="num">nonce</th><th></th></tr>' +
         w.wallets.map(x => `<tr><td>${esc(x.name)}` +
           `${x.name === w.default ? ' <span class="pill">default</span>' : ''}</td>` +
           `<td class="mono addr" data-copy="${esc(x.address)}" title="click to copy">${esc(x.address)}</td>` +
           `<td class="mono muted">${esc(x.scheme)}</td>` +
+          `<td>${scoreBadge(x.pq_score)}</td>` +
           `<td class="num amt">${esc(pq(x.balance))}</td>` +
           `<td class="num">${x.nonce}</td>` +
           `<td><button class="sm" data-f="${esc(x.name)}">FAUCET 100</button> ` +
-          `<button class="sm" data-a="${esc(x.address)}">ACCOUNT</button></td></tr>`
-        ).join('') + '</table>'
+          `<button class="sm" data-a="${esc(x.address)}">ACCOUNT</button> ` +
+          `<button class="sm" data-k="${esc(x.name)}" title="export the seed — the private key">COPY KEY</button></td></tr>`
+        ).join('') + '</table><div id="wallet-key"></div>'
       : '<span class="muted">no wallets — create one above.</span>');
+    document.querySelectorAll('#wallets [data-k]').forEach(b => b.onclick = () =>
+      copyKey(b.dataset.k, $('wallet-key')));
     document.querySelectorAll('#wallets [data-f]').forEach(b => b.onclick = async () => {
       b.textContent = '…';
       try { await api('/faucet', {wallet: b.dataset.f}); loadWallets(); }
@@ -3246,6 +3559,285 @@ $('x-send').onclick = async () => {
 
 loadHome(); fillWallets();
 _chainTimer = setInterval(loadHome, 5000);
+// ── whitepaper figures: drawn from this node's live /algos, /genesis, /head ──
+const wpTip = (() => { const t = () => $('wp-tip');
+  return { show(ev, html) { const e = t(); e.innerHTML = html; e.style.display = 'block';
+             const x = Math.min(ev.clientX + 14, innerWidth - e.offsetWidth - 8);
+             e.style.left = x + 'px'; e.style.top = (ev.clientY + 14) + 'px'; },
+           hide() { t().style.display = 'none'; } }; })();
+const wpN = n => Number(n).toLocaleString('en-US');
+function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(v || 1)));
+  for (const m of [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * p >= v) return m * p; return 10 * p; }
+// Horizontal bars, one row per item, one bar per series; 4px rounded data end,
+// 2px gap between a row's bars, hover tooltip on an oversized hit row, table view.
+function wpBars(fig, rows, series, {unit = '', note, max: fixedMax} = {}) {
+  const body = fig.querySelector('.fig-body');
+  const W = 720, L = 190, R = 110, bh = 13, gap = 2, rowGap = 16;
+  const rowH = series.length * bh + (series.length - 1) * gap;
+  const H = 22 + rows.length * (rowH + rowGap);
+  const max = fixedMax || niceMax(Math.max(...rows.flatMap(r => r.values)));
+  const x = v => L + (W - L - R) * v / max;
+  let g = '';
+  for (let i = 0; i <= 4; i++) { const v = max * i / 4, xx = x(v);
+    g += `<line class="gl" x1="${xx}" x2="${xx}" y1="14" y2="${H - 4}"/>` +
+         `<text x="${xx}" y="10" text-anchor="middle">${wpN(v)}</text>`; }
+  rows.forEach((r, i) => {
+    const y0 = 22 + i * (rowH + rowGap);
+    g += `<text class="lab" x="${L - 10}" y="${y0 + rowH / 2 + 4}" text-anchor="end">${esc(r.label)}</text>`;
+    r.values.forEach((v, j) => {
+      const y = y0 + j * (bh + gap), w = Math.max(0, x(v) - L), rr = Math.min(4, w);
+      if (v > 0) g += `<path fill="${series[j].color}" d="M${L} ${y}h${w - rr}a${rr} ${rr} 0 0 1 ${rr} ${rr}v${bh - 2 * rr}a${rr} ${rr} 0 0 1 -${rr} ${rr}h-${w - rr}z"/>`;
+      const broken = r.broken && r.broken[j];
+      g += broken ? `<text class="bad" x="${L + 4}" y="${y + bh - 2}">✗ 0 — ${esc(broken)}</text>`
+                  : `<text class="val" x="${L + w + 6}" y="${y + bh - 2}">${wpN(v)}${unit}</text>`;
+    });
+    g += `<rect class="hit" data-i="${i}" x="0" y="${y0 - rowGap / 2}" width="${W}" height="${rowH + rowGap}"/>`;
+  });
+  const legend = series.length > 1 ? '<div class="legend">' + series.map(s =>
+    `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('') + '</div>' : '';
+  body.innerHTML = legend + `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(fig.querySelector('.fig-h').textContent.trim())}">${g}</svg>` +
+    `<details><summary>table view</summary><table><tr><th>key type</th>${series.map(s => `<th class="num">${esc(s.name)}</th>`).join('')}</tr>` +
+    rows.map(r => `<tr><td>${esc(r.label)}</td>${r.values.map((v, j) => `<td class="num">${r.broken && r.broken[j] ? '0 (' + esc(r.broken[j]) + ')' : wpN(v) + unit}</td>`).join('')}</tr>`).join('') +
+    '</table></details>' + (note ? `<p class="fig-cap">${note}</p>` : '');
+  body.querySelectorAll('.hit').forEach(h => {
+    const r = rows[+h.dataset.i];
+    h.onmousemove = ev => wpTip.show(ev, `<b>${esc(r.label)}</b><br>` + series.map((s, j) =>
+      `<i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color};margin-right:6px"></i>${esc(s.name)}: ` +
+      (r.broken && r.broken[j] ? esc(r.broken[j]) : wpN(r.values[j]) + unit)).join('<br>') + (r.tip ? '<br>' + esc(r.tip) : ''));
+    h.onmouseleave = wpTip.hide;
+  });
+}
+const WP_PICK = ['ed25519', 'ML-DSA-44', 'ML-DSA-87', 'SLH-DSA-SHAKE-128f', 'CAIRO-MSS-SHA256',
+  'mldsa44+slhdsash+cairomss.all'];
+const WP_LABEL = {'mldsa44+slhdsash+cairomss.all': 'QUANTUM-HARD (all 3)'};
+const WP_ED_REF = {name: 'ed25519', pk_bytes: 32, sig_bytes: 64, ref: true,
+  security: {classical_bits: 126, quantum_polynomial: true}};
+async function wpFigAlgos() {
+  const S = getComputedStyle($('about').querySelector('.paper'));
+  const c1 = S.getPropertyValue('--s1').trim(), c2 = S.getPropertyValue('--s2').trim();
+  let algos;
+  try { algos = (await api('/algos')).algorithms; } catch (e) {
+    ['fig-bits', 'fig-bytes'].forEach(id => $(id).querySelector('.fig-body').innerHTML =
+      `<span class="err">could not reach /algos — ${esc(e.message)}</span>`); return; }
+  const by = Object.fromEntries(algos.map(a => [a.name.toLowerCase(), a]));
+  const pick = WP_PICK.map(n => by[n.toLowerCase()] || (n === 'ed25519' ? WP_ED_REF : null)).filter(Boolean);
+  const qbits = a => a.security.quantum_polynomial ? 0 :
+    +((String(a.security.quantum || '').match(/2\^(\d+)/) || [])[1] || 0);
+  wpBars($('fig-bits'), pick.map(a => ({
+    label: (WP_LABEL[a.name] || a.name) + (a.ref ? ' (ref)' : ''),
+    values: [a.security.classical_bits || 0, qbits(a)],
+    broken: [null, a.security.quantum_polynomial ? 'broken by Shor' : null],
+    tip: a.basis || (a.ref ? 'elliptic curve — reference, not accepted for new wallets here' : '')})),
+    [{name: 'classical attacker', color: c1}, {name: 'quantum attacker', color: c2}], {unit: ' bits', max: 256});
+  const priv = by['private'];
+  const rows = pick.map(a => ({label: (WP_LABEL[a.name] || a.name) + (a.ref ? ' (ref)' : ''),
+    values: [a.witness_bytes || (a.pk_bytes + a.sig_bytes)],
+    tip: `pk ${wpN(a.pk_bytes)} B + sig ${wpN(a.sig_bytes)} B`}));
+  if (priv) rows.push({label: 'private (sealed)', values: [priv.witness_bytes || (priv.pk_bytes + priv.sig_bytes)],
+    tip: 'fixed-size ML-KEM-768 envelope — every hidden scheme looks the same'});
+  wpBars($('fig-bytes'), rows, [{name: 'witness bytes', color: c1}], {unit: ' B'});
+}
+function wpFigFee() {
+  const fig = $('fig-fee'), body = fig.querySelector('.fig-body');
+  const S = getComputedStyle($('about').querySelector('.paper'));
+  const c1 = S.getPropertyValue('--s1').trim(), c2 = S.getPropertyValue('--s2').trim();
+  // the rule from state.py next_base_fee, run on a made-up burst
+  const T = 4096, DEN = 8, MIN = 1;
+  const growth = [...Array(60)].map((_, i) => i < 10 ? T : i < 30 ? 3 * T : 0);
+  let fee = 100; const fees = [];
+  for (const g of growth) { fees.push(fee);
+    if (g > T) fee = fee + Math.min(Math.max(1, Math.floor(fee * (g - T) / T / DEN)), Math.floor(fee / DEN) || 1);
+    else if (g < T) fee = Math.max(MIN, fee - Math.floor(fee * (T - g) / T / DEN)); }
+  const W = 720, L = 64, R = 16, n = growth.length, X = i => L + (W - L - R) * (i + .5) / n;
+  const top = 110, h2 = 170, y0b = 16, y0l = top + 34;
+  const gmax = 3 * T, fmax = niceMax(Math.max(...fees));
+  let g = `<text x="${L}" y="10">bytes added per block</text>`;
+  const bw = (W - L - R) / n - 2;
+  growth.forEach((v, i) => { const hh = (top - y0b) * v / gmax;
+    if (v) g += `<rect fill="${c2}" x="${X(i) - bw / 2}" y="${top - hh}" width="${bw}" height="${hh}" rx="2"/>`; });
+  const yt = top - (top - y0b) * T / gmax;
+  g += `<line x1="${L}" x2="${W - R}" y1="${yt}" y2="${yt}" stroke="#ece4ff" stroke-dasharray="4 4" stroke-width="1.5"/>` +
+       `<text x="${L - 6}" y="${yt + 4}" text-anchor="end">target</text>` +
+       `<line class="gl" x1="${L}" x2="${W - R}" y1="${top}" y2="${top}"/>`;
+  const Y = v => y0l + h2 - h2 * v / fmax;
+  g += `<text x="${L}" y="${y0l - 8}">base fee (nq per gas)</text>`;
+  for (let i = 0; i <= 4; i++) { const v = fmax * i / 4;
+    g += `<line class="gl" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${wpN(v)}</text>`; }
+  g += `<polyline fill="none" stroke="${c1}" stroke-width="2" stroke-linejoin="round" points="${fees.map((f, i) => X(i) + ',' + Y(f)).join(' ')}"/>`;
+  const pk = fees.indexOf(Math.max(...fees));
+  g += `<circle cx="${X(pk)}" cy="${Y(fees[pk])}" r="4" fill="${c1}" stroke="#0d0820" stroke-width="2"/>` +
+       `<text class="val" x="${X(pk) + 8}" y="${Y(fees[pk]) - 6}">peak ${wpN(fees[pk])} nq — ${(fees[pk] / 100).toFixed(1)}× start</text>`;
+  [0, 10, 30, 59].forEach(i => g += `<text x="${X(i)}" y="${y0l + h2 + 16}" text-anchor="middle">block ${i}</text>`);
+  g += `<line id="wp-fee-x" x1="0" x2="0" y1="${y0b}" y2="${y0l + h2}" stroke="#ece4ff" stroke-opacity=".5" style="display:none"/>` +
+       `<rect class="hit" id="wp-fee-hit" x="${L}" y="0" width="${W - L - R}" height="${y0l + h2}"/>`;
+  body.innerHTML = `<svg viewBox="0 0 ${W} ${y0l + h2 + 22}" role="img" aria-label="simulated base fee responding to state growth">${g}</svg>` +
+    `<details><summary>table view</summary><table><tr><th>block</th><th class="num">bytes added</th><th class="num">base fee (nq)</th></tr>` +
+    growth.map((v, i) => `<tr><td>${i}</td><td class="num">${wpN(v)}</td><td class="num">${wpN(fees[i])}</td></tr>`).join('') + '</table></details>';
+  const svg = body.querySelector('svg'), hit = $('wp-fee-hit'), xl = $('wp-fee-x');
+  hit.onmousemove = ev => { const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    const i = Math.max(0, Math.min(n - 1, Math.floor((p.x - L) / ((W - L - R) / n))));
+    xl.setAttribute('x1', X(i)); xl.setAttribute('x2', X(i)); xl.style.display = '';
+    wpTip.show(ev, `<b>block ${i}</b><br>bytes added: ${wpN(growth[i])} (target ${wpN(T)})<br>base fee: ${wpN(fees[i])} nq`); };
+  hit.onmouseleave = () => { xl.style.display = 'none'; wpTip.hide(); };
+}
+async function wpFigCost() {
+  const body = $('fig-cost').querySelector('.fig-body');
+  let rent = 1000, base = 100, gas = {key_byte: 400, value_byte: 100, value_byte_hash: 40};
+  try { const [gen, head] = await Promise.all([api('/genesis'), api('/head')]);
+    const r = gen.rules || {}; gas = {...gas, ...(r.gas || {})};
+    const rr = r.rent && (r.rent.per_byte_hour ?? r.rent.nq_per_byte_hour);
+    if (typeof rr === 'number') rent = rr;
+    base = (head.base_fee && head.base_fee.nq) || base; } catch (e) { /* the constants above are the code's own defaults */ }
+  const key = 'vault/report.pdf'.length, OVER = 64, MiB = 1048576, hours = 720;
+  const onchain = (key + MiB + OVER) * rent * hours + (key * gas.key_byte + MiB * gas.value_byte) * base;
+  const vault = (key + 32 + OVER) * rent * hours + (key * gas.key_byte + 32 * gas.value_byte_hash) * base;
+  const pqf = nq => { const v = nq / 1e9; return v >= 100 ? wpN(Math.round(v)) : v >= 1 ? v.toFixed(2) : v.toFixed(4); };
+  body.innerHTML = `<div class="tiles">
+    <div class="tile"><div class="k">ON-CHAIN, HYPOTHETICAL</div><div class="v">${pqf(onchain)} <span class="u">PQ</span></div>
+      <div class="u">1 MiB raw + rent, 30 days</div></div>
+    <div class="tile win"><div class="k">VAULT + 32-BYTE ANCHOR</div><div class="v">${pqf(vault)} <span class="u">PQ</span></div>
+      <div class="u">the pointer pays; the node keeps the bytes</div></div>
+    <div class="tile"><div class="k">DIFFERENCE</div><div class="v">${wpN(Math.round(onchain / vault))}×</div>
+      <div class="u">cheaper, and the nodes can't read it</div></div></div>
+    <p class="fig-cap">Rent ${wpN(rent)} nq per byte-hour; write gas at the live base fee (${wpN(base)} nq); entry overhead ${OVER} B; key <code>vault/report.pdf</code>.</p>`;
+}
+let _wpDrawn = false;
+function wpDrawFigs() { if (_wpDrawn) return; _wpDrawn = true;
+  wpFigAlgos(); wpFigFee(); wpFigCost(); }
+document.querySelector('nav button[data-tab="about"]').addEventListener('click', wpDrawFigs);
+if ($('about').classList.contains('on')) wpDrawFigs();
+
+// ── VAULT: seal in this browser (WebCrypto AES-256-GCM, PQV1), store ciphertext, anchor the cid ──
+const VLT = {MAGIC: [0x50, 0x51, 0x56, 0x31], HEADER: 37, ITERS: 600000, MIN: 1024};
+const vB64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000)
+  s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+const vUnB64 = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); s += '='.repeat((4 - s.length % 4) % 4);
+  return Uint8Array.from(atob(s), c => c.charCodeAt(0)); };
+const vB64url = u8 => vB64(u8).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function vNeedCrypto() { if (!(window.crypto && crypto.subtle))
+  throw new Error('this page needs a secure context (https or localhost) for WebCrypto — nothing was sent'); }
+async function vPassKey(pass, salt, iters) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iters},
+    base, {name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']); }
+async function vSeal(data, name, type, pass) {
+  vNeedCrypto();
+  const meta = new TextEncoder().encode(JSON.stringify({name, type, size: data.length}));
+  let n = 4 + meta.length + data.length, size = VLT.MIN; while (size < n) size *= 2;
+  const plain = new Uint8Array(size);                                  // zero pad to the bucket
+  new DataView(plain.buffer).setUint32(0, meta.length); plain.set(meta, 4); plain.set(data, 4 + meta.length);
+  const iv = crypto.getRandomValues(new Uint8Array(12)), header = new Uint8Array(VLT.HEADER);
+  header.set(VLT.MAGIC, 0); header.set(iv, 25);
+  let key, secret = null;
+  if (pass) { const salt = crypto.getRandomValues(new Uint8Array(16));
+    header[4] = 1; new DataView(header.buffer).setUint32(5, VLT.ITERS); header.set(salt, 9);
+    key = await vPassKey(pass, salt, VLT.ITERS);
+  } else { const raw = crypto.getRandomValues(new Uint8Array(32));
+    key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']); secret = vB64url(raw); }
+  const ct = new Uint8Array(await crypto.subtle.encrypt({name: 'AES-GCM', iv, additionalData: header}, key, plain));
+  const blob = new Uint8Array(VLT.HEADER + ct.length); blob.set(header); blob.set(ct, VLT.HEADER);
+  return {blob, secret};
+}
+async function vOpen(blob, secret, pass) {
+  vNeedCrypto();
+  if (blob[0] !== 0x50 || blob[3] !== 0x31) throw new Error('not a PQV1 envelope');
+  const header = blob.subarray(0, VLT.HEADER), iv = blob.subarray(25, 37), dv = new DataView(blob.buffer, blob.byteOffset);
+  let key;
+  if (blob[4] === 1) { if (!pass) throw new Error('this file is passphrase-locked — enter the passphrase');
+    key = await vPassKey(pass, blob.slice(9, 25), dv.getUint32(5));
+  } else { if (!secret) throw new Error('this file is key-locked — paste its share link');
+    key = await crypto.subtle.importKey('raw', vUnB64(secret), 'AES-GCM', false, ['decrypt']); }
+  let plain;
+  try { plain = new Uint8Array(await crypto.subtle.decrypt({name: 'AES-GCM', iv, additionalData: header}, key, blob.subarray(VLT.HEADER))); }
+  catch (e) { throw new Error('wrong key or passphrase (or the file was altered)'); }
+  const ml = new DataView(plain.buffer).getUint32(0), meta = JSON.parse(new TextDecoder().decode(plain.subarray(4, 4 + ml)));
+  return {meta, data: plain.slice(4 + ml, 4 + ml + meta.size)};
+}
+async function vWallets() {
+  try { const w = await api('/wallet?action=list');
+    const opts = w.wallets.map(x =>
+      `<option ${x.name === w.default ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+    ['v-wallet', 'c-wallet'].forEach(id => $(id).innerHTML = opts || '<option value="">— make a wallet first —</option>');
+  } catch (e) { /* the list fails soft; the put reports the real error */ }
+}
+const vOk = (id, html) => { $(id).className = ''; $(id).innerHTML = html; };
+const vErr = (id, e) => { $(id).className = 'err'; $(id).textContent = e.message || e; };
+$('v-seal').onclick = async () => {
+  const f = $('v-file').files[0], text = $('v-text').value, pass = $('v-pass').value;
+  if (!f && !text) return vErr('v-out', 'pick a file or type some text');
+  const name = ($('v-key').value.trim() || ('vault/' + (f ? f.name : 'note.txt'))).replace(/^\/+/, '');
+  vOk('v-out', '<span class="loadline">encrypting in this browser</span>');
+  try {
+    const data = f ? new Uint8Array(await f.arrayBuffer()) : new TextEncoder().encode(text);
+    const {blob, secret} = await vSeal(data, f ? f.name : 'note.txt', f ? f.type : 'text/plain', pass);
+    vOk('v-out', `<span class="loadline">uploading ${wpN(blob.length)} encrypted bytes</span>`);
+    const body = {action: 'put', blob: vB64(blob), key: name, wallet: $('v-wallet').value, days: $('v-days').value || '7'};
+    const r = await api('/vault', body);
+    const link = secret ? `pqv1:${r.cid}#${secret}` : `pqv1:${r.cid}`;
+    vOk('v-out', `<p><b>stored.</b> The node holds ${wpN(r.bytes)} bytes of ciphertext; the chain holds
+      <span class="mono addr" data-copy="${esc(name)}">${esc(name)}</span> = its SHA3-256.</p>
+      <p>${secret ? 'Share link — <b>this is the only copy of the key</b>; the part after # is never sent to a server:'
+                  : 'Passphrase-locked — anyone with the cid and the passphrase can open it:'}</p>
+      <div class="mono addr" data-copy="${esc(link)}" style="word-break:break-all">${esc(link)}</div>
+      <p class="muted">click to copy · cid ${esc(r.cid.slice(0, 16))}… · anchor tx ${esc((r.anchor && r.anchor.tx && r.anchor.tx.slice(0, 12)) || (r.anchor && r.anchor.hash || '').slice(0, 12) || '—')}</p>`);
+    $('v-link').value = link; vList();
+  } catch (e) { vErr('v-out', e); }
+};
+$('v-open').onclick = async () => {
+  let s = $('v-link').value.trim(), cid = '', key = '', secret = '';
+  if (s.startsWith('pqv1:')) { [cid, secret] = s.slice(5).split('#'); }
+  else if (/^[0-9a-f]{64}$/i.test(s)) cid = s.toLowerCase(); else key = s;
+  if (!s) return vErr('v-open-out', 'paste a share link, a cid or a chain key');
+  vOk('v-open-out', '<span class="loadline">fetching ciphertext</span>');
+  try {
+    const r = await api('/vault?action=get&' + (cid ? 'cid=' + cid : 'key=' + encodeURIComponent(key)));
+    const {meta, data} = await vOpen(vUnB64(r.blob), secret, $('v-open-pass').value);
+    const url = URL.createObjectURL(new Blob([data], {type: meta.type || 'application/octet-stream'}));
+    const txt = (meta.type || '').startsWith('text') || /\.(txt|md|json|csv|cairo|rs|py|js)$/i.test(meta.name || '');
+    vOk('v-open-out', `<p><b>opened in this browser.</b> ${esc(meta.name || 'file')} · ${wpN(meta.size)} bytes ·
+      hash check ${r.verified ? '<span class="pill good">cid matches</span>' : '<span class="pill bad">MISMATCH</span>'}</p>
+      <p><a class="pill" href="${url}" download="${esc(meta.name || 'file')}">DOWNLOAD</a></p>` +
+      (txt ? `<pre style="max-height:260px;overflow:auto">${esc(new TextDecoder().decode(data.slice(0, 20000)))}</pre>` : ''));
+  } catch (e) { vErr('v-open-out', e); }
+};
+async function vList() {
+  try { const r = await api('/vault?action=list');
+    out('v-list', r.blobs.length ? '<table><tr><th>cid</th><th>kind</th><th class="num">bytes</th><th>anchored by</th></tr>' +
+      r.blobs.map(b => `<tr><td class="mono addr" data-copy="${esc(b.cid)}">${esc(b.cid.slice(0, 16))}…</td><td>${esc(b.kind)}${b.lang ? ' · ' + esc(b.lang) : ''}</td>` +
+        `<td class="num">${wpN(b.bytes)}</td><td>${b.anchors.length ? b.anchors.map(esc).join(', ') : '<span class="muted">none — pruned after grace</span>'}</td></tr>`).join('') + '</table>'
+      : '<span class="muted">nothing stored yet</span>');
+  } catch (e) { err('v-list', e); }
+}
+$('c-deploy').onclick = async () => {
+  const name = $('c-name').value.trim(), f = $('c-file').files[0], lang = $('c-lang').value;
+  if (!name) return vErr('c-out', 'name the contract');
+  try {
+    const body = {action: 'deploy', name, lang, wallet: $('c-wallet').value, days: $('c-days').value || '30'};
+    if (f) body.code_b64 = vB64(new Uint8Array(await f.arrayBuffer())); else body.code = $('c-code').value;
+    const r = await api('/contract', body);
+    vOk('c-out', `<p><b>deployed.</b> <span class="mono">${esc(r.key)}</span> = <span class="mono addr" data-copy="${esc(r.cid)}">${esc(r.cid.slice(0, 16))}…</span> (${wpN(r.bytes)} bytes of public code)</p>`);
+    cList();
+  } catch (e) { vErr('c-out', e); }
+};
+async function cList() {
+  try { const r = await api('/contract?action=list');
+    out('c-list', r.contracts.length ? '<table><tr><th>contract</th><th>code hash</th><th>owner</th><th>lease</th><th></th></tr>' +
+      r.contracts.map(c => `<tr><td>${esc(c.name)}</td><td class="mono addr" data-copy="${esc(c.cid)}">${esc(c.cid.slice(0, 12))}…</td>` +
+        `<td class="mono">${esc(short(c.owner, 12))}</td><td>${c.expired ? '<span class="pill bad">expired</span>' : ago(c.expires_in)}</td>` +
+        `<td><button class="sm" data-show="${esc(c.name)}">SHOW</button></td></tr>`).join('') + '</table>'
+      : '<span class="muted">no contracts yet</span>');
+    $('c-list').querySelectorAll('[data-show]').forEach(b => b.onclick = async () => {
+      try { const s = await api('/contract?action=show&name=' + encodeURIComponent(b.dataset.show));
+        vOk('c-out', `<p><b>${esc(s.name)}</b> · ${esc(s.lang || '?')} · ${wpN(s.bytes || 0)} bytes ·
+          ${s.verified ? '<span class="pill good">hash matches anchor</span>' : '<span class="pill bad">hash mismatch / not on this node</span>'}
+          ${s.proof_valid ? '<span class="pill good">Merkle proof valid</span>' : ''}</p>` +
+          (s.code != null ? `<pre style="max-height:260px;overflow:auto">${esc(s.code.slice(0, 20000))}</pre>` : '<p class="muted">binary code (wasm) — fetch code_b64 from /contract</p>'));
+      } catch (e) { vErr('c-out', e); } });
+  } catch (e) { err('c-list', e); }
+}
+document.querySelector('nav button[data-tab="vault"]').addEventListener('click', () => { vWallets(); vList(); cList(); });
+
 </script>
 </body>
 </html>

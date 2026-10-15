@@ -1,0 +1,38 @@
+{
+    "name": "cairo",
+    "title": "Cairo \u00b7 Starknet \u00b7 zkworld",
+    "description": "The Cairo \u00b7 Starknet framework as a running submod of zkworld: its toolchain, starters and every Cairo \u00b7 Starknet project here. STARK-provable contracts for Starknet. scarb builds Sierra/CASM, snforge tests them, every contract gets a live app on a local devnet.",
+    "version": "0.2.0",
+    "submod_of": "zkworld",
+    "kind": "framework",
+    "framework_id": "cairo",
+    "anchor": "mod.py",
+    "server": "../../api/fwserver.py",
+    "port": 51353,
+    "host": "127.0.0.1",
+    "route": "/zkworld/cairo/",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "toolchain",
+        "templates",
+        "projects",
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean",
+        "abi",
+        "witness",
+        "serve",
+        "kill"
+    ],
+    "write_fns": [
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean"
+    ]
+}

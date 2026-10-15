@@ -1,0 +1,12 @@
+[package]
+name = "factors_halo2"
+version = "0.1.0"
+edition = "2021"
+description = "FactorsHalo2 — a Rust project."
+
+[dependencies]
+halo2_proofs = "0.3"
+serde_json = "1"
+
+[profile.release]
+debug = false

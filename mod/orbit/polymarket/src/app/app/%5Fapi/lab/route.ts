@@ -26,6 +26,7 @@
 import { NextResponse } from "next/server";
 
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
+import { agentOff } from "../../lib/server/agentMods";
 import { checkedClaudeEnv } from "../../lib/server/agentCli";
 import {
   candidateBacktest, draftCandidate, labRunning, listLabRuns, readLabRun,
@@ -60,6 +61,13 @@ export async function POST(req: Request) {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     body = {};
+  }
+
+  // VIBE (?draft / ?vibe) and the LAB run are agents with their own switch;
+  // the ?candidate bench is a plain backtest other agents call — never gated.
+  if (url.searchParams.get("draft") === "1" || url.searchParams.get("vibe") === "1") {
+    const off = agentOff("vibe");
+    if (off) return off;
   }
 
   if (url.searchParams.get("draft") === "1") {
@@ -104,6 +112,8 @@ export async function POST(req: Request) {
     }
   }
 
+  const off = agentOff("lab");
+  if (off) return off;
   try {
     const meta = startLabRun({
       goal: typeof body.goal === "string" ? body.goal : undefined,

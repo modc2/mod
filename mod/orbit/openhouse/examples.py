@@ -19,6 +19,8 @@ fixed fx rates, fixed amounts — so the tests assert on the same numbers the
 site shows. Nothing here reaches a chain, a bank or the network.
 """
 import importlib.util
+import os
+import shutil
 import sys
 import tempfile
 import uuid
@@ -192,6 +194,48 @@ def bank_transfer(r):
     r.check(acc['accounts'][0]['balance'] == 1350, '$1,550 + $300 − $500 = $1,350')
 
 
+@example('bank_proof', 'Prove the rent was paid — without saying who',
+         'A bank transfer becomes a receipt any chain can check: a commitment and a nullifier, never Maya. Verify it, open it as Maya, try to book the month twice.',
+         level='bank')
+def bank_proof(r):
+    _deal(r)
+    r.call('openhouse_bank_connect', 'Open a sandbox bank account for the landlord (testnet, no key).',
+           kind='sandbox', name='landlord', config={'currency': 'USD', 'holder': 'DEMO Landlord'})
+    ref = r.call('openhouse_bank_reference', 'The code Maya puts in her transfer memo.',
+                 address=CAST['maya'])['reference']
+    r.call('openhouse_bank_link', 'Link Maya so her transfers are credited to her.',
+           address=CAST['maya'], payer_name='Maya Ortiz')
+    r.call('openhouse_bank_receive', 'Maya pays October by ordinary bank transfer.',
+           amount=1550, reference=f'Rent October {ref}', from_name='Maya Ortiz',
+           from_iban='XT279876543210987654')
+    rec = r.call('openhouse_bank_reconcile', 'Book it — and issue a proof for every transfer booked.',
+                 rate=2500, issue_proofs=True)
+    r.check(len(rec['booked']) == 1, 'one transfer booked')
+    receipts = r.call('openhouse_proofs', 'The receipt: property, period, commitment, nullifier. Nobody\'s name.')['receipts']
+    r.check(len(receipts) == 1 and not any(k in receipts[0] for k in ('tenant', 'salt', 'amount'))
+            and CAST['maya'].lower() not in str(receipts[0]).lower(),
+            'one receipt, and it names no one')
+    rc = receipts[0]
+    r.check(rc['rent_due'] == 620000 and rc['property_id'] == 1,
+            'it attests the public terms: property 1, this month\'s rent of 0.62 Ξ')
+    v = r.call('openhouse_proof_verify', 'Anyone checks it offline: the fact and both bank signatures.',
+               nullifier=rc['nullifier'])
+    r.check(v['ok'], 'the receipt verifies — NEAR and Ethereum would accept it')
+    salt = r.call('openhouse_proof_salt', 'Maya asks the bank for her salt.', tenant=CAST['maya'])['salt']
+    op = r.call('openhouse_proof_open', 'Maya shows the landlord the commitment is hers.',
+                tenant=CAST['maya'], salt=salt, nullifier=rc['nullifier'])
+    r.check(op['matches'], 'the commitment opens to Maya')
+    op2 = r.call('openhouse_proof_open', 'Jonah tries the same trick with her salt.',
+                 tenant=CAST['jonah'], salt=salt, nullifier=rc['nullifier'])
+    r.check(not op2['matches'], 'and to nobody else')
+    r.refused('openhouse_proof_issue', 'The bank tries to issue October again — one proof per month.',
+              tenant=CAST['maya'], amount=620000, period=rc['period'])
+    r.refused('openhouse_proof_issue', 'A short payment has no proof — the program itself says no.',
+              tenant=CAST['jonah'], amount=1, period=rc['period'] + 1)
+    program = r.call('openhouse_proof_program', 'The statement every receipt is about, and its hash.')
+    r.check(program['program_hash'] == rc['program_hash'], 'the receipt pins the statement this node runs')
+
+
 @example('bank_statement', 'Any bank, no API: a statement file',
          'Import a real-format ISO 20022 camt.053 statement, book two renters, pay a bill by pain.001.',
          level='bank')
@@ -286,8 +330,21 @@ def bank_over_mcp(r):
 
 # ── the runner ──────────────────────────────────────────────────
 
+NEEDS = {'bank_proof': 'scarb'}      # examples that run a toolchain the node may lack
+
+
+def available(name: str) -> bool:
+    tool = NEEDS.get(name)
+    if not tool:
+        return True
+    import pwd
+    home = pwd.getpwuid(os.getuid()).pw_dir
+    return bool(shutil.which(tool) or Path(home, '.local', 'bin', tool).exists())
+
+
 def catalog() -> list:
-    return [{k: v for k, v in e.items() if k != 'fn'} for e in EXAMPLES.values()]
+    return [{k: v for k, v in e.items() if k != 'fn'} | {'available': available(e['name'])}
+            for e in EXAMPLES.values()]
 
 
 def run(name: str, Mod) -> dict:

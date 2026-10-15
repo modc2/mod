@@ -9,7 +9,10 @@ without importing the orbit loader.
     /{fn}                   → the API, bare, for local curl
 
 Everything is a read — there is no state to write. simulate() takes its
-assumptions as query args.
+assumptions as query args. The reality routes (live, scorecard, borough,
+find, neighborhoods, nyc) go through nycbridge to the nyc module and are
+warmed in a background thread at startup so the console's first paint does
+not wait on the 11M-row violations file.
 
     python3 serve.py [--port 51240] [--host 0.0.0.0]
 """
@@ -29,9 +32,16 @@ if MODULE_DIR not in sys.path:
     sys.path.append(MODULE_DIR)
 
 import housing  # noqa: E402
+import nycbridge  # noqa: E402
+import reality  # noqa: E402
 
 READ_FNS = ('health', 'info', 'readme', 'crisis', 'plan', 'pillar',
-            'timeline', 'critiques', 'simulate', 'sources')
+            'timeline', 'critiques', 'simulate', 'sources',
+            'live', 'scorecard', 'borough', 'find', 'neighborhoods', 'nyc')
+SIM_ARGS = (('new_per_year', 20000), ('preserved_per_year', 20000),
+            ('freeze_years', 2), ('rgb_hike', 3.0), ('attrition_per_year', 10000),
+            ('median_stabilized_rent', 1500), ('years', 10),
+            ('base_pace', 7000), ('stabilized', 1_000_000))
 
 
 def _config():
@@ -59,6 +69,7 @@ def api(fn, a):
                 'description': cfg.get('description'),
                 'plan': housing.PLAN['name'],
                 'status': 'rent freeze in effect since 2026-10-01',
+                'deps': cfg.get('deps', []), 'nyc': nycbridge.nyc_url(),
                 'endpoints': cfg.get('endpoints', {})}
     if fn == 'readme':
         try:
@@ -82,16 +93,27 @@ def api(fn, a):
     if fn == 'critiques':
         return {'critiques': housing.CRITIQUES}
     if fn == 'simulate':
-        return housing.simulate(
-            _num(a, 'new_per_year', 20000),
-            _num(a, 'preserved_per_year', 20000),
-            _num(a, 'freeze_years', 2),
-            _num(a, 'rgb_hike', 3.0),
-            _num(a, 'attrition_per_year', 10000),
-            _num(a, 'median_stabilized_rent', 1500),
-            _num(a, 'years', 10))
+        return housing.simulate(*[_num(a, k, d) for k, d in SIM_ARGS])
     if fn == 'sources':
         return {'sources': housing.SOURCES}
+    # ── reality, via the nyc module ──
+    if fn == 'live':
+        return reality.live_crisis()
+    if fn == 'scorecard':
+        return reality.scorecard()
+    if fn == 'borough':
+        sim = {k: _num(a, k, d) for k, d in SIM_ARGS if k in a}
+        return reality.borough(a.get('name', 'Brooklyn'), **sim)
+    if fn == 'find':
+        return reality.find(_num(a, 'income', 45000), _num(a, 'household', 1),
+                            a.get('bedrooms', ''), a.get('borough', ''),
+                            int(_num(a, 'limit', 12)))
+    if fn == 'neighborhoods':
+        return reality.neighborhoods(int(_num(a, 'min_income', 120000)),
+                                     int(_num(a, 'min_population', 15000)),
+                                     int(_num(a, 'limit', 12)))
+    if fn == 'nyc':
+        return nycbridge.status()
     return None
 
 
@@ -154,7 +176,9 @@ class Handler(SimpleHTTPRequestHandler):
 def serve(port=None, host='0.0.0.0'):
     port = int(port or _config().get('port', 51240))
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'mandamistan: http://localhost:{port}{PREFIX}/  api http://localhost:{port}/plan')
+    nycbridge.warm()   # background: the scorecard reads, so first paint is instant
+    print(f'mandamistan: http://localhost:{port}{PREFIX}/  api http://localhost:{port}/plan'
+          f'  nyc dep {nycbridge.nyc_url()}')
     httpd.serve_forever()
 
 

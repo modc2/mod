@@ -1,6 +1,6 @@
 # news
 
-Ask for a topic, get the news about it — from many outlets, de-duplicated and ranked on your own machine. Also an MCP server, so any agent can do the same.
+Ask for a topic, get the news about it — from many outlets, de-duplicated and ranked on your own machine. A one-page web app, a REST API and an MCP server, all on one port.
 
 - **Keyless, local-first**: Python stdlib only. One SQLite cache (`~/.mod/news/cache.db`) and one feed list (`~/.mod/news/feeds.json`). No accounts, no API keys, no model calls.
 - **Open sources by default**: [GDELT](https://www.gdeltproject.org/) (global news index, all languages), Hacker News, and your own RSS/Atom feeds (seeded with BBC, Guardian, Al Jazeera, NPR, Ars, The Register). `reddit` and `google` exist but are opt-in.
@@ -16,6 +16,10 @@ m news/read https://...                         # readable article text
 m news/add_feed https://example.org/rss name=Example
 m news/serve                                    # REST + MCP on 127.0.0.1:51120 (pm2 `news`)
 ```
+
+## App
+
+`m news/serve`, then open `http://localhost:51120/` (or `{host}/news` through the router). One file, `web/index.html`, no build step: a search bar with source / window / count chips, result cards (outlet, age, how many outlets ran it, `why`), an in-page **read** drawer that shows the article text, a **feeds** pane to add and remove RSS/Atom feeds, and an **api** pane with copyable REST, MCP and CLI lines. Searches are shareable: the query and settings live in the URL hash. Browsers get HTML at `/`; anything else (curl, agents) still gets the health JSON there, and `/app` is always the page.
 
 ## MCP
 
@@ -33,6 +37,7 @@ Tools: `news_search`, `news_read`, `news_sources`, `news_feeds`, `news_add_feed`
 ## Layout
 
 ```
+web/index.html       the app (served by server.py at / for browsers, /app always)
 newsagg/sources.py   adapters: (query, limit) -> [item]; add a source = add a function + a SOURCES row
 newsagg/engine.py    fan-out -> time window -> cluster -> score; read() article text
 newsagg/cache.py     url -> raw body, TTL, stale fallback

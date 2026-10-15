@@ -29,6 +29,7 @@ import { NextResponse } from "next/server";
 import { AGENT_MODEL, digJson, runClaude } from "../../lib/server/agentCli";
 import { autopsyContext } from "../../lib/server/stratAutopsy";
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
+import { agentOff } from "../../lib/server/agentMods";
 import {
   currentSettings, paramReference, validatePatch,
   type PatchEntry,
@@ -137,6 +138,8 @@ function parseReply(raw: string): { reply: string; patch: unknown; rationale?: s
 
 export async function POST(req: Request) {
   if (!verifyOwnerToken(bearer(req))) return deny();
+  const off = agentOff("stratchat");
+  if (off) return off;
 
   let body: ChatRequest;
   try {

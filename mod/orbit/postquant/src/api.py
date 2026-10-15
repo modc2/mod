@@ -147,6 +147,8 @@ READ_ACTIONS = {
     'keytype': ('list', 'list', 'ls', 'show', 'get'),
     'prim': ('show', 'show', 'get'),
     'private': ('info', 'info', 'verify', 'check_open'),
+    'vault': ('info', 'info', 'get', 'list'),
+    'contract': ('info', 'info', 'show', 'list'),
 }
 
 
@@ -336,9 +338,16 @@ def serve(port=PORT, bind=None, base=BASE, block_loop=True):
         def _dispatch(self):
             # Every HTTP path into the tools runs in this request's thread —
             # REST, /mcp and the agent — so one mark here covers them all.
-            mcpsrv.set_remote(not self._is_local())
             p, query = self._path()
             p = p.rstrip('/') or '/'
+            # Owner standing (private-key export, private wallet scores): the
+            # proven server.secret bearer, or loopback with no proxy header —
+            # except /mcp and the agent routes, because orbit/agent relays
+            # remote users' prompts to /mcp over loopback.
+            local = self._is_local()
+            relayed = p in ('/mcp', '/run', '/run/stream')
+            mcpsrv.set_remote(not local, owner=(
+                bool(secret()) and self._may_write()) or (local and not relayed))
             if p == '/mcp':
                 if self.command != 'POST':
                     return self._send(405, b'POST JSON-RPC 2.0 here',

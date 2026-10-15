@@ -1,0 +1,16 @@
+{
+  "name": "token",
+  "template": "token",
+  "desc": "A fungible token written out in full, no library: balances in a LookupMap, owner-only mint, burn, and ft_transfer with the one-yoctoNEAR safety deposit every NEAR wallet expects",
+  "created": 1792025194,
+  "init": {
+    "method": "new",
+    "args": {
+      "name": "Workshop Token",
+      "symbol": "WRK",
+      "decimals": 6
+    }
+  },
+  "cairo_twin": "token",
+  "deployed": []
+}

@@ -1,0 +1,9 @@
+{
+  "program": "factors_leo.aleo",
+  "version": "0.1.0",
+  "description": "FactorsLeo — a Leo project.",
+  "license": "MIT",
+  "leo": "4.4.4",
+  "dependencies": null,
+  "dev_dependencies": null
+}

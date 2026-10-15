@@ -15,7 +15,7 @@ import { API_URL, SourceFile, useResource } from '../../lib/api'
 import { findLines, highlightLines, splitOnQuery, TOKEN_CLASS } from '../../lib/highlight'
 import { LAUNCH } from '../../lib/whitepaper'
 
-const LANG_LABEL: Record<string, string> = { solidity: 'Solidity', python: 'Python', typescript: 'TypeScript' }
+const LANG_LABEL: Record<string, string> = { solidity: 'Solidity', python: 'Python', typescript: 'TypeScript', cairo: 'Cairo', rust: 'Rust' }
 
 /** One row of code: syntax spans, with the find-in-file query marked on top
  *  of them so a match never costs you the colour underneath. */

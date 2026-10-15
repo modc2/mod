@@ -12,7 +12,7 @@ ML-DSA-44, 17088 for SLH-DSA — billed as-is), and rent per byte-hour against
 a prepaid escrow. Expired entries pay their sweeper.
 
 API `:51030` (`/postquant/api`) · console `/postquant` · MCP `POST /mcp`
-(33 tools) · state `~/.mod/postquant`
+(35 tools) · state `~/.mod/postquant`
 
 ## When to reach for it
 
@@ -81,6 +81,11 @@ runs. `GET /agents` is the roster (the fleet agent contract).
    a Cairo program; stack it in op=all next to ML-DSA/SLH-DSA for one more
    independent wall. `pq_cairo action=check` runs a witness in the Cairo VM
    (parity with the Python verifier). Few-time: a layer, not a solo wallet.
+   Off-chain files: `pq_vault` takes ciphertext ONLY (PQV1, sealed on the
+   client — console VAULT tab or `mod.py vault_put`); `key=` anchors its cid.
+   Never seal on the server for a user; the point is the node can't read it.
+   Contracts: `pq_contract deploy|show|list` = public code by hash +
+   `contract/<name>` anchor; stored and verified, not executed.
 2. `pq_wallet action=create scheme=…` then `pq_faucet` — writes need a funded
    wallet; scheme defaults to ML-DSA-44, `pq_algos` lists the choices.
    Amounts: a **string** ("25", "1.5") is PQ; a bare int is nq (1e-9).

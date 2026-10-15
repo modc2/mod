@@ -67,7 +67,13 @@ INSTRUCTIONS = (
     'Civic seat: openhouse_civic_charter seats a government authority on the '
     'property, openhouse_civic_override issues pause/unpause/hold/release, '
     'and openhouse_civic_resign vacates the authority seat (lifts any pause '
-    'or hold it placed).'
+    'or hold it placed). Proof of rent, without the tenant: '
+    'openhouse_proof_issue runs the Cairo statement (proof/) over a private '
+    'payment and signs the fact for NEAR and Ethereum; openhouse_proof_verify '
+    'checks a receipt offline; openhouse_proof_open lets the tenant show a '
+    'commitment is theirs; openhouse_proof_submit relays a receipt to the NEAR '
+    '(WASM) or Ethereum verifier, which burns the nullifier. Receipts name a '
+    'property, a period, a commitment and a nullifier — never who paid.'
 )
 
 
@@ -324,7 +330,7 @@ def _t_bank_reconcile(args, oh):
                                  since=int(_num(args, 'since', 0)),
                                  dry_run=bool(args.get('dry_run')),
                                  rate=_num(args, 'rate') if rate not in (None, '') else None,
-                                 key=_key(args)))
+                                 key=_key(args), issue_proofs=bool(args.get('issue_proofs'))))
 
 
 def _t_bank_pay(args, oh):
@@ -361,6 +367,63 @@ def _t_pool_claim(args, oh):
 
 def _t_bloctime(args, oh):
     return oh.bloctime(_req(args, 'address'))
+
+
+# ── proofs ──
+
+def _t_proof_status(args, oh):
+    return oh.proof_status()
+
+
+def _t_proof_program(args, oh):
+    return oh.proof_program()
+
+
+def _t_proofs(args, oh):
+    return {'receipts': oh.proofs(args.get('property_id'), args.get('period'))}
+
+
+def _t_proof(args, oh):
+    return _ok(oh.proof(_req(args, 'nullifier')))
+
+
+def _t_proof_issue(args, oh):
+    return _ok(oh.proof_issue(
+        property_id=args.get('property_id'), period=args.get('period'),
+        rent_due=args.get('rent_due'), tenant=_req(args, 'tenant'),
+        amount=int(_num(args, 'amount')), salt=str(args.get('salt') or ''),
+        note=str(args.get('note') or ''), key=_key(args)))
+
+
+def _t_proof_verify(args, oh):
+    receipt = args.get('receipt')
+    if isinstance(receipt, str) and receipt.strip():
+        try:
+            receipt = json.loads(receipt)
+        except Exception:
+            raise ToolError('receipt must be a JSON object')
+    if not receipt and not args.get('nullifier'):
+        raise ToolError('receipt or nullifier required')
+    return _ok(oh.proof_verify(receipt=receipt or None, nullifier=str(args.get('nullifier') or '')))
+
+
+def _t_proof_open(args, oh):
+    receipt = args.get('receipt')
+    if isinstance(receipt, str) and receipt.strip():
+        receipt = json.loads(receipt)
+    return _ok(oh.proof_open(_req(args, 'tenant'), _req(args, 'salt'), receipt=receipt or None,
+                             nullifier=str(args.get('nullifier') or '')))
+
+
+def _t_proof_salt(args, oh):
+    return _ok(oh.proof_salt(_req(args, 'tenant'), key=_key(args)))
+
+
+def _t_proof_submit(args, oh):
+    return _ok(oh.proof_submit(_req(args, 'nullifier'), chain=str(args.get('chain') or 'near'),
+                               account=str(args.get('account') or ''), address=str(args.get('address') or ''),
+                               url=str(args.get('url') or ''), signer=str(args.get('signer') or ''),
+                               key=_key(args)))
 
 
 _KEY = {'type': 'string', 'description': 'operator bank key — required for any connection that is not the sandbox'}
@@ -780,6 +843,7 @@ TOOLS = {
             'since': {'type': 'integer', 'description': 'unix seconds'},
             'dry_run': {'type': 'boolean'},
             'rate': {'type': 'number', 'description': 'fiat per 1 Ξ (default: live fx)'},
+            'issue_proofs': {'type': 'boolean', 'description': 'issue a proof-of-rent receipt (openhouse_proof_issue) for every transfer booked'},
             'key': _KEY,
         }},
         'handler': _t_bank_reconcile,
@@ -848,6 +912,122 @@ TOOLS = {
             'address': {'type': 'string', 'description': '0x address to look up'},
         }, 'required': ['address']},
         'handler': _t_bloctime,
+    },
+    'openhouse_proof_status': {
+        'description': 'The proof-of-rent rail at a glance: the Cairo statement '
+                       'and its program hash, this node\'s bank keys (public '
+                       'halves, for NEAR and Ethereum), receipts issued and '
+                       'submitted, the property id and rent due being proven '
+                       'against, and where the NEAR (WASM) and Ethereum '
+                       'verifiers live.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_proof_status,
+    },
+    'openhouse_proof_program': {
+        'description': 'The statement itself: proof/src/lib.cairo, its program '
+                       'hash, the six public outputs (version, property_id, '
+                       'period, rent_due, commitment, nullifier) and how the '
+                       'fact keccak256(program_hash || keccak256(outputs)) is '
+                       'derived. Private inputs — tenant, salt, amount — never '
+                       'leave the bank.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_proof_program,
+    },
+    'openhouse_proofs': {
+        'description': 'Every proof-of-rent receipt this node issued, newest '
+                       'period first. A receipt names a property and a period, '
+                       'a commitment and a nullifier — never the tenant.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'property_id': {'type': 'integer', 'description': 'filter by property'},
+            'period': {'type': 'integer', 'description': 'filter by period, YYYYMM'},
+        }},
+        'handler': _t_proofs,
+    },
+    'openhouse_proof': {
+        'description': 'One receipt by nullifier, plus whether each configured '
+                       'verifier (NEAR, Ethereum) already holds that property/'
+                       'period as paid.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'nullifier': {'type': 'string', 'description': '0x nullifier from the receipt'},
+        }, 'required': ['nullifier']},
+        'handler': _t_proof,
+    },
+    'openhouse_proof_issue': {
+        'description': 'WRITES. The bank\'s move (this node as the bank): run '
+                       'the Cairo statement over the private facts — tenant, '
+                       'salt, amount — sign the fact for NEAR and Ethereum, '
+                       'keep the receipt. Refused with the program\'s own '
+                       'reason when amount < rent_due. Amounts are integers × '
+                       '1e6 of the deal currency; rent_due defaults to the '
+                       'live monthly rent, period to this month. Open on '
+                       'testnet; the operator bank key elsewhere.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'tenant': {'type': 'string', 'description': 'who paid — a 0x address, a NEAR account, any stable identity (stays private)'},
+            'amount': {'type': 'integer', 'description': 'what they paid, in units (deal currency × 1e6)'},
+            'property_id': {'type': 'integer', 'description': 'default: the configured property (1)'},
+            'period': {'type': 'integer', 'description': 'YYYYMM, default this month'},
+            'rent_due': {'type': 'integer', 'description': 'units; default the live monthly rent'},
+            'salt': {'type': 'string', 'description': 'tenant salt (0x felt); default the salt this node keeps for them'},
+            'note': {'type': 'string'},
+            'key': _KEY,
+        }, 'required': ['tenant', 'amount']},
+        'handler': _t_proof_issue,
+    },
+    'openhouse_proof_verify': {
+        'description': 'Anyone, offline: check a receipt — six outputs, '
+                       'statement version, fact = keccak(program_hash || '
+                       'keccak(outputs)), the bank\'s ed25519 and secp256k1 '
+                       'signatures, the program hash this node runs, and that '
+                       'the attested rent due covers the live monthly rent. '
+                       'Pass the receipt object (from any node) or a nullifier '
+                       'known here.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'receipt': {'type': 'object', 'description': 'the receipt as returned by openhouse_proof_issue'},
+            'nullifier': {'type': 'string', 'description': 'or: a nullifier this node issued'},
+        }},
+        'handler': _t_proof_verify,
+    },
+    'openhouse_proof_open': {
+        'description': 'The tenant\'s move: (tenant, salt) → commitment; does it '
+                       'match the receipt\'s? Proves to a landlord, a co-owner '
+                       'or a city that THIS person made THAT payment, and '
+                       'nothing else. Stores and signs nothing.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'tenant': {'type': 'string'},
+            'salt': {'type': 'string', 'description': '0x felt the bank handed the tenant (openhouse_proof_salt)'},
+            'receipt': {'type': 'object'},
+            'nullifier': {'type': 'string'},
+        }, 'required': ['tenant', 'salt']},
+        'handler': _t_proof_open,
+    },
+    'openhouse_proof_salt': {
+        'description': 'The salt this node keeps for a tenant — what they need '
+                       'to open their own commitments. Open on testnet; the '
+                       'operator bank key elsewhere.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'tenant': {'type': 'string'},
+            'key': _KEY,
+        }, 'required': ['tenant']},
+        'handler': _t_proof_salt,
+    },
+    'openhouse_proof_submit': {
+        'description': 'WRITES ON-CHAIN. Relay a receipt to a verifier: '
+                       "chain='near' (the WASM contract, signed by the "
+                       "orbit/near keystore) or 'eth' (OpenHouseProofs.sol, "
+                       'signed by the issuer key unless key= is given). The '
+                       'contract re-checks the signature, pins the program '
+                       'hash and the property\'s rent due, and burns the '
+                       'nullifier — one proof books one month once.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'nullifier': {'type': 'string'},
+            'chain': {'type': 'string', 'enum': ['near', 'eth'], 'description': 'default near'},
+            'account': {'type': 'string', 'description': 'NEAR verifier account (default: configured)'},
+            'address': {'type': 'string', 'description': 'Ethereum verifier address (default: configured)'},
+            'url': {'type': 'string', 'description': 'Ethereum RPC url (default: configured)'},
+            'signer': {'type': 'string', 'description': 'NEAR keystore account to sign with'},
+            'key': {'type': 'string', 'description': 'Ethereum relayer private key (default: the issuer key); off testnet also the operator bank key'},
+        }, 'required': ['nullifier']},
+        'handler': _t_proof_submit,
     },
 }
 

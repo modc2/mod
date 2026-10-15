@@ -4,8 +4,9 @@ A handle on [AI Power Grid](https://aipowergrid.io) — community-run workers
 serving open-weight **text, image, video and audio** models behind an
 OpenAI-shaped API at `https://api.aipowergrid.io/v1`, paid in USD credits.
 
-Stdlib only. No service, no port, no install — the fn surface is served at
-`/aipg/api`. Key at `~/.mod/aipg/key.json` (0600), media in `~/.mod/aipg/out`.
+Stdlib only, no install. `serve()` puts the fn surface on :50147 in the mod
+protocol wire shape (`POST /{fn}` → `{"result"}`; public reads open, spending
+fns loopback-only), reachable as `/aipg/api` once routed. Key at `~/.mod/aipg/key.json` (0600), media in `~/.mod/aipg/out`.
 
 ## When to reach for it
 
@@ -27,7 +28,7 @@ API; it is not a node.
 | read | what it alone knows | what it does not |
 |---|---|---|
 | `GET /v1/status/models` | the real roster: name, type, worker count, context | prices |
-| `GET /v1/pricing` | USD rates per model (`micro_usd` ledger) | *"rates do not assert that a model is online"* — its own words |
+| `GET /v1/pricing` | USD rates per model (`micro_usd` ledger), `aliases` (roster name → billed name), `default_text` for unlisted text | *"rates do not assert that a model is online"* — its own words |
 | `GET /v1/models` | the ids an OpenAI client can see | **text only** — 6 ids vs 12 in the roster |
 
 `m aipg/models` is that join: one row per model with `type`, `online`,
@@ -48,8 +49,10 @@ m aipg/grid                             online counts by type, cheapest text mod
 m aipg/models                           the full join
 m aipg/models type=video online=true    one type, only what's serving
 m aipg/workers                          {count, workers:[{name, models, job_types}]}
-m aipg/pricing model=qwen3-27b          one rate card (case-insensitive)
+m aipg/pricing                          whole book: aliases, default_text, evidence
+m aipg/pricing model=qwen3-27b          one rate card (case-insensitive, alias-aware)
 m aipg/estimate qwen3-27b 1000 500      USD for that many in/out tokens
+m aipg/estimate ltx-2.3 seconds=10      media: images= / seconds= / generations=
 m aipg/test                             the reads, cross-checked against each other
 
 m aipg/set_key <key>                    from console.aipowergrid.io → 0600 file

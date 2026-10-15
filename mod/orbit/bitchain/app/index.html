@@ -4,149 +4,426 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bitchain</title>
+<meta name="theme-color" content="#07080c">
 <style>
   :root {
-    --bg: #0a0e17;
-    --panel: #101624;
-    --line: #1e2a40;
-    --text: #d7e0ef;
-    --dim: #6b7a94;
-    --accent: #f7931a;
-    --ok: #3ddc84;
-    --err: #ff5c5c;
+    --bg: #07080c;
+    --bg2: #0c0e15;
+    --panel: rgba(18, 21, 31, .72);
+    --line: rgba(255, 255, 255, .07);
+    --line2: rgba(255, 255, 255, .13);
+    --text: #e8eaf2;
+    --dim: #7d8399;
+    --faint: #474c5e;
+    --orange: #f7931a;
+    --amber: #ffb347;
+    --hot: #ff5e3a;
+    --ok: #40e0a0;
+    --err: #ff5c6c;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, "Inter", "Segoe UI", system-ui, sans-serif;
   }
   * { box-sizing: border-box; }
+  html, body { margin: 0; }
   body {
-    margin: 0; min-height: 100vh;
-    background: var(--bg); color: var(--text);
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 14px; line-height: 1.55;
+    min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 14px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
   }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 20px 80px; }
-  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
-  h1 { margin: 0; font-size: 28px; letter-spacing: .12em; }
-  h1 .bit { color: var(--accent); }
-  .status { display: inline-flex; align-items: center; gap: 7px; color: var(--dim); font-size: 12px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
-  .dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  ::selection { background: var(--orange); color: #000; }
+
+  /* ---------- backdrop ---------- */
+  .sky { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+  .sky::before {
+    content: ""; position: absolute; inset: -20%;
+    background:
+      radial-gradient(40% 35% at 15% 10%, rgba(247,147,26,.18), transparent 70%),
+      radial-gradient(35% 30% at 90% 20%, rgba(255,94,58,.12), transparent 70%),
+      radial-gradient(50% 40% at 50% 110%, rgba(247,147,26,.10), transparent 70%);
+    animation: drift 24s ease-in-out infinite alternate;
+  }
+  .sky::after {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(70% 60% at 50% 0%, #000 30%, transparent 100%);
+    -webkit-mask-image: radial-gradient(70% 60% at 50% 0%, #000 30%, transparent 100%);
+  }
+  @keyframes drift { to { transform: translate3d(3%, 4%, 0) scale(1.08); } }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 28px 22px 90px; }
+
+  /* ---------- top bar ---------- */
+  nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-weight: 700; letter-spacing: .08em; }
+  .glyph {
+    width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--amber), var(--orange) 50%, var(--hot));
+    color: #140a00; font-size: 15px; font-weight: 900;
+    box-shadow: 0 0 24px rgba(247,147,26,.45);
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--line2); background: rgba(255,255,255,.03);
+    font-family: var(--mono); font-size: 11.5px; color: var(--dim); letter-spacing: .04em;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 0 rgba(64,224,160,.6); animation: ping 2s infinite; }
   .dot.err { background: var(--err); }
-  .tagline { color: var(--dim); margin: 0 0 32px; }
+  @keyframes ping { 70% { box-shadow: 0 0 0 7px rgba(64,224,160,0); } 100% { box-shadow: 0 0 0 0 rgba(64,224,160,0); } }
+
+  /* ---------- hero ---------- */
+  .hero { text-align: center; margin-bottom: 56px; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .32em; color: var(--orange); margin-bottom: 18px; }
+  h1 {
+    margin: 0; font-size: clamp(54px, 11vw, 116px); line-height: .92; letter-spacing: -.045em; font-weight: 800;
+  }
+  h1 .bit {
+    background: linear-gradient(100deg, var(--amber), var(--orange) 40%, var(--hot) 80%, var(--amber));
+    background-size: 200% auto; -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: shimmer 6s linear infinite;
+  }
+  @keyframes shimmer { to { background-position: 200% center; } }
+  .sub { color: var(--dim); font-size: 17px; max-width: 520px; margin: 22px auto 0; }
+  .sub b { color: var(--text); font-weight: 600; }
+
+  /* ---------- live chain strip ---------- */
+  .strip-wrap { position: relative; margin: 46px -22px 0; }
+  .strip-wrap::before, .strip-wrap::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 90px; z-index: 2; pointer-events: none;
+  }
+  .strip-wrap::before { left: 0; background: linear-gradient(90deg, var(--bg), transparent); }
+  .strip-wrap::after { right: 0; background: linear-gradient(-90deg, var(--bg), transparent); }
+  .strip { display: flex; align-items: center; gap: 0; overflow-x: auto; padding: 18px 90px; scrollbar-width: none; }
+  .strip::-webkit-scrollbar { display: none; }
+  .blk {
+    flex: none; width: 138px; padding: 12px 13px; border-radius: 12px; text-align: left;
+    background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015));
+    border: 1px solid var(--line2); font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+    cursor: pointer; transition: transform .2s, border-color .2s;
+  }
+  .blk:hover { transform: translateY(-3px); border-color: rgba(247,147,26,.5); }
+  .blk .h { color: var(--text); font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+  .blk .h span { color: var(--orange); }
+  .blk .fnn { color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .blk.genesis { border-style: dashed; }
+  .blk.bad .fnn { color: var(--err); }
+  .blk.new { animation: mint .7s cubic-bezier(.2,1.4,.4,1); border-color: var(--orange); box-shadow: 0 0 32px rgba(247,147,26,.35); }
+  @keyframes mint { from { transform: scale(.6) translateY(16px); opacity: 0; } }
+  .link { flex: none; width: 30px; height: 2px; background: linear-gradient(90deg, var(--faint), var(--orange)); position: relative; }
+  .link::after {
+    content: ""; position: absolute; top: -2px; left: 0; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--amber); animation: flow 1.6s linear infinite;
+  }
+  @keyframes flow { to { left: 100%; } }
+  .strip-hint { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--faint); margin-top: 4px; }
+
+  /* ---------- stats ---------- */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 40px 0 26px; }
+  .stat { padding: 16px 18px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(10px); }
+  .stat .l { font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em; color: var(--dim); }
+  .stat .v { font-size: 24px; font-weight: 700; margin-top: 4px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .stat .v.o { color: var(--orange); }
+  .stat .v.mono { font-family: var(--mono); font-size: 15px; margin-top: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---------- grid ---------- */
+  .grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+  .grid > *, .stat { min-width: 0; }
   .card {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-    padding: 18px 20px; margin-bottom: 18px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+    padding: 20px; backdrop-filter: blur(12px);
   }
-  .card h2 { margin: 0 0 12px; font-size: 12px; letter-spacing: .18em; color: var(--dim); font-weight: 600; }
-  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 14px; word-break: break-all; }
-  .kv .k { color: var(--dim); }
-  .fns { display: flex; flex-wrap: wrap; gap: 8px; }
+  .card h2 {
+    margin: 0 0 14px; font-family: var(--mono); font-size: 10.5px; letter-spacing: .24em;
+    color: var(--dim); font-weight: 600; display: flex; justify-content: space-between; align-items: center;
+  }
+  .card h2 .n { color: var(--faint); letter-spacing: 0; }
+
+  .fns { display: flex; flex-direction: column; gap: 6px; }
   .fn {
-    border: 1px solid var(--line); border-radius: 6px; padding: 4px 12px;
-    background: transparent; color: var(--text); font: inherit; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 11px 13px; border-radius: 10px; border: 1px solid transparent;
+    background: rgba(255,255,255,.025); color: var(--text); font: 500 13.5px var(--mono);
+    cursor: pointer; text-align: left; transition: all .15s;
   }
-  .fn:hover { border-color: var(--accent); color: var(--accent); }
-  textarea, input {
-    width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
-    border-radius: 6px; padding: 8px 10px; font: inherit;
+  .fn:hover { border-color: rgba(247,147,26,.35); background: rgba(247,147,26,.06); }
+  .fn.on { border-color: var(--orange); background: rgba(247,147,26,.1); color: var(--amber); }
+  .fn .arr { color: var(--faint); transition: transform .15s, color .15s; }
+  .fn:hover .arr, .fn.on .arr { color: var(--orange); transform: translateX(3px); }
+  .fn .lock { font-size: 10px; color: var(--faint); letter-spacing: .1em; }
+
+  .id { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+  .id .k { font-family: var(--mono); font-size: 10px; letter-spacing: .2em; color: var(--faint); }
+  .id .v { font-family: var(--mono); font-size: 12px; color: var(--dim); word-break: break-all; margin-top: 2px; }
+  .copy { cursor: pointer; }
+  .copy:hover { color: var(--amber); }
+
+  .callbar { display: flex; gap: 10px; align-items: stretch; }
+  .fnbox {
+    flex: 1; min-width: 0; display: flex; align-items: center; border: 1px solid var(--line2); border-radius: 12px;
+    background: rgba(0,0,0,.35); padding-left: 14px; font-family: var(--mono); transition: border-color .15s;
   }
-  .row { display: flex; gap: 10px; margin-bottom: 10px; }
-  .row input { flex: 1; }
-  button.go {
-    background: var(--accent); color: #000; border: 0; border-radius: 6px;
-    padding: 8px 18px; font: inherit; font-weight: 700; cursor: pointer;
+  .fnbox:focus-within { border-color: var(--orange); }
+  .fnbox .pre { color: var(--faint); font-size: 13px; white-space: nowrap; }
+  .fnbox input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--amber); font: 600 14px var(--mono); padding: 12px 10px 12px 2px; }
+  .mine {
+    border: 0; border-radius: 12px; padding: 0 22px; cursor: pointer;
+    background: linear-gradient(135deg, var(--amber), var(--orange) 55%, var(--hot));
+    color: #160b00; font: 800 13px var(--mono); letter-spacing: .1em;
+    box-shadow: 0 6px 24px -6px rgba(247,147,26,.6); transition: transform .12s, box-shadow .12s;
   }
-  pre {
-    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-    padding: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all;
-    margin: 10px 0 0; max-height: 340px; overflow-y: auto;
+  .mine:hover { transform: translateY(-1px); box-shadow: 0 10px 30px -6px rgba(247,147,26,.75); }
+  .mine:active { transform: translateY(1px); }
+  .mine[disabled] { opacity: .6; cursor: progress; }
+
+  .lbl { font-family: var(--mono); font-size: 10.5px; letter-spacing: .2em; color: var(--faint); margin: 16px 0 6px; display: flex; justify-content: space-between; }
+  .lbl kbd { font: inherit; letter-spacing: 0; color: var(--dim); }
+  textarea {
+    width: 100%; background: rgba(0,0,0,.35); color: var(--text); border: 1px solid var(--line2);
+    border-radius: 12px; padding: 12px 14px; font: 13px var(--mono); resize: vertical; outline: 0;
   }
-  .muted { color: var(--dim); }
+  textarea:focus { border-color: var(--orange); }
+  textarea.bad { border-color: var(--err); }
+
+  .out {
+    position: relative; background: rgba(0,0,0,.45); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; margin: 0; min-height: 180px; max-height: 420px; overflow: auto;
+    font: 12.5px/1.6 var(--mono); white-space: pre-wrap; word-break: break-word; color: var(--dim);
+  }
+  .out .s { color: #9fe3b9; } .out .n { color: var(--amber); } .out .b { color: #c49bff; }
+  .out .k { color: #8fb8ff; } .out .z { color: var(--faint); }
+  .meta { display: flex; gap: 14px; font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .meta .ok { color: var(--ok); } .meta .err { color: var(--err); }
+  .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--orange); border-right-color: transparent; border-radius: 50%; animation: rot .6s linear infinite; vertical-align: -1px; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px); opacity: 0;
+    padding: 10px 16px; border-radius: 999px; background: #1a1d28; border: 1px solid var(--line2);
+    font: 12px var(--mono); color: var(--amber); transition: all .25s; pointer-events: none; z-index: 9;
+  }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+  footer { margin-top: 60px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--faint); letter-spacing: .06em; }
+  footer a { color: var(--dim); text-decoration: none; }
+  footer a:hover { color: var(--orange); }
+  .ghost { background: none; border: 0; color: var(--faint); font: inherit; cursor: pointer; padding: 0; }
+  .ghost:hover { color: var(--err); }
+
+  @media (max-width: 820px) {
+    .grid { grid-template-columns: minmax(0, 1fr); }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    nav { margin-bottom: 40px; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } }
 </style>
 </head>
 <body>
+<div class="sky"></div>
 <div class="wrap">
-  <header>
-    <h1><span class="bit">BIT</span>CHAIN</h1>
-    <span class="status"><span id="dot" class="dot"></span><span id="statustext">connecting…</span></span>
-  </header>
-  <p class="tagline">mod protocol module &middot; api at <a style="color:var(--accent)" href="#" onclick="return false">/api/bitchain</a></p>
+  <nav>
+    <div class="brand"><div class="glyph">B</div>bitchain</div>
+    <span class="pill"><span id="dot" class="dot"></span><span id="statustext">connecting</span></span>
+  </nav>
 
-  <div class="card">
-    <h2>MODULE</h2>
-    <div class="kv" id="info"><span class="muted">loading…</span></div>
-  </div>
+  <section class="hero">
+    <div class="eyebrow">EVERY CALL IS A BLOCK</div>
+    <h1><span class="bit">bit</span>chain</h1>
+    <p class="sub">Hit a function and it gets <b>mined</b>: hashed, linked to the last one, and stacked onto your own little chain. Nothing to install, it all runs in your browser.</p>
 
-  <div class="card">
-    <h2>FUNCTIONS</h2>
-    <div class="fns" id="fns"><span class="muted">loading…</span></div>
-  </div>
+    <div class="strip-wrap"><div class="strip" id="strip"></div></div>
+    <div class="strip-hint">your chain &middot; tap a block to replay it</div>
+  </section>
 
-  <div class="card">
-    <h2>CALL</h2>
-    <div class="row">
-      <input id="fn" placeholder="fn (e.g. info)" value="info">
-      <button class="go" onclick="call()">POST</button>
+  <section class="stats">
+    <div class="stat"><div class="l">HEIGHT</div><div class="v o" id="sHeight">0</div></div>
+    <div class="stat"><div class="l">FUNCTIONS</div><div class="v" id="sFns">&ndash;</div></div>
+    <div class="stat"><div class="l">LAST LATENCY</div><div class="v" id="sLat">&ndash;</div></div>
+    <div class="stat"><div class="l">TIP</div><div class="v mono" id="sTip">genesis</div></div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>FUNCTIONS <span class="n" id="fnCount"></span></h2>
+      <div class="fns" id="fns"><span class="z" style="color:var(--faint)">loading&hellip;</span></div>
+      <div class="id" id="ident"></div>
     </div>
-    <textarea id="params" rows="3" spellcheck="false">{}</textarea>
-    <pre id="out" class="muted">// response</pre>
-  </div>
+
+    <div class="card">
+      <h2>MINE A CALL <span class="meta" id="meta"></span></h2>
+      <div class="callbar">
+        <label class="fnbox"><span class="pre">/bitchain/api/</span><input id="fn" value="info" spellcheck="false" autocomplete="off"></label>
+        <button class="mine" id="go">MINE</button>
+      </div>
+      <div class="lbl"><span>PARAMS</span><kbd>Ctrl+Enter to mine</kbd></div>
+      <textarea id="params" rows="3" spellcheck="false">{}</textarea>
+      <div class="lbl"><span>RESPONSE</span><button class="ghost copy" id="copyOut">copy</button></div>
+      <pre class="out" id="out"><span class="z">// pick a function on the left, or type one and hit MINE</span></pre>
+    </div>
+  </section>
+
+  <footer>
+    mod protocol module &middot; <a href="/bitchain/api/info" id="apiLink">/bitchain/api</a>
+    &middot; <button class="ghost" id="reset">reset chain</button>
+  </footer>
 </div>
+<div class="toast" id="toast"></div>
 
 <script>
 const API = '/bitchain/api';
+const KEY = 'bitchain.chain.v1';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const AUTH = new Set(['forward']);
+
+let chain = load();
+let busy = false;
+
+function load() {
+  try { const c = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(c) && c.length) return c; } catch {}
+  return [{ height: 0, fn: 'genesis', hash: '0'.repeat(64), prev: null, ok: true, t: Date.now() }];
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(chain.slice(-200))); } catch {} }
+
+async function sha256(text) {
+  if (crypto.subtle) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  // non-secure-context fallback: FNV-1a stretched to 64 hex
+  let out = '', h = 0x811c9dc5;
+  for (let r = 0; r < 8; r++) {
+    for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i) + r; h = Math.imul(h, 16777619) >>> 0; }
+    out += h.toString(16).padStart(8, '0');
+  }
+  return out;
+}
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), 1600);
+}
+
+function setStatus(ok, text) { $('dot').className = 'dot ' + (ok ? 'ok' : 'err'); $('statustext').textContent = text; }
+
+function highlight(json) {
+  return esc(json).replace(
+    /(&quot;(?:\\.|[^&]|&(?!quot;))*?&quot;)(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+    (m, str, colon, bool) => {
+      if (str) return colon ? `<span class="k">${str}</span>${colon}` : `<span class="s">${str}</span>`;
+      if (bool) return `<span class="b">${m}</span>`;
+      if (m === 'null') return `<span class="z">${m}</span>`;
+      return `<span class="n">${m}</span>`;
+    });
+}
+
+function short(h) { return h.slice(0, 6) + '…' + h.slice(-4); }
+
+function renderChain(fresh) {
+  $('strip').innerHTML = chain.map((b, i) => `
+    ${i ? '<div class="link"></div>' : ''}
+    <button class="blk ${b.height === 0 ? 'genesis' : ''} ${b.ok ? '' : 'bad'} ${fresh && i === chain.length - 1 ? 'new' : ''}" data-i="${i}">
+      <div class="h"><span>#</span>${b.height}</div>
+      <div class="fnn">${esc(b.fn)}</div>
+      <div>${short(b.hash)}</div>
+    </button>`).join('');
+  $('strip').scrollLeft = $('strip').scrollWidth;
+  const tip = chain[chain.length - 1];
+  $('sHeight').textContent = tip.height;
+  $('sTip').textContent = tip.height ? short(tip.hash) : 'genesis';
+}
+
+$('strip').addEventListener('click', e => {
+  const el = e.target.closest('.blk'); if (!el) return;
+  const b = chain[+el.dataset.i];
+  if (!b.height) { toast('genesis block: where it all began'); return; }
+  $('fn').value = b.fn; $('params').value = b.params || '{}'; markFn(b.fn); mine();
+});
+
+function markFn(fn) { document.querySelectorAll('.fn').forEach(x => x.classList.toggle('on', x.dataset.fn === fn)); }
 
 async function post(fn, params) {
   const r = await fetch(`${API}/${fn}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(params || {}),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(params || {}),
   });
-  return r.json();
+  const text = await r.text();
+  let body; try { body = JSON.parse(text); } catch { body = text; }
+  return { status: r.status, ok: r.ok && !(body && body.error), body };
 }
 
-function setStatus(ok, text) {
-  document.getElementById('dot').className = 'dot ' + (ok ? 'ok' : 'err');
-  document.getElementById('statustext').textContent = text;
+async function mine() {
+  if (busy) return;
+  const fn = $('fn').value.trim().replace(/^\/+/, '');
+  if (!fn) { $('fn').focus(); return; }
+  let params;
+  try { params = JSON.parse($('params').value || '{}'); $('params').classList.remove('bad'); }
+  catch { $('params').classList.add('bad'); toast('params need to be valid JSON'); return; }
+
+  busy = true; $('go').disabled = true; $('go').textContent = 'MINING';
+  $('meta').innerHTML = '<span class="spin"></span>';
+  const t0 = performance.now();
+  let res;
+  try { res = await post(fn, params); }
+  catch (e) { res = { status: 0, ok: false, body: { error: String(e) } }; }
+  const ms = Math.round(performance.now() - t0);
+
+  const pretty = typeof res.body === 'string' ? res.body : JSON.stringify(res.body, null, 2);
+  $('out').innerHTML = typeof res.body === 'string' ? esc(pretty) : highlight(pretty);
+  $('meta').innerHTML = `<span class="${res.ok ? 'ok' : 'err'}">${res.status || 'ERR'}</span><span>${ms} ms</span>`;
+  $('sLat').textContent = ms + 'ms';
+
+  const prev = chain[chain.length - 1];
+  const block = { height: prev.height + 1, fn, params: JSON.stringify(params), prev: prev.hash, ok: res.ok, t: Date.now() };
+  block.hash = await sha256(prev.hash + fn + block.params + pretty + block.t);
+  chain.push(block); save(); renderChain(true);
+  if (!res.ok && AUTH.has(fn)) toast(`${fn} needs a signed-in key`);
+
+  busy = false; $('go').disabled = false; $('go').textContent = 'MINE';
 }
 
 async function boot() {
+  renderChain(false);
   try {
+    const t0 = performance.now();
     const res = await post('info');
-    const info = res.result || res;
-    setStatus(true, 'api live');
-    const show = ['name', 'desc', 'port', 'key', 'path'];
-    document.getElementById('info').innerHTML = show
-      .filter(k => info[k] !== undefined)
-      .map(k => `<span class="k">${k}</span><span>${String(info[k])}</span>`)
-      .join('');
+    const info = (res.body && res.body.result) || res.body;
+    setStatus(true, `api live · ${Math.round(performance.now() - t0)}ms`);
     const fns = info.fns || [];
-    document.getElementById('fns').innerHTML = fns
-      .map(f => `<button class="fn" onclick="preset('${f}')">${f}</button>`)
-      .join('') || '<span class="muted">none</span>';
+    $('sFns').textContent = fns.length;
+    $('fnCount').textContent = fns.length;
+    $('fns').innerHTML = fns.map(f => `
+      <button class="fn" data-fn="${esc(f)}">
+        <span>${esc(f)}</span>
+        ${AUTH.has(f) ? '<span class="lock">AUTH</span>' : '<span class="arr">&rarr;</span>'}
+      </button>`).join('') || '<span style="color:var(--faint)">no functions yet</span>';
+    markFn($('fn').value);
+    const rows = [['KEY', info.key], ['PORT', info.port], ['PATH', info.path]].filter(r => r[1] !== undefined);
+    $('ident').innerHTML = rows.map(([k, v]) =>
+      `<div><div class="k">${k}</div><div class="v copy" data-copy="${esc(v)}" title="click to copy">${esc(v)}</div></div>`).join('');
   } catch (e) {
-    setStatus(false, 'api unreachable');
-    document.getElementById('info').innerHTML = `<span class="k">error</span><span>${e}</span>`;
+    setStatus(false, 'api offline');
+    $('fns').innerHTML = `<span style="color:var(--err);font-family:var(--mono);font-size:12px">couldn't reach the api</span>`;
   }
 }
 
-function preset(fn) {
-  document.getElementById('fn').value = fn;
-  call();
-}
-
-async function call() {
-  const out = document.getElementById('out');
-  const fn = document.getElementById('fn').value.trim();
-  let params;
-  try { params = JSON.parse(document.getElementById('params').value || '{}'); }
-  catch { out.textContent = '// params is not valid JSON'; return; }
-  out.textContent = '// …';
-  try {
-    const res = await post(fn, params);
-    out.textContent = JSON.stringify(res, null, 2);
-  } catch (e) {
-    out.textContent = '// ' + e;
-  }
-}
+$('fns').addEventListener('click', e => {
+  const el = e.target.closest('.fn'); if (!el) return;
+  $('fn').value = el.dataset.fn; markFn(el.dataset.fn); mine();
+});
+$('ident').addEventListener('click', e => {
+  const el = e.target.closest('[data-copy]'); if (!el) return;
+  navigator.clipboard?.writeText(el.dataset.copy).then(() => toast('copied'));
+});
+$('copyOut').addEventListener('click', () => navigator.clipboard?.writeText($('out').textContent).then(() => toast('response copied')));
+$('go').addEventListener('click', mine);
+$('fn').addEventListener('keydown', e => { if (e.key === 'Enter') mine(); });
+$('fn').addEventListener('input', () => markFn($('fn').value.trim()));
+$('params').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); mine(); } });
+$('reset').addEventListener('click', () => {
+  localStorage.removeItem(KEY); chain = load(); renderChain(false); toast('back to genesis');
+});
 
 boot();
 </script>

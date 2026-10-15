@@ -1,0 +1,5 @@
+# zkworld circom project. main.circom is the entry; lib/ is on the include path.
+[package]
+name = "factors"
+description = "Factors — a Circom 2 project."
+circom = "2.1.6"

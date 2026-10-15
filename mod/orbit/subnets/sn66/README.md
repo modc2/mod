@@ -2,7 +2,7 @@
 
 Incentivizing breakthroughs on decades-old open mathematical conjectures
 
-Bittensor subnet **66** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **66** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/conjectures-io/conjectures-validator) · [url](https://conjectures.io) · discord `wejh`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/conjectures-io/conjectures-validator) · [url
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002990 | -0.00% | +2.16% | -2.24% | 17,920 | 6,731 | 1,260 |
+| 0.002699 | -0.19% | -9.73% | -10.55% | 16,196 | 6,396 | 1,292 |
 
 ## Last 24h flow
 
-170 trades by 46 coldkeys · 66 buys (665.68 τ) / 104 sells (593.37 τ) · net 72.31 τ
+233 trades by 65 coldkeys · 88 buys (477.19 τ) / 145 sells (812.82 τ) · net -335.63 τ
 
 ## News
 
-- 2026-10-13 · commit · [Merge pull request #125 from conjectures-io/feat/chat-logs-all-open-t…](https://github.com/conjectures-io/conjectures-validator/commit/cec320f8a2f4e595f5052da39edb9d0a1b41dd7b) — conjectures-io/conjectures-validator
-- 2026-10-13 · commit · [Require chat logs for every open target, including from the CLI](https://github.com/conjectures-io/conjectures-validator/commit/fcdb62696dae17d1dcc46b317426ec324aa713fb) — conjectures-io/conjectures-validator
-- 2026-10-13 · commit · [Merge pull request #124 from conjectures-io/release/2026-10-13](https://github.com/conjectures-io/conjectures-validator/commit/b92d506ade3d7af6d22f295c78996ba1d0575943) — conjectures-io/conjectures-validator
-- 2026-10-13 · commit · [Sum co-solver payout shares on public results](https://github.com/conjectures-io/conjectures-validator/commit/6daa21fc9b1aab0a82ceafc035437e4a96163390) — conjectures-io/conjectures-validator
-- 2026-10-13 · commit · [Use the unique main database hostname for the API](https://github.com/conjectures-io/conjectures-validator/commit/915c97a2b2a010e40700e40cb1e58c2eb0715c04) — conjectures-io/conjectures-validator
-- 2026-10-13 · commit · [Add owner PDF attachments with approval-gated public access](https://github.com/conjectures-io/conjectures-validator/commit/7ebcf7272227fd32d6eb3b095fb9ce3e78681e27) — conjectures-io/conjectures-validator
-- 2026-10-13 · commit · [Release bonus transfer matching after finalized settlement](https://github.com/conjectures-io/conjectures-validator/commit/2cd08a6205584cd2bdaab9519ca9ec4705007a33) — conjectures-io/conjectures-validator
-- 2026-10-09 · commit · [Raise proof limits to five million tokens and 30 MiB (#117)](https://github.com/conjectures-io/conjectures-validator/commit/bc4e1f7d5354fbb20d09636399ac24df2b6b63d8) — conjectures-io/conjectures-validator
+- 2026-10-14 · commit · [Merge pull request #129 from conjectures-io/fix/chat-log-reasoning](https://github.com/conjectures-io/conjectures-validator/commit/e890a393d90c768ca627a3465fd88435c185136a) — conjectures-io/conjectures-validator
+- 2026-10-14 · commit · [Keep the model's reasoning in chat-log packages wherever it is readable](https://github.com/conjectures-io/conjectures-validator/commit/8abcfa303fa9823fef1bc0355372984b3c7d7b79) — conjectures-io/conjectures-validator
+- 2026-10-14 · commit · [Merge pull request #128 from conjectures-io/fix/chat-log-revisions](https://github.com/conjectures-io/conjectures-validator/commit/e15556488544b48db1a44d76befd63ab572c313a) — conjectures-io/conjectures-validator
+- 2026-10-14 · commit · [Let reviewers ask for more of a bounty's required chat logs](https://github.com/conjectures-io/conjectures-validator/commit/6374db6efe492320e4435d9b292ebdc34918a365) — conjectures-io/conjectures-validator
+- 2026-10-14 · commit · [Merge pull request #127 from conjectures-io/dev](https://github.com/conjectures-io/conjectures-validator/commit/e9c2839e9b100a2813c515e2fdc175a851028397) — conjectures-io/conjectures-validator
+- 2026-10-14 · commit · [Merge pull request #126 from conjectures-io/feat/floatlib-past-leader…](https://github.com/conjectures-io/conjectures-validator/commit/3c44b2e403202fb29ffc29c722fc3ae6ea1cd68f) — conjectures-io/conjectures-validator
+- 2026-10-14 · commit · [feat: extend leaderboard endpoint (add past champions challengers his…](https://github.com/conjectures-io/conjectures-validator/commit/15cd88a49afdbcdf75a972cf0b2e133d14e51c9e) — conjectures-io/conjectures-validator
+- 2026-10-14 · commit · [fix the database name in url](https://github.com/conjectures-io/conjectures-validator/commit/ed3f48dd2f8957f6d06720b43834ad47a4f1153b) — conjectures-io/conjectures-validator
 
 ## Use
 

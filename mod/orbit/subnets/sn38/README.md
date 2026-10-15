@@ -2,7 +2,7 @@
 
 Competitive training of chronologically consistent Large Language Models
 
-Bittensor subnet **38** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **38** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/chronollm/sn38) · [url](https://chronollm.crunchdao.com/) · [discord](https://discord.com/channels/799672011265015819/1485634202895519844)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/chronollm/sn38) · [url](https://chronollm.cr
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.018645 | +0.70% | -0.85% | -3.22% | 46,774 | 8,670 | 380.22 |
+| 0.019722 | +0.01% | +5.77% | +0.50% | 49,656 | 8,957 | 871.49 |
 
 ## Last 24h flow
 
-51 trades by 24 coldkeys · 22 buys (123.97 τ) / 29 sells (178.83 τ) · net -54.86 τ
+88 trades by 46 coldkeys · 46 buys (515.57 τ) / 42 sells (308.35 τ) · net 207.22 τ
 
 ## News
 
@@ -22,8 +22,6 @@ Links: [github](https://github.com/chronollm/sn38) · [url](https://chronollm.cr
 - 2026-10-05 · commit · [Round 14: Cache downloaded models and batch the duel generation (#29)](https://github.com/chronollm/sn38/commit/c2f5c9aeafeb473645ca6d83a50fe562ddf1a781) — chronollm/sn38
 - 2026-09-22 · commit · [fix: quality duels — async fix, skip private models, cache completion…](https://github.com/chronollm/sn38/commit/a1f1aa75452e4e81aa75e3cafdfc1aa89b5be14f) — chronollm/sn38
 - 2026-09-21 · commit · [fix: increase max_new_tokens from 50 to 100 for quality evaluation](https://github.com/chronollm/sn38/commit/261809ce6cd0e48305f0b06f0ef2b084393722d1) — chronollm/sn38
-- 2026-09-14 · commit · [Update validator image to the latest version in docker-compose.valida…](https://github.com/chronollm/sn38/commit/01f596b424a01d40ec14db10493d329c0d1c97be) — chronollm/sn38
-- 2026-09-14 · commit · [Round 11: instruction following in quality evaluation (#26)](https://github.com/chronollm/sn38/commit/b520da90ad0f6748bfb3982380e757cf60c183da) — chronollm/sn38
 
 ## Use
 

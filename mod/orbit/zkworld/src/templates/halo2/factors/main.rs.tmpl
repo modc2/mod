@@ -1,0 +1,147 @@
+//! {{NAME}}: prove you know a and b with a * b == c. c is public (an instance
+//! value), a and b are private advice, and neither may be 1 (otherwise
+//! "1 * c" proves nothing).
+//!
+//! main() is the zkworld runner: `--abi` prints the shape, `<input.json>`
+//! checks the circuit with MockProver and exits 1 if any constraint fails.
+
+use halo2_proofs::{
+    arithmetic::Field,
+    circuit::{Layouter, SimpleFloorPlanner, Value},
+    dev::MockProver,
+    pasta::{group::ff::PrimeField, Fp},
+    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Instance, Selector},
+    poly::Rotation,
+};
+
+#[derive(Clone, Debug)]
+struct Config {
+    a: Column<Advice>,
+    b: Column<Advice>,
+    c: Column<Advice>,
+    inv_a: Column<Advice>,
+    inv_b: Column<Advice>,
+    public: Column<Instance>,
+    s: Selector,
+}
+
+#[derive(Default)]
+struct Factors {
+    a: Value<Fp>,
+    b: Value<Fp>,
+}
+
+impl Circuit<Fp> for Factors {
+    type Config = Config;
+    type FloorPlanner = SimpleFloorPlanner;
+
+    fn without_witnesses(&self) -> Self {
+        Self::default()
+    }
+
+    fn configure(meta: &mut ConstraintSystem<Fp>) -> Config {
+        let [a, b, c, inv_a, inv_b] = [(); 5].map(|_| meta.advice_column());
+        let public = meta.instance_column();
+        meta.enable_equality(c);
+        meta.enable_equality(public);
+        let s = meta.selector();
+        meta.create_gate("factors", |m| {
+            let s = m.query_selector(s);
+            let [a, b, c, ia, ib] =
+                [a, b, c, inv_a, inv_b].map(|col| m.query_advice(col, Rotation::cur()));
+            let one = halo2_proofs::plonk::Expression::Constant(Fp::one());
+            vec![
+                s.clone() * (a.clone() * b.clone() - c),
+                // x != 1  <=>  (x - 1) has an inverse
+                s.clone() * ((a - one.clone()) * ia - one.clone()),
+                s * ((b - one.clone()) * ib - one),
+            ]
+        });
+        Config { a, b, c, inv_a, inv_b, public, s }
+    }
+
+    fn synthesize(&self, cfg: Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
+        let inv = |x: Value<Fp>| x.map(|x| Option::from((x - Fp::one()).invert()).unwrap_or(Fp::zero()));
+        let c = layouter.assign_region(
+            || "factors",
+            |mut region| {
+                cfg.s.enable(&mut region, 0)?;
+                region.assign_advice(|| "a", cfg.a, 0, || self.a)?;
+                region.assign_advice(|| "b", cfg.b, 0, || self.b)?;
+                region.assign_advice(|| "inv_a", cfg.inv_a, 0, || inv(self.a))?;
+                region.assign_advice(|| "inv_b", cfg.inv_b, 0, || inv(self.b))?;
+                region.assign_advice(|| "c", cfg.c, 0, || self.a * self.b)
+            },
+        )?;
+        layouter.constrain_instance(c.cell(), cfg.public, 0)
+    }
+}
+
+const K: u32 = 4;
+
+fn check(a: Fp, b: Fp, c: Fp) -> Result<(), String> {
+    let circuit = Factors { a: Value::known(a), b: Value::known(b) };
+    let prover = MockProver::run(K, &circuit, vec![vec![c]]).map_err(|e| format!("{e:?}"))?;
+    prover.verify().map_err(|errs| format!("{} constraint(s) not satisfied: {:?}", errs.len(), errs[0]))
+}
+
+fn fp(v: &serde_json::Value) -> Result<Fp, String> {
+    let s = match v {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    Fp::from_str_vartime(s.trim()).ok_or_else(|| format!("not a field element: {s}"))
+}
+
+fn main() {
+    let arg = std::env::args().nth(1).unwrap_or_default();
+    if arg == "--abi" {
+        println!(
+            "{}",
+            serde_json::json!({
+                "circuit": "Factors",
+                "inputs": [
+                    {"name": "a", "public": false, "type": "Fp"},
+                    {"name": "b", "public": false, "type": "Fp"},
+                    {"name": "c", "public": true, "type": "Fp"}
+                ],
+                "outputs": [],
+                "rows": 1u32 << K
+            })
+        );
+        return;
+    }
+    let run = || -> Result<(), String> {
+        let raw = std::fs::read_to_string(&arg).map_err(|e| format!("read {arg}: {e}"))?;
+        let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        let get = |k: &str| v.get(k).ok_or_else(|| format!("missing input {k}")).and_then(fp);
+        check(get("a")?, get("b")?, get("c")?)
+    };
+    match run() {
+        Ok(()) => println!("{{\"outputs\":{{}}}}"),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn three_times_eleven() {
+        assert!(check(Fp::from(3), Fp::from(11), Fp::from(33)).is_ok());
+    }
+
+    #[test]
+    fn trivial_factor_rejected() {
+        assert!(check(Fp::from(1), Fp::from(33), Fp::from(33)).is_err());
+    }
+
+    #[test]
+    fn wrong_product_rejected() {
+        assert!(check(Fp::from(3), Fp::from(5), Fp::from(16)).is_err());
+    }
+}

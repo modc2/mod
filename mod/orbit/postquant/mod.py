@@ -93,6 +93,64 @@ class Mod:
     def mine(self, force=False):
         return self.call('mine', force=force)
 
+    # ── the vault: sealed HERE, before anything leaves this machine ──
+
+    def vault_put(self, path, key=None, passphrase=None, wallet=None,
+                  days=None, url=None):
+        """Encrypt a local file on this machine (AES-256-GCM, PQV1), upload
+        only the ciphertext, and optionally anchor its cid at chain key
+        `key`. url= targets a remote node's API (default: this process).
+        Returns the share secret — it never goes over the wire."""
+        import base64
+        import vault as V
+        with open(os.path.expanduser(path), 'rb') as f:
+            data = f.read()
+        blob, secret = V.seal(data, name=os.path.basename(path),
+                              passphrase=passphrase)
+        args = {'action': 'put', 'blob': base64.b64encode(blob).decode()}
+        if key:
+            args.update(key=key, wallet=wallet, days=days)
+        args = {k: v for k, v in args.items() if v is not None}
+        out = self._remote('vault', args, url) if url else \
+            self.call('vault', **args)
+        out['secret'] = secret or '(your passphrase)'
+        out['share'] = f'pqv1:{out["cid"]}#{secret}' if secret else None
+        return out
+
+    def vault_get(self, cid=None, key=None, secret=None, passphrase=None,
+                  out=None, url=None):
+        """Fetch ciphertext by cid or chain key and decrypt it HERE.
+        secret= is the key (or a whole pqv1:<cid>#<key> share string)."""
+        import base64
+        import vault as V
+        if secret and secret.startswith('pqv1:'):
+            cid, secret = secret[5:].split('#', 1)
+        args = {'action': 'get', 'cid': cid, 'key': key}
+        args = {k: v for k, v in args.items() if v}
+        r = self._remote('vault', args, url) if url else \
+            self.call('vault', **args)
+        meta, data = V.open_(base64.b64decode(r['blob']), key=secret,
+                             passphrase=passphrase)
+        if out:
+            with open(os.path.expanduser(out), 'wb') as f:
+                f.write(data)
+            return {**meta, 'written': out, 'cid': r['cid']}
+        return {**meta, 'cid': r['cid'],
+                'data': data.decode('utf-8', 'replace')}
+
+    def contract(self, action='list', **kw):
+        """Store / read smart contracts (pq_contract)."""
+        return self.call('contract', action=action, **kw)
+
+    def _remote(self, route, args, url):
+        import json
+        import urllib.request
+        req = urllib.request.Request(
+            url.rstrip('/') + '/' + route, data=json.dumps(args).encode(),
+            headers={'content-type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.loads(r.read())
+
     # ── the agent: plain English → the same tools ─────────────────
 
     def ask(self, query='help', agent=None, brain='auto', **kw):

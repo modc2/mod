@@ -1,7 +1,7 @@
 # near
 
-NEAR Protocol as one mod: a REST API, a browser console and twenty-one MCP
-tools running the same code on one port — fifteen reads, and a write half
+NEAR Protocol as one mod: a REST API, a browser console and the MCP tools
+running the same code on one port — the reads, and a write half
 that deploys and manages contracts with keys from a keystore under
 `~/.mod/near/` (never the repo; no API ever returns a secret key).
 
@@ -15,8 +15,11 @@ NEAR's personality is its account model, and the module follows its grain:
   one contract's methods with a gas allowance. Reading them shows which apps
   an account has signed into: session auth, on chain.
 - **NEAR stores no ABI**, but every callable method is an exported WASM
-  function. `near_contract` parses the deployed binary's export section, so
-  you see a contract's interface before calling it with `near_view`.
+  function. `near_contract` parses the deployed binary's export section, and
+  `near_abi` goes the rest of the way: it infers which methods are views and
+  which are changes, what arguments each takes and of what type, which need a
+  deposit — and `/near/c/<contract>` renders that as a working page for any
+  contract on the network.
 
 ## Run
 
@@ -40,6 +43,7 @@ python3 mcp.py            # the same tools over stdio
 | `near_account` | balances, storage, contract flag, USD |
 | `near_keys` | access keys and their permissions |
 | `near_contract` | callable methods, parsed from the WASM |
+| `near_abi` | the interface, inferred — view/change/init per method, typed args with examples, deposit rules, confidence; embedded near-abi when there is one |
 | `near_contracts` | the contracts that are ON — curated per network + your own deploys, each verified live |
 | `near_directory` | every contract scraped off the chain itself — q= filters, limit/offset page |
 | `near_search` | the census asked in plain words — "stablecoin" finds USDt, "lending" finds Burrow, a method name finds contracts exporting it |
@@ -58,6 +62,47 @@ python3 mcp.py            # the same tools over stdio
 | `near_call` | a signed change call — gas in Tgas, deposit in NEAR |
 | `near_send` | transfer NEAR |
 | `near_key` | add (full or contract-scoped) / delete access keys |
+
+## The interface — inferred, for every contract
+
+`GET /abi?account_id=wrap.near` (tool `near_abi`, `m near/abi wrap.near`)
+answers what the chain never stored: an ABI. Four sources, merged by how much
+each can be trusted:
+
+1. **Embedded ABI** — contracts built with `cargo near build` export
+   `__contract_abi`, a zstd-compressed near-abi document. Decoded, it is
+   exact: every function, its kind, modifiers (`init`, `payable`, `private`),
+   every argument's JSON schema, the result type. Confidence 1.0.
+2. **Probing** — every other method is called as a free view with `{}` and
+   the panic text read back. `ProhibitedInView` means the method touches
+   state or the caller: a change method. ``missing field `x` `` names a
+   required argument; it is filled with a guess from its name (`*_id` is an
+   account, `amount` a yocto string, `limit` a number) or with `null` so
+   serde says what it wanted — `invalid type: null, expected a string` — and
+   the probe goes again until the method stops asking. `Requires attached
+   deposit of exactly 1 yoctoNEAR` is the transfer convention; `already
+   initialized` is the constructor. A clean answer is a view, and the sample
+   is kept. Confidence 0.9.
+3. **The standards** — NEP-141/145/148/171/177/178/181/245/330 fix the names,
+   argument shapes, optionality and deposits of the methods everyone uses, so
+   `storage_deposit(account_id?, registration_only?)` is known before any
+   probe runs. Confidence 0.8; the probe confirms.
+4. **History** — the indexer's recent receipts to the contract carry the
+   real JSON args of real calls: examples, and names the probe cannot reach.
+
+The spec is cached under `~/.mod/near/abi.{network}.json` by code hash, so a
+redeploy re-infers and an unchanged contract never costs a second probe.
+`refresh=true` forces it; `deep=false` spends one call per method;
+`method=` returns one method plus an args template.
+
+**`/near/c/<contract>` is the generic app.** One HTML file, any contract:
+the spec rendered as forms — a typed input per argument with the example as
+its placeholder, VIEW buttons that call free, SIGN + CALL buttons that go
+through the keystore with the deposit pre-filled (1 yocto where the standard
+wants it) and a mainnet confirm box. The inference can be wrong on a method
+with no standard name and no ABI; "as change" / "as view" flips one, and the
+`{ }` button edits raw JSON args. `/near/c/wrap.near`, `/near/c/intents.near`,
+`/near/c/myapp.testnet?network=testnet`.
 
 ## The census — scraping every contract on the network
 
@@ -140,6 +185,58 @@ ed25519 comes from PyNaCl when installed, else a pure-Python RFC 8032
 implementation in-tree (tested against the RFC vector and against PyNaCl);
 borsh serialization of the transaction schema is in-tree too, so the module
 still has zero hard dependencies.
+
+## Workshop — learn to write contracts, build them here, climb into ZK
+
+`{host}/near/workshop` (or the **LEARN · BUILD** link in the console) is a
+school with a builder attached. Nothing in it needs a model to read.
+
+**LEARN** — twelve lessons in plain English, start to finish: an account IS a
+contract, the four parts of every contract, who is calling (keys, sessions,
+the one-yocto trick), build-test-ship, your own NEP-141 token, cross-contract
+calls, then the zero-knowledge ladder (commitment → merkle membership →
+nullifier → SNARK verifier → proof-native chain), commit-reveal, merkle
+proofs, using the cairo mod, testing, and a pre-mainnet checklist. Each
+lesson that has a starter ends in a **try it** that scaffolds it.
+
+**BUILD** — a project is a Rust crate (near-sdk 5) under `contracts/<name>/`
+made from a starter: `counter`, `token` (NEP-141 by hand), `commit_reveal`
+(sealed votes, rung 1) or `merkle_allowlist` (rung 2). Build = the host's
+cargo to wasm32 (one shared target dir, so near-sdk compiles once); Test =
+the unit tests in `lib.rs`; Ship = `near_deploy` through the keystore with
+the starter's init batched in, testnet by default, every confirm/token rule
+intact. Every run is a job you can poll.
+
+**Two agents** on the fleet's agent protocol (`GET /near/agents`,
+`POST /near/run[/stream]`, the orb in the page's corner):
+
+| agent | who | does |
+|---|---|---|
+| `tutor` | anyone, free, no model | answers from the lessons + glossary, reads your project (methods, last build/test), reads any contract on chain via the near tools, and pulls the cairo mod's lessons for anything zero-knowledge; every read is a `mcp:<tool>` step. `brain=claude` (token holders) hands the findings to orbit/claudecode |
+| `builder` | token / loopback | "make a tip jar called tips where anyone sends and the owner withdraws" → scaffolds the closest starter, orbit/claudecode shapes it, cargo build + test, steps stream back. Point it at an open project to edit it. `vibe=false` = scaffold + test only |
+
+**Zero knowledge goes to cairo.** Rungs 1 and 2 are a hash each and ship on
+NEAR from here. Say *zk*, *cairo*, *anonymous* or *private* and the builder
+forwards the whole ask to the cairo mod's builder (`NEAR_CAIRO_URL`, default
+`:51291`); its steps stream back and the answer links to `/cairo/#studio/<name>`.
+`near_zk` reads the cairo school (lessons, starters, contracts) over its MCP.
+
+```bash
+m near/lessons                               # the school
+m near/lesson zk-ladder
+m near/new tips template=token               # scaffold
+m near/check tips                            # build + test
+m near/make "a tip jar called tips where anyone sends and the owner withdraws"
+m near/make "a zk vote called secretvote"    # → built on the cairo mod
+m near/ask "how do I use zk proofs with cairo?"
+m near/ship tips                             # testnet, via the keystore
+```
+
+Needs: `cargo` + the `wasm32-unknown-unknown` target on the host
+(`near_toolchain` says), orbit/claudecode on `:51260` for vibe/builder, and
+orbit/cairo on `:51291` for the ZK rungs. Without claudecode the builder
+still scaffolds and tests; without cairo the ZK asks fall back to the
+hash-only rungs here.
 
 ## Transport notes
 

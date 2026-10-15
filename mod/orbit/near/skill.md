@@ -1,6 +1,6 @@
 ---
 name: near
-description: NEAR Protocol whole — read accounts/keys/contracts/tokens/txns/validators, AND deploy + manage contracts (keystore in ~/.mod/near/, testnet faucet, signed calls, transfers, access keys). Semantic search over the contract census runs locally (near_search — "stablecoin" finds USDt, no external service). REST + console + 21 MCP tools on :50910. Non-testnet writes need confirm=true; HTTP writes need the ~/.mod/near/token.
+description: NEAR Protocol whole — read accounts/keys/contracts/tokens/txns/validators, AND deploy + manage contracts (keystore in ~/.mod/near/, testnet faucet, signed calls, transfers, access keys). near_abi infers ANY contract's interface (view/change/init, typed args, deposits — embedded near-abi or probed), and /near/c/<contract> is a generic page that drives any contract as forms. Semantic search over the contract census runs locally (near_search — "stablecoin" finds USDt, no external service). REST + console + MCP tools on :50910. Non-testnet writes need confirm=true; HTTP writes need the ~/.mod/near/token.
 ---
 
 # near
@@ -14,7 +14,13 @@ An account and a contract are the same object; accounts are names
 (`alice.near`) or 64-hex implicit accounts. Access keys are scoped —
 FullAccess or FunctionCall-limited to one contract. NEAR keeps no ABI on
 chain, but `near_contract` reads the deployed WASM's export section, so you
-get the method list anyway; `near_view` then calls any view method free.
+get the method list anyway, and `near_abi` infers the rest — which methods
+are views, which are changes, what args each takes and of what type, which
+need a deposit (embedded near-abi when there is one, probed off the chain
+otherwise; cached by code hash). `near_view` then calls any view method free.
+Call `near_abi` first when handed an unfamiliar contract; `method=` gives you
+one method plus an args template. `{host}/near/c/<contract>` is the same spec
+as a working page.
 Deploying again over old code is the upgrade path — state survives.
 
 ## Quick answers
@@ -22,6 +28,7 @@ Deploying again over old code is the upgrade path — state survives.
 ```bash
 curl -s 'localhost:50910/account?account_id=root.near'      # balances + USD
 curl -s 'localhost:50910/contract?account_id=wrap.near'     # method list
+curl -s 'localhost:50910/abi?account_id=wrap.near'          # interface, inferred
 curl -s 'localhost:50910/view?contract=wrap.near&method=ft_metadata'
 curl -s 'localhost:50910/history?account_id=root.near'      # via indexer
 curl -s 'localhost:50910/validators?limit=10'               # + Nakamoto
@@ -59,3 +66,24 @@ m near/wallet                            # keystore status — public halves onl
 - nearcore's prepare step rejects overly minimal WASM (`PrepareError:
   Deserialization`) — deploy real compiled contracts (`cargo near build`).
 - `network=testnet` works on every tool; `rpc=` overrides the endpoint pool.
+
+## Workshop — teach, build, and the ZK handoff to cairo
+
+- `near_lessons` / `near_lesson id=` — the school (12 lessons: contracts from
+  zero → tokens → cross-contract → ZK ladder → cairo). Quote these before
+  explaining NEAR contracts yourself.
+- `near_templates`, `near_new name= template=` (counter | token |
+  commit_reveal | merkle_allowlist), `near_project`, `near_read`, `near_write`,
+  `near_build` / `near_verify` / `near_check` (jobs — `wait=true` blocks, else
+  poll `near_job`), `near_ship` (deploy via the keystore, testnet default).
+- `near_vibe name= prompt=` — orbit/claudecode edits the crate, then build +
+  test. `near_ask query=` — the free tutor; `near_zk` — the cairo mod's
+  lessons/starters/contracts over its MCP.
+- Agents: `GET /near/agents`, `POST /near/run` `{query, agent: tutor|builder}`
+  (`/run/stream` = SSE). The builder is token/loopback only. If the ask says
+  zk / cairo / anonymous / private it is forwarded to orbit/cairo's builder
+  (`:51291`) and the answer links to `/cairo/#studio/<name>`; otherwise it
+  builds a Rust crate here. `m near/make "..."` is the shell form.
+- Writes here (new/write/build/vibe/ship/remove) take the same
+  `~/.mod/near/token` or a loopback caller; ship keeps the testnet/confirm
+  rules. Jobs and files live under `contracts/` in the module.

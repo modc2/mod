@@ -6,7 +6,7 @@ import { useOverlay } from '@/lib/overlay';
 import { usePoll, useNow, useStored } from '@/lib/hooks';
 import { agoText, compact, fmt, short } from '@/lib/format';
 import LineChart from '@/components/LineChart';
-import { Pct, Section, SideTag, Spark, Spinner, Tabs } from '@/components/ui';
+import { Ident, Pct, Section, SideTag, Spark, Spinner, Tabs } from '@/components/ui';
 
 function TrackForm() {
   const { reloadTraders } = useData();
@@ -46,8 +46,10 @@ function TrackForm() {
 function Tracked() {
   const { traders, tradersError, reloadTraders } = useData();
   const { openTrader, close, trader } = useOverlay();
+  const [sure, setSure] = useState<string | null>(null);
   const untrack = async (ss58: string) => {
-    if (!confirm(`Stop tracking ${short(ss58)}?\n\nRecorded history is kept.`)) return;
+    if (sure !== ss58) { setSure(ss58); setTimeout(() => setSure(s => (s === ss58 ? null : s)), 3000); return; }
+    setSure(null);
     try { await call('bt_untrack', { address: ss58 }); } catch { /* */ }
     if (trader === ss58) close();
     reloadTraders();
@@ -66,9 +68,9 @@ function Tracked() {
               const warming = t.warming || t.total_tao == null;
               return (
                 <tr key={t.ss58} className="trow" onClick={() => openTrader(t.ss58)}>
-                  <td><div className="sn-cell"><span className="sn-avatar">{(t.label || 'τ').slice(0, 2)}</span>
+                  <td><div className="sn-cell"><Ident addr={t.ss58} size={28} />
                     <div><div className="sn-name">{t.label || short(t.ss58)}</div>
-                      <div className="sn-sym" title={t.ss58}>{short(t.ss58)}</div></div></div></td>
+                      <div className="sn-sym" title={t.ss58}>{t.label ? short(t.ss58) : `${t.subnets || 0} subnets`}</div></div></div></td>
                   <td className="num">{warming ? <span className="muted">…</span> : fmt(t.total_tao, 3)}</td>
                   <td className="num">{warming ? '—' : fmt(t.free_tao, 3)}</td>
                   <td className="num">{warming ? '—' : fmt(t.staked_tao, 3)}</td>
@@ -77,8 +79,9 @@ function Tracked() {
                   <td className="num"><Pct v={t.change_7d} /></td>
                   <td className="num">{t.flows_24h || <span className="muted">0</span>}</td>
                   <td><Spark pts={t.spark} dir={t.change_24h} /></td>
-                  <td className="num"><button className="copybtn" style={{ position: 'static' }}
-                    onClick={e => { e.stopPropagation(); untrack(t.ss58); }}>Untrack</button></td>
+                  <td className="num row-act"><button className={'copybtn' + (sure === t.ss58 ? ' sure' : '')} style={{ position: 'static' }}
+                    title="Stop tracking — recorded history is kept"
+                    onClick={e => { e.stopPropagation(); untrack(t.ss58); }}>{sure === t.ss58 ? 'Sure?' : 'Untrack'}</button></td>
                 </tr>
               );
             })}
@@ -156,7 +159,7 @@ function Board({ onIndexed }: { onIndexed: () => void }) {
                     <td className="ixpick" onClick={e => { e.stopPropagation(); toggle(b.ss58); }}>
                       <input type="checkbox" checked={sel.includes(b.ss58)} readOnly /></td>
                     <td className="num">{i + 1}</td>
-                    <td><div className="sn-cell"><span className="sn-avatar">{(b.label || 'τ').slice(0, 2)}</span>
+                    <td><div className="sn-cell"><Ident addr={b.ss58} size={28} />
                       <div><div className="sn-name">{b.label || short(b.ss58)}</div>
                         <div className="sn-sym">{short(b.ss58)} · {b.num_subnets} subnets</div></div></div></td>
                     <td className="num">{compact(b.total_stake_tao + b.free_tao)}</td>
@@ -212,7 +215,7 @@ function IndexDetail({ id, days }: { id: number; days: number }) {
           <tbody>
             {(ix.rows || []).map(r => (
               <tr key={r.ss58} className="trow" onClick={() => openTrader(r.ss58)}>
-                <td><div className="sn-cell"><span className="sn-avatar">{(r.label || 'τ').slice(0, 2)}</span>
+                <td><div className="sn-cell"><Ident addr={r.ss58} size={28} />
                   <div><div className="sn-name">{r.label || short(r.ss58)}</div>
                     <div className="sn-sym" title={r.ss58}>{short(r.ss58)}</div></div></div></td>
                 <td className="num">{(r.weight * 100).toFixed(1)}%</td>

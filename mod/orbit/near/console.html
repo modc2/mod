@@ -40,7 +40,8 @@
   h1 .tri{color:var(--hot);text-shadow:0 0 14px #00ec9780}
   h1 b{background:linear-gradient(90deg,var(--hot),var(--hot2) 60%,#c8ffe9);
        -webkit-background-clip:text;background-clip:text;color:transparent}
-  .sub{color:var(--dim);font-size:11px;display:flex;align-items:center;gap:7px}
+  .sub{color:var(--dim);font-size:11px;display:flex;align-items:center;gap:7px;
+       font-variant-numeric:tabular-nums}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--hot);
        box-shadow:0 0 8px var(--hot);animation:pulse 2.2s infinite}
   .dot.off{background:var(--bad);box-shadow:0 0 8px var(--bad);animation:none}
@@ -53,9 +54,12 @@
   .seg button.on.tn{background:var(--warn)}
   #walletchip{border:1px solid var(--line2);border-radius:3px;padding:5px 11px;
     font-size:10px;letter-spacing:.08em;color:var(--hot2);cursor:pointer;
-    background:#0a120e}
-  #walletchip:hover{border-color:var(--hot)}
+    background:#0a120e;display:inline-flex;gap:7px;align-items:center;
+    transition:border-color .15s,box-shadow .15s}
+  #walletchip:hover{border-color:var(--hot);box-shadow:0 0 14px #00ec9720}
   #walletchip .k{color:var(--dimmer)}
+  #walletchip.none{color:var(--dim);border-style:dashed}
+  #walletchip.none .k{color:var(--warn)}
 
   nav{margin-left:auto;display:flex;gap:2px;flex-wrap:wrap}
   nav button{background:none;border:0;border-bottom:2px solid transparent;
@@ -64,6 +68,9 @@
   nav button:hover{color:var(--ink)}
   nav button.on{color:var(--hot);border-bottom-color:var(--hot);
                 text-shadow:0 0 12px #00ec9750}
+  nav a.navlink{color:var(--hot);padding:7px 12px;font-size:11px;letter-spacing:.11em;
+                text-decoration:none;border-bottom:2px solid transparent;opacity:.85}
+  nav a.navlink:hover{opacity:1;border-bottom-color:var(--hot)}
   main{padding:18px 20px 60px;max-width:1440px;margin:0 auto}
   section{display:none} section.on{display:block;animation:fadein .18s ease-out}
   @keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
@@ -145,29 +152,108 @@
   textarea{width:min(460px,72vw);min-height:64px;resize:vertical}
 
   /* contract directory */
-  .ccards{display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));
-          gap:10px;margin-top:2px}
-  .ccard{background:var(--panel);border:1px solid var(--line);border-radius:4px;
-         padding:12px 13px;cursor:pointer;position:relative;overflow:hidden;
-         backdrop-filter:blur(3px);
-         transition:border-color .15s,transform .15s,box-shadow .15s}
-  .ccard::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
-         background:linear-gradient(90deg,transparent,#00ec9735,transparent)}
-  .ccard:hover{border-color:var(--hot);transform:translateY(-2px);
-         box-shadow:0 8px 24px #00000070,0 0 18px #00ec9718}
-  .ccard.dead{opacity:.45;cursor:default}
+  .sechead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+           margin:24px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .sechead h2{margin:0;font-size:11px;letter-spacing:.16em;color:var(--dim);
+           text-transform:uppercase;display:flex;gap:8px;align-items:center}
+  .sechead h2::before{content:'◆';color:var(--hot);font-size:8px}
+  .sechead h2 .cnt{color:var(--ink2);letter-spacing:0;text-transform:none;
+           font-variant-numeric:tabular-nums}
+  .sechead .legend{color:var(--dimmer);font-size:10px;display:flex;gap:5px;
+           align-items:center;margin-left:2px}
+  .sechead .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .chips{display:flex;gap:4px;flex-wrap:wrap}
+  .chip{--c:var(--dim);background:none;border:1px solid var(--line);color:var(--dim);
+        border-radius:12px;padding:2px 9px;font:inherit;font-size:10px;
+        letter-spacing:.08em;cursor:pointer;display:inline-flex;gap:5px;
+        align-items:center;transition:all .12s}
+  .chip i{width:6px;height:6px;border-radius:50%;background:var(--c);
+          box-shadow:0 0 6px var(--c);flex:none}
+  .chip b{font-weight:400;color:var(--dimmer);font-variant-numeric:tabular-nums}
+  .chip:hover{color:var(--ink);border-color:var(--line2)}
+  .chip.on{color:var(--ink);border-color:var(--c);background:color-mix(in srgb,var(--c) 10%,transparent)}
+  .chip.on b{color:var(--ink2)}
+
+  .ccards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
+          gap:12px;margin-top:2px}
+  .ccard{--cat:var(--hot);background:var(--panel);border:1px solid var(--line);
+         border-radius:6px;padding:13px 14px 12px;cursor:pointer;position:relative;
+         overflow:hidden;backdrop-filter:blur(3px);display:flex;flex-direction:column;
+         gap:12px;transition:border-color .15s,transform .15s,box-shadow .15s}
+  .ccard::before{content:'';position:absolute;top:0;left:0;bottom:0;width:3px;
+         background:linear-gradient(180deg,var(--cat),transparent 140%);opacity:.8}
+  .ccard::after{content:'';position:absolute;inset:0;pointer-events:none;
+         background:radial-gradient(260px 120px at 100% 0%,
+                    color-mix(in srgb,var(--cat) 9%,transparent),transparent 70%)}
+  .ccard:hover{border-color:color-mix(in srgb,var(--cat) 60%,var(--line));
+         transform:translateY(-2px);
+         box-shadow:0 10px 28px #00000070,0 0 22px color-mix(in srgb,var(--cat) 14%,transparent)}
+  .ccard.dead{opacity:.5;cursor:default;--cat:var(--bad)}
   .ccard.dead:hover{border-color:var(--line);transform:none;box-shadow:none}
-  .ccard.mine{border-color:#3a3470}
-  .ccard .lblrow{display:flex;align-items:center;gap:7px;margin-bottom:3px}
-  .ccard .lbl{color:var(--ink2);font-size:12px;letter-spacing:.04em;
+  .ccard .ctop{display:flex;gap:11px;align-items:flex-start;min-width:0}
+  .ccard .mono{width:36px;height:36px;border-radius:8px;flex:none;position:relative;
+         display:flex;align-items:center;justify-content:center;
+         font-size:12px;font-weight:700;letter-spacing:.04em;
+         color:var(--cat);background:color-mix(in srgb,var(--cat) 12%,#0a120e);
+         border:1px solid color-mix(in srgb,var(--cat) 35%,transparent);
+         text-shadow:0 0 10px color-mix(in srgb,var(--cat) 60%,transparent)}
+  .ccard .mono .ondot{position:absolute;right:-3px;bottom:-3px;width:8px;height:8px;
+         border:2px solid #0a120e;box-sizing:content-box}
+  .ccard .ctxt{min-width:0;flex:1}
+  .ccard .lbl{color:var(--ink);font-size:13px;letter-spacing:.02em;
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+         display:flex;gap:6px;align-items:center}
+  .ccard .id{color:var(--hot2);font-size:10.5px;opacity:.8;margin-top:2px;
          overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .ccard .id{color:var(--hot2);font-size:10px;word-break:break-all;
-         opacity:.85;margin-bottom:8px}
-  .ccard .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
-         font-size:10px;color:var(--dim)}
+  .ccard .cat{position:relative;flex:none;margin-left:auto;align-self:flex-end;
+         font-size:9px;letter-spacing:.14em;
+         text-transform:uppercase;color:var(--cat);opacity:.9;
+         padding:2px 7px;border-radius:10px;
+         border:1px solid color-mix(in srgb,var(--cat) 40%,transparent);
+         background:color-mix(in srgb,var(--cat) 8%,transparent)}
+  .ccard .cstats{display:flex;gap:18px;position:relative;align-items:flex-end}
+  .ccard .st{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .ccard .st .k{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dimmer)}
+  .ccard .st .v{font-size:12px;color:var(--ink2);font-variant-numeric:tabular-nums;
+         white-space:nowrap}
+  .ccard .st .v.dead{color:var(--bad)}
+  .ccard .matched{display:flex;gap:4px;flex-wrap:wrap;position:relative}
+  .ccard .matched span{font-size:9.5px;color:var(--dim);border:1px solid var(--line);
+         border-radius:8px;padding:0 6px}
+  .ccard .sbar{position:absolute;left:0;right:0;bottom:0;height:2px;background:#0e1a14}
+  .ccard .sbar i{position:absolute;left:0;top:0;bottom:0;background:var(--cat);
+         opacity:.55;transition:width .5s ease-out}
+  .ccard.skel{cursor:default;pointer-events:none;min-height:112px}
+  .ccard.skel *{background:linear-gradient(90deg,#0e1a14 25%,#15251c 50%,#0e1a14 75%);
+         background-size:200% 100%;animation:shimmer 1.4s linear infinite;border-radius:4px;
+         color:transparent;border-color:transparent}
+  @keyframes shimmer{to{background-position:-200% 0}}
   .ondot{width:7px;height:7px;border-radius:50%;background:var(--good);
          box-shadow:0 0 8px var(--good);flex:none;animation:pulse 2.2s infinite}
   .ondot.off{background:var(--bad);box-shadow:none;animation:none}
+  .ondot.unk{background:var(--dimmer);box-shadow:none;animation:none}
+
+  /* scraped index status strip */
+  .stats{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .stat{border:1px solid var(--line);border-radius:3px;padding:2px 9px;font-size:10px;
+        color:var(--dim);letter-spacing:.04em;display:inline-flex;gap:6px;align-items:center;
+        background:#0a120e99}
+  .stat b{font-weight:400;color:var(--ink2);font-variant-numeric:tabular-nums}
+  .stat .mini{width:64px;height:3px;background:#0e1a14;border-radius:2px;
+        position:relative;overflow:hidden}
+  .stat .mini i{position:absolute;left:0;top:0;bottom:0;min-width:2px;
+        background:linear-gradient(90deg,var(--hot3),var(--hot))}
+  /* "as of N ago" — a cached answer painted while the live one is fetched */
+  .asof{display:inline-flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.12em;
+        text-transform:uppercase;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .asof:empty{display:none}
+  .asof i{width:6px;height:6px;border-radius:50%;background:var(--dimmer);flex:none}
+  .asof.stale i{background:var(--hot);box-shadow:0 0 6px var(--hot);animation:pulse 1s infinite}
+  .asof.live i{background:var(--hot3)}
+  .asof.offline{color:var(--warn)} .asof.offline i{background:var(--warn)}
+  tr.click{cursor:pointer}
+  tr.click:hover td{background:#0e1c15}
+  tr.click .ondot{display:inline-block;vertical-align:middle;margin-right:6px}
 
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:4px;
          padding:16px;backdrop-filter:blur(3px)}
@@ -217,6 +303,7 @@
     <button data-tab="tx">TX</button>
     <button data-tab="chain">CHAIN</button>
     <button data-tab="mcp">MCP</button>
+    <a class="navlink" id="workshoplink" href="near/workshop" title="learn to write contracts, build them here, ask the tutor — and climb into ZK via the cairo mod">LEARN · BUILD</a>
   </nav>
 </header>
 <main>
@@ -227,31 +314,37 @@
     <input id="ex-q" class="wide" placeholder="an account — wrap.near — or plain words: stablecoin, lending, swap dex…">
     <button class="go" id="ex-go">LOOK UP</button>
     <span class="flash" id="ex-flash"></span>
+    <span class="asof" id="ex-asof" title="what you see came from the last lookup — it refreshes as soon as the chain answers"></span>
   </div>
   <div class="note">On NEAR an account and a contract are the same object. One lookup
     answers balances, access keys, and — if code is deployed — what it can be asked to do.
     Not a name? The same bar searches the directory by meaning — locally, no indexer.</div>
   <div id="ex-out"></div>
-  <h2 class="t">Contracts that are ON — <span id="cd-net">mainnet</span>
-    <span id="cd-count" class="dimtxt" style="text-transform:none"></span>
-    <button class="ghost" id="cd-refresh" style="margin-left:auto">RE-CHECK</button></h2>
-  <div id="cd-grid" class="ccards"><div class="empty">asking the chain which contracts are live…</div></div>
-  <div class="note">A green dot means the chain confirms code is deployed on that account
-    right now — the directory is curated here, but nothing is taken on faith. Contracts you
-    deploy from this keystore join the list automatically. Click a card to open it.</div>
-  <h2 class="t">Every contract — scraped from the chain
-    <span id="sc-stat" class="dimtxt" style="text-transform:none"></span></h2>
+  <div class="sechead">
+    <h2>Contracts that are ON <span class="cnt"><span id="cd-net">mainnet</span><span id="cd-count"></span></span></h2>
+    <span class="legend"><span class="ondot"></span> code on chain right now</span>
+    <div class="right">
+      <div class="chips" id="cd-chips"></div>
+      <span class="asof" id="cd-asof" title="the grid paints from the last probe and updates when the new one lands"></span>
+      <button class="ghost" id="cd-refresh" title="probe every account again">RE-CHECK</button>
+    </div>
+  </div>
+  <div id="cd-grid" class="ccards"></div>
+  <div class="note">Curated here, verified live: every card is probed on the chain, nothing is taken on faith.
+    Contracts you deploy from this keystore join the list on their own. Click a card to open it.</div>
+  <div class="sechead">
+    <h2>Every contract <span class="cnt">scraped from the chain</span></h2>
+    <div class="stats" id="sc-stat"></div>
+  </div>
   <div class="bar">
     <input id="sc-q" class="wide" placeholder="filter the index — a name, a suffix like .near, 64 hex…">
     <span class="flash" id="sc-flash"></span>
   </div>
   <div id="sc-list"><div class="empty">reading the local index…</div></div>
   <div class="bar"><button class="ghost" id="sc-more" style="display:none">MORE</button></div>
-  <div class="note">No indexer can be asked for this list, so the module builds it itself:
-    a live tail reads every new block's state changes and catches each deploy the moment it
-    lands, while a backfill walks history backwards through the archival RPC — the index
-    grows toward genesis for as long as the module runs, and every lookup that finds code
-    joins it too. Stored locally, resumes across restarts. This view re-syncs on its own.</div>
+  <div class="note">No indexer can list this, so the module builds it itself: a live tail catches
+    each deploy as it lands, a backfill walks history back toward genesis, and every lookup that
+    finds code joins the index. Stored locally, resumes across restarts, re-syncs on its own.</div>
 </section>
 
 <!-- ── call (view + change) ── -->
@@ -395,6 +488,7 @@
     <input id="c-block" placeholder="block height or hash (optional)" style="min-width:260px">
     <button class="ghost" id="c-blockgo">BLOCK</button>
     <span class="flash" id="c-flash"></span>
+    <span class="asof" id="c-asof" title="painted from the last answer first — refreshes when the chain replies"></span>
   </div>
   <div id="c-cards" class="cards"></div>
   <div class="split">
@@ -411,8 +505,8 @@
 
 <!-- ── mcp ── -->
 <section id="mcp">
-  <div class="note">This same port is an MCP server — nineteen tools over Streamable
-    HTTP: thirteen reads, six writes (writes want <span class="kbd">token</span>, and
+  <div class="note">This same port is an MCP server — every tool below over Streamable
+    HTTP: reads and writes (writes want <span class="kbd">token</span>, and
     <span class="kbd">confirm=true</span> off testnet). Point any MCP client at it:</div>
   <pre id="m-config"></pre>
   <h2 class="t">Tools</h2>
@@ -425,6 +519,7 @@
 // The console calls <its own path>/_api, so it works mounted at /near behind
 // the gateway or bare at :50910/. Always ends with a path, never a bare host.
 const API = location.pathname.replace(/\/(index\.html)?$/,'') + '/_api';
+$('workshoplink').href = location.pathname.replace(/\/(index\.html)?$/,'') + '/workshop';
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -447,6 +542,73 @@ async function jp(path, body) {           // writes: POST + token from this brow
   const out = await r.json().catch(() => ({error:'bad JSON from ' + path}));
   if (!r.ok) throw new Error(out.error || r.status);
   return out;
+}
+
+// ── stale-while-revalidate ──
+// Every slow read paints the last answer this browser saw at once, stamped
+// "as of N ago", then asks again and repaints the moment the live answer
+// lands. Nothing waits on a 16-account probe or a 4s search-index build
+// twice. Answers live in localStorage under near_swr:, newest 48 kept.
+const SWR = {pre: 'near_swr:', keep: 48, max: 7 * 86400e3};
+function swrGet(key) {
+  try {
+    const v = JSON.parse(localStorage.getItem(SWR.pre + key));
+    if (v && v.at && Date.now() - v.at < SWR.max) return v;
+  } catch (e) {}
+  return null;
+}
+function swrPrune(keep) {
+  const ks = Object.keys(localStorage).filter(k => k.startsWith(SWR.pre));
+  if (ks.length <= keep) return;
+  ks.map(k => { let at = 0; try { at = JSON.parse(localStorage.getItem(k)).at || 0; } catch (e) {} return [at, k]; })
+    .sort((a, b) => a[0] - b[0]).slice(0, ks.length - keep)
+    .forEach(([, k]) => localStorage.removeItem(k));
+}
+function swrPut(key, data, at) {
+  const rec = JSON.stringify({at: at || Date.now(), data});
+  try { localStorage.setItem(SWR.pre + key, rec); }
+  catch (e) {                                  // quota: drop the oldest half, retry once
+    swrPrune(Math.floor(SWR.keep / 2));
+    try { localStorage.setItem(SWR.pre + key, rec); } catch (e2) {}
+  }
+  swrPrune(SWR.keep);
+}
+const ago = ms => ms < 45e3 ? 'just now' : ms < 3600e3 ? Math.round(ms / 60e3) + 'm ago'
+  : ms < 86400e3 ? Math.round(ms / 3600e3) + 'h ago' : Math.round(ms / 86400e3) + 'd ago';
+// The chip. stale = painted from cache, live answer on its way (pulsing);
+// live = this is the fresh answer, age ticks; offline = refetch failed and
+// the cached answer is all there is.
+function asof(id, at, state) {
+  const el = id && $(id); if (!el) return;
+  el.classList.remove('stale', 'live', 'offline');
+  if (!at) { el.dataset.at = ''; el.innerHTML = ''; return; }
+  el.dataset.at = at; el.dataset.state = state; el.classList.add(state);
+  el.innerHTML = `<i></i>as of ${esc(ago(Date.now() - at))}` + (state === 'offline' ? ' · offline' : '');
+}
+setInterval(() => document.querySelectorAll('.asof[data-at]').forEach(el => {
+  if (el.dataset.at) asof(el.id, +el.dataset.at, el.dataset.state); }), 20000);
+// swr(key, fetcher, paint, chip, alive?, atOf?): paint(data, at, state) runs
+// up to twice — from the cache first ('stale'), then with the live answer
+// ('live'). alive() lets a view that moved on (network switched, another
+// query typed) skip the repaint; atOf(data) reads a server-side timestamp
+// when the answer carries one. A server answer flagged stale keeps the
+// chip pulsing so the caller knows to come back for it.
+async function swr(key, fetcher, paint, chip, alive, atOf) {
+  const ok = () => !alive || alive();
+  const held = swrGet(key);
+  if (held && ok()) { paint(held.data, held.at, 'stale'); asof(chip, held.at, 'stale'); }
+  let data;
+  try { data = await fetcher(); }
+  catch (e) {
+    if (!held) throw e;
+    if (ok()) asof(chip, held.at, 'offline');
+    return null;
+  }
+  const at = (atOf && atOf(data)) || Date.now();
+  const state = data && data.stale ? 'stale' : 'live';
+  swrPut(key, data, at);
+  if (ok()) { paint(data, at, state); asof(chip, at, state); }
+  return data;
 }
 
 // ── global network ──
@@ -501,67 +663,69 @@ async function refreshWalletChip() {
   try {
     WALLET = await j('/wallet');
     const def = (WALLET.accounts||[]).find(a => a.network === NET && a.default);
-    $('walletchip').innerHTML = '<span class="k">signer</span> ' +
+    $('walletchip').classList.toggle('none', !def);
+    $('walletchip').innerHTML = '<span class="k">signer</span>' +
       (def ? esc(def.account_id) : 'none — create one');
   } catch (e) { $('walletchip').innerHTML = '<span class="k">signer</span> ?'; }
 }
 paintNet();
 
 // ── explore ──
+const exq = () => $('ex-q').value.trim().toLowerCase();
 async function explore() {
-  const q = $('ex-q').value.trim().toLowerCase();
+  const q = exq();
   if (!q) return;
-  $('ex-flash').textContent = ''; $('ex-go').disabled = true;
-  $('ex-out').innerHTML = '<div class="empty">asking the chain…</div>';
+  $('ex-flash').textContent = ''; $('ex-go').disabled = true; asof('ex-asof', 0);
   // Words, spaces, anything that cannot be an account name — straight to
   // search. A valid-looking name is tried on chain first; if the chain has
   // never heard of it, search catches it instead of a dead error.
   const looksLikeAccount = /^[a-z0-9][a-z0-9._-]{1,63}$/.test(q);
   if (!looksLikeAccount) return exploreSearch(q);
+  const key = `acct:${NET}:${q}`;
+  if (!swrGet(key)) $('ex-out').innerHTML = '<div class="empty">asking the chain…</div>';
   try {
-    const acct = await j('/account?account_id=' + encodeURIComponent(q) + netq());
-    const [keys, contract, history] = await Promise.all([
-      j('/keys?account_id=' + encodeURIComponent(q) + netq()).catch(e => ({error:e.message})),
-      acct.is_contract
-        ? j('/contract?account_id=' + encodeURIComponent(q) + netq()).catch(e => ({error:e.message}))
-        : null,
-      j('/history?account_id=' + encodeURIComponent(q) + netq()).catch(e => ({error:e.message})),
-    ]);
-    renderExplore(acct, keys, contract, history);
+    await swr(key, async () => {
+      const acct = await j('/account?account_id=' + encodeURIComponent(q) + netq());
+      const [keys, contract, history] = await Promise.all([
+        j('/keys?account_id=' + encodeURIComponent(q) + netq()).catch(e => ({error:e.message})),
+        acct.is_contract
+          ? j('/contract?account_id=' + encodeURIComponent(q) + netq()).catch(e => ({error:e.message}))
+          : null,
+        j('/history?account_id=' + encodeURIComponent(q) + netq()).catch(e => ({error:e.message})),
+      ]);
+      return {acct, keys, contract, history};
+    }, d => renderExplore(d.acct, d.keys, d.contract, d.history), 'ex-asof', () => exq() === q);
   } catch (e) {
     return exploreSearch(q, e.message);
   } finally { $('ex-go').disabled = false; }
 }
 
 async function exploreSearch(q, lookupError) {
-  $('ex-out').innerHTML = '<div class="empty">searching the directory…</div>';
+  const key = `search:${NET}:${q}`;
+  if (!swrGet(key)) $('ex-out').innerHTML = '<div class="empty">searching the directory…</div>';
   try {
-    const r = await j('/search?q=' + encodeURIComponent(q) + '&network=' + NET);
-    const rows = r.results || [];
-    let h = '';
-    if (lookupError) {
-      const friendly = /UNKNOWN_ACCOUNT/i.test(lookupError)
-        ? `no account named “${esc(q)}” on ${esc(NET)}` : esc(lookupError);
-      h += `<div class="note">${friendly} — closest contracts by meaning:</div>`;
-    }
-    else h += `<h2 class="t">Contracts matching “${esc(q)}” · ${rows.length}</h2>`;
-    h += rows.length ? '<div class="ccards">' + rows.map(c => `
-      <div class="ccard ${c.live === false ? 'dead' : ''}" onclick="lookup('${esc(c.account_id)}')">
-        <div class="lblrow"><span class="ondot ${c.live === false ? 'off' : ''}"></span>
-          <span class="lbl">${esc(c.label || c.account_id)}</span></div>
-        <div class="id">${esc(c.account_id)}</div>
-        <div class="meta">${c.category ? `<span class="p hot">${esc(c.category)}</span>` : ''}
-          ${c.storage_bytes != null ? `<span>${bytesFmt(c.storage_bytes)} state</span>` : ''}
-          <span class="dimtxt">matched: ${esc((c.matched || []).slice(0, 3).join(', '))}</span></div>
-      </div>`).join('') + '</div>'
-      : '<div class="empty">nothing in the directory matches — the index grows as the scraper walks the chain</div>';
-    h += '<div class="note">Ranked locally: tf-idf over account ids, curated labels and parsed ' +
-         'method names, a concept lexicon so “stablecoin” finds USDt, trigrams so typos still land. ' +
-         'Click a card to open the account.</div>';
-    $('ex-out').innerHTML = h;
+    await swr(key, () => j('/search?q=' + encodeURIComponent(q) + '&network=' + NET),
+              r => paintSearch(q, r, lookupError), 'ex-asof', () => exq() === q);
   } catch (e) {
     $('ex-out').innerHTML = ''; $('ex-flash').textContent = e.message;
   } finally { $('ex-go').disabled = false; }
+}
+function paintSearch(q, r, lookupError) {
+  const rows = r.results || [];
+  let h = '';
+  if (lookupError) {
+    const friendly = /UNKNOWN_ACCOUNT/i.test(lookupError)
+      ? `no account named “${esc(q)}” on ${esc(NET)}` : esc(lookupError);
+    h += `<div class="note">${friendly} — closest contracts by meaning:</div>`;
+  }
+  else h += `<h2 class="t">Contracts matching “${esc(q)}” · ${rows.length}</h2>`;
+  const maxB = Math.max(1024, ...rows.map(c => c.storage_bytes || 0));
+  h += rows.length ? '<div class="ccards">' + rows.map(c => ccard(c, maxB, true)).join('') + '</div>'
+    : '<div class="empty">nothing in the directory matches — the index grows as the scraper walks the chain</div>';
+  h += '<div class="note">Ranked locally — account ids, curated labels and parsed method names, ' +
+       'a concept lexicon so “stablecoin” finds USDt, trigrams so typos still land. ' +
+       'Click a card to open the account.</div>';
+  $('ex-out').innerHTML = h;
 }
 
 function renderExplore(a, keys, contract, history) {
@@ -578,10 +742,13 @@ function renderExplore(a, keys, contract, history) {
 
   if (contract && !contract.error && contract.methods) {
     h += `<h2 class="t">Contract methods · ${contract.method_count} exported · ` +
-         `${fmt(contract.code_bytes,0)} B of WASM — click one to call it</h2><div>` +
+         `${fmt(contract.code_bytes,0)} B of WASM — click one to call it` +
+         `<a class="addr" style="margin-left:auto;text-decoration:none" href="${esc(appUrl(a.account_id))}" target="_blank" rel="noopener">OPEN AS APP ↗</a></h2>` +
+         `<div id="ex-methods">` +
       contract.methods.map(m =>
         `<span class="p hot click" onclick="prefill('${esc(a.account_id)}','${esc(m)}')">${esc(m)}</span>`
-      ).join('') + '</div>';
+      ).join('') + `</div><div class="note" id="ex-abi-note">inferring which are view and which are change…</div>`;
+    setTimeout(() => upgradeMethods(a.account_id), 0);
   }
 
   if (keys && !keys.error) {
@@ -622,6 +789,34 @@ function renderExplore(a, keys, contract, history) {
   $('ex-out').innerHTML = h;
 }
 
+// The generic contract page: /c/<contract> next to this console.
+const PAGE = API.replace(/\/_api$/, '');
+const appUrl = id => `${PAGE}/c/${encodeURIComponent(id)}?network=${NET}`;
+const KINDCLS = {view: 'grn', change: 'wrn', init: 'vio'};
+const sigOf = m => '(' + (m.args || []).map(x => x.name + (x.required === false ? '?' : '')).join(', ') + ')';
+let ABI = {};                              // account_id -> inferred spec
+async function upgradeMethods(id) {
+  const paint = spec => {
+    ABI[id] = spec;
+    const box = $('ex-methods'); if (!box || exq() !== id) return;
+    box.innerHTML = (spec.methods || []).map(m =>
+      `<span class="p ${KINDCLS[m.kind] || ''} click" title="${esc(m.kind)} · ${esc(sigOf(m))}${m.deposit ? ' · deposit ' + esc(m.deposit) : ''}"
+             onclick="prefill('${esc(id)}','${esc(m.name)}')">${esc(m.name)}<span class="dimtxt">${esc(sigOf(m))}</span></span>`).join('');
+    const k = spec.kinds || {};
+    $('ex-abi-note').innerHTML = `<span class="grn">${k.view || 0} view</span> · <span style="color:var(--warn)">${k.change || 0} change</span>` +
+      (k.init ? ` · <span style="color:var(--violet)">${k.init} init</span>` : '') +
+      (k.unknown ? ` · ${k.unknown} unsure` : '') +
+      ` — ${spec.sources.includes('abi') ? 'from the embedded ABI, exact' : 'inferred by probing each method as a view'}` +
+      (spec.standards && spec.standards.length ? ' · ' + spec.standards.map(x => `<span class="p hot">${esc(x)}</span>`).join('') : '') +
+      ` · <a class="addr" href="${esc(appUrl(id))}" target="_blank" rel="noopener">open as app ↗</a>`;
+  };
+  if (ABI[id]) return paint(ABI[id]);          // already inferred this session
+  try {
+    await swr(`abi:${NET}:${id}`, () => j('/abi?account_id=' + encodeURIComponent(id) + netq()),
+              paint, null, () => exq() === id);
+  } catch (e) { const n = $('ex-abi-note'); if (n) n.textContent = 'interface: ' + e.message; }
+}
+
 const card = (t, big, sm='') =>
   `<div class="card"><h3>${t}</h3><div class="big">${big}</div>` +
   (sm ? `<div class="sm">${sm}</div>` : '') + '</div>';
@@ -630,7 +825,18 @@ function lookup(id){ $('ex-q').value = id; goTab('explore'); explore(); }
 function lookupTx(h){ $('t-hash').value = h; $('t-sender').value=''; goTab('tx'); decodeTx(); }
 function prefill(c, m){
   $('v-contract').value = c; $('v-method').value = m; $('v-args').value = '';
-  goTab('view'); loadMethods();
+  goTab('view'); loadMethods().then(() => pickMethod(c, m));
+}
+function pickMethod(c, name) {
+  const spec = ABI[c]; const m = spec && (spec.methods || []).find(x => x.name === name);
+  $('v-method').value = name;
+  if (!m) return;
+  const tpl = {}; (m.args || []).forEach(a => { if (a.required !== false || a.example) tpl[a.name] = a.example ?? null; });
+  $('v-args').value = Object.keys(tpl).length ? JSON.stringify(tpl, null, 1) : '';
+  const want = (m.kind === 'change' || m.kind === 'init') ? 'change' : 'view';
+  const btn = document.querySelector(`#callmode [data-mode=${want}]`);
+  if (btn && CALLMODE !== want) btn.click();
+  if (want === 'change') $('v-deposit').value = m.deposit === '1 yocto' ? '0.000000000000000000000001' : '';
 }
 $('ex-go').onclick = explore;
 $('ex-q').addEventListener('keydown', e => { if (e.key === 'Enter') explore(); });
@@ -639,36 +845,114 @@ $('ex-q').addEventListener('keydown', e => { if (e.key === 'Enter') explore(); }
 const bytesFmt = b => { b = b || 0;
   return b >= 1e9 ? fmt(b/1e9, 1) + ' GB' : b >= 1e6 ? fmt(b/1e6, 1) + ' MB'
        : b >= 1024 ? fmt(b/1024, 0) + ' KB' : fmt(b, 0) + ' B'; };
+const nearFmt = n => n == null ? '—' : n >= 1000 ? fmt(n, 0) + ' N'
+                   : n >= 1 ? fmt(n, 1) + ' N' : n > 0 ? '<1 N' : '0 N';
+// One colour per kind of contract — the strip, the monogram and the pill all
+// read from it, so a glance tells tokens from defi from infra.
+const CAT = {token:'#00ec97', defi:'#8b7bf0', staking:'#fbbf24', platform:'#38d6f5',
+             infra:'#7fa3c0', social:'#f472b6', example:'#a3a3a3', yours:'#c084fc'};
+const catOf = c => c.yours ? 'yours' : (c.category || 'other');
+const catColor = c => CAT[catOf(c)] || '#5f8a72';
+const initials = label => {
+  const w = String(label || '').split(/\s+/).filter(x => /^[a-z0-9]/i.test(x));
+  if (w.length >= 2) return (w[0][0] + w[1][0]).toUpperCase();
+  const one = w[0] || '??';
+  return (one.slice(0, 2)).toUpperCase();
+};
+const shortId = id => /^[0-9a-f]{64}$/.test(id) ? id.slice(0, 10) + '…' + id.slice(-8) : id;
+// log-scale state bar: 1 KB → 0, the biggest contract in the set → full width
+const stateW = (b, maxB) => {
+  if (!b || b < 1024) return 0;
+  const top = Math.log10(Math.max(maxB, 1024 * 16)) - 3;
+  return Math.round(Math.min(1, (Math.log10(b) - 3) / top) * 100);
+};
+function ccard(c, maxB, search) {
+  const live = c.live !== false && (search || c.live);   // search rows may be unprobed (null)
+  const label = c.label || shortId(c.account_id);
+  const dot = c.live === false ? 'off' : c.live == null ? 'unk' : '';
+  return `
+    <div class="ccard ${c.live === false ? 'dead' : ''}" style="--cat:${catColor(c)}"
+         ${live ? `onclick="lookup('${esc(c.account_id)}')"` : ''} title="${esc(c.account_id)}">
+      <div class="ctop">
+        <div class="mono">${esc(initials(label))}<span class="ondot ${dot}"></span></div>
+        <div class="ctxt">
+          <div class="lbl"><span style="overflow:hidden;text-overflow:ellipsis">${esc(label)}</span></div>
+          <div class="id">${esc(shortId(c.account_id))}</div>
+        </div>
+      </div>
+      <div class="cstats">
+        ${c.live === false
+          ? '<div class="st"><span class="k">status</span><span class="v dead">no code on this account</span></div>'
+          : `<div class="st"><span class="k">state</span><span class="v">${c.storage_bytes != null ? bytesFmt(c.storage_bytes) : '—'}</span></div>
+             <div class="st"><span class="k">balance</span><span class="v">${nearFmt(c.balance_near)}</span></div>`}
+        ${c.category || c.yours ? `<span class="cat">${esc(catOf(c))}</span>` : ''}
+      </div>
+      ${search && (c.matched || []).length
+        ? `<div class="matched">${c.matched.slice(0, 4).map(m => `<span>${esc(m)}</span>`).join('')}</div>` : ''}
+      <div class="sbar"><i style="width:${stateW(c.storage_bytes, maxB)}%"></i></div>
+    </div>`;
+}
+const skeletons = n => Array.from({length: n}, () => `
+  <div class="ccard skel"><div class="ctop"><div class="mono">&nbsp;</div>
+    <div class="ctxt"><div class="lbl">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+    <div class="id" style="width:60%">&nbsp;</div></div></div>
+    <div class="cstats"><div class="st"><span class="v">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
+    <div class="st"><span class="v">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></div></div></div>`).join('');
+
 let DIR_NET = null;
+const CD = {rows: [], cat: 'all'};
+function paintChips() {
+  const counts = {};
+  CD.rows.forEach(c => { const k = catOf(c); counts[k] = (counts[k] || 0) + 1; });
+  const order = ['all', ...Object.keys(CAT).filter(k => counts[k]),
+                 ...Object.keys(counts).filter(k => !CAT[k])];
+  if (!counts[CD.cat] && CD.cat !== 'all') CD.cat = 'all';
+  $('cd-chips').innerHTML = order.map(k => `
+    <button class="chip ${CD.cat === k ? 'on' : ''}" data-cat="${esc(k)}"
+            style="--c:${k === 'all' ? 'var(--ink2)' : (CAT[k] || '#5f8a72')}">
+      ${k === 'all' ? '' : '<i></i>'}${esc(k)}<b>${k === 'all' ? CD.rows.length : counts[k]}</b></button>`).join('');
+  $('cd-chips').querySelectorAll('.chip').forEach(b => b.onclick = () => {
+    CD.cat = b.dataset.cat; paintChips(); paintContracts();
+  });
+}
+function paintContracts() {
+  const rows = CD.cat === 'all' ? CD.rows : CD.rows.filter(c => catOf(c) === CD.cat);
+  const maxB = Math.max(1024, ...CD.rows.map(c => c.storage_bytes || 0));
+  $('cd-grid').innerHTML = rows.map(c => ccard(c, maxB)).join('') ||
+    '<div class="empty" style="grid-column:1/-1">no contracts known for ' + esc(NET) + '</div>';
+}
 async function loadContracts(force) {
   if (!force && DIR_NET === NET) return;
   DIR_NET = NET;
+  const want = NET, key = `contracts:${NET}`;
   $('cd-net').textContent = NET; $('cd-count').textContent = '';
-  $('cd-grid').innerHTML =
-    '<div class="empty" style="grid-column:1/-1">asking the chain which contracts are live on ' + esc(NET) + '…</div>';
+  if (!swrGet(key)) {                          // nothing to paint from: skeletons
+    $('cd-chips').innerHTML = '';
+    $('cd-grid').innerHTML = skeletons(6);
+  }
+  const paint = r => {
+    if (r.network !== want) return;            // user switched mid-flight
+    $('cd-count').textContent = ` · ${r.live} of ${r.count} live`;
+    CD.rows = r.contracts || [];
+    paintChips(); paintContracts();
+  };
+  const alive = () => want === NET;
+  const atOf = r => r.checked_at ? r.checked_at * 1000 : 0;   // when the chain was actually asked
+  $('cd-refresh').disabled = true;
   try {
-    const r = await j('/contracts?network=' + NET + (force ? '&refresh=true' : ''));
-    if (NET !== r.network) return;             // user switched mid-flight
-    $('cd-count').textContent = `· ${r.live} of ${r.count} live`;
-    $('cd-grid').innerHTML = (r.contracts || []).map(c => `
-      <div class="ccard ${c.live ? '' : 'dead'} ${c.yours ? 'mine' : ''}"
-           ${c.live ? `onclick="lookup('${esc(c.account_id)}')"` : ''}>
-        <div class="lblrow"><span class="ondot ${c.live ? '' : 'off'}"></span>
-          <span class="lbl">${esc(c.label)}</span>
-          ${c.yours ? '<span class="p vio">yours</span>' : ''}</div>
-        <div class="id">${esc(c.account_id)}</div>
-        <div class="meta">${c.yours ? '' : `<span class="p hot">${esc(c.category)}</span>`}
-          ${c.live
-            ? `<span>${bytesFmt(c.storage_bytes)} state</span>` +
-              (c.balance_near >= 1 ? `<span>${fmt(c.balance_near, 0)} N</span>` : '')
-            : '<span>no code on this account</span>'}</div>
-      </div>`).join('') ||
-      '<div class="empty" style="grid-column:1/-1">no contracts known for ' + esc(NET) + '</div>';
+    let r = await swr(key, () => j('/contracts?network=' + want + (force ? '&refresh=true' : '')),
+                      paint, 'cd-asof', alive, atOf);
+    // The server answered from its own expired cache and is re-probing behind
+    // us — come back for the live grid until the answer stops saying stale.
+    for (let n = 0; r && r.stale && n < 8 && alive(); n++) {
+      await new Promise(res => setTimeout(res, 4000));
+      r = await swr(key, () => j('/contracts?network=' + want), paint, 'cd-asof', alive, atOf);
+    }
   } catch (e) {
     DIR_NET = null;
     $('cd-grid').innerHTML =
       '<div class="empty" style="grid-column:1/-1">' + esc(e.message) + '</div>';
-  }
+  } finally { $('cd-refresh').disabled = false; }
 }
 $('cd-refresh').onclick = () => loadContracts(true);
 loadContracts();
@@ -679,8 +963,8 @@ function scRow(c){
   const when = c.deploy_block ? '#' + fmt(c.deploy_block, 0)
              : c.via === 'lookup' ? 'seen in a lookup' : '—';
   return `<tr class="click" onclick="lookup('${esc(c.account_id)}')">
-    <td><span class="ondot ${c.live === false ? 'off' : ''}"></span>
-        <span class="addr">${esc(c.account_id)}</span>
+    <td><span class="ondot ${c.live === false ? 'off' : c.live == null ? 'unk' : ''}"></span>
+        <span class="addr" title="${esc(c.account_id)}">${esc(shortId(c.account_id))}</span>
         ${c.label ? `<span class="dimtxt"> ${esc(c.label)}</span>` : ''}</td>
     <td class="dimtxt">${when}</td>
     <td>${c.storage_bytes != null ? bytesFmt(c.storage_bytes) : '—'}</td>
@@ -690,36 +974,52 @@ function scRow(c){
   </tr>`;
 }
 function scStatus(s){
-  const parts = [`${fmt(s.total, 0)} indexed`];
-  if (s.tail_block) parts.push(`tail at #${fmt(s.tail_block, 0)}`);
-  if (s.floor_block) parts.push(`history to #${fmt(s.floor_block, 0)}` +
-    (s.history_pct != null ? ` — ${s.history_pct}% walked` : ''));
-  if (!s.scanning) parts.push('scraper off');
-  $('sc-stat').textContent = '· ' + parts.join(' · ');
+  let h = `<span class="stat"><b>${fmt(s.total, 0)}</b> indexed</span>`;
+  if (s.tail_block) h += `<span class="stat">tail <b>#${fmt(s.tail_block, 0)}</b></span>`;
+  if (s.floor_block) {
+    const pct = s.history_pct != null ? Math.max(0, Math.min(100, s.history_pct)) : null;
+    h += `<span class="stat" title="backfill has walked back to block #${fmt(s.floor_block, 0)}">history` +
+         (pct != null ? ` <b>${pct < 10 ? pct.toFixed(1) : Math.round(pct)}%</b>` +
+                        `<span class="mini"><i style="width:${Math.max(pct, 1)}%"></i></span>` : '') +
+         `</span>`;
+  }
+  h += s.scanning ? '<span class="stat"><span class="ondot"></span>live tail</span>'
+                  : '<span class="stat"><span class="ondot off"></span>scraper off</span>';
+  h += '<span class="stat asof" id="sc-asof" title="the first page paints from the last read of the index, then refreshes"></span>';
+  $('sc-stat').innerHTML = h;
 }
 async function loadDirectory(reset){
   if (reset) { SC.offset = 0; }
   SC.net = NET;
+  const want = NET, offset = SC.offset, q = SC.q;
+  const url = '/directory?network=' + NET + '&limit=' + SC.limit +
+      '&offset=' + SC.offset + (SC.q ? '&q=' + encodeURIComponent(SC.q) : '');
   try {
-    const r = await j('/directory?network=' + NET + '&limit=' + SC.limit +
-      '&offset=' + SC.offset + (SC.q ? '&q=' + encodeURIComponent(SC.q) : ''));
-    if (NET !== r.network) return;
-    scStatus(r.status || {});
-    SC.stamp = `${r.status && r.status.total}|${r.status && r.status.tail_block}`;
-    const rows = (r.contracts || []).map(scRow).join('');
-    const head = '<table><tr><th>contract</th><th>deployed</th><th>state</th>' +
-      '<th class="n">balance</th><th>code</th><th>via</th></tr>';
-    if (SC.offset === 0) {
-      $('sc-list').innerHTML = rows ? head + rows + '</table>' :
-        '<div class="empty">nothing matches yet — the tail indexes new deploys ' +
-        'as they land, so a young index is a quiet one</div>';
-    } else if (rows) {
-      $('sc-list').querySelector('table').insertAdjacentHTML('beforeend', rows);
-    }
-    $('sc-more').style.display =
-      r.matched > SC.offset + SC.limit ? '' : 'none';
-    $('sc-flash').textContent = '';
+    // Only the plain first page is worth remembering: it is what every visit
+    // opens on. Filtered and scrolled pages fetch straight.
+    if (offset === 0 && !q)
+      await swr(`dir:${NET}`, () => j(url), paintDirectory, 'sc-asof',
+                () => want === NET && SC.offset === 0 && !SC.q);
+    else paintDirectory(await j(url));
   } catch (e) { $('sc-flash').textContent = e.message; }
+}
+function paintDirectory(r) {
+  if (NET !== r.network) return;
+  scStatus(r.status || {});
+  SC.stamp = `${r.status && r.status.total}|${r.status && r.status.tail_block}`;
+  const rows = (r.contracts || []).map(scRow).join('');
+  const head = '<table><tr><th>contract</th><th>deployed</th><th>state</th>' +
+    '<th class="n">balance</th><th>code</th><th>via</th></tr>';
+  if (SC.offset === 0) {
+    $('sc-list').innerHTML = rows ? head + rows + '</table>' :
+      '<div class="empty">nothing matches yet — the tail indexes new deploys ' +
+      'as they land, so a young index is a quiet one</div>';
+  } else if (rows) {
+    $('sc-list').querySelector('table').insertAdjacentHTML('beforeend', rows);
+  }
+  $('sc-more').style.display =
+    r.matched > SC.offset + SC.limit ? '' : 'none';
+  $('sc-flash').textContent = '';
 }
 $('sc-more').onclick = () => { SC.offset += SC.limit; loadDirectory(); };
 let scTimer = null;
@@ -765,11 +1065,19 @@ async function loadMethods() {
   const c = $('v-contract').value.trim(); if (!c) return;
   $('v-flash').textContent = '';
   try {
-    const r = await j('/contract?account_id=' + encodeURIComponent(c) + netq());
+    $('v-pills').innerHTML = '<span class="dimtxt">inferring the interface…</span>';
+    const r = ABI[c] || await j('/abi?account_id=' + encodeURIComponent(c) + netq());
+    ABI[c] = r;
     $('v-pills').innerHTML = (r.methods||[]).map(m =>
-      `<span class="p hot click" onclick="$('v-method').value='${esc(m)}'">${esc(m)}</span>`).join('')
+      `<span class="p ${KINDCLS[m.kind] || ''} click" title="${esc(m.kind)}${m.deposit ? ' · deposit ' + esc(m.deposit) : ''}"
+             onclick="pickMethod('${esc(c)}','${esc(m.name)}')">${esc(m.name)}<span class="dimtxt">${esc(sigOf(m))}</span></span>`).join('')
       || '<span class="dimtxt">no contract on this account</span>';
-  } catch (e) { $('v-flash').textContent = e.message; }
+    if (r.methods && r.methods.length)
+      $('v-pills').insertAdjacentHTML('beforeend',
+        `<div class="note"><span class="grn">green</span> = view, free · <span style="color:var(--warn)">amber</span> = change, signed · ` +
+        `click a method and its args land in the box as a template · ` +
+        `<a class="addr" href="${esc(appUrl(c))}" target="_blank" rel="noopener">open as app ↗</a></div>`);
+  } catch (e) { $('v-flash').textContent = e.message; $('v-pills').innerHTML = ''; }
 }
 async function viewCall() {
   const c = $('v-contract').value.trim(), m = $('v-method').value.trim();
@@ -971,10 +1279,8 @@ let chainLoaded = false;
 async function loadChain() {
   chainLoaded = true;
   $('c-flash').textContent = '';
-  try {
-    const [n, v, b, p] = await Promise.all([
-      j('/network' + '?network=' + net()), j('/validators?limit=30&network=' + net()),
-      j('/block?network=' + net()), j('/price').catch(() => null)]);
+  const want = NET;
+  const paint = ({n, v, b, p}) => {
     $('c-cards').innerHTML =
       card('block height', `<span class="grn">${fmt(n.block_height,0)}</span>`) +
       card('validators', n.validators, `Nakamoto ${v.nakamoto_coefficient}`) +
@@ -995,6 +1301,14 @@ async function loadChain() {
         <td class="n">${x.uptime_pct != null ? x.uptime_pct + '%' : '—'}</td></tr>`).join('') +
       '</table>';
     $('c-blockout').textContent = JSON.stringify(b, null, 2);
+  };
+  try {
+    await swr(`chain:${NET}`, async () => {
+      const [n, v, b, p] = await Promise.all([
+        j('/network' + '?network=' + want), j('/validators?limit=30&network=' + want),
+        j('/block?network=' + want), j('/price').catch(() => null)]);
+      return {n, v, b, p};
+    }, paint, 'c-asof', () => want === NET);
   } catch (e) { $('c-flash').textContent = e.message; }
 }
 $('c-go').onclick = loadChain;

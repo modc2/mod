@@ -23,6 +23,7 @@
 // adopted either way (the human asked for it). Everything lands paused —
 // liveEnabled is never set here, same rule as the lab's ADOPT.
 
+import { agentEnabled } from "./agentMods";
 import { mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 
@@ -346,7 +347,8 @@ export function startAutoStratLoop(): void {
   if (ticker) return;
   ticker = setInterval(() => {
     const s = readSettings();
-    if (!s.enabled || active) return;
+    // The AGENTS tab's switch (src/agents/autostrat) sits over the loop's own.
+    if (!s.enabled || active || !agentEnabled("autostrat")) return;
     if (Date.now() - lastFiredAt < s.intervalSecs * 1000) return;
     lastFiredAt = Date.now();
     try {

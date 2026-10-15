@@ -2,7 +2,7 @@
 
 Drop-in access to Claude, GPT, and Gemini.
 
-Bittensor subnet **28** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **28** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [github](https://github.com/taostat/gm-miner) · [url](https://saygm.com/)
 
@@ -12,22 +12,22 @@ Fleet mods for this subnet: `saygm`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.030351 | -1.26% | +2.61% | +33.29% | 191,789 | 27,433 | 10,667 |
+| 0.033340 | +0.50% | +9.49% | +41.13% | 210,948 | 28,783 | 11,944 |
 
 ## Last 24h flow
 
-902 trades by 359 coldkeys · 451 buys (5,452 τ) / 451 sells (5,138 τ) · net 314.74 τ
+957 trades by 346 coldkeys · 566 buys (6,506 τ) / 391 sells (5,325 τ) · net 1,182 τ
 
 ## News
 
+- 2026-10-14 · release · [v0.5.0](https://github.com/taostat/gm-miner/releases/tag/v0.5.0) — taostat/gm-miner
+- 2026-10-14 · commit · [chore(release): promote gm-miner 0.5.0 (#322)](https://github.com/taostat/gm-miner/commit/9324860559305fb65993490c624f4b390aeafc0c) — taostat/gm-miner
+- 2026-10-14 · release · [v0.4.29-dev](https://github.com/taostat/gm-miner/releases/tag/v0.4.29-dev) — taostat/gm-miner
+- 2026-10-14 · commit · [chore(release): gm-miner 0.4.29-dev (#320)](https://github.com/taostat/gm-miner/commit/e1f325c20c301b5fe9ea48a6e6238a25a488a2ff) — taostat/gm-miner
+- 2026-10-14 · commit · [Pin dstack-0.5.12 as the deploy OS image (#318)](https://github.com/taostat/gm-miner/commit/5b895ddb560cfa79271f15e4fc117930e9f60a4e) — taostat/gm-miner
+- 2026-10-14 · commit · [Update rustls to 0.23.46 (#319)](https://github.com/taostat/gm-miner/commit/bcabe40d7f5fb47a0a74a033b8f7f80557cb729c) — taostat/gm-miner
 - 2026-10-12 · release · [v0.4.28](https://github.com/taostat/gm-miner/releases/tag/v0.4.28) — taostat/gm-miner
 - 2026-10-12 · commit · [chore(release): promote gm-miner 0.4.28 (#317)](https://github.com/taostat/gm-miner/commit/025fcb1077f0d363f9b56dd8097c79f957b2073a) — taostat/gm-miner
-- 2026-10-12 · release · [v0.4.28-dev](https://github.com/taostat/gm-miner/releases/tag/v0.4.28-dev) — taostat/gm-miner
-- 2026-10-12 · commit · [chore(release): gm-miner 0.4.28-dev (#316)](https://github.com/taostat/gm-miner/commit/5ff22f12b72767f2e96a479f7deadbf5f70dbb58) — taostat/gm-miner
-- 2026-10-12 · commit · [gmcli: parse Envoy templates with serde-saphyr (#315)](https://github.com/taostat/gm-miner/commit/ed77456c2252211c122c2d25673f9c4749476f05) — taostat/gm-miner
-- 2026-10-12 · commit · [gmcli: accept only registry-attested instance types (#314)](https://github.com/taostat/gm-miner/commit/115b7ac717ddb3adbb7993fc335001ea79211ceb) — taostat/gm-miner
-- 2026-10-12 · release · [v0.4.27](https://github.com/taostat/gm-miner/releases/tag/v0.4.27) — taostat/gm-miner
-- 2026-10-12 · commit · [chore(release): promote gm-miner 0.4.27 (#313)](https://github.com/taostat/gm-miner/commit/30220e7f3fcb5ca12beeae05212dddc0cdb1e239) — taostat/gm-miner
 
 ## Use
 

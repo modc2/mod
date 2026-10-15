@@ -1,6 +1,6 @@
 # sn99 — Thirty Spokes გ
 
-Bittensor subnet **99** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-14 (block 9279460).
+Bittensor subnet **99** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
 
 Links: [url](https://www.thirtyspokes.ai)
 
@@ -8,11 +8,11 @@ Links: [url](https://www.thirtyspokes.ai)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002396 | +0.20% | +24.11% | +134.15% | 2,057 | 608.5787 | 1,311 |
+| 0.001826 | -0.39% | -23.80% | +82.17% | 1,581 | 531.4652 | 746.53 |
 
 ## Last 24h flow
 
-207 trades by 68 coldkeys · 123 buys (686.95 τ) / 84 sells (621.75 τ) · net 65.20 τ
+185 trades by 69 coldkeys · 96 buys (334.67 τ) / 89 sells (409.10 τ) · net -74.43 τ
 
 ## Use
 

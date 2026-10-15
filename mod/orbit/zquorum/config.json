@@ -1,12 +1,12 @@
 {
     "name": "zquorum",
     "title": "zQuorum \u00b7 anonymous quorums in Cairo, on Starknet",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "description": "A group reaches a quorum without revealing who voted. Members register Pedersen commitments; a vote reveals only a nullifier \u2014 unlinkable to any member without their secret, and a repeated nullifier is a rejected double vote. All cryptography (commit, nullifier, set root, vote check) runs as a Cairo 2 program in circuit/ so the anchor never reimplements a hash, and the statement is already prover-shaped for the v0.2 STARK upgrade. The books (member commitments, spent nullifiers, tally, frozen root) can live on the ZQuorum Starknet contract (contract/), which recomputes the root with the same zq code and enforces the freeze, one vote per nullifier and the threshold on-chain. A static Next.js console (app/) is served by the Python-stdlib anchor (server.py) next to the JSON API, behind the mod-protocol gateway.",
     "icon": "Q",
     "color": "#8b5cf6",
-    "anchor": "mod.py",
-    "server": "server.py",
+    "anchor": "src/mod.py",
+    "server": "src/server.py",
     "network": "starknet",
     "port": 51300,
     "app_port": 51300,
@@ -23,10 +23,10 @@
         "nullifier": "N = pedersen(pedersen('zq-null', secret), topic)",
         "root": "fold pedersen('zq-root', ...) over the sorted commitment set",
         "freeze": "the member set freezes at the first vote",
-        "circuit": "circuit/ (Cairo package zq); run via scarb cairo-run, tested via scarb cairo-test",
+        "circuit": "src/circuit/ (Cairo package zq); run via scarb cairo-run, tested via scarb cairo-test",
         "trust_v0_1": "anchor = trusted tallier; sees a secret transiently during verification, persists only (nullifier, choice)",
         "upgrade_v0_2": "STARK-prove the same circuit so votes verify without the tallier seeing secrets; commit/nullifier derivation moves client-side",
-        "contract": "contract/ (Scarb package zquorum, path-depends on circuit/ zq): ZQuorum keeps commitments, nullifiers, tally and the zq::root of the sorted set at freeze; tallier-only writes; snforge tests",
+        "contract": "src/contract/ (Scarb package zquorum, path-depends on circuit/ zq): ZQuorum keeps commitments, nullifiers, tally and the zq::root of the sorted set at freeze; tallier-only writes; snforge tests",
         "onchain_trust": "the tallier attests membership (it ran the circuit); the contract enforces everything else publicly. Every tx is sent by the tallier account, so the sender never identifies a voter"
     },
     "toolchain": {
@@ -64,6 +64,7 @@
         "build",
         "test",
         "status",
+        "boot",
         "serve",
         "kill"
     ],
@@ -86,7 +87,8 @@
         "GET /zquorum/api/deployments": "ZQuorum contract addresses per network",
         "POST /zquorum/api/deploy": "Declare + deploy ZQuorum (network=, account=) \u2014 loopback only",
         "POST /zquorum/api/devnet": "start|stop|reset|status the local devnet (action=) \u2014 loopback only",
-        "note": "The app self-calls the same handlers under /zquorum/_api/* (gateway keeps the prefix); /api/zquorum/* is the permanent legacy alias."
+        "note": "The app self-calls the same handlers under /zquorum/_api/* (gateway keeps the prefix); /api/zquorum/* is the permanent legacy alias.",
+        "GET /zquorum/api/boot": "Auto-run status: circuit compiled, devnet up, ZQuorum deployed, console built (runs on every server start)"
     },
     "safety": "Devnet by default: no real funds. Secrets are verified by executing the Cairo circuit and are never persisted; the ledger and the contract store commitments, nullifiers and choices only. deploy/devnet and anchoring on sepolia/mainnet are loopback-only. route=true links the module onto the gateway at {host}/zquorum (app) and {host}/zquorum/api (API).",
     "schema": "QmaFb56VPQxEhvYdR1fhAsv3x4VCtL9WNdYEGjEfQeKSg3",
@@ -95,5 +97,7 @@
         "sepolia": "m zquorum/deploy network=sepolia account=<sncast account funded with STRK>",
         "mainnet": "m zquorum/deploy network=mainnet account=<sncast account funded with STRK>"
     },
-    "devnet_port": 51302
+    "devnet_port": 51302,
+    "autorun": "server.py runs boot() on start (circuit build if stale, devnet :51302, ZQuorum deploy on devnet, console build if dist/ missing); pm2 'zquorum' -> src/server.py (autorestart, saved in the pm2 dump that pm2-root restores on reboot)",
+    "layout": "src/ = code (mod.py, server.py, build.sh, app/, circuit/, contract/, tests/); root = config.json, README.md, data/"
 }

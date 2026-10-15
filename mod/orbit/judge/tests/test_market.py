@@ -218,3 +218,34 @@ def test_installed_judge_actually_votes(book, shop):
     shop.install(d['id'], 'pr', 'alice')
     v = book.judge('pr', 'a long enough sentence containing a banned word')
     assert v['average'] == 75 and v['approved']
+
+
+# ── try one judge spec without a panel ──────────────────────────
+
+def test_score_tries_a_spec_without_a_panel(book):
+    r = book.score({'kind': 'rule', 'forbid': ['TODO']}, 'ship it, no loose ends')
+    assert r == {'name': 'try', 'kind': 'rule', 'score': 100.0,
+                 'reason': 'all rules pass'}
+    r = book.score({'name': 'clean', 'kind': 'rule', 'forbid': ['TODO']},
+                   'TODO: later')
+    assert r['name'] == 'clean' and r['score'] == 50.0
+    assert book.stats()['verdicts'] == 0  # nothing recorded
+    assert not book.list()                # no panel created
+
+
+def test_score_agent_spec(book, agent_api):
+    agent_api.payload = {'result': [
+        {'tool': 'finish', 'params': {'summary': '{"score": 77, "reason": "fine"}'}}]}
+    r = book.score(_agent_judge(agent_api), 'some input')
+    assert r['score'] == 77.0 and r['reason'] == 'fine' and r['name'] == 'bot'
+
+
+def test_score_validates_and_fails_closed(book):
+    assert 'error' in book.score({'kind': 'llm'}, 'x')         # needs a prompt
+    assert 'error' in book.score({'kind': 'rule'}, '')         # nothing to score
+    assert 'error' in book.score('not json', 'x')
+    assert 'error' in book.score({'kind': 'panel', 'panel': 'nope'}, 'x')
+    # an agent judge that cannot be reached is an error, not a score
+    r = book.score({'kind': 'agent', 'agent_type': 'default', 'prompt': 'p',
+                    'url': 'http://127.0.0.1:1/run', 'timeout': 1}, 'x')
+    assert 'error' in r and 'score' not in r

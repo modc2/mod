@@ -12,13 +12,22 @@ Read-only except the feed list. No credentials anywhere.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import sys
 import traceback
 from typing import Any, Callable, Dict, Optional
 
 from . import cache, engine, sources, store
 
-SERVER_INFO = {'name': 'news', 'title': 'News', 'version': '0.1.0'}
+def _version() -> str:
+    """config.json is the one place the version lives; the app's pill reads it from /health."""
+    try:
+        return json.loads((Path(__file__).resolve().parents[1] / 'config.json').read_text()).get('version', '0')
+    except Exception:
+        return '0'
+
+
+SERVER_INFO = {'name': 'news', 'title': 'News', 'version': _version()}
 PROTOCOL_VERSION = '2025-06-18'
 SUPPORTED = ('2025-06-18', '2025-03-26', '2024-11-05')
 INSTRUCTIONS = (

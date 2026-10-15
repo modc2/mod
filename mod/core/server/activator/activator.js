@@ -97,8 +97,21 @@ function saveOverrides() {
   } catch (e) { log("saveOverrides error", e.message); }
 }
 loadOverrides();
-const isDisabled = (m) => overrides.disabled.includes(m);
-const isPinned = (m) => PIN.has(m) || overrides.pinned.includes(m);
+// config.json `"always_on": true` = the module itself demands to be up. It beats
+// overrides.json in both directions: treated as pinned, and a `disabled` entry
+// for it is IGNORED (warned once) — a stray agent edit to overrides.json or an
+// `actl disable` must never be able to take it down (polymarket runs live money).
+const isAlwaysOn = (m) => !!(REGISTRY[m] && REGISTRY[m].alwaysOn);
+const warnedDisabled = new Set();
+const isDisabled = (m) => {
+  if (!overrides.disabled.includes(m)) return false;
+  if (isAlwaysOn(m)) {
+    if (!warnedDisabled.has(m)) { warnedDisabled.add(m); log(`always_on ${m}: ignoring 'disabled' in overrides.json`); }
+    return false;
+  }
+  return true;
+};
+const isPinned = (m) => PIN.has(m) || isAlwaysOn(m) || overrides.pinned.includes(m);
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -119,7 +132,7 @@ function buildRegistry() {
       try { cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8")); } catch { continue; }
       const apiPort = portOf(cfg, ["port", "api_port"], cfg.urls && cfg.urls.api);
       const appPort = portOf(cfg, ["app_port"], cfg.urls && cfg.urls.app);
-      if (apiPort || appPort) reg[name] = { dir, apiPort, appPort };
+      if (apiPort || appPort) reg[name] = { dir, apiPort, appPort, alwaysOn: cfg.always_on === true };
     }
   }
   return reg;
@@ -380,6 +393,7 @@ function rebuildUpgrade(req, path) {
 // being thrashed by every sweep (5s apart under a short idle timeout).
 const REVIVE_MIN_MS = 30 * 1000;
 const REVIVE_MAX_MS = 15 * 60 * 1000;
+const REVIVE_MAX_ALWAYS_MS = 60 * 1000; // always_on mods never back off past a minute
 const reviving = {}; // module → { next, delay }
 
 async function revivePinned(mod, info) {
@@ -393,7 +407,8 @@ async function revivePinned(mod, info) {
   log(`pinned ${mod}: ${down.map((p) => `${p.name}=${p.status}`).join(", ")} → restarting`);
   for (const p of down) await pm2("restart", p.name);
   lastAccess[mod] = now();
-  reviving[mod] = { next: now() + st.delay, delay: Math.min(REVIVE_MAX_MS, st.delay * 2) };
+  const cap = isAlwaysOn(mod) ? REVIVE_MAX_ALWAYS_MS : REVIVE_MAX_MS;
+  reviving[mod] = { next: now() + Math.min(cap, st.delay), delay: Math.min(cap, st.delay * 2) };
 }
 
 // ── idle sweep ──────────────────────────────────────────────────────────────
@@ -457,7 +472,7 @@ async function buildState() {
       module: mod,
       apiPort: info.apiPort, appPort: info.appPort,
       running: apiUp || appUp, apiUp, appUp,
-      disabled: isDisabled(mod), pinned: isPinned(mod), pinnedByEnv: PIN.has(mod),
+      disabled: isDisabled(mod), pinned: isPinned(mod), pinnedByEnv: PIN.has(mod), alwaysOn: isAlwaysOn(mod),
       idleSeconds: Math.round((now() - (lastAccess[mod] || 0)) / 1000),
     });
   }
@@ -526,6 +541,9 @@ async function handleControl(req, res) {
       if (!mod || !REGISTRY[mod]) return send(404, { error: `unknown module '${mod}'` });
       if (MANAGED.size && !MANAGED.has(mod)) return send(400, { error: `${mod} is not activator-managed` });
       const port = REGISTRY[mod].appPort || REGISTRY[mod].apiPort;
+      if (isAlwaysOn(mod) && (action === "disable" || action === "sleep" || action === "unpin")) {
+        return send(409, { error: `${mod} is always_on in its config.json — remove that flag to ${action} it` });
+      }
       switch (action) {
         case "disable": // off, and stays off
           setMembership(overrides.disabled, mod, true);

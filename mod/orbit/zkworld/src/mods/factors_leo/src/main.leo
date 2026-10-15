@@ -1,0 +1,12 @@
+// FactorsLeo: prove you know a and b with a * b == c. c is public, a and b are
+// private (Leo's default), and neither may be 1.
+program factors_leo.aleo {
+    @noupgrade
+    constructor() {}
+
+    fn main(a: field, b: field, public c: field) {
+        assert_neq(a, 1field);
+        assert_neq(b, 1field);
+        assert_eq(a * b, c);
+    }
+}

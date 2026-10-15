@@ -1,0 +1,38 @@
+{
+    "name": "halo2",
+    "title": "halo2 \u00b7 zkworld",
+    "description": "The halo2 framework as a running submod of zkworld: its toolchain, starters and every halo2 project here. PLONKish circuits in Rust (zcash halo2_proofs): columns, gates, regions. The starter's binary is the runner and checks the circuit with MockProver; `cargo test` runs the native tests.",
+    "version": "0.2.0",
+    "submod_of": "zkworld",
+    "kind": "framework",
+    "framework_id": "halo2",
+    "anchor": "mod.py",
+    "server": "../../api/fwserver.py",
+    "port": 51359,
+    "host": "127.0.0.1",
+    "route": "/zkworld/halo2/",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "toolchain",
+        "templates",
+        "projects",
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean",
+        "abi",
+        "witness",
+        "serve",
+        "kill"
+    ],
+    "write_fns": [
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean"
+    ]
+}

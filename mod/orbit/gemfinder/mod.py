@@ -17,7 +17,8 @@ CLI:
     m gemfinder/scan fresh=1                    # skip the 10-min scan cache
     m gemfinder/narratives                      # which themes are hot right now
     m gemfinder/history                         # past scans (price at scan time)
-    m gemfinder/serve                           # REST on :51320 (pm2 `gemfinder`)
+    m gemfinder/docs                            # docs for agents: MCP tools, REST routes, how to read a gem
+    m gemfinder/serve                           # REST + MCP (POST /mcp) on :51320 (pm2 `gemfinder`)
     m gemfinder/status | m gemfinder/kill | m gemfinder/test
 """
 import json
@@ -107,6 +108,11 @@ class Mod:
 
     def sources(self) -> dict:
         return source_list()
+
+    def docs(self) -> dict:
+        """Docs for agents: how to read a gem, every MCP tool, every REST route, connect commands."""
+        from gemscan.server import agent_docs
+        return agent_docs()
 
     def clear_cache(self) -> dict:
         """Drop both the scan cache (in-process, 10 min) and the raw HTTP body cache (SQLite)."""

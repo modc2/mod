@@ -9,6 +9,14 @@ gemscan.server — REST on one port, stdlib only.
     GET /review?n=12    past picks priced now vs then (did they go up?)
     GET /sources
     GET /cache          scan-cache state;  DELETE /cache  (or GET /cache/clear) drops it
+    GET /docs           docs for agents: how to read a gem, every MCP tool, every REST route
+    POST /mcp           MCP (streamable HTTP, JSON responses) — gem_scan, gem_find, gem_review, ...
+    GET /whoami         who the Authorization: Bearer <mod-protocol token> is
+    GET /auth/local     loopback only: mint a token with the box's own mod key
+
+Sign-in (identity.py): a browser wallet mints the token in the page; the box
+itself gets one from /auth/local. Every scan stays public — the one gated
+write is DELETE /cache (box or owner).
 
 Scans are cached in-process (SCAN_TTL, default 10 min) and a warmer refreshes
 the asset=all base on boot and every TTL, so the app opens from cache in
@@ -29,7 +37,8 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import engine, http, narratives, semantic, sources
+from . import engine, http, identity, narratives, semantic, sources
+from .mcp_server import INSTRUCTIONS, handle_message, tool_list
 
 PREFIXES = ('/gemfinder/api', '/gemfinder', '/api')
 APP = Path(__file__).resolve().parent.parent / 'app' / 'index.html'
@@ -52,6 +61,48 @@ def source_list() -> dict:
     out.update({n: {'asset': s['asset'], 'theme': True, 'docs': (s['fn'].__doc__ or '').strip()}
                 for n, s in sources.THEME_SOURCES.items()})
     return out
+
+
+def agent_docs() -> dict:
+    """GET /docs — the whole surface, written for an agent deciding what to call."""
+    return {
+        'module': 'gemfinder',
+        'what': INSTRUCTIONS,
+        'reading_a_gem': {
+            'score': 'attention 0-100 = attention(30) + velocity(20) + narrative(25) + momentum(15) + size(10) '
+                     '- penalties; `parts` has the breakdown, `why` the reasons in words',
+            'upside': 'score x theme-fit x room-to-run — the sort key for "most likely to go up"; '
+                      'hard flags cut it',
+            'fit': '0-1, how well the gem matches the typed theme (words + semantic); 1 when no theme',
+            'flags': 'risk, not color: thin liquidity, no pool, FDV>>liquidity, pair <24h old, '
+                     'sell pressure, already vertical, penny stock. Never ignore them.',
+            'pick': 'the single gem the scan calls most likely to go up; null when nothing qualifies',
+            'honesty': 'this measures attention, not value. Most narrative pumps round-trip; many '
+                       'micro-cap DEX tokens are rugs. Use /review for how past picks actually did.',
+        },
+        'mcp': {
+            'http': {'endpoint': '/mcp', 'transport': 'streamable HTTP, JSON responses (no SSE)',
+                     'add': 'claude mcp add --transport http gemfinder http://localhost:51320/mcp'},
+            'stdio': {'cmd': 'python3 -m gemscan.mcp_server (cwd = the gemfinder module dir)',
+                      'add': 'claude mcp add gemfinder -- python3 -m gemscan.mcp_server'},
+            'tools': tool_list(),
+        },
+        'rest': {
+            'GET /scan': 'asset=all|crypto|stock & k & q=<any theme> & narrative & min_score & '
+                         'sort=upside|score & fresh=1 — same result the app renders',
+            'GET /narratives': 'heat 0-100 per built-in narrative with raw drivers',
+            'GET /review': 'n=12 — past picks priced now vs when listed (hit rate, median return)',
+            'GET /history': 'n=10 — past scans with prices at scan time',
+            'GET /sources': 'the feeds and what each contributes',
+            'GET /health': 'liveness + cache + semantic state',
+            'GET /cache': 'scan-cache keys with ages; DELETE /cache clears (box or owner only)',
+            'GET /docs': 'this document',
+            'POST /mcp': 'MCP JSON-RPC (initialize, tools/list, tools/call)',
+        },
+        'conventions': 'paths also answer under /gemfinder and /gemfinder/api; errors are 4xx JSON '
+                       '{error}; scans cached ~10 min (fresh=1 re-hits every feed, 10-30s); all reads '
+                       'are public and keyless',
+    }
 
 
 def warm(interval: int = None) -> threading.Thread:
@@ -97,8 +148,38 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self._send(204, {})
 
+    def _is_box(self) -> bool:
+        """The box itself: a loopback client that no proxy forwarded for."""
+        return (self.client_address[0] in ('127.0.0.1', '::1')
+                and not self.headers.get('X-Forwarded-For')
+                and not self.headers.get('X-Real-IP'))
+
+    def _caller(self):
+        """Lowercase signer address of the bearer token, or None (anon)."""
+        return identity.whoami(self.headers.get('Authorization', ''))
+
+    def do_POST(self):
+        if route(urllib.parse.urlparse(self.path).path).rstrip('/') != '/mcp':
+            return self._send(404, {'error': 'no route'})
+        try:
+            raw = self.rfile.read(int(self.headers.get('Content-Length', 0) or 0))
+            msg = json.loads(raw)
+        except (ValueError, json.JSONDecodeError):
+            return self._send(400, {'jsonrpc': '2.0', 'id': None,
+                                    'error': {'code': -32700, 'message': 'parse error'}})
+        resp = handle_message(msg)
+        return self._send(202, {}) if resp is None else self._send(200, resp)
+
     def do_DELETE(self):
         if route(urllib.parse.urlparse(self.path).path).rstrip('/') == '/cache':
+            try:
+                addr = self._caller()
+            except identity.AuthError as e:
+                return self._send(401, {'error': str(e)})
+            box = identity.box_address()
+            if not (self._is_box() or (addr and addr == box)):
+                return self._send(401, {'error': 'clearing the cache is for the box or its owner: '
+                                                 'sign in (wallet or /auth/local) first'})
             return self._send(200, engine.clear_scan_cache())
         self._send(404, {'error': 'no route'})
 
@@ -131,6 +212,28 @@ class Handler(BaseHTTPRequestHandler):
                 body = engine.history(int(q.get('n', 10)))
             elif path == '/sources':
                 body = source_list()
+            elif path == '/docs':
+                body = agent_docs()
+            elif path == '/mcp':
+                return self._send(405, {'error': 'POST JSON-RPC to /mcp; no SSE stream is offered'})
+            elif path == '/whoami':
+                try:
+                    addr = self._caller()
+                except identity.AuthError as e:
+                    return self._send(401, {'error': str(e), 'address': None})
+                box = identity.box_address()
+                body = {'address': addr, 'signed': bool(addr),
+                        'owner': bool(addr) and addr == box,
+                        'auth': identity.status()}
+            elif path == '/auth/local':
+                if not self._is_box():
+                    return self._send(403, {'error': 'local sign-in is for the box itself '
+                                                     '(loopback): connect a browser wallet instead'})
+                try:
+                    token = identity.local_token()
+                except identity.AuthError as e:
+                    return self._send(424, {'error': str(e)})
+                body = {'token': token, 'address': identity.box_address(), 'owner': True}
             else:
                 return self._send(404, {'error': f'no route {u.path}'})
             self._send(200, body)

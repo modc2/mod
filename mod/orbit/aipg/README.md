@@ -47,16 +47,47 @@ a worker is currently holding the weights, which only the roster and
 them into one row that answers the two questions a caller actually has: *can I
 use this, and what will it cost.*
 
-The join is **case-insensitive on purpose**: the grid writes
-`FLUX.2 Klein 4B FP8` in the roster and `flux.2 klein 4b fp8` in the price book.
-An exact-match join silently loses every media price.
+The join resolves a name the way the price book itself does, and every row
+says which rule priced it (`price_source`):
+
+1. **`book`** — the name, **case-insensitively**: the grid writes
+   `FLUX.2 Klein 4B FP8` in the roster and `flux.2 klein 4b fp8` in the book.
+2. **`alias:<target>`** — the book's `aliases` map roster names to billed names
+   (`deepseek-v4-flash-nvfp4` → `deepseek-v4-flash`, `LTX Director 2.0` and
+   `LTX-2.3 Audio` → `ltx-2.3`).
+3. **`roster`** — the rate `/v1/status/models` carries inline on some rows.
+4. **`default`** — text only: the book's `default_text`, what the grid bills an
+   unlisted text model at. Media never inherits it.
+
+Anything else comes back unpriced (`price: {}`, `price_source: null`) rather
+than guessed at. `m aipg/pricing` returns the whole book — schema, version,
+aliases, `default_text`, the availability note and `comparison_evidence` —
+and `m aipg/price_book` returns the upstream payload verbatim.
 
 ## Design decisions, and why
 
-**No port, no service.** The module is a `Mod` class and nothing else. Its
-functions are already reachable as `/aipg/api` through the protocol's own API,
-so declaring a port would reserve fleet infrastructure that nothing listens on.
-If a console is ever wanted, that is the moment to allocate one — not before.
+**Its own protocol server on :50147.** The generic core gate only knows one
+fleet-wide public fn list, which refuses every read here — so the module owns
+its `serve()` (stdlib `http.server`; core/server hands off to it, so the
+existing `m.serve('aipg')` pm2 entry runs it unchanged). Same wire as
+core/server: `POST /{fn}` with a JSON object of params → `{"result": ...}`,
+errors as 4xx `{"error": ...}`. `GET /{fn}?k=v` works too. The fn may sit
+behind any prefix the fleet uses: `/`, `/mod/aipg/`, `/aipg/api/`,
+`/api/aipg/`.
+
+- `public_fns` in config.json are open to anyone who can reach the port.
+- Everything else — `credits`, `chat`, `ask`, media, `set_key` — answers only a
+  **direct loopback caller with no proxy headers**: the operator on this box.
+  A request relayed by caddy is the internet, and is refused with 403.
+- `key` and `serve` are never callable over HTTP.
+
+```
+curl localhost:50147/pricing?model=gpt-oss-120b
+curl -XPOST localhost:50147/estimate -d '{"model":"ltx-2.3","seconds":10}'
+```
+
+`"route": true` is set, but the module is marked private in build, and private
+modules are not routed — `{host}/aipg/api` goes live when it is made public.
 
 **The key lives in `~/.mod/aipg/key.json`, mode `0600`.** It is a bearer
 credential that spends real money, so it is written with
@@ -84,7 +115,7 @@ return values.
 
 | function | needs a key | upstream |
 |---|---|---|
-| `grid` `models` `roster` `workers` `pricing` `openai_models` `estimate` `test` | no | `/v1/status/models`, `/v1/workers`, `/v1/pricing`, `/v1/models` |
+| `grid` `models` `roster` `workers` `pricing` `price_book` `openai_models` `estimate` `test` | no | `/v1/status/models`, `/v1/workers`, `/v1/pricing`, `/v1/models` |
 | `ask` `chat` `image` `video` `audio` `credits` | yes | `/v1/chat/completions`, `/v1/{images,videos,audio}/generations`, `/v1/account/credits` |
 
 Keys come from [console.aipowergrid.io](https://console.aipowergrid.io).

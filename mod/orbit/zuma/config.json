@@ -7,7 +7,7 @@
     "color": "#14b8a6",
     "anchor": "mod.py",
     "network": "starknet",
-    "route": false,
+    "route": true,
     "protocol": {
         "scheme": "LSAG (Liu-Wei-Wong) over the STARK curve, Poseidon challenges, key image I = x * Hp(scope)",
         "miner_tag": "key image under scope H('zuma-mine', subnet, epoch): one submission per miner per epoch, unlinkable across epochs",
@@ -65,7 +65,8 @@
     "schema": "QmYw9Ef8aUdrbe2AqYUvRsDFvQUSm7QHWaefx2n3Q64Z1J",
     "urls": {
         "app": "http://localhost:50121/zuma/",
-        "api": "http://localhost:50121/zuma/api"
+        "api": "http://localhost:50121/zuma/api",
+        "same_origin_api": "http://localhost:50121/zuma/_api"
     },
     "port": 50121,
     "app_port": 50121,

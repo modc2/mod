@@ -24,6 +24,9 @@ Usage:
   m.fn('bloctime/market')()                      # browse deployed instances
   m.fn('bloctime/register_instance')(name='x', rpc='...', bloctime='0x...')
   m.fn('bloctime/bridge')(fn='in_snapshot', address='...')
+  m.fn('bloctime/shadow')()                      # PRIVATE pool (Cairo ShadowBloc on a Starknet devnet)
+  m.fn('bloctime/shadow')(fn='notes')            # the public ledger: notes + one-time keys, no owners
+  m.fn('bloctime/shadow_test')()                 # snforge suite for cairo/
 """
 
 import json
@@ -600,6 +603,36 @@ class Mod:
             return resp.json()
         except Exception as e:
             return {'error': f'bridge module unreachable: {e}'}
+
+    # ── ShadowBloc: private staking in Cairo (cairo/ + api/shadow.py) ──
+
+    def _shadow_lib(self):
+        # load by path: a bare `import shadow` could resolve to another module
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('bloctime_shadow', DIR / 'api' / 'shadow.py')
+        lib = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lib)
+        return lib
+
+    def shadow(self, fn='info', **kwargs):
+        """Private pool ops: info | notes | note(id) | balance(address) |
+        deploy(force) | devnet(action) | distribute | fund_pot(amount_nat) |
+        warp(to). Stake/claim/unstake/rekey need browser-held keys, so they
+        go through the PRIVATE tab (or POST /shadow/*), not here."""
+        allowed = {'info', 'notes', 'note', 'balance', 'deploy', 'devnet',
+                   'distribute', 'fund_pot', 'warp', 'message_hash'}
+        if fn not in allowed:
+            return {'error': f'fn must be one of {sorted(allowed)}'}
+        return getattr(self._shadow_lib(), fn)(**kwargs)
+
+    def shadow_test(self):
+        """snforge test for the ShadowBloc Cairo package."""
+        env = dict(os.environ)
+        env['PATH'] = os.path.expanduser('~/.local/bin') + os.pathsep + env.get('PATH', '')
+        r = subprocess.run(['snforge', 'test'], cwd=str(DIR / 'cairo'), capture_output=True,
+                           text=True, timeout=900, env=env)
+        lines = [l for l in r.stdout.splitlines() if l.startswith(('[PASS]', '[FAIL]', 'Tests:'))]
+        return {'ok': r.returncode == 0, 'results': lines}
 
     def app(self, fn='info', **kwargs):
         """The BlocTime app submodule — see app/mod.py (m bloctime.app)."""

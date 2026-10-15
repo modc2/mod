@@ -1,0 +1,24 @@
+{
+  "id": "counter",
+  "title": "Counter",
+  "blurb": "The smallest real contract: one number in storage, a view that reads it, two changes that move it, an owner-only reset, and a log line per change. Every NEAR contract is this shape, just bigger.",
+  "level": "start here",
+  "init": {"method": "new", "args": {}},
+  "cairo_twin": "counter",
+  "steps": [
+    "Press Build: cargo compiles src/lib.rs to a .wasm file.",
+    "Press Test: the unit tests run in a fake NEAR runtime, no chain needed.",
+    "Press Ship: the .wasm lands on your testnet account (the account IS the contract).",
+    "Open the CALL tab: VIEW get, then CHANGE increment, then VIEW get again."
+  ],
+  "walkthrough": [
+    {"find": "#[near(contract_state)]", "say": "This struct IS the contract's storage. NEAR serializes it with borsh and keeps it under the account. Whatever fields you put here persist between calls."},
+    {"find": "#[init]", "say": "The constructor. It runs once, in the same transaction as the deploy if you batch it (the workshop does). After that, calling it again fails: state already exists."},
+    {"find": "pub fn get(&self)", "say": "&self = a VIEW method. Free to call, no key, no gas for the caller, cannot change storage. The CALL tab's VIEW mode talks to these."},
+    {"find": "pub fn increment(&mut self)", "say": "&mut self = a CHANGE method. Needs a signed transaction and gas. The SDK writes the new state back when the method returns."},
+    {"find": "env::predecessor_account_id()", "say": "Who is calling. On NEAR this is the account that sent the call, which is how a contract knows its owner. There is no msg.sender; this is it."},
+    {"find": "require!", "say": "The contract's way of saying no. If the condition is false the whole call reverts and the message becomes the error the caller sees."},
+    {"find": "EVENT_JSON:", "say": "An event on NEAR is just a log line with this prefix (NEP-297). Indexers and the TX tab pick it up. Nothing is stored; it is a receipt."},
+    {"find": "testing_env!", "say": "Unit tests build a fake runtime: you choose who the caller is and what they attached, then call the methods like plain Rust. Runs in a second, no chain."}
+  ]
+}

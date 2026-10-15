@@ -249,6 +249,38 @@ export const SECTIONS: PaperSection[] = [
     pull: "Verification from the city's own servers. Override written into the contract. " +
       "City-owned rent-to-own is the city taking the bank seat.",
   },
+  {
+    no: "11",
+    slug: "the-proof",
+    kicker: "The Proof",
+    title: "Prove the rent was paid. Say nothing else.",
+    body: [
+      "A bank is the one party that sees a rent payment whole: who paid, from which account, " +
+        "how much, when. Everyone else — the landlord, a co-owner in the trust, a city with a " +
+        "seat, the chain itself — needs exactly one bit: was the rent for this home, this month, " +
+        "paid? Today that bit travels with the whole statement attached. OpenHouse separates them.",
+      "The bank runs a small Cairo program over the private facts. Out come six public numbers: " +
+        "the statement version, the property, the period, the rent that was due, a commitment " +
+        "and a nullifier. The commitment is a hash of the tenant and a salt only the tenant and " +
+        "the bank hold, so it opens to the tenant and to no one else. The nullifier binds that " +
+        "commitment to one property and one month, so the same proof can never be booked twice. " +
+        "The program refuses to run on a short payment — an under-payment has no proof; it is " +
+        "not a proof of 'less'.",
+      "On-chain verifiers hold a fact: a hash of the program and its outputs, the same shape " +
+        "StarkWare's shared prover publishes. A NEAR contract, compiled to WebAssembly, checks the " +
+        "bank's ed25519 signature over that fact; an Ethereum contract checks the ECDSA one — and " +
+        "has a second door for a STARK fact registry, so when the bank's attestation becomes a " +
+        "proof nothing on-chain changes but who vouched. Both pin the program hash, require the " +
+        "attested rent due to cover the property's, burn the nullifier, and store nothing about " +
+        "a person.",
+      "The tenant keeps the key. Hand the salt to a landlord, a lender, a housing court — the " +
+        "commitment either matches or it doesn't, and that is the whole disclosure. A decade of " +
+        "paid rent becomes a decade of receipts under a pseudonym the tenant alone can claim: a " +
+        "credit history that cannot be sold, scraped or subpoenaed out of a database, because " +
+        "the database was never built.",
+    ],
+    pull: "The chain learns that the rent was paid. The bank keeps who. The tenant keeps the key.",
+  },
 ]
 
 /** One section plus the two either side of it — everything a section page needs. */

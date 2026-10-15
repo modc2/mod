@@ -18,6 +18,7 @@ import { API_BASE } from "../../lib/polymarket";
 import { AGENT_MODEL, digJson, runClaude } from "../../lib/server/agentCli";
 import { CONSOLE_MAP } from "../../lib/server/consoleMap";
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
+import { agentOff } from "../../lib/server/agentMods";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -133,6 +134,8 @@ export async function POST(req: Request) {
   const token = bearer(req);
   const owner = verifyOwnerToken(token);
   if (!token || !owner) return deny();
+  const off = agentOff("help");
+  if (off) return off;
 
   let body: HelpRequest;
   try {

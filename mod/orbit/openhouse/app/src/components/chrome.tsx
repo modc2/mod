@@ -21,6 +21,7 @@ export const ROUTES = [
   { href: '/split',     label: 'The Split', blurb: 'Where every dollar lands — and the dial that tilts it your way' },
   { href: '/simulator', label: 'Simulator', blurb: 'Scrub ten years in ten seconds and watch rent turn into walls' },
   { href: '/testnet',   label: 'Testnet',   blurb: 'Run the walkthroughs — rent, any bank, a city — in a sandbox' },
+  { href: '/proofs',    label: 'Proofs',    blurb: 'Prove the rent was paid — without saying who paid it' },
   { href: '/invest',    label: 'Invest',    blurb: 'The building, the float, and how to take your seat at the table' },
   { href: '/paper',     label: 'Whitepaper', blurb: 'The whole revolution in six stops, one page each' },
   { href: '/landscape', label: 'Landscape', blurb: 'Every other on-chain housing project, honestly scored' },

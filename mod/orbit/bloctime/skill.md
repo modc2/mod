@@ -109,6 +109,27 @@ m bloctime.app/kill
 
 The app serves under basePath `/bloctime` → http://localhost:8852/bloctime.
 
+## Private staking — ShadowBloc (Cairo)
+
+`cairo/` = Scarb pkg `shadowbloc` (scarb 2.8.4, snforge 0.31): `ShadowBloc` + `PaperToken`.
+A stake is a NOTE owned by a one-time Stark public key (made in the browser), never an address.
+claim / unstake / rekey = ECDSA sig over `poseidon('bloctime.shadow.v1', contract, action, id, nonce, arg)`,
+arg = recipient (claim/unstake) or new key (rekey); any account may submit (relayer).
+Fixed menus: denoms 10/100/1k/10k NAT x tiers 1d/1w/30d/1y/4y/8y; BLOC = $ x seconds; weekly pot after Fri 17:00 UTC.
+
+Server: `api/shadow.py` runs starknet-devnet on :8853 (state ~/.mod/bloctime/shadow/), deploys on first use, relays writes via sncast.
+
+```
+GET  /shadow                 # deployment, menus, quotes, bucket sizes, stats
+GET  /shadow/notes           # public ledger (no owners)
+POST /shadow/stake           {key, denom, tier}          # relayer pays; 12/h per IP
+POST /shadow/claim|unstake   {id, arg: recipient, r, s}
+POST /shadow/rekey           {id, arg: new_key, r, s}
+POST /shadow/distribute      # permissionless weekly sweep
+POST /shadow/fund_pot|warp   # owner token (devnet)
+```
+CLI: `m bloctime/shadow fn=info|notes|...`, `m bloctime/shadow_test`. UI: PRIVATE tab (app/src/app/Private.tsx).
+
 ## API Endpoints
 
 | Method | Path | Description |

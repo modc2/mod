@@ -1,0 +1,146 @@
+/* polish pass (2026-10-15) — the chrome around every page.
+ *
+ * Top bar = ⌘K jump search · τ/$ segment · theme · skin · ONE wallet button
+ * (the three wallet chips + ↺ ✕ are gone; refresh/copy/disconnect live in the
+ * popover). Rail = line icons instead of dots. Sparks get an area fill.
+ * Loaded after the feature sheets, before globals.css.
+ */
+
+/* ---------------------------------------------------------------- top bar */
+.nav-inner { max-width: none; padding: 0 24px 0 28px; gap: 6px; }
+.nav-inner .grow { flex: 1; }
+.nav-logo .rb-mark { width: 26px; height: 26px; font-size: 14px; }
+
+.jump { position: relative; flex: 0 1 440px; min-width: 0; }
+.jump input {
+  width: 100%; height: 34px; padding: 0 44px 0 34px; border-radius: 9px;
+  border: 1px solid var(--line); background: color-mix(in srgb, var(--raise) 70%, transparent);
+  color: var(--ink); font: 13px var(--sans); transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.jump input::placeholder { color: var(--ink3); }
+.jump input:hover { border-color: var(--line2); }
+.jump input:focus { outline: none; background: var(--card); border-color: color-mix(in srgb, var(--accent) 55%, var(--line2));
+  box-shadow: 0 0 0 3px var(--accent-soft); }
+.jump-ic { position: absolute; left: 11px; top: 10px; width: 14px; height: 14px; fill: none; stroke: var(--ink3);
+  stroke-width: 1.6; stroke-linecap: round; pointer-events: none; }
+.jump-k { position: absolute; right: 8px; top: 8px; height: 18px; padding: 0 6px; border-radius: 5px;
+  font: 10.5px/18px var(--mono); color: var(--ink3); border: 1px solid var(--line); background: var(--card); pointer-events: none; }
+.jump-menu {
+  position: absolute; top: 40px; left: 0; right: 0; z-index: 70; padding: 6px;
+  background: var(--card); border: 1px solid var(--line2); border-radius: 12px;
+  box-shadow: var(--shadow-lg), var(--hl); animation: pop .14s ease-out both;
+}
+.jump-menu button {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 9px; border-radius: 8px;
+  border: none; background: transparent; color: var(--ink); cursor: pointer; text-align: left; font-size: 13px;
+}
+.jump-menu button.on { background: var(--raise); }
+.jump-menu .sn-logo, .jump-menu .sn-avatar { width: 22px; height: 22px; border-radius: 6px; font-size: 10px; }
+.jm-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.jm-n em { font-style: normal; font-weight: 400; margin-left: 8px; font: 11px var(--mono); color: var(--ink3); }
+.jm-p { font: 12px var(--mono); color: var(--ink2); }
+.jump-menu .up, .jump-menu .down, .jump-menu .muted { font: 12px var(--mono); min-width: 54px; text-align: right; }
+.jm-none { padding: 10px; font-size: 12.5px; color: var(--ink3); }
+
+/* τ | $ */
+#ccyBtn.ccyseg {
+  display: inline-flex; height: 32px; padding: 3px; gap: 2px; min-width: 0; margin-left: 0;
+  border-radius: 9px; border: 1px solid var(--line); background: var(--raise);
+}
+#ccyBtn.ccyseg:hover { background: var(--raise); }
+.ccyseg button {
+  width: 28px; border: none; border-radius: 6px; background: transparent; cursor: pointer;
+  font: 12.5px var(--mono); color: var(--ink3); transition: color .15s, background .15s;
+}
+.ccyseg button:hover { color: var(--ink); }
+.ccyseg button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow-sm), var(--hl); }
+
+#themeBtn { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 32px; }
+#themeBtn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+#skinBtn { color: var(--ink3); font-size: 10px; }
+
+/* the one wallet button */
+.wbtn {
+  display: inline-flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px 0 6px; margin-left: 6px;
+  border-radius: 11px; border: 1px solid var(--line2); background: var(--card); color: var(--ink);
+  cursor: pointer; box-shadow: var(--shadow-sm), var(--hl); flex: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.wbtn:hover, .wbtn.on { border-color: color-mix(in srgb, var(--accent) 45%, var(--line2)); }
+.wbtn.on { box-shadow: 0 0 0 3px var(--accent-soft); }
+.wbtn svg.ident { border-radius: 7px; }
+.wb-t { display: flex; flex-direction: column; line-height: 1.15; text-align: left; }
+.wb-t b { font-size: 12.5px; font-weight: 500; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-t i { font: normal 10.5px var(--mono); color: var(--ink3); }
+.wb-v { font: 12.5px var(--mono); color: var(--good); padding-left: 10px; border-left: 1px solid var(--line); }
+.wb-v.zero { color: var(--ink2); }
+.wb-c { width: 10px; height: 10px; fill: none; stroke: var(--ink3); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.wbtn.connect {
+  padding: 0 16px; font: 500 13px var(--sans);
+  background: var(--accent); color: var(--accent-ink); border-color: transparent;
+  box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 6px 20px -8px var(--accent);
+}
+.wbtn.connect:hover { filter: brightness(1.06); }
+
+.wpop { left: auto; right: 24px; width: min(380px, calc(100vw - 32px)); }
+.wme { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.wme svg.ident { border-radius: 10px; }
+.wme-t { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 2px; }
+.wme-t b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wme-a { border: none; background: none; padding: 0; cursor: pointer; text-align: left; font: 11.5px var(--mono); color: var(--ink3); white-space: pre; }
+.wme-a:hover { color: var(--accent); }
+.wme-v { flex: none; text-align: right; display: flex; flex-direction: column; gap: 2px; }
+.wme-v b { font: 600 15px var(--mono); color: var(--good); }
+.wme-v span { font: 10.5px var(--mono); color: var(--ink3); white-space: nowrap; }
+.wme-act { display: flex; gap: 6px; margin-top: 12px; }
+.wme-act .pill { height: 30px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; }
+.wme-act .pill:not(.primary):not(.ghost) { background: var(--raise); color: var(--ink); border-color: var(--line); }
+.wme-act .pill.ghost { margin-left: auto; color: var(--ink2); }
+
+@media (max-width: 899px) {
+  .nav-inner { padding: 0 12px; }
+  .nav-logo { display: inline-flex; margin-right: 2px; }
+  .wb-t, .wb-c, #skinBtn, .jump-k { display: none; }
+  .wb-v { border-left: none; padding-left: 0; }
+  .wpop { right: 12px; }
+}
+@media (max-width: 520px) { .jump input::placeholder { color: transparent; } }
+
+/* ------------------------------------------------------------------- rail */
+.rail a { gap: 11px; }
+.rail a svg.ri {
+  width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.45;
+  stroke-linecap: round; stroke-linejoin: round; color: var(--ink3); transition: color .15s;
+}
+.rail a:hover svg.ri { color: var(--ink2); }
+.rail a.active svg.ri { color: var(--accent); }
+.rail a.active { background: color-mix(in srgb, var(--accent) 8%, var(--raise)); }
+.rail-label { padding-top: 18px; font-size: 10px; letter-spacing: .12em; }
+.rail-wallet .rw.connect {
+  justify-content: flex-start; font-weight: 400; background: transparent; color: var(--ink);
+  border: 1px dashed var(--line2); box-shadow: none;
+}
+.rail-wallet .rw.connect:hover { opacity: 1; border-color: color-mix(in srgb, var(--accent) 55%, var(--line2)); background: var(--raise); }
+.rw-ph {
+  width: 26px; height: 26px; border-radius: 7px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--raise); color: var(--ink3); font-size: 13px; border: 1px solid var(--line);
+}
+
+/* ----------------------------------------------------------------- sparks */
+.spark { color: var(--ink3); }
+.spark.up { color: var(--good); }
+.spark.down { color: var(--bad); }
+.spark path.l { stroke: currentColor !important; stroke-width: 1.5; }
+.spark circle.e { fill: currentColor; }
+.spark.flat path.a { display: none; }
+
+/* ----------------------------------------------------------------- tables */
+.screener th { background: color-mix(in srgb, var(--card) 92%, var(--raise)); }
+.screener tbody tr:hover td:first-child, tr.trow:hover td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+.screener td:first-child { color: var(--ink3); }
+.sn-cell svg.ident { border-radius: 8px; }
+.sn-logo { width: 28px; height: 28px; border-radius: 8px; }
+.sn-sym { margin-top: 1px; }
+td.row-act .copybtn { opacity: 0; transition: opacity .12s, color .12s, border-color .12s; }
+tr:hover td.row-act .copybtn, td.row-act .copybtn:focus-visible, td.row-act .copybtn.sure { opacity: 1; }
+td.row-act .copybtn.sure { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }

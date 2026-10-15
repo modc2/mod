@@ -22,11 +22,14 @@ Fail-closed by design: a judge that errors doesn't vote, and if fewer than
 Two judge kinds:
 
 ```jsonc
-// an agent: scores against a criteria prompt via any OpenAI-compatible endpoint
+// an agent: a model scores the input 0-100 against a criteria prompt.
+// No url = the LFM weights on this box via the liquidai module (keyless,
+// default model LiquidAI/LFM2.5-1.2B-Instruct, ~30-60s a vote on CPU);
+// a url = any OpenAI-compatible chat endpoint.
 {"name": "clarity", "kind": "llm", "prompt": "Is the text clear and specific?",
- "model": "auto",                       // optional
- "url": "http://localhost:50600/v1/chat/completions",  // optional; this is the default (openrouter mod)
- "api_key_env": "OPENROUTER_KEY",       // optional env var holding a bearer key
+ "model": "LiquidAI/LFM2.5-1.2B-Instruct",  // optional; a repo id liquidai can load, or the endpoint's model
+ "url": "https://host/v1/chat/completions",  // optional; JUDGE_LLM_URL sets a fleet-wide default
+ "api_key_env": "OPENROUTER_KEY",       // optional env var holding a bearer key (url path only)
  "weight": 2}                           // optional, default 1
 
 // deterministic, offline: starts at 100, loses 50 per violated rule
@@ -57,6 +60,8 @@ HTTP (same functions): reads are GET, writes are POST JSON, at
 ```bash
 curl -s localhost:51150/panels
 curl -s -X POST localhost:51150/judge -d '{"panel":"pr","input":"..."}'
+# try one judge spec without a panel — its 0-100 score + reason, nothing recorded (trusted callers)
+curl -s -X POST localhost:51150/score -d '{"spec":{"kind":"llm","prompt":"is it clear?"},"input":"..."}'
 curl -s localhost:51150/verify?id=3          # re-check a verdict's signatures
 curl -s localhost:51150/key_kinds            # the key types judges are issued
 ```
@@ -84,14 +89,52 @@ store. These keys attest the integrity and provenance of this box's verdict
 log — the judges run in-process, so this is tamper-evidence, not a claim
 that judges are independent parties.
 
-## Trust model (v0.1)
+## Who is calling (v0.3): sign in with the mod protocol
 
-Panel mutation (`create_panel`, `update_panel`, `remove_panel`) is
-**loopback-only** over HTTP, and `update/remove` additionally require the
-stored `creator` string — the params of the multisig can only be changed from
-the box that hosts it. Anyone you share the console with can submit inputs
-for judgment and read verdicts. Signed mod-protocol tokens for remote
-creators are the natural next step, not in v0.1.
+Panel changes (`create_panel`, `update_panel`, `remove_panel`, `add_judge`,
+`install_judge`, `score`) need a caller who has said who they are. There are
+two doors, both in `identity.py` / `serve.py`:
+
+| standing | how | what it may do |
+|---|---|---|
+| **box** | loopback with no proxy header, or the box token (`~/.mod/judge/token`, sent as `X-Judge-Token`) | anything; `creator` passes through as given — the CLI path |
+| **signed** | a **mod-protocol token** as `Authorization: Bearer <token>` — `m.mod('auth')().token({})` on a box holding your key, or one `personal_sign` from a browser wallet (the console's *connect wallet*) | creates panels and publishes judges **as its address**: on every write `creator` / `author` is set to the signer, so update/remove/add_judge/install go through the panel's own creator check against that address |
+| anon | nothing | reads everything, submits inputs for judgment, browses the market |
+
+The token is verified by the fleet's one shared auth (`m.mod('auth')`), the
+same envelope every other module accepts, so a wallet, the `m` CLI and a peer
+module all arrive at one lowercase address. `GET /auth` (alias `/whoami`) says
+who the box thinks you are: `{role: box|signed|anon, address}`. Tokens are
+good for `JUDGE_TOKEN_MAX_AGE` seconds (default 7 days).
+
+```bash
+TOKEN=$(python3 -c "import mod as m; print(m.mod('auth')().token({'mod':'judge'}))")
+curl -s localhost:51150/whoami -H "Authorization: Bearer $TOKEN"
+curl -s -X POST localhost:51150/create_panel -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"pr","judges":[{"name":"clarity","kind":"llm","goal":"approve only clear, specific writing"}]}'
+# → creator = your address, whatever the body said
+```
+
+## A judge's goal, adding judges one at a time, and their keys
+
+Every judge takes an optional **`goal`** — one line on what this judge is
+judging *for*, set by the panel's creator (`"approve only PRs that keep the
+API backwards compatible"`). For `llm` and `agent` judges it is put before the
+model as `Goal: …` ahead of the criteria `prompt`, and either may stand alone
+(a goal is enough to seat an LLM judge). Rule and panel judges carry it as
+documentation; the console shows it under every judge.
+
+`POST /add_judge {name, creator, judge}` seats one more judge on an existing
+panel without resending the bench — the same checks as create time, and the
+quorum stays where it was. The console's **+ add judge** on each panel is
+this call.
+
+Every judge's keyring is public: `GET /judge_keys?panel=&judge=` (also inline
+in `/panel` and `/panels` as `judges[].keys`) returns, per key type, the
+public key, its fingerprint, the algorithm and whether it is
+quantum-resistant. The console shows the fingerprints under each judge; click
+one for the full public key and a copy button.
 
 ## State
 

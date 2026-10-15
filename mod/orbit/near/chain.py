@@ -16,6 +16,7 @@ import base64
 import json
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -94,6 +95,11 @@ KNOWN_CONTRACTS = {
 }
 CONTRACTS_TTL = float(os.environ.get('NEAR_CONTRACTS_TTL', 300))
 _contracts_cache = {}   # (network, extra ids) -> {'at': t, 'data': ...}
+# Stale-while-revalidate: once a cached answer is past its TTL it is still
+# served at once (marked stale) while ONE background thread re-probes the
+# chain — nobody waits on twenty view_account round trips to see the grid.
+_contracts_refreshing = set()
+_contracts_lock = threading.Lock()
 
 
 class NearError(Exception):
@@ -343,17 +349,20 @@ class Client:
         if not code:
             return {'account_id': account_id, 'is_contract': False,
                     'note': 'no contract deployed on this account'}
-        internal = {'__contract_abi', '__data_type'}
-        methods = [m for m in _wasm_exports(code)
-                   if m not in internal and not m.startswith('__')]
+        exports = _wasm_exports(code)
+        methods = [m for m in exports if not m.startswith('__')]
         self._note_contract(account_id, code_hash=r.get('hash'),
                             storage_bytes=None, balance_near=None,
                             methods=methods)
         return {'account_id': account_id, 'is_contract': True,
                 'code_hash': r.get('hash'), 'code_bytes': len(code),
                 'methods': methods, 'method_count': len(methods),
+                # cargo-near embeds a zstd'd near-abi document behind this export
+                'abi_embedded': '__contract_abi' in exports,
+                'source_metadata': 'contract_source_metadata' in exports,
                 'note': 'exported WASM functions — view or change is not marked '
-                        'on chain; try near_view, a change method will refuse'}
+                        'on chain; near_abi infers which is which, the args '
+                        'each takes, and reads the embedded ABI when there is one'}
 
     def contracts(self, extra=None, refresh=False):
         """The contracts that are ON: the curated directory for this network,
@@ -371,9 +380,37 @@ class Client:
                    for cid, label, cat in known if cid not in extra]
         key = (self.network, tuple(sorted(extra)))
         held = _contracts_cache.get(key)
-        if held and not refresh and time.time() - held['at'] < CONTRACTS_TTL:
-            return held['data']
+        if held and not refresh:
+            age = time.time() - held['at']
+            if age < CONTRACTS_TTL:
+                return held['data']
+            # Past its TTL: answer with what is held, say so, and re-probe
+            # behind the caller. The next request after the probe lands
+            # gets the fresh grid; until then `stale` tells the console
+            # to come back for it.
+            self._contracts_refresh_in_background(key, entries)
+            return dict(held['data'], stale=True, refreshing=True,
+                        age_s=int(age))
+        return self._contracts_probe(key, entries)
 
+    def _contracts_refresh_in_background(self, key, entries):
+        with _contracts_lock:
+            if key in _contracts_refreshing:
+                return
+            _contracts_refreshing.add(key)
+
+        def run():
+            try:
+                self._contracts_probe(key, entries)
+            except Exception:
+                pass
+            finally:
+                with _contracts_lock:
+                    _contracts_refreshing.discard(key)
+        threading.Thread(target=run, name='near-contracts-refresh',
+                         daemon=True).start()
+
+    def _contracts_probe(self, key, entries):
         def probe(entry):
             account_id, label, category, yours = entry
             row = {'account_id': account_id, 'label': label,
@@ -405,10 +442,12 @@ class Client:
         # A keystore account with no code is just an account — not a contract
         # that is off, so it only earns a card once something is deployed.
         rows = [r for r in rows if r.get('live') or not r.get('yours')]
+        now = time.time()
         data = {'network': self.network, 'count': len(rows),
                 'live': sum(1 for r in rows if r.get('live')),
                 'contracts': rows,
-                'checked': time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()),
+                'checked': time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(now)),
+                'checked_at': int(now),
                 'note': 'each entry verified against the chain — live means '
                         'code is deployed on that account right now'}
         try:
@@ -416,11 +455,34 @@ class Client:
             data['index'] = directory.get(self.network).status()
         except Exception:
             pass
-        _contracts_cache[key] = {'at': time.time(), 'data': data}
+        _contracts_cache[key] = {'at': now, 'data': data}
         return data
 
+    def view_raw(self, contract, method, args=None, raw=False):
+        """One call_function query, errors returned not raised:
+        (error_text|None, result). The RPC reports a contract panic as a
+        successful query with an `error` string in the result — a change
+        method called as a view, a missing argument, a deposit assertion —
+        and abi.py reads those strings to infer the interface. raw=True
+        hands back the bytes undecoded."""
+        blob = base64.b64encode(json.dumps(args or {}).encode()).decode()
+        r = self._query({'request_type': 'call_function',
+                         'account_id': str(contract).strip().lower(),
+                         'method_name': method, 'args_base64': blob})
+        if r.get('error'):
+            return str(r['error']), None
+        data = bytes(r.get('result') or [])
+        if raw:
+            return None, data
+        try:
+            return None, (json.loads(data) if data else None)
+        except Exception:
+            return None, {'raw_base64': base64.b64encode(data).decode()}
+
     def view(self, contract, method, args=None):
-        """Call a view function. args is a JSON object (or string of one)."""
+        """Call a view function. args is a JSON object (or string of one).
+        A contract panic — including a change method refusing to run as a
+        view — raises NearError with the panic text."""
         if isinstance(args, str) and args.strip():
             try:
                 args = json.loads(args)
@@ -430,6 +492,22 @@ class Client:
         r = self._query({'request_type': 'call_function',
                          'account_id': str(contract).strip().lower(),
                          'method_name': method, 'args_base64': blob})
+        if r.get('error'):
+            text = str(r['error'])
+            m = re.search(r'panic_msg: "(.*)" \}', text, re.S)
+            msg = (m.group(1) if m else text).replace('\\"', '"').replace('\\n', ' ')
+            if 'ProhibitedInView' in text:
+                hint = ' — a change method: it needs a signed call (near_call)'
+            elif 'missing field' in text:
+                hint = ' — a required argument is missing (near_abi lists them)'
+            elif 'MethodNotFound' in text:
+                hint = ' — no such method on this contract'
+            else:
+                hint = ''
+            raise NearError(f'{method} panicked: {msg[:300]}{hint}', status=422,
+                            detail={'contract': contract, 'method': method,
+                                    'args': args or {}, 'logs': r.get('logs') or [],
+                                    'error': text})
         raw = bytes(r.get('result') or [])
         try:
             result = json.loads(raw) if raw else None

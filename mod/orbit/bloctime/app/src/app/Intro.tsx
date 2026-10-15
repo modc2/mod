@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import {
   LockClosedIcon, SparklesIcon, GiftIcon, DocumentTextIcon, ChatBubbleLeftRightIcon,
-  ExclamationTriangleIcon, RocketLaunchIcon, BuildingStorefrontIcon, DocumentDuplicateIcon,
+  ExclamationTriangleIcon, RocketLaunchIcon, BuildingStorefrontIcon, DocumentDuplicateIcon, EyeSlashIcon,
 } from '@heroicons/react/24/outline'
 
 // The landing page: what BlocTime is, for someone who has never staked
@@ -42,9 +42,10 @@ export interface IntroLive {
   priceUsd?: number
 }
 
-export default function Intro({ live, onStake, onPaper, onAsk, onDeploy, onMarket }: {
+export default function Intro({ live, onStake, onPrivate, onPaper, onAsk, onDeploy, onMarket }: {
   live: IntroLive | null
   onStake: () => void
+  onPrivate: () => void
   onPaper: () => void
   onAsk: (question?: string) => void
   onDeploy: () => void
@@ -71,6 +72,7 @@ export default function Intro({ live, onStake, onPaper, onAsk, onDeploy, onMarke
         </p>
         <div className="mt-6 flex flex-wrap gap-2">
           <button onClick={onStake} className="btn btn-accent"><LockClosedIcon className="w-4 h-4" />Start staking</button>
+          <button onClick={onPrivate} className="btn"><EyeSlashIcon className="w-4 h-4" />Stake privately</button>
           <button onClick={onPaper} className="btn"><DocumentTextIcon className="w-4 h-4" />Read the whitepaper</button>
           <button onClick={() => onAsk()} className="btn"><ChatBubbleLeftRightIcon className="w-4 h-4" />Ask the guide</button>
         </div>

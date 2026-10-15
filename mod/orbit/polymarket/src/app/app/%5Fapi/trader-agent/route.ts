@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { AGENT_MODEL, digJson, runClaude } from "../../lib/server/agentCli";
 import { mcpServerPath } from "../../lib/server/lab";
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
+import { agentOff } from "../../lib/server/agentMods";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -104,6 +105,8 @@ function buildPrompt(body: AskRequest, known: Set<string>): string {
 
 export async function POST(req: Request) {
   if (!verifyOwnerToken(bearer(req))) return deny();
+  const off = agentOff("scout");
+  if (off) return off;
 
   let body: AskRequest;
   try {

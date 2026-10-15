@@ -1,0 +1,26 @@
+{
+    "name": "factors_noir",
+    "title": "FactorsNoir",
+    "description": "FactorsNoir \u2014 a Noir project.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "framework": "noir",
+    "kind": "noir-project",
+    "template": "factors",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "witness"
+    ],
+    "statement": "factors"
+}

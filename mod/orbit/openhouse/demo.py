@@ -111,7 +111,7 @@ def seed(mod, force: bool = False) -> dict:
     steps += [mod.pay_rent(CAST[who], amount, kind=kind)
               for who, amount, kind, _ in PAYMENTS]
     steps += [mod.purchase(CAST[who], shares) for who, shares, _ in PURCHASES]
-    steps.append(mod.distribute(DIVIDEND[0]))
+    steps.append(mod.distribute(DIVIDEND[0], owner=CAST['owner']))
     for s in steps:
         if 'error' in s:
             return {'error': f'seed step failed: {s["error"]}'}
@@ -126,6 +126,8 @@ def seed(mod, force: bool = False) -> dict:
     holders = mod._load_shareholders()
     for who, _, days_ago in PURCHASES:
         holders[CAST[who]]['joined'] = now - days_ago * DAY
+        for ev in holders[CAST[who]].get('contribution_events') or []:
+            ev['timestamp'] = now - days_ago * DAY       # the purchase itself, not just the join
     mod._save_shareholders(holders)
 
     divs = mod._load_dividends()

@@ -28,7 +28,8 @@ PORT = int(os.environ.get('PORT', 50910))
 
 ROUTE_TOOLS = {
     '/account': 'near_account', '/keys': 'near_keys',
-    '/contract': 'near_contract', '/contracts': 'near_contracts',
+    '/contract': 'near_contract', '/abi': 'near_abi',
+    '/contracts': 'near_contracts',
     '/directory': 'near_directory', '/search': 'near_search',
     '/view': 'near_view', '/ft': 'near_ft',
     '/history': 'near_history', '/tx': 'near_tx', '/block': 'near_block',
@@ -39,6 +40,8 @@ ROUTE_TOOLS = {
     '/send': 'near_send', '/create_account': 'near_create_account',
     '/key': 'near_key',
 }
+import workshop                                               # noqa: E402
+ROUTE_TOOLS.update(workshop.ROUTES)   # LEARN + BUILD: /lessons /projects /build /ship …
 NUMERIC = ('limit', 'offset', 'amount_near', 'gas_tgas', 'deposit_near',
            'initial_near', 'allowance_near')
 
@@ -66,6 +69,10 @@ def info():
             'GET /account': 'account_id= — balances, storage, contract flag',
             'GET /keys': 'account_id= — access keys and their permissions',
             'GET /contract': 'account_id= — callable methods from the WASM',
+            'GET /abi': 'account_id=, refresh?=, deep?=, method?= — the '
+                        'interface INFERRED: each method view/change/init, '
+                        'typed args with examples, deposit rules, confidence; '
+                        'embedded near-abi when there is one, probed otherwise',
             'GET /contracts': 'the contracts that are ON — well-known + your '
                               'own, each verified live (refresh= re-probes)',
             'GET /directory': 'every contract scraped off the chain itself — '
@@ -97,13 +104,28 @@ def info():
             'POST /key': '{op:add|delete, public_key, contract?, methods?, '
                          'token} — access keys',
             'POST /mcp': 'MCP JSON-RPC 2.0',
+            f'GET {BASE}/workshop': 'LEARN + BUILD — lessons, starters, projects, '
+                                    'build/test/ship, the tutor orb',
+            'GET /lessons|/lesson?id=': 'the school; /templates the starters',
+            'GET /projects|/project?name=': 'your Rust projects; /read?name=&path=',
+            'POST /new|/write|/build|/verify|/check|/vibe|/ship|/remove':
+                '{name, …, token} — the workshop\'s writes (token or loopback)',
+            'GET /merkle?accounts=|/seal': 'helpers for the ZK starters',
+            'GET /zk': 'the cairo mod\'s lessons/contracts, over its MCP',
+            'GET /agents|POST /run|/run/stream': 'agent protocol: tutor (open) + '
+                                                 'builder (token)',
             f'GET {BASE}': 'browser console',
+            f'GET {BASE}/c/<contract>': 'the generic contract page — any '
+                                        'contract\'s inferred interface as '
+                                        'working forms',
         },
     }
 
 
-def route(method, path, query, body):
-    """One request → one JSON answer. Raises NearError for real failures."""
+def route(method, path, query, body, loopback=False):
+    """One request → one JSON answer. Raises NearError for real failures.
+    loopback=True marks the host itself (no proxy headers): it unlocks the
+    workshop's writes, never the chain's."""
     q = {k: v[0] for k, v in urllib.parse.parse_qs(query).items()}
     args = {**q, **(body if isinstance(body, dict) else {})}
 
@@ -130,14 +152,15 @@ def route(method, path, query, body):
                 args[name] = float(args[name])
             except ValueError:
                 raise NearError(f'{name} must be a number, got {args[name]!r}')
-    for flag in ('confirm', 'refresh'):
+    for flag in ('confirm', 'refresh', 'deep'):
         if isinstance(args.get(flag), str):
             args[flag] = args[flag].lower() in ('true', '1', 'yes')
-    return mcp.call_tool(tool, args)
+    return mcp.call_tool(tool, args, loopback=loopback)
 
 
 def serve(port=PORT, base=BASE):
     console = os.path.join(HERE, 'console.html')
+    app_page = os.path.join(HERE, 'app.html')
     # The console calls `<its own path>/_api`, so it works whether the module
     # is mounted at /near behind the gateway or served bare at :50910/.
     api_prefixes = (base.rstrip('/') + '/_api', '/api/near', '/_api')
@@ -187,10 +210,11 @@ def serve(port=PORT, base=BASE):
         def _dispatch(self):
             p, query = self._path()
             p = p.rstrip('/') or '/'
+            loopback = workshop.is_loopback(self.client_address[0], self.headers)
             if p == '/mcp':
                 if self.command != 'POST':
                     return self._send(405, b'POST JSON-RPC 2.0 here', 'text/plain')
-                resp = mcp.handle(self._read())
+                resp = mcp.handle(self._read(), loopback=loopback)
                 return self._send(202 if resp is None else 200, resp or b'',
                                   'application/json' if resp else 'text/plain')
             if p in ('/console', '/index.html') and self.command == 'GET':
@@ -199,8 +223,24 @@ def serve(port=PORT, base=BASE):
                         return self._send(200, f.read(), 'text/html; charset=utf-8')
                 except FileNotFoundError:
                     return self._send(200, json.dumps(info(), indent=2).encode())
+            # /c/<contract> — one generic page that interfaces with any contract:
+            # the inferred ABI rendered as forms. The page reads the account id
+            # from its own URL, so this is just the same file for every contract.
+            if (p == '/c' or p.startswith('/c/')) and self.command == 'GET':
+                try:
+                    with open(app_page, 'rb') as f:
+                        return self._send(200, f.read(), 'text/html; charset=utf-8')
+                except FileNotFoundError:
+                    return self._send(404, {'error': 'app.html missing'})
+            # LEARN + BUILD: /workshop page, /agents, /run[/stream] (SSE), /whoami
             try:
-                return self._send(200, route(self.command, p, query, self._read()))
+                if workshop.handle(self, p, query, base, self._read):
+                    return None
+            except NearError as e:
+                return self._send(e.status if e.status in range(400, 600) else 400, e.dict())
+            try:
+                return self._send(200, route(self.command, p, query, self._read(),
+                                             loopback=loopback))
             except NearError as e:
                 return self._send(e.status if e.status in range(400, 600) else 400,
                                   e.dict())

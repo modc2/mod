@@ -101,6 +101,22 @@ def _contracts(args):
     return c.contracts(extra=mine, refresh=bool(args.get('refresh')))
 
 
+def _abi(args):
+    import abi
+    c = _client(args)
+    deep = args.get('deep')
+    spec = abi.infer(c, args['account_id'], refresh=bool(args.get('refresh')),
+                     deep=True if deep in (None, '') else bool(deep))
+    if args.get('method') and spec.get('methods'):
+        m = next((x for x in spec['methods'] if x['name'] == args['method']), None)
+        if not m:
+            raise NearError(f"{args['account_id']} has no method {args['method']!r} — "
+                            f"{', '.join(x['name'] for x in spec['methods'])}")
+        return {'account_id': spec['account_id'], 'network': spec['network'],
+                'method': m, 'args_template': abi.template(spec, args['method'])}
+    return spec
+
+
 TOOLS = {
     'near_account': {
         'description': 'An account: total/liquid/staked balance in NEAR and USD, '
@@ -132,6 +148,31 @@ TOOLS = {
                         'properties': {'account_id': _ACCT, **_COMMON},
                         'required': ['account_id']},
         'handler': lambda a: _client(a).contract(a['account_id']),
+    },
+    'near_abi': {
+        'description': 'The INTERFACE of a contract, inferred: every method with '
+                       'its kind (view = free read, change = signed call, init), '
+                       'its arguments with types and examples, deposit rules '
+                       '(1 yocto / positive), and a confidence per method. Reads '
+                       'the embedded near-abi when the contract was built with '
+                       'cargo-near (exact), otherwise probes each method as a '
+                       'view and reads the panic text back (missing field X, '
+                       'expected a string, ProhibitedInView, requires deposit), '
+                       'matches NEP-141/145/148/171/177/178/181/245/330 names, '
+                       'and pulls real example args from recent calls. Cached by '
+                       'code hash; refresh=true re-infers. deep=false does one '
+                       'probe per method. Use it before near_view / near_call so '
+                       'you know what to pass; GET {base}/c/<contract> is the '
+                       'same spec rendered as a working form page.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'account_id': _ACCT,
+            'refresh': {'type': 'boolean', 'description': 'ignore the cache and re-infer'},
+            'deep': {'type': 'boolean',
+                     'description': 'iterate probes until every required arg is '
+                                    'named (default true)'},
+            'method': _str('return only this method, plus an args template'),
+            **_COMMON}, 'required': ['account_id']},
+        'handler': lambda a: _abi(a),
     },
     'near_contracts': {
         'description': 'The contracts that are ON: a curated directory of the '
@@ -415,6 +456,9 @@ WRITE_TOOLS = {
 }
 TOOLS.update(WRITE_TOOLS)
 
+import workshop                                                # noqa: E402
+TOOLS.update(workshop.TOOLS)   # LEARN + BUILD: lessons, projects, build, ship, tutor
+
 
 # ── JSON-RPC ─────────────────────────────────────────────────────
 
@@ -426,15 +470,19 @@ def _error(id_, code, message):
     return {'jsonrpc': '2.0', 'id': id_, 'error': {'code': code, 'message': message}}
 
 
-def call_tool(name, args, local=False):
+def call_tool(name, args, local=False, loopback=False):
     """Run one tool by name. Shared with the REST layer, so a route and an MCP
     tools/call cannot diverge. A write tool called over HTTP (local=False)
     must present the token from ~/.mod/near/token; local callers — stdio MCP,
-    `m near/...` — hold the keystore anyway, so the token proves nothing."""
+    `m near/...` — hold the keystore anyway, so the token proves nothing.
+    Workshop tools (near_new/build/vibe/ship…) also accept a loopback caller
+    with no proxy headers — the host's own toolchain, not the chain."""
     tool = TOOLS.get(name)
     if not tool:
         raise NearError(f'no tool named {name!r} — {", ".join(TOOLS)}', status=404)
     args = dict(args or {})
+    if name in workshop.TOOLS:
+        workshop.gate(name, args, loopback=local or loopback)
     if name in WRITE_TOOLS:
         token = args.pop('token', None)
         writes = name != 'near_wallet' or \
@@ -447,11 +495,11 @@ def call_tool(name, args, local=False):
     return tool['handler'](args)
 
 
-def _call(id_, params, local=False):
+def _call(id_, params, local=False, loopback=False):
     name = (params or {}).get('name')
     args = (params or {}).get('arguments') or {}
     try:
-        out = call_tool(name, args, local=local)
+        out = call_tool(name, args, local=local, loopback=loopback)
         return _result(id_, {'content': [{'type': 'text',
                                           'text': json.dumps(out, default=str, indent=2)}],
                              'structuredContent': out if isinstance(out, dict) else None,
@@ -466,7 +514,7 @@ def _call(id_, params, local=False):
                              'isError': True})
 
 
-def handle(body, local=False):
+def handle(body, local=False, loopback=False):
     """One JSON-RPC message in, one response out (None for notifications)."""
     if not isinstance(body, dict) or not isinstance(body.get('method'), str):
         id_ = body.get('id') if isinstance(body, dict) else None
@@ -488,7 +536,7 @@ def handle(body, local=False):
     if method == 'tools/list':
         return _result(id_, {'tools': tool_list()})
     if method == 'tools/call':
-        return _call(id_, params, local=local)
+        return _call(id_, params, local=local, loopback=loopback)
     return _error(id_, -32601, f'method not found: {method}')
 
 
