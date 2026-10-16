@@ -113,7 +113,7 @@ impl AppState {
             .collect();
         let candidates: Vec<ServerEntry> = fleet::sweep_candidates()
             .into_iter()
-            .filter(|c| !known.contains(&c.id))
+            .filter(|c| !known.contains(&c.id) && !upstream::asleep(c))
             .collect();
 
         // A few hundred connection attempts, most of them to a closed port:
@@ -137,7 +137,8 @@ impl AppState {
             let mut swept = self.swept.write().await;
             // Drop rows from earlier sweeps that no longer answer — a mod that
             // moved its port should not linger as a permanently-down card.
-            swept.retain(|id, _| hits.contains_key(id));
+            // A slept one was skipped, not missing — keep its row.
+            swept.retain(|id, e| hits.contains_key(id) || upstream::asleep(e));
             for (id, (entry, _)) in &hits {
                 swept.insert(id.clone(), entry.clone());
             }
@@ -170,6 +171,11 @@ impl AppState {
         let mut servers = Vec::new();
         for s in self.enabled_servers().await {
             if s.is_stdio() && !crate::stdio::is_running(&s.id).await {
+                continue;
+            }
+            // Same for a fleet mod the activator slept: its port is held and
+            // a probe would wake it. Keep the cached probe until it's used.
+            if upstream::asleep(&s) {
                 continue;
             }
             servers.push(s);

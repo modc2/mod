@@ -330,6 +330,9 @@
       .ob { grid-template-columns: 1fr 80px 110px; }
       .ob .hide-sm { display: none; }
       table.mk .hide-sm { display: none; }
+      table.mk td, table.mk th { padding: 7px 5px; }
+      .mk-name .nm { max-width: 44vw; }
+      .mk-tools .field { width: 100%; }
       .mk-stats { margin-left: 0; }
       .oai { grid-template-columns: 1fr; }
     }
@@ -1009,12 +1012,12 @@ function renderMarket(work) {
         h('td', { class: 'r' }, h('b', {}, r.n), h('div', { style: `height:3px;border-radius:2px;background:var(--accent);opacity:.7;width:${Math.round(r.n / top * 100)}%;margin-left:auto` })),
         h('td', { class: 'r' }, h('span', { class: 'best' }, fmtPx(r.best)),
           best ? h('div', { style: 'font-size:11px;color:var(--muted)' }, plabel(best.provider)) : null),
-        h('td', { class: 'r' }, r.spread && r.spread > 1 ? h('span', { class: 'spread' }, r.spread.toFixed(1) + '×') : '—'),
+        h('td', { class: 'r hide-sm' }, r.spread && r.spread > 1 ? h('span', { class: 'spread' }, r.spread.toFixed(1) + '×') : '—'),
         h('td', { class: 'r hide-sm' }, r.context ? fmtN(r.context) : '—')));
       if (open) tb.append(h('tr', { class: 'book' }, h('td', { colspan: 6 }, orderBook(r))));
     }
     box.append(h('table', { class: 'mk' },
-      h('thead', {}, h('tr', {}, th('name', 'MODEL'), h('th', { class: 'hide-sm' }, 'PROVIDERS'), th('n', 'VENUES', 'r'), th('best', 'BEST $/1M', 'r'), th('spread', 'SPREAD', 'r'), th('ctx', 'CONTEXT', 'r hide-sm'))),
+      h('thead', {}, h('tr', {}, th('name', 'MODEL'), h('th', { class: 'hide-sm' }, 'PROVIDERS'), th('n', 'VENUES', 'r'), th('best', 'BEST $/1M', 'r'), th('spread', 'SPREAD', 'r hide-sm'), th('ctx', 'CONTEXT', 'r hide-sm'))),
       tb));
     if (!rows.length) box.append(h('div', { class: 'hint', style: 'cursor:default' }, 'No models match. Try turning off a filter.'));
     if (rows.length > mk.limit) box.append(h('button', { class: 'btn ghost more', onclick: () => { mk.limit += 200; drawTable(); } }, `Show more (${(rows.length - mk.limit).toLocaleString()} left)`));

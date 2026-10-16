@@ -1718,3 +1718,136 @@ def shadow_fund_pot(req: ShadowFundReq):
 @app.post("/shadow/warp", dependencies=OWNER)
 def shadow_warp(req: ShadowWarpReq):
     return _shadow(shadow.warp, req.to)
+
+
+# ── Yuma by BlocTime (yuma/ — bloctime.yuma) ─────────────────────────────
+# Validator stake = BlocTime voting power. The paper ledger is shared and
+# public to play with; params/reset/source are owner-only. Plain `def`
+# everywhere: live stake reads hit the chain RPC.
+
+import importlib.util as _ilu
+
+_yspec = _ilu.spec_from_file_location("bloctime_yuma_service", MODULE_DIR / "yuma" / "service.py")
+yuma_svc = _ilu.module_from_spec(_yspec)
+_yspec.loader.exec_module(yuma_svc)
+
+
+def _yuma(fn, *a, **kw):
+    try:
+        return _jsonable(fn(*a, **kw))
+    except (ValueError, KeyError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+def _jsonable(x):
+    """Wei-scale ints overflow JS numbers — send anything ≥ 2^53 as a string."""
+    if isinstance(x, bool):
+        return x
+    if isinstance(x, int):
+        return str(x) if abs(x) >= 2 ** 53 else x
+    if isinstance(x, dict):
+        return {k: _jsonable(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_jsonable(v) for v in x]
+    return x
+
+
+class YumaAddrReq(BaseModel):
+    address: str
+
+
+class YumaStakeReq(BaseModel):
+    address: str
+    bloc: str
+
+
+class YumaWeightsReq(BaseModel):
+    address: str
+    weights: dict | list
+
+
+class YumaSimReq(BaseModel):
+    stakes: list
+    weights: list
+    kappa: float = 0.5
+    alpha: float = 1
+    emission: float = 100
+    owner_cut_bps: int = 1000
+    miner_share_bps: int = 5000
+    epochs: int = 1
+
+
+class YumaSourceReq(BaseModel):
+    mode: str
+
+
+@app.get("/yuma")
+def yuma_state():
+    return _yuma(yuma_svc.state)
+
+
+@app.get("/yuma/preview")
+def yuma_preview():
+    return _yuma(yuma_svc.preview)
+
+
+@app.get("/yuma/chain")
+def yuma_chain(network: str | None = None):
+    return _yuma(yuma_svc.chain_state, network)
+
+
+@app.post("/yuma/simulate")
+def yuma_simulate(req: YumaSimReq):
+    if len(req.stakes) > 64 or (req.weights and len(req.weights[0]) > 256):
+        raise HTTPException(status_code=400, detail="at most 64 validators x 256 miners")
+    return _yuma(yuma_svc.simulate, req.stakes, req.weights, req.kappa, req.alpha, req.emission,
+                 req.owner_cut_bps, req.miner_share_bps, req.epochs)
+
+
+@app.post("/yuma/set_stake")
+def yuma_set_stake(req: YumaStakeReq):
+    if yuma_svc.ledger().s.get("source") == "live":
+        raise HTTPException(status_code=400, detail="stake is live BlocTime — stake BLOC on the Stake tab instead")
+    return _yuma(yuma_svc.set_stake, req.address, req.bloc)
+
+
+@app.post("/yuma/register_validator")
+def yuma_register_validator(req: YumaAddrReq):
+    return _yuma(yuma_svc.register_validator, req.address)
+
+
+@app.post("/yuma/register_miner")
+def yuma_register_miner(req: YumaAddrReq):
+    return _yuma(yuma_svc.register_miner, req.address)
+
+
+@app.post("/yuma/set_weights")
+def yuma_set_weights(req: YumaWeightsReq):
+    return _yuma(yuma_svc.set_weights, req.address, req.weights)
+
+
+@app.post("/yuma/epoch")
+def yuma_epoch():
+    return _yuma(yuma_svc.epoch)
+
+
+@app.post("/yuma/claim")
+def yuma_claim(req: YumaAddrReq):
+    return _yuma(yuma_svc.claim, req.address)
+
+
+@app.post("/yuma/params", dependencies=OWNER)
+def yuma_params(params: dict):
+    return _yuma(yuma_svc.set_params, **params)
+
+
+@app.post("/yuma/source", dependencies=OWNER)
+def yuma_source(req: YumaSourceReq):
+    return _yuma(yuma_svc.set_source, req.mode)
+
+
+@app.post("/yuma/reset", dependencies=OWNER)
+def yuma_reset():
+    return _yuma(yuma_svc.reset)

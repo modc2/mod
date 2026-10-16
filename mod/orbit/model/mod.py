@@ -5,8 +5,13 @@ This anchor exposes:
   - serve()/kill()/status()/logs() lifecycle for the FastAPI BYOK gateway in `app/server.py`
   - providers()/models() introspection across known back-ends
   - forward() — one-shot completion against any registered provider (BYOK)
+  - market() — the same model across providers, cheapest offer first
 
-Every provider (16 built in: openrouter, huggingface, together, anthropic, …)
+The HTTP gateway also exposes one OpenAI-standard API at /v1 for every
+provider (app/adapters.py translates Anthropic messages / Gemini
+generateContent / responses-only models both ways).
+
+Every provider (17 built in: openrouter, huggingface, together, anthropic, saygm, …)
 is registered once in providers.json; models from all of them combine into
 one catalog addressed as '<provider>:<model>'. The richer per-provider
 clients (model.openrouter, model.grok, model.hf) stay as submodules and are
@@ -35,6 +40,23 @@ LOG_FILE = LOG_DIR / 'api.log'
 DEFAULT_PORT = 50110
 
 
+def _load_adapters():
+    """app/adapters.py, wired to the catalog loaded above (its ProviderError)."""
+    import importlib.util
+    prev = sys.modules.get('catalog')
+    sys.modules['catalog'] = catalog  # adapters' fallback `from catalog import …`, only while loading
+    try:
+        spec = importlib.util.spec_from_file_location('model_gateway_adapters', APP_DIR / 'adapters.py')
+        mod_ = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod_)
+    finally:
+        if prev is None:
+            sys.modules.pop('catalog', None)
+        else:
+            sys.modules['catalog'] = prev
+    return mod_
+
+
 def _load_catalog():
     """app/catalog.py by file path — `import app` would hit whichever module's
     app package is first on sys.path in a fleet process."""
@@ -46,6 +68,7 @@ def _load_catalog():
 
 
 catalog = _load_catalog()
+adapters = _load_adapters()
 PROVIDERS = catalog.PROVIDERS
 
 # Rich per-provider clients that live as submodules here (key store, history,
@@ -176,6 +199,14 @@ class Model:
             ids = [i for i in ids if any(t.strip().lower() in i.lower() for t in search.split(','))]
         return ids
 
+    def market(self, search: str = None, kind: str = 'chat', min_offers: int = 2, top: int = 25, api_key: dict = None):
+        """The model market: same model across providers, cheapest offer first.
+        Returns [{name, n, best, spread, offers:[(ref, usd_blended_per_1M)]}]."""
+        keys = api_key if isinstance(api_key, dict) else self.env_keys()
+        rows = catalog.market(catalog.catalog(keys, search=search, kind=kind)['models'], min_offers=min_offers)
+        return [{'name': r['name'], 'key': r['key'], 'n': r['n'], 'best': r['best'], 'spread': r['spread'],
+                 'offers': [(o['ref'], o['cost']) for o in r['offers']]} for r in rows[:top]]
+
     def client(self, name: str = 'openrouter', **kwargs):
         """Full client for a submodule: openrouter | grok | hf."""
         if name not in CLIENTS:
@@ -208,15 +239,13 @@ class Model:
         if not key:
             raise ValueError(f'no key — pass api_key= or set {cfg["env"]}')
 
-        client = catalog.make_client(provider, key)
         msgs = []
         if system:
             msgs.append({'role': 'system', 'content': system})
         msgs.append({'role': 'user', 'content': message})
-        res = client.chat.completions.create(
-            model=model,
-            messages=msgs,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return res.choices[0].message.content
+        shapes = None
+        if cfg.get('model_shapes'):  # SayGM: Claude/Gemini ids need a translated wire shape
+            shapes = next((r.get('shapes') for r in catalog.list_models(provider) if r['id'] == model), None)
+        res = adapters.chat(cfg, key, model, {'messages': msgs, 'max_tokens': max_tokens,
+                                              'temperature': temperature}, shapes)
+        return res['choices'][0]['message']['content']

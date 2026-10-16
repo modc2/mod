@@ -1,7 +1,7 @@
 {
     "name": "model",
-    "version": "0.3.0",
-    "description": "Every model, one place: BYOK gateway that aggregates every provider (16 built in + your own OpenAI-compatible endpoints) and every model type (chat, image, video, embedding, speech, transcription, rerank, moderation) into one typed catalog, with a sidebar to manage providers/keys/models and a workspace per type.",
+    "version": "0.4.0",
+    "description": "Every model, one market: BYOK gateway over 17 providers (incl. SayGM) + your own OpenAI-compatible endpoints. Same model from every provider grouped into a market (offers cheapest first, spread), and ONE OpenAI-standard API at /v1 for all of them \u2014 non-OpenAI shapes (Anthropic messages, Gemini generateContent, responses) are translated both ways.",
     "port": 50110,
     "app_port": 50110,
     "route": true,
@@ -35,7 +35,8 @@
         "providers",
         "models",
         "forward",
-        "client"
+        "client",
+        "market"
     ],
     "endpoints": {
         "/": {
@@ -85,8 +86,36 @@
         "/rerank": {
             "method": "POST",
             "docs": "{model:ref, query, documents:[str]} -> {results:[{index,score,document}]}"
+        },
+        "/market": {
+            "method": "GET",
+            "docs": "Market board: one row per canonical model, offers from every provider sorted by blended $/1M ((3*in+out)/4), n venues, best, spread. ?kind= ?search= ?min_offers="
+        },
+        "/v1/models": {
+            "method": "GET",
+            "docs": "OpenAI list shape; ids are <provider>:<model> refs with pricing/kind/market extras"
+        },
+        "/v1/chat/completions": {
+            "method": "POST",
+            "docs": "OpenAI chat completions for EVERY provider (stream, tools, images). model=<provider>:<model>, or a bare name -> cheapest provider you sent a key for in X-API-Keys. Response header X-Model-Ref says where it went"
+        },
+        "/v1/embeddings": {
+            "method": "POST",
+            "docs": "OpenAI embeddings passthrough, model=<provider>:<model>"
+        },
+        "/v1/images/generations": {
+            "method": "POST",
+            "docs": "OpenAI images passthrough"
+        },
+        "/v1/audio/speech": {
+            "method": "POST",
+            "docs": "OpenAI TTS passthrough"
+        },
+        "/v1/audio/transcriptions": {
+            "method": "POST",
+            "docs": "OpenAI STT (multipart model, file)"
         }
     },
-    "schema": "QmQrXYy85rW5JQgCKS8KKGLsHQeMYPrqvE7yaCEKQGH1Pr",
+    "schema": "QmVBYMvpmZT2gPskXeWQ5vtzQBYBK5VJXQ7S3oCH1mx8Vq",
     "gateway_port": 50110
 }

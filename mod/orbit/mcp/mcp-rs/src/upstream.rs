@@ -81,6 +81,45 @@ pub fn wake_url(server: &ServerEntry) -> Option<String> {
     Some(format!("{}/{}/api{}", proxy.trim_end_matches('/'), server.id, path))
 }
 
+/// Is this local server's port being held by the activator for a slept mod?
+/// A held port ACCEPTS connections (that's how a slept mod wakes on first
+/// use), so a background probe can't tell asleep from up by dialing it — and
+/// dialing it would wake the mod. The activator lists held ports in
+/// ~/.mod/activator/slept.json; background passes skip anything in it.
+pub fn asleep(server: &ServerEntry) -> bool {
+    if server.is_stdio() || server.source == "user" {
+        return false;
+    }
+    let Some(rest) = server.url.split("//").nth(1) else { return false };
+    let hostport = rest.split('/').next().unwrap_or("");
+    let mut it = hostport.rsplitn(2, ':');
+    let port: u64 = match it.next().and_then(|p| p.parse().ok()) {
+        Some(p) => p,
+        None => return false,
+    };
+    if !matches!(it.next().unwrap_or(""), "localhost" | "127.0.0.1" | "0.0.0.0") {
+        return false;
+    }
+    held_ports().contains(&port)
+}
+
+fn held_ports() -> std::collections::HashSet<u64> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
+    let raw = std::fs::read_to_string(format!("{home}/.mod/activator/slept.json")).unwrap_or_default();
+    let v: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+    let mut out = std::collections::HashSet::new();
+    if let Some(m) = v.as_object() {
+        for ports in m.values() {
+            for p in ports.as_array().into_iter().flatten() {
+                if let Some(n) = p.get("port").and_then(|n| n.as_u64()) {
+                    out.insert(n);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// The same server, addressed through the activator.
 fn woken(server: &ServerEntry) -> Option<ServerEntry> {
     let url = wake_url(server)?;
@@ -254,6 +293,10 @@ pub async fn probe_in(server: &ServerEntry, timeout: u64, wake: bool) -> Probe {
                 ..Default::default()
             }
         };
+    }
+    if wake && asleep(server) {
+        // Dialing the held port IS the wake; give it the cold-start budget.
+        return probe_once(server, timeout.max(default_timeout())).await;
     }
     let p = probe_once(server, timeout).await;
     if p.ok || !wake || !is_unreachable(&p.error) {

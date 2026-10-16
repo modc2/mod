@@ -131,6 +131,28 @@ POST /shadow/fund_pot|warp   # owner token (devnet)
 ```
 CLI: `m bloctime/shadow fn=info|notes|...`, `m bloctime/shadow_test`. UI: PRIVATE tab (app/src/app/Private.tsx).
 
+## Yuma by BlocTime — `bloctime.yuma` (yuma/)
+
+Yuma consensus where validator stake = `BlocTime.getVotingPower` (BLOC held + delegated). Validators weight miners; per miner the stake-weighted kappa-quantile is the consensus, weights above it are clipped; miners earn `I_j` (clipped rank), validators `D_i` (EMA bonds x incentive). Emission: `ownerCutBps` off the top, `minerShareBps` of the rest by I, remainder by D, dust to owner.
+
+- `contracts/yuma/YumaBlocTime.sol` (OZ5, viaIR override in hardhat.config.js). Mint mode pays a staketime `Mod` it mints (setMinter → yuma); funded mode pays from `fund()`. Caps: 64 validators x 256 miners (defaults 16 x 64). Full validator set → newcomer replaces the least-BlocTime one if it has more; full miner set → lowest last-incentive non-immune miner is replaced. A weight row written before a uid was recycled is masked (`seq`). `epoch()` is permissionless once per `tempo`; payouts accrue to `pending`, `claim()` pulls.
+- `yuma/yuma.py` = integer twin (`yuma()`, `pay()`, `Ledger` paper subnet at `~/.mod/bloctime/yuma/ledger.json`, override `BLOCTIME_YUMA_DIR`). Stake source `paper` (set_stake) or `live` (parent BlocTime on chain, 30s cache).
+- Same numbers: `yuma/fixtures/gen.py` → `cases.json`; `pytest yuma/tests` and `hardhat test test/yuma/YumaBlocTime.test.js` both assert against it. `m bloctime.yuma/test` runs both.
+- API (all plain `def`): `GET /yuma` `/yuma/preview` `/yuma/chain`; `POST /yuma/simulate|set_stake|register_validator|register_miner|set_weights|epoch|claim`; owner-only `POST /yuma/params|source|reset`. Ints ≥ 2^53 come back as strings.
+- Console: **YUMA** tab (`app/src/app/Yuma.tsx`, `#yuma`).
+
+```bash
+m bloctime.yuma/state
+m bloctime.yuma/simulate stakes=3000,500 weights='1,3;0,1'
+m bloctime.yuma/source mode=live          # stake = real BLOC
+m bloctime.yuma/deploy network=base_sepolia   # needs PRIVATE_KEY; records yuma/config.json deployments
+m bloctime.yuma/chain
+```
+
+## StakeTime (merged) — `bloctime.staketime` (staketime/)
+
+The orbit/staketime subnet stack, folded in. Solidity under `contracts/staketime/**` compiles in bloctime's hardhat via the `@openzeppelin/contracts-v4` alias (OZ 4.9.6) next to bloctime's OZ5; tests in `test/staketime/` (all pass with the bloctime suite). `staketime/` holds the CLI (`mod.py`, Rust/PyO3 engine `staketime_rs.abi3.so`, source in `staketime/rs`), API (:8849), app (:8850) and `config.json` with the live Base Sepolia deployment. `staketime/artifacts/src/contracts` symlinks to `artifacts/contracts/staketime` so the prebuilt engine finds its ABIs. Deploys: `scripts/staketime/deploy.js` writes `staketime/config.json`. Paper: `staketime.md`, privacy: `staketime-privacy.md`.
+
 ## API Endpoints
 
 | Method | Path | Description |
@@ -204,8 +226,13 @@ bloctime/
 │   ├── src/app/globals.css   # design tokens + the 11 skins
 │   ├── src/app/theme.tsx     # skin context, pre-paint boot, chart colours
 │   └── src/app/ThemePicker.tsx
-├── scripts/deploy.js       # Hardhat deploy script
+├── contracts/yuma/         # YumaBlocTime.sol (+ MockVotingPower for tests)
+├── contracts/staketime/    # merged StakeTime stack (OZ 4.9 via contracts-v4 alias)
+├── yuma/                   # bloctime.yuma — mod.py, service.py, yuma.py, fixtures/, tests/
+├── staketime/              # bloctime.staketime — mod.py, api/, app/, rs/, config.json
+├── scripts/deploy.js       # Hardhat deploy script (+ scripts/yuma, scripts/staketime)
 ├── test/weekly.test.js     # Weekly pot schedule + payout tests (npx hardhat test)
+├── test/yuma/, test/staketime/
 ├── hardhat.config.js       # Solidity compiler config
 ├── package.json            # Hardhat dependencies
 ├── docker-compose.yml

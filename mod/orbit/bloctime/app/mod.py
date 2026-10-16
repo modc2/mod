@@ -79,7 +79,7 @@ class Mod:
                 'tailwindcss': pkg.get('devDependencies', {}).get('tailwindcss'),
             },
             'pages': ['/'],
-            'tabs': ['stake', 'rewards', 'market', 'deploy', 'bridge', 'contracts'],
+            'tabs': ['stake', 'rewards', 'yuma', 'market', 'deploy', 'bridge', 'contracts'],
             'source': str(DIR / 'src' / 'app' / 'page.tsx'),
         }
 

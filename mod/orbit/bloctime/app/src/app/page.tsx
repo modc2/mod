@@ -36,6 +36,7 @@ import {
   HomeIcon,
   EyeSlashIcon,
   WrenchScrewdriverIcon,
+  ScaleIcon,
 } from '@heroicons/react/24/outline'
 import { useThemeColors } from './theme'
 import ThemePicker from './ThemePicker'
@@ -43,6 +44,7 @@ import Whitepaper from './Whitepaper'
 import Intro from './Intro'
 import Agent from './Agent'
 import Private from './Private'
+import Yuma from './Yuma'
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
@@ -388,7 +390,7 @@ interface BridgeInfo {
   api: string
 }
 
-type Tab = 'intro' | 'paper' | 'stake' | 'private' | 'rewards' | 'market' | 'deploy' | 'bridge' | 'contracts'
+type Tab = 'intro' | 'paper' | 'stake' | 'private' | 'rewards' | 'yuma' | 'market' | 'deploy' | 'bridge' | 'contracts'
 
 // Deploy, Bridge and Contracts are builder tools — one BUILD tab in the rail,
 // with its own segmented switch underneath.
@@ -2965,7 +2967,7 @@ function BlocTimePageInner() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === 'undefined') return 'intro'
     const h = window.location.hash.slice(1)
-    if (h === 'intro' || h === 'paper' || h === 'private') return h
+    if (h === 'intro' || h === 'paper' || h === 'private' || h === 'yuma') return h
     return localStorage.getItem(SEEN_INTRO_KEY) ? 'stake' : 'intro'
   })
   useEffect(() => { try { localStorage.setItem(SEEN_INTRO_KEY, '1') } catch {} }, [])
@@ -3591,6 +3593,7 @@ function BlocTimePageInner() {
               ['stake', 'Stake', LockClosedIcon],
               ['private', 'Private', EyeSlashIcon],
               ['rewards', 'Rewards', GiftIcon],
+              ['yuma', 'Yuma', ScaleIcon],
               ['market', 'Market', BuildingStorefrontIcon],
               ['deploy', 'Build', WrenchScrewdriverIcon],
               ['paper', 'Paper', DocumentTextIcon],
@@ -3676,7 +3679,7 @@ function BlocTimePageInner() {
         )}
 
         {/* Stats — the intro and the paper carry their own framing */}
-        {stats && tab !== 'intro' && tab !== 'paper' && tab !== 'private' && (
+        {stats && tab !== 'intro' && tab !== 'paper' && tab !== 'private' && tab !== 'yuma' && (
           <StatGrid>
             <Stat label="Total Stakes" tone="accent" value={stats.totalStakes} />
             <Stat label="Total BlocTime" tone="gold" value={fmtEth(stats.totalBlocTime)} />
@@ -3686,7 +3689,7 @@ function BlocTimePageInner() {
         )}
 
         {/* Account overview with rewards info */}
-        {connected && overview && tab !== 'intro' && tab !== 'paper' && tab !== 'private' && (
+        {connected && overview && tab !== 'intro' && tab !== 'paper' && tab !== 'private' && tab !== 'yuma' && (
           <StatGrid>
             <Stat label="My BLOC" tone="accent" value={fmtEth(overview.totalBlocTime)} />
             <Stat label="Staked" tone="gold" value={fmtEth(overview.totalStaked)} />
@@ -4249,6 +4252,9 @@ function BlocTimePageInner() {
 
         {/* ── Private Tab (ShadowBloc, Cairo) ──────────────────────────── */}
         {tab === 'private' && <Private key="private" api={api} />}
+
+        {/* ── Yuma Tab (bloctime.yuma — rewards by BlocTime) ───────────── */}
+        {tab === 'yuma' && <Yuma key="yuma" api={api} account={account} />}
 
         {/* Build: one tab, three tools */}
         {isBuildTab(tab) && (

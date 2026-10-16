@@ -390,10 +390,38 @@ function releaseHolds(mod) {
 
 function onHeldConn(mod, host, port, sock) {
   sock.on("error", () => {});
+  // Wait for the first byte. A connect-and-close liveness check (caddy's
+  // route generator, fleet status panels) then sees "port is live" without
+  // starting anything; only a caller that actually sends a request wakes it.
+  let woke = false;
+  const idleKill = setTimeout(() => { if (!woke) sock.destroy(); }, 60000);
+  sock.once("close", () => clearTimeout(idleKill));
+  sock.once("data", (chunk) => {
+    woke = true; clearTimeout(idleKill);
+    sock.pause(); sock.unshift(chunk);
+    onHeldRequest(mod, host, port, sock);
+  });
+  sock.resume();
+}
+
+function onHeldRequest(mod, host, port, sock) {
   lastAccess[mod] = now(); hits[mod] = (hits[mod] || 0) + 1;
   (pending[mod] = pending[mod] || []).push({ sock, host, port });
   if (pending[mod].length > 1) return; // a wake is already under way
+  log(`hold ${mod}: connection on :${port} from ${whoIs(sock)} → waking`);
   activate(mod);
+}
+
+// "caddy", "python3[123] /root/mod/mod/orbit/x" — who knocked, for the log.
+function whoIs(sock) {
+  try {
+    const out = execFileSync("ss", ["-tnpH", "state", "established", `( sport = :${sock.remotePort} )`], { encoding: "utf8" });
+    const m = out.match(/\("([^"]+)",pid=(\d+)/);
+    if (!m) return `${sock.remoteAddress}:${sock.remotePort}`;
+    let cmd = "";
+    try { cmd = fs.readFileSync(`/proc/${m[2]}/cmdline`, "utf8").split("\0").filter(Boolean).slice(0, 3).join(" ").slice(0, 120); } catch {}
+    return `${m[1]}[${m[2]}] ${cmd}`;
+  } catch { return `${sock.remoteAddress}:${sock.remotePort}`; }
 }
 
 async function activate(mod) {
@@ -413,7 +441,7 @@ async function activate(mod) {
     const deadline = now() + WAKE_TIMEOUT_MS;
     while (now() < deadline && !(await isUp(port))) await sleep(200);
     const target = host === "*" || host === "" || host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
-    const up = net.connect({ host: target, port }, () => { sock.pipe(up); up.pipe(sock); sock.resume(); });
+    const up = net.connect({ host: target, port }, () => { sock.pipe(up); up.pipe(sock); });
     up.on("error", () => sock.destroy());
     sock.on("close", () => up.destroy());
   }
@@ -831,6 +859,12 @@ async function handleControl(req, res) {
   return send(404, { error: "unknown control route" });
 }
 
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, "0.0.0.0", async () => {
+  // Re-take the ports of everything still asleep from before the restart, now
+  // rather than on the first sweep, so slept modules never refuse a caller.
+  const jlist = pm2Jlist();
+  for (const mod of Object.keys(slept)) {
+    if (REGISTRY[mod] && !pm2NamesFor(REGISTRY[mod].dir, jlist).some((p) => p.status === "online")) await armHolds(mod);
+  }
   log(`activator on :${PORT} — ${Object.keys(REGISTRY).length} modules, idle=${IDLE_MS / 1000}s, pinned=[${[...PIN].join(",")}], managed=[${MANAGE_ALL || !MANAGED.size ? "ALL" : [...MANAGED].join(",")}], exempt=[${[...EXEMPT].join(",")}], minFree=${MIN_FREE_MB}MB, maxRunning=${MAX_RUNNING || "∞"}`);
 });

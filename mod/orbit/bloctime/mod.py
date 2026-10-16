@@ -27,6 +27,16 @@ Usage:
   m.fn('bloctime/shadow')()                      # PRIVATE pool (Cairo ShadowBloc on a Starknet devnet)
   m.fn('bloctime/shadow')(fn='notes')            # the public ledger: notes + one-time keys, no owners
   m.fn('bloctime/shadow_test')()                 # snforge suite for cairo/
+  m.fn('bloctime/yuma')(fn='state')              # Yuma subnet, stake = BlocTime (bloctime.yuma)
+  m.fn('bloctime/staketime')(fn='status')        # merged StakeTime subnet stack (bloctime.staketime)
+
+Submodules:
+  bloctime.app        — the Next.js console
+  bloctime.yuma       — Yuma consensus where validator stake = BLOC voting power;
+                        emissions to miners by clipped rank, validators by bonds
+  bloctime.staketime  — StakeTime (merged in from orbit/staketime): Mod tokens,
+                        validators, pluggable consensus, inflation curves, registry.
+                        Its contracts compile here, under contracts/staketime.
 """
 
 import json
@@ -633,6 +643,22 @@ class Mod:
                            text=True, timeout=900, env=env)
         lines = [l for l in r.stdout.splitlines() if l.startswith(('[PASS]', '[FAIL]', 'Tests:'))]
         return {'ok': r.returncode == 0, 'results': lines}
+
+    def _submod(self, name):
+        # load by path: `import mod` inside a submodule would find itself
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(f'bloctime_{name}_mod', DIR / name / 'mod.py')
+        lib = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lib)
+        return lib.Mod()
+
+    def yuma(self, fn='state', **kwargs):
+        """Yuma by BlocTime — see yuma/mod.py (m bloctime.yuma)."""
+        return getattr(self._submod('yuma'), fn)(**kwargs)
+
+    def staketime(self, fn='status', **kwargs):
+        """The merged StakeTime stack — see staketime/mod.py (m bloctime.staketime)."""
+        return getattr(self._submod('staketime'), fn)(**kwargs)
 
     def app(self, fn='info', **kwargs):
         """The BlocTime app submodule — see app/mod.py (m bloctime.app)."""

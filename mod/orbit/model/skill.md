@@ -1,13 +1,41 @@
-# model — every model, one place
+# model — every model, one market, one API
 
 One BYOK gateway that aggregates **every provider** and **every type of model**.
-16 providers are registered in `providers.json` (routers: openrouter, huggingface,
+17 providers are registered in `providers.json` (routers: openrouter, huggingface,
 together, fireworks, deepinfra, groq, cerebras; labs: anthropic, openai, gemini,
-xai, mistral, deepseek; networks: chutes, targon, venice), and users can add any
+xai, mistral, deepseek; networks: chutes, targon, venice, saygm), and users can add any
 OpenAI-compatible https endpoint of their own. Every model is addressable as
 `<provider>:<model>` and typed by `kind`: chat, image, video, embedding, speech,
 transcription, rerank, moderation. The gateway never reads stored keys; every
 request carries its own.
+
+## Market + one API (v0.4)
+
+- **Market** (`GET /market`, the app's landing view): the same model listed by many
+  providers is grouped under one canonical key (`catalog.market_key`: lowercase, last
+  path segment, `:free`/`-tee`/`-instruct`/date suffixes dropped, fireworks `v3p3`→`3.3`).
+  Each row has its offers sorted cheapest first by blended USD/1M = (3·in + out)/4,
+  plus venue count, best price, spread (worst/best), TEE + vision flags. Click a row for
+  its order book; **Use** opens that provider's offer in the workspace.
+- **One API** at `/v1` (OpenAI standard) for every provider: `/v1/models`,
+  `/v1/chat/completions` (stream + tools), `/v1/embeddings`, `/v1/images/generations`,
+  `/v1/audio/speech`, `/v1/audio/transcriptions`, `/v1/rerank`. `model` is a
+  `<provider>:<model>` ref, or a bare name (`"kimi-k3"`) which routes to the cheapest
+  offer among providers you sent keys for in `X-API-Keys`; the `X-Model-Ref` response
+  header says where it went. Errors use the OpenAI `{error:{message,type,code}}` shape.
+- `app/adapters.py` makes that true for models that do not speak OpenAI natively:
+  SayGM declares `api_shapes` per model (`model_shapes: true` in providers.json), and
+  Claude ids (`messages`), Gemini ids (`generateContent`/`streamGenerateContent`) and
+  `responses`-only ids are translated both ways — messages, images, tool calls, stream
+  chunks, usage. The app's `/chat` and `forward()` use the same adapter.
+- Public catalogs (listed with no key): openrouter, huggingface, deepinfra, chutes,
+  venice, saygm. SayGM prices arrive as nano-USD/Mtok; DeepInfra's in `metadata.pricing`.
+
+```python
+from openai import OpenAI
+c = OpenAI(base_url="https://modc2.com/model/api/v1", api_key=SAYGM_KEY)
+c.chat.completions.create(model="saygm:claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+```
 
 ## Capabilities
 
@@ -59,6 +87,7 @@ m model/providers
 m model/models provider=chutes api_key=$CHUTES_API_KEY
 m model/models search=claude                # every provider combined
 m model/forward 'hello' provider=openrouter api_key=$OPENROUTER_API_KEY
+m model/market search=kimi                  # same model across providers, cheapest first
 ```
 
 ### Web UI
@@ -84,6 +113,10 @@ are sent only with requests to their own provider, and never touch the server's 
 | POST | `/speech` | `{model, input, voice, format}` -> audio |
 | POST | `/transcribe` | multipart `model`, `file` -> `{text}` |
 | POST | `/rerank` | `{model, query, documents}` -> ranked `{results}` |
+| GET | `/market` | market rows `{key, name, kind, n, best, spread, offers[]}` `?kind=&search=&min_offers=` |
+| GET | `/v1/models` | OpenAI list, ids are refs |
+| POST | `/v1/chat/completions` | OpenAI chat for every provider (see above) |
+| POST | `/v1/embeddings` · `/v1/images/generations` · `/v1/audio/speech` · `/v1/audio/transcriptions` | OpenAI passthroughs, model rewritten |
 
 Upstream 5xx errors are returned as 424 so Cloudflare keeps the error body.
 Add `X-Custom-Providers: {"c-mine": {"url": "https://…/v1", "label": "Mine"}}` to
@@ -103,7 +136,8 @@ model/
 ├── config.json       # port (50110), urls, fns
 ├── skill.md          # this file
 ├── app/
-│   ├── catalog.py    # registry + custom endpoints + typed /models fetch + combined catalog
+│   ├── catalog.py    # registry + custom endpoints + typed /models fetch + combined catalog + market
+│   ├── adapters.py   # OpenAI chat <-> Anthropic messages / Gemini generateContent / responses
 │   ├── server.py     # FastAPI gateway (BYOK)
 │   └── index.html    # single-page app: sidebar manager + per-kind workspaces
 ├── openrouter/openrouter/model.py   # OpenRouter client
@@ -125,6 +159,7 @@ fall back to these if `api_key=` isn't supplied:
 | `chutes` | `CHUTES_API_KEY` |
 | `targon` | `TARGON_API_KEY` |
 | `venice` | `VENICE_API_KEY` |
+| `saygm` | `SAYGM_API_KEY` |
 | `huggingface` | `HF_TOKEN` |
 | `together` / `fireworks` / `deepinfra` / `groq` / `cerebras` | `<NAME>_API_KEY` |
 | `gemini` / `mistral` / `deepseek` | `<NAME>_API_KEY` |

@@ -107,13 +107,27 @@ On the main contract BLOC is minted to your wallet address, so anyone can read w
 
 The contract is `cairo/src/shadowbloc.cairo`, covered by a snforge suite in `cairo/tests/`. It currently runs on a local Starknet devnet with paper NAT.
 
-## 9. Governance and risk
+## 9. Yuma: rewards by BlocTime
+
+BLOC already measures commitment, so it can also be used to pay people for work. **bloctime.yuma** is Bittensor-style Yuma consensus, except that a validator's stake is its BlocTime: the BLOC it holds plus the BLOC delegated to it.
+
+- **Validators score miners.** Each validator sets a weight for every miner. Its vote counts in proportion to its BlocTime. Because BLOC is dollars × seconds, $10 locked for a month (25.9M BLOC) outvotes $1,000 locked for a minute (60K BLOC).
+- **Consensus clips outliers.** For each miner, the protocol finds the highest score that validators holding at least half of the BlocTime (kappa) agree on. Any score above that is cut down to it. A small validator cannot push its friend's miner up by voting alone.
+- **Miners earn by clipped rank.** A miner's incentive is the BlocTime-weighted sum of the clipped scores it received, as a share of all miners.
+- **Validators earn by bonds.** Every epoch, each validator gains a bond in the miners it scored, sized by its share of that miner's clipped score. Bonds are an exponential moving average, so validators who backed good miners early and consistently keep earning. A validator's dividend is its bonds weighted by each miner's incentive.
+- **The split.** Each epoch's emission pays the subnet owner a fixed cut (10% by default). Half of what remains goes to miners and half to validators. Rounding dust goes to the owner, so every token is accounted for.
+
+The rules run in two places with the same integer maths: `contracts/yuma/YumaBlocTime.sol`, which reads `getVotingPower` from any BlocTime and in mint mode mints a staketime `Mod` token, and `yuma/yuma.py`, a paper subnet that can read live BLOC from chain. A shared fixture file (`yuma/fixtures/cases.json`) pins both implementations to identical outputs, down to the wei. Stake is read when the epoch runs, so BLOC moved between validators just before an epoch moves its vote too. It can be moved, but never counted twice.
+
+This is the part of **StakeTime** that has been folded into BlocTime. The rest of StakeTime is its full subnet stack: Mod tokens, validators, pluggable consensus (Yuma by uptime, Linear, Staked, Private), six inflation curves and a 420-slot registry. It now lives in `contracts/staketime` and `bloctime.staketime`.
+
+## 10. Governance and risk
 
 - **Owner powers**: set the price, the multiplier curve, the maximum lock and the inflation schedule; emergency-withdraw stray tokens. A deployment can renounce ownership once it is configured.
 - **Price is an input, not an oracle**: a dishonest owner can misprice the native token. The treasury model (1 token = $1 reserve) is the remedy.
 - **Locks are final**: there is no early exit. Choose a lock you can live with.
 - **Testnet**: the official instance runs on Base Sepolia. Nothing here is investment advice.
 
-## 10. Summary
+## 11. Summary
 
 BlocTime measures commitment in the one currency everybody spends at the same rate: time. Lock dollars for seconds, receive BLOC, vote with it, and share a pot that pays once a week. Fork it, deploy it anywhere, and run it yourself.

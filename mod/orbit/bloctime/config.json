@@ -22,5 +22,13 @@
             "nativeToken": "0x72aC6A36de2f72BD39e9c782e9db0DCc41FEbfe2"
         }
     },
-    "schema": "QmQCv5HyRPTkkMdEpWNkp7NjwdzY8ZMRy7Lxh78NyAouMS"
+    "schema": "QmRZg5WbUaCvBKLZ2ByQwi1aRhQDYFQpwjjcUnM9fAe7Mr",
+    "submods": [
+        "app",
+        "yuma",
+        "staketime"
+    ],
+    "merged": {
+        "staketime": "orbit/staketime folded in 2026-10-16 \u2014 contracts/staketime + staketime/ (bloctime.staketime)"
+    }
 }

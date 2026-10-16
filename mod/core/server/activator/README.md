@@ -4,16 +4,27 @@ A tiny zero-dependency Node reverse-proxy that puts the local (pm2-managed)
 modules to sleep when idle and wakes them on demand.
 
 - **Idle stop:** a background sweep (every quarter of the idle threshold, min
-  2.5s) looks for modules idle longer than `IDLE_SECONDS` (default **10s**)
-  **and** with zero established TCP connections on their api/app ports (the
-  usage signal, polled via `ss`). Of those, it stops the **least used one** per
-  pass — fewest requests proxied since start, then least recently touched — so
-  unused modules drain one at a time instead of all dropping at once. A module
-  with an open tab or stream holds a connection and is never "unused".
-- **Wake on access:** every request is mapped to a module + port
-  (`/api/{mod}` → api port with the prefix stripped, `/{mod}` → app port). If the
-  port is down the activator `pm2 start`s the matching procs, waits for the port,
-  then reverse-proxies (http + websocket upgrades). First hit pays a cold-start.
+  2.5s) looks for modules idle longer than the threshold (`idleSeconds` in
+  overrides.json — **60s** on this host — else `IDLE_SECONDS`). "Idle" = no
+  connection on any port the module listens on carried traffic within the
+  window (`ss -ti` lastsnd/lastrcv, so a parked Caddy keepalive doesn't count)
+  **and** its pm2 procs use under `BUSY_CPU`% CPU (a sync loop with nobody
+  connected is still working). The least used go first (fewest requests since
+  start, then longest idle), `STOPS_PER_SWEEP` (4) per pass.
+- **Socket activation (the wake path, 2026-10-16):** when a module is slept the
+  activator binds the exact host:ports its procs (and their children) were
+  listening on, recorded in `~/.mod/activator/slept.json`. The first
+  connection that **sends a byte** releases the holds, `pm2 restart`s the
+  procs, waits for the port and splices the waiting connection(s) through —
+  ~2-5s cold start. Works for every caller: Caddy routes, the :3001 portal, a
+  browser on the bare port, and peer modules dialing each other directly. A
+  bare connect-and-close (liveness checks) does NOT wake it and sees the port
+  as live. Holds are re-armed on activator start. The log line
+  `hold X: connection on :P from <process>` names who woke it.
+  Consumers that probe on a timer must skip held ports — `orbit/mcp` reads
+  `slept.json` (`upstream::asleep`) for that.
+- **Wake via :9000:** the older path still works — `/api/{mod}` / `/{mod}/api`
+  → api port (prefix stripped), `/{mod}` → app port, woken then proxied.
 - **Pinned modules** never sleep — and are actively kept up: the sweep restarts
   a pinned module's stopped pm2 procs, so a reboot, a crash or a stray
   `pm2 stop` doesn't quietly leave it down. Pin with `ACTIVATOR_PIN` (env,
@@ -36,9 +47,12 @@ eligible. Docker-hosted modules (Caddy points them at container names, not
 | var | default | meaning |
 |-----|---------|---------|
 | `ACTIVATOR_PORT` | 9000 | listen port |
-| `IDLE_SECONDS` | 10 | idle threshold before stopping (`IDLE_MINUTES` still honoured if set instead) |
+| `IDLE_SECONDS` | 10 | idle threshold before stopping (`IDLE_MINUTES` still honoured if set instead); overrides.json `idleSeconds` beats it |
 | `IDLE_MS` | — | overrides both (ms; for testing) |
-| `ACTIVATOR_MANAGED` | the 11 routed modules | csv of modules the sweep may stop; empty = every module (unsafe unless every route goes via :9000) |
+| `ACTIVATOR_MANAGED` | `*` | csv of modules the sweep may stop, or `*` = every pm2 module (safe with socket activation) |
+| `ACTIVATOR_EXEMPT` | app,api,server,web,claude,build,passport,dns,mcp,agent,updates | never slept/revived: front door, console, auth, UDP, schedulers |
+| `BUSY_CPU` | 3 | pm2 CPU% at/above which a module counts as working |
+| `STOPS_PER_SWEEP` | 4 | idle modules slept per pass |
 | `SWEEP_SECONDS` | 60 | how often the idle sweep runs |
 | `WAKE_TIMEOUT_MS` | 30000 | how long to wait for a woken port |
 | `ACTIVATOR_PIN` | web,claude | csv of modules that never sleep |

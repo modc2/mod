@@ -393,7 +393,7 @@ def market_key(mid: str) -> str:
     'llama-3.3-70b-versatile' all become 'llama-3-3-70b'."""
     k = mid.lower().split(':')[0].rsplit('/', 1)[-1]
     k = re.sub(r'(?<=\d)p(?=\d)', '.', k)          # fireworks v3p3 -> v3.3
-    k = re.sub(r'(?<=[a-z])-?v(?=\d)', '-', k)      # llama-v3 / deepseek-v3 -> llama-3 / deepseek-3
+    k = re.sub(r'^llama-?v(?=\d)', 'llama-', k)       # fireworks llama-v3 -> llama-3
     k = k.replace('.', '-').replace('_', '-')
     prev = None
     while prev != k:
@@ -421,7 +421,8 @@ def market(models: list, kind: Optional[str] = None, min_offers: int = 1) -> lis
         groups.setdefault((m['kind'], market_key(m['id'])), []).append(m)
     rows = []
     for (k, key), offers in groups.items():
-        offers = [{**o, 'cost': _cost(o)} for o in offers]
+        offers = [{**{k: v for k, v in o.items() if k not in ('description', 'created')}, 'cost': _cost(o)}
+                  for o in offers]
         offers.sort(key=lambda o: (o['cost'] is None, o['cost'] or 0, o['provider']))
         priced = [o['cost'] for o in offers if o['cost'] is not None]
         provs = sorted({o['provider'] for o in offers})
