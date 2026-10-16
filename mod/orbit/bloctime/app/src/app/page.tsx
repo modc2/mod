@@ -3105,6 +3105,30 @@ function BlocTimePageInner() {
 
   const instanceMode = !!(activeInst && !activeInst.official)
 
+  // Official-instance writes go through the connected wallet too — same ABI
+  // kit, target built from stats the way handleSetPoints does for the owner —
+  // so a visitor's stake lands in THEIR account and shows up in My Positions.
+  // The server-signer endpoints (api_token in localStorage) remain only as the
+  // operator's fallback when no wallet is connected.
+  const withWallet = useCallback(async (
+    fn: (c: ethers.Contract, signer: ethers.JsonRpcSigner, kit: FactoryKit) => Promise<void>,
+    fallback: () => Promise<unknown>,
+  ) => {
+    const w = window as any
+    if (!(connected && w.ethereum)) {
+      if (hasApiToken) { await fallback(); return }
+      throw new Error('Connect your wallet to sign this transaction')
+    }
+    if (!stats?.address) throw new Error('Contract not loaded yet')
+    const cid = stats.chainId || DEFAULT_CHAIN
+    await ensureChain({ chainId: cid, rpc: netFor(cid)?.rpc || '' })
+    const kit = await getFactory()
+    const provider = new ethers.BrowserProvider(w.ethereum)
+    const signer = await provider.getSigner()
+    const c = new ethers.Contract(stats.address, kit.contracts.bloctime.abi as any, signer)
+    await fn(c, signer, kit)
+  }, [connected, hasApiToken, stats, getFactory])
+
   // ── Network ─────────────────────────────────────────────────────────
 
   // The header picker mirrors the wallet's chain and drives it, so anything
@@ -3320,11 +3344,17 @@ function BlocTimePageInner() {
           await (await c.stake(amt, BigInt(lockSeconds))).wait()
         })
       } else {
-        await api('stake', {
+        const target = stats
+        await withWallet(async (c, signer, kit) => {
+          const amt = ethers.parseEther(stakeAmount)
+          const token = new ethers.Contract(target!.nativeToken, kit.contracts.nativeToken.abi as any, signer)
+          await (await token.approve(target!.address, amt)).wait()
+          await (await c.stake(amt, BigInt(lockSeconds))).wait()
+        }, () => api('stake', {
           amount: stakeAmount,
           lock_seconds: lockSeconds,
           as_ether: true,
-        })
+        }))
       }
       toast.success('Staked successfully')
       setStakeAmount('')
@@ -3333,21 +3363,22 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Stake failed')
     }
     setStaking(false)
-  }, [stakeAmount, lockSeconds, lockUnit, secondsPerBlock, maxLock, fetchAll, instanceMode, activeInst, withInstance])
+  }, [stakeAmount, lockSeconds, lockUnit, secondsPerBlock, maxLock, fetchAll, instanceMode, activeInst, withInstance, withWallet, stats])
 
   const handleUnstake = useCallback(async (stakeId: number) => {
     try {
       if (instanceMode) {
         await withInstance(async c => { await (await c.unstake(BigInt(stakeId))).wait() })
       } else {
-        await api('unstake', { stake_id: stakeId })
+        await withWallet(async c => { await (await c.unstake(BigInt(stakeId))).wait() },
+          () => api('unstake', { stake_id: stakeId }))
       }
       toast.success('Unstaked successfully')
       fetchAll()
     } catch (err: any) {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Unstake failed')
     }
-  }, [fetchAll, instanceMode, withInstance])
+  }, [fetchAll, instanceMode, withInstance, withWallet])
 
   // ── Curve Actions ──────────────────────────────────────────────────
 
@@ -3387,7 +3418,8 @@ function BlocTimePageInner() {
       if (instanceMode) {
         await withInstance(async c => { await (await c.delegate(delegateAddr.trim())).wait() })
       } else {
-        await api('delegate', { delegate_to: delegateAddr.trim() })
+        await withWallet(async c => { await (await c.delegate(delegateAddr.trim())).wait() },
+          () => api('delegate', { delegate_to: delegateAddr.trim() }))
       }
       toast.success('Delegated')
       setDelegateAddr('')
@@ -3396,7 +3428,7 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Delegation failed')
     }
     setDelegating(false)
-  }, [delegateAddr, fetchAll, instanceMode, withInstance])
+  }, [delegateAddr, fetchAll, instanceMode, withInstance, withWallet])
 
   const handleUndelegate = useCallback(async () => {
     setDelegating(true)
@@ -3404,7 +3436,8 @@ function BlocTimePageInner() {
       if (instanceMode) {
         await withInstance(async c => { await (await c.undelegate()).wait() })
       } else {
-        await api('undelegate', {})
+        await withWallet(async c => { await (await c.undelegate()).wait() },
+          () => api('undelegate', {}))
       }
       toast.success('Undelegated')
       fetchAll()
@@ -3412,7 +3445,7 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Undelegate failed')
     }
     setDelegating(false)
-  }, [fetchAll, instanceMode, withInstance])
+  }, [fetchAll, instanceMode, withInstance, withWallet])
 
   // ── Rewards Actions ────────────────────────────────────────────────
 
@@ -3422,7 +3455,8 @@ function BlocTimePageInner() {
       if (instanceMode) {
         await withInstance(async c => { await (await c.claimRewards()).wait() })
       } else {
-        await api('claim_rewards', {})
+        await withWallet(async c => { await (await c.claimRewards()).wait() },
+          () => api('claim_rewards', {}))
       }
       toast.success('Rewards claimed')
       fetchAll()
@@ -3430,7 +3464,7 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Claim failed')
     }
     setClaiming(false)
-  }, [fetchAll, instanceMode, withInstance])
+  }, [fetchAll, instanceMode, withInstance, withWallet])
 
   const handleFundPot = useCallback(async () => {
     if (!fundAmount || Number(fundAmount) <= 0) { toast.error('Enter amount'); return }
@@ -3440,7 +3474,8 @@ function BlocTimePageInner() {
       if (instanceMode) {
         await withInstance(async c => { await (await c.fundPot(amt)).wait() })
       } else {
-        await api('fund_pot', { amount: fundAmount })
+        await withWallet(async c => { await (await c.fundPot(amt)).wait() },
+          () => api('fund_pot', { amount: fundAmount }))
       }
       toast.success(`${fundAmount} BLOC added to the pot`)
       setFundAmount('')
@@ -3449,7 +3484,7 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Funding failed')
     }
     setFunding(false)
-  }, [fetchAll, fundAmount, instanceMode, withInstance])
+  }, [fetchAll, fundAmount, instanceMode, withInstance, withWallet])
 
   const handleDistribute = useCallback(async () => {
     setDistributing(true)
@@ -3457,7 +3492,8 @@ function BlocTimePageInner() {
       if (instanceMode) {
         await withInstance(async c => { await (await c.distributeRewards()).wait() })
       } else {
-        await api('distribute_rewards', {})
+        await withWallet(async c => { await (await c.distributeRewards()).wait() },
+          () => api('distribute_rewards', {}))
       }
       toast.success('Pot distributed to BLOC holders')
       fetchAll()
@@ -3465,7 +3501,7 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Distribution failed')
     }
     setDistributing(false)
-  }, [fetchAll, instanceMode, withInstance])
+  }, [fetchAll, instanceMode, withInstance, withWallet])
 
   // ── Weekly pot ─────────────────────────────────────────────────────
 
@@ -3815,13 +3851,16 @@ function BlocTimePageInner() {
 
                   <button
                     onClick={handleStake}
-                    disabled={staking || !stakeAmount}
+                    disabled={staking || !stakeAmount || (!connected && !hasApiToken)}
                     className="btn btn-accent w-full"
                   >
                     {staking
                       ? <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Staking…</>
                       : <><LockClosedIcon className="w-3.5 h-3.5" /> Stake</>}
                   </button>
+                  {!connected && !hasApiToken && (
+                    <p className="text-[10px] text-gold text-center">Connect your wallet to stake</p>
+                  )}
                 </div>
 
                 {/* With the default flat curve the multiplier chart is a

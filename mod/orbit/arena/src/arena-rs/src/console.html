@@ -529,6 +529,46 @@
         border: 1px solid var(--line); background: var(--panel2); font-size: 12px; color: var(--ink); cursor: pointer;
         font-family: inherit; min-height: 34px; }
   .me:hover { border-color: var(--accent); }
+  /* Signed in, the capsule carries the same tools the build console's header
+     capsule does: identity dot · a tally of what is yours │ copy · QR · wallets ▾ │ drawer.
+     The shell is one press (the drawer); every tool stops its own press. No
+     key on display — it is in the title, under the QR, and in the drawer. */
+  .me.in { padding: 3px 5px 3px 5px; gap: 4px; }
+  .me.in .dotid { width: 24px; height: 24px; margin-right: 2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.25); }
+  .me .tally { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 9px 0 7px; border-radius: 999px;
+               border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent);
+               background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 700; font-size: 13px;
+               font-variant-numeric: tabular-nums; }
+  .me .tally svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+  .me .hair { width: 1px; height: 18px; background: var(--line); margin: 0 3px; flex: none; }
+  .me .tool { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; border: 0;
+              background: none; color: var(--dim); cursor: pointer; padding: 0; font: inherit; position: relative; }
+  .me .tool svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .me .tool:hover, .me .tool:focus-visible { color: var(--ink); background: var(--panel2); outline: none; }
+  .me .tool[aria-pressed="true"], .me .tool[aria-expanded="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .me .tool .caret { position: absolute; right: 2px; bottom: 3px; width: 7px; height: 7px; }
+  .me .tool.done { color: var(--accent); }
+  /* the two popovers hang off the capsule, fixed so the sticky header never clips them */
+  .cappop { position: fixed; z-index: 95; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
+            box-shadow: 0 18px 40px -18px rgba(0,0,0,.6); padding: 10px; }
+  .cappop.qr { width: 232px; display: grid; gap: 8px; justify-items: center; }
+  .cappop.qr .code { width: 208px; height: 208px; border-radius: 10px; overflow: hidden; background: #fff; }
+  .cappop.qr .code svg { display: block; width: 100%; height: 100%; }
+  .cappop.qr .addr { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; color: var(--dim);
+                     word-break: break-all; text-align: center; cursor: pointer; margin: 0; }
+  .cappop.qr .addr:hover { color: var(--ink); }
+  .cappop.wallets { width: 272px; display: grid; gap: 4px; }
+  .cappop.wallets .lbl { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); padding: 2px 6px 4px; }
+  .cappop.wallets .wrow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 9px; border: 1px solid transparent;
+                          background: none; color: var(--ink); font: inherit; cursor: pointer; text-align: left; width: 100%; }
+  .cappop.wallets .wrow:hover, .cappop.wallets .wrow:focus-visible { border-color: var(--line); background: var(--panel2); outline: none; }
+  .cappop.wallets .wrow.now { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  .cappop.wallets .wrow .grow { min-width: 0; }
+  .cappop.wallets .wrow b { display: block; font-size: 12.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+  .cappop.wallets .wrow small { display: block; font-size: 10.5px; color: var(--dim); }
+  .cappop.wallets .wrow .x { border: 0; background: none; color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; padding: 2px 5px; border-radius: 6px; }
+  .cappop.wallets .wrow .x:hover { color: var(--bad); background: var(--panel2); }
+  .cappop.wallets .add { margin-top: 2px; border-style: dashed; justify-content: center; color: var(--dim); font-size: 12px; }
   .me .badge { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
                background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
   .dotid { width: 12px; height: 12px; border-radius: 50%; flex: none; display: inline-block; }
@@ -646,9 +686,9 @@
   <button class="act sm" id="new-game" title="a new game — vibecode it with the agent, or clone it from a git url">+ new game</button>
   <button class="act sm" id="new-agent" title="a new agent — vibecode it, or clone it from a git url">+ new agent</button>
   <button class="ghost sm" id="add-open" title="upload a .wasm / .py / .rs, harvest a repo, or clone a git url">upload</button>
-  <button class="me" id="me" title="sign in with your wallet">sign in</button>
-  <span class="themewrap">
-    <button class="ghost sm" id="theme" aria-haspopup="menu" aria-expanded="false">theme</button>
+  <div class="me" id="me" role="button" tabindex="0" title="sign in with your wallet">sign in</div>
+  <span class="themewrap" id="themewrap" hidden>
+    <button class="ghost sm" id="theme" aria-haspopup="menu" aria-expanded="false" title="theme — yours once you sign in">theme</button>
     <div class="themes" id="theme-menu" role="menu" hidden></div>
   </span>
 </header>
@@ -924,7 +964,7 @@
       <div class="card" style="margin:0">
         <div class="row" style="margin-bottom:10px">
           <h2 class="grow" style="margin:0">games</h2>
-          <button class="act sm" id="lb-vibe" title="say what it is — the agent writes it, you publish it">vibecode a game</button>
+          <button class="act sm" id="lb-vibe" title="new game — say what it is, the agent writes it" aria-label="new game">+</button>
           <button class="link small" id="lb-games-all">all games →</button>
         </div>
         <div class="tiles" id="lb-games"></div>
@@ -932,7 +972,7 @@
       <div class="card" style="margin:0">
         <div class="row" style="margin-bottom:6px">
           <h2 class="grow" style="margin:0">agents</h2>
-          <button class="act sm" id="lb-vibe-agent" title="say how it plays — the agent writes it, you publish it, it is seated">vibecode an agent</button>
+          <button class="act sm" id="lb-vibe-agent" title="new agent — say how it plays, the agent writes it, it is seated" aria-label="new agent">+</button>
           <button class="ghost sm" id="lb-upload" title="bring your own — a .py, .rs or .wasm that defines play is entered the moment it lands">upload</button>
           <button class="link small" id="lb-agents-all">all agents · a/b test →</button>
         </div>
@@ -1424,12 +1464,10 @@ async function loadMe() {
     lsSet(TOKEN_KEY, null); memToken = null;
     if (me.error) toast(`signed out — ${me.error}`, true);
   }
-  const b = $("me");
-  b.replaceChildren(...(me.address
-    ? [addrDot(me.address), shortAddr(me.address), me.box_owner ? el("span", { className: "badge", textContent: "owner" }) : null].filter(Boolean)
-    : ["sign in"]));
-  b.title = me.address ? `${me.address}${me.box_owner ? " — you run this box" : ""}` : "sign in with your wallet";
+  if (me.address) rememberAccount(me.address);
+  renderMe();
   $("g-scope").hidden = !me.address;
+  syncTheme(!!me.address);
   toPortal({ type: "arena-me", address: me.address, box_owner: !!me.box_owner });
   renderGames();
   if (profileOpen && !me.address) closeProfile();
@@ -1472,9 +1510,368 @@ async function signIn() {
   }
 }
 
-// The sign-in capsule is the door to the profile drawer — or to signing in,
-// if nobody is.
-$("me").onclick = () => (me.address ? openProfile() : signIn());
+// ── the capsule ─────────────────────────────────────────────────────────
+// Signed out it reads "sign in" and is one press. Signed in it is the same
+// capsule the build console's header wears: identity dot · a tally of what
+// is yours here │ copy the address · show it as a QR · switch wallet │ open
+// or close the drawer. The shell itself is one press — the drawer — and
+// every tool stops its own press, so a capsule inside a capsule never
+// fires twice (button-in-button is invalid; the shell is a div).
+const ACCOUNTS_KEY = "arena_accounts";
+const savedAccounts = () => { try { return JSON.parse(lsGet(ACCOUNTS_KEY) || "[]").filter((a) => a && a.address); } catch { return []; } };
+/** Every wallet that ever signed in here, most recent first, eight at most —
+ *  so the switcher can offer them back. An address, never a token. */
+function rememberAccount(address) {
+  const rest = savedAccounts().filter((a) => !sameAddr(a.address, address));
+  lsSet(ACCOUNTS_KEY, JSON.stringify([{ address: address.toLowerCase(), at: Math.floor(Date.now() / 1000) }, ...rest].slice(0, 8)));
+}
+const forgetAccount = (address) => lsSet(ACCOUNTS_KEY, JSON.stringify(savedAccounts().filter((a) => !sameAddr(a.address, address))));
+
+const CAP_ICONS = {
+  copy: "<rect x='9' y='9' width='11' height='11' rx='2'/><path d='M5 15V6a2 2 0 0 1 2-2h9'/>",
+  qr: "<rect x='4' y='4' width='6' height='6' rx='1'/><rect x='14' y='4' width='6' height='6' rx='1'/><rect x='4' y='14' width='6' height='6' rx='1'/><path d='M14 14h2v2h-2zM18 14h2M14 18h2M18 18h2v2h-2z'/>",
+  wallet: "<rect x='3' y='6' width='18' height='13' rx='3'/><path d='M3 10h18'/><circle cx='16.5' cy='14.5' r='1.2' fill='currentColor'/>",
+  panel: "<rect x='3' y='5' width='18' height='14' rx='3'/><path d='M14 5v14'/>",
+  tally: "<circle cx='12' cy='12' r='7'/><circle cx='12' cy='12' r='2.5'/>",
+  tick: "<path d='M5 12.5l4.5 4.5L19 7'/>",
+};
+const capTool = (name, title, onPress, extra = {}) => {
+  const b = el("button", { className: "tool", title, type: "button", ...extra }, [icon(CAP_ICONS[name])]);
+  b.setAttribute("aria-label", title);
+  const stop = (e) => { e.stopPropagation(); };
+  b.addEventListener("click", (e) => { stop(e); onPress(b); });
+  b.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") stop(e); });
+  return b;
+};
+
+/** Draw the capsule from `me` — on every /whoami, on every registry refresh
+ *  (the tally counts what is yours), and when the drawer opens or closes. */
+function renderMe() {
+  const b = $("me");
+  if (!b) return;
+  closeCapPops();
+  b.classList.toggle("in", !!me.address);
+  if (!me.address) {
+    const kids = ["sign in"];
+    if (savedAccounts().length) {
+      const w = capTool("wallet", "previous sign-ins", (t) => toggleCapPop("wallets", t));
+      w.append(microCaret());
+      kids.push(el("span", { className: "hair" }), w);
+    }
+    b.replaceChildren(...kids);
+    b.title = "sign in with your wallet";
+    b.setAttribute("aria-expanded", "false");
+    return;
+  }
+  const mine = games().filter(isMine).length + playerModules().filter(isMine).length;
+  const tally = el("span", { className: "tally", title: `${mine} of yours here — games and agents, open the drawer` },
+    [icon(CAP_ICONS.tally), String(mine)]);
+  const wallets = capTool("wallet", "wallets — switch to a previous sign-in, or add one", (t) => toggleCapPop("wallets", t));
+  wallets.append(microCaret());
+  b.replaceChildren(
+    addrDot(me.address), tally,
+    el("span", { className: "hair" }),
+    capTool("copy", "copy address", (t) => {
+      copy(me.address, "address copied");
+      t.classList.add("done"); t.replaceChildren(icon(CAP_ICONS.tick));
+      setTimeout(() => { t.classList.remove("done"); t.replaceChildren(icon(CAP_ICONS.copy)); }, 1400);
+    }),
+    capTool("qr", "address as a QR code", (t) => toggleCapPop("qr", t)),
+    wallets,
+    el("span", { className: "hair" }),
+    capTool("panel", profileOpen ? "close your drawer" : "open your drawer — your games and agents",
+      () => (profileOpen ? closeProfile() : openProfile()), { ariaPressed: String(profileOpen) }),
+  );
+  b.title = `${me.address}${me.box_owner ? " — you run this box" : ""}`;
+  b.setAttribute("aria-expanded", String(profileOpen));
+}
+function microCaret() {
+  const c = icon("<path d='M6 9l6 6 6-6'/>"); c.classList.add("caret"); return c;
+}
+// The shell: sign in, or toggle the drawer. A press that started on a tool
+// never reaches here (they stop it).
+$("me").addEventListener("click", () => (me.address ? (profileOpen ? closeProfile() : openProfile()) : signIn()));
+$("me").addEventListener("keydown", (e) => {
+  if (e.target !== $("me")) return;
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("me").click(); }
+});
+
+// ── the two popovers off the capsule: QR and wallets ───────────────────
+// Fixed and placed off the tool that opened them, clamped to the viewport:
+// the header is sticky and these chips sit hard against its right edge.
+let capPop = null;   // { kind, node, anchor }
+function closeCapPops() {
+  if (!capPop) return;
+  capPop.node.remove();
+  capPop.anchor.setAttribute("aria-expanded", "false");
+  capPop = null;
+  window.removeEventListener("resize", placeCapPop);
+  window.removeEventListener("scroll", placeCapPop, true);
+}
+function placeCapPop() {
+  if (!capPop) return;
+  const r = capPop.anchor.getBoundingClientRect(), n = capPop.node;
+  const W = n.offsetWidth || 232;
+  n.style.left = `${Math.min(Math.max(8, r.left + r.width / 2 - W / 2), window.innerWidth - W - 8)}px`;
+  n.style.top = `${r.bottom + 8}px`;
+}
+function toggleCapPop(kind, anchor) {
+  if (capPop?.kind === kind) return closeCapPops();
+  closeCapPops();
+  const node = el("div", { className: `cappop ${kind}`, role: "dialog" });
+  node.setAttribute("aria-label", kind === "qr" ? "your address as a QR code" : "wallets");
+  node.addEventListener("click", (e) => e.stopPropagation());
+  if (kind === "qr") {
+    const code = el("div", { className: "code" });
+    try { code.innerHTML = qrSvgIdentity(me.address, me.address); }
+    catch (e) { code.replaceChildren(el("p", { className: "dim small", textContent: "too long to draw" })); }
+    node.append(code, el("p", { className: "addr", textContent: me.address, title: "copy",
+      onclick: () => copy(me.address, "address copied") }));
+  } else {
+    node.append(el("div", { className: "lbl", textContent: "previous sign-ins" }));
+    const list = savedAccounts();
+    if (!list.length) node.append(el("p", { className: "dim small", style: "margin:0 6px 6px", textContent: "none yet" }));
+    for (const a of list) {
+      const now = sameAddr(a.address, me.address);
+      const row = el("button", { className: `wrow${now ? " now" : ""}`, type: "button",
+        title: now ? "signed in now" : `sign in as ${a.address}` }, [
+        addrDot(a.address),
+        el("span", { className: "grow" }, [el("b", { textContent: shortAddr(a.address) }),
+          el("small", { textContent: now ? "signed in now" : `last ${ago(a.at)}` })]),
+      ]);
+      if (!now) {
+        const x = el("button", { className: "x", type: "button", textContent: "forget", title: "forget this wallet" });
+        x.onclick = (e) => { e.stopPropagation(); forgetAccount(a.address); toggleCapPop("wallets", anchor); toggleCapPop("wallets", anchor); if (!me.address) renderMe(); };
+        row.append(x);
+      }
+      row.onclick = () => (now ? closeCapPops() : switchAccount(a.address));
+      node.append(row);
+    }
+    node.append(el("button", { className: "wrow add", type: "button", textContent: me.address ? "+ sign in with another wallet" : "+ sign in", onclick: () => switchAccount(null) }));
+  }
+  document.body.append(node);
+  anchor.setAttribute("aria-expanded", "true");
+  capPop = { kind, node, anchor };
+  placeCapPop();
+  window.addEventListener("resize", placeCapPop);
+  window.addEventListener("scroll", placeCapPop, true);
+}
+document.addEventListener("pointerdown", (e) => { if (capPop && !e.target.closest(".cappop") && !e.target.closest("#me")) closeCapPops(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && capPop) closeCapPops(); });
+/** A switch is a fresh signature, never a token swap: drop the current
+ *  token, remember the wallet asked for, and run sign-in. In a portal the
+ *  host owns the key, so it is asked instead. */
+async function switchAccount(address) {
+  closeCapPops();
+  if (PORTAL && portalOrigin) { toPortal({ type: "mod-signin" }); return; }
+  if (me.address) { lsSet(TOKEN_KEY, null); memToken = null; await loadMe(); }
+  if (address) toast(`sign in as ${shortAddr(address)} — pick that account in your wallet`);
+  await signIn();
+}
+
+// ── QR: the address as a code, drawn here ───────────────────────────────
+// A dependency-free QR encoder (byte mode, versions 1–10, EC level M) —
+// the same one the build console carries, so the two capsules draw the
+// same code for the same key. An address never leaves the browser for a
+// QR service. Output is a boolean matrix; qrSvgIdentity paints it in the
+// two hues addrDot() hashes out of the address, so the code and the dot
+// are visibly the same person. Darks stay at L≤46% on white, which is the
+// contrast a scanner asks for.
+const QR = (() => {
+  const EXP = new Array(512), LOG = new Array(256);
+  for (let i = 0, x = 1; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  const mul = (a, b) => (a === 0 || b === 0 ? 0 : EXP[LOG[a] + LOG[b]]);
+  const rsGen = (ec) => {
+    let g = [1];
+    for (let i = 0; i < ec; i++) {
+      const ng = new Array(g.length + 1).fill(0);
+      for (let j = 0; j < g.length; j++) { ng[j] ^= g[j]; ng[j + 1] ^= mul(g[j], EXP[i]); }
+      g = ng;
+    }
+    return g;
+  };
+  const rsEncode = (data, ec) => {
+    const gen = rsGen(ec), buf = data.concat(new Array(ec).fill(0));
+    for (let i = 0; i < data.length; i++) {
+      const coef = buf[i];
+      if (coef !== 0) for (let j = 0; j < gen.length; j++) buf[i + j] ^= mul(gen[j], coef);
+    }
+    return buf.slice(data.length);
+  };
+  // level M only: ec codewords per block, blocks [count, data codewords], alignment centres, remainder bits
+  const V = {
+    1: { ec: 10, blocks: [[1, 16]], align: [], rem: 0 },
+    2: { ec: 16, blocks: [[1, 28]], align: [6, 18], rem: 7 },
+    3: { ec: 26, blocks: [[1, 44]], align: [6, 22], rem: 7 },
+    4: { ec: 18, blocks: [[2, 32]], align: [6, 26], rem: 7 },
+    5: { ec: 24, blocks: [[2, 43]], align: [6, 30], rem: 7 },
+    6: { ec: 16, blocks: [[4, 27]], align: [6, 34], rem: 7 },
+    7: { ec: 18, blocks: [[4, 31]], align: [6, 22, 38], rem: 0 },
+    8: { ec: 22, blocks: [[2, 38], [2, 39]], align: [6, 24, 42], rem: 0 },
+    9: { ec: 22, blocks: [[3, 36], [2, 37]], align: [6, 26, 46], rem: 0 },
+    10: { ec: 26, blocks: [[4, 43], [1, 44]], align: [6, 28, 50], rem: 0 },
+  };
+  const dataCount = (v) => v.blocks.reduce((s, [n, d]) => s + n * d, 0);
+  const pickVersion = (n) => {
+    for (let v = 1; v <= 10; v++) if (4 + (v >= 10 ? 16 : 8) + n * 8 <= dataCount(V[v]) * 8) return v;
+    throw new Error("QR payload too large");
+  };
+  const codewords = (bytes, version) => {
+    const info = V[version], cap = dataCount(info) * 8, bits = [];
+    const put = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+    put(4, 4); put(bytes.length, version >= 10 ? 16 : 8);
+    for (const b of bytes) put(b, 8);
+    for (let i = 0; i < 4 && bits.length < cap; i++) bits.push(0);
+    while (bits.length % 8) bits.push(0);
+    const data = [];
+    for (let i = 0; i < bits.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j]; data.push(b); }
+    for (let p = 0; data.length < dataCount(info); p++) data.push([0xec, 0x11][p % 2]);
+    const dbs = [], ebs = [];
+    let pos = 0;
+    for (const [count, dlen] of info.blocks) for (let i = 0; i < count; i++) {
+      const block = data.slice(pos, pos + dlen); pos += dlen;
+      dbs.push(block); ebs.push(rsEncode(block, info.ec));
+    }
+    const out = [];
+    const maxD = Math.max(...dbs.map((b) => b.length)), maxE = Math.max(...ebs.map((b) => b.length));
+    for (let i = 0; i < maxD; i++) for (const b of dbs) if (i < b.length) out.push(b[i]);
+    for (let i = 0; i < maxE; i++) for (const b of ebs) if (i < b.length) out.push(b[i]);
+    return out;
+  };
+  const maskFn = (m, r, c) => [
+    (r + c) % 2 === 0, r % 2 === 0, c % 3 === 0, (r + c) % 3 === 0,
+    (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0, ((r * c) % 2) + ((r * c) % 3) === 0,
+    (((r * c) % 2) + ((r * c) % 3)) % 2 === 0, (((r + c) % 2) + ((r * c) % 3)) % 2 === 0][m];
+  const placeFormat = (m, size, mask) => {
+    const data = mask;   // level M = 00
+    let bch = data << 10;
+    for (let i = 4; i >= 0; i--) if ((bch >>> (i + 10)) & 1) bch ^= 0b10100110111 << i;
+    const fmt = ((data << 10) | bch) ^ 0b101010000010010;
+    const bit = (i) => ((fmt >>> i) & 1) === 1;
+    for (let i = 0; i < 15; i++) {
+      const b = bit(i);
+      if (i < 6) m[i][8] = b; else if (i < 8) m[i + 1][8] = b; else m[size - 15 + i][8] = b;
+      if (i < 8) m[8][size - 1 - i] = b; else if (i < 9) m[8][7] = b; else m[8][15 - i - 1] = b;
+    }
+    m[size - 8][8] = true;
+  };
+  const placeVersion = (m, size, version) => {
+    let bch = version << 12;
+    for (let i = 5; i >= 0; i--) if ((bch >>> (i + 12)) & 1) bch ^= 0b1111100100101 << i;
+    const vi = (version << 12) | bch;
+    for (let i = 0; i < 18; i++) {
+      const bit = ((vi >>> i) & 1) === 1, a = Math.floor(i / 3), b = (i % 3) + size - 11;
+      m[a][b] = bit; m[b][a] = bit;
+    }
+  };
+  const penalty = (m, size) => {
+    let score = 0;
+    for (let r = 0; r < size; r++) {
+      let runC = 1, runR = 1;
+      for (let c = 1; c < size; c++) {
+        if (m[r][c] === m[r][c - 1]) { runC++; if (runC === 5) score += 3; else if (runC > 5) score++; } else runC = 1;
+        if (m[c][r] === m[c - 1][r]) { runR++; if (runR === 5) score += 3; else if (runR > 5) score++; } else runR = 1;
+      }
+    }
+    for (let r = 0; r < size - 1; r++) for (let c = 0; c < size - 1; c++)
+      if (m[r][c] === m[r][c + 1] && m[r][c] === m[r + 1][c] && m[r][c] === m[r + 1][c + 1]) score += 3;
+    const p1 = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0].map(Boolean), p2 = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1].map(Boolean);
+    const hit = (arr, pat, i) => { for (let k = 0; k < pat.length; k++) if (arr[i + k] !== pat[k]) return false; return true; };
+    for (let r = 0; r < size; r++) {
+      const row = m[r], col = m.map((rr) => rr[r]);
+      for (let c = 0; c <= size - 11; c++) {
+        if (hit(row, p1, c) || hit(row, p2, c)) score += 40;
+        if (hit(col, p1, c) || hit(col, p2, c)) score += 40;
+      }
+    }
+    let dark = 0;
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) if (m[r][c]) dark++;
+    return score + Math.floor(Math.abs((dark * 100) / (size * size) - 50) / 5) * 10;
+  };
+  const matrix = (text) => {
+    const bytes = Array.from(new TextEncoder().encode(text));
+    const version = pickVersion(bytes.length), info = V[version], size = version * 4 + 17;
+    const mods = Array.from({ length: size }, () => new Array(size).fill(null));
+    const res = Array.from({ length: size }, () => new Array(size).fill(false));
+    const setF = (r, c, v) => { mods[r][c] = v; res[r][c] = true; };
+    const finder = (row, col) => {
+      for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++) {
+        const rr = row + r, cc = col + c;
+        if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
+        if (r < 0 || r > 6 || c < 0 || c > 6) { setF(rr, cc, false); continue; }
+        setF(rr, cc, r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4));
+      }
+    };
+    finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+    for (let i = 8; i < size - 8; i++) { if (!res[6][i]) setF(6, i, i % 2 === 0); if (!res[i][6]) setF(i, 6, i % 2 === 0); }
+    for (const r of info.align) for (const c of info.align) {
+      if ((r <= 7 && c <= 7) || (r <= 7 && c >= size - 8) || (r >= size - 8 && c <= 7)) continue;
+      for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) setF(r + dr, c + dc, Math.max(Math.abs(dr), Math.abs(dc)) !== 1);
+    }
+    setF(size - 8, 8, true);
+    for (let i = 0; i <= 8; i++) { res[8][i] = true; res[i][8] = true; }
+    for (let i = 0; i < 8; i++) { res[8][size - 1 - i] = true; res[size - 1 - i][8] = true; }
+    if (version >= 7) for (let i = 0; i < 6; i++) for (let j = 0; j < 3; j++) { res[i][size - 11 + j] = true; res[size - 11 + j][i] = true; }
+    const bits = [];
+    for (const cw of codewords(bytes, version)) for (let i = 7; i >= 0; i--) bits.push((cw >>> i) & 1);
+    for (let i = 0; i < info.rem; i++) bits.push(0);
+    let bi = 0, up = true;
+    for (let col = size - 1; col > 0; col -= 2) {
+      if (col === 6) col = 5;
+      for (let i = 0; i < size; i++) {
+        const row = up ? size - 1 - i : i;
+        for (let dc = 0; dc < 2; dc++) {
+          const cc = col - dc;
+          if (res[row][cc]) continue;
+          mods[row][cc] = (bi < bits.length ? bits[bi++] : 0) === 1;
+        }
+      }
+      up = !up;
+    }
+    let best = null, bestP = Infinity;
+    for (let mask = 0; mask < 8; mask++) {
+      const m = mods.map((row, r) => row.map((v, c) => (!res[r][c] && maskFn(mask, r, c) ? !(v === true) : v === true)));
+      placeFormat(m, size, mask);
+      if (version >= 7) placeVersion(m, size, version);
+      const p = penalty(m, size);
+      if (p < bestP) { bestP = p; best = m; }
+    }
+    return best;
+  };
+  return { matrix };
+})();
+
+/** `text` as a QR wearing `seed`'s identity colours — the hue addrDot()
+ *  hashes, and its +120° partner. The finder eyes are rounded frames in
+ *  the accent hue (decoders find them by the 1:1:3:1:1 run, which rounding
+ *  keeps) and the centre carries a bead in the same gradient, ≈3% of the
+ *  symbol, far inside level M's ~15% recovery. */
+function qrSvgIdentity(text, seed, size = 208, margin = 4, light = "#ffffff") {
+  const m = QR.matrix(text), n = m.length, total = n + margin * 2;
+  let h = 0;
+  for (const c of (seed || "").toLowerCase()) h = (h * 33 + c.charCodeAt(0)) % 360;
+  const h1 = h, h2 = (h + 120) % 360;
+  const a = `hsl(${h1} 68% 42%)`, b = `hsl(${h2} 70% 30%)`, eye = `hsl(${h1} 74% 36%)`;
+  const gid = `qg${h1}_${h2}`;
+  const finders = [[0, 0], [0, n - 7], [n - 7, 0]];
+  const inFinder = (r, c) => finders.some(([fr, fc]) => r >= fr && r < fr + 7 && c >= fc && c < fc + 7);
+  const rects = [];
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (m[r][c] && !inFinder(r, c)) rects.push(`M${c + margin} ${r + margin}h1v1h-1z`);
+  const eyes = finders.map(([r, c]) => {
+    const x = c + margin, y = r + margin;
+    return `<rect x="${x + 0.5}" y="${y + 0.5}" width="6" height="6" rx="1.6" fill="none" stroke="${eye}" stroke-width="1"/>` +
+      `<rect x="${x + 2}" y="${y + 2}" width="3" height="3" rx="0.9" fill="url(#${gid})"/>`;
+  }).join("");
+  const cx = total / 2, beadR = Math.max(1.6, total * 0.062);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${total} ${total}">` +
+    `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs>` +
+    `<rect width="${total}" height="${total}" fill="${light}"/>` +
+    `<path shape-rendering="crispEdges" d="${rects.join("")}" fill="url(#${gid})"/>` + eyes +
+    `<circle cx="${cx}" cy="${cx}" r="${beadR + 0.9}" fill="${light}"/><circle cx="${cx}" cy="${cx}" r="${beadR}" fill="url(#${gid})"/>` +
+    `<circle cx="${cx}" cy="${cx}" r="${beadR}" fill="none" stroke="rgba(0,0,0,0.28)" stroke-width="0.35"/></svg>`;
+}
+
 
 // ── profile drawer ─────────────────────────────────────────────────────────
 // The account sidebar. The one place a signed-in person sees and manages what
@@ -1600,6 +1997,7 @@ function openProfile() {
   const back = $("me-back"), d = $("me-drawer");
   back.hidden = d.hidden = false;
   renderProfile();
+  renderMe();
   requestAnimationFrame(() => { back.classList.add("in"); d.classList.add("in"); });
   back.onclick = closeProfile;
   document.addEventListener("keydown", profileKey);
@@ -1610,6 +2008,7 @@ function closeProfile() {
   profileOpen = false;
   const back = $("me-back"), d = $("me-drawer");
   back.classList.remove("in"); d.classList.remove("in");
+  renderMe();
   document.removeEventListener("keydown", profileKey);
   setTimeout(() => { back.hidden = d.hidden = true; }, 240);
 }
@@ -1673,6 +2072,11 @@ $("pl-back").onclick = () => show("agents");
 // URL wins for that tab without being remembered — so a tiled or screenshotted
 // console can be told what to wear. A theme is a block of variables in the
 // sheet and a line here; nothing else knows its name.
+// A theme is a signed-in person's: the picker shows once /whoami names an
+// address, and the remembered pick is worn only then. Signed out, the console
+// wears the default — the pick is kept in this browser for the next sign-in.
+// The URL and a portal host still dress the console either way: those are
+// the host's say, not a pick.
 const THEMES = [
   ["system", "follow the OS"],
   ["dark", "the default"],
@@ -1725,11 +2129,19 @@ themeMenu.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
 });
 osDark.addEventListener("change", () => { if (themeName === "system") applyTheme("system", false); });
-{
-  const asked = new URL(location.href).searchParams.get("theme");
-  if (asked) applyTheme(asked, false);
-  else applyTheme(localStorage.getItem("arena_theme") || "dark", false);
+const askedTheme = new URL(location.href).searchParams.get("theme");
+/** The picker and the pick follow sign-in. A URL theme is the host's and
+ *  stays on; a portal theme arrives by message and is applied as it comes. */
+function syncTheme(signedIn) {
+  $("themewrap").hidden = !signedIn;
+  if (!signedIn) closeThemes();
+  if (askedTheme) return;
+  applyTheme(signedIn ? (lsGet("arena_theme") || "dark") : "dark", false);
 }
+// Before /whoami answers, a token in this browser is taken at its word so a
+// signed-in person does not watch their theme flash in; loadMe settles it.
+if (askedTheme) applyTheme(askedTheme, false);
+else applyTheme(currentToken() ? (lsGet("arena_theme") || "dark") : "dark", false);
 
 // ── little things ────────────────────────────────────────────────────────
 const pct = (x) => `${Math.round((x || 0) * 100)}%`;
@@ -1786,6 +2198,7 @@ async function refresh() {
   renderOther();
   renderModulePicker();
   renderProfile();
+  renderMe();
   const info = await call("/info").catch(() => null);
   if (info) {
     if (Array.isArray(info.player_kinds)) kinds = info.player_kinds;

@@ -66,6 +66,10 @@ class Agent:
     harness = {harness}
     interface = {interface}
     owner = {owner}
+    # console params saved with the agent — the runner, tool, model and
+    # backend settings a console restores when this agent is picked. Free-
+    # form JSON (dict); None = nothing saved beyond the fields above.
+    params = {params}
 
     # the integrations this agent requires wired in: its prompt, the model it
     # calls, the toolbox it may reach, and the memory it thinks with
@@ -73,6 +77,38 @@ class Agent:
 
     goal = """{goal}"""
 '''
+
+
+PARAMS_MAX_CHARS = 8000
+
+
+def _params_or_none(value):
+    """A saved params blob as a plain dict, or None when there is none."""
+    return dict(value) if isinstance(value, dict) and value else None
+
+
+def _check_params(params):
+    """Validate a console params blob before it is written into an agent
+    file: a JSON-serializable dict with string keys, under PARAMS_MAX_CHARS.
+    None/{} clear it. Returns the dict (or None)."""
+    if params is None:
+        return None
+    if not isinstance(params, dict):
+        raise ValueError("params must be an object")
+    if not params:
+        return None
+    import json as _json
+    for k in params:
+        if not isinstance(k, str):
+            raise ValueError("params keys must be strings")
+    try:
+        blob = _json.dumps(params)
+    except (TypeError, ValueError):
+        raise ValueError("params must be JSON-serializable")
+    if len(blob) > PARAMS_MAX_CHARS:
+        raise ValueError(f"params too large ({len(blob)} chars, max {PARAMS_MAX_CHARS})")
+    # round-trip through JSON so the written literal is plain data only
+    return _json.loads(blob)
 
 
 class Agents:
@@ -139,6 +175,9 @@ class Agents:
             # console itself is the interface. Hub-installed agents get one
             # derived from their module's port even when this is unset.
             "interface": getattr(cls, "interface", None),
+            # the params a console saved with the agent (runner, tool, model,
+            # backend settings) — a dict, or None when nothing was saved.
+            "params": _params_or_none(getattr(cls, "params", None)),
             # the integrations the agent's template requires wired in. A
             # shipped agent written before the template declared them still
             # requires all four — that is what an agent is made of.
@@ -215,7 +254,8 @@ class Agents:
     def create(self, name: str, description: str = "", goal: str = "",
                icon: str = ">_", tools: list = None, model: str = None,
                memory: str = None, harness: str = None,
-               interface: str = None, key: str = None) -> Dict[str, Any]:
+               interface: str = None, params: dict = None,
+               key: str = None) -> Dict[str, Any]:
         """Create a new agent locally in agents/ directory.
 
         Signed-in callers only — the agent is filed under the address that
@@ -236,11 +276,15 @@ class Agents:
             interface: the agent's own UI — a gateway path ('/hermes') or an
                        http(s) URL the console connects to when the agent is
                        selected. None = no interface of its own.
+            params: console params to save with the agent (runner, tool,
+                    model, backend settings) — a JSON dict; a console that
+                    picks this agent restores them. None = nothing saved.
             key: caller auth token — the resolved address becomes the owner
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
         harness = self._check_harness(harness)
         interface = self._check_interface(interface)
+        params = _check_params(params)
         self.identity.require_signed_in(key, f"create agent: {name}")
         agent_dir = self._dir / name
         if agent_dir.exists():
@@ -260,6 +304,7 @@ class Agents:
             harness=repr(harness) if harness else "None",
             interface=repr(interface) if interface else "None",
             owner=repr(owner) if owner else "None",
+            params=repr(params) if params else "None",
             goal=goal or f"You are a {label} agent.",
         )
         (agent_dir / "mod.py").write_text(content)
@@ -272,7 +317,7 @@ class Agents:
     def update(self, name: str, description: str = None, goal: str = None,
                icon: str = None, tools: list = ..., model: str = ...,
                memory: str = ..., harness: str = ..., interface: str = ...,
-               key: str = None) -> Dict[str, Any]:
+               params: dict = ..., key: str = None) -> Dict[str, Any]:
         """Update an agent in place. The owner or the host may edit it —
         for everyone else built-ins are read-only, so clone them instead.
 
@@ -294,6 +339,8 @@ class Agents:
         new_harness = current.get("harness") if harness is ... else self._check_harness(harness)
         new_interface = (current.get("interface") if interface is ...
                          else self._check_interface(interface))
+        new_params = (current.get("params") if params is ...
+                      else _check_params(params))
         label = name.replace("-", " ").title()
         content = AGENT_TEMPLATE.format(
             name=name,
@@ -307,6 +354,7 @@ class Agents:
             interface=repr(new_interface) if new_interface else "None",
             # an edit never transfers ownership
             owner=repr(self._recorded_owner(name)) if self._recorded_owner(name) else "None",
+            params=repr(new_params) if new_params else "None",
             goal=goal if goal is not None else (current.get("goal") or f"You are a {label} agent."),
         )
         (agent_dir / "mod.py").write_text(content)
@@ -330,7 +378,8 @@ class Agents:
     def _build_config(self, name: str = None, description: str = None,
                       goal: str = None, icon: str = ">_", tools: list = None,
                       model: str = None, memory: str = None,
-                      harness: str = None, interface: str = None) -> Dict[str, Any]:
+                      harness: str = None, interface: str = None,
+                      params: dict = None) -> Dict[str, Any]:
         """Build an agent config dict from name/overrides."""
         config = {}
         if name and name in self.ls():
@@ -354,6 +403,8 @@ class Agents:
             config["harness"] = harness
         if interface is not None:
             config["interface"] = interface
+        if params is not None:
+            config["params"] = _check_params(params)
         if name:
             config["name"] = name
 
@@ -365,7 +416,7 @@ class Agents:
              icon: str = ">_", tools: list = None, model: str = None,
              memory: str = None, harness: str = None, private: bool = False,
              provider_key: str = None, client_key: str = None,
-             key: str = None) -> Dict[str, Any]:
+             params: dict = None, key: str = None) -> Dict[str, Any]:
         """Save an agent definition as a JSON CID on localfs.
 
         Can save an existing agent by name, or create a new definition inline.
@@ -395,7 +446,8 @@ class Agents:
             raise RuntimeError("mod framework required for CID storage")
 
         config = self._build_config(name, description, goal, icon,
-                                    tools, model, memory, harness)
+                                    tools, model, memory, harness,
+                                    params=params)
 
         if private:
             return self._save_private(config, provider_key, client_key)
@@ -527,6 +579,7 @@ class Agents:
             memory=data.get("memory"),
             harness=data.get("harness"),
             interface=data.get("interface"),
+            params=data.get("params") if isinstance(data.get("params"), dict) else None,
             key=key,
         )
 
@@ -624,6 +677,7 @@ class Agents:
                 memory=kwargs.get("memory"),
                 harness=kwargs.get("harness"),
                 interface=kwargs.get("interface"),
+                params=kwargs.get("params"),
                 key=kwargs.get("key"),
             )
         if action == "update":
@@ -637,6 +691,7 @@ class Agents:
                 memory=kwargs.get("memory", ...),
                 harness=kwargs.get("harness", ...),
                 interface=kwargs.get("interface", ...),
+                params=kwargs.get("params", ...),
                 key=kwargs.get("key"),
             )
         if action == "remove":
@@ -651,6 +706,7 @@ class Agents:
                 model=kwargs.get("model"),
                 memory=kwargs.get("memory"),
                 harness=kwargs.get("harness"),
+                params=kwargs.get("params"),
                 private=kwargs.get("private", False),
                 provider_key=kwargs.get("provider_key"),
                 client_key=kwargs.get("client_key"),

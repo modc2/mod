@@ -1,0 +1,77 @@
+{
+    "name": "reviewer",
+    "version": "0.1.0",
+    "description": "Code review for the fleet. Point it at a module, a path, a pasted file or a unified diff and get a scored review: mod-protocol conformance (config.json, anchor, fns, ports, README, tests), fleet rules (no pattern kills, no git stash, no native dialogs, no secrets in source, 4xx not 5xx behind Cloudflare) and plain code hygiene, every finding anchored to file:line with a fix. Static engine is stdlib-only and offline; an optional deep engine hands the same target to the claudecode agent (:51260) for a read-only written review. Reviews live in one local SQLite file, findings can be marked fixed or ignored, and everything is reachable as a console, a JSON API and an MCP server.",
+    "icon": "R",
+    "color": "#9d7cff",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51430,
+    "app_port": 51430,
+    "gateway_port": 51430,
+    "base_path": "/reviewer",
+    "route": true,
+    "deps": [],
+    "urls": {
+        "app": "http://localhost:51430/reviewer/",
+        "api": "http://localhost:51430",
+        "mcp": "http://localhost:51430/mcp"
+    },
+    "mcp": {
+        "http": "http://localhost:51430/mcp",
+        "stdio": {
+            "command": "python3",
+            "args": [
+                "mcp_server.py"
+            ],
+            "cwd": "."
+        }
+    },
+    "state": "~/.mod/reviewer/reviews.db (override with REVIEWER_DIR)",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "review",
+        "resolve",
+        "get",
+        "list",
+        "rules",
+        "targets",
+        "verdict",
+        "delete",
+        "mcp",
+        "serve",
+        "test",
+        "kill"
+    ],
+    "api_fns": [
+        "info",
+        "health",
+        "readme",
+        "review",
+        "resolve",
+        "get",
+        "list",
+        "rules",
+        "targets",
+        "verdict",
+        "delete"
+    ],
+    "endpoints": {
+        "GET /info": "Null call: what this module is, with review stats and the rule count",
+        "GET /health": "Liveness, store size, whether the claudecode agent is reachable",
+        "GET /readme": "The project README",
+        "GET /rules": "Every rule the static engine runs (id, severity, what it looks for, the fix)",
+        "GET /targets": "Every module in the fleet this box can review (name, path, port, tests, readme)",
+        "GET /list": "Past reviews, newest first (target, engine, limit, offset)",
+        "GET /get": "One review with its findings and verdicts (id)",
+        "POST /review": "Run a review {target | path | code+filename | diff, engine=static|agent, model, timeout, save=1}",
+        "POST /verdict": "Mark a finding {id, index, verdict=open|fixed|ignored, note}",
+        "POST /delete": "Delete a review {id}: loopback callers only",
+        "POST /mcp": "MCP JSON-RPC: reviewer_review, reviewer_get, reviewer_list, reviewer_rules, reviewer_targets, reviewer_status"
+    },
+    "key": "reviewer",
+    "schema": "QmVPAq3Fq3mK2WQqFyu8HfkBHaynY6jxUXfbGi1nHrWoDk"
+}

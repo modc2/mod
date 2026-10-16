@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reviews · transparent ratings</title>
+<style>
+  :root { --bg:#0e1210; --panel:#151b17; --line:#263129; --ink:#e7efe8; --dim:#8fa394; --acc:#f5b941; --ok:#7bd88f; --soon:#c7a1ff; }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 Inter, system-ui, sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:28px 18px 60px; }
+  h1 { font-size:22px; margin:0 0 4px; letter-spacing:.02em } h1 b { color:var(--acc) }
+  .sub { color:var(--dim); margin-bottom:22px }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:12px 0 }
+  input, select, button { font:inherit; color:var(--ink); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px }
+  button { cursor:pointer } button.on { border-color:var(--acc); color:var(--acc) }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:14px 0 }
+  .big { font-size:40px; font-weight:800; color:var(--acc); line-height:1 } .big small { font-size:14px; color:var(--dim); font-weight:500 }
+  .formula { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12.5px; color:var(--dim); margin-top:6px; word-break:break-word }
+  table { width:100%; border-collapse:collapse; margin-top:12px; font-size:13.5px } th, td { text-align:left; padding:6px 8px; border-top:1px solid var(--line) } th { color:var(--dim); font-weight:600; border:0 }
+  .tag { display:inline-block; font-size:11px; padding:1px 7px; border-radius:999px; border:1px solid var(--line); color:var(--dim) } .tag.live { color:var(--ok) } .tag.soon { color:var(--soon) }
+  .fb { color:var(--soon); font-size:13px; margin-top:8px }
+  .subjects button { display:block; width:100%; text-align:left; margin:4px 0 }
+  .muted { color:var(--dim) }
+  code { font-family:ui-monospace, Menlo, monospace; font-size:12.5px; background:#0b0e0c; padding:1px 5px; border-radius:5px }
+</style>
+</head>
+<body>
+<main>
+  <h1><b>★</b> reviews</h1>
+  <div class="sub">Ratings from people and agents, folded into one number by an aggregator you can read. Every score shows its working.</div>
+
+  <div class="card">
+    <div class="row">
+      <label class="muted">subject</label>
+      <input id="subject" placeholder="e.g. build:polymarket" style="min-width:260px">
+      <span id="aggs" class="row" style="margin:0"></span>
+      <button id="go">score</button>
+    </div>
+    <div id="out" class="muted">Pick a subject on the left or type one.</div>
+  </div>
+
+  <div class="row" style="align-items:flex-start">
+    <div class="card subjects" style="flex:1; min-width:260px">
+      <div class="muted" style="margin-bottom:6px">rated subjects</div>
+      <div id="subjects"></div>
+    </div>
+    <div class="card" style="flex:2; min-width:300px">
+      <div class="muted" style="margin-bottom:6px">aggregators</div>
+      <div id="registry"></div>
+      <div class="muted" style="margin-top:12px; font-size:13px">Add one: register a function in <code>reviews.py</code> with <code>@aggregator(id, title, formula)</code>. It gets the ratings and returns a weight and a reason per rater. That is the whole contract.</div>
+    </div>
+  </div>
+</main>
+<script>
+const api = (fn, q) => fetch(`./api/${fn}${q ? '?' + new URLSearchParams(q) : ''}`).then(r => r.json());
+const $ = (id) => document.getElementById(id);
+let agg = 'mean', registry = [];
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function renderAggs() {
+  $('aggs').innerHTML = registry.map(a => `<button data-id="${a.id}" class="${a.id === agg ? 'on' : ''}" title="${esc(a.formula)}">${esc(a.title)}${a.status !== 'live' ? ' · soon' : ''}</button>`).join('');
+  $('aggs').querySelectorAll('button').forEach(b => b.onclick = () => { agg = b.dataset.id; renderAggs(); score(); });
+  $('registry').innerHTML = registry.map(a => `<div style="margin:8px 0"><b>${esc(a.title)}</b> <span class="tag ${a.status}">${a.status}</span> <span class="muted">· ${a.id}</span><div class="formula">${esc(a.formula)}</div>${Object.entries(a.params || {}).map(([k, v]) => `<div class="formula">${esc(k)}: ${esc(v)}</div>`).join('')}</div>`).join('');
+}
+
+async function score() {
+  const subject = $('subject').value.trim();
+  if (!subject) return;
+  const u = new URL(location); u.searchParams.set('s', subject); history.replaceState(null, '', u);
+  const d = await api('score', { subject, aggregator: agg });
+  if (d.error) { $('out').innerHTML = `<span class="fb">${esc(d.error)}</span>`; return; }
+  if (d.score == null) { $('out').innerHTML = `<span class="muted">no ratings on <code>${esc(subject)}</code> yet</span>`; return; }
+  const rows = d.breakdown.map(r => `<tr><td>${esc(r.rater)}</td><td><span class="tag">${esc(r.kind)}</span></td><td>${r.score}</td><td>${r.weight}</td><td>${(r.share * 100).toFixed(1)}%</td><td class="muted">${esc(r.why)}</td></tr>`).join('');
+  $('out').innerHTML = `
+    <div class="big">${d.score.toFixed(2)} <small>/ ${d.scale} · ${d.n} rating${d.n === 1 ? '' : 's'} · ${d.by_kind.human} human · ${d.by_kind.agent} agent · ${esc(d.title)}</small></div>
+    <div class="formula">${esc(d.formula)}</div>
+    ${d.fallback ? `<div class="fb">⚠ ${esc(d.aggregator)} could not run — ${esc(d.fallback.why)}; showing ${esc(d.fallback.to)} instead.</div>` : ''}
+    ${d.weights ? `<div class="formula">weights (${esc(d.weights_source)}): ${esc(JSON.stringify(d.weights))}</div>` : ''}
+    <table><tr><th>rater</th><th>kind</th><th>score</th><th>weight</th><th>share</th><th>why</th></tr>${rows}</table>`;
+}
+
+async function boot() {
+  const a = await api('aggregators'); registry = a.aggregators; agg = a.default; renderAggs();
+  const s = await api('subjects');
+  $('subjects').innerHTML = s.subjects.length ? s.subjects.map(x => `<button data-s="${esc(x.subject)}">${esc(x.subject)} <span class="muted">· ${x.n} · ${x.mean}</span></button>`).join('') : '<span class="muted">nothing rated yet</span>';
+  $('subjects').querySelectorAll('button').forEach(b => b.onclick = () => { $('subject').value = b.dataset.s; score(); });
+  const pre = new URLSearchParams(location.search).get('s'); if (pre) { $('subject').value = pre; score(); }
+}
+$('go').onclick = score; $('subject').onkeydown = (e) => { if (e.key === 'Enter') score(); };
+boot();
+</script>
+</body>
+</html>

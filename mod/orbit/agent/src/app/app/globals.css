@@ -1918,3 +1918,10 @@ g:hover > .builder-wire {
 }
 :root[data-skin="pixel"] .nav-seg-btn--on svg { color: rgb(var(--s-0)); }
 :root[data-skin="pixel"] .nav-seg-badge { border-radius: 0; }
+
+/* the hub's own strip — the same pill, a size down, so it reads as the
+   header's child and not a second header */
+.nav-seg--sub { padding: 2px; gap: 1px; }
+.nav-seg--sub .nav-seg-btn { padding: 4px 10px; font-size: 11px; gap: 6px; }
+.nav-seg--sub .nav-seg-btn svg { width: 13px; height: 13px; }
+:root[data-skin="pixel"] .nav-seg--sub .nav-seg-btn { padding: 5px 8px; font-size: 8px; }

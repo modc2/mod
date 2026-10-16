@@ -76,7 +76,7 @@ MAX_INTERVAL = 31_536_000  # a year
 MAX_FEE_BPS = 500          # 5% — the protocol cannot take more than this
 
 DEFAULT_CONFIG = {
-    'interval': 604800,      # weekly, the owner's to change
+    'interval': 86400,       # daily — one close a day, the owner's to change
     'entry_cutoff': 3600,    # entries stop this long before the close
     'model': 'linear',       # a score function: a default, or one from the library
     'tolerance': 1.0,        # its `tol` param; 1.0 + linear == accuracy is exactly 1 − relL1
@@ -97,7 +97,15 @@ DEFAULT_CONFIG = {
     # listed, and to take a stake — a pot on a $900 pool settles against a
     # price one trade can move. 0 = no floor. The owner's number.
     'min_liquidity_usd': 10_000.0,
+    # Up/down wagers: anyone may call a direction for free, one per asset per
+    # round, this many per round. Paid wagers obey min_stake like any stake.
+    'side_free_per_round': 10,
+    # The signal layer never places a trade. It turns the round's up/down
+    # book into a bias + conviction, and caps the leverage it will *suggest*.
+    'signal_max_leverage': 5,
 }
+
+SIDES = ('up', 'down')
 
 MAX_FREE_PER_ROUND = 50    # a free board is only readable if it is bounded
 
@@ -296,6 +304,92 @@ def settle_agents(agent_entries: List[Dict], actual: float, fn: Dict,
     return scored
 
 
+def side_outcome(actual: float, strike: float) -> Optional[str]:
+    """Which side a close pays: 'up' above the strike, 'down' below it, None
+    on a dead-even close (a push — everyone is refunded)."""
+    if actual is None or strike is None or strike <= 0:
+        return None
+    if actual > strike:
+        return 'up'
+    if actual < strike:
+        return 'down'
+    return None
+
+
+def settle_sides(entries: List[Dict], actual: float, strike: float,
+                 fee_bps: int) -> Dict:
+    """Score one (round, asset) up/down book — a parimutuel.
+
+    Everyone on the winning side splits the whole book pro-rata by dollars;
+    the losing side's stake is what they split. Accuracy is binary (1 or 0),
+    so the same `split_pot` kernel that pays the price pot pays this one. No
+    winner (every dollar on the wrong side, or a dead-even close) refunds
+    everyone — a book with no counterparty has nothing to pay out of.
+    Free wagers (amount 0) are scored for the record and paid nothing.
+    """
+    winner = side_outcome(actual, strike)
+    scored = []
+    for e in entries:
+        hit = 1.0 if (winner is not None and e.get('side') == winner) else 0.0
+        scored.append({**e, 'accuracy': hit, 'hit': bool(hit),
+                       'score': round(float(e.get('amount') or 0) * hit, 8)})
+    paid = [e for e in scored if float(e.get('amount') or 0) > 0]
+    gross_units = sum(usd_to_units(e['amount']) for e in paid)
+    total_score = sum(e['score'] for e in paid)
+
+    if total_score <= 0 or winner is None:
+        for e in scored:
+            e['payout'] = float(e.get('amount') or 0)
+            e['share'] = 0.0
+            e['net'] = 0.0
+        return {'mode': 'refund' if paid else 'free-only', 'winner_side': winner,
+                'actual_price': actual, 'strike': strike,
+                'gross': units_to_usd(gross_units), 'fee': 0.0,
+                'pot': units_to_usd(gross_units), 'total_score': 0.0,
+                'entries': scored}
+
+    fee_units, pot_units = fee_split(gross_units, fee_bps)
+    payouts = split_pot(pot_units, [e['score'] for e in paid])
+    by_id = {}
+    for e, units in zip(paid, payouts):
+        by_id[e['id']] = units
+    for e in scored:
+        units = by_id.get(e['id'], 0)
+        e['payout'] = units_to_usd(units)
+        e['share'] = round(e['score'] / total_score, 8) if e['score'] else 0.0
+        e['net'] = round(e['payout'] - float(e.get('amount') or 0), 6)
+    return {'mode': 'split', 'winner_side': winner, 'actual_price': actual,
+            'strike': strike, 'gross': units_to_usd(gross_units),
+            'fee': units_to_usd(fee_units), 'pot': units_to_usd(pot_units),
+            'total_score': round(total_score, 8), 'entries': scored}
+
+
+def side_book(entries: List[Dict], notional: float = 0.0) -> Dict:
+    """Tally an up/down book: dollars and heads on each side, plus the crowd
+    lean in -1..1 (negative = down). Free wagers count as `notional` dollars
+    in the lean so an all-free book still has an opinion, but are reported
+    separately so nobody mistakes them for money."""
+    book = {s: {'amount': 0.0, 'count': 0, 'free': 0} for s in SIDES}
+    for e in entries:
+        side = e.get('side')
+        if side not in book:
+            continue
+        amt = float(e.get('amount') or 0)
+        if amt > 0:
+            book[side]['amount'] += amt
+        else:
+            book[side]['free'] += 1
+        book[side]['count'] += 1
+    weight = {s: book[s]['amount'] + book[s]['free'] * float(notional or 0)
+              for s in SIDES}
+    total = weight['up'] + weight['down']
+    lean = (weight['up'] - weight['down']) / total if total > 0 else 0.0
+    for s in SIDES:
+        book[s]['amount'] = round(book[s]['amount'], 6)
+    return {**book, 'lean': round(lean, 4), 'weight': round(total, 6),
+            'calls': sum(book[s]['count'] for s in SIDES)}
+
+
 def validate_config(patch: Dict, current: Dict = None,
                     library: 'curves.Library' = None) -> Dict:
     """Merge a config patch over the live config and bounds-check every field.
@@ -375,6 +469,16 @@ def validate_config(patch: Dict, current: Dict = None,
     merged['min_liquidity_usd'] = float(merged['min_liquidity_usd'])
     if merged['min_liquidity_usd'] < 0:
         raise ValueError('min_liquidity_usd must be >= 0 (0 = no floor)')
+
+    merged['side_free_per_round'] = int(merged['side_free_per_round'])
+    if not 0 <= merged['side_free_per_round'] <= MAX_FREE_PER_ROUND:
+        raise ValueError(f'side_free_per_round must be 0..{MAX_FREE_PER_ROUND} '
+                         '(0 switches free up/down calls off)')
+
+    merged['signal_max_leverage'] = int(merged['signal_max_leverage'])
+    if not 1 <= merged['signal_max_leverage'] <= 50:
+        raise ValueError('signal_max_leverage must be 1..50 — the most the '
+                         'signal layer will ever suggest')
 
     merged['auto_pay'] = bool(merged['auto_pay'])
     return merged
@@ -1385,6 +1489,222 @@ class Pool:
                      f"what ${entry['notional']:,.0f} on it would have won"),
         }
 
+    # ── up / down ────────────────────────────────────────────────────
+    # The directional layer. A wager is not a price: it is "closes above
+    # the strike" or "closes below it", and the strike is the same number
+    # for everyone on that asset that round — the price at the round's open
+    # — so the book is a clean poll of where the crowd thinks the day ends.
+    # That poll is what the signal layer reads.
+
+    def _side_entries(self, index: int, address: str = None) -> List[Dict]:
+        rows = [e for e in self._read(self.entries_path, [])
+                if e.get('side') and e['round'] == index]
+        if address:
+            addr = hyperevm.normalize(address)
+            rows = [e for e in rows if e['address'] == addr]
+        return rows
+
+    def _strike(self, record: Dict, asset: str) -> Optional[float]:
+        """The strike every up/down wager on `asset` in this round is judged
+        against: the price at the round's open, read once and pinned onto the
+        round record. Pinned because a strike that moved with the mark would
+        let a late caller bet on a question nobody else was asked. Falls
+        back to the live mark (and says so) when the feed has no history."""
+        strikes = record.setdefault('strikes', {})
+        hit = strikes.get(asset)
+        if hit and hit.get('price'):
+            return float(hit['price'])
+        price, mode = None, 'none'
+        src = self._source_of(asset)
+        if self._price_at:
+            try:
+                q = self._price_at(asset, record['opens'], src) or {}
+            except Exception:
+                q = {}
+            if q.get('price') and q.get('mode') == 'historical':
+                price, mode = float(q['price']), 'open'
+        if not price and self._price_now:
+            try:
+                now_px = self._price_now(asset, src)
+            except Exception:
+                now_px = None
+            if now_px:
+                price, mode = float(now_px), 'mark'
+        if not price:
+            return None
+        strikes[asset] = {'price': price, 'mode': mode, 'at': time.time()}
+        return price
+
+    def side_quota(self, address: str, index: int = None) -> Dict:
+        """Free up/down calls left this round, and which assets are taken."""
+        st = self.state()
+        cfg = st['config']
+        win = self.window(index)
+        limit = int(cfg.get('side_free_per_round', 0))
+        if not hyperevm.is_address(address or ''):
+            used, assets = 0, []
+        else:
+            mine = self._side_entries(win['index'], address)
+            used = sum(1 for e in mine if not float(e.get('amount') or 0))
+            assets = sorted({e['asset'] for e in mine})
+        return {
+            'address': hyperevm.normalize(address) if address else None,
+            'round': win['index'],
+            'enabled': limit > 0,
+            'limit': limit,
+            'used': used,
+            'remaining': max(0, limit - used),
+            'assets_used': assets,
+            'min_stake': cfg['min_stake'],
+            'entries_close': win['entry_deadline'],
+            'resets_at': win['closes'],
+            'entries_open': time.time() < win['entry_deadline'],
+        }
+
+    def side_stake(self, address: str, asset: str, side: str,
+                   amount: float = 0, signature: str = None,
+                   nonce: int = None) -> Dict:
+        """Wager up or down on where `asset` closes against the round's strike.
+
+        `amount` 0 is a free call: signed (it writes to a public record and
+        feeds the signal), capped per round and one per asset, paid nothing.
+        A positive amount is money — it leaves the balance now and comes back
+        from the losing side at the close, or as a refund when the book had no
+        counterparty. One wager per asset per round either way, so a book
+        cannot be stuffed by one wallet taking both sides.
+        """
+        if not hyperevm.is_address(address):
+            return {'error': 'a valid 0x address is required'}
+        addr = hyperevm.normalize(address)
+        side = (side or '').strip().lower()
+        if side not in SIDES:
+            return {'error': "side must be 'up' or 'down'"}
+        try:
+            amount = round(float(amount or 0), 6)
+        except (TypeError, ValueError):
+            return {'error': 'amount must be a number (0 for a free call)'}
+        if amount < 0:
+            return {'error': 'amount must be >= 0'}
+
+        st = self.state()
+        cfg = st['config']
+        free = amount == 0
+        if free and int(cfg.get('side_free_per_round', 0)) <= 0:
+            return {'error': 'free up/down calls are switched off — put dollars on it'}
+        if not free:
+            if amount < cfg['min_stake']:
+                return {'error': f"minimum stake is ${cfg['min_stake']:,.2f} — or call it free with amount 0"}
+            if cfg['max_stake'] and amount > cfg['max_stake']:
+                return {'error': f"maximum stake is ${cfg['max_stake']:,.2f}"}
+
+        found = self._pool_market(asset, cfg)
+        if 'error' in found:
+            return found
+        symbol = found['market']['symbol'].upper()
+
+        win = self.window()
+        now = time.time()
+        if now >= win['entry_deadline']:
+            return {'error': 'entries for this round are closed — '
+                             f"{int(win['closes'] - now)}s until it settles, "
+                             'your wager would land in the next round',
+                    'round': win['index'], 'next_opens': win['closes']}
+
+        mine = self._side_entries(win['index'], addr)
+        if any(e['asset'] == symbol for e in mine):
+            return {'error': f'you already called {symbol} this round — one '
+                             'up/down wager per asset, so the book is a poll '
+                             'and not a stuffing contest',
+                    'round': win['index']}
+        if free:
+            limit = int(cfg['side_free_per_round'])
+            used = sum(1 for e in mine if not float(e.get('amount') or 0))
+            if used >= limit:
+                return {'error': f'out of free up/down calls — {limit} per round. '
+                                 'the next round resets them, or stake on it',
+                        'round': win['index'], 'resets_at': win['closes']}
+
+        check = sigauth.verify('side_stake', addr, [
+            ('amount', f'{amount:.6f}'), ('asset', symbol),
+            ('round', str(win['index'])), ('side', side),
+        ], self.nonce(addr) if nonce is None else int(nonce), signature)
+        if not check['ok']:
+            return {'error': check['error'], 'sign_message': check['message'],
+                    'nonce': self.nonce(addr)}
+
+        if not free:
+            bal = self.balance(addr)
+            if bal['available'] < amount:
+                return {'error': f"insufficient balance — ${bal['available']:,.2f} "
+                                 f'available, ${amount:,.2f} needed. deposit USDC or '
+                                 'USDT0 to the vault first, or call it free with amount 0'}
+
+        mark = self._price_now(symbol, self._source_of(symbol)) if self._price_now else None
+
+        with self._lock():
+            st = self.state()
+            rounds = self._rounds()
+            record = self._round_record(st, rounds, win['index'])
+            strike = self._strike(record, symbol)
+            if not strike:
+                return {'error': f'no strike for {symbol} — the feed has no price '
+                                 'for the round open and no live mark. try again shortly'}
+            entries = self._read(self.entries_path, [])
+            entry = {
+                'id': self._next(st, 'entry'),
+                'round': win['index'],
+                'address': addr,
+                'asset': symbol,
+                'kind': 'side',
+                'side': side,
+                'strike': strike,
+                'strike_mode': record['strikes'][symbol]['mode'],
+                'amount': amount,
+                'free': free,
+                'mark_at_entry': mark,
+                'created_at': now,
+                'status': 'open',
+                'accuracy': None, 'score': None,
+                'payout': None, 'net': None,
+            }
+            entries.append(entry)
+            if not free:
+                rows = self._post(st, self._ledger(), [{
+                    'kind': 'stake', 'address': addr, 'amount': -amount,
+                    'round': win['index'], 'entry': entry['id'], 'asset': symbol,
+                    'side': side,
+                }])
+                self._write(self.ledger_path, rows)
+            self._write(self.entries_path, entries)
+            self._write(self.rounds_path, rounds)
+            st['nonces'][addr] = int(st['nonces'].get(addr, 0)) + 1
+            self._save_state(st)
+
+        book = side_book([e for e in entries
+                          if e.get('side') and e['round'] == win['index']
+                          and e['asset'] == symbol],
+                         cfg['free_notional'])
+        return {
+            'entry_id': entry['id'],
+            'round': win['index'],
+            'asset': symbol,
+            'quote': self._quote_of(symbol),
+            'side': side,
+            'strike': strike,
+            'strike_mode': entry['strike_mode'],
+            'free': free,
+            'staked': amount,
+            'mark_at_entry': mark,
+            'mark_vs_strike_pct': round((mark - strike) / strike * 100, 3) if mark else None,
+            'book': book,
+            'entries_close': win['entry_deadline'],
+            'settles': win['closes'],
+            'balance': self.balance(addr)['available'] if not free else None,
+            'note': ('free — scored for the record and the signal, pays nothing'
+                     if free else
+                     f'${amount:,.2f} on {side}: the winning side splits the book at the close'),
+        }
+
     # ── agent play ───────────────────────────────────────────────────
 
     def _agent_entries(self, index: int, address: str = None) -> List[Dict]:
@@ -1631,9 +1951,11 @@ class Pool:
                     # Free and agent calls are held out of the pot, not staked
                     # at zero — the money math never sees an entry that put no
                     # dollars in it.
+                    sides = [e for e in group if e.get('side')]
                     paid = [e for e in group
-                            if not e.get('free') and not e.get('agent')]
-                    free = [e for e in group if e.get('free')]
+                            if not e.get('free') and not e.get('agent')
+                            and not e.get('side')]
+                    free = [e for e in group if e.get('free') and not e.get('side')]
                     agents = [e for e in group if e.get('agent')]
 
                     quote = self._price_at(asset, record['closes'], self._source_of(asset)) \
@@ -1652,7 +1974,8 @@ class Pool:
                                         'reason': f'no settlement price ({mode})',
                                         'entries': len(paid),
                                         'free_entries': len(free),
-                                        'agent_entries': len(agents)})
+                                        'agent_entries': len(agents),
+                                        'side_entries': len(sides)})
                         continue
 
                     fn = self._fn_of(record)
@@ -1661,6 +1984,37 @@ class Pool:
                         result['mode'] = 'free-only'
 
                     ledger_rows = []
+
+                    # The up/down book is its own pot, judged against the
+                    # strike pinned when the first wager landed.
+                    side_result = None
+                    if sides:
+                        strike = self._strike(record, asset) or sides[0].get('strike')
+                        side_result = settle_sides(sides, price, strike,
+                                                   record['fee_bps'])
+                        for scored in side_result['entries']:
+                            target = next(e for e in entries if e['id'] == scored['id'])
+                            target.update({
+                                'status': 'settled',
+                                'actual_price': price,
+                                'price_mode': mode,
+                                'strike': strike,
+                                'hit': scored['hit'],
+                                'accuracy': scored['accuracy'],
+                                'score': scored['score'],
+                                'share': scored['share'],
+                                'payout': scored['payout'],
+                                'net': scored['net'],
+                                'settled_at': now,
+                            })
+                            if scored['payout'] > 0 and float(scored.get('amount') or 0) > 0:
+                                ledger_rows.append({
+                                    'kind': 'refund' if side_result['mode'] == 'refund' else 'payout',
+                                    'address': scored['address'],
+                                    'amount': scored['payout'],
+                                    'round': record['index'], 'entry': scored['id'],
+                                    'asset': asset, 'side': scored['side'],
+                                })
                     for scored in result['entries']:
                         target = next(e for e in entries if e['id'] == scored['id'])
                         target.update({
@@ -1733,6 +2087,8 @@ class Pool:
                             })
 
                     fee_units = usd_to_units(result['fee']) - agent_paid_units
+                    if side_result:
+                        fee_units += usd_to_units(side_result['fee'])
                     if fee_units > 0:
                         ledger_rows.append({
                             'kind': 'fee', 'address': None,
@@ -1757,10 +2113,23 @@ class Pool:
                         'agent_entries': len(agents),
                         'agent_pot': units_to_usd(pot_for_agents),
                         'agent_paid': units_to_usd(agent_paid_units),
+                        'sides': ({
+                            'strike': side_result['strike'],
+                            'winner_side': side_result['winner_side'],
+                            'mode': side_result['mode'],
+                            'gross': side_result['gross'],
+                            'fee': side_result['fee'],
+                            'pot': side_result['pot'],
+                            'book': side_book(sides, record.get('free_notional',
+                                                                cfg['free_notional'])),
+                            'entries': len(sides),
+                        } if side_result else None),
                     }
                     settled.append({'round': record['index'], 'asset': asset,
                                     'pot': result['pot'], 'mode': result['mode'],
-                                    'winner': result['winner']})
+                                    'winner': result['winner'],
+                                    'side_pot': side_result['pot'] if side_result else 0.0,
+                                    'winner_side': side_result['winner_side'] if side_result else None})
                     dirty = True
 
                 still_open = [e for e in entries
@@ -1946,8 +2315,10 @@ class Pool:
         share_bps = self._agent_share_of(record, cfg)
         out_assets = []
         for asset, group in sorted(assets.items()):
-            paid = [e for e in group if not e.get('free') and not e.get('agent')]
-            free = [e for e in group if e.get('free')]
+            sides = [e for e in group if e.get('side')]
+            paid = [e for e in group if not e.get('free') and not e.get('agent')
+                    and not e.get('side')]
+            free = [e for e in group if e.get('free') and not e.get('side')]
             agents = [e for e in group if e.get('agent')]
             settled = record['assets'].get(asset)
             actual = settled['actual_price'] if settled else (
@@ -1976,11 +2347,33 @@ class Pool:
                 totals = {'gross': round(sum(float(e['amount']) for e in paid), 6),
                           'fee': 0.0, 'pot': None, 'total_score': None,
                           'winner': None, 'agent_pot': None, 'mode': 'unpriced'}
+            side_view = None
+            if sides:
+                strike = (settled or {}).get('sides', {}) and settled['sides'].get('strike')
+                strike = strike or sides[0].get('strike')
+                book = side_book(sides, cfg['free_notional'])
+                if actual and strike:
+                    preview = settle_sides(sides, actual, strike, record['fee_bps'])
+                    side_rows = preview['entries']
+                    side_view = {'strike': strike, 'book': book,
+                                 'winner_side': preview['winner_side'],
+                                 'mode': preview['mode'], 'gross': preview['gross'],
+                                 'fee': preview['fee'], 'pot': preview['pot'],
+                                 'provisional': not settled}
+                else:
+                    side_rows = [{**e, 'accuracy': None, 'score': None, 'payout': None}
+                                 for e in sides]
+                    side_view = {'strike': strike, 'book': book, 'winner_side': None,
+                                 'mode': 'unpriced', 'gross': book['up']['amount'] + book['down']['amount'],
+                                 'fee': 0.0, 'pot': None, 'provisional': not settled}
+                side_view['entries'] = sorted(
+                    side_rows, key=lambda r: (-(float(r.get('amount') or 0)), r.get('created_at') or 0))
             out_assets.append({
                 'asset': asset,
                 'quote': self._quote_of(asset),
                 'settled': bool(settled),
                 'actual_price': actual,
+                'sides': side_view,
                 'price_mode': settled['price_mode'] if settled else 'live-mark',
                 'provisional': not settled,
                 'stakers': len({e['address'] for e in paid}),
@@ -2012,8 +2405,12 @@ class Pool:
             'total_staked': round(sum(float(e['amount']) for e in entries), 6),
             'stakers': len({e['address'] for e in entries
                             if not e.get('free') and not e.get('agent')}),
-            'free_calls': sum(1 for e in entries if e.get('free')),
-            'free_callers': len({e['address'] for e in entries if e.get('free')}),
+            'free_calls': sum(1 for e in entries if e.get('free') and not e.get('side')),
+            'free_callers': len({e['address'] for e in entries
+                                 if e.get('free') and not e.get('side')}),
+            'side_calls': sum(1 for e in entries if e.get('side')),
+            'side_callers': len({e['address'] for e in entries if e.get('side')}),
+            'side_free_per_round': cfg.get('side_free_per_round', 0),
             'free_per_round': cfg['free_per_round'],
             'free_notional': cfg['free_notional'],
             'agent_calls': sum(1 for e in entries if e.get('agent')),
@@ -2043,8 +2440,9 @@ class Pool:
                 'staked': round(sum(float(e['amount']) for e in mine), 6),
                 'stakers': len({e['address'] for e in mine
                                 if not e.get('free') and not e.get('agent')}),
-                'free_calls': sum(1 for e in mine if e.get('free')),
+                'free_calls': sum(1 for e in mine if e.get('free') and not e.get('side')),
                 'agent_calls': sum(1 for e in mine if e.get('agent')),
+                'side_calls': sum(1 for e in mine if e.get('side')),
                 'assets': record['assets'],
                 'paid': round(sum(a.get('pot', 0) or 0
                                   for a in record['assets'].values()), 6),
@@ -2116,7 +2514,7 @@ class Pool:
         self.settle()
         book = {}
         for e in self._read(self.entries_path, []):
-            if not e.get('free'):
+            if not e.get('free') or e.get('side'):
                 continue
             row = book.setdefault(e['address'], {
                 'address': e['address'], 'calls': 0, 'settled': 0,
@@ -2137,7 +2535,7 @@ class Pool:
         # Whoever also stakes has converted — worth saying on the board that
         # exists to convert people.
         staked = {e['address'] for e in self._read(self.entries_path, [])
-                  if not e.get('free')}
+                  if not e.get('free') and not e.get('side')}
 
         out = []
         for row in book.values():
@@ -2440,7 +2838,20 @@ class Pool:
             old_interval = st['schedule']['interval']
             if merged['interval'] != old_interval:
                 current = self.window()
-                st['schedule'] = {'anchor': current['closes'],
+                anchor = current['closes']
+                if merged['interval'] % 86400 == 0:
+                    # Daily (or n-daily) rounds close at 00:00 UTC — "the
+                    # daily close" has to be a time anyone can name. Snap
+                    # back to the midnight before the old close when nothing
+                    # is open in the old round (the new round simply starts
+                    # now); otherwise forward, so no live money straddles
+                    # two schedules.
+                    open_now = any(e['round'] == current['index'] and e['status'] == 'open'
+                                   for e in self._read(self.entries_path, []))
+                    before = int(anchor // 86400) * 86400
+                    anchor = before if (not open_now and before > current['opens']) \
+                        else (before if before == anchor else before + 86400)
+                st['schedule'] = {'anchor': anchor,
                                   'anchor_index': current['index'] + 1,
                                   'interval': merged['interval']}
             st['config'] = merged
@@ -2458,9 +2869,11 @@ class Pool:
     def stats(self) -> Dict:
         """One call for the dashboard tiles and `status`."""
         rows = self._read(self.entries_path, [])
-        entries = [e for e in rows if not e.get('free') and not e.get('agent')]
-        free = [e for e in rows if e.get('free')]
+        entries = [e for e in rows if not e.get('free') and not e.get('agent')
+                   and not e.get('side')]
+        free = [e for e in rows if e.get('free') and not e.get('side')]
         agent = [e for e in rows if e.get('agent')]
+        sides = [e for e in rows if e.get('side')]
         ledger = self._ledger()
         open_entries = [e for e in entries if e['status'] == 'open']
         st = self.state()
@@ -2502,4 +2915,9 @@ class Pool:
                               if r['kind'] == 'fee'), 6),
             'pending_withdrawals': sum(1 for w in self._read(self.withdrawals_path, [])
                                        if w['status'] == 'pending'),
+            'side_calls': len(sides),
+            'side_open': sum(1 for e in sides if e['status'] == 'open'),
+            'side_callers': len({e['address'] for e in sides}),
+            'side_staked': round(sum(float(e.get('amount') or 0) for e in sides), 2),
+            'side_free_per_round': st['config'].get('side_free_per_round', 0),
         }

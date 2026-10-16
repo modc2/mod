@@ -512,10 +512,12 @@ become a bottom bar, the cards go to one column, and every table stacks into
 records that carry their own column headings rather than scrolling sideways.
 Themes come off one button in the header: a menu of swatches — dark, light,
 a green tube, an amber tube, ocean, paper, rose, and mono — plus **system**,
-which follows the OS between dark and light. The pick is remembered in the
-browser; `?theme=<name>` on the URL wears one for that tab without
-remembering it, so a tiled or screenshotted console can be told what to look
-like. A theme is one block of CSS variables and a line in the script.
+which follows the OS between dark and light. The button is there once you are
+signed in, and the pick is remembered in the browser for that sign-in: signed
+out, the console wears the default. `?theme=<name>` on the URL wears one for
+that tab without remembering it, signed in or not, so a tiled or screenshotted
+console can be told what to look like. A theme is one block of CSS variables
+and a line in the script.
 
 **docs** is the manual — eight pages,
 rendered from the markdown the server hands out at `GET /docs/:slug`, which is

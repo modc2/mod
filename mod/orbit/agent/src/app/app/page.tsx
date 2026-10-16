@@ -107,7 +107,12 @@ type Tab = 'tasks' | 'output' | 'tools' | 'memory' | 'agents'
 type ToolPane = 'trace' | 'registry'
 // the three shelves inside HUB — the things a chat pulls from, and the runs
 // it left going, all under one top-level tab
-type HubPane = 'agents' | 'library' | 'tasks'
+// the three tabs on the hub strip — BUILD (make an agent from one sentence),
+// AGENTS (the registry) and TOOLS (what they can call). LIBRARY and RUNS are
+// still panes, reached through doors (the running-count chip, "pull from the
+// library"), not tabs: three is the number that fits in one glance.
+type HubPane = 'build' | 'agents' | 'tools' | 'library' | 'tasks'
+const HUB_TABS = ['build', 'agents', 'tools'] as const
 
 // an image staged in the composer, not yet sent
 type Attachment = { id: string; name: string; url: string; thumb: string }
@@ -647,7 +652,7 @@ export default function Home() {
       const pane = localStorage.getItem('agent_rail_pane')
       if (pane === 'chats' || pane === 'agents') setRailPane(pane)
       const hp = localStorage.getItem('agent_hub_pane')
-      if (hp === 'agents' || hp === 'library' || hp === 'tasks') setHubPane(hp)
+      if (hp === 'build' || hp === 'agents' || hp === 'tools' || hp === 'library' || hp === 'tasks') setHubPane(hp)
       // an arena page's "play in console" — ArenaPortal consumes the key
       if (localStorage.getItem('agent_arena_go')) setView('arena')
       const mw = Number(localStorage.getItem('agent_market_w'))
@@ -978,10 +983,10 @@ export default function Home() {
     // wants says so — "make me an agent" should land on the form, not on a
     // list with the form behind a button
     if (opts?.mode) setBuilderMode(opts.mode)
-    // asked for by a caller that wants the form; cleared by every other way
-    // in, so coming back to the shelf later does not reopen it
-    if (opts?.create) { setBuilderMode('browse'); setBuilderCreate(n => n + 1) }
-    else setBuilderCreate(0)
+    // "make me an agent" is the BUILD tab now — one sentence, no form — so a
+    // create ask lands there whatever shelf it named
+    if (opts?.create) { setBuilderMode('browse'); pane = 'build' }
+    setBuilderCreate(0)
     setHubPane(pane)
     setView('hub')
     try { localStorage.setItem('agent_hub_pane', pane) } catch {}
@@ -4892,6 +4897,7 @@ export default function Home() {
         initialGraph={builderGraph}
         initialMode={builderMode}
         onEditAgent={(name) => openAgentEditor(name)}
+        onCreate={() => openHub('build')}
         initialCreate={builderCreate > 0}
         onUseAgent={(name, memoryIds) => {
           selectAgent(name)
@@ -4924,6 +4930,50 @@ export default function Home() {
 
   // --- Hub: the library market — prompts, tools, memory and agents, each of
   //     which lands back in the chat when you take it ---
+  // --- Hub: BUILD — a new agent from one sentence. The same editor the rail
+  //     opens, but on the hub's full width and with nothing beside it: the
+  //     complaint was that making one next to a sidebar was hard. ---
+  const buildPage = (
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="max-w-2xl mx-auto w-full px-3 py-4">
+        <div className="mb-3">
+          <div className="text-sm font-medium text-gray-200">Build an agent</div>
+          <div className="text-[11px] text-gray-500 mt-0.5">
+            say what it should do — it gets a name, a prompt and its tools, then it is yours to talk to
+          </div>
+        </div>
+        <div className="rounded-xl border border-white/[0.08] bg-surface-1 overflow-hidden">
+          <AgentEditor
+            key={`hub-build·${auth?.address || 'anon'}`}
+            name={null}
+            token={auth?.token}
+            isHost={isHost}
+            address={auth?.address}
+            defaultAgent={defaultPick || defaultAgent}
+            onMakeDefault={setDefaultAgentPick}
+            onSaved={(name) => { fetchAgents(auth?.token); libChanged(); selectAgent(name); openHub('agents') }}
+            onClose={() => openHub('agents')}
+            onUseInFlow={(name) => openFlow({ agent: name })}
+            onUse={(name) => {
+              fetchAgents(auth?.token); libChanged()
+              selectAgent(name)
+              goChat()
+              setTimeout(() => inputRef.current?.focus(), 60)
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  )
+
+  // --- Hub: TOOLS — the registry of what an agent can call, and the loadout.
+  //     The same component the chat's TOOLS tab shows; here it has the room. ---
+  const toolsPage = (
+    <div className="flex-1 min-h-0 flex flex-col">
+      <Tools token={auth?.token} isHost={isHost} onCount={setToolCounts} />
+    </div>
+  )
+
   const libraryPage = (
     <div className="flex-1 min-h-0">
       <Library
@@ -5003,7 +5053,7 @@ export default function Home() {
                 }}
                 className={`nav-seg-btn tab-btn ${lit ? 'nav-seg-btn--on' : ''}`}
                 title={v === 'chat' ? 'Talk to an agent'
-                  : v === 'agents' ? 'Agents, the library and every run on the server'
+                  : v === 'agents' ? 'Build agents, browse them, and set their tools'
                   : 'The arena — every agent ranked, signed in as you'}>
                 <NavIcon name={v} />
                 <span>{v}</span>
@@ -5045,49 +5095,55 @@ export default function Home() {
             shelf strip instead of three tabs crowding the chat */}
         {view === 'hub' && (<>
           <div className="flex-1 min-h-0 flex flex-col">
-            <div className="border-b border-white/[0.06] px-3 py-1.5 shrink-0 flex items-center gap-1.5 flex-wrap">
-              {/* the third shelf is the RUNS shelf, not the "tasks" shelf: a
-                  task in the arena is what an agent is scored on, and two
-                  different things under one word in one console is how you
-                  end up looking for the arena's tasks in here */}
-              {(['agents', 'library', 'tasks'] as HubPane[]).map(p => (
-                <button key={p} onClick={() => openHub(p)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider transition border ${
-                    hubPane === p ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
-                                  : 'bg-white/[0.03] border-white/[0.06] text-gray-600 hover:text-gray-300'
-                  }`}>
-                  {p === 'tasks' ? 'runs' : p}
-                  {p === 'tasks' && runningCount > 0 && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  )}
-                </button>
-              ))}
-              {hubPane !== 'tasks' && (
-                <span className="text-[10px] text-gray-600 truncate min-w-0 hidden lg:block">
-                  {hubPane === 'agents' ? 'every agent — its prompt, model, memory · or wire agents together on FLOW'
-                    : 'prompts, tools, memory, agents — pull one into a chat'}
-                </span>
-              )}
-              {/* the two things people come to the hub to make. Both have
-                  always been in here somewhere — behind a mode strip, behind a
-                  button in a corner — and "somewhere" is how a door gets
-                  looked for. They are on the strip now, on every shelf. */}
-              <span className="ml-auto flex items-center gap-1.5">
-                <button onClick={() => openHub('agents', { create: true })}
-                  title="make a new agent — a folder of code under src/agents/, on the board within a minute"
-                  className="px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider border border-emerald-500/25 bg-emerald-500/[0.12] text-emerald-200 hover:bg-emerald-500/25 transition">
-                  + agent
-                </button>
-                <button onClick={() => openHub('agents', { mode: 'task' })}
-                  title="write a task — what every agent on the arena board is scored on"
-                  className="px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider border border-white/[0.08] bg-white/[0.03] text-gray-400 hover:text-gray-200 transition">
-                  + task
-                </button>
+            {/* one strip, three tabs: BUILD · AGENTS · TOOLS. The old shelf
+                row (AGENTS · LIBRARY · RUNS) stacked on the builder's own mode
+                row (BROWSE · FLOW · TASK) was two strips of six words before
+                anything happened. RUNS survives as a status chip on the right
+                while something is running; LIBRARY opens from the chat. */}
+            <div className="border-b border-white/[0.06] px-3 py-2 shrink-0 flex items-center gap-3">
+              <nav className="nav-seg nav-seg--sub flex items-center" aria-label="hub">
+                {HUB_TABS.map(p => {
+                  const lit = hubPane === p
+                  return (
+                    <button key={p} type="button" aria-current={lit ? 'page' : undefined}
+                      onClick={() => { if (p === 'agents') setBuilderMode('browse'); openHub(p) }}
+                      className={`nav-seg-btn ${lit ? 'nav-seg-btn--on' : ''}`}
+                      title={p === 'build' ? 'Make a new agent from one sentence'
+                        : p === 'agents' ? 'Every agent — its prompt, model and memory'
+                        : 'What agents can call — and which tools yours get'}>
+                      <NavIcon name={p} />
+                      <span>{p}</span>
+                      {p === 'tools' && toolCounts && toolCounts.total > 0 && (
+                        <span className="nav-seg-badge">{toolCounts.total}</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </nav>
+              <span className="text-[11px] text-gray-600 truncate min-w-0 hidden lg:block">
+                {hubPane === 'build' ? 'one sentence in, an agent out'
+                  : hubPane === 'agents' ? 'pick one to read it, run it, or wire it into a flow'
+                  : hubPane === 'tools' ? 'shipped, custom, and every module on the host'
+                  : hubPane === 'library' ? 'prompts, tools, memory, agents — pull one into a chat'
+                  : 'every run on the server, live'}
               </span>
+              {(runningCount > 0 || hubPane === 'tasks') && (
+                <button onClick={() => openHub('tasks')}
+                  title="every run on the server"
+                  className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider border transition ${
+                    hubPane === 'tasks' ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-200'
+                                        : 'bg-white/[0.03] border-white/[0.06] text-gray-500 hover:text-gray-200'
+                  }`}>
+                  {runningCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                  runs{runningCount > 0 ? ` · ${runningCount}` : ''}
+                </button>
+              )}
             </div>
             <div className="flex-1 min-h-0 flex">
-              {hubPane === 'tasks' && tasksPage}
+              {hubPane === 'build' && buildPage}
               {hubPane === 'agents' && agentsCanvas}
+              {hubPane === 'tools' && toolsPage}
+              {hubPane === 'tasks' && tasksPage}
               {hubPane === 'library' && libraryPage}
             </div>
           </div>
@@ -5465,9 +5521,15 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
 
 /** Line icons for the top nav — inline SVG, stroke = currentColor, so they
  *  take the tab's colour in every theme (no emoji font on the host). */
-function NavIcon({ name }: { name: 'chat' | 'agents' | 'arena' }) {
+function NavIcon({ name }: { name: 'chat' | 'agents' | 'arena' | 'build' | 'tools' }) {
   const p = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
     strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
+  if (name === 'build') return (
+    <svg {...p}><path d="M12 5v14M5 12h14" /></svg>
+  )
+  if (name === 'tools') return (
+    <svg {...p}><path d="M14.7 6.3a4 4 0 0 0 5 5L13 18a2.1 2.1 0 0 1-3-3l6.7-6.7z" /><path d="M9 15 4.5 19.5a1.5 1.5 0 0 0 2 2L11 17" /></svg>
+  )
   if (name === 'chat') return (
     <svg {...p}><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /></svg>
   )

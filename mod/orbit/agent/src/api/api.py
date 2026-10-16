@@ -267,6 +267,7 @@ class AgentCreateRequest(BaseModel):
     memory: Optional[str] = None    # memory module: 'default' | 'ephemeral' | dotted path
     harness: Optional[str] = None   # 'claude' | 'codex' — run on that CLI instead
     interface: Optional[str] = None # the agent's own UI: '/hermes' or an http(s) URL
+    params: Optional[Dict[str, Any]] = None  # console params saved with the agent (runner/tool/model/backend)
     key: Optional[str] = None
 
 class AgentUpdateRequest(BaseModel):
@@ -283,6 +284,8 @@ class AgentUpdateRequest(BaseModel):
     clear_memory: bool = False   # explicit: back to the default memory module
     clear_harness: bool = False  # explicit: back to this module's own loop
     clear_interface: bool = False # explicit: no interface of its own
+    params: Optional[Dict[str, Any]] = None  # replace the saved console params
+    clear_params: bool = False    # explicit: forget the saved console params
     key: Optional[str] = None
 
 class DefaultAgentRequest(BaseModel):
@@ -1792,7 +1795,8 @@ def create_agent(req: AgentCreateRequest):
         result = mod.agents.forward(action='create',
             name=req.name, description=req.description, goal=req.goal,
             icon=req.icon, tools=req.tools, model=req.model,
-            memory=req.memory, harness=req.harness, key=req.key)
+            memory=req.memory, harness=req.harness, interface=req.interface,
+            params=req.params, key=req.key)
         if isinstance(result, dict):
             result = {k: v for k, v in result.items() if k != 'cls'}
         return result
@@ -1810,10 +1814,12 @@ def update_agent(name: str, req: AgentUpdateRequest):
         model = None if req.clear_model else (req.model if req.model is not None else ...)
         harness = None if req.clear_harness else (req.harness if req.harness is not None else ...)
         memory = None if req.clear_memory else (req.memory if req.memory is not None else ...)
+        interface = None if req.clear_interface else (req.interface if req.interface is not None else ...)
+        params = None if req.clear_params else (req.params if req.params is not None else ...)
         result = mod.agents.update(
             name=name, description=req.description, goal=req.goal,
             icon=req.icon, tools=tools, model=model, memory=memory,
-            harness=harness, key=req.key)
+            harness=harness, interface=interface, params=params, key=req.key)
         return {k: v for k, v in result.items() if k != 'cls'}
     except PermissionError as e:
         return {"error": str(e), "code": 403}

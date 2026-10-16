@@ -11,9 +11,28 @@
         "app": "http://localhost:51420/zkapi"
     },
     "endpoints": {
-        "health": {"method": "GET", "auth": false, "docs": "Liveness"},
-        "info": {"method": "GET", "auth": false, "docs": "Module description + status"},
-        "status": {"method": "GET", "auth": false, "docs": "-> {running, port, version}"}
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness"
+        },
+        "info": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Module description + status"
+        },
+        "status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "-> {running, port, version}"
+        }
     },
-    "fns": ["info", "test", "serve", "kill", "status"]
+    "fns": [
+        "info",
+        "test",
+        "serve",
+        "kill",
+        "status"
+    ],
+    "schema": "QmTHPGSYifZ83YKAWcJKXmCfDoB5iZXagJqUzz9ZhPW4GZ"
 }

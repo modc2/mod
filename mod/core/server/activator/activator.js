@@ -30,7 +30,15 @@ const { execFileSync, execFile } = require("child_process");
 const HOME = process.env.HOME || "/root";
 const REPO = path.join(HOME, "mod", "mod");
 const PORT = parseInt(process.env.ACTIVATOR_PORT || "9000", 10);
-const IDLE_MS = parseInt(process.env.IDLE_MS || String(parseInt(process.env.IDLE_MINUTES || "10", 10) * 60 * 1000), 10);
+// Idle threshold. IDLE_MS (testing) > IDLE_SECONDS > IDLE_MINUTES. Default 10s —
+// "kill the least-used unused mod if no one is using it after more than 10
+// seconds" (2026-10-16). Short on purpose: a module with an open tab keeps an
+// established TCP connection, which the sweep treats as "in use".
+const IDLE_MS = parseInt(
+  process.env.IDLE_MS
+    || (process.env.IDLE_SECONDS ? String(parseInt(process.env.IDLE_SECONDS, 10) * 1000) : "")
+    || (process.env.IDLE_MINUTES ? String(parseInt(process.env.IDLE_MINUTES, 10) * 60 * 1000) : "")
+    || "10000", 10);
 const SWEEP_MS = parseInt(process.env.SWEEP_SECONDS || "60", 10) * 1000;
 const WAKE_TIMEOUT_MS = parseInt(process.env.WAKE_TIMEOUT_MS || "30000", 10);
 // Modules that must never be auto-stopped (the gateway/infra itself).
@@ -149,6 +157,7 @@ function portOf(cfg, keys, url) {
 
 let REGISTRY = buildRegistry();
 const lastAccess = {}; // module → ms timestamp
+const hits = {};       // module → requests proxied since start ("least used" ranking)
 const waking = {};     // module → Promise (de-dupes concurrent wakes)
 const now = () => Date.now();
 for (const m of Object.keys(REGISTRY)) lastAccess[m] = now(); // startup grace
@@ -342,7 +351,7 @@ const server = http.createServer(async (req, res) => {
 
   const r = route(req.url);
   if (!r || !r.port) { res.writeHead(404, { "content-type": "text/plain" }); return res.end("activator: no route\n"); }
-  lastAccess[r.mod] = now();
+  lastAccess[r.mod] = now(); hits[r.mod] = (hits[r.mod] || 0) + 1;
   if (isDisabled(r.mod)) { res.writeHead(503, { "content-type": "text/plain" }); return res.end(`activator: ${r.mod} disabled by host\n`); }
   const ok = await wake(r.mod, r.port);
   if (!ok) { res.writeHead(503, { "content-type": "text/plain" }); return res.end(`activator: ${r.mod} failed to wake\n`); }
@@ -370,7 +379,7 @@ const server = http.createServer(async (req, res) => {
 server.on("upgrade", async (req, socket, head) => {
   const r = route(req.url);
   if (!r || !r.port) return socket.destroy();
-  lastAccess[r.mod] = now();
+  lastAccess[r.mod] = now(); hits[r.mod] = (hits[r.mod] || 0) + 1;
   if (!(await wake(r.mod, r.port))) return socket.destroy();
   const up = net.connect({ host: "127.0.0.1", port: r.port }, () => {
     up.write(rebuildUpgrade(req, proxyPath(req.url, r.strip)));
@@ -412,10 +421,12 @@ async function revivePinned(mod, info) {
 }
 
 // ── idle sweep ──────────────────────────────────────────────────────────────
+const sweepStats = { idleStops: 0, lastIdleStop: null };
 async function sweep() {
   try {
     loadOverrides();            // host edits take effect live
     REGISTRY = buildRegistry(); // pick up newly-added modules
+    const idle = []; // unused past the threshold this pass
     for (const [mod, info] of Object.entries(REGISTRY)) {
       if (MANAGED.size && !MANAGED.has(mod)) continue; // only act on modules routed through us
       // Host disabled it → enforce STOPPED regardless of traffic/idle.
@@ -436,8 +447,19 @@ async function sweep() {
       if (conns > 0) { lastAccess[mod] = now(); continue; } // still in use — keep alive
       const procs = pm2NamesFor(info.dir).filter((p) => p.status === "online");
       if (!procs.length) continue;
-      log(`idle ${mod}: ${Math.round(idleFor / 1000)}s, 0 conns → stopping ${procs.map((p) => p.name).join(", ")}`);
-      for (const p of procs) await pm2("stop", p.name);
+      idle.push({ mod, idleFor, procs });
+    }
+    // One victim per sweep: the LEAST USED of the idle, unused modules (fewest
+    // requests since start, then least recently touched). The sweep re-runs
+    // every few seconds, so the rest follow one at a time if they stay unused —
+    // but nothing gets stopped the instant it crosses the line in a crowd.
+    if (idle.length) {
+      idle.sort((a, b) => ((hits[a.mod] || 0) - (hits[b.mod] || 0)) || (b.idleFor - a.idleFor));
+      const v = idle[0];
+      log(`idle ${v.mod}: ${Math.round(v.idleFor / 1000)}s, 0 conns, ${hits[v.mod] || 0} hits (least used of ${idle.length}) → stopping ${v.procs.map((p) => p.name).join(", ")}`);
+      for (const p of v.procs) await pm2("stop", p.name);
+      sweepStats.idleStops++;
+      sweepStats.lastIdleStop = { module: v.mod, idleSeconds: Math.round(v.idleFor / 1000), hits: hits[v.mod] || 0, at: new Date().toISOString() };
     }
     // After the idle pass: enforce the memory floor / running cap even when
     // nothing has hit its idle timeout yet.
@@ -445,8 +467,8 @@ async function sweep() {
   } catch (e) { log("sweep error", e.message); }
 }
 // Self-rescheduling so short idle timeouts fire close to on-time: sweep at a
-// quarter of the threshold (min 5s), never slower than the env SWEEP cadence.
-const sweepDelay = () => Math.max(5000, Math.min(SWEEP_MS, idleMsNow() / 4));
+// quarter of the threshold (min 2.5s), never slower than the env SWEEP cadence.
+const sweepDelay = () => Math.max(2500, Math.min(SWEEP_MS, idleMsNow() / 4));
 (function sweepLoop() { setTimeout(async () => { await sweep(); sweepLoop(); }, sweepDelay()); })();
 
 // ── host control plane ────────────────────────────────────────────────────────
@@ -474,6 +496,7 @@ async function buildState() {
       running: apiUp || appUp, apiUp, appUp,
       disabled: isDisabled(mod), pinned: isPinned(mod), pinnedByEnv: PIN.has(mod), alwaysOn: isAlwaysOn(mod),
       idleSeconds: Math.round((now() - (lastAccess[mod] || 0)) / 1000),
+      hits: hits[mod] || 0,
     });
   }
   return out;
@@ -499,6 +522,8 @@ async function handleControl(req, res) {
       defaultIdleSeconds: IDLE_MS / 1000,
       sweepSeconds: sweepDelay() / 1000,
       idleMinutes: idleMsNow() / 60000,
+      policy: "least-used idle module stopped first, one per sweep",
+      sweep: sweepStats,
       guard: {
         minFreeMb: minFreeMbNow(),
         maxRunning: maxRunningNow(),
@@ -576,5 +601,5 @@ async function handleControl(req, res) {
 }
 
 server.listen(PORT, "0.0.0.0", () => {
-  log(`activator on :${PORT} — ${Object.keys(REGISTRY).length} modules, idle=${IDLE_MS / 60000}m, pinned=[${[...PIN].join(",")}], managed=[${MANAGED.size ? [...MANAGED].join(",") : "ALL"}], minFree=${MIN_FREE_MB}MB, maxRunning=${MAX_RUNNING || "∞"}`);
+  log(`activator on :${PORT} — ${Object.keys(REGISTRY).length} modules, idle=${IDLE_MS / 1000}s, pinned=[${[...PIN].join(",")}], managed=[${MANAGED.size ? [...MANAGED].join(",") : "ALL"}], minFree=${MIN_FREE_MB}MB, maxRunning=${MAX_RUNNING || "∞"}`);
 });

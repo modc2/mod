@@ -87,6 +87,9 @@ type Props = {
   /** land with the new-agent form already open — asked for by whoever sent
       you here to make one (the arena's + AGENT, the hub strip's) */
   initialCreate?: boolean
+  /** where "+ New agent" goes when the hub has a BUILD tab for it — one
+      sentence, no name field. Absent, the inline name form opens. */
+  onCreate?: () => void
 }
 
 const ICONS = ['>_', '△', '◉', '⬡', '◈', '✦', '⚙', '◆', '▣', '✧']
@@ -117,7 +120,7 @@ const writeNoteBindings = (map: Record<string, string[]>) => {
 }
 
 export default function AgentsPanel({
-  token, address, isHost, onSignIn, onUseInFlow, onRun, onChanged, initialCreate,
+  token, address, isHost, onSignIn, onUseInFlow, onRun, onChanged, initialCreate, onCreate,
 }: Props) {
   const [agents, setAgents] = useState<Record<string, AgentSchema>>({})
   const [order, setOrder] = useState<string[]>([])
@@ -364,7 +367,7 @@ export default function AgentsPanel({
             className="w-44 bg-white/[0.04] border border-white/[0.08] rounded-md px-2 py-1 text-[11px] text-gray-300 outline-none placeholder:text-gray-700 focus:border-emerald-500/40 transition"
           />
           <button
-            onClick={() => (token ? setCreating(true) : onSignIn?.())}
+            onClick={() => (onCreate ? onCreate() : token ? setCreating(true) : onSignIn?.())}
             title={token ? 'Create a new agent folder' : 'Sign in to create an agent'}
             className="px-3 py-1 rounded-md text-[11px] uppercase tracking-wider border border-emerald-500/25 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 transition"
           >

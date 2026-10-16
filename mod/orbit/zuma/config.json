@@ -73,7 +73,7 @@
         "gas_sweep",
         "compare"
     ],
-    "schema": "QmSCNCuPPPjPGZEXPKcHFHzP5FWHLkcgX1zHu2zircbKQN",
+    "schema": "QmRkQLsjAXRWTi3hW2afmesh1WN4r9TkavwFrHnNY1JzhP",
     "urls": {
         "app": "http://localhost:50121/zuma/",
         "api": "http://localhost:50121/zuma/api",

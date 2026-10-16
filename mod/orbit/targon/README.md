@@ -48,9 +48,12 @@ in `localStorage`. Each is one CSS block of tokens (`--shell` / `--plate` /
 `--screen` / `--ink` and the status inks); nothing else in the stylesheet names a
 colour, so a new skin is one more rule in `console.html`.
 
-The key you paste in the header stays in `sessionStorage` for that tab and rides
-along as `x-api-key`; the server still reads its own key from `TARGON_API_KEY`
-or `~/.mod/targon/api_key`.
+The API key never sits on the faceplate. The header carries a **cartridge slot**
+(LED · a 16-pixel fingerprint of the key · its last four characters) that slides a
+side panel out of the right edge — press `K` to open it, `Esc` to close. Insert,
+test (credits + deposit address) or eject the key there. It stays in
+`sessionStorage` for that tab and rides along as `x-api-key`; the server still
+reads its own key from `TARGON_API_KEY` or `~/.mod/targon/api_key`.
 
 ### As an MCP server
 

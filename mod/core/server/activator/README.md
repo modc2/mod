@@ -3,9 +3,13 @@
 A tiny zero-dependency Node reverse-proxy that puts the local (pm2-managed)
 modules to sleep when idle and wakes them on demand.
 
-- **Idle stop:** a background sweep (every `SWEEP_SECONDS`) stops any module that
-  has been idle longer than `IDLE_MINUTES` **and** currently has zero established
-  TCP connections on its api/app ports (the usage signal, polled via `ss`).
+- **Idle stop:** a background sweep (every quarter of the idle threshold, min
+  2.5s) looks for modules idle longer than `IDLE_SECONDS` (default **10s**)
+  **and** with zero established TCP connections on their api/app ports (the
+  usage signal, polled via `ss`). Of those, it stops the **least used one** per
+  pass — fewest requests proxied since start, then least recently touched — so
+  unused modules drain one at a time instead of all dropping at once. A module
+  with an open tab or stream holds a connection and is never "unused".
 - **Wake on access:** every request is mapped to a module + port
   (`/api/{mod}` → api port with the prefix stripped, `/{mod}` → app port). If the
   port is down the activator `pm2 start`s the matching procs, waits for the port,
@@ -32,8 +36,9 @@ eligible. Docker-hosted modules (Caddy points them at container names, not
 | var | default | meaning |
 |-----|---------|---------|
 | `ACTIVATOR_PORT` | 9000 | listen port |
-| `IDLE_MINUTES` | 10 | idle threshold before stopping |
-| `IDLE_MS` | — | overrides IDLE_MINUTES (ms; for testing) |
+| `IDLE_SECONDS` | 10 | idle threshold before stopping (`IDLE_MINUTES` still honoured if set instead) |
+| `IDLE_MS` | — | overrides both (ms; for testing) |
+| `ACTIVATOR_MANAGED` | the 11 routed modules | csv of modules the sweep may stop; empty = every module (unsafe unless every route goes via :9000) |
 | `SWEEP_SECONDS` | 60 | how often the idle sweep runs |
 | `WAKE_TIMEOUT_MS` | 30000 | how long to wait for a woken port |
 | `ACTIVATOR_PIN` | web,claude | csv of modules that never sleep |

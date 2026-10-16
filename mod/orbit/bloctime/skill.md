@@ -12,6 +12,7 @@ Time-weighted staking protocol on Base Sepolia. Stake native tokens for a wall-c
 - **Deploy** — deploy new BlocTime contracts via MetaMask from the app, on ANY EVM chain (built-in picker covers Base/Ethereum/OP/Arbitrum/Polygon + testnets; "Custom network…" adds any chainId/RPC)
 - **Treasury** — every fresh deployment includes a Treasury that mints NativeToken **1:1 per dollar** of reserve (USDC by default, prefilled per chain) and redeems 1:1; the treasury owns the token's mint keys. STAKE tab shows a deposit/redeem card on treasury-backed instances
 - **Fork** — `m bloctime/fork name=x` copies the whole module into orbit/x with its own ports/route
+- **Wallet-signed writes** — on the official instance the console signs stake/unstake/delegate/undelegate/claim/fund/distribute with the connected wallet (ethers + `GET /factory` ABIs), so positions land in your own account; the server-signer endpoints are only an operator fallback (api_token pasted, no wallet) and the CLI path
 - **Marketplace** — registry of deployed BlocTime instances (`~/.mod/bloctime/registry.json`) records every deployment: chain, RPC, contracts, treasury, owner; MARKET tab browses them, USE switches the app onto any instance (reads via its RPC, writes via wallet)
 - **Self-deploy** — DEPLOY tab ships ABI+bytecode (`GET /factory`) so anyone deploys NativeToken+Treasury+BlocTime from their own wallet (default 8-year max lock, owner-changeable via `setParams`), then auto-registers on the market
 - **Whitepaper** — `whitepaper.md` at the module root is the protocol paper; `GET /whitepaper` serves it (read from disk per request, edits go live), `bt.whitepaper()` returns it, and the console reads it in the sidebar
@@ -146,10 +147,10 @@ CLI: `m bloctime/shadow fn=info|notes|...`, `m bloctime/shadow_test`. UI: PRIVAT
 | POST | /overview | Staking overview for address |
 | POST | /get_position | Single stake position by address + ID |
 | POST | /get_multiplier | Multiplier at a lock length ({lock_seconds}) |
-| POST | /stake | Stake tokens ({amount, lock_seconds \| lock_blocks}, server-side signer) |
-| POST | /unstake | Unstake by ID (server-side signer) |
+| POST | /stake | Stake tokens ({amount, lock_seconds \| lock_blocks}, server-side signer — CLI; the console signs approve + stake with the connected wallet) |
+| POST | /unstake | Unstake by ID (server-side signer — CLI; the console signs with the connected wallet) |
 | GET | /pot | Pot size, eligible supply, next/last payout, `due` |
-| POST | /fund_pot | Add BLOC to the pot (server-side signer) |
+| POST | /fund_pot | Add BLOC to the pot (server-side signer — CLI; the console signs with the connected wallet) |
 | POST | /distribute_rewards | Sweep the pot — 409 outside the weekly window |
 
 ## Weekly Pot
