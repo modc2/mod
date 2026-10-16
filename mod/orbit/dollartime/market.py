@@ -183,7 +183,9 @@ class Market:
                 raise ValueError(f'next claim in {int(wait // 3600)}h {int(wait % 3600 // 60)}m')
             db.execute('UPDATE players SET balance=balance+?, claimed_at=? WHERE name=?',
                        (CLAIM_AMOUNT, self.now(), p['name']))
-        return {'name': p['name'], 'balance': round(p['balance'] + CLAIM_AMOUNT, 2)}
+            bal = db.execute('SELECT balance FROM players WHERE name=?',
+                             (p['name'],)).fetchone()[0]
+        return {'name': p['name'], 'balance': round(bal, 2)}
 
     def leaderboard(self, limit=25):
         with self._db() as db:

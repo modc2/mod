@@ -180,7 +180,7 @@ dependency — the same rules as the rest of the module. Re-run
 
 ## Chat — ask the desk, and watch it draw
 
-The console's **CHAT** tab is a conversation with the desk that draws on the
+The console's **AGENT** button (top bar, next to the identity badge; `A` opens it) is a conversation with the desk that draws on the
 map as it answers. Ask "where are the cheapest H100s?" and the agent reads the
 markets live, redraws the world beside the chat, and flies the camera —
 "only the US", "just H100s under $2", "zoom into Europe" are map edits it
@@ -334,8 +334,13 @@ m compute/token          # the bearer token, minted into ~/.mod/compute/server.s
 Signing in once is enough. Opened inside the build console (or on the same
 host), the console picks up that session — it asks the parent frame for it
 (`mod.session`) — and the server asks build's `whoami` whether it is the owner.
-Outside it, **sign in** in the header signs a mod-protocol token with your
-wallet (no gas), and build's `/auth/role` decides. Opened from the box itself
+Outside it, the identity badge at the right of the top bar signs a
+mod-protocol token with your wallet (no gas), and build's `/auth/role` decides.
+Nobody has to sign in to look around: until you do, the browser mints its own
+secp256k1 key (`localStorage.compute_local_key`, revealable from the badge) and
+signs with that, so every visitor has an address. `GET /whoami` says who the
+bearer is; the owner gets a gold OWNER badge and the owner-only AGENT button and NODES
+tab, which nobody else is shown. Opened from the box itself
 the console is the owner already; the secret token still works as a bearer. A proxied request
 can never look like localhost: Caddy stamps `X-Forwarded-For` on everything it
 forwards, and that is what the check reads.

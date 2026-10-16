@@ -179,19 +179,27 @@
        box-shadow:inset 0 0 120px rgba(0,0,0,.34)}
   [data-crt=off] #crt{display:none}
 
-  /* ── HUD ─────────────────────────────────────────────────────────── */
-  header{display:flex;align-items:center;gap:14px;padding:11px 18px;
-         border-bottom:5px solid var(--brick);position:sticky;top:0;
-         background:var(--well);box-shadow:0 5px 0 rgba(0,0,0,.55);z-index:20;flex-wrap:wrap}
+  /* ── HUD · one row: brand, tabs, ticker, cabinet, who you are ────── */
+  header{display:flex;align-items:center;gap:12px;padding:9px 16px;
+         position:sticky;top:0;z-index:20;
+         background:linear-gradient(180deg,var(--panel2) 0,var(--well) 70%);
+         box-shadow:0 5px 0 rgba(0,0,0,.55)}
+  /* the bricks under the HUD, with a coin of light running along them */
+  header:after{content:'';position:absolute;left:0;right:0;bottom:-5px;height:5px;
+         background:linear-gradient(90deg,transparent 0 40%,var(--gold-hi) 48%,
+                    var(--gold) 50%,transparent 58%) 0 0/300% 100% no-repeat,
+                    repeating-linear-gradient(90deg,var(--brick) 0 22px,var(--brick-lo) 22px 24px);
+         animation:run 9s steps(90) infinite}
+  @keyframes run{from{background-position:150% 0,0 0}to{background-position:-50% 0,0 0}}
   h1{font:12px/1.6 var(--px);margin:0;letter-spacing:.06em;white-space:nowrap;
-     display:flex;align-items:center;gap:9px}
+     display:flex;align-items:center;gap:9px;cursor:default}
   h1 b{color:var(--gold);text-shadow:2px 2px 0 var(--brick-lo)}
   .qblock{display:inline-grid;place-items:center;width:24px;height:24px;
           background:linear-gradient(180deg,var(--gold-hi) 0 42%,var(--gold-lo) 100%);
           border:2px solid var(--edge);color:var(--gold-ink);font:11px/1 var(--px);
           box-shadow:inset 0 3px 0 var(--gold-sheen),inset 0 -4px 0 var(--gold-deep),
                      0 3px 0 var(--edge)}
-  header:hover .qblock{animation:bump .42s steps(4)}
+  header h1:hover .qblock{animation:bump .42s steps(4)}
   @keyframes bump{50%{transform:translateY(-8px)}}
   .sub{color:var(--dim);font:8px/1.6 var(--px)}
   .chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
@@ -204,10 +212,10 @@
                    var(--gold-lo) 6px 8px)}
   .chip b{color:var(--ink);font-weight:400}
   .chip.hot b{color:var(--hot)} .chip.warn b{color:var(--warn)} .chip.bad b{color:var(--bad)}
-  nav{margin-left:auto;display:flex;gap:5px;flex-wrap:wrap}
+  nav{display:flex;gap:4px;margin-left:6px;min-width:0}
   nav button{background:linear-gradient(180deg,var(--btn1),var(--btn2));
-             border:2px solid var(--edge);
-             color:var(--dim);padding:9px 13px;cursor:pointer;font:9px/1 var(--px);
+             border:2px solid var(--edge);position:relative;white-space:nowrap;
+             color:var(--dim);padding:8px 10px;cursor:pointer;font:8px/1 var(--px);
              box-shadow:inset 0 2px 0 rgba(255,255,255,.18),
                         inset 0 -3px 0 rgba(0,0,0,.5),0 3px 0 var(--edge)}
   nav button:hover{color:var(--ink);background:linear-gradient(180deg,var(--btn1h),var(--btn2h))}
@@ -217,10 +225,73 @@
                            inset 0 -4px 0 var(--gold-deep),0 3px 0 var(--edge)}
   nav button:active{transform:translateY(3px);
                     box-shadow:inset 0 2px 0 rgba(255,255,255,.18),0 0 0 var(--edge)}
+  /* owner-only tabs carry a gold pip, and are not there at all for anyone else */
+  nav button[data-owner]:after{content:'';position:absolute;top:-4px;right:-4px;width:6px;height:6px;
+        background:var(--gold);border:2px solid var(--edge)}
+  body:not(.owner) nav button[data-owner],body:not(.owner) #agentbtn{display:none}
+  /* the agent's door: gold-rimmed, a live orb, and lit when its page is up */
+  #agentbtn{display:flex;align-items:center;gap:7px;padding:7px 11px;cursor:pointer;
+         background:linear-gradient(180deg,var(--btn1),var(--btn2));border:2px solid var(--edge);
+         color:var(--gold);font:8px/1 var(--px);white-space:nowrap;
+         box-shadow:inset 0 2px 0 rgba(255,255,255,.16),0 3px 0 var(--edge),0 0 0 2px var(--gold-lo)}
+  #agentbtn:hover{background:linear-gradient(180deg,var(--btn1h),var(--btn2h))}
+  #agentbtn.on{color:var(--gold-ink);background:linear-gradient(180deg,var(--gold-hi),var(--gold-lo));
+         box-shadow:inset 0 3px 0 var(--gold-sheen),inset 0 -4px 0 var(--gold-deep),0 3px 0 var(--edge)}
+  #agentbtn:active{transform:translateY(3px)}
+  #agentbtn .aorb{width:8px;height:8px;background:var(--hot);border:2px solid var(--edge);
+         animation:aorb 1.6s steps(2) infinite}
+  #agentbtn.busy .aorb{background:var(--gold);animation-duration:.4s}
+  @keyframes aorb{50%{opacity:.35}}
+  .hud{margin-left:auto;display:flex;align-items:center;gap:8px}
+  #stats .chip{padding:5px 7px}
+  #themebtn{padding:7px 9px}
+  #themebtn .tname{display:none}
+
+  /* ── who you are ─────────────────────────────────────────────────── */
+  .idwrap{position:relative}
+  #idbtn{display:flex;align-items:center;gap:8px;padding:4px 9px 4px 4px;cursor:pointer;
+         background:linear-gradient(180deg,var(--btn1),var(--btn2));border:2px solid var(--edge);
+         color:var(--ink);font:8px/1 var(--px);white-space:nowrap;
+         box-shadow:inset 0 2px 0 rgba(255,255,255,.16),0 3px 0 var(--edge)}
+  #idbtn:hover{background:linear-gradient(180deg,var(--btn1h),var(--btn2h))}
+  .face{display:block;image-rendering:pixelated;border:2px solid var(--edge);background:var(--well)}
+  .role{padding:3px 5px;border:2px solid var(--edge);font:7px/1 var(--px);letter-spacing:.04em;
+        color:var(--ink);background:var(--panel3)}
+  .role.owner{color:var(--gold-ink);background:linear-gradient(180deg,var(--gold-hi),var(--gold-lo));
+        box-shadow:inset 0 2px 0 var(--gold-sheen)}
+  .role.key{color:var(--dim)}
+  body.owner #idbtn{box-shadow:inset 0 2px 0 rgba(255,255,255,.16),0 3px 0 var(--edge),
+                    0 0 0 2px var(--gold-lo),0 0 14px -2px var(--gold)}
+  #idpop{position:absolute;right:0;top:calc(100% + 11px);z-index:40;width:330px;
+         background:linear-gradient(180deg,var(--panel2),var(--panel));
+         border:3px solid var(--edge);padding:12px;font-size:11px;
+         box-shadow:0 0 0 3px var(--brick),0 0 0 6px var(--edge),0 10px 0 rgba(0,0,0,.4)}
+  #idpop[hidden]{display:none}
+  #idpop .who{display:flex;gap:11px;align-items:center;margin-bottom:10px}
+  #idpop .addr{font:8px/1.7 var(--px);color:var(--ink);word-break:break-all;cursor:pointer}
+  #idpop .addr:hover{color:var(--gold)}
+  #idpop .src{color:var(--dim);font-size:11px;margin-top:3px}
+  #idpop .cap{font:8px/1.6 var(--px);color:var(--gold);margin:12px 0 6px}
+  #idpop ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:3px 10px}
+  #idpop li{color:var(--faint);font-size:11px;display:flex;align-items:center;gap:6px}
+  #idpop li:before{content:'';width:6px;height:6px;border:1px solid var(--edge);background:var(--panel3)}
+  #idpop li.ok{color:var(--ink)} #idpop li.ok:before{background:var(--hot)}
+  #idpop .acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+  #idpop .acts button{flex:1 1 auto}
+  #idpop .tokrow{display:flex;gap:6px;margin-top:8px} #idpop .tokrow input{flex:1;min-width:0}
+  #idpop .keyout{margin-top:8px;font-size:10px;word-break:break-all;color:var(--warn);
+         background:var(--well);border:2px solid var(--edge);padding:6px}
+
+  @media (max-width:1180px){ #stats{display:none} }
+  @media (max-width:900px){
+    header{flex-wrap:wrap}
+    nav{order:3;width:100%;margin:0;overflow-x:auto;padding-bottom:4px}
+    #idbtn .idaddr{display:none}
+  }
 
   /* ── the palette drawer ──────────────────────────────────────────── */
   .themewrap{position:relative}
-  #themebtn .tsw{margin-left:7px;vertical-align:-2px}
+  #themebtn .tsw{vertical-align:-2px}
   #themepop{position:absolute;right:0;top:calc(100% + 9px);z-index:40;width:340px;
             background:linear-gradient(180deg,var(--panel2),var(--panel));
             border:3px solid var(--edge);padding:11px;
@@ -485,7 +556,6 @@
                     background:linear-gradient(180deg,var(--gold-hi),var(--gold-lo));
                     box-shadow:inset 0 2px 0 var(--gold-sheen),0 2px 0 var(--edge)}
   .sub{display:none} .sub.on{display:block}
-  header .sub{display:inline}
 
   /* a warp pipe, for the panel that sends you somewhere else */
   .pipe{display:inline-block;position:relative;width:24px;height:16px;margin:8px 8px 0 0;
@@ -590,7 +660,7 @@
 
   /* nobody has to watch things move to read a price table */
   @media(prefers-reduced-motion:reduce){
-    .dot.booting,.qblock{animation:none}
+    .dot.booting,.qblock,#agentbtn .aorb{animation:none}
   }
 </style>
 <script>
@@ -611,35 +681,48 @@
 <!-- the glass of the tube: scanlines and darkened corners over everything -->
 <div id="crt" aria-hidden="true"></div>
 <header>
-  <h1><span class="qblock" aria-hidden="true">&#9638;</span> <b>COMPUTE</b></h1>
-  <span class="sub">every market, one desk &mdash; and a box you can drive</span>
-  <div class="chips" id="stats"></div>
-  <button class="ghost" id="snd" onclick="toggleSound()">SOUND OFF</button>
-  <div class="themewrap">
-    <button class="ghost" id="themebtn" onclick="toggleThemes(event)"
-            title="palette — press T to cycle">THEME</button>
-    <!-- stop here: picking a card redraws the grid, so by the time the click
-         reaches the document the card is detached and reads as an outside
-         click. Swallowing it inside the drawer keeps it open to try palettes. -->
-    <div id="themepop" hidden onclick="event.stopPropagation()">
-      <p class="cap"><span class="qblock" aria-hidden="true">&#9638;</span>PICK A CABINET</p>
-      <div class="tgrid" id="tgrid"></div>
-      <div class="foot">
-        <button class="ghost" id="crtbtn" onclick="toggleCrt()">SCANLINES ON</button>
-        <span class="faint" style="font-size:10px">T cycles</span>
-      </div>
-    </div>
-  </div>
+  <h1 title="every market, one desk &mdash; and a box you can drive"><span class="qblock" aria-hidden="true">&#9638;</span> <b>COMPUTE</b></h1>
   <nav>
     <button data-tab="market" class="on">MARKET</button>
-    <button data-tab="ask">CHAT</button>
     <button data-tab="oracle">ORACLE</button>
-    <button data-tab="nodes">NODES</button>
+    <button data-tab="nodes" data-owner title="owner only">NODES</button>
     <button data-tab="running">RUNNING</button>
     <button data-tab="providers">PROVIDERS</button>
     <button data-tab="keys">KEYS</button>
     <button data-tab="mcp">MCP</button>
   </nav>
+  <div class="hud">
+    <div class="chips" id="stats"></div>
+    <!-- the desk's agent lives up here, not in the tab row: it is the way in,
+         not one more page. Owner-only, because every turn runs on the box. -->
+    <button id="agentbtn" data-tab="ask" data-owner
+            title="talk to the desk agent — it reads every market and draws on the map (A)">
+      <span class="aorb" aria-hidden="true"></span>AGENT</button>
+    <div class="themewrap">
+      <button class="ghost" id="themebtn" onclick="toggleThemes(event)"
+              title="cabinet, sound, scanlines — press T to cycle">THEME</button>
+      <!-- stop here: picking a card redraws the grid, so by the time the click
+           reaches the document the card is detached and reads as an outside
+           click. Swallowing it inside the drawer keeps it open to try palettes. -->
+      <div id="themepop" hidden onclick="event.stopPropagation()">
+        <p class="cap"><span class="qblock" aria-hidden="true">&#9638;</span>PICK A CABINET</p>
+        <div class="tgrid" id="tgrid"></div>
+        <div class="foot">
+          <button class="ghost" id="crtbtn" onclick="toggleCrt()">SCANLINES ON</button>
+          <button class="ghost" id="snd" onclick="toggleSound()">SOUND OFF</button>
+          <span class="faint" style="font-size:10px">T cycles</span>
+        </div>
+      </div>
+    </div>
+    <div class="idwrap">
+      <button id="idbtn" onclick="toggleId(event)" title="who you are here">
+        <canvas class="face" id="idface" width="10" height="10" style="width:22px;height:22px"></canvas>
+        <span class="idaddr" id="idaddr">&hellip;</span>
+        <span class="role key" id="idrole">KEY</span>
+      </button>
+      <div id="idpop" hidden onclick="event.stopPropagation()"></div>
+    </div>
+  </div>
 </header>
 <main>
 
@@ -694,7 +777,7 @@
 <section id="ask">
   <div class="askgrid">
     <div class="pane">
-      <div class="head"><span class="pipe" aria-hidden="true"></span><b>ASK COMPUTE</b>
+      <div class="head"><span class="pipe" aria-hidden="true"></span><b>AGENT</b>
         <span class="faint" id="a-status"></span></div>
       <div class="chatlog" id="a-log"></div>
       <div class="composer">
@@ -889,7 +972,7 @@
      unless you tick <i>show private keys</i>. Fund the address it hands back and the
      market is usable. The key-custody markets can't be created by code &mdash; you
      (or a browser agent) make the account privately, then <code>set_key</code> drops
-     the key in. Owner-only: sign in from the header first.</p>
+     the key in. Owner-only: sign in from your badge, top right.</p>
   <div id="c-out" class="cards"></div>
   <p class="note">Keys stay in this browser tab (sessionStorage) and ride along as an
      <code>x-compute-keys</code> header. They are never written to the server.
@@ -913,19 +996,147 @@
 </main>
 <script>
 const API = (location.pathname.replace(/\/$/,'') || '') + '/_api';
-const KEYS = 'compute_keys', TOK = 'compute_token';
+const KEYS = 'compute_keys', TOK = 'compute_token', TOKSRC = 'compute_token_src';
+const LKEY = 'compute_local_key', NOADOPT = 'compute_no_adopt';
 const keys = () => { try { return JSON.parse(sessionStorage.getItem(KEYS) || '{}') } catch { return {} } };
 const setKeys = k => sessionStorage.setItem(KEYS, JSON.stringify(k));
-let token = window.__COMPUTE_TOKEN || localStorage.getItem(TOK) ||
-            localStorage.getItem('build_jobs_token') || '';
 
-// Signing in once is enough. Served under the same host as the build console,
-// its session is already in this origin's storage; embedded in it, we ask the
-// parent for it (mod.session) and follow when it signs in or out.
-let adopted = '';
+// ── a key that lives in this browser ──
+// secp256k1 + keccak-256 in plain BigInt, just enough to sign the canonical
+// mod-protocol token (EIP-191 personal_sign) with no wallet and no library.
+const LK = (() => {
+  const P = 2n**256n - 0x1000003d1n, N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+  const G = [0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n,
+             0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n];
+  const mod = (a, m = P) => ((a % m) + m) % m;
+  const inv = (a, m = P) => { let [x, y, u, v] = [mod(a, m), m, 1n, 0n];
+    while (x) { const q = y / x; [x, y, u, v] = [y - q * x, x, v - q * u, u] } return mod(v, m) };
+  // Jacobian points: one inverse per multiplication instead of one per step
+  const dbl = ([X, Y, Z]) => { if (!Y) return [0n, 1n, 0n];
+    const S = mod(4n*X*Y*Y), M = mod(3n*X*X), X3 = mod(M*M - 2n*S);
+    return [X3, mod(M*(S - X3) - 8n*Y**4n), mod(2n*Y*Z)] };
+  const add = (p, q) => { if (!p[2]) return q; if (!q[2]) return p;
+    const [X1, Y1, Z1] = p, [X2, Y2, Z2] = q, Z1s = Z1*Z1, Z2s = Z2*Z2;
+    const U1 = mod(X1*Z2s), U2 = mod(X2*Z1s), S1 = mod(Y1*Z2s*Z2), S2 = mod(Y2*Z1s*Z1);
+    if (U1 === U2) return S1 === S2 ? dbl(p) : [0n, 1n, 0n];
+    const H = mod(U2 - U1), R = mod(S2 - S1), H2 = H*H, H3 = mod(H2*H), V = mod(U1*H2);
+    const X3 = mod(R*R - H3 - 2n*V);
+    return [X3, mod(R*(V - X3) - S1*H3), mod(H*Z1*Z2)] };
+  const mul = k => { let r = [0n, 1n, 0n], q = [G[0], G[1], 1n];
+    for (; k; k >>= 1n) { if (k & 1n) r = add(r, q); q = dbl(q) }
+    const zi = inv(r[2]); return [mod(r[0]*zi*zi), mod(r[1]*zi*zi*zi)] };
+  const hex = (b) => [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+  const big = b => BigInt('0x' + (hex(b) || '0'));
+  const bytes = (n, len = 32) => Uint8Array.from(n.toString(16).padStart(len*2, '0').match(/../g), h => parseInt(h, 16));
+  // keccak-f[1600], 64-bit lanes as BigInt — slow, but it hashes a few hundred bytes
+  const RC = [], ROT = [0,1,62,28,27,36,44,6,55,20,3,10,43,25,39,41,45,15,21,8,18,2,61,56,14];
+  { let r = 1n; for (let i = 0; i < 24; i++) { let c = 0n;
+      for (let j = 0; j < 7; j++) { if (r & 1n) c |= 1n << (2n**BigInt(j) - 1n);
+        r = (r << 1n) ^ ((r >> 7n) & 1n ? 0x71n : 0n); r &= 0xffn } RC.push(c) } }
+  const M64 = 2n**64n - 1n, rotl = (x, n) => n ? ((x << BigInt(n)) | (x >> BigInt(64 - n))) & M64 : x;
+  function keccak(msg) {
+    const rate = 136, len = Math.floor(msg.length / rate + 1) * rate, b = new Uint8Array(len);
+    b.set(msg); b[msg.length] ^= 1; b[len - 1] ^= 0x80;
+    const s = new Array(25).fill(0n);
+    for (let o = 0; o < len; o += rate) {
+      for (let i = 0; i < rate / 8; i++) { let w = 0n;
+        for (let j = 7; j >= 0; j--) w = (w << 8n) | BigInt(b[o + i*8 + j]); s[i] ^= w }
+      for (let r = 0; r < 24; r++) {
+        const C = [0,1,2,3,4].map(x => s[x] ^ s[x+5] ^ s[x+10] ^ s[x+15] ^ s[x+20]);
+        for (let x = 0; x < 5; x++) { const d = C[(x+4)%5] ^ rotl(C[(x+1)%5], 1);
+          for (let y = 0; y < 25; y += 5) s[x+y] ^= d }
+        const B = new Array(25);
+        for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++)
+          B[y + 5*((2*x + 3*y) % 5)] = rotl(s[x + 5*y], ROT[x + 5*y]);
+        for (let i = 0; i < 25; i++) s[i] = B[i] ^ (~B[(i%5+1)%5 + i - i%5] & M64 & B[(i%5+2)%5 + i - i%5]);
+        s[0] ^= RC[r];
+      }
+    }
+    const out = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) out[i] = Number((s[i >> 3] >> BigInt(8 * (i & 7))) & 0xffn);
+    return out;
+  }
+  const utf8 = s => new TextEncoder().encode(s);
+  const address = priv => { const [x, y] = mul(priv);
+    const pub = new Uint8Array(64); pub.set(bytes(x)); pub.set(bytes(y), 32);
+    return '0x' + hex(keccak(pub).slice(12)) };
+  function personalSign(priv, text) {
+    const m = utf8(text), pre = utf8('\x19Ethereum Signed Message:\n' + m.length);
+    const all = new Uint8Array(pre.length + m.length); all.set(pre); all.set(m, pre.length);
+    const z = big(keccak(all));
+    for (;;) {
+      const k = mod(big(crypto.getRandomValues(new Uint8Array(32))), N); if (!k) continue;
+      const [x, y] = mul(k), r = mod(x, N); if (!r) continue;
+      let s = mod(inv(k, N) * (z + r * priv), N); if (!s) continue;
+      let v = Number(y & 1n) ^ (x >= N ? 2 : 0);
+      if (s > N / 2n) { s = N - s; v ^= 1 }           // low-s, as every verifier wants
+      return '0x' + hex(bytes(r)) + hex(bytes(s)) + (27 + v).toString(16);
+    }
+  }
+  const fresh = () => { for (;;) { const k = big(crypto.getRandomValues(new Uint8Array(32)));
+    if (k > 0n && k < N) return k.toString(16).padStart(64, '0') } };
+  return {address: h => address(BigInt('0x' + h)), sign: (h, t) => personalSign(BigInt('0x' + h), t),
+          fresh, keccak: s => hex(keccak(utf8(s)))};
+})();
+
+// Who you are here, in the order it is believed: a sign-in you made on
+// this page (wallet or pasted token), the owner token this box hands its own
+// browser, the build console's session on this origin or the shared passport
+// slot, and failing all of those a key this browser mints for itself — so a
+// visitor always has an address, and nobody has to sign in to look around.
+let token = '', SRC = '', adopted = '';
+let WHO = {address: '', is_owner: false, scheme: '', via: 'none'};
+const b64url = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function localKey() {
+  let k = localStorage.getItem(LKEY);
+  if (!/^[0-9a-f]{64}$/.test(k || '')) { k = LK.fresh(); localStorage.setItem(LKEY, k) }
+  return k;
+}
+let _local = null;
+function localToken() {
+  const now = Math.floor(Date.now() / 1000), k = localKey();
+  if (_local && _local.k === k && now - _local.t < 12 * 3600) return _local.token;
+  const data = 'compute', time = String(now), key = LK.address(k);
+  const signature = LK.sign(k, JSON.stringify({data, time}));
+  _local = {k, t: now, token: b64url({data, time, key, signature})};
+  return _local.token;
+}
+function passportSlot() {
+  try {
+    const s = JSON.parse(localStorage.getItem('mod_passport') || 'null');
+    if (s && s.token && s.scheme === 'mod') {
+      const env = JSON.parse(atob(s.token.replace(/-/g, '+').replace(/_/g, '/')));
+      if (Date.now() / 1000 - Number(env.time) < 23 * 3600) return s.token;
+    }
+  } catch {}
+  return '';
+}
+function pickToken() {
+  const mine = localStorage.getItem(TOK);
+  if (mine) return [mine, localStorage.getItem(TOKSRC) || 'wallet'];
+  if (window.__COMPUTE_TOKEN) return [window.__COMPUTE_TOKEN, 'machine'];
+  if (localStorage.getItem(NOADOPT) !== '1' && sessionStorage.getItem(NOADOPT) !== '1') {
+    const b = localStorage.getItem('build_jobs_token');
+    if (b && b !== 'local') return [b, 'build'];
+    const p = passportSlot();
+    if (p) return [p, 'passport'];
+  }
+  return [localToken(), 'local'];
+}
+function useToken(t, src, keep) {
+  if (keep) { localStorage.setItem(TOK, t); localStorage.setItem(TOKSRC, src);
+              localStorage.removeItem(NOADOPT); sessionStorage.removeItem(NOADOPT) }
+  token = t; SRC = src;
+  return whoami();
+}
+[token, SRC] = pickToken();
+
+// Signing in once is enough. Embedded in the build console, we ask the
+// parent for its session (mod.session) and follow when it signs in or out.
 function adopt(t) {
-  if (!t || t === token) return;
-  token = adopted = t; localStorage.setItem(TOK, token); stats(); loadNodes();
+  if (!t || t === token || localStorage.getItem(TOK)) return;
+  adopted = t; localStorage.removeItem(NOADOPT); useToken(t, 'build').then(loadNodes);
 }
 addEventListener('message', e => {
   const d = e.data;
@@ -933,7 +1144,7 @@ addEventListener('message', e => {
   try { if (new URL(e.origin).hostname !== location.hostname) return } catch { return }
   if (d.type === 'mod.session' && d.token) adopt(String(d.token));
   if (d.type === 'mod.session.end' && token && token === adopted) {
-    token = ''; localStorage.removeItem(TOK); stats();
+    adopted = ''; useToken(localToken(), 'local');
   }
 });
 if (parent !== window) { try { parent.postMessage({type: 'mod.session.request'}, '*') } catch {} }
@@ -955,8 +1166,8 @@ const plain = v => v == null ? '-' : '$' + Number(v).toFixed(v < 1 ? 3 : 2);
 const ago = t => { if (!t) return ''; const s = Date.now()/1000 - t;
   return s < 60 ? Math.round(s)+'s' : s < 3600 ? Math.round(s/60)+'m' : Math.round(s/3600)+'h' };
 
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+document.querySelectorAll('button[data-tab]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('button[data-tab]').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
   if (b.dataset.tab !== 'oracle' && _oTickIv) { clearInterval(_oTickIv); _oTickIv = null; }
   ({oracle, ask: askOpen, nodes: loadNodes, running, providers, keys: keysPanel, mcp: tools}[b.dataset.tab] || (() => {}))();
@@ -967,56 +1178,159 @@ document.querySelectorAll('.subnav button').forEach(b => b.onclick = () => {
   if (b.dataset.sub === 'mods') modLane();
 });
 
-// ── header stats ──
+// ── who you are, and the ticker ──
+const short = a => a ? a.slice(0, 6) + '..' + a.slice(-4) : '';
+const SRCNAME = {local: 'a key made in this browser', wallet: 'your wallet',
+  paste: 'a pasted owner token', machine: 'this machine (localhost)',
+  build: 'the build console session', passport: 'a passport sign-in elsewhere'};
+const OWNER_CAN = ['rent + stop', 'nodes + shell', 'the agent', 'set keys',
+                   'wallets', 'raw api'];
+const ANY_CAN = ['search + map', 'quotes', 'oracle game', 'mcp reads',
+                 'your own keys'];
+let _face = '';
+function face(cv, addr) {
+  // a 5x5 mirrored sprite out of the address, drawn in the cabinet's colours
+  const g = cv.getContext('2d'), css = getComputedStyle(document.documentElement);
+  const pal = ['--gold', '--hot', '--accent', '--violet', '--brick-hi', '--pipe-hi']
+    .map(v => css.getPropertyValue(v).trim());
+  const h = (addr || '0x' + '0'.repeat(40)).slice(2);
+  const fg = pal[parseInt(h.slice(0, 2), 16) % pal.length];
+  g.clearRect(0, 0, 10, 10);
+  g.fillStyle = css.getPropertyValue('--well').trim(); g.fillRect(0, 0, 10, 10);
+  if (!addr) { g.fillStyle = css.getPropertyValue('--faint').trim(); g.fillRect(4, 2, 2, 6); return }
+  g.fillStyle = fg;
+  for (let y = 0; y < 5; y++) for (let x = 0; x < 3; x++) {
+    if (parseInt(h[2 + y * 3 + x], 16) & 1) { g.fillRect(x * 2, y * 2, 2, 2); g.fillRect((4 - x) * 2, y * 2, 2, 2) }
+  }
+}
+async function whoami() {
+  try { WHO = await call('/whoami') } catch { WHO = {address: '', is_owner: false, via: 'none'} }
+  // a stored sign-in that no longer verifies (expired, revoked) gives way
+  if (!WHO.address && !WHO.is_owner && SRC !== 'local' && SRC !== 'machine') {
+    if (SRC === 'wallet' || SRC === 'paste') { localStorage.removeItem(TOK); localStorage.removeItem(TOKSRC) }
+    else sessionStorage.setItem(NOADOPT, '1');   // build down, or signed out there
+    [token, SRC] = pickToken();
+    return whoami();
+  }
+  document.body.classList.toggle('owner', !!WHO.is_owner);
+  const on = document.querySelector('button[data-tab].on');
+  if (on && on.dataset.owner !== undefined && !WHO.is_owner)
+    document.querySelector('nav button[data-tab="market"]').click();
+  const addr = WHO.address || (SRC === 'local' ? LK.address(localKey()) : '');
+  face(document.getElementById('idface'), addr);
+  document.getElementById('idaddr').textContent = addr ? short(addr) : 'THIS BOX';
+  const r = document.getElementById('idrole');
+  r.textContent = WHO.is_owner ? 'OWNER' : SRC === 'local' ? 'LOCAL KEY' : 'SIGNED IN';
+  r.className = 'role ' + (WHO.is_owner ? 'owner' : 'key');
+  if (!document.getElementById('idpop').hidden) drawId();
+  stats();
+  return WHO;
+}
+function drawId(note) {
+  const addr = WHO.address || (SRC === 'local' ? LK.address(localKey()) : '');
+  const can = WHO.is_owner ? [...OWNER_CAN, ...ANY_CAN] : ANY_CAN;
+  const li = xs => xs.map(x => `<li class="${can.includes(x) ? 'ok' : ''}">${x}</li>`).join('');
+  const why = WHO.is_owner
+    ? (WHO.via === 'this machine' ? 'owner, because you are on this machine' : 'owner of this deployment')
+    : 'visitor &mdash; reading markets is free; renting needs the owner';
+  document.getElementById('idpop').innerHTML = `
+    <div class="who"><canvas class="face" id="idface2" width="10" height="10" style="width:44px;height:44px"></canvas>
+      <div style="min-width:0">
+        <div class="addr" onclick="copyAddr()" title="copy">${esc(addr || 'no address (owner token)')}</div>
+        <div class="src">via ${esc(SRCNAME[SRC] || SRC)}</div>
+        <div class="src" style="color:${WHO.is_owner ? 'var(--gold)' : 'var(--dim)'}">${why}</div>
+      </div></div>
+    <p class="cap">${WHO.is_owner ? 'OWNER PRIVILEGES' : 'WHAT YOU CAN DO'}</p>
+    <ul>${li(WHO.is_owner ? OWNER_CAN : ANY_CAN)}${WHO.is_owner ? '' : li(OWNER_CAN.slice(0, 3))}</ul>
+    <div class="acts">
+      ${window.ethereum ? '<button class="go" onclick="signWallet()">SIGN IN WITH WALLET</button>' : ''}
+      <button class="ghost" onclick="tokenBox()">OWNER TOKEN</button>
+      ${SRC === 'local'
+        ? `<button class="ghost" onclick="showKey()">REVEAL KEY</button>
+           <button class="ghost" id="newkey" onclick="newKey()">NEW KEY</button>`
+        : SRC === 'machine' ? '' : `<button class="ghost" onclick="signOut()">SIGN OUT</button>`}
+    </div>
+    <div id="idmore"></div>
+    <p class="flash" id="idflash">${esc(note || '')}</p>`;
+  face(document.getElementById('idface2'), addr);
+}
+function toggleId(e) {
+  e && e.stopPropagation();
+  const p = document.getElementById('idpop');
+  p.hidden = !p.hidden;
+  if (!p.hidden) { document.getElementById('themepop').hidden = true; drawId() }
+}
+document.addEventListener('click', e => {
+  const p = document.getElementById('idpop');
+  if (!p.hidden && !e.target.closest('.idwrap')) p.hidden = true;
+});
+const idflash = t => { const f = document.getElementById('idflash'); if (f) f.textContent = t };
+function copyAddr() {
+  const a = WHO.address || (SRC === 'local' ? LK.address(localKey()) : '');
+  if (a) navigator.clipboard?.writeText(a).then(() => idflash('address copied'));
+}
+async function signWallet() {
+  // The wallet signs a mod-protocol token (no gas, no transaction); build
+  // vouches whether that address is the owner.
+  const eth = window.ethereum;
+  try {
+    const [addr] = await eth.request({method: 'eth_requestAccounts'});
+    const data = 'compute', time = Math.floor(Date.now() / 1000).toString();
+    const signature = await eth.request({method: 'personal_sign',
+      params: [JSON.stringify({data, time}), addr]});
+    const t = b64url({data, time, key: addr.toLowerCase(), signature});
+    try { localStorage.setItem('mod_passport', JSON.stringify(
+      {address: addr.toLowerCase(), token: t, scheme: 'mod'})) } catch {}
+    await useToken(t, 'wallet', true); loadNodes();
+    drawId(WHO.is_owner ? 'signed in as the owner' : 'signed in — this wallet is not the owner');
+  } catch (e) { idflash(e && e.code === 4001 ? 'cancelled' : (e.message || 'wallet said no')) }
+}
+function tokenBox() {
+  document.getElementById('idmore').innerHTML = `<div class="tokrow">
+    <input id="tok-in" type="password" placeholder="m compute/token" onkeydown="if(event.key==='Enter')pasteToken()">
+    <button class="go" onclick="pasteToken()">USE</button></div>`;
+  document.getElementById('tok-in').focus();
+}
+async function pasteToken() {
+  const t = (document.getElementById('tok-in')?.value || '').trim();
+  if (!t) return;
+  await useToken(t, 'paste', true); loadNodes();
+  drawId(WHO.is_owner ? 'owner token accepted' : 'that token did not verify');
+}
+function signOut() {
+  localStorage.removeItem(TOK); localStorage.removeItem(TOKSRC);
+  localStorage.setItem(NOADOPT, '1');           // do not slide back into build's session
+  if (SRC === 'wallet') try { localStorage.removeItem('mod_passport') } catch {}
+  adopted = '';
+  useToken(localToken(), 'local').then(() => drawId('signed out — back on your local key'));
+}
+function showKey() {
+  document.getElementById('idmore').innerHTML = `<div class="keyout">${esc(localKey())}</div>
+    <p class="note" style="margin:6px 0 0">The private key behind your address. It never leaves this
+    browser; anyone holding it is you here. Import it into a wallet to keep it.</p>`;
+}
+function newKey() {
+  const b = document.getElementById('newkey');
+  if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'REPLACE? PRESS AGAIN'; return }
+  localStorage.setItem(LKEY, LK.fresh()); _local = null;
+  useToken(localToken(), 'local').then(() => drawId('new local key — new address'));
+}
+
 async function stats() {
   const el = document.getElementById('stats');
   const chips = [];
   try {
     const h = await call('/health');
-    chips.push(`<span class="chip hot"><b>${h.providers}</b> markets</span>`);
-    chips.push(`<span class="chip"><b>${h.tools}</b> mcp tools</span>`);
+    chips.push(`<span class="chip hot" title="${h.tools} mcp tools"><b>${h.providers}</b> markets</span>`);
   } catch (e) { chips.push('<span class="chip bad"><b>api</b> down</span>') }
-  try {
-    const n = await call('/nodes');
-    chips.push(`<span class="chip ${n.count ? 'hot' : ''}"><b>${n.count}</b> nodes</span>`);
-    if (n.burn_usd_hr) chips.push(`<span class="chip warn">burn <b>${plain(n.burn_usd_hr)}</b>/hr</span>`);
-    chips.push('<span class="chip hot lock" onclick="setToken()">owner <b>yes</b></span>');
-  } catch (e) {
-    // a stale stored token must not hide a live console session
-    const live = localStorage.getItem('build_jobs_token');
-    if (live && live !== token) { token = adopted = live; localStorage.setItem(TOK, token); return stats() }
-    chips.push('<span class="chip warn lock" onclick="setToken()">locked &mdash; <b>sign in</b></span>');
+  if (WHO.is_owner) {
+    try {
+      const n = await call('/nodes');
+      chips.push(`<span class="chip ${n.count ? 'hot' : ''}"><b>${n.count}</b> nodes</span>`);
+      if (n.burn_usd_hr) chips.push(`<span class="chip warn">burn <b>${plain(n.burn_usd_hr)}</b>/hr</span>`);
+    } catch {}
   }
   el.innerHTML = chips.join('');
-}
-async function setToken() {
-  // The owner's wallet signs a mod-protocol token (no gas, no transaction);
-  // build vouches that the address is the owner. No wallet? Paste one.
-  const eth = window.ethereum;
-  if (eth) {
-    try {
-      const [addr] = await eth.request({method: 'eth_requestAccounts'});
-      const data = 'compute', time = Math.floor(Date.now() / 1000).toString();
-      const signature = await eth.request({method: 'personal_sign',
-        params: [JSON.stringify({data, time}), addr]});
-      const b64 = btoa(JSON.stringify({data, time, key: addr.toLowerCase(), signature}))
-        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-      token = b64; localStorage.setItem(TOK, token); await stats(); loadNodes();
-      return;
-    } catch (e) { if (e && e.code === 4001) return }
-  }
-  const el = document.getElementById('stats');
-  if (document.getElementById('tok-in')) return;
-  el.insertAdjacentHTML('beforeend', `<span class="chip" id="tok-box">
-    <input id="tok-in" type="password" placeholder="owner token (m compute/token)"
-      style="min-width:220px" onkeydown="if(event.key==='Enter')pasteToken()">
-    <button class="ghost" onclick="pasteToken()">USE</button></span>`);
-  document.getElementById('tok-in').focus();
-}
-function pasteToken() {
-  const t = (document.getElementById('tok-in')?.value || '').trim();
-  if (!t) return;
-  token = t; localStorage.setItem(TOK, token); stats(); loadNodes();
 }
 
 // ── market ──
@@ -1502,6 +1816,9 @@ function placeLabel(k) {
 //    each turn runs an agent on the box, so a locked console gets a 401 with
 //    the set-token hint rather than a silent dead composer.
 let ASK = {sid: null, dir: null, busy: false, booted: false, z: 1};
+// the top-bar orb runs fast while either lane (AGENT page or FIND bar) is thinking
+const agentBusy = () => document.getElementById('agentbtn')
+  .classList.toggle('busy', !!(ASK.busy || FIND.busy));
 
 function askOpen() {
   if (!ASK.booted) {
@@ -1560,7 +1877,7 @@ async function chatStream(body, onEv) {
   if (!r.ok) {
     const b = await r.json().catch(() => ({}));
     throw new Error((b.error || 'http ' + r.status) +
-      (r.status === 401 ? ' - press "sign in" up top' : ''));
+      (r.status === 401 ? ' - owner only: sign in from your badge, top right' : ''));
   }
   const rd = r.body.getReader(), dec = new TextDecoder();
   let buf = '';
@@ -1584,7 +1901,7 @@ async function askSend() {
   if (!msg || ASK.busy) return;
   inp.value = '';
   askMsg('me', msg);
-  ASK.busy = true;
+  ASK.busy = true; agentBusy();
   document.getElementById('a-send').disabled = true;
   document.getElementById('a-status').textContent = 'thinking...';
   let cur = null;                       // the ai bubble being streamed into
@@ -1604,7 +1921,7 @@ async function askSend() {
       else if (ev.type === 'done') ASK.sid = ev.session_id || ASK.sid;
     });
   } catch (e) { askErr(e.message); blip('bad') }
-  ASK.busy = false;
+  ASK.busy = false; agentBusy();
   document.getElementById('a-send').disabled = false;
   document.getElementById('a-status').textContent = '';
   inp.focus();
@@ -1725,7 +2042,7 @@ async function marketAsk() {
   const inp = document.getElementById('m-ask');
   const msg = inp.value.trim();
   if (!msg || FIND.busy) return;
-  FIND.busy = true;
+  FIND.busy = true; agentBusy();
   document.getElementById('m-find').disabled = true;
   const flash = document.getElementById('m-flash');
   flash.textContent = 'the agent is reading the markets...';
@@ -1763,7 +2080,7 @@ async function marketAsk() {
     if (document.getElementById('m-filterbar').style.display === 'none') marketFilters();
     blip('bad');
   }
-  FIND.busy = false;
+  FIND.busy = false; agentBusy();
   document.getElementById('m-find').disabled = false;
   inp.focus();
 }
@@ -2509,7 +2826,7 @@ async function connect() {
   const flash = document.getElementById('c-flash');
   const out = document.getElementById('c-out');
   const reveal = document.getElementById('c-reveal').checked;
-  if (!token) { flash.textContent = 'sign in as the owner first (header, top-right)'; return; }
+  if (!WHO.is_owner) { flash.textContent = 'owner only — sign in from your badge, top right'; return; }
   flash.textContent = 'connecting…'; out.innerHTML = '';
   try {
     const d = await post('/connect', {reveal, web_agent: true});
@@ -2604,7 +2921,8 @@ function setTheme(id) {
 }
 function drawThemes() {
   const cur = themeId(), t = THEMES.find(x => x.id === cur) || THEMES[0];
-  document.getElementById('themebtn').innerHTML = t.name + swatch(t);
+  document.getElementById('themebtn').innerHTML = swatch(t);
+  document.getElementById('themebtn').title = t.name + ' — cabinet, sound, scanlines (T cycles)';
   document.getElementById('tgrid').innerHTML = THEMES.map(x =>
     `<button class="tcard${x.id === cur ? ' on' : ''}" onclick="setTheme('${x.id}')">
        ${swatch(x)}${x.name}</button>`).join('');
@@ -2629,11 +2947,16 @@ function toggleCrt() {
   b.textContent = 'SCANLINES ' + (off ? 'OFF' : 'ON');
   b.classList.toggle('on', !off);
 }
-// T cycles cabinets, unless you are typing into one of the market's fields.
+// T cycles cabinets and A opens the agent, unless you are typing into a field.
 document.addEventListener('keydown', e => {
-  if (e.key.toLowerCase() !== 't' || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if ((k !== 't' && k !== 'a') || e.metaKey || e.ctrlKey || e.altKey) return;
   const el = document.activeElement, tag = el && el.tagName;
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (k === 'a') {
+    if (document.body.classList.contains('owner')) { e.preventDefault(); document.getElementById('agentbtn').click() }
+    return;
+  }
   const i = THEMES.findIndex(x => x.id === themeId());
   setTheme(THEMES[(i + 1) % THEMES.length].id);
   blip('jump');
@@ -2699,7 +3022,7 @@ document.getElementById('m-ask').addEventListener('keydown', e => {
 });
 
 deployTarget();
-stats();
+whoami();
 search();
 </script>
 </body>

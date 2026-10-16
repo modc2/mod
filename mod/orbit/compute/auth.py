@@ -47,7 +47,7 @@ BUILD = (os.environ.get('COMPUTE_BUILD_URL') or 'http://127.0.0.1:8890').rstrip(
 SECRET_FILE = os.path.join(STATE, 'server.secret')
 
 OPEN = {'', '/', '/health', '/providers', '/search', '/map', '/offer', '/quote',
-        '/mods', '/tools', '/console', '/index.html', '/identity',
+        '/mods', '/tools', '/console', '/index.html', '/identity', '/whoami',
         # whether the chat agent exists — the chat itself is owner-only
         '/chat/health',
         # the prediction game: a call spends nothing and carries its own player key
@@ -116,27 +116,58 @@ def authed(headers, client_addr=None):
 
 # ── the owner's own sign-in ──────────────────────────────────────────
 
-_SEEN = {}            # sha256(token) -> (until, is_owner)
+_SEEN = {}            # sha256(token) -> (until, identity)
 _TTL_YES, _TTL_NO = 120, 15
 _AUTH = None
 
 
-def is_owner_session(token):
-    """Is this bearer the deployment owner signed in? Cached briefly by hash."""
+def identify(token):
+    """Who a bearer is: {address, scheme, is_owner}. Cached briefly by hash.
+
+    Any signed-in key gets an address back — the owner's wallet, a build
+    session, or the throwaway key a browser mints for itself — but only the
+    address build names as the owner comes back is_owner."""
     h = hashlib.sha256(token.encode()).hexdigest()
     now = time.time()
     hit = _SEEN.get(h)
     if hit and hit[0] > now:
         return hit[1]
+    who = {'address': '', 'scheme': '', 'is_owner': False}
     try:
-        ok = _build_session_owner(token) if _is_build_session(token) \
-            else _role_is_owner(_wallet_address(token))
+        if _is_build_session(token):
+            who = _build_session(token)
+        else:
+            addr = _wallet_address(token)
+            who = {'address': addr, 'scheme': 'mod' if addr else '',
+                   'is_owner': _role_is_owner(addr)}
     except Exception:
-        ok = False
+        pass
     if len(_SEEN) > 512:
         _SEEN.clear()
-    _SEEN[h] = (now + (_TTL_YES if ok else _TTL_NO), ok)
-    return ok
+    _SEEN[h] = (now + (_TTL_YES if who['is_owner'] else _TTL_NO), who)
+    return who
+
+
+def is_owner_session(token):
+    """Is this bearer the deployment owner signed in?"""
+    return identify(token)['is_owner']
+
+
+def whoami(headers, client_addr=None):
+    """What the console shows in its identity pill, and which tabs it opens."""
+    token = presented(headers)
+    local = is_local(client_addr, headers)
+    if token and hmac.compare_digest(token, secret()):
+        return {'address': '', 'scheme': 'secret', 'is_owner': True,
+                'signed_in': True, 'local': local, 'via': 'owner token'}
+    who = dict(identify(token)) if token else \
+        {'address': '', 'scheme': '', 'is_owner': False}
+    who['signed_in'] = bool(who['address'])
+    who['local'] = local
+    who['via'] = 'session' if who['is_owner'] else \
+        ('this machine' if local else ('key' if who['address'] else 'none'))
+    who['is_owner'] = who['is_owner'] or local
+    return who
 
 
 def _is_build_session(token):
@@ -145,7 +176,7 @@ def _is_build_session(token):
     return len(parts) in (3, 4) and parts[1].isdigit()
 
 
-def _build_session_owner(token):
+def _build_session(token):
     body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
                        'params': {'name': 'whoami', 'arguments': {}}}).encode()
     req = urllib.request.Request(BUILD + '/mcp', data=body, headers={
@@ -153,7 +184,9 @@ def _build_session_owner(token):
     with urllib.request.urlopen(req, timeout=4) as r:
         got = json.load(r)
     who = ((got.get('result') or {}).get('structuredContent')) or {}
-    return bool(who.get('address')) and who.get('is_owner') is True
+    addr = str(who.get('address') or '').lower()
+    return {'address': addr, 'scheme': 'build' if addr else '',
+            'is_owner': bool(addr) and who.get('is_owner') is True}
 
 
 def _wallet_address(token):

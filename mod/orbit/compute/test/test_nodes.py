@@ -252,6 +252,31 @@ def test_the_token_is_the_only_other_way_in(tmp_path, monkeypatch):
     assert not auth.authed({}, '8.8.8.8')
 
 
+def test_whoami_names_a_browser_key_without_making_it_the_owner(tmp_path, monkeypatch):
+    # the console's own local key: canonical token, EIP-191, not the owner
+    acct = pytest.importorskip('eth_account')
+    from eth_account.messages import encode_defunct
+    monkeypatch.setattr(auth, 'SECRET_FILE', str(tmp_path / 'server.secret'))
+    monkeypatch.setattr(auth, '_role_is_owner', lambda a: False)
+    a = acct.Account.create()
+    data, t = 'compute', str(int(__import__('time').time()))
+    sig = a.sign_message(encode_defunct(text=json.dumps(
+        {'data': data, 'time': t}, separators=(',', ':')))).signature.hex()
+    tok = base64.urlsafe_b64encode(json.dumps({
+        'data': data, 'time': t, 'key': a.address.lower(),
+        'signature': '0x' + sig.removeprefix('0x')}).encode()).decode().rstrip('=')
+    proxied = {'x-forwarded-for': '1.2.3.4'}
+    who = auth.whoami({**proxied, 'authorization': f'Bearer {tok}'}, '127.0.0.1')
+    assert who['address'] == a.address.lower() and who['signed_in']
+    assert who['is_owner'] is False
+    assert not auth.authed({**proxied, 'authorization': f'Bearer {tok}'}, '127.0.0.1')
+    assert auth.whoami({}, '127.0.0.1')['is_owner'] is True, 'localhost is the owner'
+    assert auth.whoami({'authorization': f'Bearer {auth.secret()}'}, '8.8.8.8')['is_owner']
+    assert auth.whoami(proxied, '127.0.0.1') == {
+        'address': '', 'scheme': '', 'is_owner': False, 'signed_in': False,
+        'local': False, 'via': 'none'}
+
+
 def test_an_unowned_mcp_call_cannot_deploy_or_spend():
     r = mcp.handle({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
                     'params': {'name': 'compute_deploy', 'arguments': {'docker': True}}})

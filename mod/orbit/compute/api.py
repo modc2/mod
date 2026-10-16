@@ -361,6 +361,9 @@ def serve(port=PORT, base=BASE):
             p, query, _ = self._path()
             p = p.rstrip('/') or '/'
             owner = self._owner()
+            if p == '/whoami':
+                return self._send(200, auth.whoami(
+                    self.headers, self.client_address[0] if self.client_address else None))
             if p == '/chat':
                 # SSE, so it cannot go through `route` (one JSON answer);
                 # owner-only — each turn runs an agent on this box with the

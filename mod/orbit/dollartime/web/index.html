@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dollartime</title>
+<style>
+  :root { --bg:#0e1116; --card:#161b22; --line:#262d36; --fg:#e6edf3; --dim:#8b949e;
+          --up:#2fbf71; --down:#e5534b; --acc:#d4a72c; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: .5px; }
+  h1 b { color: var(--up); }
+  .sub { color: var(--dim); margin: 2px 0 18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:14px; margin-bottom:14px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input, select, button { font:inherit; color:var(--fg); background:#0d1117;
+          border:1px solid var(--line); border-radius:7px; padding:7px 10px; }
+  input { min-width: 0; }
+  button { cursor:pointer; }
+  button.up { background:var(--up); border-color:var(--up); color:#06130b; font-weight:600; }
+  button.down { background:var(--down); border-color:var(--down); color:#1b0605; font-weight:600; }
+  button.ghost { background:transparent; }
+  button:disabled { opacity:.45; cursor:default; }
+  .tabs button.on { border-color: var(--acc); color: var(--acc); }
+  .mkt { display:grid; grid-template-columns: 1fr auto; gap:6px 12px; }
+  .q { font-weight:600; }
+  .meta { color:var(--dim); font-size:13px; }
+  .bar { height:6px; border-radius:3px; background:var(--down); overflow:hidden; margin-top:6px; }
+  .bar i { display:block; height:100%; background:var(--up); }
+  .tag { font-size:12px; padding:1px 7px; border-radius:9px; border:1px solid var(--line); }
+  .tag.up { color:var(--up); border-color:var(--up); }
+  .tag.down { color:var(--down); border-color:var(--down); }
+  .msg { min-height: 20px; font-size:13px; margin-top:8px; }
+  .msg.err { color: var(--down); } .msg.ok { color: var(--up); }
+  .bal { font-size: 20px; font-weight: 700; }
+  table { width:100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); }
+  th { color: var(--dim); font-weight: 500; }
+  code { background:#0d1117; padding:2px 6px; border-radius:5px; word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+  <h1><b>$</b> dollartime</h1>
+  <div class="sub">Will the price be up or down in N hours? Open a market, take a side, winners split the pot. Play money.</div>
+
+  <div class="card" id="you"></div>
+
+  <div class="card">
+    <div class="q" style="margin-bottom:8px">Make a prediction</div>
+    <div class="row">
+      <input id="c-asset" value="BTC" size="6" placeholder="BTC">
+      <span class="meta" id="c-px"></span>
+      <span>in</span>
+      <input id="c-hours" type="number" value="4" min="0.25" max="720" step="0.25" style="width:80px">
+      <span>hours, stake</span>
+      <input id="c-amt" type="number" value="50" min="1" style="width:90px">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="c-note" placeholder="why? (optional)" style="flex:1">
+      <button class="up" onclick="create('up')">Up</button>
+      <button class="down" onclick="create('down')">Down</button>
+    </div>
+    <div class="meta" style="margin-top:6px">The price right now is the line. Others can bet for the first quarter of the window, then it locks and settles at the end.</div>
+    <div class="msg" id="c-msg"></div>
+  </div>
+
+  <div class="row tabs" style="margin-bottom:10px">
+    <button data-s="live" class="on">Live</button>
+    <button data-s="resolved">Settled</button>
+    <button data-s="board">Leaderboard</button>
+  </div>
+  <div id="list"></div>
+</main>
+
+<script>
+const BASE = location.pathname.replace(/\/+$/, '').replace(/\/index\.html$/, '');
+const API = BASE + '/api/';
+let token = localStorage.getItem('dollartime.token') || '';
+let tab = 'live';
+
+async function call(fn, args, post) {
+  const opt = post ? { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(args||{}) } : {};
+  const qs = !post && args ? '?' + new URLSearchParams(args) : '';
+  const r = await fetch(API + fn + qs, opt);
+  const j = await r.json();
+  if (!r.ok || (j && j.error)) throw new Error(j.error || r.status);
+  return j;
+}
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = p => '$' + (p >= 1 ? p.toLocaleString(undefined, {maximumFractionDigits: 2}) : p.toPrecision(4));
+function left(ts) {
+  let s = Math.max(0, ts - Date.now()/1000);
+  const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m ${Math.floor(s%60)}s`;
+}
+function say(id, text, ok) { const e = $(id); e.textContent = text; e.className = 'msg ' + (ok ? 'ok' : 'err'); }
+
+async function renderYou() {
+  const el = $('you');
+  if (!token) {
+    el.innerHTML = `<div class="row"><span>Pick a name to start with 1000 points:</span>
+      <input id="j-name" placeholder="name" size="14"><button onclick="join()">Join</button>
+      <button class="ghost" onclick="showRestore()">I have a token</button></div>
+      <div class="row" id="restore" style="display:none;margin-top:8px">
+      <input id="r-tok" placeholder="paste token" style="flex:1"><button onclick="restore()">Use</button></div>
+      <div class="msg" id="j-msg"></div>`;
+    return;
+  }
+  try {
+    const me = await call('me', {token});
+    el.innerHTML = `<div class="row" style="justify-content:space-between">
+      <div><span class="meta">${esc(me.name)}</span><div class="bal">${me.balance.toLocaleString()} pts</div></div>
+      <div class="row">
+        <button onclick="claim()" ${me.can_claim ? '' : 'disabled'}>+100 daily</button>
+        <button class="ghost" onclick="$('tokbox').style.display='block'">Token</button>
+        <button class="ghost" onclick="logout()">Sign out</button></div></div>
+      <div id="tokbox" style="display:none;margin-top:8px" class="meta">Your token (keep it to use this name elsewhere): <code>${esc(token)}</code></div>
+      <div class="msg" id="j-msg"></div>`;
+  } catch (e) {
+    if (/unknown token/.test(e.message)) { token = ''; localStorage.removeItem('dollartime.token'); return renderYou(); }
+    el.textContent = e.message;
+  }
+}
+function showRestore() { $('restore').style.display = 'flex'; }
+function restore() { token = $('r-tok').value.trim(); localStorage.setItem('dollartime.token', token); renderYou(); }
+function logout() { token = ''; localStorage.removeItem('dollartime.token'); renderYou(); }
+async function join() {
+  try {
+    const r = await call('join', {name: $('j-name').value}, true);
+    token = r.token; localStorage.setItem('dollartime.token', token);
+    await renderYou(); say('j-msg', 'Welcome, ' + r.name + '. Your token is saved in this browser.', true);
+  } catch (e) { say('j-msg', e.message); }
+}
+async function claim() {
+  try { await call('claim', {token}, true); renderYou(); } catch (e) { say('j-msg', e.message); }
+}
+
+let pxTimer;
+function watchPrice() {
+  clearTimeout(pxTimer);
+  pxTimer = setTimeout(async () => {
+    const a = $('c-asset').value.trim();
+    if (!a) return;
+    try { const p = await call('price', {asset: a}); $('c-px').textContent = 'now ' + money(p.price); }
+    catch { $('c-px').textContent = 'no price'; }
+  }, 350);
+}
+$('c-asset').addEventListener('input', watchPrice);
+
+async function create(side) {
+  if (!token) return say('c-msg', 'Join first (top card).');
+  try {
+    const m = await call('create', {token, side, asset: $('c-asset').value,
+      hours: $('c-hours').value, amount: $('c-amt').value, note: $('c-note').value}, true);
+    say('c-msg', `Market #${m.id} open: ${m.question}`, true);
+    $('c-note').value = ''; renderYou(); renderList();
+  } catch (e) { say('c-msg', e.message); }
+}
+async function bet(id, side) {
+  if (!token) return say('m-' + id, 'Join first (top card).');
+  try {
+    await call('bet', {token, id, side, amount: $('a-' + id).value}, true);
+    renderYou(); renderList();
+  } catch (e) { say('m-' + id, e.message); }
+}
+
+function marketHtml(m) {
+  const upPct = m.total ? Math.round(100 * m.pools.up / m.total) : 50;
+  const open = m.status === 'open';
+  let state;
+  if (m.status === 'resolved') {
+    const res = ['up','down'].includes(m.outcome) ? `<span class="tag ${m.outcome}">${m.outcome.toUpperCase()}</span>` : `<span class="tag">${m.outcome} — refunded</span>`;
+    state = `${res} closed at ${m.close_price != null ? money(m.close_price) : '—'}`;
+  } else if (open) state = `bets close in ${left(m.lock_at)} · settles in ${left(m.close_at)}`;
+  else if (m.status === 'locked') state = `locked · settles in ${left(m.close_at)}`;
+  else state = 'settling…';
+  return `<div class="card"><div class="mkt">
+    <div><div class="q">#${m.id} ${esc(m.asset)} up or down in ${m.hours}h?</div>
+      <div class="meta">line ${money(m.open_price)} · by ${esc(m.creator)} · ${m.bettors} bets · ${state}</div>
+      ${m.note ? `<div class="meta" style="color:var(--fg)">"${esc(m.note)}"</div>` : ''}</div>
+    <div style="text-align:right"><div><b>${m.total.toLocaleString()}</b> <span class="meta">pts</span></div>
+      <div class="meta"><span style="color:var(--up)">up ${m.pays.up ? m.pays.up + 'x' : '—'}</span> ·
+      <span style="color:var(--down)">down ${m.pays.down ? m.pays.down + 'x' : '—'}</span></div></div></div>
+    <div class="bar"><i style="width:${upPct}%"></i></div>
+    ${open ? `<div class="row" style="margin-top:10px"><input id="a-${m.id}" type="number" value="25" min="1" style="width:90px">
+      <button class="up" onclick="bet(${m.id},'up')">Up</button><button class="down" onclick="bet(${m.id},'down')">Down</button></div>
+      <div class="msg" id="m-${m.id}"></div>` : ''}
+  </div>`;
+}
+
+async function renderList() {
+  const el = $('list');
+  try {
+    if (tab === 'board') {
+      const b = await call('leaderboard');
+      el.innerHTML = `<div class="card"><table><tr><th>#</th><th>name</th><th>points</th><th>bets</th><th>wins</th></tr>` +
+        b.players.map((p, i) => `<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p.balance.toLocaleString()}</td><td>${p.bets}</td><td>${p.wins}</td></tr>`).join('') +
+        `</table></div>`;
+      return;
+    }
+    const r = await call('markets', {status: tab});
+    el.innerHTML = r.markets.length ? r.markets.map(marketHtml).join('')
+      : `<div class="card meta">${tab === 'live' ? 'No live markets. Make the first prediction above.' : 'Nothing settled yet.'}</div>`;
+  } catch (e) { el.innerHTML = `<div class="card msg err">${esc(e.message)}</div>`; }
+}
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  tab = b.dataset.s; renderList();
+});
+
+renderYou(); renderList(); watchPrice();
+setInterval(() => { if (!document.activeElement || document.activeElement.tagName !== 'INPUT') renderList(); }, 15000);
+</script>
+</body>
+</html>

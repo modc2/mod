@@ -8,7 +8,7 @@ name = "staketime_rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.24", features = ["extension-module", "abi3-py313"] }
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py312"] }
 tokio = { version = "1", features = ["full"] }
 alloy = { version = "0.9", features = ["full"] }
 serde = { version = "=1.0.217", features = ["derive"] }

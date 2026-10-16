@@ -1833,3 +1833,88 @@ g:hover > .builder-wire {
   .ap-bar::after, .ap-ring, .ap-vortex span, .ap-ticker-run, .ap-live::before { animation: none; }
   .ap-frame { transition: none; }
 }
+
+/* ── header nav: one segmented pill ─────────────────────────────────
+   CHAT · AGENTS · ARENA sit in a single recessed track; the tab you are
+   on is a raised chip inside it, lit with the theme accent. Reads as a
+   switch between three places rather than three loose words. */
+.nav-seg {
+  gap: 2px;
+  padding: 3px;
+  border-radius: calc(var(--radius) + 3px);
+  background: rgb(var(--ink) / 0.04);
+  border: 1px solid rgb(var(--ink) / 0.07);
+}
+.nav-seg-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  font-family: var(--chrome);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgb(var(--g-500));
+  border: 1px solid transparent;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.nav-seg-btn svg { opacity: 0.75; transition: opacity 0.15s ease; }
+.nav-seg-btn:hover { color: rgb(var(--g-200)); background: rgb(var(--ink) / 0.05); }
+.nav-seg-btn:hover svg { opacity: 1; }
+.nav-seg-btn:focus-visible { outline: 2px solid rgb(var(--a-400) / 0.6); outline-offset: 1px; }
+.nav-seg-btn--on,
+.nav-seg-btn--on:hover {
+  color: rgb(var(--a-200));
+  background: linear-gradient(180deg, rgb(var(--a-400) / 0.2), rgb(var(--a-500) / 0.1));
+  border-color: rgb(var(--a-400) / 0.35);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 0 14px rgb(var(--glow) / 0.14);
+}
+.nav-seg-btn--on svg { opacity: 1; color: rgb(var(--a-300)); }
+.nav-seg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0;
+  color: rgb(var(--a-200));
+  background: rgb(var(--a-500) / 0.15);
+  border: 1px solid rgb(var(--a-400) / 0.3);
+}
+
+/* light themes: the token ramps already invert (200 = darkest), so only
+   the lit chip changes — a white card lifted off the track, not a tint */
+:root[data-base="light"] .nav-seg-btn--on,
+:root[data-base="light"] .nav-seg-btn--on:hover {
+  background: rgb(var(--s-0));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+}
+
+/* pixel skins: no pill — a row of hard blocks, the lit one pressed in */
+:root[data-skin="pixel"] .nav-seg {
+  border-radius: 0;
+  padding: 2px;
+  gap: 3px;
+  background: rgb(0 0 0 / 0.25);
+  border: 2px solid rgb(var(--ink) / 0.12);
+}
+:root[data-skin="pixel"] .nav-seg-btn {
+  border-radius: 0;
+  font-size: 9px;
+  font-weight: 400;
+  padding: 6px 10px;
+  transition: none;
+}
+:root[data-skin="pixel"] .nav-seg-btn--on,
+:root[data-skin="pixel"] .nav-seg-btn--on:hover {
+  color: rgb(var(--s-0));
+  background: rgb(var(--a-400));
+  border-color: rgb(var(--s-0));
+  box-shadow: inset 2px 2px 0 rgb(var(--a-200)), inset -2px -2px 0 rgb(var(--a-600));
+}
+:root[data-skin="pixel"] .nav-seg-btn--on svg { color: rgb(var(--s-0)); }
+:root[data-skin="pixel"] .nav-seg-badge { border-radius: 0; }

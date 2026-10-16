@@ -4962,12 +4962,14 @@ export default function Home() {
     </div>
   )
 
+  const goChat = () => { setView('chat'); if (activeTab === 'agents') setActiveTab('output') }
+
   return (
     // fixed, not h-screen: html/body overflow:hidden still lets focus() and
     // scrollIntoView scroll the document, which in an embedding frame shoves
     // this header up out of sight. A fixed root leaves nothing to scroll.
     <main className="fixed inset-0 flex flex-col bg-surface-0">
-      {/* top bar — a chat icon, AGENTS, ARENA, and who you are. Everything
+      {/* top bar — the mark, CHAT · AGENTS · ARENA, and who you are. Everything
           else lives where it's used: the rails carry their own collapse, the
           dock its own size, the key and the tool count sit in the rail's foot. */}
       {/* The view switcher stays in the top row at every width — it IS the
@@ -4975,38 +4977,38 @@ export default function Home() {
           the .tab-strip scrolls sideways instead of squashing or wrapping,
           so the tabs stay first without hiding one. */}
       <header className="site-header border-b border-white/[0.06] px-3 min-h-12 py-1.5 flex items-center gap-x-3 shrink-0 bg-surface-0">
-        {/* the brand is the way home to the chat — the nav is AGENTS ·
-            ARENA only, so the console itself needs no tab of its own */}
-        <button type="button" onClick={() => { setView('chat'); if (activeTab === 'agents') setActiveTab('output') }}
-          className="flex items-center gap-2.5 shrink-0" title="Chat — talk to an agent">
+        {/* the brand is a mark, not a label — the word "agent" beside an
+            AGENTS tab read as two names for one place. Clicking it still
+            goes home to the chat. */}
+        <button type="button" onClick={goChat} aria-label="home — chat"
+          className="flex items-center shrink-0">
           <div className="brand-mark w-7 h-7 flex items-center justify-center shrink-0">
             <span className="select-none">{'>'}_</span>
           </div>
-          {/* wordmark — first thing the eye lands on, so it carries the theme's
-              accent. Drops out under 640px, where the bar needs the room. */}
-          <span className="title-gradient uppercase select-none hidden sm:block">agent</span>
         </button>
 
-        <nav className="tab-strip min-w-0 gap-px">
-          {/* Two tabs: AGENTS (the hub — roster, library, runs) and ARENA (a
-              portal to the arena mod, framed whole and signed in as you). The brand mark is the chat. AGENTS wears the running
-              count — the runs shelf lives behind it. */}
-          {(['agents', 'arena'] as const).map(v => {
-            const lit = v === 'agents' ? view === 'hub' : view === 'arena'
+        {/* Three tabs in one segmented pill: CHAT (talk to an agent), AGENTS
+            (the hub — roster, library, runs) and ARENA (a portal to the arena
+            mod, signed in as you). AGENTS wears the running count — the runs
+            shelf lives behind it. */}
+        <nav className="tab-strip nav-seg min-w-0" aria-label="sections">
+          {(['chat', 'agents', 'arena'] as const).map(v => {
+            const lit = v === 'chat' ? view === 'chat' : v === 'agents' ? view === 'hub' : view === 'arena'
             return (
-              <button key={v}
+              <button key={v} type="button" aria-current={lit ? 'page' : undefined}
                 onClick={() => {
-                  if (v === 'agents') { setBuilderMode('browse'); openHub('agents') }
+                  if (v === 'chat') goChat()
+                  else if (v === 'agents') { setBuilderMode('browse'); openHub('agents') }
                   else setView('arena')
                 }}
-                className={`nav-tab tab-btn relative flex items-center gap-1.5 px-3 py-2 font-medium uppercase tracking-wider transition-colors ${
-                  lit ? 'nav-tab--on text-emerald-200' : 'text-gray-600 hover:text-gray-300'
-                }`}
-                title={v === 'agents' ? 'Agents, the library and every run on the server'
-                  : 'The arena — every arena, every agent ranked, signed in as you'}>
-                {v}
+                className={`nav-seg-btn tab-btn ${lit ? 'nav-seg-btn--on' : ''}`}
+                title={v === 'chat' ? 'Talk to an agent'
+                  : v === 'agents' ? 'Agents, the library and every run on the server'
+                  : 'The arena — every agent ranked, signed in as you'}>
+                <NavIcon name={v} />
+                <span>{v}</span>
                 {v === 'agents' && runningCount > 0 && (
-                  <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-300"
+                  <span className="nav-seg-badge"
                     onClick={e => { e.stopPropagation(); openHub('tasks') }}
                     title="running now — open the runs">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -5458,5 +5460,21 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
         </div>
       </div>
     </div>
+  )
+}
+
+/** Line icons for the top nav — inline SVG, stroke = currentColor, so they
+ *  take the tab's colour in every theme (no emoji font on the host). */
+function NavIcon({ name }: { name: 'chat' | 'agents' | 'arena' }) {
+  const p = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+    strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true }
+  if (name === 'chat') return (
+    <svg {...p}><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /></svg>
+  )
+  if (name === 'agents') return (
+    <svg {...p}><circle cx="9" cy="8" r="3.2" /><path d="M3 20a6 6 0 0 1 12 0" /><circle cx="17" cy="9" r="2.4" /><path d="M16 14.2a5 5 0 0 1 5.5 5.8" /></svg>
+  )
+  return (
+    <svg {...p}><path d="M8 4h8v5a4 4 0 0 1-8 0V4z" /><path d="M16 6h3a3 3 0 0 1-3 4M8 6H5a3 3 0 0 0 3 4" /><path d="M12 13v4M8 20h8" /></svg>
   )
 }

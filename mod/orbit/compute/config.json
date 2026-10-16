@@ -98,7 +98,8 @@
         "oracle_calls": "GET /oracle/calls?player=&series=&state=",
         "oracle_join": "POST /oracle/join {player} \u2014 mints a player key, returned once",
         "oracle_predict": "POST /oracle/predict {player, key, series, horizon, value, note}",
-        "oracle_tick": "POST /oracle/tick \u2014 owner; read the markets now and score what is due"
+        "oracle_tick": "POST /oracle/tick \u2014 owner; read the markets now and score what is due",
+        "whoami": "GET /whoami \u2014 {address, scheme, is_owner, signed_in, local, via} for the bearer; drives the console's identity badge and which tabs it shows"
     },
     "fns": [
         "info",
@@ -201,7 +202,8 @@
         "byok": "instances, status, logs, balance, keys \u2014 allowed when the caller brings their own provider key",
         "owner": "rent, stop, exec, raw, set_key and every /node route",
         "proof": "the owner signed in \u2014 the build console session (handed down to the embedded console, verified by build's whoami) or a wallet-signed mod-protocol token whose address build says is the owner; or Authorization: Bearer `m compute/token`; or a request from localhost that did not pass through the gateway",
-        "secret": "~/.mod/compute/server.secret (0600, off-tree, minted on first need)"
+        "secret": "~/.mod/compute/server.secret (0600, off-tree, minted on first need)",
+        "console": "one top bar: brand, tabs, ticker, AGENT, theme, identity badge. Not signed in = a secp256k1 key minted in the browser (localStorage compute_local_key) signs a canonical mod token, so every visitor has an address. Sign in with a wallet, an owner token, or the build session; the owner gets a gold OWNER badge and the owner-only AGENT button and the NODES tab, nobody else sees them"
     },
     "geo": {
         "what": "every offer that carries a location is placed: `geo` on the row, `map` on the answer",
