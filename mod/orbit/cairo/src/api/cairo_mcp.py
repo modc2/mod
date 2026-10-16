@@ -64,6 +64,15 @@ TOOLS = {
                        mod=STR('one mod by name (e.g. hermes) -> its full record: skill.md + tool schemas'),
                        brief={'type': 'boolean', 'description': 'default true: skill bodies and tool schemas trimmed'}),
                      False, lambda kw: {'brief': kw.get('brief', True), **{k: v for k, v in kw.items() if k != 'brief'}}),
+    'cairo_privacy': ('privacy', 'Who can see and do what, in plain words: is cairo listed/linked, every '
+                      'access rule (anyone / owner / nobody), and per contract whether it is private on '
+                      'this site and what it keeps secret on the chain.',
+                      S(name=STR('one contract (optional)')), False, None),
+    'cairo_visibility': ('visibility', 'OWNER. Make a contract private (hidden from everyone but the owner) '
+                         'or public again.',
+                         S(name=STR('contract name', True),
+                           private={'type': 'boolean', 'description': 'true = private, false = public'}),
+                         True, None),
     'cairo_whitepaper': ('whitepaper', 'The design paper of this workbench, as markdown.', S(), False, None),
     'cairo_jobs': (None, 'Recent build/test/vibe jobs with results (why did my test fail?).', S(), False, None),
     'cairo_new': ('new', 'OWNER. Make a new contract from a starter template.',
@@ -95,7 +104,7 @@ def tools_list():
     return [{'name': n, 'description': t[1], 'inputSchema': t[2],
              'annotations': {'readOnlyHint': t[0] in (None, 'tutorials', 'templates', 'market', 'get',
                                                       'read', 'abi', 'app', 'events', 'fleet',
-                                                      'whitepaper', 'agents'),
+                                                      'whitepaper', 'agents', 'privacy'),
                              'title': n.replace('cairo_', '').replace('_', ' ')},
              '_meta': {'access': 'owner' if t[3] else 'open'}}
             for n, t in TOOLS.items()]
@@ -110,17 +119,18 @@ def call_tool(mod, name, args, gate, jobs=None):
     if mapper:
         kw = mapper(kw)
     kw.pop('on_step', None)
+    scrub = getattr(gate, 'scrub', lambda f, r: r)
     if fn == 'job':
-        return HOOKS['get'](kw.get('id', '')) if HOOKS['get'] else {'error': 'no job table'}
+        return scrub('job', HOOKS['get'](kw.get('id', '')) if HOOKS['get'] else {'error': 'no job table'})
     if fn is None:
-        return {'jobs': [{k: j.get(k) for k in ('id', 'fn', 'name', 'state', 'error', 'result')}
-                         for j in (jobs() if jobs else [])[:8]]}
+        return scrub('jobs', {'jobs': [{k: j.get(k) for k in ('id', 'fn', 'name', 'state', 'error', 'result')}
+                                       for j in (jobs() if jobs else [])[:8]]})
     no = gate(fn, kw, owner)
     if no:
-        return {'error': no, 'owner_only': True}
+        return {'error': no, 'owner_only': 'owner-only' in no}
     if fn == 'vibe' and HOOKS['start']:
         return {'job': HOOKS['start']('vibe', kw)}
-    return getattr(mod, fn)(**kw)
+    return scrub(fn, getattr(mod, fn)(**kw))
 
 
 def handle(msg, mod, gate, jobs=None):

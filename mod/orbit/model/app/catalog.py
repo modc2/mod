@@ -145,6 +145,8 @@ TYPE_MAP = {
     'asr': 'transcription', 'stt': 'transcription', 'transcribe': 'transcription', 'transcription': 'transcription',
     'rerank': 'rerank',
     'moderation': 'moderation', 'decisions': 'moderation',
+    # DeepInfra metadata.tags
+    'image-gen': 'image', 'video-gen': 'video', 'embed': 'embedding',
 }
 
 # id heuristics, first match wins — for providers that publish no type at all
@@ -167,7 +169,19 @@ def guess_kind(mid: str) -> str:
     return 'chat'
 
 
+SHAPE_KIND = {'videos': 'video', 'images.generations': 'image', 'embeddings': 'embedding'}
+
+
 def _kind(m: dict, mid: str) -> str:
+    shapes = m.get('api_shapes') or []
+    for sh in shapes:  # SayGM: the wire shape says what the model does
+        if sh in SHAPE_KIND and len(shapes) == 1:
+            return SHAPE_KIND[sh]
+    caps = m.get('capabilities') if isinstance(m.get('capabilities'), dict) else {}
+    if caps.get('video_generation'):
+        return 'video'
+    if caps.get('image_generation') or caps.get('image_output'):
+        return 'image'
     arch = m.get('architecture') or {}
     outs = arch.get('output_modalities') or []
     if outs:
@@ -179,6 +193,12 @@ def _kind(m: dict, mid: str) -> str:
     t = str(m.get('type') or '').lower()
     if t in TYPE_MAP:
         return TYPE_MAP[t]
+    tags = (m.get('metadata') or {}).get('tags') if isinstance(m.get('metadata'), dict) else None
+    for tag in tags or []:  # DeepInfra
+        if tag in ('image-gen', 'video-gen', 'embed', 'tts', 'stt'):
+            return TYPE_MAP[tag]
+    if tags and 'chat' in tags:
+        return 'chat'
     return guess_kind(mid)
 
 
@@ -193,6 +213,14 @@ def _num(v) -> Optional[float]:
 def _prices(m: dict) -> tuple:
     """(usd per 1M input tokens, usd per 1M output tokens, usd per image) — None if unknown."""
     p = m.get('pricing')
+    meta = m.get('metadata') if isinstance(m.get('metadata'), dict) else {}
+    if p is None and isinstance(meta.get('pricing'), dict):  # DeepInfra: USD / 1M tokens
+        mp = meta['pricing']
+        return _num(mp.get('input_tokens')), _num(mp.get('output_tokens')), _num(mp.get('per_image_unit'))
+    if isinstance(p, dict) and p.get('unit') == 'ndollars_per_mtok':  # SayGM: integer nano-USD / Mtok
+        dims = p.get('dimensions') or {}
+        nano = lambda k: _num(dims[k]) / 1e9 if _num(dims.get(k)) is not None else None
+        return nano('input_per_mtok_ndollars'), nano('output_per_mtok_ndollars'), None
     spec = (m.get('model_spec') or {}).get('pricing') if isinstance(m.get('model_spec'), dict) else None
     if isinstance(spec, dict):  # Venice: per-M usd, images per generation
         inp = _num(((spec.get('input') or {}).get('usd')))
@@ -218,7 +246,8 @@ def _prices(m: dict) -> tuple:
 def _ctx(m: dict) -> Optional[int]:
     spec = m.get('model_spec') if isinstance(m.get('model_spec'), dict) else {}
     provs = m.get('providers') if isinstance(m.get('providers'), list) else []
-    for v in (m.get('context_length'), m.get('max_model_len'), m.get('context_window'),
+    meta = m.get('metadata') if isinstance(m.get('metadata'), dict) else {}
+    for v in (m.get('context_length'), meta.get('context_length'), m.get('max_model_len'), m.get('context_window'),
               spec.get('availableContextTokens'), m.get('inputTokenLimit'),
               provs[0].get('context_length') if provs and isinstance(provs[0], dict) else None):
         if isinstance(v, (int, float)) and v > 0:
@@ -229,6 +258,10 @@ def _ctx(m: dict) -> Optional[int]:
 def _vision(m: dict) -> bool:
     arch = m.get('architecture') or {}
     if 'image' in (arch.get('input_modalities') or []):
+        return True
+    if isinstance(m.get('capabilities'), dict) and m['capabilities'].get('vision'):
+        return True
+    if isinstance(m.get('metadata'), dict) and 'vision' in (m['metadata'].get('tags') or []):
         return True
     caps = ((m.get('model_spec') or {}).get('capabilities') or {}) if isinstance(m.get('model_spec'), dict) else {}
     return bool(caps.get('supportsVision'))
@@ -242,10 +275,11 @@ def _normalise(pid: str, data) -> list:
         if not isinstance(m, dict):
             continue
         mid = m.get('id') or m.get('name')
-        if not mid or mid in seen:
+        if not mid or mid in seen or m.get('available') is False or m.get('coming_soon'):
             continue
         seen.add(mid)
         spec = m.get('model_spec') if isinstance(m.get('model_spec'), dict) else {}
+        meta = m.get('metadata') if isinstance(m.get('metadata'), dict) else {}
         pin, pout, pimg = _prices(m)
         out.append({
             'provider': pid,
@@ -259,7 +293,11 @@ def _normalise(pid: str, data) -> list:
             'price_out': pout,    # USD / 1M output tokens
             'price_image': pimg,  # USD / image, when the provider bills per image
             'created': m.get('created') if isinstance(m.get('created'), (int, float)) else None,
-            'description': (m.get('description') or spec.get('description') or '')[:400] or None,
+            'description': (m.get('description') or spec.get('description') or meta.get('description') or '')[:400] or None,
+            # wire shapes the provider accepts for this model (SayGM declares them; None = chat.completions)
+            'shapes': m.get('api_shapes') if isinstance(m.get('api_shapes'), list) else None,
+            'tee': bool(m.get('confidential')) or mid.lower().endswith('-tee'),
+            'owned_by': m.get('owned_by') if isinstance(m.get('owned_by'), str) else None,
         })
     return out
 
@@ -341,3 +379,67 @@ def make_client(pid: str, key: str, timeout: float = 120.0, providers: Optional[
     import openai
     return openai.OpenAI(base_url=provider_cfg(pid, providers)['url'], api_key=key or 'none',
                          timeout=timeout, max_retries=2)
+
+
+# ── market: the same model across providers ──────────────────────────
+
+_SUFFIX = re.compile(r'(-tee|-instruct|-chat|-turbo|-versatile|-latest|-preview|-fp8|-fp4|-bf16|-awq|-hf|-it'
+                     r'|-\d{8}|-\d{4}-\d{2}-\d{2}|-\d{4})$')
+
+
+def market_key(mid: str) -> str:
+    """Canonical model name so one model listed by many providers lands in one row:
+    'meta-llama/Llama-3.3-70B-Instruct', 'llama-v3p3-70b-instruct' and
+    'llama-3.3-70b-versatile' all become 'llama-3-3-70b'."""
+    k = mid.lower().split(':')[0].rsplit('/', 1)[-1]
+    k = re.sub(r'(?<=\d)p(?=\d)', '.', k)          # fireworks v3p3 -> v3.3
+    k = re.sub(r'(?<=[a-z])-?v(?=\d)', '-', k)      # llama-v3 / deepseek-v3 -> llama-3 / deepseek-3
+    k = k.replace('.', '-').replace('_', '-')
+    prev = None
+    while prev != k:
+        prev, k = k, _SUFFIX.sub('', k)
+    return re.sub(r'-+', '-', k).strip('-')
+
+
+def _cost(m: dict) -> Optional[float]:
+    """Blended USD per 1M tokens (3:1 input:output), the one number offers sort by."""
+    if m.get('price_in') is None and m.get('price_out') is None:
+        return None
+    return round(((m.get('price_in') or 0) * 3 + (m.get('price_out') or 0)) / 4, 6)
+
+
+def market(models: list, kind: Optional[str] = None, min_offers: int = 1) -> list:
+    """Group catalog rows into a market: one row per canonical model, offers
+    from every provider sorted cheapest first.
+
+    Row: {key, name, kind, offers:[catalog row + cost], providers, best, worst,
+    spread (worst/best), context (max), vision, tee}."""
+    groups: dict = {}
+    for m in models:
+        if kind and m['kind'] != kind:
+            continue
+        groups.setdefault((m['kind'], market_key(m['id'])), []).append(m)
+    rows = []
+    for (k, key), offers in groups.items():
+        offers = [{**o, 'cost': _cost(o)} for o in offers]
+        offers.sort(key=lambda o: (o['cost'] is None, o['cost'] or 0, o['provider']))
+        priced = [o['cost'] for o in offers if o['cost'] is not None]
+        provs = sorted({o['provider'] for o in offers})
+        if len(provs) < min_offers:
+            continue
+        best = min(priced) if priced else None
+        worst = max(priced) if priced else None
+        name = min((o['name'] for o in offers), key=lambda n: (len(n), n))
+        rows.append({
+            'key': key, 'name': name, 'kind': k, 'offers': offers,
+            'providers': provs, 'n': len(provs),
+            'best': best, 'worst': worst,
+            'spread': round(worst / best, 2) if best and worst and best > 0 else None,
+            'cheapest': offers[0]['ref'] if offers and offers[0]['cost'] is not None else (offers[0]['ref'] if offers else None),
+            'context': max((o['context_length'] or 0 for o in offers), default=0) or None,
+            'vision': any(o['vision'] for o in offers),
+            'tee': any(o['tee'] for o in offers),
+            'free': any(o['cost'] == 0 for o in offers),
+        })
+    rows.sort(key=lambda r: (-r['n'], r['best'] if r['best'] is not None else 1e9, r['key']))
+    return rows

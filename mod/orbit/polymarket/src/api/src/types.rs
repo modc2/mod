@@ -249,6 +249,12 @@ pub struct ActiveTradersQuery {
     /// active. 0/absent = off.
     #[serde(rename = "minConsistency")]
     pub min_consistency: Option<f64>,
+    /// Floor on the 0–100 CONSISTENT score (`consistency_score` in
+    /// routes.rs): Wilson-lower-bound probability that the trader's green
+    /// stretches and settled wins are real, not a short lucky run. Unknown
+    /// (-1) is CUT while on, like `minConsistency`. 0/absent = off.
+    #[serde(rename = "minConsistencyScore")]
+    pub min_consistency_score: Option<f64>,
     /// Quality-control mode: `off` | `standard` (default — hides wash-trade
     /// and sybil-cluster rows) | `strict` (also hides one-hit and
     /// unverifiable-basis rows). See quality.rs.

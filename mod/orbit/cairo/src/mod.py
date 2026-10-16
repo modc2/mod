@@ -316,8 +316,27 @@ class Mod:
                 out.append({'name': entry, 'path': d,
                             'built': state != 'unbuilt', 'state': state,
                             'template': meta.get('template'),
-                            'description': meta.get('description')})
+                            'description': meta.get('description'),
+                            'private': bool(meta.get('private'))})
         return out
+
+    def private_names(self):
+        """Contracts flagged `"private": true` in their config.json: the
+        server hides them (list, code, app, MCP) from everyone but the owner."""
+        return {c['name'] for c in self._catalog() if c['private']}
+
+    def _sync_submods(self):
+        """Keep the parent config.json `submods` list equal to what is
+        actually under src/mods/, so the protocol sees every contract."""
+        p = os.path.join(ROOT, 'config.json')
+        try:
+            cfg = json.load(open(p))
+        except Exception:  # noqa: BLE001
+            return
+        names = [c['name'] for c in self._catalog()]
+        if cfg.get('submods') != names:
+            cfg['submods'] = names
+            self._emit(p, json.dumps(cfg, indent=4) + '\n')
 
     def list(self):
         """List every contract submod with a quick status."""
@@ -487,6 +506,7 @@ class Mod:
                                             if f not in self.SUB_FNS]})
         self._emit(os.path.join(d, 'config.json'),
                    json.dumps(meta, indent=4) + '\n')
+        self._sync_submods()
         return d
 
     # ---- market: every contract as a listing, and fork one into a new mod ---
@@ -516,6 +536,7 @@ class Mod:
                 'title': meta.get('title') or _pascal(c['name']),
                 'description': c['description'], 'template': c['template'],
                 'forked_from': meta.get('forked_from'),
+                'private': c['private'],
                 'state': c['state'], 'lines': lines, 'tests': len(tests),
                 'touched': touched,
                 'reads': [f['name'] for f in fns if f['mutability'] == 'view'],
@@ -1321,7 +1342,139 @@ class Mod:
         if not self._is_submod(d):
             return {'error': f'no such contract {pkg!r}'}
         shutil.rmtree(d)
+        self._sync_submods()
         return {'removed': pkg, 'path': d}
+
+    # ---- privacy: who can see and do what, in plain words -------------------
+
+    def visibility(self, name, private=True):
+        """Owner switch: make one contract private (hidden from everyone but
+        the owner: not listed, code and app closed) or public again."""
+        pkg, d = self._contract(name)
+        if isinstance(private, str):
+            private = private.lower() in ('1', 'true', 'yes', 'private')
+        meta = self._sub_meta(d)
+        meta['private'] = bool(private)
+        self._emit(os.path.join(d, 'config.json'), json.dumps(meta, indent=4) + '\n')
+        return {'name': pkg, 'private': bool(private),
+                'means': ('only the owner can see it now' if private else
+                          'anyone can see its code and use its app now')}
+
+    # the gateway/build files that decide whether cairo itself is public
+    _HUB_FILE = os.path.expanduser('~/.mod/build/visibility.json')
+    _LOCK_FILE = os.path.expanduser('~/.mod/build/private/cairo.json')
+    _ROUTES_FILE = os.path.expanduser('~/.mod/caddy/overrides.json')
+
+    def _module_privacy(self):
+        def load(p):
+            try:
+                return json.load(open(p))
+            except Exception:  # noqa: BLE001
+                return None
+        hub = load(self._HUB_FILE)
+        # a missing/corrupt file means private: the build hub fails closed
+        listed = bool(hub) and (hub.get('modules', {}).get('cairo')
+                                or hub.get('default')) == 'public'
+        lock = load(self._LOCK_FILE) or {}
+        locked = bool(lock.get('enabled'))
+        routes = load(self._ROUTES_FILE) or {}
+        linked = bool(self.config.get('route')) and (listed or 'cairo' in routes)
+        if listed and linked:
+            summary = 'cairo is PUBLIC: it is listed on the hub and anyone can open it.'
+        elif linked:
+            summary = ('cairo is UNLISTED: it is not on the public hub, but anyone '
+                       'who has the link can open it.')
+        else:
+            summary = 'cairo is PRIVATE: it has no public link; it only opens on this machine.'
+        return {
+            'summary': summary,
+            'listed': listed, 'linked': linked, 'locked': locked,
+            'facts': [
+                {'what': 'Shown in the hub (the public list of mods)',
+                 'state': 'yes' if listed else 'no',
+                 'plain': ('People browsing the hub can find it.' if listed else
+                           'It does not appear in the hub. People only find it if you share the link.')},
+                {'what': 'Has a public link (/cairo)',
+                 'state': 'yes' if linked else 'no',
+                 'plain': ('Anyone with the address can open this page.' if linked else
+                           'The page only opens on this machine.')},
+                {'what': 'Files locked in the build console',
+                 'state': 'yes' if locked else 'no',
+                 'plain': ('In the build console, the folder is the owner\'s only. This page '
+                           'still shows the code of every PUBLIC contract; mark a contract '
+                           'private to hide its code here too.' if locked else
+                           'The build console shows the folder to whoever it shows modules to.')},
+            ],
+        }
+
+    # every rule the server enforces, as one sentence each (src/api/server.py
+    # WRITE_FNS / _sandbox_needs_owner / the private filter)
+    RULES = [
+        ('Open this page and look around', 'anyone',
+         'Reading never changes anything.'),
+        ('See the public contracts and read their code', 'anyone',
+         'Code of a public contract is open, like a public GitHub repo.'),
+        ('Use a public contract\'s app on the practice chain', 'anyone',
+         'Reading values and sending practice transactions with the test accounts '
+         '(alice, bob, carol, dave). It is play money on a chain that only runs on this machine.'),
+        ('Start (deploy) a built contract that is not running yet', 'anyone',
+         'Nothing gets compiled and nobody\'s running copy gets replaced.'),
+        ('Ask the helper (the ? button)', 'anyone',
+         'The free helper only reads. The Claude-powered helper is owner-only.'),
+        ('See private contracts at all', 'owner',
+         'To everyone else they do not exist: not listed, code closed, app closed.'),
+        ('Edit code, build, test, make, copy or delete contracts', 'owner',
+         'These change files on this machine.'),
+        ('Use the AI coding agent (vibecode, the builder)', 'owner',
+         'It spends the owner\'s Claude account.'),
+        ('Make a contract private or public', 'owner', 'The switch on each contract below.'),
+        ('Restart or wipe the practice chain, replace a running contract', 'owner',
+         'It would throw away what other people are trying.'),
+        ('Touch real money or a real blockchain', 'nobody',
+         'Nothing here connects to a real network. The practice keys are public test keys.'),
+    ]
+
+    CHAIN_NOTE = ('Two different kinds of private: (1) who can SEE a contract on this site, '
+                  'which is the switch above; (2) what a contract keeps SECRET on the chain. '
+                  'A blockchain is a public notebook: anything a contract stores can be read '
+                  'by everyone, whatever the switch says. Real secrets come from how the '
+                  'contract is built: sealed votes, hashes, proofs, ring signatures.')
+
+    def _contract_privacy(self, c):
+        meta = self._sub_meta(c['path'])
+        pv = meta.get('privacy') or {}
+        sees = pv.get('everyone_sees') or ['everything it stores (it keeps no secrets)']
+        secret = pv.get('kept_secret') or []
+        return {
+            'name': c['name'], 'mod': f"cairo.{c['name']}",
+            'title': meta.get('title') or _pascal(c['name']),
+            'description': c['description'],
+            'private': c['private'],
+            'site': ('Only the owner can see it here.' if c['private'] else
+                     'Anyone can read its code and try its app.'),
+            'everyone_sees': sees, 'kept_secret': secret,
+            'summary': pv.get('summary') or (
+                'Keeps secrets on the chain.' if secret else
+                'Keeps no secrets: everything it does is visible on the chain.'),
+        }
+
+    def privacy(self, name=None):
+        """Who can see what, in plain words: cairo itself (hub, link, lock),
+        every rule the server enforces, and per contract whether it is private
+        on this site and what it keeps secret on the chain."""
+        cs = [self._contract_privacy(c) for c in self._catalog()
+              if not name or c['name'] == _pkg(name)]
+        return {'module': self._module_privacy(),
+                'rules': [{'do': d, 'who': w, 'why': y} for d, w, y in self.RULES],
+                'chain_note': self.CHAIN_NOTE,
+                'contracts': cs,
+                'legend': {
+                    'anyone': 'anyone on the internet who has the link',
+                    'owner': 'only the owner, signed in with the owner wallet (or on this machine)',
+                    'nobody': 'not possible here at all',
+                    'private': 'hidden on this site from everyone but the owner',
+                    'secret': 'hidden on the chain itself, by the contract\'s design',
+                }}
 
     # ---- status / self-test -------------------------------------------------
 

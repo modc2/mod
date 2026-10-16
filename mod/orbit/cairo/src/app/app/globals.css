@@ -628,8 +628,9 @@ nav.views { gap: 2px; padding: 3px; background: rgba(255, 255, 255, 0.03); borde
 .view:hover { color: var(--text); }
 .view.on { color: #fff; }
 /* More: a <details> whose summary is a nav pill and whose body is a menu */
-details.more { position: relative; }
-details.more > summary { list-style: none; }
+details.more { position: relative; display: flex; }
+details.more > summary.view { list-style: none; margin: 0; font-size: 13px; }
+details.more[open] > summary.view:not(.on) { color: var(--text); background: rgba(255, 255, 255, 0.06); }
 details.more > summary::-webkit-details-marker { display: none; }
 details.more > summary svg { opacity: 0.7; transition: transform .15s; }
 details.more[open] > summary svg { transform: rotate(180deg); }

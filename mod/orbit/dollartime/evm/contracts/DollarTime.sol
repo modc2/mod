@@ -259,7 +259,7 @@ contract DollarTime is ERC20, Ownable, ReentrancyGuard {
         return totalSupply() == 0 ? 0 : balanceOf(who) * 10000 / totalSupply();
     }
 
-    function valueOf(address who) external view returns (uint256) {
+    function valueOfHolder(address who) external view returns (uint256) {
         return totalSupply() == 0 ? 0 : valuation * balanceOf(who) / totalSupply();
     }
 

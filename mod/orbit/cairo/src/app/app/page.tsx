@@ -12,16 +12,18 @@ import { Agents } from './agents';
 import { Paper } from './paper';
 import { AgentOrb, AgentAction } from './agent';
 import { Home } from './home';
+import { Privacy } from './privacy';
 
 // Top-level views. The hash (#market, #new, #docs) makes each one linkable.
 // Three in the bar (the front door, the workbench, the school); the rest, for
 // people who know what they want, sit under More.
-type View = 'home' | 'studio' | 'market' | 'fleet' | 'agents' | 'new' | 'docs' | 'learn' | 'paper';
+type View = 'home' | 'studio' | 'market' | 'fleet' | 'agents' | 'new' | 'docs' | 'learn' | 'paper' | 'privacy';
 type ViewDef = { id: View; label: string; tip: string };
 const VIEWS: ViewDef[] = [
   { id: 'home', label: 'Home', tip: 'what this is, your contracts, where to start' },
   { id: 'studio', label: 'Studio', tip: 'edit, build, test and vibecode a contract' },
   { id: 'learn', label: 'Learn', tip: 'stablecoins from zero: short plain-English lessons' },
+  { id: 'privacy', label: 'Privacy', tip: 'who can see what: what is public, what only the owner can do, what each contract keeps secret' },
 ];
 const MORE: ViewDef[] = [
   { id: 'market', label: 'Market', tip: 'every contract here with search, filters and sort; open or fork one' },
@@ -406,6 +408,7 @@ export default function Page() {
           <Market refreshKey={landedAny} writable={!!who?.writable} onOpen={(n) => openContract(n, 'code')} onNew={newContract} />
         )}
         {view === 'fleet' && <Fleet onOpen={openContract} />}
+        {view === 'privacy' && <Privacy writable={!!who?.writable} onOpen={openContract} onChanged={refresh} />}
         {view === 'agents' && <Agents onAsk={() => window.dispatchEvent(new Event('cairo:agent-open'))} />}
 
         {view === 'new' && (
@@ -665,6 +668,11 @@ function MyContract({
     <div className={`item mine ${on ? 'on' : ''}`} onClick={onOpen} onMouseLeave={() => setArmed(false)}>
       <span className={`dot ${busy ? 'run' : state}`} title={busy ? 'running' : STATE_TIP[state]} />
       <span className="nm">{c.name}</span>
+      {c.private && (
+        <span className="tag prv" title="private: only the owner can see it">
+          private
+        </span>
+      )}
       {c.template && c.template !== 'counter' && <span className="tag">{c.template.replace('_', ' ')}</span>}
       <span className="acts">
         {state !== 'unbuilt' && (

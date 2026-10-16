@@ -140,6 +140,6 @@ describe('DollarTime', () => {
     await dt.connect(a).claim(1);
     await dt.connect(b).claim(2);
     expect(await dt.shareBps(a.address)).to.equal(5000n);
-    expect(await dt.valueOf(a.address)).to.equal(500n * USD);
+    expect(await dt.valueOfHolder(a.address)).to.equal(500n * USD);
   });
 });

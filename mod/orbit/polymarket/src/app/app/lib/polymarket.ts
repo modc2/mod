@@ -852,6 +852,10 @@ export async function fetchTradersPage(opts: {
       smooth staircases; unknown-curve traders are cut while it's on.
       0/undefined disables it. */
   minConsistency?: number;
+  /** CONSISTENT-score floor, 0–100 — probability-of-success filter (the
+      SCORE bus's `consistencyScore`). 60+ keeps proven books; unknown is cut
+      while it's on. 0/undefined disables it. */
+  minConsistencyScore?: number;
   /** When true, server bypasses agg + per-trader caches and runs
       a full re-aggregation from Polymarket. Used by the SYNC button. */
   force?: boolean;
@@ -881,6 +885,7 @@ export async function fetchTradersPage(opts: {
   if (opts.maxLastTradeHrs && opts.maxLastTradeHrs > 0) params.set("maxLastTradeHrs", String(opts.maxLastTradeHrs));
   if (opts.minHistoryDays && opts.minHistoryDays > 0) params.set("minHistoryDays", String(opts.minHistoryDays));
   if (opts.minConsistency && opts.minConsistency > 0) params.set("minConsistency", String(opts.minConsistency));
+  if (opts.minConsistencyScore && opts.minConsistencyScore > 0) params.set("minConsistencyScore", String(opts.minConsistencyScore));
 
   const base =
     opts.scanId != null ? `${API_URL}/scans/${opts.scanId}/traders` : `${API_URL}/active-traders`;

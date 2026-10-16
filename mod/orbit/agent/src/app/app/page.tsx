@@ -5037,23 +5037,31 @@ export default function Home() {
           </div>
         </button>
 
-        {/* Three tabs in one segmented pill: CHAT (talk to an agent), AGENTS
-            (the hub — roster, library, runs) and ARENA (a portal to the arena
-            mod, signed in as you). AGENTS wears the running count — the runs
-            shelf lives behind it. */}
+        {/* Four tabs in one segmented pill: CHAT (talk to an agent), AGENTS
+            (the hub — build, roster, library, runs), TOOLS (its own section:
+            the registry, what agents can call) and ARENA (a portal to the
+            arena mod, signed in as you). TOOLS is the hub's tools pane lifted
+            to the top bar — it stays a tab on the hub strip as well, so both
+            doors land on the same page and light the same way. AGENTS wears
+            the running count — the runs shelf lives behind it. */}
         <nav className="tab-strip nav-seg min-w-0" aria-label="sections">
-          {(['chat', 'agents', 'arena'] as const).map(v => {
-            const lit = v === 'chat' ? view === 'chat' : v === 'agents' ? view === 'hub' : view === 'arena'
+          {(['chat', 'agents', 'tools', 'arena'] as const).map(v => {
+            const lit = v === 'chat' ? view === 'chat'
+              : v === 'agents' ? view === 'hub' && hubPane !== 'tools'
+              : v === 'tools' ? view === 'hub' && hubPane === 'tools'
+              : view === 'arena'
             return (
               <button key={v} type="button" aria-current={lit ? 'page' : undefined}
                 onClick={() => {
                   if (v === 'chat') goChat()
                   else if (v === 'agents') { setBuilderMode('browse'); openHub('agents') }
+                  else if (v === 'tools') openHub('tools')
                   else setView('arena')
                 }}
                 className={`nav-seg-btn tab-btn ${lit ? 'nav-seg-btn--on' : ''}`}
                 title={v === 'chat' ? 'Talk to an agent'
                   : v === 'agents' ? 'Build agents, browse them, and set their tools'
+                  : v === 'tools' ? 'What agents can call — shipped, custom, and every module on the host'
                   : 'The arena — every agent ranked, signed in as you'}>
                 <NavIcon name={v} />
                 <span>{v}</span>

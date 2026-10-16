@@ -397,5 +397,14 @@ details > summary::-webkit-details-marker { display: none; }
 .Toastify__toast--error { border-color: rgba(255, 93, 110, 0.35); }
 .Toastify__close-button { color: var(--text-2) !important; }
 
+/* ─── Up / Down cards ──────────────────────────────────────────── */
+.btn-down { background: rgba(255, 93, 110, 0.12); color: var(--down); border-color: rgba(255, 93, 110, 0.25); }
+.btn-down:hover:not(:disabled) { background: rgba(255, 93, 110, 0.2); }
+.updown-card { display: flex; flex-direction: column; min-width: 0; }
+.updown-card .curve { cursor: crosshair; touch-action: pan-y; user-select: none; border-radius: 10px; }
+.book-bar { display: flex; height: 7px; border-radius: 4px; overflow: hidden; background: rgba(255, 255, 255, 0.05); gap: 2px; }
+.book-up { background: linear-gradient(90deg, rgba(63, 224, 138, 0.55), var(--up)); transition: width 0.5s ease; }
+.book-down { background: linear-gradient(90deg, var(--down), rgba(255, 93, 110, 0.55)); transition: width 0.5s ease; }
+
 /* Utilities last so a Tailwind class on an element beats the component defaults above. */
 @tailwind utilities;

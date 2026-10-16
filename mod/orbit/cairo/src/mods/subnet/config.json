@@ -23,5 +23,17 @@
         "deploy",
         "call",
         "events"
-    ]
+    ],
+    "privacy": {
+        "everyone_sees": [
+            "who the validators and miners are and their stake",
+            "that a validator committed (the seal), and the weights once revealed",
+            "the final scores and rewards"
+        ],
+        "kept_secret": [
+            "each validator's weights until the reveal phase, so nobody can copy them"
+        ],
+        "summary": "Keeps weights sealed until everyone has committed; after the reveal they are public."
+    },
+    "private": false
 }

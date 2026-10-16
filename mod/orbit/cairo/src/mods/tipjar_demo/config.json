@@ -23,5 +23,14 @@
         "deploy",
         "call",
         "events"
-    ]
+    ],
+    "privacy": {
+        "everyone_sees": [
+            "who tipped and how much, for every tipper",
+            "the running total",
+            "who the owner is"
+        ],
+        "kept_secret": []
+    },
+    "private": false
 }

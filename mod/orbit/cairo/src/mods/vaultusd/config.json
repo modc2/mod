@@ -23,5 +23,14 @@
         "deploy",
         "call",
         "events"
-    ]
+    ],
+    "privacy": {
+        "everyone_sees": [
+            "everyone's balance, collateral and debt",
+            "the ETH price the oracle posted",
+            "every deposit, borrow, repay and liquidation"
+        ],
+        "kept_secret": []
+    },
+    "private": false
 }

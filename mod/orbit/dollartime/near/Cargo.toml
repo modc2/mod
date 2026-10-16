@@ -1,0 +1,22 @@
+[package]
+name = "dollartime"
+version = "0.1.0"
+edition = "2021"
+description = "DollarTime on NEAR: collective ownership of one revenue-generating thing, paid for in dollars and time. 21M DTT cap, at most 7,200 a day, a day nobody buys is burned. Contributions arrive as a NEP-141 stablecoin via ft_transfer_call; DTT is itself a NEP-141 token with lock-aware transfers; revenue is split pro-rata across every DTT alive."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "5"
+
+[dev-dependencies]
+near-sdk = { version = "5", features = ["unit-testing"] }
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true

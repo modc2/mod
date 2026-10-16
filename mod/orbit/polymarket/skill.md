@@ -316,6 +316,8 @@ always restarted at 1D never reached 30D at all.
 cd src/api && cargo test && cargo build --release   # then pm2 restart polymarket-api
 cd src/app && npx tsx app/lib/strats/__test__.ts    # parity, incl. the identity fixture
 cd src/app && npx tsx app/lib/__test__.ts          # replay engine + the basket's sleeves/splits/floors
+cd src/app && npx tsx app/lib/__test_copy_studio__.ts   # COPY studio: allocation edits, splits, preview==sleeve, nav
+python3 -m pytest tests -q                            # python plumbing + runs the tsx suites above
 cd src/app && bash build.sh                         # NEVER bare `next build`
 ```
 

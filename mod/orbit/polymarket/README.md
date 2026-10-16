@@ -2,12 +2,16 @@
 
 **Copy a bench of traders at your own scale. You put capital behind an index of names; every trade they make is re-sized by the ratio between your money and theirs.**
 
-The console is **two header tabs**, and there is no side panel:
+The console leads with **copy trading**. Four header tabs (`app/lib/navTabs.ts`), and `/polymarket` lands on COPY:
 
 | tab | route | what you do there |
 |---|---|---|
-| **TRADERS** | `/polymarket/traders` | find traders, check the ones you want |
-| **STRATS** | `/polymarket/strats` | ALL management — one pill row of sub-tabs |
+| **COPY** | `/polymarket/copytrade` | the COPY STUDIO: point at a trader to backtest copying them, add the ones you like with $ each, see the whole allocation replayed, COPY ALL |
+| **DESK** | `/polymarket/copy` | the traders you copy — start/stop (dry run by default), live P&L |
+| **TRADERS** | `/polymarket/traders` | the deep board + profiles |
+| **STRATS** | `/polymarket/strats` | build your own strats; ALL other management — one pill row of sub-tabs |
+
+**The COPY STUDIO** (`app/components/CopyStudio.tsx`, logic in `app/lib/copyStudio.ts`, history in `app/lib/useTraderFeeds.ts`). Hover or click a board row → that trader is replayed at the amount you'd give them over the chosen 1/3/7/14/30D window (P&L, max drop, copied/observed buys, fees, settled share, equity curve), and the row's IF COPIED column fills in. `+` adds them to YOUR ALLOCATION: per-trader $, weight %, per-trader result, and the whole set replayed together (each trader on their OWN capital — sleeves, never a pool — with idle dollars called out). Splits: EQUAL, KEEP RATIOS (rescale to a total), BY RESULT (winners funded in proportion to return; losers/idle $0). A topic box ("bitcoin, nba") ranks the board on those markets and carries that gate onto everyone added from it. **COPY ALL** writes the same `/copy/allocations` rows the desk and `pm_copy_*` use — sessions start in DRY RUN from DESK. Every number goes through `lib/basketSim.ts` (the identity strat the live engine runs), so the preview equals the desk/basket number. The allocation persists in localStorage (`poly:copyStudio:v1`). Tests: `npx tsx app/lib/__test_copy_studio__.ts` (also run by `pytest tests/test_copy_studio.py`).
 
 STRATS sub-tabs are addressed by `?tab=` (`app/lib/stratsNav.ts`): **STRATS** (build, manage, share — default) · **COPY** (who you copy, with how much, start/stop + the finder's checked shortlist) · **MONEY** (account + top up / take out / bridge) · **BACKTEST** · **LIVE** · **TRADES** (every position with its P&L). `/polymarket/backtest` and `/polymarket/live` forward into their tabs. The right-hand side panel (`UserSidebar`) was removed 2026-10-01 as too complicated; every event that used to open it (wallet chip, FUND NOW, REVIEW & COPY) now navigates to the matching tab via `app/components/StratsNav.tsx`.
 

@@ -511,7 +511,8 @@ class Polymarket(m.Mod):
 
     def active_traders(self, days: int = 7, pool: int = 2000,
                        active_hours: float = 6, limit: int = 50,
-                       sort: str = "winRate", min_history_days: float = 0) -> Any:
+                       sort: str = "winRate", min_history_days: float = 0,
+                       min_consistency_score: float = 0) -> Any:
         """The leaderboard, from cache: best traders over `days`, ranked by win rate.
 
         `winRate` is the share of positions the market SETTLED inside the
@@ -524,7 +525,9 @@ class Polymarket(m.Mod):
         `sort` parameterizes the ranking metric: winRate (default), best (the
         all-round composite — ROI per $100 discounted while activity is thin,
         plus bonuses for steady accrual and a proven win rate; unknown parts
-        count 0), roi (pnl/volume), steady (per-period Sharpe of the PnL
+        count 0), consistent (0–100 probability-of-success floor: Wilson lower
+        bound of green PnL-curve stretches + settled wins, thin records
+        shrunk, losing windows halved), roi (pnl/volume), steady (per-period Sharpe of the PnL
         curve), resolveRate (share of settled buys that rode to a full $1
         resolution — the buy-and-hold hit rate; winRate is the made-money
         rate, so an early profitable scalp counts there but not here),
@@ -543,6 +546,8 @@ class Polymarket(m.Mod):
         m polymarket/active_traders sort=exitEntry   → ranked by exit÷entry ratio
         m polymarket/active_traders days=30 min_history_days=30
                                                      → 30D board, 30D+ of record only
+        m polymarket/active_traders sort=consistent min_consistency_score=60
+                                                     → high-probability books only
         """
         # pool=2000 matches the background warmup's cache key, so the default
         # call returns the pre-aggregated payload instantly instead of
@@ -550,7 +555,7 @@ class Polymarket(m.Mod):
         # way — it answers `cold` rather than aggregating — and lets the
         # recency filter and the row cap run server-side over the cached
         # payload. A trader who hasn't traded in 6h isn't one to copy.
-        if sort not in ("winRate", "best", "roi", "steady", "resolveRate", "exitEntry", "sharpe", "pnl", "volume", "history"):
+        if sort not in ("winRate", "best", "consistent", "roi", "steady", "resolveRate", "exitEntry", "sharpe", "pnl", "volume", "history"):
             sort = "winRate"
         params = {"days": str(days), "pool": str(pool), "paged": "1",
                   "pageSize": str(max(1, min(int(limit), 100))), "page": "0",
@@ -559,6 +564,8 @@ class Polymarket(m.Mod):
             params["maxLastTradeHrs"] = str(active_hours)
         if min_history_days and float(min_history_days) > 0:
             params["minHistoryDays"] = str(min_history_days)
+        if min_consistency_score and float(min_consistency_score) > 0:
+            params["minConsistencyScore"] = str(min(100.0, float(min_consistency_score)))
         r = self._get("/active-traders", **params)
         if isinstance(r, dict) and r.get("cold"):
             # Nothing cached for this window yet — pay for it once. A cold

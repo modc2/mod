@@ -97,6 +97,21 @@ DEFAULT_CONFIG = {
     # listed, and to take a stake — a pot on a $900 pool settles against a
     # price one trade can move. 0 = no floor. The owner's number.
     'min_liquidity_usd': 10_000.0,
+    # Liquidity policy for the whole universe. A floor of 0 means "every
+    # pair/subnet/pool the feed quotes is listable" — which is the point:
+    # the universe is ~880 Hyperliquid pairs, ~130 subnets and the busiest
+    # DEX pools, and the owner decides how thin a book may be before a pot
+    # on it is a price one trade can move.
+    'hl_min_volume_usd': 0.0,     # Hyperliquid pair: 24h notional volume, USD
+    'bt_min_volume_tao': 0.0,     # Bittensor subnet: 24h alpha volume, TAO
+    'dex_min_volume_usd': 0.0,    # DEX pool: 24h volume, USD (beside the liquidity floor)
+    # The background sync. auto_list lists everything that clears the floors;
+    # auto_pause pauses a listed market that falls under them (and resumes
+    # it when it recovers) — paused markets take no new stakes, open pots
+    # still settle. sync_interval 0 = manual only (`sync_markets`).
+    'auto_list': False,
+    'auto_pause': True,
+    'sync_interval': 900,
     # Up/down wagers: anyone may call a direction for free, one per asset per
     # round, this many per round. Paid wagers obey min_stake like any stake.
     'side_free_per_round': 10,
@@ -106,6 +121,21 @@ DEFAULT_CONFIG = {
 }
 
 SIDES = ('up', 'down')
+
+# Which config key is the 24h volume floor for a market source. CoinGecko
+# markets are not pool markets and carry no floor.
+VOLUME_FLOOR_KEYS = {'hyperliquid': 'hl_min_volume_usd',
+                     'bittensor': 'bt_min_volume_tao',
+                     'dex': 'dex_min_volume_usd'}
+
+
+def volume_floor(cfg: Dict, source: str) -> float:
+    """The owner's 24h volume floor for one source, 0 when there is none."""
+    key = VOLUME_FLOOR_KEYS.get(source or '')
+    try:
+        return float((cfg or {}).get(key) or 0) if key else 0.0
+    except (TypeError, ValueError):
+        return 0.0
 
 MAX_FREE_PER_ROUND = 50    # a free board is only readable if it is bounded
 
@@ -390,6 +420,82 @@ def side_book(entries: List[Dict], notional: float = 0.0) -> Dict:
             'calls': sum(book[s]['count'] for s in SIDES)}
 
 
+SIGNAL_FULL_CALLS = 10     # calls at which a book counts as a full crowd
+SIGNAL_FLAT_LEAN = 0.1     # |lean| under this is noise, not a bias
+SIGNAL_TRACK_ROUNDS = 10   # settled rounds at which the crowd's record fully counts
+
+
+def crowd_side(lean: float) -> Optional[str]:
+    """Which way a book leans, or None when it is too close to call."""
+    if lean is None or abs(lean) < SIGNAL_FLAT_LEAN:
+        return None
+    return 'up' if lean > 0 else 'down'
+
+
+def signal_of(book: Dict, max_leverage: int, track: Dict = None) -> Dict:
+    """Turn one up/down book into something a leverage trader can act on.
+
+    `lean` is the crowd's direction (-1..1). `participation` discounts a thin
+    book — three callers are not a crowd. `conviction` is the product,
+    further discounted by how often this asset's crowd has been *right* once
+    it has a record (a 50% crowd is a coin flip and earns no leverage; the
+    discount phases in over SIGNAL_TRACK_ROUNDS so one lucky day cannot set
+    it). `leverage` is a suggestion capped by the owner's `signal_max_leverage`
+    — never an order. Nothing here places a trade.
+    """
+    lean = float(book.get('lean') or 0.0)
+    calls = int(book.get('calls') or 0)
+    participation = min(1.0, calls / SIGNAL_FULL_CALLS) if calls else 0.0
+    conviction = abs(lean) * participation
+    edge = None
+    if track and track.get('rounds'):
+        edge = max(0.0, min(1.0, (float(track['hit_rate']) - 0.5) * 2))
+        w = min(1.0, track['rounds'] / SIGNAL_TRACK_ROUNDS)
+        conviction *= (1 - w) + w * edge
+    side = crowd_side(lean) if calls else None
+    bias = {'up': 'long', 'down': 'short'}.get(side, 'flat')
+    leverage = 0 if bias == 'flat' else max(1, min(int(max_leverage),
+                                                   int(round(conviction * max_leverage))))
+    return {
+        'bias': bias,
+        'side': side,
+        'lean': round(lean, 4),
+        'participation': round(participation, 4),
+        'conviction': round(conviction, 4),
+        'edge': None if edge is None else round(edge, 4),
+        'leverage': leverage,
+        'max_leverage': int(max_leverage),
+        'calls': calls,
+    }
+
+
+def crowd_track(records: List[Dict]) -> Dict[str, Dict]:
+    """Per asset, how often the settled book's lean picked the winning side.
+    `None` leans (dead-even books) and pushes are skipped — neither is a
+    call the crowd made."""
+    track: Dict[str, Dict] = {}
+    for record in sorted(records, key=lambda r: r['index']):
+        for asset, res in (record.get('assets') or {}).items():
+            sides = (res or {}).get('sides')
+            if not sides or not sides.get('book'):
+                continue
+            picked = crowd_side(sides['book'].get('lean'))
+            winner = sides.get('winner_side')
+            if picked is None or winner is None:
+                continue
+            t = track.setdefault(asset, {'rounds': 0, 'hits': 0, 'streak': 0,
+                                         'last': None})
+            hit = picked == winner
+            t['rounds'] += 1
+            t['hits'] += int(hit)
+            t['streak'] = (t['streak'] + 1) if hit else 0
+            t['last'] = {'round': record['index'], 'picked': picked,
+                         'winner': winner, 'hit': hit}
+    for t in track.values():
+        t['hit_rate'] = round(t['hits'] / t['rounds'], 4) if t['rounds'] else None
+    return track
+
+
 def validate_config(patch: Dict, current: Dict = None,
                     library: 'curves.Library' = None) -> Dict:
     """Merge a config patch over the live config and bounds-check every field.
@@ -470,6 +576,16 @@ def validate_config(patch: Dict, current: Dict = None,
     if merged['min_liquidity_usd'] < 0:
         raise ValueError('min_liquidity_usd must be >= 0 (0 = no floor)')
 
+    for key in ('hl_min_volume_usd', 'bt_min_volume_tao', 'dex_min_volume_usd'):
+        merged[key] = float(merged[key])
+        if merged[key] < 0:
+            raise ValueError(f'{key} must be >= 0 (0 = no floor)')
+    merged['sync_interval'] = int(merged['sync_interval'])
+    if merged['sync_interval'] != 0 and merged['sync_interval'] < 60:
+        raise ValueError('sync_interval must be 0 (manual only) or >= 60 seconds')
+    merged['auto_list'] = bool(merged['auto_list'])
+    merged['auto_pause'] = bool(merged['auto_pause'])
+
     merged['side_free_per_round'] = int(merged['side_free_per_round'])
     if not 0 <= merged['side_free_per_round'] <= MAX_FREE_PER_ROUND:
         raise ValueError(f'side_free_per_round must be 0..{MAX_FREE_PER_ROUND} '
@@ -495,7 +611,8 @@ class Pool:
     def __init__(self, store_dir, price_at: Callable = None,
                  price_now: Callable = None, markets: Callable = None,
                  on_fee: Callable = None, library: 'curves.Library' = None,
-                 liquidity_now: Callable = None, bloc_weight: Callable = None):
+                 liquidity_now: Callable = None, bloc_weight: Callable = None,
+                 volume_now: Callable = None):
         self.dir = Path(store_dir)
         # Score functions live beside the ledger: the defaults plus whatever
         # has been saved or imported here. Shared with the PREFI predict layer.
@@ -517,6 +634,9 @@ class Pool:
         # Dollars in a DEX token's pool right now — the owner's liquidity
         # floor is checked against it before a stake goes in.
         self._liquidity_now = liquidity_now
+        # 24h volume for any listed market (USD, or TAO for a subnet) — what
+        # the owner's per-source volume floors are checked against at stake.
+        self._volume_now = volume_now
         # (address, opens, closes) → USD·seconds of bloctime locked across
         # that window, read off the bloctime contract. None = feed unreachable.
         self._bloc_weight = bloc_weight
@@ -1220,9 +1340,23 @@ class Pool:
                              f"with add_hl_market({want}), add_bt_market({want}) "
                              f"or add_dex_market(chain, {want})"}
         if not m.get('active'):
-            return {'error': f'{want} market is not active'}
+            why = m.get('paused_reason')
+            return {'error': f'{want} market is paused' + (f' — {why}' if why else '')
+                             + '; open pots on it still settle, it just takes no new stakes'}
+        cfg = cfg or self.state()['config']
+        vol_floor = volume_floor(cfg, m.get('source'))
+        if vol_floor > 0:
+            unit = 'τ' if m.get('quote') == 'TAO' else '$'
+            vol = self._volume_now(m['symbol']) if self._volume_now else None
+            if vol is None:
+                return {'error': f"{m['symbol']} has no volume reading right now — the "
+                                 f"{m.get('source')} feed is unreachable, so the owner's "
+                                 f'{unit}{vol_floor:,.0f} 24h volume floor cannot be checked'}
+            if vol < vol_floor:
+                return {'error': f"{m['symbol']} traded {unit}{vol:,.0f} in 24h — under the "
+                                 f'{unit}{vol_floor:,.0f} volume floor the owner set, so it '
+                                 'cannot take a stake until the book picks up'}
         if m.get('source') == 'dex':
-            cfg = cfg or self.state()['config']
             floor = float(cfg.get('min_liquidity_usd') or 0)
             if floor > 0:
                 liq = self._liquidity_now(m['symbol']) if self._liquidity_now else None
@@ -2422,6 +2556,126 @@ class Pool:
             'is_current': index == self.current_index(),
         }
 
+    def signal(self, asset: str = None, index: int = None) -> Dict:
+        """The crowd's read on every asset this round — the feed the leverage
+        layer trades off. Per asset: the up/down book, its lean, a conviction
+        in 0..1, a suggested leverage capped at `signal_max_leverage`, the
+        strike every wager is judged against, the live mark, and how often
+        this asset's crowd has been right in past rounds. Read-only; it never
+        places a trade."""
+        self.settle()
+        st = self.state()
+        cfg = st['config']
+        index = self.current_index() if index is None else int(index)
+        win = self.window(index)
+        rounds = self._rounds()
+        record = next((r for r in rounds if r['index'] == index), None) or {}
+        settled_assets = record.get('assets') or {}
+        track = crowd_track([r for r in rounds if r['index'] < index])
+        max_lev = int(cfg.get('signal_max_leverage', 5))
+        notional = float(cfg.get('free_notional') or 0)
+        now = time.time()
+
+        entries = [e for e in self._read(self.entries_path, [])
+                   if e.get('side') and e['round'] == index]
+        by_asset: Dict[str, List[Dict]] = {}
+        for e in entries:
+            by_asset.setdefault(e['asset'], []).append(e)
+        want = asset.upper() if asset else None
+        if want and want not in by_asset:
+            by_asset[want] = []
+
+        out_assets = []
+        for sym, group in sorted(by_asset.items()):
+            if want and sym != want:
+                continue
+            book = side_book(group, notional)
+            done = settled_assets.get(sym) or {}
+            sides_done = done.get('sides') or {}
+            strike = sides_done.get('strike') or (group[0].get('strike') if group else None)
+            if not strike and record:
+                strike = ((record.get('strikes') or {}).get(sym) or {}).get('price')
+            mark = done.get('actual_price')
+            if mark is None and self._price_now:
+                try:
+                    mark = self._price_now(sym, self._source_of(sym))
+                except Exception:
+                    mark = None
+            sig = signal_of(book, max_lev, track.get(sym))
+            out_assets.append({
+                'asset': sym,
+                'quote': self._quote_of(sym),
+                'source': self._source_of(sym),
+                'strike': strike,
+                'mark': mark,
+                'mark_vs_strike_pct': (round((mark - strike) / strike * 100, 3)
+                                       if mark and strike else None),
+                'leading': side_outcome(mark, strike) if mark and strike else None,
+                'book': book,
+                **sig,
+                'track': track.get(sym),
+                'settled': bool(sides_done),
+                'winner_side': sides_done.get('winner_side'),
+            })
+        out_assets.sort(key=lambda a: (-a['conviction'], -a['calls'], a['asset']))
+
+        overall_rounds = sum(t['rounds'] for t in track.values())
+        overall_hits = sum(t['hits'] for t in track.values())
+        return {
+            'round': index,
+            'opens': win['opens'],
+            'closes': win['closes'],
+            'entry_deadline': win['entry_deadline'],
+            'entries_open': now < win['entry_deadline'] and index == self.current_index(),
+            'seconds_to_close': max(0, int(win['closes'] - now)),
+            'interval': win['interval'],
+            'max_leverage': max_lev,
+            'full_calls': SIGNAL_FULL_CALLS,
+            'calls': len(entries),
+            'callers': len({e['address'] for e in entries}),
+            'assets': out_assets,
+            'crowd': {'rounds': overall_rounds, 'hits': overall_hits,
+                      'hit_rate': round(overall_hits / overall_rounds, 4)
+                      if overall_rounds else None},
+            'note': 'a suggestion, not an order — leverage is capped by the owner '
+                    'and discounted until the crowd has a record',
+        }
+
+    def side_leaderboard(self, limit: int = 50) -> List[Dict]:
+        """Up/down callers ranked by how often they were right, then by what
+        they made. Free and paid calls both count toward the record; only
+        paid ones move the dollars column."""
+        self.settle()
+        rows = [e for e in self._read(self.entries_path, [])
+                if e.get('side') and e['status'] == 'settled' and e.get('hit') is not None]
+        by_addr: Dict[str, Dict] = {}
+        for e in sorted(rows, key=lambda r: (r['round'], r['id'])):
+            t = by_addr.setdefault(e['address'], {
+                'address': e['address'], 'calls': 0, 'hits': 0, 'paid_calls': 0,
+                'staked': 0.0, 'net': 0.0, 'streak': 0, 'best_streak': 0,
+                'assets': set(), 'last_round': None,
+            })
+            amt = float(e.get('amount') or 0)
+            t['calls'] += 1
+            t['hits'] += int(bool(e['hit']))
+            t['streak'] = t['streak'] + 1 if e['hit'] else 0
+            t['best_streak'] = max(t['best_streak'], t['streak'])
+            if amt > 0:
+                t['paid_calls'] += 1
+                t['staked'] += amt
+                t['net'] += float(e.get('net') or 0)
+            t['assets'].add(e['asset'])
+            t['last_round'] = e['round']
+        out = []
+        for t in by_addr.values():
+            out.append({**t, 'assets': sorted(t['assets']),
+                        'hit_rate': round(t['hits'] / t['calls'], 4),
+                        'staked': round(t['staked'], 6), 'net': round(t['net'], 6)})
+        out.sort(key=lambda r: (-r['hit_rate'], -r['calls'], -r['net']))
+        for i, r in enumerate(out[:max(1, int(limit))], 1):
+            r['rank'] = i
+        return out[:max(1, int(limit))]
+
     def rounds(self, limit: int = 20) -> List[Dict]:
         """Round history, newest first — what each pot paid and who took it."""
         self.settle()
@@ -2788,6 +3042,14 @@ class Pool:
                            f"{cfg['agent_share_bps'] / 100:.1f}% of each pot's "
                            'protocol fee by weight × accuracy'
                            if cfg['agent_per_round'] else 'off'),
+            'liquidity': (
+                f"Hyperliquid pairs over ${cfg['hl_min_volume_usd']:,.0f}/24h, subnets over "
+                f"τ{cfg['bt_min_volume_tao']:,.0f}/24h, DEX pools over "
+                f"${cfg['dex_min_volume_usd']:,.0f}/24h and ${cfg['min_liquidity_usd']:,.0f} "
+                f"of liquidity · auto-list {'on' if cfg['auto_list'] else 'off'} · "
+                f"auto-pause {'on' if cfg['auto_pause'] else 'off'} · "
+                + (f"sync every {cfg['sync_interval']}s" if cfg['sync_interval']
+                   else 'manual sync only')),
             'dex_floor': (f"a Solana or Base token needs ${cfg['min_liquidity_usd']:,.0f} "
                           'of pool liquidity to be listed or staked'
                           if cfg['min_liquidity_usd'] else 'no liquidity floor on DEX tokens'),
@@ -2808,6 +3070,9 @@ class Pool:
         patch = {k: v for k, v in patch.items() if k in DEFAULT_CONFIG and v is not None}
         if not patch:
             return {'error': f'nothing to set — fields are {sorted(DEFAULT_CONFIG)}'}
+        for key in ('auto_list', 'auto_pause', 'auto_pay'):
+            if isinstance(patch.get(key), str):
+                patch[key] = patch[key].strip().lower() in ('1', 'true', 'yes', 'on')
         if 'model_params' in patch:
             # Signed as one canonical JSON field, so the wallet message is the
             # same whether the overrides arrived as a dict or a string.
@@ -2848,9 +3113,14 @@ class Pool:
                     # two schedules.
                     open_now = any(e['round'] == current['index'] and e['status'] == 'open'
                                    for e in self._read(self.entries_path, []))
-                    before = int(anchor // 86400) * 86400
-                    anchor = before if (not open_now and before > current['opens']) \
-                        else (before if before == anchor else before + 86400)
+                    if not open_now:
+                        # Nothing sold in the old round: the daily schedule
+                        # starts at the last midnight, so "today's close" is
+                        # tonight — not the midnight before a close a week out.
+                        anchor = int(time.time() // 86400) * 86400
+                    else:
+                        before = int(anchor // 86400) * 86400
+                        anchor = before if before == anchor else before + 86400
                 st['schedule'] = {'anchor': anchor,
                                   'anchor_index': current['index'] + 1,
                                   'interval': merged['interval']}

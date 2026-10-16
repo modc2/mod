@@ -42,5 +42,20 @@
         "reveal",
         "finalize",
         "claim"
-    ]
+    ],
+    "privacy": {
+        "everyone_sees": [
+            "the two member sets (public keys and stake)",
+            "tags, nullifiers and sealed weights for each round",
+            "the final scores per tag"
+        ],
+        "kept_secret": [
+            "which miner is behind which tag",
+            "which validator cast which vote",
+            "weights until every validator has locked in",
+            "a member across rounds: tags and nullifiers change every round"
+        ],
+        "summary": "Members prove they belong without saying who they are (ring signatures)."
+    },
+    "private": false
 }

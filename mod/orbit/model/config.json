@@ -25,7 +25,8 @@
         "deepseek",
         "chutes",
         "targon",
-        "venice"
+        "venice",
+        "saygm"
     ],
     "fns": [
         "serve",

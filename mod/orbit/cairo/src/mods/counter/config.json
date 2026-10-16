@@ -22,5 +22,13 @@
         "deploy",
         "call",
         "events"
-    ]
+    ],
+    "privacy": {
+        "everyone_sees": [
+            "the number it holds",
+            "who changed it and when (the ValueSet event)"
+        ],
+        "kept_secret": []
+    },
+    "private": false
 }

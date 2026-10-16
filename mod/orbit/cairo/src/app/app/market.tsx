@@ -20,6 +20,7 @@ export type Listing = {
   sierra_felts: number;
   custom_app: boolean;
   deployed: { address: string; by: string; at: number } | null;
+  private?: boolean;
   url: string;
 };
 
@@ -138,6 +139,7 @@ export function Market({
                   {c.name}
                 </button>
                 <span className="mmod">{c.mod}</span>
+                {c.private && <span className="tag prv" title="private: only the owner can see it">private</span>}
               </div>
               {c.deployed ? (
                 <span className="live" title={`${c.deployed.address} · by ${c.deployed.by}`}>

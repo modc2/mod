@@ -260,7 +260,7 @@ DEFAULT_ACTIVE_HOURS = 6
 
 # The ranking metric is parameterized; winRate is the default, matching the
 # console's SCORE preset. Keys are the server's sort keys verbatim.
-TRADER_SORTS = ('winRate', 'best', 'roi', 'steady', 'resolveRate', 'exitEntry', 'sharpe', 'pnl', 'volume', 'history')
+TRADER_SORTS = ('winRate', 'best', 'consistent', 'roi', 'steady', 'resolveRate', 'exitEntry', 'sharpe', 'pnl', 'volume', 'history')
 
 
 def _t_top_traders(args):
@@ -291,6 +291,10 @@ def _t_top_traders(args):
     min_history = float(args.get('min_history_days') or 0)
     if min_history > 0:
         params['minHistoryDays'] = min_history
+    # Probability-of-success floor (0–100 CONSISTENT score). Unknown is cut.
+    min_cs = max(0.0, min(100.0, float(args.get('min_consistency_score') or 0)))
+    if min_cs > 0:
+        params['minConsistencyScore'] = min_cs
     # Paged reads answer from the warm cache and never trigger an aggregation:
     # the filters, the sort and the row count all run over the cached payload.
     paged = _get(f'{API_URL}/active-traders?{urllib.parse.urlencode(params)}', timeout=60)
@@ -301,6 +305,7 @@ def _t_top_traders(args):
             'activeHours': hours if hours > 0 else None,
             'dormantHidden': paged.get('activityDropped'),
             'minHistoryDays': min_history or None,
+            'minConsistencyScore': min_cs or None,
             'tooNewHidden': paged.get('historyDropped'),
             'candidatePool': paged.get('candidatePool'),
             'source': paged.get('source'),
@@ -1090,7 +1095,8 @@ TOOLS = {
     'pm_top_traders': {
         'description': 'The leaderboard: best active traders over a window, ranked by win rate '
                        'by default (sort parameterizes it: winRate, best = the all-round '
-                       'composite, roi, steady, exitEntry = avg exit÷entry '
+                       'composite, consistent = 0–100 probability-of-success floor, '
+                       'roi, steady, exitEntry = avg exit÷entry '
                        'price on closed trades, sharpe, pnl, volume). `winRate` is the share of '
                        'positions the market SETTLED in the window that returned more than they '
                        'cost, and `decidedPositions` is its denominator; `-1` means nothing '
@@ -1112,13 +1118,20 @@ TOOLS = {
                                                                  "Set it to `days` on a long window — a "
                                                                  "wallet that opened last week can top the "
                                                                  "30-day board on days it did not exist"},
+            'min_consistency_score': {'type': 'number', 'description': 'probability-of-success '
+                                                                      'floor 0–100 on the CONSISTENT score '
+                                                                      '(60 = proven books only; unknown is '
+                                                                      'cut while on; default 0 = off)'},
             'sort': {'type': 'string', 'description': 'ranking metric: winRate (default; share '
                                                       'of SETTLED positions that made money — read '
                                                       'it with decidedPositions, a rate off five '
                                                       'legs is noise) | best (the all-round composite '
                                                       '— ROI per $100 discounted while activity is '
                                                       'thin, plus bonuses for steady accrual and a '
-                                                      'proven win rate; unknowns count 0) | roi '
+                                                      'proven win rate; unknowns count 0) | consistent '
+                                                      '(0–100 probability the success is real: Wilson '
+                                                      'lower bound of green PnL stretches + settled '
+                                                      'wins, thin records shrunk, losing window halved) | roi '
                                                       '(pnl/volume) | steady (per-period Sharpe of '
                                                       'the PnL curve) | resolveRate (share of settled '
                                                       'buys that rode to a full $1 resolution — the '

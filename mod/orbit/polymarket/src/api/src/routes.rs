@@ -1005,6 +1005,74 @@ fn best_score(t: &crate::types::Trader) -> f64 {
     score
 }
 
+/// `consistency_score` sentinel — the metric is 0–100, so -1 is safe.
+const CONSISTENCY_SCORE_UNKNOWN: f64 = -1.0;
+/// One-sided 95% (z = 1.645): "at least this good, 19 times out of 20".
+const CONSISTENCY_Z: f64 = 1.645;
+
+/// Wilson score LOWER bound of a success rate `p` over `n` trials — shrinks
+/// small samples toward 0 (3/3 → 0.53, 11/11 → 0.80). MUST mirror the
+/// console's `wilsonLower` (lib/scoreFormula.ts) exactly.
+fn wilson_lower(p: f64, n: f64) -> f64 {
+    if n <= 0.0 {
+        return 0.0;
+    }
+    let z2 = CONSISTENCY_Z * CONSISTENCY_Z;
+    let centre = p + z2 / (2.0 * n);
+    let spread = CONSISTENCY_Z * (p * (1.0 - p) / n + z2 / (4.0 * n * n)).sqrt();
+    ((centre - spread) / (1.0 + z2 / n)).max(0.0)
+}
+
+/// The CONSISTENT preset — "probability this trader's success is real",
+/// 0–100: weighted average of the Wilson lower bounds of (a) green curve
+/// stretches out of moved ones (weight 2) and (b) settled positions won
+/// (weight 1). Unknown parts drop out; both unknown → -1. A window with
+/// pnl < 0 is halved (winning most legs while losing money is the
+/// longshot-inverse trap, not consistency). Reads the query-scoped fields
+/// when a market filter recomputed them. MUST mirror the console's
+/// `consistencyScore` (lib/scoreFormula.ts) exactly.
+fn consistency_score(t: &crate::types::Trader) -> f64 {
+    let mut curve_part = -1.0;
+    if let Some(curve) = t.pnl_curve.as_ref() {
+        if curve.len() >= 4 {
+            let mut up = 0u32;
+            let mut moved = 0u32;
+            for w in curve.windows(2) {
+                let d = w[1] - w[0];
+                if d == 0.0 {
+                    continue;
+                }
+                moved += 1;
+                if d > 0.0 {
+                    up += 1;
+                }
+            }
+            if moved >= 3 {
+                curve_part = wilson_lower(up as f64 / moved as f64, moved as f64);
+            }
+        }
+    }
+    let win_part = if t.win_rate >= 0.0 && t.decided_positions > 0 {
+        wilson_lower(t.win_rate.min(100.0) / 100.0, t.decided_positions as f64)
+    } else {
+        -1.0
+    };
+    if curve_part < 0.0 && win_part < 0.0 {
+        return CONSISTENCY_SCORE_UNKNOWN;
+    }
+    let mut s = if curve_part >= 0.0 && win_part >= 0.0 {
+        (2.0 * curve_part + win_part) / 3.0
+    } else if curve_part >= 0.0 {
+        curve_part
+    } else {
+        win_part
+    };
+    if t.pnl < 0.0 {
+        s *= 0.5;
+    }
+    100.0 * s
+}
+
 fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, source: &str) -> Value {
     let sort = q.sort.as_deref().unwrap_or("pnl");
     let order = q.order.as_deref().unwrap_or("desc");
@@ -1150,6 +1218,13 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
             traders.retain(|t| curve_consistency(t.pnl_curve.as_ref()) >= min_c);
         }
     }
+    // Consistency-SCORE floor (0–100) — the probability-of-success filter.
+    // Same placement and unknown-is-CUT rule as the shape floor above.
+    if let Some(min_cs) = q.min_consistency_score {
+        if min_cs > 0.0 {
+            traders.retain(|t| consistency_score(t) >= min_cs);
+        }
+    }
 
     // Activity floors — "is this trader firing right now", not "did they look
     // good last week". Both read fields the cached payload already carries, so
@@ -1280,6 +1355,9 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
             // steadiness + win-rate bonuses). The -999 unknown sentinel
             // (no volume) sinks below every real value on desc.
             "best" => best_score(a).partial_cmp(&best_score(b)),
+            // CONSISTENT preset — probability-of-success floor (Wilson lower
+            // bounds of green stretches + settled wins). -1 unknown sinks.
+            "consistent" => consistency_score(a).partial_cmp(&consistency_score(b)),
             // Missing timestamp (pre-lastTradeTs disk cache) sinks to the
             // bottom on desc — unknown recency must not outrank known.
             "last" => Some(a.last_trade_ts.unwrap_or(0).cmp(&b.last_trade_ts.unwrap_or(0))),
@@ -2104,6 +2182,89 @@ mod tests {
             "memory",
         );
         assert_eq!(addresses(&result), vec!["0xproven", "0xlucky", "0xbleed", "0xghost"]);
+    }
+
+    /// `consistency_score` — probability-of-success floor. Fixture values are
+    /// pinned to 1e-9 in the console's __test__.ts "consistencyScore" section;
+    /// the two implementations MUST agree.
+    #[test]
+    fn consistency_score_rewards_evidence_not_luck() {
+        let base = || trader_with_markets("0xc", &[("Bitcoin above $110,000", 0.0, 1)]);
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+
+        let mut proven = base();
+        proven.pnl = 5_000.0;
+        proven.pnl_curve = Some(vec![0.0, 10.0, 21.0, 30.0, 41.0, 50.0, 61.0, 70.0]);
+        proven.win_rate = 70.0;
+        proven.decided_positions = 20;
+        assert!(near(consistency_score(&proven), 65.28609234070747), "{}", consistency_score(&proven));
+
+        let mut deep = proven.clone();
+        deep.win_rate = 90.0;
+        deep.decided_positions = 500;
+        assert!(near(consistency_score(&deep), 77.27114335775204));
+
+        // Perfect but thin: 3/3 green stretches + 2/2 wins is NOT a track record.
+        let mut thin = base();
+        thin.pnl = 100.0;
+        thin.pnl_curve = Some(vec![0.0, 1.0, 2.0, 3.0]);
+        thin.win_rate = 100.0;
+        thin.decided_positions = 2;
+        assert!(near(consistency_score(&thin), 49.2169073775994));
+
+        // One late spike after chop — 2 of 3 moved stretches green.
+        let mut spike = base();
+        spike.pnl = 5_000.0;
+        spike.pnl_curve = Some(vec![0.0, 0.0, 0.0, 0.0, 0.5, 0.0, -0.5, 70.0]);
+        spike.win_rate = -1.0;
+        assert!(near(consistency_score(&spike), 18.238330483920343));
+
+        // A losing window is halved on top of its red stretches.
+        let mut bleeder = base();
+        bleeder.pnl = -5_000.0;
+        bleeder.pnl_curve = Some(vec![0.0, -10.0, -20.0, -30.0, -41.0, -50.0, -61.0, -70.0]);
+        bleeder.win_rate = 20.0;
+        bleeder.decided_positions = 20;
+        assert!(near(consistency_score(&bleeder), 1.5518623110629575));
+
+        // Win record alone still scores; nothing at all is unknown.
+        let mut wins_only = base();
+        wins_only.pnl = 10.0;
+        wins_only.win_rate = 60.0;
+        wins_only.decided_positions = 50;
+        assert!(near(consistency_score(&wins_only), 48.374243894220356));
+        let mut ghost = base();
+        ghost.win_rate = -1.0;
+        ghost.decided_positions = 0;
+        assert_eq!(consistency_score(&ghost), CONSISTENCY_SCORE_UNKNOWN);
+        assert!(deep.pnl_curve.is_some() && ghost.pnl_curve.is_none());
+
+        // sort=consistent ranks evidence over luck; unknown sinks last.
+        let tag = |mut t: Trader, a: &str| { t.address = a.to_string(); t };
+        let rows = vec![
+            tag(ghost.clone(), "0xghost"), tag(spike.clone(), "0xspike"), tag(thin.clone(), "0xthin"),
+            tag(deep.clone(), "0xdeep"), tag(bleeder.clone(), "0xbleed"), tag(proven.clone(), "0xproven"),
+        ];
+        let sorted = apply_pagination(
+            &payload(rows.clone()),
+            &paged_query(json!({"sort": "consistent", "order": "desc"})),
+            "memory",
+        );
+        assert_eq!(
+            addresses(&sorted),
+            vec!["0xdeep", "0xproven", "0xthin", "0xspike", "0xbleed", "0xghost"]
+        );
+
+        // minConsistencyScore keeps the high-probability books, cuts unknown.
+        let floored = apply_pagination(
+            &payload(rows.clone()),
+            &paged_query(json!({"minConsistencyScore": 60, "sort": "consistent", "order": "desc"})),
+            "memory",
+        );
+        assert_eq!(addresses(&floored), vec!["0xdeep", "0xproven"]);
+        assert_eq!(floored["total"].as_u64(), Some(2));
+        let off = apply_pagination(&payload(rows), &paged_query(json!({"minConsistencyScore": 0})), "memory");
+        assert_eq!(off["total"].as_u64(), Some(6));
     }
 
     /// An arrow-straight climb has zero swing — capped, not infinite; a

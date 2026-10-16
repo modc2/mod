@@ -285,13 +285,16 @@ class Paper:
         return out
 
     def predict(self, address: str, asset: str, price: float,
-                stake: float, signature: str = None) -> Dict:
+                stake: float, signature: str = None,
+                now: float = None) -> Dict:
+        """`now` lets a host with its own clock (the economy loop) stamp
+        the round it is playing; default is wall time."""
         symbol = self._symbol(asset)
         if symbol is None:
             return {'error': f'unknown market {asset!r} — see /markets'}
         price_e6 = int(round(float(price) * MICRO))
         stake_units = int(round(float(stake) * MICRO))
-        index = self.current_index()
+        index = self.current_index(now)
         auth = self._auth('paper_predict', address,
                           [('asset', symbol), ('price_e6', str(price_e6)),
                            ('stake', str(stake_units)),
@@ -299,10 +302,13 @@ class Paper:
         if 'error' in auth:
             return auth
         try:
-            self._apply({'type': 'predict', 'address': auth['address'],
-                         'asset': symbol, 'price_e6': price_e6,
-                         'stake': stake_units, 'round': index,
-                         'signed': auth['signed'], 'nonce': auth['nonce']})
+            msg = {'type': 'predict', 'address': auth['address'],
+                   'asset': symbol, 'price_e6': price_e6,
+                   'stake': stake_units, 'round': index,
+                   'signed': auth['signed'], 'nonce': auth['nonce']}
+            if now is not None:
+                msg['time'] = int(now)
+            self._apply(msg)
         except machine.MachineError as err:
             return {'error': str(err)}
         rec = self.state()['rounds'][str(index)]

@@ -12,7 +12,7 @@
 import type { TopTrader } from "./polymarket";
 
 /** The variables a formula can use, in the order they're passed in. */
-export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry", "consistency", "decided", "curve", "resolveRate", "steadiness", "best"] as const;
+export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry", "consistency", "decided", "curve", "resolveRate", "steadiness", "best", "consistencyScore"] as const;
 
 /** What each variable IS, in one line — rendered beside the formula box on
     the board's SCORE editor. A formula language with no vocabulary printed
@@ -34,6 +34,7 @@ export const SCORE_VAR_HINTS: Record<(typeof FORMULA_VARS)[number], string> = {
   resolveRate: "Share of settled buys whose token rode ALL the way to a full $1 resolution, 0\u2013100. winRate asks \u201cdid the position make money\u201d (an early profitable scalp counts); this asks \u201cdid the thing they bought finish at $1\u201d \u2014 the hit rate of copying their buys and just holding. -1 = nothing settled yet",
   steadiness: "How consistently the window's returns accrued: mean of the PnL-curve's per-stretch changes \u00f7 their swing (a Sharpe over the period's ~12 time stretches, not per-trade). Idle stretches count against it \u2014 a flat line with one late spike scores near 0, a staircase scores high, a steady loser scores negative. Capped to \u00b110; -99 = unknown (no curve or too little movement) \u2014 gate it, don't multiply by it",
   best: "The all-round rank, one number: ROI per $100 traded (clamped \u00b1100) discounted while activity is thin (full weight at 20 positions), plus up to \u00b120 for how steadily the returns accrued and \u00b110 for a proven win rate (thin settled samples count less). Parts that can't be judged yet count 0 \u2014 they never disqualify. -999 = unknown (no volume at all) \u2014 gate it, don't multiply by it",
+  consistencyScore: "How LIKELY the success is to be real, 0\u2013100: a confidence-adjusted floor (95% one-sided Wilson lower bound) on the share of green PnL-curve stretches (weighted 2) and settled positions won (weighted 1). Thin records are pulled down hard \u2014 3 green stretches out of 3 is not 11 out of 11 \u2014 and a window that LOST money is halved. -1 = unknown (no curve and nothing settled)",
 };
 
 /** Named formulas the SCORE can be parameterized with — the first is the
@@ -93,6 +94,13 @@ export const SCORE_PRESETS = [
     formula: "sharpe",
     poolSort: "sharpe",
     hint: "Mean per-trade return ÷ its stdev over the window. Consistency, not size: it ranks the trader compounding a real edge above the whale who risked millions for 3%.",
+  },
+  {
+    key: "consistent",
+    label: "CONSISTENT",
+    formula: "consistencyScore",
+    poolSort: "consistent",
+    hint: "Probability-of-success floor, 0–100: how sure we can be the trader really wins most stretches and most positions, not just got a short lucky run. Green curve stretches count double, settled wins count once, both shrunk toward 0 when the record is thin; a losing window is halved. Raise MIN CONSISTENCY SCORE to keep only the high-probability books. — = nothing to judge yet.",
   },
   {
     key: "steady",
@@ -190,6 +198,7 @@ export interface ScoreInputs {
   resolveRate: number;
   steadiness: number;
   best: number;
+  consistencyScore: number;
 }
 
 /** How steadily the window's PnL was made, read off the ~12-point cumulative
@@ -283,6 +292,62 @@ export function bestScore(t: {
   return score;
 }
 
+/** `consistencyScore` sentinel — the metric is 0–100, so -1 is safe. */
+export const CONSISTENCY_SCORE_UNKNOWN = -1;
+/** One-sided 95% (z = 1.645): "at least this good, 19 times out of 20". */
+const CONSISTENCY_Z = 1.645;
+
+/** Wilson score LOWER bound of a success rate p over n trials — the rate
+    we can be ~95% sure the true one is above. Shrinks small samples toward
+    0 (3/3 → 0.53, 11/11 → 0.80, 500 @ 90% → 0.88). */
+export function wilsonLower(p: number, n: number): number {
+  if (n <= 0) return 0;
+  const z2 = CONSISTENCY_Z * CONSISTENCY_Z;
+  const centre = p + z2 / (2 * n);
+  const spread = CONSISTENCY_Z * Math.sqrt(p * (1 - p) / n + z2 / (4 * n * n));
+  return Math.max(0, (centre - spread) / (1 + z2 / n));
+}
+
+/** The CONSISTENT preset — "probability this trader's success is real",
+    0–100, from two independent success records every row carries:
+
+      curve  = wilsonLower(up stretches / moved stretches)  … weight 2
+               (dollars-per-stretch: did each active stretch end green)
+      wins   = wilsonLower(winRate / 100, decided)          … weight 1
+               (did each settled position make money)
+
+    Known parts are averaged by weight; a window with pnl < 0 is halved (a
+    book that wins most legs and still loses money is the longshot-inverse
+    trap, not a consistent one). Both unknown → CONSISTENCY_SCORE_UNKNOWN.
+    MUST mirror `consistency_score` in api/src/routes.rs exactly — it is the
+    server sort/filter behind the CONSISTENT preset and MIN CONSISTENCY SCORE. */
+export function consistencyScore(t: {
+  curve: number[] | undefined | null; pnl: number; winRate: number; decided: number;
+}): number {
+  let curvePart = -1;
+  const curve = t.curve;
+  if (curve && curve.length >= 4) {
+    let up = 0;
+    let moved = 0;
+    for (let i = 1; i < curve.length; i++) {
+      const d = curve[i] - curve[i - 1];
+      if (d === 0) continue;
+      moved++;
+      if (d > 0) up++;
+    }
+    if (moved >= 3) curvePart = wilsonLower(up / moved, moved);
+  }
+  const winPart = t.winRate >= 0 && t.decided > 0
+    ? wilsonLower(Math.min(100, t.winRate) / 100, t.decided)
+    : -1;
+  if (curvePart < 0 && winPart < 0) return CONSISTENCY_SCORE_UNKNOWN;
+  let s = curvePart >= 0 && winPart >= 0
+    ? (2 * curvePart + winPart) / 3
+    : (curvePart >= 0 ? curvePart : winPart);
+  if (t.pnl < 0) s *= 0.5;
+  return 100 * s;
+}
+
 export function scoreInputs(t: TopTrader): ScoreInputs {
   const steadiness = curveSteadiness(t.pnlCurve);
   return {
@@ -304,6 +369,9 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
       pnl: t.pnl, volume: t.volume, positions: t.positions,
       winRate: t.winRate, decided: t.decidedPositions, steadiness,
     }),
+    consistencyScore: consistencyScore({
+      curve: t.pnlCurve, pnl: t.pnl, winRate: t.winRate, decided: t.decidedPositions,
+    }),
   };
 }
 
@@ -314,7 +382,7 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
 export const PROBE_INPUTS: ScoreInputs = {
   sharpe: 0, pnl: 0, volume: 0, buyVolume: 0, sellVolume: 0, positions: 0,
   winRate: 0, markets: 0, exitEntry: 0, consistency: 0, decided: 0, curve: [],
-  resolveRate: 0, steadiness: 0, best: 0,
+  resolveRate: 0, steadiness: 0, best: 0, consistencyScore: 0,
 };
 
 /** A compiled score: fn returns the trader's score, or NULL when the user's
@@ -391,6 +459,7 @@ export function scoreIsUnknown(formula: string, t: ScoreInputs): boolean {
     || (preset.key === "exitEntry" && t.exitEntry < 0)
     || (preset.key === "steady" && t.steadiness === STEADINESS_UNKNOWN)
     || (preset.key === "best" && t.best === BEST_UNKNOWN)
+    || (preset.key === "consistent" && t.consistencyScore === CONSISTENCY_SCORE_UNKNOWN)
     // The ratio presets divide by dollars — none traded means no ratio,
     // not a 0% one.
     || (preset.key === "roi" && t.volume <= 0)

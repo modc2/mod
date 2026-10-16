@@ -13,7 +13,7 @@ import subprocess
 import signal
 import requests
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -22,12 +22,16 @@ try:
     import curves
     import pool as pool_mod
     import paper as paper_mod
+    import economy as economy_mod
+    import agents as agents_mod
     import hyperevm
 except ImportError:  # imported as a package (`src.mod`) rather than from src/
     from . import scoring
     from . import curves
     from . import pool as pool_mod
     from . import paper as paper_mod
+    from . import economy as economy_mod
+    from . import agents as agents_mod
     from . import hyperevm
 
 
@@ -93,6 +97,9 @@ class Mod:
         self._dex_last = None
         self._pool = None
         self._paper = None
+        self._economy = None
+        self._agents = None
+        self._economy_loop = None
 
         self._load_deployment()
 
@@ -160,15 +167,40 @@ class Mod:
             return {'error': 'symbol required'}
 
         markets = self._load_json(self.markets_path, [])
+        dup = self._listed_dup(markets, token, symbol)
+        if dup:
+            return {'error': f'{symbol} already listed', 'market': dup}
 
+        market = self._market_row(
+            token, symbol, fee_tier, source, hl_key=hl_key, hl_kind=hl_kind,
+            bt_netuid=bt_netuid, bt_name=bt_name, bt_symbol=bt_symbol, chain=chain,
+            dex_pair=dex_pair, dex_token=dex_token, dex_id=dex_id, dex_name=dex_name,
+            liquidity_usd=liquidity_usd)
+        markets.append(market)
+        self._save_json(self.markets_path, markets)
+        return {'status': 'added', 'market': market}
+
+    @staticmethod
+    def _listed_dup(markets: List[Dict], token: str, symbol: str) -> Optional[Dict]:
+        """The market a (token, symbol) would collide with, if any. Positions
+        resolve markets by symbol, so two markets can never share one — even
+        across price sources."""
         for m in markets:
-            if m['token'].lower() == token.lower():
-                return {'error': f'{symbol} already listed', 'market': m}
-            # Positions resolve markets by symbol, so two markets can never
-            # share one — even across price sources.
-            if m['symbol'].upper() == symbol.upper():
-                return {'error': f'{symbol} already listed', 'market': m}
+            if m['token'].lower() == (token or '').lower():
+                return m
+            if m['symbol'].upper() == (symbol or '').upper():
+                return m
+        return None
 
+    @staticmethod
+    def _market_row(token: str, symbol: str, fee_tier: int = 0,
+                    source: str = 'coingecko', hl_key: str = None,
+                    hl_kind: str = None, bt_netuid: int = None,
+                    bt_name: str = None, bt_symbol: str = None,
+                    chain: str = None, dex_pair: str = None, dex_token: str = None,
+                    dex_id: str = None, dex_name: str = None,
+                    liquidity_usd: float = None) -> Dict:
+        """One market record, the shape every source writes."""
         market = {
             'token': token,
             'symbol': symbol,
@@ -196,9 +228,7 @@ class Mod:
             'win_count': 0,
             'loss_count': 0,
         }
-        markets.append(market)
-        self._save_json(self.markets_path, markets)
-        return {'status': 'added', 'market': market}
+        return market
 
     def add_hl_market(self, coin: str) -> Dict:
         """List a Hyperliquid pair as a market — a perp ('SOL'), a spot pair
@@ -334,6 +364,398 @@ class Mod:
         return {'added': added, 'existing': existing,
                 'markets': len(self._load_json(self.markets_path, []))}
 
+    # ── Liquidity: the whole universe, behind the owner's floors ─────
+    #
+    # Every pair Hyperliquid quotes, every Bittensor subnet and the busiest
+    # DEX pools are listable; what keeps a 1,000-market pool honest is a
+    # *policy*, not a hand-picked list. The owner sets a 24h volume floor
+    # per source (plus the DEX liquidity floor), and `sync_markets` lists
+    # everything that clears them, pauses a listed market that falls under
+    # them, and resumes it when the book comes back. Paused markets take no
+    # new stakes; open pots on them still settle. The API runs the sync on
+    # a timer when the owner switches auto_list / auto_pause on.
+
+    POOL_SOURCES = ('hyperliquid', 'bittensor', 'dex')
+
+    def liquidity_policy(self) -> Dict:
+        """The owner's floors and sync switches, with defaults when the pool
+        has never been configured."""
+        try:
+            cfg = self.pool.state()['config']
+        except Exception:
+            cfg = dict(pool_mod.DEFAULT_CONFIG)
+        keys = ('hl_min_volume_usd', 'bt_min_volume_tao', 'dex_min_volume_usd',
+                'min_liquidity_usd', 'auto_list', 'auto_pause', 'sync_interval')
+        return {k: cfg.get(k, pool_mod.DEFAULT_CONFIG[k]) for k in keys}
+
+    def _market_volume(self, symbol: str) -> Optional[float]:
+        """24h volume for one listed market — USD, or TAO for a subnet. None
+        when the source's feed has no reading (the pool refuses the stake
+        rather than guess, if a floor is set)."""
+        m = self._market(symbol)
+        if not m:
+            return None
+        act = self._market_activity(m)
+        return act.get('volume_24h')
+
+    def _market_activity(self, m: Dict, hl_index: Dict = None, bt_index: Dict = None,
+                         dex_quotes: Dict = None, policy: Dict = None) -> Dict:
+        """What one market's book looks like right now against the policy:
+        `volume_24h`, `liquidity_usd` (DEX), the floors, `quoted` (the feed
+        still lists it) and `eligible` (True / False / None = no reading).
+        Reads the cached universes — never forces a feed hit."""
+        src = m.get('source', 'coingecko')
+        pol = policy or self.liquidity_policy()
+        out = {'volume_24h': None, 'liquidity_usd': None, 'quoted': None, 'eligible': None,
+               'floor': pool_mod.volume_floor(pol, src),
+               'liquidity_floor': float(pol.get('min_liquidity_usd') or 0) if src == 'dex' else None}
+        if src == 'hyperliquid':
+            index = hl_index if hl_index is not None else self._hl_index()
+            if not index:
+                return out                         # feed unreachable: unknown
+            row = index.get((m.get('hl_key') or m['symbol']).upper()) \
+                or index.get(m['symbol'].upper())
+            out['quoted'] = row is not None
+            out['volume_24h'] = float(row.get('volume_24h') or 0) if row else None
+            out['change_24h'] = row.get('change_24h') if row else None
+        elif src == 'bittensor':
+            index = bt_index if bt_index is not None else self._bt_index()
+            if not index:
+                return out
+            row = index.get(str(m.get('bt_netuid'))) if m.get('bt_netuid') is not None \
+                else index.get(m['symbol'].upper())
+            out['quoted'] = row is not None
+            out['volume_24h'] = float(row.get('volume_24h') or 0) if row else None
+            out['change_24h'] = row.get('change_24h') if row else None
+        elif src == 'dex':
+            quotes = dex_quotes if dex_quotes is not None else self._dex_prices()
+            if not quotes:
+                return out
+            q = quotes.get(m['symbol'].upper())
+            out['quoted'] = q is not None
+            out['volume_24h'] = float(q.get('volume_24h') or 0) if q else None
+            out['liquidity_usd'] = q.get('liquidity_usd') if q else None
+            out['change_24h'] = q.get('change_24h') if q else None
+        else:
+            return out                             # coingecko: no policy applies
+        if not out['quoted']:
+            out['eligible'] = False
+            return out
+        ok = (out['volume_24h'] or 0) >= out['floor']
+        if src == 'dex' and out['liquidity_floor']:
+            ok = ok and (out['liquidity_usd'] or 0) >= out['liquidity_floor']
+        out['eligible'] = ok
+        return out
+
+    def _sync_candidates(self, sources: List[str], policy: Dict) -> Dict[str, Dict]:
+        """Per source: the universe rows that clear the floors and are not
+        listed yet, plus whether the feed answered at all."""
+        out = {}
+        if 'hyperliquid' in sources:
+            rows = self.hl_assets(kind='all', limit=0)
+            floor = pool_mod.volume_floor(policy, 'hyperliquid')
+            out['hyperliquid'] = {
+                'reachable': bool(rows), 'universe': len(rows),
+                'eligible': [r for r in rows if (r.get('volume_24h') or 0) >= floor],
+            }
+        if 'bittensor' in sources:
+            rows = self.bt_assets(limit=0)
+            floor = pool_mod.volume_floor(policy, 'bittensor')
+            out['bittensor'] = {
+                'reachable': bool(rows), 'universe': len(rows),
+                'eligible': [r for r in rows if (r.get('volume_24h') or 0) >= floor],
+            }
+        if 'dex' in sources:
+            floor = pool_mod.volume_floor(policy, 'dex')
+            rows, reachable = [], False
+            for chain in self.DEX_CHAINS:
+                got = self.dex_assets(chain, limit=0)
+                reachable = reachable or bool(got)
+                rows.extend({**r, 'chain': chain} for r in got)
+            out['dex'] = {
+                'reachable': reachable, 'universe': len(rows),
+                'eligible': [r for r in rows if r.get('eligible')
+                             and (r.get('volume_24h') or 0) >= floor],
+            }
+        return out
+
+    def _candidate_row(self, source: str, r: Dict, markets: List[Dict]) -> Optional[Dict]:
+        """A market record for one universe row, or None if it would collide
+        with something already listed."""
+        if source == 'hyperliquid':
+            token, symbol = f"hl:{r['key']}", r['coin']
+            if self._listed_dup(markets, token, symbol):
+                return None
+            return self._market_row(token, symbol, 0, source='hyperliquid',
+                                    hl_key=r['key'], hl_kind=r['kind'])
+        if source == 'bittensor':
+            token, symbol = f"bt:{r['netuid']}", r['coin']
+            if self._listed_dup(markets, token, symbol):
+                return None
+            return self._market_row(token, symbol, 0, source='bittensor',
+                                    bt_netuid=r['netuid'], bt_name=r.get('name'),
+                                    bt_symbol=r.get('symbol'))
+        if source == 'dex':
+            chain = r['chain']
+            token = f"dex:{chain}:{r['key']}"
+            symbol = self._dex_market_symbol(r, markets)
+            if self._listed_dup(markets, token, symbol):
+                return None
+            return self._market_row(token, symbol, 0, source='dex', chain=chain,
+                                    dex_pair=r['key'], dex_token=r.get('token'),
+                                    dex_id=r.get('dex'), dex_name=r.get('name'),
+                                    liquidity_usd=r.get('liquidity_usd'))
+        return None
+
+    def sync_markets(self, sources: str = 'all', dry_run: bool = False,
+                     do_list: bool = True, do_pause: bool = True,
+                     limit: int = 0) -> Dict:
+        """Bring the market list in line with the liquidity policy, in one
+        pass and one write:
+
+        - **list** every pair / subnet / pool the feeds quote that clears the
+          owner's floors and is not listed yet (`do_list`, at most `limit`
+          new listings, 0 = all of them);
+        - **pause** a listed market that has fallen under the floors or that
+          its feed no longer quotes, and **resume** one the sync paused
+          earlier that clears them again (`do_pause`). A market the owner
+          paused by hand stays paused.
+
+        A source whose feed does not answer is left alone — no reading is
+        not the same as a thin book. Idempotent: a second run changes
+        nothing. `dry_run` reports what would change without writing.
+        """
+        want = [s.strip().lower() for s in str(sources or 'all').split(',') if s.strip()]
+        if not want or 'all' in want:
+            want = list(self.POOL_SOURCES)
+        bad = [s for s in want if s not in self.POOL_SOURCES]
+        if bad:
+            return {'error': f"unknown source {bad[0]} — have {list(self.POOL_SOURCES)} or all"}
+        dry_run = str(dry_run).lower() in ('1', 'true', 'yes') if isinstance(dry_run, str) else bool(dry_run)
+        limit = max(0, int(limit or 0))
+
+        policy = self.liquidity_policy()
+        cands = self._sync_candidates(want, policy)
+        markets = self._load_json(self.markets_path, [])
+        before = len(markets)
+        now = datetime.now().isoformat()
+        report = {src: {'reachable': c['reachable'], 'universe': c['universe'],
+                        'eligible': len(c['eligible']), 'added': [], 'paused': [],
+                        'resumed': [], 'skipped': 0}
+                  for src, c in cands.items()}
+
+        # Pause / resume what is already listed, against the cached universes.
+        hl_index = self._hl_index() if 'hyperliquid' in want else {}
+        bt_index = self._bt_index() if 'bittensor' in want else {}
+        dex_quotes = self._dex_prices() if ('dex' in want and
+                                           any(m.get('source') == 'dex' for m in markets)) else {}
+        if do_pause:
+            for m in markets:
+                src = m.get('source', 'coingecko')
+                if src not in want or not cands.get(src, {}).get('reachable'):
+                    continue
+                act = self._market_activity(m, hl_index, bt_index, dex_quotes, policy)
+                if act['eligible'] is None:
+                    continue
+                if m.get('active') and not act['eligible']:
+                    m['active'] = False
+                    m['paused_by'] = 'sync'
+                    m['paused_at'] = now
+                    m['paused_reason'] = self._pause_reason(m, act)
+                    report[src]['paused'].append(m['symbol'])
+                elif not m.get('active') and m.get('paused_by') == 'sync' and act['eligible']:
+                    m['active'] = True
+                    for k in ('paused_by', 'paused_at', 'paused_reason'):
+                        m.pop(k, None)
+                    m['resumed_at'] = now
+                    report[src]['resumed'].append(m['symbol'])
+
+        # List what clears the floors and is not here yet.
+        if do_list:
+            budget = limit or None
+            for src in want:
+                c = cands.get(src)
+                if not c or not c['reachable']:
+                    continue
+                for r in c['eligible']:
+                    if budget is not None and budget <= 0:
+                        break
+                    row = self._candidate_row(src, r, markets)
+                    if row is None:
+                        continue
+                    markets.append(row)
+                    report[src]['added'].append(row['symbol'])
+                    if budget is not None:
+                        budget -= 1
+                report[src]['skipped'] = max(
+                    0, len(c['eligible']) - len(report[src]['added'])
+                    - sum(1 for m in markets[:before] if m.get('source') == src))
+
+        changed = any(r['added'] or r['paused'] or r['resumed'] for r in report.values())
+        if changed and not dry_run:
+            self._save_json(self.markets_path, markets)
+            self._price_cache.pop('_hl_keys', None)
+            self._price_cache.pop('_bt_netuids', None)
+            new_dex = [m for src in report for m in markets
+                       if m.get('source') == 'dex' and m['symbol'] in report[src]['added']]
+            if new_dex:
+                self._price_cache.pop('_dex_prices', None)
+                try:
+                    self._dex_snapshot(self._dex_prices())
+                except Exception:
+                    pass
+        return {
+            'dry_run': dry_run,
+            'policy': policy,
+            'sources': report,
+            'added': sum(len(r['added']) for r in report.values()),
+            'paused': sum(len(r['paused']) for r in report.values()),
+            'resumed': sum(len(r['resumed']) for r in report.values()),
+            'markets': len(markets) if not dry_run else before,
+            'active': sum(1 for m in markets if m.get('active')) if not dry_run
+                      else sum(1 for m in self._load_json(self.markets_path, []) if m.get('active')),
+            'at': round(time.time()),
+        }
+
+    @staticmethod
+    def _pause_reason(m: Dict, act: Dict) -> str:
+        unit = 'τ' if m.get('quote') == 'TAO' else '$'
+        if act.get('quoted') is False:
+            return f"{m.get('source')} no longer quotes it"
+        if act.get('liquidity_floor') and (act.get('liquidity_usd') or 0) < act['liquidity_floor']:
+            return (f"pool holds ${act.get('liquidity_usd') or 0:,.0f}, under the "
+                    f"${act['liquidity_floor']:,.0f} liquidity floor")
+        return (f"traded {unit}{act.get('volume_24h') or 0:,.0f} in 24h, under the "
+                f"{unit}{act['floor']:,.0f} volume floor")
+
+    def _owner_market_action(self, action: str, symbol: str, secret: str = None,
+                             owner: str = None, signature: str = None):
+        """Pause/resume/remove are the pool owner's — they decide what the
+        pot can be staked on. Returns (deny, market, markets)."""
+        sym = (symbol or '').strip()
+        if not sym:
+            return {'error': 'symbol required'}, None, None
+        markets = self._load_json(self.markets_path, [])
+        market = next((m for m in markets if m['symbol'].upper() == sym.upper()
+                       or m['token'].lower() == sym.lower()), None)
+        if market is None:
+            return {'error': f'no market {sym}'}, None, None
+        deny = self.pool._require_owner(owner, secret, action,
+                                        [('symbol', market['symbol'])], signature)
+        return deny, market, markets
+
+    def pause_market(self, symbol: str, reason: str = None, secret: str = None,
+                     owner: str = None, signature: str = None) -> Dict:
+        """Owner-only. Stop a market taking new stakes; open pots on it
+        still settle. Stays paused until `resume_market` — the sync never
+        resumes an owner's pause."""
+        deny, m, markets = self._owner_market_action('pause_market', symbol, secret, owner, signature)
+        if deny:
+            return deny
+        if not m.get('active') and m.get('paused_by') == 'owner':
+            return {'status': 'unchanged', 'market': m}
+        m['active'] = False
+        m['paused_by'] = 'owner'
+        m['paused_at'] = datetime.now().isoformat()
+        m['paused_reason'] = (reason or '').strip() or 'paused by the owner'
+        self._save_json(self.markets_path, markets)
+        return {'status': 'paused', 'market': m}
+
+    def resume_market(self, symbol: str, secret: str = None, owner: str = None,
+                      signature: str = None) -> Dict:
+        """Owner-only. Put a paused market back to taking stakes."""
+        deny, m, markets = self._owner_market_action('resume_market', symbol, secret, owner, signature)
+        if deny:
+            return deny
+        if m.get('active'):
+            return {'status': 'unchanged', 'market': m}
+        m['active'] = True
+        for k in ('paused_by', 'paused_at', 'paused_reason'):
+            m.pop(k, None)
+        m['resumed_at'] = datetime.now().isoformat()
+        self._save_json(self.markets_path, markets)
+        return {'status': 'resumed', 'market': m}
+
+    def remove_market(self, symbol: str, secret: str = None, owner: str = None,
+                      signature: str = None) -> Dict:
+        """Owner-only. Unlist a market — refused while anything is open on
+        it (a pool entry, a position, an unresolved call), because those
+        settle against this market's price. Pause it instead."""
+        deny, m, markets = self._owner_market_action('remove_market', symbol, secret, owner, signature)
+        if deny:
+            return deny
+        sym = m['symbol'].upper()
+        open_entries = [e for e in self.pool._read(self.pool.entries_path, [])
+                        if e.get('status') == 'open' and str(e.get('asset', '')).upper() == sym]
+        open_positions = [p for p in self._load_json(self.positions_path, [])
+                          if not p.get('closed') and str(p.get('asset', '')).upper() == sym]
+        open_calls = [p for p in self._load_json(self.predictions_path, [])
+                      if not p.get('resolved') and str(p.get('asset', '')).upper() == sym]
+        if open_entries or open_positions or open_calls:
+            return {'error': f"{m['symbol']} has {len(open_entries)} open pool entries, "
+                             f"{len(open_positions)} open positions and {len(open_calls)} "
+                             'unresolved calls — pause it instead, or wait for them to settle'}
+        markets = [x for x in markets if x is not m]
+        self._save_json(self.markets_path, markets)
+        self._price_cache.pop('_hl_keys', None)
+        self._price_cache.pop('_bt_netuids', None)
+        return {'status': 'removed', 'market': m, 'markets': len(markets)}
+
+    def liquidity(self, source: str = 'all', limit: int = 0) -> Dict:
+        """The liquidity picture: the policy, each source's universe vs what
+        is listed / active / paused, and every listed market's 24h volume
+        (and pool liquidity) against its floor, thinnest first."""
+        policy = self.liquidity_policy()
+        markets = self._load_json(self.markets_path, [])
+        want = (source or 'all').strip().lower()
+        hl_index = self._hl_index() if any(m.get('source') == 'hyperliquid' for m in markets) else {}
+        bt_index = self._bt_index() if any(m.get('source') == 'bittensor' for m in markets) else {}
+        dex_quotes = self._dex_prices() if any(m.get('source') == 'dex' for m in markets) else {}
+        rows, per = [], {}
+        for m in markets:
+            src = m.get('source', 'coingecko')
+            p = per.setdefault(src, {'listed': 0, 'active': 0, 'paused': 0,
+                                     'under_floor': 0, 'unquoted': 0, 'volume_24h': 0.0})
+            p['listed'] += 1
+            p['active' if m.get('active') else 'paused'] += 1
+            act = self._market_activity(m, hl_index, bt_index, dex_quotes, policy)
+            if act['quoted'] is False:
+                p['unquoted'] += 1
+            elif act['eligible'] is False:
+                p['under_floor'] += 1
+            p['volume_24h'] += act.get('volume_24h') or 0
+            if want != 'all' and src != want:
+                continue
+            rows.append({
+                'symbol': m['symbol'], 'source': src, 'quote': m.get('quote', 'USD'),
+                'active': bool(m.get('active')),
+                'paused_by': m.get('paused_by'), 'paused_reason': m.get('paused_reason'),
+                **{k: act.get(k) for k in ('volume_24h', 'liquidity_usd', 'floor',
+                                           'liquidity_floor', 'quoted', 'eligible')},
+            })
+        rows.sort(key=lambda r: (r['eligible'] is not False, r['volume_24h'] is None,
+                                 r['volume_24h'] or 0))
+        limit = int(limit or 0)
+        universe = {
+            'hyperliquid': len(hl_index and self._hl_universe() or []),
+            'bittensor': len(bt_index and self._bt_universe() or []),
+        }
+        for src, n in universe.items():
+            per.setdefault(src, {'listed': 0, 'active': 0, 'paused': 0,
+                                 'under_floor': 0, 'unquoted': 0, 'volume_24h': 0.0})
+            per[src]['universe'] = n
+        for src in per.values():
+            src['volume_24h'] = round(src['volume_24h'], 2)
+        return {
+            'policy': policy,
+            'sources': per,
+            'markets': rows[:limit] if limit > 0 else rows,
+            'listed': len(markets),
+            'active': sum(1 for m in markets if m.get('active')),
+            'paused': sum(1 for m in markets if not m.get('active')),
+            'at': round(time.time()),
+        }
+
     def list_markets(self) -> List[Dict]:
         """Get all supported asset markets with prices and stats"""
         markets = self._load_json(self.markets_path, [])
@@ -351,9 +773,19 @@ class Mod:
         has_dex = any(m.get('source') == 'dex' for m in markets)
         dex_quotes = self._dex_prices() if has_dex else {}
         dex_floor = self.dex_min_liquidity() if has_dex else 0.0
+        policy = self.liquidity_policy()
+        hl_index = self._hl_index() if any(m.get('source') == 'hyperliquid' for m in markets) else {}
+        bt_index = self._bt_index() if any(m.get('source') == 'bittensor' for m in markets) else {}
         for m in markets:
             m.setdefault('source', 'coingecko')
             m.setdefault('quote', 'TAO' if m['source'] == 'bittensor' else 'USD')
+            if m['source'] in ('hyperliquid', 'bittensor'):
+                act = self._market_activity(m, hl_index, bt_index, dex_quotes, policy)
+                m['volume_24h'] = act['volume_24h']
+                if act.get('change_24h') is not None:
+                    m['change_24h'] = act['change_24h']
+                m['volume_floor'] = act['floor']
+                m['eligible'] = act['eligible']
             price = self._get_token_price(m['symbol'], m.get('source'))
             if price:
                 m['price'] = price
@@ -368,10 +800,12 @@ class Mod:
                     m['volume_24h'] = q.get('volume_24h')
                     m['change_24h'] = q.get('change_24h')
                 m['min_liquidity_usd'] = dex_floor
+                m['volume_floor'] = pool_mod.volume_floor(policy, 'dex')
                 # Only a live reading decides eligibility — the figure stored
                 # at listing is what the pool held then, not now. No reading
                 # means "unknown", and the pool refuses stakes on unknown.
-                m['eligible'] = (q['liquidity_usd'] or 0) >= dex_floor if q else None
+                m['eligible'] = ((q['liquidity_usd'] or 0) >= dex_floor
+                                 and (q.get('volume_24h') or 0) >= m['volume_floor']) if q else None
             total = m.get('win_count', 0) + m.get('loss_count', 0)
             m['win_rate'] = round(m.get('win_count', 0) / total * 100, 1) if total > 0 else 0
         return markets
@@ -2999,6 +3433,7 @@ class Mod:
                 markets=lambda: self._load_json(self.markets_path, []),
                 on_fee=self._pool_fee_to_treasury,
                 liquidity_now=self._dex_liquidity,
+                volume_now=self._market_volume,
                 library=self.fns,
                 bloc_weight=self._bloc_usd_seconds,
             )
@@ -3210,6 +3645,167 @@ class Mod:
         """Agents ranked by fee dollars their locked time earned."""
         return self.pool.agent_leaderboard(limit)
 
+    # ── Up / down — a direction, not a price ──────────────────────────
+    # Every asset is a card: anyone calls UP or DOWN against the price at the
+    # round's open (free, or with dollars on it). The book those calls make
+    # is the signal the leverage layer reads — `pool_signal`.
+
+    def pool_side_stake(self, address: str, asset: str, side: str,
+                        amount: float = 0, signature: str = None,
+                        nonce: int = None) -> Dict:
+        """Call UP or DOWN on where `asset` closes against the round's strike.
+        amount 0 = a free call (signed, one per asset per round); dollars obey
+        min_stake and the winning side splits the book at the close."""
+        return self.pool.side_stake(address, asset, side, amount,
+                                    signature=signature, nonce=nonce)
+
+    def pool_side_quota(self, address: str, index: int = None) -> Dict:
+        """Free up/down calls this address has left in the round."""
+        return self.pool.side_quota(address, index)
+
+    def pool_side_leaderboard(self, limit: int = 50) -> List[Dict]:
+        """Up/down callers ranked by hit rate, then dollars made."""
+        return self.pool.side_leaderboard(limit)
+
+    def pool_signal(self, asset: str = None, index: int = None) -> Dict:
+        """The crowd's read per asset this round: book, lean, conviction,
+        suggested leverage (capped by the owner), strike vs mark, track
+        record. The feed a leverage trader consumes — it places nothing."""
+        return self.pool.signal(asset, index)
+
+    CURVE_CACHE_SECONDS = 600
+    CURVE_MAX_DAYS = 365
+
+    def pool_curve(self, asset: str, days: int = 30) -> Dict:
+        """Daily closes for an asset's card — one candle a day, UTC days,
+        newest last, the in-progress day flagged `partial`. Every feed is
+        read at its daily resolution (Hyperliquid 1d candles, GeckoTerminal
+        day candles, CoinGecko daily market chart, the bt indexer's series
+        bucketed by day), cached ten minutes."""
+        m = self._market(asset)
+        if not m:
+            return {'error': f'unknown market {asset}'}
+        symbol = m['symbol']
+        days = max(2, min(self.CURVE_MAX_DAYS, int(days or 30)))
+        cache = getattr(self, '_curve_cache', None)
+        if cache is None:
+            cache = self._curve_cache = {}
+        key = (symbol.upper(), days)
+        hit = cache.get(key)
+        now = time.time()
+        if hit and now - hit['at'] < self.CURVE_CACHE_SECONDS:
+            return hit['data']
+        source = m.get('source', 'coingecko')
+        candles, via = [], None
+        try:
+            if source == 'hyperliquid':
+                candles, via = self._curve_hl(symbol, days)
+            elif source == 'bittensor':
+                candles, via = self._curve_bt(symbol, days)
+            elif source == 'dex':
+                candles, via = self._curve_dex(m, days)
+            else:
+                candles, via = self._curve_cg(symbol, days)
+        except Exception as exc:
+            candles, via = [], f'error: {exc}'
+        candles = sorted(candles, key=lambda c: c['t'])[-days:]
+        today = int(now // 86400) * 86400
+        for c in candles:
+            c['partial'] = c['t'] >= today
+        data = {
+            'asset': symbol,
+            'quote': m.get('quote') or 'USD',
+            'source': source,
+            'via': via,
+            'days': days,
+            'interval': 86400,
+            'count': len(candles),
+            'candles': candles,
+            'at': round(now),
+        }
+        if candles:
+            cache[key] = {'at': now, 'data': data}
+        return data
+
+    @staticmethod
+    def _bucket_daily(samples) -> List[Dict]:
+        """(ts, price) samples → one OHLC per UTC day."""
+        days: Dict[int, Dict] = {}
+        for ts, price in sorted(samples):
+            if not price or price <= 0:
+                continue
+            day = int(ts // 86400) * 86400
+            c = days.get(day)
+            if c is None:
+                days[day] = {'t': day, 'o': price, 'h': price, 'l': price, 'c': price}
+            else:
+                c['h'] = max(c['h'], price); c['l'] = min(c['l'], price); c['c'] = price
+        return [days[k] for k in sorted(days)]
+
+    def _curve_hl(self, symbol: str, days: int):
+        coin = self._hl_key(symbol)
+        raw = self._hl_mod_get(f'/candles/{quote_plus(coin)}?interval=1d&hours={days * 24 + 24}',
+                               timeout=15)
+        via = 'hyperliquid-module'
+        if raw is None:
+            end = int(time.time() * 1000)
+            raw = self._hl_post({'type': 'candleSnapshot',
+                                 'req': {'coin': coin, 'interval': '1d',
+                                         'startTime': end - (days + 1) * 86400_000,
+                                         'endTime': end}})
+            via = 'hyperliquid-api'
+        out = []
+        for c in raw or []:
+            try:
+                out.append({'t': int(c['t']) // 1000, 'o': float(c['o']), 'h': float(c['h']),
+                            'l': float(c['l']), 'c': float(c['c']), 'v': float(c.get('v') or 0)})
+            except (KeyError, TypeError, ValueError):
+                continue
+        return out, via
+
+    def _curve_bt(self, symbol: str, days: int):
+        netuid = self._bt_netuid(symbol)
+        if netuid is None:
+            return [], 'no-netuid'
+        data = self._bt_call('bt_history', {'netuid': int(netuid), 'hours': days * 24 + 24},
+                             timeout=30) or {}
+        series = data.get('series') or []
+        samples = []
+        for pt in series:
+            try:
+                samples.append((float(pt['t']), float(pt['price'])))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return self._bucket_daily(samples), 'bittensor-module'
+
+    def _curve_dex(self, m: Dict, days: int):
+        out = []
+        if m.get('dex_pair') and m.get('chain'):
+            data = self._gecko_get(f"/networks/{m['chain']}/pools/{m['dex_pair']}/ohlcv/day",
+                                   {'limit': min(1000, days + 1), 'currency': 'usd'})
+            rows = (((data or {}).get('data') or {}).get('attributes') or {}).get('ohlcv_list') or []
+            for c in rows:
+                try:
+                    out.append({'t': int(c[0]) // 86400 * 86400, 'o': float(c[1]), 'h': float(c[2]),
+                                'l': float(c[3]), 'c': float(c[4]), 'v': float(c[5])})
+                except (TypeError, ValueError, IndexError):
+                    continue
+            if out:
+                return out, 'geckoterminal'
+        points = self._load_json(self.dex_history_path, {}).get(m['symbol'].upper()) or []
+        return self._bucket_daily([(float(t), float(p)) for t, p in points]), 'snapshots'
+
+    def _curve_cg(self, symbol: str, days: int):
+        cg_id = self.CG_IDS.get(symbol.upper())
+        if not cg_id:
+            return [], 'no-coingecko-id'
+        resp = requests.get(f'https://api.coingecko.com/api/v3/coins/{cg_id}/market_chart',
+                            params={'vs_currency': 'usd', 'days': days + 1, 'interval': 'daily'},
+                            timeout=15)
+        resp.raise_for_status()
+        samples = [(p[0] / 1000, float(p[1])) for p in resp.json().get('prices', [])]
+        return self._bucket_daily(samples), 'coingecko'
+
     # ── Paper pool — fake money, contract-settled ────────────────────
     # Agents predict prices with faucet-minted PAPER; every message lands
     # in a hash-chained log settled by the wasm contract in
@@ -3291,6 +3887,179 @@ class Mod:
     def paper_sign(self, action: str, address: str, **fields) -> Dict:
         """The message a wallet signs for a paper action."""
         return self.paper.sign_request(action, address, **fields)
+
+    # ── Local economy + vibecoded agents ─────────────────────────────
+    # A simulated market (economy.py): price feed, exchange, one-minute
+    # paper pool. Agents (agents.py) are sandboxed decide(ctx) programs,
+    # written from a prompt by the local claudecode agent, run every
+    # round by the API's loop. MCP surface in mcp_server.py.
+
+    @property
+    def economy(self):
+        if self._economy is None:
+            self._economy = economy_mod.Economy(
+                self.store_dir,
+                markets=lambda: self._load_json(self.markets_path, []),
+                price_now=self._get_token_price,
+                price_at=self._price_at,
+            )
+        return self._economy
+
+    @property
+    def agents(self):
+        if self._agents is None:
+            self._agents = agents_mod.Agents(self.store_dir, self.economy)
+        return self._agents
+
+    @property
+    def economy_loop(self):
+        if self._economy_loop is None:
+            self._economy_loop = agents_mod.Loop(self.economy, self.agents)
+        return self._economy_loop
+
+    def economy_start(self) -> Dict:
+        """Start the clock thread (the API does this at startup)."""
+        self.economy_loop.start()
+        return self.economy_loop.status()
+
+    def economy_loop_step(self) -> Dict:
+        """One manual step: tick the feed, settle, run agents if due."""
+        return self.economy_loop.step()
+
+    def economy_status(self) -> Dict:
+        """The simulated economy: feed, round, prices, pool, loop."""
+        out = self.economy.status()
+        out['loop'] = self.economy_loop.status()
+        out['agents'] = sum(1 for a in self.agents.list()
+                            if a['status'] == 'running')
+        return out
+
+    def economy_prices(self, history: bool = False, ticks: int = 60) -> Dict:
+        """Current sim prices; history=True adds recent ticks per asset."""
+        eco = self.economy
+        out = {'prices': eco.prices()}
+        if history:
+            out['history'] = {s: eco.history(s, int(ticks)) for s in out['prices']}
+        return out
+
+    def economy_config(self) -> Dict:
+        """Feed/exchange config (tick, vol, liquidity, spread, faucet)."""
+        return self.economy.config()
+
+    def economy_set_config(self, **patch) -> Dict:
+        """Retune the economy — host operator (CLI, not HTTP)."""
+        return self.economy.set_config(**patch)
+
+    def economy_reset(self, **config) -> Dict:
+        """Wipe the economy and its minute pool — host operator (CLI only)."""
+        assets = config.pop('assets', None)
+        if isinstance(assets, str):
+            assets = json.loads(assets)
+        return self.economy.reset(assets=assets, **config)
+
+    def economy_add_asset(self, symbol: str, price: float = None) -> Dict:
+        """List an asset in the economy (live anchor or explicit price)."""
+        return self.economy.add_asset(symbol, price)
+
+    def economy_faucet(self, address: str) -> Dict:
+        """Play money: exchange cash + pool PAPER, once an hour."""
+        return self.economy.faucet(address)
+
+    def economy_trade(self, address: str, asset: str, side: str,
+                      notional: float = None, qty: float = None) -> Dict:
+        """Market order at the sim price plus spread; moves the price."""
+        return self.economy.trade(address, asset, side, notional=notional,
+                                  qty=qty)
+
+    def economy_predict(self, address: str, asset: str, price: float,
+                        stake: float, signature: str = None) -> Dict:
+        """Call this minute's close in the economy's paper pool."""
+        return self.economy.predict(address, asset, price, stake,
+                                    signature=signature)
+
+    def economy_account(self, address: str) -> Dict:
+        """Cash, holdings, pool record and net worth for one address."""
+        return self.economy.account(address)
+
+    def economy_leaderboard(self, limit: int = 50) -> List[Dict]:
+        """Everyone by net worth, agent names attached."""
+        return self.economy.leaderboard(limit, names=self.agents.names())
+
+    def economy_trades(self, address: str = None, limit: int = 100) -> List[Dict]:
+        """The exchange tape, newest first."""
+        return self.economy.trades(address, limit)
+
+    def economy_round(self, index: int = None) -> Dict:
+        """One minute-pool round."""
+        return self.economy.paper.round(index)
+
+    def economy_rounds(self, limit: int = 20) -> List[Dict]:
+        """Recent minute-pool rounds."""
+        return self.economy.paper.rounds(limit)
+
+    def economy_verify(self) -> Dict:
+        """Replay the minute pool's log through the contract."""
+        return self.economy.paper.verify()
+
+    def agent_list(self) -> List[Dict]:
+        """Every agent with its leaderboard row."""
+        return self.agents.list()
+
+    def agent_get(self, agent_id: str) -> Dict:
+        """One agent: code, prompt, memory, log, account."""
+        return self.agents.get(agent_id)
+
+    def agent_create(self, name: str, prompt: str = None, code: str = None,
+                     owner: str = None, model: str = None, start: bool = True,
+                     llm: bool = True) -> Dict:
+        """Vibecode (prompt=) or install (code=) an agent; funds + starts it."""
+        return self.agents.create(name, code=code, prompt=prompt, owner=owner,
+                                  model=model, start=start, llm=llm)
+
+    def agent_update(self, agent_id: str, name: str = None, code: str = None,
+                     prompt: str = None, status: str = None,
+                     revibe: bool = False, model: str = None,
+                     llm: bool = True) -> Dict:
+        """Edit, pause/resume, or rewrite an agent from its prompt."""
+        return self.agents.update(agent_id, name=name, code=code, prompt=prompt,
+                                  status=status, revibe=revibe, model=model,
+                                  llm=llm)
+
+    def agent_delete(self, agent_id: str) -> Dict:
+        """Remove an agent."""
+        return self.agents.delete(agent_id)
+
+    def agent_run(self, agent_id: str) -> Dict:
+        """Run one agent now and return its actions."""
+        return self.agents.run_one(agent_id)
+
+    def agent_vibecode(self, prompt: str, model: str = None,
+                       llm: bool = True) -> Dict:
+        """Preview: prompt → validated strategy code (no agent created)."""
+        return agents_mod.vibecode(prompt, model=model, llm=llm)
+
+    def agent_check(self, code: str) -> Dict:
+        """Compile + dry-run a decide(ctx) program."""
+        return agents_mod.check_strategy(code)
+
+    def agent_language(self) -> Dict:
+        """The decide(ctx) contract and the built-in templates."""
+        return {'language': agents_mod.LANGUAGE,
+                'templates': {k: v['code'] for k, v in agents_mod.TEMPLATES.items()}}
+
+    def mcp(self, message=None) -> Any:
+        """Handle one MCP JSON-RPC message (the HTTP /mcp door)."""
+        try:
+            import mcp_server
+        except ImportError:
+            from . import mcp_server
+        if message is None:
+            return {'tools': [t['name'] for t in mcp_server.tool_list()],
+                    'http': f'http://localhost:{self.api_port}/mcp',
+                    'stdio': f'python3 {self.module_dir}/src/mcp_server.py'}
+        if isinstance(message, str):
+            message = json.loads(message)
+        return mcp_server.handle_message(message)
 
     def pool_round(self, index: int = None, address: str = None) -> Dict:
         """One round with live provisional scores — the pot table."""
@@ -3461,6 +4230,8 @@ class Mod:
             'network': self.network,
             'contracts': self.contracts,
             'markets': len([m for m in markets if m.get('active')]),
+            'markets_listed': len(markets),
+            'markets_paused': len([m for m in markets if not m.get('active')]),
             'positions_total': len(positions),
             'positions_open': len(open_positions),
             'total_volume': round(total_volume, 2),
@@ -3894,6 +4665,16 @@ class Mod:
             add-base    - add-dex chain=base
             add-ray     - add-dex dex=raydium — anything Raydium quotes
             seed-ray    - seed-dex dex=raydium (limit=, min_volume=)
+            sync        - List EVERYTHING that clears the liquidity floors and
+                          pause/resume what fell under them (sources=all|
+                          hyperliquid,bittensor,dex, dry_run=, limit=,
+                          list=, pause=)
+            liquidity   - Policy + every market's 24h volume vs its floor
+                          (source=, limit=)
+            policy      - The liquidity floors and sync switches
+            pause       - Owner: stop a market taking stakes (symbol=, reason=)
+            resume      - Owner: put a paused market back (symbol=)
+            remove      - Owner: unlist a market nothing is open on (symbol=)
 
             open        - Open position (asset=, amount=, address=)
             close       - Close position (id=, address=)
@@ -4047,6 +4828,23 @@ class Mod:
                 kwargs.get('address', kwargs.get('token', ''))),
             'seed-ray': lambda: self.seed_raydium(
                 int(kwargs.get('limit', 20)), float(kwargs.get('min_volume', 0))),
+            'sync': lambda: self.sync_markets(
+                kwargs.get('sources', 'all'), kwargs.get('dry_run', False),
+                str(kwargs.get('list', 'true')).lower() not in ('0', 'false', 'no'),
+                str(kwargs.get('pause', 'true')).lower() not in ('0', 'false', 'no'),
+                int(kwargs.get('limit', 0))),
+            'liquidity': lambda: self.liquidity(kwargs.get('source', 'all'),
+                                                int(kwargs.get('limit', 0))),
+            'policy': lambda: self.liquidity_policy(),
+            'pause': lambda: self.pause_market(
+                kwargs.get('symbol', kwargs.get('asset', '')), kwargs.get('reason'),
+                kwargs.get('secret'), kwargs.get('owner'), kwargs.get('signature')),
+            'resume': lambda: self.resume_market(
+                kwargs.get('symbol', kwargs.get('asset', '')),
+                kwargs.get('secret'), kwargs.get('owner'), kwargs.get('signature')),
+            'remove': lambda: self.remove_market(
+                kwargs.get('symbol', kwargs.get('asset', '')),
+                kwargs.get('secret'), kwargs.get('owner'), kwargs.get('signature')),
 
             'open': lambda: self.open_position(
                 kwargs.get('asset', ''),
@@ -4204,6 +5002,19 @@ class Mod:
             'agent-quota': lambda: self.pool_agent_quota(
                 kwargs.get('address', ''),
                 int(kwargs['round']) if kwargs.get('round') else None),
+            'side': lambda: self.pool_side_stake(
+                kwargs.get('address', ''), kwargs.get('asset', ''),
+                kwargs.get('side', ''), float(kwargs.get('amount', 0) or 0),
+                signature=kwargs.get('signature'),
+                nonce=int(kwargs['nonce']) if kwargs.get('nonce') is not None else None),
+            'side-quota': lambda: self.pool_side_quota(
+                kwargs.get('address', ''),
+                int(kwargs['index']) if kwargs.get('index') is not None else None),
+            'side-board': lambda: self.pool_side_leaderboard(int(kwargs.get('limit', 50))),
+            'signal': lambda: self.pool_signal(
+                kwargs.get('asset'),
+                int(kwargs['index']) if kwargs.get('index') is not None else None),
+            'curve': lambda: self.pool_curve(kwargs.get('asset', ''), int(kwargs.get('days', 30))),
             'agent-board': lambda: self.pool_agent_leaderboard(
                 int(kwargs.get('limit', 50))),
             'round': lambda: self.pool_round(

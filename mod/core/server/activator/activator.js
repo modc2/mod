@@ -48,6 +48,22 @@ const PIN = new Set((process.env.ACTIVATOR_PIN || "claude").split(",").map((s) =
 // that's still reached directly (it would have no wake path). Empty = manage all
 // (minus PIN), which is only safe once EVERY module routes through here.
 const MANAGED = new Set((process.env.ACTIVATOR_MANAGED || "").split(",").map((s) => s.trim()).filter(Boolean));
+// `ACTIVATOR_MANAGED=*` = every pm2 module on the box. Safe now because a slept
+// module's ports are held by the activator itself (socket activation, below):
+// ANY connection — gateway, portal, a peer module dialing the bare port — wakes
+// it, so nothing needs to be routed through :9000 to have a wake path.
+const MANAGE_ALL = MANAGED.has("*");
+// Never slept and never revived — the front door, the console, auth, and
+// anything speaking UDP (socket activation only holds TCP ports).
+const EXEMPT = new Set((process.env.ACTIVATOR_EXEMPT
+  || "app,api,server,web,claude,build,passport,dns,mcp,agent,updates")
+  .split(",").map((s) => s.trim()).filter(Boolean));
+const isManaged = (m) => !EXEMPT.has(m) && (MANAGE_ALL || !MANAGED.size || MANAGED.has(m));
+// A module whose pm2 procs are burning more than this much CPU is doing work
+// (a sync loop, an index build) even with nobody connected — leave it running.
+const BUSY_CPU = parseFloat(process.env.BUSY_CPU || "3");
+// How many idle modules one sweep may stop (least used first).
+const STOPS_PER_SWEEP = parseInt(process.env.STOPS_PER_SWEEP || "4", 10);
 // OOM guard: keep at least this much MemAvailable (MB). When the box dips
 // below, the sweep/wake path stops least-recently-used managed modules until
 // the headroom recovers — better one cold-start than the kernel OOM killer
@@ -221,6 +237,191 @@ function establishedConns(port) {
   } catch { return 0; }
 }
 
+// ── fleet snapshot ──────────────────────────────────────────────────────────
+// One pass of ss + /proc + pm2 per sweep instead of a shell-out per module.
+//   listens: [{host, port, pid}] every TCP listener on the box
+//   conns:   [{local, peer, idleMs}] established, with ms since last traffic
+//   kids:    pid → [child pids]
+function snapshot() {
+  const snap = { listens: [], conns: [], kids: {}, jlist: pm2Jlist() };
+  try {
+    const out = execFileSync("ss", ["-ltnpH"], { encoding: "utf8", maxBuffer: 1 << 22 });
+    for (const line of out.split("\n")) {
+      const cols = line.trim().split(/\s+/);
+      if (cols.length < 5) continue;
+      const hp = splitHostPort(cols[3]);
+      if (!hp) continue;
+      for (const m of line.matchAll(/pid=(\d+)/g)) snap.listens.push({ ...hp, pid: parseInt(m[1], 10) });
+    }
+  } catch {}
+  try {
+    const out = execFileSync("ss", ["-tniH", "state", "established"], { encoding: "utf8", maxBuffer: 1 << 24 });
+    let cur = null;
+    for (const line of out.split("\n")) {
+      if (!line.trim()) continue;
+      if (!/^\s/.test(line)) {
+        const cols = line.trim().split(/\s+/);
+        cur = { local: cols[2], peer: cols[3], idleMs: 0 };
+        snap.conns.push(cur);
+      } else if (cur) {
+        // Quietest of send/recv. Missing fields = treat as live.
+        const t = ["lastsnd", "lastrcv"].map((k) => (line.match(new RegExp(k + ":(\\d+)")) || [])[1])
+          .filter(Boolean).map(Number);
+        cur.idleMs = t.length ? Math.min(...t) : 0;
+      }
+    }
+  } catch {}
+  try {
+    for (const d of fs.readdirSync("/proc")) {
+      if (!/^\d+$/.test(d)) continue;
+      try {
+        const st = fs.readFileSync(`/proc/${d}/stat`, "utf8");
+        const ppid = parseInt(st.slice(st.lastIndexOf(")") + 2).split(" ")[1], 10);
+        (snap.kids[ppid] = snap.kids[ppid] || []).push(parseInt(d, 10));
+      } catch {}
+    }
+  } catch {}
+  return snap;
+}
+function splitHostPort(s) {
+  const i = (s || "").lastIndexOf(":");
+  if (i < 0) return null;
+  const port = parseInt(s.slice(i + 1), 10);
+  if (!port) return null;
+  return { host: s.slice(0, i).replace(/^\[|\]$/g, "").replace(/%.*$/, ""), port };
+}
+// Every TCP port the module's online pm2 procs (or their children — next start
+// forks next-server, uvicorn forks workers) are listening on.
+function modulePorts(mod, snap) {
+  const info = REGISTRY[mod];
+  const procs = pm2NamesFor(info.dir, snap.jlist).filter((p) => p.status === "online" && p.pid);
+  const pids = new Set();
+  const stack = procs.map((p) => p.pid);
+  while (stack.length) {
+    const p = stack.pop();
+    if (pids.has(p)) continue;
+    pids.add(p);
+    for (const c of snap.kids[p] || []) stack.push(c);
+  }
+  const seen = new Set();
+  return snap.listens.filter((l) => pids.has(l.pid) && !seen.has(l.host + "|" + l.port) && seen.add(l.host + "|" + l.port))
+    .map(({ host, port }) => ({ host, port }));
+}
+// Established connections on any of these ports that carried traffic within
+// `withinMs`. An idle keepalive socket Caddy parked on the upstream doesn't
+// count as someone using the module.
+function liveConns(ports, snap, withinMs) {
+  const set = new Set(ports.filter(Boolean).map(String));
+  let n = 0;
+  for (const c of snap.conns) {
+    if (c.idleMs >= withinMs) continue;
+    const a = splitHostPort(c.local), b = splitHostPort(c.peer);
+    if ((a && set.has(String(a.port))) || (b && set.has(String(b.port)))) n++;
+  }
+  return n;
+}
+function procCpu(mod, snap) {
+  let cpu = 0;
+  for (const p of snap.jlist) {
+    if (pm2NamesFor(REGISTRY[mod].dir, [p]).length && p.pm2_env && p.pm2_env.status === "online") cpu += (p.monit && p.monit.cpu) || 0;
+  }
+  return cpu;
+}
+
+// ── socket activation ───────────────────────────────────────────────────────
+// When a module is slept, the activator binds the exact host:port pairs it was
+// listening on. The first connection to any of them — from the gateway, the
+// portal, a browser, or another module calling the bare port — releases the
+// holds, restarts the module's pm2 procs, waits for its port, and splices the
+// waiting connection(s) through. Nothing is routed differently while it's up.
+// ~/.mod/activator/slept.json survives restarts so holds are re-armed.
+const SLEPT_PATH = path.join(HOME, ".mod", "activator", "slept.json");
+let slept = {};          // module → [{host, port}] held while asleep
+const holds = {};        // module → [net.Server]
+const pending = {};      // module → [{sock, host, port}] waiting on a wake
+const activationStats = { wakes: 0, lastWake: null };
+try { slept = JSON.parse(fs.readFileSync(SLEPT_PATH, "utf8")) || {}; } catch { slept = {}; }
+function saveSlept() {
+  try { fs.mkdirSync(path.dirname(SLEPT_PATH), { recursive: true }); fs.writeFileSync(SLEPT_PATH, JSON.stringify(slept, null, 2)); }
+  catch (e) { log("saveSlept error", e.message); }
+}
+
+function listenOnce(host, port, onConn, ipv6Only) {
+  return new Promise((resolve) => {
+    const srv = net.createServer({ pauseOnConnect: true }, onConn);
+    srv.once("error", (e) => resolve({ err: e.code || e.message }));
+    const h = host === "*" || host === "" ? "::" : host;
+    srv.listen({ host: h, port, exclusive: true, ipv6Only: !!ipv6Only }, () => resolve({ srv }));
+  });
+}
+
+// Bind every port in slept[mod]. Ports still in TIME_WAIT/held by a straggler
+// are retried for a few seconds; a port something else owns is skipped.
+async function armHolds(mod) {
+  if (holds[mod] || !slept[mod] || !slept[mod].length) return;
+  const servers = [];
+  for (const { host, port } of slept[mod]) {
+    // A module bound both 0.0.0.0:p and [::]:p → hold the v6 side v6-only.
+    const v6only = host === "::" && slept[mod].some((o) => o.port === port && o.host === "0.0.0.0");
+    let r;
+    for (let i = 0; i < 12; i++) {
+      r = await listenOnce(host, port, (sock) => onHeldConn(mod, host, port, sock), v6only);
+      if (r.srv || r.err !== "EADDRINUSE") break;
+      await sleep(250);
+    }
+    if (r.srv) servers.push(r.srv);
+    else log(`hold ${mod}: can't bind ${host}:${port} (${r.err})`);
+  }
+  if (servers.length) {
+    holds[mod] = servers;
+    log(`hold ${mod}: ${slept[mod].map((p) => `${p.host}:${p.port}`).join(", ")} — wakes on first connection`);
+  }
+}
+
+function releaseHolds(mod) {
+  const servers = holds[mod];
+  delete holds[mod];
+  if (!servers) return Promise.resolve();
+  // close() unbinds the port right away; its callback waits for accepted
+  // sockets to end — and the ones we're holding ARE those sockets. Don't wait.
+  for (const s of servers) s.close();
+  return new Promise((r) => setImmediate(r));
+}
+
+function onHeldConn(mod, host, port, sock) {
+  sock.on("error", () => {});
+  lastAccess[mod] = now(); hits[mod] = (hits[mod] || 0) + 1;
+  (pending[mod] = pending[mod] || []).push({ sock, host, port });
+  if (pending[mod].length > 1) return; // a wake is already under way
+  activate(mod);
+}
+
+async function activate(mod) {
+  const t0 = now();
+  const first = pending[mod][0];
+  const ok = await wake(mod, first.port);
+  const queue = pending[mod] || [];
+  delete pending[mod];
+  if (ok) {
+    delete slept[mod]; saveSlept();
+    activationStats.wakes++;
+    activationStats.lastWake = { module: mod, ms: now() - t0, at: new Date().toISOString() };
+  }
+  for (const { sock, host, port } of queue) {
+    if (!ok) { sock.destroy(); continue; }
+    // Another port of the same module (app vs api) may come up a beat later.
+    const deadline = now() + WAKE_TIMEOUT_MS;
+    while (now() < deadline && !(await isUp(port))) await sleep(200);
+    const target = host === "*" || host === "" || host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+    const up = net.connect({ host: target, port }, () => { sock.pipe(up); up.pipe(sock); sock.resume(); });
+    up.on("error", () => sock.destroy());
+    sock.on("close", () => up.destroy());
+  }
+  // Wake failed → the module is still asleep; put the holds back so the next
+  // caller retries instead of getting connection-refused forever.
+  if (!ok) await armHolds(mod);
+}
+
 // ── OOM guard ───────────────────────────────────────────────────────────────
 // The activator is the only thing starting apps on demand, so it also owns the
 // budget: keep MemAvailable above the floor and the running-app count under the
@@ -241,8 +442,7 @@ function memAvailableMb() {
 // LRU first. One jlist pass for the whole scan.
 function evictionCandidates(excludeMod) {
   const jlist = pm2Jlist();
-  const mods = MANAGED.size ? [...MANAGED] : Object.keys(REGISTRY);
-  return mods
+  return managedList()
     .filter((m) => REGISTRY[m] && m !== excludeMod && !isPinned(m) && !isDisabled(m))
     .filter((m) => pm2NamesFor(REGISTRY[m].dir, jlist).some((p) => p.status === "online"))
     .sort((a, b) => (lastAccess[a] || 0) - (lastAccess[b] || 0));
@@ -281,19 +481,30 @@ async function relievePressure(excludeMod) {
 }
 
 // ── wake ────────────────────────────────────────────────────────────────────
-async function stopModule(mod) {
+// `hold` (default) = socket-activate: keep its ports open so the next
+// connection wakes it. Disable passes hold=false — off stays off.
+async function stopModule(mod, { hold = true } = {}) {
   const info = REGISTRY[mod];
   if (!info) return;
-  const procs = pm2NamesFor(info.dir).filter((p) => p.status === "online");
+  const snap = snapshot();
+  const ports = modulePorts(mod, snap);
+  const procs = pm2NamesFor(info.dir, snap.jlist).filter((p) => p.status === "online");
   for (const p of procs) await pm2("stop", p.name);
   if (procs.length) log(`stop ${mod}: ${procs.map((p) => p.name).join(", ")}`);
+  if (!hold) { await releaseHolds(mod); if (slept[mod]) { delete slept[mod]; saveSlept(); } return; }
+  // Fall back to config ports if nothing was listening (already half-down).
+  const keep = ports.length ? ports
+    : [info.apiPort, info.appPort].filter(Boolean).map((port) => ({ host: "0.0.0.0", port }));
+  if (keep.length && procs.length) { slept[mod] = keep; saveSlept(); await armHolds(mod); }
 }
 
 async function wake(mod, port) {
   if (isDisabled(mod)) return false; // host turned it off — stays off
-  if (await isUp(port)) return true;
   if (waking[mod]) return waking[mod];
+  // Our own hold answers isUp, so a held module is down by definition.
+  if (!holds[mod] && await isUp(port)) return true;
   waking[mod] = (async () => {
+    await releaseHolds(mod);
     const procs = pm2NamesFor(REGISTRY[mod].dir);
     if (!procs.length) { log(`wake ${mod}: no pm2 procs found`); return await isUp(port); }
     // Make room BEFORE starting: evict LRU modules if this wake would breach
@@ -413,6 +624,8 @@ async function revivePinned(mod, info) {
   if (!procs.length || !down.length) { delete reviving[mod]; return; }
   const st = reviving[mod] || { next: 0, delay: REVIVE_MIN_MS };
   if (now() < st.next) return;
+  await releaseHolds(mod);
+  if (slept[mod]) { delete slept[mod]; saveSlept(); }
   log(`pinned ${mod}: ${down.map((p) => `${p.name}=${p.status}`).join(", ")} → restarting`);
   for (const p of down) await pm2("restart", p.name);
   lastAccess[mod] = now();
@@ -422,17 +635,21 @@ async function revivePinned(mod, info) {
 
 // ── idle sweep ──────────────────────────────────────────────────────────────
 const sweepStats = { idleStops: 0, lastIdleStop: null };
+const managedList = () => Object.keys(REGISTRY).filter(isManaged);
 async function sweep() {
   try {
     loadOverrides();            // host edits take effect live
     REGISTRY = buildRegistry(); // pick up newly-added modules
+    const snap = snapshot();    // one ss/proc/pm2 pass for the whole fleet
+    const idleMs = idleMsNow();
     const idle = []; // unused past the threshold this pass
-    for (const [mod, info] of Object.entries(REGISTRY)) {
-      if (MANAGED.size && !MANAGED.has(mod)) continue; // only act on modules routed through us
+    for (const mod of managedList()) {
+      const info = REGISTRY[mod];
       // Host disabled it → enforce STOPPED regardless of traffic/idle.
       if (isDisabled(mod)) {
-        const up = pm2NamesFor(info.dir).filter((p) => p.status === "online");
-        if (up.length) { log(`disabled ${mod}: enforcing stop`); await stopModule(mod); }
+        if (holds[mod] || slept[mod]) await stopModule(mod, { hold: false });
+        const up = pm2NamesFor(info.dir, snap.jlist).filter((p) => p.status === "online");
+        if (up.length) { log(`disabled ${mod}: enforcing stop`); await stopModule(mod, { hold: false }); }
         continue;
       }
       // Pinned = "always on", enforced the same way `disabled` is enforced:
@@ -441,23 +658,31 @@ async function sweep() {
       // exit, a stray `pm2 stop`. Without this, pinning only held as long as
       // nothing outside the activator touched the process.
       if (isPinned(mod)) { await revivePinned(mod, info); continue; }
+      const procs = pm2NamesFor(info.dir, snap.jlist).filter((p) => p.status === "online");
+      if (!procs.length) {
+        // Slept by us and still down (activator restarted, or a wake failed)
+        // → make sure its ports are held so the next caller wakes it.
+        if (slept[mod] && !holds[mod] && !waking[mod]) await armHolds(mod);
+        continue;
+      }
+      if (slept[mod] && !waking[mod]) { delete slept[mod]; saveSlept(); } // came back some other way
+      const ports = modulePorts(mod, snap);
+      if (!ports.length) continue; // nothing listening = nothing to hold; leave it alone
+      // In use = traffic on its ports within the window, or its procs are
+      // working (CPU) with nobody connected.
+      const conns = liveConns(ports.map((p) => p.port), snap, idleMs);
+      const cpu = procCpu(mod, snap);
+      if (conns > 0 || cpu >= BUSY_CPU) { lastAccess[mod] = now(); continue; }
       const idleFor = now() - (lastAccess[mod] || 0);
-      if (idleFor < idleMsNow()) continue;
-      const conns = establishedConns(info.apiPort) + establishedConns(info.appPort);
-      if (conns > 0) { lastAccess[mod] = now(); continue; } // still in use — keep alive
-      const procs = pm2NamesFor(info.dir).filter((p) => p.status === "online");
-      if (!procs.length) continue;
+      if (idleFor < idleMs) continue;
       idle.push({ mod, idleFor, procs });
     }
-    // One victim per sweep: the LEAST USED of the idle, unused modules (fewest
-    // requests since start, then least recently touched). The sweep re-runs
-    // every few seconds, so the rest follow one at a time if they stay unused —
-    // but nothing gets stopped the instant it crosses the line in a crowd.
-    if (idle.length) {
-      idle.sort((a, b) => ((hits[a.mod] || 0) - (hits[b.mod] || 0)) || (b.idleFor - a.idleFor));
-      const v = idle[0];
-      log(`idle ${v.mod}: ${Math.round(v.idleFor / 1000)}s, 0 conns, ${hits[v.mod] || 0} hits (least used of ${idle.length}) → stopping ${v.procs.map((p) => p.name).join(", ")}`);
-      for (const p of v.procs) await pm2("stop", p.name);
+    // Least used first (fewest requests since start, then longest idle), a
+    // few per sweep so a crowd crossing the line together drains in order.
+    idle.sort((a, b) => ((hits[a.mod] || 0) - (hits[b.mod] || 0)) || (b.idleFor - a.idleFor));
+    for (const v of idle.slice(0, STOPS_PER_SWEEP)) {
+      log(`idle ${v.mod}: ${Math.round(v.idleFor / 1000)}s, no traffic, ${hits[v.mod] || 0} hits (least used of ${idle.length}) → sleeping ${v.procs.map((p) => p.name).join(", ")}`);
+      await stopModule(v.mod);
       sweepStats.idleStops++;
       sweepStats.lastIdleStop = { module: v.mod, idleSeconds: Math.round(v.idleFor / 1000), hits: hits[v.mod] || 0, at: new Date().toISOString() };
     }
@@ -483,17 +708,20 @@ function isLocal(req) {
 }
 
 async function buildState() {
-  const mods = MANAGED.size ? [...MANAGED] : Object.keys(REGISTRY);
   const out = [];
-  for (const mod of mods.sort()) {
+  const jlist = pm2Jlist();
+  for (const mod of managedList().sort()) {
     const info = REGISTRY[mod];
     if (!info) continue;
-    const apiUp = await isUp(info.apiPort);
-    const appUp = await isUp(info.appPort);
+    // Socket-activation mode lists only pm2 modules (no pm2 = can't sleep it).
+    if (MANAGE_ALL && !pm2NamesFor(info.dir, jlist).length) continue;
+    const held = !!holds[mod];
+    const apiUp = !held && await isUp(info.apiPort);
+    const appUp = !held && await isUp(info.appPort);
     out.push({
       module: mod,
       apiPort: info.apiPort, appPort: info.appPort,
-      running: apiUp || appUp, apiUp, appUp,
+      running: apiUp || appUp, apiUp, appUp, slept: held, heldPorts: held ? slept[mod] : undefined,
       disabled: isDisabled(mod), pinned: isPinned(mod), pinnedByEnv: PIN.has(mod), alwaysOn: isAlwaysOn(mod),
       idleSeconds: Math.round((now() - (lastAccess[mod] || 0)) / 1000),
       hits: hits[mod] || 0,
@@ -522,8 +750,11 @@ async function handleControl(req, res) {
       defaultIdleSeconds: IDLE_MS / 1000,
       sweepSeconds: sweepDelay() / 1000,
       idleMinutes: idleMsNow() / 60000,
-      policy: "least-used idle module stopped first, one per sweep",
+      policy: `idle = no traffic on its ports and <${BUSY_CPU}% cpu; least used slept first, ${STOPS_PER_SWEEP} per sweep; slept ports held → first connection wakes it`,
       sweep: sweepStats,
+      activation: { ...activationStats, held: Object.keys(holds).sort() },
+      managedMode: MANAGE_ALL ? "all" : (MANAGED.size ? "list" : "all"),
+      exempt: [...EXEMPT],
       guard: {
         minFreeMb: minFreeMbNow(),
         maxRunning: maxRunningNow(),
@@ -564,7 +795,7 @@ async function handleControl(req, res) {
         });
       }
       if (!mod || !REGISTRY[mod]) return send(404, { error: `unknown module '${mod}'` });
-      if (MANAGED.size && !MANAGED.has(mod)) return send(400, { error: `${mod} is not activator-managed` });
+      if (!isManaged(mod)) return send(400, { error: `${mod} is not activator-managed` });
       const port = REGISTRY[mod].appPort || REGISTRY[mod].apiPort;
       if (isAlwaysOn(mod) && (action === "disable" || action === "sleep" || action === "unpin")) {
         return send(409, { error: `${mod} is always_on in its config.json — remove that flag to ${action} it` });
@@ -573,7 +804,7 @@ async function handleControl(req, res) {
         case "disable": // off, and stays off
           setMembership(overrides.disabled, mod, true);
           setMembership(overrides.pinned, mod, false);
-          saveOverrides(); await stopModule(mod); break;
+          saveOverrides(); await stopModule(mod, { hold: false }); break;
         case "enable":  // on-demand resumes (does not force-start)
           setMembership(overrides.disabled, mod, false); saveOverrides(); break;
         case "pin":     // always on
@@ -601,5 +832,5 @@ async function handleControl(req, res) {
 }
 
 server.listen(PORT, "0.0.0.0", () => {
-  log(`activator on :${PORT} — ${Object.keys(REGISTRY).length} modules, idle=${IDLE_MS / 1000}s, pinned=[${[...PIN].join(",")}], managed=[${MANAGED.size ? [...MANAGED].join(",") : "ALL"}], minFree=${MIN_FREE_MB}MB, maxRunning=${MAX_RUNNING || "∞"}`);
+  log(`activator on :${PORT} — ${Object.keys(REGISTRY).length} modules, idle=${IDLE_MS / 1000}s, pinned=[${[...PIN].join(",")}], managed=[${MANAGE_ALL || !MANAGED.size ? "ALL" : [...MANAGED].join(",")}], exempt=[${[...EXEMPT].join(",")}], minFree=${MIN_FREE_MB}MB, maxRunning=${MAX_RUNNING || "∞"}`);
 });

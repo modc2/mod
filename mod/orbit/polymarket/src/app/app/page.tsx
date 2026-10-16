@@ -10,6 +10,8 @@ import { redirect } from "next/navigation";
 // is reachable from a trade row, and /docs is a link, not a tab.
 //
 // basePath ("/polymarket") is prepended automatically — pass the path WITHOUT it.
+// The front door is now the COPY studio (/copytrade): copying traders and
+// allocating to each is the product; TRADERS and STRATS remain one tab away.
 export default function Home() {
-  redirect("/traders");
+  redirect("/copytrade");
 }

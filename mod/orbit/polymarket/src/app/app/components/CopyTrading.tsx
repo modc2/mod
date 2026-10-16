@@ -24,7 +24,7 @@ import { boardKey, loadBoardSnapshot, saveBoardSnapshot } from "../lib/boardCach
 import {
   DEFAULT_FORMULA, FORMULA_EVENT, FORMULA_VARS, SCORE_VAR_HINTS, formatScore,
   scoreInputs, scoreIsUnknown, loadSavedFormula, matchScorePreset, saveFormula,
-  scorePoolSortKey, JS_FN_TEMPLATE, PY_FN_TEMPLATE, curveConsistency,
+  scorePoolSortKey, JS_FN_TEMPLATE, PY_FN_TEMPLATE, curveConsistency, consistencyScore,
 } from "../lib/scoreFormula";
 import { useCompiledScore } from "../lib/useScore";
 import { publishScores } from "../lib/scoreBus";
@@ -287,6 +287,7 @@ export default function CopyTrading({
   // on, an unjudgeable curve (missing, or <3 moved segments) is CUT: the
   // curve's shape is this filter's whole subject.
   const [minConsistency, setMinConsistency] = useState("");
+  const [minConsistencyScore, setMinConsistencyScore] = useState("");
   // How many traders the two floors above removed, straight from the server.
   // An empty board means something different depending on it.
   const [activityDropped, setActivityDropped] = useState(0);
@@ -333,10 +334,11 @@ export default function CopyTrading({
         maxLastTradeHrs: Number(maxLastTradeHrs) || 0,
         minHistoryDays: Number(minHistoryDays) || 0,
         minConsistency: Number(minConsistency) || 0,
+        minConsistencyScore: Number(minConsistencyScore) || 0,
       }),
     [days, minTradesPerDay, search, category, marketQuery,
      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-     minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency],
+     minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, minConsistencyScore],
   );
   // The initial-load effect below keys on [days, minTradesPerDay, reloadKey]
   // only — it reads the CURRENT view's key through this ref so the hydrate
@@ -389,6 +391,7 @@ export default function CopyTrading({
           maxLastTradeHrs: Number(maxLastTradeHrs) || undefined,
           minHistoryDays: Number(minHistoryDays) || undefined,
           minConsistency: Number(minConsistency) || undefined,
+          minConsistencyScore: Number(minConsistencyScore) || undefined,
           force: opts.force,
           // Time travel: read the archived scan instead of the live cache —
           // same paged shape, same server-side filters, older data.
@@ -449,7 +452,7 @@ export default function CopyTrading({
     },
     [days, minTradesPerDay, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-     minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, snapKeyFor, scanId],
+     minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, minConsistencyScore, snapKeyFor, scanId],
   );
 
   // Streaming load — used for cold cache (pipeline needs to run) AND
@@ -640,7 +643,7 @@ export default function CopyTrading({
     })();
   }, [cacheWarm, page, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
       minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-      minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, scanId]);
+      minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, minConsistencyScore, scanId]);
 
   // Background staleness check. Re-fetches current page silently once data
   // crosses MAX_STALENESS_MS so the leaderboard never gets older than this
@@ -802,6 +805,11 @@ export default function CopyTrading({
       // (-1: no curve / too little movement) fails any positive floor.
       const mc = Number(minConsistency);
       if (minConsistency !== "" && Number.isFinite(mc) && mc > 0 && curveConsistency(t.pnlCurve) < mc) return false;
+      // CONSISTENT-score floor — mirrors the server's minConsistencyScore
+      // retain. Unknown (-1) fails any positive floor.
+      const mcs = Number(minConsistencyScore);
+      if (minConsistencyScore !== "" && Number.isFinite(mcs) && mcs > 0
+        && consistencyScore({ curve: t.pnlCurve, pnl: t.pnl, winRate: t.winRate, decided: t.decidedPositions }) < mcs) return false;
       const mbv = Number(minBuyVolume);
       if (minBuyVolume !== "" && Number.isFinite(mbv) && t.buyVolume < mbv) return false;
       const msv = Number(minSellVolume);
@@ -839,7 +847,7 @@ export default function CopyTrading({
     });
     return list;
   }, [cacheWarm, streamedAll, search, category, marketQuery, minVolume, minPnl,
-      minTrades, minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor, scoreFilters,
+      minTrades, minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, minConsistencyScore, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor, scoreFilters,
       stratFilter, stratAddrs]);
 
   const sortedTraders = useMemo(() => {
@@ -874,7 +882,7 @@ export default function CopyTrading({
   // Reset page on filter/sort change
   useEffect(() => { setPage(0); }, [search, category, marketQuery, traderSort, sortDir,
     minVolume, minPnl, minTrades, minBuyVolume, minSellVolume, stratFilter,
-    minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency]);
+    minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, minConsistencyScore]);
 
   const totalPages = Math.max(1, Math.ceil(visibleTotal / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -1125,7 +1133,7 @@ export default function CopyTrading({
 
   // Count active advanced filters
   const activeFilterCount = [
-    minTrades, minBuyVolume, minSellVolume, minPnl, minConsistency,
+    minTrades, minBuyVolume, minSellVolume, minPnl, minConsistency, minConsistencyScore,
   ].filter((v) => v !== "").length
     + (minVolume !== "100" && minVolume !== "" ? 1 : 0)
     + (minPerDay !== "0" && minPerDay !== "" ? 1 : 0)
@@ -1573,6 +1581,10 @@ export default function CopyTrading({
                 // smooth staircase curves; blank/0 = off. Same `consistency`
                 // the SCORE bus exposes, so the filter and the variable agree.
                 { label: "MIN CONSISTENCY", value: minConsistency, onChange: onDec(setMinConsistency), ph: "0–1" },
+                // Probability-of-success floor, 0–100 — the CONSISTENT score:
+                // confidence-adjusted share of green stretches + settled wins,
+                // so a short lucky run can't pass. 60 keeps proven books.
+                { label: "MIN CONSISTENCY SCORE", value: minConsistencyScore, onChange: onDec(setMinConsistencyScore), ph: "0–100" },
                 { label: "MIN BUY VOL", value: minBuyVolume, onChange: onDec(setMinBuyVolume), ph: "any" },
                 { label: "MIN SELL VOL", value: minSellVolume, onChange: onDec(setMinSellVolume), ph: "any" },
                 { label: "MIN P&L", value: minPnl, onChange: onDec(setMinPnl), ph: "any" },
@@ -1600,7 +1612,7 @@ export default function CopyTrading({
 
             {/* Reset all */}
             <div className="flex items-center justify-end">
-              <button onClick={() => { setDaysAgo(""); setCategory(""); setMarketQuery(""); setMinTrades(""); setMinTrades24h("1"); setMaxLastTradeHrs("24"); setMinPerDay("0"); setMinVolume("100"); setMinBuyVolume(""); setMinSellVolume(""); setMinPnl(""); setMinHistoryDays(""); setMinConsistency(""); setFormula(DEFAULT_FORMULA); reload(); }}
+              <button onClick={() => { setDaysAgo(""); setCategory(""); setMarketQuery(""); setMinTrades(""); setMinTrades24h("1"); setMaxLastTradeHrs("24"); setMinPerDay("0"); setMinVolume("100"); setMinBuyVolume(""); setMinSellVolume(""); setMinPnl(""); setMinHistoryDays(""); setMinConsistency(""); setMinConsistencyScore(""); setFormula(DEFAULT_FORMULA); reload(); }}
                 className="pixel-btn text-[12px] px-3 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-red-400 hover:text-red-400 transition-colors">
                 RESET ALL
               </button>

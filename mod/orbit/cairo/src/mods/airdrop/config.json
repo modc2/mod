@@ -23,5 +23,18 @@
         "deploy",
         "call",
         "events"
-    ]
+    ],
+    "privacy": {
+        "everyone_sees": [
+            "the Merkle root (one fingerprint of the whole list)",
+            "who has claimed and how much",
+            "the total claimed"
+        ],
+        "kept_secret": [
+            "the full list of who is eligible: it stays off-chain, only the fingerprint is posted",
+            "anyone who has not claimed yet stays unknown"
+        ],
+        "summary": "Keeps the allowlist off the chain until each person claims their own line."
+    },
+    "private": false
 }

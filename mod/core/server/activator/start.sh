@@ -3,8 +3,9 @@
 #
 # Knobs (env): ACTIVATOR_PORT (9000), IDLE_SECONDS (10), SWEEP_SECONDS (60),
 # WAKE_TIMEOUT_MS (30000), ACTIVATOR_PIN (csv of modules to never auto-stop),
-# ACTIVATOR_MANAGED (csv of modules the sweep may stop — ONLY the ones routed
-# through :9000; empty = all, which sleeps the whole fleet including build),
+# ACTIVATOR_MANAGED (csv of modules the sweep may stop, or * = every pm2 module —
+# safe because slept ports are held by the activator and wake on connect),
+# ACTIVATOR_EXEMPT (csv never slept: infra/front door/UDP), BUSY_CPU (3),
 # MIN_FREE_MB (1500, OOM-guard headroom floor), MAX_RUNNING (0 = uncapped).
 #
 # IMPORTANT: the idle-sweep stops idle modules whether or not the gateway routes
@@ -19,13 +20,15 @@ cd "$(dirname "$0")"
 : "${SWEEP_SECONDS:=60}"
 # Pin the front-door/infra modules so they never sleep.
 : "${ACTIVATOR_PIN:=web,claude}"
-# The sweep only ever stops these (they're the ones Caddy / the portal route via
-# :9000, so they have a wake path). Add a module here only after cutting its
-# route over — see README "Going live".
-: "${ACTIVATOR_MANAGED:=bridge,dev,hyperliquid,polymarket,store,venice,openplay,modcity,openevent,neartensor,whitepaper}"
+# Every pm2 module (2026-10-16: "pause anything not used in the last minute, hot
+# load it when I use it"). A slept module's ports stay bound by the activator
+# (socket activation), so gateway, portal AND peer calls to its bare port all
+# wake it — no :9000 route cutover needed any more.
+: "${ACTIVATOR_MANAGED:=*}"
+: "${ACTIVATOR_EXEMPT:=app,api,server,web,claude,build,passport,dns,mcp,agent,updates}"
 : "${MIN_FREE_MB:=1500}"
 : "${MAX_RUNNING:=0}"
-export ACTIVATOR_PORT IDLE_SECONDS SWEEP_SECONDS ACTIVATOR_PIN ACTIVATOR_MANAGED MIN_FREE_MB MAX_RUNNING
+export ACTIVATOR_PORT IDLE_SECONDS SWEEP_SECONDS ACTIVATOR_PIN ACTIVATOR_MANAGED ACTIVATOR_EXEMPT MIN_FREE_MB MAX_RUNNING
 
 pm2 delete activator >/dev/null 2>&1 || true
 pm2 start activator.js --name activator --update-env

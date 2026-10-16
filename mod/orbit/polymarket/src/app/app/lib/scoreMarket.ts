@@ -42,6 +42,18 @@ if (best <= -999) return null;   // nothing to judge at all
 return best;`,
   },
   {
+    id: "high-probability",
+    name: "HIGH PROBABILITY",
+    description:
+      "Only the books most likely to keep succeeding: the CONSISTENT score (a confidence-adjusted floor on green PnL stretches and settled wins — a short lucky run can't fake it) must clear 60, with $500+ traded. Ranks the survivors by that probability.",
+    tags: ["consistent", "probability", "filter", "winrate", "steady"],
+    builtin: true,
+    source: `// consistencyScore = 0–100 success-probability floor; -1 = unknown.
+if (volume < 500) return null;           // too small to copy
+if (consistencyScore < 60) return null;  // unproven or unknown
+return consistencyScore;`,
+  },
+  {
     id: "steady-roi",
     name: "STEADY ROI",
     description:

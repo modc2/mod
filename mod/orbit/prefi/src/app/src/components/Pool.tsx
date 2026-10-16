@@ -31,6 +31,7 @@ import {
 import { fmt, usd, pct, pxq, short, countdown, pairLabel } from '@/lib/fmt'
 import { Section, Stat, Empty, Avatar, Tabs, Tag, Field, Label, Spinner } from '@/components/ui'
 import Functions from '@/components/Functions'
+import UpDown from '@/components/UpDown'
 
 const API = API_BASE_URL
 
@@ -56,6 +57,9 @@ const CONFIG_KINDS: Record<string, 'int' | 'float' | 'bool' | 'str' | 'json'> = 
   tolerance: 'float', min_stake: 'float', max_stake: 'float', min_withdraw: 'float',
   model: 'str', model_params: 'json', auto_pay: 'bool', free_per_round: 'int', free_notional: 'float',
   agent_per_round: 'int', agent_share_bps: 'int', min_liquidity_usd: 'float',
+  side_free_per_round: 'int', signal_max_leverage: 'int',
+  hl_min_volume_usd: 'float', bt_min_volume_tao: 'float', dex_min_volume_usd: 'float',
+  auto_list: 'bool', auto_pause: 'bool', sync_interval: 'int',
 }
 
 /** Canonical JSON — sorted keys, no spaces — the form the server signs `model_params` in. */
@@ -73,13 +77,13 @@ function pyStr(key: string, value: any): string {
       const n = Number(value)
       return Number.isInteger(n) ? `${n}.0` : String(n)
     }
-    case 'bool': return value ? 'True' : 'False'
+    case 'bool': return (value === true || String(value).toLowerCase() === 'true') ? 'True' : 'False'
     case 'json': return canonicalJson(value)
     default: return String(value)
   }
 }
 
-type View = 'round' | 'history' | 'board' | 'free' | 'agents' | 'functions' | 'admin'
+type View = 'calls' | 'round' | 'history' | 'board' | 'free' | 'agents' | 'functions' | 'admin'
 
 export default function Pool({ address, markets, onAction }: any) {
   const { data: walletClient } = useWalletClient()
@@ -96,7 +100,7 @@ export default function Pool({ address, markets, onAction }: any) {
   const [freeBoard, setFreeBoard] = useState<any[]>([])
   const [agentQuota, setAgentQuota] = useState<any>(null)
   const [agentBoard, setAgentBoard] = useState<any[]>([])
-  const [view, setView] = useState<View>('round')
+  const [view, setView] = useState<View>('calls')
 
   // The pool settles on feeds that can answer "the price at the close":
   // Hyperliquid marks, Bittensor subnet prices, and DEX pools on Solana/Base
@@ -174,7 +178,23 @@ export default function Pool({ address, markets, onAction }: any) {
     <div className="space-y-5">
       <Hero stats={stats} round={round} cfg={cfg} vault={vault} markets={hlMarkets} />
 
-      {!vault?.address ? (
+      <Tabs size="sm" value={view} onChange={setView} tabs={[
+        { id: 'calls', label: 'Up / Down', count: round?.side_calls },
+        { id: 'round', label: `Price calls`, count: round?.assets?.filter((a: any) => a.entries?.length || a.free?.length || a.agent?.length).length },
+        { id: 'history', label: 'Past rounds' },
+        { id: 'board', label: 'Stakers' },
+        { id: 'free', label: 'Free play' },
+        { id: 'agents', label: 'Agents' },
+        { id: 'functions', label: 'Functions' },
+        { id: 'admin', label: isOwner ? 'Owner · you' : owner?.claimed ? 'Rules' : 'Owner' },
+      ]} />
+
+      {view === 'calls' && (
+        <UpDown address={address} markets={hlMarkets} round={round} cfg={cfg} balance={balance}
+                signFor={signFor} onDone={reload} />
+      )}
+
+      {(view === 'calls' || view === 'round') && (!vault?.address ? (
         <div className="card p-6">
           <div className="text-sm text-white font-medium mb-1.5">The pool has no vault yet</div>
           <p className="note">
@@ -193,17 +213,7 @@ export default function Pool({ address, markets, onAction }: any) {
           <Cashout address={address} balance={balance} tokens={tokens} cfg={cfg}
                    withdrawals={withdrawals} signFor={signFor} onDone={reload} />
         </div>
-      )}
-
-      <Tabs size="sm" value={view} onChange={setView} tabs={[
-        { id: 'round', label: `Round ${round?.index ?? ''}`.trim(), count: round?.assets?.length },
-        { id: 'history', label: 'Past rounds' },
-        { id: 'board', label: 'Stakers' },
-        { id: 'free', label: 'Free play' },
-        { id: 'agents', label: 'Agents' },
-        { id: 'functions', label: 'Functions' },
-        { id: 'admin', label: isOwner ? 'Owner · you' : owner?.claimed ? 'Rules' : 'Owner' },
-      ]} />
+      ))}
 
       {view === 'round' && <RoundView round={round} cfg={cfg} address={address} />}
       {view === 'history' && <HistoryView rounds={history} />}
@@ -241,7 +251,7 @@ function Hero({ stats, round, cfg, vault, markets }: any) {
               <span className={`dot ${open ? 'dot-live' : ''}`} style={open ? {} : { background: 'var(--warn)' }} />
               {open ? 'entries open' : 'entries closed'}
             </Tag>
-            <span className="text-xs t3">round <span className="mono t2">{round?.index ?? s.round ?? 0}</span> · every {cfg?.interval_days ?? 7}d</span>
+            <span className="text-xs t3">round <span className="mono t2">{round?.index ?? s.round ?? 0}</span> · every {cfg?.interval_days === 1 ? 'day' : `${cfg?.interval_days ?? 1}d`}</span>
           </div>
 
           <div className="mt-4 flex items-end gap-4 flex-wrap">
@@ -271,7 +281,9 @@ function Hero({ stats, round, cfg, vault, markets }: any) {
           </div>
 
           <p className="note mt-5 max-w-lg">
-            Stake USDC on where a market closes. Every asset is its own pot; at the close the pot splits{' '}
+            Every asset is a card: call it <b className="up">up</b> or <b className="down">down</b> from today&apos;s open,
+            free or with dollars on it — the winning side splits the book at the close, and the book is the signal
+            the leverage desk trades off. Or stake on an exact close: every asset is its own pot that splits{' '}
             <b>pro-rata by dollars × accuracy</b> — {cfg?.model} scoring, tolerance {cfg?.tolerance}.
             {cfg?.free_per_round > 0 && <> {cfg.free_per_round} free calls a round need no deposit.</>}
             {cfg?.agent_per_round > 0 && <> Agents call with <b>bloctime</b> instead of dollars and split{' '}
@@ -1206,6 +1218,16 @@ function OwnerView({ cfg, owner, vault, address, signFor, onDone }: any) {
                      value={form.free_notional ?? ''} onChange={e => set('free_notional', e.target.value)} />
             </Setting>
 
+            <Setting label="Up/down free calls / round" hint={cfg.side_free_per_round ? `now ${cfg.side_free_per_round} per address` : 'off — dollars only'}>
+              <input className="input mono" placeholder="0 switches free up/down off" inputMode="numeric"
+                     value={form.side_free_per_round ?? ''} onChange={e => set('side_free_per_round', e.target.value)} />
+            </Setting>
+
+            <Setting label="Signal max leverage" hint={`now ×${cfg.signal_max_leverage ?? 5} — the most /pool/signal will suggest`}>
+              <input className="input mono" placeholder="1..50" inputMode="numeric"
+                     value={form.signal_max_leverage ?? ''} onChange={e => set('signal_max_leverage', e.target.value)} />
+            </Setting>
+
             <Setting label="Agent calls / round" hint={cfg.agent_per_round ? `now ${cfg.agent_per_round} per address` : 'off'}>
               <input className="input mono" placeholder="0 switches agent play off" inputMode="numeric"
                      value={form.agent_per_round ?? ''} onChange={e => set('agent_per_round', e.target.value)} />
@@ -1226,6 +1248,56 @@ function OwnerView({ cfg, owner, vault, address, signFor, onDone }: any) {
                      hint={cfg.min_liquidity_usd ? `now ${usd(cfg.min_liquidity_usd, 0)} · Solana & Base tokens under it can't be listed or staked` : 'no floor — any pool is listable'}>
               <input className="input mono" placeholder="dollars in the pool (0 = no floor)" inputMode="decimal"
                      value={form.min_liquidity_usd ?? ''} onChange={e => set('min_liquidity_usd', e.target.value)} />
+            </Setting>
+          </div>
+
+          <div className="mt-6 mb-3">
+            <div className="text-xs font-semibold text-white">Liquidity policy</div>
+            <div className="text-[11px] t3 mt-0.5">
+              Every Hyperliquid pair, every Bittensor subnet and the busiest Solana/Base pools are listable.
+              These floors decide how thin a book may be — a market under them takes no stakes, and the
+              sync lists what clears them. 0 = everything.
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Setting label="Hyperliquid volume floor"
+                     hint={cfg.hl_min_volume_usd ? `now ${usd(cfg.hl_min_volume_usd, 0)} / 24h` : 'now 0 — every pair, perp and spot'}>
+              <input className="input mono" placeholder="USD traded in 24h (0 = every pair)" inputMode="decimal"
+                     value={form.hl_min_volume_usd ?? ''} onChange={e => set('hl_min_volume_usd', e.target.value)} />
+            </Setting>
+            <Setting label="Subnet volume floor"
+                     hint={cfg.bt_min_volume_tao ? `now τ${fmt(cfg.bt_min_volume_tao, 0)} / 24h` : 'now 0 — every subnet'}>
+              <input className="input mono" placeholder="TAO traded in 24h (0 = every subnet)" inputMode="decimal"
+                     value={form.bt_min_volume_tao ?? ''} onChange={e => set('bt_min_volume_tao', e.target.value)} />
+            </Setting>
+            <Setting label="DEX volume floor"
+                     hint={cfg.dex_min_volume_usd ? `now ${usd(cfg.dex_min_volume_usd, 0)} / 24h, beside the liquidity floor` : 'now 0 — the liquidity floor alone decides'}>
+              <input className="input mono" placeholder="USD traded in 24h (0 = any)" inputMode="decimal"
+                     value={form.dex_min_volume_usd ?? ''} onChange={e => set('dex_min_volume_usd', e.target.value)} />
+            </Setting>
+            <Setting label="Auto-list" hint={cfg.auto_list ? 'now on — the sync lists everything that clears the floors' : 'now off — list by hand, or press List everything in Markets'}>
+              <select className="input" value={form.auto_list ?? ''} onChange={e => set('auto_list', e.target.value)}>
+                <option value="">unchanged</option>
+                <option value="true">on</option>
+                <option value="false">off</option>
+              </select>
+            </Setting>
+            <Setting label="Auto-pause" hint={cfg.auto_pause ? 'now on — markets that fall under the floors pause, and resume when they recover' : 'now off — nothing pauses on its own'}>
+              <select className="input" value={form.auto_pause ?? ''} onChange={e => set('auto_pause', e.target.value)}>
+                <option value="">unchanged</option>
+                <option value="true">on</option>
+                <option value="false">off</option>
+              </select>
+            </Setting>
+            <Setting label="Sync every" hint={cfg.sync_interval ? `now ${countdown(cfg.sync_interval)}` : 'now manual only'}>
+              <select className="input" value={form.sync_interval ?? ''} onChange={e => set('sync_interval', e.target.value)}>
+                <option value="">unchanged</option>
+                <option value={0}>manual only</option>
+                <option value={300}>5 minutes</option>
+                <option value={900}>15 minutes</option>
+                <option value={3600}>hourly</option>
+                <option value={86400}>daily</option>
+              </select>
             </Setting>
           </div>
 

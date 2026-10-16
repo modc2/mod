@@ -2,14 +2,16 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
-import { useAccount } from 'wagmi'
+import { useAccount, useWalletClient } from 'wagmi'
 import { API_BASE_URL } from '@/lib/contracts'
+import { signAction } from '@/lib/hyperevm'
 import {
   fmt, fmtUsd, fmtPx, fmtTao, fmtQuoted, fmtVol, fmtTaoVol, pctClass, pctSign, pairLabel, sourceLabel,
   short, countdown, countdownShort,
 } from '@/lib/fmt'
 import { Section, Stat, Empty, Avatar, SourceTag, Tabs, Tag, Label, Spinner } from '@/components/ui'
 import Pool from '@/components/Pool'
+import Agents from '@/components/Agents'
 import { toast } from 'react-toastify'
 
 const API = API_BASE_URL
@@ -17,7 +19,7 @@ const API = API_BASE_URL
 // reachable one — a hardcoded localhost port is mixed content over https.
 const UNISWAP_API = process.env.NEXT_PUBLIC_UNISWAP_API
 
-type Tab = 'pool' | 'predict' | 'markets' | 'trade' | 'portfolio' | 'leaderboard'
+type Tab = 'pool' | 'agents' | 'predict' | 'markets' | 'trade' | 'portfolio' | 'leaderboard'
 
 // Page files may only export the component itself — keep this module-local.
 const get = async (url: string) => {
@@ -44,7 +46,7 @@ export default function Home() {
   // should open where you left it.
   useEffect(() => {
     const h = (typeof window !== 'undefined' && window.location.hash.slice(1)) as Tab
-    if (['pool', 'predict', 'markets', 'trade', 'portfolio', 'leaderboard'].includes(h)) setTab(h)
+    if (['pool', 'agents', 'predict', 'markets', 'trade', 'portfolio', 'leaderboard'].includes(h)) setTab(h)
   }, [])
   const go = (t: Tab) => { setTab(t); if (typeof window !== 'undefined') history.replaceState(null, '', `#${t}`) }
 
@@ -106,6 +108,7 @@ export default function Home() {
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'pool', label: 'Pool' },
+    { id: 'agents', label: 'Agents' },
     { id: 'predict', label: 'Predict' },
     { id: 'markets', label: 'Markets', count: markets?.length },
     { id: 'trade', label: 'Trade' },
@@ -146,6 +149,7 @@ export default function Home() {
 
         <div className="fade-in pt-5" key={tab}>
           {tab === 'pool' && <Pool address={address} markets={markets} onAction={refresh} />}
+          {tab === 'agents' && <Agents address={address} />}
           {tab === 'predict' && <Predict markets={markets} address={address} balance={balance}
             predictions={predictions} scoring={scoring} quota={quota} onAction={refresh} />}
           {tab === 'markets' && <Markets status={status} markets={markets} treasury={treasury} poolPrices={poolPrices} onMarkets={fetchAll} />}
@@ -252,29 +256,98 @@ const sourceKey = (m: any): SourceFilter =>
 function Markets({ status, markets, treasury, poolPrices, onMarkets }: any) {
   const s = status || {}
   const t = treasury || {}
+  const { address } = useAccount()
+  const { data: walletClient } = useWalletClient()
   const [addOpen, setAddOpen] = useState<'' | 'hl' | 'bt' | 'solana' | 'raydium' | 'base'>('')
   const [filter, setFilter] = useState<SourceFilter>('all')
+  const [state, setState] = useState<'all' | 'active' | 'paused'>('all')
   const [q, setQ] = useState('')
+  const [shownRows, setShownRows] = useState(100)
+  const [liq, setLiq] = useState<any>(null)
+  const [owner, setOwner] = useState<any>(null)
+  const [syncing, setSyncing] = useState('')
+  const [acting, setActing] = useState('')
   const toggle = (which: 'hl' | 'bt' | 'solana' | 'raydium' | 'base') => setAddOpen(o => (o === which ? '' : which))
+
+  const refreshLiq = useCallback(async () => {
+    const [l, o] = await Promise.all([get(`${API}/liquidity?limit=1`), get(`${API}/pool/owner`)])
+    if (l) setLiq(l)
+    if (o) setOwner(o)
+  }, [])
+  useEffect(() => { refreshLiq() }, [refreshLiq, markets.length])
 
   const counts = useMemo(() => {
     const c = { all: markets.length, hyperliquid: 0, bittensor: 0, solana: 0, base: 0 } as Record<SourceFilter, number>
     for (const m of markets) c[sourceKey(m)]++
     return c
   }, [markets])
+  const paused = useMemo(() => markets.filter((m: any) => !m.active).length, [markets])
 
   const rows = useMemo(() => markets.filter((m: any) => {
     if (filter !== 'all' && sourceKey(m) !== filter) return false
+    if (state === 'active' && !m.active) return false
+    if (state === 'paused' && m.active) return false
     if (!q) return true
     const needle = q.toLowerCase()
     return [m.symbol, m.bt_name, m.hl_key, pairLabel(m)].some(x => x && String(x).toLowerCase().includes(needle))
-  }), [markets, filter, q])
+  }), [markets, filter, state, q])
+
+  // The owner's call on what the pot can be staked on: pause, resume, unlist.
+  const canManage = !owner?.claimed || (owner?.owner && address && owner.owner.toLowerCase() === address.toLowerCase())
+  const manage = async (action: 'pause' | 'resume' | 'remove', m: any) => {
+    setActing(`${action}:${m.symbol}`)
+    try {
+      const query = new URLSearchParams({ symbol: m.symbol })
+      if (owner?.claimed) {
+        if (!address || !walletClient) throw new Error('Connect the owner wallet first')
+        const req = await get(`${API}/pool/sign?${new URLSearchParams({ action: `${action}_market`, address, symbol: m.symbol })}`)
+        if (!req) throw new Error('could not reach the pool')
+        if (req.required) {
+          query.set('signature', await signAction(walletClient, req.message))
+          query.set('owner', address)
+        }
+      }
+      const r = await fetch(`${API}/markets/${action}?${query}`, { method: 'POST' })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || d.error || 'Failed')
+      if (d.error) throw new Error(d.error)
+      toast.success(action === 'remove' ? `${m.symbol} unlisted` : action === 'pause' ? `${m.symbol} paused — no new stakes` : `${m.symbol} takes stakes again`)
+      onMarkets?.()
+    } catch (e: any) { toast.error(e.message) }
+    setActing('')
+  }
+
+  // One pass over every feed: list everything the floors allow, pause what fell under them.
+  const sync = async (mode: 'all' | 'dry' | 'check') => {
+    setSyncing(mode)
+    try {
+      const qs = mode === 'dry' ? 'dry_run=true' : mode === 'check' ? 'list=false' : ''
+      const r = await fetch(`${API}/markets/sync?${qs}`, { method: 'POST' })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || d.error || 'Failed')
+      const verb = mode === 'dry' ? 'Would list' : 'Listed'
+      const parts = [`${verb} ${d.added}`, `paused ${d.paused}`, `resumed ${d.resumed}`]
+      const down = Object.entries(d.sources || {}).filter(([, v]: any) => !v.reachable).map(([k]) => k)
+      if (down.length) parts.push(`${down.join(', ')} unreachable`)
+      ;(d.added || d.paused || d.resumed ? toast.success : toast.info)(`${parts.join(' · ')} — ${d.active} of ${d.markets} markets active`)
+      if (mode !== 'dry') { onMarkets?.(); refreshLiq() }
+    } catch (e: any) { toast.error(e.message) }
+    setSyncing('')
+  }
+
+  const pol = liq?.policy || {}
+  const src = liq?.sources || {}
+  const floors = [
+    pol.hl_min_volume_usd ? `HL ≥ ${fmtUsd(pol.hl_min_volume_usd, 0)}/24h` : 'HL: every pair',
+    pol.bt_min_volume_tao ? `subnets ≥ τ${fmt(pol.bt_min_volume_tao, 0)}/24h` : 'subnets: every one',
+    `DEX ≥ ${fmtUsd(pol.min_liquidity_usd || 0, 0)} liquidity${pol.dex_min_volume_usd ? ` & ${fmtUsd(pol.dex_min_volume_usd, 0)}/24h` : ''}`,
+  ]
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label="Markets" value={markets.length}
-          sub={`${counts.hyperliquid} Hyperliquid · ${counts.bittensor} Bittensor · ${counts.solana} Solana · ${counts.base} Base`} />
+          sub={`${counts.hyperliquid} Hyperliquid · ${counts.bittensor} Bittensor · ${counts.solana} Solana · ${counts.base} Base${paused ? ` · ${paused} paused` : ''}`} />
         <Stat label="Treasury" value={fmtUsd(t.balance || 0)}
           sub={`${fmtUsd(t.total_captured || 0)} captured · ${fmtUsd(t.total_distributed || 0)} paid · epoch ${t.current_epoch || 0}`} />
         <Stat label="PREFI supply" value={fmt(t.prefi_supply || 0, 0)}
@@ -282,6 +355,55 @@ function Markets({ status, markets, treasury, poolPrices, onMarkets }: any) {
         <Stat label="Calls" value={s.predictions_total || 0}
           sub={`${s.predictions_open || 0} open · ${s.forecasters || 0} forecasters · ${fmtUsd(s.total_volume || 0, 0)} traded`} />
       </div>
+
+      <Section title="Liquidity" sub={liq ? floors.join(' · ') : undefined} action={
+        <div className="flex items-center gap-2">
+          <button onClick={() => sync('dry')} disabled={!!syncing} className="btn btn-ghost btn-sm"
+            title="What a sync would list, pause and resume — without writing">
+            {syncing === 'dry' ? 'Checking…' : 'Dry run'}
+          </button>
+          <button onClick={() => sync('check')} disabled={!!syncing} className="btn btn-secondary btn-sm"
+            title="Re-check every listed market against the floors: pause what fell under, resume what recovered">
+            {syncing === 'check' ? 'Checking…' : 'Re-check floors'}
+          </button>
+          <button onClick={() => sync('all')} disabled={!!syncing} className="btn btn-primary btn-sm"
+            title="List every Hyperliquid pair, Bittensor subnet and DEX pool that clears the floors">
+            {syncing === 'all' ? 'Listing…' : 'List everything'}
+          </button>
+        </div>
+      }>
+        <div className="p-[18px] grid sm:grid-cols-3 gap-3">
+          {([['hyperliquid', 'Hyperliquid', 'var(--teal)'], ['bittensor', 'Bittensor', 'var(--violet)'], ['dex', 'Solana & Base', 'var(--pink)']] as [string, string, string][]).map(([k, label, color]) => {
+            const v = src[k] || {}
+            return (
+              <div key={k} className="rounded-lg border border-white/[0.06] px-3.5 py-3">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="dot" style={{ background: color }} />
+                  <span className="text-white font-medium">{label}</span>
+                  {v.universe != null && <span className="t3 ml-auto num">{v.universe} quoted</span>}
+                </div>
+                <div className="mt-2 flex items-baseline gap-3">
+                  <span className="num text-lg text-white">{v.active ?? 0}</span>
+                  <span className="text-[11px] t3">active of {v.listed ?? 0} listed</span>
+                </div>
+                <div className="text-[11px] t3 mt-1">
+                  {v.paused ? <span className="warn">{v.paused} paused</span> : 'nothing paused'}
+                  {v.under_floor ? ` · ${v.under_floor} under the floor` : ''}
+                  {v.unquoted ? ` · ${v.unquoted} no longer quoted` : ''}
+                  {v.volume_24h ? ` · ${k === 'bittensor' ? `τ${fmt(v.volume_24h, 0)}` : fmtVol(v.volume_24h)} / 24h` : ''}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="px-[18px] pb-3 text-[11px] t3">
+          The floors and the auto-list / auto-pause switches are pool rules — set them in <b className="t2">Pool → Admin</b>.
+          {pol.auto_list || pol.auto_pause
+            ? <> The server syncs every {countdown(pol.sync_interval || 900)}: {pol.auto_list ? 'lists what clears the floors' : ''}{pol.auto_list && pol.auto_pause ? ', ' : ''}{pol.auto_pause ? 'pauses what falls under them and resumes what recovers' : ''}.</>
+            : <> Background sync is off — list and re-check from here.</>}
+          {' '}Paused markets take no new stakes; open pots on them still settle.
+        </div>
+      </Section>
 
       <Section title="Listed markets" count={markets?.length} action={
         <div className="flex items-center gap-2">
@@ -316,40 +438,75 @@ function Markets({ status, markets, treasury, poolPrices, onMarkets }: any) {
               {label} <span className="mono t3">{counts[id]}</span>
             </button>
           ))}
+          <div className="seg ml-auto">
+            {(['all', 'active', 'paused'] as const).map(k => (
+              <button key={k} onClick={() => setState(k)} className={`seg-btn uppercase ${state === k ? 'active' : ''}`}>
+                {k}{k === 'paused' && paused ? ` ${paused}` : ''}
+              </button>
+            ))}
+          </div>
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Filter…"
-            className="input ml-auto max-w-[200px] py-1.5 px-3 text-xs" />
+            className="input max-w-[200px] py-1.5 px-3 text-xs" />
         </div>
 
         {rows.length > 0 ? (
           <div>
-            <div className="thead grid-cols-[1fr_130px_90px_70px_80px]">
+            <div className="thead grid-cols-[1fr_120px_90px_90px_70px_110px]">
               <span>Asset</span><span className="text-right">Price</span>
-              <span className="text-right">Volume</span><span className="text-right">Trades</span>
-              <span className="text-right">Win rate</span>
+              <span className="text-right">24h vol</span><span className="text-right">Traded here</span>
+              <span className="text-right">Win rate</span><span className="text-right">Status</span>
             </div>
-            {rows.map((m: any) => (
-              <div key={`${m.source}-${m.symbol}`} className="trow grid-cols-[1fr_130px_90px_70px_80px]">
+            {rows.slice(0, shownRows).map((m: any) => (
+              <div key={`${m.source}-${m.symbol}`} className={`trow grid-cols-[1fr_120px_90px_90px_70px_110px] ${m.active ? '' : 'opacity-70'}`}>
                 <div className="flex items-center gap-3 min-w-0">
                   <Avatar symbol={m.symbol} />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-white font-medium truncate">{pairLabel(m)}</span>
                       <SourceTag m={m} />
+                      {m.eligible === false && m.active && <Tag tone="warn" title="Under the owner's floor right now — the pool refuses stakes on it">thin</Tag>}
                     </div>
-                    <div className="text-[11px] t3 truncate mt-0.5">{sourceLabel(m)}</div>
+                    <div className="text-[11px] t3 truncate mt-0.5">{m.active ? sourceLabel(m) : (m.paused_reason || 'paused')}</div>
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="num text-sm text-white">{m.quote === 'TAO' ? fmtTao(m.price) : fmtPx(m.price_usd)}</div>
                   {m.quote === 'TAO' && m.price_usd > 0 && <div className="num text-[11px] t3">{fmtPx(m.price_usd)}</div>}
                 </div>
+                <span className={`text-right num text-xs ${m.eligible === false ? 'warn' : 't2'}`}
+                      title={m.volume_floor ? `floor ${m.quote === 'TAO' ? 'τ' : '$'}${fmt(m.volume_floor, 0)}` : undefined}>
+                  {m.volume_24h != null ? (m.quote === 'TAO' ? fmtTaoVol(m.volume_24h) : fmtVol(m.volume_24h)) : <span className="t3">—</span>}
+                </span>
                 <span className="text-right num text-xs t2">{m.total_volume ? fmtUsd(m.total_volume, 0) : <span className="t3">—</span>}</span>
-                <span className="text-right num text-xs t2">{m.total_positions || <span className="t3">—</span>}</span>
                 <span className={`text-right num text-xs ${(m.win_rate || 0) >= 50 ? 'up' : m.total_positions ? 't2' : 't3'}`}>
                   {m.total_positions ? `${m.win_rate || 0}%` : '—'}
                 </span>
+                <div className="text-right flex items-center justify-end gap-1.5">
+                  {!canManage ? (
+                    <Tag tone={m.active ? 'up' : 'warn'}>{m.active ? 'live' : 'paused'}</Tag>
+                  ) : m.active ? (
+                    <button disabled={!!acting} onClick={() => manage('pause', m)} className="btn btn-xs btn-ghost" title="Stop new stakes on this market">
+                      {acting === `pause:${m.symbol}` ? '…' : 'Pause'}
+                    </button>
+                  ) : (
+                    <>
+                      <button disabled={!!acting} onClick={() => manage('resume', m)} className="btn btn-xs btn-secondary" title="Take stakes again">
+                        {acting === `resume:${m.symbol}` ? '…' : 'Resume'}
+                      </button>
+                      <button disabled={!!acting} onClick={() => manage('remove', m)} className="btn btn-xs btn-ghost" title="Unlist — refused while anything is open on it">
+                        {acting === `remove:${m.symbol}` ? '…' : '✕'}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             ))}
+            {rows.length > shownRows && (
+              <div className="px-[18px] py-3 flex items-center justify-between text-[11px] t3">
+                <span>{shownRows} of {rows.length} markets</span>
+                <button onClick={() => setShownRows(n => n + 100)} className="btn btn-ghost btn-xs">Show 100 more</button>
+              </div>
+            )}
           </div>
         ) : markets.length ? (
           <Empty title="Nothing matches" msg={`No listed market matches “${q}”.`} />

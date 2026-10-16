@@ -1,5 +1,5 @@
 {
-  "_doc": "Single provider registry for the model gateway. Read by app/catalog.py (FastAPI server + mod.py CLI) and api/src/main.rs (Rust). Every provider speaks OpenAI-compatible /chat/completions; models_auth/models_headers/models_query only cover the /models listing quirks. models_query widens a listing to every model TYPE (OpenRouter and Venice list only text models by default). group: lab | router | network (decentralized) — sidebar grouping only.",
+  "_doc": "Single provider registry for the model gateway. Read by app/catalog.py (FastAPI server + mod.py CLI) and api/src/main.rs (Rust). Every provider speaks OpenAI-compatible /chat/completions; models_auth/models_headers/models_query only cover the /models listing quirks. models_query widens a listing to every model TYPE (OpenRouter and Venice list only text models by default). group: lab | router | network (decentralized) — sidebar grouping only. Models whose provider declares api_shapes without chat.completions are bridged to OpenAI format by app/adapters.py.",
   "providers": [
     {
       "id": "openrouter",
@@ -52,7 +52,8 @@
       "default_model": "meta-llama/Llama-3.3-70B-Instruct",
       "key_hint": "deepinfra key",
       "docs": "https://deepinfra.com/dash/api_keys",
-      "env": "DEEPINFRA_API_KEY"
+      "env": "DEEPINFRA_API_KEY",
+      "public_models": true
     },
     {
       "id": "groq",
@@ -84,7 +85,9 @@
       "docs": "https://console.anthropic.com/settings/keys",
       "env": "ANTHROPIC_API_KEY",
       "models_auth": "x-api-key",
-      "models_headers": {"anthropic-version": "2023-06-01"}
+      "models_headers": {
+        "anthropic-version": "2023-06-01"
+      }
     },
     {
       "id": "openai",
@@ -144,7 +147,8 @@
       "default_model": "deepseek-ai/DeepSeek-V3",
       "key_hint": "cpk_…",
       "docs": "https://chutes.ai",
-      "env": "CHUTES_API_KEY"
+      "env": "CHUTES_API_KEY",
+      "public_models": true
     },
     {
       "id": "targon",
@@ -165,7 +169,21 @@
       "key_hint": "venice key",
       "docs": "https://venice.ai",
       "env": "VENICE_API_KEY",
-      "models_query": "type=all"
+      "models_query": "type=all",
+      "public_models": true
+    },
+    {
+      "id": "saygm",
+      "label": "SayGM",
+      "group": "network",
+      "url": "https://api.saygm.com/v1",
+      "default_model": "deepseek-v4.1-flash",
+      "key_hint": "gm_…",
+      "docs": "https://saygm.com",
+      "env": "SAYGM_API_KEY",
+      "public_models": true,
+      "_note": "Bittensor gateway, -tee ids run in an Intel TDX enclave. Each model lists api_shapes; non-chat.completions shapes (messages, generateContent) are translated to OpenAI format by app/adapters.py",
+      "model_shapes": true
     }
   ]
 }

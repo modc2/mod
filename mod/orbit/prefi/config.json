@@ -1,6 +1,6 @@
 {
     "name": "prefi",
-    "description": "Prediction pool on Hyperliquid, Bittensor, Solana and Base \u2014 deposit USDC/USDT0 on HyperEVM, stake on where an asset closes, the pot splits by dollars x accuracy every round; every Hyperliquid pair (perp and spot), every Bittensor subnet alpha token, and any Solana or Base token whose pool clears the owner-set liquidity floor is listable; plus PREFI trading, staking and treasury",
+    "description": "Prediction pool on Hyperliquid, Bittensor, Solana and Base \u2014 deposit USDC/USDT0 on HyperEVM, stake on where an asset closes, the pot splits by dollars x accuracy every round; every Hyperliquid pair (perp and spot), every Bittensor subnet alpha token, and any Solana or Base token whose pool clears the owner-set liquidity floor is listable; plus PREFI trading, staking and treasury \u2014 plus a local simulated economy (sim price feed, exchange, one-minute paper pool) where vibecoded agents predict and trade every minute; Agents tab in the console and an MCP server at /mcp",
     "anchor": "mod.py",
     "network": "baseSepolia",
     "port": 50410,
@@ -9,7 +9,8 @@
     "route": true,
     "urls": {
         "api": "http://localhost:50410",
-        "app": "http://localhost:50411"
+        "app": "http://localhost:50411",
+        "mcp": "http://localhost:50410/mcp"
     },
     "contracts": {},
     "fns": [
@@ -34,6 +35,12 @@
         "dex_snapshot",
         "dex_min_liquidity",
         "list_markets",
+        "sync_markets",
+        "liquidity",
+        "liquidity_policy",
+        "pause_market",
+        "resume_market",
+        "remove_market",
         "open_position",
         "close_position",
         "get_positions",
@@ -88,6 +95,11 @@
         "pool_agent_stake",
         "pool_agent_quota",
         "pool_agent_leaderboard",
+        "pool_side_stake",
+        "pool_side_quota",
+        "pool_side_leaderboard",
+        "pool_signal",
+        "pool_curve",
         "paper_status",
         "paper_config",
         "paper_set_config",
@@ -103,6 +115,33 @@
         "paper_log",
         "paper_verify",
         "paper_sign",
+        "economy_status",
+        "economy_prices",
+        "economy_config",
+        "economy_set_config",
+        "economy_reset",
+        "economy_add_asset",
+        "economy_faucet",
+        "economy_trade",
+        "economy_predict",
+        "economy_account",
+        "economy_leaderboard",
+        "economy_trades",
+        "economy_round",
+        "economy_rounds",
+        "economy_verify",
+        "economy_start",
+        "economy_loop_step",
+        "agent_list",
+        "agent_get",
+        "agent_create",
+        "agent_update",
+        "agent_delete",
+        "agent_run",
+        "agent_vibecode",
+        "agent_check",
+        "agent_language",
+        "mcp",
         "pool_round",
         "pool_rounds",
         "pool_entries",
@@ -121,5 +160,14 @@
         "serve_app",
         "kill"
     ],
-    "schema": "Qma7uzQTGoRQVp7kzxwdGefV38yEnBArqbJCzi9gfeArqq"
+    "schema": "QmUiXbRJ1qVb8Aq4GJrbhSSxdcr8KD5NMNptgqLbdrsNgS",
+    "mcp": {
+        "http": "http://localhost:50410/mcp",
+        "stdio": {
+            "command": "python3",
+            "args": [
+                "src/mcp_server.py"
+            ]
+        }
+    }
 }

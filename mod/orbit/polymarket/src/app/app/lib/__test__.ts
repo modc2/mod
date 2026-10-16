@@ -39,7 +39,7 @@ import {
 import {
   applySemanticQuery, compileGate, parseSemanticQuery, semanticMatch,
 } from "./semanticFilter";
-import { BEST_UNKNOWN, bestScore, curveSteadiness, STEADINESS_UNKNOWN } from "./scoreFormula";
+import { BEST_UNKNOWN, bestScore, curveSteadiness, STEADINESS_UNKNOWN, CONSISTENCY_SCORE_UNKNOWN, consistencyScore, wilsonLower, compileScore, scoreInputs, scoreIsUnknown } from "./scoreFormula";
 import {
   describeSentiment, readSentiment, sentimentBreakdown, sentimentFilterActive,
   sentimentReject, type MarketSentiment, type SentimentLookup,
@@ -1326,6 +1326,54 @@ console.log("\n─ best: the all-round rank — ROI × evidence + steadiness + w
   ok(fresh === 25, `a fresh wallet with real ROI still ranks — unknowns are neutral, never fatal (got ${fresh})`);
   const capped = bestScore({ pnl: 50000, volume: 1000, positions: 40, winRate: 100, decided: 100, steadiness: 10 });
   ok(capped === 130, `the ceiling: 100 ROI cap + 20 steadiness + 10 win rate = 130 (got ${capped})`);
+}
+
+console.log("\n─ consistencyScore: probability the success is real, not a lucky run ─");
+{
+  // Fixtures mirror routes.rs `consistency_score_rewards_evidence_not_luck` —
+  // the two implementations MUST produce the same numbers.
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const stairs = [0, 10, 21, 30, 41, 50, 61, 70];
+  const proven = consistencyScore({ curve: stairs, pnl: 5000, winRate: 70, decided: 20 });
+  ok(near(proven, 65.28609234070747), `staircase + 70% of 20 settled = 65.29 (got ${proven})`);
+  const deep = consistencyScore({ curve: stairs, pnl: 5000, winRate: 90, decided: 500 });
+  ok(near(deep, 77.27114335775204), `same curve + 90% of 500 settled = 77.27 (got ${deep})`);
+  const thin = consistencyScore({ curve: [0, 1, 2, 3], pnl: 100, winRate: 100, decided: 2 });
+  ok(near(thin, 49.2169073775994), `perfect but thin (3/3 + 2/2) is shrunk to 49.22 (got ${thin})`);
+  const spike = consistencyScore({ curve: [0, 0, 0, 0, 0.5, 0, -0.5, 70], pnl: 5000, winRate: -1, decided: 0 });
+  ok(near(spike, 18.238330483920343), `one late spike scores 18.24 (got ${spike})`);
+  const bleeder = consistencyScore({ curve: [0, -10, -20, -30, -41, -50, -61, -70], pnl: -5000, winRate: 20, decided: 20 });
+  ok(near(bleeder, 1.5518623110629575), `a loser is near 0 and halved (got ${bleeder})`);
+  const winsOnly = consistencyScore({ curve: null, pnl: 10, winRate: 60, decided: 50 });
+  ok(near(winsOnly, 48.374243894220356), `win record alone still scores (got ${winsOnly})`);
+  ok(consistencyScore({ curve: undefined, pnl: 0, winRate: -1, decided: 0 }) === CONSISTENCY_SCORE_UNKNOWN,
+    "nothing to judge is UNKNOWN (-1)");
+  ok(deep > proven && proven > thin && thin > spike && spike > bleeder,
+    "deep > proven > thin > spike > bleeder — evidence beats luck");
+
+  // Losing money while winning legs is halved — the longshot-inverse trap.
+  const winsButLoses = consistencyScore({ curve: null, pnl: -10, winRate: 60, decided: 50 });
+  ok(near(winsButLoses, winsOnly / 2), "high win rate on a losing window is halved");
+
+  // Wilson lower bound: shrinks small samples, never exceeds the raw rate.
+  ok(wilsonLower(1, 0) === 0, "no trials → 0");
+  ok(wilsonLower(1, 3) < wilsonLower(1, 11) && wilsonLower(1, 11) < 1, "3/3 < 11/11 < 1");
+  ok(wilsonLower(0.6, 1000) < 0.6 && wilsonLower(0.6, 1000) > 0.57, "deep sample sits just under its rate");
+  ok(wilsonLower(0, 10) === 0, "zero successes floors at 0, never negative");
+
+  // Wired into the SCORE bus: var, preset, unknown display, function filter.
+  const t = {
+    sharpe: 0, pnl: 5000, volume: 10000, buyVolume: 5000, sellVolume: 5000, positions: 40,
+    winRate: 70, decidedPositions: 20, marketTitles: ["a"], exitEntry: 1, pnlCurve: stairs, resolveRate: 50,
+  } as unknown as Parameters<typeof scoreInputs>[0];
+  const inp = scoreInputs(t);
+  ok(near(inp.consistencyScore, proven), "scoreInputs exposes consistencyScore");
+  const preset = compileScore("consistencyScore");
+  ok(preset.error === null && near(preset.fn!(inp) as number, proven), "the CONSISTENT preset formula compiles and ranks");
+  const gate = compileScore("if (consistencyScore < 60) return null; return consistencyScore;");
+  ok(gate.fn!(inp) !== null && gate.fn!({ ...inp, consistencyScore: 40 }) === null, "a JS gate on consistencyScore filters");
+  ok(scoreIsUnknown("consistencyScore", { ...inp, consistencyScore: -1 }), "preset shows — at -1");
+  ok(!scoreIsUnknown("consistencyScore", inp), "a real score is not unknown");
 }
 
 console.log("\n─ the STEADY filter: unknown is CUT, because shape is its subject ─");

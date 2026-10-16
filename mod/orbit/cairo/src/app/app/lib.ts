@@ -6,7 +6,7 @@ export const BASE = process.env.NEXT_PUBLIC_BASE ?? '/cairo';
 export const API = `${BASE}/_api`;
 
 export type BuildState = 'fresh' | 'stale' | 'unbuilt';
-export type Contract = { name: string; built: boolean; state?: BuildState; template?: string | null; description?: string | null };
+export type Contract = { name: string; built: boolean; state?: BuildState; template?: string | null; description?: string | null; private?: boolean };
 export type Template = { id: string; title: string; blurb: string };
 export type Job = {
   id: string;

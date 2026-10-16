@@ -307,8 +307,8 @@ class TestShadowPayout(unittest.TestCase):
 
 class TestConfigValidation(unittest.TestCase):
 
-    def test_weekly_is_the_default(self):
-        self.assertEqual(pool_mod.DEFAULT_CONFIG['interval'], 604800)
+    def test_daily_is_the_default(self):
+        self.assertEqual(pool_mod.DEFAULT_CONFIG['interval'], 86400)
 
     def test_rejects_absurd_intervals(self):
         for bad in (60, 0, 10 ** 12):
@@ -1041,9 +1041,9 @@ class TestConfigMigration(PoolTestBase):
 
 class TestRoundSchedule(PoolTestBase):
 
-    def test_default_round_is_a_week(self):
+    def test_default_round_is_a_day(self):
         window = self.pool.window()
-        self.assertEqual(window['closes'] - window['opens'], 604800)
+        self.assertEqual(window['closes'] - window['opens'], 86400)
 
     def test_owner_changes_the_interval(self):
         out = self.pool.set_config(interval=86400)
@@ -1051,13 +1051,30 @@ class TestRoundSchedule(PoolTestBase):
         self.assertEqual(out['interval_days'], 1.0)
 
     def test_new_interval_starts_at_the_next_boundary(self):
+        self.pool.set_config(interval=172800)
         before = self.pool.window()
-        self.pool.set_config(interval=86400)
-        after = self.pool.window(before['index'])
-        # The round already open keeps the length it was sold with.
+        self.fund(ALICE, 50.0)
+        self.assertNotIn('error', self.pool.stake(ALICE, 'BTC', 100_000.0, 10.0))
+        self.pool.set_config(interval=604800)
+        # Money is open in this round, so it keeps the length it was sold with.
         self.assertEqual(self.pool.state()['schedule']['anchor'], before['closes'])
         self.assertEqual(self.pool.state()['schedule']['anchor_index'],
                          before['index'] + 1)
+
+    def test_idle_pool_goes_daily_from_the_last_midnight(self):
+        self.pool.set_config(interval=604800)
+        before = self.pool.window()
+        out = self.pool.set_config(interval=86400)
+        sched = self.pool.state()['schedule']
+        midnight = int(time.time() // 86400) * 86400
+        # Nothing was staked, so today is already a daily round: it opened at
+        # 00:00 UTC and closes at the next midnight.
+        self.assertEqual(sched['anchor'], midnight)
+        self.assertEqual(sched['anchor_index'], before['index'] + 1)
+        now = self.pool.window()
+        self.assertEqual(now['opens'], midnight)
+        self.assertEqual(now['closes'], midnight + 86400)
+        self.assertIn('effective from round', out['note'])
 
     def test_round_numbers_never_go_backwards(self):
         first = self.pool.current_index()
@@ -1380,3 +1397,237 @@ class TestModIntegration(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestSideMath(unittest.TestCase):
+    """The pure parts: who wins a book, how it splits, what the signal says."""
+
+    def _book(self, *rows):
+        return [{'id': i, 'address': a, 'side': side, 'amount': amt}
+                for i, (a, side, amt) in enumerate(rows, 1)]
+
+    def test_outcome_is_strict_above_or_below(self):
+        self.assertEqual(pool_mod.side_outcome(101.0, 100.0), 'up')
+        self.assertEqual(pool_mod.side_outcome(99.0, 100.0), 'down')
+        self.assertIsNone(pool_mod.side_outcome(100.0, 100.0))
+        self.assertIsNone(pool_mod.side_outcome(None, 100.0))
+
+    def test_winners_split_the_losers_pro_rata(self):
+        book = self._book((ALICE, 'up', 100.0), (BOB, 'up', 300.0), (CAROL, 'down', 200.0))
+        out = pool_mod.settle_sides(book, 110.0, 100.0, 0)
+        self.assertEqual(out['winner_side'], 'up')
+        by = {e['address']: e for e in out['entries']}
+        self.assertAlmostEqual(by[ALICE]['payout'], 150.0, places=5)
+        self.assertAlmostEqual(by[BOB]['payout'], 450.0, places=5)
+        self.assertEqual(by[CAROL]['payout'], 0.0)
+        self.assertAlmostEqual(sum(e['payout'] for e in out['entries']), 600.0, places=5)
+
+    def test_no_counterparty_refunds(self):
+        book = self._book((ALICE, 'up', 100.0), (BOB, 'up', 50.0))
+        out = pool_mod.settle_sides(book, 90.0, 100.0, 0)      # everyone lost
+        self.assertEqual(out['mode'], 'refund')
+        self.assertEqual([e['payout'] for e in out['entries']], [100.0, 50.0])
+        push = pool_mod.settle_sides(book, 100.0, 100.0, 0)    # dead even
+        self.assertEqual(push['mode'], 'refund')
+
+    def test_free_wagers_are_scored_but_never_paid(self):
+        book = self._book((ALICE, 'up', 0.0), (BOB, 'down', 0.0))
+        out = pool_mod.settle_sides(book, 110.0, 100.0, 0)
+        self.assertEqual(out['mode'], 'free-only')
+        self.assertTrue(out['entries'][0]['hit'])
+        self.assertEqual(out['entries'][0]['payout'], 0.0)
+
+    def test_book_lean_counts_free_calls_as_notional(self):
+        book = pool_mod.side_book(self._book((ALICE, 'up', 0.0), (BOB, 'up', 0.0),
+                                             (CAROL, 'down', 100.0)), 100.0)
+        self.assertEqual(book['up']['free'], 2)
+        self.assertEqual(book['down']['amount'], 100.0)
+        self.assertAlmostEqual(book['lean'], (200 - 100) / 300, places=4)
+        self.assertEqual(book['calls'], 3)
+
+    def test_signal_is_flat_without_a_crowd(self):
+        sig = pool_mod.signal_of({'lean': 0.0, 'calls': 0}, 5)
+        self.assertEqual(sig['bias'], 'flat')
+        self.assertEqual(sig['leverage'], 0)
+        thin = pool_mod.signal_of({'lean': 1.0, 'calls': 1}, 5)
+        # One caller all-in is a direction, but a tenth of a crowd.
+        self.assertEqual(thin['bias'], 'long')
+        self.assertAlmostEqual(thin['conviction'], 0.1)
+        self.assertEqual(thin['leverage'], 1)
+
+    def test_signal_leverage_scales_with_conviction_and_is_capped(self):
+        full = pool_mod.signal_of({'lean': -1.0, 'calls': 10}, 5)
+        self.assertEqual(full['bias'], 'short')
+        self.assertEqual(full['conviction'], 1.0)
+        self.assertEqual(full['leverage'], 5)
+        capped = pool_mod.signal_of({'lean': -1.0, 'calls': 500}, 3)
+        self.assertEqual(capped['leverage'], 3)
+        half = pool_mod.signal_of({'lean': 0.5, 'calls': 10}, 10)
+        self.assertEqual(half['leverage'], 5)
+
+    def test_a_coin_flip_crowd_earns_no_leverage_once_it_has_a_record(self):
+        track = {'rounds': 10, 'hits': 5, 'hit_rate': 0.5}
+        sig = pool_mod.signal_of({'lean': 1.0, 'calls': 10}, 5, track)
+        self.assertEqual(sig['conviction'], 0.0)
+        self.assertEqual(sig['leverage'], 1)          # a bias still reads long, at the floor
+        sharp = pool_mod.signal_of({'lean': 1.0, 'calls': 10}, 5,
+                                   {'rounds': 10, 'hits': 10, 'hit_rate': 1.0})
+        self.assertEqual(sharp['leverage'], 5)
+        # Two rounds of history only discount a fifth of the way.
+        young = pool_mod.signal_of({'lean': 1.0, 'calls': 10}, 5,
+                                   {'rounds': 2, 'hits': 1, 'hit_rate': 0.5})
+        self.assertAlmostEqual(young['conviction'], 0.8)
+
+    def test_crowd_track_reads_settled_rounds(self):
+        rounds = [
+            {'index': 1, 'assets': {'BTC': {'sides': {'book': {'lean': 0.6}, 'winner_side': 'up'}}}},
+            {'index': 2, 'assets': {'BTC': {'sides': {'book': {'lean': -0.4}, 'winner_side': 'up'}}}},
+            {'index': 3, 'assets': {'BTC': {'sides': {'book': {'lean': 0.05}, 'winner_side': 'up'}},
+                                    'ETH': {'sides': None}}},
+        ]
+        track = pool_mod.crowd_track(rounds)
+        self.assertEqual(track['BTC']['rounds'], 2)      # the 0.05 lean is no call
+        self.assertEqual(track['BTC']['hits'], 1)
+        self.assertEqual(track['BTC']['hit_rate'], 0.5)
+        self.assertNotIn('ETH', track)
+
+
+class TestUpDown(PoolTestBase):
+    """Direction wagers through the pool: strike pinning, quotas, settlement,
+    the signal and the board."""
+
+    def _close_round(self):
+        st = self.pool.state()
+        st['schedule']['anchor'] -= st['schedule']['interval'] + 10
+        self.pool._save_state(st)
+        rounds = self.pool._rounds()
+        for record in rounds:
+            record.update(self.pool.window(record['index']))
+        self.pool._write(self.pool.rounds_path, rounds)
+
+    def test_a_free_call_needs_no_money(self):
+        out = self.pool.side_stake(ALICE, 'BTC', 'up')
+        self.assertNotIn('error', out)
+        self.assertTrue(out['free'])
+        self.assertEqual(out['strike'], 100_000.0)
+        self.assertEqual(out['book']['up']['free'], 1)
+        self.assertEqual(self.pool.ledger(ALICE), [])
+
+    def test_side_must_be_up_or_down(self):
+        self.assertIn("'up' or 'down'", self.pool.side_stake(ALICE, 'BTC', 'sideways')['error'])
+
+    def test_strike_is_pinned_for_the_round(self):
+        self.pool.side_stake(ALICE, 'BTC', 'up')
+        self.prices['BTC'] = 105_000.0            # the mark moves, the strike does not
+        out = self.pool.side_stake(BOB, 'BTC', 'down')
+        self.assertEqual(out['strike'], 100_000.0)
+        self.assertAlmostEqual(out['mark_vs_strike_pct'], 5.0)
+
+    def test_one_wager_per_asset_per_round(self):
+        self.pool.side_stake(ALICE, 'BTC', 'up')
+        self.assertIn('already called', self.pool.side_stake(ALICE, 'BTC', 'down')['error'])
+
+    def test_free_quota_runs_out(self):
+        self.pool.set_config(side_free_per_round=1)
+        self.markets.append({'symbol': 'ETH', 'token': 'ETH', 'source': 'hyperliquid', 'active': True})
+        self.prices['ETH'] = 3000.0
+        self.assertNotIn('error', self.pool.side_stake(ALICE, 'BTC', 'up'))
+        self.assertIn('out of free up/down calls', self.pool.side_stake(ALICE, 'ETH', 'up')['error'])
+        q = self.pool.side_quota(ALICE)
+        self.assertEqual(q['remaining'], 0)
+        self.assertEqual(q['assets_used'], ['BTC'])
+
+    def test_dollars_leave_the_balance_and_obey_min_stake(self):
+        self.fund(ALICE, 100.0)
+        self.assertIn('minimum stake', self.pool.side_stake(ALICE, 'BTC', 'up', 1.0)['error'])
+        out = self.pool.side_stake(ALICE, 'BTC', 'up', 40.0)
+        self.assertNotIn('error', out)
+        self.assertEqual(self.pool.balance(ALICE)['available'], 60.0)
+
+    def test_winning_side_takes_the_book_at_the_close(self):
+        self.fund(ALICE, 100.0); self.fund(BOB, 100.0); self.fund(CAROL, 100.0)
+        self.pool.side_stake(ALICE, 'BTC', 'up', 50.0)
+        self.pool.side_stake(BOB, 'BTC', 'up', 25.0)
+        self.pool.side_stake(CAROL, 'BTC', 'down', 75.0)
+        self.prices['BTC'] = 101_000.0
+        self._close_round()
+        out = self.pool.settle()
+        self.assertEqual(out['settled'][0]['winner_side'], 'up')
+        self.assertAlmostEqual(self.pool.balance(ALICE)['available'], 50 + 100.0, places=5)
+        self.assertAlmostEqual(self.pool.balance(BOB)['available'], 75 + 50.0, places=5)
+        self.assertAlmostEqual(self.pool.balance(CAROL)['available'], 25.0, places=5)
+        # Every dollar is still in the vault's books.
+        self.assertAlmostEqual(self.pool.liabilities()['total'], 300.0, places=5)
+
+    def test_a_push_refunds_everyone(self):
+        self.fund(ALICE, 100.0); self.fund(BOB, 100.0)
+        self.pool.side_stake(ALICE, 'BTC', 'up', 50.0)
+        self.pool.side_stake(BOB, 'BTC', 'down', 50.0)
+        self._close_round()                      # closes exactly at the strike
+        self.pool.settle()
+        self.assertEqual(self.pool.balance(ALICE)['available'], 100.0)
+        self.assertEqual(self.pool.balance(BOB)['available'], 100.0)
+
+    def test_signal_reads_the_live_book(self):
+        self.fund(CAROL, 100.0)
+        self.pool.side_stake(ALICE, 'BTC', 'up')
+        self.pool.side_stake(BOB, 'BTC', 'up')
+        self.pool.side_stake(CAROL, 'BTC', 'down', 50.0)
+        self.prices['BTC'] = 102_000.0
+        sig = self.pool.signal()
+        self.assertEqual(sig['calls'], 3)
+        btc = sig['assets'][0]
+        self.assertEqual(btc['asset'], 'BTC')
+        self.assertEqual(btc['strike'], 100_000.0)
+        self.assertEqual(btc['mark'], 102_000.0)
+        self.assertEqual(btc['leading'], 'up')
+        self.assertEqual(btc['bias'], 'long')            # $200 notional up vs $50 down
+        self.assertAlmostEqual(btc['lean'], 0.6, places=4)
+        self.assertEqual(btc['leverage'], 1)             # 3 of 10 callers → 0.18 × 5 rounds to 1
+        self.assertIsNone(btc['track'])
+        one = self.pool.signal('btc')
+        self.assertEqual([a['asset'] for a in one['assets']], ['BTC'])
+        empty = self.pool.signal('ETH')
+        self.assertEqual(empty['assets'][0]['bias'], 'flat')
+
+    def test_signal_learns_the_crowd_record(self):
+        self.pool.side_stake(ALICE, 'BTC', 'up')
+        self.pool.side_stake(BOB, 'BTC', 'up')
+        self.prices['BTC'] = 90_000.0                  # the crowd was wrong
+        self._close_round()
+        self.pool.settle()
+        self.prices['BTC'] = 90_000.0
+        self.pool.side_stake(ALICE, 'BTC', 'up')
+        sig = self.pool.signal()
+        btc = sig['assets'][0]
+        self.assertEqual(btc['track']['rounds'], 1)
+        self.assertEqual(btc['track']['hits'], 0)
+        self.assertEqual(sig['crowd']['hit_rate'], 0.0)
+        self.assertLess(btc['conviction'], 0.1)        # discounted a tenth of the way
+        past = self.pool.signal(index=sig['round'] - 1)
+        self.assertTrue(past['assets'][0]['settled'])
+        self.assertEqual(past['assets'][0]['winner_side'], 'down')
+
+    def test_side_board_ranks_by_hit_rate(self):
+        self.fund(CAROL, 100.0)
+        self.pool.side_stake(ALICE, 'BTC', 'up')
+        self.pool.side_stake(BOB, 'BTC', 'down')
+        self.pool.side_stake(CAROL, 'BTC', 'down', 20.0)
+        self.prices['BTC'] = 95_000.0
+        self._close_round()
+        self.pool.settle()
+        board = self.pool.side_leaderboard()
+        top = {r['address']: r for r in board}
+        self.assertEqual(top[BOB]['hit_rate'], 1.0)
+        self.assertEqual(top[CAROL]['hit_rate'], 1.0)
+        self.assertEqual(top[CAROL]['net'], 0.0)       # no counterparty money → refunded
+        self.assertEqual(top[ALICE]['hit_rate'], 0.0)
+        self.assertEqual(board[-1]['address'], ALICE)
+
+    def test_round_view_carries_the_book(self):
+        self.pool.side_stake(ALICE, 'BTC', 'up')
+        view = self.pool.round()
+        btc = view['assets'][0]
+        self.assertEqual(btc['sides']['book']['calls'], 1)
+        self.assertEqual(btc['sides']['strike'], 100_000.0)
+        self.assertEqual(view['side_calls'], 1)

@@ -26,11 +26,44 @@ def _dex_snapshot_loop():
             pass
         time.sleep(300)
 
+def _market_sync_loop():
+    """The liquidity policy, kept: every `sync_interval` seconds list what
+    clears the floors (auto_list) and pause/resume what crosses them
+    (auto_pause). Both switches off = the loop idles. Off entirely with
+    PREFI_MARKET_SYNC=0."""
+    import time
+    time.sleep(20)                       # let the feeds' first reads settle
+    while True:
+        wait = 900
+        try:
+            pol = get_mod().liquidity_policy()
+            wait = int(pol.get('sync_interval') or 0) or 900
+            if pol.get('auto_list') or pol.get('auto_pause'):
+                get_mod().sync_markets('all', do_list=bool(pol.get('auto_list')),
+                                       do_pause=bool(pol.get('auto_pause')))
+        except Exception:
+            pass
+        time.sleep(max(60, wait))
+
 @app.on_event("startup")
 def _start_dex_snapshots():
     if os.environ.get('PREFI_DEX_SNAPSHOTS', '1') not in ('0', 'false', 'no'):
         import threading
         threading.Thread(target=_dex_snapshot_loop, name='prefi-dex-snapshots',
+                         daemon=True).start()
+
+@app.on_event("startup")
+def _start_economy():
+    """The economy clock: tick the sim feed, settle minutes, run agents.
+    Off with PREFI_ECONOMY=0."""
+    if os.environ.get('PREFI_ECONOMY', '1') not in ('0', 'false', 'no'):
+        try:
+            get_mod().economy_start()
+        except Exception:
+            pass
+    if os.environ.get('PREFI_MARKET_SYNC', '1') not in ('0', 'false', 'no'):
+        import threading
+        threading.Thread(target=_market_sync_loop, name='prefi-market-sync',
                          daemon=True).start()
 
 def get_mod():
@@ -78,6 +111,62 @@ def add_market(
 @app.post("/markets/seed")
 def seed_markets():
     return get_mod().seed()
+
+
+# ── Liquidity: every market the floors allow ─────────────────────
+# The owner sets a 24h volume floor per source (and the DEX liquidity
+# floor) in /pool/config; sync lists everything that clears them and
+# pauses/resumes what crosses them. Paused markets take no new stakes.
+
+@app.get("/liquidity")
+def liquidity(source: str = Query("all", description="all | hyperliquid | bittensor | dex"),
+              limit: int = Query(0, description="Max market rows — 0 for every listed market")):
+    """Policy, per-source universe vs listed/active/paused, and every
+    listed market's 24h volume against its floor, thinnest first."""
+    return get_mod().liquidity(source, limit)
+
+@app.get("/liquidity/policy")
+def liquidity_policy():
+    return get_mod().liquidity_policy()
+
+@app.post("/markets/sync")
+def sync_markets(
+    sources: str = Query("all", description="all, or a comma list of hyperliquid,bittensor,dex"),
+    dry_run: bool = Query(False, description="Report what would change without writing"),
+    list: bool = Query(True, description="List everything that clears the floors"),
+    pause: bool = Query(True, description="Pause what fell under the floors, resume what recovered"),
+    limit: int = Query(0, description="At most this many new listings (0 = all)"),
+):
+    """One pass over every feed: list what clears the liquidity policy,
+    pause what does not, resume what does again. Idempotent."""
+    return _ok(get_mod().sync_markets(sources, dry_run, list, pause, limit))
+
+@app.post("/markets/pause")
+def pause_market(
+    symbol: str = Query(..., description="A listed market symbol"),
+    reason: Optional[str] = Query(None),
+    secret: Optional[str] = Query(None, description="Owner secret"),
+    owner: Optional[str] = Query(None, description="Owner address (with signature)"),
+    signature: Optional[str] = Query(None, description="Signed /pool/sign message, action=pause_market"),
+):
+    return _ok(get_mod().pause_market(symbol, reason, secret, owner, signature))
+
+@app.post("/markets/resume")
+def resume_market(
+    symbol: str = Query(...),
+    secret: Optional[str] = Query(None), owner: Optional[str] = Query(None),
+    signature: Optional[str] = Query(None, description="action=resume_market"),
+):
+    return _ok(get_mod().resume_market(symbol, secret, owner, signature))
+
+@app.post("/markets/remove")
+def remove_market(
+    symbol: str = Query(...),
+    secret: Optional[str] = Query(None), owner: Optional[str] = Query(None),
+    signature: Optional[str] = Query(None, description="action=remove_market"),
+):
+    """Unlist a market nothing is open on. Refused otherwise — pause it."""
+    return _ok(get_mod().remove_market(symbol, secret, owner, signature))
 
 
 # ── Hyperliquid ──────────────────────────────────────────────────
@@ -549,18 +638,30 @@ def set_pool_config(
     agent_per_round: Optional[int] = Query(None, description="Agent calls per address per round (0 = off)"),
     agent_share_bps: Optional[int] = Query(None, description="Slice of each pot's protocol fee agent play pays out (0..10000)"),
     min_liquidity_usd: Optional[float] = Query(None, description="Dollars a Solana/Base token's pool must hold to be listed or staked (0 = no floor)"),
+    hl_min_volume_usd: Optional[float] = Query(None, description="24h USD volume a Hyperliquid pair needs to be listed/staked (0 = every pair)"),
+    bt_min_volume_tao: Optional[float] = Query(None, description="24h TAO volume a subnet needs (0 = every subnet)"),
+    dex_min_volume_usd: Optional[float] = Query(None, description="24h USD volume a DEX pool needs, beside the liquidity floor (0 = any)"),
+    auto_list: Optional[bool] = Query(None, description="Background sync lists everything that clears the floors"),
+    auto_pause: Optional[bool] = Query(None, description="Background sync pauses markets under the floors, resumes recovered ones"),
+    sync_interval: Optional[int] = Query(None, description="Seconds between background syncs (0 = manual only, else >= 60)"),
+    side_free_per_round: Optional[int] = Query(None, description="Free up/down calls per address per round (0 = off, max 50)"),
+    signal_max_leverage: Optional[int] = Query(None, description="The most leverage /pool/signal will ever suggest (1..50)"),
     secret: Optional[str] = Query(None, description="Owner secret"),
     owner: Optional[str] = Query(None, description="Owner address (with signature)"),
     signature: Optional[str] = Query(None),
 ):
     params = {k: v for k, v in dict(
+        side_free_per_round=side_free_per_round, signal_max_leverage=signal_max_leverage,
         interval=interval, entry_cutoff=entry_cutoff, model=model,
         tolerance=tolerance, model_params=model_params, min_stake=min_stake, max_stake=max_stake,
         min_withdraw=min_withdraw, fee_bps=fee_bps, auto_pay=auto_pay,
         spot_grace=spot_grace, free_per_round=free_per_round,
         free_notional=free_notional, agent_per_round=agent_per_round,
         agent_share_bps=agent_share_bps,
-        min_liquidity_usd=min_liquidity_usd).items() if v is not None}
+        min_liquidity_usd=min_liquidity_usd, hl_min_volume_usd=hl_min_volume_usd,
+        bt_min_volume_tao=bt_min_volume_tao, dex_min_volume_usd=dex_min_volume_usd,
+        auto_list=auto_list, auto_pause=auto_pause,
+        sync_interval=sync_interval).items() if v is not None}
     return _ok(get_mod().set_pool_config(secret=secret, owner=owner,
                                          signature=signature, **params))
 
@@ -690,6 +791,44 @@ def pool_agent_leaderboard(limit: int = Query(50)):
 def pool_agent_quota(address: str, index: Optional[int] = Query(None)):
     """Agent calls this address has left, and its live bloctime weight."""
     return get_mod().pool_agent_quota(address, index)
+
+# ── Up / down ────────────────────────────────────────────────────
+# A direction, not a price. The book these make is what /pool/signal
+# turns into a bias + conviction + leverage suggestion for the trading
+# layer. Fixed routes sit ahead of /pool/side/{address} on purpose.
+
+@app.post("/pool/side")
+def pool_side_stake(
+    address: str = Query(...),
+    asset: str = Query(..., description="A pool-priced market, e.g. BTC, SN64, HYPE/USDC"),
+    side: str = Query(..., description="up or down"),
+    amount: float = Query(0, description="Dollars on it — 0 is a free call"),
+    signature: Optional[str] = Query(None),
+    nonce: Optional[int] = Query(None),
+):
+    return _ok(get_mod().pool_side_stake(address, asset, side, amount,
+                                         signature=signature, nonce=nonce))
+
+@app.get("/pool/side/leaderboard")
+def pool_side_leaderboard(limit: int = Query(50)):
+    return get_mod().pool_side_leaderboard(limit)
+
+@app.get("/pool/side/{address}")
+def pool_side_quota(address: str, index: Optional[int] = Query(None)):
+    return get_mod().pool_side_quota(address, index)
+
+@app.get("/pool/signal")
+def pool_signal(index: Optional[int] = Query(None, description="A past round, default the open one")):
+    return get_mod().pool_signal(None, index)
+
+@app.get("/pool/signal/{asset:path}")
+def pool_signal_asset(asset: str, index: Optional[int] = Query(None)):
+    return get_mod().pool_signal(asset, index)
+
+@app.get("/pool/curve/{asset:path}")
+def pool_curve(asset: str, days: int = Query(30, description="Daily candles, 2..365")):
+    return _ok(get_mod().pool_curve(asset, days))
+
 
 @app.get("/pool/round")
 def pool_round(index: Optional[int] = Query(None), address: Optional[str] = Query(None)):
@@ -847,3 +986,157 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8830))
     uvicorn.run("api:app", host="0.0.0.0", port=port, reload=True)
+
+
+# ── Local economy — sim feed, exchange, minute pool ──────────────
+# Play money. Agents (below) live here; humans and MCP callers can too.
+
+@app.get("/economy")
+def economy_status():
+    return get_mod().economy_status()
+
+@app.get("/economy/prices")
+def economy_prices(history: bool = Query(False), ticks: int = Query(60)):
+    return get_mod().economy_prices(history, ticks)
+
+@app.get("/economy/config")
+def economy_config():
+    return get_mod().economy_config()
+
+@app.post("/economy/asset")
+def economy_add_asset(symbol: str = Query(...),
+                      price: Optional[float] = Query(None)):
+    return _ok(_catch(lambda: get_mod().economy_add_asset(symbol, price)))
+
+@app.post("/economy/faucet")
+def economy_faucet(address: str = Query(...)):
+    return _ok(_catch(lambda: get_mod().economy_faucet(address)))
+
+@app.post("/economy/trade")
+def economy_trade(address: str = Query(...), asset: str = Query(...),
+                  side: str = Query(...),
+                  notional: Optional[float] = Query(None),
+                  qty: Optional[float] = Query(None)):
+    return _ok(_catch(lambda: get_mod().economy_trade(address, asset, side,
+                                                      notional, qty)))
+
+@app.post("/economy/predict")
+def economy_predict(address: str = Query(...), asset: str = Query(...),
+                    price: float = Query(...), stake: float = Query(...),
+                    signature: Optional[str] = Query(None)):
+    return _ok(_catch(lambda: get_mod().economy_predict(address, asset, price,
+                                                        stake, signature)))
+
+@app.post("/economy/step")
+def economy_step():
+    return get_mod().economy_loop_step()
+
+@app.get("/economy/leaderboard")
+def economy_leaderboard(limit: int = Query(50)):
+    return get_mod().economy_leaderboard(limit)
+
+@app.get("/economy/trades")
+def economy_trades(address: Optional[str] = Query(None),
+                   limit: int = Query(100)):
+    return get_mod().economy_trades(address, limit)
+
+@app.get("/economy/round")
+def economy_round(index: Optional[int] = Query(None)):
+    return get_mod().economy_round(index)
+
+@app.get("/economy/rounds")
+def economy_rounds(limit: int = Query(20)):
+    return get_mod().economy_rounds(limit)
+
+@app.get("/economy/verify")
+def economy_verify():
+    return get_mod().economy_verify()
+
+@app.get("/economy/account/{address}")
+def economy_account(address: str):
+    return get_mod().economy_account(address)
+
+
+# ── Agents — vibecoded, sandboxed, run every minute ──────────────
+
+class AgentBody(BaseModel):
+    name: Optional[str] = None
+    prompt: Optional[str] = None
+    code: Optional[str] = None
+    owner: Optional[str] = None
+    model: Optional[str] = None
+    start: Optional[bool] = True
+    llm: Optional[bool] = True
+    status: Optional[str] = None
+    revibe: Optional[bool] = False
+
+def _catch(fn):
+    try:
+        return fn()
+    except ValueError as err:          # StrategyError / EconomyError / MachineError
+        return {'error': str(err)}
+
+@app.get("/agents")
+def agents_list():
+    return get_mod().agent_list()
+
+@app.get("/agents/language")
+def agents_language():
+    return get_mod().agent_language()
+
+@app.post("/agents/vibecode")
+def agents_vibecode(body: AgentBody):
+    return _ok(_catch(lambda: get_mod().agent_vibecode(
+        body.prompt or '', model=body.model, llm=body.llm is not False)))
+
+@app.post("/agents/check")
+def agents_check(body: AgentBody):
+    return _ok(_catch(lambda: get_mod().agent_check(body.code or '')))
+
+@app.post("/agents")
+def agents_create(body: AgentBody):
+    return _ok(_catch(lambda: get_mod().agent_create(
+        body.name or '', prompt=body.prompt, code=body.code, owner=body.owner,
+        model=body.model, start=body.start is not False,
+        llm=body.llm is not False)))
+
+@app.get("/agents/{agent_id}")
+def agents_get(agent_id: str):
+    return _ok(_catch(lambda: get_mod().agent_get(agent_id)))
+
+@app.post("/agents/{agent_id}")
+def agents_update(agent_id: str, body: AgentBody):
+    return _ok(_catch(lambda: get_mod().agent_update(
+        agent_id, name=body.name, code=body.code, prompt=body.prompt,
+        status=body.status, revibe=bool(body.revibe), model=body.model,
+        llm=body.llm is not False)))
+
+@app.delete("/agents/{agent_id}")
+def agents_delete(agent_id: str):
+    return _ok(_catch(lambda: get_mod().agent_delete(agent_id)))
+
+@app.post("/agents/{agent_id}/run")
+def agents_run(agent_id: str):
+    return _ok(_catch(lambda: get_mod().agent_run(agent_id)))
+
+
+# ── MCP — streamable HTTP, JSON responses ────────────────────────
+#   claude mcp add --transport http prefi http://localhost:50410/mcp
+
+@app.get("/mcp")
+def mcp_info():
+    return get_mod().mcp()
+
+@app.post("/mcp")
+async def mcp_post(request: Request):
+    from fastapi.responses import JSONResponse, Response
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({'jsonrpc': '2.0', 'id': None,
+                             'error': {'code': -32700, 'message': 'parse error'}},
+                            status_code=400)
+    out = get_mod().mcp(body)
+    if out is None:
+        return Response(status_code=202)
+    return JSONResponse(out)

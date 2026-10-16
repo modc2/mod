@@ -29,15 +29,12 @@ import { useEffect, useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEmbedded } from "../lib/embedded";
+import { MAIN_TABS, activeTab } from "../lib/navTabs";
 import { TOGGLE_AGENT_EVENT, AGENT_STATE_EVENT } from "./AgentShell";
 
 const AGENT_KEY = "poly_agent_sidebar";
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-const MAIN_TABS: { label: string; href: string }[] = [
-  { label: "TRADERS", href: "/traders" },
-  { label: "STRATS", href: "/strats" },
-];
 
 export default function NavMenu() {
   const embedded = useEmbedded();
@@ -83,9 +80,7 @@ export default function NavMenu() {
         />
       </button>
       {MAIN_TABS.map((t) => {
-        // Everything that isn't the strat manager is a view of the board
-        // (profiles, markets, the copy desk), so TRADERS is the default lit tab.
-        const active = t.href === "/strats" ? pathname.startsWith("/strats") : !pathname.startsWith("/strats");
+        const active = activeTab(pathname) === t.href;
         return (
           <Link
             key={t.label}

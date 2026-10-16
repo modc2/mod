@@ -7,19 +7,18 @@ Standalone so pm2 can run it directly (``python3 serve.py``).
     /api/dollartime/{fn}     → the API (prefix stripped by the gateway)
     /{fn}                    → the API, bare, for local curl
 
-Reads are GET with query args; writes are POST with a JSON body. A
-background thread settles due markets every 30s, so payouts land even when
-nobody is looking.
+Reads are GET with query args; writes are POST with a JSON body. Every
+function is a method on mod.Mod — the same ones `m dollartime/<fn>` runs.
 
     python3 serve.py [--port 51410] [--host 0.0.0.0]
 """
 
 import argparse
+import importlib.util
+import inspect
 import json
 import os
 import sys
-import threading
-import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -31,68 +30,34 @@ MAX_BODY = 64 * 1024
 if MODULE_DIR not in sys.path:
     sys.path.append(MODULE_DIR)
 
-import market as mk  # noqa: E402
+READ_FNS = ('health', 'info', 'readme', 'stats', 'days', 'holders', 'history',
+            'position', 'me', 'chains')
+WRITE_FNS = ('join', 'contribute', 'claim', 'transfer', 'revenue', 'withdraw',
+             'set_asset', 'spend')
 
-READ_FNS = ('health', 'info', 'readme', 'price', 'markets', 'market',
-            'leaderboard', 'me')
-WRITE_FNS = ('join', 'create', 'bet', 'claim', 'resolve')
-
-_mkt = None
-
-
-def mkt():
-    global _mkt
-    if _mkt is None:
-        _mkt = mk.Market()
-    return _mkt
+_mod = None
 
 
-def _config():
-    try:
-        with open(os.path.join(MODULE_DIR, 'config.json')) as f:
-            return json.load(f)
-    except Exception:
-        return {}
+def mod():
+    """mod.py loaded by path — never `import mod`, that name is the protocol's."""
+    global _mod
+    if _mod is None:
+        spec = importlib.util.spec_from_file_location('dollartime_mod', os.path.join(MODULE_DIR, 'mod.py'))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        _mod = m.Mod()
+    return _mod
 
 
 def api(fn, a):
-    m = mkt()
-    if fn == 'health':
-        return {'ok': True, **m.stats()}
-    if fn == 'info':
-        cfg = _config()
-        return {'name': 'dollartime', 'version': cfg.get('version'),
-                'description': cfg.get('description'), 'stats': m.stats(),
-                'endpoints': cfg.get('endpoints', {})}
-    if fn == 'readme':
-        try:
-            with open(os.path.join(MODULE_DIR, 'README.md')) as f:
-                return {'readme': f.read()}
-        except Exception:
-            return {'readme': None}
-    if fn == 'price':
-        return m.price(a.get('asset', 'BTC'))
-    if fn == 'markets':
-        return m.markets(a.get('status', 'live'), a.get('asset', ''),
-                         a.get('limit', 50), a.get('offset', 0))
-    if fn == 'market':
-        return m.market(a.get('id'))
-    if fn == 'leaderboard':
-        return m.leaderboard(a.get('limit', 25))
-    if fn == 'me':
-        return m.me(a.get('token'))
-    if fn == 'join':
-        return m.join(a.get('name'))
-    if fn == 'create':
-        return m.create(a.get('token'), a.get('asset'), a.get('hours'), a.get('side'),
-                        a.get('amount'), a.get('note', ''), a.get('bet_minutes'))
-    if fn == 'bet':
-        return m.bet(a.get('token'), a.get('id'), a.get('side'), a.get('amount'))
-    if fn == 'claim':
-        return m.claim(a.get('token'))
-    if fn == 'resolve':
-        return m.resolve_due()
-    return None
+    f = getattr(mod(), fn)
+    params = inspect.signature(f).parameters
+    kwargs = {k: v for k, v in a.items() if k in params}
+    missing = [k for k, p in params.items() if p.default is inspect.Parameter.empty and k not in kwargs]
+    if missing:
+        raise ValueError(f'missing: {", ".join(missing)}')
+    out = f(**kwargs)
+    return {'readme': out} if fn == 'readme' else out
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -127,6 +92,8 @@ class Handler(SimpleHTTPRequestHandler):
     def _run(self, fn, args):
         try:
             out = api(fn, args)
+        except PermissionError as e:
+            return self._json({'error': str(e)}, 403)
         except (ValueError, KeyError, TypeError) as e:
             return self._json({'error': str(e)}, 400)
         except Exception as e:  # noqa: BLE001
@@ -168,20 +135,10 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
 
-def _resolver(every=30):
-    while True:
-        try:
-            mkt().resolve_due()
-        except Exception as e:  # noqa: BLE001
-            print('dollartime resolver:', e, file=sys.stderr)
-        time.sleep(every)
-
-
 def serve(port=None, host='0.0.0.0'):
-    port = int(port or _config().get('port', 51410))
-    threading.Thread(target=_resolver, daemon=True).start()
+    port = int(port or mod().port)
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f'dollartime: http://localhost:{port}{PREFIX}/  api http://localhost:{port}/markets')
+    print(f'dollartime: http://localhost:{port}{PREFIX}/  api http://localhost:{port}/stats')
     httpd.serve_forever()
 
 

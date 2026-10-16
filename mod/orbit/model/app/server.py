@@ -30,21 +30,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 try:  # `uvicorn app.server:app` from the module root
+    from app import adapters
     from app.catalog import (
         KINDS, PROVIDERS, ProviderError, catalog as combined_catalog, list_models,
-        make_client, parse_ref, provider_cfg, public_info, registry,
+        make_client, market as build_market, market_key, parse_ref, provider_cfg, public_info, registry,
     )
 except ImportError:  # `python app/server.py`
+    import adapters
     from catalog import (
         KINDS, PROVIDERS, ProviderError, catalog as combined_catalog, list_models,
-        make_client, parse_ref, provider_cfg, public_info, registry,
+        make_client, market as build_market, market_key, parse_ref, provider_cfg, public_info, registry,
     )
 
 APP_DIR = Path(__file__).parent
 INDEX_PATH = APP_DIR / 'index.html'
 
 
-app = FastAPI(title="model-gateway", version="0.3.0")
+app = FastAPI(title="model-gateway", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=['*'],
@@ -120,7 +122,7 @@ def key_map(req: Request, providers: dict) -> dict:
 def key_for(req: Request, pid: str, providers: dict, required: bool = True) -> Optional[str]:
     key = key_map(req, providers).get(pid) or single_key(req)
     if not key and required and not providers[pid].get('custom'):
-        raise HTTPException(status_code=401, detail=f"BYOK: supply a {pid} key via X-API-Key or X-API-Keys")
+        raise ProviderError(401, f"BYOK: supply a {pid} key via X-API-Key or X-API-Keys")
     return key
 
 
@@ -133,6 +135,16 @@ class Target:
         self.cfg = self.providers[self.pid]
         self.key = key_for(req, self.pid, self.providers)
         self.client = make_client(self.pid, self.key, providers=self.providers)
+
+    def shapes(self) -> Optional[list]:
+        """Wire shapes this model accepts, for providers that declare them per model (SayGM)."""
+        if not self.cfg.get('model_shapes'):
+            return None
+        public = self.cfg.get('public_models')  # public catalog: don't let a bad key break the lookup
+        for row in list_models(self.pid, None if public else self.key, providers=self.providers):
+            if row['id'] == self.model:
+                return row.get('shapes')
+        return None
 
 
 # ── catalog routes ────────────────────────────────────────────────────
@@ -194,40 +206,30 @@ class ChatRequest(BaseModel):
 
 @app.post('/chat')
 def chat(payload: ChatRequest, request: Request):
+    """UI chat. Goes through the same OpenAI-standard adapter as /v1/chat/completions,
+    so models that only speak Anthropic messages / Gemini generateContent work too."""
     t = Target(request, payload.model, payload.provider)
-    pid, model, client = t.pid, t.model, t.client
-    msgs = [m.model_dump() for m in payload.messages]
+    body = {'messages': [m.model_dump() for m in payload.messages],
+            'max_tokens': payload.max_tokens, 'temperature': payload.temperature}
+    shapes = t.shapes()
 
     if not payload.stream:
-        res = client.chat.completions.create(
-            model=model, messages=msgs,
-            max_tokens=payload.max_tokens, temperature=payload.temperature,
-        )
-        return {
-            'provider': pid,
-            'model': model,
-            'content': res.choices[0].message.content,
-        }
+        res = adapters.chat(t.cfg, t.key, t.model, body, shapes)
+        return {'provider': t.pid, 'model': t.model,
+                'content': ((res.get('choices') or [{}])[0].get('message') or {}).get('content')}
 
     def gen():
         usage = None
         try:
-            stream = client.chat.completions.create(
-                model=model, messages=msgs, stream=True,
-                max_tokens=payload.max_tokens, temperature=payload.temperature,
-            )
-            for chunk in stream:
-                if getattr(chunk, 'usage', None):
-                    usage = chunk.usage.model_dump()
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                content = getattr(delta, 'content', None)
-                if content:
-                    yield f"data: {json.dumps({'delta': content})}\n\n"
-            yield f"data: {json.dumps({'done': True, 'provider': pid, 'model': model, 'usage': usage})}\n\n"
-        except openai.APIStatusError as e:
-            yield f"data: {json.dumps({'error': _upstream_detail(e)})}\n\n"
+            for chunk in adapters.stream(t.cfg, t.key, t.model, body, shapes):
+                usage = chunk.get('usage') or usage
+                for ch in chunk.get('choices') or []:
+                    content = (ch.get('delta') or {}).get('content')
+                    if content:
+                        yield f"data: {json.dumps({'delta': content})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'provider': t.pid, 'model': t.model, 'usage': usage})}\n\n"
+        except ProviderError as e:
+            yield f"data: {json.dumps({'error': e.detail})}\n\n"
         except Exception as e:  # surface upstream errors over SSE
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
@@ -368,6 +370,143 @@ def rerank(payload: RerankRequest, request: Request):
                'document': docs[r['index']] if isinstance(r.get('index'), int) and r['index'] < len(docs) else None}
               for r in rows]
     return {'provider': t.pid, 'model': t.model, 'results': ranked}
+
+
+# ── market ────────────────────────────────────────────────────────────
+
+@app.get('/market')
+def market(request: Request, search: Optional[str] = None, kind: Optional[str] = None,
+           min_offers: int = 1, refresh: bool = False):
+    """Every model as a market row: the same model from every provider, offers
+    sorted cheapest first (blended USD/1M = (3*in + out)/4), with spread."""
+    provs = providers_for(request)
+    keys = key_map(request, provs)
+    cat = combined_catalog(keys, search=search, refresh=refresh, providers=provs, kind=kind)
+    rows = build_market(cat['models'], min_offers=max(1, min_offers))
+    return {'count': len(rows), 'offers': cat['count'], 'providers': cat['counts'],
+            'errors': cat['errors'], 'missing': cat['missing'], 'markets': rows}
+
+
+# ── /v1: one OpenAI-compatible API over every provider ────────────────
+#
+# Point any OpenAI SDK at  base_url=<host>/model/api/v1  and use
+#   model="<provider>:<model>"   e.g. "saygm:claude-sonnet-5", "venice:llama-3.3-70b"
+# or a bare model name ("kimi-k3") to take the cheapest offer among the
+# providers you sent keys for (X-API-Keys). Auth: Bearer <key> for one
+# provider, or X-API-Keys: {"saygm": "...", "openrouter": "..."} for many.
+
+def _oai_error(status: int, msg: str, typ: str = 'invalid_request_error'):
+    return JSONResponse({'error': {'message': msg, 'type': typ, 'code': status}}, status_code=_status(status))
+
+
+def route(req: Request, ref: Optional[str]) -> Target:
+    """Resolve a /v1 `model`: a '<provider>:<model>' ref, or a bare name routed
+    to the cheapest market offer the caller holds a key for."""
+    provs = providers_for(req)
+    if ref and ':' in ref and ref.split(':', 1)[0] in provs:
+        return Target(req, ref)
+    if not ref:
+        raise ProviderError(400, "model is required ('<provider>:<model>' or a model name)")
+    keys = key_map(req, provs)
+    usable = {pid for pid in provs if keys.get(pid) or provs[pid].get('custom')}
+    if not usable:
+        raise ProviderError(400, f"'{ref}' has no provider prefix; use '<provider>:{ref}', "
+                                 'or send X-API-Keys so the market can pick the cheapest provider you hold a key for')
+    cat = combined_catalog(keys, providers=provs)
+    want = market_key(ref)
+    offers = [m for m in cat['models'] if m['provider'] in usable and (m['id'] == ref or market_key(m['id']) == want)]
+    if not offers:
+        raise ProviderError(404, f"no provider you hold a key for ({sorted(usable)}) lists '{ref}'")
+    offers.sort(key=lambda m: (m['price_in'] is None, (m['price_in'] or 0) * 3 + (m['price_out'] or 0)))
+    return Target(req, offers[0]['ref'])
+
+
+@app.get('/v1/models')
+def v1_models(request: Request, kind: Optional[str] = None):
+    """OpenAI list shape; ids are '<provider>:<model>' refs, plus pricing/kind extras."""
+    provs = providers_for(request)
+    cat = combined_catalog(key_map(request, provs), providers=provs, kind=kind)
+    return {'object': 'list', 'data': [{
+        'id': m['ref'], 'object': 'model', 'created': int(m['created'] or 0), 'owned_by': m['provider'],
+        'name': m['name'], 'kind': m['kind'], 'context_length': m['context_length'],
+        'pricing': {'input': m['price_in'], 'output': m['price_out'], 'image': m['price_image'], 'unit': 'usd_per_mtok'},
+        'market': market_key(m['id']), 'tee': m['tee'],
+    } for m in cat['models']]}
+
+
+@app.post('/v1/chat/completions')
+async def v1_chat(request: Request):
+    try:
+        body = await request.json()
+    except ValueError:
+        return _oai_error(400, 'body must be JSON')
+    try:
+        t = route(request, body.get('model'))
+        shapes = t.shapes()
+        hdr = {'X-Model-Ref': f'{t.pid}:{t.model}'}
+        if not body.get('stream'):
+            res = adapters.chat(t.cfg, t.key, t.model, body, shapes)
+            res['model'] = f'{t.pid}:{t.model}'
+            return JSONResponse(res, headers=hdr)
+        it = iter(adapters.stream(t.cfg, t.key, t.model, body, shapes))
+        first = next(it, None)  # surface upstream auth/model errors as a status, not mid-stream
+    except ProviderError as e:
+        return _oai_error(e.status, e.detail)
+
+    def gen():
+        try:
+            for chunk in ([first] if first else []):
+                yield f"data: {json.dumps({**chunk, 'model': hdr['X-Model-Ref']})}\n\n"
+            for chunk in it:
+                yield f"data: {json.dumps({**chunk, 'model': hdr['X-Model-Ref']})}\n\n"
+        except ProviderError as e:
+            yield f"data: {json.dumps({'error': {'message': e.detail, 'code': e.status}})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': {'message': str(e)[:500]}})}\n\n"
+        yield 'data: [DONE]\n\n'
+
+    return StreamingResponse(gen(), media_type='text/event-stream', headers=hdr)
+
+
+def _passthrough(request: Request, body: dict, path: str):
+    """Forward an OpenAI-shaped JSON body to the provider's own <url><path>, model rewritten."""
+    t = route(request, body.get('model'))
+    try:
+        r = requests.post(t.cfg['url'].rstrip('/') + path, json={**body, 'model': t.model},
+                          headers={'Authorization': f'Bearer {t.key}'} if t.key else {},
+                          timeout=300, allow_redirects=not t.cfg.get('custom'))
+    except requests.RequestException as e:
+        raise ProviderError(502, f'{t.pid}{path} failed: {e}')
+    if r.status_code >= 400:
+        raise ProviderError(r.status_code, f'{t.pid}: {r.text[:400]}')
+    ctype = r.headers.get('content-type', 'application/json')
+    return Response(content=r.content, media_type=ctype.split(';')[0], headers={'X-Model-Ref': f'{t.pid}:{t.model}'})
+
+
+for _path in ('/embeddings', '/images/generations', '/audio/speech', '/moderations', '/rerank'):
+    def _make(path):
+        async def handler(request: Request):
+            try:
+                body = await request.json()
+                return _passthrough(request, body, path)
+            except ProviderError as e:
+                return _oai_error(e.status, e.detail)
+            except ValueError:
+                return _oai_error(400, 'body must be JSON')
+        handler.__name__ = 'v1' + path.replace('/', '_')
+        return handler
+    app.post('/v1' + _path)(_make(_path))
+
+
+@app.post('/v1/audio/transcriptions')
+async def v1_transcriptions(request: Request, model: str = Form(...), file: UploadFile = File(...)):
+    try:
+        t = route(request, model)
+        data = await file.read()
+        res = t.client.audio.transcriptions.create(model=t.model, file=(file.filename or 'audio', data))
+        return {'text': getattr(res, 'text', None) or str(res)}
+    except ProviderError as e:
+        return _oai_error(e.status, e.detail)
 
 
 # ── UI ────────────────────────────────────────────────────────────────

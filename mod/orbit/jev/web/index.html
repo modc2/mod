@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jev · typed questions, paid in crypto</title>
+<style>
+  :root { --bg:#0f1117; --panel:#171a23; --line:#262a36; --ink:#e6e8ef; --dim:#8b91a3; --acc:#7aa2f7; --ok:#9ece6a; --warn:#e0af68; --bad:#f7768e; --mono: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif }
+  header { display:flex; align-items:center; gap:14px; padding:14px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap }
+  header h1 { font-size:18px; margin:0; letter-spacing:.3px } header h1 span { color:var(--dim); font-weight:400 }
+  .spacer { flex:1 }
+  .chip { font:12px var(--mono); padding:4px 9px; border:1px solid var(--line); border-radius:999px; color:var(--dim); background:var(--panel) }
+  .chip.on { color:var(--ok); border-color:#33503a } .chip.off { color:var(--warn) }
+  main { max-width:1100px; margin:0 auto; padding:18px 20px; display:grid; grid-template-columns: 1.3fr .9fr; gap:18px }
+  @media (max-width:860px) { main { grid-template-columns:1fr } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px }
+  h2 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.12em; color:var(--dim) }
+  label { display:block; font-size:12px; color:var(--dim); margin:10px 0 4px }
+  input, textarea, select { width:100%; background:#0c0e14; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:9px 10px; font:14px var(--mono) }
+  textarea { min-height:96px; resize:vertical }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+  .kinds { display:flex; gap:6px; margin-top:6px }
+  .kinds button { flex:1 }
+  button { background:#1f2433; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:9px 14px; cursor:pointer; font-size:14px }
+  button.primary { background:var(--acc); color:#0b0e17; border-color:var(--acc); font-weight:600 }
+  button.sel { border-color:var(--acc); color:var(--acc) }
+  button:disabled { opacity:.5; cursor:default }
+  .out { margin-top:14px; font:13px var(--mono); white-space:pre-wrap; word-break:break-word; color:#c8cde0 }
+  .bar { display:grid; grid-template-columns: 120px 1fr 56px; gap:8px; align-items:center; margin:4px 0; font:13px var(--mono) }
+  .bar i { display:block; height:10px; background:var(--acc); border-radius:4px }
+  .bar b { text-align:right; font-weight:400 }
+  .big { font-size:34px; font-weight:600; margin:6px 0 2px } .big small { font-size:13px; color:var(--dim); font-weight:400; margin-left:8px }
+  .note { color:var(--dim); font-size:13px } .err { color:var(--bad) } .good { color:var(--ok) }
+  .kv { display:grid; grid-template-columns: 110px 1fr; gap:4px 10px; font:13px var(--mono); margin-top:6px }
+  .kv span:nth-child(odd) { color:var(--dim) }
+  a { color:var(--acc) }
+  code { font:12px var(--mono); background:#0c0e14; padding:2px 5px; border-radius:5px }
+  .tabs { display:flex; gap:4px; margin-bottom:10px } .tabs button { padding:6px 10px; font-size:13px }
+  .hide { display:none }
+  footer { max-width:1100px; margin:0 auto; padding:10px 20px 30px; color:var(--dim); font-size:12px }
+</style>
+</head>
+<body>
+<header>
+  <h1>jev <span>· typed questions over the Jev model</span></h1>
+  <div class="spacer"></div>
+  <span class="chip" id="chip-price">…</span>
+  <span class="chip" id="chip-pay">…</span>
+  <span class="chip" id="chip-key">…</span>
+</header>
+
+<main>
+  <section>
+    <h2>Ask</h2>
+    <div class="kinds">
+      <button data-kind="noul" class="sel">yes / no</button>
+      <button data-kind="choice">choice</button>
+      <button data-kind="score">score</button>
+      <button data-kind="ask">many</button>
+    </div>
+    <label>State — what the question is about (text or JSON)</label>
+    <textarea id="state">I was charged twice this month and nobody answers my emails. Fix this ASAP.</textarea>
+    <div id="f-single">
+      <label>Instructions — the question</label>
+      <input id="instructions" value="Is the customer frustrated?">
+      <div id="f-choice" class="hide">
+        <label>Options — comma separated, or JSON {option: description}</label>
+        <input id="options" value="billing,technical,other">
+      </div>
+      <div id="f-score" class="hide">
+        <label>Levels — ordered low to high, comma separated</label>
+        <input id="levels" value="Calm,Frustrated,Furious">
+      </div>
+    </div>
+    <div id="f-many" class="hide">
+      <label>Questions — JSON {name: {kind, instructions, criteria}}</label>
+      <textarea id="questions">{
+  "urgent":      {"kind": "noul",   "instructions": "Does this convey urgency?"},
+  "department":  {"kind": "choice", "instructions": "Which team?", "criteria": {"billing": null, "technical": null, "other": null}},
+  "frustration": {"kind": "score",  "instructions": "How frustrated?", "criteria": ["Calm", "Frustrated", "Furious"]}
+}</textarea>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="go">Ask</button>
+      <select id="model" style="width:auto"><option value="">jev-latest</option></select>
+      <span class="note" id="cost"></span>
+    </div>
+    <div class="out" id="out"></div>
+  </section>
+
+  <aside style="display:grid; gap:18px; align-content:start">
+    <section>
+      <h2>Pay · no account, no KYC</h2>
+      <div class="note" id="paynote">Loading the price…</div>
+      <div class="row" style="margin-top:10px">
+        <button id="connect">Connect wallet</button>
+        <button id="signin" disabled>Sign in</button>
+        <button id="signout" class="hide">Sign out</button>
+      </div>
+      <div class="kv" id="who"></div>
+      <div class="tabs" style="margin-top:12px">
+        <button id="tab-percall" class="sel">Pay per call</button>
+        <button id="tab-credits">Credits</button>
+      </div>
+      <div id="p-percall" class="note">
+        Each question is paid as you ask it: the server answers 402, your wallet signs a USDC transfer for exactly the price (an EIP-3009 authorization — no gas, nothing moves until the facilitator settles it), and the question runs. Nothing is stored about you but the on-chain transfer.
+      </div>
+      <div id="p-credits" class="hide">
+        <div class="note">Prepay once, then each question costs one signature and no transaction. Credits belong to the paying address; spending them needs a sign-in (a signed token) for that address.</div>
+        <div class="row" style="margin-top:8px">
+          <input id="topup" type="number" step="0.05" min="0.25" value="1" style="width:110px">
+          <button id="dotopup">Top up USDC</button>
+          <span class="note" id="bal"></span>
+        </div>
+      </div>
+      <div class="out" id="payout"></div>
+    </section>
+
+    <section>
+      <h2>Use it from code</h2>
+      <div class="note">Same API, three spellings — the mod protocol's URL rule:</div>
+      <div class="out" id="snippet"></div>
+      <div class="note" style="margin-top:8px">MCP: <code id="mcpurl"></code> · tools <code>jev_noul jev_choice jev_score jev_ask jev_models jev_price jev_balance jev_encode</code></div>
+    </section>
+
+    <section>
+      <h2>Models</h2>
+      <div class="out" id="models">…</div>
+    </section>
+  </aside>
+</main>
+<footer>jev wraps <a href="https://pkg.go.dev/github.com/fgn/jevgo">jevgo</a> (TypeSafe AI System One). Payments are x402 (HTTP 402 + EIP-3009 USDC) settled by a public facilitator; identity is a mod-protocol wallet token. The operator never sees a key of yours and never asks who you are.</footer>
+
+<script>
+const BASE = location.pathname.replace(/\/+$/, '').replace(/\/index\.html$/, '') || '/jev';
+const API = (fn) => `${BASE}/api/${fn}`;
+const $ = (id) => document.getElementById(id);
+let price = null, wallet = null, token = localStorage.getItem('jev.token') || '', kind = 'noul';
+
+function j(x) { return JSON.stringify(x, null, 2); }
+function show(el, text, cls) { el.className = 'out' + (cls ? ' ' + cls : ''); el.textContent = text; }
+function authHeaders() { return token ? { 'token': token } : {}; }
+
+// ── identity: a mod-protocol token is a wallet signature over {data,time} ──
+async function connect() {
+  if (!window.ethereum) { show($('payout'), 'No browser wallet found. Install one (any EVM wallet) and hold USDC on Base.', 'err'); return; }
+  const [addr] = await window.ethereum.request({ method: 'eth_requestAccounts' });
+  wallet = addr; $('signin').disabled = false; $('connect').textContent = addr.slice(0, 6) + '…' + addr.slice(-4);
+  whoami();
+}
+async function signin() {
+  const time = Math.floor(Date.now() / 1000).toString();
+  const msg = JSON.stringify({ data: 'jev', time });
+  const sig = await window.ethereum.request({ method: 'personal_sign', params: [msg, wallet] });
+  const claim = { data: 'jev', time, key: wallet, signature: sig };
+  token = btoa(JSON.stringify(claim)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  localStorage.setItem('jev.token', token);
+  $('signout').classList.remove('hide');
+  whoami();
+}
+function signout() { token = ''; localStorage.removeItem('jev.token'); $('signout').classList.add('hide'); whoami(); }
+async function whoami() {
+  const r = await fetch(API('whoami'), { headers: authHeaders() }).then(r => r.json()).catch(() => ({}));
+  const kv = $('who'); kv.innerHTML = '';
+  const rows = [['wallet', wallet || '—'], ['signed in', r.kind === 'wallet' ? r.id : 'no'], ['pays', r.pays ? 'yes' : 'no (free here)']];
+  if (r.credits) rows.push(['credits', `$${r.credits.usd} (${r.credits.questions} questions)`]);
+  for (const [k, v] of rows) { kv.insertAdjacentHTML('beforeend', `<span>${k}</span><span>${v}</span>`); }
+  $('bal').textContent = r.credits ? `balance $${r.credits.usd}` : '';
+  if (r.kind === 'wallet') $('signout').classList.remove('hide');
+}
+
+// ── x402: sign the 402's offer with the wallet, retry with X-PAYMENT ──
+function pickOffer(req) {
+  const chain = window.ethereum && window.ethereum.chainId ? parseInt(window.ethereum.chainId, 16) : null;
+  const nets = price ? price.networks : [];
+  const byName = Object.fromEntries(nets.map(n => [n.network, n]));
+  const offers = (req.accepts || []).filter(a => byName[a.network]);
+  return offers.find(a => byName[a.network].chain_id === chain) || offers[0];
+}
+async function payHeader(req, amountUnits) {
+  if (!wallet) await connect();
+  const offer = pickOffer(req);
+  if (!offer) throw new Error('no offer on a chain this console knows');
+  const net = price.networks.find(n => n.network === offer.network);
+  const hex = '0x' + net.chain_id.toString(16);
+  if (window.ethereum.chainId && window.ethereum.chainId !== hex) {
+    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hex }] });
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const nonce = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, '0')).join('');
+  const value = String(amountUnits || offer.maxAmountRequired);
+  const authorization = { from: wallet, to: offer.payTo, value, validAfter: String(now - 600), validBefore: String(now + (offer.maxTimeoutSeconds || 300)), nonce };
+  const typed = {
+    types: {
+      EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
+      TransferWithAuthorization: [{ name: 'from', type: 'address' }, { name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'validAfter', type: 'uint256' }, { name: 'validBefore', type: 'uint256' }, { name: 'nonce', type: 'bytes32' }],
+    },
+    primaryType: 'TransferWithAuthorization',
+    domain: { name: offer.extra.name, version: offer.extra.version, chainId: net.chain_id, verifyingContract: offer.asset },
+    message: authorization,
+  };
+  const signature = await window.ethereum.request({ method: 'eth_signTypedData_v4', params: [wallet, JSON.stringify(typed)] });
+  const doc = { x402Version: 1, scheme: offer.scheme, network: offer.network, payload: { signature, authorization } };
+  return { header: btoa(JSON.stringify(doc)), usd: Number(value) / 1e6, network: offer.network };
+}
+
+async function call(fn, body, extraHeaders) {
+  const headers = { 'Content-Type': 'application/json', ...authHeaders(), ...(extraHeaders || {}) };
+  let r = await fetch(API(fn), { method: 'POST', headers, body: JSON.stringify(body) });
+  if (r.status === 402) {
+    const req = await r.json();
+    if (!window.ethereum) { return { status: 402, body: req }; }
+    show($('payout'), `Payment required: $${req.price.usd} USDC (${req.price.questions || 1} question${(req.price.questions || 1) > 1 ? 's' : ''}). Sign it in your wallet…`);
+    const p = await payHeader(req);
+    r = await fetch(API(fn), { method: 'POST', headers: { ...headers, 'X-PAYMENT': p.header }, body: JSON.stringify(body) });
+  }
+  const out = await r.json();
+  const rec = r.headers.get('X-PAYMENT-RESPONSE');
+  if (rec) { try { out.receipt = JSON.parse(atob(rec)); } catch (e) {} }
+  return { status: r.status, body: out, credits: r.headers.get('X-Jev-Credits-Left') };
+}
+
+// ── ask ──
+function list(s) { s = s.trim(); if (s.startsWith('{') || s.startsWith('[')) { try { return JSON.parse(s); } catch (e) {} } return s.split(',').map(x => x.trim()).filter(Boolean); }
+function stateVal() { const s = $('state').value.trim(); if (s.startsWith('{') || s.startsWith('[')) { try { return JSON.parse(s); } catch (e) {} } return s; }
+function nQuestions() { if (kind !== 'ask') return 1; try { return Object.keys(JSON.parse($('questions').value)).length || 1; } catch (e) { return 1; } }
+function cost() { if (!price) return; const n = nQuestions(); $('cost').textContent = price.enabled ? `$${(n * price.price_usd).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')} USDC · ${n} question${n > 1 ? 's' : ''}` : 'free on this node'; }
+
+async function ask() {
+  $('go').disabled = true; show($('out'), 'Asking…');
+  try {
+    let fn = kind, body = { state: stateVal() };
+    const model = $('model').value; if (model) body.model = model;
+    if (kind === 'ask') body.questions = JSON.parse($('questions').value);
+    else body.instructions = $('instructions').value;
+    if (kind === 'choice') body.options = list($('options').value);
+    if (kind === 'score') body.levels = list($('levels').value);
+    const r = await call(fn, body);
+    render(r);
+  } catch (e) { show($('out'), String(e.message || e), 'err'); }
+  $('go').disabled = false; whoami();
+}
+
+function bars(probs, legend) {
+  const entries = Object.entries(probs || {}).sort((a, b) => b[1] - a[1]);
+  return entries.map(([k, v]) => { const name = legend && legend[k] != null ? `${k} ${legend[k]}` : k; return `<div class="bar"><span title="${name}">${name}</span><span><i style="width:${Math.round(v * 100)}%"></i></span><b>${(v * 100).toFixed(1)}%</b></div>`; }).join('');
+}
+function one(a) {
+  if (a.kind === 'noul' || 'noul' in a) return `<div class="big">${(a.noul * 100).toFixed(1)}%<small>probability of yes</small></div>${bars({ yes: a.noul, no: 1 - a.noul })}`;
+  if (a.kind === 'choice' || 'choice' in a) return `<div class="big">${a.choice}<small>confidence ${(a.confidence * 100).toFixed(0)}%</small></div>${bars(a.probabilities)}`;
+  if (a.kind === 'score' || 'score' in a) return `<div class="big">${Number(a.score).toFixed(2)}<small>level ${a.level ?? Math.round(a.score)} · confidence ${(a.confidence * 100).toFixed(0)}%</small></div>${bars(a.probabilities, a.legend)}`;
+  return `<pre>${j(a)}</pre>`;
+}
+function render(r) {
+  const b = r.body, out = $('out'); out.className = 'out';
+  if (r.status >= 400 || b.error) {
+    out.innerHTML = `<div class="err">${b.error || 'error'} ${b.code ? `(${b.code})` : ''}</div>` + (b.accepts ? `<div class="note" style="margin-top:6px">This node charges $${b.price.usd} USDC for that. Connect a wallet above to pay per call, or top up credits.</div>` : '');
+    return;
+  }
+  let html = '';
+  if (b.answers) { for (const [name, a] of Object.entries(b.answers)) html += `<div class="note" style="margin-top:8px">${name}</div>` + one(a); }
+  else html += one(b);
+  const pay = b.payment || {};
+  const paid = pay.mode === 'x402' ? `paid $${pay.usd} on ${pay.network}${pay.tx ? ` · tx ${pay.tx.slice(0, 10)}…` : ''}${pay.settled ? '' : ' · <span class="err">not settled</span>'}`
+    : pay.mode === 'credits' ? `credits · $${pay.usd} spent · $${pay.left_usd} left` : pay.mode === 'free' ? 'free (local)' : '';
+  html += `<div class="note" style="margin-top:10px">${b.model || ''} · ${b.usage ? `${b.usage.input_tokens}→${b.usage.output_tokens} tokens` : ''} · ${paid}</div>`;
+  out.innerHTML = html;
+}
+
+// ── credits ──
+async function topup() {
+  const usd = Number($('topup').value || 0);
+  if (!price || usd < price.min_topup_usd) { show($('payout'), `Minimum top-up is $${price ? price.min_topup_usd : '?'}`, 'err'); return; }
+  try {
+    const req = await fetch(API('topup'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+    show($('payout'), `Sign a $${usd} USDC transfer in your wallet…`);
+    const p = await payHeader(req, Math.round(usd * 1e6));
+    const r = await fetch(API('topup'), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PAYMENT': p.header }, body: '{}' });
+    const out = await r.json();
+    show($('payout'), r.ok ? `Credited $${out.credited_usd} to ${out.address} (${out.questions} questions). ${token ? '' : 'Sign in with that wallet to spend them.'}` : (out.error || j(out)), r.ok ? 'good' : 'err');
+    whoami();
+  } catch (e) { show($('payout'), String(e.message || e), 'err'); }
+}
+
+// ── boot ──
+async function boot() {
+  price = await fetch(API('price')).then(r => r.json()).catch(() => null);
+  if (price) {
+    $('chip-price').textContent = price.enabled ? `$${price.price_usd} / question · USDC` : 'free';
+    $('chip-pay').textContent = price.enabled ? price.networks.map(n => n.network).join(' · ') : 'no charge';
+    $('chip-pay').className = 'chip ' + (price.enabled ? 'on' : 'off');
+    $('paynote').innerHTML = price.enabled
+      ? `Each question costs <b>$${price.price_usd} USDC</b> on ${price.networks.map(n => n.network).join(', ')}, paid to <code>${price.pay_to}</code>. Settled by <code>${price.facilitator.replace(/^https?:\/\//, '')}</code>. No account, no KYC.`
+      : 'This node does not charge: ask away.';
+  }
+  const st = await fetch(API('health')).then(r => r.json()).catch(() => ({}));
+  const info = await fetch(API('info')).then(r => r.json()).catch(() => ({}));
+  $('chip-key').textContent = info.key_present ? `key set · ${info.default_model}` : 'no TYPESAFE_API_KEY on this node';
+  $('chip-key').className = 'chip ' + (info.key_present ? 'on' : 'off');
+  const origin = location.origin;
+  $('snippet').textContent = `curl -X POST ${origin}${BASE}/api/noul -H 'content-type: application/json' \\
+  -d '{"state":"I was charged twice","instructions":"Is the customer angry?"}'
+# → 402 with accepts[] · sign it (x402) · retry with X-PAYMENT: <base64>
+# or prepay:  POST ${BASE}/api/topup  with X-PAYMENT, then send  token: <mod token>
+# also: ${origin}/api${BASE}/noul   ·   m jev/noul "..." instructions="..."`;
+  $('mcpurl').textContent = `${origin}${BASE}/mcp`;
+  cost(); whoami();
+  const m = await fetch(API('models')).then(r => r.json()).catch(() => ({}));
+  if (m.models) {
+    $('models').textContent = m.models.map(x => `${x.name}${x.release_date ? '  ' + String(x.release_date).slice(0, 10) : ''}\n  ${x.description || ''}`).join('\n');
+    for (const x of m.models) { const o = document.createElement('option'); o.value = x.name; o.textContent = x.name; $('model').appendChild(o); }
+  } else $('models').textContent = m.error ? `${m.error} (${m.code})` : 'unavailable';
+}
+
+document.querySelectorAll('.kinds button').forEach(b => b.onclick = () => {
+  kind = b.dataset.kind; document.querySelectorAll('.kinds button').forEach(x => x.classList.toggle('sel', x === b));
+  $('f-single').classList.toggle('hide', kind === 'ask'); $('f-many').classList.toggle('hide', kind !== 'ask');
+  $('f-choice').classList.toggle('hide', kind !== 'choice'); $('f-score').classList.toggle('hide', kind !== 'score');
+  $('instructions').value = { noul: 'Is the customer frustrated?', choice: 'Which team should handle this?', score: 'How frustrated is the customer?' }[kind] || $('instructions').value;
+  cost();
+});
+$('questions').oninput = cost;
+$('go').onclick = ask; $('connect').onclick = connect; $('signin').onclick = signin; $('signout').onclick = signout; $('dotopup').onclick = topup;
+$('tab-percall').onclick = () => { $('p-percall').classList.remove('hide'); $('p-credits').classList.add('hide'); $('tab-percall').classList.add('sel'); $('tab-credits').classList.remove('sel'); };
+$('tab-credits').onclick = () => { $('p-credits').classList.remove('hide'); $('p-percall').classList.add('hide'); $('tab-credits').classList.add('sel'); $('tab-percall').classList.remove('sel'); };
+if (token) $('signout').classList.remove('hide');
+boot();
+</script>
+</body>
+</html>

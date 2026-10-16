@@ -4,84 +4,100 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dollartime</title>
+<link rel="icon" href="data:,">
 <style>
   :root { --bg:#0e1116; --card:#161b22; --line:#262d36; --fg:#e6edf3; --dim:#8b949e;
-          --up:#2fbf71; --down:#e5534b; --acc:#d4a72c; }
+          --up:#2fbf71; --down:#e5534b; --acc:#d4a72c; --blue:#58a6ff; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
          font:15px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
-  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 60px; }
+  main { max-width: 900px; margin: 0 auto; padding: 20px 16px 60px; }
   h1 { font-size: 22px; margin: 0; letter-spacing: .5px; }
   h1 b { color: var(--up); }
   .sub { color: var(--dim); margin: 2px 0 18px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
           padding:14px; margin-bottom:14px; }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:10px; }
+  .stat .k { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
+  .stat .v { font-size:18px; font-weight:600; }
+  .stat .v small { color:var(--dim); font-size:12px; font-weight:400; }
   input, select, button { font:inherit; color:var(--fg); background:#0d1117;
           border:1px solid var(--line); border-radius:7px; padding:7px 10px; }
   input { min-width: 0; }
+  input[type=range] { padding:0; accent-color: var(--acc); }
   button { cursor:pointer; }
-  button.up { background:var(--up); border-color:var(--up); color:#06130b; font-weight:600; }
-  button.down { background:var(--down); border-color:var(--down); color:#1b0605; font-weight:600; }
+  button.go { background:var(--up); border-color:var(--up); color:#06130b; font-weight:600; }
+  button.warn { background:var(--acc); border-color:var(--acc); color:#1b1402; font-weight:600; }
   button.ghost { background:transparent; }
   button:disabled { opacity:.45; cursor:default; }
-  .tabs button.on { border-color: var(--acc); color: var(--acc); }
-  .mkt { display:grid; grid-template-columns: 1fr auto; gap:6px 12px; }
-  .q { font-weight:600; }
+  .q { font-weight:600; margin-bottom:8px; }
   .meta { color:var(--dim); font-size:13px; }
-  .bar { height:6px; border-radius:3px; background:var(--down); overflow:hidden; margin-top:6px; }
-  .bar i { display:block; height:100%; background:var(--up); }
+  .bar { height:8px; border-radius:4px; background:#0d1117; overflow:hidden; margin-top:6px; border:1px solid var(--line); }
+  .bar i { display:block; height:100%; background:var(--up); float:left; }
+  .bar i.burn { background:var(--down); }
   .tag { font-size:12px; padding:1px 7px; border-radius:9px; border:1px solid var(--line); }
-  .tag.up { color:var(--up); border-color:var(--up); }
-  .tag.down { color:var(--down); border-color:var(--down); }
+  .tag.sold { color:var(--up); border-color:var(--up); }
+  .tag.burned { color:var(--down); border-color:var(--down); }
+  .tag.open { color:var(--acc); border-color:var(--acc); }
   .msg { min-height: 20px; font-size:13px; margin-top:8px; }
   .msg.err { color: var(--down); } .msg.ok { color: var(--up); }
   .bal { font-size: 20px; font-weight: 700; }
   table { width:100%; border-collapse: collapse; font-size: 14px; }
   td, th { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); }
   th { color: var(--dim); font-weight: 500; }
+  td.r, th.r { text-align:right; }
   code { background:#0d1117; padding:2px 6px; border-radius:5px; word-break: break-all; }
+  .days { display:flex; gap:4px; flex-wrap:wrap; }
+  .day { width:34px; height:34px; border-radius:6px; display:flex; align-items:center; justify-content:center;
+         font-size:11px; color:#0b0e13; font-weight:600; }
+  .day.sold { background:var(--up); } .day.burned { background:var(--down); } .day.open { background:var(--acc); }
+  .tabs button.on { border-color: var(--acc); color: var(--acc); }
+  details summary { cursor:pointer; color:var(--dim); }
 </style>
 </head>
 <body>
 <main>
   <h1><b>$</b> dollartime</h1>
-  <div class="sub">Will the price be up or down in N hours? Open a market, take a side, winners split the pot. Play money.</div>
+  <div class="sub">Own one revenue-generating thing together. Dollars in, locked for time, earn the day's share of 7,200 DTT. 21,000,000 ever. Empty days burn.</div>
 
+  <div class="card" id="asset"></div>
   <div class="card" id="you"></div>
 
   <div class="card">
-    <div class="q" style="margin-bottom:8px">Make a prediction</div>
+    <div class="q">Contribute dollars</div>
     <div class="row">
-      <input id="c-asset" value="BTC" size="6" placeholder="BTC">
-      <span class="meta" id="c-px"></span>
-      <span>in</span>
-      <input id="c-hours" type="number" value="4" min="0.25" max="720" step="0.25" style="width:80px">
-      <span>hours, stake</span>
-      <input id="c-amt" type="number" value="50" min="1" style="width:90px">
+      <span>$</span><input id="c-usd" type="number" value="100" min="0.01" step="0.01" style="width:110px">
+      <span>locked for</span>
+      <input id="c-lock" type="number" value="0" min="0" max="1460" style="width:80px"><span>days</span>
+      <input id="c-slider" type="range" min="0" max="1460" value="0" style="flex:1;min-width:120px">
+      <button class="go" onclick="contribute()">Contribute</button>
     </div>
-    <div class="row" style="margin-top:8px">
-      <input id="c-note" placeholder="why? (optional)" style="flex:1">
-      <button class="up" onclick="create('up')">Up</button>
-      <button class="down" onclick="create('down')">Down</button>
-    </div>
-    <div class="meta" style="margin-top:6px">The price right now is the line. Others can bet for the first quarter of the window, then it locks and settles at the end.</div>
+    <div class="meta" id="c-hint" style="margin-top:6px"></div>
     <div class="msg" id="c-msg"></div>
   </div>
 
-  <div class="row tabs" style="margin-bottom:10px">
-    <button data-s="live" class="on">Live</button>
-    <button data-s="resolved">Settled</button>
-    <button data-s="board">Leaderboard</button>
+  <div class="card">
+    <div class="q">Days <span class="meta" id="d-sum"></span></div>
+    <div class="days" id="days"></div>
+    <div class="meta" style="margin-top:6px"><span class="tag open">open</span> today, still buying · <span class="tag sold">sold</span> someone bought, claim after close · <span class="tag burned">burned</span> nobody bought, 7,200 DTT gone for good</div>
   </div>
-  <div id="list"></div>
+
+  <div class="row tabs" style="margin-bottom:10px">
+    <button data-s="holders" class="on">Holders</button>
+    <button data-s="positions">My contributions</button>
+    <button data-s="history">Treasury</button>
+    <button data-s="chains">EVM + NEAR</button>
+  </div>
+  <div class="card" id="list"></div>
 </main>
 
 <script>
 const BASE = location.pathname.replace(/\/+$/, '').replace(/\/index\.html$/, '');
 const API = BASE + '/api/';
 let token = localStorage.getItem('dollartime.token') || '';
-let tab = 'live';
+let tab = 'holders';
+let S = null, ME = null;
 
 async function call(fn, args, post) {
   const opt = post ? { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(args||{}) } : {};
@@ -93,129 +109,189 @@ async function call(fn, args, post) {
 }
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const money = p => '$' + (p >= 1 ? p.toLocaleString(undefined, {maximumFractionDigits: 2}) : p.toPrecision(4));
-function left(ts) {
-  let s = Math.max(0, ts - Date.now()/1000);
-  const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
-  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m ${Math.floor(s%60)}s`;
+const USD = v => '$' + (Number(v) / 1e6).toLocaleString(undefined, {maximumFractionDigits: 2});
+const DTT = v => (Number(v) / 1e18).toLocaleString(undefined, {maximumFractionDigits: 2});
+const pct = bps => (bps / 100).toFixed(2) + '%';
+function left(s) {
+  s = Math.max(0, s);
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60);
+  return h ? `${h}h ${m}m` : `${m}m ${Math.floor(s%60)}s`;
 }
 function say(id, text, ok) { const e = $(id); e.textContent = text; e.className = 'msg ' + (ok ? 'ok' : 'err'); }
+function ask(id, html) { const e = $(id); e.className = 'msg'; e.innerHTML = html; }
 
-async function renderYou() {
+// ── asset + stats ─────────────────────────────────────────────────
+async function renderAsset() {
+  S = await call('stats');
+  const a = S.asset, soldPct = (S.total_supply / S.cap) * 100, burnPct = (S.burned / S.cap) * 100;
+  const pending = S.emitted - S.burned - S.total_supply; // sold days not yet claimed
+  $('asset').innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><div class="q" style="margin:0">${esc(a.name)}</div>
+        <div class="meta">${esc(a.description) || 'the thing this treasury buys and these tokens own'}</div></div>
+      <div class="stat" style="text-align:right"><div class="k">valuation</div><div class="v">${USD(a.valuation)}</div></div>
+    </div>
+    <div class="grid" style="margin-top:12px">
+      <div class="stat"><div class="k">day</div><div class="v">${S.day} <small>closes in ${left(S.day_ends_in)}</small></div></div>
+      <div class="stat"><div class="k">today's emission</div><div class="v">${DTT(S.emission_today)} <small>DTT</small></div></div>
+      <div class="stat"><div class="k">bought today</div><div class="v">${S.weight_today ? USD(S.weight_today / 365) : '—'} <small>weight-$</small></div></div>
+      <div class="stat"><div class="k">treasury</div><div class="v">${USD(S.treasury)}</div></div>
+      <div class="stat"><div class="k">revenue paid</div><div class="v">${USD(S.revenue_total)}</div></div>
+      <div class="stat"><div class="k">days left</div><div class="v">${S.days_left.toLocaleString()}</div></div>
+    </div>
+    <div class="bar" title="minted · burned"><i style="width:${soldPct}%"></i><i class="burn" style="width:${burnPct}%"></i></div>
+    <div class="meta" style="margin-top:4px">${DTT(S.total_supply)} DTT minted · ${DTT(pending)} sold, unclaimed · ${DTT(S.burned)} burned · ${DTT(S.cap)} cap · steward: ${esc(S.steward || 'first to join')}</div>`;
+  hint();
+}
+
+// ── you ───────────────────────────────────────────────────────────
+async function renderYou(bg) {
   const el = $('you');
+  // A re-render must not shut the panel or eat what's half-typed (or a pending "Yes, spend").
+  const det = el.querySelector('details'), msg = $('j-msg');
+  const keep = { open: det && det.open, vals: bg ? [...el.querySelectorAll('input[id]')].map(i => [i.id, i.value]) : [],
+                 msg: bg && msg ? [msg.className, msg.innerHTML] : null };
   if (!token) {
-    el.innerHTML = `<div class="row"><span>Pick a name to start with 1000 points:</span>
-      <input id="j-name" placeholder="name" size="14"><button onclick="join()">Join</button>
-      <button class="ghost" onclick="showRestore()">I have a token</button></div>
+    ME = null;
+    if (bg && $('j-name')) return;  // nothing to update; keep the half-typed name
+    el.innerHTML = `<div class="row"><span>Pick a name to start with $10,000 paper dollars:</span>
+      <input id="j-name" placeholder="name" size="14"><button class="go" onclick="join()">Join</button>
+      <button class="ghost" onclick="$('restore').style.display='flex'">I have a token</button></div>
       <div class="row" id="restore" style="display:none;margin-top:8px">
       <input id="r-tok" placeholder="paste token" style="flex:1"><button onclick="restore()">Use</button></div>
       <div class="msg" id="j-msg"></div>`;
     return;
   }
   try {
-    const me = await call('me', {token});
-    el.innerHTML = `<div class="row" style="justify-content:space-between">
-      <div><span class="meta">${esc(me.name)}</span><div class="bal">${me.balance.toLocaleString()} pts</div></div>
+    ME = await call('me', {token});
+    const claimable = ME.positions.reduce((s, p) => s + Number(p.claimable), 0);
+    el.innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><span class="meta">${esc(ME.name)}${ME.steward ? ' · steward' : ''}</span>
+        <div class="bal">${DTT(ME.balance)} DTT <small class="meta">${pct(ME.share_bps)} of the thing · worth ${USD(ME.value)}</small></div>
+        <div class="meta">${USD(ME.dollars)} in hand · ${DTT(ME.locked)} DTT locked · ${USD(ME.owed)} revenue owed</div></div>
       <div class="row">
-        <button onclick="claim()" ${me.can_claim ? '' : 'disabled'}>+100 daily</button>
+        <button class="go" onclick="claim()" ${claimable > 0 ? '' : 'disabled'}>Claim ${DTT(claimable)} DTT</button>
+        <button onclick="withdraw()" ${Number(ME.owed) > 0 ? '' : 'disabled'}>Withdraw ${USD(ME.owed)}</button>
         <button class="ghost" onclick="$('tokbox').style.display='block'">Token</button>
         <button class="ghost" onclick="logout()">Sign out</button></div></div>
       <div id="tokbox" style="display:none;margin-top:8px" class="meta">Your token (keep it to use this name elsewhere): <code>${esc(token)}</code></div>
+      <details style="margin-top:10px"><summary>Send DTT · pay revenue in${ME.steward ? ' · steward: spend treasury, set valuation' : ''}</summary>
+        <div class="row" style="margin-top:8px"><span>Send</span><input id="t-amt" type="number" placeholder="DTT" style="width:100px"><span>DTT to</span>
+          <input id="t-to" placeholder="name" size="12"><button onclick="transfer()">Send</button><span class="meta">unlocked only</span></div>
+        <div class="row" style="margin-top:8px"><span>Revenue the thing earned: $</span><input id="r-usd" type="number" placeholder="40" style="width:100px">
+          <input id="r-memo" placeholder="memo (rent, compute fees)" style="flex:1"><button onclick="revenue()">Deposit</button></div>
+        ${ME.steward ? `
+        <div class="row" style="margin-top:8px"><span>Spend $</span><input id="s-usd" type="number" placeholder="150" style="width:100px"><span>to</span>
+          <input id="s-to" placeholder="seller (a name here or outside)" style="flex:1"><input id="s-memo" placeholder="memo" size="14"><button class="warn" onclick="spend()">Spend</button></div>
+        <div class="row" style="margin-top:8px"><span>The thing:</span><input id="a-name" value="${esc(S.asset.name)}" size="14">
+          <input id="a-desc" value="${esc(S.asset.description)}" placeholder="description" style="flex:1"><span>valued $</span>
+          <input id="a-val" type="number" value="${S.asset.valuation / 1e6}" style="width:120px"><button class="warn" onclick="setAsset()">Save</button></div>` : ''}
+      </details>
       <div class="msg" id="j-msg"></div>`;
+    if (keep.open) el.querySelector('details').open = true;
+    for (const [id, v] of keep.vals) if ($(id)) $(id).value = v;
+    if (keep.msg) [$('j-msg').className, $('j-msg').innerHTML] = keep.msg;
   } catch (e) {
-    if (/unknown token/.test(e.message)) { token = ''; localStorage.removeItem('dollartime.token'); return renderYou(); }
+    if (/bad token/.test(e.message)) { token = ''; localStorage.removeItem('dollartime.token'); return renderYou(); }
     el.textContent = e.message;
   }
+  hint();
 }
-function showRestore() { $('restore').style.display = 'flex'; }
-function restore() { token = $('r-tok').value.trim(); localStorage.setItem('dollartime.token', token); renderYou(); }
-function logout() { token = ''; localStorage.removeItem('dollartime.token'); renderYou(); }
+function restore() { token = $('r-tok').value.trim(); localStorage.setItem('dollartime.token', token); refresh(); }
+function logout() { token = ''; localStorage.removeItem('dollartime.token'); refresh(); }
 async function join() {
   try {
     const r = await call('join', {name: $('j-name').value}, true);
     token = r.token; localStorage.setItem('dollartime.token', token);
-    await renderYou(); say('j-msg', 'Welcome, ' + r.name + '. Your token is saved in this browser.', true);
+    await refresh(); say('j-msg', 'Welcome, ' + r.name + (r.steward ? '. You joined first: you are the steward.' : '.') + ' Your token is saved in this browser.', true);
   } catch (e) { say('j-msg', e.message); }
 }
-async function claim() {
-  try { await call('claim', {token}, true); renderYou(); } catch (e) { say('j-msg', e.message); }
+async function act(fn, args, msgId, okText) {
+  try { const r = await call(fn, {token, ...args}, true); await refresh(); say(msgId, okText(r), true); }
+  catch (e) { say(msgId, e.message); }
+}
+const claim = () => act('claim', {}, 'j-msg', r => `Minted ${DTT(r.claimed.reduce((s, c) => s + Number(c.minted), 0))} DTT.`);
+const withdraw = () => act('withdraw', {}, 'j-msg', r => `Withdrew ${USD(r.withdrawn)}.`);
+const transfer = () => act('transfer', {to: $('t-to').value, amount: $('t-amt').value}, 'j-msg', r => `Sent ${DTT(r.amount)} DTT to ${r.to}.`);
+const revenue = () => act('revenue', {dollars: $('r-usd').value, memo: $('r-memo').value}, 'j-msg', r => `Deposited ${USD(r.dollars)} to ${r.to}.`);
+const setAsset = () => act('set_asset', {name: $('a-name').value, description: $('a-desc').value, valuation: $('a-val').value}, 'j-msg', r => `Saved: ${r.name} valued ${USD(r.valuation)}.`);
+function spend() {
+  const usd = $('s-usd').value, to = $('s-to').value, memo = $('s-memo').value;
+  ask('j-msg', `Pay $${esc(usd)} of the treasury to <b>${esc(to)}</b>? <button class="warn" onclick="spendNow()">Yes, spend</button> <button class="ghost" onclick="say('j-msg','',true)">No</button>`);
+  window.spendNow = () => act('spend', {to, dollars: usd, memo}, 'j-msg', r => `Spent ${USD(r.dollars)}; treasury now ${USD(r.treasury)}.`);
 }
 
-let pxTimer;
-function watchPrice() {
-  clearTimeout(pxTimer);
-  pxTimer = setTimeout(async () => {
-    const a = $('c-asset').value.trim();
-    if (!a) return;
-    try { const p = await call('price', {asset: a}); $('c-px').textContent = 'now ' + money(p.price); }
-    catch { $('c-px').textContent = 'no price'; }
-  }, 350);
+// ── contribute ────────────────────────────────────────────────────
+function hint() {
+  if (!S) return;
+  const usd = Number($('c-usd').value) || 0, lock = Number($('c-lock').value) || 0;
+  const w = usd * 1e6 * (365 + lock), W = S.weight_today + w;
+  const share = W ? w / W : 0, mult = ((365 + lock) / 365).toFixed(2);
+  const unlock = new Date(Date.now() + lock * 86400e3).toLocaleDateString();
+  $('c-hint').textContent = usd > 0
+    ? `Weight ${mult}x (${lock} day lock${lock ? ', DTT unlocks ' + unlock : ''}). If no one else buys today you get ${DTT(S.emission_today * share)} DTT of today's ${DTT(S.emission_today)} - ${(share * 100).toFixed(1)}% of the day, as of now.`
+    : 'Weight = dollars x (365 + lock days). The day\'s 7,200 DTT split by weight; the treasury buys the thing.';
 }
-$('c-asset').addEventListener('input', watchPrice);
-
-async function create(side) {
-  if (!token) return say('c-msg', 'Join first (top card).');
-  try {
-    const m = await call('create', {token, side, asset: $('c-asset').value,
-      hours: $('c-hours').value, amount: $('c-amt').value, note: $('c-note').value}, true);
-    say('c-msg', `Market #${m.id} open: ${m.question}`, true);
-    $('c-note').value = ''; renderYou(); renderList();
-  } catch (e) { say('c-msg', e.message); }
-}
-async function bet(id, side) {
-  if (!token) return say('m-' + id, 'Join first (top card).');
-  try {
-    await call('bet', {token, id, side, amount: $('a-' + id).value}, true);
-    renderYou(); renderList();
-  } catch (e) { say('m-' + id, e.message); }
+$('c-slider').oninput = e => { $('c-lock').value = e.target.value; hint(); };
+$('c-lock').oninput = e => { $('c-slider').value = e.target.value; hint(); };
+$('c-usd').oninput = hint;
+function contribute() {
+  if (!token) return say('c-msg', 'Join first.');
+  act('contribute', {dollars: $('c-usd').value, lock_days: $('c-lock').value}, 'c-msg',
+      r => `Contributed ${USD(r.dollars)} for ${r.lock_days} days: ${(r.share_today * 100).toFixed(1)}% of today's weight. Claim after the day closes.`);
 }
 
-function marketHtml(m) {
-  const upPct = m.total ? Math.round(100 * m.pools.up / m.total) : 50;
-  const open = m.status === 'open';
-  let state;
-  if (m.status === 'resolved') {
-    const res = ['up','down'].includes(m.outcome) ? `<span class="tag ${m.outcome}">${m.outcome.toUpperCase()}</span>` : `<span class="tag">${m.outcome} — refunded</span>`;
-    state = `${res} closed at ${m.close_price != null ? money(m.close_price) : '—'}`;
-  } else if (open) state = `bets close in ${left(m.lock_at)} · settles in ${left(m.close_at)}`;
-  else if (m.status === 'locked') state = `locked · settles in ${left(m.close_at)}`;
-  else state = 'settling…';
-  return `<div class="card"><div class="mkt">
-    <div><div class="q">#${m.id} ${esc(m.asset)} up or down in ${m.hours}h?</div>
-      <div class="meta">line ${money(m.open_price)} · by ${esc(m.creator)} · ${m.bettors} bets · ${state}</div>
-      ${m.note ? `<div class="meta" style="color:var(--fg)">"${esc(m.note)}"</div>` : ''}</div>
-    <div style="text-align:right"><div><b>${m.total.toLocaleString()}</b> <span class="meta">pts</span></div>
-      <div class="meta"><span style="color:var(--up)">up ${m.pays.up ? m.pays.up + 'x' : '—'}</span> ·
-      <span style="color:var(--down)">down ${m.pays.down ? m.pays.down + 'x' : '—'}</span></div></div></div>
-    <div class="bar"><i style="width:${upPct}%"></i></div>
-    ${open ? `<div class="row" style="margin-top:10px"><input id="a-${m.id}" type="number" value="25" min="1" style="width:90px">
-      <button class="up" onclick="bet(${m.id},'up')">Up</button><button class="down" onclick="bet(${m.id},'down')">Down</button></div>
-      <div class="msg" id="m-${m.id}"></div>` : ''}
-  </div>`;
+// ── days + lists ──────────────────────────────────────────────────
+async function renderDays() {
+  const ds = await call('days', {limit: 28});
+  $('days').innerHTML = ds.map(d => `<div class="day ${d.state}" title="day ${d.day}: ${d.state}${d.weight ? ', weight-$' + USD(d.weight / 365) : ''}">${d.day}</div>`).join('');
+  const sold = ds.filter(d => d.state === 'sold').length, burned = ds.filter(d => d.state === 'burned').length;
+  $('d-sum').textContent = `last ${ds.length}: ${sold} sold · ${burned} burned`;
 }
-
 async function renderList() {
   const el = $('list');
   try {
-    if (tab === 'board') {
-      const b = await call('leaderboard');
-      el.innerHTML = `<div class="card"><table><tr><th>#</th><th>name</th><th>points</th><th>bets</th><th>wins</th></tr>` +
-        b.players.map((p, i) => `<tr><td>${i+1}</td><td>${esc(p.name)}</td><td>${p.balance.toLocaleString()}</td><td>${p.bets}</td><td>${p.wins}</td></tr>`).join('') +
-        `</table></div>`;
-      return;
+    if (tab === 'holders') {
+      const rows = await call('holders', {limit: 50});
+      el.innerHTML = rows.length ? `<table><tr><th>#</th><th>name</th><th class="r">DTT</th><th class="r">share</th></tr>` +
+        rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td class="r">${DTT(r.balance)}</td><td class="r">${pct(r.share_bps)}</td></tr>`).join('') + '</table>'
+        : '<div class="meta">No one holds DTT yet. Contribute today, claim tomorrow.</div>';
+    } else if (tab === 'positions') {
+      if (!ME) { el.innerHTML = '<div class="meta">Join to see your contributions.</div>'; return; }
+      el.innerHTML = ME.positions.length ? `<table><tr><th>#</th><th>day</th><th class="r">dollars</th><th class="r">lock</th><th class="r">DTT</th><th>state</th></tr>` +
+        ME.positions.map(p => `<tr><td>${p.id}</td><td>${p.day}</td><td class="r">${USD(p.dollars)}</td><td class="r">${p.lock_days}d</td>
+          <td class="r">${DTT(p.claimed ? p.minted : p.claimable)}</td><td>${p.claimed ? (p.unlock_at > S.now ? 'locked until ' + new Date(p.unlock_at * 1000).toLocaleDateString() : 'unlocked')
+          : p.day >= S.day ? '<span class="tag open">open</span>' : '<span class="tag sold">claimable</span>'}</td></tr>`).join('') + '</table>'
+        : '<div class="meta">Nothing yet.</div>';
+    } else if (tab === 'history') {
+      const h = await call('history', {limit: 50});
+      const rows = [...h.spends.map(s => ({...s, kind: 'spend'})), ...h.revenues.map(r => ({...r, kind: 'revenue'}))].sort((a, b) => b.at - a.at);
+      el.innerHTML = rows.length ? `<table><tr><th>when</th><th>what</th><th class="r">dollars</th><th>memo</th></tr>` +
+        rows.map(r => `<tr><td>${new Date(r.at * 1000).toLocaleString()}</td><td>${r.kind === 'spend' ? 'treasury → ' + esc(r.to) : 'revenue from ' + esc(r.from) + ' → ' + r.to}</td>
+          <td class="r">${USD(r.dollars)}</td><td class="meta">${esc(r.memo)}</td></tr>`).join('') + '</table>'
+        : '<div class="meta">The treasury has not moved yet.</div>';
+    } else {
+      const c = await call('chains');
+      const deps = c.evm.deployments || {};
+      el.innerHTML = `<div class="q">The same rules, on chain</div>
+        <table><tr><th>layer</th><th>where</th><th>status</th></tr>
+        <tr><td>paper</td><td>this console · engine.py</td><td>live</td></tr>
+        <tr><td>EVM</td><td>${esc(c.evm.stack)} · <code>evm/contracts/DollarTime.sol</code></td><td>${Object.keys(deps).length
+          ? Object.entries(deps).map(([n, d]) => `${esc(n)}: <code>${esc(d.dollarTime)}</code>`).join('<br>') : 'tested (hardhat), not deployed: <code>m dollartime/evm_deploy</code>'}</td></tr>
+        <tr><td>NEAR</td><td>near-sdk 5 · <code>near/src/lib.rs</code></td><td>${c.near.testnet && c.near.testnet.account
+          ? `testnet <code>${esc(c.near.testnet.account)}</code>` : (c.near.wasm ? `wasm built (${Math.round(c.near.wasm.bytes / 1024)} KB), not deployed: <code>m dollartime/near_deploy</code>` : 'not built: <code>m dollartime/near_build</code>')}</td></tr></table>
+        <div class="meta" style="margin-top:8px">On chain the dollars are a stablecoin: ERC-20 approve + <code>contribute(dollars, lockDays)</code> on EVM; <code>ft_transfer_call(dollartime, amount, "365")</code> on NEAR. Revenue: <code>depositRevenue</code> / msg <code>"revenue:rent"</code>.</div>`;
     }
-    const r = await call('markets', {status: tab});
-    el.innerHTML = r.markets.length ? r.markets.map(marketHtml).join('')
-      : `<div class="card meta">${tab === 'live' ? 'No live markets. Make the first prediction above.' : 'Nothing settled yet.'}</div>`;
-  } catch (e) { el.innerHTML = `<div class="card msg err">${esc(e.message)}</div>`; }
+  } catch (e) { el.textContent = e.message; }
 }
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   tab = b.dataset.s; renderList();
 });
 
-renderYou(); renderList(); watchPrice();
-setInterval(() => { if (!document.activeElement || document.activeElement.tagName !== 'INPUT') renderList(); }, 15000);
+async function refresh(bg) { await renderAsset(); await renderYou(bg); await renderDays(); await renderList(); }
+refresh();
+setInterval(() => refresh(true), 30000);
 </script>
 </body>
 </html>

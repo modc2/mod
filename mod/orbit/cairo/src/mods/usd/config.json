@@ -23,5 +23,16 @@
         "deploy",
         "call",
         "events"
-    ]
+    ],
+    "privacy": {
+        "everyone_sees": [
+            "everyone's balance",
+            "total supply",
+            "the reserves the issuer says it holds",
+            "every transfer, mint and burn"
+        ],
+        "kept_secret": [],
+        "summary": "Keeps no secrets. Note: the reserves number is just what the issuer claims; the chain cannot check a bank account."
+    },
+    "private": false
 }

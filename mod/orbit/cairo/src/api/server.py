@@ -24,7 +24,9 @@ studio): reads are open; WRITE_FNS need either a direct loopback request (no
 proxy headers — the CLI, curl on the box) or a mod-protocol token (`token:` /
 `Authorization: Bearer`) signed by an owner: config.json `owner`, the build
 console's private-flag owner, or CAIRO_OWNERS (comma list). GET /whoami says
-which you are.
+which you are. A contract with `"private": true` in its config.json is hidden
+from non-owners everywhere (lists, code, app page, MCP, jobs); GET /privacy
+explains all of it in plain words.
 """
 import importlib.util
 import json
@@ -90,17 +92,19 @@ GET_FNS = {
     'agents': lambda q: MOD.agents(refresh=q.get('refresh') in ('1', 'true'),
                                    brief=q.get('brief') in ('1', 'true'), mod=q.get('mod')),
     'whitepaper': lambda q: MOD.whitepaper(),
+    'privacy': lambda q: MOD.privacy(q.get('name')),
     'jobs': lambda q: {'jobs': _jobs_list()},
     'job': lambda q: _job_get(q.get('id', '')),
 }
 POST_FNS = {'info', 'status', 'toolchain', 'list', 'contracts', 'get', 'tree',
             'read', 'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove',
             'templates', 'abi', 'adopt', 'app', 'deploy', 'call', 'events',
-            'sandbox', 'market', 'fork', 'tutorials', 'fleet', 'whitepaper', 'agents'}
+            'sandbox', 'market', 'fork', 'tutorials', 'fleet', 'whitepaper', 'agents',
+            'privacy', 'visibility'}
 LONG_FNS = {'vibe', 'build', 'test', 'status'}
 # touch files on this box or spend the host Claude account -> owner only
 WRITE_FNS = {'write', 'new', 'vibe', 'build', 'test', 'clean', 'remove', 'adopt',
-             'status', 'fork'}
+             'status', 'fork', 'visibility'}
 # the sandbox is a throwaway local devnet, so its app is open to everyone:
 # `call` (views and sandbox-account txs) needs no owner. `deploy` is open
 # only for a contract that is already built and has no live deployment (no
@@ -165,18 +169,73 @@ def _sandbox_needs_owner(fn, kw):
         return live or st.get('state') != 'fresh'
     return False
 
+# ---- private contracts --------------------------------------------------------
+# A contract whose config.json says "private": true does not exist for anyone
+# but the owner: filtered out of every list, and every name-taking fn answers
+# "no such contract" (same words as a typo, so the name doesn't leak).
+
+def _hidden(who):
+    return set() if who.get('writable') else MOD.private_names()
+
+
+def _name_hidden(kw, hidden):
+    if not hidden or not isinstance(kw, dict):
+        return None
+    for k in ('name', 'src'):
+        v = kw.get(k)
+        if v and modpy._pkg(str(v)) in hidden:
+            return f'no such contract {modpy._pkg(str(v))!r}'
+    return None
+
+
+def _scrub(fn, r, hidden):
+    """Drop private contracts from a fn's result (non-owner callers)."""
+    if not hidden or not isinstance(r, dict):
+        return r
+    keep = lambda c: (c.get('name') if isinstance(c, dict) else c) not in hidden  # noqa: E731
+    r = dict(r)
+    if fn in ('list', 'contracts', 'market', 'status', 'privacy') and isinstance(r.get('contracts'), list):
+        n = len(r['contracts'])
+        r['contracts'] = [c for c in r['contracts'] if keep(c)]
+        if 'count' in r:
+            r['count'] = len(r['contracts'])
+        if fn == 'privacy':
+            r['hidden_count'] = n - len(r['contracts'])
+    if fn == 'info' and isinstance(r.get('contracts'), list):
+        r['contracts'] = [c for c in r['contracts'] if keep(c)]
+    if fn == 'health' and 'contracts' in r:
+        r['contracts'] = len(MOD._catalog()) - len(hidden)
+    if fn == 'jobs':
+        r['jobs'] = [j for j in r.get('jobs', []) if j.get('name') not in hidden]
+    if fn == 'job' and r.get('name') in hidden:
+        return {'error': f"no such job {r.get('id')!r}"}
+    if fn == 'fleet' and isinstance(r.get('mods'), list):
+        bad = tuple(f'/src/mods/{h}' for h in hidden)
+        r['mods'] = [{**m, 'projects': [p for p in m.get('projects', [])
+                                        if not any(b in (p.get('path') or '') for b in bad)]}
+                     if isinstance(m, dict) else m for m in r['mods']]
+    if fn == 'sandbox' and isinstance(r.get('deployments'), dict):
+        r['deployments'] = {k: v for k, v in r['deployments'].items() if k not in hidden}
+    return r
+
+
 def _gate(ip, headers):
     """The REST write rule as a callback for MCP tools and the helper:
-    gate(fn, kw, owner_tool) -> None (go) | why not."""
+    gate(fn, kw, owner_tool) -> None (go) | why not. gate.scrub(fn, result)
+    hides private contracts from a non-owner."""
     cache = {}
+
+    def who():
+        if 'who' not in cache:
+            cache['who'] = _whoami(ip, headers)
+        return cache['who']
 
     def gate(fn, kw, owner=False):
         if owner or fn in WRITE_FNS or _sandbox_needs_owner(fn, kw):
-            if 'who' not in cache:
-                cache['who'] = _whoami(ip, headers)
-            if not cache['who']['writable']:
-                return f"{fn} is owner-only: {cache['who'].get('why')}"
-        return None
+            if not who()['writable']:
+                return f"{fn} is owner-only: {who().get('why')}"
+        return _name_hidden(kw, _hidden(who()))
+    gate.scrub = lambda fn, r: _scrub(fn, r, _hidden(who()))
     return gate
 
 
@@ -345,6 +404,8 @@ class H(BaseHTTPRequestHandler):
             return None
         if pkg != segs[0] or not MOD._is_submod(d):
             return None
+        if pkg in _hidden(_whoami(self.client_address[0], self.headers)):
+            return self._send(404, {'error': f'no such contract {pkg!r}'}) or True
         if not path.endswith('/') and len(segs) == 1:
             # the page resolves its API from its own URL: pin the slash
             self.send_response(301)
@@ -424,8 +485,12 @@ class H(BaseHTTPRequestHandler):
             return self._send(404, {'error': f'unknown fn {fn!r}',
                                     'get': sorted(GET_FNS),
                                     'post': sorted(POST_FNS)})
+        hidden = _hidden(_whoami(self.client_address[0], self.headers))
+        no = _name_hidden(q, hidden)
+        if no:
+            return self._send(404, {'error': no})
         try:
-            return self._send(200, GET_FNS[fn](q))
+            return self._send(200, _scrub(fn, GET_FNS[fn](q), hidden))
         except Exception as e:  # noqa: BLE001
             return self._send(400, {'error': str(e)})
 
@@ -451,12 +516,16 @@ class H(BaseHTTPRequestHandler):
             return self._agent_run(kw, stream=sp[1], agent=sp[2] if len(sp) > 2 else None)
         if not isinstance(kw, dict):
             return self._send(400, {'error': 'body must be a JSON object'})
+        hidden = _hidden(_whoami(self.client_address[0], self.headers))
         if fn in ('job', 'jobs'):
-            return self._send(200, GET_FNS[fn](kw))
+            return self._send(200, _scrub(fn, GET_FNS[fn](kw), hidden))
         kw.pop('on_step', None)   # a server-side hook, never from the wire
         if fn not in POST_FNS:
             return self._send(404, {'error': f'unknown fn {fn!r}',
                                     'post': sorted(POST_FNS)})
+        no = _name_hidden(kw, hidden)
+        if no:
+            return self._send(404, {'error': no})
         if fn in WRITE_FNS or _sandbox_needs_owner(fn, kw):
             who = _whoami(self.client_address[0], self.headers)
             if not who['writable']:
@@ -469,7 +538,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, {'job': _start_job(fn, kw)})
         try:
             with _name_lock(kw.get('name')) if fn in LONG_FNS else _NULL:
-                return self._send(200, getattr(MOD, fn)(**kw))
+                return self._send(200, _scrub(fn, getattr(MOD, fn)(**kw), hidden))
         except Exception as e:  # noqa: BLE001  (TypeError = bad kwargs)
             return self._send(400, {'error': str(e)})
 

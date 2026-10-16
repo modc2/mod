@@ -287,6 +287,53 @@
     .audio audio { height: 34px; flex: none; }
     pre.snippet { background: #0b0d12; border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; overflow-x: auto; font: 12px/1.55 var(--mono); color: var(--dim); margin: 0; white-space: pre; }
 
+    /* market */
+    .mk-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+    .mk-head h2 { margin: 0; font-size: 22px; letter-spacing: -.01em; }
+    .mk-head .sub { color: var(--dim); font-size: 13px; }
+    .mk-stats { display: flex; gap: 18px; margin-left: auto; }
+    .mk-stats div { text-align: right; }
+    .mk-stats b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+    .mk-stats span { font-size: 11px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+    .mk-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+    .mk-tools .field { width: 240px; }
+    .mk-tools select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; color: var(--dim); }
+    .mk-tools .chips { margin: 0; }
+    table.mk { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+    table.mk th { text-align: left; font-size: 10.5px; letter-spacing: .1em; color: var(--muted); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; cursor: pointer; user-select: none; }
+    table.mk th.on { color: var(--fg); }
+    table.mk th.r, table.mk td.r { text-align: right; }
+    table.mk td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    table.mk tr.row { cursor: pointer; }
+    table.mk tr.row:hover td { background: var(--panel); }
+    table.mk tr.row.open td { background: var(--panel2); border-bottom-color: transparent; }
+    .mk-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .mk-name .bar { width: 3px; height: 22px; border-radius: 2px; background: var(--c); flex: none; }
+    .mk-name .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; }
+    .mk-name .key { font: 11px var(--mono); color: var(--muted); }
+    .pp { display: inline-block; font-size: 10.5px; color: var(--dim); border: 1px solid var(--line2); border-radius: 5px; padding: 0 5px; margin: 1px 3px 1px 0; white-space: nowrap; }
+    .pp.ok { border-color: color-mix(in srgb, var(--good) 55%, transparent); color: var(--fg); }
+    .best { color: var(--good); font-weight: 600; }
+    .spread { color: var(--warn); }
+    .tee { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--accent2); border: 1px solid color-mix(in srgb, var(--accent2) 50%, transparent); border-radius: 4px; padding: 0 4px; }
+    .book td { background: var(--panel2); padding: 0 10px 12px !important; }
+    .ob { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(160px, 2fr) 80px 80px 90px 70px 150px; gap: 0 12px; align-items: center; font-size: 12.5px; }
+    .ob > div { padding: 6px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+    .ob .hd { font-size: 10px; letter-spacing: .1em; color: var(--muted); font-weight: 700; }
+    .ob .id { font: 11.5px var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ob .px { position: relative; text-align: right; }
+    .ob .px i { position: absolute; right: 0; top: 50%; height: 16px; transform: translateY(-50%); background: color-mix(in srgb, var(--good) 16%, transparent); border-radius: 3px; z-index: 0; }
+    .ob .px span { position: relative; z-index: 1; }
+    .ob .acts { display: flex; gap: 4px; justify-content: flex-end; }
+    .oai { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start; }
+    @media (max-width: 860px) {
+      .ob { grid-template-columns: 1fr 80px 110px; }
+      .ob .hide-sm { display: none; }
+      table.mk .hide-sm { display: none; }
+      .mk-stats { margin-left: 0; }
+      .oai { grid-template-columns: 1fr; }
+    }
+
     .lockcard { max-width: 520px; margin: 9vh auto 0; text-align: center; }
     .lockcard .card { text-align: left; }
 
@@ -319,6 +366,7 @@
         <h1>model</h1>
         <div class="sub" id="brand-sub">loading catalog…</div>
       </div>
+      <button class="btn sm ghost" id="go-market" title="Every model across every provider, by price" style="margin-left:auto">Market</button>
       <button class="ib x" id="side-close" title="Close">✕</button>
     </div>
 
@@ -438,6 +486,9 @@ const S = {
   checks: {},                    // pid -> {ok, detail, count}
   openCard: null,
   loading: true,
+  view: LS.get('view', 'market'),  // market | model
+  market: null,                    // /market response for the current keys
+  mk: { q: '', kind: 'chat', sort: 'n', dir: 1, multi: true, tee: false, ready: false, open: null, limit: 120 },
 };
 
 function toast(msg) {
@@ -503,6 +554,7 @@ async function loadCatalog(refresh = false) {
     data.errors = { catalog: e.message };
     toast('Catalog failed: ' + e.message.slice(0, 80));
   }
+  S.market = null;  // re-fetched lazily for the new keys
   S.models = (data.models || []).filter((m) => !S.hidden.has(m.provider));
   S.byRef = new Map(S.models.map((m) => [m.ref, m]));
   S.errors = data.errors || {}; S.counts = data.counts || {};
@@ -512,6 +564,24 @@ async function loadCatalog(refresh = false) {
     if (S.active && !parseRef(S.active)[0]) S.active = null;
   }
   renderAll();
+}
+
+function keyHeaders() {
+  const keys = {};
+  for (const p of S.providers) { const k = getKey(p.id); if (k && !S.hidden.has(p.id)) keys[p.id] = k; }
+  return { 'X-API-Keys': JSON.stringify(keys), ...customHeader() };
+}
+async function loadMarket() {
+  if (S.market && !S.market.error) return;
+  S.market = { loading: true, markets: [] };
+  try {
+    const res = await fetch(`${API}/market`, { headers: keyHeaders() });
+    if (!res.ok) throw new Error(await apiErr(res));
+    const d = await res.json();
+    d.markets = d.markets.map((r) => ({ ...r, offers: r.offers.filter((o) => !S.hidden.has(o.provider)) })).filter((r) => r.offers.length);
+    S.market = d;
+  } catch (e) { S.market = { error: e.message, markets: [] }; }
+  if (S.view === 'market' || !S.active) renderMain();
 }
 
 function modelOf(ref) {
@@ -762,8 +832,10 @@ function toggleCompare(ref) {
   else S.compare.push(ref);
   LS.set('compare', S.compare); renderModelList(); renderTop(); renderWork();
 }
+function showMarket() { S.view = 'market'; LS.set('view', 'market'); openSide(false); renderMain(); }
 function select(ref) {
   S.active = ref; LS.set('active', ref);
+  S.view = 'model'; LS.set('view', 'model');
   S.compare = S.compare.filter((r) => r !== ref);
   if (modelOf(ref)?.kind !== 'chat') S.compare = [];
   LS.set('compare', S.compare);
@@ -781,8 +853,10 @@ function lineup() { return S.active ? [S.active, ...S.compare.filter((r) => r !=
 function renderTop() {
   const ident = $('ident'); const acts = $('top-acts'); ident.innerHTML = ''; acts.innerHTML = '';
   const m = modelOf(S.active);
-  if (!m) {
-    ident.append(h('div', { class: 'nm' }, 'Every model, one place'), h('div', { class: 'tags' }, h('span', { class: 'tag' }, 'pick a model from the sidebar')));
+  if (!m || S.view === 'market') {
+    ident.append(h('div', { class: 'nm' }, 'Market'), h('div', { class: 'tags' },
+      h('span', { class: 'tag' }, 'every model × every provider'), h('span', { class: 'tag' }, 'one OpenAI-compatible API')));
+    if (m) acts.append(h('button', { class: 'btn sm', title: 'Back to ' + m.name, onclick: () => select(m.ref) }, 'Open ' + (m.name.length > 28 ? m.name.slice(0, 27) + '…' : m.name)));
     $('lineup').innerHTML = '';
     return;
   }
@@ -797,6 +871,7 @@ function renderTop() {
   ident.append(h('div', { class: 'nm' }, m.name), h('div', { class: 'tags' }, ...tags));
   const fav = S.favs.has(m.ref);
   acts.append(
+    h('button', { class: 'btn sm ghost', title: 'Every provider offering this model, by price', onclick: () => { S.mk.open = null; S.mk.q = ''; S.mk.kind = m.kind; S.mk.multi = false; S.mk.focus = m.ref; showMarket(); } }, 'Market'),
     h('button', { class: 'ib' + (fav ? ' fav' : ''), title: fav ? 'Unfavorite' : 'Favorite', onclick: () => toggleFav(m.ref) }, fav ? '★' : '☆'),
     h('button', { class: 'btn sm ghost', title: 'Show how to call this model', onclick: () => { S.showApi = !S.showApi; renderWork(); } }, S.showApi ? 'Close API' : '</> API'),
     m.kind === 'chat' ? h('button', { class: 'btn sm', title: 'New chat', onclick: newChat }, 'New chat') : '',
@@ -817,7 +892,7 @@ function renderMain() { renderTop(); renderWork(); }
 function renderWork() {
   const work = $('work'); const dock = $('dock'); work.innerHTML = ''; dock.innerHTML = '';
   const m = modelOf(S.active);
-  if (!m) return renderHero(work);
+  if (!m || S.view === 'market') return renderMarket(work);
   const inner = h('div', { class: 'inner' + (m.kind === 'chat' && S.compare.length ? ' wide' : '') });
   work.append(inner);
   if (S.showApi) inner.append(apiCard(m));
@@ -825,22 +900,147 @@ function renderWork() {
   ({ chat: renderChat, image: renderImage, embedding: renderEmbed, speech: renderSpeech, transcription: renderTranscribe, rerank: renderRerank }[m.kind] || renderCatalogOnly)(inner, m, dock);
 }
 
-function renderHero(work) {
-  const inner = h('div', { class: 'inner' });
-  const counts = {};
-  for (const m of S.models) counts[m.kind] = (counts[m.kind] || 0) + 1;
-  const prov = (k) => new Set(S.models.filter((m) => m.kind === k).map((m) => m.provider)).size;
-  inner.append(h('div', { class: 'hero' },
-    h('h2', {}, 'Every model, one place'),
-    h('p', {}, 'Chat, image, video, speech, transcription, embedding and rerank models from every provider, in one catalog. Bring your own keys; they never leave this browser except to reach their own provider.'),
-    h('div', { class: 'tiles' }, ...Object.keys(KINDS).filter((k) => counts[k]).map((k) =>
-      h('div', { class: 'tile', style: `--c:${kc(k)}`, onclick: () => { setKind(k); setTab('models'); } },
-        h('div', { class: 'v' }, counts[k].toLocaleString()), h('div', { class: 'l' }, KINDS[k].label),
-        h('div', { class: 's' }, `${prov(k)} provider${prov(k) === 1 ? '' : 's'}${RUNNABLE.has(k) ? '' : ' · browse only'}`)))),
-    h('div', { class: 'starters' },
-      h('button', { class: 'btn', onclick: () => setTab('providers') }, 'Connect providers'),
-      h('button', { class: 'btn ghost', onclick: () => { setKind('all'); $('q').focus(); openSide(true); } }, 'Search models  /'))));
+// ── main: market ──────────────────────────────────────────────────
+// One row per model (same model from many providers grouped server-side by
+// a canonical name); expand a row for its order book, cheapest offer first.
+const v1Base = () => location.origin + API + '/v1';
+const blended = (o) => o.cost;
+const fmtPx = (v) => v == null ? '—' : v === 0 ? 'free' : '$' + (v < 0.1 ? v.toFixed(3) : v < 10 ? v.toFixed(2) : v.toFixed(1));
+
+function marketRows() {
+  const mk = S.mk; const q = mk.q.trim().toLowerCase();
+  let rows = (S.market?.markets || []).filter((r) => {
+    if (mk.kind !== 'all' && r.kind !== mk.kind) return false;
+    if (mk.multi && r.offers.length < 2 && new Set(r.offers.map((o) => o.provider)).size < 2) return false;
+    if (mk.tee && !r.tee) return false;
+    if (mk.ready && !r.offers.some((o) => hasKey(o.provider))) return false;
+    if (mk.focus && !r.offers.some((o) => o.ref === mk.focus)) return false;
+    if (q && !q.split(/\s+/).every((t) => (r.key + ' ' + r.name + ' ' + r.providers.join(' ')).toLowerCase().includes(t))) return false;
+    return true;
+  });
+  const val = {
+    n: (r) => -r.n, name: (r) => r.name.toLowerCase(), best: (r) => r.best ?? 1e9,
+    spread: (r) => -(r.spread || 0), ctx: (r) => -(r.context || 0),
+  }[mk.sort];
+  return rows.sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * mk.dir || b.n - a.n; });
+}
+
+function oaiCard() {
+  const py = `from openai import OpenAI\nclient = OpenAI(base_url="${v1Base()}", api_key=PROVIDER_KEY)\nclient.chat.completions.create(\n    model="saygm:claude-sonnet-5",   # <provider>:<model>, any row below\n    messages=[{"role": "user", "content": "hello"}],\n)`;
+  const curl = `curl ${v1Base()}/chat/completions \\\n  -H 'X-API-Keys: {"openrouter":"sk-or-…","saygm":"…"}' \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"kimi-k3","messages":[{"role":"user","content":"hi"}]}'\n# bare model name -> cheapest provider you sent a key for`;
+  return h('details', { class: 'card', style: 'padding:10px 14px' },
+    h('summary', { style: 'cursor:pointer;font-size:13px;color:var(--dim)' },
+      h('b', { style: 'color:var(--fg)' }, 'One API for all of it. '),
+      'OpenAI format at ', h('span', { class: 'mono', style: 'color:var(--accent2)' }, v1Base()),
+      ' — /chat/completions, /models, /embeddings, /images/generations, /audio/*'),
+    h('div', { class: 'oai', style: 'margin-top:10px' },
+      h('pre', { class: 'snippet' }, py),
+      h('button', { class: 'btn sm', onclick: () => copy(v1Base(), 'Base URL copied') }, 'Copy base URL')),
+    h('pre', { class: 'snippet', style: 'margin-top:8px' }, curl),
+    h('div', { style: 'font-size:12px;color:var(--muted);margin-top:8px' },
+      'Models that natively speak another format (SayGM Claude = Anthropic messages, Gemini = generateContent) are translated both ways, streaming and tool calls included.'));
+}
+
+function renderMarket(work) {
+  const inner = h('div', { class: 'inner wide' });
   work.append(inner);
+  if (!S.market) { loadMarket(); }
+  const d = S.market || { loading: true, markets: [] };
+  const mk = S.mk;
+  const all = d.markets || [];
+  const multi = all.filter((r) => r.n > 1).length;
+  inner.append(h('div', { class: 'mk-head' },
+    h('div', {}, h('h2', {}, 'Model market'),
+      h('div', { class: 'sub' }, 'The same model from every provider, cheapest first. Prices are USD per 1M tokens; "best" blends 3 parts input to 1 part output.')),
+    h('div', { class: 'mk-stats' },
+      h('div', {}, h('b', {}, (all.length || 0).toLocaleString()), h('span', {}, 'models')),
+      h('div', {}, h('b', {}, (d.offers || 0).toLocaleString()), h('span', {}, 'offers')),
+      h('div', {}, h('b', {}, Object.keys(d.providers || {}).length), h('span', {}, 'providers')),
+      h('div', {}, h('b', {}, multi.toLocaleString()), h('span', {}, 'multi-venue')))));
+  inner.append(oaiCard());
+
+  // tools
+  const q = h('input', { class: 'field', placeholder: 'Filter models or providers…', value: mk.q, autocomplete: 'off', spellcheck: 'false' });
+  q.addEventListener('input', () => { clearTimeout(q._t); q._t = setTimeout(() => { mk.q = q.value; mk.limit = 120; mk.focus = null; drawTable(); }, 90); });
+  const kinds = {};
+  for (const r of all) kinds[r.kind] = (kinds[r.kind] || 0) + 1;
+  const chips = h('div', { class: 'chips' }, ...['all', ...Object.keys(KINDS).filter((k) => kinds[k])].map((k) =>
+    h('button', { class: 'chip' + (mk.kind === k ? ' on' : ''), style: k === 'all' ? '' : `--c:${kc(k)}`,
+      onclick: () => { mk.kind = k; mk.limit = 120; renderWork(); } },
+      k === 'all' ? null : h('span', { class: 'd' }), k === 'all' ? 'All' : KINDS[k].label, h('span', { class: 'n' }, k === 'all' ? all.length : kinds[k]))));
+  const tog = (key, label, title) => {
+    const cb = h('input', { type: 'checkbox' }); cb.checked = mk[key];
+    cb.addEventListener('change', () => { mk[key] = cb.checked; mk.limit = 120; mk.focus = null; drawTable(); });
+    return h('label', { class: 'toggle', title }, cb, h('span', { class: 'sw' }), label);
+  };
+  inner.append(h('div', { class: 'mk-tools' }, q, chips));
+  inner.append(h('div', { class: 'mk-tools' },
+    tog('multi', 'Multi-provider', 'Only models offered by 2+ providers'),
+    tog('ready', 'I have a key', 'Only models at least one of your keys can run'),
+    tog('tee', 'TEE', 'Only models with a confidential (TEE enclave) offer'),
+    h('span', { style: 'flex:1' }),
+    h('button', { class: 'btn sm ghost', onclick: () => setTab('providers') }, 'Connect providers'),
+    h('button', { class: 'ib', title: 'Refresh', onclick: () => { S.market = null; loadCatalog(true); } }, '↻')));
+
+  const box = h('div');
+  inner.append(box);
+  if (d.error) box.append(h('div', { class: 'card err' }, d.error));
+  else if (d.loading) box.append(h('div', { class: 'card shimmer', style: 'height:220px' }));
+  function drawTable() {
+    if (d.loading || d.error) return;
+    box.innerHTML = '';
+    const rows = marketRows();
+    if (mk.focus) box.append(h('div', { class: 'frow', style: 'margin:0 0 8px' },
+      h('span', { class: 'tag' }, 'showing the market for ' + (modelOf(mk.focus)?.name || mk.focus)),
+      h('button', { class: 'btn sm ghost', onclick: () => { mk.focus = null; mk.multi = true; drawTable(); } }, 'Show all')));
+    const th = (key, label, cls = '') => h('th', { class: cls + (mk.sort === key ? ' on' : ''),
+      onclick: () => { mk.dir = mk.sort === key ? -mk.dir : 1; mk.sort = key; drawTable(); } },
+      label + (mk.sort === key ? (mk.dir > 0 ? ' ↓' : ' ↑') : ''));
+    const tb = h('tbody');
+    const top = Math.max(...rows.slice(0, mk.limit).map((r) => r.n), 1);
+    for (const r of rows.slice(0, mk.limit)) {
+      const open = mk.open === r.kind + '/' + r.key || (mk.focus && rows.length === 1);
+      const best = r.offers.find((o) => o.cost != null);
+      tb.append(h('tr', { class: 'row' + (open ? ' open' : ''), onclick: () => { mk.open = open ? null : r.kind + '/' + r.key; drawTable(); } },
+        h('td', {}, h('div', { class: 'mk-name' }, h('span', { class: 'bar', style: `--c:${kc(r.kind)}` }),
+          h('div', { style: 'min-width:0' }, h('div', { class: 'nm', title: r.name }, r.name),
+            h('div', { class: 'key' }, r.key, r.tee ? ' ' : '', r.tee ? h('span', { class: 'tee' }, 'TEE') : null, r.vision ? h('span', { class: 'pp', style: 'margin-left:6px' }, 'vision') : null)))),
+        h('td', { class: 'hide-sm' }, ...r.providers.map((pid) => h('span', { class: 'pp' + (hasKey(pid) ? ' ok' : ''), title: hasKey(pid) ? 'you have a key' : 'no key yet' }, plabel(pid)))),
+        h('td', { class: 'r' }, h('b', {}, r.n), h('div', { style: `height:3px;border-radius:2px;background:var(--accent);opacity:.7;width:${Math.round(r.n / top * 100)}%;margin-left:auto` })),
+        h('td', { class: 'r' }, h('span', { class: 'best' }, fmtPx(r.best)),
+          best ? h('div', { style: 'font-size:11px;color:var(--muted)' }, plabel(best.provider)) : null),
+        h('td', { class: 'r' }, r.spread && r.spread > 1 ? h('span', { class: 'spread' }, r.spread.toFixed(1) + '×') : '—'),
+        h('td', { class: 'r hide-sm' }, r.context ? fmtN(r.context) : '—')));
+      if (open) tb.append(h('tr', { class: 'book' }, h('td', { colspan: 6 }, orderBook(r))));
+    }
+    box.append(h('table', { class: 'mk' },
+      h('thead', {}, h('tr', {}, th('name', 'MODEL'), h('th', { class: 'hide-sm' }, 'PROVIDERS'), th('n', 'VENUES', 'r'), th('best', 'BEST $/1M', 'r'), th('spread', 'SPREAD', 'r'), th('ctx', 'CONTEXT', 'r hide-sm'))),
+      tb));
+    if (!rows.length) box.append(h('div', { class: 'hint', style: 'cursor:default' }, 'No models match. Try turning off a filter.'));
+    if (rows.length > mk.limit) box.append(h('button', { class: 'btn ghost more', onclick: () => { mk.limit += 200; drawTable(); } }, `Show more (${(rows.length - mk.limit).toLocaleString()} left)`));
+  }
+  drawTable();
+}
+
+function orderBook(r) {
+  const worst = Math.max(...r.offers.map((o) => o.cost || 0), 1e-9);
+  const cells = [h('div', { class: 'hd' }, 'PROVIDER'), h('div', { class: 'hd hide-sm' }, 'MODEL ID'),
+    h('div', { class: 'hd hide-sm', style: 'text-align:right' }, 'IN'), h('div', { class: 'hd hide-sm', style: 'text-align:right' }, 'OUT'),
+    h('div', { class: 'hd', style: 'text-align:right' }, 'BLENDED'), h('div', { class: 'hd hide-sm', style: 'text-align:right' }, 'CTX'), h('div', { class: 'hd' }, '')];
+  r.offers.forEach((o, i) => {
+    const ready = hasKey(o.provider);
+    cells.push(
+      h('div', {}, h('b', {}, plabel(o.provider)), ' ', i === 0 && o.cost != null ? h('span', { class: 'pp ok' }, 'best') : null, o.tee ? h('span', { class: 'tee' }, 'TEE') : null),
+      h('div', { class: 'id hide-sm', title: o.id }, o.id),
+      h('div', { class: 'hide-sm', style: 'text-align:right' }, fmtPx(o.price_in)),
+      h('div', { class: 'hide-sm', style: 'text-align:right' }, fmtPx(o.price_out)),
+      h('div', { class: 'px' }, o.cost != null ? h('i', { style: `width:${Math.max(4, Math.round(o.cost / worst * 100))}%` }) : null, h('span', { class: i === 0 && o.cost != null ? 'best' : '' }, fmtPx(o.cost))),
+      h('div', { class: 'hide-sm', style: 'text-align:right;color:var(--dim)' }, o.context_length ? fmtN(o.context_length) : '—'),
+      h('div', { class: 'acts' },
+        h('button', { class: 'btn sm ghost', title: 'Copy the model ref for /v1', onclick: (e) => { e.stopPropagation(); copy(o.ref, 'Ref copied'); } }, 'ref'),
+        h('button', { class: 'btn sm' + (ready ? ' pri' : ''), title: ready ? 'Open in the workspace' : 'Open (you will be asked for a key)', onclick: (e) => { e.stopPropagation(); S.mk.focus = null; select(o.ref); } }, ready ? 'Use' : 'Open')));
+  });
+  return h('div', { class: 'ob' }, ...cells);
 }
 
 function renderLocked(inner, m) {
@@ -879,12 +1079,20 @@ function apiCard(m) {
   if (m.kind === 'transcription') snip = `curl ${base}/transcribe ${hdr} \\\n  -F model=${m.ref} -F file=@audio.mp3`;
   else if (body) snip = `curl ${base}${body[0]} ${hdr} \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(body[1])}'` + (m.kind === 'speech' ? ' -o out.mp3' : '');
   else snip = `# ${KINDS[m.kind]?.label || m.kind} models are listed here but not run by this gateway yet.\n# Call the provider directly:\n# ${cfgOf(m.provider)?.url || ''}  model="${m.id}"`;
-  const py = `import mod as m\nm.mod('model')().forward('hello', model='${m.ref}')`;
+  const v1 = { chat: '/chat/completions', image: '/images/generations', embedding: '/embeddings', speech: '/audio/speech' }[m.kind];
+  if (v1) {  // the OpenAI-standard form works with any OpenAI SDK
+    const ob = { ...body[1], model: m.ref }; delete ob.stream;
+    if (m.kind === 'image') ob.prompt = ob.prompt || 'a lighthouse at dusk';
+    snip = `curl ${base}/v1${v1} \\\n  -H "Authorization: Bearer $${(m.provider + '_key').toUpperCase().replace(/[^A-Z0-9_]/g, '_')}" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(ob)}'` + (m.kind === 'speech' ? ' -o out.mp3' : '');
+  }
+  const py = m.kind === 'chat'
+    ? `from openai import OpenAI\nclient = OpenAI(base_url="${base}/v1", api_key=KEY)\nclient.chat.completions.create(model="${m.ref}", messages=[{"role": "user", "content": "hello"}])`
+    : `import mod as m\nm.mod('model')().forward('hello', model='${m.ref}')`;
   return h('div', { class: 'card' },
     h('h3', {}, 'Call it from anywhere'),
     h('pre', { class: 'snippet' }, snip),
     m.kind === 'chat' ? h('pre', { class: 'snippet', style: 'margin-top:8px' }, py) : null,
-    h('div', { class: 'frow' }, h('button', { class: 'btn sm', onclick: () => copy(snip, 'Snippet copied') }, 'Copy curl'), h('span', { style: 'font-size:12px;color:var(--muted)' }, 'Every model is addressed as provider:model.')));
+    h('div', { class: 'frow' }, h('button', { class: 'btn sm', onclick: () => copy(snip, 'Snippet copied') }, 'Copy curl'), h('span', { style: 'font-size:12px;color:var(--muted)' }, 'OpenAI format at /v1 for every provider. Models are addressed as provider:model.')));
 }
 
 function renderCatalogOnly(inner, m) {
@@ -1249,6 +1457,7 @@ $('f-ready').addEventListener('change', (e) => { S.ready = e.target.checked; ren
 $('f-free').addEventListener('change', (e) => { S.free = e.target.checked; renderModelList(); });
 $('reload').addEventListener('click', () => loadCatalog(true));
 $('menu').addEventListener('click', () => openSide(true));
+$('go-market').addEventListener('click', () => { S.mk.focus = null; showMarket(); });
 $('side-close').addEventListener('click', () => openSide(false));
 $('scrim').addEventListener('click', () => openSide(false));
 document.addEventListener('keydown', (e) => {

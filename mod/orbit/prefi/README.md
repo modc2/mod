@@ -120,6 +120,40 @@ nobody could have placed. Free callers rank on their own board — the paid boar
 ranks by dollars won, and a free caller has won none. `m prefi/pool-set
 free_per_round=0` switches the whole thing off.
 
+### Up / down — a direction, not a price
+
+Every asset is a card. Anyone with a wallet calls it **up** or **down** from
+the round's open — free (signed, one per asset per round, `side_free_per_round`
+a round) or with dollars on it (`min_stake` applies). The strike is the price
+at the round's open, read once from the feed's candle and pinned onto the
+round, so every wager on that asset that day is judged against the same
+number. At the close the winning side splits the book pro-rata by dollars;
+free calls are scored for the record and paid nothing; a dead-even close or a
+book with no counterparty refunds everyone. One wager per asset per wallet,
+so a book is a poll and not a stuffing contest.
+
+Rounds are **daily** by default: they open and close at 00:00 UTC, entries
+stop an hour before the close. The curve on each card is the asset's daily
+closes (`GET /pool/curve/{asset}?days=30` — Hyperliquid 1d candles,
+GeckoTerminal day candles, CoinGecko daily chart, the bt indexer's series
+bucketed by UTC day) with the strike drawn across it.
+
+**The signal.** `GET /pool/signal` turns every book into something a leverage
+desk can read, per asset:
+
+| field | meaning |
+|---|---|
+| `lean` | −1..1, dollars up minus dollars down over the book (free calls count as `free_notional`) |
+| `participation` | `calls / 10`, capped at 1 — three callers are not a crowd |
+| `conviction` | `|lean| × participation`, discounted by the crowd's record once it has one (a 50% crowd is a coin flip and earns nothing; the discount phases in over 10 settled rounds) |
+| `bias` / `leverage` | `long` / `short` / `flat`, and `round(conviction × signal_max_leverage)` — a suggestion capped by the owner, never an order |
+| `strike` / `mark` / `leading` | the pinned open, the live price, which side is winning right now |
+| `track` | this asset's crowd: settled rounds, hits, hit rate, streak |
+
+`signal_max_leverage` (default 5, 1..50) is the owner's cap. Nothing in this
+module places a trade; the signal is what a trading layer consumes.
+`GET /pool/side/leaderboard` ranks callers by hit rate, then dollars made.
+
 ### Agent calls — stake time instead of dollars
 
 An agent puts no money down either, but it is not playing for free. It plays
@@ -355,6 +389,48 @@ The console does the same thing from the **Markets → + Hyperliquid** panel: a
 search over the whole universe with PERP/SPOT tabs, 24h volume and change per
 row, sorted so the liquid end is what you see first.
 
+### Liquidity: list the whole universe, behind a policy
+
+There is no reason to hand-pick 36 markets. Every Hyperliquid pair (~550),
+every Bittensor subnet (~130) and every Solana/Base pool that clears the
+liquidity floor is listable in one call, and what keeps a 700-market pool
+honest is a **liquidity policy** rather than a short list:
+
+| pool rule | what it gates | default |
+|---|---|---|
+| `hl_min_volume_usd` | a Hyperliquid pair's 24h notional volume | 0 = every pair |
+| `bt_min_volume_tao` | a subnet's 24h alpha volume, in TAO | 0 = every subnet |
+| `dex_min_volume_usd` | a DEX pool's 24h volume, beside `min_liquidity_usd` | 0 |
+| `min_liquidity_usd` | dollars in a DEX pool | $10,000 |
+| `auto_list` | the background sync lists everything that clears the floors | off |
+| `auto_pause` | the sync pauses a market that falls under them, resumes it when it recovers | on |
+| `sync_interval` | seconds between background syncs (0 = manual only) | 900 |
+
+```bash
+m prefi/sync_markets                       # list everything the floors allow, pause/resume the rest
+m prefi/sync_markets dry_run=true          # what would change, without writing
+m prefi/sync_markets sources=bittensor limit=50
+m prefi/liquidity                          # every market's 24h volume vs its floor, thinnest first
+m prefi/liquidity_policy
+m prefi/pause_market symbol=SOL reason="thin book"   # owner
+m prefi/resume_market symbol=SOL
+m prefi/remove_market symbol=SOL           # refused while anything is open on it
+m prefi/set_pool_config hl_min_volume_usd=250000 auto_list=true   # owner
+```
+
+The floors are checked three times: at listing (the sync only lists what
+clears them), on a timer (auto-pause), and **at stake time** — a paused
+market, or one whose book has thinned under the floor since the last sync,
+refuses the stake and says why. No reading from a feed means no stake, not a
+guess. Open pots on a paused market still settle.
+
+A pause by the sync is undone by the sync when the book recovers; a pause by
+the owner (`pause_market`) stays until `resume_market`. The console's
+**Markets** tab has the same controls: a liquidity strip per source
+(quoted / listed / active / paused), **List everything**, **Re-check floors**,
+a dry run, and per-row pause / resume / unlist for the owner; the floors and
+switches live in **Pool → Admin**.
+
 ### Subnets
 
 Every Bittensor subnet has an alpha token whose price the chain sets in TAO,
@@ -555,6 +631,29 @@ The app needs a build before `next start`: `cd src/app && npm install && npx nex
 The app is served under `basePath: /prefi` and talks to the API same-origin at
 `/prefi/api/*` (a Next rewrite), so one gateway route covers the whole module.
 
+## Local economy & vibecoded agents
+
+A simulated market that lives entirely on this box, so agents can predict and trade every minute with play money (PAPER):
+
+- **Feed** — geometric Brownian motion per asset (`vol` per minute, seeded = reproducible), anchored on the live price of prefi's listed markets when one is visible, ticking every 5s; `feed: live` re-anchors every tick instead. Agents' own order flow moves the price (`notional / liquidity`).
+- **Exchange** — a cash + holdings ledger per address; market orders at mid ± `spread_bps`, average-cost realized PnL, a tape (`GET /economy/trades`).
+- **Minute pool** — the same hash-chained, wasm-settled paper pool as `/paper`, opened at `~/.mod/prefi/economy/paper` with `interval=60`, `entry_cutoff=5`, `tol_ppm=10000` (a 1% miss scores zero). The feed is its oracle: settlement reads the stored tick at the close, so `GET /economy/verify` replays without the world.
+- **Agents** — `src/agents.py`. A record `{name, address (sha of id), prompt, code, status, memory, log}`; the code is a Python `decide(ctx)` run in a sandbox (AST-screened: no imports, dunders, classes, globals; builtin whitelist; `math` + `random` in scope; 3s wall-clock cap; 20 actions max). `POST /agents {prompt}` vibecodes it through the local claudecode agent-contract server (`PREFI_CLAUDECODE`, default `:51260`) — a keyword template (`momentum meanrevert hodl random flat whale`) if no model answers or its code fails the dry run. Every agent is funded on creation (1,000 cash + 1,000 pool PAPER, topped up hourly by the faucet) and runs once per round from the API's clock thread (`PREFI_ECONOMY=0` disables it).
+- **Console** — the **Agents** tab: economy strip, sparkline prices, the composer (write → review code → create), roster, per-agent detail (log, holdings, editable strategy, memory), leaderboard, MCP connect strings.
+
+API: `GET /economy`, `/economy/prices?history=true`, `/economy/leaderboard`, `/economy/account/{addr}`, `/economy/round`, `/economy/rounds`, `/economy/trades`, `/economy/verify`; `POST /economy/faucet`, `/economy/trade`, `/economy/predict`, `/economy/asset`, `/economy/step`; `GET /agents`, `/agents/{id}`, `/agents/language`; `POST /agents` (`{name, prompt | code, owner, model, start, llm}`), `/agents/{id}` (`{code, prompt, status, revibe}`), `/agents/{id}/run`, `/agents/vibecode`, `/agents/check`; `DELETE /agents/{id}`.
+
+### MCP
+
+`src/mcp_server.py` — one JSON-RPC dispatch, two transports:
+
+```
+claude mcp add --transport http prefi http://localhost:50410/mcp
+claude mcp add prefi -- python3 /root/mod/mod/orbit/prefi/src/mcp_server.py   # stdio, same store
+```
+
+Tools: `prefi_economy prefi_prices prefi_add_asset prefi_agents prefi_agent prefi_agent_create prefi_agent_update prefi_agent_delete prefi_agent_run prefi_vibecode prefi_strategy_check prefi_strategy_language prefi_faucet prefi_predict prefi_trade prefi_account prefi_leaderboard prefi_round prefi_rounds prefi_trades prefi_tick prefi_verify`. Read-only tools carry `readOnlyHint`; nothing moves real money.
+
 ## API
 
 | route | what |
@@ -564,6 +663,8 @@ The app is served under `basePath: /prefi` and talks to the API same-origin at
 | `GET /hyperliquid/assets` · `GET /hyperliquid/stats` · `POST /hyperliquid/add` · `POST /hyperliquid/seed` | browse and list any HL pair, perp or spot |
 | `GET /bittensor/assets` · `GET /bittensor/stats` · `POST /bittensor/add` · `POST /bittensor/seed` | browse and list any Bittensor subnet, priced in TAO |
 | `GET /dex/assets?chain=` · `GET /dex/stats` · `POST /dex/add?chain=&address=` · `POST /dex/seed` · `POST /dex/snapshot` | browse and list Solana/Base tokens over the owner's liquidity floor |
+| `POST /markets/sync?sources=&dry_run=&list=&pause=&limit=` · `GET /liquidity` · `GET /liquidity/policy` | list everything that clears the floors, pause/resume what crosses them; the liquidity picture |
+| `POST /markets/pause` · `/markets/resume` · `/markets/remove` | owner: stop/restart stakes on a market, unlist one nothing is open on |
 | `POST /position/open` · `POST /position/close` · `GET /positions/{addr}` | trading |
 | `POST /predict` · `GET /predictions[/{addr}]` · `/predictions/board` · `POST /predictions/resolve` | price calls |
 | `GET /scoring` · `/scoring/models` · `/scoring/preview` · `POST /scoring` | the score, and its knobs |
@@ -577,6 +678,8 @@ The app is served under `basePath: /prefi` and talks to the API same-origin at
 | `GET /pool/sign` · `POST /pool/stake` | the message to sign, and the stake |
 | `POST /pool/free` · `GET /pool/free/{addr}` · `/pool/free/leaderboard` | a call with no money down, the quota, the board |
 | `POST /pool/agent` · `GET /pool/agent/{addr}` · `/pool/agent/leaderboard` | a call backed by bloctime, the quota + live weight, the board |
+| `POST /pool/side` · `GET /pool/side/{addr}` · `/pool/side/leaderboard` | an up/down wager (amount 0 = free), the quota, the board |
+| `GET /pool/signal` · `/pool/signal/{asset}` · `/pool/curve/{asset}?days=` | the crowd's bias + conviction + suggested leverage per asset; daily closes for the card |
 | `GET /pool/round` · `/pool/rounds` · `/pool/entries` · `/pool/leaderboard` · `POST /pool/settle` | pots |
 | `POST /pool/withdraw` · `GET /pool/withdrawals` · `POST /pool/withdrawals/{id}/pay` | money out |
 | `GET /hyperevm` | RPC reachability and chain id |
@@ -588,7 +691,7 @@ The app is served under `basePath: /prefi` and talks to the API same-origin at
 Tests, from `src/`:
 
 ```bash
-python3 -m pytest tests/ -q                        # 341 cases, hermetic (no network)
+python3 -m pytest tests/ -q                        # 422 cases, hermetic (no network)
 python3 -c "from mod import Mod; Mod({}).test()"   # 86-case integration run on a temp ledger
 ```
 
