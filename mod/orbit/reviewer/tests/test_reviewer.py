@@ -219,3 +219,23 @@ def test_mcp_dispatch(tmp_path, monkeypatch):
                                     local=False)
     assert rem['result']['isError'] and 'loopback' in rem['result']['content'][0]['text']
     assert mcp_server.handle_message({'jsonrpc': '2.0', 'id': 5, 'method': 'nope'})['error']['code'] == -32601
+
+
+def test_remote_callers_confined_to_fleet(tmp_path, monkeypatch):
+    """Over HTTP/MCP a non-loopback caller may only review fleet modules;
+    an arbitrary box path is refused before it is read."""
+    import serve
+    monkeypatch.setattr(serve, '_MOD', None, raising=False)
+    m = serve.the_mod()
+    secret = tmp_path / 'secret.py'
+    secret.write_text('x = 1\n')
+    with pytest.raises(PermissionError):
+        serve.api('review', {'path': str(secret)}, local=False)
+    with pytest.raises(PermissionError):
+        serve.api('resolve', {'target': str(secret)}, local=False)
+    # the same path is fine from the box itself
+    assert serve.api('resolve', {'target': str(secret)}, local=True)['path'] == str(secret)
+    # and a fleet module is fine from anywhere
+    assert m.in_fleet(os.path.join(os.path.dirname(serve.MODULE_DIR), 'jokes'))
+    r = serve.api('review', {'path': serve.MODULE_DIR, 'save': '0'}, local=False)
+    assert 'score' in r

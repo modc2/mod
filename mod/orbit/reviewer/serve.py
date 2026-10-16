@@ -65,8 +65,23 @@ def _int(v, d):
         return d
 
 
+def _confine(m, a, local):
+    """Remote callers may only point at fleet modules (orbit/ or core/).
+    A path outside those trees is refused before anything is read."""
+    if local:
+        return
+    t = a.get('target') or a.get('path')
+    if not t:
+        return
+    p = m.resolve(t)
+    if p and not m.in_fleet(p):
+        raise PermissionError('remote callers can only review fleet modules')
+
+
 def api(fn, a, local=False):
     m = the_mod()
+    if fn in ('review', 'resolve'):
+        _confine(m, a, local)
     if fn == 'health':
         return m.health(probe_agent=str(a.get('probe_agent', '1')) != '0')
     if fn == 'info':

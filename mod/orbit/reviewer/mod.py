@@ -145,6 +145,19 @@ class Mod:
                  if not q or q in t['name'] or q in t['description'].lower()]
         return {'targets': items, 'count': len(items)}
 
+    def in_fleet(self, p):
+        """True when p sits inside a fleet module tree (orbit/ or core/).
+        Remote callers are confined to these; the box's own files are not
+        for review by strangers."""
+        if not p:
+            return False
+        p = os.path.realpath(p)
+        for root in ROOTS:
+            r = os.path.realpath(root)
+            if p == r or p.startswith(r + os.sep):
+                return True
+        return False
+
     def resolve(self, target):
         """A module name or a path → an absolute path, or None."""
         if not target:

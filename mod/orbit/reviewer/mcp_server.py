@@ -53,6 +53,11 @@ def _str(desc, **kw):
 
 
 def _review(a, local):
+    t = a.get('target') or a.get('path')
+    if t and not local:
+        p = the_mod().resolve(t)
+        if p and not the_mod().in_fleet(p):
+            raise PermissionError('remote callers can only review fleet modules')
     engine = (a.get('engine') or 'static').lower()
     if engine == 'agent' and not local and os.environ.get('REVIEWER_OPEN_AGENT') != '1':
         raise PermissionError('engine=agent spends on this box: loopback callers only')
