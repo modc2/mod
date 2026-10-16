@@ -224,7 +224,8 @@ a { color: var(--link); }
 
 /* ── the console frame ──────────────────────────────────────────────────── */
 
-.nav { display: flex; gap: 2px; margin-left: 14px; }
+.nav { display: flex; gap: 2px; margin-left: 14px; overflow-x: auto; scrollbar-width: none; flex-shrink: 1; min-width: 0; }
+.nav::-webkit-scrollbar { display: none; }
 .nav button {
   background: transparent; border: 1px solid transparent; color: var(--muted);
   padding: 5px 11px; font-size: 11px; letter-spacing: 0.08em; border-radius: 6px;
@@ -393,3 +394,91 @@ button.hub-chain:hover:not(:disabled) { border-color: var(--accent-dim); color: 
 .strat-row.active { background: rgba(52, 211, 153, 0.07); box-shadow: inset 2px 0 0 var(--accent); }
 .strat-form { display: flex; gap: 6px; margin-top: 6px; }
 .strat-form input { flex: 1; min-width: 0; }
+
+
+/* ── the ASK desk ───────────────────────────────────────────────────────── */
+
+.ask { display: flex; flex-direction: column; gap: 8px; }
+.ask-title { font-size: 14px; font-weight: 700; display: flex; gap: 8px; align-items: center; }
+.ask-sub { font-size: 11px; color: var(--muted); line-height: 1.6; }
+.ask-form { display: flex; gap: 6px; }
+.ask-form input { flex: 1; min-width: 0; font-size: 12.5px; padding: 9px 10px; }
+.ask-form button { flex-shrink: 0; }
+.ask-chips { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.ask-gap { flex: 1; }
+.ask-examples { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+.ask-examples button { text-align: left; font-size: 11px; color: var(--muted); padding: 6px 9px; border-style: dashed; }
+.ask-examples button:hover:not(:disabled) { color: var(--text); }
+.ask-out { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.ask-brief { font-size: 11px; color: var(--muted); line-height: 1.6; padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
+.ask-brief b { color: var(--text); }
+.ask-pick { border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); padding: 10px 11px; }
+.ask-pick-head { display: flex; gap: 7px; align-items: center; }
+.ask-rank { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #04140d; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.ask-earn { margin-top: 7px; }
+.ask-earn-main { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.ask-earn-band { display: flex; gap: 12px; margin-top: 3px; font-size: 10.5px; color: var(--muted); flex-wrap: wrap; }
+.ask-earn-band b { color: var(--text); }
+.ask-pick-foot { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.ask-pick-foot button { flex-shrink: 0; padding: 5px 10px; }
+.ask-explain { border-color: var(--accent-dim); }
+
+.becomes { margin-top: 10px; padding: 9px 10px; }
+.becomes-head { display: flex; flex-direction: column; gap: 6px; }
+.becomes-ctl { display: flex; gap: 4px; align-items: center; }
+.becomes-ctl input { width: 92px; padding: 5px 8px; font-size: 12px; }
+.becomes-rows { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
+.becomes-row { display: grid; grid-template-columns: 56px 1fr auto; gap: 8px; font-size: 11.5px; align-items: baseline; }
+.becomes-row b { color: var(--accent); }
+
+.rail-close { display: none; }
+.wallet-btn { white-space: nowrap; flex-shrink: 0; }
+
+/* ── small screens ──────────────────────────────────────────────────────
+   The desk was drawn for a wide window. Below ~960px the rail stops being a
+   column and becomes a sheet that slides up over the list when something is
+   picked; the tables fold to the columns that matter; the chrome wraps. */
+
+@media (max-width: 960px) {
+  /* one page that scrolls, ASK first, the cards under it */
+  .fin-body { flex-direction: column; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .fin-list { flex: none; overflow: visible; }
+  .rail { display: none; }
+  .rail.has-detail {
+    display: block; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    width: auto; max-height: 82vh; overflow-y: auto; border-left: 0; border-top: 1px solid var(--line);
+    border-radius: 14px 14px 0 0; box-shadow: 0 -18px 40px rgba(0, 0, 0, 0.55);
+    padding: 12px 14px 32px;
+  }
+  .rail.has-ask { display: block; flex: none; order: -1; width: auto; border-left: 0; border-bottom: 1px solid var(--line); padding: 14px; }
+  .rail.has-ask .rail-empty { max-width: none; padding: 0; }
+  .rail-close {
+    display: flex; justify-content: center; margin: -4px 0 8px;
+  }
+  .rail-close button { padding: 3px 18px; font-size: 10px; letter-spacing: 0.1em; }
+  .hub-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; padding: 10px; }
+  .stats { gap: 14px; flex-wrap: wrap; padding: 8px 12px; }
+  .stats > span:last-of-type, .stats-note { display: none; }
+  .band { padding: 8px 10px; }
+  .band > input { width: 100% !important; }
+  .band > select { width: auto !important; flex: 1; min-width: 120px; }
+  .chips { flex-wrap: wrap; }
+  .mod-head, .mod-row { grid-template-columns: minmax(140px, 1.6fr) 72px 96px 76px; gap: 8px; padding: 0 10px; }
+  .mod-kind, .mod-fees, .mod-head > span:nth-child(2), .mod-head > span:nth-child(4), .mod-head > span:nth-child(6), .mod-exit { display: none; }
+  .mod-row { height: auto; min-height: 50px; padding-top: 6px; padding-bottom: 6px; }
+  .strat-head, .strat-row { grid-template-columns: minmax(160px, 2fr) 90px minmax(110px, 1fr); }
+  .strat-head > :nth-child(3), .strat-row > :nth-child(3), .strat-head > :nth-child(4), .strat-row > :nth-child(4) { display: none; }
+  .compose-only { display: none !important; }
+  .drawer { width: min(100vw, 560px) !important; }
+}
+
+@media (max-width: 600px) {
+  .hub-grid { grid-template-columns: 1fr; }
+  .hub-blurb { min-height: 0; }
+  .stat-n { font-size: 15px; }
+  .mod-head, .mod-row { grid-template-columns: minmax(120px, 1.6fr) 64px 80px; }
+  .mod-tvl, .mod-head > span:nth-child(5) { display: none; }
+  .ask-form input { font-size: 16px; } /* iOS: no zoom on focus */
+  header .wallet-btn { padding: 6px 8px; font-size: 11px; }
+  header { gap: 6px; padding: 8px 10px; }
+}

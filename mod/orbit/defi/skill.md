@@ -3,11 +3,28 @@
 Compose a DeFi protocol out of typed Solidity blocks, see what every DeFi
 protocol is actually paying, lock what you pick into a treasury that pays out
 weekly on BlocTime's clock, and trade on the DEXes of Solana, Ethereum, Base and
-Bittensor. 51 MCP tools, a REST API on `:50500`, a canvas console on `/defi`.
+Bittensor. 61 MCP tools, a REST API on `:50500`, a canvas console on `/defi`.
 
 API `:50500` (`/api/defi`) · console `/defi` · MCP `POST /mcp`
 
 ## When to reach for it
+
+**The ASK desk — reach for it FIRST** when the user says how much, for how
+long, or how brave: "I have $5k for six months, keep it safe", "what pays
+most for 2k on Base over a year", "10k on solana, balanced, from this desk".
+`defi_ask {question}` (or `amount`/`months`/`risk`/`chain`/`from_desk` —
+structured fields override the text) returns a PLAN: `brief` (what it read —
+check `parsed_from_question` and restate it), `picks` ranked for the
+appetite, each with `earn {floor, typical, ceiling}` in dollars over the
+horizon, `band`, `why`, `risks`, `way_in`, `enterable` and the `module_id`
+that `defi_module_quote` / `defi_enter` take. Relay the floor AND the
+ceiling, never just the typical; say which picks are read-only from this
+desk; say it is not advice — the floor is the observed band's lower bound, a
+fact about history. `explain=true` (needs a bearer; spends model credits)
+adds the agent's prose — it phrases the plan, it never picks, so do not
+expect it to add a protocol. `excluded` tells you WHY a name is missing
+(tier, thin_record, emissions, gated, off_chain, not_enterable) — use it when
+the user asks "why not X".
 
 **The hub** — "where can I safely park USD", "which lenders are legit", "is
 Aave on Base", "best stablecoin rate on a protocol I'd trust". `defi_hub` is a

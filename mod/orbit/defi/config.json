@@ -1,8 +1,8 @@
 {
     "name": "defi",
     "title": "DeFi \u2726 Modular Finance",
-    "version": "1.4.0",
-    "description": "Modular finance: every place money can go that gives a return is a MODULE with its own returns, liquidity and conditions \u2014 DefiLlama's pools on Ethereum, Base and Solana, Bittensor subnets through the bt module, vaults you composed, the BlocTime treasury \u2014 and one desk puts money into any of them through the module that owns the chain (eth, solana, bt), keys never here. Each module says what it pays (fees kept apart from emissions), how you get in, how fast you get out (instant, queue, cooldown, lock) and what it is subject to; a quote measures the round trip in and out today. The book keeps every position with the rate at entry beside the rate now. Underneath: the composer that builds new modules out of reusable Solidity blocks, type-checked, compiled with solc and deployed by the browser wallet; a DEX desk; DefiLlama's live APR table; and a treasury paid out every Friday 17:00 UTC split by BLOC.",
+    "version": "1.5.0",
+    "description": "Modular finance: every place money can go that gives a return is a MODULE with its own returns, liquidity and conditions \u2014 DefiLlama's pools on Ethereum, Base and Solana, Bittensor subnets through the bt module, vaults you composed, the BlocTime treasury \u2014 and one desk puts money into any of them; ASK it in plain words (\"$5k for six months, keep it safe\") and get a ranked plan with floor/typical/ceiling dollars from the vetted list's own record through the module that owns the chain (eth, solana, bt), keys never here. Each module says what it pays (fees kept apart from emissions), how you get in, how fast you get out (instant, queue, cooldown, lock) and what it is subject to; a quote measures the round trip in and out today. The book keeps every position with the rate at entry beside the rate now. Underneath: the composer that builds new modules out of reusable Solidity blocks, type-checked, compiled with solc and deployed by the browser wallet; a DEX desk; DefiLlama's live APR table; and a treasury paid out every Friday 17:00 UTC split by BLOC.",
     "port": 50500,
     "app_port": 50501,
     "route": true,
@@ -48,6 +48,8 @@
         "dex_tokens",
         "hub",
         "hub_protocol",
+        "ask",
+        "ask_status",
         "modules",
         "module_facets",
         "module",
@@ -260,6 +262,16 @@
             "method": "GET",
             "auth": "forwarded to the chain module",
             "docs": "?chain=&address= \u2014 what a wallet holds, read through eth_portfolio, sol_portfolio or bt_portfolio. The other half of a trade."
+        },
+        "/ask": {
+            "method": "POST",
+            "auth": false,
+            "docs": "ASK the desk in plain words \u2014 body {question, amount?, months?, risk?: low|medium|high, chain?, from_desk?, limit?, explain?, model?}; every structured field overrides what the text says. Returns the PLAN: brief (what was read), picks ranked for the appetite (low = core tier, fee-driven, by the FLOOR of the observed APR band \u00d7 depth; medium = core+established with a 30-day record by a typical rate \u00d7 depth; high = every quoted rate), each with earn {floor, typical, ceiling} over the horizon, why it is listed, what can go wrong, module_id and whether this desk can enter it. GET /ask = status. Deterministic, free, the same for everyone. explain=true needs a signed caller and adds the agent's plain-English read \u2014 it phrases the plan, it never picks. Not advice."
+        },
+        "/ask/explain": {
+            "method": "POST",
+            "auth": true,
+            "docs": "The prose layer alone: the same body as /ask, answered by the claudecode agent contract (DEFI_CLAUDECODE_URL, loopback :51260) over the plan it computes. Spends the host's model credits, so a signed caller only."
         },
         "/hub": {
             "method": "GET",
@@ -477,6 +489,7 @@
             "defi_treasury_claim",
             "defi_treasury_register",
             "defi_treasury_onchain",
+            "defi_ask",
             "defi_hub",
             "defi_hub_protocol",
             "defi_modules",
@@ -515,7 +528,7 @@
         "state": "~/.mod/defi/ (server.secret 0600, protocols/, objects/, positions/)",
         "contracts": "The catalog contracts are unaudited reference implementations. Every block ships an AGENT audit (src/api/blocks/audits/<id>.json, GET /catalog/{id}/audit, the AUDIT tab on the block page, the defi_audit MCP tool): a risk verdict and findings with exploit paths and fixes. An agent audit reduces the unknowns; it certifies nothing. Deploy to a testnet, read the source and the audit on the block page, and treat mainnet use as your own risk."
     },
-    "schema": "QmXm2Hvmt3eZ4x8hUSH4VUgJ97SWDJeyMrg5mthzEs5y3X",
+    "schema": "QmPMp8Xcrm2nd9RDa6pP3SNJZB7oSKNseaLjywxoGA5zPy",
     "wallets": {
         "rule": "the OPERATION picks the signer, the user picks between the two that fit. EVM enters/exits offer the user's own browser wallet (every quote carries a machine-readable `wallet` plan: approve/call/swap steps with '$you' for the connected address and '$shares' for its receipt balance) beside the eth module's keystore. Solana offers an injected wallet (Phantom, via Jupiter's transaction built for the connected key) beside the solana module. Bittensor is the bt module's coldkey only \u2014 no browser wallet speaks it, and the UI says so instead of pretending.",
         "browser_positions": "entered by POST /positions/record (txs required, sign-in required), marked signer:'browser' in the book, and exited by the same wallet: /positions/{id}/exit returns a plan, /positions/{id}/settle records what it sent.",
@@ -557,7 +570,8 @@
     "env": {
         "DEFI_BLOCTIME_URL": "the bloctime module, for BLOC weights and the payout clock (default http://localhost:8851)",
         "DEFI_YIELDS_URL": "the yields index (default https://yields.llama.fi)",
-        "DEFI_YIELDS_TTL": "how long a snapshot of it is good for, in seconds (default 600)"
+        "DEFI_YIELDS_TTL": "how long a snapshot of it is good for, in seconds (default 600)",
+        "DEFI_CLAUDECODE_URL": "the claudecode agent contract that phrases an ASK plan (default http://127.0.0.1:51260, loopback \u2014 binding is the access control)"
     },
     "hub": {
         "rule": "the curated front door for USD: a short list of protocols with a multi-year track record or >$1b deposited, a named team, public audits and a plain-stablecoin way in \u2014 Aave V3, Morpho, Sky, Spark, Compound V3, Maple, Fluid, Ethena, Kamino, Save, Curve",
@@ -567,7 +581,8 @@
         "honesty": "curated is not certified. Each card carries what can go wrong beside why it is here; the tier says how much history stands behind it, not how safe it is",
         "env": {
             "DEFI_HUB": "path to the registry (default src/api/hub.json)"
-        }
+        },
+        "ask": "POST /ask \u2014 a plain question (amount, horizon, appetite, chain read from the text) becomes a PLAN from these same rows: picks ranked for the appetite with floor/typical/ceiling dollars over the horizon; the floor is the observed band's lower bound, a historical fact and not a promise. explain=true hands the finished plan to the claudecode agent contract for prose \u2014 it phrases, it never picks."
     },
     "finance": {
         "rule": "a module is anything money can go into that gives a return. Each carries RETURNS (DefiLlama's apy, apy_base, apy_reward, 30d mean), LIQUIDITY (tvl, entry, exit mode, exit_delay_days, lock_days), CONDITIONS (IL, emissions, KYC gates, outliers, mainnet confirm) and an ADAPTER \u2014 how this desk enters it through the module that owns the chain.",

@@ -5,6 +5,7 @@ lock what you choose into a treasury that pays out weekly — from one console,
 and from one MCP server.
 
 ```
+m defi/ask "$5k for six months, keep it safe"   # a ranked plan from the hub's numbers
 m defi/hub                         # legit protocols for USD, live, every chain
 m defi/hub_protocol aave-v3        # one of them: every USD pool per chain
 m defi/blocks                      # the block catalog
@@ -20,7 +21,7 @@ m defi/serve
 ```
 
 API `:50500` (`/api/defi`) · console `/defi` (`:50501`) · MCP `POST /mcp`
-(45 tools)
+(61 tools)
 
 ## Four parts, one console
 
@@ -46,6 +47,34 @@ module row carries its own `risks` list — the curated card's written risks plu
 whatever its own numbers add (emissions share, impermanent loss, outlier flags,
 thinness). PUT USD IN hands the pick to the MODULES room with the pool already
 open.
+
+**The ASK desk.** The question most people actually have is not "what is
+the APR of Compound" but *"I have $5,000 for six months — where does it go?"*
+`POST /ask` takes that sentence (or the fields `amount`, `months`, `risk`,
+`chain`, `from_desk` — structured always wins over text), reads the amount,
+the horizon, the appetite (`safe` · `balanced` · `bold`) and a chain out of
+it, and answers with a **plan** built from the hub's own rows:
+
+- *low* appetite keeps core-tier, fee-driven pools with a solid record and
+  ranks them by the **floor** of their observed APR band × depth — what the
+  record says they paid even in a bad stretch;
+- *medium* keeps core and established names that have a 30-day mean and
+  ranks by a **typical** rate (today's, capped by the 30-day mean so a
+  one-day spike cannot headline) × depth;
+- *high* ranks every quoted rate and hides nothing — thin histories and
+  negative bands are shown, not filtered.
+
+Every pick carries what the amount earns over the horizon at the floor,
+typically, and at the ceiling (`earn = amount × ((1 + apr/100)^(months/12) −
+1)`), why it is listed, what can go wrong, its `module_id`, and whether this
+desk can enter it. The plan is deterministic and free — the same answer for
+everyone, no model in the loop. `explain=true` (signed callers; it spends
+the host's model credits) hands the finished plan to the claudecode agent
+contract on loopback for a short plain-English read: the agent phrases, it
+never picks — it cannot add a protocol the plan did not rank. The console's
+HUB rail opens on this desk; every open card also shows **what $X becomes**
+over 1/3/6/12 months at its floor, today's rate and its ceiling. Not advice:
+the floor is history, not a promise.
 
 **The registry door.** `POST /registry` lets anyone register their own module
 with a *claimed* APR band (`apr_lower`/`apr_upper`); vetting then judges the
@@ -178,6 +207,8 @@ nothing. `m defi/test_contract`, or `src/api/blocks/tests/README.md` to run it
 by hand.
 
 ## MCP
+
+`defi_ask` — the ASK desk as a tool: `{question, amount?, months?, risk?, chain?, from_desk?, limit?, explain?}` → the same plan `POST /ask` returns.
 
 ```
 POST /mcp   {"jsonrpc":"2.0","id":1,"method":"tools/list"}

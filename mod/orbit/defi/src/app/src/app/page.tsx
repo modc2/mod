@@ -323,6 +323,8 @@ export default function Page() {
           padding: "9px 12px",
           borderBottom: "1px solid var(--line)",
           background: "var(--panel)",
+          flexWrap: view === "compose" ? "wrap" : "nowrap",
+          rowGap: 6,
         }}
       >
         <span style={{ color: "var(--accent)", fontSize: 15 }}>✦</span>
@@ -345,6 +347,7 @@ export default function Page() {
         {view !== "compose" && <div style={{ flex: 1 }} />}
         {view === "compose" && (<>
         <input
+          className="compose-only"
           value={graph.name}
           onChange={(e) => setGraph({ ...graph, name: e.target.value })}
           style={{ width: 220, marginLeft: 6 }}
@@ -396,7 +399,7 @@ export default function Page() {
           deploy…
         </button>
         </>)}
-        <button className="ghost" onClick={address ? () => { api.clearSession(); setAddress(null); } : connect}>
+        <button className="ghost wallet-btn" onClick={address ? () => { api.clearSession(); setAddress(null); } : connect}>
           {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "connect wallet"}
         </button>
       </header>
@@ -404,6 +407,7 @@ export default function Page() {
       {view === "hub" && (
         <Hub
           say={say}
+          address={address}
           onExplore={(pf) => {
             setPrefill(pf);
             setView("modules");

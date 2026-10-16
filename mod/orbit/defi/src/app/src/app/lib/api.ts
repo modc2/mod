@@ -306,6 +306,14 @@ export const getHub = (params: Record<string, any> = {}) => call<any>(`/hub${qs(
 
 export const getHubProtocol = (id: string) => call<any>(`/hub/${encodeURIComponent(id)}`);
 
+// ── the ASK desk ───────────────────────────────────────────────────────────
+// POST /ask is the plan layer: deterministic, free, open. /ask/explain is the
+// prose layer — a signed caller only, because it spends model credits.
+export const ask = (body: Record<string, any>) => call<any>("/ask", { method: "POST", body: JSON.stringify(body) });
+export const askExplain = (body: Record<string, any>) =>
+  call<any>("/ask/explain", { method: "POST", body: JSON.stringify(body) });
+export const askStatus = () => call<any>("/ask");
+
 // ── modular finance ────────────────────────────────────────────────────────
 // Every place money can go, as a module with its own returns, liquidity and
 // conditions; and the positions that went in through here. Reads are open.

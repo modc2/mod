@@ -41,6 +41,7 @@ MCP) and a Next.js canvas on :50501 under /defi.
 
 CLI:
     m defi                         # info
+    m defi/ask "$5k for six months, keep it safe"   # a plan from the hub's numbers
     m defi/blocks                  # the block catalog
     m defi/block vault             # one block, with its Solidity source
     m defi/templates               # starter protocols
@@ -435,6 +436,30 @@ class Mod:
     def hub_protocol(self, id, min_tvl=None):
         """One hub protocol in full — every USD pool it runs, per chain, with module ids."""
         return self._call(f'/hub/{urllib.parse.quote(id, safe="")}' + _qs({'min_tvl': min_tvl}))
+
+    def ask(self, question='', amount=None, months=None, risk=None, chain=None,
+            from_desk=False, limit=3, explain=False, model=None, token=None):
+        """ASK the desk in plain words — "I have $5k for six months, keep it
+        safe" — and get a PLAN from the hub's own numbers: the brief it read
+        (amount · horizon · appetite · chain), the vetted protocols ranked for
+        it, and what the amount earns over the horizon at the floor, typically
+        and at the ceiling of each one's observed APR band. Deterministic and
+        free. explain=True (needs token=) adds the agent's plain-English read
+        of the same plan. Not advice."""
+        body = {'question': question or '', 'limit': int(limit)}
+        for key, value in (('amount', amount), ('months', months), ('risk', risk),
+                           ('chain', chain), ('model', model)):
+            if value not in (None, ''):
+                body[key] = float(value) if key in ('amount', 'months') else value
+        if from_desk:
+            body['from_desk'] = True
+        if explain:
+            body['explain'] = True
+        return self._call('/ask', 'POST', body, token=token, timeout=150)
+
+    def ask_status(self):
+        """Whether the ASK desk's agent layer (orbit/claudecode) is reachable."""
+        return self._call('/ask')
 
     def modules(self, chain=None, kind=None, q=None, addable=False, instant=False,
                 min_tvl=None, stable=False, organic=False, sort='score', limit=40):

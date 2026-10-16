@@ -15,16 +15,9 @@ type Props = {
   onOpenBook: () => void;
 };
 
-export const money = (value: number | null | undefined) => {
-  if (value === null || value === undefined || !isFinite(value)) return "—";
-  if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}b`;
-  if (value >= 1e6) return `$${(value / 1e6).toFixed(1)}m`;
-  if (value >= 1e3) return `$${(value / 1e3).toFixed(0)}k`;
-  return `$${value.toFixed(0)}`;
-};
-
-export const pct = (value: number | null | undefined, digits = 2) =>
-  value === null || value === undefined || !isFinite(Number(value)) ? "—" : `${Number(value).toFixed(digits)}%`;
+import { money, pct } from "../lib/fmt";
+import { Becomes } from "./Ask";
+export { money, pct };
 
 const CHAINS = [
   { id: "", label: "ALL" },
@@ -531,7 +524,7 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
         </div>
 
         {/* ── the rail ──────────────────────────────────────────────── */}
-        <aside className="rail scroll">
+        <aside className={`rail scroll ${detail ? "has-detail" : ""}`}>
           {!detail ? (
             <div className="rail-empty">
               <div style={{ fontSize: 22, color: "var(--accent)" }}>✦</div>
@@ -547,6 +540,9 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
             </div>
           ) : (
             <>
+              <div className="rail-close">
+                <button className="ghost" onClick={() => setPicked(null)}>▾ close</button>
+              </div>
               <div className="rail-head">
                 <span className={`chain-dot ${detail.chain}`} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -597,9 +593,14 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
               )}
               {detail.returns?.band && (
                 <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.5 }} title={detail.returns.band.basis}>
-                  the record supports <b>{pct(detail.returns.band.apr_lower, 1)} – {pct(detail.returns.band.apr_upper, 1)}</b>
+                  {detail.chain === "hyperliquid" ? "trailing windows span" : "has paid"}{" "}
+                  <b>{pct(detail.returns.band.apr_lower, 1)} – {pct(detail.returns.band.apr_upper, 1)}</b>
+                  {detail.chain === "hyperliquid" ? "" : " over its record"}
                   {detail.returns.band.confidence === "low" && <span className="tag bad" style={{ marginLeft: 6 }}>thin history</span>}
                 </div>
+              )}
+              {detail.returns?.band && detail.returns?.apy != null && detail.chain !== "tao" && detail.chain !== "polymarket" && detail.chain !== "hyperliquid" && (
+                <Becomes apyNow={detail.returns.apy} band={detail.returns.band} unit={detail.adapter?.asset?.symbol ?? "USD"} />
               )}
               <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.5 }}>{detail.returns?.basis}</div>
               {detail.identity && (

@@ -20,6 +20,7 @@
 //!                on BlocTime's clock — Friday 12:00 EST, split by BLOC
 //!   mcp.rs       MCP server over the same surface
 
+mod advisor;
 mod agentlink;
 mod auth;
 mod catalog;
@@ -67,6 +68,8 @@ pub struct AppState {
     pub module_dir: std::path::PathBuf,
     pub owner: String,
     pub version: String,
+    /// The claudecode agent contract (loopback) that phrases an ASK plan.
+    pub claudecode_url: String,
 }
 
 pub type Shared = Arc<AppState>;
@@ -146,6 +149,7 @@ async fn main() {
         module_dir,
         owner,
         version,
+        claudecode_url: std::env::var("DEFI_CLAUDECODE_URL").unwrap_or_else(|_| "http://127.0.0.1:51260".into()),
     });
 
     // Compile the whole catalog once, off the request path.
@@ -204,6 +208,8 @@ async fn main() {
         .route("/treasury/distribute", post(post_distribute))
         .route("/treasury/claim", post(post_claim))
         .route("/treasury/register", post(post_register))
+        .route("/ask", get(get_ask_status).post(post_ask))
+        .route("/ask/explain", post(post_ask_explain))
         .route("/hub", get(get_hub))
         .route("/hub/risk", get(get_hub_risks))
         .route("/hub/risk/assess", post(post_hub_risk_assess_all))
@@ -1118,12 +1124,68 @@ async fn get_hub(
         .and_then(|v| v.as_str())
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(1_000_000.0);
+    Ok(Json(hub_payload(&state, chain.as_deref(), min_tvl).await?))
+}
+
+/// The HUB payload as GET /hub serves it — shared with the ASK desk and the
+/// MCP tools so a plan ranks exactly the rows the front door shows.
+pub async fn hub_payload(
+    state: &Shared,
+    chain: Option<&str>,
+    min_tvl: f64,
+) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
     let (pools, fetched) = state.yields.all().await.map_err(yields_err)?;
-    let (subnets, tao_usd) = hub_tao_inputs(&state).await;
-    let hl = hub_hl_inputs(&state).await;
-    let mut out = state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl, &subnets, tao_usd, &hl);
+    let (subnets, tao_usd) = hub_tao_inputs(state).await;
+    let hl = hub_hl_inputs(state).await;
+    let mut out = state.hub.assemble(&pools, &state.finance.registry, fetched, chain, min_tvl, &subnets, tao_usd, &hl);
     state.risk.annotate_hub(&mut out);
-    Ok(Json(out))
+    Ok(out)
+}
+
+/// ASK — the plan layer. Public, deterministic, free: parse the question,
+/// rank the hub for it, project the amount over the horizon.
+pub async fn ask_plan(state: &Shared, body: &advisor::AskBody) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
+    let hub = hub_payload(state, None, 1_000_000.0).await?;
+    Ok(advisor::plan(&hub, body))
+}
+
+async fn post_ask(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    body: Option<Json<advisor::AskBody>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let body = body.map(|b| b.0).unwrap_or_default();
+    let mut plan = ask_plan(&state, &body).await?;
+    if body.explain.unwrap_or(false) {
+        // Prose on top only for a signed caller — it spends model credits.
+        match caller(&state, &headers) {
+            Some(_) => match advisor::explain(&state.claudecode_url, &plan, body.model.as_deref()).await {
+                Ok(e) => plan["explain"] = e,
+                Err(e) => plan["explain"] = serde_json::json!({ "error": e }),
+            },
+            None => plan["explain"] = serde_json::json!({ "error": "sign in with your wallet for the agent's read — the plan above is complete without it" }),
+        }
+    }
+    Ok(Json(plan))
+}
+
+/// The prose layer alone, for a plan the caller already has.
+async fn post_ask_explain(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    body: Option<Json<advisor::AskBody>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_caller(&state, &headers)?;
+    let body = body.map(|b| b.0).unwrap_or_default();
+    let plan = ask_plan(&state, &body).await?;
+    let explain = advisor::explain(&state.claudecode_url, &plan, body.model.as_deref())
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": e }))))?;
+    Ok(Json(serde_json::json!({ "brief": plan["brief"], "picks": plan["picks"], "explain": explain })))
+}
+
+async fn get_ask_status(State(state): State<Shared>) -> Json<serde_json::Value> {
+    Json(advisor::status(&state.claudecode_url).await)
 }
 
 /// What the hub's Bittensor entry joins against: the bt module's subnet list

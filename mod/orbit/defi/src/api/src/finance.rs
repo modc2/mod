@@ -43,6 +43,20 @@ use crate::yields::Pool;
 
 const LLAMA_PROTOCOLS: &str = "https://api.llama.fi/protocols";
 const DEPTH_FULL: f64 = 10_000_000.0;
+
+/// The rate a Hyperliquid vault is RANKED by (never the one it is shown
+/// with): its WORST trailing window — the lowest of all-time, 7-day and
+/// 24-hour APR — floored at zero and scaled by min(1, age/90d), so neither a
+/// short record nor a vault that lost money yesterday headlines the registry.
+pub fn hl_rank_rate(apr: f64, apr_7d: Option<f64>, apr_24h: Option<f64>, age_days: f64) -> f64 {
+    let worse = [apr_7d, apr_24h]
+        .into_iter()
+        .flatten()
+        .filter(|w| w.is_finite())
+        .fold(apr, f64::min);
+    let seasoning = if age_days.is_finite() { (age_days / 90.0).clamp(0.0, 1.0) } else { 0.0 };
+    worse.max(0.0) * seasoning
+}
 const MAX_UINT: &str =
     "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
@@ -826,7 +840,11 @@ impl Finance {
             },
             "addable": true,
             "gated": false,
-            "score": round2(apr.max(0.0) * (tvl / DEPTH_FULL).min(1.0).max(0.0).sqrt()),
+            // Ranked by the WORSE of the all-time and 7-day rates, shrunk by
+            // how short the track record is: a three-week vault annualizing
+            // at 700% is a headline, not a rate, and must not out-rank a
+            // lender in the default order.
+            "score": round2(hl_rank_rate(apr, apr_7d, apr_24h, age_days) * (tvl / DEPTH_FULL).min(1.0).max(0.0).sqrt()),
         }))
     }
 
@@ -2606,5 +2624,13 @@ mod tests {
         assert!(amount_arg(&json!({ "amount": "abc" })).is_err());
         assert_eq!(amount_arg(&json!({ "amount": 12.5 })).unwrap(), "12.5");
         assert_eq!(amount_arg(&json!({ "amount": " 100 " })).unwrap(), "100");
+    }
+
+    #[test]
+    fn hl_vaults_rank_by_the_worse_seasoned_rate() {
+        assert_eq!(hl_rank_rate(700.0, Some(-40.0), None, 400.0), 0.0);
+        assert_eq!(hl_rank_rate(700.0, Some(50.0), Some(80.0), 45.0), 25.0);
+        assert_eq!(hl_rank_rate(30.0, None, None, 900.0), 30.0);
+        assert_eq!(hl_rank_rate(30.0, Some(60.0), Some(-5.0), 90.0), 0.0);
     }
 }

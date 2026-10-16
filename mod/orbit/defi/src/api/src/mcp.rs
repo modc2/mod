@@ -399,6 +399,21 @@ fn finance_tools() -> serde_json::Value {
             } }
         },
         {
+            "name": "defi_ask",
+            "description": "[public] ASK the desk in plain words — \"I have $5,000 for six months, keep it safe\" — and get a PLAN from the hub's own numbers: the amount, horizon, appetite and chain read out of the question (structured fields override the text), the vetted protocols ranked for it (low appetite = core tier by the FLOOR of the observed APR band × depth; medium = core+established by a typical rate × depth; high = every quoted rate), and for each pick what the amount earns over the horizon at the floor, typically, and at the ceiling, with why it is listed, what can go wrong, and whether this desk can enter it. Deterministic and free. explain=true (needs a bearer) adds the agent's plain-English read of the same plan — it phrases, it never picks. Not advice: the floor is history, not a promise.",
+            "inputSchema": { "type": "object", "properties": {
+                "question": { "type": "string", "description": "free text — amount, horizon, appetite, chain are read from it" },
+                "amount": { "type": "number", "description": "USD to place (default 1000, or what the question says)" },
+                "months": { "type": "number", "description": "horizon in months (default 6, or what the question says)" },
+                "risk": { "type": "string", "enum": ["low", "medium", "high"], "description": "appetite (default medium, or what the question says)" },
+                "chain": { "type": "string", "description": "a desk id (ethereum, base, solana, tao) or any chain name the hub lists — each pick then uses THAT chain's pool and band" },
+                "from_desk": { "type": "boolean", "description": "only protocols this desk can put money into" },
+                "limit": { "type": "integer", "description": "how many picks (default 3, max 10)" },
+                "explain": { "type": "boolean", "description": "add the agent's prose read (spends model credits; needs a bearer)" },
+                "model": { "type": "string", "description": "claude model alias for explain (default haiku)" }
+            } }
+        },
+        {
             "name": "defi_hub_protocol",
             "description": "[public] One hub protocol in full: the vetted card plus EVERY pool it runs per chain (up to 12 each), each with its module_id — the handle defi_module / defi_enter takes. For id=bittensor the pools are the deepest dTAO subnets (module_id tao:sn<netuid>, root first) with TAO and dollar depth.",
             "inputSchema": { "type": "object", "properties": {
@@ -944,6 +959,20 @@ async fn call_tool(
             let (subnets, tao_usd) = crate::hub_tao_inputs(&state).await;
             let hl = crate::hub_hl_inputs(&state).await;
             Ok(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl, &subnets, tao_usd, &hl))
+        }
+        "defi_ask" => {
+            let body: crate::advisor::AskBody = serde_json::from_value(args.clone()).map_err(|e| format!("bad arguments: {e}"))?;
+            let mut plan = crate::ask_plan(state, &body).await.map_err(|(_, j)| j.0.get("error").and_then(|e| e.as_str()).unwrap_or("hub unavailable").to_string())?;
+            if body.explain.unwrap_or(false) {
+                plan["explain"] = match who {
+                    Some(_) => match crate::advisor::explain(&state.claudecode_url, &plan, body.model.as_deref()).await {
+                        Ok(e) => e,
+                        Err(e) => serde_json::json!({ "error": e }),
+                    },
+                    None => serde_json::json!({ "error": "explain needs a bearer — the plan is complete without it" }),
+                };
+            }
+            Ok(plan)
         }
         "defi_hub_protocol" => {
             let id = arg_str(&args, "id")?;

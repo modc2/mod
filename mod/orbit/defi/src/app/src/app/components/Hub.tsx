@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import * as api from "../lib/api";
-import { Chg, money, pct } from "./Modules";
+import { Chg } from "./Modules";
+import { money, pct } from "../lib/fmt";
+import Ask, { Becomes } from "./Ask";
 
 /// What EXPLORE hands to the MODULES room: a prefilled filter, and optionally
 /// the exact module to open.
@@ -10,6 +12,7 @@ export type Prefill = { q?: string; stable?: boolean; chain?: string; pick?: str
 
 type Props = {
   say: (text: string, bad?: boolean) => void;
+  address: string | null;
   onExplore: (prefill: Prefill) => void;
 };
 
@@ -43,7 +46,7 @@ function TierTag({ tier }: { tier: string }) {
 /// The HUB — the console's front door. A short, hand-vetted list of protocols
 /// legitimate enough to point dollars at, each card showing where it runs
 /// (multichain), what it pays right now, and one action.
-export default function Hub({ say, onExplore }: Props) {
+export default function Hub({ say, address, onExplore }: Props) {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [chain, setChain] = useState("");
@@ -163,7 +166,7 @@ export default function Hub({ say, onExplore }: Props) {
           <span className="stat-l">enterable from this desk</span>
         </div>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 10, color: "var(--dim)", maxWidth: 420, lineHeight: 1.5, textAlign: "right" }}>
+        <span className="stats-note" style={{ fontSize: 10, color: "var(--dim)", maxWidth: 420, lineHeight: 1.5, textAlign: "right" }}>
           Curated is not certified — every card carries what can go wrong, and the rates are the
           market&apos;s, not ours.
         </span>
@@ -263,7 +266,7 @@ export default function Hub({ say, onExplore }: Props) {
                             className="hub-best-sub"
                             title={p.apr_band.basis}
                           >
-                            the record supports {pct(p.apr_band.apr_lower, 1)}–{pct(p.apr_band.apr_upper, 1)}
+                            has paid {pct(p.apr_band.apr_lower, 1)}–{pct(p.apr_band.apr_upper, 1)} over its record
                           </span>
                         )}
                       </div>
@@ -294,27 +297,30 @@ export default function Hub({ say, onExplore }: Props) {
         </div>
 
         {/* ── the rail ──────────────────────────────────────────────── */}
-        <aside className="rail scroll">
+        <aside className={`rail scroll ${detail ? "has-detail" : "has-ask"}`}>
           {!detail ? (
-            <div className="rail-empty">
-              <div style={{ fontSize: 22, color: "var(--accent)" }}>✦</div>
-              <div style={{ marginTop: 10, lineHeight: 1.7 }}>
-                A short list made the cut: a real track record, a named team, public audits, and a
-                way in for plain USD — plus three entries that say so on their cards: Bittensor
-                (TAO in), Hyperliquid vaults (USDC behind a perps leader, trailing APR quoted not
-                promised) and Polymarket copy-trading (one trader mirrored one-to-one). Pick a card
-                to see <b>why it&apos;s here</b>, <b>what can go wrong</b>, and every chain it runs
-                on — then put money in through the module that owns that chain.
-              </div>
-              <div className="mono-small" style={{ marginTop: 12, lineHeight: 1.6 }}>
-                Green chains are enterable from this desk — Ethereum and Base through <b>eth</b>,
-                Solana through <b>solana</b>, Bittensor through <b>bt</b>, vaults through{" "}
-                <b>hyperliquid</b>, copy sessions through <b>polymarket</b> (owner-gated). The rest
-                are shown honestly as read-only.
+            <div className="rail-empty" style={{ padding: "6px 0" }}>
+              <Ask
+                say={say}
+                address={address}
+                onPick={(id, moduleId) => {
+                  const row = rows.find((r) => r.id === id);
+                  if (!row) return say("that protocol is not on the current list — clear the chain filter", true);
+                  explore(row, moduleId ? { module_id: moduleId } : undefined);
+                }}
+              />
+              <div className="mono-small" style={{ marginTop: 18, lineHeight: 1.6 }}>
+                Or pick a card. Each one says <b>why it&apos;s here</b>, <b>what can go wrong</b>, and every chain
+                it runs on. Green chains are enterable from this desk — Ethereum and Base through <b>eth</b>,
+                Solana through <b>solana</b>, Bittensor through <b>bt</b>, vaults through <b>hyperliquid</b>.
+                The rest are shown honestly as read-only. Curated is not certified.
               </div>
             </div>
           ) : (
             <>
+              <div className="rail-close">
+                <button className="ghost" onClick={() => setPicked(null)}>▾ close</button>
+              </div>
               <div className="rail-head">
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, display: "flex", gap: 8, alignItems: "center" }}>
@@ -345,6 +351,9 @@ export default function Hub({ say, onExplore }: Props) {
                     {detail.apr_band.basis}
                   </div>
                 </div>
+              )}
+              {detail.best?.apy != null && detail.apr_band && detail.source !== "hyperliquid" && (
+                <Becomes apyNow={detail.best.apy} band={detail.apr_band} unit="USD" />
               )}
 
               <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
