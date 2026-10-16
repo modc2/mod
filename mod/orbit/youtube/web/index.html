@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>youtube</title>
+<meta name="description" content="YouTube in a frame, under any account. Search, home feed, subscriptions, your channel — and an MCP server behind it.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff0033'/%3E%3Cpath d='M12 9l12 7-12 7z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0f0f0f; --bg2: #181818; --card: #212121; --card2: #2a2a2a; --line: #303030; --line2: #3f3f3f;
+    --text: #f1f1f1; --muted: #aaaaaa; --label: #8a8a8a; --red: #ff0033; --red2: #cc0029; --blue: #3ea6ff;
+    --green: #2ba640; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Roboto", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; --r: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.4; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  .mono { font-family: var(--mono); }
+  .label { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--label); }
+  .muted { color: var(--muted); }
+  .hidden { display: none !important; }
+
+  /* top bar */
+  .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 14px; padding: 8px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; letter-spacing: -.02em; white-space: nowrap; cursor: pointer; }
+  .logo .mark { width: 28px; height: 20px; border-radius: 6px; background: var(--red); display: grid; place-items: center; }
+  .logo .mark svg { width: 10px; height: 10px; fill: #fff; margin-left: 1px; }
+  .logo small { font-size: 10px; color: var(--muted); font-family: var(--mono); letter-spacing: .1em; margin-left: 4px; align-self: flex-start; }
+  form.search { flex: 1; max-width: 640px; margin: 0 auto; display: flex; }
+  form.search input { flex: 1; min-width: 0; background: #121212; border: 1px solid var(--line2); border-right: 0; border-radius: 20px 0 0 20px; padding: 8px 16px; outline: none; }
+  form.search input:focus { border-color: #1c62b9; }
+  form.search button { background: var(--card2); border: 1px solid var(--line2); border-radius: 0 20px 20px 0; padding: 0 18px; cursor: pointer; }
+  form.search button:hover { background: var(--line2); }
+  .right { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .pill { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 6px 10px; border-radius: 16px; border: 1px solid var(--line2); color: var(--muted); background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .pill:hover, .pill.on { color: var(--text); border-color: var(--text); }
+  .pill.red { color: #fff; background: var(--red); border-color: var(--red); }
+  .pill.red:hover { background: var(--red2); }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .pill .dot.off { background: var(--label); }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--card2); display: grid; place-items: center; font-weight: 700; font-size: 12px; overflow: hidden; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+  /* layout */
+  .shell { display: grid; grid-template-columns: 200px 1fr; min-height: calc(100vh - 49px); }
+  nav { padding: 12px 8px; border-right: 1px solid var(--line); position: sticky; top: 49px; height: calc(100vh - 49px); overflow: auto; }
+  nav a { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 10px; color: var(--text); font-size: 14px; }
+  nav a:hover { background: var(--card); text-decoration: none; }
+  nav a.on { background: var(--card2); font-weight: 600; }
+  nav a svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  nav .sep { height: 1px; background: var(--line); margin: 10px 8px; }
+  nav .label { padding: 6px 12px; }
+  nav .sub { font-size: 13px; padding: 6px 12px; color: var(--muted); }
+  nav .sub img { width: 22px; height: 22px; border-radius: 50%; }
+  main { padding: 16px 20px 60px; min-width: 0; }
+
+  /* frame */
+  .frame { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: calc(100vh - 150px); background: #000; border-radius: var(--r); overflow: hidden; border: 1px solid var(--line); }
+  .frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .frame .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 20px; }
+  .now { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0 18px; }
+  .now h1 { font-size: 18px; margin: 0; font-weight: 600; flex: 1 1 320px; }
+  .now .meta { color: var(--muted); font-size: 13px; }
+  .now .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* grid */
+  .head { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 12px; }
+  .head h2 { font-size: 16px; margin: 0; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px 12px; }
+  .vid { cursor: pointer; border-radius: var(--r); }
+  .vid .th { position: relative; aspect-ratio: 16/9; border-radius: var(--r); overflow: hidden; background: var(--card); }
+  .vid .th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .vid .th .dur { position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,.8); font-size: 11px; padding: 2px 5px; border-radius: 4px; font-family: var(--mono); }
+  .vid .th .badge { position: absolute; left: 6px; top: 6px; background: rgba(0,0,0,.75); font-size: 10px; padding: 2px 6px; border-radius: 4px; font-family: var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .vid .t { margin: 8px 2px 2px; font-weight: 500; font-size: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .vid .c { margin: 0 2px; color: var(--muted); font-size: 12px; }
+  .vid:hover .t { color: #fff; }
+  .vid.ch .th { border-radius: 50%; aspect-ratio: 1; width: 120px; margin: 0 auto; }
+  .vid.ch .t, .vid.ch .c { text-align: center; }
+
+  /* cards / panes */
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; margin-bottom: 14px; }
+  .card h3 { margin: 0 0 8px; font-size: 15px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .acc { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .acc:first-of-type { border-top: 0; }
+  .acc .who { flex: 1; min-width: 0; }
+  .acc .who b { display: block; }
+  .acc .who span { color: var(--muted); font-size: 12px; }
+  input.txt, textarea.txt, select.txt { background: #121212; border: 1px solid var(--line2); border-radius: 8px; padding: 8px 10px; outline: none; width: 100%; }
+  input.txt:focus, textarea.txt:focus { border-color: var(--blue); }
+  .form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .form .full { grid-column: 1 / -1; }
+  pre { background: #121212; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow: auto; font-size: 12px; margin: 8px 0; }
+  code { font-family: var(--mono); font-size: 12px; background: #121212; padding: 1px 5px; border-radius: 4px; }
+  .err { color: #ff8a8a; font-size: 13px; white-space: pre-wrap; }
+  .ok { color: var(--green); font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--label); font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 500; }
+  td.num { text-align: right; font-family: var(--mono); }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--line2); padding: 10px 16px; border-radius: 10px; z-index: 50; max-width: 80vw; }
+  @media (max-width: 860px) { .shell { grid-template-columns: 1fr; } nav { position: static; height: auto; display: flex; gap: 4px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 8px; } nav .sep, nav .label, nav .subs { display: none; } nav a { padding: 7px 10px; white-space: nowrap; } .logo small { display: none; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="logo" onclick="go('#/')"><span class="mark"><svg viewBox="0 0 10 10"><path d="M1 0l8 5-8 5z"/></svg></span>youtube<small>MOD</small></div>
+  <form class="search" onsubmit="return submitSearch(event)">
+    <input id="q" type="search" placeholder="Search, or paste any YouTube link / @handle" autocomplete="off">
+    <button type="submit" aria-label="search"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+  </form>
+  <div class="right">
+    <a id="ytlink" class="pill" href="https://www.youtube.com/" target="_blank" rel="noopener" title="open on youtube.com">youtube.com ↗</a>
+    <button id="who" class="pill" onclick="go('#/accounts')"><span class="dot off"></span>sign in</button>
+  </div>
+</header>
+
+<div class="shell">
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+<div id="toast" class="toast hidden"></div>
+
+<script>
+// ── wiring ──────────────────────────────────────────────────────────
+// Behind the gateway the page lives at /youtube/ and its API at /youtube/api;
+// on the bare port both are at /.
+const BASE = location.pathname.startsWith('/youtube') ? '/youtube/api' : '';
+const TKEY = 'youtube:token';
+let TOKEN = localStorage.getItem(TKEY) || '';
+let YOU = { address: null, owner: false, box: false };
+let ST = null;                       // /status
+let NOW = null;                      // what the frame is playing
+let LAST_ITEMS = [];                 // the grid, for queueing
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const b64url = o => btoa(JSON.stringify(o)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+async function api(path, opts = {}) {
+  const h = { ...(opts.headers || {}) };
+  if (TOKEN) h.Authorization = 'Bearer ' + TOKEN;
+  if (opts.body && typeof opts.body !== 'string') { opts.body = JSON.stringify(opts.body); h['Content-Type'] = 'application/json'; }
+  const r = await fetch(BASE + path, { ...opts, headers: h });
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (!r.ok) { const e = new Error(j.error || ('http ' + r.status)); e.status = r.status; throw e; }
+  return j;
+}
+function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.add('hidden'), ms); }
+function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
+const fmt = n => n == null ? '' : n >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(n < 1e4 ? 1 : 0) + 'K' : String(n);
+const ago = iso => { if (!iso) return ''; const s = (Date.now() - Date.parse(iso)) / 1000; const u = [[31536000, 'year'], [2592000, 'month'], [604800, 'week'], [86400, 'day'], [3600, 'hour'], [60, 'minute']]; for (const [k, n] of u) if (s >= k) { const v = Math.floor(s / k); return `${v} ${n}${v > 1 ? 's' : ''} ago`; } return 'just now'; };
+const dur = s => s == null ? '' : s >= 3600 ? `${Math.floor(s / 3600)}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+// ── sign in (mod protocol): local key on the box, or a browser wallet ──
+function keepToken(t) { TOKEN = t || ''; TOKEN ? localStorage.setItem(TKEY, TOKEN) : localStorage.removeItem(TKEY); }
+function walletProvider() { const e = window.ethereum; if (!e) return null; if (Array.isArray(e.providers) && e.providers.length) return e.providers.find(p => p.isMetaMask) || e.providers[0]; return e; }
+async function signInWallet() {
+  const p = walletProvider(); if (!p) throw new Error('no browser wallet found: install MetaMask, or use the local key on the box itself');
+  const [address] = await p.request({ method: 'eth_requestAccounts' });
+  const data = { mod: 'youtube' }, time = (Date.now() / 1000).toString();
+  const signature = await p.request({ method: 'personal_sign', params: [JSON.stringify({ data, time }), address] });
+  keepToken(b64url({ data, time, key: address.toLowerCase(), signature }));
+}
+async function signInLocal() { const j = await api('/auth/local'); keepToken(j.token); }
+async function whoami() {
+  try { YOU = await api('/whoami'); } catch (e) { if (e.status === 401) keepToken(''); YOU = { address: null, owner: false, box: false }; }
+  try { ST = await api('/status'); } catch (e) { ST = null; }
+  drawWho();
+}
+function drawWho() {
+  const w = $('#who'); const act = ST && ST.active;
+  if (act) w.innerHTML = `<span class="dot"></span>${esc(act.handle || act.title || act.email)}`;
+  else if (YOU.owner) w.innerHTML = `<span class="dot"></span>owner · add account`;
+  else if (YOU.address) w.innerHTML = `<span class="dot off"></span>${esc(YOU.address.slice(0, 6))}… not owner`;
+  else w.innerHTML = `<span class="dot off"></span>sign in`;
+}
+
+// ── the frame ───────────────────────────────────────────────────────
+function play(item, opts = {}) {
+  NOW = item;
+  let src = item.embed;
+  if (opts.queue && opts.queue.length) {
+    const ids = [item.id, ...opts.queue.map(i => i.id).filter(i => i && i !== item.id)];
+    src = `https://www.youtube.com/embed/${item.id}?rel=0&modestbranding=1&enablejsapi=1&autoplay=${opts.autoplay ? 1 : 0}&playlist=${ids.join(',')}`;
+  } else if (opts.autoplay) src += (src.includes('?') ? '&' : '?') + 'autoplay=1';
+  const f = $('#frame'); if (f) { f.src = src + '&origin=' + encodeURIComponent(location.origin); f.onload = listenToPlayer; }
+  drawNow();
+  $('#ytlink').href = item.watch || item.url || 'https://www.youtube.com/';
+  if (opts.scroll !== false) window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function drawNow() {
+  const el = $('#now'); if (!el) return;
+  if (!NOW) { el.innerHTML = ''; return; }
+  const acts = [];
+  acts.push(`<a class="pill" href="${esc(NOW.watch || NOW.url || '#')}" target="_blank" rel="noopener">open on youtube ↗</a>`);
+  if (NOW.kind === 'video') {
+    acts.push(`<button class="pill" onclick="copy('${esc(NOW.watch || NOW.url)}')">copy link</button>`);
+    if (YOU.owner && ST && ST.active) {
+      acts.push(`<button class="pill" onclick="act('rate',{video:'${esc(NOW.id)}',rating:'like'},'liked')">like</button>`);
+      acts.push(`<button class="pill" onclick="addTo('${esc(NOW.id)}')">save</button>`);
+      if (NOW.channel_id) acts.push(`<button class="pill" onclick="act('subscribe',{channel:'${esc(NOW.channel_id)}'},'subscribed')">subscribe</button>`);
+    }
+    if (NOW.channel_id) acts.push(`<button class="pill" onclick="go('#/channel/${esc(NOW.channel_id)}')">channel</button>`);
+  }
+  if (NOW.kind === 'channel' && YOU.owner && ST && ST.active) acts.push(`<button class="pill" onclick="act('subscribe',{channel:'${esc(NOW.id)}'},'subscribed')">subscribe</button>`);
+  el.innerHTML = `<h1>${esc(NOW.title || (NOW.kind === 'playlist' ? 'Playlist ' + NOW.id : NOW.kind === 'channel' ? 'Channel' : 'YouTube'))}</h1>
+    <div class="meta">${esc(NOW.channel || '')}${NOW.views != null ? ' · ' + fmt(NOW.views) + ' views' : ''}${NOW.published ? ' · ' + ago(NOW.published) : ''}</div>
+    <div class="acts">${acts.join('')}</div>`;
+}
+// The player tells us what it is really playing (next/prev inside the frame, an unembeddable
+// video skipped, a queue): enablejsapi + a 'listening' handshake, then infoDelivery messages.
+function listenToPlayer() {
+  const f = $('#frame'); if (!f || !f.contentWindow) return;
+  const hello = JSON.stringify({ event: 'listening', id: 1, channel: 'widget' });
+  try { f.contentWindow.postMessage(hello, 'https://www.youtube.com'); } catch (e) {}
+  setTimeout(() => { try { f.contentWindow.postMessage(hello, 'https://www.youtube.com'); } catch (e) {} }, 1200);
+}
+window.addEventListener('message', ev => {
+  if (ev.origin !== 'https://www.youtube.com' && ev.origin !== 'https://www.youtube-nocookie.com') return;
+  let d; try { d = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data; } catch (e) { return; }
+  const vd = d && d.event === 'infoDelivery' && d.info && d.info.videoData;
+  if (!vd || !vd.video_id || (NOW && NOW.id === vd.video_id)) return;
+  const known = LAST_ITEMS.find(i => i.id === vd.video_id);
+  NOW = known ? { ...known } : { kind: 'video', id: vd.video_id, title: vd.title, channel: vd.author, watch: 'https://www.youtube.com/watch?v=' + vd.video_id };
+  drawNow(); $('#ytlink').href = NOW.watch;
+  if ((location.hash || '#/').startsWith('#/watch/') || location.hash === '#/' || !location.hash) history.replaceState(null, '', '#/watch/' + NOW.id);
+});
+async function act(path, body, okMsg) {
+  try { await api('/' + path, { method: 'POST', body }); toast(okMsg); } catch (e) { toast(e.message, 5000); }
+}
+async function addTo(videoId) {
+  const el = $('#now'); if (!el) return;
+  let pl; try { pl = await api('/playlists'); } catch (e) { return toast(e.message, 5000); }
+  const box = document.createElement('div'); box.className = 'card'; box.style.width = '100%';
+  box.innerHTML = `<h3>save to</h3><div class="row">${pl.items.map(p => `<button class="pill" data-id="${esc(p.id)}">${esc(p.title)}</button>`).join('')}
+    <input class="txt" id="newpl" placeholder="new playlist name" style="width:220px"><button class="pill" id="mkpl">create + save</button><button class="pill" id="xpl">cancel</button></div>`;
+  el.appendChild(box);
+  const save = async id => { try { await api('/playlists/add', { method: 'POST', body: { playlist_id: id, video: videoId } }); toast('saved'); } catch (e) { toast(e.message, 5000); } box.remove(); };
+  box.querySelectorAll('button[data-id]').forEach(b => b.onclick = () => save(b.dataset.id));
+  box.querySelector('#xpl').onclick = () => box.remove();
+  box.querySelector('#mkpl').onclick = async () => { const t = box.querySelector('#newpl').value.trim(); if (!t) return; try { const c = await api('/playlists/create', { method: 'POST', body: { title: t, privacy: 'private' } }); await save(c.id); } catch (e) { toast(e.message, 5000); } };
+}
+function copy(t) { navigator.clipboard && navigator.clipboard.writeText(t).then(() => toast('copied')); }
+
+// ── views ───────────────────────────────────────────────────────────
+function frameHTML() {
+  return `<div class="frame"><iframe id="frame" src="about:blank" title="YouTube" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div><div id="now" class="now"></div>`;
+}
+function gridHTML(items, title, extra = '') {
+  return `<div class="head"><h2>${esc(title)}</h2>${extra}</div>
+  <div class="grid">${items.map((it, i) => it.kind === 'channel' ? `
+    <div class="vid ch" onclick="openItem(${i})"><div class="th"><img loading="lazy" src="${esc(it.thumb || '')}" alt=""></div><div class="t">${esc(it.title)}</div><div class="c">${it.subscribers != null ? fmt(it.subscribers) + ' subscribers' : esc(it.handle || '')}</div></div>` : `
+    <div class="vid" onclick="openItem(${i})"><div class="th"><img loading="lazy" src="${esc(it.thumb || ('https://i.ytimg.com/vi/' + it.id + '/hqdefault.jpg'))}" alt="">${it.duration ? `<span class="dur">${dur(it.duration)}</span>` : ''}${it.kind === 'playlist' ? '<span class="badge">playlist</span>' : it.privacy && it.privacy !== 'public' ? `<span class="badge">${esc(it.privacy)}</span>` : it.live === 'live' ? '<span class="badge">live</span>' : ''}</div>
+    <div class="t">${esc(it.title)}</div><div class="c">${esc(it.channel || '')}${it.views != null ? ' · ' + fmt(it.views) + ' views' : ''}${it.published ? ' · ' + ago(it.published) : ''}</div></div>`).join('')}
+  </div>${items.length ? '' : '<p class="muted">nothing here</p>'}`;
+}
+function openItem(i) {
+  const it = LAST_ITEMS[i]; if (!it) return;
+  if (it.kind === 'channel') return go('#/channel/' + it.id);
+  if (it.kind === 'playlist') return go('#/playlist/' + it.id);
+  play(it, { autoplay: true, queue: LAST_ITEMS.filter(x => x.kind === 'video') });
+  history.replaceState(null, '', '#/watch/' + it.id);
+}
+function setMain(html) { $('#main').innerHTML = html; }
+function loading(what) { setMain(frameHTML() + `<p class="muted">loading ${esc(what)}…</p>`); }
+function fail(e, hint = '') { const m = $('#main'); m.insertAdjacentHTML('beforeend', `<div class="card"><div class="err">${esc(e.message)}</div>${hint}</div>`); }
+
+async function viewHome() {
+  loading('home');
+  try {
+    const h = await api('/home?n=30');
+    LAST_ITEMS = h.items;
+    const src = h.subscriptions != null ? `your subscriptions · ${h.subscriptions} channels` : h.source === 'api' ? 'trending' : `home · ${h.channels} channels (keyless)`;
+    const extra = YOU.owner && !(ST && ST.active) ? `<span class="muted">· <a href="#/accounts">add a Google account</a> to see your subscriptions here</span>` : h.source === 'rss' && !(h.subscriptions != null) ? `<span class="muted">· <a href="#/accounts">sign in</a> for your feed</span>` : '';
+    setMain(frameHTML() + gridHTML(h.items, src, extra));
+    if (h.items.length) play(h.items[0], { queue: h.items, scroll: false });
+    else { $('#frame').src = h.embed || 'https://www.youtube.com/embed/videoseries?list=UUX6OQ3DkcsbYNE6H8uQQuVA';
+      $('#main').insertAdjacentHTML('beforeend', `<div class="card"><div class="muted">${esc(h.note || 'no items')}${ST && ST.rails && ST.rails.api_key ? '' : ' · a YouTube Data API key (<a href="#/accounts">accounts</a>) makes the grid independent of the feed server'}</div></div>`); }
+  } catch (e) { setMain(frameHTML()); fail(e); }
+}
+async function viewWatch(id) {
+  // the frame first, details after (keyless embed needs nothing)
+  setMain(frameHTML() + '<div id="more"></div>');
+  play({ kind: 'video', id, embed: `https://www.youtube.com/embed/${id}?rel=0&modestbranding=1&enablejsapi=1&autoplay=1`, watch: `https://www.youtube.com/watch?v=${id}` }, { scroll: false });
+  try { const v = await api('/video?video=' + id); NOW = { ...NOW, ...v }; drawNow();
+    try { const r = await api('/rss?channel=' + v.channel_id + '&n=12'); LAST_ITEMS = r.items.filter(i => i.id !== id); $('#more').innerHTML = gridHTML(LAST_ITEMS, 'more from ' + v.channel); } catch (e) {}
+  } catch (e) { $('#more').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+async function viewSearch(q) {
+  loading('results for ' + q); $('#q').value = q;
+  try {
+    const r = await api('/search?q=' + encodeURIComponent(q) + '&kind=any&n=24');
+    LAST_ITEMS = r.items;
+    setMain(frameHTML() + gridHTML(r.items, `results for “${q}”`));
+    const first = r.items.find(i => i.kind === 'video');
+    if (first) play(first, { queue: r.items.filter(i => i.kind === 'video'), scroll: false });
+    else $('#frame').src = 'about:blank';
+  } catch (e) {
+    setMain(frameHTML());
+    $('#frame').src = `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(q)}`;
+    fail(e, `<p class="muted">Search needs a YouTube Data API key or a signed-in account (<a href="#/accounts">accounts</a>). The frame is trying YouTube's own search embed meanwhile.</p>`);
+  }
+}
+async function viewChannel(id) {
+  loading('channel');
+  try {
+    const r = await api('/rss?channel=' + encodeURIComponent(id) + '&n=15');
+    LAST_ITEMS = r.items;
+    let ch = { kind: 'channel', id: r.channel_id, title: r.title, embed: `https://www.youtube.com/embed/videoseries?list=UU${r.channel_id.slice(2)}`, watch: `https://www.youtube.com/channel/${r.channel_id}` };
+    setMain(frameHTML() + gridHTML(r.items, r.title + ' · latest'));
+    play(ch, { scroll: false });
+    try { const c = await api('/channel?channel=' + r.channel_id); NOW = { ...ch, ...c, title: c.title }; drawNow(); } catch (e) {}
+  } catch (e) { setMain(frameHTML()); fail(e); }
+}
+async function viewPlaylist(id) {
+  loading('playlist');
+  const pl = { kind: 'playlist', id, embed: `https://www.youtube.com/embed/videoseries?list=${id}`, watch: `https://www.youtube.com/playlist?list=${id}` };
+  try {
+    const r = await api('/playlist?playlist_id=' + encodeURIComponent(id) + '&n=50');
+    LAST_ITEMS = r.items; setMain(frameHTML() + gridHTML(r.items, 'playlist')); play(pl, { scroll: false });
+  } catch (e) { setMain(frameHTML()); play(pl, { scroll: false }); fail(e, '<p class="muted">The list itself still plays in the frame.</p>'); }
+}
+async function viewSubs() {
+  loading('subscriptions');
+  try {
+    const s = await api('/subscriptions?n=200');
+    LAST_ITEMS = s.items.map(i => ({ kind: 'channel', id: i.channel_id, title: i.title, thumb: i.thumb, handle: i.new_items ? i.new_items + ' new' : '' }));
+    setMain(frameHTML() + gridHTML(LAST_ITEMS, `subscriptions · ${s.items.length}`));
+    $('#frame').parentElement.classList.add('hidden');
+  } catch (e) { setMain(''); fail(e, needAccount()); }
+}
+function needAccount() { return `<p class="muted">This acts as a Google account: ${YOU.owner ? '<a href="#/accounts">add one</a>' : 'sign in as the box owner on the <a href="#/accounts">accounts</a> pane'}.</p>`; }
+
+async function viewStudio() {
+  setMain('<p class="muted">loading your channel…</p>');
+  try {
+    const me = await api('/me');
+    const mv = await api('/my/videos?n=50');
+    LAST_ITEMS = mv.items;
+    const end = new Date().toISOString().slice(0, 10), start = new Date(Date.now() - 27 * 864e5).toISOString().slice(0, 10);
+    setMain(`<div class="card"><div class="row"><div class="avatar" style="width:48px;height:48px"><img src="${esc(me.thumb || '')}" alt=""></div>
+      <div style="flex:1"><b>${esc(me.title)}</b> <span class="muted">${esc(me.handle || '')}</span><div class="muted">${fmt(me.subscribers)} subscribers · ${fmt(me.videos)} videos · ${fmt(me.views)} views</div></div>
+      <a class="pill" href="https://studio.youtube.com/channel/${esc(me.id)}" target="_blank" rel="noopener">studio ↗</a></div></div>
+      <div class="card"><h3>last 28 days</h3><div id="ana" class="muted">loading analytics…</div></div>
+      <div class="card"><h3>upload</h3><div class="muted" style="margin-bottom:8px">A file on this box (the server uploads it, resumable). Private unless you choose otherwise.</div>
+        <form class="form" onsubmit="return doUpload(event)">
+          <input class="txt" name="path" placeholder="/path/on/this/box/clip.mp4" required><input class="txt" name="title" placeholder="title" required>
+          <textarea class="txt full" name="description" rows="3" placeholder="description"></textarea>
+          <input class="txt" name="tags" placeholder="tags, comma, separated"><select class="txt" name="privacy"><option>private</option><option>unlisted</option><option>public</option></select>
+          <div class="full row"><button class="pill red" type="submit">upload</button><span id="upmsg" class="muted"></span></div></form></div>
+      ${frameHTML()}${gridHTML(mv.items, 'your videos · ' + mv.items.length)}`);
+    $('#frame').parentElement.classList.add('hidden');
+    if (mv.items.length) { NOW = null; }
+    try {
+      const a = await api(`/analytics?start=${start}&end=${end}&dimensions=day`);
+      const t = a.totals || {};
+      $('#ana').innerHTML = `<table><tr><th>views</th><th>watch min</th><th>avg view s</th><th>subs gained</th><th>likes</th><th>comments</th></tr>
+        <tr><td class="num">${fmt(t.views)}</td><td class="num">${fmt(t.estimatedMinutesWatched)}</td><td class="num">${a.rows.length ? Math.round(a.rows.reduce((s, r) => s + (r.averageViewDuration || 0), 0) / a.rows.length) : ''}</td><td class="num">${fmt(t.subscribersGained)}</td><td class="num">${fmt(t.likes)}</td><td class="num">${fmt(t.comments)}</td></tr></table>`;
+    } catch (e) { $('#ana').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  } catch (e) { setMain(''); fail(e, needAccount()); }
+}
+async function doUpload(ev) {
+  ev.preventDefault(); const f = new FormData(ev.target); const body = Object.fromEntries(f.entries());
+  body.tags = body.tags ? body.tags.split(',').map(s => s.trim()).filter(Boolean) : [];
+  $('#upmsg').textContent = 'uploading… (this can take a while; the server streams the file)';
+  try { const v = await api('/upload', { method: 'POST', body }); $('#upmsg').innerHTML = `<span class="ok">uploaded</span> <a href="${esc(v.url)}" target="_blank">${esc(v.title)}</a> (${esc(v.privacy)})`; }
+  catch (e) { $('#upmsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  return false;
+}
+
+async function viewAccounts() {
+  let html = '';
+  // step 1: who you are to this box
+  html += `<div class="card"><h3>1 · you</h3>`;
+  if (YOU.owner) html += `<div class="ok">owner${YOU.box ? ' (this is the box)' : ' · ' + esc(YOU.address)}</div>`;
+  else if (YOU.address) html += `<div class="err">signed in as ${esc(YOU.address)}, but that is not this box's owner key. Account tools stay closed.</div>`;
+  else html += `<div class="muted">Account tools act as real Google accounts, so they open only for the box owner.</div>`;
+  html += `<div class="row" style="margin-top:10px">${YOU.address ? '<button class="pill" onclick="keepToken(\'\');whoami().then(render)">sign out</button>' : `<button class="pill" onclick="signInLocal().then(()=>whoami().then(render)).catch(e=>toast(e.message,5000))">local key (on the box)</button><button class="pill" onclick="signInWallet().then(()=>whoami().then(render)).catch(e=>toast(e.message,5000))">browser wallet</button>`}</div></div>`;
+  if (YOU.owner) {
+    let cl = {}; try { cl = await api('/client'); } catch (e) {}
+    html += `<div class="card"><h3>2 · Google OAuth client ${cl.oauth_client ? '<span class="ok">· set</span>' : '<span class="err">· missing</span>'}</h3>
+      <div class="muted">Once per box. Google Cloud console → APIs &amp; Services → enable <b>YouTube Data API v3</b> (and <b>YouTube Analytics API</b>) → Credentials → OAuth client (Web application). Authorized redirect URI: <code>${esc(location.origin + BASE + '/auth/callback')}</code>. An API key is optional: it lets search and trending work without an account.</div>
+      <form class="form" style="margin-top:10px" onsubmit="return saveClient(event)">
+        <input class="txt" name="client_id" placeholder="client id${cl.client_id ? ' · ' + cl.client_id : ''}"><input class="txt" name="client_secret" placeholder="client secret${cl.oauth_client ? ' · set' : ''}" type="password">
+        <input class="txt" name="api_key" placeholder="API key (optional)${cl.api_key ? ' · set' : ''}" type="password"><input class="txt" name="redirect_uri" placeholder="redirect uri override (optional)${cl.redirect_uri ? ' · ' + cl.redirect_uri : ''}">
+        <div class="full row"><button class="pill" type="submit">save</button><span class="muted">stored in ${esc(cl.path || '~/.mod/youtube/client.json')}</span></div></form></div>`;
+    let acc = { accounts: [] }; try { acc = await api('/accounts'); } catch (e) {}
+    html += `<div class="card"><h3>3 · Google accounts</h3>`;
+    html += acc.accounts.map(a => `<div class="acc"><div class="avatar">${a.thumbnail ? `<img src="${esc(a.thumbnail)}" alt="">` : esc((a.title || '?')[0])}</div>
+      <div class="who"><b>${esc(a.title || a.email || a.id)} ${a.active ? '<span class="ok">· active</span>' : ''}</b><span>${esc(a.handle || '')} ${esc(a.email || '')} · ${(a.scopes || []).filter(s => s.includes('youtube') || s.includes('analytics')).map(s => s.split('/').pop()).join(', ')}</span></div>
+      ${a.active ? '' : `<button class="pill" onclick="useAcc('${esc(a.id)}')">use</button>`}<button class="pill" onclick="rmAcc('${esc(a.id)}')">sign out</button></div>`).join('') || '<div class="muted">none yet</div>';
+    html += `<div class="row" style="margin-top:12px"><button class="pill red" onclick="addAccount()" ${cl.oauth_client ? '' : 'disabled title="set the OAuth client first"'}>+ add Google account</button><span class="muted">opens Google's account picker; any account, any brand channel</span></div></div>`;
+  }
+  setMain(html);
+}
+async function saveClient(ev) { ev.preventDefault(); const b = Object.fromEntries(new FormData(ev.target).entries()); try { await api('/client', { method: 'POST', body: b }); toast('saved'); render(); } catch (e) { toast(e.message, 5000); } return false; }
+async function useAcc(id) { try { await api('/accounts/use', { method: 'POST', body: { account: id } }); await whoami(); render(); } catch (e) { toast(e.message, 5000); } }
+async function rmAcc(id) { try { await api('/accounts/remove', { method: 'POST', body: { account: id } }); await whoami(); render(); } catch (e) { toast(e.message, 5000); } }
+async function addAccount() {
+  try { const s = await api('/auth/start'); const w = window.open(s.url, 'yt-oauth', 'width=520,height=680'); if (!w) location.href = s.url; }
+  catch (e) { toast(e.message, 6000); }
+}
+window.addEventListener('message', ev => { if (ev.data && ev.data.youtube === 'signed-in') { toast(ev.data.ok ? 'account added' : 'sign-in failed'); whoami().then(render); } });
+
+async function viewApi() {
+  let tools = { tools: [] }; try { tools = await api('/tools'); } catch (e) {}
+  const origin = location.origin + BASE;
+  const rings = {}; tools.tools.forEach(t => (rings[t._meta.ring] = rings[t._meta.ring] || []).push(t));
+  setMain(`<div class="card"><h3>MCP</h3><pre>claude mcp add --transport http youtube ${esc(origin)}/mcp
+claude mcp add youtube -- python3 -m ytmod.mcp_server      # stdio, run from orbit/youtube</pre>
+    <div class="muted">Over HTTP, account tools need a mod-protocol token (Authorization: Bearer) whose address is this box's key; over stdio on the box they just work.</div></div>
+    ${Object.entries(rings).map(([r, ts]) => `<div class="card"><h3>${esc(r)} <span class="muted">· ${r === 'open' ? 'anyone' : 'owner'}</span></h3><table>${ts.map(t => `<tr><td class="mono" style="white-space:nowrap">${esc(t.name)}</td><td class="muted">${esc(t.description)}</td><td class="mono muted" style="white-space:nowrap">${Object.keys(t.inputSchema.properties || {}).filter(k => k !== 'account').join(' ')}</td></tr>`).join('')}</table></div>`).join('')}
+    <div class="card"><h3>REST</h3><pre>GET  ${esc(origin)}/open?target=https://youtu.be/dQw4w9WgXcQ      → {kind,id,embed,watch}
+GET  ${esc(origin)}/go?target=@veritasium                         → 302 to the framable embed
+GET  ${esc(origin)}/home · /rss?channel=@nasa · /search?q=lofi · /video?video=ID · /channel?channel=@x · /playlist?playlist_id=PL…
+GET  ${esc(origin)}/tools/&lt;name&gt;?arg=…   POST ${esc(origin)}/tools/&lt;name&gt; {json}
+CLI  m youtube/open &lt;url&gt; · m youtube/login · m youtube/accounts · m youtube/feed · m youtube/upload path=… title=…</pre></div>`);
+}
+
+// ── nav + router ─────────────────────────────────────────────────────
+const ICON = {
+  home: '<svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>',
+  subs: '<svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M7 4h10M5 6h14M10 12l5 3-5 3z"/></svg>',
+  studio: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3zM3 19l3-3M21 19l-3-3"/></svg>',
+  acc: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  api: '<svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>',
+  yt: '<svg viewBox="0 0 24 24"><path d="M21 12a28 28 0 0 0-.5-5.3 2.5 2.5 0 0 0-1.8-1.8C16.9 4.5 12 4.5 12 4.5s-4.9 0-6.7.4A2.5 2.5 0 0 0 3.5 6.7 28 28 0 0 0 3 12a28 28 0 0 0 .5 5.3 2.5 2.5 0 0 0 1.8 1.8c1.8.4 6.7.4 6.7.4s4.9 0 6.7-.4a2.5 2.5 0 0 0 1.8-1.8A28 28 0 0 0 21 12zM10 15V9l5 3z"/></svg>',
+};
+let SUBS_CACHE = null;
+async function drawNav() {
+  const h = location.hash || '#/';
+  const on = p => h === p || (p !== '#/' && h.startsWith(p)) ? 'on' : '';
+  let html = `<a class="${on('#/')}" href="#/">${ICON.home}Home</a>
+    <a class="${on('#/subs')}" href="#/subs">${ICON.subs}Subscriptions</a>
+    <a class="${on('#/studio')}" href="#/studio">${ICON.studio}Your channel</a>
+    <div class="sep"></div>
+    <a class="${on('#/accounts')}" href="#/accounts">${ICON.acc}Accounts</a>
+    <a class="${on('#/api')}" href="#/api">${ICON.api}API · MCP</a>
+    <a href="https://www.youtube.com/" target="_blank" rel="noopener">${ICON.yt}youtube.com ↗</a>`;
+  if (YOU.owner && ST && ST.active) {
+    if (!SUBS_CACHE) { try { SUBS_CACHE = (await api('/subscriptions?n=25')).items; } catch (e) { SUBS_CACHE = []; } }
+    if (SUBS_CACHE.length) html += `<div class="sep"></div><div class="label">subscriptions</div><div class="subs">` + SUBS_CACHE.map(s => `<a class="sub" href="#/channel/${esc(s.channel_id)}"><img src="${esc(s.thumb || '')}" alt="">${esc(s.title)}</a>`).join('') + '</div>';
+  }
+  $('#nav').innerHTML = html;
+}
+function submitSearch(ev) {
+  ev.preventDefault(); const q = $('#q').value.trim(); if (!q) return false;
+  // a pasted link / id / @handle opens straight into the frame
+  api('/open?target=' + encodeURIComponent(q)).then(r => {
+    if (r.kind === 'video') go('#/watch/' + r.id); else if (r.kind === 'channel') go('#/channel/' + r.id);
+    else if (r.kind === 'playlist') go('#/playlist/' + r.id); else if (r.kind === 'search') go('#/search/' + encodeURIComponent(r.q));
+    else go('#/');
+  }).catch(() => go('#/search/' + encodeURIComponent(q)));
+  return false;
+}
+async function render() {
+  drawNav();
+  const h = location.hash || '#/';
+  const [, view, ...rest] = h.split('/'); const arg = decodeURIComponent(rest.join('/'));
+  if (!view || view === '') return viewHome();
+  if (view === 'watch') return viewWatch(arg);
+  if (view === 'search') return viewSearch(arg);
+  if (view === 'channel') return viewChannel(arg);
+  if (view === 'playlist') return viewPlaylist(arg);
+  if (view === 'subs') return viewSubs();
+  if (view === 'studio') return viewStudio();
+  if (view === 'accounts') return viewAccounts();
+  if (view === 'api') return viewApi();
+  if (view === 'open') return submitSearch({ preventDefault() {} }, $('#q').value = arg);
+  return viewHome();
+}
+window.addEventListener('hashchange', render);
+whoami().then(render);
+</script>
+</body>
+</html>
