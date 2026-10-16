@@ -2,7 +2,7 @@
 
 CPU sandboxes powering reinforcement learning on Bittensor.
 
-Bittensor subnet **94** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **94** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/cathedralai/cathedral-sandbox) · [url](https://cathedral.computer/) · [discord](https://discord.com/channels/799672011265015819/1526241812589711571)
 
@@ -12,22 +12,22 @@ Fleet mods for this subnet: `cathedral`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004669 | -0.57% | -4.10% | +2.42% | 12,282 | 2,338 | 744.58 |
+| 0.004601 | +0.37% | -1.46% | +1.97% | 12,136 | 2,321 | 1,473 |
 
 ## Last 24h flow
 
-159 trades by 75 coldkeys · 106 buys (347.62 τ) / 53 sells (383.12 τ) · net -35.51 τ
+262 trades by 79 coldkeys · 141 buys (727.91 τ) / 121 sells (743.49 τ) · net -15.58 τ
 
 ## News
 
+- 2026-10-16 · commit · [Merge pull request #277 from cathedralai/fix/gvisor-release-20261005](https://github.com/cathedralai/cathedral-sandbox/commit/ec992827b445e195142bc62e35ca9f6b2db12e93) — cathedralai/cathedral-sandbox
+- 2026-10-16 · commit · [Merge pull request #281 from cathedralai/docs/sn94-snp-miner-dd7182c](https://github.com/cathedralai/cathedral-sandbox/commit/b65f8456d933b9c905c3464742f43c2c80219fab) — cathedralai/cathedral-sandbox
+- 2026-10-16 · commit · [Pin the SN94 SNP miner image built from dd7182c](https://github.com/cathedralai/cathedral-sandbox/commit/d3fc6b1720c9bae7ca3e4d7f1450a97af59f25a9) — cathedralai/cathedral-sandbox
+- 2026-10-16 · commit · [Merge pull request #278 from skyrocket2026/docs/miner-guide-sn94-images](https://github.com/cathedralai/cathedral-sandbox/commit/177cc73c750e6b6eb77d0631adf066cc33b81b46) — cathedralai/cathedral-sandbox
+- 2026-10-16 · commit · [Merge pull request #280 from cathedralai/feature/miner-image-chain-te…](https://github.com/cathedralai/cathedral-sandbox/commit/dd7182ccd91ca25b566ff210025bdea5fda57c4c) — cathedralai/cathedral-sandbox
 - 2026-10-12 · commit · [Merge pull request #254 from skyrocket2026/feat/verifier-release-next](https://github.com/cathedralai/cathedral-sandbox/commit/30bee005c62ed65595027e27a2447dbcef163bc5) — cathedralai/cathedral-sandbox
 - 2026-10-12 · commit · [Merge pull request #253 from skyrocket2026/fix/verifier-review-followups](https://github.com/cathedralai/cathedral-sandbox/commit/5a57fb50ee5dabe012b7859d307cb5870c269a70) — cathedralai/cathedral-sandbox
 - 2026-10-12 · commit · [release(tdx-verifier): expect the Go 1.26.9 build of the next release](https://github.com/cathedralai/cathedral-sandbox/commit/78f631209fc632d10f1e8d1bf73ad557f5c14830) — cathedralai/cathedral-sandbox
-- 2026-10-12 · commit · [release(tdx-verifier): expect the digest of #253's final verifier source](https://github.com/cathedralai/cathedral-sandbox/commit/eb5bf07d6a9d5f459531a0188f938b0b95ea97a2) — cathedralai/cathedral-sandbox
-- 2026-10-12 · commit · [release(tdx-verifier): expect the digest of main after #267 plus #253](https://github.com/cathedralai/cathedral-sandbox/commit/52fdf7ff6deeab8b99837445ad3a6e5cc421f0f5) — cathedralai/cathedral-sandbox
-- 2026-10-05 · commit · [docs: mission-first miner README and one canonical operating guide (#…](https://github.com/cathedralai/cathedral-sandbox/commit/6e38541d434bdbb378052e308e636a537cc59607) — cathedralai/cathedral-sandbox
-- 2026-10-02 · commit · [Merge pull request #267 from cathedralai/fix/tdx-image-identity-v2](https://github.com/cathedralai/cathedral-sandbox/commit/a22fb1df124ed3e4414335f109f30624152ff548) — cathedralai/cathedral-sandbox
-- 2026-10-02 · commit · [Check the verdict's v1 and v2 audit values against the quote in admis…](https://github.com/cathedralai/cathedral-sandbox/commit/c47a6f733ebe8a8a6b09bfac70209d24f8178e57) — cathedralai/cathedral-sandbox
 
 ## Use
 

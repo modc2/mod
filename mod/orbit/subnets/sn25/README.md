@@ -1,8 +1,8 @@
 # sn25 — UR א
 
-The peer to peer privacy network and encryption layer for the internet
+The Privacy Protocol
 
-Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) · discord `xcolwell`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) ·
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005745 | -0.03% | -1.46% | -16.12% | 35,522 | 12,296 | 1,046 |
+| 0.005425 | -0.42% | -5.57% | -17.84% | 33,588 | 11,954 | 1,449 |
 
 ## Last 24h flow
 
-83 trades by 44 coldkeys · 34 buys (474.42 τ) / 49 sells (567.46 τ) · net -93.03 τ
+77 trades by 40 coldkeys · 28 buys (549.09 τ) / 49 sells (897.20 τ) · net -348.10 τ
 
 ## News
 
-- 2026-10-15 · commit · [Never let a nested gate fixture remove its parent gate's mainnet exports](https://github.com/urfoundation/sn/commit/819f00c52492f262a0fe5b57d622a98eb79d064e) — urfoundation/sn
-- 2026-10-15 · commit · [Merge v2/gate-more-shards into main](https://github.com/urfoundation/sn/commit/6b007ed183e4f5be8f32de2c6036a836bd337dc1) — urfoundation/sn
-- 2026-10-15 · commit · [Select the startup verified tests and pin the memo's replay edge](https://github.com/urfoundation/sn/commit/c22d715f1cfcff4c20e8d8b3fb3d63e7fcda3efd) — urfoundation/sn
-- 2026-10-15 · commit · [Give the isolation job's two runs of the gate pins ten minutes](https://github.com/urfoundation/sn/commit/b000670d0c22ffd37b0985c2f4f8067f3da1d465) — urfoundation/sn
-- 2026-10-15 · commit · [Run ./validator, ./sim-testnet and connect's race runs in hash shards](https://github.com/urfoundation/sn/commit/2ce50cf9054ed90921aa228a5b357663326da16b) — urfoundation/sn
-- 2026-10-14 · commit · [Merge v2/mainnet-export-fixes-a into main](https://github.com/urfoundation/sn/commit/5eb6af92e06ad17a116d6ad84e3dcc118f4ed094) — urfoundation/sn
-- 2026-10-14 · commit · [Merge v2/request-checkpoint-xattr into main](https://github.com/urfoundation/sn/commit/27e786d9773dfdad1d1b770d08a9bb8f1fa95c0c) — urfoundation/sn
-- 2026-10-14 · commit · [Merge v2/whitepaper-accuracy into main](https://github.com/urfoundation/sn/commit/98f64496be129be04c36c0799850106110de4cbe) — urfoundation/sn
+- 2026-10-16 · commit · [Merge v2/gate-pin-hardening into main](https://github.com/urfoundation/sn/commit/b2c184b361b51a3443bff6527bf4e97148cf000e) — urfoundation/sn
+- 2026-10-16 · commit · [Merge origin/main into v2/gate-pin-hardening](https://github.com/urfoundation/sn/commit/70c1346e67d80f579e4947dc851d1ac111a7b65f) — urfoundation/sn
+- 2026-10-16 · commit · [Census every sn script that runs go test -run, with root-cause tests](https://github.com/urfoundation/sn/commit/3eeabdbdfad02a2d3629b342d0a97f9b0a687d14) — urfoundation/sn
+- 2026-10-16 · commit · [Refuse an evidence source census of a package that no command of its …](https://github.com/urfoundation/sn/commit/7787869d34d01a15202c8aa70d2ae2466321c5d9) — urfoundation/sn
+- 2026-10-16 · commit · [Give server-db's ./proxy run a 40-minute deadline](https://github.com/urfoundation/sn/commit/eb11f5fcc3a9ed0f110ae4926c2438b173f01be3) — urfoundation/sn
+- 2026-10-16 · release · [v2026.10.15-1073121200](https://github.com/urfoundation/sn/releases/tag/v2026.10.15-1073121200) — urfoundation/sn
+- 2026-10-15 · release · [v2026.10.15-1073082520](https://github.com/urfoundation/sn/releases/tag/v2026.10.15-1073082520) — urfoundation/sn
+- 2026-10-15 · release · [v2026.10.15-1073057980](https://github.com/urfoundation/sn/releases/tag/v2026.10.15-1073057980) — urfoundation/sn
 
 ## Use
 

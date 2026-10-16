@@ -2,7 +2,7 @@
 
 Accelerating drug discovery.
 
-Bittensor subnet **68** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **68** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/metanova-labs/nova/) · [url](https://www.metanova-labs.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/metanova-labs/nova/) · [url](https://www.met
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.019330 | +0.01% | -2.36% | -3.03% | 116,229 | 42,457 | 980.41 |
+| 0.019362 | +0.01% | +0.17% | -3.00% | 116,571 | 42,512 | 319.48 |
 
 ## Last 24h flow
 
-77 trades by 55 coldkeys · 25 buys (123.22 τ) / 52 sells (740.54 τ) · net -617.31 τ
+90 trades by 66 coldkeys · 36 buys (71.17 τ) / 54 sells (137.33 τ) · net -66.16 τ
 
 ## News
 

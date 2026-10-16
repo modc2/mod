@@ -1,12 +1,18 @@
-# sn86 — kaunan ᚳ
+# sn86 — OnSale ᚳ
 
-Bittensor subnet **86** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-10 (block 9250674).
+Reach out @SteveJYY on Telegram for subnet sale.
+
+Bittensor subnet **86** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005990 | +0.00% | +0.00% | +0.00% | 709.2065 | 709.2067 | 0.00 |
+| 0.005447 | -3.43% | -9.07% | -9.07% | 633.9361 | 551.0769 | 17,071 |
+
+## Last 24h flow
+
+1345 trades by 178 coldkeys · 766 buys (8,566 τ) / 579 sells (8,502 τ) · net 63.41 τ
 
 ## Use
 

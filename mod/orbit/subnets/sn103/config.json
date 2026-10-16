@@ -1,11 +1,11 @@
 {
   "name": "sn103",
   "version": "1.0.0",
-  "description": "SN103 Deprecated — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "description": "SN103 Consted — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
   "icon": "Ա",
   "chain": "bittensor",
   "netuid": 103,
-  "subnet": "Deprecated",
+  "subnet": "Consted",
   "symbol": "Ա",
   "owner": "5H3SQ4du9ThumJcUQb1VL2dixRBDKtt8hDRWLyPuANhHon7Y",
   "github": null,
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-15",
+  "updated": "2026-10-16",
   "urls": {
     "bt": "/bt/markets?sn=103",
     "news": "/bt/news?netuid=103"

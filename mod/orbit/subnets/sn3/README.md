@@ -2,7 +2,7 @@
 
 Coordinated Learning
 
-Bittensor subnet **3** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **3** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/unarbos/teutonic) · [url](https://www.teutonic.ai/) · discord `@unarbos`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/unarbos/teutonic) · [url](https://www.teuton
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.025046 | -0.02% | -0.49% | -2.53% | 157,381 | 75,335 | 853.90 |
+| 0.024427 | +0.01% | -2.48% | -4.82% | 153,683 | 74,421 | 2,534 |
 
 ## Last 24h flow
 
-113 trades by 75 coldkeys · 35 buys (212.32 τ) / 78 sells (514.30 τ) · net -301.97 τ
+161 trades by 90 coldkeys · 72 buys (677.51 τ) / 89 sells (1,730 τ) · net -1,053 τ
 
 ## News
 
+- 2026-10-15 · commit · [Increase precision of delta threshold metric display in dataset cell](https://github.com/unarbos/teutonic/commit/5e55c189314df9e9f6fab63f4f0d49ceb0cdab8f) — unarbos/teutonic
+- 2026-10-15 · commit · [Require specialist own-source improvement to meet the domain threshold](https://github.com/unarbos/teutonic/commit/3c8d2b60d2616e61083cf3d894e4706ac8c62ea1) — unarbos/teutonic
+- 2026-10-15 · commit · [Optimize evaluator dataset downloads with authenticated R2 reads and …](https://github.com/unarbos/teutonic/commit/96e37a395c4530fbfe2e8f5fa7e1cdc15ad8ecc9) — unarbos/teutonic
+- 2026-10-15 · commit · [Add legacy BBH and integrate legacy data into benchmark results](https://github.com/unarbos/teutonic/commit/778e0021482bfb01dee08282589a2c0dac4a1f19) — unarbos/teutonic
+- 2026-10-15 · commit · [Optimize evaluator model loading by broadcasting weights to GPU replicas](https://github.com/unarbos/teutonic/commit/049de01701e74c8d82edfbec6b8a64908f138170) — unarbos/teutonic
 - 2026-10-12 · commit · [Optimize evaluator shard downloads with cached HTTP range reads](https://github.com/unarbos/teutonic/commit/5118c326a10fde4bdf485e1963c0f09f9c759645) — unarbos/teutonic
 - 2026-10-12 · commit · [Add download button for shard list and update UI layout for shard sum…](https://github.com/unarbos/teutonic/commit/0aefc6906c9e9ff51f9a23ee9b6d26841df00700) — unarbos/teutonic
 - 2026-10-10 · commit · [Implement cache locking mechanism for model and shard cleanup processes](https://github.com/unarbos/teutonic/commit/132be8469e67e6aba25f3e90b297bd469b987f24) — unarbos/teutonic
-- 2026-10-09 · commit · [Document-index download retries](https://github.com/unarbos/teutonic/commit/58e37fa8a22a0d8c5366d7c2b2728ab8206b406c) — unarbos/teutonic
-- 2026-10-09 · commit · [Update early-stopping feature check to use token-weighted observed qu…](https://github.com/unarbos/teutonic/commit/66dd1b15f2effdc898475fd6b691a5dea8ddba4f) — unarbos/teutonic
-- 2026-10-09 · commit · [Add competition filters to evaluation history and update dataset summ…](https://github.com/unarbos/teutonic/commit/14a9bb2cd8f28b645fa6abb146fe00a1593e1c96) — unarbos/teutonic
-- 2026-10-09 · commit · [Add document-masked evaluation and token-weighted scoring with 2K–8K …](https://github.com/unarbos/teutonic/commit/f3988cf2cc28c1528ffb51746a1a235f3d04b252) — unarbos/teutonic
-- 2026-10-08 · commit · [Add competition dataset panel and update evaluation history layout](https://github.com/unarbos/teutonic/commit/25c64ca4857015c01f10257eac609d2fc8389fe5) — unarbos/teutonic
 
 ## Use
 

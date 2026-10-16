@@ -2,7 +2,7 @@
 
 Real-time market intelligence across equities, FX, crypto, commodities and indices. AlphaRidge reads the conversations of 1,000+ news sources, X posts, Telegram feeds, scoring every post into structured signals: sentiment, impact, market outlook and more. See the why behind every move, screen any market, and get alerted the moment sentiment turns.
 
-Bittensor subnet **45** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **45** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/Team-Rizzo/alpharidge-ai) · [url](https://alpharidge.ai) · discord `canti_dev`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Team-Rizzo/alpharidge-ai) · [url](https://al
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002360 | -0.08% | -2.50% | -4.39% | 13,972 | 6,156 | 203.87 |
+| 0.002341 | +0.00% | -0.81% | -3.36% | 13,875 | 6,131 | 389.06 |
 
 ## Last 24h flow
 
-307 trades by 24 coldkeys · 11 buys (61.14 τ) / 296 sells (140.78 τ) · net -79.65 τ
+183 trades by 22 coldkeys · 17 buys (181.73 τ) / 166 sells (206.68 τ) · net -24.94 τ
 
 ## News
 

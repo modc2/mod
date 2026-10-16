@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005364 | -1.28% | -1.02% | +29.37% | 31,819 | 5,831 | 2,291 |
+| 0.004886 | -1.77% | -8.90% | -0.54% | 29,021 | 5,566 | 4,745 |
 
 ## Last 24h flow
 
-271 trades by 115 coldkeys · 132 buys (1,131 τ) / 139 sells (1,159 τ) · net -28.08 τ
+422 trades by 149 coldkeys · 197 buys (2,240 τ) / 225 sells (2,513 τ) · net -272.65 τ
 
 ## News
 
-- 2026-10-15 · commit · [Merge pull request #444 from leadpoet/fix/arena-host-quarantine-paid-…](https://github.com/leadpoet/leadpoet/commit/a1588888aaf6f54aeb617d1a95597f41b2eb3610) — leadpoet/leadpoet
-- 2026-10-15 · commit · [Count verified paid host interruptions in round claim quarantine](https://github.com/leadpoet/leadpoet/commit/087b3a1cf571e0c682ec841783c703871ea10742) — leadpoet/leadpoet
-- 2026-10-15 · commit · [Merge pull request #443 from leadpoet/codex/arena-continuity-ingress-…](https://github.com/leadpoet/leadpoet/commit/b50f9e9e13d4dcca3ad86e08af3da76a496851d1) — leadpoet/leadpoet
-- 2026-10-15 · commit · [Retain the paid review drain regression in source control](https://github.com/leadpoet/leadpoet/commit/9bfd25a6f1f0c8d98626f80b3cce2470e059bf1c) — leadpoet/leadpoet
-- 2026-10-15 · commit · [Keep Arena ingress available during canonical gateway restarts](https://github.com/leadpoet/leadpoet/commit/d2d5f66fb3a83cb2f4d71d652f36099d541c3b45) — leadpoet/leadpoet
-- 2026-10-14 · commit · [Merge pull request #440 from leadpoet/codex/arena-denial-telemetry-20…](https://github.com/leadpoet/leadpoet/commit/7070fa3b11554a087198e59eab3285ff599007d3) — leadpoet/leadpoet
-- 2026-10-14 · commit · [Keep existing Arena refusal reasons visible in telemetry](https://github.com/leadpoet/leadpoet/commit/e538df5ef9544aef5b39b126cc268ea45b1a50cf) — leadpoet/leadpoet
-- 2026-10-14 · commit · [Merge pull request #439 from leadpoet/codex/arena-shutdown-lifecycle-…](https://github.com/leadpoet/leadpoet/commit/40503e5218891af2a2e85a1e87aa57398fbbadcd) — leadpoet/leadpoet
+- 2026-10-16 · commit · [Merge pull request #476 from leadpoet/fix/presign-opening-client-oct16](https://github.com/leadpoet/leadpoet/commit/368ff0fb8d4a0d35ae42c34f5d8f934bcd9776f0) — leadpoet/leadpoet
+- 2026-10-16 · commit · [Cover both halves of the presign opening retry window](https://github.com/leadpoet/leadpoet/commit/1b2b019e77183c8953b2e20a3915a1cb8f1de620) — leadpoet/leadpoet
+- 2026-10-16 · commit · [Merge pull request #474 from leadpoet/op/V7jOJiWPpT/presign-cutoff](https://github.com/leadpoet/leadpoet/commit/33970bc121f0c2f7926e0a6b5e4f7db56efef826) — leadpoet/leadpoet
+- 2026-10-16 · commit · [Merge pull request #475 from leadpoet/audit/oct16-cycle-independent](https://github.com/leadpoet/leadpoet/commit/6d021b34afbc610a6ef2ca512e9fa0fa86d91065) — leadpoet/leadpoet
+- 2026-10-16 · commit · [Document continuous OnePatch coverage and unresolved blockers](https://github.com/leadpoet/leadpoet/commit/af24d01a77fa57e583d96b12c9f52f5a4c50be26) — leadpoet/leadpoet
+- 2026-10-15 · commit · [Merge pull request #473 from leadpoet/fix/arena-progression-lock-orde…](https://github.com/leadpoet/leadpoet/commit/30139d6b99d91d523569fe87915695f03e5f1faa) — leadpoet/leadpoet
+- 2026-10-15 · commit · [Fix Arena progression lock order and close legacy scoring RPC access](https://github.com/leadpoet/leadpoet/commit/534be4f669cdcbaf12ae425803479d15614fb294) — leadpoet/leadpoet
+- 2026-10-15 · commit · [Merge pull request #472 from leadpoet/fix/structured-hq-manifest-oct15](https://github.com/leadpoet/leadpoet/commit/77db393b0bf899c888edd7d3a495aeb0f5f78820) — leadpoet/leadpoet
 
 ## Use
 

@@ -1,6 +1,6 @@
 # sn43 — Graphite ע
 
-Bittensor subnet **43** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **43** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/GraphiteAI/Graphite-Subnet)
 
@@ -8,11 +8,11 @@ Links: [github](https://github.com/GraphiteAI/Graphite-Subnet)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003946 | -0.00% | -0.00% | -0.07% | 24,531 | 12,275 | 0.30 |
+| 0.003942 | -0.00% | -0.10% | -0.17% | 24,533 | 12,269 | 6.61 |
 
 ## Last 24h flow
 
-4 trades by 3 coldkeys · 1 buys (0.03 τ) / 3 sells (0.04 τ) · net -0.01 τ
+2 trades by 2 coldkeys · 2 buys (0.11 τ) / 0 sells (0.00 τ) · net 0.11 τ
 
 ## Use
 

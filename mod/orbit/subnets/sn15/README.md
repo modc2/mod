@@ -2,7 +2,7 @@
 
 AI commerce agents
 
-Bittensor subnet **15** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **15** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/ORO-AI/oro) · [url](https://oroagents.com) · [discord](https://discord.gg/MHqAVWTdka)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/ORO-AI/oro) · [url](https://oroagents.com) �
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.020956 | +0.03% | -5.98% | -11.40% | 48,588 | 13,565 | 1,841 |
+| 0.021598 | -0.02% | +3.07% | -7.14% | 50,271 | 13,817 | 652.76 |
 
 ## Last 24h flow
 
-153 trades by 79 coldkeys · 37 buys (648.92 τ) / 116 sells (1,129 τ) · net -480.06 τ
+91 trades by 42 coldkeys · 27 buys (374.61 τ) / 64 sells (203.51 τ) · net 171.10 τ
 
 ## News
 
+- 2026-10-15 · release · [v2.5.3](https://github.com/ORO-AI/oro/releases/tag/v2.5.3) — ORO-AI/oro
+- 2026-10-15 · commit · [Retry configured Reader decisions like the shopper's chat call (#375)](https://github.com/ORO-AI/oro/commit/8c0921276c0b59fd9e85cb6a0815e362480a3acf) — ORO-AI/oro
+- 2026-10-15 · release · [v2.5.2](https://github.com/ORO-AI/oro/releases/tag/v2.5.2) — ORO-AI/oro
+- 2026-10-15 · commit · [Treat a miner's OpenRouter credit 402 as an exhausted run key (#374)](https://github.com/ORO-AI/oro/commit/b4612a450f3df1ce8ebfbd54cf118c90357396b0) — ORO-AI/oro
+- 2026-10-15 · release · [v2.5.1](https://github.com/ORO-AI/oro/releases/tag/v2.5.1) — ORO-AI/oro
+- 2026-10-15 · commit · [Move the validator to oro-env-runtime 3.7.1 (#373)](https://github.com/ORO-AI/oro/commit/a78750d0c21e14ac3f0229dfb2a6dfbb90e682c7) — ORO-AI/oro
 - 2026-10-13 · commit · [Load v7 and v8 task packs; move to oro-env-runtime 3.7.0 (runtime con…](https://github.com/ORO-AI/oro/commit/1fc79c04ad4a7758e765515e6992b9da0dc886ac) — ORO-AI/oro
 - 2026-10-13 · release · [v2.5.0](https://github.com/ORO-AI/oro/releases/tag/v2.5.0) — ORO-AI/oro
-- 2026-10-11 · commit · [Fail the configured Reader's Gemini call over to Gemini 3.7 Flash, th…](https://github.com/ORO-AI/oro/commit/5753a1283dbe38f6b3620e67ee0621583363050c) — ORO-AI/oro
-- 2026-10-11 · release · [v2.4.1](https://github.com/ORO-AI/oro/releases/tag/v2.4.1) — ORO-AI/oro
-- 2026-10-08 · release · [v2.4.0: Prepare runtime 3.5 validator and practice delivery (#367)](https://github.com/ORO-AI/oro/releases/tag/v2.4.0) — ORO-AI/oro
-- 2026-10-08 · commit · [Prepare runtime 3.5 validator and practice delivery (#367)](https://github.com/ORO-AI/oro/commit/db6d80af2f8a749afb502caf5a2542ca5ff381a5) — ORO-AI/oro
-- 2026-10-07 · release · [v2.3.0](https://github.com/ORO-AI/oro/releases/tag/v2.3.0) — ORO-AI/oro
-- 2026-10-07 · commit · [Bind configured Readers to cancellable miner-funded simulator inferen…](https://github.com/ORO-AI/oro/commit/9484727b3f2674dbca49884987cfc91a2058e2c4) — ORO-AI/oro
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 Deepfake Detection
 
-Bittensor subnet **34** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **34** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/BitMind-AI/bitmind-subnet) · [url](https://www.bitmind.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/BitMind-AI/bitmind-subnet) · [url](https://w
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.012104 | +0.01% | -0.09% | -0.15% | 71,232 | 35,496 | 95.20 |
+| 0.012107 | +0.01% | +0.02% | -0.30% | 71,344 | 35,512 | 67.60 |
 
 ## Last 24h flow
 
-59 trades by 29 coldkeys · 3 buys (2.24 τ) / 56 sells (46.57 τ) · net -44.33 τ
+39 trades by 13 coldkeys · 2 buys (0.05 τ) / 37 sells (30.82 τ) · net -30.77 τ
 
 ## News
 
@@ -23,7 +23,6 @@ Links: [github](https://github.com/BitMind-AI/bitmind-subnet) · [url](https://w
 - 2026-09-28 · commit · [Merge pull request #467 from BitMind-AI/feat/generator-performance-ch…](https://github.com/BitMind-AI/bitmind-subnet/commit/3792985282280f2fc2e69ac2668bd97326e5ad9b) — BitMind-AI/bitmind-subnet
 - 2026-09-28 · commit · [Keep commit and reveal markers visible on separate event tracks](https://github.com/BitMind-AI/bitmind-subnet/commit/50145fafb46390866efe392d36db1cc8467a6900) — BitMind-AI/bitmind-subnet
 - 2026-09-28 · commit · [Show recent chain-verified reveals alongside validator submissions](https://github.com/BitMind-AI/bitmind-subnet/commit/2974b113387e371c340b1ff3034d77218b1c1dc4) — BitMind-AI/bitmind-subnet
-- 2026-09-16 · release · [5.0.5 — Generator Qualification & Paid Resubmissions](https://github.com/BitMind-AI/bitmind-subnet/releases/tag/v5.0.5) — BitMind-AI/bitmind-subnet
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 The general intelligence platform
 
-Bittensor subnet **1** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **1** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/macrocosm-os/apex) · [url](https://apex.macrocosmos.ai) · [discord](https://discord.gg/bvBDat3Gy)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/macrocosm-os/apex) · [url](https://apex.macr
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006464 | -0.01% | -0.46% | -1.63% | 39,606 | 22,857 | 723.98 |
+| 0.006570 | +0.00% | +1.64% | +0.17% | 40,302 | 23,043 | 641.58 |
 
 ## Last 24h flow
 
-219 trades by 46 coldkeys · 128 buys (335.75 τ) / 91 sells (378.50 τ) · net -42.74 τ
+266 trades by 37 coldkeys · 175 buys (413.97 τ) / 91 sells (226.90 τ) · net 187.08 τ
 
 ## News
 

@@ -2,7 +2,7 @@
 
 Verified decision-model inference on Bittensor.
 
-Bittensor subnet **92** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **92** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/reaxlabs/reax-subnet) · [url](https://reax.co/)
 
@@ -10,20 +10,22 @@ Links: [github](https://github.com/reaxlabs/reax-subnet) · [url](https://reax.c
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.039437 | +3.92% | +773.07% | +2786.52% | 7,956 | 2,614 | 48,530 |
+| 0.034085 | +3.35% | -14.02% | +2447.49% | 7,049 | 2,431 | 13,494 |
 
 ## Last 24h flow
 
-5848 trades by 330 coldkeys · 3547 buys (25,121 τ) / 2301 sells (23,383 τ) · net 1,739 τ
+2221 trades by 294 coldkeys · 1010 buys (6,584 τ) / 1211 sells (6,842 τ) · net -257.81 τ
 
 ## News
 
-- 2026-10-11 · commit · [docs: run reax-selfcheck on every miner and validator host; single-ho…](https://github.com/reaxlabs/reax-subnet/commit/e5fbb76ffee6b147cf931ca0be824e34e7c9b1a0) — reaxlabs/reax-subnet
-- 2026-10-11 · release · [v1.1.0-rc2](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.1.0-rc2) — reaxlabs/reax-subnet
-- 2026-10-11 · commit · [docs: count distinct items for the per-item tail bound](https://github.com/reaxlabs/reax-subnet/commit/815987372074b1fd81846501141fdd7e738183d0) — reaxlabs/reax-subnet
-- 2026-10-11 · commit · [docs: precise outlier value; create the wallet directory before the c…](https://github.com/reaxlabs/reax-subnet/commit/763112868714f92af362507a4a9dfa911de3af18) — reaxlabs/reax-subnet
-- 2026-10-11 · commit · [docs: tail statistics over all 50,000 cross-card item pairs](https://github.com/reaxlabs/reax-subnet/commit/952a123cff1e530bcaebfa0954cf9095f579bc3f) — reaxlabs/reax-subnet
-- 2026-10-11 · commit · [docs: RTX 3090 measured on the 5,000-item check](https://github.com/reaxlabs/reax-subnet/commit/78c4b4bee098969cfdd29ddf7593d429c67d11ce) — reaxlabs/reax-subnet
+- 2026-10-15 · release · [v1.2.0-rc4](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc4) — reaxlabs/reax-subnet
+- 2026-10-15 · commit · [release 1.2.0rc4: capacity probe timing (per-UID windows from the fir…](https://github.com/reaxlabs/reax-subnet/commit/de710addb126a8e642623454d23ec9d86db1a964) — reaxlabs/reax-subnet
+- 2026-10-15 · commit · [Merge branch 'fusion/sn92-fast-launch-20261015-probetiming-own' into …](https://github.com/reaxlabs/reax-subnet/commit/6990ee94cfb96b064fcefb42e10f220b3d9fb5bd) — reaxlabs/reax-subnet
+- 2026-10-15 · commit · [probe: open each UID's window at the validator's first send to it; la…](https://github.com/reaxlabs/reax-subnet/commit/489573fe2ebf6114d1bc3055a1a101a0d7758425) — reaxlabs/reax-subnet
+- 2026-10-15 · commit · [bench_probe: internet-like probe bench (RTT, GPU service time, both p…](https://github.com/reaxlabs/reax-subnet/commit/db0ebda463f7336f0c333621a85f7eaca45310e8) — reaxlabs/reax-subnet
+- 2026-10-15 · release · [v1.2.0-rc3](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc3) — reaxlabs/reax-subnet
+- 2026-10-15 · commit · [spec-eval: read /dev.jsonl (published HF dataset layout); d…](https://github.com/reaxlabs/reax-subnet/commit/71ccfe0085b72947e092bf5d28a450221d865ebb) — reaxlabs/reax-subnet
+- 2026-10-15 · release · [v1.2.0-rc2](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc2) — reaxlabs/reax-subnet
 
 ## Use
 

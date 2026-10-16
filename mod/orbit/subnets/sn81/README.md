@@ -2,7 +2,7 @@
 
 The RL layer of Bittensor
 
-Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.reliqua.ai/) · [discord](https://discord.com/channels/799672011265015819/1493247592551678012)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005420 | -0.17% | -2.74% | -7.40% | 30,634 | 16,892 | 661.90 |
+| 0.005267 | -0.00% | -2.81% | -9.59% | 29,811 | 16,653 | 289.45 |
 
 ## Last 24h flow
 
-45 trades by 28 coldkeys · 15 buys (212.77 τ) / 30 sells (439.57 τ) · net -226.79 τ
+54 trades by 27 coldkeys · 6 buys (25.21 τ) / 48 sells (263.55 τ) · net -238.33 τ
 
 ## News
 
-- 2026-10-14 · commit · [Merge pull request #353 from reliquadotai/fix/corpus-walk-within-dupl…](https://github.com/reliquadotai/reliquary/commit/fec8f87b9d8785d946081ca30cb9a122e898e4bc) — reliquadotai/reliquary
-- 2026-10-14 · commit · [fix(corpus): a walk submission repeating itself steps the cursor on u…](https://github.com/reliquadotai/reliquary/commit/904610ace65e4c59d68548785738d1cdbe4b0d3c) — reliquadotai/reliquary
-- 2026-10-13 · commit · [Merge pull request #352 from reliquadotai/feat/envscaler-tools-v2](https://github.com/reliquadotai/reliquary/commit/8c1ae92ca4bb9d4f6ef20909083785c9ffdac984) — reliquadotai/reliquary
-- 2026-10-13 · commit · [feat(envscaler): corpus jobs draw from 12 of the 25 SFT worlds, at \[7…](https://github.com/reliquadotai/reliquary/commit/8cc82faf204fe40e030ec5423ee06a4ce86c9aae) — reliquadotai/reliquary
-- 2026-10-13 · commit · [test(envscaler): the v2 suite job declares a 3072-token turn cap](https://github.com/reliquadotai/reliquary/commit/41945192548d9b06fdd1f234fc6125a2b3af84e4) — reliquadotai/reliquary
-- 2026-10-13 · commit · [fix(envscaler): every world starts on Python 3.12 and 3.13 alike; men…](https://github.com/reliquadotai/reliquary/commit/b1dd61fe66579fb0bc297933e7c4d6d75b66dfb1) — reliquadotai/reliquary
-- 2026-10-13 · commit · [feat(envscaler): one call per message in the task prompt; episodes bo…](https://github.com/reliquadotai/reliquary/commit/10f53aea06de253d65e313668a06ba022a3d8e86) — reliquadotai/reliquary
-- 2026-10-11 · commit · [Merge pull request #349 from reliquadotai/feat/corpus-pay-route](https://github.com/reliquadotai/reliquary/commit/b1698c62da8226194a2b9bc851aebc2bb3d7b23d) — reliquadotai/reliquary
+- 2026-10-16 · commit · [Merge pull request #357 from reliquadotai/feat/corpus-sandbox-yield-q…](https://github.com/reliquadotai/reliquary/commit/b781cc55da988fe957ba2d0359d5fac167d75b38) — reliquadotai/reliquary
+- 2026-10-16 · commit · [Merge pull request #355 from reliquadotai/fix/corpus-split-sandbox-ho…](https://github.com/reliquadotai/reliquary/commit/8bb7e326af6d2ed5797866eb316b99d941174e7b) — reliquadotai/reliquary
+- 2026-10-16 · commit · [test(corpus): skip the quota tests without the sandbox extra](https://github.com/reliquadotai/reliquary/commit/c08284320395f66bf21725ff9cb59e4dbfb379ff) — reliquadotai/reliquary
+- 2026-10-16 · commit · [feat(corpus): demand-driven, fleet-bounded quota for signed sandbox s…](https://github.com/reliquadotai/reliquary/commit/cadb2f29e44cac812aadeb834d0c804759b64744) — reliquadotai/reliquary
+- 2026-10-15 · commit · [feat(competitive-code): register the v1.1 wheel (1,893 SFT problems a…](https://github.com/reliquadotai/reliquary/commit/b7207a9c79969311f72d7bc14059bab4009f71fa) — reliquadotai/reliquary
+- 2026-10-15 · commit · [Merge pull request #354 from reliquadotai/merge/main-into-next-rl-run](https://github.com/reliquadotai/reliquary/commit/fde75c0c3b5ffd4a94cf7fc97db8f248f74a4761) — reliquadotai/reliquary
+- 2026-10-14 · commit · [test(proof): the startup-order test stubs the episode services step](https://github.com/reliquadotai/reliquary/commit/3d0eb6e6da45c2176eb8a87df88ba2b9d49dfc30) — reliquadotai/reliquary
+- 2026-10-14 · commit · [test(admission): wait for the spawned worker longer than its imports](https://github.com/reliquadotai/reliquary/commit/2f569b445eb18f8e7c822b14696b6d72a24bf865) — reliquadotai/reliquary
 
 ## Use
 

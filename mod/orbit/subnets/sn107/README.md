@@ -2,7 +2,7 @@
 
 The Foundational Layer of Genomics
 
-Bittensor subnet **107** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **107** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/minos-protocol/minos_subnet) · [url](https://theminos.ai) · [discord](https://discord.com/channels/799672011265015819/1467949024769478793)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/minos-protocol/minos_subnet) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.036689 | -0.20% | -0.89% | -6.38% | 85,143 | 20,835 | 893.15 |
+| 0.036188 | -0.17% | -1.37% | -3.70% | 84,319 | 20,769 | 1,625 |
 
 ## Last 24h flow
 
-115 trades by 81 coldkeys · 29 buys (309.42 τ) / 86 sells (482.58 τ) · net -173.16 τ
+140 trades by 84 coldkeys · 48 buys (634.86 τ) / 92 sells (876.80 τ) · net -241.94 τ
 
 ## News
 

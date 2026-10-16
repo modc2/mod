@@ -2,7 +2,7 @@
 
 universal transaction layer
 
-Bittensor subnet **7** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **7** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/entrius/allways) · [url](https://all-ways.io/) · discord ` `
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/entrius/allways) · [url](https://all-ways.io
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002277 | -0.01% | -1.04% | -7.36% | 12,463 | 5,376 | 61.94 |
+| 0.002206 | -0.00% | -3.11% | -10.13% | 12,090 | 5,292 | 136.02 |
 
 ## Last 24h flow
 
-55 trades by 14 coldkeys · 5 buys (16.71 τ) / 50 sells (44.96 τ) · net -28.25 τ
+57 trades by 17 coldkeys · 5 buys (25.06 τ) / 52 sells (109.84 τ) · net -84.78 τ
 
 ## News
 
+- 2026-10-15 · commit · [Quote the min for alpha pairs from each candidate's floor (#775)](https://github.com/entrius/allways/commit/621cde54d0a50fb3d04ed7576fae4f2e0ce6c847) — entrius/allways
+- 2026-10-15 · release · [release-20261015-220818: Quote the min for alpha pairs from each candidate's floor (#775)](https://github.com/entrius/allways/releases/tag/release-20261015-220818) — entrius/allways
+- 2026-10-15 · commit · [Serialize shared substrate requests (#773)](https://github.com/entrius/allways/commit/79b5542d9770a0b0eea05b472af24f0c00eadad3) — entrius/allways
+- 2026-10-15 · commit · [Quote /rate from held miner states and a lazy market memo (#774)](https://github.com/entrius/allways/commit/584bd538c29b16fb9cff4c7ccb8b214ea0106204) — entrius/allways
+- 2026-10-15 · commit · [Gate quotes and crown reconcile on the offer's own backing bit (#772)](https://github.com/entrius/allways/commit/3bcbe2fe47107f2f64355e510a76a224c9a26c60) — entrius/allways
+- 2026-10-15 · release · [release-20261015-164605: Gate quotes and crown reconcile on the offer's own backing bit (#772)](https://github.com/entrius/allways/releases/tag/release-20261015-164605) — entrius/allways
 - 2026-10-15 · commit · [Add USDC on Avalanche and HyperEVM as launch spokes (#771)](https://github.com/entrius/allways/commit/d33911a9897a2247b82cfe22347ad30db3ece57e) — entrius/allways
 - 2026-10-14 · commit · [Report the payer's source address in swap status (#770)](https://github.com/entrius/allways/commit/904249df51fadbdfce39c9bf2c5ec54c1e97d76d) — entrius/allways
-- 2026-10-13 · commit · [Fix the bond relay's boot stall, spread its audit across steps, trim …](https://github.com/entrius/allways/commit/a6c5b752dea8289fdba28ca0e3f912a6ba2aabbd) — entrius/allways
-- 2026-10-13 · release · [release-20261013-222136](https://github.com/entrius/allways/releases/tag/release-20261013-222136) — entrius/allways
-- 2026-10-13 · commit · [Ban a miner from scoring for 12 rounds when it posts an unusable addr…](https://github.com/entrius/allways/commit/44162fafcea874d07a3068b1f0dae03dadf09240) — entrius/allways
-- 2026-10-13 · commit · [Route takers only to quotes whose miner addresses their chains accept…](https://github.com/entrius/allways/commit/d9533e056bfd195b611b7f23473049f2253ce2ec) — entrius/allways
-- 2026-10-13 · commit · [Stop paying quotes that name an unusable miner address (#765)](https://github.com/entrius/allways/commit/726a87983a5a4000049fcf7a9a0bde750ec84938) — entrius/allways
-- 2026-09-25 · commit · [Fail the subtensor over on rate limits, return it to the primary once…](https://github.com/entrius/allways/commit/9767f921ea3aa86913fcd143ae65bd4390789d05) — entrius/allways
 
 ## Use
 

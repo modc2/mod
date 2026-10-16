@@ -2,7 +2,7 @@
 
 Bringing liquid training to the world
 
-Bittensor subnet **9** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **9** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/macrocosm-os/iota) · [url](https://iota.macrocosmos.ai/) · [discord](https://discord.gg/adsQPnFRY)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/macrocosm-os/iota) · [url](https://iota.macr
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.023913 | +0.01% | -0.32% | -2.31% | 151,045 | 52,973 | 319.87 |
+| 0.023898 | -0.18% | -0.07% | -2.32% | 151,140 | 52,978 | 354.87 |
 
 ## Last 24h flow
 
-230 trades by 142 coldkeys · 23 buys (1.98 τ) / 207 sells (199.47 τ) · net -197.50 τ
+211 trades by 148 coldkeys · 32 buys (58.70 τ) / 179 sells (182.36 τ) · net -123.67 τ
 
 ## News
 
+- 2026-10-15 · release · [v4.13.7](https://github.com/macrocosm-os/iota/releases/tag/v4.13.7) — macrocosm-os/iota
+- 2026-10-15 · commit · [Merge pull request #220 from macrocosm-os/IOTA-v4.13.7-af51ed03](https://github.com/macrocosm-os/iota/commit/ed0fecb190ab7277ebb1e76ddba920eb4dcf7543) — macrocosm-os/iota
 - 2026-10-12 · release · [v4.13.6](https://github.com/macrocosm-os/iota/releases/tag/v4.13.6) — macrocosm-os/iota
 - 2026-10-12 · commit · [Merge pull request #218 from macrocosm-os/IOTA-v4.13.6-1c77c802](https://github.com/macrocosm-os/iota/commit/d02b0d14ad4750fe336320d0206be4cd4674b6a7) — macrocosm-os/iota
 - 2026-10-06 · release · [v4.13.5](https://github.com/macrocosm-os/iota/releases/tag/v4.13.5) — macrocosm-os/iota
 - 2026-10-04 · release · [v4.13.4](https://github.com/macrocosm-os/iota/releases/tag/v4.13.4) — macrocosm-os/iota
 - 2026-09-24 · release · [v4.13.3](https://github.com/macrocosm-os/iota/releases/tag/v4.13.3) — macrocosm-os/iota
 - 2026-09-23 · release · [v4.13.2](https://github.com/macrocosm-os/iota/releases/tag/v4.13.2) — macrocosm-os/iota
-- 2026-09-18 · release · [v4.13.1](https://github.com/macrocosm-os/iota/releases/tag/v4.13.1) — macrocosm-os/iota
-- 2026-09-16 · release · [v4.13.0](https://github.com/macrocosm-os/iota/releases/tag/v4.13.0) — macrocosm-os/iota
 
 ## Use
 

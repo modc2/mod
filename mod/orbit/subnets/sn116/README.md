@@ -2,7 +2,7 @@
 
 Transforming engineering simulations through machine learning
 
-Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://carbonphysics.ai) · discord `...`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://carb
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.031327 | +0.21% | -10.49% | -19.59% | 6,931 | 1,729 | 2,447 |
+| 0.029556 | -1.05% | -5.65% | -21.27% | 6,752 | 1,680 | 3,027 |
 
 ## Last 24h flow
 
-378 trades by 106 coldkeys · 231 buys (1,175 τ) / 147 sells (1,217 τ) · net -42.08 τ
+518 trades by 120 coldkeys · 288 buys (1,489 τ) / 230 sells (1,524 τ) · net -34.43 τ
 
 ## News
 
-- 2026-10-15 · commit · [Merge pull request #1369 from carbonphysicsai/codex/v8-8-public-bundl…](https://github.com/carbonphysicsai/Carbon/commit/edefd8eb9e56b1e884bd82ae7b4434ce18177b4e) — carbonphysicsai/Carbon
-- 2026-10-15 · commit · [Seal public bundle directory modes independently of builder umask](https://github.com/carbonphysicsai/Carbon/commit/0f28aff610cb4f3a43f5ac01d6048e23c88578f9) — carbonphysicsai/Carbon
-- 2026-10-15 · commit · [Record public bundle directory traversal repair scope](https://github.com/carbonphysicsai/Carbon/commit/fb69adf04bf94cc12175cc6c3274b133da78c998) — carbonphysicsai/Carbon
-- 2026-10-15 · commit · [Merge pull request #1368 from carbonphysicsai/codex/v8-8-bundle-decis…](https://github.com/carbonphysicsai/Carbon/commit/bc465b1d1807eb4b0cdeb299ceb7d70da784e52b) — carbonphysicsai/Carbon
-- 2026-10-15 · commit · [Apply Black formatting to bundle history regression](https://github.com/carbonphysicsai/Carbon/commit/8a2e4c68a9ac9c894d1fa0c9a129519ceed8a2ca) — carbonphysicsai/Carbon
-- 2026-10-14 · commit · [Merge pull request #1363 from carbonphysicsai/codex/plt20-stock-prefl…](https://github.com/carbonphysicsai/Carbon/commit/9ece2d9a0bb689fda971067f250297da32294a92) — carbonphysicsai/Carbon
-- 2026-10-14 · commit · [Merge pull request #1360 from carbonphysicsai/codex/l4-launchpad-stan…](https://github.com/carbonphysicsai/Carbon/commit/281abd9b88e4475555d9883c5adde82b965a347e) — carbonphysicsai/Carbon
-- 2026-10-14 · commit · [Initialize CPU lifecycle fixture state](https://github.com/carbonphysicsai/Carbon/commit/48276ca60c759212750dbba098a211c529ddae4a) — carbonphysicsai/Carbon
+- 2026-10-16 · commit · [Merge pull request #1400 from carbonphysicsai/codex/scorelab-guard419…](https://github.com/carbonphysicsai/Carbon/commit/9a89bb87330a95606316b572fa1f6066e4f1fc68) — carbonphysicsai/Carbon
+- 2026-10-16 · commit · [Merge pull request #1399 from carbonphysicsai/codex/battery-guarded41…](https://github.com/carbonphysicsai/Carbon/commit/57a613d47c46e8124b32b6fef3d7af85dd63db3b) — carbonphysicsai/Carbon
+- 2026-10-16 · commit · [Merge pull request #1398 from carbonphysicsai/codex/s5-deployment-sna…](https://github.com/carbonphysicsai/Carbon/commit/d8835824b98ad3f435d5e03903c9f3247e9eebe6) — carbonphysicsai/Carbon
+- 2026-10-16 · commit · [Merge pull request #1397 from carbonphysicsai/codex/fixed-practice-fa…](https://github.com/carbonphysicsai/Carbon/commit/c22c988be3d6663fd0fabe4737b9e05947203e74) — carbonphysicsai/Carbon
+- 2026-10-16 · commit · [Preserve current-key processing in the CV equation witness](https://github.com/carbonphysicsai/Carbon/commit/4c446936fc8f13a92007a8bd7725d68d33151c89) — carbonphysicsai/Carbon
+- 2026-10-15 · commit · [Merge pull request #1387 from carbonphysicsai/codex/graphite-contract…](https://github.com/carbonphysicsai/Carbon/commit/f080b7ad7a363563365d4c23dae657157da86411) — carbonphysicsai/Carbon
+- 2026-10-15 · commit · [Merge pull request #1388 from carbonphysicsai/codex/graphite-pytorch-…](https://github.com/carbonphysicsai/Carbon/commit/f5c1ab6cca0e396063d15e88414f00512f8486e0) — carbonphysicsai/Carbon
+- 2026-10-15 · commit · [Merge pull request #1389 from carbonphysicsai/codex/graphite-public-m…](https://github.com/carbonphysicsai/Carbon/commit/23a74625ea4103bc9d52aac26626b35e542d9f21) — carbonphysicsai/Carbon
 
 ## Use
 

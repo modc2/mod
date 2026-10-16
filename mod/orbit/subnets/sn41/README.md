@@ -2,7 +2,7 @@
 
 Prediction market research and intelligence.
 
-Bittensor subnet **41** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **41** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/corvxai/almanac) · [url](https://almnc.ai)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/corvxai/almanac) · [url](https://almnc.ai)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006903 | +0.00% | -2.17% | -11.53% | 41,230 | 14,913 | 1,893 |
+| 0.007213 | +1.27% | +4.49% | -4.71% | 43,139 | 15,251 | 4,521 |
 
 ## Last 24h flow
 
-174 trades by 105 coldkeys · 67 buys (856.80 τ) / 107 sells (1,027 τ) · net -170.46 τ
+384 trades by 169 coldkeys · 192 buys (2,420 τ) / 192 sells (2,085 τ) · net 334.64 τ
 
 ## News
 
+- 2026-10-15 · commit · [Merge pull request #58 from corvxai/vali_stale_weights_etc](https://github.com/corvxai/almanac/commit/60111f58ed4d4312b2b85a871c49197f01f02c57) — corvxai/almanac
+- 2026-10-15 · commit · [Upping weights_version_key to 4](https://github.com/corvxai/almanac/commit/c8f41159cac7f64b90eeb3e82c8dc3b9da1e3902) — corvxai/almanac
+- 2026-10-15 · commit · [Adding retries, logging, better timeouts, increased limit of 200 to f…](https://github.com/corvxai/almanac/commit/b59e179e84551a5da910d3bc4ef7ed496bb27863) — corvxai/almanac
 - 2026-10-14 · commit · [Merge pull request #57 from corvxai/effn-gate-at-last-resolution](https://github.com/corvxai/almanac/commit/df48ccf6ced8c4b29cc61e98adbf6cef89162149) — corvxai/almanac
 - 2026-10-14 · commit · [Upping weights key version to 3](https://github.com/corvxai/almanac/commit/30c865aff31f9bc3abf63c3fdf7c11b088567e99) — corvxai/almanac
 - 2026-10-13 · commit · [Score update](https://github.com/corvxai/almanac/commit/ee4f5dda9c445fc9c1e1450b2d01702d890a0fc4) — corvxai/almanac
 - 2026-10-13 · commit · [Merge pull request #56 from corvxai/version_logging](https://github.com/corvxai/almanac/commit/5e7113f8fb8e5cb51322f811367b4a21849108c4) — corvxai/almanac
 - 2026-10-13 · commit · [Adding weights version key to validator logs as a helpful indicator t…](https://github.com/corvxai/almanac/commit/fd001cdbeac494d5a5f61822740dc2f06fa17ce0) — corvxai/almanac
-- 2026-10-08 · commit · [Merge pull request #55 from corvxai/forecasting_scoring_v2](https://github.com/corvxai/almanac/commit/a3a5091708cc965c80de1cdfa1f040ad21555dfc) — corvxai/almanac
-- 2026-10-07 · commit · [Proper scaling](https://github.com/corvxai/almanac/commit/52c60e6f14dae96844acf79a240b01221802f4a2) — corvxai/almanac
-- 2026-10-07 · commit · [Fixing audit items for forecast scoring. minimum predictions to be sk…](https://github.com/corvxai/almanac/commit/24171459991eb929d2e1c44d112e0499d70c6098) — corvxai/almanac
 
 ## Use
 

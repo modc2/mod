@@ -2,7 +2,7 @@
 
 The first decentralized & trustless liquidity and execution engine for prop firms and traders
 
-Bittensor subnet **8** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **8** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/taoshidev/vanta-network) · [url](https://www.vantanetwork.io/) · discord `tl_arrash`
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/taoshidev/vanta-network) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.029585 | -0.01% | +0.51% | -0.94% | 185,992 | 82,568 | 750.71 |
+| 0.029304 | -0.07% | -0.95% | -1.04% | 184,467 | 82,204 | 985.03 |
 
 ## Last 24h flow
 
-133 trades by 75 coldkeys · 67 buys (342.39 τ) / 66 sells (265.44 τ) · net 76.96 τ
+106 trades by 68 coldkeys · 32 buys (167.13 τ) / 74 sells (684.04 τ) · net -516.92 τ
 
 ## News
 
+- 2026-10-15 · commit · [Lazy check unrealized pnl on payout (#958)](https://github.com/taoshidev/vanta-network/commit/4b630b1d7126241be1ac5523a5bdbce2410a1706) — taoshidev/vanta-network
 - 2026-10-14 · commit · [Merge pull request #955 from taoshidev/development](https://github.com/taoshidev/vanta-network/commit/80a7331857f89facaa4e62375548cc0116c2249e) — taoshidev/vanta-network
 - 2026-10-14 · commit · [fix bugs update docs](https://github.com/taoshidev/vanta-network/commit/f925f14e481ef07e7bee9233e647045730a7c36c) — taoshidev/vanta-network
 - 2026-10-14 · commit · [allow order type patch (#957)](https://github.com/taoshidev/vanta-network/commit/e3db33d464a153f8ac4cace540839faf65e2b8cc) — taoshidev/vanta-network
@@ -25,7 +26,6 @@ Links: [github](https://github.com/taoshidev/vanta-network) · [url](https://www
 - 2026-10-09 · commit · [Fix Restore (#953)](https://github.com/taoshidev/vanta-network/commit/fbd8d19a3e3425d4c3b2b6423fd83186706dd095) — taoshidev/vanta-network
 - 2026-10-09 · commit · [Sync price updates and challenge loop (#954)](https://github.com/taoshidev/vanta-network/commit/52756b4e103c1059c3ff26ae2853a77754d74e54) — taoshidev/vanta-network
 - 2026-10-05 · commit · [account size endpoint added (#946)](https://github.com/taoshidev/vanta-network/commit/618d5e43f059a4dd08eee67275db0e20eb275837) — taoshidev/vanta-network
-- 2026-10-05 · commit · [After hours trading (#943) (#945)](https://github.com/taoshidev/vanta-network/commit/f4f7fc6b4975406514c830dcb9d56ccdb0fdeddd) — taoshidev/vanta-network
 
 ## Use
 

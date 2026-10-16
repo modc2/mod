@@ -2,7 +2,7 @@
 
 Hone (SN5) is an RLVR subnet: reinforcement learning from verifiable rewards. Miners are paid to solve real software-engineering tasks- repository patches submitted as git diffs and terminal tasks submitted as scripts with full trajectories. Validators lease tasks from a problem server and grade every response deterministically in isolated Docker verifiers, so rewards reflect verified outcomes only. Each scored solution becomes high-quality, verifiable RL training data for post-training code and agent models. Docs: https://github.com/hone-subnet-org/hone-subnet · Dashboard: https://honedashboard.com
 
-Bittensor subnet **5** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **5** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/hone-subnet-org/hone-subnet) · [url](https://honedashboard.com)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/hone-subnet-org/hone-subnet) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.012590 | +0.01% | +0.18% | -1.61% | 75,579 | 33,551 | 73.01 |
+| 0.012590 | -0.07% | +0.00% | -0.96% | 75,673 | 33,564 | 93.11 |
 
 ## Last 24h flow
 
-200 trades by 16 coldkeys · 1 buys (0.11 τ) / 199 sells (9.11 τ) · net -9.01 τ
+162 trades by 24 coldkeys · 6 buys (0.42 τ) / 156 sells (44.83 τ) · net -44.41 τ
 
 ## News
 

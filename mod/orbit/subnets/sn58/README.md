@@ -2,7 +2,7 @@
 
 The open frontier for adaptive robot intelligence
 
-Bittensor subnet **58** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **58** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/robotensor/attune-subnet) · [url](https://attune.robotensor.ai) · [discord](https://discord.com/channels/799672011265015819/1550516268002578432)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/robotensor/attune-subnet) · [url](https://at
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.007997 | +0.09% | -7.16% | -32.19% | 7,101 | 1,124 | 1,155 |
+| 0.007221 | +1.06% | -9.75% | -38.49% | 6,457 | 1,069 | 444.29 |
 
 ## Last 24h flow
 
-193 trades by 62 coldkeys · 93 buys (550.77 τ) / 100 sells (571.90 τ) · net -21.13 τ
+96 trades by 36 coldkeys · 34 buys (186.98 τ) / 62 sells (247.06 τ) · net -60.08 τ
 
 ## News
 

@@ -9,14 +9,14 @@
   "symbol": "ᚁ",
   "owner": "5HEe7NjS4exuP9SptWZdwWqWrMrGTTEHf5ieQH8yZXA3zXtW",
   "github": "https://github.com/TensorLink-AI/cascade",
-  "url": "cascadesub.net",
-  "discord": "christensor_49068",
-  "logo": "https://raw.githubusercontent.com/TensorLink-AI/cascade/main/cascade/website/favicon-512.png",
+  "url": "https://www.cascade.industries/",
+  "discord": "https://discord.gg/bittensor",
+  "logo": "https://raw.githubusercontent.com/TensorLink-AI/cascade/main/docs/assets/cascade-logo.png",
   "related": [],
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-15",
+  "updated": "2026-10-16",
   "urls": {
     "bt": "/bt/markets?sn=91",
     "news": "/bt/news?netuid=91"

@@ -2,7 +2,7 @@
 
 Blockchain-backed cloud: storage, VMs, and apps with unmatched transparency, trust, and power.
 
-Bittensor subnet **75** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-15 (block 9286668).
+Bittensor subnet **75** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
 
 Links: [github](https://github.com/thenervelab/thebrain) · [url](https://hippius.com/)
 
@@ -12,14 +12,16 @@ Fleet mods for this subnet: `hippius`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.017117 | -0.01% | -0.10% | +7.96% | 99,444 | 33,539 | 3,650 |
+| 0.017685 | +0.27% | +3.30% | +10.41% | 102,886 | 34,109 | 1,987 |
 
 ## Last 24h flow
 
-344 trades by 133 coldkeys · 186 buys (1,740 τ) / 158 sells (1,828 τ) · net -88.43 τ
+287 trades by 122 coldkeys · 148 buys (1,238 τ) / 139 sells (713.93 τ) · net 524.24 τ
 
 ## News
 
+- 2026-10-15 · commit · [Merge pull request #70 from thenervelab/chore/runtime-spec-92018](https://github.com/thenervelab/thebrain/commit/2af9ec4c57cd45d5ff34d0c87e540c1d7a78d2d0) — thenervelab/thebrain
+- 2026-10-15 · commit · [chore(runtime): bump mainnet spec_version to 92018](https://github.com/thenervelab/thebrain/commit/76a9a1fb4b1a0f07a7950637cb0c1307870f477f) — thenervelab/thebrain
 - 2026-10-05 · commit · [Merge pull request #63 from thenervelab/feat/marketplace-buy-credits](https://github.com/thenervelab/thebrain/commit/530ef9997385b54fa450aab4e5835dd3865a18de) — thenervelab/thebrain
 - 2026-10-05 · commit · [feat(marketplace): buy_credits — users pay native tokens for credits …](https://github.com/thenervelab/thebrain/commit/b4cd2511199e009c2147f2f2bfa343ce4b9b060b) — thenervelab/thebrain
 - 2026-09-25 · commit · [Merge pull request #60 from thenervelab/feat/marketplace-compute-usage](https://github.com/thenervelab/thebrain/commit/6c42aa9da10027cfdf89527e805390000761905b) — thenervelab/thebrain
