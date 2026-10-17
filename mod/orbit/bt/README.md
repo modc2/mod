@@ -25,7 +25,7 @@ as **one open module you can read, run, and fork**, plus the whole protocol
    (`?sn=64` a subnet, `?tr=5…` a trader) that float over any page, which is
    what the chat agent opens mid-answer. **Every subnet is a market**: the
    `?sn=` overlay is the market view — α/τ pair, price + volume/liquidity/mcap
-   strip, chart and Overview·Trades·Validators·News tabs on the left, the
+   strip, chart and Overview·Code·Trades·Validators·News tabs on the left, the
    order ticket (`components/Ticket.tsx`: Buy/Sell, 25/50/max, 2% limit,
    biggest validator by default, signed in SubWallet) on the right. `/trade`
    picks a market by name/symbol/netuid and drives the same ticket.
@@ -362,3 +362,33 @@ filters, scraper status), a News section in every subnet overlay
 Env: `BT_NEWS_SOURCES` (default `github,site,gnews,reddit,hn`),
 `BT_NO_NEWS=1` disables the thread, `BT_NEWS_KEEP_DAYS` (365).
 
+
+## Dev activity + full subnet profiles (GitHub)
+
+`bt/git.py` indexes every subnet's own GitHub (the repo in its on-chain
+identity) into `~/.mod/bt/git.db`; org URLs (`github.com/org`,
+`/orgs/x/repositories`) resolve to the org's most-starred repo, `/tree/main`
+suffixes are dropped. One GraphQL query per 8 repos plus two REST calls each;
+a full pass is about 2 min and 280 API points. A background thread refreshes
+each repo every 6h (`BT_GIT_REFRESH_SEC`), and `snaps` keeps one row per repo
+per day, so star/fork/commit growth over 7d/30d builds up over time.
+
+Per repo it stores: stars, forks, watchers, contributors, commits total/7d/30d/90d,
+distinct human authors over 30d, the bot share of recent commits, open/closed
+issues, open/merged PRs, releases and the latest tag, languages, license, topics,
+created/pushed dates, the latest commit, a 52-week commit series, and the owner's
+other repos. `dev_score` (0-100) blends human commits, authors, how recent the
+last commit is, stars, contributors and forks. It is meant for sorting, not as
+a verdict.
+
+Auth: `BT_GITHUB_TOKEN` / `GITHUB_TOKEN` / `GH_TOKEN` → `gh auth token` →
+`~/.mod/bt/github.token`; with none it falls back to a REST-only basic fetch.
+The token never leaves the server.
+
+Tools: group **Dev** has `bt_git`, `bt_git_board`, `bt_git_refresh` and `bt_git_status`.
+In **Markets**, `bt_subnet_profile` returns everything about one subnet: market + mcap rank,
+dev + dev rank, news, flows 1h/24h/7d, 24h trades and daily candles. `bt_subnet_profiles`
+returns every subnet in one row each (market + dev + news buzz + 24h flow).
+Console: a **Code** tab in the subnet overlay (key 2), and a **Dev** mode on
+Markets, sortable, with CSV/JSON export of every subnet's full profile.
+`BT_NO_GIT=1` disables the thread.

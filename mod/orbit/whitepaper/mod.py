@@ -3,7 +3,7 @@ whitepaper — the MOD whitepaper: the off-chain Merkle-tree registry (Part I)
 and the mod protocol it registers (Part II).
 
 Ships:
-  * whitepaper.tex        — LaTeX source (v0.2)
+  * whitepaper.tex        — LaTeX source (v0.4)
   * src/app/              — Next.js viewer (basePath /whitepaper)
   * Caddyfile             — proxy stanza (:3000 routes /whitepaper and /api/whitepaper)
   * reference impl        — tree_build / tree_root / tree_proof / tree_verify

@@ -1,7 +1,7 @@
 {
     "name": "reviews",
-    "version": "0.1.0",
-    "description": "A modular rating layer for the fleet. Any module hands it 1-5 ratings (human or agent) on any subject and asks for one number back; the number always comes with its working: which aggregator, every rater's weight and why, the formula. Aggregators are a registry: mean (default, a plain average), weighted (a published weight table by kind or by rater) and staketime (stake-time weighted via bloctime; interface wired, provider coming). One local SQLite file, stdlib only, no accounts or keys.",
+    "version": "0.2.0",
+    "description": "A modular rating layer for the fleet, with a MARKET of aggregators. Any module hands it 1-5 ratings (human or agent) on any subject and asks for one number back; the number always comes with its working: which aggregator, every rater's weight and why, the formula. Built-ins: mean (default), median, trimmed, consensus, recent, weighted, staketime (provider coming) and market. Aggregators are themselves rated (subject agg:<id>), anyone can publish a new one from a base + params (no code), and the market aggregator blends every aggregator's answer by how the market ranks it. One local SQLite file, stdlib only.",
     "icon": "\u2605",
     "color": "#f5b941",
     "anchor": "mod.py",
@@ -32,6 +32,9 @@
         "weights",
         "set_weights",
         "set_aggregator",
+        "market",
+        "publish",
+        "retract",
         "serve",
         "test",
         "kill"
@@ -49,22 +52,28 @@
         "aggregate",
         "weights",
         "set_weights",
-        "set_aggregator"
+        "set_aggregator",
+        "market",
+        "publish",
+        "retract"
     ],
     "endpoints": {
         "GET /info": "Null call \u2014 what this module is, the aggregator registry, stats",
         "GET /health": "Liveness \u2014 touches only the local file",
         "GET /aggregators": "The registry: id, title, formula, status (live|soon), params",
         "GET /ratings": "Every rating on a subject (subject, kind)",
-        "GET /score": "One transparent score for a subject (subject, aggregator=mean|weighted|staketime, weights)",
+        "GET /score": "One transparent score for a subject (subject, aggregator=<built-in>|<published id>|market, weights)",
         "GET /subjects": "Everything rated, with count and plain mean (prefix)",
         "GET /weights": "The weight table in force for a subject (subject)",
         "POST /rate": "Give or change a rating {subject, rater, score 1-5, kind=human|agent, ref, note, source}",
         "POST /unrate": "Take a rating back {subject, rater, ref}",
         "POST /aggregate": "Stateless: aggregate ratings passed inline {ratings:[{rater,kind,score}], aggregator, weights}",
         "POST /set_weights": "Publish a weight table {subject, weights:{default, by_kind, by_rater}} \u2014 loopback only",
-        "POST /set_aggregator": "Pick a subject's default aggregator {subject, aggregator} \u2014 loopback only"
+        "POST /set_aggregator": "Pick a subject's default aggregator {subject, aggregator} \u2014 loopback only",
+        "GET /market": "Aggregators ranked by their own ratings (agg:<id>): standing, adopters, blend weight",
+        "POST /publish": "Publish an aggregator {id, base=mean|median|trimmed|consensus|recent|weighted, params, title, author, note} \u2014 anyone; ids can't be taken over",
+        "POST /retract": "Take a published aggregator off the market {id} \u2014 loopback only"
     },
     "key": "reviews",
-    "schema": "QmX5pWHKa3JKN3ZNLpiEEyN6tWYck5KxZ1P7VLmgomiiGM"
+    "schema": "QmUXeRg4QCL4Fs1kdRPkdYuj7mUBheAWyEcDgbnUmqfgqA"
 }

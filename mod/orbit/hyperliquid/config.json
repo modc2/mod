@@ -91,6 +91,7 @@
         "live_start",
         "live_stop",
         "live_status",
+        "markets",
         "mids",
         "meta",
         "orderbook",
@@ -136,6 +137,14 @@
         "modes": "read-only by default; write tools need act=true and a mod protocol token",
         "model_auth": "ANTHROPIC_API_KEY \u2192 ~/.mod/hyperliquid/anthropic.key \u2192 claude CLI OAuth"
     },
-    "schema": "QmZqgfLvh2GDk3uhCSskkpdGZ3mixsWgmWXA6xkFQFd2hv",
-    "gateway_port": 3919
+    "schema": "QmUKVCbsVi4Mihf5YaU5ocCWUD6MmwDQZWQho5gXj7cbaQ",
+    "gateway_port": 3919,
+    "standard": {
+        "spec": "tradekit/1",
+        "venue": "Hyperliquid",
+        "currency": "USDC",
+        "symbol": "coin, e.g. BTC",
+        "reference": "hyperliquid",
+        "aliases": {}
+    }
 }

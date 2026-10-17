@@ -10,15 +10,28 @@ per-rater weight, why that weight, and the formula — so a score can always be
 audited by whoever reads it. New aggregators register with one decorator.
 
     mean       live   every rating counts once                       (default)
+    median     live   the middle rating — one loud rater can't move it
+    trimmed    live   drop the top and bottom tails, average the rest
+    consensus  live   raters far from the crowd's median weigh less
+    recent     live   older ratings fade by a half-life
     weighted   live   a published weight table: by kind, by rater
+    market     live   every aggregator answers; their answers are blended
+                      by how the MARKET ranks each aggregator
     staketime  soon   weight = the rater's stake-time (bloctime) — the
                       interface is here, the weight provider is not wired
+
+THE MARKET. Aggregators are themselves subjects: `agg:<id>` is rated 1–5 like
+anything else. Anyone can publish a new one without code — a base from the
+list above plus params (a weight table, a trim, a half-life) under a new id.
+`market()` ranks every aggregator by its own (smoothed) rating; the `market`
+aggregator is the consensus of aggregators, weighted by that ranking.
 
 One SQLite file at ~/.mod/reviews/reviews.db (REVIEWS_DIR overrides).
 """
 
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -28,6 +41,9 @@ from urllib.parse import urlencode
 SCALE = 5
 DEFAULT_AGGREGATOR = 'mean'
 KINDS = ('human', 'agent')
+AGG_SUBJECT = 'agg:'          # aggregators are rated under agg:<id>
+PRIOR, PRIOR_N = 3.0, 2       # an unrated aggregator stands at 3★ as if 2 people said so
+MIN_PUBLISHED_RATINGS = 3     # a published aggregator joins the market blend after 3 raters
 
 
 def _db_path(path=None):
@@ -85,6 +101,75 @@ def _agg_mean(ratings, ctx):
     return rows, {}
 
 
+def _row(r, w, why):
+    return {'rater': r['rater'], 'kind': r['kind'], 'score': r['score'], 'weight': w, 'why': why}
+
+
+def _median(xs):
+    xs = sorted(xs)
+    n = len(xs)
+    return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
+
+
+@aggregator('median', 'median',
+            'score = the middle rating (the two middle ones averaged when n is even)')
+def _agg_median(ratings, ctx):
+    order = sorted(range(len(ratings)), key=lambda i: ratings[i]['score'])
+    n = len(order)
+    mid = {order[n // 2]} if n % 2 else {order[n // 2 - 1], order[n // 2]}
+    w = 1.0 if n % 2 else 0.5
+    return [_row(r, w if i in mid else 0.0, 'the middle' if i in mid else 'not the middle')
+            for i, r in enumerate(ratings)], {}
+
+
+@aggregator('trimmed', 'trimmed mean',
+            'score = mean after dropping ⌊n·trim⌋ ratings from each end',
+            params={'trim': 'fraction cut from EACH end, 0–0.45 (default 0.2)'})
+def _agg_trimmed(ratings, ctx):
+    trim = float((ctx.get('params') or {}).get('trim', 0.2))
+    k = int(len(ratings) * trim)
+    order = sorted(range(len(ratings)), key=lambda i: ratings[i]['score'])
+    low, high = set(order[:k]), set(order[len(order) - k:]) if k else set()
+    rows = []
+    for i, r in enumerate(ratings):
+        if i in low:
+            rows.append(_row(r, 0.0, f'trimmed (bottom {trim:g})'))
+        elif i in high:
+            rows.append(_row(r, 0.0, f'trimmed (top {trim:g})'))
+        else:
+            rows.append(_row(r, 1.0, 'kept'))
+    return rows, {'trimmed': 2 * k}
+
+
+@aggregator('consensus', 'consensus',
+            'c = median score; w_i = 1 / (1 + k·|score_i − c|); score = Σ w_i·score_i / Σ w_i '
+            '— agree with the crowd and you count more',
+            params={'k': 'how hard disagreement is punished, ≥ 0 (default 1)'})
+def _agg_consensus(ratings, ctx):
+    k = float((ctx.get('params') or {}).get('k', 1))
+    c = _median([r['score'] for r in ratings])
+    rows = []
+    for r in ratings:
+        d = abs(r['score'] - c)
+        w = round(1 / (1 + k * d), 4)
+        rows.append(_row(r, w, f'|{r["score"]:g} − {c:g}| = {d:g} → {w:g}'))
+    return rows, {'consensus': c}
+
+
+@aggregator('recent', 'recent first',
+            'w_i = ½^(age_days_i / half_life); score = Σ w_i·score_i / Σ w_i',
+            params={'half_life_days': 'days for a rating to count half, > 0 (default 30)'})
+def _agg_recent(ratings, ctx):
+    hl = float((ctx.get('params') or {}).get('half_life_days', 30))
+    now = ctx.get('now') or _now()
+    rows = []
+    for r in ratings:
+        age = max(0.0, (now - (r.get('ts') or now)) / 86400)
+        w = round(0.5 ** (age / hl), 4)
+        rows.append(_row(r, w, f'{age:.1f}d old → {w:g}'))
+    return rows, {'half_life_days': hl}
+
+
 IDENTITY_WEIGHTS = {'default': 1.0, 'by_kind': {}, 'by_rater': {}}
 
 
@@ -114,7 +199,8 @@ def normalize_weights(table):
             params={'weights': 'table {default, by_kind:{human,agent}, by_rater:{addr}}; '
                                'passed inline, or stored per subject, or stored for "*"'})
 def _agg_weighted(ratings, ctx):
-    table = normalize_weights(ctx.get('weights') or IDENTITY_WEIGHTS)
+    table = normalize_weights(ctx.get('weights') or (ctx.get('params') or {}).get('weights')
+                              or IDENTITY_WEIGHTS)
     rows = []
     for r in ratings:
         rater = r['rater'].lower()
@@ -161,13 +247,71 @@ def _agg_staketime(ratings, ctx):
     return rows, {'provider': ctx.get('stake_url') or os.environ.get('REVIEWS_STAKE_URL')}
 
 
-def aggregate(ratings, aggregator_id=None, ctx=None):
+@aggregator('market', 'market blend',
+            'every other live aggregator scores the subject; score = Σ m_a·score_a / Σ m_a '
+            'where m_a = standing_a − 1 and standing = the aggregator\'s own smoothed rating '
+            '(agg:<id>). Per rater: w_i = Σ m_a·share_ai / Σ m_a',
+            params={'standing': f'(Σ stars + {PRIOR:g}·{PRIOR_N}) / (n + {PRIOR_N}) over ratings on agg:<id>'})
+def _agg_market(ratings, ctx):
+    entries, n = [], len(ratings)
+    for e in ctx.get('blend') or []:
+        if e['weight'] <= 0:
+            continue
+        res = aggregate(ratings, e['id'], e['ctx'], spec=e['spec'])
+        if res.get('fallback') or res.get('score') is None:
+            continue
+        entries.append((e, res))
+    if not entries:
+        return None, {'unavailable': 'no aggregator in the market could answer'}
+    total = sum(e['weight'] for e, _ in entries)
+    eff = [0.0] * n
+    for e, res in entries:
+        for i, row in enumerate(res['breakdown']):
+            eff[i] += e['weight'] * row['share'] / total
+    top = max(entries, key=lambda x: x[0]['weight'])[0]['id']
+    rows = [_row(r, round(eff[i], 4), f'blend of {len(entries)} aggregators (heaviest: {top})')
+            for i, r in enumerate(ratings)]
+    blend = [{'id': e['id'], 'score': res['score'], 'standing': e['standing'],
+              'weight': round(e['weight'], 4), 'share': round(e['weight'] / total, 4)}
+             for e, res in sorted(entries, key=lambda x: -x[0]['weight'])]
+    return rows, {'blend': blend}
+
+
+# Bases a published aggregator may build on — params only, never code, never a URL.
+PUBLISHABLE = ('mean', 'median', 'trimmed', 'consensus', 'recent', 'weighted')
+
+
+def normalize_params(base, params):
+    params = params or {}
+    if not isinstance(params, dict):
+        raise ValueError('params must be an object')
+    if base == 'weighted':
+        return {'weights': normalize_weights(params.get('weights') or {})}
+    if base == 'trimmed':
+        t = float(params.get('trim', 0.2))
+        if not 0 <= t <= 0.45:
+            raise ValueError('trim must be between 0 and 0.45')
+        return {'trim': t}
+    if base == 'consensus':
+        k = float(params.get('k', 1))
+        if not 0 <= k <= 100:
+            raise ValueError('k must be between 0 and 100')
+        return {'k': k}
+    if base == 'recent':
+        h = float(params.get('half_life_days', 30))
+        if not 0 < h <= 3650:
+            raise ValueError('half_life_days must be between 0 and 3650')
+        return {'half_life_days': h}
+    return {}
+
+
+def aggregate(ratings, aggregator_id=None, ctx=None, spec=None):
     """Fold ratings into one transparent score. Always answers: an aggregator
     that cannot run (status soon, provider missing, all weights 0) falls back
     to the mean and SAYS so in `fallback`."""
     aid = aggregator_id or DEFAULT_AGGREGATOR
     ctx = dict(ctx or {})
-    if aid not in AGGREGATORS:
+    if spec is None and aid not in AGGREGATORS:
         raise ValueError(f'unknown aggregator {aid!r} — one of {", ".join(AGGREGATORS)}')
     clean = []
     for r in ratings or []:
@@ -177,8 +321,8 @@ def aggregate(ratings, aggregator_id=None, ctx=None):
             continue
         kind = r.get('kind') if r.get('kind') in KINDS else 'human'
         clean.append({'rater': str(r.get('rater') or 'anon'), 'kind': kind, 'score': s,
-                      'ref': r.get('ref')})
-    spec = AGGREGATORS[aid]
+                      'ref': r.get('ref'), 'ts': r.get('ts')})
+    spec = spec or AGGREGATORS[aid]
     base = {'aggregator': aid, 'title': spec['title'], 'formula': spec['formula'],
             'status': spec['status'], 'scale': SCALE, 'n': len(clean),
             'by_kind': {k: sum(1 for r in clean if r['kind'] == k) for k in KINDS}}
@@ -197,6 +341,10 @@ def aggregate(ratings, aggregator_id=None, ctx=None):
         r['share'] = round(r['weight'] / total, 4)
         if c.get('ref'):
             r['ref'] = c['ref']
+    if spec.get('base'):
+        base['base'], base['author'] = spec['base'], spec.get('author', '')
+    if ctx.get('params'):
+        base['params'] = ctx['params']
     out = {**base, 'score': round(score, 2), 'breakdown': rows, **meta}
     if fallback:
         out['fallback'] = fallback
@@ -223,6 +371,10 @@ class Store:
                 subject TEXT PRIMARY KEY, weights TEXT NOT NULL, ts INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS prefs (
                 subject TEXT PRIMARY KEY, aggregator TEXT NOT NULL, ts INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS published (
+                id TEXT PRIMARY KEY, title TEXT NOT NULL, base TEXT NOT NULL,
+                params TEXT NOT NULL, author TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '', ts INTEGER NOT NULL);
         """)
 
     def close(self):
@@ -292,8 +444,7 @@ class Store:
         return {'subject': subject, 'source': 'identity', 'weights': IDENTITY_WEIGHTS}
 
     def set_aggregator(self, subject, aggregator_id):
-        if aggregator_id not in AGGREGATORS:
-            raise ValueError(f'unknown aggregator {aggregator_id!r}')
+        self.resolve(aggregator_id)
         with self._lock:
             self._db.execute('INSERT INTO prefs(subject,aggregator,ts) VALUES(?,?,?) '
                              'ON CONFLICT(subject) DO UPDATE SET aggregator=excluded.aggregator, '
@@ -305,22 +456,142 @@ class Store:
         r = self._db.execute('SELECT aggregator FROM prefs WHERE subject=?', (subject,)).fetchone()
         return r['aggregator'] if r else DEFAULT_AGGREGATOR
 
-    # the answer
-    def score(self, subject, aggregator_id=None, weights=None):
-        aid = aggregator_id or self.aggregator_for(subject)
-        ctx = {}
+    # published aggregators — a base + params, no code
+    def publish(self, id, base, params=None, title='', author='', note='', overwrite=False):
+        id = str(id or '').strip().lower()
+        if not re.fullmatch(r'[a-z0-9][a-z0-9_.-]{1,39}', id):
+            raise ValueError('id: 2–40 chars of a-z 0-9 _ . -')
+        if id in AGGREGATORS:
+            raise ValueError(f'{id!r} is a built-in aggregator')
+        if base not in PUBLISHABLE:
+            raise ValueError(f'base must be one of {", ".join(PUBLISHABLE)}')
+        p = normalize_params(base, params)
+        if not overwrite and self._published(id):
+            raise ValueError(f'{id!r} is already published')
+        row = (id, str(title or id)[:80], base, json.dumps(p), str(author or '').lower()[:120],
+               str(note or '')[:1000], _now())
+        with self._lock:
+            self._db.execute('INSERT OR REPLACE INTO published(id,title,base,params,author,note,ts) '
+                             'VALUES(?,?,?,?,?,?,?)', row)
+            self._db.commit()
+        return self._published(id)
+
+    def retract(self, id):
+        with self._lock:
+            n = self._db.execute('DELETE FROM published WHERE id=?', (id,)).rowcount
+            self._db.execute('DELETE FROM prefs WHERE aggregator=?', (id,))
+            self._db.commit()
+        return {'removed': n}
+
+    def _published(self, id):
+        r = self._db.execute('SELECT * FROM published WHERE id=?', (id,)).fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        d['params'] = json.loads(d['params'])
+        return d
+
+    def published(self):
+        return [self._published(r['id']) for r in
+                self._db.execute('SELECT id FROM published ORDER BY ts DESC')]
+
+    def resolve(self, aid):
+        """id → (spec, params). Built-ins come from the registry; a published
+        id borrows its base's function and formula and brings its own params."""
+        if aid in AGGREGATORS:
+            return AGGREGATORS[aid], {}
+        p = self._published(aid)
+        if not p:
+            raise ValueError(f'unknown aggregator {aid!r}')
+        b = AGGREGATORS[p['base']]
+        spec = {**b, 'id': aid, 'title': p['title'], 'base': p['base'], 'author': p['author'],
+                'formula': f'{b["formula"]} — params {json.dumps(p["params"])}'}
+        return spec, p['params']
+
+    def _ctx(self, aid, subject='', weights=None):
+        spec, params = self.resolve(aid)
+        ctx = {'params': params} if params else {}
         if aid == 'weighted':
             if weights is not None:
                 ctx = {'weights': normalize_weights(weights), 'weights_source': 'inline'}
             else:
-                w = self.weights(subject)
+                w = self.weights(subject or '*')
                 ctx = {'weights': w['weights'], 'weights_source': w['source']}
-        out = aggregate(self.ratings(subject), aid, ctx)
+        elif spec.get('base') == 'weighted':
+            ctx = {'weights': params['weights'], 'weights_source': f'published:{aid}'}
+        elif aid == 'market':
+            ctx = {'blend': self._blend(subject)}
+        return spec, ctx
+
+    # the market — aggregators ranked by their own ratings
+    def market(self):
+        ids = [a['id'] for a in aggregators()] + [p['id'] for p in self.published()]
+        adopters = {r['aggregator']: r['n'] for r in self._db.execute(
+            'SELECT aggregator, COUNT(*) n FROM prefs GROUP BY aggregator')}
+        rated = {r['subject'][len(AGG_SUBJECT):]: (r['n'], r['s']) for r in self._db.execute(
+            'SELECT subject, COUNT(*) n, SUM(score) s FROM ratings WHERE subject LIKE ? '
+            'GROUP BY subject', (AGG_SUBJECT + '%',))}
+        out = []
+        for aid in ids:
+            spec, params = self.resolve(aid)
+            n, tot = rated.get(aid, (0, 0.0))
+            standing = round((tot + PRIOR * PRIOR_N) / (n + PRIOR_N), 3)
+            published = 'base' in spec
+            in_blend = (spec['status'] == 'live' and aid not in ('market', 'staketime')
+                        and (not published or n >= MIN_PUBLISHED_RATINGS))
+            out.append({'id': aid, 'title': spec['title'], 'formula': spec['formula'],
+                        'status': spec['status'], 'published': published,
+                        'base': spec.get('base'), 'author': spec.get('author', ''),
+                        'params': params or spec.get('params') or {},
+                        'rating': {'mean': round(tot / n, 2) if n else None, 'n': n},
+                        'standing': standing, 'adopters': adopters.get(aid, 0),
+                        'in_blend': in_blend,
+                        'blend_weight': round(max(0.0, standing - 1), 3) if in_blend else 0.0})
+        out.sort(key=lambda a: (-a['standing'], -a['adopters'], -a['rating']['n'], a['id']))
+        for i, a in enumerate(out):
+            a['rank'] = i + 1
+        return {'aggregators': out,
+                'standing': f'(Σ stars + {PRIOR:g}·{PRIOR_N}) / (n + {PRIOR_N}) over ratings on '
+                            f'{AGG_SUBJECT}<id> — unrated stands at {PRIOR:g}',
+                'blend': 'market aggregator weight m = standing − 1; published aggregators join '
+                         f'after {MIN_PUBLISHED_RATINGS} ratings',
+                'rate_one': f'rate subject={AGG_SUBJECT}<id> score=1–5'}
+
+    def _blend(self, subject=''):
+        out = []
+        for a in self.market()['aggregators']:
+            if not a['in_blend']:
+                continue
+            spec, ctx = self._ctx(a['id'], subject)
+            out.append({'id': a['id'], 'weight': a['blend_weight'], 'standing': a['standing'],
+                        'spec': spec, 'ctx': ctx})
+        return out
+
+    # the answer
+    def score(self, subject, aggregator_id=None, weights=None):
+        aid = aggregator_id or self.aggregator_for(subject)
+        spec, ctx = self._ctx(aid, subject, weights)
+        out = aggregate(self.ratings(subject), aid, ctx, spec=spec)
         out['subject'] = subject
         out['default_aggregator'] = self.aggregator_for(subject)
+        return out
+
+    def aggregate(self, ratings, aggregator_id=None, weights=None, subject=''):
+        """Stateless over the ratings passed in — but a subject lets weighted
+        read its published table, and published/market ids resolve here."""
+        aid = aggregator_id or (self.aggregator_for(subject) if subject else DEFAULT_AGGREGATOR)
+        spec, ctx = self._ctx(aid, subject, weights)
+        if weights is not None and aid != 'weighted' and spec.get('base') != 'weighted':
+            ctx = {**ctx, 'weights': normalize_weights(weights), 'weights_source': 'inline'}
+        out = aggregate(ratings, aid, ctx, spec=spec)
+        if subject:
+            out['subject'] = subject
+            out['default_aggregator'] = self.aggregator_for(subject)
         return out
 
     def stats(self):
         n = self._db.execute('SELECT COUNT(*) FROM ratings').fetchone()[0]
         s = self._db.execute('SELECT COUNT(DISTINCT subject) FROM ratings').fetchone()[0]
-        return {'ratings': n, 'subjects': s, 'aggregators': [a['id'] for a in aggregators()]}
+        p = self._db.execute('SELECT COUNT(*) FROM published').fetchone()[0]
+        return {'ratings': n, 'subjects': s, 'aggregators': [a['id'] for a in aggregators()],
+                'published': p}

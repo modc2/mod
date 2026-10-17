@@ -6,88 +6,219 @@
 <title>dollartime</title>
 <link rel="icon" href="data:,">
 <style>
-  :root { --bg:#0e1116; --card:#161b22; --line:#262d36; --fg:#e6edf3; --dim:#8b949e;
-          --up:#2fbf71; --down:#e5534b; --acc:#d4a72c; --blue:#58a6ff; }
+  :root { --bg:#0a0d0b; --bg2:#0f1411; --card:#121815; --card2:#161e1a; --line:#1f2a24; --line2:#2b3a32;
+          --fg:#eef3ee; --dim:#8c9a91; --dim2:#5d6b63;
+          --green:#3ddc84; --green2:#1f7a4a; --gold:#f0b94a; --red:#ef6a5e; --ink:#06120b; }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg);
-         font:15px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
-  main { max-width: 900px; margin: 0 auto; padding: 20px 16px 60px; }
-  h1 { font-size: 22px; margin: 0; letter-spacing: .5px; }
-  h1 b { color: var(--up); }
-  .sub { color: var(--dim); margin: 2px 0 18px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
-          padding:14px; margin-bottom:14px; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:10px; }
-  .stat .k { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
-  .stat .v { font-size:18px; font-weight:600; }
-  .stat .v small { color:var(--dim); font-size:12px; font-weight:400; }
-  input, select, button { font:inherit; color:var(--fg); background:#0d1117;
-          border:1px solid var(--line); border-radius:7px; padding:7px 10px; }
-  input { min-width: 0; }
-  input[type=range] { padding:0; accent-color: var(--acc); }
-  button { cursor:pointer; }
-  button.go { background:var(--up); border-color:var(--up); color:#06130b; font-weight:600; }
-  button.warn { background:var(--acc); border-color:var(--acc); color:#1b1402; font-weight:600; }
-  button.ghost { background:transparent; }
-  button:disabled { opacity:.45; cursor:default; }
-  .q { font-weight:600; margin-bottom:8px; }
+  html { background: var(--bg); }
+  body { margin:0; color:var(--fg); min-height:100vh;
+         font:15px/1.5 "DejaVu Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+         background: radial-gradient(1200px 500px at 15% -10%, #12301f 0%, transparent 60%),
+                     radial-gradient(900px 400px at 100% 0%, #2a2210 0%, transparent 55%), var(--bg); }
+  main { max-width: 1120px; margin: 0 auto; padding: 22px 20px 70px; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* header */
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .mark { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; font-weight:800; font-size:19px;
+          color:var(--ink); background:linear-gradient(135deg, var(--green), var(--gold)); }
+  .brand h1 { font-size:18px; margin:0; letter-spacing:.3px; }
+  .brand p { margin:0; color:var(--dim); font-size:12.5px; }
+  .who { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--dim); }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:999px;
+          border:1px solid var(--line2); background:var(--bg2); font-size:12.5px; color:var(--dim); white-space:nowrap; }
+  .pill b { color:var(--fg); font-weight:600; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--gold); box-shadow:0 0 0 3px #f0b94a22; }
+
+  /* cards */
+  .card { background:linear-gradient(180deg, var(--card2), var(--card)); border:1px solid var(--line);
+          border-radius:16px; padding:20px; }
+  .label { color:var(--dim); font-size:11.5px; text-transform:uppercase; letter-spacing:.9px; font-weight:600; }
   .meta { color:var(--dim); font-size:13px; }
-  .bar { height:8px; border-radius:4px; background:#0d1117; overflow:hidden; margin-top:6px; border:1px solid var(--line); }
-  .bar i { display:block; height:100%; background:var(--up); float:left; }
-  .bar i.burn { background:var(--down); }
-  .tag { font-size:12px; padding:1px 7px; border-radius:9px; border:1px solid var(--line); }
-  .tag.sold { color:var(--up); border-color:var(--up); }
-  .tag.burned { color:var(--down); border-color:var(--down); }
-  .tag.open { color:var(--acc); border-color:var(--acc); }
-  .msg { min-height: 20px; font-size:13px; margin-top:8px; }
-  .msg.err { color: var(--down); } .msg.ok { color: var(--up); }
-  .bal { font-size: 20px; font-weight: 700; }
-  table { width:100%; border-collapse: collapse; font-size: 14px; }
-  td, th { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); }
-  th { color: var(--dim); font-weight: 500; }
+  h2 { font-size:15px; margin:0 0 12px; font-weight:700; letter-spacing:.2px; }
+
+  /* hero */
+  .hero { display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px; }
+  .pot { position:relative; overflow:hidden; display:flex; flex-direction:column; }
+  .pot::after { content:"$"; position:absolute; right:-18px; bottom:-70px; font-size:280px; font-weight:800;
+                color:#3ddc840a; line-height:1; pointer-events:none; }
+  .countdown { display:flex; gap:8px; margin:10px 0 18px; }
+  .countdown div { background:var(--bg2); border:1px solid var(--line); border-radius:10px; padding:6px 10px; min-width:58px; text-align:center; }
+  .countdown b { display:block; font-size:22px; font-weight:700; }
+  .countdown span { font-size:10.5px; color:var(--dim); text-transform:uppercase; letter-spacing:.8px; }
+  .big { font-size:54px; font-weight:800; line-height:1; letter-spacing:-1px; }
+  .big small { font-size:18px; color:var(--gold); font-weight:700; letter-spacing:.5px; margin-left:6px; }
+  .lede { color:#c9d4cc; margin:10px 0 0; max-width:440px; }
+  .supply { margin-top:auto; padding-top:22px; }
+  .bar { height:10px; border-radius:6px; background:var(--bg2); overflow:hidden; border:1px solid var(--line); display:flex; }
+  .bar i { display:block; height:100%; min-width:0; }
+  .bar .minted { background:var(--green); } .bar .pending { background:var(--gold); } .bar .burn { background:var(--red); }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px; font-size:12.5px; color:var(--dim); }
+  .legend i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+
+  /* buy form */
+  .field { margin-bottom:16px; }
+  .field .label { display:flex; justify-content:space-between; margin-bottom:7px; }
+  .field .label em { font-style:normal; color:var(--fg); text-transform:none; letter-spacing:0; font-weight:600; }
+  .money { display:flex; align-items:center; background:var(--bg2); border:1px solid var(--line2); border-radius:12px; padding:0 14px; }
+  .money:focus-within { border-color:var(--green2); }
+  .money span { font-size:24px; color:var(--dim); font-weight:600; }
+  .money input { flex:1; background:transparent; border:0; outline:0; font-size:26px; font-weight:700; padding:10px 8px; width:100%; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chips button { padding:5px 11px; border-radius:999px; font-size:12.5px; background:var(--bg2); color:var(--dim); border-color:var(--line); }
+  .chips button:hover, .chips button.on { color:var(--fg); border-color:var(--green2); }
+  .lockrow { display:flex; align-items:center; gap:10px; }
+  .lockrow input[type=number] { width:80px; text-align:right; }
+  .quote { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin:4px 0 14px; }
+  .quote div { background:var(--bg2); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .quote b { display:block; font-size:18px; font-weight:700; margin-top:2px; }
+  .quote b.g { color:var(--green); } .quote b.y { color:var(--gold); }
+  .fine { font-size:12.5px; color:var(--dim); }
+
+  /* controls */
+  input, button { font:inherit; color:var(--fg); }
+  input { background:var(--bg2); border:1px solid var(--line2); border-radius:10px; padding:8px 11px; min-width:0; outline:0; }
+  input:focus { border-color:var(--green2); }
+  input[type=range] { -webkit-appearance:none; appearance:none; flex:1; height:6px; padding:0; border:0; border-radius:4px;
+                      background:linear-gradient(90deg, var(--gold) var(--p,0%), var(--line2) var(--p,0%)); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:20px; height:20px; border-radius:50%;
+                      background:var(--fg); border:4px solid var(--gold); cursor:pointer; }
+  input[type=range]::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:var(--fg); border:4px solid var(--gold); cursor:pointer; }
+  button { cursor:pointer; background:var(--card2); border:1px solid var(--line2); border-radius:10px; padding:8px 14px; }
+  button:hover { border-color:var(--dim2); }
+  button.go { background:var(--green); border-color:var(--green); color:var(--ink); font-weight:700; }
+  button.go:hover { filter:brightness(1.08); }
+  button.cta { width:100%; padding:14px; font-size:16px; border-radius:12px; }
+  button.warn { background:var(--gold); border-color:var(--gold); color:#1b1402; font-weight:700; }
+  button.ghost { background:transparent; border-color:transparent; color:var(--dim); }
+  button.ghost:hover { color:var(--fg); border-color:var(--line2); }
+  button:disabled { opacity:.4; cursor:default; filter:none; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .msg { min-height: 18px; font-size:13px; margin-top:10px; }
+  .msg.err { color: var(--red); } .msg.ok { color: var(--green); }
+  code { background:var(--bg2); border:1px solid var(--line); padding:1px 6px; border-radius:6px; font-size:12.5px; word-break: break-all; }
+
+  /* second row */
+  .pair { display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px; }
+  .stats { display:grid; grid-template-columns: repeat(2, 1fr); gap:14px 18px; margin-top:14px; }
+  .stats b { display:block; font-size:20px; font-weight:700; margin-top:2px; }
+  .deed-top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+  .deed-top h3 { margin:2px 0 2px; font-size:20px; }
+  .value { text-align:right; }
+  .value b { display:block; font-size:28px; font-weight:800; color:var(--gold); }
+  .bal { font-size:34px; font-weight:800; line-height:1.1; margin:6px 0 2px; }
+  .bal small { font-size:15px; color:var(--gold); font-weight:700; margin-left:4px; }
+  .acts { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+  details { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+  details summary { cursor:pointer; color:var(--dim); font-size:13.5px; list-style:none; }
+  details summary::before { content:"+"; display:inline-block; width:16px; color:var(--gold); font-weight:700; }
+  details[open] summary::before { content:"-"; }
+  details .row { margin-top:10px; }
+  .join { display:flex; flex-direction:column; height:100%; }
+  .join h3 { margin:0 0 4px; font-size:20px; }
+  .join .row input { flex:1; min-width:140px; }
+
+  /* days */
+  .daysCard { margin-bottom:16px; }
+  .days { display:grid; grid-template-columns: repeat(28, 1fr); gap:5px; }
+  .day { aspect-ratio:1; border-radius:8px; display:flex; align-items:flex-end; justify-content:flex-start; padding:5px 6px;
+         font-size:11px; font-weight:700; color:var(--ink); }
+  .day.sold { background:var(--green); } .day.burned { background:var(--red); }
+  .day.open { background:var(--gold); box-shadow:0 0 0 3px #f0b94a33; }
+  .day.future { background:transparent; border:1px dashed var(--line2); color:var(--dim2); font-weight:500; }
+  .dhead { display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+
+  /* tabs + table */
+  .tabs { display:inline-flex; gap:2px; padding:3px; border-radius:12px; background:var(--bg2); border:1px solid var(--line); margin-bottom:12px; flex-wrap:wrap; }
+  .tabs button { border:0; background:transparent; color:var(--dim); padding:7px 14px; border-radius:9px; font-size:13.5px; }
+  .tabs button.on { background:var(--card2); color:var(--fg); box-shadow:inset 0 0 0 1px var(--line2); }
+  table { width:100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  td, th { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); }
+  tr:last-child td { border-bottom:0; }
+  th { color: var(--dim); font-weight: 600; font-size:11.5px; text-transform:uppercase; letter-spacing:.7px; }
   td.r, th.r { text-align:right; }
-  code { background:#0d1117; padding:2px 6px; border-radius:5px; word-break: break-all; }
-  .days { display:flex; gap:4px; flex-wrap:wrap; }
-  .day { width:34px; height:34px; border-radius:6px; display:flex; align-items:center; justify-content:center;
-         font-size:11px; color:#0b0e13; font-weight:600; }
-  .day.sold { background:var(--up); } .day.burned { background:var(--down); } .day.open { background:var(--acc); }
-  .tabs button.on { border-color: var(--acc); color: var(--acc); }
-  details summary { cursor:pointer; color:var(--dim); }
+  .tag { font-size:11.5px; padding:2px 8px; border-radius:999px; border:1px solid var(--line2); font-weight:600; }
+  .tag.sold { color:var(--green); border-color:var(--green2); }
+  .tag.open { color:var(--gold); border-color:#7a5d22; }
+  .empty { padding:22px 4px; text-align:center; color:var(--dim); }
+
+  @media (max-width: 820px) {
+    .hero, .pair { grid-template-columns: 1fr; }
+    .big { font-size:44px; }
+    .days { grid-template-columns: repeat(14, 1fr); gap:4px; }
+    .day { font-size:9.5px; padding:3px 4px; border-radius:6px; }
+    .brand p { display:none; }
+  }
+  @media (max-width: 440px) {
+    main { padding:14px 12px 50px; }
+    .card { padding:16px; border-radius:14px; }
+    .quote div { padding:8px 9px; }
+    .quote b { font-size:16px; }
+    .quote .label { font-size:10px; letter-spacing:.5px; }
+    .chips button { padding:4px 9px; }
+    .days { grid-template-columns: repeat(7, 1fr); }
+  }
 </style>
 </head>
 <body>
 <main>
-  <h1><b>$</b> dollartime</h1>
-  <div class="sub">Own one revenue-generating thing together. Dollars in, locked for time, earn the day's share of 7,200 DTT. 21,000,000 ever. Empty days burn.</div>
+  <header>
+    <div class="brand"><div class="mark">$</div>
+      <div><h1>dollartime</h1><p>Own one thing that earns money, together.</p></div></div>
+    <div class="who" id="who"></div>
+  </header>
 
-  <div class="card" id="asset"></div>
-  <div class="card" id="you"></div>
+  <section class="hero">
+    <div class="card pot" id="pot"></div>
 
-  <div class="card">
-    <div class="q">Contribute dollars</div>
-    <div class="row">
-      <span>$</span><input id="c-usd" type="number" value="100" min="0.01" step="0.01" style="width:110px">
-      <span>locked for</span>
-      <input id="c-lock" type="number" value="0" min="0" max="1460" style="width:80px"><span>days</span>
-      <input id="c-slider" type="range" min="0" max="1460" value="0" style="flex:1;min-width:120px">
-      <button class="go" onclick="contribute()">Contribute</button>
+    <div class="card">
+      <h2>Buy in</h2>
+      <div class="field">
+        <div class="label">Dollars</div>
+        <div class="money"><span>$</span><input id="c-usd" class="num" type="number" value="100" min="0.01" step="0.01" inputmode="decimal"></div>
+        <div class="chips" id="usd-chips">
+          <button data-v="50">$50</button><button data-v="100">$100</button><button data-v="500">$500</button><button data-v="1000">$1,000</button>
+        </div>
+      </div>
+      <div class="field">
+        <div class="label">Lock for <em id="lock-say">no lock</em></div>
+        <div class="lockrow">
+          <input id="c-slider" type="range" min="0" max="1460" value="0">
+          <input id="c-lock" class="num" type="number" value="0" min="0" max="1460"><span class="meta">days</span>
+        </div>
+        <div class="chips" id="lock-chips">
+          <button data-v="0">none</button><button data-v="30">1 mo</button><button data-v="182">6 mo</button>
+          <button data-v="365">1 yr</button><button data-v="730">2 yr</button><button data-v="1460">4 yr</button>
+        </div>
+      </div>
+      <div class="quote">
+        <div><span class="label">Weight</span><b class="num y" id="q-mult">1.00x</b></div>
+        <div><span class="label">You'd get</span><b class="num g" id="q-dtt">-</b></div>
+        <div><span class="label">Share today</span><b class="num" id="q-share">-</b></div>
+      </div>
+      <button class="go cta" onclick="contribute()">Buy in</button>
+      <div class="fine" id="c-hint" style="margin-top:10px"></div>
+      <div class="msg" id="c-msg"></div>
     </div>
-    <div class="meta" id="c-hint" style="margin-top:6px"></div>
-    <div class="msg" id="c-msg"></div>
-  </div>
+  </section>
 
-  <div class="card">
-    <div class="q">Days <span class="meta" id="d-sum"></span></div>
+  <section class="pair">
+    <div class="card" id="you"></div>
+    <div class="card" id="asset"></div>
+  </section>
+
+  <section class="card daysCard">
+    <div class="dhead"><h2 style="margin:0">Every day so far</h2>
+      <div class="legend" style="margin:0"><span><i style="background:var(--gold)"></i>today</span><span><i style="background:var(--green)"></i>someone bought</span><span><i style="background:var(--red)"></i>nobody bought, burned</span><span id="d-sum"></span></div></div>
     <div class="days" id="days"></div>
-    <div class="meta" style="margin-top:6px"><span class="tag open">open</span> today, still buying · <span class="tag sold">sold</span> someone bought, claim after close · <span class="tag burned">burned</span> nobody bought, 7,200 DTT gone for good</div>
-  </div>
+  </section>
 
-  <div class="row tabs" style="margin-bottom:10px">
-    <button data-s="holders" class="on">Holders</button>
-    <button data-s="positions">My contributions</button>
+  <div class="tabs">
+    <button data-s="holders" class="on">Owners</button>
+    <button data-s="positions">My buys</button>
     <button data-s="history">Treasury</button>
-    <button data-s="chains">EVM + NEAR</button>
+    <button data-s="chains">On chain</button>
   </div>
   <div class="card" id="list"></div>
 </main>
@@ -97,7 +228,7 @@ const BASE = location.pathname.replace(/\/+$/, '').replace(/\/index\.html$/, '')
 const API = BASE + '/api/';
 let token = localStorage.getItem('dollartime.token') || '';
 let tab = 'holders';
-let S = null, ME = null;
+let S = null, ME = null, endsAt = 0;
 
 async function call(fn, args, post) {
   const opt = post ? { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(args||{}) } : {};
@@ -112,35 +243,53 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const USD = v => '$' + (Number(v) / 1e6).toLocaleString(undefined, {maximumFractionDigits: 2});
 const DTT = v => (Number(v) / 1e18).toLocaleString(undefined, {maximumFractionDigits: 2});
 const pct = bps => (bps / 100).toFixed(2) + '%';
-function left(s) {
-  s = Math.max(0, s);
-  const h = Math.floor(s/3600), m = Math.floor(s%3600/60);
-  return h ? `${h}h ${m}m` : `${m}m ${Math.floor(s%60)}s`;
+const p2 = n => String(n).padStart(2, '0');
+function lockWords(d) {
+  if (!d) return 'no lock';
+  if (d < 60) return d + ' days';
+  if (d < 365) return Math.round(d / 30.4) + ' months';
+  const y = d / 365;
+  return (Number.isInteger(y) ? y : y.toFixed(1)) + (y === 1 ? ' year' : ' years');
 }
 function say(id, text, ok) { const e = $(id); e.textContent = text; e.className = 'msg ' + (ok ? 'ok' : 'err'); }
 function ask(id, html) { const e = $(id); e.className = 'msg'; e.innerHTML = html; }
 
-// ── asset + stats ─────────────────────────────────────────────────
+// ── today's pot + supply ──────────────────────────────────────────
+function tick() {
+  const s = Math.max(0, Math.round((endsAt - Date.now()) / 1000));
+  if ($('cd-h')) { $('cd-h').textContent = p2(Math.floor(s / 3600)); $('cd-m').textContent = p2(Math.floor(s % 3600 / 60)); $('cd-s').textContent = p2(s % 60); }
+}
 async function renderAsset() {
   S = await call('stats');
-  const a = S.asset, soldPct = (S.total_supply / S.cap) * 100, burnPct = (S.burned / S.cap) * 100;
-  const pending = S.emitted - S.burned - S.total_supply; // sold days not yet claimed
+  endsAt = Date.now() + S.day_ends_in * 1000;
+  const a = S.asset, pending = S.emitted - S.burned - S.total_supply; // sold days not yet claimed
+  const w = v => (Number(v) / S.cap * 100) + '%';
+  const nobody = !S.weight_today;
+  $('pot').innerHTML = `
+    <div class="label">Day ${S.day.toLocaleString()} of 2,917 &middot; closes in</div>
+    <div class="countdown num"><div><b id="cd-h">--</b><span>hrs</span></div><div><b id="cd-m">--</b><span>min</span></div><div><b id="cd-s">--</b><span>sec</span></div></div>
+    <div class="big num">${DTT(S.emission_today)}<small>DTT</small></div>
+    <p class="lede">up for grabs today. Everyone who buys in before the clock runs out splits it by <b>dollars &times; time locked</b>.
+      ${nobody ? 'Nobody has bought yet: buy now and it is all yours. If nobody buys, it burns forever.' : `${USD(S.weight_today / 365)} of weighted dollars in so far.`}</p>
+    <div class="supply">
+      <div class="row" style="justify-content:space-between"><span class="label">21,000,000 DTT, ever</span><span class="meta num">${S.days_left.toLocaleString()} days left</span></div>
+      <div class="bar" style="margin-top:8px"><i class="minted" style="width:${w(S.total_supply)}"></i><i class="pending" style="width:${w(pending)}"></i><i class="burn" style="width:${w(S.burned)}"></i></div>
+      <div class="legend num"><span><i style="background:var(--green)"></i>${DTT(S.total_supply)} owned</span><span><i style="background:var(--gold)"></i>${DTT(pending)} waiting to claim</span><span><i style="background:var(--red)"></i>${DTT(S.burned)} burned</span></div>
+    </div>`;
+  tick();
   $('asset').innerHTML = `
-    <div class="row" style="justify-content:space-between;align-items:flex-start">
-      <div><div class="q" style="margin:0">${esc(a.name)}</div>
-        <div class="meta">${esc(a.description) || 'the thing this treasury buys and these tokens own'}</div></div>
-      <div class="stat" style="text-align:right"><div class="k">valuation</div><div class="v">${USD(a.valuation)}</div></div>
+    <div class="deed-top">
+      <div><div class="label">What we own</div><h3>${esc(a.name)}</h3>
+        <div class="meta">${esc(a.description) || 'The thing the treasury buys. DTT is the deed to it.'}</div></div>
+      <div class="value"><div class="label">Worth</div><b class="num">${USD(a.valuation)}</b></div>
     </div>
-    <div class="grid" style="margin-top:12px">
-      <div class="stat"><div class="k">day</div><div class="v">${S.day} <small>closes in ${left(S.day_ends_in)}</small></div></div>
-      <div class="stat"><div class="k">today's emission</div><div class="v">${DTT(S.emission_today)} <small>DTT</small></div></div>
-      <div class="stat"><div class="k">bought today</div><div class="v">${S.weight_today ? USD(S.weight_today / 365) : '—'} <small>weight-$</small></div></div>
-      <div class="stat"><div class="k">treasury</div><div class="v">${USD(S.treasury)}</div></div>
-      <div class="stat"><div class="k">revenue paid</div><div class="v">${USD(S.revenue_total)}</div></div>
-      <div class="stat"><div class="k">days left</div><div class="v">${S.days_left.toLocaleString()}</div></div>
+    <div class="stats num">
+      <div><span class="label">Treasury</span><b>${USD(S.treasury)}</b></div>
+      <div><span class="label">Revenue paid out</span><b>${USD(S.revenue_total)}</b></div>
+      <div><span class="label">Owners</span><b>${S.accounts.toLocaleString()}</b></div>
+      <div><span class="label">Steward</span><b style="font-size:16px">${esc(S.steward || 'first to join')}</b></div>
     </div>
-    <div class="bar" title="minted · burned"><i style="width:${soldPct}%"></i><i class="burn" style="width:${burnPct}%"></i></div>
-    <div class="meta" style="margin-top:4px">${DTT(S.total_supply)} DTT minted · ${DTT(pending)} sold, unclaimed · ${DTT(S.burned)} burned · ${DTT(S.cap)} cap · steward: ${esc(S.steward || 'first to join')}</div>`;
+    <div class="fine" style="margin-top:14px">Money the thing earns is split across every DTT. The steward spends the treasury on the thing and sets what it is worth.</div>`;
   hint();
 }
 
@@ -153,39 +302,46 @@ async function renderYou(bg) {
                  msg: bg && msg ? [msg.className, msg.innerHTML] : null };
   if (!token) {
     ME = null;
+    $('who').innerHTML = `<span class="pill"><span class="dot"></span>paper money &middot; play dollars</span>`;
     if (bg && $('j-name')) return;  // nothing to update; keep the half-typed name
-    el.innerHTML = `<div class="row"><span>Pick a name to start with $10,000 paper dollars:</span>
-      <input id="j-name" placeholder="name" size="14"><button class="go" onclick="join()">Join</button>
-      <button class="ghost" onclick="$('restore').style.display='flex'">I have a token</button></div>
-      <div class="row" id="restore" style="display:none;margin-top:8px">
-      <input id="r-tok" placeholder="paste token" style="flex:1"><button onclick="restore()">Use</button></div>
-      <div class="msg" id="j-msg"></div>`;
+    el.innerHTML = `<div class="join"><div class="label">Start here</div><h3>Get $10,000 in play dollars</h3>
+      <div class="meta">Pick a name. No sign-up, no wallet. ${S && !S.steward ? 'The first person to join becomes the steward.' : ''}</div>
+      <div class="row" style="margin-top:14px"><input id="j-name" placeholder="your name" onkeydown="if(event.key==='Enter')join()"><button class="go" onclick="join()">Join</button></div>
+      <button class="ghost" style="margin-top:8px;padding-left:0" onclick="$('restore').style.display='flex'">I already have a token</button>
+      <div class="row" id="restore" style="display:none;margin-top:6px">
+        <input id="r-tok" placeholder="paste token" style="flex:1"><button onclick="restore()">Use</button></div>
+      <div class="msg" id="j-msg"></div></div>`;
     return;
   }
   try {
     ME = await call('me', {token});
+    $('who').innerHTML = `<span class="pill">signed in as <b>${esc(ME.name)}</b>${ME.steward ? ' &middot; steward' : ''}</span>`;
     const claimable = ME.positions.reduce((s, p) => s + Number(p.claimable), 0);
-    el.innerHTML = `<div class="row" style="justify-content:space-between;align-items:flex-start">
-      <div><span class="meta">${esc(ME.name)}${ME.steward ? ' · steward' : ''}</span>
-        <div class="bal">${DTT(ME.balance)} DTT <small class="meta">${pct(ME.share_bps)} of the thing · worth ${USD(ME.value)}</small></div>
-        <div class="meta">${USD(ME.dollars)} in hand · ${DTT(ME.locked)} DTT locked · ${USD(ME.owed)} revenue owed</div></div>
-      <div class="row">
-        <button class="go" onclick="claim()" ${claimable > 0 ? '' : 'disabled'}>Claim ${DTT(claimable)} DTT</button>
-        <button onclick="withdraw()" ${Number(ME.owed) > 0 ? '' : 'disabled'}>Withdraw ${USD(ME.owed)}</button>
-        <button class="ghost" onclick="$('tokbox').style.display='block'">Token</button>
-        <button class="ghost" onclick="logout()">Sign out</button></div></div>
-      <div id="tokbox" style="display:none;margin-top:8px" class="meta">Your token (keep it to use this name elsewhere): <code>${esc(token)}</code></div>
-      <details style="margin-top:10px"><summary>Send DTT · pay revenue in${ME.steward ? ' · steward: spend treasury, set valuation' : ''}</summary>
-        <div class="row" style="margin-top:8px"><span>Send</span><input id="t-amt" type="number" placeholder="DTT" style="width:100px"><span>DTT to</span>
-          <input id="t-to" placeholder="name" size="12"><button onclick="transfer()">Send</button><span class="meta">unlocked only</span></div>
-        <div class="row" style="margin-top:8px"><span>Revenue the thing earned: $</span><input id="r-usd" type="number" placeholder="40" style="width:100px">
+    el.innerHTML = `<div class="row" style="justify-content:space-between"><span class="label">You own</span>
+        <span><button class="ghost" onclick="$('tokbox').style.display='block'">Token</button><button class="ghost" onclick="logout()">Sign out</button></span></div>
+      <div class="bal num">${DTT(ME.balance)}<small>DTT</small></div>
+      <div class="meta num">${pct(ME.share_bps)} of the thing &middot; worth ${USD(ME.value)}</div>
+      <div class="stats num">
+        <div><span class="label">Dollars in hand</span><b>${USD(ME.dollars)}</b></div>
+        <div><span class="label">Locked DTT</span><b>${DTT(ME.locked)}</b></div>
+      </div>
+      <div class="acts">
+        <button class="go" onclick="claim()" ${claimable > 0 ? '' : 'disabled'}>${claimable > 0 ? `Claim ${DTT(claimable)} DTT` : 'Nothing to claim yet'}</button>
+        <button onclick="withdraw()" ${Number(ME.owed) > 0 ? '' : 'disabled'}>${Number(ME.owed) > 0 ? `Withdraw ${USD(ME.owed)} earned` : 'No revenue yet'}</button>
+      </div>
+      <div id="tokbox" style="display:none;margin-top:12px" class="fine">Your token (keep it to use this name elsewhere): <code>${esc(token)}</code></div>
+      <details><summary>Send DTT &middot; pay in revenue${ME.steward ? ' &middot; steward tools' : ''}</summary>
+        <div class="row"><input id="t-amt" type="number" placeholder="DTT" style="width:100px"><span class="meta">to</span>
+          <input id="t-to" placeholder="name" style="flex:1"><button onclick="transfer()">Send</button></div>
+        <div class="fine" style="margin-top:4px">Only unlocked DTT can move.</div>
+        <div class="row"><span class="meta">Earned $</span><input id="r-usd" type="number" placeholder="40" style="width:100px">
           <input id="r-memo" placeholder="memo (rent, compute fees)" style="flex:1"><button onclick="revenue()">Deposit</button></div>
         ${ME.steward ? `
-        <div class="row" style="margin-top:8px"><span>Spend $</span><input id="s-usd" type="number" placeholder="150" style="width:100px"><span>to</span>
-          <input id="s-to" placeholder="seller (a name here or outside)" style="flex:1"><input id="s-memo" placeholder="memo" size="14"><button class="warn" onclick="spend()">Spend</button></div>
-        <div class="row" style="margin-top:8px"><span>The thing:</span><input id="a-name" value="${esc(S.asset.name)}" size="14">
-          <input id="a-desc" value="${esc(S.asset.description)}" placeholder="description" style="flex:1"><span>valued $</span>
-          <input id="a-val" type="number" value="${S.asset.valuation / 1e6}" style="width:120px"><button class="warn" onclick="setAsset()">Save</button></div>` : ''}
+        <div class="row"><span class="meta">Spend $</span><input id="s-usd" type="number" placeholder="150" style="width:100px">
+          <input id="s-to" placeholder="pay to" style="flex:1"><input id="s-memo" placeholder="memo" style="width:110px"><button class="warn" onclick="spend()">Spend</button></div>
+        <div class="row"><input id="a-name" value="${esc(S.asset.name)}" placeholder="name" style="width:140px">
+          <input id="a-desc" value="${esc(S.asset.description)}" placeholder="description" style="flex:1"></div>
+        <div class="row"><span class="meta">Worth $</span><input id="a-val" type="number" value="${S.asset.valuation / 1e6}" style="width:140px"><button class="warn" onclick="setAsset()">Save</button></div>` : ''}
       </details>
       <div class="msg" id="j-msg"></div>`;
     if (keep.open) el.querySelector('details').open = true;
@@ -221,66 +377,77 @@ function spend() {
   window.spendNow = () => act('spend', {to, dollars: usd, memo}, 'j-msg', r => `Spent ${USD(r.dollars)}; treasury now ${USD(r.treasury)}.`);
 }
 
-// ── contribute ────────────────────────────────────────────────────
+// ── buy in ────────────────────────────────────────────────────────
 function hint() {
+  const usd = Number($('c-usd').value) || 0, lock = Math.min(1460, Math.max(0, Number($('c-lock').value) || 0));
+  $('c-slider').style.setProperty('--p', (lock / 1460 * 100) + '%');
+  $('lock-say').textContent = lockWords(lock);
+  document.querySelectorAll('#lock-chips button').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === lock));
+  document.querySelectorAll('#usd-chips button').forEach(b => b.classList.toggle('on', Number(b.dataset.v) === usd));
+  $('q-mult').textContent = ((365 + lock) / 365).toFixed(2) + 'x';
   if (!S) return;
-  const usd = Number($('c-usd').value) || 0, lock = Number($('c-lock').value) || 0;
-  const w = usd * 1e6 * (365 + lock), W = S.weight_today + w;
-  const share = W ? w / W : 0, mult = ((365 + lock) / 365).toFixed(2);
-  const unlock = new Date(Date.now() + lock * 86400e3).toLocaleDateString();
-  $('c-hint').textContent = usd > 0
-    ? `Weight ${mult}x (${lock} day lock${lock ? ', DTT unlocks ' + unlock : ''}). If no one else buys today you get ${DTT(S.emission_today * share)} DTT of today's ${DTT(S.emission_today)} - ${(share * 100).toFixed(1)}% of the day, as of now.`
-    : 'Weight = dollars x (365 + lock days). The day\'s 7,200 DTT split by weight; the treasury buys the thing.';
+  const w = usd * 1e6 * (365 + lock), W = S.weight_today + w, share = W ? w / W : 0;
+  $('q-dtt').textContent = usd > 0 ? DTT(S.emission_today * share) : '-';
+  $('q-share').textContent = usd > 0 ? (share * 100).toFixed(1) + '%' : '-';
+  const unlock = new Date(Date.now() + lock * 86400e3).toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+  $('c-hint').textContent = (lock ? `Locking earns more weight. Your DTT can't be sent until ${unlock}, but it still earns revenue. ` : 'Lock longer for more weight: up to 5x at 4 years. ')
+    + 'Estimate as of now; others buying today lowers your share. Claim after the day closes.';
 }
 $('c-slider').oninput = e => { $('c-lock').value = e.target.value; hint(); };
 $('c-lock').oninput = e => { $('c-slider').value = e.target.value; hint(); };
 $('c-usd').oninput = hint;
+document.querySelectorAll('#lock-chips button').forEach(b => b.onclick = () => { $('c-lock').value = $('c-slider').value = b.dataset.v; hint(); });
+document.querySelectorAll('#usd-chips button').forEach(b => b.onclick = () => { $('c-usd').value = b.dataset.v; hint(); });
 function contribute() {
-  if (!token) return say('c-msg', 'Join first.');
+  if (!token) { say('c-msg', 'Join first: pick a name below to get play dollars.'); $('j-name') && $('j-name').focus(); return; }
   act('contribute', {dollars: $('c-usd').value, lock_days: $('c-lock').value}, 'c-msg',
-      r => `Contributed ${USD(r.dollars)} for ${r.lock_days} days: ${(r.share_today * 100).toFixed(1)}% of today's weight. Claim after the day closes.`);
+      r => `Bought in ${USD(r.dollars)} for ${lockWords(r.lock_days)}: ${(r.share_today * 100).toFixed(1)}% of today so far. Claim after the day closes.`);
 }
 
 // ── days + lists ──────────────────────────────────────────────────
 async function renderDays() {
-  const ds = await call('days', {limit: 28});
-  $('days').innerHTML = ds.map(d => `<div class="day ${d.state}" title="day ${d.day}: ${d.state}${d.weight ? ', weight-$' + USD(d.weight / 365) : ''}">${d.day}</div>`).join('');
+  const ds = (await call('days', {limit: 28})).slice().sort((a, b) => a.day - b.day);
+  const last = ds.length ? ds[ds.length - 1].day : S.day, cells = ds.map(d =>
+    `<div class="day ${d.state}" title="day ${d.day}: ${d.state === 'open' ? 'today' : d.state}${d.weight ? ', ' + USD(d.weight / 365) + ' weighted' : ''}">${d.day}</div>`);
+  for (let i = 1; cells.length < 28; i++) cells.push(`<div class="day future" title="day ${last + i}: coming">${last + i}</div>`);
+  $('days').innerHTML = cells.join('');
   const sold = ds.filter(d => d.state === 'sold').length, burned = ds.filter(d => d.state === 'burned').length;
-  $('d-sum').textContent = `last ${ds.length}: ${sold} sold · ${burned} burned`;
+  $('d-sum').textContent = ds.length > 1 ? `· ${sold} sold, ${burned} burned` : '';
 }
+const empty = t => `<div class="empty">${t}</div>`;
 async function renderList() {
   const el = $('list');
   try {
     if (tab === 'holders') {
       const rows = await call('holders', {limit: 50});
       el.innerHTML = rows.length ? `<table><tr><th>#</th><th>name</th><th class="r">DTT</th><th class="r">share</th></tr>` +
-        rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td class="r">${DTT(r.balance)}</td><td class="r">${pct(r.share_bps)}</td></tr>`).join('') + '</table>'
-        : '<div class="meta">No one holds DTT yet. Contribute today, claim tomorrow.</div>';
+        rows.map((r, i) => `<tr><td class="meta">${i + 1}</td><td>${esc(r.name)}</td><td class="r">${DTT(r.balance)}</td><td class="r">${pct(r.share_bps)}</td></tr>`).join('') + '</table>'
+        : empty('No owners yet. Buy in today, claim your DTT tomorrow.');
     } else if (tab === 'positions') {
-      if (!ME) { el.innerHTML = '<div class="meta">Join to see your contributions.</div>'; return; }
+      if (!ME) { el.innerHTML = empty('Join to see your buys.'); return; }
       el.innerHTML = ME.positions.length ? `<table><tr><th>#</th><th>day</th><th class="r">dollars</th><th class="r">lock</th><th class="r">DTT</th><th>state</th></tr>` +
-        ME.positions.map(p => `<tr><td>${p.id}</td><td>${p.day}</td><td class="r">${USD(p.dollars)}</td><td class="r">${p.lock_days}d</td>
+        ME.positions.map(p => `<tr><td class="meta">${p.id}</td><td>${p.day}</td><td class="r">${USD(p.dollars)}</td><td class="r">${p.lock_days}d</td>
           <td class="r">${DTT(p.claimed ? p.minted : p.claimable)}</td><td>${p.claimed ? (p.unlock_at > S.now ? 'locked until ' + new Date(p.unlock_at * 1000).toLocaleDateString() : 'unlocked')
-          : p.day >= S.day ? '<span class="tag open">open</span>' : '<span class="tag sold">claimable</span>'}</td></tr>`).join('') + '</table>'
-        : '<div class="meta">Nothing yet.</div>';
+          : p.day >= S.day ? '<span class="tag open">today</span>' : '<span class="tag sold">ready to claim</span>'}</td></tr>`).join('') + '</table>'
+        : empty('You have not bought in yet.');
     } else if (tab === 'history') {
       const h = await call('history', {limit: 50});
       const rows = [...h.spends.map(s => ({...s, kind: 'spend'})), ...h.revenues.map(r => ({...r, kind: 'revenue'}))].sort((a, b) => b.at - a.at);
       el.innerHTML = rows.length ? `<table><tr><th>when</th><th>what</th><th class="r">dollars</th><th>memo</th></tr>` +
-        rows.map(r => `<tr><td>${new Date(r.at * 1000).toLocaleString()}</td><td>${r.kind === 'spend' ? 'treasury → ' + esc(r.to) : 'revenue from ' + esc(r.from) + ' → ' + r.to}</td>
+        rows.map(r => `<tr><td class="meta">${new Date(r.at * 1000).toLocaleString()}</td><td>${r.kind === 'spend' ? 'treasury &rarr; ' + esc(r.to) : 'revenue from ' + esc(r.from) + ' &rarr; ' + esc(r.to)}</td>
           <td class="r">${USD(r.dollars)}</td><td class="meta">${esc(r.memo)}</td></tr>`).join('') + '</table>'
-        : '<div class="meta">The treasury has not moved yet.</div>';
+        : empty('The treasury has not moved yet.');
     } else {
       const c = await call('chains');
       const deps = c.evm.deployments || {};
-      el.innerHTML = `<div class="q">The same rules, on chain</div>
+      el.innerHTML = `<div class="meta" style="margin-bottom:8px">The same rules run three times, with the same numbers.</div>
         <table><tr><th>layer</th><th>where</th><th>status</th></tr>
-        <tr><td>paper</td><td>this console · engine.py</td><td>live</td></tr>
-        <tr><td>EVM</td><td>${esc(c.evm.stack)} · <code>evm/contracts/DollarTime.sol</code></td><td>${Object.keys(deps).length
-          ? Object.entries(deps).map(([n, d]) => `${esc(n)}: <code>${esc(d.dollarTime)}</code>`).join('<br>') : 'tested (hardhat), not deployed: <code>m dollartime/evm_deploy</code>'}</td></tr>
-        <tr><td>NEAR</td><td>near-sdk 5 · <code>near/src/lib.rs</code></td><td>${c.near.testnet && c.near.testnet.account
+        <tr><td>paper</td><td>this page &middot; <code>engine.py</code></td><td><span class="tag sold">live</span></td></tr>
+        <tr><td>EVM</td><td>${esc(c.evm.stack)} &middot; <code>evm/contracts/DollarTime.sol</code></td><td>${Object.keys(deps).length
+          ? Object.entries(deps).map(([n, d]) => `${esc(n)}: <code>${esc(d.dollarTime)}</code>`).join('<br>') : 'tested, not deployed: <code>m dollartime/evm_deploy</code>'}</td></tr>
+        <tr><td>NEAR</td><td>near-sdk 5 &middot; <code>near/src/lib.rs</code></td><td>${c.near.testnet && c.near.testnet.account
           ? `testnet <code>${esc(c.near.testnet.account)}</code>` : (c.near.wasm ? `wasm built (${Math.round(c.near.wasm.bytes / 1024)} KB), not deployed: <code>m dollartime/near_deploy</code>` : 'not built: <code>m dollartime/near_build</code>')}</td></tr></table>
-        <div class="meta" style="margin-top:8px">On chain the dollars are a stablecoin: ERC-20 approve + <code>contribute(dollars, lockDays)</code> on EVM; <code>ft_transfer_call(dollartime, amount, "365")</code> on NEAR. Revenue: <code>depositRevenue</code> / msg <code>"revenue:rent"</code>.</div>`;
+        <div class="fine" style="margin-top:10px">On chain the dollars are a stablecoin: ERC-20 approve + <code>contribute(dollars, lockDays)</code> on EVM; <code>ft_transfer_call(dollartime, amount, "365")</code> on NEAR. Revenue: <code>depositRevenue</code> / msg <code>"revenue:rent"</code>.</div>`;
     }
   } catch (e) { el.textContent = e.message; }
 }
@@ -290,8 +457,10 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
 });
 
 async function refresh(bg) { await renderAsset(); await renderYou(bg); await renderDays(); await renderList(); }
+hint();
 refresh();
 setInterval(() => refresh(true), 30000);
+setInterval(tick, 1000);
 </script>
 </body>
 </html>

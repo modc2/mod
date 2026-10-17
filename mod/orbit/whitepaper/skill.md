@@ -8,8 +8,9 @@ The paper is in three parts:
 
 | Part | Contents |
 |------|----------|
+| — How to read | Live-vs-proposed status table for every component |
 | I — The Registry Protocol | Merkle-root registry: construction, StakeTime publisher, priority, gas analysis, verifiability, off-chain storage |
-| II — The Mod Protocol | What the registry registers: the module, the three call surfaces + null call, the URL rule and DNS, nix + pm runtime, gateway and scale-to-zero, auth tokens and the owner/peer model, storage and content addressing, the agent interface, and the nine protocol invariants |
+| II — The Mod Protocol | What the registry registers: the module and path-derived names (src/ transparent, dotted submodules), the three call surfaces + null call, the URL rule, generated routes, 308 aliases, private=unrouted, DNS, nix + pm runtime, socket activation, passport identity (six key families, single-use sign-in), owner/peer model, storage and content addressing, MCP + the agent contract, and the ten protocol invariants |
 | III — Adoption | Migration path, related work, conclusion |
 
 ## Why (Part I)
@@ -23,7 +24,7 @@ mod/orbit/whitepaper/
   mod.py              # anchor class — Mod (Python protocol surface)
   config.json         # ports + proxy routing
   Caddyfile           # :3000 → /whitepaper (app) + /api/whitepaper (api)
-  whitepaper.tex      # LaTeX source (v0.3 — Parts I/II/III)
+  whitepaper.tex      # LaTeX source (v0.4 — Parts I/II/III)
   src/api/            # Rust API (axum + tiny-keccak)
     Cargo.toml
     src/main.rs       # routes + state

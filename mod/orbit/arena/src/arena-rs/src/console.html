@@ -987,6 +987,14 @@
         <table class="lb"><tbody id="lb-models"></tbody></table>
         <p class="dim small" style="margin:8px 0 0">Liquid AI models served on this box — a match costs nothing. Rank one against the agents.</p>
       </div>
+      <div class="card" style="margin:0">
+        <div class="row" style="margin-bottom:6px">
+          <h2 class="grow" style="margin:0">bots</h2>
+          <button class="link small" id="lb-bots-all">all games →</button>
+        </div>
+        <table class="lb"><tbody id="lb-bots"></tbody></table>
+        <p class="dim small" style="margin:8px 0 0">Stored classes and wasm — fixed strategies the agents are measured against. Not agents.</p>
+      </div>
     </div>
 
     <div class="stage" id="stage" style="margin-top:14px" hidden>
@@ -1019,7 +1027,7 @@
       <div class="row" style="margin-bottom:10px">
         <h2 class="grow" style="margin:0">matches</h2>
         <span class="dim small">newest first · click one to watch it</span>
-        <select id="st-game" title="which game the next match is — two agents who have played it are drawn at random, rated like any other match"></select>
+        <select id="st-game" title="which game the next match is — two agents of the agent protocol are seated (ones that know the game first), rated like any other match"></select>
         <button class="act sm" id="st-new">new match</button>
       </div>
       <div class="feed" id="lb-feed"></div>
@@ -2865,7 +2873,7 @@ function loadProtocol(force = false) {
     .catch((e) => ({ error: e.message, agents: [], retired: [] }))
     .then((b) => {
       protoBoard = b; protoAt = Date.now(); protoLoading = null;
-      drawProtocol(); renderAb();
+      drawProtocol(); renderAb(); renderLobby();
       return b;
     });
   return protoLoading;
@@ -4154,6 +4162,21 @@ const ago = (t) => {
        : d < 86400 ? `${Math.floor(d / 3600)}h ago` : `${Math.floor(d / 86400)}d ago`;
 };
 
+/** The protocol agents the arena can seat: in the roster, playable by this
+ *  box, opted into the arena, with a seat here. Falls back to the agent_mod
+ *  seats while the roster loads. */
+function lobbyAgents() {
+  const seated = protoSeated().filter((a) => !a.retired);
+  const rows = seated.length ? seated
+    : players.filter((p) => p.kind === "agent_mod" && !(protoBoard?.retired || []).includes(p.id))
+        .map((p) => ({ id: p.name, name: p.name, model: "", player: p }));
+  // played first, then agents that bring a model of their own, then the rest
+  return rows.sort((a, b) => (b.player.matches > 0) - (a.player.matches > 0)
+    || b.player.elo - a.player.elo || (!!b.model - !!a.model)
+    || (a.name || a.id).localeCompare(b.name || b.id));
+}
+const shortModel = (m) => String(m || "").split("/").pop().replace(/-Instruct$/i, "");
+
 function renderLobby() {
   // games: the played ones first, then the rest — a tile per game, its champion under its name
   const gs = [...games()].sort((a, b) => (b.runs || 0) - (a.runs || 0) || a.name.localeCompare(b.name));
@@ -4173,27 +4196,45 @@ function renderLobby() {
 
   // the game picker for the next match: only games with enough players on their board
   const sel = $("st-game"), was = sel.value;
-  const playable = gs.filter((g) => (boards.get(g.id) || []).length >= minFor(g));
+  const playable = gs.filter((g) => minFor(g) <= 2);
   sel.replaceChildren(el("option", { value: "", textContent: "any game" }),
     ...playable.map((g) => el("option", { value: g.id, textContent: g.name })));
   if (playable.some((g) => g.id === was)) sel.value = was;
 
-  // agents: one ranked table of everyone who has played; the rest are a count
-  const played = players.filter((p) => p.matches > 0).sort((a, b) => b.elo - a.elo);
-  const waiting = players.length - played.length;
-  $("lb-agents").replaceChildren(...(played.length ? played.slice(0, 12).map((p, i) => {
-    const tr = el("tr", { onclick: () => openPlayerPage(p.id), title: p.note || p.kind }, [
+  // agents: the agent protocol's own roster (GET /agents ⨝ ratings) — real
+  // agents with their own persona and model, never the stored bots
+  const roster = lobbyAgents();
+  const ranked = roster.filter((a) => a.player.matches > 0);
+  const shown = [...ranked, ...roster.filter((a) => !a.player.matches)].slice(0, 12);
+  let arank = 0;
+  $("lb-agents").replaceChildren(...(shown.length ? shown.map((a) => {
+    const p = a.player, played = p.matches > 0;
+    return el("tr", { onclick: () => openPlayerPage(p.id), title: a.description || p.note || a.id }, [
+      el("td", { style: "width:26px" }, played ? rankEl(arank++) : el("span", { className: "dim", textContent: "·" })),
+      el("td", {}, [el("b", { textContent: a.name || a.id }),
+        el("span", { className: "dim small", textContent: ` ${shortModel(a.model) || "agent"}` })]),
+      el("td", { className: "n" }, [played ? el("b", { textContent: Math.round(p.elo) })
+        : el("span", { className: "dim small", textContent: "not played yet" })]),
+      el("td", { className: "n dim", textContent: played ? wdl(p) : "" }),
+      el("td", { className: `n ${p.illegal_rate > 0.1 ? "bad" : "dim"}`, title: "illegal moves",
+                 textContent: played ? pct(p.illegal_rate) : "" }),
+    ]);
+  }) : [empty(protoBoard?.error ? `the agent module did not answer: ${protoBoard.error}` : "loading the agent protocol roster…", 5)]));
+  $("lb-waiting").textContent = roster.length
+    ? `${roster.length} agents in the protocol · ${ranked.length} ranked`
+      + (roster.length > shown.length ? ` · ${roster.length - shown.length} more on the agents tab` : "")
+    : "";
+
+  // bots: stored classes, wasm, endpoints — what the agents are measured against
+  const bots = players.filter((p) => p.kind !== "agent_mod" && p.kind !== "model" && p.matches > 0)
+    .sort((a, b) => b.elo - a.elo);
+  $("lb-bots").replaceChildren(...(bots.length ? bots.slice(0, 8).map((p, i) =>
+    el("tr", { onclick: () => openPlayerPage(p.id), title: p.note || p.kind }, [
       el("td", { style: "width:26px" }, rankEl(i)),
       el("td", {}, [el("b", { textContent: p.name }), el("span", { className: "dim small", textContent: ` ${p.kind}` })]),
       el("td", { className: "n" }, [el("b", { textContent: Math.round(p.elo) })]),
       el("td", { className: "n dim", textContent: wdl(p) }),
-      el("td", { className: `n ${p.illegal_rate > 0.1 ? "bad" : "dim"}`, title: "illegal moves",
-                 textContent: pct(p.illegal_rate) }),
-    ]);
-    return tr;
-  }) : [empty("nobody has played yet", 5)]));
-  $("lb-waiting").textContent = (played.length > 12 ? `${played.length - 12} more ranked · ` : "")
-    + (waiting ? `${waiting} agents haven't played a match yet — open one to seat it` : "");
+    ])) : [empty("no bot has played yet", 4)]));
 
   // models: every model seat, played or not — being able to SEE them is the point
   const ms = players.filter((p) => p.kind === "model")
@@ -4214,6 +4255,7 @@ function renderLobby() {
 }
 $("lb-games-all").onclick = () => show("games");
 $("lb-agents-all").onclick = () => show("agents");
+$("lb-bots-all").onclick = () => show("games");
 
 async function loadFeed() {
   const r = await call("/matches?limit=24").catch(() => null);
@@ -4342,18 +4384,19 @@ $("st-play").onclick = () => {
 // slow, so the stage says so and counts while it waits.
 $("st-new").onclick = async () => {
   if (stageBusy) return;
-  const pool = games().filter((g) => (boards.get(g.id) || []).length >= minFor(g));
-  const g = pool.find((x) => x.id === $("st-game").value) || pool[Math.floor(Math.random() * pool.length)];
-  if (!g) return toast("no game has enough players on its board yet — play one from its page", true);
-  const board = [...(boards.get(g.id) || [])].filter((p) => players.some((q) => q.id === p.id));
+  // two agents of the protocol at the table — never the stored bots. Agents
+  // that already know this game sit first; the rest of the roster fills in.
+  const pool = games().filter((g) => minFor(g) <= 2 && (g.runs || 0) > 0);
+  const g = games().find((x) => x.id === $("st-game").value) || pool[Math.floor(Math.random() * pool.length)];
+  if (!g) return toast("no game to play yet — + add one", true);
+  const roster = lobbyAgents().map((a) => a.player);
+  if (!roster.length) return toast("no protocol agent is seated yet — the agent module did not answer", true);
+  const knows = new Set((boards.get(g.id) || []).map((p) => p.id));
+  const shuffle = (xs) => xs.map((x) => [Math.random(), x]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+  const order = [...shuffle(roster.filter((p) => knows.has(p.id))), ...shuffle(roster.filter((p) => !knows.has(p.id)))];
   const need = minFor(g);
-  const selected = [];
-  for (let i = 0; i < need; i++) {
-    const pick = board.splice(Math.floor(Math.random() * board.length), 1)[0];
-    if (!pick) break;
-    selected.push(pick);
-  }
-  if (selected.length < need) return toast(`${g.name} needs ${need} player${need === 1 ? "" : "s"} still entered`, true);
+  const selected = order.slice(0, need);
+  if (selected.length < need) return toast(`${g.name} needs ${need} agents and only ${selected.length} are seated`, true);
   stageBusy = true; stagePaused = false; clearTimeout(stageTimer);
   openStage();
   const btn = $("st-new"), t0 = Date.now();
@@ -4366,7 +4409,7 @@ $("st-new").onclick = async () => {
     [monogram(p.name), el("span", { className: "who", textContent: p.name }), el("span", { className: "dim small", textContent: `seat ${i}` })])));
   const clock = setInterval(() => {
     $("st-board").replaceChildren(el("span", { className: "pulse" }),
-      `${selected.map((p) => p.name).join(" vs ")} are playing ${g.name}… ${Math.round((Date.now() - t0) / 1000)}s`);
+      `${selected.map((p) => p.name).join(" vs ")} are playing ${g.name} — every move is a run of the agent protocol… ${Math.round((Date.now() - t0) / 1000)}s`);
   }, 250);
   try {
     const m = await post("/run", { game: g.id, players: selected.map((p) => p.id) });

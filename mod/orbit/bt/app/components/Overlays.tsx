@@ -11,6 +11,7 @@ import LineChart, { Pt } from './LineChart';
 import { Cells, Pct, Ranges, SideTag, Spinner, SubnetLogo } from './ui';
 import { NewsItem, NewsList } from './News';
 import RepoLine from './Repo';
+import { SubnetCode } from './Dev';
 import Trades from './Trades';
 import Ticket from './Ticket';
 
@@ -117,7 +118,7 @@ function SubnetChart({ netuid }: { netuid: number }) {
 }
 
 const TAB_LABEL: Record<SubnetTab, string> = {
-  overview: 'Overview', trades: 'Trades', validators: 'Validators', news: 'News',
+  overview: 'Overview', code: 'Code', trades: 'Trades', validators: 'Validators', news: 'News',
 };
 
 function SubnetOverlay({ netuid }: { netuid: number }) {
@@ -131,7 +132,7 @@ function SubnetOverlay({ netuid }: { netuid: number }) {
 
   useEffect(() => { if (!screener) reloadScreener(); }, [screener, reloadScreener]);
 
-  /* 1-4 pick a tab, [ and ] step to the neighbouring subnet (same tab) */
+  /* 1-5 pick a tab, [ and ] step to the neighbouring subnet (same tab) */
   const ids = Object.keys(bySubnet).map(Number).sort((a, b) => a - b);
   const at = ids.indexOf(netuid);
   const prev = at > 0 ? ids[at - 1] : null, next = at >= 0 && at < ids.length - 1 ? ids[at + 1] : null;
@@ -139,7 +140,7 @@ function SubnetOverlay({ netuid }: { netuid: number }) {
     const key = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
       if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable) return;
-      const i = '1234'.indexOf(e.key);
+      const i = '12345'.indexOf(e.key);
       if (i >= 0) setTab(SUBNET_TABS[i]);
       else if (e.key === '[' && prev != null) openSubnet(prev, tab);
       else if (e.key === ']' && next != null) openSubnet(next, tab);
@@ -221,6 +222,7 @@ function SubnetOverlay({ netuid }: { netuid: number }) {
         </div>
         <RepoLine github={r.github} />
       </>)}
+      {pane('code', <SubnetCode netuid={netuid} github={r.github} />)}
       {pane('trades', <Trades netuid={netuid} />)}
       {pane('validators', <SubnetValidators netuid={netuid} />)}
       {pane('news', <SubnetNews netuid={netuid} />)}

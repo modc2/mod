@@ -119,6 +119,10 @@ const writeNoteBindings = (map: Record<string, string[]>) => {
   try { localStorage.setItem(NOTES_KEY, JSON.stringify(map)) } catch { /* quota — a convenience, not state worth failing over */ }
 }
 
+
+// model chips shown per provider before the filter takes over
+const MODEL_CHIPS = 12
+
 export default function AgentsPanel({
   token, address, isHost, onSignIn, onUseInFlow, onRun, onChanged, initialCreate, onCreate,
 }: Props) {
@@ -133,6 +137,9 @@ export default function AgentsPanel({
 
   const [selected, setSelected] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  // the hosted providers list hundreds of models — chips show a few, the
+  // filter finds the rest
+  const [modelQuery, setModelQuery] = useState('')
   const [tab, setTab] = useState<'agent' | 'models' | 'memory'>('agent')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -175,7 +182,8 @@ export default function AgentsPanel({
       setAgents(schemas)
       setOrder(reg.agents || Object.keys(schemas))
       setHost(reg.host || null)
-      setSelected(cur => cur ?? (reg.agents?.[0] ?? null))
+      // land on the grid of every agent — nothing picked until a card is
+      setSelected(cur => (cur && schemas[cur] ? cur : null))
     } catch (e) {
       setError(`registry unreachable — ${(e as Error).message}`)
     } finally {
@@ -383,44 +391,60 @@ export default function AgentsPanel({
       )}
 
       <div className="flex-1 flex min-h-0">
-        {/* ── the registry: one row per folder ── */}
-        <div className="w-60 shrink-0 border-r border-white/[0.06] bg-surface-1 overflow-y-auto p-2 space-y-1">
-          {loading && <div className="p-3 text-[11px] text-gray-600 animate-pulse">loading agents…</div>}
-          {!loading && filtered.length === 0 && (
-            <div className="p-3 text-[11px] text-gray-600">no agents match.</div>
-          )}
-          {filtered.map(name => {
-            const a = agents[name]
-            const on = name === selected
-            return (
-              <button
-                key={name}
-                onClick={() => { setSelected(name); setTab('agent') }}
-                className={`w-full text-left px-2.5 py-2 rounded-lg border transition ${
-                  on
-                    ? 'bg-emerald-500/10 border-emerald-500/25'
-                    : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.12]'
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <span className={`font-mono text-xs shrink-0 ${on ? 'text-emerald-300' : 'text-gray-500'}`}>
-                    {a?.icon || '>_'}
-                  </span>
-                  <span className="text-xs text-gray-200 truncate font-medium">{name}</span>
-                  {a?.builtin && (
-                    <span className="ml-auto text-[8px] uppercase tracking-wider text-gray-700 shrink-0">shipped</span>
-                  )}
-                </span>
-                <span className="block mt-0.5 text-[10px] text-gray-600 truncate">
-                  {a?.model || (a?.harness ? `${a.harness} harness` : 'no model bound')}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+        {/* ── the registry: every agent, one card each ── */}
+        {!selected && !creating && (
+          <div className="flex-1 min-w-0 overflow-y-auto p-3">
+            {loading && <div className="p-3 text-[11px] text-gray-600 animate-pulse">loading agents…</div>}
+            {!loading && filtered.length === 0 && (
+              <div className="p-3 text-[11px] text-gray-600">no agents match.</div>
+            )}
+            <div className="grid gap-2.5 grid-cols-[repeat(auto-fill,minmax(230px,1fr))]">
+              {filtered.map(name => {
+                const a = agents[name]
+                const blurb = (a?.description || '').trim() || (a?.goal || '').trim()
+                return (
+                  <button
+                    key={name}
+                    onClick={() => { setSelected(name); setTab('agent') }}
+                    className="text-left rounded-xl border border-white/[0.07] bg-surface-1 hover:border-emerald-500/30 hover:bg-white/[0.04] transition p-3 flex flex-col gap-2 min-h-[118px]"
+                  >
+                    <span className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-8 h-8 shrink-0 rounded-lg border border-white/[0.08] bg-white/[0.03] flex items-center justify-center font-mono text-sm text-emerald-300">
+                        {a?.icon || '>_'}
+                      </span>
+                      <span className="text-[13px] text-gray-100 font-medium truncate">{name}</span>
+                      {a?.builtin && (
+                        <span className="ml-auto text-[8px] uppercase tracking-wider text-gray-600 shrink-0">shipped</span>
+                      )}
+                    </span>
+                    <span className="text-[11px] text-gray-500 leading-snug line-clamp-2 flex-1">
+                      {blurb || 'no description yet'}
+                    </span>
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border truncate ${
+                        a?.model || a?.harness
+                          ? 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-300/90'
+                          : 'border-white/[0.06] text-gray-600'}`}>
+                        {a?.model || (a?.harness ? `${a.harness} harness` : 'no model')}
+                      </span>
+                      {!!a?.tools?.length && (
+                        <span className="text-[9px] text-gray-600 shrink-0">{a.tools.length} tools</span>
+                      )}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ── the selected agent ── */}
+        {(selected || creating) && (
         <div className="flex-1 min-w-0 overflow-y-auto p-3 space-y-2.5">
+          <button onClick={() => { setSelected(null); setCreating(false) }}
+            className="text-[10px] uppercase tracking-wider text-gray-500 hover:text-emerald-300 transition">
+            ‹ all agents
+          </button>
           {creating && (
             <div className={`${card} p-4 space-y-3`}>
               <div className={legend}>New agent</div>
@@ -451,7 +475,7 @@ export default function AgentsPanel({
           )}
 
           {!current && !creating && !loading && (
-            <div className="p-4 text-xs text-gray-600">Pick an agent on the left, or make a new one.</div>
+            <div className="p-4 text-xs text-gray-600">That agent is gone — back to all agents.</div>
           )}
 
           {current && (
@@ -667,6 +691,12 @@ export default function AgentsPanel({
                     </p>
                   )}
 
+                  {providers.some(p => p.models.length > MODEL_CHIPS) && (
+                    <input value={modelQuery} onChange={e => setModelQuery(e.target.value)}
+                      placeholder="filter models — e.g. claude, qwen, llama"
+                      className="w-full px-2.5 py-1.5 rounded-md text-[11px] bg-white/[0.03] border border-white/[0.08] text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-emerald-500/30" />
+                  )}
+
                   {providers.map(p => (
                     <div key={p.key} className="space-y-2">
                       <div className="flex items-center gap-2">
@@ -688,7 +718,13 @@ export default function AgentsPanel({
                         </a>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
-                        {p.models.map(m => {
+                        {(() => {
+                          const q = modelQuery.trim().toLowerCase()
+                          const hits = q ? p.models.filter(m => m.toLowerCase().includes(q)) : p.models
+                          const shown = hits.slice(0, MODEL_CHIPS)
+                          if (draft.model && hits.includes(draft.model) && !shown.includes(draft.model)) shown.unshift(draft.model)
+                          return shown
+                        })().map(m => {
                           const on = draft.model === m
                           return (
                             <button key={`${p.key}/${m}`} disabled={!canEdit}
@@ -703,6 +739,13 @@ export default function AgentsPanel({
                             </button>
                           )
                         })}
+                        {p.models.length > MODEL_CHIPS && (() => {
+                          const q = modelQuery.trim().toLowerCase()
+                          const n = (q ? p.models.filter(m => m.toLowerCase().includes(q)) : p.models).length
+                          return n > MODEL_CHIPS
+                            ? <span className="px-1 py-1 text-[10px] text-gray-600">+{n - MODEL_CHIPS} more — filter to find them</span>
+                            : null
+                        })()}
                       </div>
                     </div>
                   ))}
@@ -798,6 +841,7 @@ export default function AgentsPanel({
             </>
           )}
         </div>
+        )}
       </div>
 
       {host && (

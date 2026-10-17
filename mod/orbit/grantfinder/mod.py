@@ -24,9 +24,10 @@ from pathlib import Path
 from typing import Optional
 
 MODULE_DIR = Path(__file__).resolve().parent
+API_DIR = MODULE_DIR / 'src' / 'api'  # backend (grantscan + REST server); the web app is src/app
 # Appended, never prepended: `mod` itself must keep winning.
-if str(MODULE_DIR) not in sys.path:
-    sys.path.append(str(MODULE_DIR))
+if str(API_DIR) not in sys.path:
+    sys.path.append(str(API_DIR))
 
 from grantscan import agent, lanes as L, store, sweep as S  # noqa: E402
 
@@ -85,8 +86,8 @@ class Mod:
     def serve(self, port: Optional[int] = None, host: str = '127.0.0.1') -> dict:
         port = int(port or self.port)
         subprocess.run(['pm2', 'delete', PM2_NAME], capture_output=True, text=True)
-        # cwd = module dir so `grantscan` imports; the server never imports `mod`.
-        cmd = ['pm2', 'start', sys.executable, '--name', PM2_NAME, '--cwd', str(MODULE_DIR),
+        # cwd = src/api so `grantscan` imports; the server never imports `mod`.
+        cmd = ['pm2', 'start', sys.executable, '--name', PM2_NAME, '--cwd', str(API_DIR),
                '--', '-m', 'grantscan.server', '--port', str(port), '--host', host]
         r = subprocess.run(cmd, capture_output=True, text=True)
         return {'ok': r.returncode == 0, 'pm2': PM2_NAME, 'url': f'http://{host}:{port}/app',

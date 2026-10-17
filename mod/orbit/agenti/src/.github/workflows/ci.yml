@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Build first: typecheck resolves workspace deps (@agenti/core,
+      # @agenti/sdk, @agenti/facilitator) through their built dist/ types, so
+      # typechecking ahead of the build fails on packages that consume them.
+      - name: Build
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # Two unauthenticated RCEs sat in the dashboard for months because nothing
+      # ran this. Critical and high fail the build; see scripts/check-audit.mjs
+      # for the accepted-with-a-reason list.
+      - name: Audit production dependencies
+        run: pnpm run check:audit

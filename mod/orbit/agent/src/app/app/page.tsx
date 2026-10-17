@@ -2554,6 +2554,8 @@ export default function Home() {
             return {
               value: mn || '',
               label: mn ? (mn.includes('/') ? mn.split('/').slice(1).join('/') : mn) : 'default',
+              // the vendor the label drops, so filtering "anthropic" still finds it
+              ...(mn.includes('/') ? { hint: mn.split('/')[0] } : {}),
               ...(mn === activeProvider?.default_model ? { badge: 'default' } : {}),
               ...(inputCost != null && maxInput > 0 ? { meter: inputCost / maxInput, cost: fmtCost ?? undefined } : {}),
             }

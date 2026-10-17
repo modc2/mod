@@ -1,0 +1,27 @@
+{
+  "name": "agenti",
+  "title": "agenti \u00b7 the money layer for AI agents",
+  "description": "Vendored nirholas/agenti: give any AI agent a crypto wallet (EVM + Solana) to pay x402 APIs, receive USDC and check balances. pnpm TypeScript monorepo (core, sdk, mcp, facilitator, a2a, cli, ...) under src/, wrapped by mod.py.",
+  "version": "0.1.0",
+  "anchor": "mod.py",
+  "network": "local",
+  "private": true,
+  "upstream": {
+    "repo": "https://github.com/nirholas/agenti",
+    "commit": "72cfb67a18432a3d8773d200db1141b32289fb0a"
+  },
+  "fns": [
+    "info",
+    "packages",
+    "readme",
+    "install",
+    "build",
+    "test",
+    "mcp"
+  ],
+  "urls": {
+    "api": "http://localhost:50129"
+  },
+  "port": 50129,
+  "schema": "QmYdRSwWdmoaDAXgGLTzx3hKMDLdJT2GGrxErR4CKaqnfG"
+}

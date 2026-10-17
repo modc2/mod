@@ -8,6 +8,7 @@ import './styles/market.css';
 import './styles/dock.css';
 import './styles/traders.css';
 import './styles/polish.css';
+import './styles/dev.css';
 import './globals.css';
 
 export const metadata: Metadata = {

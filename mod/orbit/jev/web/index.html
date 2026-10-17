@@ -5,41 +5,82 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>jev · typed questions, paid in crypto</title>
 <style>
-  :root { --bg:#0f1117; --panel:#171a23; --line:#262a36; --ink:#e6e8ef; --dim:#8b91a3; --acc:#7aa2f7; --ok:#9ece6a; --warn:#e0af68; --bad:#f7768e; --mono: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  :root { --bg:#0d0f15; --panel:#151821; --panel2:#1a1e29; --line:#252a37; --line2:#2f3545; --ink:#e7e9f0; --dim:#8a90a2; --faint:#5d6375; --acc:#7aa2f7; --acc-soft:rgba(122,162,247,.12); --ok:#9ece6a; --ok-soft:rgba(158,206,106,.12); --warn:#e0af68; --warn-soft:rgba(224,175,104,.10); --bad:#f7768e; --bad-soft:rgba(247,118,142,.10); --mono: ui-monospace, SFMono-Regular, Menlo, monospace; --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif }
   * { box-sizing:border-box }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif }
-  header { display:flex; align-items:center; gap:14px; padding:14px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap }
-  header h1 { font-size:18px; margin:0; letter-spacing:.3px } header h1 span { color:var(--dim); font-weight:400 }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 var(--sans); -webkit-font-smoothing:antialiased }
+  header { display:flex; align-items:center; gap:10px; padding:14px 24px; border-bottom:1px solid var(--line); flex-wrap:wrap }
+  header h1 { font-size:18px; margin:0; letter-spacing:.2px; font-weight:650 } header h1 span { color:var(--dim); font-weight:400 }
   .spacer { flex:1 }
-  .chip { font:12px var(--mono); padding:4px 9px; border:1px solid var(--line); border-radius:999px; color:var(--dim); background:var(--panel) }
-  .chip.on { color:var(--ok); border-color:#33503a } .chip.off { color:var(--warn) }
-  main { max-width:1100px; margin:0 auto; padding:18px 20px; display:grid; grid-template-columns: 1.3fr .9fr; gap:18px }
-  @media (max-width:860px) { main { grid-template-columns:1fr } }
-  section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px }
-  h2 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.12em; color:var(--dim) }
-  label { display:block; font-size:12px; color:var(--dim); margin:10px 0 4px }
-  input, textarea, select { width:100%; background:#0c0e14; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:9px 10px; font:14px var(--mono) }
+  .chip { font:500 12px var(--sans); padding:4px 10px; border:1px solid var(--line); border-radius:999px; color:var(--dim); background:var(--panel); white-space:nowrap }
+  .chip.on { color:var(--ok); border-color:#2e4733; background:var(--ok-soft) } .chip.off { color:var(--warn); border-color:#4a3d26; background:var(--warn-soft) }
+  main { max-width:1120px; margin:0 auto; padding:22px 24px; display:grid; grid-template-columns: minmax(0,1.3fr) minmax(0,.9fr); gap:20px }
+  @media (max-width:860px) { main { grid-template-columns:minmax(0,1fr); padding:16px } header { padding:12px 16px } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; min-width:0 }
+  .sec-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px }
+  h2 { margin:0; font-size:12px; font-weight:650; text-transform:uppercase; letter-spacing:.12em; color:var(--dim) }
+  .sec-head h2 { margin:0 } section > h2 { margin-bottom:12px }
+  .tag { font-size:12px; color:var(--ok); background:var(--ok-soft); padding:2px 9px; border-radius:999px }
+  label { display:block; font-size:12px; color:var(--dim); margin:12px 0 5px }
+  input, textarea, select { width:100%; background:#0b0d12; color:var(--ink); border:1px solid var(--line); border-radius:9px; padding:9px 11px; font:14px var(--sans); outline:none; transition:border-color .15s }
+  input:focus, textarea:focus, select:focus { border-color:var(--acc) }
   textarea { min-height:96px; resize:vertical }
+  #questions { font:13px var(--mono) }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
-  .kinds { display:flex; gap:6px; margin-top:6px }
-  .kinds button { flex:1 }
-  button { background:#1f2433; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:9px 14px; cursor:pointer; font-size:14px }
-  button.primary { background:var(--acc); color:#0b0e17; border-color:var(--acc); font-weight:600 }
-  button.sel { border-color:var(--acc); color:var(--acc) }
-  button:disabled { opacity:.5; cursor:default }
+  button { background:var(--panel2); color:var(--ink); border:1px solid var(--line2); border-radius:9px; padding:9px 14px; cursor:pointer; font:500 14px var(--sans); transition:background .15s, border-color .15s, color .15s }
+  button:hover:not(:disabled) { border-color:#3c4458; background:#202533 }
+  button.primary { background:var(--acc); color:#0b0e17; border-color:var(--acc); font-weight:650 }
+  button.primary:hover:not(:disabled) { background:#8fb2fa; border-color:#8fb2fa }
+  button.ghost { background:transparent; border-color:transparent; color:var(--dim) } button.ghost:hover:not(:disabled) { color:var(--ink); background:var(--panel2) }
+  button.sm { padding:6px 12px; font-size:13px }
+  button.wide { width:100% }
+  button:disabled { opacity:.45; cursor:default }
+  .seg { display:flex; background:#0b0d12; border:1px solid var(--line); border-radius:10px; padding:3px; gap:3px }
+  .seg button { flex:1; border:0; background:transparent; color:var(--dim); padding:7px 10px; font-size:13px; border-radius:7px }
+  .seg button:hover:not(:disabled) { background:var(--panel2); color:var(--ink) }
+  .seg button.sel, .seg button.sel:hover { background:var(--panel2); color:var(--ink); box-shadow:0 0 0 1px var(--line2) inset }
+  .kinds { margin-top:2px }
   .out { margin-top:14px; font:13px var(--mono); white-space:pre-wrap; word-break:break-word; color:#c8cde0 }
-  .bar { display:grid; grid-template-columns: 120px 1fr 56px; gap:8px; align-items:center; margin:4px 0; font:13px var(--mono) }
-  .bar i { display:block; height:10px; background:var(--acc); border-radius:4px }
-  .bar b { text-align:right; font-weight:400 }
-  .big { font-size:34px; font-weight:600; margin:6px 0 2px } .big small { font-size:13px; color:var(--dim); font-weight:400; margin-left:8px }
-  .note { color:var(--dim); font-size:13px } .err { color:var(--bad) } .good { color:var(--ok) }
-  .kv { display:grid; grid-template-columns: 110px 1fr; gap:4px 10px; font:13px var(--mono); margin-top:6px }
-  .kv span:nth-child(odd) { color:var(--dim) }
+  .out:empty { display:none }
+  .bar { display:grid; grid-template-columns: minmax(70px,120px) 1fr 56px; gap:10px; align-items:center; margin:6px 0; font-size:13px; font-family:var(--sans) }
+  .bar > span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dim) }
+  .bar > span:nth-child(2) { background:#0b0d12; border-radius:5px; height:10px; overflow:hidden }
+  .bar i { display:block; height:10px; background:var(--acc); border-radius:5px }
+  .bar b { text-align:right; font-weight:500; font-variant-numeric:tabular-nums }
+  .big { font:650 34px var(--sans); margin:6px 0 4px; letter-spacing:-.5px } .big small { font-size:13px; color:var(--dim); font-weight:400; margin-left:8px; letter-spacing:0 }
+  .note { color:var(--dim); font-size:13px; font-family:var(--sans); line-height:1.55 } .err { color:var(--bad) } .good { color:var(--ok) }
+  .msg { margin-top:12px; padding:10px 12px; border-radius:10px; font:13px/1.45 var(--sans); background:var(--acc-soft); color:#c5d4f7; border:1px solid rgba(122,162,247,.25) }
+  .msg.err { background:var(--bad-soft); color:#f6a6b5; border-color:rgba(247,118,142,.3) }
+  .msg.good { background:var(--ok-soft); color:#bfe09a; border-color:rgba(158,206,106,.3) }
+  .msg:empty { display:none }
+  .price { display:flex; align-items:baseline; gap:8px; margin-bottom:14px }
+  .price b { font-size:26px; font-weight:650; letter-spacing:-.4px } .price span { color:var(--dim); font-size:13px }
+  .wallet { display:flex; align-items:center; gap:12px; padding:12px; border:1px solid var(--line); border-radius:12px; background:#11141c; margin-bottom:14px }
+  .wl-av { width:34px; height:34px; border-radius:50%; flex:none; background:var(--line2) }
+  .wl-txt { flex:1; min-width:0 }
+  .wl-addr { font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .wl-sub { font-size:12px; color:var(--dim); display:flex; align-items:center; gap:6px; flex-wrap:wrap }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--faint); display:inline-block }
+  .dot.on { background:var(--ok) } .dot.half { background:var(--warn) }
+  .wl-act { display:flex; gap:6px; flex:none }
+  .pane { margin-top:12px }
+  .bal { display:flex; justify-content:space-between; align-items:baseline; margin:12px 0 10px; font-size:13px; color:var(--dim) }
+  .bal b { color:var(--ink); font-size:18px; font-weight:600; font-variant-numeric:tabular-nums }
+  .amounts { display:grid; grid-template-columns:repeat(3,1fr) 1.3fr; gap:6px; margin-bottom:8px }
+  .amounts button { padding:8px 0; font-size:13px }
+  .amounts button.sel { border-color:var(--acc); color:var(--acc); background:var(--acc-soft) }
+  .amt { position:relative } .amt span { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--dim); font-size:13px }
+  .amt input { padding:8px 8px 8px 20px; font-size:13px }
+  details.fine { margin-top:14px; border-top:1px solid var(--line); padding-top:10px; font-size:12px; color:var(--dim) }
+  details.fine summary { cursor:pointer; list-style:none; user-select:none } details.fine summary::-webkit-details-marker { display:none }
+  details.fine summary::before { content:'\25B8'; display:inline-block; margin-right:6px; transition:transform .15s } details.fine[open] summary::before { transform:rotate(90deg) }
+  .fine-grid { display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 12px; margin-top:8px; align-items:center }
+  .fine-grid code { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; cursor:pointer }
   a { color:var(--acc) }
-  code { font:12px var(--mono); background:#0c0e14; padding:2px 5px; border-radius:5px }
-  .tabs { display:flex; gap:4px; margin-bottom:10px } .tabs button { padding:6px 10px; font-size:13px }
-  .hide { display:none }
-  footer { max-width:1100px; margin:0 auto; padding:10px 20px 30px; color:var(--dim); font-size:12px }
+  code { font:12px var(--mono); background:#0b0d12; padding:2px 6px; border-radius:5px; word-break:break-all }
+  pre.snip { margin:10px 0 0; padding:12px; background:#0b0d12; border:1px solid var(--line); border-radius:10px; font:12px/1.55 var(--mono); color:#c8cde0; overflow-x:auto; white-space:pre }
+  .tools { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px } .tools code { word-break:normal; color:var(--dim) }
+  .hide { display:none !important }
+  footer { max-width:1120px; margin:0 auto; padding:6px 24px 34px; color:var(--faint); font-size:12px; line-height:1.6 }
 </style>
 </head>
 <body>
@@ -54,7 +95,7 @@
 <main>
   <section>
     <h2>Ask</h2>
-    <div class="kinds">
+    <div class="seg kinds">
       <button data-kind="noul" class="sel">yes / no</button>
       <button data-kind="choice">choice</button>
       <button data-kind="score">score</button>
@@ -92,37 +133,49 @@
 
   <aside style="display:grid; gap:18px; align-content:start">
     <section>
-      <h2>Pay · no account, no KYC</h2>
-      <div class="note" id="paynote">Loading the price…</div>
-      <div class="row" style="margin-top:10px">
-        <button id="connect">Connect wallet</button>
-        <button id="signin" disabled>Sign in</button>
-        <button id="signout" class="hide">Sign out</button>
-      </div>
-      <div class="kv" id="who"></div>
-      <div class="tabs" style="margin-top:12px">
-        <button id="tab-percall" class="sel">Pay per call</button>
-        <button id="tab-credits">Credits</button>
-      </div>
-      <div id="p-percall" class="note">
-        Each question is paid as you ask it: the server answers 402, your wallet signs a USDC transfer for exactly the price (an EIP-3009 authorization — no gas, nothing moves until the facilitator settles it), and the question runs. Nothing is stored about you but the on-chain transfer.
-      </div>
-      <div id="p-credits" class="hide">
-        <div class="note">Prepay once, then each question costs one signature and no transaction. Credits belong to the paying address; spending them needs a sign-in (a signed token) for that address.</div>
-        <div class="row" style="margin-top:8px">
-          <input id="topup" type="number" step="0.05" min="0.25" value="1" style="width:110px">
-          <button id="dotopup">Top up USDC</button>
-          <span class="note" id="bal"></span>
+      <div class="sec-head"><h2>Pay</h2><span class="tag">no account · no KYC</span></div>
+      <div class="price" id="paynote"><b>…</b></div>
+      <div class="wallet">
+        <div class="wl-av" id="wl-av"></div>
+        <div class="wl-txt">
+          <div class="wl-addr" id="wl-addr">No wallet connected</div>
+          <div class="wl-sub" id="wl-sub">Any EVM wallet with USDC</div>
+        </div>
+        <div class="wl-act">
+          <button id="connect" class="primary sm">Connect</button>
+          <button id="signin" class="sm hide">Sign in</button>
+          <button id="signout" class="ghost sm hide">Sign out</button>
         </div>
       </div>
-      <div class="out" id="payout"></div>
+      <div class="seg">
+        <button id="tab-percall" class="sel">Pay per question</button>
+        <button id="tab-credits">Prepaid credits</button>
+      </div>
+      <div id="p-percall" class="pane note">
+        Your wallet signs a USDC payment for exactly the price each time you ask. No gas, and you are only charged if an answer comes back.
+      </div>
+      <div id="p-credits" class="pane hide">
+        <div class="note">Top up once, then ask without a wallet popup each time. Sign in with the same wallet to spend them.</div>
+        <div class="bal"><span>Your balance</span><b id="bal">$0</b></div>
+        <div class="amounts" id="amounts">
+          <button data-amt="1" class="sel">$1</button><button data-amt="5">$5</button><button data-amt="10">$10</button>
+          <div class="amt"><span>$</span><input id="topup" type="number" step="0.05" min="0.25" value="1" aria-label="custom amount"></div>
+        </div>
+        <button id="dotopup" class="primary wide">Add $1 in credits</button>
+      </div>
+      <div class="msg" id="payout"></div>
+      <details class="fine">
+        <summary>Payment details</summary>
+        <div class="fine-grid" id="fine"></div>
+      </details>
     </section>
 
     <section>
       <h2>Use it from code</h2>
       <div class="note">Same API, three spellings — the mod protocol's URL rule:</div>
-      <div class="out" id="snippet"></div>
-      <div class="note" style="margin-top:8px">MCP: <code id="mcpurl"></code> · tools <code>jev_noul jev_choice jev_score jev_ask jev_models jev_price jev_balance jev_encode</code></div>
+      <pre class="snip" id="snippet"></pre>
+      <div class="note" style="margin-top:12px">MCP <code id="mcpurl"></code></div>
+      <div class="tools"><code>jev_noul</code><code>jev_choice</code><code>jev_score</code><code>jev_ask</code><code>jev_models</code><code>jev_price</code><code>jev_balance</code><code>jev_encode</code></div>
     </section>
 
     <section>
@@ -141,34 +194,59 @@ let price = null, wallet = null, token = localStorage.getItem('jev.token') || ''
 
 function j(x) { return JSON.stringify(x, null, 2); }
 function show(el, text, cls) { el.className = 'out' + (cls ? ' ' + cls : ''); el.textContent = text; }
+function say(text, cls) { const el = $('payout'); el.className = 'msg' + (cls ? ' ' + cls : ''); el.textContent = text; }
+function friendly(e) {
+  const m = String((e && e.message) || e || '');
+  if ((e && e.code === 4001) || /reject|denied|cancel/i.test(m)) return 'Cancelled in your wallet. Nothing was paid.';
+  if (e && e.code === -32002) return 'Your wallet already has a request open. Check the wallet window.';
+  return m || 'Something went wrong.';
+}
+function short(a) { return a ? a.slice(0, 6) + '…' + a.slice(-4) : ''; }
+function avatar(a) { const h = parseInt(a.slice(2, 8), 16) % 360, h2 = (h + 70) % 360; return `linear-gradient(135deg, hsl(${h} 70% 62%), hsl(${h2} 65% 48%))`; }
 function authHeaders() { return token ? { 'token': token } : {}; }
 
 // ── identity: a mod-protocol token is a wallet signature over {data,time} ──
 async function connect() {
-  if (!window.ethereum) { show($('payout'), 'No browser wallet found. Install one (any EVM wallet) and hold USDC on Base.', 'err'); return; }
-  const [addr] = await window.ethereum.request({ method: 'eth_requestAccounts' });
-  wallet = addr; $('signin').disabled = false; $('connect').textContent = addr.slice(0, 6) + '…' + addr.slice(-4);
+  if (!window.ethereum) { say('No browser wallet found. Install any EVM wallet (MetaMask, Rabby, Coinbase) with USDC on Base.', 'err'); return; }
+  try {
+    const [addr] = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    wallet = addr; say('');
+  } catch (e) { say(friendly(e), 'err'); }
   whoami();
 }
 async function signin() {
+  if (!wallet) await connect();
+  if (!wallet) return;
+  try { await doSignin(); say('Signed in. Credits on this wallet can now be spent.', 'good'); } catch (e) { say(friendly(e), 'err'); }
+}
+async function doSignin() {
   const time = Math.floor(Date.now() / 1000).toString();
   const msg = JSON.stringify({ data: 'jev', time });
   const sig = await window.ethereum.request({ method: 'personal_sign', params: [msg, wallet] });
   const claim = { data: 'jev', time, key: wallet, signature: sig };
   token = btoa(JSON.stringify(claim)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   localStorage.setItem('jev.token', token);
-  $('signout').classList.remove('hide');
   whoami();
 }
-function signout() { token = ''; localStorage.removeItem('jev.token'); $('signout').classList.add('hide'); whoami(); }
+function signout() { token = ''; localStorage.removeItem('jev.token'); say(''); whoami(); }
 async function whoami() {
   const r = await fetch(API('whoami'), { headers: authHeaders() }).then(r => r.json()).catch(() => ({}));
-  const kv = $('who'); kv.innerHTML = '';
-  const rows = [['wallet', wallet || '—'], ['signed in', r.kind === 'wallet' ? r.id : 'no'], ['pays', r.pays ? 'yes' : 'no (free here)']];
-  if (r.credits) rows.push(['credits', `$${r.credits.usd} (${r.credits.questions} questions)`]);
-  for (const [k, v] of rows) { kv.insertAdjacentHTML('beforeend', `<span>${k}</span><span>${v}</span>`); }
-  $('bal').textContent = r.credits ? `balance $${r.credits.usd}` : '';
-  if (r.kind === 'wallet') $('signout').classList.remove('hide');
+  const signed = r.kind === 'wallet' ? r.id : '';
+  const addr = wallet || signed;
+  const usd = r.credits ? Number(r.credits.usd) : 0;
+  $('wl-addr').textContent = addr ? short(addr) : 'No wallet connected';
+  $('wl-addr').title = addr || '';
+  $('wl-av').style.background = addr ? avatar(addr) : '';
+  let sub;
+  if (!addr) sub = r.pays === false ? '' : 'Any EVM wallet with USDC';
+  else if (signed) sub = `<span class="dot on"></span>Signed in${usd ? ` · $${usd} credit` : ''}`;
+  else sub = '<span class="dot half"></span>Connected · not signed in';
+  if (r.pays === false) sub += `${sub ? ' · ' : ''}<span class="good">free for you on this node</span>`;
+  $('wl-sub').innerHTML = sub;
+  $('connect').classList.toggle('hide', !!addr);
+  $('signin').classList.toggle('hide', !addr || !!signed);
+  $('signout').classList.toggle('hide', !signed);
+  $('bal').textContent = `$${usd}` + (r.credits ? ` · ${r.credits.questions} questions` : '');
 }
 
 // ── x402: sign the 402's offer with the wallet, retry with X-PAYMENT ──
@@ -212,8 +290,10 @@ async function call(fn, body, extraHeaders) {
   if (r.status === 402) {
     const req = await r.json();
     if (!window.ethereum) { return { status: 402, body: req }; }
-    show($('payout'), `Payment required: $${req.price.usd} USDC (${req.price.questions || 1} question${(req.price.questions || 1) > 1 ? 's' : ''}). Sign it in your wallet…`);
-    const p = await payHeader(req);
+    say(`Approve $${req.price.usd} USDC in your wallet to get the answer…`);
+    let p;
+    try { p = await payHeader(req); } catch (e) { say(friendly(e), 'err'); throw new Error('Not paid, so not asked.'); }
+    say('');
     r = await fetch(API(fn), { method: 'POST', headers: { ...headers, 'X-PAYMENT': p.header }, body: JSON.stringify(body) });
   }
   const out = await r.json();
@@ -229,7 +309,7 @@ function nQuestions() { if (kind !== 'ask') return 1; try { return Object.keys(J
 function cost() { if (!price) return; const n = nQuestions(); $('cost').textContent = price.enabled ? `$${(n * price.price_usd).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')} USDC · ${n} question${n > 1 ? 's' : ''}` : 'free on this node'; }
 
 async function ask() {
-  $('go').disabled = true; show($('out'), 'Asking…');
+  $('go').disabled = true; $('out').className = 'out'; $('out').innerHTML = '<div class="note">Asking…</div>';
   try {
     let fn = kind, body = { state: stateVal() };
     const model = $('model').value; if (model) body.model = model;
@@ -239,7 +319,7 @@ async function ask() {
     if (kind === 'score') body.levels = list($('levels').value);
     const r = await call(fn, body);
     render(r);
-  } catch (e) { show($('out'), String(e.message || e), 'err'); }
+  } catch (e) { $('out').className = 'out'; $('out').innerHTML = `<div class="msg err"></div>`; $('out').firstChild.textContent = friendly(e); }
   $('go').disabled = false; whoami();
 }
 
@@ -256,7 +336,10 @@ function one(a) {
 function render(r) {
   const b = r.body, out = $('out'); out.className = 'out';
   if (r.status >= 400 || b.error) {
-    out.innerHTML = `<div class="err">${b.error || 'error'} ${b.code ? `(${b.code})` : ''}</div>` + (b.accepts ? `<div class="note" style="margin-top:6px">This node charges $${b.price.usd} USDC for that. Connect a wallet above to pay per call, or top up credits.</div>` : '');
+    const why = b.accepts ? `This costs $${b.price.usd} USDC. Connect a wallet in the Pay panel, or use prepaid credits.`
+      : b.code === 'invalid_config' ? 'This node has no TypeSafe API key yet, so it cannot answer. You were not charged.'
+      : `${b.error || 'Something went wrong.'}${b.code ? ` (${b.code})` : ''}`;
+    out.innerHTML = `<div class="msg err">${why}</div>`;
     return;
   }
   let html = '';
@@ -272,16 +355,23 @@ function render(r) {
 // ── credits ──
 async function topup() {
   const usd = Number($('topup').value || 0);
-  if (!price || usd < price.min_topup_usd) { show($('payout'), `Minimum top-up is $${price ? price.min_topup_usd : '?'}`, 'err'); return; }
+  if (!price || usd < price.min_topup_usd) { say(`The smallest top-up is $${price ? price.min_topup_usd : '?'}.`, 'err'); return; }
+  $('dotopup').disabled = true;
   try {
     const req = await fetch(API('topup'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
-    show($('payout'), `Sign a $${usd} USDC transfer in your wallet…`);
+    say(`Approve $${usd} USDC in your wallet…`);
     const p = await payHeader(req, Math.round(usd * 1e6));
     const r = await fetch(API('topup'), { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PAYMENT': p.header }, body: '{}' });
     const out = await r.json();
-    show($('payout'), r.ok ? `Credited $${out.credited_usd} to ${out.address} (${out.questions} questions). ${token ? '' : 'Sign in with that wallet to spend them.'}` : (out.error || j(out)), r.ok ? 'good' : 'err');
+    say(r.ok ? `Added $${out.credited_usd} (${out.questions} questions) to ${short(out.address)}.${token ? '' : ' Sign in with that wallet to spend them.'}` : (out.error || 'The top-up did not go through.'), r.ok ? 'good' : 'err');
     whoami();
-  } catch (e) { show($('payout'), String(e.message || e), 'err'); }
+  } catch (e) { say(friendly(e), 'err'); }
+  $('dotopup').disabled = false;
+}
+function setAmount(v, fromInput) {
+  if (!fromInput) $('topup').value = v;
+  document.querySelectorAll('#amounts button').forEach(b => b.classList.toggle('sel', Number(b.dataset.amt) === Number(v)));
+  $('dotopup').textContent = Number(v) > 0 ? `Add $${Number(v)} in credits` : 'Add credits';
 }
 
 // ── boot ──
@@ -291,13 +381,17 @@ async function boot() {
     $('chip-price').textContent = price.enabled ? `$${price.price_usd} / question · USDC` : 'free';
     $('chip-pay').textContent = price.enabled ? price.networks.map(n => n.network).join(' · ') : 'no charge';
     $('chip-pay').className = 'chip ' + (price.enabled ? 'on' : 'off');
-    $('paynote').innerHTML = price.enabled
-      ? `Each question costs <b>$${price.price_usd} USDC</b> on ${price.networks.map(n => n.network).join(', ')}, paid to <code>${price.pay_to}</code>. Settled by <code>${price.facilitator.replace(/^https?:\/\//, '')}</code>. No account, no KYC.`
-      : 'This node does not charge: ask away.';
+    const nets = price.networks.map(n => n.network[0].toUpperCase() + n.network.slice(1)).join(', ');
+    $('paynote').innerHTML = price.enabled ? `<b>$${price.price_usd}</b><span>per question · USDC on ${nets}</span>` : '<b>Free</b><span>this node does not charge</span>';
+    const fine = [['Paid to', price.pay_to], ['Settled by', price.facilitator.replace(/^https?:\/\//, '')], ['Min top-up', `$${price.min_topup_usd}`], ['Max per call', `${price.max_questions} questions`]];
+    $('fine').innerHTML = fine.map(([k, v]) => `<span>${k}</span><code title="${v} (click to copy)">${v}</code>`).join('');
+    $('fine').querySelectorAll('code').forEach(c => c.onclick = () => { navigator.clipboard && navigator.clipboard.writeText(c.textContent); say('Copied.', 'good'); });
+    $('topup').min = price.min_topup_usd;
   }
   const st = await fetch(API('health')).then(r => r.json()).catch(() => ({}));
   const info = await fetch(API('info')).then(r => r.json()).catch(() => ({}));
-  $('chip-key').textContent = info.key_present ? `key set · ${info.default_model}` : 'no TYPESAFE_API_KEY on this node';
+  $('chip-key').textContent = info.key_present ? `live · ${info.default_model}` : 'answers offline · no API key';
+  $('chip-key').title = info.key_present ? '' : 'The operator has not set TYPESAFE_API_KEY, so questions cannot be answered yet. Nobody is charged.';
   $('chip-key').className = 'chip ' + (info.key_present ? 'on' : 'off');
   const origin = location.origin;
   $('snippet').textContent = `curl -X POST ${origin}${BASE}/api/noul -H 'content-type: application/json' \\
@@ -311,9 +405,11 @@ async function boot() {
   if (m.models) {
     $('models').textContent = m.models.map(x => `${x.name}${x.release_date ? '  ' + String(x.release_date).slice(0, 10) : ''}\n  ${x.description || ''}`).join('\n');
     for (const x of m.models) { const o = document.createElement('option'); o.value = x.name; o.textContent = x.name; $('model').appendChild(o); }
-  } else $('models').textContent = m.error ? `${m.error} (${m.code})` : 'unavailable';
+  } else { $('models').className = 'note'; $('models').textContent = m.code === 'invalid_config' ? 'Not available until the operator adds a TypeSafe API key.' : 'Model list unavailable right now.'; }
 }
 
+document.querySelectorAll('#amounts button').forEach(b => b.onclick = () => setAmount(b.dataset.amt));
+$('topup').oninput = () => setAmount($('topup').value, true);
 document.querySelectorAll('.kinds button').forEach(b => b.onclick = () => {
   kind = b.dataset.kind; document.querySelectorAll('.kinds button').forEach(x => x.classList.toggle('sel', x === b));
   $('f-single').classList.toggle('hide', kind === 'ask'); $('f-many').classList.toggle('hide', kind !== 'ask');
@@ -325,7 +421,7 @@ $('questions').oninput = cost;
 $('go').onclick = ask; $('connect').onclick = connect; $('signin').onclick = signin; $('signout').onclick = signout; $('dotopup').onclick = topup;
 $('tab-percall').onclick = () => { $('p-percall').classList.remove('hide'); $('p-credits').classList.add('hide'); $('tab-percall').classList.add('sel'); $('tab-credits').classList.remove('sel'); };
 $('tab-credits').onclick = () => { $('p-credits').classList.remove('hide'); $('p-percall').classList.add('hide'); $('tab-credits').classList.add('sel'); $('tab-percall').classList.remove('sel'); };
-if (token) $('signout').classList.remove('hide');
+if (window.ethereum) window.ethereum.request({ method: 'eth_accounts' }).then(a => { if (a && a[0]) { wallet = a[0]; whoami(); } }).catch(() => {});
 boot();
 </script>
 </body>

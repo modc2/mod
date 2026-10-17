@@ -174,3 +174,118 @@ def test_serve_api_roundtrip(tmp_path, monkeypatch):
     assert out['score'] == 5.0 and out['weights_source'] == 'm'
     serve.api('set_aggregator', {'subject': 'm', 'aggregator': 'weighted'})
     assert serve.api('aggregate', {'subject': 'm', 'ratings': [{'rater': 'a', 'kind': 'agent', 'score': 1}]})['aggregator'] == 'weighted' 
+
+
+# ── consensus aggregators ────────────────────────────────────────────
+
+def _five(store, subject='s'):
+    for i, sc in enumerate([1, 4, 4, 5, 5]):
+        store.rate(subject, f'r{i}', sc, 'human')
+
+
+def test_median_ignores_the_outlier(store):
+    _five(store)
+    assert store.score('s', 'median')['score'] == 4.0
+
+
+def test_trimmed_drops_both_tails(store):
+    _five(store)
+    out = store.score('s', 'trimmed')          # trim 0.2 of 5 → 1 off each end
+    assert out['score'] == round((4 + 4 + 5) / 3, 2) and out['trimmed'] == 2
+
+
+def test_consensus_weighs_dissent_down(store):
+    _five(store)
+    out = store.score('s', 'consensus')
+    w = {r['rater']: r['weight'] for r in out['breakdown']}
+    assert out['consensus'] == 4 and w['r0'] < w['r1'] == 1.0
+    assert out['score'] > store.score('s', 'mean')['score']
+
+
+def test_recent_fades_old_ratings():
+    now = 1_000_000_000
+    rs = [{'rater': 'old', 'score': 1, 'ts': now - 30 * 86400}, {'rater': 'new', 'score': 5, 'ts': now}]
+    out = reviews.aggregate(rs, 'recent', {'now': now, 'params': {'half_life_days': 30}})
+    assert [r['weight'] for r in out['breakdown']] == [0.5, 1.0]
+    assert out['score'] == round((0.5 + 5) / 1.5, 2)
+
+
+# ── the market ───────────────────────────────────────────────────────
+
+def test_publish_needs_a_known_base_and_a_free_id(store):
+    with pytest.raises(ValueError):
+        store.publish('mean', 'mean')                    # built-in id
+    with pytest.raises(ValueError):
+        store.publish('evil', 'staketime')               # not publishable (URL provider)
+    with pytest.raises(ValueError):
+        store.publish('x', 'trimmed', {'trim': 0.9})     # bad params
+    store.publish('harsh', 'consensus', {'k': 3}, author='0xA')
+    with pytest.raises(ValueError):
+        store.publish('harsh', 'mean')                   # no take-overs
+
+
+def test_published_aggregator_scores_with_its_params(store):
+    _five(store)
+    store.publish('agents-off', 'weighted', {'weights': {'by_rater': {'r0': 0}}})
+    out = store.score('s', 'agents-off')
+    assert out['aggregator'] == 'agents-off' and out['base'] == 'weighted'
+    assert out['score'] == 4.5 and out['weights_source'] == 'published:agents-off'
+    store.set_aggregator('s', 'agents-off')
+    assert store.score('s')['aggregator'] == 'agents-off'
+    store.retract('agents-off')
+    assert store.aggregator_for('s') == 'mean'
+
+
+def test_market_ranks_aggregators_by_their_own_ratings(store):
+    for i in range(3):
+        store.rate('agg:median', f'u{i}', 5)
+        store.rate('agg:mean', f'u{i}', 1)
+    m = store.market()['aggregators']
+    ids = [a['id'] for a in m]
+    assert ids[0] == 'median' and m[0]['rank'] == 1
+    mean = next(a for a in m if a['id'] == 'mean')
+    assert mean['standing'] == round((3 + 3 * 2) / 5, 3)
+    assert not next(a for a in m if a['id'] == 'market')['in_blend']
+
+
+def test_published_joins_blend_only_after_enough_ratings(store):
+    store.publish('p1', 'median')
+    get = lambda: next(a for a in store.market()['aggregators'] if a['id'] == 'p1')
+    assert not get()['in_blend']
+    for i in range(reviews.MIN_PUBLISHED_RATINGS):
+        store.rate('agg:p1', f'u{i}', 4)
+    assert get()['in_blend']
+
+
+def test_market_blend_is_the_weighted_consensus_of_aggregators(store):
+    _five(store)
+    out = store.score('s', 'market')
+    assert not out.get('fallback')
+    ids = {b['id'] for b in out['blend']}
+    assert {'mean', 'median', 'consensus'} <= ids and 'market' not in ids
+    assert abs(sum(b['share'] for b in out['blend']) - 1) < 1e-3
+    expect = sum(b['share'] * b['score'] for b in out['blend'])
+    assert abs(out['score'] - expect) < 0.02
+    assert abs(sum(r['share'] for r in out['breakdown']) - 1) < 1e-3
+
+
+def test_one_star_aggregator_drops_out_of_the_blend(store):
+    _five(store)
+    for i in range(20):
+        store.rate('agg:mean', f'u{i}', 1)
+    out = store.score('s', 'market')
+    mean = next((b for b in out['blend'] if b['id'] == 'mean'), None)
+    assert mean is None or mean['share'] < 0.05
+
+
+def test_api_market_and_publish_roundtrip(tmp_path, monkeypatch):
+    import serve
+    monkeypatch.setattr(serve, '_store', reviews.Store(str(tmp_path / 'r.db')))
+    serve.api('publish', {'id': 'soft', 'base': 'consensus', 'params': '{"k":0.5}'})
+    ids = [a['id'] for a in serve.api('market', {})['aggregators']]
+    assert 'soft' in ids and 'market' in ids
+    serve.api('rate', {'subject': 's', 'rater': 'a', 'score': 2})
+    assert serve.api('score', {'subject': 's', 'aggregator': 'soft'})['score'] == 2
+    out = serve.api('aggregate', {'ratings': [{'rater': 'a', 'score': 3}], 'aggregator': 'market'})
+    assert out['score'] == 3
+    assert 'retract' in serve.LOCAL_ONLY and 'publish' not in serve.LOCAL_ONLY

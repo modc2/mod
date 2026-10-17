@@ -45,6 +45,10 @@ class Polymarket(m.Mod):
         "search", "markets", "trending", "events",
         "active_traders", "sync", "forward", "backtests", "mcp",
         "build_cid", "publish_build", "build_onchain",
+        # tradekit/1 canonical surface (same names as hyperliquid)
+        "analyze_trader", "list_strats",
+        "live_start", "live_stop", "live_status",
+        "mcp_tools", "mcp_call", "mcp_config",
     ]
 
     api_port = 50091
@@ -678,6 +682,79 @@ class Polymarket(m.Mod):
                               "pm_live_sessions", "pm_live_gates"]}
         subprocess.run(argv, check=False)
         return {"ok": True}
+
+    def mcp_tools(self) -> Any:
+        """Compact tool list — name + first line of each description."""
+        return [{"name": n, "description": t["description"].split(". ")[0]}
+                for n, t in self._mcp_module().TOOLS.items()]
+
+    def mcp_call(self, tool: str, arguments: Optional[Dict[str, Any]] = None, **kwargs) -> Any:
+        """Invoke an MCP tool over the same JSON-RPC dispatch an MCP client
+        hits — so the live gate (POLYMARKET_MCP_ALLOW_LIVE) applies unchanged."""
+        msg = self._mcp_module().handle({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": tool, "arguments": dict(arguments or {}, **kwargs)}})
+        if "error" in msg:
+            raise RuntimeError(msg["error"].get("message", str(msg["error"])))
+        result = msg.get("result", {})
+        if result.get("isError"):
+            raise RuntimeError((result.get("content") or [{}])[0].get("text", "tool error"))
+        if "structuredContent" in result:
+            return result["structuredContent"]
+        text = (result.get("content") or [{}])[0].get("text", "")
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return text
+
+    def mcp_config(self) -> Dict[str, Any]:
+        """Client config snippets — stdio (owner by construction) and HTTP."""
+        script = os.path.join(SRC_DIR, "mcp.py")
+        return {
+            "stdio": {"command": "python3", "args": [script]},
+            "http": {"type": "http", "url": "http://127.0.0.1:50092/mcp",
+                     "headers": {"Authorization": "Bearer <owner token: python3 src/mcp.py --token>"}},
+            "add_cmd_stdio": f"claude mcp add polymarket -- python3 {script}",
+        }
+
+    # ── tradekit/1 canonical surface (same fn names as hyperliquid) ──
+    #
+    # Thin fronts over the MCP handlers above, so the console, an MCP agent
+    # and a mod-protocol caller all read and write the SAME copy desk with
+    # the SAME safety gates. top_traders/backtest_strats are config aliases
+    # (standard.aliases) for active_traders/backtests.
+
+    def analyze_trader(self, address: str, limit: int = 100) -> Any:
+        """One leader: recent trades, open positions, and how much of the flow
+        is sub-hour Up/Down candles the default time-to-close gate refuses."""
+        return self._mcp_module()._t_trader({"address": address, "limit": limit})
+
+    def list_strats(self) -> Any:
+        """The strats the console published to the background worker."""
+        return self._mcp_module()._t_strats({})
+
+    def live_start(self, eoa: str = "", address: str = "", auto_execute: bool = False) -> Any:
+        """Start copying the desk (every enabled trader, or just `address`).
+
+        DRY RUN unless auto_execute=True — and real execution is refused here
+        unless the deployment sets POLYMARKET_MCP_ALLOW_LIVE=1, so a human
+        flips the last switch in the browser."""
+        auto = auto_execute is True or str(auto_execute).lower() == "true"
+        args: Dict[str, Any] = {"eoa": eoa, "autoExecute": auto}
+        if address:
+            args["address"] = address
+        return self._mcp_module()._t_copy_start(args)
+
+    def live_stop(self, eoa: str = "", address: str = "") -> Any:
+        """Stop copying (one trader, or the whole desk). Never gated."""
+        args: Dict[str, Any] = {"eoa": eoa}
+        if address:
+            args["address"] = address
+        return self._mcp_module()._t_copy_stop(args)
+
+    def live_status(self, eoa: str = "") -> Any:
+        """Every live session on the wallet: mode, capital, leaders, balance."""
+        return self._mcp_module()._t_live_sessions({"eoa": eoa})
 
     # ── test ──────────────────────────────────────────────────────
 

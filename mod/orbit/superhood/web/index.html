@@ -57,12 +57,6 @@
   }
   .hdr-ctl select:hover, .hdr-ctl button:hover, #keys-panel button:hover { color: #fff; border-color: #45455e; }
   .hdr-ctl select { padding-right: 7px; }
-  #cid-chip { display: inline-flex; align-items: center; gap: 6px; text-transform: none; }
-  #cid-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: #55556a; }
-  #cid-chip[data-status="committed"] .dot { background: #4ad46a; }
-  #cid-chip[data-status="drifted"] .dot { background: #f0b030; }
-  #cid-chip[data-status="error"] .dot { background: #d44a4a; }
-  #cid-chip.copied #cid-hash::after { content: ' copied'; color: #f7d51d; }
   #stage { position: relative; }
   #keys-panel {
     position: fixed; inset: 0; z-index: 10;
@@ -133,7 +127,6 @@
     <span class="hdr-ctl">
       <select id="city" aria-label="city" title="city (left/right on the title screen)"></select>
       <button id="keys-btn" title="rebind the controls">Keys</button>
-      <button id="cid-chip" title="module source hash"><span class="dot"></span>CID <span id="cid-hash">…</span></button>
     </span>
   </header>
 

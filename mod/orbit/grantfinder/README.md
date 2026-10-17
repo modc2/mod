@@ -7,11 +7,20 @@ It starts with **open source** and **crypto**.
 lanes ──> Claude Code (WebSearch + WebFetch only) ──> {grants:[...]} ──> tagger ──> SQLite (merge by URL)
 ```
 
-- **Lanes** (`grantscan/lanes.py`) split the landscape into 12 slices. One lane is one agent run.
+Layout:
+
+```
+mod.py              CLI / mod protocol anchor (thin; calls into src/api)
+src/api/grantscan/  backend: lanes, agent, sweep, tags, store, server (stdlib REST)
+src/app/index.html  frontend: the web app, served by the API at /app
+test/               pytest, no network, no agent spend
+```
+
+- **Lanes** (`src/api/grantscan/lanes.py`) split the landscape into 12 slices. One lane is one agent run.
   - Open source: foundations, corporate funds, security, public/research money, AI, fellowships.
   - Crypto: Ethereum & L2s, other L1s, Bitcoin & privacy, public goods, DeFi, ZK research.
   - To add a category or lane, add a row.
-- **Agent** (`grantscan/agent.py`):
+- **Agent** (`src/api/grantscan/agent.py`):
   - Spawned from `orbit/claudecode`'s `harness` spec (bin, base args, model and system-prompt flags), so a CLI flag change made there applies here too.
   - Fenced on top of that spec:
     - `--tools WebSearch,WebFetch`: no shell, no file access.
@@ -19,14 +28,14 @@ lanes ──> Claude Code (WebSearch + WebFetch only) ──> {grants:[...]} ─
     - `--json-schema`: the answer must be validated records.
     - `--max-budget-usd`: a cap per lane.
   - It is told to read each program's **official** page and to record the page it used as `evidence_url`.
-- **Tags** (`grantscan/tags.py`): the agent's tags are normalised, and a keyword scan adds the tags the record supports. Tags are grouped as:
+- **Tags** (`src/api/grantscan/tags.py`): the agent's tags are normalised, and a keyword scan adds the tags the record supports. Tags are grouped as:
   - `category`: open-source, crypto
   - `ecosystem`: ethereum, solana, bitcoin, ...
   - `topic`: zk, security, public-goods, ai, ...
   - `mechanism`: retroactive, quadratic, bounty, fellowship, ...
   - `status-*`
   - `amount-*` buckets
-- **Store** (`grantscan/store.py`): `~/.mod/grantfinder/grants.db`.
+- **Store** (`src/api/grantscan/store.py`): `~/.mod/grantfinder/grants.db`.
   - When the same program is found again, its record merges: newer fields win, and tags and lanes are combined.
   - Every agent run is logged with its cost and the searches and fetches it made.
 

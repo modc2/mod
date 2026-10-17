@@ -62,6 +62,9 @@ export const DEFAULT_MOVE_TIMEOUT_MS = 60_000;
  *  coding game nobody could just sit down at. */
 export const CODE_MOVE_TIMEOUT_MS = 300_000;
 export const WASM_MOVE_TIMEOUT_MS = 5_000;
+// A protocol agent is a whole run of the agent module per move — its own
+// persona and model on a shared local runtime — so it gets three minutes.
+export const AGENT_MOVE_TIMEOUT_MS = 180_000;
 
 /** The server, seen from wherever this is running. */
 export function makeApi(base = "") {
@@ -214,7 +217,8 @@ export async function driverFor(player, { api, seed, onEvent, mcp = null, answer
     // A player card carries what it asked for at the top level; `config` is
     // only there when a caller built the record itself.
     timeout: player.timeout_ms ?? player.config?.timeout_ms
-      ?? (answer === "code" ? CODE_MOVE_TIMEOUT_MS : DEFAULT_MOVE_TIMEOUT_MS),
+      ?? (answer === "code" ? CODE_MOVE_TIMEOUT_MS
+        : kind === "agent_mod" ? AGENT_MOVE_TIMEOUT_MS : DEFAULT_MOVE_TIMEOUT_MS),
     async move(view, seat) {
       // `answer` is the game's own word for what a move is — a coding game
       // wants a whole function, so the server asks for one and reads the whole

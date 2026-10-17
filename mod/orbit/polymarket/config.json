@@ -16,6 +16,7 @@
         "status",
         "build",
         "logs",
+        "test",
         "search",
         "markets",
         "trending",
@@ -24,7 +25,18 @@
         "sync",
         "forward",
         "backtests",
-        "mcp"
+        "mcp",
+        "build_cid",
+        "publish_build",
+        "build_onchain",
+        "analyze_trader",
+        "list_strats",
+        "live_start",
+        "live_stop",
+        "live_status",
+        "mcp_tools",
+        "mcp_call",
+        "mcp_config"
     ],
     "endpoints": {
         "/health": {
@@ -148,7 +160,7 @@
             "docs": "AUTO STRAT \u2014 the strat factory (served by the Next app, owner-gated). One run: a headless claude agent invents a copy-index recipe off the live leaderboard (it can only pick addresses actually on the board \u2014 the roster is the whitelist), the lab bench replays it over 1/3/7 days, and the result REGISTERS twice: as a paused strat the sidebar adopts (clicked runs always; loop runs only when they beat the bench bar) and as a generated Python Strat class in polymarket-user-strats/<id>/mod.py that runs standalone as its own MCP server (strat_info/strat_signal/strat_backtest/strat_state \u2014 read-only by design). GET returns settings + the run in flight + recent runs; POST {enabled, intervalSecs} flips the server-side loop (default 60s, OFF until a human enables it \u2014 every run spends inference); POST ?run=1 {theme?} is the console's RANDOM NEW STRAT. Nothing here ever starts a live session."
         }
     },
-    "schema": "QmQGVB9D7CqUKdQQoKSwmXfA1Xs3uCYtJnn4fWX7h1Bg6z",
+    "schema": "Qmc7SLxPooEemB3jhsiFFEhsNTLqVgo6PYZpmQnUJ14uu4",
     "gateway_port": 3091,
     "mcp": {
         "stdio": "python3 src/mcp.py",
@@ -177,6 +189,22 @@
             "pm_live_gates"
         ],
         "docs": "The COPY DESK's other front end. pm_copy_* call the SAME /copy/* routes the browser calls \u2014 one server-owned copy book, two clients \u2014 so an agent and a person are looking at the same desk: read it (pm_copy_book), replay copying ONE trader with its walk-forward verdict and entry funnel (pm_copy_backtest), size a whole SET of them against each other \u2014 different amount per trader, one portfolio, with the legs that never traded and the dollars idle in them called out (pm_copy_basket), see what the copying actually DID \u2014 their trades against my fills, with the coverage/lag/slippage that judges it, filtered in plain language (pm_copy_trades), put dollars against a name, optionally gated to one slice of their flow (pm_copy_allocate params:{marketQuery,tradeFilters}), split a bankroll (pm_copy_rebalance), start and stop (pm_copy_start/stop). Plus research (markets, leaderboard, one leader's sub-hour candle share) and diagnosis (live sessions, the gate tally that says why a running session isn't filling). SAFETY: no order-placing tool by design; pm_copy_start DEFAULTS TO DRY RUN and refuses real execution unless POLYMARKET_MCP_ALLOW_LIVE=1, so a human flips the last switch in the browser. Re-sizing a session a human already flipped live (pm_copy_allocate/pm_copy_rebalance) goes through the same gate. Stopping is always allowed. The HTTP transport is owner-token authenticated and loopback-bound by default.",
-        "auth": "stdio needs nothing (the caller already runs as the owner). HTTP requires `Authorization: Bearer <owner token>` on every POST \u2014 the same token the console's sign-in issues; mint one with `python3 src/mcp.py --token`. It binds 127.0.0.1 unless POLYMARKET_MCP_HTTP_HOST widens it."
+        "auth": "stdio needs nothing (the caller already runs as the owner). HTTP requires `Authorization: Bearer <owner token>` on every POST \u2014 the same token the console's sign-in issues; mint one with `python3 src/mcp.py --token`. It binds 127.0.0.1 unless POLYMARKET_MCP_HTTP_HOST widens it.",
+        "tool_prefix": "pm_"
+    },
+    "ports": {
+        "api": 50091,
+        "app": 3091
+    },
+    "standard": {
+        "spec": "tradekit/1",
+        "venue": "Polymarket",
+        "currency": "USDC",
+        "symbol": "outcome token of a market",
+        "reference": "hyperliquid",
+        "aliases": {
+            "top_traders": "active_traders",
+            "backtest_strats": "backtests"
+        }
     }
 }

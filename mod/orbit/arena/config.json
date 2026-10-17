@@ -10,6 +10,7 @@
     "gateway_port": 50470,
     "base_path": "/arena",
     "route": true,
+    "always_on": true,
     "urls": {
         "api": "http://localhost:50470",
         "app": "http://localhost:50470/arena",

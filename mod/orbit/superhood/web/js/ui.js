@@ -1,6 +1,6 @@
-/* ui.js — the page around the canvas: the KEYS panel, the city picker and
- * the CID chip. Everything here talks to the game through window.HOOD, which
- * game.js defines before this file runs.
+/* ui.js — the page around the canvas: the KEYS panel and the city picker.
+ * Everything here talks to the game through window.HOOD, which game.js
+ * defines before this file runs.
  */
 (function (global) {
   'use strict';
@@ -134,51 +134,4 @@
   global.addEventListener('keyup', swallow, true);
 
   H.onBinds(function (b) { if (panel.hidden) paintHints(b); else render(b); });
-
-  /* ── CID ────────────────────────────────────────────────────────────── */
-
-  var chip = $('cid-chip'), full = null;
-
-  function copy(s) {
-    if (navigator.clipboard && global.isSecureContext)
-      return navigator.clipboard.writeText(s);
-    var t = el('textarea');                 // plain-http fallback
-    t.value = s;
-    document.body.appendChild(t);
-    t.select();
-    try { document.execCommand('copy'); } catch (e) {}
-    document.body.removeChild(t);
-    return Promise.resolve();
-  }
-
-  chip.addEventListener('click', function () {
-    if (!full) return;
-    copy(full).then(function () {
-      chip.classList.add('copied');
-      setTimeout(function () { chip.classList.remove('copied'); }, 1200);
-    });
-  });
-
-  // 'cid' resolves against the <base> index.html pinned: /superhood/cid
-  fetch('cid', { cache: 'no-store' })
-    .then(function (r) { return r.json(); })
-    .then(function (j) {
-      var c = j.result || j;
-      if (!c.cid) throw new Error(c.error || 'no cid');
-      full = c.cid;
-      H.setCid(full);
-      $('cid-hash').textContent = full.slice(0, 10) + '…';
-      chip.dataset.status = c.status || 'uncommitted';
-      chip.title = 'module source hash (sha256, same walk as the node root hash)\n' +
-        full + '\n' + (c.status === 'committed'
-          ? 'matches the committed node root'
-          : c.status === 'drifted'
-            ? 'differs from the committed node root (' + (c.committed || '').slice(0, 10) + '…)'
-            : 'not in a committed node root yet') +
-        '\n' + c.n_files + ' files · click to copy';
-    })
-    .catch(function () {
-      $('cid-hash').textContent = 'unavailable';
-      chip.dataset.status = 'error';
-    });
 })(window);

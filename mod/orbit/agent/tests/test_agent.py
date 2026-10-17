@@ -33,7 +33,7 @@ from src.memory.memory import Memory
 from src.memory.registry import Memories
 from src.toolbox.mod import Toolboxes
 
-BUILTIN_COUNT = 27  # 23 that act on the world + recall/remember/toolbox, which
+BUILTIN_COUNT = 28  # 24 that act on the world + recall/remember/toolbox, which
                     # act on the agent's own sub-components, + make_agent
 # shipped agents. Custom agents live in the same directory, so counts are
 # lower bounds — a host with their own agents installed still passes.
@@ -87,7 +87,7 @@ class TestBuiltinRegistry:
         names = builtin.ls()
         assert len(names) == BUILTIN_COUNT
         for expected in ["bash", "read", "write", "edit", "glob", "grep",
-                         "search", "task", "websurf", "claudecode"]:
+                         "search", "task", "websurf", "scrape", "claudecode"]:
             assert expected in names
 
     def test_get_returns_instance(self, builtin):
@@ -2580,7 +2580,7 @@ class TestAgentSnap:
     def test_snap_union(self, agent):
         agent.snap("vcs")
         agent.snap("web")
-        assert set(agent.active_tools()) == {"git", "diff", "fetch", "websurf"}
+        assert set(agent.active_tools()) == {"git", "diff", "search", "fetch", "websurf", "scrape"}
 
     def test_unsnap(self, agent):
         agent.snap("vcs")
@@ -4285,6 +4285,28 @@ class TestLfmProviders:
     def test_balance_reports_free_rather_than_an_error(self):
         assert self._mod().balance("browser")["balance"] is None
 
+    def test_hosted_providers_list_the_whole_live_catalog(self, monkeypatch):
+        mod = self._mod()
+        catalog = {
+            "anthropic/claude-opus-5": {"architecture": {"output_modalities": ["text"]}},
+            "zz/new-model": {"architecture": {"output_modalities": ["text"]}},
+            "aa/other-model": {},
+            "img/painter": {"architecture": {"output_modalities": ["image"]}},
+        }
+
+        class Client:
+            def model2info(self):
+                return catalog
+        monkeypatch.setattr(mod, "_client", lambda p=None: Client())
+        mod.__dict__.pop("_catalogs", None)
+        ids = mod.provider_models("openrouter")
+        curated = mod.MODELS["openrouter"]
+        # the curated picks lead, the rest of the catalog follows, sorted,
+        # with no duplicates and nothing that can't answer in text
+        assert ids[:len(curated)] == curated
+        assert ids[len(curated):] == ["aa/other-model", "zz/new-model"]
+        assert "img/painter" not in ids
+
 
 class TestBrowserBridge:
     """A run parks a request, the tab answers it — or doesn't."""
@@ -5134,3 +5156,20 @@ class TestLiveEvents:
                   on_live=lambda ev: ev['event'] == 'tool_start' and order.append('start'),
                   on_step=lambda s: s.get('tool') == 'bash' and order.append('step'))
         assert order == ['start', 'step']
+
+
+class TestEveryToolBoxed:
+    def test_every_shipped_tool_sits_in_a_builtin_box(self, builtin):
+        from src.toolbox.mod import BUILTINS
+        boxed = {t for b in BUILTINS.values() for t in b['tools']}
+        assert [n for n in builtin.ls() if n not in boxed] == []
+
+    def test_web_box_scrapes(self):
+        from src.toolbox.mod import BUILTINS
+        assert {'search', 'fetch', 'websurf', 'scrape'} <= set(BUILTINS['web']['tools'])
+
+    def test_scrape_needs_a_query_or_url(self, builtin):
+        r = builtin.run('scrape')
+        assert r['success'] is False and 'query' in r['error']
+        r = builtin.run('scrape', urls=['ftp://nope'])
+        assert r['success'] is False

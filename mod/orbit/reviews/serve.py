@@ -7,8 +7,9 @@
 
 Reads are GET with query args. Writes are POST with a JSON body. Anyone may
 rate (the caller names the rater; build vouches for identity when it mirrors
-its reviews here). Setting weights or a subject's default aggregator is the
-operator's call: loopback only.
+its reviews here) and anyone may publish a new aggregator (params only, never
+code; an id cannot be taken over). Setting weights, a subject's default
+aggregator, or retracting an aggregator is the operator's call: loopback only.
 
     python3 serve.py [--port 51440] [--host 0.0.0.0]
 """
@@ -31,9 +32,10 @@ if MODULE_DIR not in sys.path:
 import reviews  # noqa: E402
 
 READ_FNS = ('health', 'info', 'readme', 'aggregators', 'ratings', 'score',
-            'subjects', 'weights')
-WRITE_FNS = ('rate', 'unrate', 'aggregate', 'set_weights', 'set_aggregator')
-LOCAL_ONLY = ('set_weights', 'set_aggregator')
+            'subjects', 'weights', 'market')
+WRITE_FNS = ('rate', 'unrate', 'aggregate', 'set_weights', 'set_aggregator',
+             'publish', 'retract')
+LOCAL_ONLY = ('set_weights', 'set_aggregator', 'retract')
 
 _store = None
 
@@ -72,7 +74,8 @@ def api(fn, a):
         return {'name': 'reviews', 'version': cfg.get('version'),
                 'description': cfg.get('description'), 'stats': s.stats(),
                 'default_aggregator': reviews.DEFAULT_AGGREGATOR, 'scale': reviews.SCALE,
-                'aggregators': reviews.aggregators(), 'endpoints': cfg.get('endpoints', {})}
+                'aggregators': reviews.aggregators(), 'published': s.published(),
+                'endpoints': cfg.get('endpoints', {})}
     if fn == 'readme':
         try:
             with open(os.path.join(MODULE_DIR, 'README.md')) as f:
@@ -81,7 +84,8 @@ def api(fn, a):
             return {'readme': None}
     if fn == 'aggregators':
         return {'default': reviews.DEFAULT_AGGREGATOR, 'scale': reviews.SCALE,
-                'aggregators': reviews.aggregators()}
+                'aggregators': reviews.aggregators(), 'published': s.published(),
+                'publishable': list(reviews.PUBLISHABLE)}
     if fn == 'ratings':
         return {'subject': a.get('subject', ''), 'ratings': s.ratings(a.get('subject', ''), a.get('kind'))}
     if fn == 'score':
@@ -96,21 +100,15 @@ def api(fn, a):
     if fn == 'unrate':
         return s.unrate(a.get('subject', ''), a.get('rater', ''), a.get('ref', ''))
     if fn == 'aggregate':
-        # Stateless over the ratings passed in — but a `subject` lets the
-        # weighted aggregator read the table published for it (or "*").
-        ctx = {}
-        aid = a.get('aggregator') or (s.aggregator_for(a['subject']) if a.get('subject') else None)
-        if a.get('weights') is not None:
-            ctx = {'weights': reviews.normalize_weights(_json_arg(a, 'weights')),
-                   'weights_source': 'inline'}
-        elif aid == 'weighted':
-            w = s.weights(a.get('subject') or '*')
-            ctx = {'weights': w['weights'], 'weights_source': w['source']}
-        out = reviews.aggregate(a.get('ratings') or [], aid, ctx)
-        if a.get('subject'):
-            out['subject'] = a['subject']
-            out['default_aggregator'] = s.aggregator_for(a['subject'])
-        return out
+        return s.aggregate(a.get('ratings') or [], a.get('aggregator') or None,
+                           _json_arg(a, 'weights'), a.get('subject') or '')
+    if fn == 'market':
+        return s.market()
+    if fn == 'publish':
+        return s.publish(a.get('id'), a.get('base'), _json_arg(a, 'params'), a.get('title', ''),
+                         a.get('author', ''), a.get('note', ''))
+    if fn == 'retract':
+        return s.retract(a.get('id', ''))
     if fn == 'set_weights':
         return s.set_weights(a.get('subject', '*'), _json_arg(a, 'weights') or {})
     if fn == 'set_aggregator':

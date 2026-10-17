@@ -16,7 +16,7 @@
 // switch refines from there into an exact list; "save as box" turns whatever
 // you landed on into a named bundle you can snap back later.
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { API_URL } from '../config'
 import { ask } from '../lib/ask'
 
@@ -45,6 +45,7 @@ type Snapped = {
   source?: 'all' | 'toolboxes' | 'selection'
 }
 type Box = { name: string; description: string; tools: string[]; builtin: boolean }
+type Group = { key: string; box?: Box; label: string; description: string; tools: ToolEntry[]; shared: string[] }
 
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
 
@@ -192,6 +193,25 @@ export default function Tools({ token, isHost, onCount }: {
       (t.command || '').toLowerCase().includes(q)
   })
 
+  // every tool lives in a box: the first box that lists it is its home, so a
+  // tool shared by several boxes shows once and the others name it as shared.
+  // Custom tools and fleet modules no box claims get a box of their own kind.
+  const groups = useMemo(() => {
+    const home = new Map<string, string>()
+    for (const b of boxes) for (const n of b.tools) if (!home.has(n)) home.set(n, b.name)
+    const byName = new Map(shown.map(t => [t.name, t]))
+    const out: Group[] = boxes.map(b => ({
+      key: b.name, box: b, label: b.name, description: b.description,
+      tools: b.tools.filter(n => home.get(n) === b.name && byName.has(n)).map(n => byName.get(n)!),
+      shared: b.tools.filter(n => home.get(n) !== b.name),
+    }))
+    const loose = (k: ToolKind) => shown.filter(t => t.kind === k && !home.has(t.name))
+    out.push({ key: '~custom', label: 'custom', description: 'Shell tools added in this console', tools: loose('custom'), shared: [] })
+    out.push({ key: '~fleet', label: 'fleet', description: 'Modules on the host, callable as mod.<name>. Search to find more', tools: loose('mod'), shared: [] })
+    out.push({ key: '~other', label: 'other', description: 'Shipped tools no box lists yet', tools: loose('builtin'), shared: [] })
+    return out.filter(g => g.tools.length > 0)
+  }, [boxes, shown])
+
   const activeNames = loadout ?? tools.filter(t => t.active).map(t => t.name)
   const attachedMods = activeNames.filter(n => n.startsWith('mod.'))
 
@@ -236,23 +256,7 @@ export default function Tools({ token, isHost, onCount }: {
             }`}>
             everything
           </button>
-          {boxes.map(b => {
-            const on = !!snapped?.snapped?.includes(b.name)
-            return (
-              <span key={b.name} className={`group inline-flex items-center rounded-full border transition ${
-                on ? 'bg-emerald-500/15 border-emerald-500/25' : 'bg-white/[0.03] border-white/[0.06] hover:border-white/[0.12]'
-              }`}>
-                <button onClick={() => toggleBox(b)} title={b.description || b.name}
-                  className={`px-2 py-0.5 text-[10px] transition ${on ? 'text-emerald-300' : 'text-gray-500 hover:text-gray-300'}`}>
-                  {b.name}<span className="ml-1 text-gray-600">{b.tools.length}</span>
-                </button>
-                {!b.builtin && (
-                  <button onClick={() => removeBox(b)} title="Delete this toolbox"
-                    className="pr-1.5 text-[10px] text-gray-700 hover:text-red-400 transition">×</button>
-                )}
-              </span>
-            )
-          })}
+          <span className="text-[10px] text-gray-600">or snap a box below</span>
         </div>
       </div>
 
@@ -304,16 +308,68 @@ export default function Tools({ token, isHost, onCount }: {
       ) : shown.length === 0 ? (
         <p className="text-sm text-gray-600 text-center mt-8">Nothing matches</p>
       ) : (
-        <div className="space-y-0.5">
-          {shown.map(t => (
-            <ToolRow key={t.name} tool={t} token={token}
-              open={open === t.name}
-              onToggle={() => setOpen(open === t.name ? null : t.name)}
-              onToggleActive={() => toggleTool(t)}
-              onEdit={() => { setErr(null); setEditing(t) }}
-              onDelete={() => remove(t)} />
+        <div className="space-y-2">
+          {groups.map(g => (
+            <BoxCard key={g.key} group={g}
+              on={!!g.box && !!snapped?.snapped?.includes(g.box.name)}
+              onSnap={g.box ? () => toggleBox(g.box!) : undefined}
+              onRemove={g.box && !g.box.builtin ? () => removeBox(g.box!) : undefined}>
+              {g.tools.map(t => (
+                <ToolRow key={t.name} tool={t} token={token}
+                  open={open === t.name}
+                  onToggle={() => setOpen(open === t.name ? null : t.name)}
+                  onToggleActive={() => toggleTool(t)}
+                  onEdit={() => { setErr(null); setEditing(t) }}
+                  onDelete={() => remove(t)} />
+              ))}
+            </BoxCard>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+// ── one box: its header snaps the whole bundle on, its rows are the tools
+//    that call it home ───────────────────────────────────────────────────
+function BoxCard({ group, on, onSnap, onRemove, children }: {
+  group: Group
+  on: boolean
+  onSnap?: () => void
+  onRemove?: () => void
+  children: ReactNode
+}) {
+  const live = group.tools.filter(t => t.active).length
+  return (
+    <div className={`rounded-lg border px-2 pt-1.5 pb-2 space-y-1 transition ${
+      on ? 'border-emerald-500/25 bg-emerald-500/[0.03]' : 'border-white/[0.06] bg-white/[0.015]'
+    }`}>
+      <div className="flex items-center gap-2 px-0.5">
+        <span className={`text-[10px] uppercase tracking-wider font-medium ${on ? 'text-emerald-300' : 'text-gray-400'}`}>
+          {group.label}
+        </span>
+        <span className="text-[10px] text-gray-600 truncate">{group.description}</span>
+        <span className="ml-auto text-[10px] text-gray-600 font-mono shrink-0">{live}/{group.tools.length} on</span>
+        {onSnap && (
+          <button onClick={onSnap}
+            title={on ? 'Unsnap this box' : `Snap the whole ${group.label} box onto the loadout`}
+            className={`px-2 py-0.5 rounded-full text-[10px] border transition shrink-0 ${
+              on ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
+                 : 'bg-white/[0.03] border-white/[0.06] text-gray-500 hover:text-gray-300'
+            }`}>
+            {on ? 'snapped' : 'snap'}
+          </button>
+        )}
+        {onRemove && (
+          <button onClick={onRemove} title="Delete this toolbox"
+            className="text-[11px] text-gray-700 hover:text-red-400 transition shrink-0">×</button>
+        )}
+      </div>
+      <div className="space-y-0.5">{children}</div>
+      {group.shared.length > 0 && (
+        <p className="px-0.5 text-[10px] text-gray-600 truncate" title={group.shared.join(', ')}>
+          also uses <span className="font-mono text-gray-500">{group.shared.join(' · ')}</span>
+        </p>
       )}
     </div>
   )

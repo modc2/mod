@@ -39,14 +39,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
-from . import agent, blocks, chats, history, news, tools, traders, trades, tx
+from . import agent, blocks, chats, git, history, news, tools, traders, trades, tx
 from .mcp_server import PROTOCOL_VERSION, PROTOCOL_VERSIONS, SERVER_INFO
 
 PORT = int(os.environ.get('BT_PORT', '50280'))
 APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app')
 
 app = FastAPI(title='bt', docs_url=None, redoc_url=None,
-              on_startup=[history.start, traders.start, blocks.start, news.start,
+              on_startup=[history.start, traders.start, blocks.start, news.start, git.start,
                           trades.start])
 app.add_middleware(CORSMiddleware, allow_origins=['*'],
                    allow_methods=['*'], allow_headers=['*'])

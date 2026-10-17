@@ -6,6 +6,7 @@ import { useOverlay } from '@/lib/overlay';
 import { Ccy, compact, fmtPrice } from '@/lib/format';
 import { usePoll, useStored } from '@/lib/hooks';
 import { Pct, Section, Spark, Spinner, SubnetLogo, Tabs } from '@/components/ui';
+import { DevBoard } from '@/components/Dev';
 
 const COLS: { key: keyof SubnetRow; label: string; num: boolean; nosort?: boolean; ccy?: boolean }[] = [
   { key: 'netuid', label: '#', num: true },
@@ -114,7 +115,7 @@ function FlowBoard({ q, ccy, rate, cv, sign }: {
 export default function Markets() {
   const { screener, screenerError, search, setSearch, sort, setSort, ccy, rate } = useData();
   const { openSubnet } = useOverlay();
-  const [mode, setMode] = useStored<'table' | 'heat' | 'flows'>('bt.markets.mode', 'table');
+  const [mode, setMode] = useStored<'table' | 'heat' | 'flows' | 'dev'>('bt.markets.mode', 'table');
   const box = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -156,6 +157,7 @@ export default function Markets() {
   if (mode === 'flows') body = (
     <FlowBoard q={search.trim().toLowerCase()} ccy={ccy} rate={rate} cv={cv} sign={sign} />
   );
+  else if (mode === 'dev') body = <DevBoard q={search.trim().toLowerCase()} />;
   else if (screenerError && !screener) body = <p className="muted">{screenerError}</p>;
   else if (!screener) body = <p className="muted">Loading markets…</p>;
   else if (screener.warming) body = <p className="muted">{screener.note || 'Indexer warming up — first snapshot in progress.'}</p>;
@@ -206,13 +208,13 @@ export default function Markets() {
 
   return (
     <Section id="markets" title="Markets."
-      lead="Every subnet is a market: its alpha trades against τ in an on-chain pool. Live prices, volume, trend and where TAO is rotating — all from the open indexer, free.">
+      lead="Every subnet is a market: its alpha trades against τ in an on-chain pool. Live prices, volume, trend, where TAO is rotating and who is actually shipping code — all from the open indexer, free.">
       <div className="card">
         <div className="head-row">
           <input ref={box} value={search} onChange={e => setSearch(e.target.value)}
                  placeholder="Search name, symbol or netuid" spellCheck={false} />
           <span className="kbd" title="press / to search">/</span>
-          <Tabs value={mode} onChange={setMode} options={[['table', 'Table'], ['heat', 'Heatmap'], ['flows', 'Flows']]} />
+          <Tabs value={mode} onChange={setMode} options={[['table', 'Table'], ['heat', 'Heatmap'], ['flows', 'Flows'], ['dev', 'Dev']]} />
           <span className="grow" />
           <span className="updated">{rows.length} markets{age != null ? ` · updated ${age < 90 ? age + 's' : Math.round(age / 60) + 'm'} ago` : ''}</span>
         </div>

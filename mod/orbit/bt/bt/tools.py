@@ -470,6 +470,95 @@ def _news_remove_feed(url):
     return news.remove_feed(url)
 
 
+# dev — each subnet's GitHub activity (bt/git.py) + the joined "everything" profile
+
+def _git(netuid):
+    from . import git
+    r = git.repo(netuid)
+    if r is None:
+        return {'netuid': netuid, 'repo': None,
+                'note': 'not fetched yet — call bt_git_refresh with this netuid'}
+    return r
+
+def _git_board(sort_by='dev_score', limit=0, weekly=True):
+    from . import git
+    return git.board(sort_by=sort_by, limit=limit, weekly=weekly)
+
+def _git_refresh(netuid=None):
+    from . import git
+    return git.refresh(netuid)
+
+def _git_status():
+    from . import git
+    return git.status()
+
+_PROFILE_DEV = ('repo', 'stars', 'forks', 'contributors', 'commits_7d', 'commits_30d',
+                'commits_90d', 'authors_30d', 'bot_pct_30d', 'open_issues', 'open_prs', 'merged_prs',
+                'releases', 'latest_release', 'language', 'license', 'last_commit_ts',
+                'days_since_commit', 'stars_gain_7d', 'dev_score', 'archived', 'error')
+
+def _subnet_profiles(sort_by='market_cap', limit=0):
+    """Every subnet, one row: market + dev + news buzz + 24h flows."""
+    from . import git, history, news, trades
+    rows = history.screener(sort_by='market_cap', sparks=False).get('rows', [])
+    dev = {r['netuid']: r for r in git.board(weekly=False)['rows']}
+    buzz = {r['netuid']: r for r in news.buzz(days=7)['subnets']}
+    fl = {r['netuid']: r for r in trades.flows(hours=24)['rows']}
+    out = []
+    for r in rows:
+        u = r['netuid']
+        d = {k: r.get(k) for k in ('netuid', 'name', 'symbol', 'price', 'market_cap',
+                                   'tao_in', 'vol_24h', 'change_24h', 'change_7d',
+                                   'emission', 'registered_at', 'owner', 'github',
+                                   'url', 'discord', 'description')}
+        g = dev.get(u) or {}
+        d['dev'] = {k: g.get(k) for k in _PROFILE_DEV} if g else None
+        b = buzz.get(u) or {}
+        d['news_7d'] = {k: b.get(k) for k in ('items', 'press', 'releases', 'commits', 'prev_items')} if b else None
+        f = fl.get(u) or {}
+        d['flow_24h'] = {k: f.get(k) for k in ('net_tao', 'buy_tao', 'sell_tao', 'trades', 'traders')} if f else None
+        out.append(d)
+    key = {'dev_score': lambda d: (d['dev'] or {}).get('dev_score'),
+           'stars': lambda d: (d['dev'] or {}).get('stars'),
+           'commits_30d': lambda d: (d['dev'] or {}).get('commits_30d'),
+           'news': lambda d: (d['news_7d'] or {}).get('items'),
+           'net_flow': lambda d: (d['flow_24h'] or {}).get('net_tao')}.get(sort_by) \
+        or (lambda d: d.get(sort_by))
+    out.sort(key=lambda d: (key(d) is not None, key(d) or 0), reverse=sort_by != 'netuid')
+    return {'count': len(out), 'sort_by': sort_by, 'rows': out[:limit] if limit else out}
+
+def _subnet_profile(netuid, news_limit=10, trades_limit=10, days=30):
+    """Everything the local indexes know about one subnet, in one call."""
+    from . import blocks, git, history, news, trades
+    scr = history.screener(sparks=True).get('rows', [])
+    row = next((r for r in scr if r['netuid'] == netuid), None)
+    if row is None:
+        raise ValueError(f'unknown subnet {netuid}')
+    out = {'netuid': netuid, 'market': row}
+    try:
+        rank = sorted(scr, key=lambda r: r.get('market_cap') or 0, reverse=True)
+        out['market']['rank_mcap'] = [r['netuid'] for r in rank].index(netuid) + 1
+    except ValueError:
+        pass
+    out['dev'] = git.repo(netuid)
+    if out['dev'] is not None:
+        ranked = [r['netuid'] for r in git.board(weekly=False)['rows'] if r.get('dev_score') is not None]
+        out['dev']['rank'] = ranked.index(netuid) + 1 if netuid in ranked else None
+        out['dev']['ranked_of'] = len(ranked)
+    out['news'] = {'buzz_7d': next((b for b in news.buzz(days=7)['subnets'] if b['netuid'] == netuid), None),
+                   'latest': news.news(netuid=netuid, days=90, limit=news_limit).get('items', [])}
+    out['flows'] = {}
+    for label, h in (('1h', 1), ('24h', 24), ('7d', 168)):
+        out['flows'][label] = next((f for f in trades.flows(hours=h)['rows'] if f['netuid'] == netuid), None)
+    t = trades.trades(netuid=netuid, hours=24, limit=trades_limit)
+    out['trades_24h'] = {'summary': t.get('summary'), 'top': t.get('top'), 'latest': t.get('trades')}
+    try:
+        out['daily'] = blocks.daily(netuid=netuid, days_back=days).get('candles')
+    except Exception as e:
+        out['daily'] = {'error': str(e)}
+    return out
+
+
 VIEWS: Dict[str, str] = {
     'markets': 'the screener — every alpha market (search/sort_by optional)',
     'subnet': 'one subnet detail overlay, with its price chart (needs netuid)',
@@ -486,7 +575,7 @@ SCREENER_SORTS = ('market_cap', 'price', 'change_1h', 'change_24h',
                   'change_7d', 'vol_24h', 'tao_in', 'netuid')
 
 
-SUBNET_TABS = ('overview', 'trades', 'validators', 'news')
+SUBNET_TABS = ('overview', 'code', 'trades', 'validators', 'news')
 
 
 def _view(view, netuid=None, address=None, search=None, sort_by=None, tab=None):
@@ -733,6 +822,30 @@ TOOLS: List[Tool] = [
     Tool('bt_news_remove_feed', 'Remove an outlet feed from the news scraper.', 'News',
          dict(url={'type': 'string', 'description': 'Feed URL to drop', 'required': True}),
          _news_remove_feed, local=True),
+    # --- dev activity (each subnet's GitHub)
+    Tool('bt_git', "One subnet's development activity from its own GitHub repo (the one in its on-chain identity; org URLs resolve to the org's top repo): stars, forks, watchers, contributors, commits total / 7d / 30d / 90d, distinct human commit authors over 30d, open/closed issues, open/merged PRs, releases + latest tag, languages, license, topics, created/last push, latest commit, 52-week commit sparkline, the owner org's other repos, star/fork/commit growth over 7d/30d and a 0-100 dev_score. From the local index.", 'Dev',
+         dict(netuid={'type': 'integer', 'description': 'Subnet UID', 'required': True}),
+         _git, local=True),
+    Tool('bt_git_board', 'Every subnet ranked by GitHub development activity — who is actually shipping. Sort by dev_score (default; blends recent commits, distinct authors, freshness, stars, contributors, forks), stars, commits_30d, authors_30d, contributors, stars_gain_7d, pushed_at, ... Also lists subnets with no public repo. From the local index.', 'Dev',
+         dict(sort_by={'type': 'string', 'description': 'Column to sort by (desc)', 'default': 'dev_score'},
+              limit={'type': 'integer', 'description': 'Max rows (0 = all)', 'default': 0},
+              weekly={'type': 'boolean', 'description': 'Include the 52-week commit series', 'default': True}),
+         _git_board, local=True),
+    Tool('bt_git_refresh', 'Re-fetch GitHub stats now instead of waiting for the background pass: one subnet (a few seconds), or every subnet (netuid omitted; ~1 min).', 'Dev',
+         dict(netuid={'type': 'integer', 'description': 'Subnet UID (omit = all)'}),
+         _git_refresh, local=True),
+    Tool('bt_git_status', 'The GitHub indexer itself: repos indexed, failures and why, whether it has a token, rate-limit headroom, refresh cadence.', 'Dev',
+         {}, _git_status, local=True),
+    Tool('bt_subnet_profile', 'EVERYTHING about one subnet in one call, from the local indexes: market (price, mcap + rank, pool, volume, 1h/24h/7d change, emission, owner, identity, sparkline), dev (full GitHub stats + dev rank), news (7d buzz + latest items), TAO flows 1h/24h/7d, the last 24h of trades with summary, and daily candles. Start here for any "tell me about subnet N" question.', 'Markets',
+         dict(netuid={'type': 'integer', 'description': 'Subnet UID', 'required': True},
+              news_limit={'type': 'integer', 'description': 'Latest news items to include', 'default': 10},
+              trades_limit={'type': 'integer', 'description': 'Latest trades to include', 'default': 10},
+              days={'type': 'integer', 'description': 'Daily candles lookback', 'default': 30}),
+         _subnet_profile, local=True),
+    Tool('bt_subnet_profiles', 'Every subnet in one table with all the context side by side: market (price, mcap, pool, 24h volume, 24h/7d change, emission, identity), dev (repo, stars, contributors, commits 7d/30d/90d, authors, issues/PRs, releases, last commit, dev_score), news buzz 7d and 24h TAO flow. Sort by market_cap (default), dev_score, stars, commits_30d, news, net_flow, change_7d, ...', 'Markets',
+         dict(sort_by={'type': 'string', 'description': 'Sort key (desc)', 'default': 'market_cap'},
+              limit={'type': 'integer', 'description': 'Max rows (0 = all)', 'default': 0}),
+         _subnet_profiles, local=True),
     # --- console
     Tool('bt_view', 'Open a view in the bt console the caller is looking at: the market screener (optionally searched/sorted), one subnet with its chart, a tracked trader, or any account. Use it whenever an answer is about something the console can show — the person then sees it, instead of being told where to look. Read-only: it changes the screen, nothing on chain.', 'Console',
          dict(view={'type': 'string', 'description': "Which view: " + '; '.join(f'{k} = {v}' for k, v in VIEWS.items()), 'required': True},

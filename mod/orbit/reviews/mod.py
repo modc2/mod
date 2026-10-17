@@ -3,9 +3,11 @@
 Any module can hand ratings here (a subject, a rater, a 1–5 score, human or
 agent) and ask for ONE number back. The number always comes with its working:
 which aggregator, each rater's weight and why, the formula. Aggregators are a
-registry — `mean` (the default: a plain average), `weighted` (a published
-weight table by kind or by rater) and `staketime` (stake-time weighted; the
-interface is wired, the weight provider is coming).
+registry — `mean` (the default), `median`, `trimmed`, `consensus`, `recent`,
+`weighted` (a published weight table), `staketime` (provider coming) and
+`market`: the aggregators are themselves rated (subject `agg:<id>`), anyone
+can publish a new one from a base + params, and `market` blends every
+aggregator's answer by how the market ranks it.
 
     m reviews                                       # null call → info()
     m reviews/aggregators                           # the registry, with formulas
@@ -13,6 +15,10 @@ interface is wired, the weight provider is coming).
     m reviews/score subject=build:polymarket        # default aggregator (mean)
     m reviews/score subject=build:polymarket aggregator=weighted
     m reviews/set_weights subject=build:polymarket weights='{"by_kind":{"agent":0.5}}'
+    m reviews/market                                # aggregators ranked by their own ratings
+    m reviews/rate subject=agg:consensus rater=0xabc score=5   # rate an aggregator
+    m reviews/publish id=harsh base=consensus params='{"k":3}' author=0xabc
+    m reviews/score subject=build:polymarket aggregator=market  # the consensus of aggregators
     m reviews/serve                                 # console + API on :51440
     m reviews/test
     m reviews/kill
@@ -110,25 +116,42 @@ class Mod:
         """The registry: id, title, formula, status (live|soon), params."""
         import reviews
         return {'default': reviews.DEFAULT_AGGREGATOR, 'scale': reviews.SCALE,
-                'aggregators': reviews.aggregators()}
+                'aggregators': reviews.aggregators(), 'published': self.store.published(),
+                'publishable': list(reviews.PUBLISHABLE)}
 
     def score(self, subject, aggregator=None, weights=None):
         """One number for a subject, with its working (per-rater weights,
-        formula). aggregator=mean|weighted|staketime; default is the subject's
+        formula). aggregator=any built-in, a published id, or market; default is the subject's
         preference, else mean."""
         if isinstance(weights, str):
             weights = json.loads(weights)
         return self.store.score(subject, aggregator, weights)
 
-    def aggregate(self, ratings, aggregator=None, weights=None):
+    def aggregate(self, ratings, aggregator=None, weights=None, subject=''):
         """Stateless: aggregate ratings you pass in ([{rater, kind, score}])."""
-        import reviews
         if isinstance(ratings, str):
             ratings = json.loads(ratings)
         if isinstance(weights, str):
             weights = json.loads(weights)
-        ctx = {'weights': reviews.normalize_weights(weights), 'weights_source': 'inline'} if weights else {}
-        return reviews.aggregate(ratings, aggregator, ctx)
+        return self.store.aggregate(ratings, aggregator, weights, subject)
+
+    # ── the market ───────────────────────────────────────────────
+
+    def market(self):
+        """Every aggregator ranked by its own ratings (subject agg:<id>), with
+        adopters and its weight in the `market` blend."""
+        return self.store.market()
+
+    def publish(self, id, base, params=None, title='', author='', note=''):
+        """Publish a new aggregator: a base (mean|median|trimmed|consensus|
+        recent|weighted) plus params, under a new id. No code runs."""
+        if isinstance(params, str):
+            params = json.loads(params)
+        return self.store.publish(id, base, params, title, author, note)
+
+    def retract(self, id):
+        """Take a published aggregator off the market (operator)."""
+        return self.store.retract(id)
 
     def weights(self, subject='*'):
         """The weight table in force for a subject (own, else "*", else identity)."""

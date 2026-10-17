@@ -257,6 +257,17 @@ def _pop_string(out: list):
             return
 
 
+
+def _is_text_model(info) -> bool:
+    """A catalog entry an agent loop can talk to: text out (OpenRouter's
+    architecture block), or Venice's type='text'. Unknown shapes pass."""
+    if not isinstance(info, dict):
+        return True
+    if info.get('type') and info['type'] != 'text':
+        return False
+    out = (info.get('architecture') or {}).get('output_modalities')
+    return not out or 'text' in out
+
 class Agent:
     """
     World-class coding agent. 23 built-in tools for autonomous software
@@ -855,7 +866,41 @@ RULES:
                 live = []
             if live:
                 return live
-        return self.MODELS.get(provider, [])
+        curated = self.MODELS.get(provider, [])
+        # the hosted providers sell hundreds of models; MODELS is only the
+        # picks shown first, the rest of the live catalog follows them
+        if provider in self.LIVE_CATALOGS:
+            live = self._live_catalog(provider)
+            return curated + sorted(m for m in live if m not in curated)
+        return curated
+
+    LIVE_CATALOGS = ('openrouter', 'venice')
+    LIVE_CATALOG_TTL = 600
+
+    def _live_catalog(self, provider: str) -> List[str]:
+        """The provider's own text-model list, never waited on: /providers
+        reads this on every page load, so a stale or missing list is served
+        as-is and refreshed in the background."""
+        cache = self.__dict__.setdefault('_catalogs', {})
+        hit = cache.get(provider)
+        if not hit or time.time() - hit[0] > self.LIVE_CATALOG_TTL:
+            # stamp first so concurrent page loads start one refresh, not ten
+            cache[provider] = (time.time(), hit[1] if hit else [])
+
+            def go():
+                try:
+                    info = self._client(provider).model2info()
+                    ids = [k for k, v in info.items() if _is_text_model(v)]
+                except Exception as e:
+                    print(f"Live model list for {provider} failed: {e}")
+                    return
+                if ids:
+                    cache[provider] = (time.time(), ids)
+            t = threading.Thread(target=go, daemon=True)
+            t.start()
+            if not hit:
+                t.join(5)   # first ask: worth a short wait for the full list
+        return list(cache[provider][1])
 
     def all_providers(self) -> List[str]:
         """Every provider a run may name: the built-ins, then each model

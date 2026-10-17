@@ -1857,7 +1857,6 @@
 
     // the city picker: left/right on this screen cycles it
     textCentered(g, '<  ' + CITY.name + '  >', 136, '#f7d51d', 1);
-    if (CID_HASH) text(g, 'CID ' + CID_HASH.slice(0, 8), 3, 3, '#8a8ab0', 1);
 
     g.drawImage(SPR.salSmall[0].idle, 40, 150, 24, 32);
     this.blit(g, SPR.pigeon.w1, 196, 154, -1, false);
@@ -1890,10 +1889,9 @@
   /* ── boot ──────────────────────────────────────────────────────────── */
 
   var game = null;
-  var CID_HASH = null;           // the module's source hash, once ui.js has it
 
-  /* What the page around the canvas (ui.js) drives: the KEYS panel, the city
-   * picker and the CID chip. Defined now, not at boot, so ui.js — which runs
+  /* What the page around the canvas (ui.js) drives: the KEYS panel and the city
+   * picker. Defined now, not at boot, so ui.js — which runs
    * right after this file — can wire itself up before the game exists. */
   global.HOOD = {
     actions: ACTIONS,
@@ -1907,7 +1905,6 @@
     city: function () { return CITY; },
     setCity: function (id) { return applyCity(id); },
     onCity: function (fn) { cityListeners.push(fn); fn(CITY); },
-    setCid: function (hash) { CID_HASH = hash || null; },
     // the panel takes the keyboard: drop held keys, and pause a running game
     holdInput: function () {
       clearKeys();

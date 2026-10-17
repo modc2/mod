@@ -45,8 +45,8 @@ def test_mutating_tools_flagged():
 def test_docs_grouping():
     groups = tools.docs()
     assert {g['group'] for g in groups} == {
-        'Chain', 'Wallet', 'Markets', 'Trading', 'Traders', 'News', 'Network',
-        'Console'}
+        'Chain', 'Wallet', 'Markets', 'Trading', 'Traders', 'News', 'Dev',
+        'Network', 'Console'}
     total = sum(len(g['tools']) for g in groups)
     assert total == len(tools.TOOLS)
 
@@ -511,7 +511,7 @@ def test_http_info(client):
 
 def test_http_tools_and_docs(client):
     assert len(client.get('/api/tools').json()['tools']) == len(tools.TOOLS)
-    assert len(client.get('/api/docs').json()['groups']) == 8
+    assert len(client.get('/api/docs').json()['groups']) == 9
 
 
 def test_http_call(client):

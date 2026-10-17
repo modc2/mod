@@ -3,91 +3,265 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>reviews · transparent ratings</title>
+<title>reviews</title>
 <style>
-  :root { --bg:#0e1210; --panel:#151b17; --line:#263129; --ink:#e7efe8; --dim:#8fa394; --acc:#f5b941; --ok:#7bd88f; --soon:#c7a1ff; }
+  :root { --bg:#0c0f0d; --panel:#131815; --panel2:#181e1a; --line:#222b25; --ink:#e9efe9; --dim:#86968a; --faint:#56625a; --acc:#f5b941; --ok:#7bd88f; --bad:#ff8a7a; }
   * { box-sizing:border-box }
-  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 Inter, system-ui, sans-serif; }
-  main { max-width:960px; margin:0 auto; padding:28px 18px 60px; }
-  h1 { font-size:22px; margin:0 0 4px; letter-spacing:.02em } h1 b { color:var(--acc) }
-  .sub { color:var(--dim); margin-bottom:22px }
-  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:12px 0 }
-  input, select, button { font:inherit; color:var(--ink); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px }
-  button { cursor:pointer } button.on { border-color:var(--acc); color:var(--acc) }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:14px 0 }
-  .big { font-size:40px; font-weight:800; color:var(--acc); line-height:1 } .big small { font-size:14px; color:var(--dim); font-weight:500 }
-  .formula { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12.5px; color:var(--dim); margin-top:6px; word-break:break-word }
-  table { width:100%; border-collapse:collapse; margin-top:12px; font-size:13.5px } th, td { text-align:left; padding:6px 8px; border-top:1px solid var(--line) } th { color:var(--dim); font-weight:600; border:0 }
-  .tag { display:inline-block; font-size:11px; padding:1px 7px; border-radius:999px; border:1px solid var(--line); color:var(--dim) } .tag.live { color:var(--ok) } .tag.soon { color:var(--soon) }
-  .fb { color:var(--soon); font-size:13px; margin-top:8px }
-  .subjects button { display:block; width:100%; text-align:left; margin:4px 0 }
-  .muted { color:var(--dim) }
-  code { font-family:ui-monospace, Menlo, monospace; font-size:12.5px; background:#0b0e0c; padding:1px 5px; border-radius:5px }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 Inter, system-ui, sans-serif; }
+  button, input, select { font:inherit; color:inherit }
+  .wrap { max-width:1080px; margin:0 auto; padding:0 20px 60px }
+
+  header { display:flex; align-items:center; gap:14px; padding:18px 0; border-bottom:1px solid var(--line); margin-bottom:22px }
+  header h1 { margin:0; font-size:17px; font-weight:700; display:flex; align-items:center; gap:8px }
+  header h1 i { font-style:normal; color:var(--acc) }
+  header .tag { color:var(--dim); font-size:13px }
+  header .me { margin-left:auto; display:flex; align-items:center; gap:8px; color:var(--dim); font-size:13px }
+  .in { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:7px 11px; outline:none }
+  .in:focus { border-color:#3a473e }
+  .btn { background:var(--acc); color:#1a1405; border:0; border-radius:8px; padding:8px 16px; font-weight:650; cursor:pointer }
+  .btn:hover { filter:brightness(1.08) }
+  .ghost { background:none; border:1px solid var(--line); border-radius:8px; padding:7px 12px; color:var(--dim); cursor:pointer }
+  .ghost:hover { color:var(--ink); border-color:#3a473e }
+
+  .grid { display:grid; grid-template-columns:minmax(0, 240px) minmax(0, 1fr); gap:20px }
+  @media (max-width:760px) { .grid { grid-template-columns:1fr } header .tag { display:none } }
+
+  .label { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); font-weight:600; margin:0 0 8px }
+  .side .item { display:flex; justify-content:space-between; gap:8px; width:100%; text-align:left; background:none; border:0; border-radius:7px; padding:7px 10px; cursor:pointer; color:var(--ink) }
+  .side .item:hover { background:var(--panel) } .side .item.on { background:var(--panel2); box-shadow:inset 2px 0 0 var(--acc) }
+  .side .item span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .side .item b { color:var(--acc); font-weight:600; font-variant-numeric:tabular-nums }
+  .side .none { color:var(--faint); padding:7px 10px; font-size:13px }
+
+  .search { display:flex; gap:8px; flex-wrap:wrap }
+  .search .in { flex:1; min-width:200px; padding:10px 13px; font-size:15px }
+  .search select.in { padding:10px 11px; flex:0 0 190px }
+
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; margin-top:16px }
+  .hero { display:flex; gap:24px; align-items:center; flex-wrap:wrap }
+  .num { font-size:52px; font-weight:800; line-height:1; letter-spacing:-.02em; font-variant-numeric:tabular-nums }
+  .num small { font-size:18px; color:var(--faint); font-weight:600 }
+  .meta { color:var(--dim); font-size:13px; margin-top:6px }
+  .stars { display:inline-flex; gap:2px; color:var(--line); font-size:18px; letter-spacing:0 }
+  .stars .f { color:var(--acc) }
+  .rate { margin-left:auto; text-align:right }
+  .rate .pick { display:inline-flex; gap:2px }
+  .rate .pick button { background:none; border:0; font-size:26px; line-height:1; padding:0 1px; color:#2c362f; cursor:pointer }
+  .rate .pick button.on { color:var(--acc) }
+  .rate .hint { font-size:12px; color:var(--faint); margin-top:2px; min-height:18px }
+
+  details { margin-top:16px; border-top:1px solid var(--line); padding-top:12px }
+  summary { cursor:pointer; color:var(--dim); font-size:13px; list-style:none } summary::-webkit-details-marker { display:none }
+  summary:before { content:'+ '; color:var(--faint) } details[open] > summary:before { content:'\2212  ' }
+  .formula { font-family:ui-monospace, Menlo, monospace; font-size:12px; color:var(--dim); margin:10px 0; word-break:break-word }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin-top:8px }
+  th { text-align:left; color:var(--faint); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.06em; padding:6px 8px }
+  td { padding:7px 8px; border-top:1px solid var(--line) } td.n { font-variant-numeric:tabular-nums }
+  .pill { font-size:11px; padding:1px 7px; border-radius:999px; background:var(--panel2); color:var(--dim) }
+  .warn { color:var(--bad); font-size:13px; margin-top:8px }
+
+  .empty h2 { margin:0 0 6px; font-size:18px } .empty p { color:var(--dim); margin:0 0 14px; max-width:560px }
+  .steps { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:10px }
+  .steps div { background:var(--panel2); border-radius:9px; padding:12px; color:var(--dim); font-size:13px } .steps b { display:block; color:var(--ink); margin-bottom:2px }
+
+  .section { margin-top:34px }
+  .section .top { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin-bottom:10px } .section .top .label { margin:0 }
+  .section .top span { color:var(--faint); font-size:12px }
+  .aggs { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:10px }
+  .agg { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:4px; cursor:pointer }
+  .agg:hover { border-color:#34403a } .agg.on { border-color:var(--acc) }
+  .agg .h { display:flex; justify-content:space-between; align-items:center; gap:8px } .agg .h b { font-weight:650 }
+  .agg p { margin:0; color:var(--dim); font-size:12.5px; flex:1 }
+  .agg .f { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:4px } .agg .f .pick { white-space:nowrap; flex:none }
+  .agg .f .pick button { background:none; border:0; padding:0 1px; font-size:15px; color:#2c362f; cursor:pointer } .agg .f .pick button.on { color:var(--acc) }
+  .agg .f small { color:var(--faint); font-size:11.5px; text-align:right }
+  .agg.soon { opacity:.55 }
+
+  .pub { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px } .pub .in { flex:1; min-width:140px }
+  .note { color:var(--faint); font-size:12px; margin-top:8px }
 </style>
 </head>
 <body>
-<main>
-  <h1><b>★</b> reviews</h1>
-  <div class="sub">Ratings from people and agents, folded into one number by an aggregator you can read. Every score shows its working.</div>
+<div class="wrap">
+  <header>
+    <h1><i>&#9733;</i> reviews</h1>
+    <span class="tag">ratings from people and agents, with the math shown</span>
+    <label class="me">you <input id="rater" class="in" placeholder="name or 0x..." style="width:150px"></label>
+  </header>
 
-  <div class="card">
-    <div class="row">
-      <label class="muted">subject</label>
-      <input id="subject" placeholder="e.g. build:polymarket" style="min-width:260px">
-      <span id="aggs" class="row" style="margin:0"></span>
-      <button id="go">score</button>
-    </div>
-    <div id="out" class="muted">Pick a subject on the left or type one.</div>
-  </div>
-
-  <div class="row" style="align-items:flex-start">
-    <div class="card subjects" style="flex:1; min-width:260px">
-      <div class="muted" style="margin-bottom:6px">rated subjects</div>
+  <div class="grid">
+    <aside class="side">
+      <div class="label">rated</div>
       <div id="subjects"></div>
-    </div>
-    <div class="card" style="flex:2; min-width:300px">
-      <div class="muted" style="margin-bottom:6px">aggregators</div>
-      <div id="registry"></div>
-      <div class="muted" style="margin-top:12px; font-size:13px">Add one: register a function in <code>reviews.py</code> with <code>@aggregator(id, title, formula)</code>. It gets the ratings and returns a weight and a reason per rater. That is the whole contract.</div>
-    </div>
-  </div>
-</main>
-<script>
-const api = (fn, q) => fetch(`./api/${fn}${q ? '?' + new URLSearchParams(q) : ''}`).then(r => r.json());
-const $ = (id) => document.getElementById(id);
-let agg = 'mean', registry = [];
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    </aside>
 
-function renderAggs() {
-  $('aggs').innerHTML = registry.map(a => `<button data-id="${a.id}" class="${a.id === agg ? 'on' : ''}" title="${esc(a.formula)}">${esc(a.title)}${a.status !== 'live' ? ' · soon' : ''}</button>`).join('');
-  $('aggs').querySelectorAll('button').forEach(b => b.onclick = () => { agg = b.dataset.id; renderAggs(); score(); });
-  $('registry').innerHTML = registry.map(a => `<div style="margin:8px 0"><b>${esc(a.title)}</b> <span class="tag ${a.status}">${a.status}</span> <span class="muted">· ${a.id}</span><div class="formula">${esc(a.formula)}</div>${Object.entries(a.params || {}).map(([k, v]) => `<div class="formula">${esc(k)}: ${esc(v)}</div>`).join('')}</div>`).join('');
+    <section>
+      <div class="search">
+        <input id="subject" class="in" placeholder="What are you rating? e.g. build:polymarket">
+        <select id="agg" class="in" title="how ratings are combined"></select>
+        <button id="go" class="btn">Look up</button>
+      </div>
+      <div id="out"></div>
+    </section>
+  </div>
+
+  <div class="section">
+    <div class="top"><div class="label">how ratings are combined</div><span>pick one to use it, star it to vote it up; "market blend" trusts the best-starred methods most</span></div>
+    <div id="market" class="aggs"></div>
+    <details>
+      <summary>make your own method</summary>
+      <div class="pub">
+        <input id="ptitle" class="in" placeholder="name, e.g. harsh critic">
+        <select id="pbase" class="in"></select>
+        <input id="pparams" class="in" placeholder="settings">
+        <button id="pub" class="ghost">Publish</button>
+      </div>
+      <div class="note" id="pmsg">Start from a built-in and adjust its setting. No code. It joins the market blend after 3 ratings.</div>
+    </details>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const api = (fn, q) => fetch(`./api/${fn}${q ? '?' + new URLSearchParams(q) : ''}`).then(r => r.json());
+const post = (fn, body) => fetch(`./api/${fn}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const PLAIN = {
+  mean: 'Every rating counts the same.',
+  median: 'The middle rating. Outliers can\'t drag it.',
+  trimmed: 'Average after dropping the extremes.',
+  consensus: 'Raters who agree with the crowd count more.',
+  recent: 'Newer ratings count more.',
+  weighted: 'Weights set per rater or per kind.',
+  market: 'Asks every method, trusts the best-starred most.',
+  staketime: 'Weight by locked stake. Coming soon.',
+};
+const HINT = { mean: '{}', median: '{}', trimmed: '{"trim": 0.2}', consensus: '{"k": 1}', recent: '{"half_life_days": 30}', weighted: '{"weights": {"by_kind": {"agent": 0.5}}}' };
+let agg = 'mean', market = [], subjects = [];
+
+const starsOf = (v) => [1, 2, 3, 4, 5].map(n => `<span class="${v >= n - 0.25 ? 'f' : ''}">&#9733;</span>`).join('');
+const picker = (cur, attr) => [1, 2, 3, 4, 5].map(n => `<button ${attr}="${n}" class="${cur >= n ? 'on' : ''}" title="${n} star${n > 1 ? 's' : ''}">&#9733;</button>`).join('');
+const needName = () => { const r = $('rater').value.trim(); if (!r) { $('rater').focus(); $('rater').placeholder = 'add your name first'; } else localStorage.setItem('reviews.rater', r); return r; };
+
+function renderSelect() {
+  $('agg').innerHTML = market.filter(a => a.status === 'live').map(a => `<option value="${esc(a.id)}" ${a.id === agg ? 'selected' : ''}>${esc(a.title)}</option>`).join('');
+}
+
+function renderMarket() {
+  const tw = market.reduce((t, a) => t + a.blend_weight, 0) || 1;
+  $('market').innerHTML = market.map(a => `
+    <div class="agg ${a.id === agg ? 'on' : ''} ${a.status === 'live' ? '' : 'soon'}" data-id="${esc(a.id)}">
+      <div class="h"><b>${esc(a.title)}</b>${a.published ? `<span class="pill">by ${esc(a.author || 'anon')}</span>` : ''}</div>
+      <p title="${esc(a.formula)}">${esc(PLAIN[a.id] || PLAIN[a.base] && `${PLAIN[a.base]} (${a.base}, ${JSON.stringify(a.params)})` || a.formula)}</p>
+      <div class="f"><span class="pick">${picker(a.rating.n ? Math.round(a.standing) : 0, 'data-n')}</span>
+        <small>${a.rating.n ? `${a.standing.toFixed(1)} · ${a.rating.n} vote${a.rating.n > 1 ? 's' : ''}` : 'no votes'}${a.in_blend ? ` · ${(100 * a.blend_weight / tw).toFixed(0)}% of blend` : ''}</small></div>
+    </div>`).join('');
+  $('market').querySelectorAll('.agg').forEach(el => el.onclick = (e) => {
+    const id = el.dataset.id, star = e.target.closest('button');
+    if (star) { e.stopPropagation(); return rateAgg(id, +star.dataset.n); }
+    if (el.classList.contains('soon')) return;
+    agg = id; renderSelect(); renderMarket(); score();
+  });
+}
+
+function renderSubjects() {
+  const cur = $('subject').value.trim();
+  $('subjects').innerHTML = subjects.length
+    ? subjects.map(x => `<button class="item ${x.subject === cur ? 'on' : ''}" data-s="${esc(x.subject)}"><span>${esc(x.subject)}</span><b>${Number(x.mean).toFixed(1)}</b></button>`).join('')
+    : '<div class="none">Nothing yet. Look something up and rate it.</div>';
+  $('subjects').querySelectorAll('button').forEach(b => b.onclick = () => { $('subject').value = b.dataset.s; score(); });
+}
+
+async function loadMarket() { market = (await api('market')).aggregators; renderSelect(); renderMarket(); }
+async function loadSubjects() { subjects = (await api('subjects')).subjects.filter(x => !x.subject.startsWith('agg:')); renderSubjects(); }
+
+async function rateAgg(id, n) {
+  const rater = needName(); if (!rater) return;
+  const r = await post('rate', { subject: `agg:${id}`, rater, score: n, source: 'reviews-console' });
+  if (r.error) { alertIn(r.error); return; }
+  await loadMarket();
+  if (agg === 'market') score();
+}
+
+async function rateSubject(n) {
+  const rater = needName(); if (!rater) return;
+  const subject = $('subject').value.trim();
+  const r = await post('rate', { subject, rater, score: n, source: 'reviews-console' });
+  if (r.error) { alertIn(r.error); return; }
+  await Promise.all([score(), loadSubjects()]);
+}
+
+function alertIn(msg) { const h = document.querySelector('.rate .hint'); if (h) h.innerHTML = `<span class="warn">${esc(msg)}</span>`; }
+
+function empty() {
+  $('out').innerHTML = `<div class="card empty">
+    <h2>One honest number for anything</h2>
+    <p>People and agents rate a thing 1 to 5. You choose how those ratings get combined, and every score shows exactly how it was worked out.</p>
+    <div class="steps"><div><b>1. Look it up</b>Type any name, like a module or a person.</div><div><b>2. Rate it</b>Add your own stars.</div><div><b>3. Pick a method</b>Average, median, newest-first, or let the market decide.</div></div>
+  </div>`;
 }
 
 async function score() {
   const subject = $('subject').value.trim();
-  if (!subject) return;
-  const u = new URL(location); u.searchParams.set('s', subject); history.replaceState(null, '', u);
-  const d = await api('score', { subject, aggregator: agg });
-  if (d.error) { $('out').innerHTML = `<span class="fb">${esc(d.error)}</span>`; return; }
-  if (d.score == null) { $('out').innerHTML = `<span class="muted">no ratings on <code>${esc(subject)}</code> yet</span>`; return; }
-  const rows = d.breakdown.map(r => `<tr><td>${esc(r.rater)}</td><td><span class="tag">${esc(r.kind)}</span></td><td>${r.score}</td><td>${r.weight}</td><td>${(r.share * 100).toFixed(1)}%</td><td class="muted">${esc(r.why)}</td></tr>`).join('');
-  $('out').innerHTML = `
-    <div class="big">${d.score.toFixed(2)} <small>/ ${d.scale} · ${d.n} rating${d.n === 1 ? '' : 's'} · ${d.by_kind.human} human · ${d.by_kind.agent} agent · ${esc(d.title)}</small></div>
-    <div class="formula">${esc(d.formula)}</div>
-    ${d.fallback ? `<div class="fb">⚠ ${esc(d.aggregator)} could not run — ${esc(d.fallback.why)}; showing ${esc(d.fallback.to)} instead.</div>` : ''}
-    ${d.weights ? `<div class="formula">weights (${esc(d.weights_source)}): ${esc(JSON.stringify(d.weights))}</div>` : ''}
-    <table><tr><th>rater</th><th>kind</th><th>score</th><th>weight</th><th>share</th><th>why</th></tr>${rows}</table>`;
+  renderSubjects();
+  if (!subject) return empty();
+  const u = new URL(location); u.searchParams.set('s', subject); u.searchParams.set('a', agg); history.replaceState(null, '', u);
+  const [d, mine] = await Promise.all([api('score', { subject, aggregator: agg }), api('ratings', { subject })]);
+  const me = $('rater').value.trim();
+  const my = (mine.ratings || []).find(r => r.rater === me);
+  const rateBox = `<div class="rate"><div class="pick">${picker(my ? my.score : 0, 'data-r')}</div><div class="hint">${my ? `you gave it ${my.score}` : 'your rating'}</div></div>`;
+  if (d.error) { $('out').innerHTML = `<div class="card"><div class="warn">${esc(d.error)}</div></div>`; return; }
+  if (d.score == null) {
+    $('out').innerHTML = `<div class="card"><div class="hero"><div><div class="num" style="color:var(--faint)">&ndash;</div><div class="meta"><b style="color:var(--ink)">${esc(subject)}</b> has no ratings yet. Be the first.</div></div>${rateBox}</div></div>`;
+  } else {
+    const k = d.by_kind || {};
+    const rows = d.breakdown.map(r => `<tr><td>${esc(r.rater)}</td><td><span class="pill">${esc(r.kind)}</span></td><td class="n">${r.score}</td><td class="n">${(r.share * 100).toFixed(0)}%</td><td style="color:var(--dim)">${esc(r.why)}</td></tr>`).join('');
+    const blend = d.blend ? `<table><tr><th>method</th><th>its score</th><th>trust</th><th>share</th></tr>${d.blend.map(b => `<tr><td>${esc(b.id)}</td><td class="n">${b.score.toFixed(2)}</td><td class="n">${b.standing.toFixed(1)}</td><td class="n">${(b.share * 100).toFixed(0)}%</td></tr>`).join('')}</table>` : '';
+    $('out').innerHTML = `<div class="card">
+      <div class="hero">
+        <div><div class="num">${d.score.toFixed(2)}<small> / ${d.scale}</small></div>
+          <div class="stars">${starsOf(d.score)}</div>
+          <div class="meta"><b style="color:var(--ink)">${esc(subject)}</b> · ${d.n} rating${d.n === 1 ? '' : 's'}${k.agent ? ` (${k.human || 0} people, ${k.agent} agent${k.agent > 1 ? 's' : ''})` : ''} · ${esc(d.title)}</div>
+          ${d.fallback ? `<div class="warn">${esc(d.aggregator)} couldn't run (${esc(d.fallback.why)}), showing ${esc(d.fallback.to)}.</div>` : ''}
+        </div>
+        ${rateBox}
+      </div>
+      <details><summary>how this was worked out</summary>
+        <div class="formula">${esc(d.formula)}</div>${blend}
+        ${d.weights ? `<div class="formula">weights (${esc(d.weights_source)}): ${esc(JSON.stringify(d.weights))}</div>` : ''}
+        <table><tr><th>who</th><th>kind</th><th>stars</th><th>counts for</th><th>why</th></tr>${rows}</table>
+      </details></div>`;
+  }
+  $('out').querySelectorAll('.rate .pick button').forEach(b => b.onclick = () => rateSubject(+b.dataset.r));
+}
+
+async function publish() {
+  let params;
+  try { params = JSON.parse($('pparams').value || '{}'); } catch { $('pmsg').innerHTML = '<span class="warn">settings must be JSON</span>'; return; }
+  const title = $('ptitle').value.trim();
+  const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (!id) { $('ptitle').focus(); return; }
+  const r = await post('publish', { id, base: $('pbase').value, params, title, author: $('rater').value.trim() });
+  if (r.error) { $('pmsg').innerHTML = `<span class="warn">${esc(r.error)}</span>`; return; }
+  $('pmsg').textContent = `Published "${title}". Star it 3 times to bring it into the blend.`;
+  $('ptitle').value = '';
+  agg = r.id; await loadMarket(); score();
 }
 
 async function boot() {
-  const a = await api('aggregators'); registry = a.aggregators; agg = a.default; renderAggs();
-  const s = await api('subjects');
-  $('subjects').innerHTML = s.subjects.length ? s.subjects.map(x => `<button data-s="${esc(x.subject)}">${esc(x.subject)} <span class="muted">· ${x.n} · ${x.mean}</span></button>`).join('') : '<span class="muted">nothing rated yet</span>';
-  $('subjects').querySelectorAll('button').forEach(b => b.onclick = () => { $('subject').value = b.dataset.s; score(); });
-  const pre = new URLSearchParams(location.search).get('s'); if (pre) { $('subject').value = pre; score(); }
+  const a = await api('aggregators'); agg = a.default;
+  $('pbase').innerHTML = a.publishable.map(b => `<option value="${b}">start from: ${(a.aggregators.find(x => x.id === b) || {}).title || b}</option>`).join('');
+  $('pbase').onchange = () => { $('pparams').value = HINT[$('pbase').value] || '{}'; }; $('pbase').onchange();
+  $('rater').value = localStorage.getItem('reviews.rater') || '';
+  const q = new URLSearchParams(location.search); if (q.get('a')) agg = q.get('a');
+  await Promise.all([loadMarket(), loadSubjects()]);
+  $('subject').value = q.get('s') || '';
+  score();
 }
-$('go').onclick = score; $('subject').onkeydown = (e) => { if (e.key === 'Enter') score(); };
+$('go').onclick = score;
+$('subject').onkeydown = (e) => { if (e.key === 'Enter') score(); };
+$('agg').onchange = () => { agg = $('agg').value; renderMarket(); score(); };
+$('rater').onchange = () => { localStorage.setItem('reviews.rater', $('rater').value.trim()); score(); };
+$('pub').onclick = publish;
 boot();
 </script>
 </body>

@@ -890,6 +890,9 @@ pub async fn runner_within(args: &[String], budget_ms: Option<u64>) -> Result<Va
 /// Play a match by spawning the node runner — the same execution layer the
 /// browser uses, so a match run from an MCP client and a match run in a tab
 /// are the same computation.
+/// The whole-match budget when a protocol agent holds a seat.
+pub const AGENT_MATCH_MS: u64 = 1_800_000;
+
 pub async fn run_match(args: &Value) -> Result<Value, String> {
     let game = s(args, "game");
     let names = list_of(args, "players");
@@ -921,10 +924,16 @@ pub async fn run_match(args: &Value) -> Result<Value, String> {
     }
     // How long the whole match may take. It was read and dropped before, so a
     // long match died at the default five minutes however it was called.
+    // A protocol agent spends tens of seconds a move on a local model, so a
+    // match with one seated gets half an hour unless the caller said otherwise.
+    let has_agent = crate::store::read(|st| {
+        names.iter().any(|n| st.player(n).map_or(false, |p| p.kind == "agent_mod"))
+    });
     let budget = args
         .get("timeout_ms")
         .and_then(|v| v.as_u64())
-        .filter(|ms| *ms >= 1_000);
+        .filter(|ms| *ms >= 1_000)
+        .or(has_agent.then_some(AGENT_MATCH_MS));
     if let Some(ms) = budget {
         argv.push("--timeout".into());
         argv.push(ms.to_string());

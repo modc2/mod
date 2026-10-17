@@ -20,7 +20,7 @@
         "app": {
             "method": "GET",
             "auth": false,
-            "docs": "GET / (Accept: text/html) or /app -> web/index.html: search, tag filters, sweep progress"
+            "docs": "GET / (Accept: text/html) or /app -> src/app/index.html: search, tag filters, sweep progress"
         },
         "health": {
             "method": "GET",
@@ -79,5 +79,5 @@
         "status",
         "test"
     ],
-    "schema": "QmYEYfwhJcnb7HGRW6hcdbSqMvsJJoEW29h1dEXV5bTAAH"
+    "schema": "QmPpNKQJUfzzCDytECkMcwcw9vtPe1zy8zfreuxrYexPnt"
 }

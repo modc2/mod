@@ -6,7 +6,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 
 /* the subnet overlay's tabs — ?t= in the url, `tab` in bt_view */
-export const SUBNET_TABS = ['overview', 'trades', 'validators', 'news'] as const;
+export const SUBNET_TABS = ['overview', 'code', 'trades', 'validators', 'news'] as const;
 export type SubnetTab = typeof SUBNET_TABS[number];
 const asTab = (t?: string | null): SubnetTab =>
   (SUBNET_TABS as readonly string[]).includes(t || '') ? t as SubnetTab : 'overview';

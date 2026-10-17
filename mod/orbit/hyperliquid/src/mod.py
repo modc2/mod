@@ -114,7 +114,7 @@ class Hyperliquid(m.Mod):
         # live copy-trade engine
         "live_start", "live_stop", "live_status",
         # market / wallet data
-        "mids", "meta", "orderbook", "candles", "wallet_config",
+        "markets", "mids", "meta", "orderbook", "candles", "wallet_config",
         "user_state", "user_fills", "user_pnl", "user_orders", "user_funding",
     ]
 
@@ -843,6 +843,17 @@ class Hyperliquid(m.Mod):
         """Data-integrity report: board freshness, per-window trader-index
         completeness, deepener coverage, and recent background sync history."""
         return self._get("/sync", limit=limit)
+
+    def markets(self, limit: int = 50) -> Any:
+        """Tradable perps — the tradekit/1 `markets` shape: symbol, mid price,
+        max leverage. Delisted coins are dropped."""
+        meta = self._get("/market/meta")
+        universe = (meta[0] if isinstance(meta, list) else meta).get("universe", [])
+        mids = self._get("/mids")
+        out = [{"symbol": u["name"], "price": float(mids[u["name"]]) if u["name"] in mids else None,
+                "maxLeverage": u.get("maxLeverage")}
+               for u in universe if not u.get("isDelisted")]
+        return out[:max(1, int(limit))]
 
     def mids(self) -> Any: return self._get("/mids")
     def meta(self) -> Any: return self._get("/market/meta")

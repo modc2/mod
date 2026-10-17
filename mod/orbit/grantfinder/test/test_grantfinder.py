@@ -9,7 +9,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
 os.environ['GRANTFINDER_HOME'] = tempfile.mkdtemp(prefix='gf-test-')
-sys.path.append(str(HERE))
+sys.path.append(str(HERE / 'src' / 'api'))
 
 import pytest  # noqa: E402
 from grantscan import agent, lanes, store, sweep, tags  # noqa: E402

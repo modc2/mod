@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { dexQuote, dexSwap, getDexTokens, getVenues } from "../lib/api";
+import { dexQuote, dexSwap, getDexTokens, getModules, getVenues } from "../lib/api";
+
+type Tok = { symbol: string; label: string };
+
+// "other…" in a token picker — the box under it takes an address or mint.
+const OTHER = "__other__";
 
 type Props = { onClose: () => void; say: (text: string, bad?: boolean) => void };
 
@@ -27,7 +32,8 @@ export default function DexDesk({ onClose, say }: Props) {
   const [trade, setTrade] = useState<any>(null);
   const [busy, setBusy] = useState<"" | "quote" | "trade">("");
   const [error, setError] = useState<string | null>(null);
-  const [tokens, setTokens] = useState<string[]>([]);
+  const [tokens, setTokens] = useState<Tok[]>([]);
+  const [anything, setAnything] = useState("");
 
   useEffect(() => {
     getVenues()
@@ -38,21 +44,54 @@ export default function DexDesk({ onClose, say }: Props) {
       .catch((e) => setError(e.message));
   }, []);
 
+  // The pickers only offer what this venue can actually trade: the chain's
+  // native coin plus the tokens dex.rs knows by symbol, or — on Bittensor —
+  // TAO and every subnet's alpha (deepest pool first). Switching chains snaps
+  // the pair back to native → its first listed token so a stale "ETH" never
+  // gets sent to Jupiter.
   useEffect(() => {
     setTokens([]);
+    setAnything("");
+    let dead = false;
     getDexTokens(chain)
-      .then((r) => {
+      .then(async (r) => {
         const entry = (r.tokens ?? []).find((t: any) => t.chain === chain);
-        if (entry) {
-          const syms = [entry.native, ...(entry.known ?? []).map((k: any) => k.symbol)].filter(Boolean);
-          setTokens(syms);
+        if (!entry) return;
+        setAnything(entry.anything_else ?? "");
+        let list: Tok[] = [{ symbol: entry.native, label: `${entry.native} · native` }];
+        for (const k of entry.known ?? []) {
+          if (k.symbol && k.symbol !== entry.native) list.push({ symbol: k.symbol, label: k.symbol });
         }
+        if (chain === "tao") {
+          const m = await getModules({ chain: "tao", limit: 500 }).catch(() => null);
+          for (const x of m?.modules ?? []) {
+            if (!x.symbol || x.symbol === "SN0") continue; // root has no alpha pool
+            list.push({ symbol: x.symbol, label: x.project ? `${x.symbol} · ${x.project}` : x.symbol });
+          }
+        }
+        if (dead) return;
+        setTokens(list);
+        setSell(entry.native);
+        setBuy(list.find((t) => t.symbol !== entry.native)?.symbol ?? "");
       })
       .catch(() => {});
+    return () => {
+      dead = true;
+    };
   }, [chain]);
 
   const venue = useMemo(() => venues.find((v) => v.chain === chain), [venues, chain]);
   const backing = venue ? modules[venue.module] : null;
+  const native = tokens[0]?.symbol ?? "";
+  const known = (sym: string) => tokens.some((t) => t.symbol === sym);
+  const buyable = tokens.filter(
+    (t) => t.symbol !== sell && (chain !== "tao" || (sell === native) !== (t.symbol === native))
+  );
+  const flip = () => {
+    setSell(buy);
+    setBuy(sell);
+    setQuote(null);
+  };
 
   const run = async (what: "quote" | "trade") => {
     setBusy(what);
@@ -132,20 +171,43 @@ export default function DexDesk({ onClose, say }: Props) {
         <div className="label" style={{ marginTop: 16 }}>
           Sell → buy
         </div>
-        <datalist id="dex-tokens">
-          {tokens.map((sym) => (
-            <option key={sym} value={sym} />
-          ))}
-        </datalist>
-        <div style={{ display: "flex", gap: 6 }}>
-          <input value={sell} onChange={(e) => setSell(e.target.value)} placeholder="ETH" list="dex-tokens" />
-          <input value={buy} onChange={(e) => setBuy(e.target.value)} placeholder="USDC" list="dex-tokens" />
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <TokenPick
+            value={sell}
+            options={tokens}
+            other={chain !== "tao"}
+            onChange={(v) => {
+              setSell(v);
+              setQuote(null);
+              // on Bittensor the other side has to be TAO if this one isn't
+              if (chain === "tao" && (v === native) === (buy === native))
+                setBuy(v === native ? tokens.find((t) => t.symbol !== native)?.symbol ?? "" : native);
+              else if (v === buy) setBuy(tokens.find((t) => t.symbol !== v)?.symbol ?? "");
+            }}
+          />
+          <button className="ghost" onClick={flip} title="swap sides" style={{ padding: "4px 8px" }}>
+            ⇄
+          </button>
+          <TokenPick
+            value={buy}
+            options={buyable}
+            other={chain !== "tao"}
+            onChange={(v) => {
+              setBuy(v);
+              setQuote(null);
+            }}
+          />
         </div>
+        {anything && (!known(sell) || !known(buy)) && (
+          <div className="mono-small" style={{ marginTop: 5, lineHeight: 1.5 }}>
+            {anything}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
           <input
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="amount of sell"
+            placeholder={`amount of ${sell || "sell"}`}
           />
           <input
             value={slippage}
@@ -275,6 +337,59 @@ export default function DexDesk({ onClose, say }: Props) {
           defi_dex_quote, defi_dex_swap.
         </div>
       </div>
+    </div>
+  );
+}
+
+/// A token picker that only lists what the venue trades. "other…" (not on
+/// Bittensor, where the subnet list is the whole universe) swaps in a box for
+/// a contract address or mint; picking from the list again swaps it back.
+function TokenPick({
+  value,
+  options,
+  other,
+  onChange,
+}: {
+  value: string;
+  options: Tok[];
+  other: boolean;
+  onChange: (v: string) => void;
+}) {
+  const listed = options.some((t) => t.symbol === value);
+  const [custom, setCustom] = useState(false);
+  const typing = other && ((custom && !listed) || (!listed && value !== "" && options.length > 0));
+  return (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <select
+        value={typing ? OTHER : listed ? value : ""}
+        onChange={(e) => {
+          if (e.target.value === OTHER) {
+            setCustom(true);
+            onChange("");
+          } else {
+            setCustom(false);
+            onChange(e.target.value);
+          }
+        }}
+        style={{ width: "100%" }}
+      >
+        {!listed && !typing && <option value="">{options.length ? "pick…" : "loading…"}</option>}
+        {options.map((t) => (
+          <option key={t.symbol} value={t.symbol}>
+            {t.label}
+          </option>
+        ))}
+        {other && <option value={OTHER}>other — paste address…</option>}
+      </select>
+      {typing && (
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value.trim())}
+          placeholder="token address / mint"
+          style={{ marginTop: 5 }}
+          autoFocus
+        />
+      )}
     </div>
   );
 }

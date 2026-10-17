@@ -457,7 +457,7 @@ async fn model(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
 /// An agent in this fleet's `agent` module — one move is one run of the
 /// agent protocol (see agentproto.rs, the only file that speaks it).
 ///
-/// config: { agent?, model?, provider?, prompt?, toolbox?, steps?, free?, base?, key? }
+/// config: { agent?, model?, provider?, prompt?, tools?, toolbox?, steps?, free?, base?, key? }
 async fn agent_mod(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
     if p.config.get("retired").and_then(|v| v.as_bool()).unwrap_or(false) {
         return Err(format!("{} has left the agent protocol roster", p.name));
@@ -477,6 +477,16 @@ async fn agent_mod(p: &Player, view: &str, seat: usize) -> Result<Answer, String
             req[key] = json!(v);
         }
     }
+    // A move is the agent's own persona and model thinking about a position,
+    // not a job on this box's files. Its full toolbox is ~5k tokens of schema
+    // on every call — six minutes a move on a local model, and a run that
+    // spends its steps reading README.md — so a seat plays with `think` only
+    // unless its config names tools or a toolbox of its own.
+    req["tools"] = match p.config.get("tools") {
+        Some(t @ Value::Array(_)) => t.clone(),
+        _ if cfg(p, "toolbox").is_some() => Value::Null,
+        _ => json!(["think"]),
+    };
     let run = crate::agentproto::run(&base, req).await?;
 
     // An agent asked for a function writes it in a step and then summarises
