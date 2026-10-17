@@ -2,7 +2,7 @@
 
 The Privacy Protocol
 
-Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) · discord `xcolwell`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) ·
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005425 | -0.42% | -5.57% | -17.84% | 33,588 | 11,954 | 1,449 |
+| 0.005792 | -0.15% | +6.76% | -9.28% | 35,905 | 12,357 | 4,175 |
 
 ## Last 24h flow
 
-77 trades by 40 coldkeys · 28 buys (549.09 τ) / 49 sells (897.20 τ) · net -348.10 τ
+251 trades by 90 coldkeys · 156 buys (2,285 τ) / 95 sells (1,878 τ) · net 407.22 τ
 
 ## News
 
-- 2026-10-16 · commit · [Merge v2/gate-pin-hardening into main](https://github.com/urfoundation/sn/commit/b2c184b361b51a3443bff6527bf4e97148cf000e) — urfoundation/sn
-- 2026-10-16 · commit · [Merge origin/main into v2/gate-pin-hardening](https://github.com/urfoundation/sn/commit/70c1346e67d80f579e4947dc851d1ac111a7b65f) — urfoundation/sn
-- 2026-10-16 · commit · [Census every sn script that runs go test -run, with root-cause tests](https://github.com/urfoundation/sn/commit/3eeabdbdfad02a2d3629b342d0a97f9b0a687d14) — urfoundation/sn
-- 2026-10-16 · commit · [Refuse an evidence source census of a package that no command of its …](https://github.com/urfoundation/sn/commit/7787869d34d01a15202c8aa70d2ae2466321c5d9) — urfoundation/sn
-- 2026-10-16 · commit · [Give server-db's ./proxy run a 40-minute deadline](https://github.com/urfoundation/sn/commit/eb11f5fcc3a9ed0f110ae4926c2438b173f01be3) — urfoundation/sn
-- 2026-10-16 · release · [v2026.10.15-1073121200](https://github.com/urfoundation/sn/releases/tag/v2026.10.15-1073121200) — urfoundation/sn
-- 2026-10-15 · release · [v2026.10.15-1073082520](https://github.com/urfoundation/sn/releases/tag/v2026.10.15-1073082520) — urfoundation/sn
-- 2026-10-15 · release · [v2026.10.15-1073057980](https://github.com/urfoundation/sn/releases/tag/v2026.10.15-1073057980) — urfoundation/sn
+- 2026-10-17 · release · [v2026.10.16-1074037020](https://github.com/urfoundation/sn/releases/tag/v2026.10.16-1074037020) — urfoundation/sn
+- 2026-10-17 · commit · [Merge remote-tracking branch 'origin/main'](https://github.com/urfoundation/sn/commit/6608298ead6b69206cddc3a28259043651eefd97) — urfoundation/sn
+- 2026-10-17 · commit · [feat(api): document competition automation control plane](https://github.com/urfoundation/sn/commit/b6bb975ffd211a5533261d66afa6e5b8d7eb1cf3) — urfoundation/sn
+- 2026-10-16 · release · [v2026.10.16-1073891640](https://github.com/urfoundation/sn/releases/tag/v2026.10.16-1073891640) — urfoundation/sn
+- 2026-10-16 · commit · [Merge deterministic owned export cleanup regression](https://github.com/urfoundation/sn/commit/3c56670c9b8f76b8aad955cca0a8e7271608aa04) — urfoundation/sn
+- 2026-10-16 · commit · [Inject owned export removal failure independently of privilege](https://github.com/urfoundation/sn/commit/670c15c19d12db02e928808bd2f894194ef900bd) — urfoundation/sn
+- 2026-10-16 · commit · [Keep CLI release outputs out of source provenance](https://github.com/urfoundation/sn/commit/df027a4e7cbfd719e5e44e209646bddb808f35ed) — urfoundation/sn
+- 2026-10-16 · release · [v2026.10.16-1073843780](https://github.com/urfoundation/sn/releases/tag/v2026.10.16-1073843780) — urfoundation/sn
 
 ## Use
 

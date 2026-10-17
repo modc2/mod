@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004886 | -1.77% | -8.90% | -0.54% | 29,021 | 5,566 | 4,745 |
+| 0.004696 | -0.51% | -3.56% | -3.05% | 27,920 | 5,456 | 909.11 |
 
 ## Last 24h flow
 
-422 trades by 149 coldkeys · 197 buys (2,240 τ) / 225 sells (2,513 τ) · net -272.65 τ
+133 trades by 77 coldkeys · 56 buys (404.75 τ) / 77 sells (503.02 τ) · net -98.27 τ
 
 ## News
 
-- 2026-10-16 · commit · [Merge pull request #476 from leadpoet/fix/presign-opening-client-oct16](https://github.com/leadpoet/leadpoet/commit/368ff0fb8d4a0d35ae42c34f5d8f934bcd9776f0) — leadpoet/leadpoet
-- 2026-10-16 · commit · [Cover both halves of the presign opening retry window](https://github.com/leadpoet/leadpoet/commit/1b2b019e77183c8953b2e20a3915a1cb8f1de620) — leadpoet/leadpoet
-- 2026-10-16 · commit · [Merge pull request #474 from leadpoet/op/V7jOJiWPpT/presign-cutoff](https://github.com/leadpoet/leadpoet/commit/33970bc121f0c2f7926e0a6b5e4f7db56efef826) — leadpoet/leadpoet
-- 2026-10-16 · commit · [Merge pull request #475 from leadpoet/audit/oct16-cycle-independent](https://github.com/leadpoet/leadpoet/commit/6d021b34afbc610a6ef2ca512e9fa0fa86d91065) — leadpoet/leadpoet
-- 2026-10-16 · commit · [Document continuous OnePatch coverage and unresolved blockers](https://github.com/leadpoet/leadpoet/commit/af24d01a77fa57e583d96b12c9f52f5a4c50be26) — leadpoet/leadpoet
-- 2026-10-15 · commit · [Merge pull request #473 from leadpoet/fix/arena-progression-lock-orde…](https://github.com/leadpoet/leadpoet/commit/30139d6b99d91d523569fe87915695f03e5f1faa) — leadpoet/leadpoet
-- 2026-10-15 · commit · [Fix Arena progression lock order and close legacy scoring RPC access](https://github.com/leadpoet/leadpoet/commit/534be4f669cdcbaf12ae425803479d15614fb294) — leadpoet/leadpoet
-- 2026-10-15 · commit · [Merge pull request #472 from leadpoet/fix/structured-hq-manifest-oct15](https://github.com/leadpoet/leadpoet/commit/77db393b0bf899c888edd7d3a495aeb0f5f78820) — leadpoet/leadpoet
+- 2026-10-17 · commit · [Merge pull request #512 from leadpoet/codex/arena-training-input-sche…](https://github.com/leadpoet/leadpoet/commit/6ab0dc94feddfd9220d4c7b611ab9b94284c1909) — leadpoet/leadpoet
+- 2026-10-17 · commit · [fix(arena): preserve JSON schema integers in training input](https://github.com/leadpoet/leadpoet/commit/f95ae4ea8191b1aa6698db76125e97ce4381cfe9) — leadpoet/leadpoet
+- 2026-10-17 · commit · [Merge pull request #511 from leadpoet/fix/reviewer-runtime-completion](https://github.com/leadpoet/leadpoet/commit/9413a02ad9d666ef3ff0c6248fe6562fdfc97347) — leadpoet/leadpoet
+- 2026-10-17 · commit · [Compose only the approved frozen negative-finality correction](https://github.com/leadpoet/leadpoet/commit/ad38ff9607bbdcbe54ea50c85aaaa9ba1493a470) — leadpoet/leadpoet
+- 2026-10-17 · commit · [Admit the existing final reviewer correction after late settlement](https://github.com/leadpoet/leadpoet/commit/27449b8481adeb1176a8279f17f9b0b536f9edf8) — leadpoet/leadpoet
+- 2026-10-16 · commit · [Merge pull request #491 from leadpoet/fix/arena-store-error-diagnosti…](https://github.com/leadpoet/leadpoet/commit/7a1d61bb4be7d9e29d75be33bbdd4a2659f3f0ed) — leadpoet/leadpoet
+- 2026-10-16 · commit · [Record safe store diagnostics in provider errors](https://github.com/leadpoet/leadpoet/commit/fd1da8e9271c7585e88e30c398fd48da8d0a26a9) — leadpoet/leadpoet
+- 2026-10-16 · commit · [Recover keyed Deepline edge locators after missing exact bills (#490)](https://github.com/leadpoet/leadpoet/commit/5fc5b5d11c22cecba74ff0a614bcf098d0d12ef5) — leadpoet/leadpoet
 
 ## Use
 

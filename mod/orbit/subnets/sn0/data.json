@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9293868,
+  "block": 9300804,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6872845.358674005,
-    "tao_in": 5448028.493845204,
-    "alpha_in": 1424816.864828801,
-    "alpha_out": 5448028.493845204,
-    "volume": 59191250.80027749,
-    "vol_24h": 54704.51459373534,
+    "market_cap": 6873354.966229526,
+    "tao_in": 5450448.49741776,
+    "alpha_in": 1422906.468811766,
+    "alpha_out": 5450448.49741776,
+    "volume": 59228252.88226284,
+    "vol_24h": 37001.869191125035,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,6 +81,38 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1792198143,
+      "kind": "social",
+      "source": "reddit",
+      "title": "Buy Signal Bittensor USD - 16 Oct 2026 @ 20:47 -> $273.40",
+      "url": "https://www.reddit.com/r/getagraph/comments/1x7wy29/buy_signal_bittensor_usd_16_oct_2026_2047_27340/",
+      "publisher": "r/getagraph"
+    },
+    {
+      "ts": 1792176483,
+      "kind": "social",
+      "source": "reddit",
+      "title": "Buy Signal Bittensor USD - 16 Oct 2026 @ 14:45 -> $272.56",
+      "url": "https://www.reddit.com/r/getagraph/comments/1x7oiwx/buy_signal_bittensor_usd_16_oct_2026_1445_27256/",
+      "publisher": "r/getagraph"
+    },
+    {
+      "ts": 1792130580,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor (TAO) Surges 10.9% on Decentralized AI Catalysts",
+      "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE95cGl0b0l2ODllUkFYZHhRX2Roc1FWckdCMUY3dVZEOU1JS045NlpJaVdkZ3R1M0NvUU5uM1ZQdHJmdnRWWXVTXzV4TXlZNUxXZk5qZFNaRlNMWVh3SDN3djVkQXBhM3JSaFNIQm5qbGk?oc=5",
+      "publisher": "CoinMarketCap"
+    },
+    {
+      "ts": 1792122003,
+      "kind": "social",
+      "source": "reddit",
+      "title": "Buy Signal Bittensor USD - 15 Oct 2026 @ 23:37 -> $280.36",
+      "url": "https://www.reddit.com/r/getagraph/comments/1x75wej/buy_signal_bittensor_usd_15_oct_2026_2337_28036/",
+      "publisher": "r/getagraph"
+    },
+    {
       "ts": 1792117582,
       "kind": "news",
       "source": "gnews",
@@ -89,62 +121,30 @@
       "publisher": "Pluang"
     },
     {
+      "ts": 1792114682,
+      "kind": "social",
+      "source": "reddit",
+      "title": "Buy Signal Bittensor USD - 15 Oct 2026 @ 21:35 -> $281.26",
+      "url": "https://www.reddit.com/r/getagraph/comments/1x73k3u/buy_signal_bittensor_usd_15_oct_2026_2135_28126/",
+      "publisher": "r/getagraph"
+    },
+    {
+      "ts": 1792097762,
+      "kind": "social",
+      "source": "reddit",
+      "title": "Buy Signal Bittensor USD - 15 Oct 2026 @ 16:53 -> $277.09",
+      "url": "https://www.reddit.com/r/getagraph/comments/1x6xczm/buy_signal_bittensor_usd_15_oct_2026_1653_27709/",
+      "publisher": "r/getagraph"
+    },
+    {
       "ts": 1792080000,
       "kind": "news",
       "source": "gnews",
       "title": "Better Buy for the AI Boom: Bittensor or Bitcoin?",
       "url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxOVzE5Ty01bjA2SVZhcHFhTXhkX1BJZDdvNlFOTHBCWXlGUHhLTE1rb2htYndqZWIwbkprX1NjNDh5enNJazdBV3dZdEc5MlF2XzJOM01zdEotRjFueklGQU5JUVhqRllmdmRJMFNXV2d1YVYweHVhTm9LbWRoNDA3UEM3bmo1RmZFN0cwN3JxZWNsajMxNTdQZ3F0XzEtejYtVlVJaFRieXlpUQ?oc=5",
       "publisher": "24/7 Wall St."
-    },
-    {
-      "ts": 1792049731,
-      "kind": "news",
-      "source": "gnews",
-      "title": "The Scoreboard Is the Product: What Reading Bittensor Validator Code Taught Me",
-      "url": "https://news.google.com/rss/articles/CBMiogFBVV95cUxOVTBxdy1URlFra3RiMzFnam96RndpM0VfcUdCcG4tZk9EM3U1OXY1SWk2b0ZtbWlqRlYwQWw0NlBiYzNZNGhTVE51VWM5aUtMT0Q3RFRVZUhrZDBMeVJicXJmSllsck5rb1VtY2VjbFRqdUdMeXE5d1dQdFdSWVE5cVFrRm4xQmxHeVJEbWV1WHFLdGdkSFJHWUFHNWtScWdINFE?oc=5",
-      "publisher": "HackerNoon"
-    },
-    {
-      "ts": 1792044300,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor (TAO) Drops 7% Amid Macro-Driven Crypto Selloff",
-      "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTFBGc3haWEppbHBxQVhLMURnbjZScGNaZ00xTXBiaU5PVndKeUFNdHpWcHRmbi1VY1FlN3BsQmdrYU1NUHdXek0wODV3WW1wTGpQRVVhZUJONHBiSUF1MFBTTDBRaVBHRUFDazRCVEZpMi0?oc=5",
-      "publisher": "CoinMarketCap"
-    },
-    {
-      "ts": 1792004077,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor's TAO falls over 3%, must hold $265–$269 to avoid deeper losses toward $215 forecast.",
-      "url": "https://news.google.com/rss/articles/CBMiowFBVV95cUxNbjJGX1ZTQlNlcGdDUzFBRXI2NFZJMHBSU2tDMVZmZTBjWmVSUk1sTHI2S29ZYVdiVEVSeTE4bU5zVURod1ZlUUZNVGFuZ3kybk85ZXhWX2JudmZmVE53S09Hd2VFeUs5N3FsMnRnWHY2c0daRXdvczctdjhRc3lINkpBbTJZLTBUOExYTnREQnNHckxBNlpHU0phVmlBVTBSYnZj?oc=5",
-      "publisher": "Pluang"
-    },
-    {
-      "ts": 1791996732,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor TAO Outlook: Could TAO Rally Toward $1400?",
-      "url": "https://news.google.com/rss/articles/CBMirgFBVV95cUxQRWVKSDg2NktGOHd4QjJ3eV9ibXdFMDdCUy05ZTVtTGhUSWN3TVBGUHpxOUtsU1c3SzlFU2pXSVNRbUplVjk5QURoM2QwSXNuYnJHOGFuNjY3WGpZdl8tTTRCMHpwTC1RckFSNGhoeldZTUJpcVJYZ1lpMy1pb0pwY3dzLTlDajQ4NzdZMmU0cjhldW9ES2ZEYlVmaXRFLWs1SGJfemd5YXNTZ19wOWc?oc=5",
-      "publisher": "TradingView"
-    },
-    {
-      "ts": 1791921931,
-      "kind": "release",
-      "source": "feeds",
-      "title": "Runtime 478 (proposed)",
-      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v478",
-      "publisher": "subtensor releases"
-    },
-    {
-      "ts": 1791853475,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor (TAO) drops over 10% in 24 hours amid heavy long liquidations",
-      "url": "https://news.google.com/rss/articles/CBMiogFBVV95cUxObFJOZTg2UXUxSFlLQWFHWE1NT2FpM1duUUd5RThBWUxlUGtVRThYdURqRy1kSjFZSzV0OXJqRlhKdzQxd1B5MW5FVWlVVVJWT21aZ1BjMHFIV2NZand2NjJQSjNUbHJaUWNwS2NJNW1tUXROWFc0NWNqT21mT1AwdU5vSXM4dVRkTHJBOFNJY25oUm42aGZ3QVpSSXV2NGtvY0E?oc=5",
-      "publisher": "Pluang"
     }
   ],
-  "updated": 1792129261,
-  "updated_day": "2026-10-16"
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
 }

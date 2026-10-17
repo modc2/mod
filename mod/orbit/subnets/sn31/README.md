@@ -2,17 +2,17 @@
 
 Recall provides decentralized retrieval-augmented generation to Bittensor. Miners serve embedding models, vector search, and LLM inference. Validators independently evaluate retrieval accuracy and answer quality. The subnet discovers the best RAG pipeline through open competition and routes user queries to the top performers. Think of it as an always-improving, community-owned search engine with citations.
 
-Bittensor subnet **31** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **31** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003952 | -0.00% | -0.64% | +3.85% | 9,738 | 1,792 | 35.97 |
+| 0.003901 | +0.00% | -1.29% | +0.44% | 9,639 | 1,781 | 147.00 |
 
 ## Last 24h flow
 
-8 trades by 7 coldkeys · 4 buys (15.10 τ) / 4 sells (14.47 τ) · net 0.63 τ
+28 trades by 18 coldkeys · 14 buys (67.70 τ) / 14 sells (76.87 τ) · net -9.17 τ
 
 ## Use
 

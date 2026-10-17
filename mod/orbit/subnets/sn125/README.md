@@ -2,7 +2,7 @@
 
 Incentivizing the improvement of the algorithms behind a pretraining run
 
-Bittensor subnet **125** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **125** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/Barbariandev/refinery) · [url](https://refinery125.com)
 
@@ -10,15 +10,11 @@ Links: [github](https://github.com/Barbariandev/refinery) · [url](https://refin
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002609 | -0.00% | -0.16% | -2.94% | 12,029 | 5,309 | 64.71 |
+| 0.002610 | +0.00% | +0.07% | -2.17% | 12,055 | 5,311 | 3.65 |
 
 ## Last 24h flow
 
-9 trades by 6 coldkeys · 5 buys (30.20 τ) / 4 sells (28.99 τ) · net 1.21 τ
-
-## News
-
-- 2026-09-17 · commit · [Add files via upload](https://github.com/Barbariandev/Refinery/commit/a6a9cc202ccd36d5564da0b0dd2cd555447d1991) — Barbariandev/refinery
+9 trades by 9 coldkeys · 6 buys (2.69 τ) / 3 sells (0.24 τ) · net 2.45 τ
 
 ## Use
 

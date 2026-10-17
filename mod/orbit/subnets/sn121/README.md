@@ -2,7 +2,7 @@
 
 An enterprise AI platform that turns real business needs into ready-to-use AI solutions.
 
-Bittensor subnet **121** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **121** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/sundae-bar/bittensor-subnet) · [url](https://www.sundaebar.ai/)
 
@@ -10,11 +10,16 @@ Links: [github](https://github.com/sundae-bar/bittensor-subnet) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003742 | -0.00% | -0.42% | -1.30% | 17,133 | 5,687 | 102.54 |
+| 0.003716 | +0.00% | -0.68% | -2.63% | 17,042 | 5,668 | 19.47 |
 
 ## Last 24h flow
 
-17 trades by 11 coldkeys · 8 buys (45.21 τ) / 9 sells (49.80 τ) · net -4.59 τ
+12 trades by 6 coldkeys · 0 buys (0.00 τ) / 12 sells (18.06 τ) · net -18.06 τ
+
+## News
+
+- 2026-10-16 · commit · [Merge pull request #1 from sundae-bar/readme-skill-bundles](https://github.com/sundae-bar/bittensor-subnet/commit/8fcfc1da24f509a64fcef1e80889f8060cdbf110) — sundae-bar/bittensor-subnet
+- 2026-10-16 · commit · [Update README for skill bundles, the leadership margin and a Discord FAQ](https://github.com/sundae-bar/bittensor-subnet/commit/543793a68bf4c792378ec52c05e918f85ed98664) — sundae-bar/bittensor-subnet
 
 ## Use
 

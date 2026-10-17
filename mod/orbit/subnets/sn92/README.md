@@ -2,7 +2,7 @@
 
 Verified decision-model inference on Bittensor.
 
-Bittensor subnet **92** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **92** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/reaxlabs/reax-subnet) · [url](https://reax.co/)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/reaxlabs/reax-subnet) · [url](https://reax.c
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.034085 | +3.35% | -14.02% | +2447.49% | 7,049 | 2,431 | 13,494 |
+| 0.034440 | -0.48% | +1.46% | +662.51% | 7,285 | 2,455 | 18,929 |
 
 ## Last 24h flow
 
-2221 trades by 294 coldkeys · 1010 buys (6,584 τ) / 1211 sells (6,842 τ) · net -257.81 τ
+1444 trades by 183 coldkeys · 323 buys (9,382 τ) / 1121 sells (9,421 τ) · net -38.85 τ
 
 ## News
 
-- 2026-10-15 · release · [v1.2.0-rc4](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc4) — reaxlabs/reax-subnet
-- 2026-10-15 · commit · [release 1.2.0rc4: capacity probe timing (per-UID windows from the fir…](https://github.com/reaxlabs/reax-subnet/commit/de710addb126a8e642623454d23ec9d86db1a964) — reaxlabs/reax-subnet
-- 2026-10-15 · commit · [Merge branch 'fusion/sn92-fast-launch-20261015-probetiming-own' into …](https://github.com/reaxlabs/reax-subnet/commit/6990ee94cfb96b064fcefb42e10f220b3d9fb5bd) — reaxlabs/reax-subnet
-- 2026-10-15 · commit · [probe: open each UID's window at the validator's first send to it; la…](https://github.com/reaxlabs/reax-subnet/commit/489573fe2ebf6114d1bc3055a1a101a0d7758425) — reaxlabs/reax-subnet
-- 2026-10-15 · commit · [bench_probe: internet-like probe bench (RTT, GPU service time, both p…](https://github.com/reaxlabs/reax-subnet/commit/db0ebda463f7336f0c333621a85f7eaca45310e8) — reaxlabs/reax-subnet
-- 2026-10-15 · release · [v1.2.0-rc3](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc3) — reaxlabs/reax-subnet
-- 2026-10-15 · commit · [spec-eval: read /dev.jsonl (published HF dataset layout); d…](https://github.com/reaxlabs/reax-subnet/commit/71ccfe0085b72947e092bf5d28a450221d865ebb) — reaxlabs/reax-subnet
-- 2026-10-15 · release · [v1.2.0-rc2](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc2) — reaxlabs/reax-subnet
+- 2026-10-17 · release · [v1.2.0-rc7.post1](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc7.post1) — reaxlabs/reax-subnet
+- 2026-10-17 · commit · [Release 1.2.0rc7.post1: keep-alive pays the median inference weight p…](https://github.com/reaxlabs/reax-subnet/commit/b05e834275f66315e0cdb0883eac08f2f1ef0d02) — reaxlabs/reax-subnet
+- 2026-10-16 · commit · [release 1.2.0rc7: capacity probe in parallel shard processes (one mac…](https://github.com/reaxlabs/reax-subnet/commit/d16d0f1ede3274eb76a42e88b4bc046b953ce237) — reaxlabs/reax-subnet
+- 2026-10-16 · release · [v1.2.0-rc7](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc7) — reaxlabs/reax-subnet
+- 2026-10-16 · commit · [release 1.2.0rc6.post1: fair first crowning on specialist tracks (ope…](https://github.com/reaxlabs/reax-subnet/commit/dad79622086a1866a88c8285680fd1c9fb6abd11) — reaxlabs/reax-subnet
+- 2026-10-16 · release · [v1.2.0-rc6.post1](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc6.post1) — reaxlabs/reax-subnet
+- 2026-10-16 · commit · [release 1.2.0rc6: specialist draws 15 % procedural / 300 items with f…](https://github.com/reaxlabs/reax-subnet/commit/076c800b2dbb866101fed40e73aa7e7fd28ef744) — reaxlabs/reax-subnet
+- 2026-10-16 · release · [v1.2.0-rc6](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc6) — reaxlabs/reax-subnet
 
 ## Use
 

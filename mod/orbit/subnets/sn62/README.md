@@ -2,7 +2,7 @@
 
 Software Engineering Agents
 
-Bittensor subnet **62** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **62** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/ridgesai/ridges) · [url](https://www.ridges.ai/) · [discord](https://discord.gg/WeDvTnYDad)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/ridgesai/ridges) · [url](https://www.ridges.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.008662 | -0.02% | -2.20% | -8.06% | 49,777 | 27,205 | 488.55 |
+| 0.008629 | +0.00% | -0.39% | -8.66% | 49,653 | 27,162 | 180.01 |
 
 ## Last 24h flow
 
-199 trades by 89 coldkeys · 135 buys (76.71 τ) / 64 sells (392.70 τ) · net -315.99 τ
+225 trades by 77 coldkeys · 134 buys (49.50 τ) / 91 sells (108.80 τ) · net -59.31 τ
 
 ## News
 

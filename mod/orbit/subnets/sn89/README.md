@@ -2,7 +2,7 @@
 
 Proof of Edge - Trading signals
 
-Bittensor subnet **89** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **89** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/DeltaCompute24/InfiniteQuant-Subnet) · [url](https://infinitequant.app)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/DeltaCompute24/InfiniteQuant-Subnet) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002982 | -0.00% | -0.31% | +0.13% | 15,163 | 6,125 | 255.50 |
+| 0.002976 | +0.00% | -0.21% | -0.49% | 15,152 | 6,120 | 26.71 |
 
 ## Last 24h flow
 
-92 trades by 65 coldkeys · 11 buys (122.16 τ) / 81 sells (127.21 τ) · net -5.04 τ
+281 trades by 37 coldkeys · 1 buys (10.00 τ) / 280 sells (15.81 τ) · net -5.81 τ
 
 ## News
 
+- 2026-10-16 · commit · [Markets V3.5: 1h sigma scale 1.20 -> 1.70 from 2026-10-16 21:00 UTC](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/b55171d8a15420e033c4515f1a5ecc5ba370b1b3) — DeltaCompute24/InfiniteQuant-Subnet
 - 2026-10-15 · commit · [limit_watcher: reject mainnet orders from hotkeys not registered on n…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/452dacb5f95c78169e3f8b1088bb21d95323c0e2) — DeltaCompute24/InfiniteQuant-Subnet
 - 2026-10-15 · commit · [Docs: LF reveal is 15 minutes, entry is the last anchored tick at or …](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/2929742ec7c6becba378baba623881e090ee6c90) — DeltaCompute24/InfiniteQuant-Subnet
 - 2026-10-15 · commit · [README: IQ Markets $200 credit is now earned by referral (invite one …](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/78a75678f4080f0b08e33b00512aec647bd988b8) — DeltaCompute24/InfiniteQuant-Subnet
@@ -25,7 +26,6 @@ Links: [github](https://github.com/DeltaCompute24/InfiniteQuant-Subnet) · [url]
 - 2026-10-14 · commit · [Markets entity dust: MARKETS_VAULT_UID_FLOOR inside the Markets vecto…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/f364e2a2733478238030c85c5ba1c11295de3d40) — DeltaCompute24/InfiniteQuant-Subnet
 - 2026-10-13 · commit · [README + overview: 2026-10-14 split banner (Markets 20 / LF 30 / HF 3…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/2aae9c33a70d6771e3334f501100254e2dfb5fb1) — DeltaCompute24/InfiniteQuant-Subnet
 - 2026-10-13 · commit · [Emission split from 2026-10-14 00:00 UTC: LF 30 / HF 30 / Markets 20 …](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/8ddaa4ed0e4b145505107b0981bf61bb73595066) — DeltaCompute24/InfiniteQuant-Subnet
-- 2026-10-13 · commit · [Markets vault: from the payout+vault arms a withdrawal keeps open bet…](https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/36eca682e13a61e752f8424e0229a6175fe003da) — DeltaCompute24/InfiniteQuant-Subnet
 
 ## Use
 

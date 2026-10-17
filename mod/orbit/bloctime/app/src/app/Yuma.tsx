@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'react-toastify'
 import {
   ScaleIcon, CpuChipIcon, UserGroupIcon, BoltIcon, ArrowPathIcon, GiftIcon,
+  DocumentTextIcon, ArrowLeftIcon,
 } from '@heroicons/react/24/outline'
+import Whitepaper from './Whitepaper'
 
 // YUMA — bloctime.yuma (yuma/ + contracts/yuma/YumaBlocTime.sol).
 //
@@ -35,6 +37,8 @@ interface Preview {
   consensus: (string | number)[]; miner_pay: (string | number)[]; validator_pay: (string | number)[]; owner_pay: string | number
 }
 
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
+
 const ONE = 10n ** 18n
 const big = (x: string | number | undefined) => BigInt(x ?? 0)
 const tok = (x: string | number | undefined, dp = 2) => {
@@ -58,6 +62,7 @@ export default function Yuma({ api, account }: { api: Api; account: string }) {
   const [bloc, setBloc] = useState('1000')
   const [draft, setDraft] = useState<Record<number, string>>({})
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000))
+  const [paper, setPaper] = useState(false)
 
   useEffect(() => { if (account) setMe(account) }, [account])
   useEffect(() => { const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000); return () => clearInterval(t) }, [])
@@ -91,11 +96,35 @@ export default function Yuma({ api, account }: { api: Api; account: string }) {
     setDraft(row)
   }, [myV?.uid, myV?.weights.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // the subnet paper (yuma/whitepaper.md): app route first, API as fallback
+  const loadPaper = useCallback(async () => {
+    try {
+      const res = await fetch(`${BASE_PATH}/paper/yuma`, { cache: 'no-store' })
+      if (res.ok) return await res.json()
+    } catch {}
+    return api('yuma/whitepaper', {}, 'GET')
+  }, [api])
+
+  if (paper) {
+    return (
+      <div className="card animate-fade-up">
+        <div className="card-head">
+          <button onClick={() => setPaper(false)} className="btn btn-sm"><ArrowLeftIcon className="w-4 h-4" />Back to the subnet</button>
+          <span className="lbl text-ink2 ml-auto">Yuma whitepaper</span>
+        </div>
+        <Whitepaper load={loadPaper} wide />
+      </div>
+    )
+  }
+
   if (err && !st) {
     return (
       <div className="card card-body text-sm text-down animate-fade-up">
         <p className="lbl text-down mb-1">Yuma offline</p>{err}
-        <button onClick={refresh} className="btn btn-sm mt-3"><ArrowPathIcon className="w-4 h-4" />Retry</button>
+        <div className="flex gap-2 mt-3">
+          <button onClick={refresh} className="btn btn-sm"><ArrowPathIcon className="w-4 h-4" />Retry</button>
+          <button onClick={() => setPaper(true)} className="btn btn-sm"><DocumentTextIcon className="w-4 h-4" />Read the whitepaper</button>
+        </div>
       </div>
     )
   }
@@ -121,6 +150,7 @@ export default function Yuma({ api, account }: { api: Api; account: string }) {
               outvotes a big wallet. A score far from what most BlocTime agrees on gets cut back. Miners are paid
               by their consensus score, and validators by how early they backed the miners who earned.
             </p>
+            <button onClick={() => setPaper(true)} className="btn btn-sm mt-4"><DocumentTextIcon className="w-4 h-4" />Read the whitepaper</button>
           </div>
           <div className="grid grid-cols-2 gap-px bg-hair rounded-lg overflow-hidden border border-line">
             {[

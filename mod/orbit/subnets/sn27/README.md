@@ -2,7 +2,7 @@
 
 A decentralized data subnet that discovers, generates, and curates high-quality training data for LLMs
 
-Bittensor subnet **27** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **27** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/SILX-LABS/Orion)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/SILX-LABS/Orion)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002649 | -0.31% | -9.25% | +15.76% | 16,661 | 6,638 | 30,911 |
+| 0.002346 | -0.29% | -10.91% | +5.52% | 14,772 | 6,246 | 4,337 |
 
 ## Last 24h flow
 
-1874 trades by 258 coldkeys · 1073 buys (15,294 τ) / 801 sells (15,628 τ) · net -334.28 τ
+273 trades by 85 coldkeys · 147 buys (1,983 τ) / 126 sells (2,348 τ) · net -364.93 τ
 
 ## Use
 

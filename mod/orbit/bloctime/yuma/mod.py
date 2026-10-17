@@ -51,6 +51,10 @@ class Mod:
                 'rules': cfg.get('rules'), 'deployments': list(cfg.get('deployments', {})),
                 'state_file': str(svc.ledger().path)}
 
+    def whitepaper(self):
+        """The Yuma subnet paper (markdown) — same file the API and console serve."""
+        return (DIR / 'whitepaper.md').read_text()
+
     def state(self):
         """The paper subnet: params, validators (BLOC, weights, bonds,
         dividend), miners (incentive, consensus), pending, history."""

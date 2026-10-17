@@ -2,7 +2,7 @@
 
 Drop-in access to Claude, GPT, and Gemini.
 
-Bittensor subnet **28** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **28** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/taostat/gm-miner) · [url](https://saygm.com/)
 
@@ -12,11 +12,11 @@ Fleet mods for this subnet: `saygm`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.032922 | +0.91% | -1.30% | +36.49% | 208,567 | 28,634 | 16,565 |
+| 0.033517 | -0.01% | +1.80% | +41.42% | 212,598 | 28,923 | 10,002 |
 
 ## Last 24h flow
 
-1050 trades by 334 coldkeys · 521 buys (8,052 τ) / 529 sells (8,356 τ) · net -304.41 τ
+704 trades by 265 coldkeys · 371 buys (5,000 τ) / 333 sells (4,851 τ) · net 148.54 τ
 
 ## News
 

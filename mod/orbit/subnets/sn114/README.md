@@ -2,7 +2,7 @@
 
 Context compression layer delivered through MCP infrastructure
 
-Bittensor subnet **114** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **114** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/DendriteHQ/SOMA) · [url](https://thesoma.ai) · [discord](https://discord.gg/durr4Sg6sM)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/DendriteHQ/SOMA) · [url](https://thesoma.ai)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.021035 | +0.42% | -1.01% | -0.11% | 51,656 | 9,570 | 1,901 |
+| 0.022311 | -0.15% | +6.06% | -2.12% | 54,989 | 9,900 | 2,863 |
 
 ## Last 24h flow
 
-223 trades by 87 coldkeys · 100 buys (876.66 τ) / 123 sells (964.55 τ) · net -87.89 τ
+307 trades by 134 coldkeys · 190 buys (1,528 τ) / 117 sells (1,271 τ) · net 257.45 τ
 
 ## News
 
+- 2026-10-16 · commit · [update scoring.md docs](https://github.com/DendriteHQ/SOMA/commit/f46fb54ce56dfd67ecfbb369bb2822275d728458) — DendriteHQ/SOMA
 - 2026-10-13 · commit · [Merge pull request #229 from DendriteHQ/fix/soma-task-eval-resource-l…](https://github.com/DendriteHQ/SOMA/commit/dec6330708f9fb0e004ae47538bbcfd0350e7f33) — DendriteHQ/SOMA
 - 2026-10-13 · commit · [fix(validator): bound SOMA task eval container to N visible CPUs](https://github.com/DendriteHQ/SOMA/commit/ccd4c6b50e194473da6d91485a86e061b65d24df) — DendriteHQ/SOMA
 - 2026-10-08 · commit · [Merge pull request #228 from DendriteHQ/dev](https://github.com/DendriteHQ/SOMA/commit/fc7ecf46fb7eee19926102902d018ef27b5c1338) — DendriteHQ/SOMA
@@ -25,7 +26,6 @@ Links: [github](https://github.com/DendriteHQ/SOMA) · [url](https://thesoma.ai)
 - 2026-10-08 · commit · [Lower Jev input token weight to 0.2](https://github.com/DendriteHQ/SOMA/commit/790376f75996164c3b036611884f8b7fbcb2a00c) — DendriteHQ/SOMA
 - 2026-10-06 · commit · [Merge pull request #227 from DendriteHQ/feat/call-jev](https://github.com/DendriteHQ/SOMA/commit/8d1e283fced1c4390913ee9fb9d178e00f8aad81) — DendriteHQ/SOMA
 - 2026-10-05 · commit · [docs: add new prompting rules](https://github.com/DendriteHQ/SOMA/commit/d9e2f8a8333c7a235ba441acbeaa870c716391f7) — DendriteHQ/SOMA
-- 2026-10-01 · commit · [fix(gateway): skip provider pin for systemone calls](https://github.com/DendriteHQ/SOMA/commit/c493fb3a1c2591b819a2b3f4ddb3c997808c560e) — DendriteHQ/SOMA
 
 ## Use
 

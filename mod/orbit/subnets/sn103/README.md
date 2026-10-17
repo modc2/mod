@@ -1,16 +1,16 @@
 # sn103 — Consted Ա
 
-Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001288 | +1.06% | +31.76% | +38.71% | 837.4829 | 344.6246 | 482.71 |
+| 0.001019 | +0.00% | -25.26% | +21.25% | 669.7727 | 306.5738 | 231.21 |
 
 ## Last 24h flow
 
-219 trades by 63 coldkeys · 124 buys (273.59 τ) / 95 sells (218.47 τ) · net 55.12 τ
+149 trades by 49 coldkeys · 69 buys (91.61 τ) / 80 sells (135.89 τ) · net -44.28 τ
 
 ## Use
 

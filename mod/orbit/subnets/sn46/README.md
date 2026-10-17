@@ -2,7 +2,7 @@
 
 Lighning Fast Uncensored Inference
 
-Bittensor subnet **46** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **46** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/Subnet46/sn46-validator) · [url](https://instantnetwork.ai) · [discord](https://discord.com/BJ7DkeUmFm)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Subnet46/sn46-validator) · [url](https://ins
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003869 | +0.23% | -7.92% | +6.37% | 23,175 | 8,861 | 5,851 |
+| 0.003635 | -0.03% | -6.16% | +3.10% | 21,800 | 8,591 | 1,685 |
 
 ## Last 24h flow
 
-459 trades by 141 coldkeys · 230 buys (2,738 τ) / 229 sells (3,110 τ) · net -372.02 τ
+180 trades by 85 coldkeys · 77 buys (707.22 τ) / 103 sells (975.42 τ) · net -268.19 τ
 
 ## News
 

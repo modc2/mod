@@ -2,7 +2,7 @@
 
 Home of Open Source Robotics.
 
-Bittensor subnet **112** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **112** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [url](https://thormachines.ai/)
 
@@ -10,11 +10,11 @@ Links: [url](https://thormachines.ai/)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005738 | +0.07% | -4.94% | -7.95% | 21,605 | 5,427 | 1,205 |
+| 0.006194 | +0.04% | +7.96% | +1.84% | 23,374 | 5,645 | 1,211 |
 
 ## Last 24h flow
 
-103 trades by 52 coldkeys · 43 buys (532.79 τ) / 60 sells (670.35 τ) · net -137.56 τ
+134 trades by 47 coldkeys · 84 buys (711.38 τ) / 50 sells (495.88 τ) · net 215.51 τ
 
 ## Use
 

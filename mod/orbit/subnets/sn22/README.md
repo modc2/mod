@@ -2,7 +2,7 @@
 
 Decentralized search engine
 
-Bittensor subnet **22** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **22** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/datura-ai/desearch) · [url](https://desearch.ai) · [discord](https://discord.gg/P44zrJmdFy)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/datura-ai/desearch) · [url](https://desearch
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002964 | -0.01% | -0.67% | -5.90% | 18,597 | 7,472 | 65.72 |
+| 0.002962 | +0.00% | -0.08% | -6.20% | 18,602 | 7,469 | 48.93 |
 
 ## Last 24h flow
 
-197 trades by 21 coldkeys · 4 buys (20.09 τ) / 193 sells (40.77 τ) · net -20.69 τ
+214 trades by 22 coldkeys · 4 buys (22.62 τ) / 210 sells (25.45 τ) · net -2.82 τ
 
 ## News
 

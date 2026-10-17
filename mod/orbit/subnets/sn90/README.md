@@ -2,7 +2,7 @@
 
 KubeTEE AI Factory: Confidential Computing TEE Multi-Cluster K8s
 
-Bittensor subnet **90** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **90** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/KubeTEE-AI/kubetee-subnet) · [url](https://kubetee.ai) · [discord](https://discord.gg/KUeXm9XQG4)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/KubeTEE-AI/kubetee-subnet) · [url](https://k
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.021633 | +0.71% | -0.89% | +0.83% | 15,575 | 4,761 | 1,688 |
+| 0.020853 | +0.00% | -3.81% | -1.28% | 15,237 | 4,758 | 677.96 |
 
 ## Last 24h flow
 
-253 trades by 96 coldkeys · 128 buys (846.93 τ) / 125 sells (856.70 τ) · net -9.78 τ
+102 trades by 49 coldkeys · 44 buys (287.86 τ) / 58 sells (352.25 τ) · net -64.39 τ
 
 ## News
 
+- 2026-10-16 · commit · [docs(subnet): sync east-west/model catalogue + fix stale CPU-GPU refe…](https://github.com/KubeTEE-AI/kubetee-subnet/commit/6cc7b6ee996c528000cb7ed53dd2500fad58c855) — KubeTEE-AI/kubetee-subnet
+- 2026-10-16 · commit · [docs(subnet): hardware policy — Blackwell/Vera Rubin + 6th Gen CPUs o…](https://github.com/KubeTEE-AI/kubetee-subnet/commit/e5c4e41f2c7f1f28b1fa8cceddd40e754d133130) — KubeTEE-AI/kubetee-subnet
+- 2026-10-16 · commit · [docs(subnet): sync east-west attested mTLS rows with live backends](https://github.com/KubeTEE-AI/kubetee-subnet/commit/375914721d9760e723ed3253ea5047987d4ac613) — KubeTEE-AI/kubetee-subnet
+- 2026-10-16 · commit · [docs(subnet): README model lists + validator stats sync](https://github.com/KubeTEE-AI/kubetee-subnet/commit/e988375e768d48b415078af131e74b572e8c6ed9) — KubeTEE-AI/kubetee-subnet
+- 2026-10-16 · commit · [docs(subnet): SN28 sayGM GLM-5.2 H200 + GLM-5.3 RadixArk updates](https://github.com/KubeTEE-AI/kubetee-subnet/commit/890f0c413ca8a688dfb8ef116786d0ea1be88365) — KubeTEE-AI/kubetee-subnet
 - 2026-10-08 · commit · [docs(nemotron-omni): 256k context verified + NIM 2.0.13 + gateway mod…](https://github.com/KubeTEE-AI/kubetee-subnet/commit/feeb7495bb93a900a76f63af170bd0404187f871) — KubeTEE-AI/kubetee-subnet
 - 2026-10-08 · commit · [docs(nemotron-omni): sync with NVIDIA build.nvidia.com model card](https://github.com/KubeTEE-AI/kubetee-subnet/commit/d114ca972a815dfde1211e36e0af2c018940e568) — KubeTEE-AI/kubetee-subnet
 - 2026-10-08 · commit · [docs(nemotron-omni): remove the License section from the API doc](https://github.com/KubeTEE-AI/kubetee-subnet/commit/cc502f2a0ce0af867294315f3168b186ed78ee03) — KubeTEE-AI/kubetee-subnet
-- 2026-10-08 · commit · [docs(nemotron-omni): attribute license to NVIDIA, not the HF checkpoint](https://github.com/KubeTEE-AI/kubetee-subnet/commit/2915f202da525de1e9be6a4ab9944fce5489fb50) — KubeTEE-AI/kubetee-subnet
-- 2026-10-08 · commit · [docs(subnet): drop COMPUTE-ACCESS.md; Nemotron-Omni doc gets runnable…](https://github.com/KubeTEE-AI/kubetee-subnet/commit/f4ec9f53f27684bafd1d88c3f5130a110a3efd11) — KubeTEE-AI/kubetee-subnet
-- 2026-10-06 · commit · [docs(h3): note /v1/videos/sync exists in the serving stack but is not…](https://github.com/KubeTEE-AI/kubetee-subnet/commit/d96942841926eb294c12a626736fd7a4333230fe) — KubeTEE-AI/kubetee-subnet
-- 2026-10-06 · commit · [docs(h3): publish the H3 video generation API reference](https://github.com/KubeTEE-AI/kubetee-subnet/commit/6ddd2a01b3108524c0c2cfab5f4e78a6df4ebafb) — KubeTEE-AI/kubetee-subnet
-- 2026-09-24 · commit · [docs(attestation): TLS-possession proof on client-facing attestation](https://github.com/KubeTEE-AI/kubetee-subnet/commit/c9cb76085cdbf8171a8d507a85965e5f931ad352) — KubeTEE-AI/kubetee-subnet
 
 ## Use
 

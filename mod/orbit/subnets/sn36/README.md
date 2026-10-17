@@ -2,7 +2,7 @@
 
 THE OPEN INTELLIGENCE LAYER FOR HUMANS AND AGENTS
 
-Bittensor subnet **36** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **36** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/EpagoFoundation/epago) · [url](https://epago.ai/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/EpagoFoundation/epago) · [url](https://epago
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001444 | -0.01% | -14.73% | -22.55% | 515.0542 | 263.1587 | 140.66 |
+| 0.001539 | +0.00% | +6.54% | -12.48% | 559.4900 | 271.6941 | 23.72 |
 
 ## Last 24h flow
 
-40 trades by 17 coldkeys · 14 buys (59.43 τ) / 26 sells (80.37 τ) · net -20.93 τ
+15 trades by 8 coldkeys · 10 buys (16.10 τ) / 5 sells (3.84 τ) · net 12.26 τ
 
 ## News
 
@@ -22,7 +22,6 @@ Links: [github](https://github.com/EpagoFoundation/epago) · [url](https://epago
 - 2026-09-21 · commit · [Merge pull request #13 from EpagoFoundation/feat/transcripts-and-atte…](https://github.com/EpagoFoundation/epago/commit/0a6d6aecdcbbfb5740280c969e9cf7395d758b45) — EpagoFoundation/epago
 - 2026-09-21 · commit · [Allow three attempts per hotkey, one model per round, from round 4](https://github.com/EpagoFoundation/epago/commit/e5c4ccbfcc929634e75500236cfd16ed463f234a) — EpagoFoundation/epago
 - 2026-09-21 · commit · [Write full episode transcripts when a transcript directory is set](https://github.com/EpagoFoundation/epago/commit/f163c55786d7c59a66f747a91a531049eee453cf) — EpagoFoundation/epago
-- 2026-09-16 · commit · [Faster rounds, stricter private pool, dashboard accuracy fixes (#11)](https://github.com/EpagoFoundation/epago/commit/519c9aa8b6c3bf126130cdb4aca497625a4b02d1) — EpagoFoundation/epago
 
 ## Use
 

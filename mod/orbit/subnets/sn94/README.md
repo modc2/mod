@@ -2,7 +2,7 @@
 
 CPU sandboxes powering reinforcement learning on Bittensor.
 
-Bittensor subnet **94** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **94** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/cathedralai/cathedral-sandbox) · [url](https://cathedral.computer/) · [discord](https://discord.com/channels/799672011265015819/1526241812589711571)
 
@@ -12,11 +12,11 @@ Fleet mods for this subnet: `cathedral`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004601 | +0.37% | -1.46% | +1.97% | 12,136 | 2,321 | 1,473 |
+| 0.004488 | +0.00% | -2.46% | -1.33% | 11,869 | 2,292 | 339.51 |
 
 ## Last 24h flow
 
-262 trades by 79 coldkeys · 141 buys (727.91 τ) / 121 sells (743.49 τ) · net -15.58 τ
+71 trades by 39 coldkeys · 35 buys (155.45 τ) / 36 sells (180.90 τ) · net -25.46 τ
 
 ## News
 

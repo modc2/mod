@@ -7,7 +7,7 @@
   "netuid": 102,
   "subnet": "ConnitoAI",
   "symbol": "ვ",
-  "owner": "5HBc11rCaAj2UtUTeC3oK8zHbU7jQCQZWpRQvsawqxH8qkTm",
+  "owner": "5Hf5DCoutc7oKxjpvVr6YvhNmBimiw7YsMwaBH4htSNFJZYA",
   "github": "https://github.com/Connito-AI/Connito",
   "url": "https://connito.ai/",
   "discord": "isabella618033",
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-16",
+  "updated": "2026-10-17",
   "urls": {
     "bt": "/bt/markets?sn=102",
     "news": "/bt/news?netuid=102"
@@ -34,5 +34,14 @@
     "snapshot",
     "readme",
     "refresh"
+  ],
+  "previous": [
+    {
+      "subnet": "ConnitoAI",
+      "owner": "5HBc11rCaAj2UtUTeC3oK8zHbU7jQCQZWpRQvsawqxH8qkTm",
+      "github": "https://github.com/Connito-AI/Connito",
+      "url": "https://connito.ai/",
+      "updated": "2026-10-16"
+    }
   ]
 }

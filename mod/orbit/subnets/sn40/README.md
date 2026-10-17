@@ -2,7 +2,7 @@
 
  The same model, small enough to run on your phone. Compress the frontier models into GGUFs.
 
-Bittensor subnet **40** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **40** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/RalphLabsAI/ralph) · [url](https://ralphlabs.ai)
 
@@ -10,16 +10,11 @@ Links: [github](https://github.com/RalphLabsAI/ralph) · [url](https://ralphlabs
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002086 | -0.00% | -1.80% | -8.09% | 2,403 | 1,329 | 16.37 |
+| 0.002048 | +0.00% | -1.81% | -9.27% | 2,374 | 1,317 | 12.07 |
 
 ## Last 24h flow
 
-7 trades by 6 coldkeys · 2 buys (2.14 τ) / 5 sells (6.64 τ) · net -4.50 τ
-
-## News
-
-- 2026-09-16 · commit · [Merge pull request #17 from RalphLabsAI/fix/round8-readiness](https://github.com/RalphLabsAI/ralph/commit/6500e1bd2bab809fb3e5a3650d0b26e680ee7285) — RalphLabsAI/ralph
-- 2026-09-16 · commit · [Name the anchor holder's flag for what it is](https://github.com/RalphLabsAI/ralph/commit/af70ce593516ade125062597434e9c4ef9b5df3d) — RalphLabsAI/ralph
+5 trades by 4 coldkeys · 0 buys (0.00 τ) / 5 sells (5.44 τ) · net -5.44 τ
 
 ## Use
 

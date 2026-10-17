@@ -1,14 +1,14 @@
 {
   "name": "sn82",
   "version": "1.0.0",
-  "description": "SN82 uruz — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "description": "SN82 Noah — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
   "icon": "ᚢ",
   "chain": "bittensor",
   "netuid": 82,
-  "subnet": "uruz",
+  "subnet": "Noah",
   "symbol": "ᚢ",
   "owner": "5GGrRdUatgDLiJxnytdWfYCwsAb1Cyo4U5Dw1HmLiAcbWj88",
-  "github": null,
+  "github": "https://github.com/Vora-Inc/NOAH",
   "url": null,
   "discord": null,
   "logo": null,
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-16",
+  "updated": "2026-10-17",
   "urls": {
     "bt": "/bt/markets?sn=82",
     "news": "/bt/news?netuid=82"

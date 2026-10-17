@@ -2,7 +2,7 @@
 
 Agent-first GPU cloud. Rent NVIDIA GPUs via web, CLI, SDK, or API. Providers earn 95% rental revenue + bonuses.
 
-Bittensor subnet **51** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **51** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/Datura-ai/lium-io) · [url](https://lium.io) · [discord](https://discord.gg/lium)
 
@@ -12,22 +12,22 @@ Fleet mods for this subnet: `lium`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.109540 | +0.03% | +0.42% | +8.58% | 673,361 | 178,708 | 9,181 |
+| 0.108935 | +0.00% | -0.55% | +7.01% | 670,500 | 178,317 | 5,910 |
 
 ## Last 24h flow
 
-631 trades by 282 coldkeys · 282 buys (4,383 τ) / 349 sells (4,389 τ) · net -5.65 τ
+551 trades by 283 coldkeys · 235 buys (2,332 τ) / 316 sells (3,170 τ) · net -837.10 τ
 
 ## News
 
+- 2026-10-16 · commit · [DAH-4123 - Validator: split build-log streams into frames the backend…](https://github.com/Datura-ai/lium-io/commit/0f97a146cb34cf047fae296acb1c8c7100d83299) — Datura-ai/lium-io
+- 2026-10-16 · commit · [DAH-4434 - \[P1\] Inspector: rebuilt library with longer deadlines; 120…](https://github.com/Datura-ai/lium-io/commit/d43eecdb3807f15ee7e0cd84eed12d8b6ee66416) — Datura-ai/lium-io
+- 2026-10-16 · commit · [Revert #1543: v2 loopback plugin install drops SSH on some hosts (#1656)](https://github.com/Datura-ai/lium-io/commit/7822e3a65c69926f7fd8f427b568d410166cdfa0) — Datura-ai/lium-io
+- 2026-10-16 · commit · [DAH-4362 - \[P3\] Validator: remove settings unchanged for more than 3 …](https://github.com/Datura-ai/lium-io/commit/e330417741e65783f4ccb0bddf03032ad35aeb0b) — Datura-ai/lium-io
 - 2026-10-16 · commit · [DAH-3980 - Validator: new loopback volumes on a v2 plugin installed b…](https://github.com/Datura-ai/lium-io/commit/e92272001c261250efd0d9a5038f94a8c407c07b) — Datura-ai/lium-io
 - 2026-10-16 · commit · [DAH-4223 - \[P1\] validator: rented Spot nodes earn rental incentive at…](https://github.com/Datura-ai/lium-io/commit/991543da093228a29b0c3463feb24fc8584fd776) — Datura-ai/lium-io
 - 2026-10-15 · release · [executor-v1.141](https://github.com/Datura-ai/lium-io/releases/tag/executor-v1.141) — Datura-ai/lium-io
 - 2026-10-15 · commit · [DAH-4484 - \[P0\] Executor: send restore/backup progress at most every …](https://github.com/Datura-ai/lium-io/commit/5456d2a128f616bae177fc60a42acd3486686915) — Datura-ai/lium-io
-- 2026-10-15 · commit · [DAH-4465 validator: fail an unrented node whose busy GPU is thermally…](https://github.com/Datura-ai/lium-io/commit/ecff658898e9babdf5b801d5ec2d84ac667263cb) — Datura-ai/lium-io
-- 2026-10-15 · commit · [DAH-4257 - \[P1\] Run the GPU kernel-fault probe in shadow by default (…](https://github.com/Datura-ai/lium-io/commit/95d62153ba5cd55cdf4fb6041b1f66f3ebbf1cc2) — Datura-ai/lium-io
-- 2026-10-15 · commit · [DAH-4278 filler sample skips all-cards probe; sample budget ge 4096 (…](https://github.com/Datura-ai/lium-io/commit/075461308a2d39d4e77e918c7fb32fbca460f036) — Datura-ai/lium-io
-- 2026-10-15 · commit · [validator: name the reason when a rented node scores 0 because Sysbox…](https://github.com/Datura-ai/lium-io/commit/93af489f39eeb07e8ba632ac4d974c3d25b154d9) — Datura-ai/lium-io
 
 ## Use
 

@@ -1,16 +1,22 @@
-# sn82 — uruz ᚢ
+# sn82 — Noah ᚢ
 
-Bittensor subnet **82** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **82** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+
+Links: [github](https://github.com/Vora-Inc/NOAH)
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.059160 | +0.31% | -2.90% | +139.70% | 9,492 | 2,326 | 1,508 |
+| 0.054172 | +0.05% | -8.43% | +119.49% | 9,153 | 2,314 | 458.10 |
 
 ## Last 24h flow
 
-30 trades by 19 coldkeys · 20 buys (739.84 τ) / 10 sells (724.75 τ) · net 15.10 τ
+90 trades by 36 coldkeys · 39 buys (177.98 τ) / 51 sells (211.82 τ) · net -33.84 τ
+
+## News
+
+- 2026-10-16 · commit · [Initial public Noah miner and validator release](https://github.com/Vora-Inc/NOAH/commit/fc50abe33cfe2f28ef722d2e41701fccbd640468) — Vora-Inc/NOAH
 
 ## Use
 

@@ -119,6 +119,8 @@ BLOC already measures commitment, so it can also be used to pay people for work.
 
 The rules run in two places with the same integer maths: `contracts/yuma/YumaBlocTime.sol`, which reads `getVotingPower` from any BlocTime and in mint mode mints a staketime `Mod` token, and `yuma/yuma.py`, a paper subnet that can read live BLOC from chain. A shared fixture file (`yuma/fixtures/cases.json`) pins both implementations to identical outputs, down to the wei. Stake is read when the epoch runs, so BLOC moved between validators just before an epoch moves its vote too. It can be moved, but never counted twice.
 
+The full mechanism, with a worked epoch and its attack model, is in the Yuma whitepaper (`yuma/whitepaper.md`, also under **Read the whitepaper** on the YUMA tab).
+
 This is the part of **StakeTime** that has been folded into BlocTime. The rest of StakeTime is its full subnet stack: Mod tokens, validators, pluggable consensus (Yuma by uptime, Linear, Staked, Private), six inflation curves and a 420-slot registry. It now lives in `contracts/staketime` and `bloctime.staketime`.
 
 ## 10. Governance and risk

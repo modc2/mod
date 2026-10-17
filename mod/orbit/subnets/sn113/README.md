@@ -1,16 +1,16 @@
 # sn113 — gje Ѓ
 
-Bittensor subnet **113** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **113** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002522 | -0.00% | +8.56% | +25.22% | 6,526 | 1,826 | 1,894 |
+| 0.002646 | +0.00% | +4.93% | +17.34% | 6,866 | 1,871 | 1,042 |
 
 ## Last 24h flow
 
-180 trades by 57 coldkeys · 99 buys (983.75 τ) / 81 sells (899.44 τ) · net 84.31 τ
+157 trades by 38 coldkeys · 83 buys (543.45 τ) / 74 sells (496.86 τ) · net 46.59 τ
 
 ## Use
 

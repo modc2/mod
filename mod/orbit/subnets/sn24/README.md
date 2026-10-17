@@ -2,7 +2,7 @@
 
 Bittensor subnet built to crush the long-context barrier.
 
-Bittensor subnet **24** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **24** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/SILX-LABS/QUASAR-SUBNET/) · [url](https://silxinc.com/) · [discord](https://discordapp.com/channels/799672011265015819/1214246819886931988)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/SILX-LABS/QUASAR-SUBNET/) · [url](https://si
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.007471 | -1.45% | -4.35% | +44.77% | 45,908 | 11,838 | 8,761 |
+| 0.007990 | -0.26% | +6.95% | +54.45% | 49,154 | 12,243 | 2,266 |
 
 ## Last 24h flow
 
-505 trades by 136 coldkeys · 242 buys (4,248 τ) / 263 sells (4,510 τ) · net -261.17 τ
+129 trades by 57 coldkeys · 63 buys (1,336 τ) / 66 sells (927.20 τ) · net 408.48 τ
 
 ## Use
 

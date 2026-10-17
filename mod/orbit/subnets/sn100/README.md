@@ -2,7 +2,7 @@
 
 The open alternative to frontier AI | Efficient autonomous research
 
-Bittensor subnet **100** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-16 (block 9293868).
+Bittensor subnet **100** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
 
 Links: [github](https://github.com/CortexLM/cortex) · [url](https://network.cortex.foundation)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/CortexLM/cortex) · [url](https://network.cor
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003244 | +0.93% | -4.97% | -7.74% | 8,983 | 2,293 | 630.76 |
+| 0.003225 | +0.00% | -0.58% | -10.90% | 8,953 | 2,286 | 38.55 |
 
 ## Last 24h flow
 
-154 trades by 56 coldkeys · 57 buys (285.86 τ) / 97 sells (343.94 τ) · net -58.08 τ
+26 trades by 20 coldkeys · 4 buys (15.94 τ) / 22 sells (16.39 τ) · net -0.45 τ
 
 ## News
 
+- 2026-10-16 · commit · [fix(challenges): raise get_weights timeout to 180 seconds (#318)](https://github.com/CortexLM/cortex/commit/602ea0298b2f18cccee219dd13ec290eb902b622) — CortexLM/cortex
 - 2026-10-08 · commit · [docs(repo): remove retired products, add readme and validator script …](https://github.com/CortexLM/cortex/commit/df0ce4a63b334a6205d7bf1f8bea61424c90e29c) — CortexLM/cortex
 - 2026-09-28 · commit · [feat(master): send the completed epoch's chain time to challenges (#315)](https://github.com/CortexLM/cortex/commit/d738424c09213af3634b24a1ba1a0fddb7a9379d) — CortexLM/cortex
 - 2026-09-25 · commit · [test(network): verify opentype 75/25 sealed payouts (#314)](https://github.com/CortexLM/cortex/commit/540b4fe48cc65e6d0e1645f00f9de5a00ba394e7) — CortexLM/cortex

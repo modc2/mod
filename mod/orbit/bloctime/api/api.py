@@ -1788,6 +1788,15 @@ def yuma_state():
     return _yuma(yuma_svc.state)
 
 
+@app.get("/yuma/whitepaper")
+async def yuma_whitepaper():
+    """The Yuma subnet paper (yuma/whitepaper.md), read per request."""
+    path = MODULE_DIR / "yuma" / "whitepaper.md"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="yuma/whitepaper.md missing")
+    return {"markdown": path.read_text(), "updated": int(path.stat().st_mtime)}
+
+
 @app.get("/yuma/preview")
 def yuma_preview():
     return _yuma(yuma_svc.preview)
