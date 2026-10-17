@@ -11,6 +11,11 @@
 // which is why the answer it produces is recorded as a claim by you and never
 // promoted into a verification by the server.
 
+// Signing in is account.js: a wallet if the visitor has one, and a key this
+// tab makes for itself if they do not. Both end at a personal_sign.
+import { forgetLocalKey, hasWallet, importLocalKey, kind, localAddress,
+         localKey, setKind, signer } from './account.js';
+
 // The page pins <base href="/0xprof/">, so the API is one segment off its own
 // origin whether that origin is a bare port or the gateway. Nothing is baked in.
 const API = new URL('_api', document.baseURI).href.replace(/\/$/, '');
@@ -288,17 +293,22 @@ async function openProof(id, toggle = false) {
 // run it paid for — where anyone can recover the address from it themselves.
 
 async function signedRecheck(id) {
-  if (!window.ethereum) {
-    toast('re-verifying is signed — connect a wallet, or run `m 0xprof/recheck '
-          + `id=${short(id, 12)}\` from the CLI, which signs with the box key`, true);
+  // Whichever door this session came through signs — a run filed under an
+  // address has to be signed by that address, or the roster is fiction.
+  let who;
+  try {
+    who = await signer();
+  } catch {
+    toast('re-verifying is signed — sign in first (a wallet, or anonymously), '
+          + `or run \`m 0xprof/recheck id=${short(id, 12)}\` from the CLI`, true);
     return;
   }
-  const [address] = await window.ethereum.request({ method: 'eth_requestAccounts' });
+  const { address } = who;
   const { message } = await api(`/proofs/${id}/verify/challenge`,
     { method: 'POST', body: { address } });
-  toast('sign it — the re-run is published under your address');
-  const signature = await window.ethereum.request({
-    method: 'personal_sign', params: [message, address] });
+  toast(who.kind === 'wallet' ? 'sign it — the re-run is published under your address'
+                              : 'signing with the key in this browser…');
+  const signature = await who.sign(message);
   toast('re-running every method…');
   const out = await api(`/proofs/${id}/verify`, { method: 'POST',
     body: { address, message, signature } });
@@ -439,11 +449,19 @@ async function loadSample() {
 
 // ── prove tab ───────────────────────────────────────────────────────
 
+// One card per system the box can prove without a trusted setup. The shapes
+// differ enough that a generic form would be worse than four honest ones.
+const PROVE_FORMS = {
+  schnorr: () => ({ secret: $('#pSecret').value, context: $('#pContext').value }),
+  dleq: () => ({ secret: $('#pdSecret').value, context: $('#pdContext').value }),
+  pedersen: () => ({ value: $('#ppValue').value, context: $('#ppContext').value,
+                     blinding: $('#ppBlinding').value.trim() || undefined }),
+  merkle: () => ({ leaves: $('#pLeaves').value.split('\n').map((s) => s.trim()).filter(Boolean),
+                   index: Number($('#pIndex').value) }),
+};
+
 async function prove(system) {
-  const body = system === 'schnorr'
-    ? { system, secret: $('#pSecret').value, context: $('#pContext').value }
-    : { system, leaves: $('#pLeaves').value.split('\n').map((s) => s.trim()).filter(Boolean),
-        index: Number($('#pIndex').value) };
+  const body = { system, ...(PROVE_FORMS[system] || PROVE_FORMS.merkle)() };
   $('#pOut').innerHTML = '<div class="empty"><span class="spin">◐</span> proving…</div>';
   try {
     const made = await api('/prove', { method: 'POST', body });
@@ -469,6 +487,15 @@ async function prove(system) {
 
 // ── bounties ────────────────────────────────────────────────────────
 
+function settlesIn(ts) {
+  const seconds = Math.max(0, Math.floor(ts - Date.now() / 1000));
+  if (!seconds) return 'now — anyone can settle it';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours >= 24 ? `in ${Math.floor(hours / 24)}d ${hours % 24}h`
+    : hours ? `in ${hours}h ${minutes}m` : `in ${minutes}m`;
+}
+
 function bountyCard(bounty) {
   const rules = (bounty.require || []).map((r) => {
     if ('equals' in r) return `signal ${r.index} == ${r.equals}`;
@@ -476,18 +503,30 @@ function bountyCard(bounty) {
     if ('max' in r) return `signal ${r.index} ≤ ${r.max}`;
     return '';
   }).join(', ');
+  const staked = Number(bounty.stake) > 0;
+  const open = bounty.state === 'open';
+  const seats = bounty.tokens || [];
+  const mine = staked && seats.find((t) => t.state === 'locked'
+    && (t.holder || '').toLowerCase() === (state.address || '').toLowerCase());
+  const due = staked && open && bounty.settles <= Date.now() / 1000;
   return `<div class="card">
     <h4>${escape(bounty.title)}</h4>
-    <div class="meta">${escape(bounty.system)} · posted by ${escape(short(bounty.poster, 12))} · ${escape(bounty.state)}</div>
+    <div class="meta">${escape(bounty.system)} · posted by ${escape(short(bounty.poster, 12))} · ${escape(bounty.state)}${staked ? ` · round ${bounty.round || 1}` : ''}</div>
     ${bounty.description ? `<div class="desc">${escape(bounty.description)}</div>` : ''}
     <div class="row" style="margin:8px 0 0">
       <span class="price">${bounty.reward} credits</span>
       <span class="hint">must reach <b>${escape(bounty.accept_status)}</b>${rules ? ` · ${escape(rules)}` : ''}</span>
     </div>
+    ${staked ? `<div class="hint">staked round: <b>${bounty.stake}</b> credit(s) buys 1 token, locked until the
+      ${escape(bounty.settle || 'daily')} reset ${escape(settlesIn(bounty.settles))} ·
+      ${seats.length} prover(s) signed · pot ${bounty.pot || 0} ·
+      first token among accepted proofs wins; a seat that never submits forfeits to the winner${mine ? ` · you hold token #${mine.seq}` : ''}</div>` : ''}
     <div class="hint">${bounty.submissions.length} submission(s)${bounty.winner ? ` · won by ${escape(short(bounty.winner, 12))}` : ''}</div>
     <footer>
-      ${bounty.state === 'open' ? `<button data-act="submit" data-id="${bounty.id}">submit the proof in VERIFY</button>` : ''}
-      ${bounty.state === 'open' && bounty.poster === state.address ? `<button class="ghost" data-act="cancel" data-id="${bounty.id}">cancel</button>` : ''}
+      ${open && staked && !mine ? `<button data-act="join" data-id="${bounty.id}">put in ${bounty.stake} for a token</button>` : ''}
+      ${open && (!staked || mine) ? `<button data-act="submit" data-id="${bounty.id}">submit the proof in VERIFY</button>` : ''}
+      ${due ? `<button data-act="settle" data-id="${bounty.id}">settle the round</button>` : ''}
+      ${open && bounty.poster === state.address ? `<button class="ghost" data-act="cancel" data-id="${bounty.id}">cancel</button>` : ''}
     </footer>
   </div>`;
 }
@@ -536,14 +575,61 @@ function systemCard(system) {
 
 // ── wallet ──────────────────────────────────────────────────────────
 
+// A key made in this tab is the account, and it is one cleared browser profile
+// away from gone. So the console shows it, lets you take it with you, and only
+// destroys it when told to twice.
+function keyPanel() {
+  if (kind() !== 'local' || !localKey()) return '';
+  return `<div class="panel keybox">
+    <h4>this account is a key in this browser</h4>
+    <div class="hint">Nobody else has it — not this box, not the gateway. Clearing
+      site data for this origin deletes it, and with it the account, its credits
+      and the right to speak for the proofs it published. Copy it somewhere if
+      you intend to come back.</div>
+    <div class="row">
+      <button class="ghost" id="keyShow">show the private key</button>
+      <button class="ghost" id="keyCopy">copy it</button>
+      <button class="ghost" id="keyForget">forget it</button>
+    </div>
+    <pre id="keyOut" class="hidden"></pre>
+  </div>`;
+}
+
+function wireKeyPanel() {
+  if (!$('#keyShow')) return;
+  $('#keyShow').onclick = () => {
+    $('#keyOut').textContent = localKey();
+    $('#keyOut').classList.toggle('hidden');
+  };
+  $('#keyCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText(localKey()); toast('key copied — keep it somewhere private'); }
+    catch { $('#keyOut').textContent = localKey(); $('#keyOut').classList.remove('hidden');
+            toast('this browser blocked the clipboard — copy it from below', true); }
+  };
+  $('#keyForget').onclick = () => {
+    if (!confirm('Forget this key? Anything it owns here becomes unreachable '
+                 + 'unless you have a copy of it.')) return;
+    forgetLocalKey(); setKind(''); signOut();
+    toast('key forgotten');
+  };
+}
+
 async function loadWallet() {
   if (!state.token) {
-    $('#wallet').innerHTML = '<div class="empty">sign in to see credits, purchases and escrow</div>';
+    $('#wallet').innerHTML = `<div class="empty">sign in to see credits, purchases and escrow
+      <div class="row" style="justify-content:center;margin-top:14px">
+        <button id="walletSignin">sign in</button></div>
+      <div class="hint">a wallet, or anonymously with a key this tab makes for you</div></div>`;
+    $('#walletSignin').onclick = openSignIn;
     return;
   }
   const me = await api('/me');
   $('#wallet').innerHTML = `
     <h3>${escape(me.address)}${me.owner ? ' — owner of this deployment' : ''}</h3>
+    <div class="hint">signed in with ${kind() === 'local'
+      ? 'a key made in this browser — the market cannot tell, and does not ask'
+      : 'a wallet'}</div>
+    ${keyPanel()}
     <div class="stats">
       <span><b>${me.credits}</b> credits</span>
       <span><b>${me.escrowed}</b> in escrow</span>
@@ -565,35 +651,75 @@ async function loadWallet() {
       } catch (e) { toast(e.message, true); }
     };
   }
+  wireKeyPanel();
 }
 
 // ── sign in ─────────────────────────────────────────────────────────
+//
+// Two doors, and the server sees one thing through both: an address that
+// signed the challenge. The anonymous door makes a key in the tab rather than
+// asking for one — no extension, no email, no account to create — and the
+// signature it produces is the same signature a wallet would produce. That is
+// why it is a real sign-in and not a guest mode: an anonymous account owns its
+// proofs, holds its credits and can be contradicted by name like any other.
 
-async function signIn() {
-  if (state.token) {
-    state.token = ''; state.address = '';
-    localStorage.removeItem('zkprof_token'); localStorage.removeItem('zkprof_address');
-    $('#signin').textContent = 'sign in';
-    toast('signed out');
-    return;
-  }
-  if (!window.ethereum) {
-    toast('no wallet in this browser — use a mod-protocol token from the CLI', true);
-    return;
-  }
+function signedInAs(address) {
+  $('#signin').textContent = address ? short(address, 8) + '…' : 'sign in';
+  $('#signin').title = address
+    ? `${address} — ${kind() === 'local' ? 'a key made in this browser' : 'a wallet'}; click to sign out`
+    : 'sign in with a wallet, or anonymously with a key this tab makes';
+}
+
+async function connect(door) {
+  const who = await signer(door);
+  const { message } = await api('/auth/challenge', { method: 'POST',
+    body: { address: who.address } });
+  if (who.kind === 'wallet') toast('sign the challenge in your wallet');
+  const signature = await who.sign(message);
+  const session = await api('/auth/verify', { method: 'POST',
+    body: { address: who.address, message, signature } });
+  state.token = session.token; state.address = who.address;
+  setKind(who.kind);
+  localStorage.setItem('zkprof_token', session.token);
+  localStorage.setItem('zkprof_address', who.address);
+  signedInAs(who.address);
+  toast(session.owner ? 'signed in — you own this deployment'
+    : (who.kind === 'local' ? 'signed in anonymously — the key is in this browser only'
+                            : 'signed in'));
+  loadWallet();
+}
+
+function signOut() {
+  // The session goes; the key stays. Forgetting a key is a thing you do on
+  // purpose, on the WALLET tab, after you have had the chance to copy it.
+  state.token = ''; state.address = '';
+  localStorage.removeItem('zkprof_token'); localStorage.removeItem('zkprof_address');
+  signedInAs('');
+  toast(localKey() ? 'signed out — the key made here is still in this browser'
+                   : 'signed out');
+  if ($('#tab-wallet').classList.contains('on')) loadWallet();
+}
+
+function openSignIn() {
+  const returning = localAddress();
+  $('#siWalletNote').textContent = hasWallet()
+    ? 'an extension holds the key and signs the challenge'
+    : 'no wallet extension in this browser';
+  $('#siWallet').disabled = !hasWallet();
+  $('#siAnon').textContent = returning ? 'use the key in this browser' : 'make a key in this tab';
+  $('#siAnonNote').innerHTML = returning
+    ? `this browser already holds <span class="addr">${escape(short(returning, 20))}</span> — signing in re-uses it`
+    : 'a secp256k1 key generated here, kept in this browser, never sent anywhere. '
+      + 'It signs exactly what a wallet would sign.';
+  $('#siImportKey').value = '';
+  $('#signinDlg').showModal();
+}
+
+async function fromDialog(door, extra) {
   try {
-    const [address] = await window.ethereum.request({ method: 'eth_requestAccounts' });
-    const { message } = await api('/auth/challenge', { method: 'POST', body: { address } });
-    const signature = await window.ethereum.request({
-      method: 'personal_sign', params: [message, address] });
-    const session = await api('/auth/verify', { method: 'POST',
-      body: { address, message, signature } });
-    state.token = session.token; state.address = address;
-    localStorage.setItem('zkprof_token', session.token);
-    localStorage.setItem('zkprof_address', address);
-    $('#signin').textContent = short(address, 8) + '…';
-    toast(session.owner ? 'signed in — you own this deployment' : 'signed in');
-    loadWallet();
+    if (extra) extra();
+    await connect(door);
+    $('#signinDlg').close();
   } catch (e) { toast(e.message, true); }
 }
 
@@ -610,8 +736,18 @@ function showTab(name) {
 
 async function boot() {
   $$('#tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
-  $('#signin').onclick = signIn;
-  if (state.address) $('#signin').textContent = short(state.address, 8) + '…';
+  // A session that predates the two doors says which address, not which door.
+  // Work it out once rather than guessing later, when the answer decides which
+  // key signs a re-verification.
+  if (state.address && !kind()) {
+    setKind(localAddress().toLowerCase() === state.address.toLowerCase() ? 'local' : 'wallet');
+  }
+  $('#signin').onclick = () => (state.token ? signOut() : openSignIn());
+  signedInAs(state.address);
+  $('#siWallet').onclick = () => fromDialog('wallet');
+  $('#siAnon').onclick = () => fromDialog('local');
+  $('#siImport').onclick = () => fromDialog('local',
+    () => importLocalKey($('#siImportKey').value));
 
   const info = await api('/');
   state.methods = (await api('/methods')).methods;
@@ -661,6 +797,19 @@ async function boot() {
     is either wrong or has caught this server lying, and there is no third
     option — so it is shown, in its own column, and it never changes the
     status by itself.</p>
+    <h3>Signing in without a wallet</h3>
+    <p>A name here is an address and nothing else — no password, no email, no
+    account to create. If you have a wallet extension it signs the challenge.
+    If you have not, this console makes a secp256k1 key in the tab and signs
+    with that one: same curve, same <code>personal_sign</code>, same recovered
+    address, and this box has no way to tell the two apart and no business
+    asking. An anonymous account publishes, buys and re-verifies like any
+    other, and its runs sit on the roster under their own address.</p>
+    <p>The difference is custody, and it is the whole difference. A key made
+    here lives in this browser's storage: clear the site data and the account
+    is gone, along with its credits and its standing behind the proofs it
+    published. The WALLET tab will show it to you so you can keep a copy, and
+    take one back if you paste it into another browser.</p>
     <h3>What a purchase guarantees</h3>
     <p>That this box ran the proof through every method it has, published each
     answer, and is holding the same bytes it checked. After buying you can run
@@ -685,6 +834,8 @@ async function boot() {
       if (act === 'buy') { const receipt = await api(`/proofs/${id}/buy`, { method: 'POST' }); toast(`bought for ${receipt.charged} credits`); await loadMarket(); await openProof(id); }
       if (act === 'refund') { const receipt = await api(`/proofs/${id}/refund`, { method: 'POST' }); toast(`refunded ${receipt.refunded}`); await loadWallet(); }
       if (act === 'cancel') { await api(`/bounties/${id}/cancel`, { method: 'POST' }); toast('cancelled, escrow returned'); await loadBounties(); }
+      if (act === 'join') { const seat = await api(`/bounties/${id}/join`, { method: 'POST' }); toast(`token #${seat.token.seq} — ${seat.token.stake} credit(s) locked until the reset`); await loadBounties(); }
+      if (act === 'settle') { const settled = await api(`/bounties/${id}/settle`, { method: 'POST' }); toast(settled.winner ? `settled — won by ${short(settled.winner, 12)}` : 'unwon — tokens returned, round reset'); await loadBounties(); }
       if (act === 'submit') { state.bounty = id; showTab('verify'); toast('paste the proof, hit verify, then publish — submissions go to /bounties/' + id + '/submit'); }
     } catch (e) { toast(e.message, true); }
   });
@@ -720,7 +871,7 @@ async function boot() {
   $('#bountyOpen').onclick = () => $('#bountyDlg').showModal();
   $('#bountySweep').onclick = async () => {
     const swept = await api('/bounties/sweep', { method: 'POST' });
-    toast(`${swept.expired} expired bounties returned their escrow`);
+    toast(`${swept.settled || 0} round(s) settled, ${swept.expired} expired bounties returned their escrow`);
     loadBounties();
   };
 
@@ -737,7 +888,11 @@ async function boot() {
         const answer = await api(`/bounties/${state.bounty}/submit`, { method: 'POST',
           body: { proof: state.lastVerified.proof,
                   public_signals: state.lastVerified.public_signals } });
-        toast(answer.submission.accepted ? 'bounty won — reward released' : `not accepted: ${answer.submission.why}`);
+        toast(answer.submission.accepted
+          ? (answer.bounty && answer.bounty.stake
+            ? 'accepted — settles at the reset, when the tokens liquidate'
+            : 'bounty won — reward released')
+          : `not accepted: ${answer.submission.why}`);
         state.bounty = null;
       }
       showTab('market');
@@ -749,6 +904,7 @@ async function boot() {
       await api('/bounties', { method: 'POST', body: {
         title: $('#bTitle').value, system: $('#bSystem').value,
         reward: Number($('#bReward').value), vkey: parse($('#bVkey').value, {}),
+        stake: Number($('#bStake').value) || 0, settle: $('#bSettle').value,
         require: parseRules($('#bRequire').value) } });
       toast('posted and funded'); showTab('bounties');
     } catch (e) { toast(e.message, true); }

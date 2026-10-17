@@ -9,7 +9,7 @@ import hashlib
 class Auth:
 
     features = ['data', 'time', 'key', 'signature']
-    sig_features = ['data', 'time']
+    sig_features = ['data', 'key', 'time']
 
     def __init__(self, 
                 key=None, 
@@ -79,7 +79,7 @@ class Auth:
         Generate the headers with the JWT token
         """
         key = self.get_key(key)
-        result = self.token_data(data)
+        result = self.token_data(data, key=key)
         result['signature'] = key.sign(self.sig_data(result), mode='str')
 
         if mod == 'dict':
@@ -101,7 +101,7 @@ class Auth:
         self.key = m.key(key=self.key, crypto_type=crypto_type)
 
     def verify(self, headers: str, crypto_type=None) -> dict:
-        self.crypto_type = crypto_type or self.crypto_type
+        crypto_type = crypto_type or self.crypto_type
         if isinstance(headers, str):
             headers = json.loads(self._base64url_decode(headers))
         if 'Token' in headers:
@@ -110,8 +110,11 @@ class Auth:
             token = headers['token']
             headers = json.loads(self._base64url_decode(token))
 
+        missing = [f for f in self.features if f not in headers]
+        if missing:
+            raise ValueError(f"Token missing required fields: {missing}")
 
-        crypto_type = self.infer_crypto_type(headers['key'])
+        crypto_type = crypto_type or self.infer_crypto_type(headers['key'])
         # ────────────────────────────────────────────────
         # FIX: Normalize MetaMask legacy v=27/28 → v=0/1
         # ────────────────────────────────────────────────
@@ -129,23 +132,25 @@ class Auth:
             if v in (27, 28):
                 normalized_v = v - 27   # 27→0, 28→1
                 headers['signature'] = '0x' + r + s + f'{normalized_v:02x}'
-                print(f"Normalized legacy v={v} → {normalized_v}")
 
-        print('Verifying signature with headers:', headers)
-
-        sig_data = self.sig_data(headers)   
-        print('Hashing sig_data for verification:', m.hash(sig_data))
+        sig_data = self.sig_data(headers)
         # Now verify with (possibly normalized) signature
 
-        age = abs(time.time() - float(headers['time']))
-        assert age < self.max_age, f'Token is stale {age} > {self.max_age}'
+        now = time.time()
+        token_time = float(headers['time'])
+        if token_time > now + 30:
+            raise ValueError(f'Token timestamp is in the future by {token_time - now:.1f}s')
+        age = now - token_time
+        if age >= self.max_age:
+            raise ValueError(f'Token is stale: age {age:.1f}s exceeds max {self.max_age}s')
 
-        assert self.key.verify(
+        if not self.key.verify(
             sig_data,
             signature=headers['signature'],
             address=headers['key'],
             crypto_type=crypto_type
-        ), f'Invalid signature {sig_data} {headers}'
+        ):
+            raise ValueError('Invalid signature')
 
         return headers
     def get_key(self, key=None):
@@ -155,7 +160,8 @@ class Auth:
         if key is None:
             key = self.key
         else:
-            key = m.key(key, crypto_type=self.crypto_type)
+            inferred = self.infer_crypto_type(key) if isinstance(key, str) else None
+            key = m.key(key, crypto_type=inferred or self.crypto_type)
         assert hasattr(key, 'address'), f'Invalid key {key}'
         return key
 

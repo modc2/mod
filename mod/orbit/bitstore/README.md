@@ -8,7 +8,7 @@ and marked `pending` until a chain RPC is configured, then `confirmed` on broadc
 
 ```bash
 pm2 start bash --name bitstore-api -- -c "m serve mod=bitstore port=50250 key=bitstore remote=0"
-# gateway: modc2.com/api/bitstore (route: true in config.json, applied via `m caddy/apply`)
+# gateway: modc2.com/bitstore/api (route: true in config.json, applied via `m caddy/apply`)
 ```
 
 ## Usage

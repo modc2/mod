@@ -1,0 +1,133 @@
+{
+  "netuid": 18,
+  "name": "Zeus",
+  "symbol": "σ",
+  "owner": "5GgvCi6h7dNsC489T8UnUMv912SoEXpEUDVt71VJU1Td7WKh",
+  "description": "Pushing weather forecasts beyond state-of-the-art",
+  "github": "https://github.com/Orpheus-AI/Zeus",
+  "url": "https://www.zeussubnet.com/",
+  "discord": "wouter_orpheusai",
+  "logo": "https://raw.githubusercontent.com/Orpheus-AI/Zeus/refs/heads/main/static/zeus-icon.png",
+  "registered_at": 1604679,
+  "tempo": 1800,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.003703917,
+    "moving_price": 0.0037217282224446535,
+    "market_cap": 22143.140695078626,
+    "tao_in": 9789.947315968,
+    "alpha_in": 2643133.331079249,
+    "alpha_out": 3335170.366082061,
+    "volume": 896982.307379652,
+    "vol_24h": 253.0957105010748,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.734404982687098,
+    "change_7d": -1.35291227163713
+  },
+  "spark_24h": [
+    0.00373132,
+    0.00373132,
+    0.00373122,
+    0.003730933,
+    0.003730933,
+    0.003730911,
+    0.003730851,
+    0.003730842,
+    0.003729302,
+    0.003727933,
+    0.003727931,
+    0.003727931,
+    0.003727919,
+    0.003727919,
+    0.003727918,
+    0.003727918,
+    0.003727918,
+    0.003727917,
+    0.003769609,
+    0.003754318,
+    0.003754317,
+    0.00375418,
+    0.00375418,
+    0.00375418,
+    0.003754172,
+    0.003753597,
+    0.003753977,
+    0.0037555,
+    0.0037555,
+    0.003755476,
+    0.003755476,
+    0.003755475,
+    0.003766469,
+    0.003766169,
+    0.003743411,
+    0.00374318,
+    0.003743178,
+    0.003743178,
+    0.003743176,
+    0.003743923,
+    0.003743642,
+    0.003728445,
+    0.003728445,
+    0.003728445,
+    0.003728445,
+    0.003728445,
+    0.003703922,
+    0.003703917
+  ],
+  "trades_24h": {
+    "trades": 43,
+    "buys": 9,
+    "sells": 34,
+    "buy_tao": 108.500655316,
+    "sell_tao": 143.545364919,
+    "net_tao": -35.044709603,
+    "traders": 23
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": 0.14444459199999926,
+      "gross_tao": 59.855555408,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": 0.014020934000001262,
+      "gross_tao": 39.985979066,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GbSr2iJhgQj1V2XB3oQBT9jkz1VMB8uVSoskAwbWSSJEcgD",
+      "net_tao": 0.02011646800000122,
+      "gross_tao": 39.979883532,
+      "trades": 2
+    },
+    {
+      "coldkey": "5G6XcfSHzSM8a4kT1RDovhN4Qc8qFCg7iGPJDMogv4uvzAqo",
+      "net_tao": -0.19383933299999967,
+      "gross_tao": 30.193839333,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CzBvywmFLHz2nZPGq9KTJuQ7PPhFGzjSrgkczpW4WoDp9nJ",
+      "net_tao": -20.047881815,
+      "gross_tao": 20.047881815,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792065062,
+      "kind": "commit",
+      "source": "github",
+      "title": "change reward function to win rate (#92)",
+      "url": "https://github.com/Orpheus-AI/Zeus/commit/76a79ddee422ad613693987fb9f693d46bae9ab8",
+      "publisher": "Orpheus-AI/Zeus"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

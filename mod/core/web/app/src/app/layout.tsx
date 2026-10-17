@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { WalletProvider } from "@/lib/wallet";
 
 export const metadata: Metadata = {
   title: "mod — a modular runtime for on-chain software",
@@ -28,7 +29,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {/* One wallet connection for the whole explorer: the header chip, the
+            BlocTime console and every module's backing panel read it. */}
+        <WalletProvider>{children}</WalletProvider>
+      </body>
     </html>
   );
 }

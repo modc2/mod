@@ -1,0 +1,76 @@
+{
+  "scores": {
+    "0": 0.6636021740216,
+    "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": 0.48303492593028297
+  },
+  "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
+  "last_epoch": {
+    "validator": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
+    "network": "local",
+    "netuid": 0,
+    "miners": 1,
+    "results": {
+      "0": {
+        "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
+        "epoch_score": 0.4883,
+        "ema_score": 0.483,
+        "samples": [
+          {
+            "score": 0.9766666666666666,
+            "task": "block_header",
+            "elapsed": 0.67,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.0,
+            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
+          },
+          {
+            "score": null,
+            "error": "unverifiable: all NEAR RPCs failed: 429 Client Error: Too Many Requests for url: https://rpc.testnet.near.org/"
+          },
+          {
+            "score": null,
+            "error": "unverifiable: all NEAR RPCs failed: 429 Client Error: Too Many Requests for url: https://rpc.testnet.near.org/"
+          },
+          {
+            "score": 0.0,
+            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
+          },
+          {
+            "score": 0.9766666666666666,
+            "task": "account_state",
+            "elapsed": 0.82,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.0,
+            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
+          },
+          {
+            "score": 0.9766666666666666,
+            "task": "gas_price",
+            "elapsed": 0.69,
+            "signature_ok": true,
+            "correct": true
+          }
+        ]
+      }
+    },
+    "at": 1792250225,
+    "weights": {
+      "0": 1.0
+    },
+    "set_weights": {
+      "ok": true,
+      "epoch": 89,
+      "consensus": "yuma",
+      "incentive": {
+        "0": 1.0
+      }
+    }
+  },
+  "updated": 1792250226
+}

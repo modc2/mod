@@ -1,0 +1,31 @@
+{
+    "name": "demo-recon",
+    "description": "Reconstruct 3 functions from demo-repo (/tmp/demo-repo), graded against what they really return.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "e86797dffc2a59f36d8aae8c32f0fac10b0f0581ef36932a65eff308985885eb",
+    "bytes": 13932,
+    "author": "",
+    "tags": [
+        "code",
+        "repo",
+        "demo-repo"
+    ],
+    "defines": [
+        "__init__",
+        "turn",
+        "task",
+        "view",
+        "step",
+        "done",
+        "result"
+    ],
+    "mcp": "http://127.0.0.1:50470/m/demo-recon/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

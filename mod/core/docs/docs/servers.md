@@ -58,7 +58,7 @@ POST /mod/{name}/{fn}    # call fn on module {name}
 POST /mod/{name}         # no function → returns the module's info (functions, schema)
 ```
 
-Behind a gateway the same API is reachable at `/api/{mod}` (prefix stripped) while the module's app lives at `/{mod}` — see [Protocol](protocol.md).
+Behind a gateway the same API is reachable at `/{mod}/api` (prefix stripped; legacy `/api/{mod}` still answers) while the module's app lives at `/{mod}` — see [Protocol](protocol.md).
 
 ### Serve Suffixes: `.app` and `.api`
 

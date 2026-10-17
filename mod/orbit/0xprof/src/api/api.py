@@ -109,7 +109,8 @@ def root():
         'endpoints': ['/systems', '/methods', '/verify', '/prove', '/proofs',
                       '/proofs/{id}', '/proofs/{id}/verify', '/proofs/{id}/checks',
                       '/proofs/{id}/attest', '/proofs/{id}/buy', '/proofs/{id}/refund',
-                      '/verifiers', '/bounties', '/bounties/{id}/submit',
+                      '/verifiers', '/bounties', '/bounties/{id}/join',
+                      '/bounties/{id}/submit', '/bounties/{id}/settle',
                       '/account/{address}', '/auth/*'],
         'signed': {'/proofs/{id}/verify': 'needs a personal_sign naming the proof — '
                                           'the re-run is published under that address'},
@@ -199,8 +200,10 @@ def verify_now(payload: Dict[str, Any] = Body(...)):
 def prove(payload: Dict[str, Any] = Body(...)):
     """Make a proof, for the systems whose prover fits in this module.
 
-    schnorr, dleq and merkle are a hash and a couple of multiplications, so they
-    are proved here. The snark systems need a proving key and a compiled
+    schnorr, dleq, pedersen and merkle are a hash and a couple of
+    multiplications, so they are proved here — which is every system on this box
+    whose prover does not need a trusted setup, and it means the PROVE tab can
+    make a listing for each of them. The snark systems need a proving key and a compiled
     circuit; send them as base64 (`zkey`, `wasm`) with the witness `inputs` and
     snarkjs does the work.
     """
@@ -215,6 +218,9 @@ def prove(payload: Dict[str, Any] = Body(...)):
             made = native.prove_merkle(payload['leaves'], int(payload.get('index', 0)),
                                        payload.get('hash', 'sha256'),
                                        bool(payload.get('sorted', False)))
+        elif system == 'pedersen':
+            made = native.prove_pedersen(payload['value'], payload.get('blinding'),
+                                         payload.get('context', ''), payload.get('H'))
         elif system in ('groth16', 'plonk', 'fflonk'):
             import base64
             zkey = payload.get('zkey')
@@ -228,7 +234,8 @@ def prove(payload: Dict[str, Any] = Body(...)):
             made['statement'] = snarkjs.export_vkey(zkey_bytes)
         else:
             raise HTTPException(400, f'cannot prove {system!r} here — '
-                                     'schnorr, dleq, merkle, groth16, plonk, fflonk')
+                                     'schnorr, dleq, pedersen, merkle, '
+                                     'groth16, plonk, fflonk')
     except HTTPException:
         raise
     except Exception as e:
@@ -471,7 +478,9 @@ def create_bounty(payload: Dict[str, Any] = Body(...),
             require=payload.get('require') or [],
             title=payload.get('title', ''), description=payload.get('description', ''),
             status=payload.get('accept_status', 'verified'),
-            ttl=float(payload.get('ttl') or bounties.DEFAULT_TTL))
+            ttl=float(payload.get('ttl') or bounties.DEFAULT_TTL),
+            stake=float(payload.get('stake') or 0),
+            settle=payload.get('settle') or 'daily')
     except (bounties.BountyError, market.MarketError, KeyError) as e:
         raise fail(e)
 
@@ -482,6 +491,31 @@ def one_bounty(bounty_id: str):
         return bounties.get(bounty_id)
     except bounties.BountyError as e:
         raise HTTPException(404, str(e))
+
+
+@app.post('/bounties/{bounty_id}/join')
+def join_bounty(bounty_id: str, authorization: Optional[str] = Header(None)):
+    """Sign in for a staked round: lock the stake, take the next token.
+
+    A dollar for a seat, locked until the reset. The token's number is the
+    order of signing, and it is the tiebreak when the round settles — first
+    prover to sign, not first to upload.
+    """
+    who = caller(authorization)
+    try:
+        return bounties.join(bounty_id, who)
+    except (bounties.BountyError, market.MarketError) as e:
+        raise fail(e)
+
+
+@app.post('/bounties/{bounty_id}/settle')
+def settle_bounty(bounty_id: str):
+    """Run the reset, if it is due. Open to anyone — the clock decides, and
+    every credit this moves goes where the round's rules already said."""
+    try:
+        return bounties.settle(bounty_id)
+    except (bounties.BountyError, market.MarketError) as e:
+        raise fail(e)
 
 
 @app.post('/bounties/{bounty_id}/submit')

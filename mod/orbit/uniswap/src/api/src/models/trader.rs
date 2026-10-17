@@ -29,6 +29,19 @@ pub struct TraderResult {
     pub mev_indicators: MevIndicators,
     // Scoring
     pub composite_score: f64,
+    /// Whether the address holds code. `None` when the lookup failed.
+    /// Routers, aggregators and bot contracts are contracts; wallets are not.
+    #[serde(default)]
+    pub is_contract: Option<bool>,
+}
+
+impl TraderResult {
+    /// Sort key that never panics on NaN. `partial_cmp().unwrap()` was used
+    /// throughout; a single NaN score (one unpriced pool is enough) takes down
+    /// the whole request.
+    pub fn by<'a>(field: fn(&TraderResult) -> f64) -> impl Fn(&TraderResult, &TraderResult) -> std::cmp::Ordering + 'a {
+        move |a, b| field(b).total_cmp(&field(a))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

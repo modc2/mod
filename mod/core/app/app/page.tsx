@@ -1,20 +1,9 @@
-"use client";
-
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { redirect } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
 
+// The mod app's front door is the build console (orbit/build, :8893 behind
+// the gateway). Server-side redirect so `/` never flashes an empty page.
 export default function Home() {
-  const router = useRouter()
-
-  useEffect(() => {
-    router.replace('/mods')
-  }, [router])
-
-  return (
-    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg-primary)' }}>
-      <div className="font-mono text-sm" style={{ color: 'var(--text-secondary)' }}>Redirecting to modules...</div>
-    </div>
-  )
+  redirect('/build')
 }

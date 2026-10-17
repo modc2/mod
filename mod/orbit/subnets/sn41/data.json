@@ -1,0 +1,189 @@
+{
+  "netuid": 41,
+  "name": "Almanac",
+  "symbol": "נ",
+  "owner": "5FCSevLkofmKZRixMawp6jyyjBty1AeSCLa7N5Fv892DYkXX",
+  "description": "Prediction market research and intelligence.",
+  "github": "https://github.com/corvxai/almanac",
+  "url": "https://almnc.ai",
+  "discord": null,
+  "logo": "https://cdn.discordapp.com/icons/1263242016695783427/19e62da4ff8eb5a7c36d1ef24b9d911e.webp?size=1024",
+  "registered_at": 3394182,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.006839366,
+    "moving_price": 0.006910241907462478,
+    "market_cap": 40959.35550817577,
+    "tao_in": 14857.965905883,
+    "alpha_in": 2172418.434222657,
+    "alpha_out": 3816346.534368843,
+    "volume": 1685192.507021163,
+    "vol_24h": 1293.1753292388748,
+    "emission": 0.0,
+    "change_1h": 0.0003216682769702217,
+    "change_24h": -5.189603714028657,
+    "change_7d": -6.200424935006222
+  },
+  "spark_24h": [
+    0.00721373,
+    0.007229032,
+    0.007229162,
+    0.007218366,
+    0.007211904,
+    0.007214927,
+    0.007214908,
+    0.00721687,
+    0.007209623,
+    0.007054798,
+    0.006923191,
+    0.006955844,
+    0.006955893,
+    0.006968965,
+    0.00697209,
+    0.006972163,
+    0.006971947,
+    0.006972028,
+    0.006972125,
+    0.006972198,
+    0.006970487,
+    0.006968059,
+    0.00696637,
+    0.006966441,
+    0.006965138,
+    0.006990325,
+    0.006990387,
+    0.006999265,
+    0.006967063,
+    0.006919562,
+    0.006919649,
+    0.006919762,
+    0.006914778,
+    0.006914887,
+    0.006914971,
+    0.006915082,
+    0.006914595,
+    0.00691467,
+    0.006914761,
+    0.006914835,
+    0.006915401,
+    0.006915477,
+    0.006842335,
+    0.006860172,
+    0.006860386,
+    0.006860513,
+    0.006804597,
+    0.006839366
+  ],
+  "trades_24h": {
+    "trades": 192,
+    "buys": 53,
+    "sells": 139,
+    "buy_tao": 439.116364357,
+    "sell_tao": 844.633198565,
+    "net_tao": -405.51683420800003,
+    "traders": 130
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DcywqtpDh1E8fnHHTq89eUTFfpzTvsNxvGf4t6BWvuJDuq6",
+      "net_tao": -159.667109641,
+      "gross_tao": 159.667109641,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": 0.4824593539999995,
+      "gross_tao": 109.517540646,
+      "trades": 5
+    },
+    {
+      "coldkey": "5CwAAbFfLWay1UpZikb9vWeyW1PgGth1NDUoHEeShmhX9QNH",
+      "net_tao": -96.425807926,
+      "gross_tao": 102.973287808,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": 0.37508832299999995,
+      "gross_tao": 99.624911677,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": 0.06572829800000335,
+      "gross_tao": 79.93427170199999,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792090873,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #58 from corvxai/vali_stale_weights_etc",
+      "url": "https://github.com/corvxai/almanac/commit/60111f58ed4d4312b2b85a871c49197f01f02c57",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1792086077,
+      "kind": "commit",
+      "source": "github",
+      "title": "Upping weights_version_key to 4",
+      "url": "https://github.com/corvxai/almanac/commit/c8f41159cac7f64b90eeb3e82c8dc3b9da1e3902",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1792085923,
+      "kind": "commit",
+      "source": "github",
+      "title": "Adding retries, logging, better timeouts, increased limit of 200 to f…",
+      "url": "https://github.com/corvxai/almanac/commit/b59e179e84551a5da910d3bc4ef7ed496bb27863",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1791948485,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #57 from corvxai/effn-gate-at-last-resolution",
+      "url": "https://github.com/corvxai/almanac/commit/df48ccf6ced8c4b29cc61e98adbf6cef89162149",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1791947930,
+      "kind": "commit",
+      "source": "github",
+      "title": "Upping weights key version to 3",
+      "url": "https://github.com/corvxai/almanac/commit/30c865aff31f9bc3abf63c3fdf7c11b088567e99",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1791935520,
+      "kind": "commit",
+      "source": "github",
+      "title": "Score update",
+      "url": "https://github.com/corvxai/almanac/commit/ee4f5dda9c445fc9c1e1450b2d01702d890a0fc4",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1791913289,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #56 from corvxai/version_logging",
+      "url": "https://github.com/corvxai/almanac/commit/5e7113f8fb8e5cb51322f811367b4a21849108c4",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1791909163,
+      "kind": "commit",
+      "source": "github",
+      "title": "Adding weights version key to validator logs as a helpful indicator t…",
+      "url": "https://github.com/corvxai/almanac/commit/fd001cdbeac494d5a5f61822740dc2f06fa17ce0",
+      "publisher": "corvxai/almanac"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

@@ -1,0 +1,189 @@
+{
+  "netuid": 20,
+  "name": "Witness",
+  "symbol": "υ",
+  "owner": "5CFVA7aPkGRYhYThumb9UQkPPZv7kzm2ieREHVjxecaYqi3u",
+  "description": "Decentralized models to understand video",
+  "github": "https://github.com/witnessvision/witness_subnet/",
+  "url": "https://witnessvision.io/",
+  "discord": "https://discord.gg/P2Y93BRYyC",
+  "logo": "https://raw.githubusercontent.com/witnessvision/witness_subnet/main/logo.png",
+  "registered_at": 1970929,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.002304396,
+    "moving_price": 0.0023075465578585863,
+    "market_cap": 14137.07080956038,
+    "tao_in": 6428.335795809,
+    "alpha_in": 2789596.875898392,
+    "alpha_out": 3345230.128470815,
+    "volume": 291665.349748565,
+    "vol_24h": 21.05622474401025,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.5500312669794449,
+    "change_7d": 1.0116967574855806
+  },
+  "spark_24h": [
+    0.002317141,
+    0.002318328,
+    0.002318328,
+    0.00231818,
+    0.00231818,
+    0.00231818,
+    0.002318149,
+    0.002318144,
+    0.00231813,
+    0.00231813,
+    0.00231813,
+    0.002318129,
+    0.002318124,
+    0.002318124,
+    0.002318124,
+    0.002318124,
+    0.002318124,
+    0.002318117,
+    0.002318117,
+    0.002318117,
+    0.002318117,
+    0.002318029,
+    0.002318029,
+    0.002318029,
+    0.002318026,
+    0.002318026,
+    0.002318025,
+    0.002318025,
+    0.002318025,
+    0.002307422,
+    0.002307422,
+    0.002307422,
+    0.002307235,
+    0.002307235,
+    0.002307235,
+    0.002307235,
+    0.002307234,
+    0.002307234,
+    0.002307233,
+    0.002307227,
+    0.002304416,
+    0.002304416,
+    0.002304416,
+    0.002304416,
+    0.002304416,
+    0.002304416,
+    0.002304397,
+    0.002304396
+  ],
+  "trades_24h": {
+    "trades": 6,
+    "buys": 1,
+    "sells": 5,
+    "buy_tao": 1.651789,
+    "sell_tao": 14.96504199,
+    "net_tao": -13.313252989999999,
+    "traders": 6
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HbPvSctVcVLLfz5wMACezdWgKXXrDjVtZ4iPpousEQSTMLr",
+      "net_tao": -5.59872695,
+      "gross_tao": 5.59872695,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HBsG27VdfDFdGm71zXnNt466LKDdNNnHGqLH2XTNySLaJU5",
+      "net_tao": -5.148855493,
+      "gross_tao": 5.148855493,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GP6bS2MiJQQc379gkea1QB2sLPAnJ5DktKhSnsvATN3sPkM",
+      "net_tao": -3.998614181,
+      "gross_tao": 3.998614181,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HdfFz2NHwpD5L2QoqFM8aPsDEcDdp2TKEPSNXuHt8iYfcQz",
+      "net_tao": 1.651789,
+      "gross_tao": 1.651789,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -0.204184665,
+      "gross_tao": 0.204184665,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790961588,
+      "kind": "commit",
+      "source": "github",
+      "title": "Wait for active model prefetch before compression preflight",
+      "url": "https://github.com/witnessvision/witness_subnet/commit/4770712a5bd37a50377715a0a2973f7f4a80b8bf",
+      "publisher": "witnessvision/witness_subnet"
+    },
+    {
+      "ts": 1790957195,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add private rotating model access audit logs and separate telemetry m…",
+      "url": "https://github.com/witnessvision/witness_subnet/commit/fc170dce8a9918e110aee263ee7299687b93819b",
+      "publisher": "witnessvision/witness_subnet"
+    },
+    {
+      "ts": 1790932208,
+      "kind": "commit",
+      "source": "github",
+      "title": "Use Luna for mainnet judging and visual review from window 36",
+      "url": "https://github.com/witnessvision/witness_subnet/commit/03e23e1c8b28485c53f94cd4736ee0f9ae2aa71c",
+      "publisher": "witnessvision/witness_subnet"
+    },
+    {
+      "ts": 1790891636,
+      "kind": "commit",
+      "source": "github",
+      "title": "Document required SALMONN FP8 loading dependency",
+      "url": "https://github.com/witnessvision/witness_subnet/commit/8bd7bdf9d0626ff18027a5499f1597835f1eb379",
+      "publisher": "witnessvision/witness_subnet"
+    },
+    {
+      "ts": 1790887334,
+      "kind": "commit",
+      "source": "github",
+      "title": "Execute supported FP8 linears natively from window 31",
+      "url": "https://github.com/witnessvision/witness_subnet/commit/0bb9d645858d13327426a20016d35839a40ce1ba",
+      "publisher": "witnessvision/witness_subnet"
+    },
+    {
+      "ts": 1790885128,
+      "kind": "commit",
+      "source": "github",
+      "title": "Reset hotkey admissions once at window 32 while preserving consensus …",
+      "url": "https://github.com/witnessvision/witness_subnet/commit/6d4f19d4924be5c60ef458a9941f41568cdee6e4",
+      "publisher": "witnessvision/witness_subnet"
+    },
+    {
+      "ts": 1790882330,
+      "kind": "commit",
+      "source": "github",
+      "title": "Export signed closed-window scores without serving media or model out…",
+      "url": "https://github.com/witnessvision/witness_subnet/commit/34990757470432a073cb76c25ed8f049e988a0c6",
+      "publisher": "witnessvision/witness_subnet"
+    },
+    {
+      "ts": 1790876482,
+      "kind": "commit",
+      "source": "github",
+      "title": "Keep weight submission time separate from reveal observation",
+      "url": "https://github.com/witnessvision/witness_subnet/commit/9fe23760e68ed5e15a47673e5482d6c5b2b95280",
+      "publisher": "witnessvision/witness_subnet"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

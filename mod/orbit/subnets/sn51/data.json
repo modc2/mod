@@ -1,0 +1,191 @@
+{
+  "netuid": 51,
+  "name": "lium.io",
+  "symbol": "ת",
+  "owner": "5FqACMtcegZxxopgu1g7TgyrnyD8skurr9QDPLPhxNQzsThe",
+  "description": "Agent-first GPU cloud. Rent NVIDIA GPUs via web, CLI, SDK, or API. Providers earn 95% rental revenue + bonuses.",
+  "github": "https://github.com/Datura-ai/lium-io",
+  "url": "https://lium.io",
+  "discord": "https://discord.gg/lium",
+  "logo": "https://lium.io/web-app-manifest-512x512.png",
+  "registered_at": 3966206,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [
+    "lium"
+  ],
+  "market": {
+    "price": 0.108935329,
+    "moving_price": 0.10887056612409651,
+    "market_cap": 670500.4753616774,
+    "tao_in": 178317.395477185,
+    "alpha_in": 1636910.652159806,
+    "alpha_out": 4518121.709854516,
+    "volume": 2289681.881594869,
+    "vol_24h": 5910.026853365824,
+    "emission": 0.0,
+    "change_1h": 0.0013861627305988833,
+    "change_24h": -0.5545530960582856,
+    "change_7d": 7.014021726860498
+  },
+  "spark_24h": [
+    0.109542802,
+    0.109555059,
+    0.109557706,
+    0.109546762,
+    0.109535291,
+    0.109492602,
+    0.109615269,
+    0.109608535,
+    0.109607635,
+    0.109629714,
+    0.109517705,
+    0.109441303,
+    0.109429972,
+    0.109471818,
+    0.109478363,
+    0.109484295,
+    0.109528335,
+    0.10928984,
+    0.109179446,
+    0.109043926,
+    0.108948361,
+    0.10891925,
+    0.108908324,
+    0.108912201,
+    0.108996731,
+    0.109158313,
+    0.108874215,
+    0.108595533,
+    0.108633091,
+    0.108562897,
+    0.108578004,
+    0.108578052,
+    0.108710105,
+    0.108680375,
+    0.108694869,
+    0.108702502,
+    0.108615949,
+    0.10862591,
+    0.10870444,
+    0.108675402,
+    0.108682371,
+    0.10868099,
+    0.108676649,
+    0.10862925,
+    0.108779967,
+    0.108794089,
+    0.108808541,
+    0.108935329
+  ],
+  "trades_24h": {
+    "trades": 551,
+    "buys": 235,
+    "sells": 316,
+    "buy_tao": 2332.462317015,
+    "sell_tao": 3169.55843479,
+    "net_tao": -837.096117775,
+    "traders": 283
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.07135287700009485,
+      "gross_tao": 1382.153331935,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": -8.452695111999994,
+      "gross_tao": 452.452695112,
+      "trades": 8
+    },
+    {
+      "coldkey": "5F5fHAR7LbxVouBgMGxPwPUR9Ev44xGWGH88THsViWAoneGf",
+      "net_tao": 21.070032203,
+      "gross_tao": 238.71435979700001,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DvexuhjhLcAS2n9PF9wzXNeminPFapJSRsgtw4xr6dLedrG",
+      "net_tao": -217.400790642,
+      "gross_tao": 217.400790642,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -0.2447104910000064,
+      "gross_tao": 200.244710491,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792159251,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4123 - Validator: split build-log streams into frames the backend…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/0f97a146cb34cf047fae296acb1c8c7100d83299",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792140910,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4434 - [P1] Inspector: rebuilt library with longer deadlines; 120…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/d43eecdb3807f15ee7e0cd84eed12d8b6ee66416",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792136447,
+      "kind": "commit",
+      "source": "github",
+      "title": "Revert #1543: v2 loopback plugin install drops SSH on some hosts (#1656)",
+      "url": "https://github.com/Datura-ai/lium-io/commit/7822e3a65c69926f7fd8f427b568d410166cdfa0",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792132175,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4362 - [P3] Validator: remove settings unchanged for more than 3 …",
+      "url": "https://github.com/Datura-ai/lium-io/commit/e330417741e65783f4ccb0bddf03032ad35aeb0b",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792119457,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-3980 - Validator: new loopback volumes on a v2 plugin installed b…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/e92272001c261250efd0d9a5038f94a8c407c07b",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792117972,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4223 - [P1] validator: rented Spot nodes earn rental incentive at…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/991543da093228a29b0c3463feb24fc8584fd776",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792089468,
+      "kind": "release",
+      "source": "github",
+      "title": "executor-v1.141",
+      "url": "https://github.com/Datura-ai/lium-io/releases/tag/executor-v1.141",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1792087756,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-4484 - [P0] Executor: send restore/backup progress at most every …",
+      "url": "https://github.com/Datura-ai/lium-io/commit/5456d2a128f616bae177fc60a42acd3486686915",
+      "publisher": "Datura-ai/lium-io"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

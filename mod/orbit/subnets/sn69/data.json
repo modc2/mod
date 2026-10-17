@@ -1,0 +1,165 @@
+{
+  "netuid": 69,
+  "name": "Herald",
+  "symbol": "ع",
+  "owner": "5HBPFVcJxuhT6PFg93s5B5qa9GZjMQWRBWWEssZMDAMmRAvc",
+  "description": "Incentivising Mainstream Media via PR Firms",
+  "github": "https://github.com/HeraldMedia/herald",
+  "url": "https://www.heraldmedia.ai",
+  "discord": "https://discord.gg/kQpeef9EPe",
+  "logo": "https://www.heraldmedia.ai/brand/logo-mark.svg",
+  "registered_at": 8138182,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.00547457,
+    "moving_price": 0.0054873996414244175,
+    "market_cap": 11480.220576356673,
+    "tao_in": 3635.779324721,
+    "alpha_in": 664121.443216308,
+    "alpha_out": 1432887.194239542,
+    "volume": 80807.710421158,
+    "vol_24h": 10.087786144998972,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.476966379660293,
+    "change_7d": -2.7522303462807707
+  },
+  "spark_24h": [
+    0.005500807,
+    0.005500807,
+    0.005500807,
+    0.005499446,
+    0.005499441,
+    0.005499253,
+    0.005498474,
+    0.005498362,
+    0.00549812,
+    0.005498119,
+    0.005498107,
+    0.005498101,
+    0.005497963,
+    0.005497963,
+    0.005497961,
+    0.005497961,
+    0.005497959,
+    0.005497941,
+    0.00549135,
+    0.00549135,
+    0.005491338,
+    0.005489591,
+    0.00548959,
+    0.00548959,
+    0.005489526,
+    0.005489526,
+    0.005489501,
+    0.005486482,
+    0.005486479,
+    0.00548626,
+    0.00548626,
+    0.005486246,
+    0.005481461,
+    0.005481448,
+    0.005481448,
+    0.005481448,
+    0.005481164,
+    0.005481164,
+    0.005481133,
+    0.005480987,
+    0.005480987,
+    0.005480956,
+    0.005480955,
+    0.005480955,
+    0.00548304,
+    0.00548304,
+    0.005474584,
+    0.00547457
+  ],
+  "trades_24h": {
+    "trades": 7,
+    "buys": 1,
+    "sells": 6,
+    "buy_tao": 0.692832233,
+    "sell_tao": 4.7752180950000005,
+    "net_tao": -4.082385862000001,
+    "traders": 6
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HBSjZaos9Pj4bVJVQ9UhkH8ffW9EgwNPwGuXFWKKHaYqvBV",
+      "net_tao": -2.183626267,
+      "gross_tao": 2.183626267,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GptFk9oEtmHPc6TSKQvp8MMX5ABu4GVaReScLVZkWi6pR71",
+      "net_tao": -1.999935524,
+      "gross_tao": 1.999935524,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Dtu7StcwknFkZr7zN1eHHJ5Fu8fD3M5SiyCpsfDmHHpFy5B",
+      "net_tao": 0.692832233,
+      "gross_tao": 0.692832233,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -0.439634945,
+      "gross_tao": 0.439634945,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HBPFVcJxuhT6PFg93s5B5qa9GZjMQWRBWWEssZMDAMmRAvc",
+      "net_tao": -0.088095171,
+      "gross_tao": 0.088095171,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790700664,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #20 from HeraldMedia/dev",
+      "url": "https://github.com/HeraldMedia/herald/commit/a336b04ae224a87c646eb5f9e504824451055b2c",
+      "publisher": "HeraldMedia/herald"
+    },
+    {
+      "ts": 1790699050,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #19 from HeraldMedia/reliable-tao-price",
+      "url": "https://github.com/HeraldMedia/herald/commit/3bd01a9249643bf369a89a8ece193ca145f2f957",
+      "publisher": "HeraldMedia/herald"
+    },
+    {
+      "ts": 1790695730,
+      "kind": "commit",
+      "source": "github",
+      "title": "Read TAO/USD reliably from CoinGecko (0.2.2)",
+      "url": "https://github.com/HeraldMedia/herald/commit/07f3531ddade360bea948aef6cb959e06f7b4d82",
+      "publisher": "HeraldMedia/herald"
+    },
+    {
+      "ts": 1790687532,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #18 from HeraldMedia/dev",
+      "url": "https://github.com/HeraldMedia/herald/commit/39eba36c993a7d10927f2710d823c3045e3d9ebc",
+      "publisher": "HeraldMedia/herald"
+    },
+    {
+      "ts": 1790403364,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #17 from HeraldMedia/miner-key-lifecycle",
+      "url": "https://github.com/HeraldMedia/herald/commit/864f22661933629c570f46443dc6ac08923a347b",
+      "publisher": "HeraldMedia/herald"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

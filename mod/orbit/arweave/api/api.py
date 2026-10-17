@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 MODULE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MODULE_DIR))
 
-from arweave import ArweaveClient  # noqa: E402
+from arlocal import ArweaveClient  # noqa: E402
 
 
 app = FastAPI(
@@ -41,17 +41,30 @@ app.add_middleware(
 
 client = ArweaveClient()
 APP_DIR = MODULE_DIR / "app"
+BASE = "/arweave"
 
 
-# ─── API routes (under /api) ────────────────────────────────────────────────
+@app.middleware("http")
+async def _strip_mod_prefix(request: Request, call_next):
+    # The gateway app route proxies {host}/arweave with the prefix KEPT;
+    # serve both shapes so / and /arweave are the same app.
+    path = request.scope["path"]
+    if path == BASE or path.startswith(BASE + "/"):
+        request.scope["path"] = path[len(BASE):] or "/"
+    return await call_next(request)
 
 
-@app.get("/api/health")
+# ─── API routes (at /api locally; the gateway strips /arweave/api to bare) ──
+
+api = APIRouter()
+
+
+@api.get("/health")
 def health():
     return {"ok": True, "service": "arweave"}
 
 
-@app.get("/api/info")
+@api.get("/info")
 def info():
     cfg_path = MODULE_DIR / "config.json"
     cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
@@ -65,12 +78,12 @@ def info():
     }
 
 
-@app.get("/api/status")
+@api.get("/status")
 def status():
     return client.status()
 
 
-@app.post("/api/put")
+@api.post("/put")
 async def put(request: Request, file: Optional[UploadFile] = File(None)):
     """Accepts JSON body `{data, name?}` OR a multipart upload field `file`."""
     if file is not None:
@@ -91,7 +104,7 @@ async def put(request: Request, file: Optional[UploadFile] = File(None)):
     return client.put(body)
 
 
-@app.get("/api/get/{txid}")
+@api.get("/get/{txid}")
 def get(txid: str, raw: bool = False):
     try:
         content = client._fetch(txid)
@@ -109,29 +122,35 @@ def get(txid: str, raw: bool = False):
         return Response(content=text, media_type="text/plain; charset=utf-8")
 
 
-@app.get("/api/list")
+@api.get("/list")
 def list_objects(limit: int = 100):
     return {"items": client.list(limit=limit)}
 
 
-@app.delete("/api/rm/{txid}")
+@api.delete("/rm/{txid}")
 def rm(txid: str):
     return client.rm(txid)
 
 
-@app.get("/api/tx/{txid}")
+@api.get("/tx/{txid}")
 def tx(txid: str):
     return client.tx(txid)
 
 
-@app.get("/api/price/{num_bytes}")
+@api.get("/price/{num_bytes}")
 def price(num_bytes: int):
     return client.price(num_bytes)
 
 
-@app.get("/api/network")
+@api.get("/network")
 def network():
     return client.info()
+
+
+# /api/* is the canonical local shape; the bare include answers the gateway,
+# which strips /arweave/api (and legacy /api/arweave) before proxying.
+app.include_router(api, prefix="/api")
+app.include_router(api)
 
 
 # ─── App (static frontend) ──────────────────────────────────────────────────

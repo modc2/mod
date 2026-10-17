@@ -1,0 +1,189 @@
+{
+  "netuid": 124,
+  "name": "Swarm",
+  "symbol": "𑀁",
+  "owner": "5HKYqfJrUFKYPMRFZZ7kfhUNEyHUbY2ZyEjQqKJf2RKVpeXM",
+  "description": null,
+  "github": "https://github.com/swarm-subnet/swarm",
+  "url": "www.swarm124.com",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/swarm-subnet/swarm/refs/heads/main/swarm/assets/Swarm.png",
+  "registered_at": 5813454,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.009127041,
+    "moving_price": 0.00916893663816154,
+    "market_cap": 45648.32714790232,
+    "tao_in": 12069.427603228,
+    "alpha_in": 1322381.302445124,
+    "alpha_out": 3679056.419583551,
+    "volume": 324457.523606688,
+    "vol_24h": 124.63984177500242,
+    "emission": 0.0,
+    "change_1h": 0.0009313072178773751,
+    "change_24h": -1.5132278352344208,
+    "change_7d": -3.380584570773326
+  },
+  "spark_24h": [
+    0.009267276,
+    0.009267547,
+    0.009267905,
+    0.009263025,
+    0.009263299,
+    0.009263501,
+    0.009263418,
+    0.009263718,
+    0.009263819,
+    0.009264172,
+    0.009264526,
+    0.009265641,
+    0.009263283,
+    0.009263641,
+    0.009263991,
+    0.009264257,
+    0.009264613,
+    0.009264954,
+    0.009263184,
+    0.009260401,
+    0.009258347,
+    0.009258706,
+    0.009259053,
+    0.009246751,
+    0.009245515,
+    0.009245874,
+    0.009243611,
+    0.009243967,
+    0.00924364,
+    0.009134816,
+    0.009135119,
+    0.009135513,
+    0.009132568,
+    0.009131102,
+    0.0091314,
+    0.009131795,
+    0.009132177,
+    0.009132449,
+    0.009132785,
+    0.009133041,
+    0.009133412,
+    0.009133676,
+    0.009134047,
+    0.009133129,
+    0.009133951,
+    0.009134412,
+    0.009128252,
+    0.009127041
+  ],
+  "trades_24h": {
+    "trades": 99,
+    "buys": 1,
+    "sells": 98,
+    "buy_tao": 0.004146113,
+    "sell_tao": 103.615491265,
+    "net_tao": -103.611345152,
+    "traders": 15
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CUK3oMpcW4oTxpQPTJ5oM5Kcwb2g9afWZu5hnQpaEGBQrne",
+      "net_tao": -29.937387603,
+      "gross_tao": 29.937387603,
+      "trades": 1
+    },
+    {
+      "coldkey": "5C94RF3CY3JVXnSgx6KjX7qYemB3fPkcoo1DLjgKVSQc7pFi",
+      "net_tao": -27.024920738,
+      "gross_tao": 27.024920738,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F5fHAR7LbxVouBgMGxPwPUR9Ev44xGWGH88THsViWAoneGf",
+      "net_tao": -15.182612417000001,
+      "gross_tao": 15.182612417000001,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FR1pyj5TStp2NKCEAk3CibUePdGS1ihSFMqNK9hny9et3Z2",
+      "net_tao": -6.683222431,
+      "gross_tao": 6.683222431,
+      "trades": 6
+    },
+    {
+      "coldkey": "5HBeTAHzgeUWyEW9G9AxF8jBTGz8VA9RQbA1qKFCP6BpXgoz",
+      "net_tao": -6.164364786,
+      "gross_tao": 6.164364786,
+      "trades": 32
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791205037,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #204 from swarm-subnet/feature/ali/miner-bug-fixes",
+      "url": "https://github.com/swarm-subnet/swarm/commit/38b36a2c55967e5e7abc66932fee696a39852bac",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1791196119,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #195 from swarm-subnet/feature/ali/docker-model-ve…",
+      "url": "https://github.com/swarm-subnet/swarm/commit/6f0a800d495cb719b5a7eaf41d6fd976d61123d6",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1791052481,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bump version to 5.1.6.5",
+      "url": "https://github.com/swarm-subnet/swarm/commit/9d559e6db16a2a5391d6cbb4f6a55eff98e0c905",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1791051110,
+      "kind": "commit",
+      "source": "github",
+      "title": "Draw the forest difficulty from its own seed stream",
+      "url": "https://github.com/swarm-subnet/swarm/commit/bd1c619372900252da45977eb4d2c10f6eda192d",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1791051110,
+      "kind": "commit",
+      "source": "github",
+      "title": "Publish the forest hills mesh cache only once it is fully written",
+      "url": "https://github.com/swarm-subnet/swarm/commit/8538ca2367ed8312821bbdc53ee08e9ea1beb5af",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1790843692,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #189 from swarm-subnet/feature/ali/office-king-zer…",
+      "url": "https://github.com/swarm-subnet/swarm/commit/e54bebb93ba852712900a4d791b3dd24034b33a5",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1790843383,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bump version to 5.1.6.4",
+      "url": "https://github.com/swarm-subnet/swarm/commit/7f7ef5f87b790bd735a6188fdb5823b4a4832307",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1790842810,
+      "kind": "commit",
+      "source": "github",
+      "title": "Keep the ladder seat for a king crowned inside the headroom floor",
+      "url": "https://github.com/swarm-subnet/swarm/commit/7e70cc21f74ffa9cf3354c078f58635822bb01a8",
+      "publisher": "swarm-subnet/swarm"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

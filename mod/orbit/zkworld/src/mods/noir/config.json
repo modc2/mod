@@ -1,0 +1,38 @@
+{
+    "name": "noir",
+    "title": "Noir \u00b7 zkworld",
+    "description": "The Noir framework as a running submod of zkworld: its toolchain, starters and every Noir project here. A Rust-like language for ZK programs (Aztec). nargo compiles to ACIR and runs #[test] fns; any backend (Barretenberg bb) proves.",
+    "version": "0.2.0",
+    "submod_of": "zkworld",
+    "kind": "framework",
+    "framework_id": "noir",
+    "anchor": "mod.py",
+    "server": "../../api/fwserver.py",
+    "port": 51355,
+    "host": "127.0.0.1",
+    "route": "/zkworld/noir/",
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "toolchain",
+        "templates",
+        "projects",
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean",
+        "abi",
+        "witness",
+        "serve",
+        "kill"
+    ],
+    "write_fns": [
+        "new",
+        "build",
+        "test",
+        "vibe",
+        "clean"
+    ]
+}

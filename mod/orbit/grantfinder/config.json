@@ -1,0 +1,83 @@
+{
+    "name": "grantfinder",
+    "title": "grantfinder \u00b7 every grant, tagged",
+    "description": "A Claude agent that sweeps the web for grant programs and tags every one. Starts with open source and crypto: each lane (OSS foundations, corporate funds, security, public money, AI, fellowships, Ethereum & L2s, other L1s, Bitcoin & privacy, public goods, DeFi, ZK research) is one Claude Code run, spawned from orbit/claudecode's harness spec and fenced to WebSearch + WebFetch. Results merge by URL into one SQLite file, tagged by category, ecosystem, topic, mechanism, status and amount. Web app at /grantfinder.",
+    "version": "0.1.0",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51380,
+    "app_port": 51380,
+    "route": true,
+    "deps": [
+        "claudecode"
+    ],
+    "urls": {
+        "app": "http://localhost:51380/grantfinder",
+        "api": "http://localhost:51380"
+    },
+    "state": "~/.mod/grantfinder/grants.db (grants + agent runs)",
+    "endpoints": {
+        "app": {
+            "method": "GET",
+            "auth": false,
+            "docs": "GET / (Accept: text/html) or /app -> src/app/index.html: search, tag filters, sweep progress"
+        },
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness, grant count, total agent spend, agent availability"
+        },
+        "grants": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?q=&tags=crypto,zk&status=open&sort=deadline|amount|new|name&k= -> {n, grants:[...]}; /grants/<id> one"
+        },
+        "tags": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Tag counts grouped by category, ecosystem, topic, mechanism, status, amount, other"
+        },
+        "lanes": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The lanes a sweep covers"
+        },
+        "runs": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?sweep= -> agent runs with cost, counts and the searches/fetches they made"
+        },
+        "sweep": {
+            "method": "GET|POST",
+            "auth": "loopback",
+            "docs": "GET = sweep in flight; POST {lanes?, category?, model?, budget?, concurrency?} starts one (spends the host's Claude account)"
+        },
+        "verify": {
+            "method": "POST",
+            "auth": "loopback",
+            "docs": "{id} -> re-read one grant's official page and refresh it"
+        },
+        "export": {
+            "method": "GET",
+            "auth": false,
+            "docs": "/export.csv"
+        }
+    },
+    "fns": [
+        "forward",
+        "grants",
+        "grant",
+        "tags",
+        "lanes",
+        "runs",
+        "sweep",
+        "verify",
+        "retag",
+        "delete",
+        "serve",
+        "kill",
+        "status",
+        "test"
+    ],
+    "schema": "QmPpNKQJUfzzCDytECkMcwcw9vtPe1zy8zfreuxrYexPnt"
+}

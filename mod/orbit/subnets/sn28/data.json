@@ -1,0 +1,191 @@
+{
+  "netuid": 28,
+  "name": "SayGM",
+  "symbol": "ד",
+  "owner": "5CA6rwAytZvvyZhLYEzo79627QEV422Q8kD51DEnTaRQxm45",
+  "description": "Drop-in access to Claude, GPT, and Gemini.",
+  "github": "https://github.com/taostat/gm-miner",
+  "url": "https://saygm.com/",
+  "discord": null,
+  "logo": "https://saygm.com/apple-touch-icon.png",
+  "registered_at": 4878363,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [
+    "saygm"
+  ],
+  "market": {
+    "price": 0.033516662,
+    "moving_price": 0.03334407648071647,
+    "market_cap": 212597.80580995738,
+    "tao_in": 28922.581563243,
+    "alpha_in": 862931.499638797,
+    "alpha_out": 5480116.797054871,
+    "volume": 6708225.236015993,
+    "vol_24h": 10001.973408840597,
+    "emission": 0.0,
+    "change_1h": -0.00937356316282889,
+    "change_24h": 1.8043272970598156,
+    "change_7d": 41.42487686012597
+  },
+  "spark_24h": [
+    0.03292263,
+    0.032986737,
+    0.033769703,
+    0.033739636,
+    0.03356594,
+    0.033913831,
+    0.03421809,
+    0.034364018,
+    0.034367027,
+    0.034550652,
+    0.033964913,
+    0.034163486,
+    0.034156548,
+    0.034166867,
+    0.034132787,
+    0.03413678,
+    0.034117784,
+    0.033729692,
+    0.033643926,
+    0.033443383,
+    0.033554129,
+    0.03365365,
+    0.033709057,
+    0.033702876,
+    0.03402514,
+    0.034034072,
+    0.034052397,
+    0.03356322,
+    0.033452407,
+    0.033395245,
+    0.033401973,
+    0.033409351,
+    0.033341901,
+    0.033357375,
+    0.033359122,
+    0.033362904,
+    0.033441442,
+    0.033474507,
+    0.033480797,
+    0.033479317,
+    0.033541309,
+    0.033565294,
+    0.033451096,
+    0.033432628,
+    0.033467102,
+    0.033493318,
+    0.033288899,
+    0.033516662
+  ],
+  "trades_24h": {
+    "trades": 704,
+    "buys": 371,
+    "sells": 333,
+    "buy_tao": 4999.71018771,
+    "sell_tao": 4851.167804472,
+    "net_tao": 148.54238323800018,
+    "traders": 265
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -3.1036265370000145,
+      "gross_tao": 1584.381054633,
+      "trades": 12
+    },
+    {
+      "coldkey": "5DDT7MwWfrCpJEJ7gUXgyekrSkc1wMDMubG8NA9SqAFGqDuC",
+      "net_tao": 2.456615955000018,
+      "gross_tao": 588.0133361349999,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.6432387870000014,
+      "gross_tao": 584.643238787,
+      "trades": 6
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -4.101751172,
+      "gross_tao": 504.101751172,
+      "trades": 10
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": -31.379063745000003,
+      "gross_tao": 371.379063745,
+      "trades": 15
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792084709,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.1-dev",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.1-dev",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792080543,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add Engy MiniMax H3 video route (#324)",
+      "url": "https://github.com/taostat/gm-miner/commit/70bc539e8bcbcfd21cf09ee252af2e2b1b757f4b",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792078816,
+      "kind": "commit",
+      "source": "github",
+      "title": "Document DeepInfra GLM-5.3 and Flash sourcing (#323)",
+      "url": "https://github.com/taostat/gm-miner/commit/3de24065faf3357e2116529677f4dcb0c6c2b402",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792014704,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.0",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.0",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792013581,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): promote gm-miner 0.5.0 (#322)",
+      "url": "https://github.com/taostat/gm-miner/commit/9324860559305fb65993490c624f4b390aeafc0c",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792003513,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.4.29-dev",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.4.29-dev",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792002619,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): gm-miner 0.4.29-dev (#320)",
+      "url": "https://github.com/taostat/gm-miner/commit/e1f325c20c301b5fe9ea48a6e6238a25a488a2ff",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792002438,
+      "kind": "commit",
+      "source": "github",
+      "title": "Pin dstack-0.5.12 as the deploy OS image (#318)",
+      "url": "https://github.com/taostat/gm-miner/commit/5b895ddb560cfa79271f15e4fc117930e9f60a4e",
+      "publisher": "taostat/gm-miner"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

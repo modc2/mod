@@ -1,0 +1,142 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+:root {
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --cyan:   #00ffcc;
+  --green:  #00ff6a;
+  --red:    #ff3b3b;
+  --orange: #ff9500;
+  --yellow: #ffd700;
+  --dim:    #3a5555;
+  --muted:  #5a7a7a;
+  --text:   #c8d8d8;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%;
+  background: #000;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #0a2a2a; }
+
+/* grid bg */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(0,255,204,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,255,204,0.025) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* panel */
+.panel {
+  border: 1px solid rgba(0,255,204,0.08);
+  background: rgba(0,8,8,0.95);
+}
+.panel-header {
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(0,255,204,0.07);
+  background: rgba(0,255,204,0.02);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.panel-title {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--cyan);
+}
+
+/* live badge */
+.badge-live,
+.swarm-live {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 5px; border-radius: 2px;
+  font-size: 8px; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--green);
+  background: rgba(0,255,106,0.07);
+  border: 1px solid rgba(0,255,106,0.15);
+}
+
+.swarm-badge-error {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 5px; border-radius: 2px;
+  font-size: 8px; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--red);
+  background: rgba(255,59,59,0.07);
+  border: 1px solid rgba(255,59,59,0.15);
+}
+
+.swarm-text-dim { color: var(--dim); }
+
+/* row highlight */
+.row-pay   { color: var(--cyan); }
+.row-trade-buy  { color: var(--green); }
+.row-trade-sell { color: var(--red); }
+.row-error { color: var(--red); }
+.row-inv   { color: var(--yellow); }
+
+/* animations */
+@keyframes ping {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes scan-line {
+  0%   { top: -2px; }
+  100% { top: 100%; }
+}
+.anim-in { animation: slide-in 0.18s ease-out forwards; }
+
+/* CRT scanline overlay */
+.crt::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.04) 2px,
+    rgba(0,0,0,0.04) 4px
+  );
+  pointer-events: none;
+  z-index: 100;
+}
+
+/* react-flow overrides */
+.react-flow__attribution { display: none !important; }
+.react-flow__controls {
+  background: #000 !important;
+  border: 1px solid rgba(0,255,204,0.12) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+.react-flow__controls-button {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(0,255,204,0.07) !important;
+  color: var(--muted) !important;
+  fill: var(--muted) !important;
+  width: 24px !important; height: 24px !important;
+}
+.react-flow__controls-button:hover {
+  background: rgba(0,255,204,0.05) !important;
+  color: var(--cyan) !important;
+  fill: var(--cyan) !important;
+}
+.react-flow__background { background: #000 !important; }

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<base href="/artlist/">
+<title>artlist — royalty-free music, SFX, footage</title>
+<link rel="preload" href="fonts/press-start-2p-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/vt323-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27 shape-rendering=%27crispEdges%27%3E%3Crect width=%2716%27 height=%2716%27 fill=%27%230a0912%27/%3E%3Cg fill=%27%23b48cff%27%3E%3Crect x=%272%27 y=%279%27 width=%272%27 height=%275%27/%3E%3Crect x=%275%27 y=%273%27 width=%272%27 height=%2711%27/%3E%3Crect x=%278%27 y=%276%27 width=%272%27 height=%278%27/%3E%3Crect x=%2711%27 y=%274%27 width=%272%27 height=%2710%27/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+<script>
+  try { var t = localStorage.getItem('artlist.theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <span class="name">artlist</span>
+    <span class="tag">royalty-free music, SFX, footage &amp; templates — search and listen</span>
+  </div>
+  <div class="bar-right">
+    <span id="status" class="who"><b class="dot"></b> checking</span>
+    <button id="theme" class="ghost" title="light / dark">light</button>
+  </div>
+</header>
+
+<main>
+  <section class="card search">
+    <div class="tabs" id="tabs" role="tablist">
+      <button data-kind="music" class="on" role="tab">music</button>
+      <button data-kind="sfx" role="tab">sfx</button>
+      <button data-kind="footage" role="tab">footage</button>
+      <button data-kind="templates" role="tab">templates</button>
+      <button data-kind="voices" role="tab">voices</button>
+    </div>
+    <form id="form" class="row" autocomplete="off">
+      <input id="q" type="search" placeholder="search music…" aria-label="search" autofocus>
+      <select id="sort" aria-label="sort"></select>
+      <button class="primary" id="go" type="submit">search</button>
+    </form>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <section id="results-wrap">
+    <div class="meta" id="meta"></div>
+    <div class="grid" id="results"></div>
+    <div class="more-row"><button id="more" class="ghost hidden">more</button></div>
+  </section>
+
+  <section class="card faint how">
+    <h2>how it works</h2>
+    <ol>
+      <li>Pick a kind, type a few words, press search. Nothing to sign in to.</li>
+      <li>Press play on any card. Previews stream from Artlist through this box.</li>
+      <li>Like it? <b>open</b> takes you to the track on artlist.io, where licensing lives.</li>
+    </ol>
+    <p class="hint">Agents use the same thing: REST at <code>/artlist/api/music?q=</code>,
+      MCP at <code>/artlist/api/mcp</code>. See the README for the full surface.</p>
+  </section>
+</main>
+
+<footer class="player hidden" id="player">
+  <button id="pp" class="pp" aria-label="play / pause"></button>
+  <div class="np">
+    <div class="np-title" id="np-title">—</div>
+    <div class="np-sub" id="np-sub"></div>
+  </div>
+  <div class="bar-wrap" id="seek" title="seek"><div class="bar-fill" id="fill"></div></div>
+  <span class="time" id="time">0:00</span>
+  <a id="np-open" class="np-open" target="_blank" rel="noreferrer" href="#">open</a>
+  <audio id="audio" preload="none"></audio>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

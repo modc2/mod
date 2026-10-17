@@ -1,0 +1,974 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>advise — recommend a change, the owner decides</title>
+<style>
+  :root {
+    --bg: #07080d; --panel: rgba(18, 21, 34, .72); --line: rgba(124, 156, 255, .16);
+    --line2: rgba(124, 156, 255, .34); --ink: #eef1fb; --dim: #8b93ad;
+    --accent: #7c9cff; --hot: #ff5fd2; --cyan: #3ee6ff; --ok: #3ef0a8;
+    --no: #ff5b6e; --warn: #ffc94a;
+    --grad: linear-gradient(100deg, var(--accent), var(--hot) 55%, var(--warn));
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 var(--mono); overflow-x: hidden;
+  }
+  /* ── living backdrop ─────────────────────────────────────────── */
+  .sky { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; }
+  .blob {
+    position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%;
+    filter: blur(90px); opacity: .28; mix-blend-mode: screen;
+    animation: drift 26s ease-in-out infinite alternate;
+  }
+  .blob.a { background: var(--accent); top: -25vmax; left: -15vmax; }
+  .blob.b { background: var(--hot); bottom: -30vmax; right: -20vmax; animation-delay: -9s; opacity: .2; }
+  .blob.c { background: var(--cyan); top: 30%; left: 45%; width: 35vmax; height: 35vmax; animation-delay: -17s; opacity: .12; }
+  @keyframes drift {
+    0% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(8vmax, 6vmax) scale(1.15); }
+    100% { transform: translate(-6vmax, 10vmax) scale(.95); }
+  }
+  .gridbg {
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(124,156,255,.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(124,156,255,.05) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse at 50% 0%, #000 30%, transparent 75%);
+  }
+  a { color: var(--accent); }
+  ::selection { background: var(--hot); color: #000; }
+
+  /* ── header ──────────────────────────────────────────────────── */
+  header {
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    padding: 12px 22px; position: sticky; top: 0; z-index: 20;
+    background: rgba(7, 8, 13, .7); backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  header::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+    background: var(--grad); opacity: .7;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .glyph {
+    width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+    background: var(--grad); color: #0a0a12; font-weight: 900; font-size: 18px;
+    box-shadow: 0 0 24px rgba(255, 95, 210, .45);
+    animation: pulse 3.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { box-shadow: 0 0 40px rgba(124, 156, 255, .7); } }
+  h1 {
+    margin: 0; font: 900 20px/1 var(--sans); letter-spacing: .22em;
+    background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tagline { color: var(--dim); font-size: 12px; }
+  .tabs {
+    display: flex; gap: 4px; margin-left: auto; padding: 4px;
+    border: 1px solid var(--line); border-radius: 12px; background: rgba(0,0,0,.3);
+  }
+  .tabs button { border: 0; border-radius: 9px; }
+  .tabs button .n {
+    display: inline-block; min-width: 18px; margin-left: 6px; padding: 0 5px; border-radius: 9px;
+    font-size: 11px; background: rgba(255,255,255,.08); color: var(--dim);
+  }
+  .tabs button.on .n { background: rgba(0,0,0,.25); color: #0a0a12; }
+
+  button {
+    background: transparent; color: var(--ink); border: 1px solid var(--line2);
+    border-radius: 9px; padding: 7px 14px; cursor: pointer; font: 600 12px/1.2 var(--mono);
+    letter-spacing: .08em; transition: all .18s ease;
+  }
+  button:hover { border-color: var(--accent); box-shadow: 0 0 16px rgba(124,156,255,.3); transform: translateY(-1px); }
+  button:active { transform: translateY(0) scale(.97); }
+  button.on, button.fire {
+    background: var(--grad); color: #0a0a12; border-color: transparent;
+    box-shadow: 0 0 22px rgba(255, 95, 210, .35);
+  }
+  button.fire {
+    padding: 11px 22px; font-size: 13px; animation: sheen 4s linear infinite;
+    background: linear-gradient(100deg, var(--accent), var(--hot), var(--warn), var(--hot), var(--accent)) 0 0 / 200% 100%;
+  }
+  @keyframes sheen { to { background-position: 200% 0; } }
+  button.yes { border-color: var(--ok); color: var(--ok); }
+  button.yes:hover { background: var(--ok); color: #04130c; box-shadow: 0 0 22px rgba(62,240,168,.5); }
+  button.no { border-color: var(--no); color: var(--no); }
+  button.no:hover { background: var(--no); color: #1a0306; box-shadow: 0 0 22px rgba(255,91,110,.5); }
+  button.ghost { border-color: var(--line); color: var(--dim); }
+  button.wallet.on { background: rgba(62,240,168,.12); color: var(--ok); border-color: var(--ok); box-shadow: 0 0 14px rgba(62,240,168,.25); }
+
+  main { padding: 22px; max-width: 1240px; margin: 0 auto; }
+
+  /* ── hero + stats ────────────────────────────────────────────── */
+  .hero { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; margin-bottom: 18px; align-items: stretch; }
+  .hero h2 {
+    font: 800 34px/1.08 var(--sans); margin: 4px 0 10px; letter-spacing: -.01em;
+  }
+  .hero h2 em {
+    font-style: normal; background: var(--grad); -webkit-background-clip: text;
+    background-clip: text; color: transparent;
+  }
+  .flow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .step {
+    display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: rgba(0,0,0,.25); font-size: 12px; color: var(--dim);
+  }
+  .step b { color: var(--ink); }
+  .step i { font-style: normal; color: var(--hot); }
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat {
+    position: relative; overflow: hidden; padding: 14px 16px; border-radius: 14px;
+    background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(10px);
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .stat .v { font: 800 30px/1 var(--sans); }
+  .stat .k { color: var(--dim); font-size: 11px; letter-spacing: .14em; margin-top: 6px; }
+  .stat::before {
+    content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: currentColor; opacity: .9;
+  }
+  .stat.p { color: var(--warn); } .stat.a { color: var(--ok); }
+  .stat.r { color: var(--no); } .stat.m { color: var(--cyan); }
+  .stat .v { color: var(--ink); text-shadow: 0 0 22px currentColor; }
+
+  .panel {
+    position: relative; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 16px; padding: 18px; margin-bottom: 16px; backdrop-filter: blur(12px);
+  }
+  .panel.glow::before {
+    content: ''; position: absolute; inset: -1px; border-radius: 16px; padding: 1px; pointer-events: none;
+    background: var(--grad); opacity: .5;
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+  }
+  .ph { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .ph h3 { margin: 0; font: 800 13px/1 var(--sans); letter-spacing: .2em; }
+  .ph .num {
+    width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center;
+    background: var(--grad); color: #0a0a12; font: 900 12px/1 var(--sans);
+  }
+  .ph .sp { flex: 1; }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  label { display: block; color: var(--dim); font-size: 11px; margin: 12px 0 5px; letter-spacing: .12em; }
+  input, select, textarea {
+    width: 100%; background: rgba(0,0,0,.35); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 10px; padding: 9px 12px; font: inherit; transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,156,255,.18);
+  }
+  textarea { min-height: 76px; resize: vertical; }
+  .search { position: relative; flex: 1 1 280px; }
+  .search input { padding-left: 34px; font-size: 15px; }
+  .search::before { content: '\2315'; position: absolute; left: 12px; top: 8px; color: var(--hot); font-size: 17px; }
+
+  /* ── module gallery ──────────────────────────────────────────── */
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 14px; max-height: 330px; overflow: auto; padding: 2px; }
+  .mod {
+    text-align: left; padding: 12px; border-radius: 12px; border: 1px solid var(--line);
+    background: rgba(0,0,0,.25); letter-spacing: 0; font-weight: 400; display: block; width: 100%;
+  }
+  .mod b { display: block; font: 700 14px/1.2 var(--sans); margin-bottom: 4px; }
+  .mod span { color: var(--dim); font-size: 11px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .mod.sel { border-color: var(--hot); box-shadow: 0 0 20px rgba(255,95,210,.3); }
+  .empty {
+    border: 1px dashed var(--line2); border-radius: 12px; padding: 18px; color: var(--dim);
+    text-align: center; font-size: 13px;
+  }
+  .empty b { color: var(--ink); }
+
+  /* ── brief ───────────────────────────────────────────────────── */
+  .brief-top { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .brief-top h2 { margin: 0; font: 800 26px/1.1 var(--sans); }
+  .brief-top .desc { color: var(--dim); font-size: 13px; margin: 6px 0 0; max-width: 760px; }
+  .owner-chip {
+    margin-left: auto; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--ok);
+    color: var(--ok); font-size: 12px; background: rgba(62,240,168,.07); white-space: nowrap;
+  }
+  .owner-chip small { display: block; color: var(--dim); font-size: 10px; letter-spacing: .14em; }
+  .langbar { display: flex; height: 8px; border-radius: 99px; overflow: hidden; margin: 14px 0 6px; background: rgba(255,255,255,.05); }
+  .langbar div { height: 100%; transition: width .6s cubic-bezier(.2,.9,.3,1.2); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--dim); }
+  .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .chip {
+    padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px;
+    color: var(--dim); background: rgba(0,0,0,.25);
+  }
+  .chip b { color: var(--ink); }
+
+  .split { display: grid; grid-template-columns: 280px 1fr; gap: 14px; margin-top: 16px; }
+  .files { max-height: 520px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; padding: 6px; background: rgba(0,0,0,.25); }
+  .files .f {
+    display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 7px;
+    cursor: pointer; font-size: 12px; color: var(--ink); border: 0; width: 100%; text-align: left;
+    letter-spacing: 0; font-weight: 400; background: transparent;
+  }
+  .files .f:hover { background: rgba(124,156,255,.12); transform: none; box-shadow: none; }
+  .files .f.sel { background: rgba(255,95,210,.16); color: var(--hot); }
+  .files .f.off { color: var(--dim); cursor: default; opacity: .5; }
+  .files .f small { color: var(--dim); }
+  .code {
+    border: 1px solid var(--line); border-radius: 12px; background: rgba(3,4,8,.7);
+    max-height: 520px; overflow: auto; font-size: 12px; position: relative;
+  }
+  .code .bar {
+    position: sticky; top: 0; display: flex; gap: 10px; align-items: center; padding: 8px 12px;
+    background: rgba(12,14,22,.95); border-bottom: 1px solid var(--line); z-index: 2; font-size: 11px; color: var(--dim);
+  }
+  .code .bar b { color: var(--ink); }
+  .ln { display: flex; }
+  .ln:hover { background: rgba(124,156,255,.07); }
+  .ln.pin { background: rgba(255,95,210,.12); }
+  .ln .no {
+    flex: 0 0 52px; text-align: right; padding-right: 12px; color: #4b5270; cursor: pointer; user-select: none;
+  }
+  .ln .no:hover { color: var(--hot); }
+  .ln.pin .no { color: var(--hot); font-weight: 700; }
+  .ln code { white-space: pre; padding-right: 16px; }
+  .hint { color: var(--dim); font-size: 11px; }
+  .hint b { color: var(--hot); }
+
+  .lists { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+  .list { border: 1px solid var(--line); border-radius: 12px; padding: 10px; max-height: 240px; overflow: auto; background: rgba(0,0,0,.2); }
+  .list h4 { margin: 0 0 8px; font: 700 11px/1 var(--sans); letter-spacing: .18em; color: var(--dim); }
+  .hit {
+    display: block; width: 100%; text-align: left; border: 0; padding: 5px 6px; border-radius: 6px;
+    font: 400 12px/1.4 var(--mono); letter-spacing: 0; color: var(--ink); background: transparent;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .hit:hover { background: rgba(124,156,255,.12); transform: none; box-shadow: none; }
+  .hit em { font-style: normal; color: var(--cyan); }
+  details summary { cursor: pointer; color: var(--dim); font-size: 12px; margin-top: 12px; }
+  pre {
+    background: rgba(0,0,0,.4); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px; overflow: auto; max-height: 360px; font-size: 12px; white-space: pre-wrap;
+  }
+
+  /* ── form ────────────────────────────────────────────────────── */
+  .form-grid { display: grid; grid-template-columns: 1fr 340px; gap: 18px; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill {
+    padding: 6px 12px; border-radius: 999px; font-size: 11px; letter-spacing: .06em;
+    border: 1px solid var(--line); color: var(--dim); background: rgba(0,0,0,.25);
+  }
+  .pill.on { color: #0a0a12; border-color: transparent; box-shadow: 0 0 16px var(--c); background: var(--c); }
+  .heat { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .heat .pill { text-align: center; border-radius: 9px; }
+  .anchors-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .anchor {
+    display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 9px;
+    border: 1px solid rgba(255,95,210,.35); background: rgba(255,95,210,.06); font-size: 12px;
+    animation: pop .35s cubic-bezier(.2,1.4,.4,1);
+  }
+  .anchor .loc { color: var(--hot); white-space: nowrap; }
+  .anchor input { padding: 4px 8px; font-size: 12px; background: transparent; border-color: transparent; }
+  .anchor input:focus { border-color: var(--line2); box-shadow: none; }
+  .anchor .x { border: 0; padding: 2px 8px; color: var(--dim); }
+  .anchor .x:hover { color: var(--no); box-shadow: none; }
+  @keyframes pop { from { transform: scale(.85); opacity: 0; } }
+
+  .signal { position: sticky; top: 84px; }
+  .meter { height: 12px; border-radius: 99px; background: rgba(255,255,255,.06); overflow: hidden; margin: 10px 0 4px; }
+  .meter div {
+    height: 100%; width: 0; border-radius: 99px; background: var(--grad);
+    box-shadow: 0 0 18px rgba(255,95,210,.6); transition: width .45s cubic-bezier(.2,.9,.3,1.2);
+  }
+  .score { font: 900 46px/1 var(--sans); }
+  .grade { font: 700 12px/1 var(--sans); letter-spacing: .2em; color: var(--dim); }
+  .checks { list-style: none; padding: 0; margin: 12px 0 0; font-size: 12px; }
+  .checks li { padding: 4px 0; color: var(--dim); display: flex; gap: 8px; }
+  .checks li::before { content: '\25CB'; color: #4b5270; }
+  .checks li.done { color: var(--ink); }
+  .checks li.done::before { content: '\25CF'; color: var(--ok); text-shadow: 0 0 8px var(--ok); }
+  .preview { margin-top: 16px; }
+
+  /* ── cards ───────────────────────────────────────────────────── */
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .cards { display: grid; gap: 12px; }
+  .card {
+    position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; padding: 16px 16px 14px 20px;
+    background: var(--panel); backdrop-filter: blur(10px); transition: transform .2s, box-shadow .2s, border-color .2s;
+    animation: rise .45s cubic-bezier(.2,.9,.3,1) both;
+  }
+  .card:hover { transform: translateY(-2px); border-color: var(--line2); box-shadow: 0 10px 40px rgba(0,0,0,.4); }
+  .card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--sev, var(--accent)); box-shadow: 0 0 18px var(--sev, var(--accent)); }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+  .card h3 { margin: 0 0 8px; font: 700 16px/1.3 var(--sans); }
+  .meta { color: var(--dim); font-size: 12px; }
+  .tag {
+    display: inline-block; border: 1px solid var(--line); border-radius: 999px;
+    padding: 1px 9px; margin: 0 6px 4px 0; font-size: 11px; color: var(--dim);
+  }
+  .tag.pending { color: var(--warn); border-color: var(--warn); box-shadow: 0 0 10px rgba(255,201,74,.25); }
+  .tag.approved { color: var(--ok); border-color: var(--ok); }
+  .tag.rejected, .tag.critical, .tag.high { color: var(--no); border-color: var(--no); }
+  .card .sum { color: #c3c9de; font-size: 13px; margin: 8px 0; }
+  .acts { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+
+  .note { color: var(--dim); font-size: 12px; margin: 6px 0 0; }
+  .err { color: var(--no); }
+  .ok { color: var(--ok); }
+  .hidden { display: none !important; }
+  .skeleton { height: 70px; border-radius: 14px; background: linear-gradient(90deg, rgba(255,255,255,.03), rgba(255,255,255,.08), rgba(255,255,255,.03)); background-size: 200% 100%; animation: sheen 1.4s linear infinite; }
+
+  /* ── modal + toast + burst ───────────────────────────────────── */
+  .scrim {
+    position: fixed; inset: 0; background: rgba(3,4,8,.7); backdrop-filter: blur(6px); z-index: 50;
+    display: grid; place-items: center; animation: fade .2s;
+  }
+  @keyframes fade { from { opacity: 0; } }
+  .modal { width: min(480px, 92vw); animation: pop .3s cubic-bezier(.2,1.4,.4,1); }
+  .modal h3 { margin: 0 0 6px; font: 800 18px/1.2 var(--sans); }
+  .toasts { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
+  .toast {
+    padding: 11px 16px; border-radius: 12px; background: rgba(18,21,34,.95); border: 1px solid var(--line2);
+    font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.5); animation: slide .3s cubic-bezier(.2,1.2,.4,1);
+    max-width: 380px;
+  }
+  .toast.ok { border-color: var(--ok); color: var(--ok); }
+  .toast.err { border-color: var(--no); color: var(--no); }
+  @keyframes slide { from { transform: translateX(30px); opacity: 0; } }
+  .spark {
+    position: fixed; width: 8px; height: 8px; border-radius: 2px; pointer-events: none; z-index: 70;
+    animation: fly .95s cubic-bezier(.1,.7,.3,1) forwards;
+  }
+  @keyframes fly { to { transform: translate(var(--dx), var(--dy)) rotate(540deg); opacity: 0; } }
+
+  @media (max-width: 900px) {
+    .hero, .form-grid, .split, .lists { grid-template-columns: 1fr; }
+    .signal { position: static; }
+    .hero h2 { font-size: 26px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="sky"><div class="blob a"></div><div class="blob b"></div><div class="blob c"></div></div>
+<div class="gridbg"></div>
+
+<header>
+  <div class="brand">
+    <div class="glyph">&#x270E;</div>
+    <div>
+      <h1>ADVISE</h1>
+      <div class="tagline">read anyone's code. propose the fix. the owner decides.</div>
+    </div>
+  </div>
+  <div class="tabs">
+    <button id="tab-scan" class="on" onclick="show('scan')">RECOMMEND</button>
+    <button id="tab-queue" onclick="show('queue')">QUEUE<span class="n" id="n-queue">0</span></button>
+    <button id="tab-inbox" onclick="show('inbox')">INBOX<span class="n" id="n-inbox">-</span></button>
+  </div>
+  <button id="who" class="wallet" onclick="connect()">CONNECT WALLET</button>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="panel glow">
+      <div class="grade">PEER REVIEW FOR MODULES</div>
+      <h2>Someone else's agent reads your module.<br><em>You decide what ships.</em></h2>
+      <div class="note">Filing runs nothing. Approving is the owner's signature, and it lands in build's idea queue for their own agent to play.</div>
+      <div class="flow">
+        <div class="step"><i>01</i> <b>read</b> the code</div>
+        <div class="step"><i>02</i> <b>pin</b> the lines</div>
+        <div class="step"><i>03</i> <b>file</b> the fix</div>
+        <div class="step"><i>04</i> owner <b>approves</b></div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat p"><div class="v" id="s-pending">0</div><div class="k">PENDING</div></div>
+      <div class="stat a"><div class="v" id="s-approved">0</div><div class="k">APPROVED</div></div>
+      <div class="stat r"><div class="v" id="s-rejected">0</div><div class="k">REJECTED</div></div>
+      <div class="stat m"><div class="v" id="s-mods">0</div><div class="k">OPEN TO READ</div></div>
+    </div>
+  </section>
+
+  <!-- SCAN ------------------------------------------------------ -->
+  <section id="view-scan">
+    <div class="panel">
+      <div class="ph"><div class="num">1</div><h3>PICK A MODULE</h3><div class="sp"></div>
+        <span class="hint" id="mod-count"></span></div>
+      <div class="row">
+        <div class="search"><input id="module" placeholder="type a module name and hit enter"
+          oninput="filterMods()" onkeydown="if(event.key==='Enter')loadBrief()"></div>
+        <input id="focus" style="flex:0 1 220px" placeholder="grep for (optional)"
+          onkeydown="if(event.key==='Enter')loadBrief()">
+        <button class="fire" onclick="loadBrief()">READ IT</button>
+      </div>
+      <div class="gallery" id="gallery"></div>
+    </div>
+
+    <div class="panel hidden" id="brief-panel">
+      <div class="ph"><div class="num">2</div><h3>READ IT. PIN THE LINES.</h3><div class="sp"></div>
+        <span class="hint">click a <b>line number</b> to pin it as an anchor</span></div>
+      <div id="brief"></div>
+    </div>
+
+    <div class="panel glow" id="form-panel">
+      <div class="ph"><div class="num">3</div><h3>RECOMMEND A CHANGE</h3></div>
+      <div class="form-grid">
+        <div>
+          <label for="title">TITLE — one line, what should change</label>
+          <input id="title" maxlength="200" placeholder="cache the poster wall between runs" oninput="score()">
+          <label>KIND</label>
+          <div class="pills" id="kind"></div>
+          <label>SEVERITY</label>
+          <div class="heat" id="severity"></div>
+          <label for="summary">SUMMARY — what the owner reads first</label>
+          <textarea id="summary" oninput="score()"></textarea>
+          <label for="rationale">WHY — the evidence from the code you just read</label>
+          <textarea id="rationale" oninput="score()"></textarea>
+          <label for="change">PROPOSED CHANGE — concrete enough to hand to an agent</label>
+          <textarea id="change" oninput="score()"></textarea>
+          <label>WHERE — pinned lines <span class="hint">(pin from the code above, or add by hand)</span></label>
+          <div class="row">
+            <input id="anchor-in" style="flex:1" placeholder="path/to/file.py:88 the retry loop"
+              onkeydown="if(event.key==='Enter'){addAnchorText();event.preventDefault()}">
+            <button class="ghost" onclick="addAnchorText()">PIN</button>
+          </div>
+          <div class="anchors-list" id="anchors"></div>
+          <details><summary>PATCH (optional unified diff — proposed, never applied)</summary>
+            <textarea id="patch" style="margin-top:8px" oninput="score()"></textarea></details>
+        </div>
+        <div>
+          <div class="panel signal" style="margin:0">
+            <div class="grade">SIGNAL STRENGTH</div>
+            <div class="row" style="align-items:baseline;gap:10px;margin-top:8px">
+              <div class="score" id="score">0</div><div class="grade" id="grade">SILENT</div>
+            </div>
+            <div class="meter"><div id="meter"></div></div>
+            <ul class="checks" id="checks"></ul>
+            <div style="margin-top:16px">
+              <button class="fire" style="width:100%" onclick="fileRec()">FILE IT</button>
+              <p class="note" id="file-msg">Goes to <span id="owner-of" class="ok">the module owner</span> as pending.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUEUE ----------------------------------------------------- -->
+  <section id="view-queue" class="hidden">
+    <div class="panel">
+      <div class="filters">
+        <div class="pills" id="q-status"></div>
+        <div class="search" style="flex:0 1 260px"><input id="q-module" placeholder="filter by module"
+          onkeydown="if(event.key==='Enter')loadQueue()"></div>
+        <button class="ghost" onclick="loadQueue()">REFRESH</button>
+      </div>
+    </div>
+    <div id="queue" class="cards"></div>
+  </section>
+
+  <!-- INBOX ----------------------------------------------------- -->
+  <section id="view-inbox" class="hidden">
+    <div class="panel">
+      <div class="row">
+        <p class="note" id="inbox-note" style="flex:1;margin:0">Connect the wallet that owns the modules —
+          approving is a signed action, and it is the only thing that moves a recommendation forward.</p>
+        <button class="ghost" onclick="loadInbox()">REFRESH</button>
+      </div>
+    </div>
+    <div id="inbox" class="cards"></div>
+  </section>
+</main>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+const API = '/advise/api'; // canonical; serve.py also answers the legacy /api/advise alias
+let TOKEN = sessionStorage.getItem('advise.token') || '';
+let ADDRESS = sessionStorage.getItem('advise.address') || '';
+let MODS = [];
+let BRIEF = null;
+let ANCHORS = [];
+let CUR_FILE = null;
+let KIND = 'feature', SEV = 'medium', QSTATUS = 'pending';
+
+const KINDS = { bug: '#ff5b6e', security: '#ff5fd2', performance: '#ffc94a', ux: '#3ee6ff',
+  docs: '#a6b4ff', test: '#3ef0a8', cleanup: '#8b93ad', feature: '#7c9cff' };
+const SEVS = { low: '#3ef0a8', medium: '#ffc94a', high: '#ff8a4a', critical: '#ff5b6e' };
+const LANG = ['#7c9cff', '#ff5fd2', '#3ee6ff', '#ffc94a', '#3ef0a8', '#ff8a4a', '#a6b4ff', '#8b93ad'];
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+const $ = id => document.getElementById(id);
+const kb = n => n > 1024 ? (n / 1024).toFixed(1) + 'k' : n + 'b';
+
+async function call(fn, args = {}, method = 'GET') {
+  const opts = { method, headers: {} };
+  if (TOKEN) opts.headers['x-mod-token'] = TOKEN;
+  let url = `${API}/${fn}`;
+  if (method === 'GET') {
+    const q = new URLSearchParams(Object.entries(args).filter(([, v]) => v !== '' && v != null));
+    if ([...q].length) url += '?' + q;
+  } else {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(args);
+  }
+  const r = await fetch(url, opts);
+  const out = await r.json().catch(() => ({ error: 'bad response' }));
+  if (!r.ok || out.error) throw new Error(out.error || `HTTP ${r.status}`);
+  return out;
+}
+
+// ── chrome: toasts, modal ask(), confetti, count-up ─────────────
+function toast(text, kind = '') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + kind; t.textContent = text;
+  $('toasts').appendChild(t);
+  setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = 0; }, 3600);
+  setTimeout(() => t.remove(), 4100);
+}
+
+function ask({ title, body = '', input = false, placeholder = '', ok = 'OK', cancel = 'CANCEL', tone = 'fire' }) {
+  return new Promise(resolve => {
+    const s = document.createElement('div');
+    s.className = 'scrim';
+    s.innerHTML = `<div class="panel glow modal"><h3>${esc(title)}</h3>
+      ${body ? `<p class="note">${esc(body)}</p>` : ''}
+      ${input ? `<textarea id="ask-in" style="margin-top:12px" placeholder="${esc(placeholder)}"></textarea>` : ''}
+      <div class="acts" style="justify-content:flex-end;margin-top:16px">
+        ${cancel ? `<button class="ghost" data-a="0">${esc(cancel)}</button>` : ''}
+        <button class="${tone}" data-a="1">${esc(ok)}</button></div></div>`;
+    const done = v => { s.remove(); document.removeEventListener('keydown', key); resolve(v); };
+    const val = () => input ? $('ask-in').value : true;
+    const key = e => { if (e.key === 'Escape') done(null); };
+    s.addEventListener('click', e => {
+      if (e.target === s) return done(null);
+      const a = e.target.dataset && e.target.dataset.a;
+      if (a === '1') done(val()); else if (a === '0') done(null);
+    });
+    document.addEventListener('keydown', key);
+    document.body.appendChild(s);
+    const f = s.querySelector('#ask-in') || s.querySelector('[data-a="1"]');
+    f && f.focus();
+  });
+}
+
+function burst(el, n = 34) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = el.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const cols = ['#7c9cff', '#ff5fd2', '#ffc94a', '#3ee6ff', '#3ef0a8'];
+  for (let i = 0; i < n; i++) {
+    const p = document.createElement('div');
+    p.className = 'spark';
+    const a = Math.random() * Math.PI * 2, d = 80 + Math.random() * 180;
+    p.style.left = cx + 'px'; p.style.top = cy + 'px';
+    p.style.background = cols[i % cols.length];
+    p.style.setProperty('--dx', Math.cos(a) * d + 'px');
+    p.style.setProperty('--dy', Math.sin(a) * d - 60 + 'px');
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 1000);
+  }
+}
+
+function countTo(el, to) {
+  const from = Number(el.textContent) || 0;
+  if (from === to) return;
+  const t0 = performance.now();
+  const step = t => {
+    const k = Math.min(1, (t - t0) / 700);
+    el.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function show(view) {
+  for (const v of ['scan', 'queue', 'inbox']) {
+    $('view-' + v).classList.toggle('hidden', v !== view);
+    $('tab-' + v).classList.toggle('on', v === view);
+  }
+  if (view === 'queue') loadQueue();
+  if (view === 'inbox') loadInbox();
+}
+
+// ── identity: one personal_sign, no gas, no challenge ────────────
+async function connect() {
+  if (ADDRESS) {
+    const out = await ask({ title: 'Disconnect ' + short(ADDRESS) + '?', body: 'Reads and filing keep working without a wallet.', ok: 'DISCONNECT', tone: 'no' });
+    if (!out) return;
+    TOKEN = ''; ADDRESS = '';
+    sessionStorage.removeItem('advise.token'); sessionStorage.removeItem('advise.address');
+    paintWho(); return;
+  }
+  if (!window.ethereum) {
+    await ask({ title: 'No browser wallet found', body: 'Reading and filing work without one. Approving needs the wallet that owns the module.', cancel: '' });
+    return;
+  }
+  try {
+    const [addr] = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    // data is a STRING, not an object: build's core-token reader rebuilds the
+    // signed message with data as a string, so one signature works on both.
+    const data = 'advise';
+    const time = (Date.now() / 1000).toString();
+    const signature = await window.ethereum.request({
+      method: 'personal_sign', params: [JSON.stringify({ data, time }), addr] });
+    TOKEN = btoa(JSON.stringify({ data, time, key: addr.toLowerCase(), signature }))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    ADDRESS = addr.toLowerCase();
+    sessionStorage.setItem('advise.token', TOKEN);
+    sessionStorage.setItem('advise.address', ADDRESS);
+    paintWho();
+    toast('signed in as ' + short(ADDRESS), 'ok');
+    peekInbox();
+  } catch (e) { toast('sign-in cancelled: ' + e.message, 'err'); }
+}
+
+const short = a => a ? a.slice(0, 6) + '…' + a.slice(-4) : '';
+
+function paintWho() {
+  const b = $('who');
+  b.textContent = ADDRESS ? short(ADDRESS) : 'CONNECT WALLET';
+  b.classList.toggle('on', !!ADDRESS);
+}
+
+// ── stats ────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const out = await call('recs', { limit: 500 });
+    const c = { pending: 0, approved: 0, rejected: 0 };
+    for (const r of out.recommendations) if (r.status in c) c[r.status]++;
+    countTo($('s-pending'), c.pending);
+    countTo($('s-approved'), c.approved);
+    countTo($('s-rejected'), c.rejected);
+    $('n-queue').textContent = c.pending;
+  } catch (e) { /* stats are decoration */ }
+}
+
+async function peekInbox() {
+  if (!TOKEN) { $('n-inbox').textContent = '-'; return; }
+  try { $('n-inbox').textContent = (await call('inbox', { status: 'pending' })).count; }
+  catch (e) { $('n-inbox').textContent = '-'; }
+}
+
+// ── scan ─────────────────────────────────────────────────────────
+async function loadModules() {
+  try {
+    MODS = (await call('modules', { limit: 500 })).modules;
+  } catch (e) { MODS = []; }
+  countTo($('s-mods'), MODS.length);
+  filterMods();
+}
+
+function filterMods() {
+  const q = $('module').value.trim().toLowerCase();
+  const g = $('gallery');
+  if (!MODS.length) {
+    g.innerHTML = `<div class="empty" style="grid-column:1/-1">No module on this host is listed publicly yet.
+      Owners open one up from <b>build's HUB</b> — or type a name you already know and hit <b>READ IT</b>.</div>`;
+    $('mod-count').textContent = '';
+    return;
+  }
+  const hit = MODS.filter(m => !q || (m.module + ' ' + m.description).toLowerCase().includes(q));
+  $('mod-count').textContent = `${hit.length} of ${MODS.length} open to read`;
+  g.innerHTML = hit.slice(0, 120).map(m =>
+    `<button class="mod ${BRIEF && BRIEF.module === m.module ? 'sel' : ''}" onclick="pick('${esc(m.module)}')">
+      <b>${esc(m.module)}</b><span>${esc(m.description || m.title || '')}</span></button>`).join('')
+    || '<div class="empty" style="grid-column:1/-1">Nothing matches. Hit <b>READ IT</b> to try the name anyway.</div>';
+}
+
+function pick(name) { $('module').value = name; loadBrief(); }
+
+async function loadBrief() {
+  const module = $('module').value.trim();
+  if (!module) return;
+  const panel = $('brief-panel'), el = $('brief');
+  panel.classList.remove('hidden');
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const b = await call('brief', { module, focus: $('focus').value.trim() });
+    BRIEF = b; CUR_FILE = null;
+    if (ANCHORS.length && ANCHORS[0].module !== module) ANCHORS = [];
+    $('owner-of').textContent = b.owner ? short(b.owner) : 'the deployment owner';
+    renderBrief(b);
+    filterMods();
+    history.replaceState(null, '', '?module=' + encodeURIComponent(module));
+    const first = (b.tree.files || []).find(f => /(^|\/)(mod\.py|main\.rs|index\.(ts|js|html)|app\.py|server\.py)$/.test(f.path) && f.readable)
+      || (b.stats.biggest || []).find(f => !/\.md$/.test(f.path));
+    if (first) openFile(first.path);
+    renderAnchors(); score();
+  } catch (e) {
+    el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`;
+  }
+}
+
+function renderBrief(b) {
+  const langs = Object.entries(b.stats.languages || {}).sort((a, c) => c[1] - a[1]);
+  const tot = langs.reduce((s, [, n]) => s + n, 0) || 1;
+  const cfg = b.config || {};
+  const open = b.open_recommendations || [];
+  const todos = b.stats.todos || [];
+  const focus = b.focus ? b.focus.hits || [] : null;
+  $('brief').innerHTML = `
+    <div class="brief-top">
+      <div style="flex:1;min-width:260px">
+        <h2>${esc(cfg.title || b.module)}</h2>
+        <p class="desc">${esc((cfg.description || '').slice(0, 320))}${(cfg.description || '').length > 320 ? '…' : ''}</p>
+      </div>
+      <div class="owner-chip"><small>APPROVED BY</small>${esc(b.owner ? short(b.owner) : 'deployment owner')}</div>
+    </div>
+    <div class="langbar">${langs.map(([l, n], i) => `<div title="${esc(l)}" style="width:${n / tot * 100}%;background:${LANG[i % LANG.length]}"></div>`).join('')}</div>
+    <div class="legend">${langs.map(([l, n], i) => `<span><i style="background:${LANG[i % LANG.length]}"></i>${esc(l)} ${n}</span>`).join('')}</div>
+    <div class="chips">
+      <span class="chip"><b>${b.stats.files}</b> files</span>
+      <span class="chip"><b>${kb(b.stats.bytes || 0)}</b></span>
+      ${cfg.version ? `<span class="chip">v<b>${esc(cfg.version)}</b></span>` : ''}
+      ${cfg.port ? `<span class="chip">port <b>${esc(cfg.port)}</b></span>` : ''}
+      <span class="chip"><b>${todos.length}</b> TODO/FIXME</span>
+      <span class="chip" style="${open.length ? 'border-color:var(--warn);color:var(--warn)' : ''}"><b>${open.length}</b> already filed</span>
+    </div>
+    <div class="split">
+      <div class="files" id="files">${(b.tree.files || []).map(f =>
+        `<button class="f ${f.readable ? '' : 'off'}" data-p="${esc(f.path)}" ${f.readable ? `onclick="openFile(this.dataset.p)"` : 'disabled'}>
+          <span>${esc(f.path)}</span><small>${kb(f.bytes)}</small></button>`).join('')}</div>
+      <div class="code" id="code"><div class="bar">pick a file on the left</div></div>
+    </div>
+    <div class="lists">
+      <div class="list"><h4>${focus ? 'GREP · ' + esc(b.focus.query) : 'TODO / FIXME'}</h4>
+        ${(focus || todos).slice(0, 80).map(h =>
+          `<button class="hit" data-p="${esc(h.path)}" data-l="${h.line}" onclick="jump(this.dataset.p, +this.dataset.l)"><em>${esc(h.path)}:${h.line}</em> ${esc(h.text)}</button>`).join('')
+          || '<div class="note">clean — nothing flagged</div>'}</div>
+      <div class="list"><h4>ALREADY FILED — DON'T DUPLICATE</h4>
+        ${open.map(r => `<div class="hit" title="${esc(r.title)}"><span class="tag ${esc(r.status)}">${esc(r.status)}</span>${esc(r.title)}</div>`).join('')
+          || '<div class="note">nothing yet — you would be first</div>'}</div>
+    </div>
+    ${b.readme && b.readme.text ? `<details><summary>README</summary><pre>${esc(b.readme.text)}</pre></details>` : ''}
+    <details><summary>raw brief (what an agent sees)</summary><pre>${esc(JSON.stringify(b, null, 2))}</pre></details>`;
+}
+
+async function openFile(path, line) {
+  if (!BRIEF) return;
+  const code = $('code');
+  document.querySelectorAll('#files .f').forEach(f => f.classList.toggle('sel', f.dataset.p === path));
+  if (!CUR_FILE || CUR_FILE.path !== path) {
+    code.innerHTML = '<div class="bar">loading ' + esc(path) + '…</div>';
+    try {
+      CUR_FILE = await call('file', { module: BRIEF.module, path });
+    } catch (e) { code.innerHTML = `<div class="bar err">${esc(e.message)}</div>`; return; }
+  }
+  paintCode();
+  if (line) {
+    const row = code.querySelector(`[data-n="${line}"]`);
+    if (row) { row.scrollIntoView({ block: 'center' }); row.animate([{ background: 'rgba(62,230,255,.35)' }, { background: 'transparent' }], 1400); }
+  }
+}
+
+function paintCode() {
+  const f = CUR_FILE, code = $('code');
+  const pinned = new Set(ANCHORS.filter(a => a.path === f.path).map(a => a.line));
+  const lines = f.content.split('\n');
+  code.innerHTML = `<div class="bar"><b>${esc(f.path)}</b> ${f.total_lines} lines${f.truncated ? ' · truncated' : ''}
+      <span style="margin-left:auto" class="hint">click a number to <b>pin</b></span></div>`
+    + lines.map((t, i) => {
+      const n = f.start + i;
+      return `<div class="ln ${pinned.has(n) ? 'pin' : ''}" data-n="${n}"><span class="no" onclick="togglePin(${n})">${n}</span><code>${esc(t)}</code></div>`;
+    }).join('');
+}
+
+function jump(path, line) { openFile(path, line); }
+
+function togglePin(n) {
+  const path = CUR_FILE.path;
+  const i = ANCHORS.findIndex(a => a.path === path && a.line === n);
+  if (i >= 0) ANCHORS.splice(i, 1);
+  else {
+    const text = (CUR_FILE.content.split('\n')[n - CUR_FILE.start] || '').trim().slice(0, 60);
+    ANCHORS.push({ module: BRIEF.module, path, line: n, note: text });
+    toast(`pinned ${path}:${n}`);
+  }
+  paintCode(); renderAnchors(); score();
+}
+
+function addAnchorText() {
+  const v = $('anchor-in').value.trim();
+  const m = v.match(/^([^\s:]+)(?::(\d+))?\s*(.*)$/);
+  if (!m) return;
+  ANCHORS.push({ module: BRIEF && BRIEF.module, path: m[1], line: m[2] ? Number(m[2]) : undefined, note: m[3] || '' });
+  $('anchor-in').value = '';
+  renderAnchors(); score();
+}
+
+function renderAnchors() {
+  $('anchors').innerHTML = ANCHORS.map((a, i) =>
+    `<div class="anchor"><span class="loc">${esc(a.path)}${a.line ? ':' + a.line : ''}</span>
+      <input value="${esc(a.note || '')}" placeholder="what is here" oninput="ANCHORS[${i}].note=this.value">
+      <button class="x" onclick="unpin(${i})" title="unpin">&times;</button></div>`).join('');
+}
+
+function unpin(i) {
+  ANCHORS.splice(i, 1);
+  renderAnchors(); if (CUR_FILE) paintCode(); score();
+}
+
+// ── form: chips + signal strength ────────────────────────────────
+function paintChips() {
+  $('kind').innerHTML = Object.entries(KINDS).map(([k, c]) =>
+    `<button class="pill ${k === KIND ? 'on' : ''}" style="--c:${c}" onclick="KIND='${k}';paintChips()">${k}</button>`).join('');
+  $('severity').innerHTML = Object.entries(SEVS).map(([k, c]) =>
+    `<button class="pill ${k === SEV ? 'on' : ''}" style="--c:${c}" onclick="SEV='${k}';paintChips()">${k}</button>`).join('');
+}
+
+function score() {
+  const v = id => $(id).value.trim();
+  const checks = [
+    ['a module is loaded', !!(BRIEF || v('module')), 10],
+    ['a title that says what changes', v('title').length >= 12, 15],
+    ['a summary the owner reads first', v('summary').length >= 30, 15],
+    ['evidence from the code', v('rationale').length >= 40, 20],
+    ['a change an agent can act on', v('change').length >= 40, 20],
+    ['pinned to real lines', ANCHORS.some(a => a.line), 15],
+    ['a patch (bonus)', v('patch').length > 10, 5],
+  ];
+  const s = checks.reduce((t, [, ok, w]) => t + (ok ? w : 0), 0);
+  countTo($('score'), s);
+  $('meter').style.width = s + '%';
+  $('grade').textContent = s >= 90 ? 'UNDENIABLE' : s >= 70 ? 'STRONG' : s >= 45 ? 'GETTING THERE' : s > 0 ? 'FAINT' : 'SILENT';
+  $('grade').style.color = s >= 70 ? 'var(--ok)' : s >= 45 ? 'var(--warn)' : 'var(--dim)';
+  $('checks').innerHTML = checks.map(([t, ok]) => `<li class="${ok ? 'done' : ''}">${t}</li>`).join('');
+  return s;
+}
+
+async function fileRec() {
+  const msg = $('file-msg');
+  const body = {
+    module: (BRIEF && BRIEF.module) || $('module').value.trim(),
+    title: $('title').value.trim(),
+    kind: KIND, severity: SEV,
+    summary: $('summary').value.trim(),
+    rationale: $('rationale').value.trim(),
+    change: $('change').value.trim(),
+    patch: $('patch').value,
+    anchors: ANCHORS.map(({ path, line, note }) => ({ path, line, note: note || undefined })),
+  };
+  if (!body.module || !body.title) { toast('pick a module and give it a title', 'err'); return; }
+  if (score() < 45) {
+    const go = await ask({ title: 'File a faint one?', body: 'Recommendations without evidence or pinned lines are the ones owners reject. You can strengthen it first.', ok: 'FILE ANYWAY', cancel: 'KEEP WRITING' });
+    if (!go) return;
+  }
+  msg.textContent = 'filing…';
+  try {
+    const out = await call('recommend', body, 'POST');
+    burst(document.querySelector('#form-panel .fire'));
+    toast(`filed ${out.filed} — waiting on ${out.awaiting ? short(out.awaiting) : 'the owner'}`, 'ok');
+    msg.innerHTML = `<span class="ok">filed ${esc(out.filed)}</span> — waiting on ${esc(out.awaiting ? short(out.awaiting) : 'the owner')}`;
+    for (const id of ['title', 'summary', 'rationale', 'change', 'patch']) $(id).value = '';
+    ANCHORS = []; renderAnchors(); if (CUR_FILE) paintCode(); score();
+    loadStats();
+  } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; toast(e.message, 'err'); }
+}
+
+// ── queue + inbox ────────────────────────────────────────────────
+function ago(ts) {
+  const s = Date.now() / 1000 - ts;
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function card(r, owner, i) {
+  const who = esc(r.author) + (r.author_signed ? '' : ' (no account)')
+    + (r.agent ? ' via ' + esc(r.agent) : '');
+  const acts = owner && r.status === 'pending'
+    ? `<div class="acts">
+         <button class="yes" onclick="decide(this,'${esc(r.id)}','approve')">APPROVE</button>
+         <button class="no" onclick="decide(this,'${esc(r.id)}','reject')">REJECT</button>
+         <span class="note" id="msg-${esc(r.id)}"></span>
+       </div>` : '';
+  const relay = r.relayed ? '<span class="tag approved">in build\'s idea queue</span>' : '';
+  return `<div class="card" style="--sev:${SEVS[r.severity] || 'var(--accent)'};animation-delay:${Math.min(i, 12) * 45}ms">
+    <h3>${esc(r.title)}</h3>
+    <div class="meta">
+      <span class="tag ${esc(r.status)}">${esc(r.status)}</span>
+      <span class="tag" style="color:${KINDS[r.kind] || 'var(--dim)'};border-color:${KINDS[r.kind] || 'var(--line)'}">${esc(r.kind)}</span>
+      <span class="tag ${esc(r.severity)}">${esc(r.severity)}</span>
+      <span class="tag">${esc(r.module)}</span>
+      <span class="tag">${r.anchors} anchor${r.anchors === 1 ? '' : 's'}${r.has_patch ? ' · patch' : ''}</span>
+      ${r.confidence != null ? `<span class="tag">${Math.round(r.confidence * 100)}% sure</span>` : ''}
+      ${relay}
+    </div>
+    <p class="sum">${esc(r.summary)}</p>
+    <p class="meta">${who} · ${ago(r.created_at)} ·
+      <a href="${API}/rec?id=${encodeURIComponent(r.id)}" target="_blank">${esc(r.id)}</a></p>
+    ${acts}</div>`;
+}
+
+function paintQStatus() {
+  const opts = { pending: 'var(--warn)', approved: 'var(--ok)', rejected: 'var(--no)', withdrawn: 'var(--dim)', '': 'var(--accent)' };
+  $('q-status').innerHTML = Object.entries(opts).map(([k, c]) =>
+    `<button class="pill ${k === QSTATUS ? 'on' : ''}" style="--c:${c}" onclick="QSTATUS='${k}';paintQStatus();loadQueue()">${k || 'everything'}</button>`).join('');
+}
+
+async function loadQueue() {
+  const el = $('queue');
+  el.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>';
+  try {
+    const out = await call('recs', { status: QSTATUS, module: $('q-module').value.trim(), limit: 100 });
+    el.innerHTML = out.count
+      ? out.recommendations.map((r, i) => card(r, false, i)).join('')
+      : '<div class="empty">Nothing here yet. Go read a module and <b>be the first</b>.</div>';
+  } catch (e) { el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
+}
+
+async function loadInbox() {
+  const el = $('inbox');
+  if (!TOKEN) {
+    el.innerHTML = '<div class="empty">Connect the wallet that owns your modules to see what is <b>waiting on you</b>.</div>';
+    return;
+  }
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const out = await call('inbox', { status: 'pending' });
+    $('n-inbox').textContent = out.count;
+    $('inbox-note').innerHTML =
+      `<b style="color:var(--warn)">${out.count}</b> waiting on <span class="ok">${esc(short(out.owner))}</span>. Approving relays it into build's idea queue — you play it there.`;
+    el.innerHTML = out.count
+      ? out.recommendations.map((r, i) => card(r, true, i)).join('')
+      : '<div class="empty">Inbox zero. <b>Nothing is waiting on you.</b></div>';
+  } catch (e) { el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
+}
+
+async function decide(btn, id, action) {
+  const msg = $('msg-' + id);
+  const note = await ask(action === 'approve'
+    ? { title: 'Approve it?', body: 'It goes into build\'s idea queue as a suggestion you can play.', input: true, placeholder: 'anything to keep in mind when it is played (optional)', ok: 'APPROVE', tone: 'yes' }
+    : { title: 'Reject it?', body: 'The author sees your reason.', input: true, placeholder: 'why not (optional)', ok: 'REJECT', tone: 'no' });
+  if (note === null) return;
+  msg.textContent = action + 'ing…';
+  try {
+    const out = await call(action, { id, note }, 'POST');
+    if (action === 'approve') burst(btn);
+    toast(`${out.status}` + (out.relay && out.relay.suggestion_id ? ` — suggestion ${out.relay.suggestion_id} in build` : ''), 'ok');
+    msg.innerHTML = `<span class="ok">${esc(out.status)}</span>`;
+    setTimeout(() => { loadInbox(); loadStats(); }, 900);
+  } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; toast(e.message, 'err'); }
+}
+
+paintWho();
+paintChips();
+paintQStatus();
+score();
+loadModules();
+loadStats();
+peekInbox();
+const preset = new URLSearchParams(location.search).get('module');
+if (preset) { $('module').value = preset; loadBrief(); }
+</script>
+</body>
+</html>

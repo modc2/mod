@@ -1,0 +1,189 @@
+{
+  "netuid": 67,
+  "name": "Harnyx",
+  "symbol": "ط",
+  "owner": "5HEAv3TU1yNei4GwiTsxfmDCDW9pMCKLeDVky9iaVJfYiVeY",
+  "description": "Deep research as a commodity. Faster, cheaper, traceable research — produced by a competitive swarm of miners on Bittensor SN67.",
+  "github": "https://github.com/harnyx/harnyx",
+  "url": "https://harnyx.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1457737666316472351",
+  "logo": "https://harnyx.ai/favicon.png",
+  "registered_at": 7236936,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.003206575,
+    "moving_price": 0.0032168743200600147,
+    "market_cap": 5894.525459423285,
+    "tao_in": 2570.749254508,
+    "alpha_in": 801711.988438389,
+    "alpha_out": 1036550.163366351,
+    "volume": 70218.444036453,
+    "vol_24h": 10.026665758006857,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.5355414660777158,
+    "change_7d": -5.185029017463105
+  },
+  "spark_24h": [
+    0.00322384,
+    0.003223902,
+    0.003223902,
+    0.003222851,
+    0.003222911,
+    0.003222873,
+    0.003222522,
+    0.003222374,
+    0.00322224,
+    0.003221797,
+    0.003221859,
+    0.003221637,
+    0.00322163,
+    0.003221699,
+    0.003221769,
+    0.003221634,
+    0.003221714,
+    0.003221784,
+    0.003221869,
+    0.003221869,
+    0.003221938,
+    0.003221319,
+    0.003214742,
+    0.003214748,
+    0.00321483,
+    0.00321483,
+    0.003215026,
+    0.003215136,
+    0.003212096,
+    0.003211798,
+    0.003211868,
+    0.003211929,
+    0.003209331,
+    0.003209051,
+    0.003208557,
+    0.003208276,
+    0.00320818,
+    0.003208251,
+    0.003208309,
+    0.003208227,
+    0.003208227,
+    0.003208224,
+    0.003208409,
+    0.003208409,
+    0.003208444,
+    0.003208444,
+    0.003207212,
+    0.003206575
+  ],
+  "trades_24h": {
+    "trades": 122,
+    "buys": 0,
+    "sells": 122,
+    "buy_tao": 0,
+    "sell_tao": 5.992258759,
+    "net_tao": -5.992258759,
+    "traders": 20
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GbiKZuktSM8dD9uthPgyDe8RL1tH3eKYE1NhMiMpS8EoPR3",
+      "net_tao": -1.737944769,
+      "gross_tao": 1.737944769,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FhQvx2KJS1pQaoov2APsk1p3nDwNifm7aKzS9MY2yppPUzP",
+      "net_tao": -1.048429157,
+      "gross_tao": 1.048429157,
+      "trades": 40
+    },
+    {
+      "coldkey": "5CknxoDyxrzkHaco16xo4MRLTkrMLPXpu8SgE4frj4nAX7Js",
+      "net_tao": -0.922481725,
+      "gross_tao": 0.922481725,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Ge5LoLNZRZQjy8x7sSexsyLAATWLbDdNgT59Vj7RrCzs1tf",
+      "net_tao": -0.654734047,
+      "gross_tao": 0.654734047,
+      "trades": 14
+    },
+    {
+      "coldkey": "5GH8ny3tvM6DnwzynQ9imF6fekmZ3KdM3Pz95kDXuS4VkGRH",
+      "net_tao": -0.476223778,
+      "gross_tao": 0.476223778,
+      "trades": 22
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792150352,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261016.post1",
+      "url": "https://github.com/harnyx/harnyx/commit/1f8c6f385692a25ece53246dfcfc2ed87b0d6938",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792150299,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add Expand fetch provider with separately citable JSON (#1733)",
+      "url": "https://github.com/harnyx/harnyx/commit/51b2733a9808fc50cd8d2d19c6dc5c01c66ea809",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792147540,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261016.post0",
+      "url": "https://github.com/harnyx/harnyx/commit/c0e6aaca2689d688681ec8c9410baa2863c1db37",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792147490,
+      "kind": "commit",
+      "source": "github",
+      "title": "Preserve evaluation results and recover validator sandboxes after OOM…",
+      "url": "https://github.com/harnyx/harnyx/commit/02ad188da069fb2d3c990d4eb97995e8439f61bb",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792031538,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261015.post0",
+      "url": "https://github.com/harnyx/harnyx/commit/9c59642ebc1c877610f2b27b9282c391a976aa33",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1792031488,
+      "kind": "commit",
+      "source": "github",
+      "title": "Retry rate-limited validator weight submissions on the next worker ti…",
+      "url": "https://github.com/harnyx/harnyx/commit/99567b3bfa9ede4c71cb567f4cf7ecbf37bb3c24",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1791988348,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261014.post6",
+      "url": "https://github.com/harnyx/harnyx/commit/98dd7cfa35694bc6eaab0dbaa81fac80cde20232",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1791988289,
+      "kind": "commit",
+      "source": "github",
+      "title": "Use Codex HIGH author for miner task construction (#1715)",
+      "url": "https://github.com/harnyx/harnyx/commit/051384655bbd8496beb09af2ca230be7cbb87da4",
+      "publisher": "harnyx/harnyx"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

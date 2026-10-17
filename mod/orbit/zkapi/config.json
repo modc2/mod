@@ -1,0 +1,187 @@
+{
+    "name": "zkapi",
+    "title": "zkapi \u00b7 private API credits on Ethereum",
+    "description": "The Ethereum zkAPI framework (vbuterin/zkapi, Open Anonymity + Ethereum Foundation) as a mod: pay for metered APIs from an ETH vault deposit without the server learning which deposit is yours. Runs the real upstream stack unmodified from a pinned checkout (ZkApiVault + Groth16 verifier + Poseidon on a persistent anvil devnet, zkapi serverd, zkapi-indexerd, zkapi-challenged, the zkapi-browser wallet core) with an OpenRouter-compatible lease provider and a Chainlink-shaped price feed fed by the live mainnet ETH/USD answer; verifies the live mainnet and Sepolia deployments against the SDK pins, operator manifest, on-chain code hashes and local proving keys; exposes deposit / proof-paid chat / withdraw / escape over an API, an OpenAI-compatible endpoint and a web app.",
+    "version": "0.2.0",
+    "icon": "Z",
+    "color": "#7c9cff",
+    "tags": [
+        "app",
+        "api",
+        "zk",
+        "ethereum",
+        "privacy",
+        "groth16",
+        "payments",
+        "llm"
+    ],
+    "anchor": "mod.py",
+    "port": 51420,
+    "app_port": 51420,
+    "route": true,
+    "base_path": "/zkapi",
+    "urls": {
+        "api": "http://localhost:51420/zkapi/api",
+        "app": "http://localhost:51420/zkapi",
+        "openai": "http://localhost:51420/zkapi/api/v1"
+    },
+    "upstream": {
+        "repo": "https://github.com/vbuterin/zkapi",
+        "commit": "045b444ea1b52538d1b40273c7cb6ed09468a052",
+        "circuit_id": "zkapi-v2-note-bound-v1",
+        "path": "vendor/zkapi (gitignored; m zkapi/setup clones + builds it)"
+    },
+    "devnet_ports": {
+        "anvil": 51421,
+        "indexer": 51422,
+        "server": 51423,
+        "provider": 51424
+    },
+    "endpoints": {
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness"
+        },
+        "info": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Module + upstream pin + devnet state"
+        },
+        "status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "-> {running, port, version, devnet}"
+        },
+        "devnet": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Devnet: processes, chain, vault, price, provider, server dashboard"
+        },
+        "devnet/manifest": {
+            "method": "GET",
+            "auth": false,
+            "docs": "SDK-shaped deployment manifest for the devnet"
+        },
+        "devnet/price": {
+            "method": "GET|POST",
+            "auth": "devnet",
+            "docs": "ETH/USD feed; POST {usd?} pushes a round"
+        },
+        "devnet/accounts": {
+            "method": "GET",
+            "auth": false,
+            "docs": "anvil accounts + roles"
+        },
+        "devnet/up|down|reset|fast_forward": {
+            "method": "POST",
+            "auth": "operator",
+            "docs": "Lifecycle; fast_forward {seconds} advances chain time"
+        },
+        "devnet/server/*": {
+            "method": "ANY",
+            "auth": false,
+            "docs": "Passthrough to the devnet's zkapi serverd (upstream /v2 protocol)"
+        },
+        "devnet/indexer/*": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Passthrough to the devnet's zkapi-indexerd"
+        },
+        "networks": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Pinned live deployments (mainnet, sepolia)"
+        },
+        "networks/{name}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Cross-check a live deployment (?fresh=1)"
+        },
+        "networks/{name}/probe": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Raw live snapshot: manifest, chain, server, indexer"
+        },
+        "wallets": {
+            "method": "GET|POST",
+            "auth": "devnet",
+            "docs": "List / create {name, deposit_gwei, account} -> wallet_token"
+        },
+        "wallets/{name}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Wallet state + on-chain note (reconciles escapes)"
+        },
+        "wallets/{name}/deposit|chat|recover|withdraw|escape|delete": {
+            "method": "POST",
+            "auth": "wallet token",
+            "docs": "chat {model, messages|prompt}; escape {history_index?} (stale index = fraud demo)"
+        },
+        "notes/{id}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "On-chain note + pending escape"
+        },
+        "notes/{id}/finalize": {
+            "method": "POST",
+            "auth": "devnet",
+            "docs": "finalizeEscapeWithdrawal after the window"
+        },
+        "notes/{id}/claim_expired": {
+            "method": "POST",
+            "auth": "operator",
+            "docs": "claimExpired (treasury)"
+        },
+        "v1/chat/completions": {
+            "method": "POST",
+            "auth": "wallet token",
+            "docs": "OpenAI-compatible; each call = one anonymous proof-paid request (X-ZKAPI-Wallet)"
+        },
+        "v1/models": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Models served by the lease provider"
+        }
+    },
+    "fns": [
+        "info",
+        "status",
+        "setup",
+        "serve",
+        "kill",
+        "test",
+        "acceptance",
+        "devnet",
+        "up",
+        "down",
+        "reset",
+        "manifest",
+        "price",
+        "fast_forward",
+        "accounts",
+        "wallets",
+        "wallet",
+        "create_wallet",
+        "deposit",
+        "chat",
+        "recover",
+        "withdraw",
+        "escape",
+        "finalize",
+        "note",
+        "networks",
+        "verify",
+        "probe",
+        "live"
+    ],
+    "env": {
+        "ZKAPI_API_TOKEN": "bearer token for operator actions from non-loopback callers",
+        "ZKAPI_UPSTREAM_BASE / ZKAPI_UPSTREAM_KEY / ZKAPI_UPSTREAM_MODEL": "OpenAI-compatible upstream for real inference behind devnet leases (makes devnet actions operator-only)",
+        "ZKAPI_DEVNET_PRICE": "fixed ETH/USD for the devnet feed (default: live Chainlink mainnet answer)",
+        "ZKAPI_ETH_PRIVATE_KEY": "funded key for live (mainnet/sepolia) deposits/withdrawals via m zkapi/live",
+        "ZKAPI_TESTNET_PASSWORD": "Sepolia operator's shared /v2 password",
+        "ZKAPI_DATA": "state dir (default ./state)"
+    },
+    "schema": "QmeZbo2VbKG4z1W9pH59pYr3mCtF9wZy7rq4Piy9SZCk3z"
+}

@@ -55,18 +55,85 @@ export const LAYER_COLOR: Record<string, string> = {
   parks: '#199e70',              // translucent fill
   bike_routes: '#d95926',        // hairline
   affordable_housing: '#199e70', // graduated circle
+  affordable_rents: '#3987e5',   // graduated circle
   subway_ridership: '#d95926',   // graduated circle
   subway_stations: '#ffffff',    // reference infrastructure, not a data series
   collisions: '#e66767',
+  shootings: '#7d2b6b',
+  // Cyan, not the amber it started as. The two traffic layers are meant to be
+  // read together, and amber circles sat between the speed ramp's amber band
+  // and the orange ridership circles — competing with a line layer it shares a
+  // category with *and* a circle layer it shares a form with. Cyan is outside
+  // the red→green speed ramp entirely, so a busy count location can never be
+  // mistaken for a jam.
+  traffic_volume: '#22d3ee',      // graduated circle
   boroughs: '#c3c2b7',
   neighborhoods: '#898781',
   sales: '#9ec5f4',
 }
 
+/**
+ * Live traffic speed bands.
+ *
+ * Ordinal and diverging in meaning — "stopped" is the alarm and "free flow"
+ * is the all-clear — so it runs red → amber → green, the one place on this map
+ * where the traffic-light convention beats a neutral ramp: every driver
+ * already reads those three colours without a key. Green is the blue-leaning
+ * #2fa36b rather than a pure green so the red/green ends stay separable for a
+ * deuteranope by lightness (L 0.52 vs 0.65) as well as hue.
+ */
+export const SPEED_BAND: Record<string, string> = {
+  stopped: '#d03b3b',
+  crawling: '#d95926',
+  moving: '#c98500',
+  free: '#2fa36b',
+}
+
+export const SPEED_BAND_LABEL: [string, string][] = [
+  ['stopped', 'Under 10 mph'],
+  ['crawling', '10–25'],
+  ['moving', '25–40'],
+  ['free', '40+'],
+]
+
+/**
+ * News headline topics. Categorical, not ordinal — each topic borrows the hue
+ * its subject already owns elsewhere on this map (crime red, transit cyan,
+ * housing blue, money amber), so a dot's colour agrees with the layer it sits
+ * over — borrowed by reference, so a retune there carries here. The white
+ * stroke in the mark spec is what keeps them legible over a same-hue
+ * choropleth.
+ */
+export const NEWS_TOPICS: { key: string; label: string; color: string }[] = [
+  { key: 'housing', label: 'Housing', color: SEQUENTIAL[3] },
+  { key: 'crime', label: 'Crime & courts', color: LAYER_COLOR.collisions },
+  { key: 'transit', label: 'Transit & streets', color: LAYER_COLOR.traffic_volume },
+  { key: 'government', label: 'Government', color: SPEED_BAND.moving },
+  { key: 'other', label: 'Everything else', color: LAYER_COLOR.boroughs },
+]
+
+export const NEWS_TOPIC: Record<string, string> =
+  Object.fromEntries(NEWS_TOPICS.map(t => [t.key, t.color]))
+
+export const NEWS_TOPIC_LABEL: [string, string][] =
+  NEWS_TOPICS.map(t => [t.key, t.label])
+
 /** Hurricane evacuation zones are ordinal: zone 1 is the most urgent. */
 export const ZONE_COLOR: Record<number, string> = {
   1: '#f2a0a0', 2: '#e66767', 3: '#d95926',
   4: '#c98500', 5: '#9c8f3a', 6: '#5f7a52', 7: '#3d6b6b',
+}
+
+/** MTA subway route colours, keyed by route letter/number. */
+export const ROUTE_COLOR: Record<string, string> = {
+  '1': '#EE352E', '2': '#EE352E', '3': '#EE352E',
+  '4': '#00933C', '5': '#00933C', '6': '#00933C',
+  '7': '#B933AD',
+  A: '#0039A6', C: '#0039A6', E: '#0039A6',
+  B: '#FF6319', D: '#FF6319', F: '#FF6319', M: '#FF6319',
+  G: '#6CBE45', J: '#996633', Z: '#996633', L: '#A7A9AC',
+  N: '#FCCC0A', Q: '#FCCC0A', R: '#FCCC0A', W: '#FCCC0A',
+  S: '#808183',
 }
 
 /** Chart chrome & ink. */

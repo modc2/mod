@@ -18,59 +18,42 @@ use axum::{
     Json, Router,
 };
 use ethers::types::Address;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, env, net::SocketAddr, sync::Arc};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 mod routes;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct ProviderCfg {
-    pub label: &'static str,
-    pub url: &'static str,
-    pub default_model: &'static str,
-    pub key_hint: &'static str,
-    pub docs: &'static str,
+    pub label: String,
+    pub url: String,
+    pub default_model: String,
+    pub key_hint: String,
+    pub docs: String,
+    /// "x-api-key" for providers (Anthropic) whose /models rejects Bearer.
+    #[serde(default)]
+    pub models_auth: Option<String>,
+    #[serde(default)]
+    pub models_headers: HashMap<String, String>,
 }
 
 pub struct AppState {
-    pub providers: HashMap<&'static str, ProviderCfg>,
+    pub providers: HashMap<String, ProviderCfg>,
     pub http: reqwest::Client,
     pub gate_address: Option<Address>,
     pub gate_chain_id: u64,
 }
 
-fn providers_registry() -> HashMap<&'static str, ProviderCfg> {
-    let mut p = HashMap::new();
-    p.insert("openrouter", ProviderCfg {
-        label: "OpenRouter",
-        url: "https://openrouter.ai/api/v1",
-        default_model: "anthropic/claude-opus-4",
-        key_hint: "sk-or-…",
-        docs: "https://openrouter.ai/keys",
-    });
-    p.insert("chutes", ProviderCfg {
-        label: "Chutes",
-        url: "https://llm.chutes.ai/v1",
-        default_model: "deepseek-ai/DeepSeek-V3",
-        key_hint: "cpk_…",
-        docs: "https://chutes.ai",
-    });
-    p.insert("targon", ProviderCfg {
-        label: "Targon",
-        url: "https://api.targon.com/v1",
-        default_model: "deepseek-ai/DeepSeek-V3",
-        key_hint: "sn4_…",
-        docs: "https://targon.com",
-    });
-    p.insert("venice", ProviderCfg {
-        label: "Venice",
-        url: "https://api.venice.ai/api/v1",
-        default_model: "llama-3.3-70b",
-        key_hint: "venice key",
-        docs: "https://venice.ai",
-    });
-    p
+/// Same registry the Python gateway reads — ../providers.json, baked in at build time.
+fn providers_registry() -> HashMap<String, ProviderCfg> {
+    #[derive(Deserialize)]
+    struct Entry { id: String, #[serde(flatten)] cfg: ProviderCfg }
+    #[derive(Deserialize)]
+    struct Registry { providers: Vec<Entry> }
+    let reg: Registry = serde_json::from_str(include_str!("../../providers.json"))
+        .expect("providers.json is valid");
+    reg.providers.into_iter().map(|e| (e.id, e.cfg)).collect()
 }
 
 #[tokio::main]

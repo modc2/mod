@@ -64,6 +64,70 @@ Six tasks ship in `tasks/seed.json` and are planted on a fresh arena: fizzbuzz,
 two-sum, balanced-brackets, roman-numerals, word-frequency and a `unit`-mode
 stack class. Upload your own from the console or over the API.
 
+## Benchmarks off the web
+
+Writing tasks is one way to fill an arena. The other is to take the ones the
+field already agreed on. `bench_import` fetches a published benchmark and turns
+each record into an ordinary arena task — same statement, same graded cases,
+same hidden/visible split, graded by the same sandbox.
+
+```bash
+m openarena/bench_sources                                  # what it can pull
+m openarena/bench_preview source=humaneval limit=3         # convert, show, keep nothing
+m openarena/bench_import  source=humaneval limit=20        # …and now keep them
+m openarena/bench_import  source=mbpp limit=20 offset=20   # the next page
+m openarena/bench_import  source=html url=https://acm.timus.ru/problem.aspx?space=1&num=1000
+```
+
+| source | what lands |
+|---|---|
+| `humaneval` · `humanevalplus` | unit-mode Python, one case per assertion of the reference `check()` |
+| `mbpp` | unit-mode Python, one case per assertion; the first stays visible |
+| `code_contests` | io mode: public cases visible, private and generated ones hidden |
+| `hf` | any dataset on the HuggingFace rows API — `dataset`, `split`, a `style` and a `map` |
+| `json` | any url answering with a JSON array or JSONL |
+| `html` | one problem page scraped into an io task |
+
+Three pieces do all of it, and a named source is only a preset over them:
+
+```
+transport   where the bytes come from     hf · json · html
+style       how a record becomes a task   humaneval · asserts · io · html
+map         which field feeds which part  {"statement": "prompt", "asserts": "test_list", …}
+```
+
+Which is why a benchmark nobody wrote an adapter for still imports:
+
+```bash
+m openarena/bench_import source=hf dataset=some/dataset split=test style=asserts \
+    map='{"statement":"question","asserts":"tests"}'
+```
+
+A benchmark that grades with one all-or-nothing `check()` is cut into one case
+per assertion when every line of the check is an assertion — so a near-miss
+scores 0.71 instead of 0, and the leaderboard can tell two failures apart.
+Anything with a loop or a variable in it stays whole, because splitting that
+would change what it grades.
+
+`bench_preview` converts and writes nothing; only `bench_import` keeps. A slug
+already in the arena is skipped rather than failed, so paging with `offset=`
+(the reply hands back `next_offset`) is safe to repeat. Fetches are cached for a
+day under `~/.mod/openarena/bench-cache`.
+
+Scraping is best-effort by construction: the prose becomes the statement and the
+`<pre>` blocks become cases, paired by the Input/Output labels around them. It
+works on plain problem pages and it does not work on the sites that answer 403
+to anything without a browser. Preview before you import one, and mind whose
+terms you are importing under — the catalog carries each source's license.
+
+Two switches, because an importer that fetches on request is a network client
+living inside your arena:
+
+```
+OPENARENA_BENCH=0         no outbound fetching at all; the tools say so
+OPENARENA_BENCH_LOCAL=1   allow private and loopback addresses (off by default)
+```
+
 ## Competitors
 
 | kind | how it answers | config |
@@ -120,12 +184,13 @@ Languages the judge runs: `python`, `javascript`, `bash`.
 
 ## MCP
 
-13 tools, the same ones the REST routes dispatch through — what an agent can do
+16 tools, the same ones the REST routes dispatch through — what an agent can do
 here is exactly what a browser can do:
 
 `arena_info` · `list_tasks` · `get_task` · `create_task` · `delete_task` ·
 `list_agents` · `enter_agent` · `remove_agent` · `run_match` · `submit` ·
-`list_matches` · `get_match` · `leaderboard`
+`list_matches` · `get_match` · `leaderboard` · `bench_sources` ·
+`bench_preview` · `bench_import`
 
 ```bash
 claude mcp add openarena -- \
@@ -144,10 +209,11 @@ openarena-rs/src/
   judge.rs                  the sandbox and the grading
   players.rs                the four competitor drivers
   arena.rs                  matches, Elo, leaderboard
+  bench.rs                  benchmarks off the web: fetch, convert, import
   mcp.rs                    the tool layer — every capability, defined once
   http.rs                   REST + /mcp + the console
   console.html              zero-dependency browser console
-tests/test_openarena.py     26 tests against a real backend on a scratch state dir
+tests/test_openarena.py     tests against a real backend on a scratch state dir
 ```
 
 ## Test

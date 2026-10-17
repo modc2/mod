@@ -1,0 +1,189 @@
+{
+  "netuid": 117,
+  "name": "everyframe.studio",
+  "symbol": "Ⲁ",
+  "owner": "5FFDV7LGKVsVvyVbzSduzxQDPfBuJYHBM2QJPia5ikDivsXd",
+  "description": "Every frame gets craft",
+  "github": "https://github.com/everyframe-studios/everyframe-miner",
+  "url": "https://everyframe.studio/",
+  "discord": "https://discord.com/channels/799672011265015819/1544011415692644444",
+  "logo": "https://avatars.githubusercontent.com/u/327085870?s=200&v=4",
+  "registered_at": 5710859,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.002186848,
+    "moving_price": 0.0023059570230543613,
+    "market_cap": 6719.754201823571,
+    "tao_in": 2673.66195533,
+    "alpha_in": 1222609.587645346,
+    "alpha_out": 1850193.918507606,
+    "volume": 240439.758738649,
+    "vol_24h": 101.7910552980029,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -6.148293428207252,
+    "change_7d": -17.57668407589201
+  },
+  "spark_24h": [
+    0.00233011,
+    0.00233011,
+    0.00233011,
+    0.002329655,
+    0.002329654,
+    0.002329654,
+    0.002329536,
+    0.002329516,
+    0.002326075,
+    0.002326075,
+    0.002326072,
+    0.002326071,
+    0.002327731,
+    0.002327731,
+    0.00232773,
+    0.00232773,
+    0.002323382,
+    0.002323365,
+    0.002323365,
+    0.002323365,
+    0.002315817,
+    0.002315503,
+    0.002315503,
+    0.002315503,
+    0.00231549,
+    0.002315457,
+    0.002315452,
+    0.002315452,
+    0.00231545,
+    0.002315513,
+    0.002315513,
+    0.002313836,
+    0.002312918,
+    0.002312916,
+    0.002312916,
+    0.002312916,
+    0.002312912,
+    0.002312912,
+    0.002309715,
+    0.002309687,
+    0.002309687,
+    0.002309665,
+    0.002309665,
+    0.002309749,
+    0.002309748,
+    0.002289111,
+    0.002255908,
+    0.002186848
+  ],
+  "trades_24h": {
+    "trades": 19,
+    "buys": 2,
+    "sells": 17,
+    "buy_tao": 7.703705642,
+    "sell_tao": 88.630429181,
+    "net_tao": -80.926723539,
+    "traders": 12
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CLeA2ERxcgVf68zzsTb1nFteXtPjkRPmChamusstFotNqfj",
+      "net_tao": -58.753186407,
+      "gross_tao": 58.753186407,
+      "trades": 5
+    },
+    {
+      "coldkey": "5DhQxi4F9qhCBvemna7sHTwtPUuwqWwFBuqGGFWQmvXSNLGB",
+      "net_tao": 0.04579493499999998,
+      "gross_tao": 13.361616349,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CifCuVUjxyebzjtN3Frc2egpXnvBqstTeQtZ8xr6PfoPxX1",
+      "net_tao": -9.858692987,
+      "gross_tao": 9.858692987,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FZWjFM2zdYojz9PAWurU5vqq6GSjzz8NX6yzFr3ERcnNhzN",
+      "net_tao": -4.476875912,
+      "gross_tao": 4.476875912,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CRykJQiznhfP6RKBpe21ihpEFG4c8c5u7oyZWnfv2cxZtct",
+      "net_tao": -2.935646105,
+      "gross_tao": 2.935646105,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792101765,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #36 from everyframe-studio/fix/report-provider-fai…",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/9addfdba9182aaaaebed2b363f1e4fa6f6cf027f",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792101765,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.7",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.5.7",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792101160,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: preserve provider failure categories and prepare v0.5.7",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/39d431a19d857f20e779d15a58748d682b47f51a",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792073059,
+      "kind": "commit",
+      "source": "github",
+      "title": "Report a fixed provider failure category; renew sessions for 12-minut…",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/b30e92eac6dee0393808431e0da705820f74c09f",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792011290,
+      "kind": "release",
+      "source": "github",
+      "title": "everycli v0.5.6",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.5.6",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792010492,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #35 from everyframe-studio/release/v0.5.6-recovery…",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/9fe18293c7e83ac56ef7ed7c7dc3a4d8a3d1729d",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792009788,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: reconcile abandoned deployment preparation and release v0.5.6",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/a9c90e6d28fbbbc9d78aae06b276012c12c76f11",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1792009237,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: report Fal, BFL and Runway balances from the keys workers run with",
+      "url": "https://github.com/everyframe-studio/everyframe-miner/commit/33d893eb78d591e35a5d855dccf1f60e40e85724",
+      "publisher": "everyframe-studios/everyframe-miner"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

@@ -1,0 +1,189 @@
+{
+  "netuid": 114,
+  "name": "SOMA",
+  "symbol": "Є",
+  "owner": "5FHrQMjzzAhmL5zS9ys87ZrGCwG3vsVT9hXAUWZQ8SNdRqig",
+  "description": "Context compression layer delivered through MCP infrastructure",
+  "github": "https://github.com/DendriteHQ/SOMA",
+  "url": "https://thesoma.ai",
+  "discord": "https://discord.gg/durr4Sg6sM",
+  "logo": "https://thesoma.ai/images/1200x1200.png",
+  "registered_at": 7312241,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.022311227,
+    "moving_price": 0.02196761523373425,
+    "market_cap": 54988.65774012255,
+    "tao_in": 9900.006442898,
+    "alpha_in": 443723.312500127,
+    "alpha_out": 2020894.959732169,
+    "volume": 308802.280351918,
+    "vol_24h": 2863.3276643690187,
+    "emission": 0.0,
+    "change_1h": -0.1478991888481218,
+    "change_24h": 6.062525720887213,
+    "change_7d": -2.1215039206275876
+  },
+  "spark_24h": [
+    0.021035919,
+    0.021035686,
+    0.021060323,
+    0.021048992,
+    0.02105209,
+    0.021055937,
+    0.021172399,
+    0.021174947,
+    0.021171982,
+    0.021161794,
+    0.021113405,
+    0.021116475,
+    0.021117817,
+    0.021320755,
+    0.021332635,
+    0.021334973,
+    0.021338063,
+    0.021363171,
+    0.02175921,
+    0.021841206,
+    0.021862914,
+    0.021771007,
+    0.021814721,
+    0.021892056,
+    0.022113123,
+    0.02193613,
+    0.022198573,
+    0.022291819,
+    0.022615038,
+    0.0227373,
+    0.022759349,
+    0.022762611,
+    0.022645427,
+    0.022550102,
+    0.022532667,
+    0.022521396,
+    0.022516584,
+    0.022519016,
+    0.022500887,
+    0.02250296,
+    0.022506192,
+    0.022331868,
+    0.022335119,
+    0.022283274,
+    0.022277804,
+    0.022281876,
+    0.022317008,
+    0.022311227
+  ],
+  "trades_24h": {
+    "trades": 307,
+    "buys": 190,
+    "sells": 117,
+    "buy_tao": 1528.160940792,
+    "sell_tao": 1270.712041087,
+    "net_tao": 257.44889970500003,
+    "traders": 134
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.12690927999999524,
+      "gross_tao": 488.502736716,
+      "trades": 30
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -32.871476385,
+      "gross_tao": 182.871476385,
+      "trades": 10
+    },
+    {
+      "coldkey": "5EvHxAn5RBbMXSpgv5fYPikdtgwox9b8vynpVbNm1qPanR57",
+      "net_tao": -0.06106096599999944,
+      "gross_tao": 160.061060966,
+      "trades": 6
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.05759217700000008,
+      "gross_tao": 132.057592177,
+      "trades": 6
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -104.27000939199999,
+      "gross_tao": 124.27000939199999,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792150550,
+      "kind": "commit",
+      "source": "github",
+      "title": "update scoring.md docs",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/f46fb54ce56dfd67ecfbb369bb2822275d728458",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791889190,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #229 from DendriteHQ/fix/soma-task-eval-resource-l…",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/dec6330708f9fb0e004ae47538bbcfd0350e7f33",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791889086,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(validator): bound SOMA task eval container to N visible CPUs",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/ccd4c6b50e194473da6d91485a86e061b65d24df",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791464314,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #228 from DendriteHQ/dev",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/fc7ecf46fb7eee19926102902d018ef27b5c1338",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791464088,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(frontend): report 0 jev tokens for runs without jev calls",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/c7d7b4b741cef4a6512d9b2b6796da6cfd76db86",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791454324,
+      "kind": "commit",
+      "source": "github",
+      "title": "Lower Jev input token weight to 0.2",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/790376f75996164c3b036611884f8b7fbcb2a00c",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791295114,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #227 from DendriteHQ/feat/call-jev",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/8d1e283fced1c4390913ee9fb9d178e00f8aad81",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1791210750,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: add new prompting rules",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/d9e2f8a8333c7a235ba441acbeaa870c716391f7",
+      "publisher": "DendriteHQ/SOMA"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

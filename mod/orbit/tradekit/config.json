@@ -1,0 +1,25 @@
+{
+    "name": "tradekit",
+    "version": "0.1.0",
+    "description": "The hyperliquid framework as a standard (tradekit/1) for copy-trading venue modules: one fn surface, config shape and layout shared by hyperliquid, polymarket and dydx. check/board report conformance statically; scaffold copies the framework (Python orchestrator + Rust axum API + MCP + canonical Strat base) into a new venue module. Pure python, no server, no keys.",
+    "anchor": "src/mod.py",
+    "private": true,
+    "fns": [
+        "spec",
+        "check",
+        "board",
+        "scaffold",
+        "venues"
+    ],
+    "layout": {
+        "src/standard.py": "the tradekit/1 spec + static conformance checker",
+        "src/mod.py": "spec/check/board/venues/scaffold",
+        "src/template/": "the framework copied from hyperliquid, with __NAME__/__VENUE__/__API_PORT__ placeholders"
+    },
+    "standard_for": [
+        "hyperliquid",
+        "polymarket",
+        "dydx"
+    ],
+    "schema": "QmUMyfTDnD2DuDPXcdwgDCEyebJQ8cyFRNdZhkD5PMDkfh"
+}

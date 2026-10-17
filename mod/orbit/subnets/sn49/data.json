@@ -1,0 +1,181 @@
+{
+  "netuid": 49,
+  "name": "Nepher Robotics",
+  "symbol": "ר",
+  "owner": "5FL781vfkLNnYBUi58JnhZ3r2waHDMiehxRhzcMaMWvKDfXf",
+  "description": "Pioneering Simulation-First Robotics Development",
+  "github": "https://github.com/nepher-ai/nepher-subnet",
+  "url": "https://www.nepher.ai/",
+  "discord": "https://discord.gg/qZUc3vdjVq",
+  "logo": "https://avatars.githubusercontent.com/u/243286101?s=200&v=4",
+  "registered_at": 6783158,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.00721316,
+    "moving_price": 0.007315047085285187,
+    "market_cap": 22385.695310119703,
+    "tao_in": 4408.894024252,
+    "alpha_in": 611229.293517313,
+    "alpha_out": 2492222.634641733,
+    "volume": 219667.91626576,
+    "vol_24h": 219.82207544299308,
+    "emission": 0.0,
+    "change_1h": -0.2982967876804521,
+    "change_24h": -4.091096146776064,
+    "change_7d": -13.096551890315911
+  },
+  "spark_24h": [
+    0.007520845,
+    0.007520961,
+    0.00745472,
+    0.007454988,
+    0.007455106,
+    0.007455396,
+    0.007454961,
+    0.007454994,
+    0.007458021,
+    0.007458176,
+    0.007455412,
+    0.007455561,
+    0.007455542,
+    0.007450878,
+    0.007408033,
+    0.007408154,
+    0.007406552,
+    0.007406698,
+    0.007406858,
+    0.007406977,
+    0.007407126,
+    0.007405414,
+    0.007415528,
+    0.007415318,
+    0.007418733,
+    0.007442168,
+    0.00744226,
+    0.007442417,
+    0.007441532,
+    0.007287141,
+    0.007284657,
+    0.007284883,
+    0.007287187,
+    0.007287407,
+    0.007287582,
+    0.00728781,
+    0.00728487,
+    0.007285004,
+    0.007285144,
+    0.007285175,
+    0.00728417,
+    0.007284312,
+    0.007284511,
+    0.007301882,
+    0.0073023,
+    0.007302541,
+    0.007233837,
+    0.00721316
+  ],
+  "trades_24h": {
+    "trades": 49,
+    "buys": 17,
+    "sells": 32,
+    "buy_tao": 59.95121029,
+    "sell_tao": 152.440308056,
+    "net_tao": -92.48909776599999,
+    "traders": 35
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5F5fHAR7LbxVouBgMGxPwPUR9Ev44xGWGH88THsViWAoneGf",
+      "net_tao": 8.50071348,
+      "gross_tao": 31.605892519999998,
+      "trades": 3
+    },
+    {
+      "coldkey": "5HGgoL7fAfy3JFUMLpUPYtrUGPyPFUFfk2FkGUH1bigWo8No",
+      "net_tao": 0.06349867299999978,
+      "gross_tao": 29.936501327000002,
+      "trades": 2
+    },
+    {
+      "coldkey": "5C8PgBmXwSwVw8wFQLjvgbG1KjxMfJcGemh9acfGGuM7tJ5r",
+      "net_tao": -26.043929614,
+      "gross_tao": 26.043929614,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CBAS9Vj87CTB46gXT7buv4BymG2s1igKrYnyMoyGcbvAxjk",
+      "net_tao": -19.852982409,
+      "gross_tao": 19.852982409,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GsZigLw6wwgBqwsGa8WaHv6duegYNQGyZdyGaKVhfosYYat",
+      "net_tao": -14.804053999,
+      "gross_tao": 14.804053999,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791189456,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #11 from nepher-ai/feat/isaacsim-6.1-isaaclab-3.0",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/dfbd06a5dc1e2fa996c5925a9e7a96c19adfb1ea",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1790778101,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fix issue: IsaacLab 3.0.0 rejects --headless",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/8d01570718f988296575e2aaa688cdd6cf16c3b0",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1790729053,
+      "kind": "commit",
+      "source": "github",
+      "title": "Upgrade validator sandbox to Isaac Sim 6.1 / Isaac Lab 3.0.0",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/1e23cf0664621ece7696cf0375e205d911595892",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1790728304,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.0.0",
+      "url": "https://github.com/nepher-ai/nepher-subnet/releases/tag/v1.0.0",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1789714466,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge branch 'main' of https://github.com/nepher-ai/nepher-subnet",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/650a8c592310daa868f200dd7965fd7a61b5dce8",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1789714439,
+      "kind": "commit",
+      "source": "github",
+      "title": "Updated API URLs in configuration files and documentation to reflect …",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/047306b993019b0deefe190510650e8e2cc24ed3",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1789696422,
+      "kind": "commit",
+      "source": "github",
+      "title": "Enhance tournament reward structure to support podium placements with…",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/95b7244560ea0ff5730c755112f8c6c5abb655f7",
+      "publisher": "nepher-ai/nepher-subnet"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

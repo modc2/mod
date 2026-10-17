@@ -1,0 +1,13 @@
+{
+  "name": "desk",
+  "mod": "polymarket.agents.desk",
+  "title": "DESK CHAT",
+  "glyph": "◉",
+  "kind": "chat",
+  "route": "/_api/agent/chat",
+  "tools": "polymarket MCP (pm_*) — money/strat writes pause for owner approval",
+  "description": "The left-column agent with hands: answers anything, reads the board, desk and strats and operates them through the module's own MCP server (src/mcp.py). Streams SSE.",
+  "default_enabled": true,
+  "order": 0,
+  "version": "0.1.0"
+}

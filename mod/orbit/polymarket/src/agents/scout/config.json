@@ -1,0 +1,13 @@
+{
+  "name": "scout",
+  "mod": "polymarket.agents.scout",
+  "title": "TRADER SCOUT",
+  "glyph": "⌕",
+  "kind": "chat",
+  "route": "/_api/trader-agent",
+  "tools": "read-only MCP (pm_top_traders, pm_trader)",
+  "description": "Describe the trader you want; it finds them on the leaderboards and returns a validated shortlist of addresses.",
+  "default_enabled": true,
+  "order": 2,
+  "version": "0.1.0"
+}

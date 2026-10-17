@@ -1,0 +1,13 @@
+{
+  "name": "score",
+  "mod": "polymarket.agents.score",
+  "title": "SCORE WRITER",
+  "glyph": "▦",
+  "kind": "chat",
+  "route": "/_api/score-agent",
+  "tools": "none",
+  "description": "Writes the board's SCORE (expression, JS or Python) from plain words. The formula compiles in the browser before it runs.",
+  "default_enabled": true,
+  "order": 3,
+  "version": "0.1.0"
+}

@@ -1,6 +1,6 @@
 {
     "name": "whitepaper",
-    "description": "MOD whitepaper module: serves the off-chain Merkle-tree open-source management whitepaper as a Next.js app behind the protocol proxy.",
+    "description": "MOD whitepaper module: the off-chain Merkle-tree registry (Part I) and the mod protocol specification it registers (Part II), served as a Next.js app behind the protocol proxy.",
     "port": 50106,
     "app_port": 3106,
     "urls": {

@@ -15,7 +15,7 @@ The frontend is a Next.js 14 application with TypeScript, Tailwind CSS, and ethe
 
 ```
 mod/core/app/
-├── middleware.ts           # Gateway middleware: /{mod} → app, /api/{mod} → API
+├── middleware.ts           # Gateway middleware: /{mod} → app, /{mod}/api → API (legacy /api/{mod} alias)
 ├── config.json             # App configuration (contracts, networks)
 └── app/                    # Next.js App Router pages + libs
     ├── layout.tsx          # Root layout (providers, sidebar, top bar)

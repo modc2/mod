@@ -1,0 +1,61 @@
+{
+    "name": "dydx",
+    "version": "0.1.0",
+    "description": "dYdX copy-trading \u2014 top traders, strats, backtests, dry-run live engine, MCP. Scaffolded by tradekit from the hyperliquid framework.",
+    "anchor": "src/mod.py",
+    "private": true,
+    "fns": [
+        "forward",
+        "serve",
+        "api",
+        "kill",
+        "status",
+        "build",
+        "logs",
+        "test",
+        "whoami",
+        "markets",
+        "top_traders",
+        "analyze_trader",
+        "watchlist",
+        "watch",
+        "unwatch",
+        "strat",
+        "list_strats",
+        "run_strat",
+        "backtest_strats",
+        "live_start",
+        "live_stop",
+        "live_status",
+        "mcp",
+        "mcp_tools",
+        "mcp_call",
+        "mcp_config",
+        "build_cid",
+        "publish_build",
+        "build_onchain"
+    ],
+    "ports": {
+        "api": 51442,
+        "app": 51443
+    },
+    "urls": {
+        "api": "http://localhost:51442",
+        "app": "http://localhost:51443/dydx",
+        "gateway": "http://localhost:3000/dydx"
+    },
+    "mcp": {
+        "endpoint": "POST /mcp",
+        "schema": "GET /mcp/schema",
+        "tool_prefix": "dydx_"
+    },
+    "standard": {
+        "spec": "tradekit/1",
+        "venue": "dYdX",
+        "currency": "USDC",
+        "symbol": "market ticker, e.g. BTC-USD",
+        "reference": "hyperliquid",
+        "aliases": {}
+    },
+    "schema": "QmdrdAsUoU2mjZ9JKADJuthVwh1Yex7d7GYwQU5MvU2Ned"
+}

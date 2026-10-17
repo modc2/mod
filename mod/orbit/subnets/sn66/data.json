@@ -1,0 +1,189 @@
+{
+  "netuid": 66,
+  "name": "conjectures",
+  "symbol": "ض",
+  "owner": "5CJCRGep3iyMUoaRb1FVNqXSuU8bcijfDBwVvZiQHSmGPTjT",
+  "description": "Incentivizing breakthroughs on decades-old open mathematical conjectures",
+  "github": "https://github.com/conjectures-io/conjectures-validator",
+  "url": "https://conjectures.io",
+  "discord": "wejh",
+  "logo": "https://conjectures.io/favicon.svg",
+  "registered_at": 4958013,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.002621392,
+    "moving_price": 0.0026087448932230473,
+    "market_cap": 15770.225965576079,
+    "tao_in": 6304.504235857,
+    "alpha_in": 2405021.490890404,
+    "alpha_out": 3610952.451799616,
+    "volume": 1432625.085019311,
+    "vol_24h": 145.3006841649767,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 0.2883864209707321,
+    "change_7d": -11.840377257344215
+  },
+  "spark_24h": [
+    0.002613854,
+    0.002613561,
+    0.002613561,
+    0.002629976,
+    0.002629976,
+    0.002630003,
+    0.002629959,
+    0.002629952,
+    0.002629252,
+    0.002629252,
+    0.002629251,
+    0.002629251,
+    0.002629242,
+    0.002629236,
+    0.002629237,
+    0.002629237,
+    0.002629237,
+    0.002629231,
+    0.002629231,
+    0.002629186,
+    0.002629186,
+    0.002629095,
+    0.002629096,
+    0.002629096,
+    0.002599176,
+    0.002599258,
+    0.002599257,
+    0.002599047,
+    0.002586188,
+    0.002586181,
+    0.002586181,
+    0.00258618,
+    0.002585891,
+    0.002585891,
+    0.002585891,
+    0.002585656,
+    0.002585655,
+    0.002585655,
+    0.002585653,
+    0.002585644,
+    0.002580313,
+    0.0025803,
+    0.002580206,
+    0.002580206,
+    0.002577527,
+    0.002577527,
+    0.00260066,
+    0.002621392
+  ],
+  "trades_24h": {
+    "trades": 53,
+    "buys": 11,
+    "sells": 42,
+    "buy_tao": 77.200060773,
+    "sell_tao": 64.336367457,
+    "net_tao": 12.86369331600001,
+    "traders": 23
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GsZigLw6wwgBqwsGa8WaHv6duegYNQGyZdyGaKVhfosYYat",
+      "net_tao": 0.12373309000000177,
+      "gross_tao": 39.87626691,
+      "trades": 2
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 30.0,
+      "gross_tao": 30.0,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CSGJR6mRzEZeNoj1TFyWd8XtYRmvj4Grvi2r9CMxZEJt6Jk",
+      "net_tao": -16.080960524,
+      "gross_tao": 16.080960524,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Gwx4MzaD6jPPfZqwCnx1tj2aAAW7m8BgxsyR2M2bGma7AHu",
+      "net_tao": -15.539965588,
+      "gross_tao": 15.539965588,
+      "trades": 1
+    },
+    {
+      "coldkey": "5EhBAtp1NDaLLuxRrGLDntmgPQ5cCDvkk7uFawamcaemecsV",
+      "net_tao": 12.0,
+      "gross_tao": 12.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792010948,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #129 from conjectures-io/fix/chat-log-reasoning",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/e890a393d90c768ca627a3465fd88435c185136a",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1792010352,
+      "kind": "commit",
+      "source": "github",
+      "title": "Keep the model's reasoning in chat-log packages wherever it is readable",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/8abcfa303fa9823fef1bc0355372984b3c7d7b79",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791997379,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #128 from conjectures-io/fix/chat-log-revisions",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/e15556488544b48db1a44d76befd63ab572c313a",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791996918,
+      "kind": "commit",
+      "source": "github",
+      "title": "Let reviewers ask for more of a bounty's required chat logs",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/6374db6efe492320e4435d9b292ebdc34918a365",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791980194,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #127 from conjectures-io/dev",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/e9c2839e9b100a2813c515e2fdc175a851028397",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791972968,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #126 from conjectures-io/feat/floatlib-past-leader…",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/3c44b2e403202fb29ffc29c722fc3ae6ea1cd68f",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791972287,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: extend leaderboard endpoint (add past champions challengers his…",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/15cd88a49afdbcdf75a972cf0b2e133d14e51c9e",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1791965462,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix the database name in url",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/ed3f48dd2f8957f6d06720b43834ad47a4f1153b",
+      "publisher": "conjectures-io/conjectures-validator"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

@@ -349,6 +349,51 @@ class TestAuth:
 
 
 class TestSync:
+    def test_sync_update_stale_target(self, tmp_dir, mock_storage):
+        """Sync after a source update should push the new data to the target."""
+        m = Mod(backend='offchain', storage='ipfs')
+        m._storage_clients['ipfs'] = mock_storage
+        from registry.offchain import OffchainRegistry
+        src = OffchainRegistry(storage_path=os.path.join(tmp_dir, 'src'))
+        dst = OffchainRegistry(storage_path=os.path.join(tmp_dir, 'dst'))
+        m._backends['src'] = src
+        m._backends['dst'] = dst
+
+        src.register('mod1', 'ipfs/Qm_v1', owner='alice')
+
+        # First sync: new entry added
+        result1 = m.sync(source='src', target='dst', owner='alice')
+        assert len(result1) == 1
+        assert result1[0]['action'] == 'added'
+        assert dst.get_by_name('alice', 'mod1')['data'] == 'ipfs/Qm_v1'
+
+        # Update the mod in source
+        mod_id = src.get_by_name('alice', 'mod1')['id']
+        src.update(mod_id, 'ipfs/Qm_v2', owner='alice')
+
+        # Second sync: stale target entry updated
+        result2 = m.sync(source='src', target='dst', owner='alice')
+        assert len(result2) == 1
+        assert result2[0]['action'] == 'updated'
+        assert dst.get_by_name('alice', 'mod1')['data'] == 'ipfs/Qm_v2'
+
+    def test_sync_unchanged_skipped(self, tmp_dir, mock_storage):
+        """Sync of an unchanged mod returns an empty list."""
+        m = Mod(backend='offchain', storage='ipfs')
+        m._storage_clients['ipfs'] = mock_storage
+        from registry.offchain import OffchainRegistry
+        src = OffchainRegistry(storage_path=os.path.join(tmp_dir, 'src'))
+        dst = OffchainRegistry(storage_path=os.path.join(tmp_dir, 'dst'))
+        m._backends['src'] = src
+        m._backends['dst'] = dst
+
+        src.register('mod1', 'ipfs/Qm_v1', owner='alice')
+        m.sync(source='src', target='dst', owner='alice')
+
+        # Sync again with no changes — nothing should be reported
+        result2 = m.sync(source='src', target='dst', owner='alice')
+        assert result2 == []
+
     def test_sync_offchain_to_offchain(self, tmp_dir, mock_storage):
         """Test sync between two offchain backends (simulates cross-backend sync)."""
         m = Mod(backend='offchain', storage='ipfs')

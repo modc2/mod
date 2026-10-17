@@ -1,0 +1,57 @@
+{
+  "name": "@agenti/facilitator",
+  "version": "0.1.0",
+  "type": "module",
+  "author": "nirholas",
+  "license": "Apache-2.0",
+  "description": "Self-hosted x402 facilitator \u2014 verify and settle EIP-3009 USDC payments on Base, Arbitrum, and Ethereum",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nirholas/agenti"
+  },
+  "homepage": "https://agenti.cash",
+  "bugs": {
+    "url": "https://github.com/nirholas/agenti/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "bin": {
+    "agenti-facilitator": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts && tsup src/bin.ts --format esm --no-dts --platform node",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/bin.js",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0"
+  },
+  "dependencies": {
+    "@agenti/core": "workspace:*",
+    "@hono/node-server": "^1.12.0",
+    "@solana/web3.js": "^1.99.0",
+    "hono": "^4.12.25",
+    "lru-cache": "^11.5.3",
+    "viem": "^2.57.3"
+  }
+}

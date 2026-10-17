@@ -1,0 +1,62 @@
+{
+  "title": "Zuma — zk Yuma consensus",
+  "intro": "A subnet where nobody knows who is who. Miners and validators each prove they belong to their group without saying which member they are, so a validator can't favour a friend and a miner can't court a validator. Scores stay sealed until everyone has locked in, then Yuma pays what the majority agrees on and cuts back anyone who over-rates a miner.",
+  "steps": [
+    "The owner adds miner and validator keys (Add member). Keys are made on the member's own machine: m zkworld.zuma/keygen name=me role=miner.",
+    "Miners hand in work anonymously: m zkworld.zuma/submit name=me work=... Each shows up under a fresh tag every round.",
+    "Validators lock in one score per tag: m zkworld.zuma/commit name=me weights=4,3,2,1, then reveal once everyone has locked in.",
+    "Anyone presses Run consensus. Each member then claims its share to any address it likes: m zkworld.zuma/claim name=me epoch=0 to=0x..."
+  ],
+  "constructor": {
+    "help": "Smallest crowd a member may hide in, how long each stage lasts (seconds; a stage also ends early once everyone is in), and how much is paid out each round.",
+    "inputs": {
+      "owner": { "hide": true },
+      "min_ring": { "label": "Smallest crowd to hide in", "default": "3" },
+      "submit_secs": { "label": "Hand-in window (s)", "default": "600" },
+      "commit_secs": { "label": "Lock-in window (s)", "default": "600" },
+      "reveal_secs": { "label": "Reveal window (s)", "default": "600" },
+      "emission": { "label": "Paid per round", "default": "1000" }
+    }
+  },
+  "fns": {
+    "phase": { "label": "Stage (0 hand in, 1 lock in, 2 reveal, 3 ready to run)", "show": "big" },
+    "epoch": { "label": "Round", "show": "big" },
+    "sealed": { "label": "Validators locked in", "show": "big" },
+    "revealed": { "label": "Scores revealed", "show": "big" },
+    "member_count": { "label": "Members (1 miners, 2 validators)", "show": "number", "inputs": { "role": { "label": "Group", "placeholder": "1" } } },
+    "tags": { "label": "Anonymous miner tags this round", "show": "list", "inputs": { "epoch": { "label": "Round", "placeholder": "0" } } },
+    "voters": { "label": "Anonymous validator nullifiers", "show": "list", "inputs": { "epoch": { "label": "Round", "placeholder": "0" } } },
+    "consensus": { "label": "Consensus score per tag (of 1e9)", "show": "list", "inputs": { "epoch": { "label": "Round", "placeholder": "0" } } },
+    "incentive": { "label": "Miner share per tag (of 1e9)", "show": "list", "inputs": { "epoch": { "label": "Round", "placeholder": "0" } } },
+    "dividends": { "label": "Validator share per nullifier (of 1e9)", "show": "list", "inputs": { "epoch": { "label": "Round", "placeholder": "0" } } },
+    "earned": { "label": "Credited to an address", "show": "number", "inputs": { "who": { "label": "Address" } } },
+    "finalize": { "label": "Run consensus", "button": "Run consensus", "help": "Runs Yuma over the opened scores and starts the next round." },
+    "register": {
+      "label": "Add member",
+      "button": "Add",
+      "help": "Owner only, and only before a round starts. Group 1 = miner, 2 = validator. Validators need a stake; members can only hide among others with the same stake.",
+      "inputs": { "role": { "label": "Group", "placeholder": "1" }, "key": { "label": "Public key {x,y}" }, "stake": { "label": "Stake", "default": "0" } }
+    },
+    "set_open": { "label": "Let anyone join", "button": "Save", "help": "Owner only." },
+    "submit": { "hide": true },
+    "commit": { "hide": true },
+    "reveal": { "hide": true },
+    "claim_miner": { "hide": true },
+    "claim_validator": { "hide": true },
+    "seal": { "hide": true },
+    "mine_scope": { "hide": true },
+    "vote_scope": { "hide": true },
+    "member": { "hide": true },
+    "role_of": { "hide": true },
+    "stake_of": { "hide": true },
+    "params": { "hide": true }
+  },
+  "events": {
+    "Registered": { "say": "A new member joined group {role} (stake {stake})" },
+    "Submitted": { "say": "An anonymous miner handed in work in round {epoch} (hiding among {ring_size})" },
+    "Sealed": { "say": "An anonymous validator locked in scores for round {epoch} (hiding among {ring_size})" },
+    "Revealed": { "say": "A sealed score was opened in round {epoch}" },
+    "Finalized": { "say": "Round {epoch} settled: {miners} miners, {voters} validators" },
+    "Claimed": { "say": "{recipient} was credited {amount} for round {epoch}" }
+  }
+}

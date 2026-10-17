@@ -1,0 +1,183 @@
+{
+  "netuid": 75,
+  "name": "Hippius",
+  "symbol": "م",
+  "owner": "5DAQpczEK4vzBn1waHkC4BZGqGPZ1dwPxKVsj36JDofHAw3a",
+  "description": "Blockchain-backed cloud: storage, VMs, and apps with unmatched transparency, trust, and power.",
+  "github": "https://github.com/thenervelab/thebrain",
+  "url": "https://hippius.com/",
+  "discord": null,
+  "logo": "https://hippius.com/logo.png",
+  "registered_at": 5102795,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [
+    "hippius"
+  ],
+  "market": {
+    "price": 0.018529332,
+    "moving_price": 0.018066011369228363,
+    "market_cap": 107942.1031098659,
+    "tao_in": 34931.842778489,
+    "alpha_in": 1885218.690511724,
+    "alpha_out": 3940253.221258539,
+    "volume": 1623965.276250128,
+    "vol_24h": 7001.884545072913,
+    "emission": 0.0,
+    "change_1h": -0.004970250541103116,
+    "change_24h": 4.456907942636046,
+    "change_7d": 7.646543860750876
+  },
+  "spark_24h": [
+    0.017738733,
+    0.017775264,
+    0.017776627,
+    0.017637092,
+    0.017692148,
+    0.017776066,
+    0.01782273,
+    0.017803232,
+    0.017814968,
+    0.017819596,
+    0.017844224,
+    0.017939313,
+    0.017982782,
+    0.017983032,
+    0.017981533,
+    0.017935385,
+    0.017965483,
+    0.017929793,
+    0.017931895,
+    0.017932011,
+    0.017935458,
+    0.017930837,
+    0.017929333,
+    0.017925055,
+    0.017858284,
+    0.017898302,
+    0.017898884,
+    0.017893842,
+    0.01789465,
+    0.017900575,
+    0.017900028,
+    0.017884703,
+    0.017887988,
+    0.01788444,
+    0.01788333,
+    0.01789139,
+    0.017898446,
+    0.017884184,
+    0.017889773,
+    0.017894851,
+    0.017890709,
+    0.017901434,
+    0.018201964,
+    0.018214768,
+    0.018401119,
+    0.018240924,
+    0.018382645,
+    0.018529332
+  ],
+  "trades_24h": {
+    "trades": 409,
+    "buys": 217,
+    "sells": 192,
+    "buy_tao": 3724.591115029,
+    "sell_tao": 3110.530254317,
+    "net_tao": 614.0608607119998,
+    "traders": 198
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -1.874106211999984,
+      "gross_tao": 2180.076718674,
+      "trades": 12
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.36309152000000466,
+      "gross_tao": 690.36309152,
+      "trades": 6
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": -0.4689902450000005,
+      "gross_tao": 340.468990245,
+      "trades": 10
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": -0.8089034710000007,
+      "gross_tao": 300.808903471,
+      "trades": 6
+    },
+    {
+      "coldkey": "5GCcH9R6SS7xtobP3EvrgSBXuowAtpjgMBP6FVTLWfqGbZ9g",
+      "net_tao": -1.2436413749999993,
+      "gross_tao": 241.243641375,
+      "trades": 6
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792094287,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #70 from thenervelab/chore/runtime-spec-92018",
+      "url": "https://github.com/thenervelab/thebrain/commit/2af9ec4c57cd45d5ff34d0c87e540c1d7a78d2d0",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792077555,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(runtime): bump mainnet spec_version to 92018",
+      "url": "https://github.com/thenervelab/thebrain/commit/76a9a1fb4b1a0f07a7950637cb0c1307870f477f",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1791227329,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #63 from thenervelab/feat/marketplace-buy-credits",
+      "url": "https://github.com/thenervelab/thebrain/commit/530ef9997385b54fa450aab4e5835dd3865a18de",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1791222684,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(marketplace): buy_credits — users pay native tokens for credits …",
+      "url": "https://github.com/thenervelab/thebrain/commit/b4cd2511199e009c2147f2f2bfa343ce4b9b060b",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1790371942,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #60 from thenervelab/feat/marketplace-compute-usage",
+      "url": "https://github.com/thenervelab/thebrain/commit/6c42aa9da10027cfdf89527e805390000761905b",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1790291059,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(marketplace): price compute billing proof size at FRAME's unbound…",
+      "url": "https://github.com/thenervelab/thebrain/commit/dc8f2b5bc6baebb89f71bf5b9bba31ff5cc61176",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1790289660,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(marketplace): charge hourly compute usage once per account and p…",
+      "url": "https://github.com/thenervelab/thebrain/commit/cc94609226a34ddcb4298a672bb2e59ad7753bf7",
+      "publisher": "thenervelab/thebrain"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

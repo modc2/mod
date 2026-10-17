@@ -1,0 +1,189 @@
+{
+  "netuid": 50,
+  "name": "Synth",
+  "symbol": "ש",
+  "owner": "5DxyiWpGqN5xXiczXcEGph51BcgTqcYKD5GKZqoACuc2sJkD",
+  "description": "Predictive intelligence for financial markets and beyond",
+  "github": "https://github.com/mode-network/synth-subnet",
+  "url": "https://synthdata.co",
+  "discord": null,
+  "logo": "https://taostats.io/images/subnets/50.webp?w=96&q=75",
+  "registered_at": 4763204,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.003892867,
+    "moving_price": 0.003957183565944433,
+    "market_cap": 23232.630549462996,
+    "tao_in": 10104.64777667,
+    "alpha_in": 2595682.628773678,
+    "alpha_out": 3372317.446611121,
+    "volume": 1265366.207051218,
+    "vol_24h": 1899.161141620949,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -4.551642194470229,
+    "change_7d": -14.415397400495989
+  },
+  "spark_24h": [
+    0.004078506,
+    0.0040935,
+    0.00411263,
+    0.004111226,
+    0.004111226,
+    0.004111191,
+    0.004126982,
+    0.004126972,
+    0.00412745,
+    0.004127447,
+    0.004127437,
+    0.00413422,
+    0.004134209,
+    0.004134209,
+    0.00413508,
+    0.00413508,
+    0.004134974,
+    0.004053224,
+    0.004009073,
+    0.003962179,
+    0.003944553,
+    0.00392228,
+    0.003891374,
+    0.003898316,
+    0.003919138,
+    0.003948173,
+    0.003970779,
+    0.003970779,
+    0.00396072,
+    0.003936504,
+    0.003936504,
+    0.003924883,
+    0.003924556,
+    0.003924555,
+    0.003924555,
+    0.003924555,
+    0.003929969,
+    0.003929968,
+    0.003929966,
+    0.003897788,
+    0.003863999,
+    0.003863976,
+    0.003863915,
+    0.003863915,
+    0.003864528,
+    0.003869531,
+    0.003893317,
+    0.003892867
+  ],
+  "trades_24h": {
+    "trades": 239,
+    "buys": 81,
+    "sells": 158,
+    "buy_tao": 828.332053524,
+    "sell_tao": 1060.882544293,
+    "net_tao": -232.5504907689999,
+    "traders": 117
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 24.767088263,
+      "gross_tao": 512.687808271,
+      "trades": 28
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 30.290364318,
+      "gross_tao": 199.709635682,
+      "trades": 13
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -0.0010827150000025654,
+      "gross_tao": 80.001082715,
+      "trades": 4
+    },
+    {
+      "coldkey": "5Gv3Bq2jZmXqe1ynE5q4Eb8zph6pPHH6LRRoasi3nb7Vdjbd",
+      "net_tao": -15.524811609999999,
+      "gross_tao": 77.52481161,
+      "trades": 8
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 35.029987691,
+      "gross_tao": 64.970012309,
+      "trades": 9
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791989948,
+      "kind": "commit",
+      "source": "github",
+      "title": "Scope the cycle's asset rotation to its own asset list (#339)",
+      "url": "https://github.com/synthdataco/synth-subnet/commit/d2daf2052a6b7821512ac55f3cc2d1986798be9d",
+      "publisher": "mode-network/synth-subnet"
+    },
+    {
+      "ts": 1791568994,
+      "kind": "commit",
+      "source": "github",
+      "title": "Cast the start_time bound operands so param types resolve (#338)",
+      "url": "https://github.com/synthdataco/synth-subnet/commit/dda9b34cae0c76b8eed76538c5749b24266943e6",
+      "publisher": "mode-network/synth-subnet"
+    },
+    {
+      "ts": 1791552430,
+      "kind": "commit",
+      "source": "github",
+      "title": "Avoid a full miner_predictions scan when loading scores (#337)",
+      "url": "https://github.com/synthdataco/synth-subnet/commit/f18efc654aa99ffc0bb70918de46085d5981e0a0",
+      "publisher": "mode-network/synth-subnet"
+    },
+    {
+      "ts": 1791397945,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.14.0",
+      "url": "https://github.com/synthdataco/synth-subnet/releases/tag/v1.14.0",
+      "publisher": "mode-network/synth-subnet"
+    },
+    {
+      "ts": 1791301131,
+      "kind": "commit",
+      "source": "github",
+      "title": "perf(validator): write predictions to Bigtable from the dendrite work…",
+      "url": "https://github.com/synthdataco/synth-subnet/commit/5fc02e9ab5a6ae65b45dd2bf56dc225b6115e42b",
+      "publisher": "mode-network/synth-subnet"
+    },
+    {
+      "ts": 1791300975,
+      "kind": "commit",
+      "source": "github",
+      "title": "perf(validator): validate and encode miner responses in the dendrite …",
+      "url": "https://github.com/synthdataco/synth-subnet/commit/e9495db80f2b69fa678d149bf0f5219626d673ff",
+      "publisher": "mode-network/synth-subnet"
+    },
+    {
+      "ts": 1791300639,
+      "kind": "commit",
+      "source": "github",
+      "title": "perf(validator): convert each Bigtable prediction to an array once (#…",
+      "url": "https://github.com/synthdataco/synth-subnet/commit/c8f427f53d738e41825b901842bf40e0c58409f1",
+      "publisher": "mode-network/synth-subnet"
+    },
+    {
+      "ts": 1791223702,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(deps): bump virtualenv from 21.4.3 to 21.7.13 (#329)",
+      "url": "https://github.com/synthdataco/synth-subnet/commit/d7693a264979b2808e6a8695e304ed1822037c8a",
+      "publisher": "mode-network/synth-subnet"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

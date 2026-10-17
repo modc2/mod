@@ -1,0 +1,157 @@
+{
+  "netuid": 38,
+  "name": "ChronoLLM",
+  "symbol": "ם",
+  "owner": "5GeWgtBAu2ezYo83sPM7VyEigAfEc3vnqqxRzbMXYVYwEV62",
+  "description": "Competitive training of chronologically consistent Large Language Models",
+  "github": "https://github.com/chronollm/sn38",
+  "url": "https://chronollm.crunchdao.com/",
+  "discord": "https://discord.com/channels/799672011265015819/1485634202895519844",
+  "logo": "https://assets.crunchdao.com/chronollm/logo-round.png",
+  "registered_at": 7284230,
+  "tempo": 1440,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.020259133,
+    "moving_price": 0.020061352290213108,
+    "market_cap": 51373.62809197569,
+    "tao_in": 9156.855942558,
+    "alpha_in": 451986.749376831,
+    "alpha_out": 2083838.850463779,
+    "volume": 291991.711037023,
+    "vol_24h": 2034.0694323229836,
+    "emission": 0.0,
+    "change_1h": -0.00629306181791911,
+    "change_24h": 3.7597622089134752,
+    "change_7d": 3.06969544450606
+  },
+  "spark_24h": [
+    0.019525038,
+    0.019527196,
+    0.019507759,
+    0.019511599,
+    0.019513792,
+    0.019517498,
+    0.019517303,
+    0.019519666,
+    0.019521736,
+    0.019524553,
+    0.019527362,
+    0.019530181,
+    0.019530151,
+    0.019534889,
+    0.019537647,
+    0.019539796,
+    0.019542631,
+    0.020276002,
+    0.020279255,
+    0.020474559,
+    0.020570336,
+    0.020794113,
+    0.020816137,
+    0.020293524,
+    0.020477731,
+    0.02057702,
+    0.020408747,
+    0.020322591,
+    0.020132853,
+    0.020226394,
+    0.020230042,
+    0.020233064,
+    0.020215322,
+    0.020218379,
+    0.020220723,
+    0.020224272,
+    0.02022731,
+    0.020229531,
+    0.020233863,
+    0.020236153,
+    0.020241137,
+    0.020245133,
+    0.020247031,
+    0.020253062,
+    0.020281598,
+    0.020272932,
+    0.020200612,
+    0.020259133
+  ],
+  "trades_24h": {
+    "trades": 238,
+    "buys": 154,
+    "sells": 84,
+    "buy_tao": 1055.852377023,
+    "sell_tao": 920.522347134,
+    "net_tao": 135.3300298889999,
+    "traders": 114
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.10076458700000407,
+      "gross_tao": 349.079134689,
+      "trades": 28
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.19315973500000183,
+      "gross_tao": 220.193159735,
+      "trades": 10
+    },
+    {
+      "coldkey": "5EvHxAn5RBbMXSpgv5fYPikdtgwox9b8vynpVbNm1qPanR57",
+      "net_tao": -0.11439447699999761,
+      "gross_tao": 202.114394477,
+      "trades": 8
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": -0.5362503040000011,
+      "gross_tao": 150.536250304,
+      "trades": 9
+    },
+    {
+      "coldkey": "5CSg3EYmL4kiBkApNbVdcoxs3Ah4AAUfSpTxf1KEjcmRUtc7",
+      "net_tao": -0.7734270730000006,
+      "gross_tao": 120.773427073,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791381315,
+      "kind": "commit",
+      "source": "github",
+      "title": "Leak returns to the score at 30%, over a [-11, -25] window",
+      "url": "https://github.com/chronollm/sn38/commit/f0f5ce21868545b5b305d6f57e0d55e3c69bda08",
+      "publisher": "chronollm/sn38"
+    },
+    {
+      "ts": 1791219325,
+      "kind": "commit",
+      "source": "github",
+      "title": "Round 14: Cache downloaded models and batch the duel generation (#29)",
+      "url": "https://github.com/chronollm/sn38/commit/c2f5c9aeafeb473645ca6d83a50fe562ddf1a781",
+      "publisher": "chronollm/sn38"
+    },
+    {
+      "ts": 1790060673,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: quality duels — async fix, skip private models, cache completion…",
+      "url": "https://github.com/chronollm/sn38/commit/a1f1aa75452e4e81aa75e3cafdfc1aa89b5be14f",
+      "publisher": "chronollm/sn38"
+    },
+    {
+      "ts": 1789997108,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: increase max_new_tokens from 50 to 100 for quality evaluation",
+      "url": "https://github.com/chronollm/sn38/commit/261809ce6cd0e48305f0b06f0ef2b084393722d1",
+      "publisher": "chronollm/sn38"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

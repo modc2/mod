@@ -70,7 +70,7 @@ echo "Build CID: $BUILD_CID${BUILD_TX:+ (tx: $BUILD_TX)}"
 
 # ── Start Next.js (dev mode with hot-reload) ──
 POLYMARKET_API_URL="${POLYMARKET_API_URL:-http://localhost:$API_PORT}" \
-NEXT_PUBLIC_API_URL="/api/polymarket" \
+NEXT_PUBLIC_API_URL="/polymarket/api" \
 NEXT_PUBLIC_BASE_PATH="/polymarket" \
 NEXT_PUBLIC_BUILD_CID="$BUILD_CID" \
 NEXT_PUBLIC_BUILD_TIME="$BUILD_TIME" \

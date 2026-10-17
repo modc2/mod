@@ -1,0 +1,28 @@
+{
+    "name": "subnet",
+    "title": "Private subnet",
+    "description": "Yuma consensus with sealed (commit-reveal) weights: validators can't copy each other, outliers get clipped to the stake-weighted median.",
+    "version": "0.1.0",
+    "submod_of": "zkworld",
+    "kind": "cairo-contract",
+    "template": "counter",
+    "edition": "2024_07",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "deploy",
+        "call",
+        "events"
+    ],
+    "framework": "cairo"
+}

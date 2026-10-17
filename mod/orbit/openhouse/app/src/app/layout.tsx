@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 }
 
 // Runs before React hydrates, so it can't import the VIBES table from
-// page.tsx — the ids are baked in here as strings instead. Keep the three
+// components/vibe.tsx — the ids are baked in here as strings instead. Keep the three
 // lists in step with VIBES when you add a cabinet; the picker validates
 // against the same ids, and an id missing here just falls back to SUNDAY.
 // `openhouse_mode` was the old two-way paper/digital key: a returning
@@ -36,8 +36,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // Three attributes carry the vibe (see the VIBES section of globals.css):
     // data-mode is the field, data-skin the treatment, data-vibe the palette.
     // SUNDAY is the default; the blocking script below upgrades all three to
-    // the saved vibe before the first paint, so a GAMEBOY visitor never sees
-    // a flash of pastel paper. The VIBE picker in page.tsx writes the key.
+    // the saved vibe before the first paint on every route, so a GAMEBOY
+    // visitor never sees a flash of pastel paper — not on the first page and
+    // not on the next. The VIBE picker in components/vibe.tsx writes the key.
     <html lang="en" data-mode="paper" data-skin="soft" data-vibe="sunday" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: VIBE_BOOT }} />

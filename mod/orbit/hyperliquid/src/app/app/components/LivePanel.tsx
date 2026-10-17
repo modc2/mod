@@ -9,12 +9,19 @@ import {
 } from "../lib/api";
 import { approveAgentFlow } from "../lib/hlActions";
 import { useWallet } from "../lib/wallet";
+import { useSession } from "../lib/auth";
+import AuthGate from "./AuthGate";
 
 type LiveStatusResp = Awaited<ReturnType<typeof liveStatus>>;
 
 export default function LivePanel() {
   const wallet = useWallet();
-  const { address, kind } = wallet;
+  const { kind } = wallet;
+  // The engine trades this account's money on a server that only accepts
+  // orders signed for the token's own wallet, so `eoa` here is the *session*
+  // address, never merely an attached one. A watched address would build a
+  // valid-looking config and be refused at start.
+  const { address, me } = useSession();
   const eoa = address ?? "";
   const [agent, setAgent] = useState<string | null>(null);
   const [approved, setApproved] = useState<boolean | null>(null);
@@ -28,7 +35,9 @@ export default function LivePanel() {
   const [minOrder, setMinOrder] = useState(10);
   const [slipBps, setSlipBps] = useState(100);
   const [coinsAllow, setCoinsAllow] = useState("");
+  const [coinsDeny, setCoinsDeny] = useState("");
   const [vault, setVault] = useState("");
+  const [configLoaded, setConfigLoaded] = useState(false);
 
   const [status, setStatus] = useState<LiveStatusResp | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,6 +66,24 @@ export default function LivePanel() {
     return () => { live = false; clearInterval(h); };
   }, [eoa]);
 
+  // Pre-populate form from the running engine config on first status load.
+  useEffect(() => {
+    if (configLoaded || !status?.config) return;
+    const c = status.config;
+    if (Array.isArray(c.traders) && c.traders.length > 0) {
+      setTradersRaw(c.traders.map((t: any) => t.address).join(" "));
+    }
+    if (c.intervalMs != null) setIntervalMs(c.intervalMs);
+    if (c.sizePct != null) setSizePct(c.sizePct);
+    if (c.maxPerTradeUsd != null) setMaxPerTrade(c.maxPerTradeUsd);
+    if (c.minOrderSizeUsd != null) setMinOrder(c.minOrderSizeUsd);
+    if (c.maxSlippageBps != null) setSlipBps(c.maxSlippageBps);
+    if (Array.isArray(c.coinsAllow)) setCoinsAllow(c.coinsAllow.join(", "));
+    if (Array.isArray(c.coinsDeny)) setCoinsDeny(c.coinsDeny.join(", "));
+    if (c.vaultAddress != null) setVault(c.vaultAddress);
+    setConfigLoaded(true);
+  }, [status, configLoaded]);
+
   const onApproveAgent = async () => {
     if (!eoa || !cfg) return;
     setBusy(true); setErr(null);
@@ -69,7 +96,7 @@ export default function LivePanel() {
   };
 
   const onStart = async () => {
-    if (!eoa) return;
+    if (!me) return;
     const traders: LiveTrader[] = tradersRaw
       .split(/[\s,]+/)
       .map((s) => s.trim())
@@ -79,7 +106,7 @@ export default function LivePanel() {
     setBusy(true); setErr(null);
     try {
       await liveStart({
-        eoa,
+        eoa: me,
         traders,
         interval_ms: intervalMs,
         size_pct: sizePct,
@@ -87,6 +114,7 @@ export default function LivePanel() {
         min_order_size_usd: minOrder,
         max_slippage_bps: slipBps,
         coins_allow: coinsAllow.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
+        coins_deny: coinsDeny.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
         vault_address: vault.trim() || undefined,
       });
     } catch (e: any) {
@@ -142,7 +170,10 @@ export default function LivePanel() {
 
       {/* ── Config ── */}
       <section className="card p-4 space-y-3">
-        <div className="text-xs uppercase tracking-wider text-muted">Copy-trade config</div>
+        <div className="flex items-center justify-between">
+          <div className="text-xs uppercase tracking-wider text-muted">Copy-trade config</div>
+          {running && <span className="text-[11px] text-accent2">live — fields show running values</span>}
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="block col-span-2">
             <span className="text-[11px] text-muted">Leader wallets (comma/space-separated 0x…)</span>
@@ -183,17 +214,31 @@ export default function LivePanel() {
             <input className="input w-full" value={vault} onChange={(e) => setVault(e.target.value)}
               placeholder="0x… vault" />
           </label>
-          <label className="block col-span-2">
+          <label className="block">
             <span className="text-[11px] text-muted">Coins allow-list (optional, comma-separated)</span>
             <input className="input w-full" value={coinsAllow}
               onChange={(e) => setCoinsAllow(e.target.value)} placeholder="BTC, ETH, SOL" />
           </label>
+          <label className="block">
+            <span className="text-[11px] text-muted">Coins deny-list (optional, comma-separated)</span>
+            <input className="input w-full" value={coinsDeny}
+              onChange={(e) => setCoinsDeny(e.target.value)} placeholder="BTC, ETH, SOL" />
+          </label>
         </div>
-        <div className="flex items-center gap-2 pt-2">
+        <div className="flex items-start gap-2 pt-2">
           {running ? (
-            <button className="btn-danger" disabled={busy} onClick={onStop}>stop</button>
+            // Stopping is never gated behind anything but the session — if the
+            // engine is running with your money in it, the brake works first.
+            <AuthGate action="stop the engine">
+              <button className="btn-danger" disabled={busy} onClick={onStop}>stop</button>
+            </AuthGate>
           ) : (
-            <button className="btn-primary" disabled={busy} onClick={onStart}>start</button>
+            <AuthGate action="start copy-trading">
+              <button className="btn-primary" disabled={busy || approved !== true} onClick={onStart}>start</button>
+            </AuthGate>
+          )}
+          {!running && approved !== true && (
+            <span className="text-warn text-xs">approve the agent above first</span>
           )}
           {err && <span className="text-danger text-xs">{err}</span>}
         </div>
@@ -208,13 +253,35 @@ export default function LivePanel() {
           </span>
         </div>
         {state ? (
-          <div className="grid grid-cols-4 gap-3 text-sm">
-            <Stat label="cycles" value={state.cycleCount ?? 0} />
-            <Stat label="placed" value={state.totalOrdersPlaced ?? 0} />
-            <Stat label="failed" value={state.totalOrdersFailed ?? 0} />
-            <Stat label="volume" value={fmtUsd(state.totalVolumeMirrored ?? 0)} />
-            <Stat label="last cycle" value={state.lastCycleAt ? ago(state.lastCycleAt) : "—"} />
-          </div>
+          <>
+            <div className="grid grid-cols-4 gap-3 text-sm">
+              <Stat label="cycles" value={state.cycleCount ?? 0} />
+              <Stat label="placed" value={state.totalOrdersPlaced ?? 0} />
+              <Stat label="failed" value={state.totalOrdersFailed ?? 0} />
+              <Stat label="volume" value={fmtUsd(state.totalVolumeMirrored ?? 0)} />
+              <Stat label="last cycle" value={state.lastCycleAt ? ago(state.lastCycleAt) : "—"} />
+              <Stat label="next cycle" value={state.nextCycleAt ? `in ${Math.max(0, Math.round((state.nextCycleAt - Date.now()) / 1000))}s` : "—"} />
+            </div>
+            {(() => {
+              const errors = (state.log ?? []).filter((e: any) => e.type === "ERROR").slice(0, 10);
+              if (!errors.length) return null;
+              return (
+                <div className="mt-3">
+                  <div className="text-[10px] uppercase tracking-wider text-danger mb-1">Recent errors</div>
+                  <div className="space-y-1">
+                    {errors.map((e: any) => (
+                      <div key={e.id} className="flex items-start gap-2 text-xs text-danger/80">
+                        <span className="text-muted shrink-0">{ago(e.timestamp)}</span>
+                        {e.traderAddress && <span className="font-mono shrink-0">{shortAddr(e.traderAddress)}</span>}
+                        {e.coin && <span className="shrink-0">{e.coin}</span>}
+                        <span className="truncate">{e.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+          </>
         ) : <div className="text-muted text-sm">no session</div>}
       </section>
 

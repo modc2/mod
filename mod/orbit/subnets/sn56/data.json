@@ -1,0 +1,189 @@
+{
+  "netuid": 56,
+  "name": "Gradients",
+  "symbol": "ج",
+  "owner": "5EJ1zbdwhumTRYFx3VCGnR6SW7CJWP28tEJCo2gw1dFbVL5g",
+  "description": "Best AutoML plaftorm in the world",
+  "github": "https://github.com/gradients-ai/G.O.D",
+  "url": "https://www.gradients.io/",
+  "discord": "None",
+  "logo": "https://gradients-public.s3.eu-central-003.backblazeb2.com/gradientslogo.png",
+  "registered_at": 4312927,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.014782574,
+    "moving_price": 0.014793763170018792,
+    "market_cap": 92559.68118173466,
+    "tao_in": 49455.828179298,
+    "alpha_in": 3345549.140249872,
+    "alpha_out": 2915855.753223663,
+    "volume": 2869499.638612635,
+    "vol_24h": 262.16778581310064,
+    "emission": 0.0,
+    "change_1h": 0.0006494175063265217,
+    "change_24h": -0.34923600789275033,
+    "change_7d": -0.5606113421616654
+  },
+  "spark_24h": [
+    0.014834381,
+    0.014834682,
+    0.01483508,
+    0.014834499,
+    0.01483481,
+    0.014835158,
+    0.014835251,
+    0.014833963,
+    0.014831162,
+    0.014831561,
+    0.014831942,
+    0.014832322,
+    0.014832043,
+    0.01483244,
+    0.014832838,
+    0.014833133,
+    0.014819628,
+    0.014819808,
+    0.014820202,
+    0.014813789,
+    0.014814185,
+    0.014813522,
+    0.014813915,
+    0.014814212,
+    0.014806602,
+    0.014806996,
+    0.014810275,
+    0.01481067,
+    0.014787465,
+    0.014768257,
+    0.01476857,
+    0.014768955,
+    0.014768299,
+    0.014768712,
+    0.014774315,
+    0.014774686,
+    0.014775097,
+    0.014775753,
+    0.014776123,
+    0.014776488,
+    0.014776884,
+    0.014778785,
+    0.014779149,
+    0.014779594,
+    0.014782335,
+    0.014782824,
+    0.014780332,
+    0.014782574
+  ],
+  "trades_24h": {
+    "trades": 45,
+    "buys": 17,
+    "sells": 28,
+    "buy_tao": 22.455207045,
+    "sell_tao": 168.816277424,
+    "net_tao": -146.36107037899998,
+    "traders": 32
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EoDrYNiN8CDfsk9VbfpXDdis578oVV5uKXDydUhjgJ3SvQw",
+      "net_tao": -37.808678196,
+      "gross_tao": 37.808678196,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.012382998000001422,
+      "gross_tao": 30.514947456,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Fxav7JX2BAF9J8ms2gjuJQerfjyBJQg6ghfQg7aBvg8jtBK",
+      "net_tao": -23.207121307,
+      "gross_tao": 23.207121307,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GR3oEGxvq1QGxhqLQ2V1ameU1FC1PmQQPN7pqXWnkFN3YWW",
+      "net_tao": -20.337685056,
+      "gross_tao": 20.337685056,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FpZ2vAudnf9jnPNYZUAM9a6WB1QtW8fGKckXCfJfFB4FcfA",
+      "net_tao": -17.902125051,
+      "gross_tao": 17.902125051,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792158692,
+      "kind": "commit",
+      "source": "github",
+      "title": "Pause environment tournament scheduling while keeping emissions. (#1398)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/27bc1a974cddfc56f71998e9ee54f021fa1556a8",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1792142211,
+      "kind": "commit",
+      "source": "github",
+      "title": "Send GitHub token as the password in authenticated clone URLs (#1396)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/bc182594a93eef79e502a678c450b6c17a3578b3",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1792022912,
+      "kind": "commit",
+      "source": "github",
+      "title": "Raise training overhead for <1B and 1-4B model bands to 0.4h and 0.6h…",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/0b22808d7db2b20cde49851c8c9650875e50338d",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1791991137,
+      "kind": "commit",
+      "source": "github",
+      "title": "Scale training overhead hours by model size (#1392)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/d1f18afd4831b22c96a81931f301978b4313cbef",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1791547683,
+      "kind": "commit",
+      "source": "github",
+      "title": "replacement for DQ (#1394)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/de5ea9cd90bfff32d59a8403cb62433a8ce46bab",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1791416650,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fix/70b runpod eval path (#1393)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/b49ba8644a0d705e9b035746eceaa05614742934",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1791203956,
+      "kind": "commit",
+      "source": "github",
+      "title": "cheat check moved to round 2 (#1391)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/e524ce62ce09b14b1cebdf169b46f114cdbaabf3",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790946109,
+      "kind": "commit",
+      "source": "github",
+      "title": "Oversampled pool: text-only <=4B models (#1388)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/df81121a9b56f7d5f2a4261038aad8b6a93af56a",
+      "publisher": "gradients-ai/G.O.D"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

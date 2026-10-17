@@ -1,0 +1,38 @@
+{
+    "name": "zkwasm",
+    "description": "Zero-knowledge WASM workbench (scaffold). Compile guest programs to WebAssembly, run them in a sandboxed interpreter, and produce/verify execution proofs. New module: API surface is a stub pending the first prover integration.",
+    "version": "0.1.0",
+    "anchor": "mod.py",
+    "port": 51310,
+    "app_port": 51310,
+    "route": true,
+    "urls": {
+        "api": "http://localhost:51310",
+        "app": "http://localhost:51310/zkwasm"
+    },
+    "endpoints": {
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness"
+        },
+        "info": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Module description + status"
+        },
+        "status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "-> {running, port, version}"
+        }
+    },
+    "fns": [
+        "info",
+        "test",
+        "serve",
+        "kill",
+        "status"
+    ],
+    "schema": "QmPMsCnZtATwWWL24SuFUYjS4h2pioeNo7QVHbC5nNGV1b"
+}

@@ -1,0 +1,33 @@
+{
+    "name": "blotto",
+    "description": "Colonel Blotto \u2014 both seats allocate at once and neither sees the other first. The simultaneous, hidden-information case of the class ABI.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "decc658b221f337bf74bc97903a836af0add028ec4a20d6d1353574afe6cd246",
+    "bytes": 3512,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game",
+        "class",
+        "python",
+        "simultaneous"
+    ],
+    "defines": [
+        "__init__",
+        "turn",
+        "view",
+        "step",
+        "done",
+        "result",
+        "army_in"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/blotto/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

@@ -26,6 +26,7 @@ export interface Scan {
   scan_id: string;
   repo: string;
   branch?: string | null;
+  subdir?: string | null;
   status: "queued" | "cloning" | "scanning" | "done" | "error" | string;
   started_at?: number;
   finished_at?: number;
@@ -39,6 +40,7 @@ export interface Scan {
 export async function startScan(body: {
   repo: string;
   branch?: string;
+  subdir?: string;
   steps?: number;
   provider?: string;
   model?: string;

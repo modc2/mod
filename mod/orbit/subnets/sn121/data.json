@@ -1,0 +1,141 @@
+{
+  "netuid": 121,
+  "name": "sundae_bar",
+  "symbol": "Ⲅ",
+  "owner": "5CXGaDJsffVeBK4CDhBNMVK6MH7fHbL7AbnjzZ8XP6QzFLWm",
+  "description": "An enterprise AI platform that turns real business needs into ready-to-use AI solutions.",
+  "github": "https://github.com/sundae-bar/bittensor-subnet",
+  "url": "https://www.sundaebar.ai/",
+  "discord": null,
+  "logo": "https://www.sundaebar.ai/apple-icon.png",
+  "registered_at": 5766528,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.003716082,
+    "moving_price": 0.003726224647834897,
+    "market_cap": 17041.63946766766,
+    "tao_in": 5667.68060839,
+    "alpha_in": 1525176.395074374,
+    "alpha_out": 3060739.488285482,
+    "volume": 555144.339544917,
+    "vol_24h": 19.468003551010042,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.6833348923603211,
+    "change_7d": -2.6299806050328445
+  },
+  "spark_24h": [
+    0.00374165,
+    0.003739458,
+    0.003739437,
+    0.003739044,
+    0.003739044,
+    0.003739044,
+    0.003738936,
+    0.003738918,
+    0.003733216,
+    0.003733216,
+    0.003731024,
+    0.003731023,
+    0.003728695,
+    0.003728695,
+    0.003728695,
+    0.003728695,
+    0.003728695,
+    0.003728693,
+    0.003728693,
+    0.003728693,
+    0.003728691,
+    0.003728407,
+    0.003728406,
+    0.003728406,
+    0.003728397,
+    0.003726209,
+    0.003726206,
+    0.003726206,
+    0.003726206,
+    0.003726166,
+    0.003726166,
+    0.003726164,
+    0.003725474,
+    0.003725472,
+    0.003725472,
+    0.003725472,
+    0.003723282,
+    0.003723282,
+    0.003723278,
+    0.003723257,
+    0.003723257,
+    0.003723256,
+    0.003723256,
+    0.003723256,
+    0.003721069,
+    0.003721069,
+    0.00371827,
+    0.003716082
+  ],
+  "trades_24h": {
+    "trades": 12,
+    "buys": 0,
+    "sells": 12,
+    "buy_tao": 0,
+    "sell_tao": 18.056388134,
+    "net_tao": -18.056388134,
+    "traders": 6
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FA2t9Wj4mhuMVWfs55DCAoybiqDW6aaCpYJ59gv5MGYS9sY",
+      "net_tao": -11.657372604999999,
+      "gross_tao": 11.657372604999999,
+      "trades": 7
+    },
+    {
+      "coldkey": "5DRppueiUwcfHhGpuzBi98KX4SEdpGLdpc8bTbEKqMrDNueu",
+      "net_tao": -4.298733663,
+      "gross_tao": 4.298733663,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F7QqYUgsugi8Pvn82waTBVWrquBSyeZAKCaXKhU6eZahAvc",
+      "net_tao": -1.755913007,
+      "gross_tao": 1.755913007,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -0.294843311,
+      "gross_tao": 0.294843311,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HWZUAtguGG8Qsx8nux5ZPctgUHJPJ89emC3WZbohRnsHwyH",
+      "net_tao": -0.03323965,
+      "gross_tao": 0.03323965,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792164643,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #1 from sundae-bar/readme-skill-bundles",
+      "url": "https://github.com/sundae-bar/bittensor-subnet/commit/8fcfc1da24f509a64fcef1e80889f8060cdbf110",
+      "publisher": "sundae-bar/bittensor-subnet"
+    },
+    {
+      "ts": 1792164395,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update README for skill bundles, the leadership margin and a Discord FAQ",
+      "url": "https://github.com/sundae-bar/bittensor-subnet/commit/543793a68bf4c792378ec52c05e918f85ed98664",
+      "publisher": "sundae-bar/bittensor-subnet"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

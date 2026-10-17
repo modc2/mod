@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0b0f14; --card:#121820; --line:#1f2a36; --fg:#d7e2ec; --dim:#7d8fa1; --a:#55e0c8; --b:#ffb454; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace,Menlo,Consolas,monospace; text-align:center; }
+  #st { margin:6px 0 14px; color:var(--dim); min-height:21px; } #st.turn { color:var(--a); font-weight:700; } #st.over { color:var(--fg); font-weight:700; }
+  button { font:inherit; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 14px; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--a); color:var(--a); } button:disabled { opacity:.35; cursor:default; }
+  button.go { background:var(--a); color:var(--bg); border-color:var(--a); font-weight:700; }
+  .t { letter-spacing:3px; font-size:12px; color:var(--dim); }
+</style>
+<title>CONNECT FOUR</title><style>
+#g { display:inline-grid; grid-template-columns:repeat(7,52px); gap:6px; padding:10px; background:#173a6b; border-radius:14px; }
+.h { height:26px; border-radius:8px; color:var(--a); font-weight:700; } .h.p { cursor:pointer; border:1px dashed var(--a); } .h.p:hover { background:#10302c; }
+.c { width:52px; height:52px; border-radius:50%; background:var(--bg); } .c.x { background:#ff5c6c; } .c.o { background:#ffd84d; }</style></head><body>
+<div class=t>CONNECT FOUR</div><div id=st>waiting for the table…</div>
+<div id=g></div><p id=you class=t></p>
+<p><button id=again class=go onclick="send({arena:'new'})">start a game</button></p>
+<script>
+const $ = (id) => document.getElementById(id);
+const send = (m) => parent.postMessage({ protocol: "arena-frontend/1", ...m }, "*");
+const move = (mv) => send({ arena: "move", move: String(mv) });
+let S = {};
+function head(msg) {
+  $("st").textContent = msg.status || "";
+  $("st").className = msg.done ? "over" : msg.your_turn ? "turn" : "";
+  $("again").hidden = msg.started && !msg.done;
+  $("again").textContent = msg.started ? "play again" : "start a game";
+}
+addEventListener("message", (e) => { if (e.source === parent && e.data?.arena === "state") { S = e.data; head(S); draw(S); } });
+new ResizeObserver(() => send({ arena: "height", px: document.documentElement.scrollHeight })).observe(document.body);
+send({ arena: "ready" });
+
+function draw(m) {
+  const lines = (m.view || "").split("\n");
+  const hi = lines.findIndex((l) => l.trim() === "0 1 2 3 4 5 6");
+  const rows = hi < 0 ? Array(6).fill(". . . . . . .") : lines.slice(hi + 1, hi + 7);
+  const me = (/playing `(.)`/.exec(m.view || "") || [])[1];
+  $("you").textContent = me ? `your discs: ${me === "x" ? "red" : "yellow"}` : "";
+  const legal = new Set(m.legal || []), kids = [];
+  for (let c = 0; c < 7; c++) {
+    const d = document.createElement("div"), ok = m.your_turn && legal.has(String(c));
+    d.className = `h${ok ? " p" : ""}`; d.textContent = ok ? "▼" : ""; if (ok) d.onclick = () => move(c); kids.push(d);
+  }
+  for (const r of rows) for (const ch of r.trim().split(/\s+/)) {
+    const d = document.createElement("div"); d.className = `c ${ch}`; kids.push(d);
+  }
+  $("g").replaceChildren(...kids);
+}
+</script></body></html>

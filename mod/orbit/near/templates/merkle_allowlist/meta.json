@@ -1,0 +1,22 @@
+{
+  "id": "merkle_allowlist",
+  "title": "Merkle allowlist (prove you are on the list)",
+  "blurb": "The owner publishes one 32-byte root for a list of thousands of accounts. A member proves membership with a handful of hashes instead of the whole list. Succinct proofs are what ZK is made of; this is the hash-only version.",
+  "level": "zk",
+  "init": {"method": "new", "args": {"root": "0000000000000000000000000000000000000000000000000000000000000000"}},
+  "cairo_twin": "merkle_allowlist",
+  "steps": [
+    "Build, Test, Ship (any root is fine for init).",
+    "Use the MERKLE helper under BUILD (or m near/merkle alice.testnet,bob.testnet,you.testnet) to get a root and each account's proof.",
+    "Owner: CHANGE set_root {\"root\":\"<root>\"}.",
+    "CHANGE claim {\"proof\":[...]} from a listed account; VIEW claimed and claims.",
+    "Try claim from an account that is not on the list: refused with the same few hashes."
+  ],
+  "walkthrough": [
+    {"find": "fn leaf", "say": "Each account becomes a leaf: sha256 of its name. Hashing the leaf (not using the raw name) means a proof element can never be mistaken for a leaf."},
+    {"find": "fn parent", "say": "Pairs are sorted before hashing, so a proof does not need left/right flags: whichever order the two hashes come in, the parent is the same."},
+    {"find": "fn verify", "say": "Walk from the leaf to the top: hash with each proof element in turn. If you land on the root, you are on the list. The list itself never touches the chain; just one root."},
+    {"find": "fn set_root", "say": "Changing the list = changing 32 bytes. Airdrops and allowlists do exactly this for hundreds of thousands of addresses."},
+    {"find": "fn claim", "say": "Membership plus one-time-ness: the contract remembers who claimed. A ZK version would replace the account id with a nullifier so even WHO claimed stays hidden; see the zuma and zquorum mods for that, in Cairo."}
+  ]
+}

@@ -1,0 +1,40 @@
+{
+    "name": "bloctime.yuma",
+    "submod_of": "bloctime",
+    "version": "0.1.0",
+    "description": "Yuma consensus where validator stake is BlocTime. A validator's voice is its BLOC voting power (held + delegated) \u2014 BLOC is dollars x seconds locked, so a long lock outweighs a big wallet. Validators weight miners; the stake-weighted kappa-quantile clips outliers; miners earn by clipped rank, validators by EMA bonds. Same integer maths in Solidity (contracts/yuma/YumaBlocTime.sol) and Python (yuma.py), pinned by fixtures/cases.json.",
+    "anchor": "mod.py",
+    "icon": "Y",
+    "fns": [
+        "info",
+        "whitepaper",
+        "state",
+        "preview",
+        "simulate",
+        "source",
+        "set_stake",
+        "register_validator",
+        "register_miner",
+        "set_weights",
+        "epoch",
+        "claim",
+        "params",
+        "reset",
+        "deploy",
+        "deployments",
+        "chain",
+        "test"
+    ],
+    "state": "~/.mod/bloctime/yuma/ledger.json (override with BLOCTIME_YUMA_DIR)",
+    "paper_owner": "owner",
+    "rules": {
+        "stake": "BlocTime.getVotingPower(validator) \u2014 BLOC held + delegated",
+        "consensus": "C_j = max c : sum of normalised stake with W_ij >= c reaches kappa",
+        "incentive": "I_j = sum_i s_i min(W_ij, C_j), normalised",
+        "bonds": "B_ij = alpha * share of miner j's clipped rank + (1 - alpha) * B_ij",
+        "dividends": "D_i = sum_j B_ij I_j, normalised",
+        "emission": "ownerCut off the top; minerShare of the rest by I, remainder by D; dust to owner"
+    },
+    "deployments": {},
+    "whitepaper": "whitepaper.md"
+}

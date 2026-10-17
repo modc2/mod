@@ -1,0 +1,133 @@
+{
+  "netuid": 82,
+  "name": "Noah",
+  "symbol": "ᚢ",
+  "owner": "5GGrRdUatgDLiJxnytdWfYCwsAb1Cyo4U5Dw1HmLiAcbWj88",
+  "description": null,
+  "github": "https://github.com/Vora-Inc/NOAH",
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "registered_at": 9155260,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.054172449,
+    "moving_price": 0.02572854282334447,
+    "market_cap": 9153.284436812335,
+    "tao_in": 2313.863164176,
+    "alpha_in": 42712.913774161,
+    "alpha_out": 126252.761689622,
+    "volume": 8393.84141675,
+    "vol_24h": 458.0990534809998,
+    "emission": 0.0,
+    "change_1h": 0.05226973005465485,
+    "change_24h": -8.430472737880645,
+    "change_7d": 119.49240674476114
+  },
+  "spark_24h": [
+    0.059159909,
+    0.059159909,
+    0.059159909,
+    0.058946816,
+    0.058931787,
+    0.058928743,
+    0.058906185,
+    0.058815844,
+    0.058833722,
+    0.059164976,
+    0.059150622,
+    0.059150406,
+    0.059145698,
+    0.059145698,
+    0.059131557,
+    0.059131557,
+    0.059131502,
+    0.059127302,
+    0.059113437,
+    0.059113428,
+    0.059113006,
+    0.058311179,
+    0.058297451,
+    0.056858013,
+    0.056856084,
+    0.056836063,
+    0.056835594,
+    0.056835537,
+    0.056835062,
+    0.056386278,
+    0.056386278,
+    0.056118148,
+    0.055840228,
+    0.055786125,
+    0.055671086,
+    0.055579251,
+    0.055435853,
+    0.055351083,
+    0.055205802,
+    0.055090985,
+    0.05494414,
+    0.054863535,
+    0.054723733,
+    0.054586304,
+    0.054301196,
+    0.054159168,
+    0.056799863,
+    0.054172449
+  ],
+  "trades_24h": {
+    "trades": 90,
+    "buys": 39,
+    "sells": 51,
+    "buy_tao": 177.984306556,
+    "sell_tao": 211.823309809,
+    "net_tao": -33.83900325299999,
+    "traders": 36
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5D5eZr3ZYtdUgzHzuDDNuJc79EzWoB8i8aGQby9MVghD8K3V",
+      "net_tao": 0.13414094399999854,
+      "gross_tao": 119.865859056,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.00836885000000187,
+      "gross_tao": 64.207193142,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": 0.05768772700000113,
+      "gross_tao": 39.942312273,
+      "trades": 4
+    },
+    {
+      "coldkey": "5D31yczGiq9tVJwGgX87sWBks1g6RST5Tju5aajGycvvrijb",
+      "net_tao": 10.010057631999999,
+      "gross_tao": 29.989942368,
+      "trades": 5
+    },
+    {
+      "coldkey": "5Hp1w3GL6NjZWFXiyUzLTZqjiPatnm8Rtnp6557UmF5WE175",
+      "net_tao": -4.332041673000001,
+      "gross_tao": 22.332041673,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792194364,
+      "kind": "commit",
+      "source": "github",
+      "title": "Initial public Noah miner and validator release",
+      "url": "https://github.com/Vora-Inc/NOAH/commit/fc50abe33cfe2f28ef722d2e41701fccbd640468",
+      "publisher": "Vora-Inc/NOAH"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

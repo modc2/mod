@@ -83,7 +83,7 @@ m query/query "Explain AI" use_venice=true
 
 ## API Reference
 
-### `query(query, use_venice=False, model=None, stream=False, max_tokens=4096, temperature=1.0)`
+### `query(query, use_venice=False, model=None, stream=False, max_tokens=4096, temperature=1.0, system=None)`
 
 Query a free AI model with automatic provider selection.
 
@@ -94,6 +94,7 @@ Query a free AI model with automatic provider selection.
 - `stream` (bool): Whether to stream the response (default: False)
 - `max_tokens` (int): Maximum response tokens (default: 4096)
 - `temperature` (float): Sampling temperature (default: 1.0)
+- `system` (str): Optional system prompt to set persona, output format, or constraints
 
 **Returns:** str or generator
 
@@ -107,13 +108,17 @@ List all available free models from OpenRouter.
 
 **Returns:** list of model IDs or model info dicts
 
-### `openrouter_query(query, model=None, stream=False, max_tokens=4096, temperature=1.0)`
+### `openrouter_query(query, model=None, stream=False, max_tokens=4096, temperature=1.0, system=None)`
 
 Query using OpenRouter free models directly.
 
-### `venice_query(query, model=None, stream=False, max_tokens=4096, temperature=1.0)`
+**Parameters:** same as `query()` minus `use_venice`; `system` sets the system prompt.
+
+### `venice_query(query, model=None, stream=False, max_tokens=4096, temperature=1.0, system=None)`
 
 Query using Venice AI directly.
+
+**Parameters:** same as `query()` minus `use_venice`; `system` sets the system prompt.
 
 ## Available Free Models (as of April 2026)
 

@@ -1,0 +1,17 @@
+# starknet.{{name}} — {{title}}
+
+{{pitch}}
+
+An app on Starknet, made {{created}} with `starknet/new_app`.
+
+| file | what it is |
+|---|---|
+| `config.json` | title, icon, tag, pitch (the Apps card) and `fns` — which fns are callable |
+| `mod.py` | `class Mod` — `facts()` feeds the card, every other fn is your API |
+| `app/index.html` | the app itself, plain HTML, served at `/starknet/apps/{{name}}/` |
+
+Add a fn: write it in `mod.py`, add its name to `fns`, call it from the page
+with `api('my_fn', {arg: 1})`. No build and no restart.
+
+    curl localhost:51020/starknet/_api/apps/{{name}}/hello?who=you
+    m starknet.{{name}}/head

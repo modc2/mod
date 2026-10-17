@@ -1,0 +1,189 @@
+{
+  "netuid": 97,
+  "name": "Ingot",
+  "symbol": "ა",
+  "owner": "5GnW8owmMGn83WqL9JNYytmw458UYrTT6Ra5fH8TTUkzEbTb",
+  "description": "Open models, cast small.",
+  "github": "https://github.com/DendriteLabs/ingot",
+  "url": "https://theingot.ai",
+  "discord": null,
+  "logo": "https://theingot.ai/brand/ingot-logo.png",
+  "registered_at": 7735450,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.013026016,
+    "moving_price": 0.013023645617067814,
+    "market_cap": 26273.31659435599,
+    "tao_in": 10871.265795595,
+    "alpha_in": 834581.429920426,
+    "alpha_out": 1182406.465254583,
+    "volume": 552225.335877464,
+    "vol_24h": 4044.380509300041,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 4.096652976260784,
+    "change_7d": -12.993571845272756
+  },
+  "spark_24h": [
+    0.012513386,
+    0.012513838,
+    0.01251445,
+    0.012509256,
+    0.012506302,
+    0.012507118,
+    0.012519919,
+    0.012514232,
+    0.012513995,
+    0.012514594,
+    0.012515344,
+    0.012551216,
+    0.012560182,
+    0.012560941,
+    0.012561531,
+    0.012561979,
+    0.01256257,
+    0.012769677,
+    0.012634714,
+    0.012635108,
+    0.012635655,
+    0.012629635,
+    0.012509052,
+    0.012509699,
+    0.012539598,
+    0.012805307,
+    0.012805692,
+    0.012806264,
+    0.01259606,
+    0.013481681,
+    0.013374506,
+    0.013341207,
+    0.013308358,
+    0.013306376,
+    0.013318487,
+    0.013301214,
+    0.01329999,
+    0.013360578,
+    0.013360474,
+    0.013359973,
+    0.013361093,
+    0.013362561,
+    0.01336221,
+    0.013415164,
+    0.013417229,
+    0.013411502,
+    0.013126832,
+    0.013026016
+  ],
+  "trades_24h": {
+    "trades": 332,
+    "buys": 174,
+    "sells": 158,
+    "buy_tao": 2111.397378019,
+    "sell_tao": 1899.588578967,
+    "net_tao": 211.8087990519998,
+    "traders": 89
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 28.428521305000004,
+      "gross_tao": 289.571478695,
+      "trades": 16
+    },
+    {
+      "coldkey": "5D5eZr3ZYtdUgzHzuDDNuJc79EzWoB8i8aGQby9MVghD8K3V",
+      "net_tao": 0.4700851660000005,
+      "gross_tao": 279.529915838,
+      "trades": 6
+    },
+    {
+      "coldkey": "5D2MW8D89hZa1CmTt2ZomiSemjC7VVzMRHPM497mbXBB9hZy",
+      "net_tao": 0.5150282699999948,
+      "gross_tao": 239.48497173,
+      "trades": 10
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -0.45837114600000106,
+      "gross_tao": 230.458371146,
+      "trades": 11
+    },
+    {
+      "coldkey": "5GXjvzz9ZVezW6emkzXAzyFi11YhkpgKmMGbzHAtB4bFpioB",
+      "net_tao": -1.7573291799999993,
+      "gross_tao": 201.75732918,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792179705,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: order samples by prompt length, more teacher models",
+      "url": "https://github.com/DendriteLabs/ingot/commit/08d9f36c4632aa3a4f94a6250072d6c7a94fc730",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1792176127,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(promoter): publish a king in one commit after the repo's initial one",
+      "url": "https://github.com/DendriteLabs/ingot/commit/93b28b686f22c79a3c51b40fe5c38258237b9567",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1792173358,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: eval stage timing logs, loosened dedup thresholds, chain reader…",
+      "url": "https://github.com/DendriteLabs/ingot/commit/271a12ae53303b79b747485d80f5297fbe58814a",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1792167950,
+      "kind": "commit",
+      "source": "github",
+      "title": "init: init of ingot",
+      "url": "https://github.com/DendriteLabs/ingot/commit/e6c8206179153e228a021ff709dd9e311c066225",
+      "publisher": "DendriteLabs/ingot"
+    },
+    {
+      "ts": 1791557872,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: git -C diffs count as patches; heredoc edits reach the simulator…",
+      "url": "https://github.com/unarbos/albedo/commit/4983bfbcb2d238390d967ca5bdd8ac7d01dc0899",
+      "publisher": "unarbos/albedo"
+    },
+    {
+      "ts": 1791541981,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: manifest upload works on R2; defaults point at the 13-source man…",
+      "url": "https://github.com/unarbos/albedo/commit/2fdceb103c49c279150df4512bbe94cc2e37ccff",
+      "publisher": "unarbos/albedo"
+    },
+    {
+      "ts": 1791539536,
+      "kind": "commit",
+      "source": "github",
+      "title": "perf: simulator prompt shares the sample's history cache across rollo…",
+      "url": "https://github.com/unarbos/albedo/commit/934f3dd898b41f5a16f13188f92d2b2ef1feefd3",
+      "publisher": "unarbos/albedo"
+    },
+    {
+      "ts": 1791471559,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: display new datasets on frontend",
+      "url": "https://github.com/unarbos/albedo/commit/6ff609d0eaaf904d55731858d0d733eab1c0c6b3",
+      "publisher": "unarbos/albedo"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

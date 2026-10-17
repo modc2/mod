@@ -496,7 +496,8 @@ class Library:
         name = item["name"]
         fields = dict(description=item["description"], goal=item["body"],
                       icon=item["icon"], tools=item["tools"],
-                      model=item["model"], harness=item["harness"], key=key)
+                      model=item["model"], memory=item.get("memory"),
+                      harness=item["harness"], key=key)
         try:
             saved = self._agents.create(name=name, **fields)
         except FileExistsError:

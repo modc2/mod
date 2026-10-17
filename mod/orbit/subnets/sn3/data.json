@@ -1,0 +1,189 @@
+{
+  "netuid": 3,
+  "name": "Teutonic",
+  "symbol": "γ",
+  "owner": "5GsGUrd21bnkNxQsH2grv474y4gcDwCmp5xJ72KeokspZ2bg",
+  "description": "Coordinated Learning",
+  "github": "https://github.com/unarbos/teutonic",
+  "url": "https://www.teutonic.ai/",
+  "discord": "@unarbos",
+  "logo": "https://teutonic.ai/favicon.png",
+  "registered_at": 4165565,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.024523601,
+    "moving_price": 0.024510028306394815,
+    "market_cap": 154483.6749588118,
+    "tao_in": 74591.91147435,
+    "alpha_in": 3041637.759545847,
+    "alpha_out": 3257750.122307712,
+    "volume": 3582392.059860317,
+    "vol_24h": 410.0406039459631,
+    "emission": 0.0,
+    "change_1h": 0.0008440919719188145,
+    "change_24h": 0.39656140685857544,
+    "change_7d": -4.2081710150239875
+  },
+  "spark_24h": [
+    0.024426734,
+    0.024427349,
+    0.024428182,
+    0.024426032,
+    0.024426666,
+    0.024427503,
+    0.024427676,
+    0.024428464,
+    0.024425658,
+    0.024426478,
+    0.024446974,
+    0.024448109,
+    0.02444925,
+    0.024449477,
+    0.024451284,
+    0.024451902,
+    0.024451983,
+    0.024452094,
+    0.024451642,
+    0.024452255,
+    0.02445306,
+    0.024453166,
+    0.024453978,
+    0.024454593,
+    0.024455703,
+    0.02448205,
+    0.02448264,
+    0.024493303,
+    0.024494089,
+    0.024496001,
+    0.024496631,
+    0.02449489,
+    0.024491351,
+    0.024497117,
+    0.024498413,
+    0.024499263,
+    0.024500095,
+    0.024500707,
+    0.024501246,
+    0.024501925,
+    0.0245053,
+    0.024504927,
+    0.024505638,
+    0.024507095,
+    0.024511725,
+    0.024513041,
+    0.024518522,
+    0.024523601
+  ],
+  "trades_24h": {
+    "trades": 68,
+    "buys": 35,
+    "sells": 33,
+    "buy_tao": 172.159526055,
+    "sell_tao": 119.193965263,
+    "net_tao": 52.96556079199999,
+    "traders": 47
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5F5fHAR7LbxVouBgMGxPwPUR9Ev44xGWGH88THsViWAoneGf",
+      "net_tao": -3.5800628740000033,
+      "gross_tao": 103.580062874,
+      "trades": 3
+    },
+    {
+      "coldkey": "5CwBp6cDEFj8Q8pZUJXTM6SRh6bNLxRtqk2cX234Zti1f4wP",
+      "net_tao": 0.06505456500000228,
+      "gross_tao": 45.491802703,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CJ7WzjgEeWepEjjMimFYvoByawMooEekmkzck4kutvHcCdE",
+      "net_tao": 37.887250038,
+      "gross_tao": 37.887250038,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GYTkrvLpVSxQzWp1x6brTkgET9ckJgrmZMACsR2XRe7yBqg",
+      "net_tao": 30.0,
+      "gross_tao": 30.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Gv3Bq2jZmXqe1ynE5q4Eb8zph6pPHH6LRRoasi3nb7Vdjbd",
+      "net_tao": 0.014278657000000194,
+      "gross_tao": 29.985721343,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792157177,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update document token counts in llms.txt and app.js for accuracy",
+      "url": "https://github.com/unarbos/teutonic/commit/3cd54efb328e487d152c80f0fbd7c9df82f4f927",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1792076626,
+      "kind": "commit",
+      "source": "github",
+      "title": "Increase precision of delta threshold metric display in dataset cell",
+      "url": "https://github.com/unarbos/teutonic/commit/5e55c189314df9e9f6fab63f4f0d49ceb0cdab8f",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1792075578,
+      "kind": "commit",
+      "source": "github",
+      "title": "Require specialist own-source improvement to meet the domain threshold",
+      "url": "https://github.com/unarbos/teutonic/commit/3c8d2b60d2616e61083cf3d894e4706ac8c62ea1",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1792068319,
+      "kind": "commit",
+      "source": "github",
+      "title": "Optimize evaluator dataset downloads with authenticated R2 reads and …",
+      "url": "https://github.com/unarbos/teutonic/commit/96e37a395c4530fbfe2e8f5fa7e1cdc15ad8ecc9",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1792063959,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add legacy BBH and integrate legacy data into benchmark results",
+      "url": "https://github.com/unarbos/teutonic/commit/778e0021482bfb01dee08282589a2c0dac4a1f19",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1792063095,
+      "kind": "commit",
+      "source": "github",
+      "title": "Optimize evaluator model loading by broadcasting weights to GPU replicas",
+      "url": "https://github.com/unarbos/teutonic/commit/049de01701e74c8d82edfbec6b8a64908f138170",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1791805932,
+      "kind": "commit",
+      "source": "github",
+      "title": "Optimize evaluator shard downloads with cached HTTP range reads",
+      "url": "https://github.com/unarbos/teutonic/commit/5118c326a10fde4bdf485e1963c0f09f9c759645",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1791793159,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add download button for shard list and update UI layout for shard sum…",
+      "url": "https://github.com/unarbos/teutonic/commit/0aefc6906c9e9ff51f9a23ee9b6d26841df00700",
+      "publisher": "unarbos/teutonic"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

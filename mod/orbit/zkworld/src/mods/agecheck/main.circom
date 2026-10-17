@@ -1,0 +1,50 @@
+pragma circom 2.1.6;
+
+// Agecheck: prove age >= threshold without revealing age. threshold is a
+// public input, age stays private; the only output is the constant 1.
+
+// in -> n bits. Each bit is forced to 0/1 and the bits must recompose `in`,
+// which also proves in < 2^n (the range check every comparison needs).
+template Num2Bits(n) {
+    signal input in;
+    signal output out[n];
+    var acc = 0;
+    var e = 1;
+    for (var i = 0; i < n; i++) {
+        out[i] <-- (in >> i) & 1;
+        out[i] * (out[i] - 1) === 0;
+        acc += out[i] * e;
+        e = e + e;
+    }
+    acc === in;
+}
+
+// out = in[0] < in[1], both < 2^n: the top bit of in[0] + 2^n - in[1]
+// is 1 exactly when in[0] >= in[1].
+template LessThan(n) {
+    signal input in[2];
+    signal output out;
+    component b = Num2Bits(n + 1);
+    b.in <== in[0] + (1 << n) - in[1];
+    out <== 1 - b.out[n];
+}
+
+template Agecheck() {
+    signal input age;        // private
+    signal input threshold;  // public
+    signal output ok;
+
+    // both must fit in 8 bits or LessThan's wraparound could be abused
+    component ra = Num2Bits(8);
+    ra.in <== age;
+    component rt = Num2Bits(8);
+    rt.in <== threshold;
+
+    component lt = LessThan(8);
+    lt.in[0] <== age;
+    lt.in[1] <== threshold;
+    ok <== 1 - lt.out;
+    ok === 1;
+}
+
+component main {public [threshold]} = Agecheck();

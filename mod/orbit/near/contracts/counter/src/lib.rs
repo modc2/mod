@@ -1,0 +1,105 @@
+//! Counter: The smallest real contract: one number in storage, a view that reads it, two changes that move it, an owner-only reset, and a log line per change
+//!
+//! The four parts of every NEAR contract, in ~60 lines:
+//!   storage   = the struct marked #[near(contract_state)]
+//!   view      = methods taking &self      (free, no transaction)
+//!   change    = methods taking &mut self  (signed, costs gas)
+//!   event     = a log line starting with EVENT_JSON: (NEP-297)
+use near_sdk::{env, near, require, AccountId, PanicOnDefault};
+
+#[near(contract_state)]
+#[derive(PanicOnDefault)]
+pub struct Counter {
+    value: i64,
+    owner: AccountId,
+}
+
+#[near]
+impl Counter {
+    /// Runs once, right after deploy. Whoever deploys becomes the owner.
+    #[init]
+    pub fn new() -> Self {
+        Self { value: 0, owner: env::predecessor_account_id() }
+    }
+
+    /// A view: reading costs nothing and needs no key.
+    pub fn get(&self) -> i64 {
+        self.value
+    }
+
+    pub fn owner(&self) -> AccountId {
+        self.owner.clone()
+    }
+
+    /// A change: anyone may call it, it needs a signed transaction.
+    pub fn increment(&mut self) -> i64 {
+        self.value += 1;
+        emit("increment", &env::predecessor_account_id(), self.value);
+        self.value
+    }
+
+    pub fn decrement(&mut self) -> i64 {
+        self.value -= 1;
+        emit("decrement", &env::predecessor_account_id(), self.value);
+        self.value
+    }
+
+    /// Only the owner may reset. require! reverts the call with that message.
+    pub fn reset(&mut self) {
+        require!(env::predecessor_account_id() == self.owner, "only the owner can reset");
+        self.value = 0;
+        emit("reset", &env::predecessor_account_id(), 0);
+    }
+}
+
+/// NEP-297 event: a JSON log line the TX tab and indexers understand.
+fn emit(event: &str, who: &AccountId, value: i64) {
+    env::log_str(&format!(
+        "EVENT_JSON:{{\"standard\":\"counter\",\"version\":\"1.0.0\",\"event\":\"{}\",\"data\":[{{\"who\":\"{}\",\"value\":{}}}]}}",
+        event, who, value
+    ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_sdk::test_utils::{get_logs, VMContextBuilder};
+    use near_sdk::testing_env;
+
+    fn as_user(who: &str) {
+        let ctx = VMContextBuilder::new()
+            .predecessor_account_id(who.parse().unwrap())
+            .build();
+        testing_env!(ctx);
+    }
+
+    #[test]
+    fn starts_at_zero_and_counts() {
+        as_user("alice.testnet");
+        let mut c = Counter::new();
+        assert_eq!(c.get(), 0);
+        assert_eq!(c.increment(), 1);
+        assert_eq!(c.increment(), 2);
+        assert_eq!(c.decrement(), 1);
+        assert!(get_logs().last().unwrap().starts_with("EVENT_JSON:"));
+    }
+
+    #[test]
+    fn owner_can_reset() {
+        as_user("alice.testnet");
+        let mut c = Counter::new();
+        c.increment();
+        c.reset();
+        assert_eq!(c.get(), 0);
+        assert_eq!(c.owner().as_str(), "alice.testnet");
+    }
+
+    #[test]
+    #[should_panic(expected = "only the owner can reset")]
+    fn stranger_cannot_reset() {
+        as_user("alice.testnet");
+        let mut c = Counter::new();
+        as_user("bob.testnet");
+        c.reset();
+    }
+}

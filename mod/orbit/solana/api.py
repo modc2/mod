@@ -83,6 +83,16 @@ def info():
                               'every SPL position, priced and sorted',
             'GET /token': 'mint= — supply, authorities, liquidity, holders, risk',
             'GET /price': 'ids= — mints or symbols, comma-separated',
+            'GET /tokens': 'list=, sort=, limit=, offset=, query=, tag=, '
+                           'min_liquidity=, safe_only= — every routable token on '
+                           'Solana ranked by the liquidity behind it',
+            'GET /liquidity': 'mint=, depth=, sizes=, cost_limit_pct= — one token\'s '
+                              'liquidity three ways, including the sell size this '
+                              'module actually priced',
+            'GET /pools': 'mint=, limit= — every pool holding a token, deduped '
+                          'across indexes and screened for fake depth',
+            'GET /venues': 'tokens=, pages= — where the chain\'s liquidity sits, '
+                           'by DEX',
             'GET /history': 'address=, limit=, before=, detail= — recent signatures',
             'GET /tx': 'signature=, logs= — one transaction, decoded',
             'GET /quote': 'input=, output=, amount=, slippage_bps= — Jupiter route',
@@ -148,6 +158,8 @@ def route(method, path, query, body, client_ip=None, headers=None):
         '/stake': 'sol_stake', '/wallet': 'sol_wallet', '/transfer': 'sol_transfer',
         '/swap': 'sol_swap',
         '/airdrop': 'sol_airdrop', '/rpc': 'sol_rpc', '/swap': 'sol_swap',
+        '/tokens': 'sol_tokens', '/liquidity': 'sol_liquidity',
+        '/pools': 'sol_pools', '/venues': 'sol_venues',
         '/program': 'sol_program', '/idl': 'sol_idl', '/deploy': 'sol_deploy',
         '/invoke': 'sol_invoke', '/pda': 'sol_pda', '/authority': 'sol_authority',
     }.get(path)
@@ -156,14 +168,17 @@ def route(method, path, query, body, client_ip=None, headers=None):
             _gate(client_ip, headers)
         # Query strings are all strings; the tools want numbers and booleans.
         for name in ('amount', 'limit', 'min_usd', 'slippage_bps', 'sol',
-                     'max_data_len', 'wait'):
+                     'max_data_len', 'wait', 'offset', 'min_liquidity',
+                     'max_liquidity', 'cost_limit_pct', 'pool_limit', 'tokens',
+                     'pages'):
             if isinstance(args.get(name), str) and args[name] != '':
                 try:
                     args[name] = float(args[name])
                 except ValueError:
                     raise SolError(f'{name} must be a number, got {args[name]!r}')
         for name in ('detail', 'logs', 'include_dust', 'confirm', 'wait', 'overwrite',
-                     'default', 'delinquent', 'dry_run'):
+                     'default', 'delinquent', 'dry_run', 'depth', 'safe_only',
+                     'ascending'):
             if isinstance(args.get(name), str):
                 args[name] = args[name].lower() not in ('0', 'false', 'no', '')
         if path == '/wallet' and method == 'GET' and not args.get('action'):

@@ -1,0 +1,15 @@
+# per-submod scarb output — each contract has its own copy of these too
+**/target/
+**/.snfoundry_cache/
+__pycache__/
+# console build output + runtime
+src/app/node_modules/
+src/app/.next/
+src/app/.next-dev/
+src/app/out/
+src/dist
+src/releases/
+server.log
+src/.jobs.json
+src/.jobs.tmp
+src/.sandbox/

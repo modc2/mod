@@ -58,8 +58,9 @@ def get_engine():
         rpc = os.environ.get("BASE_TESTNET_RPC_URL", "https://sepolia.base.org")
         pk = os.environ.get("PRIVATE_KEY")
         network = os.environ.get("NETWORK", "base_sepolia")
-        _engine = StakeTimeEngine(str(MODULE_DIR), rpc, pk, network)
-        _engine.init()
+        engine = StakeTimeEngine(str(MODULE_DIR), rpc, pk, network)
+        engine.init()  # only cache once init succeeds, so a failed init retries
+        _engine = engine
     return _engine
 
 

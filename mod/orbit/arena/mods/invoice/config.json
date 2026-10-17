@@ -1,0 +1,42 @@
+{
+    "name": "invoice",
+    "description": "A drill and the capstone of the pack: read a JSON invoice, multiply the lines, add them up, apply the discount before the tax. Six rounds that lean on each other, so the transcript shows where an answerer fell off.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "10f9e366c8d4c200c47ca014d5c9fd18a3f68f9fa04c523db860934543083088",
+    "bytes": 6209,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game",
+        "class",
+        "python",
+        "drill",
+        "json",
+        "arithmetic"
+    ],
+    "defines": [
+        "__init__",
+        "build",
+        "line",
+        "line_total",
+        "subtotal",
+        "discounted",
+        "tax",
+        "total",
+        "asks",
+        "turn",
+        "view",
+        "step",
+        "done",
+        "result"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/invoice/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

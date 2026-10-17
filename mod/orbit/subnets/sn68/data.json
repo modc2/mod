@@ -1,0 +1,189 @@
+{
+  "netuid": 68,
+  "name": "NOVA",
+  "symbol": "ظ",
+  "owner": "5EcdJLAeYoxM3Tsf5VZ3NQPenPku218gqnjSoo3iJNy4V12V",
+  "description": "Accelerating drug discovery.",
+  "github": "https://github.com/metanova-labs/nova/",
+  "url": "https://www.metanova-labs.ai",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/metanova-labs/nova/refs/heads/main/assets/subnet-logo.png",
+  "registered_at": 4972413,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.018297267,
+    "moving_price": 0.0184650756418705,
+    "market_cap": 110292.36006223138,
+    "tao_in": 41344.286624893,
+    "alpha_in": 2259588.070443108,
+    "alpha_out": 3768217.069102125,
+    "volume": 1723649.062446521,
+    "vol_24h": 1657.0163989327848,
+    "emission": 0.0,
+    "change_1h": 0.0010384172291599825,
+    "change_24h": -5.500911200248493,
+    "change_7d": -8.637849003741671
+  },
+  "spark_24h": [
+    0.019362374,
+    0.01936302,
+    0.019364303,
+    0.019361394,
+    0.019362239,
+    0.019363237,
+    0.019320073,
+    0.019251572,
+    0.019252213,
+    0.01920073,
+    0.018359035,
+    0.018354765,
+    0.018262087,
+    0.018262335,
+    0.018261895,
+    0.0182627,
+    0.018250932,
+    0.018251802,
+    0.018252818,
+    0.018254316,
+    0.018255122,
+    0.018253145,
+    0.018237013,
+    0.018237813,
+    0.01823884,
+    0.018240013,
+    0.018221302,
+    0.018223005,
+    0.018212602,
+    0.01821674,
+    0.018214528,
+    0.018220459,
+    0.018218632,
+    0.018224503,
+    0.0182233,
+    0.01822431,
+    0.018226021,
+    0.018225945,
+    0.018230778,
+    0.018231416,
+    0.018232383,
+    0.018232843,
+    0.018234721,
+    0.018238752,
+    0.018286115,
+    0.018289438,
+    0.018291439,
+    0.018297267
+  ],
+  "trades_24h": {
+    "trades": 92,
+    "buys": 34,
+    "sells": 58,
+    "buy_tao": 133.288821283,
+    "sell_tao": 1409.75606884,
+    "net_tao": -1276.4672475569998,
+    "traders": 66
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GuRLEMgsMQsKSXQ9CjvQGpDxiMuSCcdkyQNz4nuoHURiuaC",
+      "net_tao": -976.446049646,
+      "gross_tao": 976.446049646,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CwXvMNmPHYgTFqXpBzJrUmnWWSP2dkHK3jojg9kAuEvYgK1",
+      "net_tao": -153.897215365,
+      "gross_tao": 191.339052829,
+      "trades": 7
+    },
+    {
+      "coldkey": "5HKjAKbm5ZhexBrGC4wCYPusf3rQge9ZucqZLbQ7kLAatKfQ",
+      "net_tao": 40.195541181,
+      "gross_tao": 119.80445881899999,
+      "trades": 3
+    },
+    {
+      "coldkey": "5G7A1Asn6nj5Q67VN8aqwr1o2XvvMu492arXBEqvPkZ2efhz",
+      "net_tao": -65.538726275,
+      "gross_tao": 65.538726275,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CoGrEDwTvSQv2Uv33YucbxzshpemD2oEqFguu6fwWFobiuQ",
+      "net_tao": 0.07728494300000044,
+      "gross_tao": 29.922715056999998,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791917492,
+      "kind": "commit",
+      "source": "github",
+      "title": "read molecule filter thresholds from filters config in save_data",
+      "url": "https://github.com/metanova-labs/nova/commit/15c59f2de81035401031c22755f7cb02013b9947",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1791909041,
+      "kind": "commit",
+      "source": "github",
+      "title": "Point immunebuilder installation to fixed repo",
+      "url": "https://github.com/metanova-labs/nova/commit/c340b912b7140448c47f087a88ff5b13ada528e0",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1791906546,
+      "kind": "commit",
+      "source": "github",
+      "title": "restore min_heavy_atoms to default Compound value",
+      "url": "https://github.com/metanova-labs/nova/commit/e0ace9c6e204cf537ce275291394805d5d2e789a",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1791904728,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #99 from metanova-labs/feat/sanqi-molecule-filters",
+      "url": "https://github.com/metanova-labs/nova/commit/610325697266a86a96d1866185da9f16441c8a2e",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1791904016,
+      "kind": "commit",
+      "source": "github",
+      "title": "update molecule filters for sanqi combinatorial db",
+      "url": "https://github.com/metanova-labs/nova/commit/de21e073756d25644e0554ac6e5a8319ed57ab74",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1791900535,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #97 from metanova-labs/feat/sanqi-combinatorial-db",
+      "url": "https://github.com/metanova-labs/nova/commit/d98e6f7b9be20e36bcc9e46e52e6f6bea34313bb",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1791900430,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #95 from metanova-labs/fix/subtensor-connection-ha…",
+      "url": "https://github.com/metanova-labs/nova/commit/cf4e0a1892f96457e02a2fb190a27ab4ca17f521",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1791437966,
+      "kind": "commit",
+      "source": "github",
+      "title": "support sanqi combinatorial db",
+      "url": "https://github.com/metanova-labs/nova/commit/d237a7d9ccda9f274b525e103755618f71167a40",
+      "publisher": "metanova-labs/nova"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

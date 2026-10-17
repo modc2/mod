@@ -1,0 +1,16 @@
+[package]
+name = "openhouse_proof"
+version = "0.1.0"
+edition = "2024_07"
+description = "Proof of rent paid — the Cairo statement a bank executes over a tenant's private payment facts; only a commitment, a nullifier and the public terms come out."
+
+[dependencies]
+
+[dev-dependencies]
+cairo_test = "2.8.4"
+
+[cairo]
+enable-gas = true
+
+[scripts]
+test = "scarb cairo-test"

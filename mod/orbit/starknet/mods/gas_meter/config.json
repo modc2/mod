@@ -1,0 +1,24 @@
+{
+    "name": "starknet.gas_meter",
+    "submod_of": "starknet",
+    "version": "0.1.0",
+    "description": "Starknet gas prices right now, read from the latest block: L2 gas, L1 gas and L1 data gas, in STRK and gwei.",
+    "anchor": "mod.py",
+    "app": {
+        "title": "Gas meter",
+        "icon": "G",
+        "tone": "#f472b6",
+        "tag": "tools",
+        "kind": "html",
+        "order": 100,
+        "pitch": "Starknet gas prices right now, read from the latest block: L2 gas, L1 gas and L1 data gas, in STRK and gwei.",
+        "created": "2026-10-14"
+    },
+    "fns": [
+        "facts",
+        "hello",
+        "head",
+        "gas"
+    ],
+    "write_fns": []
+}

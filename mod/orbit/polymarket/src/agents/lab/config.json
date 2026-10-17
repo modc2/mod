@@ -1,0 +1,13 @@
+{
+  "name": "lab",
+  "mod": "polymarket.agents.lab",
+  "title": "STRAT LAB",
+  "glyph": "⚗",
+  "kind": "background",
+  "route": "/_api/lab",
+  "tools": "polymarket MCP (pm_lab_backtest)",
+  "description": "A long-running agent that hunts for the best strat this deployment's data supports, backtesting and refining until confident. The bench (?candidate=1) is NOT gated — other agents backtest through it.",
+  "default_enabled": true,
+  "order": 6,
+  "version": "0.1.0"
+}

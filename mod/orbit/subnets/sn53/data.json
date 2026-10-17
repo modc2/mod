@@ -1,0 +1,189 @@
+{
+  "netuid": 53,
+  "name": "engy",
+  "symbol": "ب",
+  "owner": "5H8SFVCxk52ag1YSC5bQw7B84NRNhAtYWAP81jEPfuJ3VL8Q",
+  "description": "Verified inference for frontier open models.",
+  "github": "https://github.com/hanlinai/engy",
+  "url": "https://engy.ai",
+  "discord": null,
+  "logo": "https://engy.ai/icon.svg",
+  "registered_at": 4203869,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.038751719,
+    "moving_price": 0.03961469535715878,
+    "market_cap": 242061.5476131365,
+    "tao_in": 41000.633682559,
+    "alpha_in": 1058034.015101153,
+    "alpha_out": 5188438.499141029,
+    "volume": 1886589.685154879,
+    "vol_24h": 8640.848587164888,
+    "emission": 0.0,
+    "change_1h": -0.0346599929756608,
+    "change_24h": -4.10728036208673,
+    "change_7d": 3.990361178596724
+  },
+  "spark_24h": [
+    0.040411534,
+    0.040356239,
+    0.040355621,
+    0.040325511,
+    0.040330124,
+    0.040306367,
+    0.040470481,
+    0.04066144,
+    0.040686601,
+    0.040702745,
+    0.040707297,
+    0.040687975,
+    0.040661402,
+    0.040838164,
+    0.040695987,
+    0.040696995,
+    0.040605188,
+    0.040501769,
+    0.040363151,
+    0.040392153,
+    0.040399805,
+    0.040407719,
+    0.039673122,
+    0.039591984,
+    0.040170516,
+    0.040159562,
+    0.039869836,
+    0.039359782,
+    0.039720295,
+    0.039180232,
+    0.039196092,
+    0.039391686,
+    0.039374615,
+    0.039402571,
+    0.039509863,
+    0.039513409,
+    0.039517258,
+    0.039503518,
+    0.039517512,
+    0.039539904,
+    0.039312224,
+    0.039367449,
+    0.039374489,
+    0.03937346,
+    0.039384139,
+    0.039387451,
+    0.039532031,
+    0.038751719
+  ],
+  "trades_24h": {
+    "trades": 506,
+    "buys": 241,
+    "sells": 265,
+    "buy_tao": 3731.126611245,
+    "sell_tao": 4731.945672307,
+    "net_tao": -1000.819061062,
+    "traders": 246
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -1.9403132320000136,
+      "gross_tao": 1376.430299942,
+      "trades": 8
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -0.235539100000004,
+      "gross_tao": 500.2355391,
+      "trades": 11
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.21728391899999977,
+      "gross_tao": 347.772107527,
+      "trades": 12
+    },
+    {
+      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
+      "net_tao": -102.149495026,
+      "gross_tao": 302.149495026,
+      "trades": 5
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 0.18537694000000116,
+      "gross_tao": 239.81462306,
+      "trades": 7
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791892650,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #53 from hanlinai/fix/tee-miner-no-body-in-logs",
+      "url": "https://github.com/hanlinai/engy/commit/29ad734b006442bbedd28d06ed06ff8dbe42a0aa",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1791892591,
+      "kind": "commit",
+      "source": "github",
+      "title": "tee_miner: never write the request to the miner log",
+      "url": "https://github.com/hanlinai/engy/commit/fe55344aba142cf9d8496df3cf3549bb80028715",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1791809589,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #52 from hanlinai/fix/tee-miner-kv-heartbeat-10s",
+      "url": "https://github.com/hanlinai/engy/commit/8ee9d6a5ddb293e7fa21e3f0da845fa335e88eac",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1791798646,
+      "kind": "commit",
+      "source": "github",
+      "title": "tee_miner: send the KV-carrying heartbeat every 10 s, not 30 s",
+      "url": "https://github.com/hanlinai/engy/commit/811ca2c2f60f1854c0eb0a1945ba7eae3f66dc96",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1790675105,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #51 from hanlinai/docs/miner-provider-docs-pointer",
+      "url": "https://github.com/hanlinai/engy/commit/647c767e5994c1b041a014c51e76b0cfbc3cc936",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1790675096,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: point MINER.md at the provider onboarding guide",
+      "url": "https://github.com/hanlinai/engy/commit/5087bf45262373f3f21ddc7aa7181ba0a6e37d4d",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1790672680,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #50 from hanlinai/docs/miner-lb-endpoint",
+      "url": "https://github.com/hanlinai/engy/commit/d96784d7aa8c336f624b5938aad5ac64b0bcd0db",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1790672632,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: recommend wss://lb.engy.ai/gw as the miner endpoint",
+      "url": "https://github.com/hanlinai/engy/commit/ba18a8aa3b4f0eaa3d0dc374f5f12b4f4a1833ef",
+      "publisher": "hanlinai/engy"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

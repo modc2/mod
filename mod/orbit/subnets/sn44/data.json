@@ -1,0 +1,189 @@
+{
+  "netuid": 44,
+  "name": "Score",
+  "symbol": "ף",
+  "owner": "5CaCekuxb9pKQyLoxh3jbkEXig8fxjkeS4AQ6UmZa12xfQ9H",
+  "description": "Making every camera intelligent",
+  "github": "https://github.com/score-technologies/turbovision",
+  "url": "https://www.wearescore.com/",
+  "discord": null,
+  "logo": "https://www.wearescore.com/android-chrome-512x512.png",
+  "registered_at": 3550319,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.033891373,
+    "moving_price": 0.03401655447669327,
+    "market_cap": 210747.40279058137,
+    "tao_in": 64853.872529794,
+    "alpha_in": 1913580.580356898,
+    "alpha_out": 4304739.426642563,
+    "volume": 2369567.939360653,
+    "vol_24h": 1335.1011797832325,
+    "emission": 0.0,
+    "change_1h": 0.0012363181042474025,
+    "change_24h": -0.5434089157152711,
+    "change_7d": -6.111026955820053
+  },
+  "spark_24h": [
+    0.034076548,
+    0.034077978,
+    0.034075704,
+    0.034068536,
+    0.034070252,
+    0.034072425,
+    0.034059298,
+    0.034051423,
+    0.034009869,
+    0.033998873,
+    0.034053426,
+    0.034054878,
+    0.034106122,
+    0.034105958,
+    0.034091066,
+    0.034092464,
+    0.03409271,
+    0.034013124,
+    0.034014989,
+    0.034016437,
+    0.034021338,
+    0.034019732,
+    0.034021582,
+    0.034001645,
+    0.034005033,
+    0.034004379,
+    0.034005739,
+    0.0339788,
+    0.03394749,
+    0.033907106,
+    0.033912884,
+    0.033910173,
+    0.033961112,
+    0.033960277,
+    0.033961935,
+    0.033964905,
+    0.033963435,
+    0.033989934,
+    0.033996351,
+    0.034007788,
+    0.034014508,
+    0.034018879,
+    0.033889603,
+    0.033887391,
+    0.033899672,
+    0.033901835,
+    0.033878347,
+    0.033891373
+  ],
+  "trades_24h": {
+    "trades": 204,
+    "buys": 90,
+    "sells": 114,
+    "buy_tao": 440.155689978,
+    "sell_tao": 741.256640865,
+    "net_tao": -301.100950887,
+    "traders": 135
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FbexoEN2iMYh3ohcVGj87mgDbkfDEphuLWh849gHzL6NAkD",
+      "net_tao": 163.5,
+      "gross_tao": 163.5,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CvmQcgAgxWDd1pQnireTWwjkjyaPRXKpcTDJqiGLbsRBA4g",
+      "net_tao": -127.140424675,
+      "gross_tao": 127.140424675,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F5fHAR7LbxVouBgMGxPwPUR9Ev44xGWGH88THsViWAoneGf",
+      "net_tao": -23.852555589999994,
+      "gross_tao": 123.85255559,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GxFAgNmYRgugT81mkVQR1XDxYWoAqTnZDNeTSwupwCuryCQ",
+      "net_tao": -61.065857387,
+      "gross_tao": 61.065857387,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DZk6KxsyR7KByfp8icn566xb6uwmsFvqttS4qNiFiC5p5JG",
+      "net_tao": -10.073939465,
+      "gross_tao": 50.073937465,
+      "trades": 6
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792120872,
+      "kind": "commit",
+      "source": "github",
+      "title": "update index once",
+      "url": "https://github.com/score-technologies/turbovision/commit/d56cb8279444897bc3d60b2c7e02106e23a4a56a",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1792056947,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix bytes read index",
+      "url": "https://github.com/score-technologies/turbovision/commit/5432c1898dc61f9bfad7bfef9573a6405cc105c2",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1791996272,
+      "kind": "commit",
+      "source": "github",
+      "title": "add cricket gt path",
+      "url": "https://github.com/score-technologies/turbovision/commit/215a2de5a14cc0ab0c2f109540b816ef5a783db1",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1791803913,
+      "kind": "commit",
+      "source": "github",
+      "title": "add blacklist",
+      "url": "https://github.com/score-technologies/turbovision/commit/6408194c0e4b1222af810fa41cabd9e2c352ed96",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1790865012,
+      "kind": "commit",
+      "source": "github",
+      "title": "change cricket weights",
+      "url": "https://github.com/score-technologies/turbovision/commit/bef6ad70de458c16bfaa8dfe9361b65f0d42ec3b",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1790648583,
+      "kind": "commit",
+      "source": "github",
+      "title": "room iou",
+      "url": "https://github.com/score-technologies/turbovision/commit/52201651f2175048a7fbdcf2c1da206667a942d2",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1790270273,
+      "kind": "commit",
+      "source": "github",
+      "title": "add retrys set weights+add logs long emits",
+      "url": "https://github.com/score-technologies/turbovision/commit/f1defeea7ffdcd9c0c662ecfa7dce711574a348f",
+      "publisher": "score-technologies/turbovision"
+    },
+    {
+      "ts": 1790059555,
+      "kind": "commit",
+      "source": "github",
+      "title": "add logs emission",
+      "url": "https://github.com/score-technologies/turbovision/commit/b934ea66bed3cce1f42e12105134f9bba4973c30",
+      "publisher": "score-technologies/turbovision"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

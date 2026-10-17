@@ -51,7 +51,7 @@ m ddstore/start    # start filecoin + hippius daemons
 ```bash
 m ddstore/serve            # via mod core (api + app)
 # or directly:
-cd ~/mod/mod/orbit/store && uvicorn api.api:app --port 50150 --reload
+cd ~/mod/mod/core/store && uvicorn api.api:app --port 50152 --reload
 cd ~/mod/mod/orbit/dstore/app && npm install && npm run dev
 ```
 

@@ -17,31 +17,38 @@ import {
   type ReactNode,
 } from "react";
 
-// Menu order: the two house skins first, then the cabinets. `chips` are three
-// colours sampled from the skin's own palette (field, accent, gain) — the
-// swatch you read before switching.
+// Menu order: the house LIQUID face first (dark, then day), then the arcade
+// cabinets. `chips` are three colours sampled from the skin's own palette
+// (field, accent, gain) — the swatch you read before switching. `face` says
+// which TYPE + SHAPE system the skin wears: "clean" (Inter, soft radii,
+// hairlines) or "pixel" (the 8-bit cabinet). Stamped as `data-face`.
 export const THEMES = [
-  { id: "dark",     label: "ARCADE",   base: "dark",  chips: ["#0a0614", "#22f0ff", "#2bff88"] },
-  { id: "light",    label: "FLYER",    base: "light", chips: ["#e8e3f5", "#6b2fd6", "#067a41"] },
-  { id: "manual",   label: "MANUAL",   base: "light", chips: ["#efe7d5", "#17557f", "#1c7a35"] },
-  { id: "gameboy",  label: "GAMEBOY",  base: "light", chips: ["#8bac0f", "#0f380f", "#0f4d14"] },
-  { id: "phosphor", label: "PHOSPHOR", base: "dark",  chips: ["#010a04", "#12f0a8", "#3dff7a"] },
-  { id: "amber",    label: "AMBER",    base: "dark",  chips: ["#0d0700", "#ffcf6b", "#a8e02c"] },
-  { id: "c64",      label: "C64",      base: "dark",  chips: ["#322a8e", "#aaffee", "#aaff66"] },
-  { id: "miami",    label: "MIAMI",    base: "dark",  chips: ["#16030f", "#ff2d95", "#2bff9e"] },
-  { id: "vector",   label: "VECTOR",   base: "dark",  chips: ["#000000", "#33ffff", "#33ff66"] },
-  { id: "dinn",     label: "DINN",     base: "light", chips: ["#ffffff", "#000000", "#7f7f7f"] },
+  { id: "liquid",     label: "LIQUID",     base: "dark",  face: "clean", chips: ["#07080d", "#8b7dff", "#4ade80"] },
+  { id: "liquid-day", label: "LIQUID DAY", base: "light", face: "clean", chips: ["#f6f7fb", "#6352e6", "#16a34a"] },
+  { id: "dark",     label: "ARCADE",   base: "dark",  face: "pixel", chips: ["#0a0614", "#22f0ff", "#2bff88"] },
+  { id: "light",    label: "FLYER",    base: "light", face: "pixel", chips: ["#e8e3f5", "#6b2fd6", "#067a41"] },
+  { id: "manual",   label: "MANUAL",   base: "light", face: "pixel", chips: ["#efe7d5", "#17557f", "#1c7a35"] },
+  { id: "gameboy",  label: "GAMEBOY",  base: "light", face: "pixel", chips: ["#8bac0f", "#0f380f", "#0f4d14"] },
+  { id: "phosphor", label: "PHOSPHOR", base: "dark",  face: "pixel", chips: ["#010a04", "#12f0a8", "#3dff7a"] },
+  { id: "amber",    label: "AMBER",    base: "dark",  face: "pixel", chips: ["#0d0700", "#ffcf6b", "#a8e02c"] },
+  { id: "c64",      label: "C64",      base: "dark",  face: "pixel", chips: ["#322a8e", "#aaffee", "#aaff66"] },
+  { id: "miami",    label: "MIAMI",    base: "dark",  face: "pixel", chips: ["#16030f", "#ff2d95", "#2bff9e"] },
+  { id: "vector",   label: "VECTOR",   base: "dark",  face: "pixel", chips: ["#000000", "#33ffff", "#33ff66"] },
+  { id: "dinn",     label: "DINN",     base: "light", face: "pixel", chips: ["#ffffff", "#000000", "#7f7f7f"] },
 ] as const;
 
 export type Theme = (typeof THEMES)[number]["id"];
 
-const DEFAULT_THEME: Theme = "dark";
+const DEFAULT_THEME: Theme = "liquid";
 // Every mod on this host shares one localStorage origin, so the key is
-// namespaced rather than "theme".
-const STORAGE_KEY = "lq_theme";
+// namespaced rather than "theme". Bumped from "lq_theme" when LIQUID became the
+// default, so a cabinet the old default wrote doesn't pin anyone to it.
+const STORAGE_KEY = "lq_skin";
 
 const baseOf = (id: string): "dark" | "light" =>
   THEMES.find((t) => t.id === id)?.base ?? "dark";
+const faceOf = (id: string): "clean" | "pixel" =>
+  THEMES.find((t) => t.id === id)?.face ?? "clean";
 
 const ThemeContext = createContext<{ theme: Theme; setTheme: (t: Theme) => void }>({
   theme: DEFAULT_THEME,
@@ -57,6 +64,7 @@ function applyTheme(t: Theme) {
   const el = document.documentElement;
   el.setAttribute("data-theme", t);
   el.setAttribute("data-base", baseOf(t));
+  el.setAttribute("data-face", faceOf(t));
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -94,9 +102,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export function ThemeBoot() {
   const ids = THEMES.map((t) => t.id).join(",");
   const lights = THEMES.filter((t) => t.base === "light").map((t) => t.id).join(",");
+  const pixels = THEMES.filter((t) => t.face === "pixel").map((t) => t.id).join(",");
   const code =
     `try{var t=localStorage.getItem("${STORAGE_KEY}"),A="${ids}".split(","),` +
-    `L="${lights}".split(",");if(t&&A.indexOf(t)>=0){var d=document.documentElement;` +
-    `d.setAttribute("data-theme",t);d.setAttribute("data-base",L.indexOf(t)>=0?"light":"dark")}}catch(e){}`;
+    `L="${lights}".split(","),P="${pixels}".split(",");if(t&&A.indexOf(t)>=0){var d=document.documentElement;` +
+    `d.setAttribute("data-theme",t);d.setAttribute("data-base",L.indexOf(t)>=0?"light":"dark");` +
+    `d.setAttribute("data-face",P.indexOf(t)>=0?"pixel":"clean")}}catch(e){}`;
   return <script dangerouslySetInnerHTML={{ __html: code }} />;
 }

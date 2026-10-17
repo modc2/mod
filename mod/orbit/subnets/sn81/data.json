@@ -1,0 +1,189 @@
+{
+  "netuid": 81,
+  "name": "Reliquary",
+  "symbol": "ᚠ",
+  "owner": "5GnpQR4Nt3f5AQqBXuhf7GkkaEHhAVQrVk4EsK4daZDmkAQT",
+  "description": "The RL layer of Bittensor",
+  "github": "https://github.com/reliquadotai/reliquary",
+  "url": "https://www.reliqua.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1493247592551678012",
+  "logo": "https://www.reliqua.ai/reliquary-logo.png",
+  "registered_at": 5203057,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.005150173,
+    "moving_price": 0.005189066985622048,
+    "market_cap": 29182.605572057713,
+    "tao_in": 16466.555333698,
+    "alpha_in": 3197281.951670124,
+    "alpha_out": 2469053.057281559,
+    "volume": 956228.316156527,
+    "vol_24h": 374.0103583029704,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -2.2265587031007006,
+    "change_7d": -8.150651412934383
+  },
+  "spark_24h": [
+    0.005267456,
+    0.005267456,
+    0.005267456,
+    0.005267145,
+    0.005265837,
+    0.005265709,
+    0.005265645,
+    0.005265514,
+    0.00526537,
+    0.00526537,
+    0.005283997,
+    0.005293277,
+    0.005292894,
+    0.005292739,
+    0.00529208,
+    0.005292079,
+    0.005292079,
+    0.005292078,
+    0.005292078,
+    0.005292078,
+    0.005292077,
+    0.005291911,
+    0.005293179,
+    0.005293169,
+    0.005252083,
+    0.005226945,
+    0.005148674,
+    0.005148674,
+    0.005148674,
+    0.005131636,
+    0.005131636,
+    0.005131635,
+    0.005131231,
+    0.00513123,
+    0.005130632,
+    0.005130632,
+    0.00513063,
+    0.00513063,
+    0.00515196,
+    0.005151948,
+    0.005151948,
+    0.005151947,
+    0.005151947,
+    0.005151947,
+    0.005151947,
+    0.005151947,
+    0.005150361,
+    0.005150173
+  ],
+  "trades_24h": {
+    "trades": 56,
+    "buys": 9,
+    "sells": 47,
+    "buy_tao": 93.809169724,
+    "sell_tao": 277.996926589,
+    "net_tao": -184.18775686499998,
+    "traders": 30
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EuxqP2Jx9moa2aGCNijvkyNgY6WHU9onYbt6rYVB9X1FPrN",
+      "net_tao": -196.9478845,
+      "gross_tao": 201.9478845,
+      "trades": 7
+    },
+    {
+      "coldkey": "5GxukLpsXFP7jrEmUnfuDWt9F3bj4Pxwkww7QAtF8Ynh7iuf",
+      "net_tao": 0.07620346499999897,
+      "gross_tao": 79.92379653500001,
+      "trades": 2
+    },
+    {
+      "coldkey": "5G6XcfSHzSM8a4kT1RDovhN4Qc8qFCg7iGPJDMogv4uvzAqo",
+      "net_tao": 0.1276713469999997,
+      "gross_tao": 29.872328653,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Gh183kPn6zpmCjKLbkhW6zFFi4Ze9T2M7QDyHqtpTS2AzRu",
+      "net_tao": 19.0,
+      "gross_tao": 19.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CoGrEDwTvSQv2Uv33YucbxzshpemD2oEqFguu6fwWFobiuQ",
+      "net_tao": 15.0,
+      "gross_tao": 15.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792120337,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #357 from reliquadotai/feat/corpus-sandbox-yield-q…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/b781cc55da988fe957ba2d0359d5fac167d75b38",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1792117667,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #355 from reliquadotai/fix/corpus-split-sandbox-ho…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/8bb7e326af6d2ed5797866eb316b99d941174e7b",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1792117660,
+      "kind": "commit",
+      "source": "github",
+      "title": "test(corpus): skip the quota tests without the sandbox extra",
+      "url": "https://github.com/reliquadotai/reliquary/commit/c08284320395f66bf21725ff9cb59e4dbfb379ff",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1792116504,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(corpus): demand-driven, fleet-bounded quota for signed sandbox s…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/cadb2f29e44cac812aadeb834d0c804759b64744",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1792083677,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(competitive-code): register the v1.1 wheel (1,893 SFT problems a…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/b7207a9c79969311f72d7bc14059bab4009f71fa",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1792047631,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #354 from reliquadotai/merge/main-into-next-rl-run",
+      "url": "https://github.com/reliquadotai/reliquary/commit/fde75c0c3b5ffd4a94cf7fc97db8f248f74a4761",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1791981788,
+      "kind": "commit",
+      "source": "github",
+      "title": "test(proof): the startup-order test stubs the episode services step",
+      "url": "https://github.com/reliquadotai/reliquary/commit/3d0eb6e6da45c2176eb8a87df88ba2b9d49dfc30",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1791981788,
+      "kind": "commit",
+      "source": "github",
+      "title": "test(admission): wait for the spawned worker longer than its imports",
+      "url": "https://github.com/reliquadotai/reliquary/commit/2f569b445eb18f8e7c822b14696b6d72a24bf865",
+      "publisher": "reliquadotai/reliquary"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

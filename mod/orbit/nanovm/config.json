@@ -1,0 +1,63 @@
+{
+    "name": "nanovm",
+    "version": "0.1.0",
+    "description": "Micro-VMs out of nothing but the Linux kernel \u2014 a fully open-source (MIT) nanovm framework in pure Go, zero dependencies, one static binary. A nanovm is a process behind its own PID/UTS/mount/IPC (and optionally net) namespaces, its own root filesystem via pivot_root, and a cgroup v2 slice for memory, cpu and pid caps. The default boot is a read-only lens over the host with a private /proc and /tmp, so it is useful with zero setup; point rootfs at any directory (the busybox helper, a docker export, debootstrap) to pivot into a real root. No daemon, no image format, no C: library + CLI + HTTP API + web console, all one binary you can read end to end.",
+    "icon": "\u25a0",
+    "color": "#5ad7a7",
+    "anchor": "mod.py",
+    "network": "testnet",
+    "port": 51230,
+    "app_port": 51230,
+    "gateway_port": 51230,
+    "base_path": "/nanovm",
+    "route": true,
+    "urls": {
+        "app": "http://localhost:51230/nanovm/",
+        "api": "http://localhost:51230"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "build",
+        "run",
+        "vms",
+        "ls",
+        "exec",
+        "logs",
+        "stop",
+        "rm",
+        "rootfs",
+        "serve",
+        "test",
+        "kill"
+    ],
+    "api_fns": [
+        "info",
+        "health",
+        "readme",
+        "vms",
+        "logs"
+    ],
+    "endpoints": {
+        "/info": "Null call \u2014 what this module is and what it exposes",
+        "/health": "Liveness and a vm count; says so when the server is down",
+        "/vms": "GET every vm (liveness refreshed) \u00b7 POST a Spec to boot one, always detached",
+        "/vms/{name}": "GET one vm's state \u00b7 DELETE stops and forgets it",
+        "/vms/{name}/stop": "POST \u2014 SIGTERM pid 1 of the namespace, SIGKILL after 3s",
+        "/vms/{name}/exec": "POST {cmd:[...]} \u2014 run inside via nsenter, output captured",
+        "/vms/{name}/logs": "GET the last lines of a detached vm (?tail=100)",
+        "/readme": "The project README"
+    },
+    "notes": {
+        "open_source": "MIT, pure Go standard library \u2014 no modules downloaded, no C, no Docker; the whole runtime is ~1000 lines in src/",
+        "isolation": "namespaces + pivot_root + cgroup v2, not hardware virtualization \u2014 same tier as containers, not KVM; a kernel exploit escapes it",
+        "root": "creating namespaces and cgroup slices needs root (or CAP_SYS_ADMIN); the fleet runs as root so this is moot here",
+        "exec": "entering a running vm uses util-linux nsenter \u2014 setns(CLONE_NEWNS) refuses multithreaded callers, which every Go process is",
+        "meminfo": "/proc/meminfo inside a vm shows host totals (it is not cgroup-aware); the cap is real \u2014 the OOM killer answers at memory.max",
+        "state": "~/.mod/nanovm \u2014 one JSON per vm, logs for detached ones; NANOVM_DATA overrides for tests"
+    },
+    "key": "nanovm",
+    "schema": "QmefV554vKaufTeA6JTk9XpLR6wWpZ5kZ9VDS4xc3giaaE"
+}

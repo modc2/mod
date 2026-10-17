@@ -239,6 +239,80 @@ pm/
     └── test_pm2.py
 ```
 
+## The mod protocol sandbox
+
+One container that can run **any** mod in the tree, and a hand-off to the build
+agent for the ones that aren't ready yet.
+
+The image (`Dockerfile` at the repo root) is a **toolchain**, not a snapshot:
+python 3.12, node 20 + pm2, rust, caddy. The module tree is bind-mounted at
+`/root/mod`, so `m serve <mod>` inside the container runs the same code you are
+editing on the host — nothing to rebuild after an edit.
+
+```bash
+m docker/boot                  # build the image if needed, start the container, prove `import mod` works inside
+m docker/status                # image built? container up? tree mounted? what's serving?
+m docker/enter mod             # a shell inside
+m docker/shell "m mods | head" # one command inside
+m docker/serve polymarket      # run any mod inside → {'url': 'http://localhost:50950'}
+m docker/unserve polymarket
+m docker/down mod              # stop the sandbox
+```
+
+State (`~/.mod`) is a **named volume, not the host's**. The container gets its
+own keys and registry, so a fleet started inside cannot reap the host's servers
+— `stop.sh` calls `m server/killall`, which walks that shared registry. Point
+the volume at `${HOME}/.mod` in `docker-compose.yml` only if you actually want
+the sandbox to share the host's identity.
+
+Ports: the host already runs a gateway on `:3000`, so the sandbox publishes its
+gateway on `:3010` and its app on `:3011`. Mods run inside are allocated a port
+from the published band `50950-50969`, which is why `m docker/serve` hands back a
+`localhost:` URL that works straight from the host.
+
+### Is it ready?
+
+`ready` answers without starting anything, and never raises:
+
+```bash
+m docker/ready polymarket
+```
+
+```python
+{'mod': 'polymarket',
+ 'ready': True,
+ 'checks': [{'name': 'docker_daemon', 'ok': True, ...},
+            {'name': 'sandbox_image', 'ok': True, ...},
+            {'name': 'resolves',      'ok': True, ...},
+            {'name': 'config',        'ok': True, ...},
+            {'name': 'entrypoint',    'ok': True, ...},
+            {'name': 'importable',    'ok': True, ...}],
+ 'notes':   [...],          # things to know, not reasons to call the mod broken
+ 'missing': [],
+ 'fix': None}               # -> 'm docker/modify <mod>' when something failed
+```
+
+`checks` gate; `notes` don't. A mod declaring a port outside the published band
+is a note, not a failure — `serve` just runs it on a band port instead.
+
+### When it isn't: `modify`
+
+`modify` turns the readiness report into a brief and puts the build agent on it.
+
+```bash
+m docker/modify polymarket
+m docker/modify polymarket query="also add a healthcheck to the Dockerfile"
+m docker/modify polymarket dry_run=1     # show me the brief, submit nothing
+```
+
+The brief names the module path, every failing check with its suggested fix, the
+operator's extra instruction, and what *done* means (`m docker/ready <mod>` clean
+and `m docker/serve <mod>` answering). Dispatch order is `build` (background job
+on the Rust job server, watch with `m build/jobs`) → `modify` (in-process agent).
+If neither is reachable you get the brief back rather than a silent no-op.
+
+Already ready and no `query`? `modify` says so and submits nothing.
+
 ## Contributing
 
 Contributions welcome! Each backend is modular and can be extended independently.

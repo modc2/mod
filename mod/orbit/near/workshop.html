@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>near — workshop</title>
+<style>
+  :root{
+    --bg:#050807; --panel:#0a120eee; --line:#16291f; --line2:#1f3a2c;
+    --ink:#dcefe3; --dim:#5f8a72; --dimmer:#3d5c4a;
+    --hot:#00ec97; --hot2:#6ef0be; --hot3:#00c27d; --ink2:#b6d8c4;
+    --good:#3fd68c; --warn:#fbbf24; --bad:#f87171; --violet:#8b7bf0;
+  }
+  *{box-sizing:border-box}
+  html{scrollbar-color:#1f3a2c #050807}
+  body{margin:0;background:var(--bg);color:var(--ink);min-height:100vh;
+       font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;position:relative;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;
+    background:radial-gradient(600px 400px at 85% -10%, #00ec9714, transparent 70%),
+      radial-gradient(700px 500px at -10% 30%, #00ec970d, transparent 70%),
+      radial-gradient(500px 400px at 60% 110%, #8b7bf00a, transparent 70%)}
+  body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;
+    background-image:linear-gradient(#0d1a1310 1px,transparent 1px),linear-gradient(90deg,#0d1a1310 1px,transparent 1px);
+    background-size:44px 44px;-webkit-mask-image:radial-gradient(80% 60% at 50% 0%,#000,transparent);mask-image:radial-gradient(80% 60% at 50% 0%,#000,transparent)}
+  a{color:var(--hot2)}
+  header{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);
+         position:sticky;top:0;z-index:9;background:#050807e6;backdrop-filter:blur(8px);flex-wrap:wrap}
+  h1{font-size:16px;margin:0;letter-spacing:.16em;display:flex;align-items:center;gap:8px}
+  h1 .tri{color:var(--hot);text-shadow:0 0 14px #00ec9780}
+  h1 b{background:linear-gradient(90deg,var(--hot),var(--hot2) 60%,#c8ffe9);-webkit-background-clip:text;background-clip:text;color:transparent}
+  h1 .ws{color:var(--dim);font-size:11px;letter-spacing:.2em;font-weight:400}
+  .sub{color:var(--dim);font-size:11px;display:flex;align-items:center;gap:9px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--hot);box-shadow:0 0 8px var(--hot);display:inline-block}
+  .dot.off{background:var(--bad);box-shadow:0 0 8px var(--bad)}
+  .dot.dim{background:var(--dimmer);box-shadow:none}
+  .seg{display:flex;border:1px solid var(--line2);border-radius:3px;overflow:hidden}
+  .seg button{background:none;border:0;color:var(--dim);padding:5px 13px;cursor:pointer;font:inherit;font-size:10px;letter-spacing:.12em}
+  .seg button.on{background:var(--hot);color:#02120a;font-weight:700}
+  .seg button.on.tn{background:var(--warn)}
+  #walletchip{border:1px solid var(--line2);border-radius:3px;padding:5px 11px;font-size:10px;letter-spacing:.08em;color:var(--hot2);background:#0a120e}
+  #walletchip .k{color:var(--dimmer)}
+  nav{margin-left:auto;display:flex;gap:2px;flex-wrap:wrap;align-items:center}
+  nav button,nav a{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);padding:7px 12px;cursor:pointer;
+             font:inherit;font-size:11px;letter-spacing:.11em;text-decoration:none;transition:color .15s}
+  nav button:hover,nav a:hover{color:var(--ink)}
+  nav button.on{color:var(--hot);border-bottom-color:var(--hot);text-shadow:0 0 12px #00ec9750}
+  main{padding:18px 20px 90px;max-width:1440px;margin:0 auto}
+  section{display:none} section.on{display:block;animation:fadein .18s ease-out}
+  @keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+  input,select,textarea{background:var(--panel);border:1px solid var(--line);color:var(--ink);padding:7px 10px;font:inherit;border-radius:2px}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--hot);box-shadow:0 0 0 1px #00ec9740}
+  ::placeholder{color:var(--dimmer)}
+  button.go{background:linear-gradient(180deg,var(--hot),var(--hot3));color:#02120a;border:0;padding:8px 18px;cursor:pointer;font:inherit;
+      font-weight:700;letter-spacing:.1em;border-radius:2px;box-shadow:0 0 16px #00ec9730}
+  button.go:hover{box-shadow:0 0 26px #00ec9760}
+  button.go:disabled{opacity:.45;cursor:wait;box-shadow:none}
+  button.go.warn{background:linear-gradient(180deg,var(--warn),#d19a08)}
+  button.go.bad{background:linear-gradient(180deg,var(--bad),#b13b3b)}
+  button.ghost{background:none;border:1px solid var(--line);color:var(--ink);padding:4px 10px;cursor:pointer;font:inherit;font-size:11px;border-radius:2px}
+  button.ghost:hover{border-color:var(--hot);color:var(--hot)}
+  button.ghost.on{border-color:var(--hot);color:var(--hot)}
+  .p{display:inline-block;padding:1px 7px;border:1px solid var(--line);border-radius:10px;font-size:10px;color:var(--dim);margin:1px 3px 1px 0}
+  .p.hot{color:var(--hot);border-color:#12503a} .p.grn{color:var(--good);border-color:#164a33}
+  .p.bad{color:var(--bad);border-color:#4a1d1d} .p.wrn{color:var(--warn);border-color:#4a3c14}
+  .p.vio{color:var(--violet);border-color:#332d5e}
+  .p.click{cursor:pointer} .p.click:hover{color:var(--hot);border-color:var(--hot)}
+  .dimtxt{color:var(--dim)} .note{color:var(--dim);font-size:11px;margin:8px 0}
+  .flash{color:var(--warn);font-size:11px;min-height:16px}
+  pre{background:var(--panel);border:1px solid var(--line);padding:12px;overflow:auto;font-size:11px;max-height:50vh;white-space:pre-wrap;word-break:break-word;margin:0;border-radius:3px}
+  code{color:var(--hot2);background:#0a120e;padding:0 4px;border-radius:2px}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}
+  th{text-align:left;color:var(--dim);font-weight:400;border-bottom:1px solid var(--line);padding:6px 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  td{padding:6px 8px;border-bottom:1px solid #0e1a14;vertical-align:top}
+  h2.t{font-size:11px;letter-spacing:.16em;color:var(--dim);text-transform:uppercase;margin:20px 0 8px;border-bottom:1px solid var(--line);padding-bottom:5px;display:flex;gap:8px;align-items:baseline}
+  h2.t::before{content:'◆';color:var(--hot);font-size:8px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px;backdrop-filter:blur(3px)}
+  .panel h2{margin:0 0 12px;font-size:11px;letter-spacing:.16em;color:var(--hot);text-transform:uppercase}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  label.f{display:block;font-size:10px;letter-spacing:.1em;color:var(--dim);text-transform:uppercase;margin:10px 0 4px}
+  .empty{color:var(--dim);padding:18px 0;font-size:12px}
+  .kbd{border:1px solid var(--line2);border-radius:3px;padding:0 5px;color:var(--ink2);font-size:10px}
+
+  /* layout */
+  .grid{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+  @media(max-width:900px){.grid{grid-template-columns:minmax(0,1fr)}}
+  .side{position:sticky;top:64px}
+  .list .item{padding:10px 12px;border:1px solid var(--line);border-radius:4px;margin-bottom:6px;cursor:pointer;background:var(--panel);transition:border-color .12s}
+  .list .item:hover{border-color:var(--line2)} .list .item.on{border-color:var(--hot);box-shadow:0 0 14px #00ec9718}
+  .list .item .ttl{color:var(--ink2);font-size:12px} .list .item .meta{color:var(--dim);font-size:10px;margin-top:2px;display:flex;gap:8px;align-items:center}
+  .list .item.done .ttl::after{content:' ✓';color:var(--good)}
+  .lvl{font-size:9px;letter-spacing:.14em;text-transform:uppercase;padding:0 6px;border-radius:8px;border:1px solid var(--line2);color:var(--dim)}
+  .lvl.start{color:var(--hot);border-color:#12503a} .lvl.zk{color:var(--violet);border-color:#332d5e} .lvl.next{color:var(--warn);border-color:#4a3c14}
+
+  /* lesson reader */
+  .lesson h1{font-size:20px;letter-spacing:.02em;margin:0 0 4px;display:block}
+  .lesson .sum{color:var(--dim);margin-bottom:14px}
+  .lesson h3{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--hot);margin:22px 0 8px}
+  .lesson p{margin:0 0 10px;color:var(--ink2);max-width:80ch}
+  .lesson .tip,.lesson .warn{border-left:2px solid var(--hot);padding:6px 12px;margin:10px 0;color:var(--ink2);background:#00ec9708;font-size:12px}
+  .lesson .warn{border-color:var(--warn);background:#fbbf2408}
+  .lesson .try{margin-top:24px;padding:14px;border:1px dashed var(--line2);border-radius:4px}
+  .lesson .try ol{margin:6px 0 10px 18px;color:var(--ink2)}
+  .lesson .nav{display:flex;gap:8px;margin-top:22px;justify-content:space-between}
+  .gloss{display:flex;flex-wrap:wrap;gap:4px} .gloss .p{cursor:pointer}
+  .gdef{margin-top:8px;color:var(--ink2);font-size:12px;min-height:18px}
+
+  /* workbench */
+  .wb{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .wb .name{font-size:16px;color:var(--ink2)} .wb .name small{color:var(--dim);font-size:11px;margin-left:8px}
+  .wb .right{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+  .state{font-size:9px;letter-spacing:.14em;text-transform:uppercase;padding:1px 7px;border-radius:8px;border:1px solid}
+  .state.built{color:var(--good);border-color:#164a33} .state.stale{color:var(--warn);border-color:#4a3c14} .state.unbuilt{color:var(--dim);border-color:var(--line2)}
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:12px}
+  .tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);padding:7px 12px;cursor:pointer;font:inherit;font-size:10px;letter-spacing:.14em}
+  .tabs button.on{color:var(--hot);border-bottom-color:var(--hot)}
+  .tabs button .n{color:var(--dimmer);margin-left:4px}
+  .pane{display:none} .pane.on{display:block}
+  .filetabs{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:0}
+  .filetabs button{background:#0a120e;border:1px solid var(--line);border-bottom:0;color:var(--dim);padding:5px 10px;cursor:pointer;font:inherit;font-size:10px;border-radius:3px 3px 0 0}
+  .filetabs button.on{color:var(--hot);border-color:var(--line2)} .filetabs button.dirty::after{content:' •';color:var(--warn)}
+  .editor{display:grid;grid-template-columns:44px 1fr;border:1px solid var(--line2);border-radius:0 3px 3px 3px;background:#070d0a;max-height:62vh;overflow:auto}
+  .editor .ln{padding:10px 6px;text-align:right;color:var(--dimmer);font-size:11px;line-height:1.5;user-select:none;border-right:1px solid var(--line);white-space:pre}
+  .editor .ln span.hl{color:var(--hot);background:#00ec9720;display:block;margin:0 -6px;padding:0 6px}
+  .editor .ln span.err{color:var(--bad);background:#f8717120;display:block;margin:0 -6px;padding:0 6px}
+  .editor .ln span.note{color:var(--violet)}
+  .editor textarea{border:0;background:transparent;resize:none;width:100%;min-height:100%;padding:10px;font:inherit;font-size:11px;line-height:1.5;white-space:pre;overflow:hidden;color:var(--ink);tab-size:4}
+  .codebar{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:11px;color:var(--dim)}
+  .codebar .right{margin-left:auto;display:flex;gap:6px}
+  .notes .n{padding:10px 12px;border:1px solid var(--line);border-radius:4px;margin-bottom:6px;cursor:pointer;background:var(--panel)}
+  .notes .n:hover{border-color:var(--violet)} .notes .n .f{color:var(--violet);font-size:11px} .notes .n .s{color:var(--ink2);font-size:12px;margin-top:3px}
+  .notes .n .l{color:var(--dimmer);font-size:10px;float:right}
+  .jobs .j{padding:8px 12px;border:1px solid var(--line);border-radius:4px;margin-bottom:6px;background:var(--panel);cursor:pointer}
+  .jobs .j .h{display:flex;gap:8px;align-items:center;font-size:11px} .jobs .j .h .t{color:var(--dimmer);margin-left:auto}
+  .jobs .j .b{display:none;margin-top:8px} .jobs .j.open .b{display:block}
+  .jobs .j .b .d{font-size:11px;color:var(--bad);cursor:pointer;padding:2px 0} .jobs .j .b .d:hover{text-decoration:underline}
+  .jobs .j .b .t{font-size:11px;padding:2px 0} .jobs .j .b .t.pass{color:var(--good)} .jobs .j .b .t.fail{color:var(--bad)}
+  .jobs .j .b .st{font-size:10px;color:var(--dim);padding:1px 0} .jobs .j .b .st.err{color:var(--bad)}
+  .spin{display:inline-block;width:9px;height:9px;border:2px solid var(--line2);border-top-color:var(--hot);border-radius:50%;animation:rot .8s linear infinite;vertical-align:middle}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .chips{display:flex;gap:4px;flex-wrap:wrap}
+  .tpl{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin:8px 0}
+  .tpl .c{padding:10px 12px;border:1px solid var(--line);border-radius:4px;cursor:pointer;background:var(--panel)}
+  .tpl .c:hover{border-color:var(--line2)} .tpl .c.on{border-color:var(--hot);box-shadow:0 0 14px #00ec9718}
+  .tpl .c .ttl{color:var(--ink2);font-size:12px} .tpl .c .b{color:var(--dim);font-size:10px;margin-top:3px;line-height:1.4}
+  .twin{font-size:11px;color:var(--dim);margin-top:10px}
+
+  /* tutor orb */
+  #orb{position:fixed;right:22px;bottom:22px;width:48px;height:48px;border-radius:50%;border:1px solid var(--hot);
+       background:radial-gradient(circle at 35% 35%,#0f2a1e,#050807);color:var(--hot);font-size:20px;cursor:pointer;z-index:20;
+       box-shadow:0 0 22px #00ec9740;display:flex;align-items:center;justify-content:center;font-family:inherit}
+  #orb:hover{box-shadow:0 0 34px #00ec9780}
+  #orb.busy{animation:pulse 1.2s infinite} @keyframes pulse{0%,100%{box-shadow:0 0 22px #00ec9740}50%{box-shadow:0 0 40px #00ec97a0}}
+  #tutor{position:fixed;right:22px;bottom:82px;width:min(440px,92vw);max-height:min(70vh,640px);display:none;flex-direction:column;
+         background:#070d0af5;border:1px solid var(--line2);border-radius:6px;z-index:20;box-shadow:0 12px 40px #000a;backdrop-filter:blur(10px)}
+  #tutor.open{display:flex}
+  #tutor .hd{display:flex;gap:6px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);font-size:10px;letter-spacing:.14em;color:var(--dim)}
+  #tutor .hd .pill{display:flex;border:1px solid var(--line2);border-radius:3px;overflow:hidden;margin-left:auto}
+  #tutor .hd .pill button{background:none;border:0;color:var(--dim);padding:3px 9px;cursor:pointer;font:inherit;font-size:10px;letter-spacing:.1em}
+  #tutor .hd .pill button.on{background:var(--hot);color:#02120a;font-weight:700}
+  #tutor .hd .pill button.on.b{background:var(--violet)}
+  #tutor .msgs{overflow:auto;padding:12px;flex:1;min-height:160px}
+  .m{margin-bottom:12px;font-size:12px} .m.me{color:var(--hot2)} .m.me::before{content:'you  ';color:var(--dimmer)}
+  .m.ai{color:var(--ink2)} .m.ai p{margin:0 0 8px} .m.ai ul,.m.ai ol{margin:0 0 8px 18px;padding:0} .m.ai li{margin:2px 0}
+  .m .trail{font-size:10px;color:var(--dimmer);margin:4px 0} .m .trail span{margin-right:8px}
+  .m .acts{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+  .m .acts button{background:none;border:1px solid var(--line2);color:var(--hot2);padding:3px 9px;border-radius:12px;cursor:pointer;font:inherit;font-size:10px}
+  .m .acts button:hover{border-color:var(--hot)}
+  #tutor .in{display:flex;gap:6px;padding:10px;border-top:1px solid var(--line)}
+  #tutor .in input{flex:1} #tutor .ex{display:flex;gap:4px;flex-wrap:wrap;padding:0 10px 10px}
+  #tutor .ex button{background:none;border:1px solid var(--line);color:var(--dim);padding:2px 8px;border-radius:10px;cursor:pointer;font:inherit;font-size:10px}
+  #tutor .ex button:hover{color:var(--hot);border-color:var(--hot)}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="tri">▲</span> <b>NEAR</b> <span class="ws">WORKSHOP</span></h1>
+  <span class="sub" id="toolline"><span class="dot dim"></span> checking the toolchain…</span>
+  <div class="seg" id="netseg">
+    <button data-net="testnet" class="on tn">TESTNET</button>
+    <button data-net="mainnet">MAINNET</button>
+  </div>
+  <span id="walletchip"><span class="k">signer</span> —</span>
+  <nav>
+    <button data-tab="learn" class="on">LEARN</button>
+    <button data-tab="build">BUILD</button>
+    <a id="consolelink" href="../near">CONSOLE</a>
+  </nav>
+</header>
+<main>
+
+<!-- ── learn ── -->
+<section id="learn" class="on">
+  <div class="grid">
+    <div class="side">
+      <div class="list" id="l-list"><div class="empty">loading lessons…</div></div>
+      <div class="note">Start at the top. Each lesson is a few minutes; the ones marked ZK climb the zero-knowledge ladder and end in the cairo mod.</div>
+    </div>
+    <div class="panel lesson" id="l-view"><div class="empty">pick a lesson</div></div>
+  </div>
+  <h2 class="t">Glossary <span class="dimtxt" style="text-transform:none">click a word</span></h2>
+  <div class="gloss" id="l-gloss"></div>
+  <div class="gdef" id="l-gdef"></div>
+</section>
+
+<!-- ── build ── -->
+<section id="build">
+  <div class="grid">
+    <div class="side">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:10px;letter-spacing:.16em;color:var(--dim)">MY PROJECTS</span>
+        <button class="ghost" id="b-newbtn">+ NEW</button>
+      </div>
+      <div class="list" id="b-list"><div class="empty">loading…</div></div>
+      <div class="note">Each project is a Rust crate under <span class="kbd">contracts/&lt;name&gt;/</span> in this module. Build makes the .wasm, Test runs the unit tests, Ship puts it on your account.</div>
+    </div>
+    <div id="b-main">
+      <!-- new project -->
+      <div class="panel" id="b-new" style="display:none">
+        <h2>New project</h2>
+        <label class="f">start from</label>
+        <div class="tpl" id="b-tpls"></div>
+        <label class="f">name</label>
+        <div class="row">
+          <input id="b-name" placeholder="tipjar" style="min-width:220px">
+          <span class="dimtxt" style="font-size:11px">letters, digits, _</span>
+        </div>
+        <label class="f">describe what you want (optional — the builder agent shapes the starter to it)</label>
+        <textarea id="b-desc" style="width:100%;min-height:60px" placeholder="a tip jar where anyone can send NEAR and only the owner withdraws"></textarea>
+        <div class="row" style="margin-top:12px">
+          <button class="go" id="b-make">MAKE</button>
+          <span class="flash" id="b-newflash"></span>
+        </div>
+        <div class="note" id="b-newnote">Plain MAKE scaffolds the starter as-is. With a description, the builder hands the crate to orbit/claudecode (needs the write token; set it in the console's WALLET tab) and streams its steps here.</div>
+      </div>
+      <!-- workbench -->
+      <div id="b-wb" style="display:none">
+        <div class="wb">
+          <span class="name" id="w-name"></span>
+          <span class="state" id="w-state"></span>
+          <span class="right">
+            <button class="go" id="w-build">BUILD</button>
+            <button class="go" id="w-test">TEST</button>
+            <button class="go" id="w-ship">SHIP</button>
+            <button class="ghost" id="w-del">DELETE</button>
+          </span>
+        </div>
+        <div class="flash" id="w-flash"></div>
+        <div class="tabs">
+          <button data-pane="code" class="on">CODE</button>
+          <button data-pane="notes">WALKTHROUGH <span class="n" id="w-notesn"></span></button>
+          <button data-pane="jobs">JOBS <span class="n" id="w-jobsn"></span></button>
+          <button data-pane="use">USE</button>
+        </div>
+        <div class="pane on" id="pane-code">
+          <div class="filetabs" id="w-files"></div>
+          <div class="editor" id="w-editor"><div class="ln" id="w-ln"></div><textarea id="w-ta" spellcheck="false"></textarea></div>
+          <div class="codebar"><span id="w-codestat">—</span>
+            <span class="right"><button class="ghost" id="w-discard">DISCARD</button><button class="ghost" id="w-save">SAVE</button></span></div>
+          <div class="panel" style="margin-top:12px">
+            <h2>Ask the builder to change it</h2>
+            <div class="row">
+              <input id="w-vibe" style="flex:1;min-width:240px" placeholder="add a pause switch only the owner can flip">
+              <button class="go" id="w-vibego">VIBE</button>
+            </div>
+            <div class="note">orbit/claudecode edits the crate to your ask, then builds and runs the tests. Steps show under JOBS. Needs the write token.</div>
+          </div>
+        </div>
+        <div class="pane notes" id="pane-notes"></div>
+        <div class="pane jobs" id="pane-jobs"></div>
+        <div class="pane" id="pane-use">
+          <div class="panel">
+            <h2>Methods</h2>
+            <div class="chips" id="u-methods"></div>
+            <div class="note">Parsed from lib.rs: <span class="p grn">view</span> free reads, <span class="p wrn">change</span> signed calls, <span class="p vio">init</span> the constructor. The CALL tab in the console talks to the shipped contract.</div>
+          </div>
+          <div class="panel" style="margin-top:12px">
+            <h2>Ship to your account</h2>
+            <div class="row">
+              <select id="u-acct" style="min-width:240px"></select>
+              <input id="u-init" placeholder="init method" style="width:130px">
+              <input id="u-initargs" placeholder='{"name":"..."}' style="min-width:220px">
+              <span id="u-confirmwrap" style="display:none;color:var(--warn);font-size:11px"><input type="checkbox" id="u-confirm"> mainnet — real NEAR</span>
+              <button class="go" id="u-shipgo">SHIP</button>
+            </div>
+            <div class="flash" id="u-flash"></div>
+            <div id="u-shipped"></div>
+            <div class="note">The init call is batched into the first deploy. A redeploy to the same account upgrades the code and keeps the data (leave init blank then). Storage costs 1 N per 100 KB, staked not burned.</div>
+          </div>
+          <div class="panel" style="margin-top:12px">
+            <h2>Steps to try it</h2>
+            <ol id="u-steps" style="margin:0 0 0 18px;color:var(--ink2)"></ol>
+          </div>
+          <div class="panel" style="margin-top:12px" id="u-zk">
+            <h2>ZK helpers</h2>
+            <label class="f">merkle root + proofs (the merkle_allowlist scheme)</label>
+            <div class="row"><input id="u-merkle" style="flex:1;min-width:240px" placeholder="alice.testnet, bob.testnet, you.testnet"><button class="ghost" id="u-merklego">COMPUTE</button></div>
+            <pre id="u-merkleout" style="display:none;margin-top:8px"></pre>
+            <label class="f">seal (the commit_reveal scheme)</label>
+            <div class="row">
+              <input id="u-sc" placeholder="contract.testnet" style="width:170px"><input id="u-sw" placeholder="you.testnet" style="width:150px">
+              <input id="u-sv" placeholder="value" style="width:80px"><input id="u-ss" placeholder="salt" style="width:120px"><button class="ghost" id="u-sealgo">SEAL</button>
+            </div>
+            <pre id="u-sealout" style="display:none;margin-top:8px"></pre>
+            <div class="twin" id="u-twin"></div>
+          </div>
+        </div>
+      </div>
+      <div class="empty" id="b-empty">pick a project on the left, or make a new one</div>
+    </div>
+  </div>
+</section>
+</main>
+
+<button id="orb" title="ask the tutor">?</button>
+<div id="tutor">
+  <div class="hd"><span>TUTOR</span><span id="t-who" class="dimtxt"></span>
+    <div class="pill" id="t-mode"><button data-m="tutor" class="on">ASK</button><button data-m="claude">SMART</button><button data-m="builder">BUILD</button></div>
+  </div>
+  <div class="msgs" id="t-msgs"></div>
+  <div class="ex" id="t-ex"></div>
+  <div class="in"><input id="t-in" placeholder="ask anything about NEAR contracts, or what to build"><button class="go" id="t-go">ASK</button></div>
+</div>
+
+<script>
+'use strict';
+// Served at <base>/workshop (also /learn, /build). API is <base>/_api, like the console.
+const ROOT = location.pathname.replace(/\/(workshop|learn|build)\/?$/, '');
+const API = ROOT + '/_api';
+$('consolelink').href = ROOT + '/';
+function $(id){ return document.getElementById(id); }
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const token = () => localStorage.getItem('near_token') || '';
+async function j(path){ const r = await fetch(API + path); const b = await r.json().catch(()=>({error:'bad JSON'})); if(!r.ok) throw new Error(b.error||r.status); return b; }
+async function jp(path, body){ const r = await fetch(API + path, {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({token: token(), ...body})});
+  const b = await r.json().catch(()=>({error:'bad JSON'})); if(!r.ok) throw new Error(b.error||r.status); return b; }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const kb = n => n == null ? '' : (n/1024).toFixed(1) + ' KB';
+
+// ── network + wallet ──
+let NET = localStorage.getItem('near_ws_net') || 'testnet';
+let WALLET = null, WHO = {writable:false};
+function paintNet(){
+  document.querySelectorAll('#netseg button').forEach(b => { b.classList.toggle('on', b.dataset.net === NET); b.classList.toggle('tn', b.dataset.net === 'testnet'); });
+  $('u-confirmwrap').style.display = NET === 'mainnet' ? 'inline' : 'none';
+  refreshWallet();
+}
+document.querySelectorAll('#netseg button').forEach(b => b.onclick = () => { NET = b.dataset.net; localStorage.setItem('near_ws_net', NET); paintNet(); });
+async function refreshWallet(){
+  try { WALLET = await j('/wallet'); const def = (WALLET.accounts||[]).find(a => a.network === NET && a.default);
+    $('walletchip').innerHTML = '<span class="k">signer</span> ' + (def ? esc(def.account_id) : 'none — make one in the console');
+  } catch(e){ $('walletchip').innerHTML = '<span class="k">signer</span> ?'; }
+}
+async function refreshTool(){
+  try { const t = await j('/toolchain'); WHO = await jp('/whoami', {});
+    let cairo = false; try { cairo = !(await j('/zk')).cairo_down; } catch(e){}
+    $('toolline').innerHTML = `<span class="dot ${t.ok?'':'off'}" title="cargo + wasm32"></span> ${t.ok ? 'cargo · wasm32' : (t.error||'no cargo')}
+      <span class="dot ${cairo?'':'dim'}" title="cairo mod"></span> cairo ${cairo?'on':'off'}
+      <span class="dot ${WHO.writable?'':'dim'}" title="write token"></span> ${WHO.writable ? 'can build (' + WHO.why + ')' : 'read-only — set the token in the console WALLET tab'}`;
+    $('t-who').textContent = WHO.writable ? '' : 'read-only';
+    document.querySelector('#t-mode [data-m=claude]').style.display = WHO.writable ? '' : 'none';
+    document.querySelector('#t-mode [data-m=builder]').style.display = WHO.writable ? '' : 'none';
+  } catch(e){ $('toolline').innerHTML = `<span class="dot off"></span> ${esc(e.message)}`; }
+}
+paintNet(); refreshTool();
+
+// ── tabs ──
+function goTab(name){
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x.dataset.tab === name));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('on', s.id === name));
+  location.hash = name === 'learn' ? (LESSON ? '#learn/' + LESSON : '#learn') : (PROJECT ? '#build/' + PROJECT : '#build');
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => goTab(b.dataset.tab));
+
+// ── LEARN ──
+let LESSONS = [], LESSON = null, GLOSS = {};
+const DONE = new Set(JSON.parse(localStorage.getItem('near_lessons_done') || '[]'));
+async function loadLessons(){
+  const r = await j('/lessons'); LESSONS = r.lessons; GLOSS = r.glossary || {};
+  paintLessonList();
+  $('l-gloss').innerHTML = Object.keys(GLOSS).map(k => `<span class="p click" onclick="gdef('${esc(k).replace(/'/g,"\\'")}')">${esc(k)}</span>`).join('');
+}
+function paintLessonList(){
+  $('l-list').innerHTML = LESSONS.map(l => `<div class="item ${l.id===LESSON?'on':''} ${DONE.has(l.id)?'done':''}" onclick="openLesson('${l.id}')">
+    <div class="ttl">${esc(l.title)}</div><div class="meta"><span class="lvl ${l.level==='start here'?'start':l.level}">${esc(l.level)}</span><span>${l.minutes} min</span>${l.try?'<span class="p hot">try it</span>':''}</div></div>`).join('');
+}
+function gdef(k){ $('l-gdef').innerHTML = `<b>${esc(k)}</b>: ${esc(GLOSS[k])}.`; }
+function md(s){ // tiny: **b**, `c`, paragraphs, lists
+  const blocks = String(s||'').split(/\n\n+/); return blocks.map(b => {
+    const lines = b.split('\n'); const inl = t => esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`([^`]+)`/g,'<code>$1</code>');
+    if (lines.every(l => /^\s*- /.test(l))) return '<ul>' + lines.map(l => '<li>' + inl(l.replace(/^\s*- /,'')) + '</li>').join('') + '</ul>';
+    if (lines.every(l => /^\s*\d+\. /.test(l))) return '<ol>' + lines.map(l => '<li>' + inl(l.replace(/^\s*\d+\. /,'')) + '</li>').join('') + '</ol>';
+    return '<p>' + lines.map(inl).join('<br>') + '</p>'; }).join('');
+}
+async function openLesson(id){
+  LESSON = id; paintLessonList(); goTab('learn');
+  const l = await j('/lesson?id=' + encodeURIComponent(id));
+  const i = LESSONS.findIndex(x => x.id === id);
+  let h = `<h1>${esc(l.title)}</h1><div class="sum"><span class="lvl ${l.level==='start here'?'start':l.level}">${esc(l.level)}</span> ${l.minutes} min · ${esc(l.summary)}</div>`;
+  for (const s of l.sections){
+    h += `<h3>${esc(s.h)}</h3>`;
+    if (s.say) h += md(s.say);
+    if (s.code) h += `<pre>${esc(s.code)}</pre>`;
+    if (s.table) h += '<table><tr>' + s.table[0].map(c => `<th>${esc(c)}</th>`).join('') + '</tr>' + s.table.slice(1).map(r => '<tr>' + r.map(c => `<td>${esc(c)}</td>`).join('') + '</tr>').join('') + '</table>';
+    if (s.tip) h += `<div class="tip">${md(s.tip)}</div>`;
+    if (s.warn) h += `<div class="warn">${md(s.warn)}</div>`;
+  }
+  if (l.try) h += `<div class="try"><b>Try it</b> — start from the <code>${esc(l.try.template)}</code> starter:<ol>${l.try.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>
+    <button class="go" onclick="newFrom('${esc(l.try.template)}')">MAKE IT</button></div>`;
+  if (l.cairo) h += `<div class="note">Twin on the cairo mod: <a href="/cairo/#learn" target="_blank">${esc(l.cairo)}</a> (Cairo + Starknet, the proof-native rung).</div>`;
+  h += `<div class="nav"><span>${i>0?`<button class="ghost" onclick="openLesson('${LESSONS[i-1].id}')">← ${esc(LESSONS[i-1].title)}</button>`:''}</span>
+    <button class="ghost ${DONE.has(id)?'on':''}" onclick="markDone('${id}')">${DONE.has(id)?'DONE ✓':'MARK DONE'}</button>
+    <span>${i<LESSONS.length-1?`<button class="ghost" onclick="openLesson('${LESSONS[i+1].id}')">${esc(LESSONS[i+1].title)} →</button>`:''}</span></div>`;
+  $('l-view').innerHTML = h; $('l-view').scrollIntoView({block:'start', behavior:'smooth'});
+  location.hash = '#learn/' + id;
+}
+function markDone(id){ DONE.has(id) ? DONE.delete(id) : DONE.add(id); localStorage.setItem('near_lessons_done', JSON.stringify([...DONE])); openLesson(id); }
+
+// ── BUILD ──
+let PROJECTS = [], PROJECT = null, P = null, TPLS = [], TPL = 'counter';
+let FILES = {}, FILE = null, DIRTY = {}, JOBS = [], OPENJOB = null, POLL = null;
+async function loadProjects(){
+  const r = await j('/projects'); PROJECTS = r.projects || [];
+  $('b-list').innerHTML = PROJECTS.length ? PROJECTS.map(p => `<div class="item ${p.name===PROJECT?'on':''}" onclick="openProject('${p.name}')">
+      <div class="ttl">${esc(p.name)}</div><div class="meta"><span class="state ${p.state}">${p.state}</span>${p.template?`<span>${esc(p.template)}</span>`:''}${p.deployed&&p.deployed.length?'<span class="p grn">shipped</span>':''}</div></div>`).join('')
+    : '<div class="empty">no projects yet</div>';
+}
+async function loadTemplates(){
+  const r = await j('/templates'); TPLS = r.templates || []; paintTpls();
+}
+function paintTpls(){
+  $('b-tpls').innerHTML = TPLS.map(t => `<div class="c ${t.id===TPL?'on':''}" onclick="TPL='${t.id}';paintTpls()">
+    <div class="ttl">${esc(t.title)} <span class="lvl ${t.level==='start here'?'start':t.level}">${esc(t.level)}</span></div><div class="b">${esc(t.blurb)}</div></div>`).join('');
+}
+function showNew(){ PROJECT = null; $('b-new').style.display = ''; $('b-wb').style.display = 'none'; $('b-empty').style.display = 'none'; loadProjects(); goTab('build'); $('b-name').focus(); }
+function newFrom(tid){ TPL = tid; paintTpls(); showNew(); }
+$('b-newbtn').onclick = showNew;
+$('b-make').onclick = async () => {
+  const name = $('b-name').value.trim(), desc = $('b-desc').value.trim();
+  $('b-newflash').textContent = ''; if (!name) return $('b-newflash').textContent = 'name it first';
+  $('b-make').disabled = true;
+  try {
+    if (desc && WHO.writable) {
+      // the builder: scaffold + claudecode + build + test, streamed in the orb
+      openTutor(); setMode('builder'); $('t-in').value = desc;
+      await askTutor(desc, {name, template: TPL});
+    } else {
+      const r = await jp('/new', {name, template: TPL, desc: desc || undefined});
+      await loadProjects(); await openProject(r.name); startJob('check');
+    }
+  } catch(e){ $('b-newflash').textContent = e.message; }
+  $('b-make').disabled = false;
+};
+async function openProject(name, pane){
+  PROJECT = name; $('b-new').style.display = 'none'; $('b-empty').style.display = 'none'; $('b-wb').style.display = '';
+  document.querySelectorAll('#b-list .item').forEach(x => x.classList.toggle('on', x.querySelector('.ttl').textContent === name));
+  location.hash = '#build/' + name;
+  P = await j('/project?name=' + encodeURIComponent(name));
+  $('w-name').innerHTML = esc(P.name) + `<small>${esc((P.meta||{}).desc||'')}</small>`;
+  $('w-state').className = 'state ' + P.state; $('w-state').textContent = P.state + (P.wasm ? ' · ' + kb(P.wasm.bytes) : '');
+  $('w-notesn').textContent = (P.walkthrough||[]).length || '';
+  // files
+  FILES = {}; DIRTY = {}; const want = FILE && P.files.some(f => f.path === FILE) ? FILE : 'src/lib.rs';
+  await openFile(want);
+  paintNotes(); paintUse(); await loadJobs();
+  if (pane) showPane(pane);
+}
+async function openFile(path){
+  if (!(path in FILES)) FILES[path] = (await j('/read?name=' + encodeURIComponent(PROJECT) + '&path=' + encodeURIComponent(path))).content;
+  FILE = path; $('w-ta').value = FILES[path]; paintFileTabs(); paintLines();
+}
+function paintFileTabs(){
+  $('w-files').innerHTML = P.files.map(f => `<button class="${f.path===FILE?'on':''} ${DIRTY[f.path]?'dirty':''}" onclick="openFile('${esc(f.path)}')">${esc(f.path)}</button>`).join('');
+  $('w-codestat').textContent = FILE + (DIRTY[FILE] ? ' · unsaved' : '');
+}
+let HL = null, ERRS = {};
+function paintLines(){
+  const n = $('w-ta').value.split('\n').length; const notes = {}; (P.walkthrough||[]).forEach(w => { if (w.line && FILE === 'src/lib.rs') notes[w.line] = w; });
+  let h = ''; for (let i = 1; i <= n; i++) h += `<span class="${i===HL?'hl':''} ${ERRS[i]?'err':''} ${notes[i]?'note':''}" title="${esc(ERRS[i]||(notes[i]||{}).say||'')}">${i}</span>\n`;
+  $('w-ln').innerHTML = h; autosize();
+}
+function autosize(){ const ta = $('w-ta'); ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 4) + 'px'; }
+$('w-ta').oninput = () => { FILES[FILE] = $('w-ta').value; DIRTY[FILE] = true; paintFileTabs(); paintLines(); };
+$('w-ta').onkeydown = e => { if (e.key === 'Tab'){ e.preventDefault(); const t = e.target, s = t.selectionStart; t.value = t.value.slice(0,s) + '    ' + t.value.slice(t.selectionEnd); t.selectionStart = t.selectionEnd = s + 4; t.oninput(); }
+  if ((e.metaKey||e.ctrlKey) && e.key === 's'){ e.preventDefault(); saveFile(); } };
+async function saveFile(){
+  if (!DIRTY[FILE]) return; try { await jp('/write', {name: PROJECT, path: FILE, content: FILES[FILE]}); DIRTY[FILE] = false; paintFileTabs(); $('w-flash').textContent = 'saved ' + FILE; P.state = 'stale'; $('w-state').className = 'state stale'; $('w-state').textContent = 'stale'; }
+  catch(e){ $('w-flash').textContent = e.message; }
+}
+$('w-save').onclick = saveFile;
+$('w-discard').onclick = () => { delete FILES[FILE]; DIRTY[FILE] = false; openFile(FILE); };
+function jumpTo(line){
+  showPane('code'); if (FILE !== 'src/lib.rs') openFile('src/lib.rs').then(() => jumpTo(line));
+  HL = line; paintLines(); const ta = $('w-ta'); const lines = ta.value.split('\n'); let off = 0; for (let i = 0; i < line - 1; i++) off += lines[i].length + 1;
+  ta.focus(); ta.setSelectionRange(off, off + (lines[line-1]||'').length);
+  const y = (line - 1) * 16.5; $('w-editor').scrollTop = Math.max(0, y - 120);
+}
+function paintNotes(){
+  $('pane-notes').innerHTML = (P.walkthrough||[]).length ? P.walkthrough.map(w => `<div class="n" onclick="${w.line?`jumpTo(${w.line})`:''}">
+    <span class="l">${w.line ? 'line ' + w.line : 'not in this file any more'}</span><div class="f">${esc(w.find)}</div><div class="s">${esc(w.say)}</div></div>`).join('')
+    + '<div class="note">Each note is pinned to the line where that code lives now. Click one to jump there. Edit the code and the notes follow, until the snippet is gone.</div>'
+    : '<div class="empty">this project has no walkthrough (it was not made from a starter)</div>';
+}
+function paintUse(){
+  const kinds = {view:'grn', change:'wrn', init:'vio', static:''};
+  $('u-methods').innerHTML = (P.methods||[]).map(m => `<span class="p ${kinds[m.kind]||''}" title="${esc(m.args.join(', '))}">${esc(m.name)}${m.payable?' $':''}${m.args.length?' ('+m.args.length+')':''}</span>`).join('') || '<span class="dimtxt">no pub fns found</span>';
+  const init = (P.meta||{}).init || {}; $('u-init').value = init.method || ''; $('u-initargs').value = init.args ? JSON.stringify(init.args) : '';
+  $('u-steps').innerHTML = (P.steps||[]).map(s => `<li>${esc(s)}</li>`).join('') || '<li class="dimtxt">build, test, ship, then use the CALL tab in the console</li>';
+  const deps = (P.meta||{}).deployed || [];
+  $('u-shipped').innerHTML = deps.length ? '<div class="note">shipped: ' + deps.slice(-3).reverse().map(d => `<a href="${ROOT}/c/${esc(d.account)}?network=${esc(d.network)}" target="_blank">${esc(d.account)}</a> (${esc(d.network)})`).join(' · ') + '</div>' : '';
+  const twin = (P.meta||{}).cairo_twin; $('u-twin').innerHTML = twin ? `Twin starter on the cairo mod: <code>${esc(twin)}</code> — same idea in Cairo with Poseidon, provable. <a href="/cairo/#new" target="_blank">open cairo</a>` : '';
+  fillAccounts();
+}
+async function fillAccounts(){
+  if (!WALLET) await refreshWallet();
+  const rows = (WALLET && WALLET.accounts || []).filter(a => a.network === NET);
+  $('u-acct').innerHTML = rows.length ? rows.map(a => `<option value="${esc(a.account_id)}" ${a.default?'selected':''}>${esc(a.account_id)}${a.default?' (default)':''}</option>`).join('') : `<option value="">no ${NET} account — make one in the console WALLET tab</option>`;
+}
+function showPane(name){ document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.pane === name)); document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + name)); if (name === 'code') autosize(); }
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => showPane(b.dataset.pane));
+
+// jobs
+async function startJob(fn, extra){
+  for (const f in DIRTY) if (DIRTY[f]) { FILE = f; await saveFile(); }
+  try { const job = await jp('/' + fn, {name: PROJECT, ...(extra||{})}); $('w-flash').textContent = ''; showPane('jobs'); OPENJOB = job.id; await loadJobs(); pollJobs(); }
+  catch(e){ $('w-flash').textContent = e.message; }
+}
+$('w-build').onclick = () => startJob('build');
+$('w-test').onclick = () => startJob('verify');
+$('w-ship').onclick = () => { showPane('use'); $('u-shipgo').focus(); };
+$('w-vibego').onclick = () => { const p = $('w-vibe').value.trim(); if (!p) return; startJob('vibe', {prompt: p}); $('w-vibe').value = ''; };
+let DELARM = 0;
+$('w-del').onclick = async () => {
+  if (Date.now() - DELARM > 4000){ DELARM = Date.now(); $('w-del').textContent = 'SURE? DELETE'; $('w-del').style.color = 'var(--bad)'; setTimeout(() => { $('w-del').textContent = 'DELETE'; $('w-del').style.color = ''; }, 4000); return; }
+  try { await jp('/remove', {name: PROJECT}); PROJECT = null; P = null; $('b-wb').style.display = 'none'; $('b-empty').style.display = ''; await loadProjects(); } catch(e){ $('w-flash').textContent = e.message; }
+};
+async function loadJobs(){
+  const r = await j('/jobs?name=' + encodeURIComponent(PROJECT) + '&limit=20'); JOBS = r.jobs || [];
+  $('w-jobsn').textContent = JOBS.length || '';
+  const running = JOBS.filter(x => x.state === 'queued' || x.state === 'running');
+  if (!OPENJOB && JOBS.length) OPENJOB = JOBS[0].id;
+  let h = '';
+  for (const x of JOBS){
+    const open = x.id === OPENJOB; let body = '';
+    if (open){ const full = await j('/job?id=' + x.id); body = jobBody(full); }
+    h += `<div class="j ${open?'open':''}" onclick="OPENJOB='${x.id}';loadJobs()"><div class="h"><span class="p ${x.state==='done'?'grn':x.state==='failed'||x.state==='interrupted'?'bad':'hot'}">${x.state}</span>
+      <b>${esc(x.fn)}</b>${x.prompt?` <span class="dimtxt">“${esc(x.prompt.slice(0,80))}”</span>`:''} ${x.state==='running'||x.state==='queued'?'<span class="spin"></span>':''}
+      <span class="t">${x.seconds}s · ${new Date(x.started*1000).toLocaleTimeString()}</span></div><div class="b">${body}</div></div>`;
+  }
+  $('pane-jobs').innerHTML = h || '<div class="empty">no jobs yet — press BUILD</div>';
+  if (!running.length && POLL){ clearInterval(POLL); POLL = null; const r2 = await j('/project?name=' + encodeURIComponent(PROJECT)); P.state = r2.state; P.wasm = r2.wasm; P.files = r2.files; P.methods = r2.methods; P.walkthrough = r2.walkthrough; P.meta = r2.meta;
+    $('w-state').className = 'state ' + P.state; $('w-state').textContent = P.state + (P.wasm ? ' · ' + kb(P.wasm.bytes) : ''); paintNotes(); paintUse(); loadProjects();
+    if (JOBS[0] && JOBS[0].fn === 'vibe'){ for (const f in FILES) delete FILES[f]; DIRTY = {}; openFile(FILE || 'src/lib.rs'); } }
+}
+function pollJobs(){ if (POLL) return; POLL = setInterval(loadJobs, 1800); }
+function jobBody(jb){
+  const r = jb.result || {}; let h = '';
+  if (jb.error) h += `<div class="d">${esc(jb.error)}</div>`;
+  const steps = jb.steps || []; if (steps.length) h += '<div style="margin-bottom:6px">' + steps.slice(-40).map(s => `<div class="st ${s.error?'err':''}">${esc(s.tool)} <span class="dimtxt">${esc(s.what||'')}</span></div>`).join('') + '</div>';
+  const b = r.build || (jb.fn === 'build' ? r : null); const t = r.test || (jb.fn === 'verify' ? r : null);
+  ERRS = {};
+  if (b){ h += `<div class="st">build ${b.ok ? '<span class="p grn">ok</span>' : '<span class="p bad">failed</span>'} ${b.seconds||''}s ${b.wasm ? '· ' + kb(b.wasm.bytes) + ' · exports: ' + esc((b.wasm.exports||[]).join(', ')) : ''}</div>`;
+    for (const d of (b.diagnostics||[])){ if (d.level === 'error' && d.line) ERRS[d.line] = d.message; h += `<div class="d" onclick="event.stopPropagation();${d.line?`jumpTo(${d.line})`:''}">${d.level === 'warning' ? '<span class="dimtxt">warn</span> ' : ''}${d.file ? esc(d.file) + ':' + d.line + ' ' : ''}${esc(d.message)}</div>`; } }
+  if (t){ h += `<div class="st">tests ${t.ok ? '<span class="p grn">' : '<span class="p bad">'}${t.passed}/${(t.tests||[]).length} passed</span> ${t.seconds||''}s</div>`;
+    for (const x of (t.tests||[])) h += `<div class="t ${x.status}">${x.status === 'pass' ? '✓' : '✕'} ${esc(x.name.split('::').pop())}${x.should_panic?' <span class="dimtxt">(must refuse)</span>':''}${x.reason ? ' — ' + esc(x.reason) : ''}</div>`;
+    for (const d of (t.diagnostics||[])) h += `<div class="d" onclick="event.stopPropagation();${d.line?`jumpTo(${d.line})`:''}">${d.file ? esc(d.file) + ':' + d.line + ' ' : ''}${esc(d.message)}</div>`; }
+  if (r.result && jb.fn === 'vibe') h += `<div class="st" style="white-space:pre-wrap;color:var(--ink2);margin-top:6px">${esc(r.result.slice(0, 1500))}</div>`;
+  const log = (b && !b.ok && b.log) || (t && !t.ok && !(t.tests||[]).length && t.log); if (log) h += `<details style="margin-top:6px"><summary class="dimtxt" style="cursor:pointer;font-size:11px">full log</summary><pre>${esc(log.slice(-6000))}</pre></details>`;
+  paintLines();
+  return h;
+}
+// ship
+$('u-shipgo').onclick = async () => {
+  const acct = $('u-acct').value; $('u-flash').textContent = '';
+  if (!acct) return $('u-flash').textContent = 'no account on ' + NET;
+  if (NET === 'mainnet' && !$('u-confirm').checked) return $('u-flash').textContent = 'tick the mainnet box to spend real NEAR';
+  if (P.state !== 'built') return $('u-flash').textContent = 'build first (the source is newer than the .wasm)';
+  $('u-shipgo').disabled = true; $('u-flash').textContent = 'signing + broadcasting…';
+  try { const body = {name: PROJECT, account_id: acct, network: NET, confirm: NET === 'mainnet'};
+    const im = $('u-init').value.trim(); if (im) { body.init_method = im; body.init_args = $('u-initargs').value.trim() || '{}'; } else body.init_method = '';
+    const r = await jp('/ship', body);
+    $('u-flash').textContent = ''; $('u-shipped').innerHTML = `<div class="note" style="color:var(--good)">shipped to <b>${esc(r.deployed_to)}</b> · ${kb(r.code_bytes)} · tx ${esc(r.hash||r.tx_hash||'')}
+      — <a href="${ROOT}/c/${esc(r.deployed_to)}?network=${esc(NET)}" target="_blank">open its page</a> · <a href="${ROOT}/" target="_blank">CALL tab</a></div>`;
+    await openProject(PROJECT, 'use');
+  } catch(e){ $('u-flash').textContent = e.message; }
+  $('u-shipgo').disabled = false;
+};
+$('u-merklego').onclick = async () => { try { const r = await j('/merkle?accounts=' + encodeURIComponent($('u-merkle').value)); $('u-merkleout').style.display = ''; $('u-merkleout').textContent = JSON.stringify(r, null, 1); } catch(e){ $('u-flash').textContent = e.message; } };
+$('u-sealgo').onclick = async () => { try { const r = await j(`/seal?contract=${encodeURIComponent($('u-sc').value)}&who=${encodeURIComponent($('u-sw').value)}&value=${encodeURIComponent($('u-sv').value||0)}&salt=${encodeURIComponent($('u-ss').value)}`); $('u-sealout').style.display = ''; $('u-sealout').textContent = JSON.stringify(r, null, 1); } catch(e){ $('u-flash').textContent = e.message; } };
+
+// ── TUTOR ORB ──
+let MODE = 'tutor', BUSY = false;
+function openTutor(){ $('tutor').classList.add('open'); $('t-in').focus(); if (!$('t-msgs').children.length) greet(); }
+$('orb').onclick = () => $('tutor').classList.contains('open') ? $('tutor').classList.remove('open') : openTutor();
+function setMode(m){ MODE = m; document.querySelectorAll('#t-mode button').forEach(b => { b.classList.toggle('on', b.dataset.m === m); b.classList.toggle('b', m === 'builder'); });
+  $('t-in').placeholder = m === 'builder' ? 'make a tip jar called tips where anyone can send and the owner withdraws' : 'ask anything about NEAR contracts, or what to build'; $('t-go').textContent = m === 'builder' ? 'BUILD' : 'ASK'; }
+document.querySelectorAll('#t-mode button').forEach(b => b.onclick = () => setMode(b.dataset.m));
+async function greet(){
+  try { const r = await j('/agents'); $('t-ex').innerHTML = (r.examples||[]).slice(0,4).map(x => `<button onclick="$('t-in').value=this.textContent;askTutor()">${esc(x)}</button>`).join(''); } catch(e){}
+  addMsg('ai', md('Hi. I teach **NEAR smart contracts** from zero and walk you up the **zero-knowledge ladder** into the cairo mod. Ask me anything, or switch to BUILD and tell me what to make.'), [], []);
+}
+function addMsg(kind, html, steps, acts){
+  const d = document.createElement('div'); d.className = 'm ' + kind;
+  d.innerHTML = (steps && steps.length ? '<div class="trail">' + steps.map(s => `<span>${esc(s)}</span>`).join('') + '</div>' : '') + html
+    + (acts && acts.length ? '<div class="acts">' + acts.map((a, i) => `<button data-i="${i}">${esc(a.label)}</button>`).join('') + '</div>' : '');
+  d.querySelectorAll('.acts button').forEach(b => b.onclick = () => doAction(acts[+b.dataset.i]));
+  $('t-msgs').appendChild(d); $('t-msgs').scrollTop = 1e9; return d;
+}
+function doAction(a){
+  if (a.lesson) openLesson(a.lesson);
+  else if (a.new) newFrom(a.new);
+  else if (a.open) { goTab('build'); openProject(a.open); }
+  else if (a.lookup) window.open(ROOT + '/?q=' + encodeURIComponent(a.lookup), '_blank');
+  else if (a.url) window.open(a.url, '_blank');
+  else if (a.ask) { $('t-in').value = a.ask; askTutor(); }
+}
+async function askTutor(q, extra){
+  q = q || $('t-in').value.trim(); if (!q || BUSY) return; $('t-in').value = '';
+  addMsg('me', esc(q)); BUSY = true; $('orb').classList.add('busy');
+  const ctx = {project: PROJECT, lesson: LESSON, network: NET, view: document.querySelector('main section.on').id};
+  const body = {query: q, context: ctx, token: token(), ...(extra||{})};
+  if (MODE === 'builder') body.agent = 'builder'; else if (MODE === 'claude') body.brain = 'claude';
+  const live = addMsg('ai', '<span class="spin"></span>', [], []); const trail = [];
+  try {
+    const r = await fetch(API + '/run/stream', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+    const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = ''; let done = null;
+    while (true){ const {value, done: end} = await rd.read(); if (end) break; buf += dec.decode(value, {stream:true});
+      let i; while ((i = buf.indexOf('\n\n')) >= 0){ const line = buf.slice(0, i).trim(); buf = buf.slice(i + 2); if (!line.startsWith('data:')) continue;
+        let ev; try { ev = JSON.parse(line.slice(5)); } catch(e){ continue; }
+        if (ev.type === 'step'){ const s = ev.step || {}; trail.push(s.tool + (s.params && s.params.what ? ' ' + String(s.params.what).slice(0, 50) : ''));
+          live.innerHTML = '<div class="trail">' + trail.slice(-8).map(x => `<span>${esc(x)}</span>`).join('') + '</div><span class="spin"></span>'; $('t-msgs').scrollTop = 1e9;
+          if (s.tool === 'job' && MODE === 'builder') { loadProjects(); } }
+        else if (ev.type === 'done') done = ev;
+        else if (ev.type === 'error') done = {answer: ev.error + (ev.owner_only ? ' — set the write token in the console WALLET tab.' : ''), actions: []}; } }
+    live.remove();
+    if (!done) done = {answer: 'no answer (connection closed)', actions: []};
+    addMsg('ai', md(done.answer) + (done.note ? `<div class="note">${esc(done.note)}</div>` : ''), trail.slice(-6), done.actions || []);
+    if (done.agent === 'builder'){ await loadProjects(); if (done.project){ goTab('build'); openProject(done.project, 'jobs'); } }
+  } catch(e){ live.remove(); addMsg('ai', esc(e.message), [], []); }
+  BUSY = false; $('orb').classList.remove('busy');
+}
+$('t-go').onclick = () => askTutor();
+$('t-in').onkeydown = e => { if (e.key === 'Enter') askTutor(); };
+
+// ── boot ──
+(async () => {
+  await Promise.all([loadLessons(), loadTemplates(), loadProjects()]);
+  const h = location.hash.replace('#', ''); const [tab, arg] = h.split('/');
+  if (tab === 'build'){ goTab('build'); if (arg) openProject(decodeURIComponent(arg)); else if (!PROJECTS.length) showNew(); }
+  else if (arg) openLesson(arg); else if (LESSONS.length) openLesson(LESSONS[0].id);
+})();
+</script>
+</body>
+</html>

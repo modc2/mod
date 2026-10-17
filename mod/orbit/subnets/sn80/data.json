@@ -1,0 +1,141 @@
+{
+  "netuid": 80,
+  "name": "OpenRoboto",
+  "symbol": "ى",
+  "owner": "5CG1eFiaZkWTCUEjD23i7Uiu6AjTkLkgkCu3EyXKFFAkkT2T",
+  "description": "An open competition on Bittensor for continuously improving robotics models and collecting egocentric data",
+  "github": "https://github.com/openroboto-ai/openroboto-subnet",
+  "url": "https://www.openroboto.ai/",
+  "discord": "https://discord.gg/N4F7UhEBY",
+  "logo": "https://www.openroboto.ai/logo.png",
+  "registered_at": 7151800,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.026002197,
+    "moving_price": 0.02608365728519857,
+    "market_cap": 66610.46223067357,
+    "tao_in": 6091.353881047,
+    "alpha_in": 234263.312795617,
+    "alpha_out": 2327461.076519392,
+    "volume": 417181.770036499,
+    "vol_24h": 2550.9115007660002,
+    "emission": 0.0,
+    "change_1h": -0.0147427340988604,
+    "change_24h": -2.3105803467222907,
+    "change_7d": 3.541373249566959
+  },
+  "spark_24h": [
+    0.026617209,
+    0.026583531,
+    0.026253599,
+    0.026302105,
+    0.026314763,
+    0.026232803,
+    0.026110942,
+    0.026269857,
+    0.026188633,
+    0.026229585,
+    0.026271953,
+    0.02650618,
+    0.026140245,
+    0.026076394,
+    0.026085666,
+    0.026258443,
+    0.026267663,
+    0.026169734,
+    0.026130317,
+    0.026124818,
+    0.026192984,
+    0.025719923,
+    0.025686828,
+    0.02560903,
+    0.025421847,
+    0.025773005,
+    0.025984994,
+    0.026045789,
+    0.026156115,
+    0.025901016,
+    0.02593145,
+    0.025941619,
+    0.025894586,
+    0.025935164,
+    0.026008423,
+    0.025982957,
+    0.026024785,
+    0.026030759,
+    0.026038517,
+    0.025993809,
+    0.026006164,
+    0.026083203,
+    0.02614314,
+    0.026246826,
+    0.026291637,
+    0.026301426,
+    0.026231133,
+    0.026002197
+  ],
+  "trades_24h": {
+    "trades": 528,
+    "buys": 336,
+    "sells": 192,
+    "buy_tao": 1178.686751806,
+    "sell_tao": 1274.251701152,
+    "net_tao": -95.56494934599982,
+    "traders": 168
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.18642172200000262,
+      "gross_tao": 410.221178404,
+      "trades": 22
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.0351320580000003,
+      "gross_tao": 140.035132058,
+      "trades": 10
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 0.3198908729999985,
+      "gross_tao": 119.68010912700001,
+      "trades": 4
+    },
+    {
+      "coldkey": "5EvHxAn5RBbMXSpgv5fYPikdtgwox9b8vynpVbNm1qPanR57",
+      "net_tao": -0.11685093200000196,
+      "gross_tao": 108.116850932,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FZUmyxyGnuNq4hc2P2mqdo83FjXTQu3ma9WacS6L5Bthc6e",
+      "net_tao": 8.753423353000002,
+      "gross_tao": 101.343305769,
+      "trades": 7
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791187077,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: synchronize allocation rules and simulation fee",
+      "url": "https://github.com/openroboto-ai/openroboto-subnet/commit/822e3b668c05ff5cfa2328ed2ff6b4a6cd5dfc70",
+      "publisher": "openroboto-ai/openroboto-subnet"
+    },
+    {
+      "ts": 1790060400,
+      "kind": "news",
+      "source": "gnews",
+      "title": "OpenRoboto launches Shift, a platform paying us...",
+      "url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxONDgzQTE0SmdHVlYybFBTcDE2Y2ViR1lUQ2VVSEE1Z3lKa3ZaNVg0aEVDaEt6UVVDb01yU0lBMDI1QlJONlJOSloxM0dZdW1EQ3ZXU0Y4eFVQMTB1R1Q0eExDRHE0NEhuTkp6ZExPUHFWVnNrcVF2SWtMM1VTeXBidUNHUjc5MDc0VEZldUhPWnJES01Zajd0Tjk2YlRSWmhuUFJZa3h5RmQ1WkNPVWI4?oc=5",
+      "publisher": "Pluang"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

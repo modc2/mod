@@ -1,0 +1,141 @@
+{
+  "netuid": 88,
+  "name": "Investing",
+  "symbol": "ᛉ",
+  "owner": "5FhMsGJS7WYdwBzcgsTWxEtY7UCYLZdmBVLcNPmCxr3ppiKS",
+  "description": "Decentralized AUM",
+  "github": "https://github.com/mobiusfund/investing",
+  "url": "https://Investing88.ai",
+  "discord": null,
+  "logo": "https://Investing88.ai/logo.png",
+  "registered_at": 5299805,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.002652444,
+    "moving_price": 0.0026524446438997984,
+    "market_cap": 14529.060469876062,
+    "tao_in": 5784.340139939,
+    "alpha_in": 2180758.072057705,
+    "alpha_out": 3296854.450535067,
+    "volume": 730993.246347595,
+    "vol_24h": 26.81047495396342,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 0.09668355043732646,
+    "change_7d": -6.3998450139265195
+  },
+  "spark_24h": [
+    0.002649882,
+    0.002649882,
+    0.002649882,
+    0.002649672,
+    0.002649681,
+    0.002649631,
+    0.002649588,
+    0.002649854,
+    0.002649184,
+    0.002649183,
+    0.002648725,
+    0.002648744,
+    0.002648737,
+    0.002648867,
+    0.002648872,
+    0.002648884,
+    0.002648884,
+    0.002648885,
+    0.002648896,
+    0.002648896,
+    0.002648895,
+    0.002648778,
+    0.002648777,
+    0.002645707,
+    0.002645703,
+    0.002645703,
+    0.002645702,
+    0.002645702,
+    0.002645701,
+    0.002645693,
+    0.002645693,
+    0.002645692,
+    0.002645424,
+    0.002645423,
+    0.002645423,
+    0.002645423,
+    0.002645422,
+    0.002645422,
+    0.002641497,
+    0.002641489,
+    0.002641489,
+    0.002641489,
+    0.002641489,
+    0.002641489,
+    0.002641489,
+    0.002641299,
+    0.002652447,
+    0.002652444
+  ],
+  "trades_24h": {
+    "trades": 23,
+    "buys": 6,
+    "sells": 17,
+    "buy_tao": 14.658679686,
+    "sell_tao": 7.1338024959999995,
+    "net_tao": 7.52487719,
+    "traders": 18
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EhBAtp1NDaLLuxRrGLDntmgPQ5cCDvkk7uFawamcaemecsV",
+      "net_tao": 12.0,
+      "gross_tao": 12.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GeTA7UprRXrinctagkCJsbTKR3ympBt1faySdXCkiZ6bBya",
+      "net_tao": -3.349266619,
+      "gross_tao": 3.349266619,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F4QchQwC1KtnDbPaEuMHJmjKo7xGQw4a2AtjGZ6YGjojmdd",
+      "net_tao": 0.14829442999999998,
+      "gross_tao": 1.85170557,
+      "trades": 2
+    },
+    {
+      "coldkey": "5C7ojmyvMVMf8Tfp5whP6JveCWezFRC4r5JkGPKaowkEubJn",
+      "net_tao": -0.10563456300000007,
+      "gross_tao": 1.305634563,
+      "trades": 2
+    },
+    {
+      "coldkey": "5EX1yvHwF3hBm3EgFo5H2XmtD6J7wbWCKvfqUJVsRmcBLef3",
+      "net_tao": -0.869158106,
+      "gross_tao": 0.869158106,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790280518,
+      "kind": "commit",
+      "source": "github",
+      "title": "Incentivized conviction",
+      "url": "https://github.com/mobiusfund/investing/commit/4859a5869fb63bcb986d85bbf6faabb0386cb244",
+      "publisher": "mobiusfund/investing"
+    },
+    {
+      "ts": 1790279354,
+      "kind": "commit",
+      "source": "github",
+      "title": "Misc updates",
+      "url": "https://github.com/mobiusfund/investing/commit/86d63188bb20c1cd2b5671b0b4b90881273407d2",
+      "publisher": "mobiusfund/investing"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

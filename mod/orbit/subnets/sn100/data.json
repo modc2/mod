@@ -1,0 +1,181 @@
+{
+  "netuid": 100,
+  "name": "Cortex",
+  "symbol": "დ",
+  "owner": "5FX6kmhYwTYRFaZjxEo7k9DaG8qRmqrJtLTMGRgnfjRcXiWU",
+  "description": "The open alternative to frontier AI | Efficient autonomous research",
+  "github": "https://github.com/CortexLM/cortex",
+  "url": "https://network.cortex.foundation",
+  "discord": null,
+  "logo": "https://network.cortex.foundation/icon-192.png",
+  "registered_at": 6693448,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.003225195,
+    "moving_price": 0.003236545016989112,
+    "market_cap": 8953.02825910465,
+    "tao_in": 2285.840260111,
+    "alpha_in": 708744.82886694,
+    "alpha_out": 2067220.115610727,
+    "volume": 416063.292487142,
+    "vol_24h": 38.55126742104767,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.5812179220418878,
+    "change_7d": -10.903754247354902
+  },
+  "spark_24h": [
+    0.00324405,
+    0.00324405,
+    0.00324405,
+    0.00324327,
+    0.003243268,
+    0.003243376,
+    0.003243018,
+    0.003240133,
+    0.003239929,
+    0.003239928,
+    0.003239897,
+    0.003239895,
+    0.003239836,
+    0.003239836,
+    0.003239834,
+    0.003239834,
+    0.003239834,
+    0.003239811,
+    0.003239811,
+    0.003239811,
+    0.003239805,
+    0.003238836,
+    0.003238835,
+    0.003238835,
+    0.003238806,
+    0.003238806,
+    0.003238773,
+    0.003238772,
+    0.003251301,
+    0.003240642,
+    0.003240642,
+    0.003240633,
+    0.003238464,
+    0.003238459,
+    0.003238459,
+    0.003238458,
+    0.003238451,
+    0.003238453,
+    0.003238444,
+    0.003237459,
+    0.003237459,
+    0.00323735,
+    0.00323735,
+    0.00323735,
+    0.003228205,
+    0.003228205,
+    0.003222382,
+    0.003225195
+  ],
+  "trades_24h": {
+    "trades": 26,
+    "buys": 4,
+    "sells": 22,
+    "buy_tao": 15.937900831,
+    "sell_tao": 16.389538142,
+    "net_tao": -0.45163731099999893,
+    "traders": 20
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CifCuVUjxyebzjtN3Frc2egpXnvBqstTeQtZ8xr6PfoPxX1",
+      "net_tao": 0.010046515999999173,
+      "gross_tao": 19.989953484,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CwFLUbHx7Cmp5CskniU6AhuKj1CmTBNXokWc5bcrtFycFJP",
+      "net_tao": 4.9,
+      "gross_tao": 4.9,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HHN9iJWwSogJsfiLKkqXwtSNUY5kuygZgqwJYr3YnYhg9iY",
+      "net_tao": -1.289904207,
+      "gross_tao": 1.289904207,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DJNAV4eeCWzXQSoQ1rfYdAbZszcVSDRTy9ccV2ER1oxz7f4",
+      "net_tao": -1.136806792,
+      "gross_tao": 1.136806792,
+      "trades": 1
+    },
+    {
+      "coldkey": "5E1vHSNWtzzhimt1GNn7iMt4x9y6KMHmWgf9YwhD2kyQok5y",
+      "net_tao": -1.101798176,
+      "gross_tao": 1.101798176,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792156562,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(challenges): raise get_weights timeout to 180 seconds (#318)",
+      "url": "https://github.com/CortexLM/cortex/commit/602ea0298b2f18cccee219dd13ec290eb902b622",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1791433279,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(repo): remove retired products, add readme and validator script …",
+      "url": "https://github.com/CortexLM/cortex/commit/df0ce4a63b334a6205d7bf1f8bea61424c90e29c",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1790629911,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(master): send the completed epoch's chain time to challenges (#315)",
+      "url": "https://github.com/CortexLM/cortex/commit/d738424c09213af3634b24a1ba1a0fddb7a9379d",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1790360904,
+      "kind": "commit",
+      "source": "github",
+      "title": "test(network): verify opentype 75/25 sealed payouts (#314)",
+      "url": "https://github.com/CortexLM/cortex/commit/540b4fe48cc65e6d0e1645f00f9de5a00ba394e7",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1790337014,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: bring production hotfixes into main; algorithm 3 empty-epoch bur…",
+      "url": "https://github.com/CortexLM/cortex/commit/163f814698d1c3db0e0d98e1c5020db86607dd93",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1790274285,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(challenges): load docker challenges and move bounty out (#312)",
+      "url": "https://github.com/CortexLM/cortex/commit/6c6d72b15c45b35c29428abb7ef87a509212ec85",
+      "publisher": "CortexLM/cortex"
+    },
+    {
+      "ts": 1790020198,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(hooks): isolate fixture git context before push (#308)",
+      "url": "https://github.com/CortexLM/cortex/commit/89b9760067fbc444cc387cc595bcd51709e05179",
+      "publisher": "CortexLM/cortex"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

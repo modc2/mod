@@ -1,0 +1,17 @@
+// Native tests for {{PKG}}.aleo (leo test).
+import {{PKG}}.aleo;
+program test_{{PKG}}.aleo {
+    @test
+    fn test_three_times_eleven() {
+        {{PKG}}.aleo::main(3field, 11field, 33field);
+    }
+
+    @test
+    @should_fail
+    fn test_trivial_factor() {
+        {{PKG}}.aleo::main(1field, 33field, 33field);
+    }
+
+    @noupgrade
+    constructor() {}
+}

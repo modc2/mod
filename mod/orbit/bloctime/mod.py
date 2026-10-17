@@ -9,7 +9,9 @@ Usage:
   m.fn('bloctime/status')()
   m.fn('bloctime/deploy')()
   m.fn('bloctime/serve')()
-  m.fn('bloctime/stake')(amount=100, lock_blocks=10000)
+  m.fn('bloctime/stake')(amount=100, lock_seconds=86400)   # locks are seconds; lock_blocks converts
+  m.fn('bloctime/quote')(amount=100, lock_seconds=86400)   # BLOC = usd value × seconds (linear)
+  m.fn('bloctime/set_price')(price_usd=1.0)                # owner: $/token for the linear model
   m.fn('bloctime/delegate')(to='0x...')
   m.fn('bloctime/pot')()                         # weekly pot + next payout
   m.fn('bloctime/fund_pot')(amount=50)
@@ -22,10 +24,24 @@ Usage:
   m.fn('bloctime/market')()                      # browse deployed instances
   m.fn('bloctime/register_instance')(name='x', rpc='...', bloctime='0x...')
   m.fn('bloctime/bridge')(fn='in_snapshot', address='...')
+  m.fn('bloctime/shadow')()                      # PRIVATE pool (Cairo ShadowBloc on a Starknet devnet)
+  m.fn('bloctime/shadow')(fn='notes')            # the public ledger: notes + one-time keys, no owners
+  m.fn('bloctime/shadow_test')()                 # snforge suite for cairo/
+  m.fn('bloctime/yuma')(fn='state')              # Yuma subnet, stake = BlocTime (bloctime.yuma)
+  m.fn('bloctime/staketime')(fn='status')        # merged StakeTime subnet stack (bloctime.staketime)
+
+Submodules:
+  bloctime.app        — the Next.js console
+  bloctime.yuma       — Yuma consensus where validator stake = BLOC voting power;
+                        emissions to miners by clipped rank, validators by bonds
+  bloctime.staketime  — StakeTime (merged in from orbit/staketime): Mod tokens,
+                        validators, pluggable consensus, inflation curves, registry.
+                        Its contracts compile here, under contracts/staketime.
 """
 
 import json
 import os
+import re
 import signal
 import subprocess
 from pathlib import Path
@@ -75,6 +91,9 @@ class Mod:
         return {'compiled': True, 'abi': str(abi)}
 
     def deploy(self, network='base_sepolia'):
+        # `network` reaches a shell=True command line — keep it a plain name.
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', str(network)):
+            raise ValueError(f"Invalid network name: {network!r}")
         self.compile()
         output = _run(
             f'npx hardhat run scripts/deploy.js --network {network}',
@@ -186,9 +205,13 @@ class Mod:
 
     # ── Serve ─────────────────────────────────────────────────────
 
-    def serve(self, api_port=None, app_port=None, dev=True):
+    def serve(self, api_port=None, app_port=None, dev=True, host=None):
         api_port = int(api_port or self.api_port)
         app_port = int(app_port or self.app_port)
+        # The API signs with PRIVATE_KEY, so default to loopback — a gateway
+        # on this box still reaches it. Opt in to the network with
+        # host='0.0.0.0' or BLOCTIME_HOST (docker binds 0.0.0.0 itself).
+        host = host or os.environ.get('BLOCTIME_HOST', '127.0.0.1')
         log_dir = Path('/tmp/bloctime')
         log_dir.mkdir(parents=True, exist_ok=True)
         results = {}
@@ -207,7 +230,7 @@ class Mod:
         api_log = open(log_dir / 'api.log', 'w')
         api_cmd = [
             'python3', '-m', 'uvicorn', 'api:app',
-            '--host', '0.0.0.0', '--port', str(api_port),
+            '--host', host, '--port', str(api_port),
             '--app-dir', str(api_dir),
         ]
         if dev:
@@ -297,11 +320,15 @@ class Mod:
         w3, contract, account = self._load_bloctime()
         if not account:
             raise RuntimeError("PRIVATE_KEY env var required")
-        tx = fn(contract).build_transaction({
+        tx_params = {
             'from': account.address,
-            'nonce': w3.eth.get_transaction_count(account.address),
-            'gas': 500000,
-        })
+            'nonce': w3.eth.get_transaction_count(account.address, 'pending'),
+        }
+        try:
+            tx_params['gas'] = int(fn(contract).estimate_gas({'from': account.address}) * 1.2)
+        except Exception:
+            tx_params['gas'] = 500000
+        tx = fn(contract).build_transaction(tx_params)
         signed = account.sign_transaction(tx)
         tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
@@ -309,10 +336,38 @@ class Mod:
 
     # ── Staking ───────────────────────────────────────────────────
 
-    def stake(self, amount, lock_blocks=0):
+    def stake(self, amount, lock_seconds=None, lock_blocks=None):
+        """Stake NAT for a lock measured in seconds (or blocks — converted
+        on-chain via params.secondsPerBlock). BLOC minted = usd × seconds."""
         from web3 import Web3
         amount_wei = Web3.to_wei(amount, 'ether') if isinstance(amount, (int, float)) else int(amount)
-        return self._send_tx(lambda c: c.functions.stake(amount_wei, int(lock_blocks)))
+        if lock_seconds is None:
+            if lock_blocks is not None:
+                _, contract, _ = self._load_bloctime()
+                spb = contract.functions.params().call()[1]
+                lock_seconds = int(lock_blocks) * int(spb)
+            else:
+                raise ValueError('Provide lock_seconds (or lock_blocks)')
+        return self._send_tx(lambda c: c.functions.stake(amount_wei, int(lock_seconds)))
+
+    def price(self):
+        """Owner-set token price in USD — the linear model's scalar."""
+        _, contract, _ = self._load_bloctime()
+        micro = contract.functions.priceUsdMicro().call()
+        return {'priceUsdMicro': micro, 'priceUsd': micro / 1e6}
+
+    def set_price(self, price_usd):
+        """Owner-only: reprice the staked token (dollars per whole token)."""
+        micro = int(round(float(price_usd) * 1e6))
+        return self._send_tx(lambda c: c.functions.setPriceUsd(micro))
+
+    def quote(self, amount, lock_seconds):
+        """BLOC minted for a hypothetical stake: usd value × seconds locked."""
+        from web3 import Web3
+        amount_wei = Web3.to_wei(amount, 'ether') if isinstance(amount, (int, float)) else int(amount)
+        _, contract, _ = self._load_bloctime()
+        bloc = contract.functions.quoteBloc(amount_wei, int(lock_seconds)).call()
+        return {'bloc': str(bloc), 'blocEther': float(Web3.from_wei(bloc, 'ether'))}
 
     def unstake(self, stake_id):
         return self._send_tx(lambda c: c.functions.unstake(int(stake_id)))
@@ -360,6 +415,9 @@ class Mod:
             info = self.pot()
             if not info['due']:
                 return {'distributed': False, **info}
+            if int(info['projected']) == 0:
+                # The contract reverts "Pot too small" — don't burn keeper gas.
+                return {'distributed': False, 'reason': 'pot is empty', **info}
         return self._send_tx(lambda c: c.functions.distributeRewards())
 
     def claim_rewards(self):
@@ -376,8 +434,8 @@ class Mod:
         for sid in ids:
             pos = contract.functions.getStakePosition(addr, sid).call()
             positions.append({
-                'stakeId': sid, 'amount': str(pos[0]), 'startBlock': pos[1],
-                'lockBlocks': pos[2], 'blocTimeBalance': str(pos[3]), 'blocksRemaining': pos[4],
+                'stakeId': sid, 'amount': str(pos[0]), 'startTime': pos[1],
+                'lockSeconds': pos[2], 'blocTimeBalance': str(pos[3]), 'secondsRemaining': pos[4],
             })
         pending = contract.functions.earned(addr).call()
         vp = contract.functions.getVotingPower(addr).call()
@@ -409,6 +467,10 @@ class Mod:
             'contracts': contracts,
             'explorer': f"https://sepolia.basescan.org/address/{contracts.get('bloctime', '')}",
         }
+
+    def whitepaper(self):
+        """The BlocTime whitepaper (markdown) — same file the API and console serve."""
+        return (self.module_dir / 'whitepaper.md').read_text()
 
     # ── Fork / Marketplace / Bridge ───────────────────────────────
 
@@ -483,6 +545,9 @@ class Mod:
                 ("'/bloctime'", f"'/{name}'"),
             ],
             dest / 'app' / 'src' / 'app' / 'page.tsx': [
+                # canonical form first; legacy /api/<mod> pair kept so forks
+                # of either vintage of page.tsx rewrite correctly.
+                ('/bloctime/api', f'/{name}/api'),
                 ('/api/bloctime', f'/api/{name}'),
                 ('http://localhost:8851', f'http://localhost:{port}'),
             ],
@@ -517,11 +582,11 @@ class Mod:
                 e['stats'] = reg.instance_stats(e)
         return {'count': len(instances), 'instances': instances}
 
-    def register_instance(self, name, rpc, bloctime, native_token=None, description=''):
+    def register_instance(self, name, rpc, bloctime, native_token=None, description='', treasury=None):
         """Verify a deployed BlocTime on-chain and list it on the marketplace."""
         return self._registry().add_instance(
             name=name, rpc=rpc, bloctime=bloctime,
-            native_token=native_token, description=description,
+            native_token=native_token, description=description, treasury=treasury,
         )
 
     def unregister_instance(self, id):
@@ -532,9 +597,15 @@ class Mod:
         """Call into the bridge module (Substrate/Solana → EVM snapshot claims)."""
         import requests as req
         base = os.environ.get('BRIDGE_API_URL', 'http://localhost:8840')
+        # fn and address are interpolated into the URL — keep them path-safe.
+        if not re.fullmatch(r'[A-Za-z0-9_]+', str(fn)):
+            return {'error': f'invalid bridge fn: {fn!r}'}
         try:
             if fn in ('in_snapshot', 'has_claimed', 'unclaimed', 'commitment'):
-                resp = req.get(f"{base}/{fn}/{kwargs.get('address', '')}", timeout=15)
+                addr = str(kwargs.get('address', ''))
+                if not re.fullmatch(r'[A-Za-z0-9]{1,128}', addr):
+                    return {'error': f'invalid address: {addr!r}'}
+                resp = req.get(f"{base}/{fn}/{addr}", timeout=15)
             else:
                 resp = req.post(f"{base}/{fn}", json=kwargs or {}, timeout=15)
                 if resp.status_code in (404, 405):
@@ -542,6 +613,52 @@ class Mod:
             return resp.json()
         except Exception as e:
             return {'error': f'bridge module unreachable: {e}'}
+
+    # ── ShadowBloc: private staking in Cairo (cairo/ + api/shadow.py) ──
+
+    def _shadow_lib(self):
+        # load by path: a bare `import shadow` could resolve to another module
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('bloctime_shadow', DIR / 'api' / 'shadow.py')
+        lib = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lib)
+        return lib
+
+    def shadow(self, fn='info', **kwargs):
+        """Private pool ops: info | notes | note(id) | balance(address) |
+        deploy(force) | devnet(action) | distribute | fund_pot(amount_nat) |
+        warp(to). Stake/claim/unstake/rekey need browser-held keys, so they
+        go through the PRIVATE tab (or POST /shadow/*), not here."""
+        allowed = {'info', 'notes', 'note', 'balance', 'deploy', 'devnet',
+                   'distribute', 'fund_pot', 'warp', 'message_hash'}
+        if fn not in allowed:
+            return {'error': f'fn must be one of {sorted(allowed)}'}
+        return getattr(self._shadow_lib(), fn)(**kwargs)
+
+    def shadow_test(self):
+        """snforge test for the ShadowBloc Cairo package."""
+        env = dict(os.environ)
+        env['PATH'] = os.path.expanduser('~/.local/bin') + os.pathsep + env.get('PATH', '')
+        r = subprocess.run(['snforge', 'test'], cwd=str(DIR / 'cairo'), capture_output=True,
+                           text=True, timeout=900, env=env)
+        lines = [l for l in r.stdout.splitlines() if l.startswith(('[PASS]', '[FAIL]', 'Tests:'))]
+        return {'ok': r.returncode == 0, 'results': lines}
+
+    def _submod(self, name):
+        # load by path: `import mod` inside a submodule would find itself
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(f'bloctime_{name}_mod', DIR / name / 'mod.py')
+        lib = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lib)
+        return lib.Mod()
+
+    def yuma(self, fn='state', **kwargs):
+        """Yuma by BlocTime — see yuma/mod.py (m bloctime.yuma)."""
+        return getattr(self._submod('yuma'), fn)(**kwargs)
+
+    def staketime(self, fn='status', **kwargs):
+        """The merged StakeTime stack — see staketime/mod.py (m bloctime.staketime)."""
+        return getattr(self._submod('staketime'), fn)(**kwargs)
 
     def app(self, fn='info', **kwargs):
         """The BlocTime app submodule — see app/mod.py (m bloctime.app)."""
@@ -552,11 +669,18 @@ class Mod:
         import requests as req
         url = f'http://localhost:{self.api_port}/{fn}'
         method = 'GET' if fn in ('health', 'stats', 'params', 'points') else 'POST'
+        # Signing endpoints require the local API token (see api.py).
+        token = os.environ.get('BLOCTIME_API_TOKEN', '').strip()
+        if not token:
+            token_path = Path(os.path.expanduser('~/.mod/bloctime')) / 'api_token'
+            if token_path.exists():
+                token = token_path.read_text().strip()
+        headers = {'Authorization': f'Bearer {token}'} if token else {}
         try:
             if method == 'GET':
-                resp = req.get(url, timeout=timeout)
+                resp = req.get(url, timeout=timeout, headers=headers)
             else:
-                resp = req.post(url, json=params or {}, timeout=timeout)
+                resp = req.post(url, json=params or {}, timeout=timeout, headers=headers)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:

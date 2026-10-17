@@ -42,3 +42,23 @@ modules. Settings and overrides are deployment state and live off-tree in
 
 `apply` always backs up the Caddyfile before rewriting it, runs
 `caddy validate`, and rolls back instead of reloading if validation fails.
+
+## Aliases (second names for a module)
+
+```bash
+m caddy/alias studio build            # {host}/studio/... → 308 → {host}/build/...
+m caddy/alias hub build force=True    # take over a name that's already in use
+m caddy/unalias hub                   # remove; a takeover restores the route it displaced
+m caddy/aliases                       # live aliases + any refused ones and why
+```
+
+An alias is a **308 redirect**, not a proxy — Next apps bake their basePath into
+asset URLs, so proxying `/hub` into an app built for `/build` would break. Path,
+query, method and body all carry over (`/studio/api/x?y=1` → `/build/api/x?y=1`).
+
+- Free names live in the target's `config.json` as `"aliases": [...]`, so they
+  travel with the module. A declared alias that collides with a module dir or a
+  route is refused (see `m caddy/aliases`), never silently applied.
+- `force=True` writes `"<name>": {"alias": "<target>", "displaced": {...}}` to
+  `~/.mod/caddy/overrides.json`; it replaces whatever served `/<name>` before.
+- A private target drops its aliases too — no back door around privacy.

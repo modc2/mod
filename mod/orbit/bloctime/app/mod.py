@@ -79,7 +79,7 @@ class Mod:
                 'tailwindcss': pkg.get('devDependencies', {}).get('tailwindcss'),
             },
             'pages': ['/'],
-            'tabs': ['stake', 'rewards', 'market', 'deploy', 'bridge', 'contracts'],
+            'tabs': ['stake', 'rewards', 'yuma', 'market', 'deploy', 'bridge', 'contracts'],
             'source': str(DIR / 'src' / 'app' / 'page.tsx'),
         }
 
@@ -118,21 +118,23 @@ class Mod:
                         'inputs': ['amount (NTV)', 'lock blocks (default 10000)',
                                    'quick-pick buttons per curve point'],
                         'preview': 'interpolated multiplier (e.g. 1.00x) + projected BT',
-                        'action': 'POST /stake',
+                        'action': 'approve + stake signed by the connected wallet '
+                                  '(POST /stake only as the operator api_token fallback)',
                     },
                     'positions': {
                         'columns': ['id', 'staked', 'bloctime', 'lock', 'left', 'unstake'],
                         'sortable': ['amount', 'bloctime', 'remaining'],
-                        'action': 'POST /unstake when blocksRemaining == 0',
+                        'action': 'unstake signed by the connected wallet when blocksRemaining == 0',
                     },
                 },
                 'rewards': {
                     'epoch_stats': ['current epoch', 'epoch reward', 'your pending', 'total distributed'],
                     'weekly_pot': 'in the pot / next payout countdown / your share, '
-                                  'fund + distribute (POST /fund_pot, /distribute_rewards)',
+                                  'fund + distribute signed by the connected wallet',
                     'inflation_curve': 'SVG chart w/ halving markers + current-epoch line (GET /get_inflation_curve)',
-                    'delegation': {'inputs': ['delegate address'], 'actions': ['POST /delegate', 'POST /undelegate']},
-                    'claim': {'actions': ['POST /claim_rewards', 'POST /distribute_rewards']},
+                    'delegation': {'inputs': ['delegate address'], 'actions': ['delegate', 'undelegate'],
+                                   'signed_by': 'connected wallet'},
+                    'claim': {'actions': ['claimRewards', 'distributeRewards'], 'signed_by': 'connected wallet'},
                 },
                 'market': 'registry of deployed BlocTime instances — USE one to point '
                           'the whole console at it (reads via its RPC, writes via wallet)',
@@ -151,7 +153,13 @@ class Mod:
         }
 
     def endpoints(self):
-        """API endpoints the app calls (FastAPI on the api port)."""
+        """API endpoints the app calls (FastAPI on the api port).
+
+        Writes on the official instance (stake, unstake, delegate, undelegate,
+        claim_rewards, fund_pot, distribute_rewards) are signed by the connected
+        wallet via ethers + GET /factory ABIs; the server-signer POSTs below are
+        hit only as the operator fallback (api_token present, no wallet).
+        """
         return {
             'GET': ['/health', '/stats', '/points', '/params',
                     '/get_inflation_params', '/get_inflation_curve'],

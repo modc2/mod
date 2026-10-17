@@ -1,7 +1,7 @@
 {
     "name": "bt",
-    "description": "Bittensor protocol console + MCP server — subnets, wallets, TAO, alpha trading, and a local index that tracks any trader over time",
-    "version": "2.3.0",
+    "description": "Bittensor protocol console + MCP server \u2014 subnets, wallets, TAO, alpha trading, and a local index that tracks any trader over time",
+    "version": "3.3.0",
     "port": 50280,
     "app_port": 50280,
     "route": true,
@@ -11,5 +11,18 @@
         "mcp": "http://localhost:50280/mcp"
     },
     "network": "finney",
+    "submods": {
+        "copytensor": {
+            "dir": "copytensor",
+            "description": "Bittensor dTAO copy trading, vendored into bt as a submod \u2014 own processes (pm2 copytensor-api/copytensor-app) run from this directory; API proxied at /ct/*; public /copytensor route pinned via caddy override",
+            "port": 50150,
+            "app_port": 3150,
+            "urls": {
+                "api": "http://localhost:50280/ct",
+                "app": "http://localhost:3150/copytensor",
+                "mcp": "http://localhost:50150/mcp"
+            }
+        }
+    },
     "schema": "QmU38PFaR25xLLMNSJi5fHbzgZeXUKbXR3cu4gSd33ZjQ8"
 }

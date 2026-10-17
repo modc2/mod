@@ -1,0 +1,189 @@
+{
+  "netuid": 22,
+  "name": "Desearch",
+  "symbol": "χ",
+  "owner": "5DFuaMasyQtPhXcsuoYEyJmCVSRtzKxsTKFTA4SrpcGXBxJn",
+  "description": "Decentralized search engine",
+  "github": "https://github.com/datura-ai/desearch",
+  "url": "https://desearch.ai",
+  "discord": "https://discord.gg/P44zrJmdFy",
+  "logo": "https://desearch.ai/assets/logo-icon-C18R0lAC.png",
+  "registered_at": 2009702,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.002961768,
+    "moving_price": 0.002959705190733075,
+    "market_cap": 18601.94220133449,
+    "tao_in": 7469.292573174,
+    "alpha_in": 2521903.138756207,
+    "alpha_out": 3758785.355864063,
+    "volume": 276320.29373363,
+    "vol_24h": 48.92907520697918,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.08349517903896153,
+    "change_7d": -6.20388603481179
+  },
+  "spark_24h": [
+    0.002964243,
+    0.002964247,
+    0.002964217,
+    0.002963909,
+    0.002963762,
+    0.002963636,
+    0.002963606,
+    0.002963566,
+    0.002963555,
+    0.002963531,
+    0.00296353,
+    0.00296353,
+    0.002963493,
+    0.002963497,
+    0.0029635,
+    0.002963467,
+    0.002963286,
+    0.002963289,
+    0.002963293,
+    0.00296329,
+    0.002963174,
+    0.002962937,
+    0.002962088,
+    0.002962092,
+    0.002962092,
+    0.002962096,
+    0.002970027,
+    0.002962098,
+    0.002962102,
+    0.002952865,
+    0.002952868,
+    0.002952851,
+    0.002952614,
+    0.002952617,
+    0.002952621,
+    0.00295242,
+    0.002952353,
+    0.002952352,
+    0.002952355,
+    0.002952351,
+    0.002952359,
+    0.002954417,
+    0.002954421,
+    0.002954424,
+    0.002954432,
+    0.002954436,
+    0.002962208,
+    0.002961768
+  ],
+  "trades_24h": {
+    "trades": 214,
+    "buys": 4,
+    "sells": 210,
+    "buy_tao": 22.623427036,
+    "sell_tao": 25.447868551,
+    "net_tao": -2.824441515,
+    "traders": 22
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5G1Td7xgaVV3qKTBngWCPhh9wvsxJYQkdmxpj8BggEV8PFK4",
+      "net_tao": 0.010049824999999402,
+      "gross_tao": 19.989950175,
+      "trades": 2
+    },
+    {
+      "coldkey": "5G6jGr3m4a8j88ZF5mB3Uu1XnP7mVofzCRzAwXJsjQZaq8Pw",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CAUZa3ifsPtTjLtbEGNQcpa4HG78QHXPCm9FaRuCLU9ZhFt",
+      "net_tao": -7.987423493,
+      "gross_tao": 7.987423493,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HKouPdo6C67HBvFnMxyPgKFsK85qXmkZT7Hr7gzhgHFaS5j",
+      "net_tao": -3.660540907,
+      "gross_tao": 3.660540907,
+      "trades": 2
+    },
+    {
+      "coldkey": "5H39udSQ2tzCWxV5YFs4bJzfwy8dVc25xZaD6afLKghZtu3y",
+      "net_tao": 2.6,
+      "gross_tao": 2.6,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791745955,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #390 from Desearch-ai/hotfix/no-render",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/eb56bb5e7e68f884824f2cbefbfd05005302f2ed",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791743103,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(validators): no JS rendering, 20 pages per 1,000-URL task, fail o…",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/0098ed262fc5c476567ef890e36b1a247f327a0e",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791743103,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: update version to 0.0.236",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/7a535d2796a77355dba42400cf4dcd2f6af1ce7c",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791707697,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #388 from Desearch-ai/hotfix/restore-sampling",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/c3816958e55b2afc59bfe9c2aaafb60da07105fb",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791707524,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(validators): restore rendered rechecks and the 5% sample",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/593cd20f451e68ed5341dfae61e986c7e63886dd",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791707524,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: update version to 0.0.235",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/5131df14568c43c740fb38bb2126069343c8483b",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791706786,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #387 from Desearch-ai/hotfix/validator-provider",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/7b398ba1580c81003e84701715215f99a10c2138",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1791706411,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: update version to 0.0.234",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/3cf4417defa00ba771fc022ae5230bba2a5b0d0c",
+      "publisher": "datura-ai/desearch"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

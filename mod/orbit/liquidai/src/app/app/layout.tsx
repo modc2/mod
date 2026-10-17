@@ -17,8 +17,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     // The default skin is server-rendered and corrected to whatever the
     // visitor last picked by ThemeBoot, before paint — the first frame is
     // already the right cabinet. `suppressHydrationWarning` because that
-    // script legitimately edits these two attributes.
-    <html lang="en" data-theme="dark" data-base="dark" suppressHydrationWarning>
+    // script legitimately edits these three attributes.
+    <html lang="en" data-theme="liquid" data-base="dark" data-face="clean" suppressHydrationWarning>
       <head>
         <ThemeBoot />
       </head>

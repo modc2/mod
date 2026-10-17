@@ -31,8 +31,9 @@ stays live as modules are added or edited.
 
 ## API
 
-Behind the gateway, all routes are reachable under `/api/web` (the prefix is
-stripped before proxying to `mod-api`).
+Behind the gateway, all routes are reachable under `/web/api` (the prefix is
+stripped before proxying to `mod-api`; the legacy `/api/web` form stays as a
+permanent alias).
 
 | Route          | Description                                  |
 | -------------- | -------------------------------------------- |
@@ -74,8 +75,10 @@ results "text match" instead of "semantic" — it never hard-fails.
 Caddy (`/etc/caddy/Caddyfile`, `modc2.com` block):
 
 ```
-@web_api path /api/web /api/web/*
-handle @web_api { uri strip_prefix /api/web; reverse_proxy localhost:50420 }
+@web_api path /web/api /web/api/*
+handle @web_api { uri strip_prefix /web/api; reverse_proxy localhost:50420 }
+@web_api_legacy path /api/web /api/web/*
+handle @web_api_legacy { uri strip_prefix /api/web; reverse_proxy localhost:50420 }
 @web_app path /web /web/*
 handle @web_app { reverse_proxy localhost:3420 }
 ```

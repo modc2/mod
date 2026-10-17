@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>zuma · anonymous subnets on Starknet + NEAR</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%2314b8a6%22/%3E%3Ctext x=%2216%22 y=%2223%22 text-anchor=%22middle%22 font-family=%22monospace%22 font-weight=%22800%22 font-size=%2220%22 fill=%22%23031311%22%3EZ%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#05080a;--panel:#0b1114;--panel2:#0f171b;--line:#1a262c;--line2:#24343b;
+  --ink:#e6f2f1;--dim:#8aa3a6;--mute:#566d71;
+  --teal:#14b8a6;--teal2:#5eead4;--amber:#f59e0b;--violet:#a78bfa;--red:#f43f5e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
+body{background:
+  radial-gradient(900px 500px at 15% -10%,rgba(20,184,166,.13),transparent 60%),
+  radial-gradient(800px 500px at 100% 0%,rgba(167,139,250,.10),transparent 60%),var(--bg)}
+a{color:var(--teal2)}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 20px 60px}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;
+  font:800 22px var(--mono);color:#031311;background:linear-gradient(135deg,var(--teal2),var(--teal));
+  box-shadow:0 0 30px rgba(20,184,166,.45)}
+h1{margin:0;font-size:20px;letter-spacing:.3px}
+.sub{color:var(--dim);font-size:13px}
+.sp{flex:1}
+.chip{font:12px var(--mono);border:1px solid var(--line2);background:var(--panel);
+  padding:5px 10px;border-radius:999px;color:var(--dim);display:inline-flex;gap:6px;align-items:center;cursor:default}
+.chip b{color:var(--ink);font-weight:600}
+.chip.click{cursor:pointer}.chip.click:hover{border-color:var(--teal)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--mute)}
+.dot.on{background:var(--teal);box-shadow:0 0 10px var(--teal)}
+.hero{margin:26px 0 18px;display:grid;grid-template-columns:1.25fr 1fr;gap:22px;align-items:end}
+.hero h2{font-size:34px;line-height:1.1;margin:0 0 10px;letter-spacing:-.5px}
+.hero h2 em{font-style:normal;background:linear-gradient(90deg,var(--teal2),var(--violet));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--dim);margin:0;max-width:620px}
+.actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+button{font:600 13px var(--sans)!important;border-radius:10px;border:1px solid var(--line2);
+  background:var(--panel2);color:var(--ink);padding:11px 16px;cursor:pointer;transition:.15s}
+button:hover:not(:disabled){border-color:var(--teal);color:var(--teal2)}
+button.go{background:linear-gradient(135deg,var(--teal),#0d9488);border-color:transparent;color:#021412;
+  box-shadow:0 6px 30px rgba(20,184,166,.35)}
+button.go:hover:not(:disabled){color:#021412;filter:brightness(1.1)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.clock{display:flex;align-items:center;gap:14px;margin:4px 0 14px;font:12px var(--mono);color:var(--dim)}
+.bar{flex:1;height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--teal),var(--violet));width:0;transition:width .6s}
+.stage{position:relative;background:linear-gradient(180deg,var(--panel),#070c0e);border:1px solid var(--line);
+  border-radius:16px;overflow:hidden}
+.stage svg{display:block;width:100%;height:auto}
+.caption{position:absolute;left:0;right:0;bottom:14px;text-align:center;font:600 13px var(--mono);
+  color:var(--teal2);text-shadow:0 0 18px rgba(20,184,166,.6);pointer-events:none;transition:opacity .3s}
+.grid{display:grid;grid-template-columns:1.35fr 1fr;gap:18px;margin-top:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card h3{margin:0 0 12px;font-size:12px;letter-spacing:1.4px;color:var(--dim);font-weight:700;
+  display:flex;align-items:center;gap:8px}
+.card h3 .sp{flex:1}
+table{width:100%;border-collapse:collapse;font:12px var(--mono)}
+th{color:var(--mute);text-align:left;font-weight:500;padding:6px 6px;border-bottom:1px solid var(--line)}
+td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.tag{color:var(--teal2)}
+.sbar{height:6px;background:var(--panel2);border-radius:9px;overflow:hidden;min-width:80px}
+.sbar i{display:block;height:100%;background:var(--teal);border-radius:9px;transition:width .5s}
+.pill{font:600 10px var(--mono);padding:2px 7px;border-radius:99px;border:1px solid var(--line2);color:var(--dim)}
+.pill.ok{color:var(--amber);border-color:rgba(245,158,11,.4)}
+.pill.open{color:var(--teal2);border-color:rgba(20,184,166,.4)}
+.log{font:12px/1.65 var(--mono);height:340px;overflow:auto;color:var(--dim)}
+.log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log .k{display:inline-block;width:82px;font-weight:700}
+.log .t{color:var(--mute);display:inline-block;width:48px}
+.k.submit{color:var(--teal2)}.k.score{color:var(--violet)}.k.claim{color:var(--amber)}
+.k.replay{color:var(--red)}.k.deploy,.k.deploying,.k.register,.k.devnet,.k.close,.k.done{color:var(--ink)}.k.error{color:var(--red)}
+.empty{color:var(--mute);font:12px var(--mono);padding:18px 0;text-align:center}
+.how{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
+.how .card p{color:var(--dim);margin:0;font-size:13px}
+.how .card code{font:12px var(--mono);color:var(--teal2)}
+.how .n{font:700 11px var(--mono);color:var(--mute);letter-spacing:1.2px}
+.how h4{margin:4px 0 6px;font-size:16px}
+.limits{margin-top:18px}
+.limits ul{margin:0;padding-left:18px;color:var(--dim)}
+.limits li{margin:4px 0}
+.limits b{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font:12px var(--mono)}
+.kv span:nth-child(odd){color:var(--mute)}
+.kv span:nth-child(even){color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toast{position:fixed;right:18px;bottom:18px;background:var(--panel2);border:1px solid var(--line2);
+  padding:10px 14px;border-radius:10px;font:12px var(--mono);opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none}
+.toast.on{opacity:1;transform:none}
+footer{margin-top:30px;color:var(--mute);font:12px var(--mono);text-align:center}
+@media (max-width:860px){.hero,.grid,.how{grid-template-columns:1fr}.actions{justify-content:flex-start}.hero h2{font-size:26px}}
+/* svg */
+.ringline{fill:none;stroke:var(--line2);stroke-dasharray:3 6}
+.node{transition:fill .25s}
+.lbl{font:600 10px var(--mono);fill:var(--mute);letter-spacing:1.5px}
+.keylbl{font:9px var(--mono);fill:var(--mute)}
+.glow{filter:url(#glow)}
+.ringline{animation:dash 40s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-900}}
+.node{animation:breathe 3.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{stroke-opacity:1}50%{stroke-opacity:.35}}
+.facts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.fact{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);background:rgba(11,17,20,.7);
+  padding:4px 9px;border-radius:7px;display:inline-flex;gap:6px;align-items:center}
+.fact b{color:var(--teal2);font-weight:600}.fact.red b{color:var(--red)}.fact.amb b{color:var(--amber)}
+.fact svg{width:10px;height:10px}
+.hist{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.hist .h{font:600 10px var(--mono);letter-spacing:1.4px;color:var(--mute);margin-bottom:6px}
+.hrow{display:grid;grid-template-columns:70px 1fr 60px 64px;gap:10px;align-items:center;font:12px var(--mono);
+  color:var(--dim);padding:5px 0}
+.hrow .spark{display:flex;gap:3px;height:16px;align-items:flex-end}
+.hrow .spark i{flex:1;max-width:22px;background:var(--teal);opacity:.75;border-radius:2px 2px 0 0}
+.hrow .spark i.c{background:var(--amber)}
+.log .sep{color:var(--mute);font-size:11px;letter-spacing:1px;margin:2px 0 6px;border-bottom:1px dashed var(--line);padding-bottom:4px}
+button.go.running{background:linear-gradient(90deg,#0d9488,var(--violet),#0d9488);background-size:200% 100%;
+  animation:sweep 1.6s linear infinite;opacity:1!important}
+@keyframes sweep{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.ringline,.node,button.go.running{animation:none}}
+/* chain switch + tabs */
+:root{--sn:#ff875b;--nr:#00ec97}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:12px;padding:3px;background:var(--panel);gap:2px}
+.seg button{border:0;background:transparent;padding:7px 14px;border-radius:9px;color:var(--dim);
+  display:inline-flex;align-items:center;gap:8px;letter-spacing:.6px}
+.seg button i{width:8px;height:8px;border-radius:50%;background:var(--mute)}
+.seg button.on{background:var(--panel2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line2)}
+.seg button[data-chain=starknet].on i{background:var(--sn);box-shadow:0 0 10px var(--sn)}
+.seg button[data-chain=near].on i{background:var(--nr);box-shadow:0 0 10px var(--nr)}
+nav.tabs{display:flex;gap:4px;margin:20px 0 0;border-bottom:1px solid var(--line);overflow-x:auto}
+nav.tabs a{font:700 12px var(--mono);letter-spacing:1.4px;color:var(--mute);text-decoration:none;padding:10px 14px;
+  border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+nav.tabs a:hover{color:var(--ink)}
+nav.tabs a.on{color:var(--teal2);border-bottom-color:var(--teal)}
+nav.tabs .cnt{color:var(--mute);font-weight:500;margin-left:4px}
+.pane{display:none}.pane.on{display:block}
+.chainbadge{font:700 10px var(--mono);letter-spacing:1.2px;padding:3px 8px;border-radius:6px;border:1px solid}
+.chainbadge.starknet{color:var(--sn);border-color:rgba(255,135,91,.4)}
+.chainbadge.near{color:var(--nr);border-color:rgba(0,236,151,.4)}
+.chainbadge.both{color:var(--teal2);border-color:rgba(20,184,166,.4)}
+/* code */
+.code{display:grid;grid-template-columns:270px 1fr;gap:16px;margin-top:18px}
+.tree{display:flex;flex-direction:column;gap:14px;position:sticky;top:12px;align-self:start}
+.tree h5{margin:0 0 6px;font:700 10px var(--mono);letter-spacing:1.4px;color:var(--mute);display:flex;gap:8px;align-items:center}
+.tree a{display:block;padding:7px 10px;border-radius:8px;color:var(--dim);text-decoration:none;border:1px solid transparent}
+.tree a b{display:block;font:600 12px var(--mono);color:var(--ink)}
+.tree a span{font-size:11px}
+.tree a:hover{border-color:var(--line2)}
+.tree a.on{background:var(--panel2);border-color:var(--line2)}
+.tree a.on b{color:var(--teal2)}
+.viewer{min-width:0}
+.vbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.vbar .path{font:600 13px var(--mono)}
+.vbar .meta{color:var(--mute);font:12px var(--mono)}
+.vbar button{padding:7px 12px}
+.src{display:grid;gap:14px}
+.src.two{grid-template-columns:1fr 1fr}
+.srcbox{background:#070c0e;border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:76vh}
+.srcbox .h{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:8px 12px;
+  font:600 12px var(--mono);display:flex;gap:8px;align-items:center;z-index:1}
+pre.cl{margin:0;padding:10px 0;font:12.5px/1.6 var(--mono);counter-reset:ln;tab-size:4}
+pre.cl span.l{display:block;padding:0 14px 0 0;white-space:pre}
+pre.cl span.l::before{counter-increment:ln;content:counter(ln);display:inline-block;width:46px;padding-right:14px;
+  text-align:right;color:#2c3d43;user-select:none}
+pre.cl span.l:hover{background:rgba(94,234,212,.04)}
+.tk-c{color:#5b7378;font-style:italic}.tk-s{color:#fcd34d}.tk-k{color:#c4b5fd}.tk-n{color:#fda4af}
+.tk-f{color:#5eead4}.tk-t{color:#93c5fd}.tk-a{color:#8aa3a6}
+/* compare */
+.cmp{width:100%;border-collapse:collapse;font:13px var(--sans)}
+.cmp th,.cmp td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.cmp th{font:700 11px var(--mono);letter-spacing:1.2px;color:var(--mute)}
+.cmp td:first-child{color:var(--dim);width:22%}
+.cmp td code{font:12px var(--mono);color:var(--teal2)}
+.cmp tr.same td:not(:first-child){color:var(--ink)}
+.big{font:700 26px var(--mono);letter-spacing:-.5px}
+.big small{font:500 12px var(--mono);color:var(--mute);margin-left:6px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.stat .lab{font:700 10px var(--mono);letter-spacing:1.3px;color:var(--mute);margin-bottom:6px}
+.stat .sub2{color:var(--dim);font-size:12px;margin-top:4px}
+.chart{position:relative}
+.chart svg{display:block;width:100%;height:auto}
+.chart .tip{position:absolute;pointer-events:none;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;
+  padding:6px 9px;font:12px var(--mono);color:var(--ink);opacity:0;transition:opacity .12s;white-space:nowrap}
+/* tests */
+.tl{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.trow{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font:12px var(--mono)}
+.trow:last-child{border-bottom:0}
+.ok2{color:var(--teal2);font-weight:700;width:38px}.bad2{color:var(--red);font-weight:700;width:38px}
+/* paper */
+.paper{max-width:820px;margin:26px auto 0;font-size:15px;line-height:1.7}
+.paper h1{font-size:30px;letter-spacing:-.4px;margin:0 0 6px}
+.paper h2{font-size:20px;margin:34px 0 10px;padding-top:14px;border-top:1px solid var(--line)}
+.paper h3{font-size:16px;margin:24px 0 8px}
+.paper p,.paper li{color:#c6d6d7}
+.paper em{color:var(--dim)}
+.paper code{font:13px var(--mono);color:var(--teal2);background:var(--panel2);padding:1px 5px;border-radius:5px}
+.paper pre{background:#070c0e;border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto}
+.paper pre code{background:none;padding:0;color:var(--ink)}
+.paper table{margin:14px 0;font:13px var(--sans)}
+.paper th{color:var(--dim)}
+.paper td,.paper th{padding:7px 10px}
+@media (max-width:860px){.code,.tl,.src.two{grid-template-columns:1fr}.tree{position:static}.stats{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">Z</div>
+    <div><h1>zuma</h1><div class="sub">anonymous subnets · one protocol, two chains</div></div>
+    <div class="sp"></div>
+    <div class="seg" id="chainsw" role="tablist" aria-label="chain">
+      <button data-chain="starknet"><i></i>STARKNET</button>
+      <button data-chain="near"><i></i>NEAR</button>
+    </div>
+    <span class="chip"><span class="dot" id="netdot"></span><b id="net">devnet</b><span id="blk">-</span></span>
+    <span class="chip click" id="addrchip" title="copy contract address">contract <b id="addr">not deployed</b></span>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <a href="#live" data-tab="live">LIVE</a>
+    <a href="#code" data-tab="code">CODE</a>
+    <a href="#compare" data-tab="compare">COMPARE</a>
+    <a href="#tests" data-tab="tests">TESTS<span class="cnt" id="tcount"></span></a>
+    <a href="#paper" data-tab="paper">WHITEPAPER</a>
+  </nav>
+
+  <div class="pane" id="pane-live">
+  <section class="hero">
+    <div>
+      <h2>Miners and validators who <em>never learn who the other is.</em></h2>
+      <p>Each one only knows that the other is in the registered set. Every submit, score and claim is a
+        ring signature over the STARK curve, verified on-chain <span id="verifier">by a Cairo contract</span>.
+        A validator scores a <b>tag</b>, never a miner. A miner gets paid and never learns which validators scored it.</p>
+      <div class="facts" id="facts"></div>
+    </div>
+    <div class="actions">
+      <button id="replay" title="replay the last recorded epoch">Replay last epoch</button>
+      <button class="go" id="run">Run an anonymous epoch</button>
+    </div>
+  </section>
+
+  <div class="clock">
+    <span>EPOCH <b id="ep" style="color:var(--ink)">-</b></span>
+    <div class="bar"><i id="epbar"></i></div>
+    <span id="left">-</span>
+  </div>
+
+  <div class="stage">
+    <svg id="svg" viewBox="0 0 1140 440" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="caption" id="cap"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>TAGS <span class="sp"></span><span class="pill" id="tallyep">-</span></h3>
+      <div id="tally"><div class="empty">no tags yet. Run an epoch.</div></div>
+    </div>
+    <div class="card">
+      <h3>ON-CHAIN EVENTS <span class="sp"></span><span class="pill" id="logstate">idle</span></h3>
+      <div class="log" id="log"><div class="empty">waiting for a run</div></div>
+    </div>
+  </div>
+
+  <div class="how">
+    <div class="card"><div class="n">01 · MINER</div><h4>submit</h4>
+      <p>The miner signs <code>work</code> with a ring of miners in scope <code>H(mine, subnet, epoch)</code>.
+        The key image is its <b>tag</b> for this epoch. That gives one submission per miner per epoch, and
+        the tag can't be linked to its key or to its tags in other epochs.</p></div>
+    <div class="card"><div class="n">02 · VALIDATOR</div><h4>score</h4>
+      <p>The validator signs a 0-100 score with a ring of validators in scope <code>H(score, subnet, epoch, tag)</code>.
+        The key image is a <b>nullifier</b>. That gives one score per validator per tag, and its scores on
+        different tags can't be linked.</p></div>
+    <div class="card"><div class="n">03 · MINER</div><h4>claim</h4>
+      <p>After the epoch closes, the miner re-signs in the same mine scope. The same key gives the
+        <b>same image</b>, which proves it owns the tag. It credits <code>emission x sum / total</code> to any
+        recipient, and a replay is rejected.</p></div>
+  </div>
+
+  <div class="grid limits">
+    <div class="card">
+      <h3>READ THIS · THE SET-SIZE LIMIT</h3>
+      <ul>
+        <li><b>Your anonymity set is the ring, nothing more.</b> With 3 validators each score points to 1 of 3.
+          The contract enforces <code>min_ring</code> and rejects padded rings (key ids strictly increasing).</li>
+        <li id="costli"></li>
+        <li><b>The tx sender is public.</b> Actions go through a relayer, because the contract never checks the caller.
+          Timing, IP and work content can still identify you.</li>
+        <li><b>Payouts are public books.</b> Points are credited in storage, and no token moves.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>SUBNET</h3>
+      <div class="kv" id="params"><span>status</span><span>loading</span></div>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="pane" id="pane-code">
+    <div class="code">
+      <div class="tree" id="tree"></div>
+      <div class="viewer">
+        <div class="vbar"><span class="path" id="vpath">-</span><span class="meta" id="vmeta"></span><span class="sp"></span>
+          <button id="sbs" title="the verifier on both chains, side by side">Verifier side by side</button>
+          <button id="copysrc">Copy</button></div>
+        <div class="src" id="src"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-compare">
+    <div class="stats" id="cstats"></div>
+    <div class="grid" style="grid-template-columns:1.1fr 1fr">
+      <div class="card"><h3>WHAT IS THE SAME · WHAT DIFFERS</h3><div id="ctable"></div></div>
+      <div class="card"><h3>NEAR GAS PER SUBMIT, BY RING SIZE <span class="sp"></span><span class="pill" id="gasnote">measured</span></h3>
+        <div class="chart" id="gaschart"></div>
+        <p style="color:var(--dim);font-size:13px;margin:10px 0 0">One action verifies one ring signature. NEAR caps a call at
+          300 Tgas, so the NEAR contract caps rings at 32. Starknet verifies on the native EC builtin and allows 64.</p>
+        <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--mute);font:12px var(--mono)">table view</summary><div id="gastable"></div></details>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-tests">
+    <div class="tl" id="tlists"></div>
+  </div>
+
+  <div class="pane" id="pane-paper">
+    <article class="paper" id="paper"><div class="empty">loading the paper</div></article>
+  </div>
+
+  <footer>LSAG over the STARK curve · Poseidon challenges · key image I = x · Hp(scope) · Cairo 2.8 + near-sdk 5 · <a id="apilink" href="#">api</a></footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const BASE = location.pathname.startsWith('/zuma') ? '/zuma' : '';
+const API = fn => `${BASE}/_api/${fn}`;
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+const short = h => h ? (h.length > 14 ? h.slice(0, 8) + '..' + h.slice(-4) : h) : '-';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+$('apilink').href = `${BASE}/api/info`;
+const esc = t => String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+/* the chain this page is looking at: ?chain= > localStorage > starknet */
+const CH = {
+  starknet: {name: 'Starknet', net: 'devnet', local: 'starknet-devnet', verifier: 'by a Cairo contract (native EC builtin)',
+    cap: 64, deploying: 'declaring + deploying the Cairo verifier'},
+  near: {name: 'NEAR', net: 'near', local: 'near-sandbox', verifier: 'by a Rust/wasm contract on NEAR (same signatures, own curve math)',
+    cap: 32, deploying: 'deploying the wasm verifier to a fresh NEAR account'},
+};
+let CHAIN = new URLSearchParams(location.search).get('chain') || localStorage.getItem('zuma.chain') || 'starknet';
+if (!CH[CHAIN]) CHAIN = 'starknet';
+const NET = () => CH[CHAIN].net;
+
+async function get(fn, q = '') {
+  const r = await fetch(API(fn) + q); return r.json();
+}
+async function post(fn, body = {}) {
+  const r = await fetch(API(fn), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  return r.json();
+}
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600);
+}
+
+/* ---------------- stage ---------------- */
+// two stage layouts: side by side on wide screens, stacked on phones
+const LAYOUTS = {
+  wide: {W: 1140, H: 440, m: [210, 210, 120], v: [930, 210, 120], tagx: 570, tagy0: 70, title: 40,
+    mIn: T => [T.p.x - 130, T.p.y + 25], vIn: T => [T.p.x + 130, T.p.y + 25], payY: () => 370},
+  tall: {W: 440, H: 900, m: [220, 160, 86], v: [220, 730, 86], tagx: 220, tagy0: 310, title: 292,
+    mIn: T => [T.p.x, T.p.y], vIn: T => [T.p.x, T.p.y + 50], payY: n => 310 + Math.max(3, n) * 62 + 6},
+};
+let L, W, H, TAGX, TAGY0, mode;
+const SETS = {miner: {color: '#14b8a6', label: 'MINERS'}, validator: {color: '#a78bfa', label: 'VALIDATORS'}};
+let S = {miner: [], validator: [], tags: new Map()};
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const svg = $('svg');
+function initStage() {
+  mode = innerWidth < 700 ? 'tall' : 'wide';
+  L = LAYOUTS[mode]; W = L.W; H = L.H; TAGX = L.tagx; TAGY0 = L.tagy0;
+  [SETS.miner.cx, SETS.miner.cy, SETS.miner.r] = L.m;
+  [SETS.validator.cx, SETS.validator.cy, SETS.validator.r] = L.v;
+  S = {miner: [], validator: [], tags: new Map()};
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = '';
+  const defs = el('defs', {}, svg);
+  const f = el('filter', {id: 'glow', x: '-50%', y: '-50%', width: '200%', height: '200%'}, defs);
+  el('feGaussianBlur', {stdDeviation: '6', result: 'b'}, f);
+  const m = el('feMerge', {}, f); el('feMergeNode', {in: 'b'}, m); el('feMergeNode', {in: 'SourceGraphic'}, m);
+  const g = el('pattern', {id: 'grid', width: 28, height: 28, patternUnits: 'userSpaceOnUse'}, defs);
+  el('path', {d: 'M28 0H0V28', fill: 'none', stroke: '#0f1a1e', 'stroke-width': 1}, g);
+  el('rect', {width: W, height: H, fill: 'url(#grid)'}, svg);
+  S.layers = {sets: el('g', {}, svg), tags: el('g', {}, svg), fx: el('g', {}, svg)};
+  for (const role of ['miner', 'validator']) {
+    const s = SETS[role], g = el('g', {}, S.layers.sets);
+    s.g = g;
+    s.halo = el('circle', {cx: s.cx, cy: s.cy, r: s.r + 26, fill: s.color, opacity: 0}, g);
+    el('circle', {cx: s.cx, cy: s.cy, r: s.r, class: 'ringline'}, g);
+    el('text', {x: s.cx, y: s.cy - s.r - 34, 'text-anchor': 'middle', class: 'lbl'}, g).textContent = s.label;
+    s.count = el('text', {x: s.cx, y: s.cy + 6, 'text-anchor': 'middle', fill: s.color,
+      style: 'font:700 30px var(--mono)'}, g);
+    s.sub = el('text', {x: s.cx, y: s.cy + 26, 'text-anchor': 'middle', class: 'keylbl'}, g);
+    s.nodes = el('g', {}, g);
+    // a comet orbiting each set: the ring is alive even when idle
+    const orb = el('g', {}, g);
+    el('circle', {cx: s.cx, cy: s.cy - s.r, r: 3, fill: s.color, class: 'glow'}, orb);
+    for (let k = 1; k < 7; k++) {
+      const a = -Math.PI / 2 - k * 0.07;
+      el('circle', {cx: s.cx + s.r * Math.cos(a), cy: s.cy + s.r * Math.sin(a), r: 2.6 - k * .3,
+        fill: s.color, opacity: .5 - k * .07}, orb);
+    }
+    if (!reduced) el('animateTransform', {attributeName: 'transform', type: 'rotate',
+      from: `0 ${s.cx} ${s.cy}`, to: `${role === 'miner' ? 360 : -360} ${s.cx} ${s.cy}`,
+      dur: role === 'miner' ? '14s' : '17s', repeatCount: 'indefinite'}, orb);
+  }
+  const t = el('text', {x: TAGX, y: L.title, 'text-anchor': 'middle', class: 'lbl'}, S.layers.sets);
+  t.textContent = 'TAGS · ANONYMOUS';
+  S.tagTitle = t;
+  S.payeeG = el('g', {opacity: 0}, S.layers.sets);
+  el('rect', {x: TAGX - 110, y: 0, width: 220, height: 36, rx: 10, fill: '#120d03', stroke: '#f59e0b'}, S.payeeG);
+  S.payeeT = el('text', {x: TAGX, y: 23, 'text-anchor': 'middle', fill: '#f59e0b',
+    style: 'font:600 12px var(--mono)'}, S.payeeG);
+}
+function drawSet(role, keys) {
+  const s = SETS[role]; s.nodes.innerHTML = '';
+  S[role] = keys;
+  s.count.textContent = keys.length || '0';
+  s.sub.textContent = keys.length ? `ring of ${Math.min(keys.length, CH[CHAIN].cap)} · any one of these` : 'no members';
+  keys.forEach((k, i) => {
+    const a = -Math.PI / 2 + i * 2 * Math.PI / keys.length;
+    const x = s.cx + s.r * Math.cos(a), y = s.cy + s.r * Math.sin(a);
+    const c = el('circle', {cx: x, cy: y, r: 9, fill: '#0b1114', stroke: s.color, 'stroke-width': 2, class: 'node',
+      style: `animation-delay:${(-i * 0.45).toFixed(2)}s`}, s.nodes);
+    el('title', {}, c).textContent = `${role} public key\nx = ${k.x}`;
+    const lx = s.cx + (s.r + 24) * Math.cos(a), ly = s.cy + (s.r + 24) * Math.sin(a) + 3;
+    el('text', {x: lx, y: ly, 'text-anchor': Math.abs(Math.cos(a)) < .3 ? 'middle' : (Math.cos(a) > 0 ? 'start' : 'end'),
+      class: 'keylbl'}, s.nodes).textContent = (k.x || '').slice(0, 7);
+    k._el = c; k._x = x; k._y = y;
+  });
+}
+function tagPos(i) { return {x: TAGX, y: TAGY0 + i * 62}; }
+function drawTag(tag, sum = 0, n = 0, claimed = false) {
+  if (S.tags.has(tag)) return S.tags.get(tag);
+  const i = S.tags.size, p = tagPos(i);
+  const g = el('g', {transform: `translate(${p.x - 130},${p.y})`, opacity: 0}, S.layers.tags);
+  const box = el('rect', {width: 260, height: 50, rx: 10, fill: '#071513', stroke: '#14b8a6', 'stroke-opacity': .5}, g);
+  el('text', {x: 14, y: 20, fill: '#5eead4', style: 'font:600 12px var(--mono)'}, g).textContent = short(tag);
+  const sc = el('text', {x: 246, y: 20, 'text-anchor': 'end', fill: '#e6f2f1', style: 'font:700 12px var(--mono)'}, g);
+  el('rect', {x: 14, y: 30, width: 232, height: 6, rx: 3, fill: '#0f171b'}, g);
+  const bar = el('rect', {x: 14, y: 30, width: 0, height: 6, rx: 3, fill: '#a78bfa'}, g);
+  const dots = el('g', {transform: 'translate(14,44)'}, g);
+  const T = {g, box, sc, bar, dots, sum, n, claimed, p, tag};
+  S.tags.set(tag, T); updTag(T);
+  requestAnimationFrame(() => { g.style.transition = 'opacity .4s'; g.setAttribute('opacity', 1); });
+  return T;
+}
+function updTag(T) {
+  T.sc.textContent = T.claimed ? 'CLAIMED' : `${T.sum} · ${T.n}x`;
+  T.sc.setAttribute('fill', T.claimed ? '#f59e0b' : '#e6f2f1');
+  T.box.setAttribute('stroke', T.claimed ? '#f59e0b' : '#14b8a6');
+  const max = Math.max(100 * Math.max(1, S.validator.length), 1);
+  T.bar.setAttribute('width', Math.min(232, 232 * T.sum / max));
+  T.dots.innerHTML = '';
+  for (let k = 0; k < T.n; k++) el('circle', {cx: k * 9, cy: 0, r: 2.5, fill: '#a78bfa'}, T.dots);
+}
+function pulse(role) {
+  const s = SETS[role];
+  s.halo.style.transition = 'none'; s.halo.setAttribute('opacity', .22);
+  for (const k of S[role]) k._el && k._el.setAttribute('fill', s.color);
+  requestAnimationFrame(() => {
+    s.halo.style.transition = 'opacity .9s'; s.halo.setAttribute('opacity', 0);
+    setTimeout(() => { for (const k of S[role]) k._el && k._el.setAttribute('fill', '#0b1114'); }, 450);
+  });
+}
+async function signRing(role, fast) {
+  const s = SETS[role], keys = S[role].filter(k => k._el);
+  if (!keys.length) return pulse(role);
+  for (const k of keys) {
+    const ln = el('line', {x1: k._x, y1: k._y, x2: s.cx, y2: s.cy, stroke: s.color, 'stroke-width': 1.2,
+      'stroke-opacity': .7}, S.layers.fx);
+    setTimeout(() => { ln.style.transition = 'stroke-opacity .7s'; ln.setAttribute('stroke-opacity', 0);
+      setTimeout(() => ln.remove(), 800); }, fast ? 120 : 380);
+  }
+  if (!fast && !reduced) {
+    for (let j = 0; j < 7; j++) {
+      const k = keys[Math.floor(Math.random() * keys.length)];
+      k._el.setAttribute('fill', s.color); await sleep(42); k._el.setAttribute('fill', '#0b1114');
+    }
+  }
+  pulse(role);
+}
+function fly(x1, y1, x2, y2, color, ms = 650) {
+  return new Promise(res => {
+    const c = el('circle', {cx: x1, cy: y1, r: 6, fill: color, class: 'glow'}, S.layers.fx);
+    const trail = el('line', {x1, y1, x2: x1, y2: y1, stroke: color, 'stroke-width': 1.5, 'stroke-opacity': .5}, S.layers.fx);
+    const t0 = performance.now();
+    (function step(t) {
+      const k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+      const horiz = Math.abs(x2 - x1) > Math.abs(y2 - y1);
+      const mx = (x1 + x2) / 2 + (horiz ? 0 : 70), my = horiz ? Math.min(y1, y2) - 60 : (y1 + y2) / 2;
+      const x = (1 - e) * (1 - e) * x1 + 2 * (1 - e) * e * mx + e * e * x2;
+      const y = (1 - e) * (1 - e) * y1 + 2 * (1 - e) * e * my + e * e * y2;
+      c.setAttribute('cx', x); c.setAttribute('cy', y);
+      trail.setAttribute('x2', x); trail.setAttribute('y2', y);
+      if (k < 1) requestAnimationFrame(step);
+      else { c.remove(); trail.style.transition = 'opacity .5s'; trail.setAttribute('stroke-opacity', 0); setTimeout(() => trail.remove(), 600); res(); }
+    })(t0);
+  });
+}
+function caption(t) { const c = $('cap'); c.style.opacity = 0; setTimeout(() => { c.textContent = t; c.style.opacity = 1; }, 120); }
+
+/* ---------------- event playback ---------------- */
+let logN = 0;
+const cost = e => e.tgas ? `${e.tgas} Tgas` : e.steps ? `${(e.steps / 1000).toFixed(1)}k steps · ${e.ec_op} ec_op` : (e.ms ? `signed ${e.ms}ms` : 'verified');
+function logEv(e) {
+  const L = $('log'); if (!logN) L.innerHTML = '';
+  logN++;
+  const txt = {
+    devnet: () => `${CH[e.chain || 'starknet'].local} up at block ${e.block}`,
+    deploying: () => CH[e.chain || 'starknet'].deploying,
+    deploy: () => `Zuma ${short(e.address)} · tempo ${e.tempo} · min_ring ${e.min_ring}${e.tgas ? ` · ${e.tgas} Tgas` : ''}`,
+    register: () => `${e.role} key ${short(e.x)}`,
+    submit: () => `tag ${short(e.tag)} · ring ${e.ring} · ${cost(e)}`,
+    score: () => `${e.score} -> ${short(e.tag)} · nullifier ${short(e.nullifier)} · ${cost(e)}`,
+    close: () => `epoch ${e.epoch} closed at block ${e.block}`,
+    claim: () => `${e.earned} pts -> ${short(e.recipient)} · ${cost(e)}`,
+    replay: () => `double claim ${e.result}`,
+    done: () => `epoch proved end to end in ${e.seconds}s`,
+    error: () => e.error,
+  }[e.kind];
+  const d = document.createElement('div');
+  d.innerHTML = `<span class="t">${e.t != null ? e.t.toFixed(1) + 's' : ''}</span><span class="k ${e.kind}">${e.kind}</span>`;
+  d.appendChild(document.createTextNode(txt ? txt() : JSON.stringify(e)));
+  L.appendChild(d); L.scrollTop = L.scrollHeight;
+}
+async function playEvent(e, fast) {
+  logEv(e);
+  const s = SETS;
+  switch (e.kind) {
+    case 'devnet':
+    case 'deploying':
+      // the old epoch fades out while the new contract lands
+      S.layers.tags.style.transition = 'opacity .6s'; S.layers.tags.style.opacity = .18;
+      for (const r of ['miner', 'validator']) SETS[r].g.style.opacity = .35;
+      caption(e.kind === 'devnet' ? `${CH[CHAIN].local} up. Deploying a fresh subnet contract`
+        : CH[CHAIN].deploying);
+      break;
+    case 'deploy':
+      S.layers.tags.style.opacity = 1;
+      for (const r of ['miner', 'validator']) { SETS[r].g.style.transition = 'opacity .5s'; SETS[r].g.style.opacity = 1; }
+      S.tags.clear(); S.layers.tags.innerHTML = ''; S.payeeG.setAttribute('opacity', 0);
+      drawSet('miner', []); drawSet('validator', []);
+      $('addr').textContent = short(e.address); caption('contract deployed. Registering the public sets');
+      break;
+    case 'register':
+      S[e.role].push({x: e.x}); drawSet(e.role, S[e.role]);
+      break;
+    case 'submit': {
+      caption(`a miner submitted. Ring of ${e.ring}: nobody can tell which one`);
+      await signRing('miner', fast);
+      const T = drawTag(e.tag); T.g.setAttribute('opacity', 0);
+      await fly(s.miner.cx, s.miner.cy, ...L.mIn(T), '#14b8a6', fast ? 250 : 700);
+      T.g.setAttribute('opacity', 1);
+      S.tagTitle.textContent = `TAGS · EPOCH ${e.epoch}`;
+      break;
+    }
+    case 'score': {
+      caption(`a validator scored a tag ${e.score}. One nullifier, no identity`);
+      await signRing('validator', fast);
+      const T = drawTag(e.tag);
+      await fly(s.validator.cx, s.validator.cy, ...L.vIn(T), '#a78bfa', fast ? 180 : 420);
+      T.sum += e.score; T.n += 1; updTag(T);
+      break;
+    }
+    case 'close': caption(`epoch ${e.epoch} closed. Claims open`); break;
+    case 'claim': {
+      const T = drawTag(e.tag);
+      caption('the owner of one tag re-signed and proved the same key image');
+      await signRing('miner', fast);
+      const py = L.payY(S.tags.size);
+      S.payeeG.setAttribute('transform', `translate(0,${py})`);
+      await fly(T.p.x, T.p.y + 50, TAGX, py + 18, '#f59e0b', fast ? 300 : 800);
+      T.claimed = true; updTag(T);
+      S.payeeT.textContent = `+${e.earned} pts -> ${short(e.recipient)}`;
+      S.payeeG.setAttribute('opacity', 1);
+      break;
+    }
+    case 'replay':
+      caption(e.ok ? 'replayed claim REJECTED: same key, same tag' : 'replay ACCEPTED (bug)');
+      { const r = el('rect', {x: 0, y: 0, width: W, height: H, fill: '#f43f5e', opacity: .14}, S.layers.fx);
+        setTimeout(() => { r.style.transition = 'opacity .8s'; r.setAttribute('opacity', 0); setTimeout(() => r.remove(), 900); }, 120); }
+      break;
+    case 'done': caption(`proved on-chain in ${e.seconds}s. Every tag is scored, nobody is named`); break;
+    case 'error': caption('error: ' + e.error); break;
+  }
+  if (!fast) await sleep(e.kind === 'register' ? 60 : 120);
+}
+
+/* ---------------- board (idle state) ---------------- */
+let busy = false, lastBoard = null;
+function renderTally(b) {
+  const box = $('tally');
+  const ep = (b.epochs || [])[0];
+  if (!ep) { box.innerHTML = '<div class="empty">no tags yet. Run an epoch.</div>'; $('tallyep').textContent = '-'; return; }
+  $('tallyep').textContent = `epoch ${ep.epoch}${ep.open ? ' · open' : ''}`;
+  const max = Math.max(1, ...ep.tags.map(t => t.score_sum));
+  let h = '<table><tr><th>tag</th><th>score</th><th></th><th>share</th><th></th></tr>';
+  for (const t of ep.tags) {
+    const share = ep.total ? Math.floor((b.emission || 0) * t.score_sum / ep.total) : 0;
+    h += `<tr><td class="tag">${short(t.tag)}</td><td>${t.score_sum} <span style="color:var(--mute)">/${t.scores}</span></td>
+      <td style="width:35%"><div class="sbar"><i style="width:${100 * t.score_sum / max}%"></i></div></td>
+      <td>${share}</td><td>${t.claimed ? '<span class="pill ok">claimed</span>' : (ep.open ? '<span class="pill open">open</span>' : '<span class="pill">claimable</span>')}</td></tr>`;
+  }
+  h += '</table>';
+  const old = (b.epochs || []).slice(1);
+  if (old.length) {
+    h += '<div class="hist"><div class="h">EARLIER EPOCHS</div>';
+    for (const o of old) {
+      const mx = Math.max(1, ...o.tags.map(t => t.score_sum));
+      const bars = o.tags.map(t => `<i class="${t.claimed ? 'c' : ''}" style="height:${Math.max(12, 100 * t.score_sum / mx)}%" title="${short(t.tag)} · ${t.score_sum}"></i>`).join('');
+      const cl = o.tags.filter(t => t.claimed).length;
+      h += `<div class="hrow"><span>epoch ${o.epoch}</span><span class="spark">${bars}</span><span>${o.tags.length} tags</span><span style="color:${cl ? 'var(--amber)' : 'var(--mute)'}">${cl} claimed</span></div>`;
+    }
+    h += '</div>';
+  }
+  box.innerHTML = h;
+}
+const ago = s => s < 90 ? `${Math.round(s)}s ago` : s < 5400 ? `${Math.round(s / 60)}m ago` : s < 129600 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`;
+const tick = '<svg viewBox="0 0 10 10"><path d="M1.5 5.5l2.3 2.3L8.5 2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+function renderFacts(sim) {
+  const f = $('facts');
+  if (!sim || !sim.result) { f.innerHTML = ''; return; }
+  const r = sim.result, ok = String(r.double_claim || '').startsWith('rejected');
+  const sub = (sim.events || []).find(e => e.kind === 'submit');
+  const n = (sim.events || []).filter(e => e.kind === 'score').length;
+  f.innerHTML = [
+    `<span class="fact" style="color:var(--teal2)">${tick}<b>proved on ${CH[sim.chain || 'starknet'].name}</b> ${ago(Date.now() / 1000 - sim.at)}</span>`,
+    `<span class="fact">full epoch <b>${r.seconds}s</b></span>`,
+    sub ? `<span class="fact">ring ${sub.ring} verify <b>${cost(sub)}</b></span>` : '',
+    `<span class="fact">${n} anonymous scores</span>`,
+    `<span class="fact ${ok ? 'red' : ''}">double claim <b>${ok ? 'rejected' : 'ACCEPTED'}</b></span>`,
+  ].join('');
+}
+function preloadLog(sim) {
+  if (!sim || !sim.events || logN) return;
+  const box = $('log'); box.innerHTML = `<div class="sep">LAST RUN · ${ago(Date.now() / 1000 - sim.at).toUpperCase()}</div>`;
+  logN = 1;
+  for (const e of sim.events) logEv(e);
+  box.scrollTop = 0;
+}
+function renderParams(b) {
+  const rows = b.deployed && b.contract ? [
+    ['contract', b.contract], ['owner', b.owner], ['tempo', `${b.tempo} blocks / epoch`],
+    ['min_ring', b.min_ring], ['emission', `${b.emission} pts / epoch`],
+    ['registration', b.open ? 'open' : 'owner only'],
+    ['miners', (b.miners || []).length], ['validators', (b.validators || []).length],
+  ] : [['status', b.devnet_up === false ? `${CH[CHAIN].local} down. Run an epoch to boot it` : 'not deployed. Run an epoch']];
+  $('params').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span title="${v}">${v}</span>`).join('');
+}
+async function refresh() {
+  let b;
+  const want = CHAIN;
+  try { b = await get('board', `?network=${NET()}`); } catch { return; }
+  if (b.error || want !== CHAIN) return;
+  lastBoard = b;
+  $('netdot').classList.toggle('on', !!b.devnet_up);
+  $('blk').textContent = b.block != null ? `#${b.block}` : 'offline';
+  $('addr').textContent = b.contract ? short(b.contract) : 'not deployed';
+  if (b.tempo) {
+    $('ep').textContent = b.epoch;
+    $('epbar').style.width = `${100 * (b.tempo - b.blocks_left) / b.tempo}%`;
+    $('left').textContent = `${b.blocks_left} blocks left · tempo ${b.tempo}`;
+  }
+  renderParams(b);
+  if (busy) return;
+  renderTally(b);
+  // idle stage = the chain as any reader sees it
+  if ((b.miners || []).length !== S.miner.length || (b.validators || []).length !== S.validator.length) {
+    drawSet('miner', (b.miners || []).map(k => ({x: k.x}))); drawSet('validator', (b.validators || []).map(k => ({x: k.x})));
+  }
+  const ep = (b.epochs || [])[0];
+  if (ep) {
+    S.tagTitle.textContent = `TAGS · EPOCH ${ep.epoch}`;
+    const want = ep.tags.map(t => t.tag).join();
+    if ([...S.tags.keys()].join() !== want) { S.tags.clear(); S.layers.tags.innerHTML = ''; }
+    for (const t of ep.tags.slice(0, 5)) { const T = drawTag(t.tag); T.sum = t.score_sum; T.n = t.scores; T.claimed = t.claimed; updTag(T); }
+  }
+}
+
+/* ---------------- actions ---------------- */
+function setBusy(on, label) {
+  busy = on; $('run').disabled = on; $('replay').disabled = on;
+  $('logstate').textContent = label || (on ? 'live' : 'idle');
+  $('logstate').className = 'pill' + (on ? ' open' : '');
+}
+async function run() {
+  const r = await post('simulate', {miners: 4, validators: 4, chain: CHAIN});
+  if (r.cooldown) return toast(`cooling down: ${r.cooldown}s. Try the replay meanwhile`);
+  if (!r.started && !r.running) return toast(r.error || 'could not start');
+  setBusy(true, 'live · on-chain');
+  const btn = $('run'), t0 = Date.now(); btn.classList.add('running');
+  const timer = setInterval(() => { btn.textContent = `Proving on-chain · ${Math.floor((Date.now() - t0) / 1000)}s`; }, 250);
+  logN = 0; $('log').innerHTML = '';
+  caption(`booting a fresh contract on ${CH[CHAIN].local}`);
+  let since = 0, queue = [], done = false;
+  const pump = (async () => {
+    while (!done || queue.length) {
+      if (queue.length) await playEvent(queue.shift(), queue.length > 6);
+      else await sleep(120);
+    }
+  })();
+  while (true) {
+    const s = await get('sim', `?since=${since}`);
+    queue.push(...s.events); since = s.next;
+    if (!s.running) { done = true; break; }
+    await sleep(500);
+  }
+  await pump;
+  clearInterval(timer); btn.classList.remove('running'); btn.textContent = 'Run an anonymous epoch';
+  setBusy(false); refresh(); get('last_sim', `?chain=${CHAIN}`).then(renderFacts);
+}
+async function replay() {
+  const r = await get('last_sim', `?chain=${CHAIN}`);
+  if (!r || !r.events) return toast('no recorded run yet. Run one first');
+  setBusy(true, 'replay');
+  logN = 0; $('log').innerHTML = '';
+  for (const e of r.events) await playEvent(e, false);
+  setBusy(false);
+  setTimeout(refresh, 2500);
+}
+$('run').onclick = run;
+$('replay').onclick = replay;
+$('addrchip').onclick = () => {
+  if (lastBoard && lastBoard.contract) { navigator.clipboard && navigator.clipboard.writeText(lastBoard.contract); toast('contract address copied'); }
+};
+
+function setChain(c, user) {
+  if (!CH[c] || (busy && user)) return busy && user && toast('an epoch is running. Switch when it finishes');
+  CHAIN = c; localStorage.setItem('zuma.chain', c);
+  document.querySelectorAll('#chainsw button').forEach(b => b.classList.toggle('on', b.dataset.chain === c));
+  $('net').textContent = CH[c].local; $('verifier').textContent = CH[c].verifier;
+  $('costli').innerHTML = c === 'near'
+    ? '<b>Cost is linear in the ring.</b> On NEAR a ring of 4 is about 36 Tgas, roughly 7.5 Tgas per member. A call may burn 300 Tgas, so the cap is 32.'
+    : '<b>Cost is linear in the ring.</b> A ring of 4 is about 16k Cairo steps and 19 <code>ec_op</code>. The cap is 64.';
+  if (!busy) {
+    initStage(); logN = 0; $('log').innerHTML = '<div class="empty">waiting for a run</div>';
+    $('tally').innerHTML = '<div class="empty">loading</div>'; $('facts').innerHTML = '';
+    refresh(); get('last_sim', `?chain=${c}`).then(sim => { renderFacts(sim); preloadLog(sim); }).catch(() => {});
+  }
+}
+document.querySelectorAll('#chainsw button').forEach(b => b.onclick = () => setChain(b.dataset.chain, true));
+initStage();
+setChain(CHAIN);
+let rz;
+addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => {
+  if (busy || (innerWidth < 700 ? 'tall' : 'wide') === mode) return;
+  initStage(); refresh();
+}, 200); });
+setInterval(refresh, 4000);
+get('sim').then(s => { if (s.running) { if (s.chain && s.chain !== CHAIN) setChain(s.chain); toast('an epoch is running: following it'); followRunning(); } });
+async function followRunning() {
+  setBusy(true, 'live · on-chain'); logN = 0;
+  let since = 0;
+  while (true) {
+    const s = await get('sim', `?since=${since}`);
+    for (const e of s.events) await playEvent(e, true);
+    since = s.next; if (!s.running) break; await sleep(500);
+  }
+  setBusy(false); refresh();
+}
+
+/* ---------------- tabs ---------------- */
+const TABS = ['live', 'code', 'compare', 'tests', 'paper'];
+const loaded = {};
+function route() {
+  const [tab, ...rest] = (location.hash.slice(1) || 'live').split('/');
+  const t = TABS.includes(tab) ? tab : 'live';
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + t));
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === t));
+  if (t === 'code') openCode(rest.join('/'));
+  if (t === 'compare' && !loaded.compare) { loaded.compare = 1; loadCompare(); }
+  if (t === 'tests' && !loaded.tests) { loaded.tests = 1; loadTests(); }
+  if (t === 'paper' && !loaded.paper) { loaded.paper = 1; loadPaper(); }
+}
+addEventListener('hashchange', route);
+
+/* ---------------- code ---------------- */
+const KW = {
+  rs: 'as|break|const|continue|crate|else|enum|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|type|unsafe|use|where|while|true|false|Some|None|Ok|Err',
+  cairo: 'as|break|const|continue|else|enum|fn|for|if|impl|let|loop|match|mod|mut|pub|ref|return|self|struct|super|trait|type|use|while|true|false|Option|Some|None|Array|Span|felt252|u8|u32|u64|u128|u256|bool|ContractAddress|of',
+  py: 'and|as|assert|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|None|not|or|pass|raise|return|True|False|try|while|with|yield|self',
+  toml: 'true|false',
+};
+function lang(path) {
+  const e = path.split('.').pop();
+  return {rs: 'rs', cairo: 'cairo', py: 'py', toml: 'toml'}[e] || 'rs';
+}
+function highlight(code, lg) {
+  const cm = lg === 'py' || lg === 'toml' ? '#[^\\n]*' : '//[^\\n]*';
+  const st = lg === 'py' ? '"""[\\s\\S]*?"""|\'\'\'[\\s\\S]*?\'\'\'|"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\''
+    : lg === 'cairo' ? '"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\'' : '"(?:\\\\.|[^"\\\\])*"|b\'(?:\\\\.|[^\'\\\\])\'|\'(?:\\\\.|[^\'\\\\])\'(?!\\w)';
+  const re = new RegExp(`(${cm})|(${st})|\\b(${KW[lg] || KW.rs})\\b|\\b(0x[0-9a-fA-F_]+|\\d[\\d_]*(?:\\.\\d+)?)\\b|(#!?\\[[^\\]\\n]*\\]|@\\w+)|\\b([A-Z][A-Za-z0-9_]*)\\b|\\b([a-z_][a-z0-9_]*)(?=\\s*(?:!|::<[^>]*>)?\\()`, 'g');
+  let out = '', last = 0, m;
+  while ((m = re.exec(code))) {
+    out += esc(code.slice(last, m.index));
+    const cls = m[1] ? 'c' : m[2] ? 's' : m[3] ? 'k' : m[4] ? 'n' : m[5] ? 'a' : m[6] ? 't' : 'f';
+    out += `<span class="tk-${cls}">${esc(m[0])}</span>`;
+    last = re.lastIndex;
+  }
+  out += esc(code.slice(last));
+  // one span per line (comments/strings may span lines: close+reopen per line)
+  const open = [];
+  return out.split('\n').map(line => {
+    const pre = open.join('');
+    for (const t of line.match(/<span class="tk-\w">|<\/span>/g) || []) t === '</span>' ? open.pop() : open.push(t);
+    return `<span class="l">${pre}${line || ' '}${'</span>'.repeat(open.length)}</span>`;
+  }).join('');
+}
+let FILES = null, CUR = null;
+const srcCache = {};
+async function source(path) {
+  if (!srcCache[path]) srcCache[path] = get('source', `?path=${encodeURIComponent(path)}`);
+  return srcCache[path];
+}
+async function loadTree() {
+  if (FILES) return FILES;
+  FILES = await get('files');
+  $('tree').innerHTML = FILES.map(g => `<div><h5><span class="chainbadge ${g.chain}">${g.chain === 'both' ? 'BOTH' : g.chain.toUpperCase()}</span>${esc(g.group.split(' · ')[1] || '')}</h5>` +
+    g.files.map(f => `<a href="#code/${f.path}" data-path="${esc(f.path)}"><b>${esc(f.path.split('/').pop())}</b><span>${esc(f.note)} · ${f.lines} lines</span></a>`).join('') + '</div>').join('');
+  return FILES;
+}
+function box(path, text) {
+  return `<div class="srcbox"><div class="h">${esc(path)}<span class="sp" style="flex:1"></span><span style="color:var(--mute)">${text.split('\n').length} lines</span></div><pre class="cl">${highlight(text, lang(path))}</pre></div>`;
+}
+async function openCode(path) {
+  await loadTree();
+  if (path === 'side-by-side') return sideBySide();
+  path = path || CUR || (CHAIN === 'near' ? 'near/src/lsag.rs' : 'contracts/src/lsag.cairo');
+  CUR = path;
+  document.querySelectorAll('#tree a').forEach(a => a.classList.toggle('on', a.dataset.path === path));
+  const r = await source(path);
+  if (r.error) { $('src').innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
+  const f = FILES.flatMap(g => g.files.map(x => ({...x, chain: g.chain}))).find(x => x.path === path) || {};
+  $('vpath').textContent = path; $('vmeta').textContent = f.note || '';
+  $('src').className = 'src'; $('src').innerHTML = box(path, r.text);
+  $('copysrc').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(r.text); toast('copied ' + path); };
+}
+/* the verify loop on both chains, next to each other */
+function slice(text, start, endPat) {
+  const i = text.indexOf(start); if (i < 0) return text;
+  const j = text.indexOf(endPat, i + start.length);
+  return text.slice(i, j < 0 ? undefined : j).trimEnd();
+}
+async function sideBySide() {
+  CUR = null;
+  document.querySelectorAll('#tree a').forEach(a => a.classList.remove('on'));
+  const [c, r] = await Promise.all([source('contracts/src/lsag.cairo'), source('near/src/lsag.rs')]);
+  const cv = slice(c.text, 'pub fn verify(', '\n}\n') + '\n}';
+  const rv = slice(r.text, 'pub fn verify_hinted(', '\n}\n') + '\n}';
+  $('vpath').textContent = 'verify(): Starknet vs NEAR';
+  $('vmeta').textContent = 'same ring equation, same Poseidon challenges, same wire format';
+  $('src').className = 'src two';
+  $('src').innerHTML = box('contracts/src/lsag.cairo · verify', cv) + box('near/src/lsag.rs · verify_hinted', rv);
+  $('copysrc').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(cv + '\n\n' + rv); toast('copied both'); };
+}
+$('sbs').onclick = () => { location.hash = 'code/side-by-side'; };
+
+/* ---------------- compare ---------------- */
+async function loadCompare() {
+  const c = await get('compare');
+  const sn = c.starknet || {}, nr = c.near || {}, g = c.gas || {rows: []};
+  const avg = a => a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+  const t = (x, k) => x.tests ? `${x.tests.passed}/${x.tests.passed + (x.tests.failed || 0)}` : '-';
+  const stat = (lab, big, unit, sub, chain) => `<div class="stat"><div class="lab"><span class="chainbadge ${chain}">${chain.toUpperCase()}</span> ${lab}</div><div class="big">${big}<small>${unit}</small></div><div class="sub2">${sub}</div></div>`;
+  const sStep = avg(sn.steps), sEc = avg(sn.ec_op), nGas = avg(nr.tgas);
+  $('cstats').innerHTML = [
+    stat('VERIFY COST', sStep ? (sStep / 1000).toFixed(1) + 'k' : '-', 'steps', sEc ? `${Math.round(sEc)} ec_op · ring ${sn.ring || 4}` : 'run a Starknet epoch', 'starknet'),
+    stat('VERIFY COST', nGas ? nGas.toFixed(1) : '-', 'Tgas', nGas ? `ring ${nr.ring || 4} · was 214 Tgas before fp.rs` : 'run a NEAR epoch', 'near'),
+    stat('FULL EPOCH', sn.seconds || '-', 's', `tests ${t(sn)} · double claim ${String(sn.double_claim || '-').split(':')[0]}`, 'starknet'),
+    stat('FULL EPOCH', nr.seconds || '-', 's', `tests ${t(nr)} · double claim ${String(nr.double_claim || '-').split(':')[0]}`, 'near'),
+  ].join('');
+  const rows = [
+    ['same', 'signature scheme', 'LSAG over the STARK curve, Poseidon challenges', null],
+    ['same', 'signer', '<code>prover/</code> (Cairo, cairo-run). One signature verifies on both', null],
+    ['same', 'rules', 'one submit per miner per epoch · one score per validator per tag · one claim per tag', null],
+    ['', 'contract', '<code>contracts/src/zuma.cairo</code>', '<code>near/src/lib.rs</code> (near-sdk 5)'],
+    ['', 'curve math', 'native EC builtin', '<code>fp.rs</code>: 29-bit limbs, Straus windows, in wasm'],
+    ['', 'Poseidon', 'native builtin', '<code>poseidon.rs</code> on the fast field'],
+    ['', 'subnet felt', 'contract address', 'sha256(account id), top 5 bits cleared'],
+    ['', 'recipient', 'a felt (address)', 'a NEAR account (signed as sha256)'],
+    ['', 'max ring', '64', '32 (300 Tgas per call)'],
+    ['', 'tests', 'snforge', 'cargo test + Cairo fixtures'],
+    ['', 'last contract', `<code>${esc(short(sn.contract || '-'))}</code>`, `<code>${esc(nr.contract || '-')}</code>`],
+  ];
+  $('ctable').innerHTML = `<table class="cmp"><tr><th></th><th><span class="chainbadge starknet">STARKNET</span></th><th><span class="chainbadge near">NEAR</span></th></tr>` +
+    rows.map(([k, a, b, c2]) => c2 === null ? `<tr class="same"><td>${a}</td><td colspan="2">${b}</td></tr>` : `<tr><td>${a}</td><td>${b}</td><td>${c2}</td></tr>`).join('') + '</table>';
+  $('gasnote').textContent = g.at ? `measured ${ago(Date.now() / 1000 - g.at)}` : 'near-sandbox';
+  gasChart(g);
+}
+function gasChart(g) {
+  const rows = g.rows || [], lim = g.limit_tgas || 300;
+  const W = 560, H = 280, l = 46, r = 16, t = 18, b = 38;
+  const x = i => l + (i + .5) * (W - l - r) / rows.length, bw = Math.min(46, (W - l - r) / rows.length - 14);
+  const y = v => t + (H - t - b) * (1 - v / 320);
+  let h = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="NEAR gas per submit by ring size">`;
+  for (const v of [0, 100, 200, 300]) h += `<line x1="${l}" x2="${W - r}" y1="${y(v)}" y2="${y(v)}" stroke="#152126"/><text x="${l - 8}" y="${y(v) + 4}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${v}</text>`;
+  h += `<line x1="${l}" x2="${W - r}" y1="${y(lim)}" y2="${y(lim)}" stroke="#f43f5e" stroke-dasharray="5 4" stroke-width="1.5"/>`;
+  h += `<text x="${W - r}" y="${y(lim) - 6}" text-anchor="end" fill="#8aa3a6" style="font:11px var(--mono)">300 Tgas per-call limit</text>`;
+  rows.forEach((d, i) => {
+    const cx = x(i);
+    if (d.tgas != null) {
+      const top = y(d.tgas), base = y(0), rr = 4;
+      h += `<path d="M${cx - bw / 2},${base} V${top + rr} Q${cx - bw / 2},${top} ${cx - bw / 2 + rr},${top} H${cx + bw / 2 - rr} Q${cx + bw / 2},${top} ${cx + bw / 2},${top + rr} V${base} Z" fill="#14b8a6"/>`;
+      h += `<text x="${cx}" y="${top - 6}" text-anchor="middle" fill="#e6f2f1" style="font:600 11px var(--mono)">${Math.round(d.tgas)}</text>`;
+    } else {
+      h += `<text x="${cx}" y="${y(lim) + 18}" text-anchor="middle" fill="#f43f5e" style="font:600 11px var(--mono)">over</text>`;
+    }
+    h += `<text x="${cx}" y="${H - b + 18}" text-anchor="middle" fill="#8aa3a6" style="font:11px var(--mono)">${d.ring}</text>`;
+    h += `<rect x="${cx - (W - l - r) / rows.length / 2}" y="${t}" width="${(W - l - r) / rows.length}" height="${H - t - b}" fill="transparent" data-i="${i}"/>`;
+  });
+  h += `<text x="${l + (W - l - r) / 2}" y="${H - 4}" text-anchor="middle" fill="#566d71" style="font:10px var(--mono);letter-spacing:1.2px">RING SIZE (MEMBERS)</text></svg><div class="tip"></div>`;
+  const el2 = $('gaschart'); el2.innerHTML = h;
+  const tip = el2.querySelector('.tip');
+  el2.querySelectorAll('rect[data-i]').forEach(rc => {
+    rc.onmousemove = ev => {
+      const d = rows[+rc.dataset.i], bb = el2.getBoundingClientRect();
+      tip.innerHTML = d.tgas != null ? `ring ${d.ring} · <b>${d.tgas} Tgas</b> · ${(d.tgas / d.ring).toFixed(1)} per member` : `ring ${d.ring} · exceeds 300 Tgas`;
+      tip.style.left = Math.min(ev.clientX - bb.left + 12, bb.width - 220) + 'px'; tip.style.top = (ev.clientY - bb.top - 34) + 'px'; tip.style.opacity = 1;
+    };
+    rc.onmouseleave = () => { tip.style.opacity = 0; };
+  });
+  $('gastable').innerHTML = `<table><tr><th>ring</th><th>Tgas</th><th>per member</th></tr>${rows.map(d => `<tr><td>${d.ring}</td><td>${d.tgas ?? 'over limit'}</td><td>${d.tgas ? (d.tgas / d.ring).toFixed(2) : '-'}</td></tr>`).join('')}</table>`;
+}
+
+/* ---------------- tests ---------------- */
+async function loadTests() {
+  const t = await get('tests');
+  const col = (chain, label, how) => {
+    const x = t[chain];
+    if (!x) return `<div class="card"><h3><span class="chainbadge ${chain}">${chain.toUpperCase()}</span> ${label}</h3><div class="empty">not run yet: <code>m zuma/test</code></div></div>`;
+    return `<div class="card"><h3><span class="chainbadge ${chain}">${chain.toUpperCase()}</span> ${label}<span class="sp"></span>
+      <span class="pill ${x.ok ? 'open' : ''}">${x.passed} passed${x.failed ? ` · ${x.failed} failed` : ''}</span></h3>
+      <div style="color:var(--mute);font:12px var(--mono);margin-bottom:8px">${how} · ran ${ago(Date.now() / 1000 - x.at)}</div>
+      ${x.tests.map(([st, n]) => `<div class="trow"><span class="${st === 'PASS' ? 'ok2' : 'bad2'}">${st}</span><span>${esc(n.replace(/_/g, ' '))}</span></div>`).join('')}</div>`;
+  };
+  $('tlists').innerHTML = col('starknet', 'SNFORGE', 'contracts/tests/test_zuma.cairo') + col('near', 'CARGO TEST', 'near/src/tests.rs');
+}
+get('tests').then(t => { const n = ['starknet', 'near'].reduce((a, c) => a + ((t[c] || {}).passed || 0), 0); if (n) $('tcount').textContent = n; }).catch(() => {});
+
+/* ---------------- paper ---------------- */
+function inline(t) {
+  return esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+function md(src) {
+  const lines = src.split('\n'); let h = '', i = 0;
+  while (i < lines.length) {
+    const ln = lines[i];
+    if (ln.startsWith('```')) { const buf = []; i++; while (i < lines.length && !lines[i].startsWith('```')) buf.push(lines[i++]); i++; h += `<pre><code>${esc(buf.join('\n'))}</code></pre>`; continue; }
+    const hm = ln.match(/^(#{1,3}) (.*)/); if (hm) { h += `<h${hm[1].length}>${inline(hm[2])}</h${hm[1].length}>`; i++; continue; }
+    if (ln.startsWith('|')) { const rows = []; while (i < lines.length && lines[i].startsWith('|')) rows.push(lines[i++]);
+      const cells = r => r.split('|').slice(1, -1).map(c => c.trim());
+      h += '<table class="cmp"><tr>' + cells(rows[0]).map(c => `<th>${inline(c)}</th>`).join('') + '</tr>' +
+        rows.slice(2).map(r => '<tr>' + cells(r).map(c => `<td>${inline(c)}</td>`).join('') + '</tr>').join('') + '</table>'; continue; }
+    if (/^(- |\d+\. )/.test(ln)) { const ol = /^\d/.test(ln), items = [];
+      while (i < lines.length && (/^(- |\d+\. )/.test(lines[i]) || (/^ {2,}\S/.test(lines[i]) && items.length))) {
+        if (/^ {2,}\S/.test(lines[i])) items[items.length - 1] += ' ' + lines[i].trim(); else items.push(lines[i].replace(/^(- |\d+\. )/, '')); i++; }
+      h += `<${ol ? 'ol' : 'ul'}>${items.map(x => `<li>${inline(x)}</li>`).join('')}</${ol ? 'ol' : 'ul'}>`; continue; }
+    if (!ln.trim()) { i++; continue; }
+    const buf = []; while (i < lines.length && lines[i].trim() && !/^(#|```|\||- |\d+\. )/.test(lines[i])) buf.push(lines[i++]);
+    h += `<p>${inline(buf.join(' '))}</p>`;
+  }
+  return h;
+}
+async function loadPaper() {
+  const t = await get('whitepaper');
+  $('paper').innerHTML = t ? md(t) : '<div class="empty">no WHITEPAPER.md</div>';
+}
+route();
+</script>
+</body>
+</html>

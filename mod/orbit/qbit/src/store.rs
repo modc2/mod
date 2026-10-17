@@ -42,6 +42,16 @@ impl Store {
         passphrase: Option<&str>,
         height: usize,
     ) -> ValidatorKeys {
+        // Reject duplicate registrations to prevent leaf-index reuse in MSS.
+        // Re-creating a passphrase-derived keypair resets `used` to 0; signing a
+        // different message with the same leaf index leaks the Lamport preimage for
+        // every bit where the messages differ, enabling full key recovery.
+        if let Some(existing) = self.validators.get(name) {
+            return ValidatorKeys {
+                pub_key: existing.pub_key(),
+                priv_key: existing.priv_key(),
+            };
+        }
         let v = match passphrase {
             Some(p) => Validator::from_passphrase(name.to_string(), p, height),
             None => Validator::new(name.to_string(), height),
@@ -162,5 +172,38 @@ impl Store {
 
     pub fn pending_count(&self) -> usize {
         self.pending.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_validator_registration_preserves_used_count() {
+        let mut store = Store::new();
+        let keys1 = store.add_validator("alice", Some("my-secret"), 2);
+
+        store.put("k1".into(), "v1".into());
+        store.commit().unwrap();
+
+        // Re-registering with the same passphrase must not reset the leaf counter.
+        let keys2 = store.add_validator("alice", Some("my-secret"), 2);
+
+        assert_eq!(keys1.pub_key, keys2.pub_key, "public key must be stable");
+        assert_eq!(
+            store.validators.get("alice").unwrap().keys.used,
+            1,
+            "used count must not reset"
+        );
+
+        store.put("k2".into(), "v2".into());
+        store.commit().unwrap();
+
+        assert_eq!(
+            store.validators.get("alice").unwrap().keys.used,
+            2,
+            "both commits must consume distinct leaves"
+        );
     }
 }

@@ -34,16 +34,58 @@ class Compute:
     offers_dir = '~/.mod/compute/offers'
     billing_interval = 3600  # bill every hour (seconds)
 
-    def __init__(self, network='testnet', key=None, **kwargs):
+    def __init__(self, network=None, key=None, **kwargs):
         import mod
         self.m = mod.Mod()
         self.docker = self.m.mod('pm.docker')()
-        self.chain = self.m.mod('chain')(network=network, key=key or 'test')
+        network = network or os.environ.get('COMPUTE_NETWORK', 'testnet')
+        self.chain = self._chain_cls()(network=network, key=key or 'test')
         self.instances_path = self.m.abspath(self.instances_dir)
         self.offers_path = self.m.abspath(self.offers_dir)
         os.makedirs(self.instances_path, exist_ok=True)
         os.makedirs(self.offers_path, exist_ok=True)
         self._billing_thread = None
+
+    @staticmethod
+    def _chain_cls():
+        """The chain orchestrator class.
+
+        `m.mod('chain')` can resolve to a scaffolded stub that shadows the
+        real module, so verify the interface first and fall back to loading
+        the core chain checkout directly.
+        """
+        import mod
+        import inspect
+        try:
+            cls = mod.Mod().mod('chain')
+            if 'network' in inspect.signature(cls.__init__).parameters:
+                return cls
+        except Exception:
+            pass
+        import importlib.util
+        for path in (os.path.expanduser('~/mod/mod/core/chain/src/mod.py'),
+                     '/root/mod/mod/core/chain/src/mod.py'):
+            if os.path.exists(path):
+                spec = importlib.util.spec_from_file_location('mod_core_chain', path)
+                chain_mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(chain_mod)
+                return chain_mod.Mod
+        raise RuntimeError('chain module unavailable — no usable Mod class found')
+
+    # ── Balance (client-side) ────────────────────────────────────────────
+
+    def topup(self, amount: float, token: str = 'usdc'):
+        """Buy Market tokens with a whitelisted stablecoin to pay for compute.
+
+        Approves the Market contract then calls credit() — amount is in
+        Market tokens (≈ USD). Works on whichever network this instance is
+        bound to (COMPUTE_NETWORK / network=, default testnet).
+        """
+        return self.chain.raw_credit(amount, payment_token=token)
+
+    def market_balance(self, address=None):
+        """Current Market token balance for an address (default: own key)."""
+        return self.chain.credits(address or self.chain.account.address)
 
     # ── Offers (host-side) ───────────────────────────────────────────────
 
@@ -124,7 +166,7 @@ class Compute:
             raise ValueError(
                 f'Insufficient Market balance: {balance} < {min_required} '
                 f'(need at least 1 hour @ {rate}/hr). '
-                f'Run chain.credit() to top up.'
+                f'Run compute.topup() to top up.'
             )
 
         # if an upfront deposit was specified, debit it now

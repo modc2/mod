@@ -9,14 +9,16 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "/mcp";
 const nextConfig = {
   ...(basePath ? { basePath } : {}),
   env: {
-    NEXT_PUBLIC_API_URL: "/api/mcp",
+    NEXT_PUBLIC_API_URL: "/mcp/api",
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
   async rewrites() {
     return [
-      // Dev fallback: the client fetches /api/mcp/* at the domain root (NOT
-      // under basePath) → proxy to the hub API. basePath:false keeps the source
-      // at root so it mirrors the Caddy @mcp_api block.
+      // Dev fallback: the client fetches /mcp/api/* (canonical) at the domain
+      // root (NOT under basePath) → proxy to the hub API. basePath:false keeps
+      // the source at root so it mirrors the Caddy @mcp_api block. The legacy
+      // /api/mcp alias stays supported.
+      { source: "/mcp/api/:path*", destination: `${apiUrl}/:path*`, basePath: false },
       { source: "/api/mcp/:path*", destination: `${apiUrl}/:path*`, basePath: false },
     ];
   },

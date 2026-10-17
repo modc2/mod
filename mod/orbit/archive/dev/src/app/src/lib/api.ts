@@ -1,7 +1,7 @@
-// Typed client for the dev gateway. All calls go through /api/dev/*, proxied
-// to the Rust backend (see next.config.mjs).
+// Typed client for the dev gateway. All calls go through /dev/api/* (legacy
+// alias /api/dev/*), proxied to the Rust backend (see next.config.mjs).
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "/api/dev";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/dev/api";
 
 function authHeaders(token: string | null): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};

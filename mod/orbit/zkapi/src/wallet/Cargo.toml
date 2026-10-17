@@ -1,0 +1,22 @@
+[package]
+name = "zkapi-wallet"
+description = "Persistent zkAPI v2 wallet driver for the zkapi orbit module (wraps the upstream zkapi-browser wallet core)"
+version = "0.2.0"
+edition = "2021"
+publish = false
+
+# Standalone: not part of the upstream workspace, but uses its crates unchanged.
+[workspace]
+
+[dependencies]
+zkapi-browser = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-browser" }
+zkapi-proof = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-proof" }
+zkapi-types = { path = "../../vendor/zkapi/protocol/rust/crates/zkapi-types" }
+anyhow = "1.0"
+base64 = "0.22"
+hex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[profile.release]
+opt-level = 3

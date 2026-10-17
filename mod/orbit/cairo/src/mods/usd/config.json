@@ -1,0 +1,38 @@
+{
+    "name": "usd",
+    "title": "Usd",
+    "description": "A cash-backed digital dollar",
+    "version": "0.1.0",
+    "submod_of": "cairo",
+    "kind": "cairo-contract",
+    "template": "stablecoin",
+    "edition": "2024_07",
+    "anchor": "mod.py",
+    "fns": [
+        "forward",
+        "info",
+        "build",
+        "test",
+        "vibe",
+        "abi",
+        "tree",
+        "read",
+        "write",
+        "clean",
+        "app",
+        "deploy",
+        "call",
+        "events"
+    ],
+    "privacy": {
+        "everyone_sees": [
+            "everyone's balance",
+            "total supply",
+            "the reserves the issuer says it holds",
+            "every transfer, mint and burn"
+        ],
+        "kept_secret": [],
+        "summary": "Keeps no secrets. Note: the reserves number is just what the issuer claims; the chain cannot check a bank account."
+    },
+    "private": false
+}

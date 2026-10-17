@@ -1,0 +1,58 @@
+{
+  "title": "Tip jar",
+  "intro": "A tip jar: anyone can drop in a tip. It remembers how much each person gave and the total so far. Only the owner can reset the total.",
+  "steps": [
+    "Pick who you are at the top right.",
+    "Type an amount and press Tip.",
+    "The total and how much you gave update on the left."
+  ],
+  "fns": {
+    "total": {
+      "label": "In the jar so far",
+      "show": "big"
+    },
+    "tipped_by": {
+      "label": "How much I tipped",
+      "inputs": {
+        "tipper": {
+          "hide": true
+        }
+      }
+    },
+    "tip": {
+      "label": "Leave a tip",
+      "button": "Tip",
+      "inputs": {
+        "amount": {
+          "label": "How much",
+          "placeholder": "e.g. 5"
+        }
+      }
+    },
+    "reset_total": {
+      "label": "Reset the total (owner only)",
+      "button": "Reset"
+    },
+    "owner": {
+      "label": "Jar owner",
+      "show": "address"
+    }
+  },
+  "constructor": {
+    "help": "Pick who owns the jar. Only they can reset the total later.",
+    "inputs": {
+      "owner": {
+        "label": "Owner",
+        "default": "me"
+      }
+    }
+  },
+  "events": {
+    "Tipped": {
+      "say": "{tipper} tipped {amount}"
+    },
+    "TotalReset": {
+      "say": "{by} reset the total (it was {previous})"
+    }
+  }
+}

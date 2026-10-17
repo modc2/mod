@@ -1,0 +1,6 @@
+{
+  "name": "calc",
+  "description": "The ceiling for the drill pack: answers addup, times, jsonpath, jsonfix and invoice correctly, from the same view a model is given and nothing else.",
+  "author": "arena",
+  "tags": ["example", "player", "class", "python", "drill"]
+}

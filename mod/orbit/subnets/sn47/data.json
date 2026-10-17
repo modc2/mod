@@ -1,0 +1,165 @@
+{
+  "netuid": 47,
+  "name": "GPUForge",
+  "symbol": "צ",
+  "owner": "5D7yqC9yVKufNHfGn96MRHXMcseScSThwgurDep2kLbhGuan",
+  "description": "GPUForge is a Bittensor subnet for verifiable GPU training. Miners execute signed, immutable training workloads on eligible NVIDIA H100 GPUs, while validators verify correctness, freshness, attestation, and useful training throughput before scoring work.",
+  "github": "https://github.com/forgenet47/gpuforge",
+  "url": "https://gpuforge-gpuforge.static.hf.space/",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/forgenet47/gpuforge/refs/heads/codex/project-foundation/docs/figure.jpg",
+  "registered_at": 7340355,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.001726576,
+    "moving_price": 0.0017274869605898857,
+    "market_cap": 3826.768538629473,
+    "tao_in": 992.859330385,
+    "alpha_in": 575045.015965422,
+    "alpha_out": 1641346.581409656,
+    "volume": 55166.684720733,
+    "vol_24h": 4.531561413001327,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.7965801751281254,
+    "change_7d": 0.40929598531698197
+  },
+  "spark_24h": [
+    0.00174044,
+    0.00173367,
+    0.00173367,
+    0.001733246,
+    0.001733245,
+    0.001733245,
+    0.001732994,
+    0.001732954,
+    0.001732918,
+    0.001732918,
+    0.001732914,
+    0.001732912,
+    0.001732863,
+    0.001732854,
+    0.001732853,
+    0.001732853,
+    0.001732852,
+    0.001732848,
+    0.001732848,
+    0.001732848,
+    0.001732844,
+    0.001732202,
+    0.001732201,
+    0.001732201,
+    0.00173218,
+    0.00173218,
+    0.001732171,
+    0.00173217,
+    0.00173217,
+    0.001733045,
+    0.001733045,
+    0.001733043,
+    0.001731337,
+    0.001731333,
+    0.001731333,
+    0.001731333,
+    0.001729425,
+    0.001729424,
+    0.001729413,
+    0.001729361,
+    0.001728089,
+    0.001728087,
+    0.001728087,
+    0.001728087,
+    0.001728086,
+    0.001728086,
+    0.001726585,
+    0.001726576
+  ],
+  "trades_24h": {
+    "trades": 9,
+    "buys": 1,
+    "sells": 8,
+    "buy_tao": 0.276322719,
+    "sell_tao": 3.7192020500000003,
+    "net_tao": -3.4428793310000003,
+    "traders": 8
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EfD4vFYJgBY1bUqozWhk4ahE5y9JmPnKsg4baDchPvbnKMk",
+      "net_tao": -1.939546251,
+      "gross_tao": 1.939546251,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HJuegWz9iKL2P5PrNNWDKVwciaDXy1TC3iTGhK1xxoewo2Z",
+      "net_tao": -0.68550688,
+      "gross_tao": 0.68550688,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CJBXFgbN5jgcfNWJ2ogA14vZKsKuNkAaCWzbJ8JppeVVqez",
+      "net_tao": -0.545777096,
+      "gross_tao": 0.545777096,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FyPEXindwgKN57wYBuR8ArwDSspCm4Sk9PfK8akmP13yzwS",
+      "net_tao": -0.365363394,
+      "gross_tao": 0.365363394,
+      "trades": 1
+    },
+    {
+      "coldkey": "5G1HeZ7dXj4hHiXtbfgaS4GjzpnwufeGDZCn71W5C7xkLsEg",
+      "net_tao": 0.276322719,
+      "gross_tao": 0.276322719,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790709209,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #10 from forgenet47/codex/attestation-and-sandbox",
+      "url": "https://github.com/forgenet47/gpuforge/commit/7f9e0a7de8157f9147f2b28529e091a5ded51815",
+      "publisher": "forgenet47/gpuforge"
+    },
+    {
+      "ts": 1790703393,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: bind execution evidence and validate H100 work",
+      "url": "https://github.com/forgenet47/gpuforge/commit/114b9b86235c8b9bf8aa95308fdd5e82c92c459c",
+      "publisher": "forgenet47/gpuforge"
+    },
+    {
+      "ts": 1790622962,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #9 from forgenet47/codex/attestation-and-sandbox",
+      "url": "https://github.com/forgenet47/gpuforge/commit/cf7d1713fdccaf577987b7563201ee5193f11658",
+      "publisher": "forgenet47/gpuforge"
+    },
+    {
+      "ts": 1790616053,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: verify training work and throughput",
+      "url": "https://github.com/forgenet47/gpuforge/commit/5279cf8b5c30d2b9c34c0bbaa19909cc50511bb4",
+      "publisher": "forgenet47/gpuforge"
+    },
+    {
+      "ts": 1790446020,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #8 from forgenet47/codex/attestation-and-sandbox",
+      "url": "https://github.com/forgenet47/gpuforge/commit/a5631390573bc362ca467048d2df0b3574238400",
+      "publisher": "forgenet47/gpuforge"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

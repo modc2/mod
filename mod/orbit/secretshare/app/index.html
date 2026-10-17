@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/secretshare/">
+<title>secretshare — split a secret between people you trust</title>
+<style>
+  :root { --bg:#0e0f12; --card:#16181d; --line:#262a32; --fg:#e8e9ec; --dim:#8b909a;
+          --acc:#7cf2c1; --err:#ff7a7a; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:1040px; margin:0 auto; padding:32px 20px 60px; }
+  h1 { font-size:26px; margin:0 0 4px; letter-spacing:-.01em; }
+  h1 b { color:var(--acc); font-weight:700; }
+  .lead { color:var(--dim); margin:0 0 22px; }
+  .steps { display:flex; gap:10px; margin:0 0 24px; padding:0; list-style:none; flex-wrap:wrap; }
+  .steps li { flex:1 1 220px; border:1px solid var(--line); border-radius:10px; padding:10px 14px; color:var(--dim); font-size:14px; }
+  .steps b { color:var(--fg); display:block; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  @media (max-width:820px) { .grid { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; display:flex; flex-direction:column; gap:12px; }
+  .card h2 { margin:0; font-size:17px; }
+  .card p { margin:0; color:var(--dim); font-size:14px; }
+  textarea, input { width:100%; background:#0b0c0f; color:var(--fg); border:1px solid var(--line);
+                    border-radius:8px; padding:10px 12px; font:13px/1.45 var(--mono); }
+  textarea { resize:vertical; min-height:96px; }
+  textarea:focus, input:focus { outline:none; border-color:var(--acc); }
+  .drag-over { border-color: var(--acc) !important; }
+  .row { display:flex; gap:12px; align-items:end; }
+  .row label { flex:1; font-size:13px; color:var(--dim); display:flex; flex-direction:column; gap:4px; }
+  button { font:600 14px system-ui, sans-serif !important; background:var(--acc); color:#06120d; border:0;
+           border-radius:8px; padding:11px 16px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--fg); border:1px solid var(--line); font-weight:500 !important; padding:6px 10px; font-size:12px !important; }
+  button:disabled { opacity:.5; cursor:default; }
+  .msg { font-size:13px; min-height:1.2em; }
+  .msg.err { color:var(--err); }
+  .msg.ok { color:var(--acc); }
+  .shares { display:flex; flex-direction:column; gap:8px; }
+  .share { border:1px solid var(--line); border-radius:8px; padding:8px 10px; display:flex; gap:10px; align-items:center; }
+  .share .n { color:var(--acc); font:700 12px var(--mono); min-width:22px; }
+  .share code { flex:1; font:12px var(--mono); word-break:break-all; color:var(--fg); }
+  .result { font:14px var(--mono); background:#0b0c0f; border:1px solid var(--acc); border-radius:8px; padding:12px; white-space:pre-wrap; word-break:break-all; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  footer { margin-top:28px; color:var(--dim); font-size:13px; }
+  footer code { font-family:var(--mono); color:var(--fg); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1><b>secret</b>share</h1>
+  <p class="lead">Split a password, seed phrase or key into pieces. Hand them to people you trust. Any few of them together can get it back, and no single piece reveals anything.</p>
+
+  <ol class="steps">
+    <li><b>1. Split</b>Type the secret and choose how many pieces, and how many are needed to unlock it.</li>
+    <li><b>2. Hand out</b>Give each person one piece. Keep them apart. Throw away the original if you want.</li>
+    <li><b>3. Unlock</b>When it's needed, paste in enough pieces and the secret comes back.</li>
+  </ol>
+
+  <div class="grid">
+    <section class="card" id="split-card">
+      <h2>Split a secret</h2>
+      <p>Everything happens in this browser tab. Nothing is sent to any server.</p>
+      <textarea id="secret" placeholder="your secret — e.g. a 24-word seed phrase" autocomplete="off" spellcheck="false"></textarea>
+      <input type="file" id="split-file-input" hidden>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="ghost" id="split-file-btn" style="align-self:flex-start">Load from file</button>
+        <span class="msg" id="split-file-status" style="flex:1" aria-live="polite" role="status"></span>
+      </div>
+      <div class="row">
+        <label>Pieces to make<input id="n" type="number" min="2" max="255" value="5"></label>
+        <label>Pieces needed to unlock<input id="k" type="number" min="2" max="255" value="3"></label>
+      </div>
+      <button id="do-split">Split into pieces</button>
+      <div class="msg" id="split-msg" aria-live="polite" role="status"></div>
+      <div id="split-out" hidden>
+        <div class="actions" style="margin-bottom:8px">
+          <button class="ghost" id="copy-all">Copy all</button>
+          <button class="ghost" id="dl-all">Download as files</button>
+          <button class="ghost" id="verify-split">Verify</button>
+        </div>
+        <div class="shares" id="shares"></div>
+      </div>
+    </section>
+
+    <section class="card" id="combine-card">
+      <h2>Unlock a secret</h2>
+      <p>Paste the pieces you have, one per line. Order doesn't matter.</p>
+      <input type="file" id="load-files-input" multiple accept=".txt,text/plain" hidden>
+      <button class="ghost" id="load-files-btn" style="align-self:flex-start">Load from files</button>
+      <textarea id="pieces" placeholder="ss1.xxxxxxxx.3.1.…&#10;ss1.xxxxxxxx.3.4.…&#10;ss1.xxxxxxxx.3.5.…" spellcheck="false"></textarea>
+      <div class="msg" id="pieces-counter" aria-live="polite" role="status"></div>
+      <button id="do-combine">Unlock</button>
+      <div class="msg" id="combine-msg" aria-live="polite" role="status"></div>
+      <div id="combine-out" hidden>
+        <div class="result" id="result"></div>
+        <div class="actions" style="margin-top:8px">
+          <button class="ghost" id="copy-result">Copy</button>
+          <button class="ghost" id="hide-result">Hide</button>
+          <button class="ghost" id="save-file-result" hidden>Save file</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" id="inspect-card" style="margin-top:18px">
+    <h2>Inspect a piece</h2>
+    <p>Paste one share to see its set ID, threshold, and index — without revealing the secret.</p>
+    <input id="inspect-share" type="text" placeholder="ss1.xxxxxxxx.3.2.…" autocomplete="off" spellcheck="false">
+    <button id="do-inspect">Inspect</button>
+    <div class="msg" id="inspect-msg" aria-live="polite" role="status"></div>
+    <div id="inspect-out" hidden>
+      <div class="result" id="inspect-result"></div>
+      <div class="actions" style="margin-top:8px"><button class="ghost" id="copy-inspect">Copy</button></div>
+    </div>
+  </section>
+
+  <footer>
+    Shamir's Secret Sharing over GF(256), with a checksum so wrong pieces fail loudly instead of returning garbage.
+    Pieces also work from the command line: <code>m secretshare/split "…" n=5 k=3</code> · <code>m secretshare/combine "ss1… ss1… ss1…"</code>.
+   
+  </footer>
+</main>
+
+<script src="shamir.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const say = (el, text, cls) => { el.textContent = text; el.className = "msg" + (cls ? " " + cls : ""); };
+  const copy = async (text, btn) => {
+    try { await navigator.clipboard.writeText(text); } catch {
+      const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select();
+      document.execCommand("copy"); t.remove();
+    }
+    const old = btn.textContent; btn.textContent = "Copied"; setTimeout(() => (btn.textContent = old), 1200);
+  };
+  let lastShares = [];
+  let splitFileBytes = null;
+  let lastCombineBytes = null;
+
+  const clearSplitFileStatus = () => {
+    splitFileBytes = null;
+    say($("split-file-status"), "");
+    $("split-file-input").value = "";
+  };
+
+  const clearSplitIfStale = () => {
+    if (lastShares.length > 0) {
+      lastShares = [];
+      $("split-out").hidden = true;
+      say($("split-msg"), "Settings changed — click Split again to make new shares.", "");
+    }
+    if (splitFileBytes) clearSplitFileStatus();
+  };
+
+  // Keep the threshold sane as the piece count changes; clear any stale split result.
+  $("n").addEventListener("input", () => {
+    if (+$("k").value > +$("n").value) $("k").value = $("n").value;
+    clearSplitIfStale();
+  });
+  $("k").addEventListener("input", () => {
+    if (+$("k").value > +$("n").value) $("k").value = $("n").value;
+    if (+$("k").value < 2 && $("k").value !== "") $("k").value = 2;
+    clearSplitIfStale();
+  });
+  $("secret").addEventListener("input", clearSplitIfStale);
+
+  $("split-file-btn").onclick = () => $("split-file-input").click();
+  $("split-file-input").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      splitFileBytes = new Uint8Array(ev.target.result);
+      $("secret").value = "";
+      lastShares = [];
+      $("split-out").hidden = true;
+      say($("split-msg"), "");
+      say($("split-file-status"), `${file.name} · ${splitFileBytes.length} bytes loaded`, "ok");
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = "";
+  });
+
+  $("secret").addEventListener("dragover", (e) => { e.preventDefault(); $("secret").classList.add("drag-over"); });
+  $("secret").addEventListener("dragleave", () => $("secret").classList.remove("drag-over"));
+  $("secret").addEventListener("drop", (e) => {
+    e.preventDefault();
+    $("secret").classList.remove("drag-over");
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      splitFileBytes = new Uint8Array(ev.target.result);
+      $("secret").value = "";
+      lastShares = [];
+      $("split-out").hidden = true;
+      say($("split-msg"), "");
+      say($("split-file-status"), `${file.name} · ${splitFileBytes.length} bytes loaded`, "ok");
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
+  $("pieces").addEventListener("input", () => {
+    if (!$("combine-out").hidden) {
+      $("combine-out").hidden = true;
+      $("result").textContent = "";
+      lastCombineBytes = null;
+      say($("combine-msg"), "Pieces changed — click Unlock again.", "");
+    }
+    const counter = $("pieces-counter");
+    const raw = $("pieces").value;
+    if (!raw.trim()) { say(counter, ""); return; }
+    const tokens = raw.split(/[\s,]+/).filter(Boolean);
+    const bySet = new Map();
+    let corrupted = 0;
+    for (const t of tokens) {
+      try {
+        const p = Shamir.parse(t);
+        if (!bySet.has(p.set)) bySet.set(p.set, { k: p.k, xs: new Set() });
+        bySet.get(p.set).xs.add(p.x);
+      } catch { if (t.startsWith("ss1.")) corrupted++; }
+    }
+    const corruptedNote = () => {
+      if (corrupted > 0) {
+        const sp = document.createElement("span");
+        sp.style.color = "var(--err)";
+        sp.textContent = ` · ${corrupted} malformed share${corrupted > 1 ? "s" : ""}`;
+        counter.appendChild(sp);
+      }
+    };
+    const sets = [...bySet.entries()];
+    if (sets.length === 0) {
+      if (corrupted > 0) say(counter, `${corrupted} malformed share${corrupted > 1 ? "s" : ""}`, "err");
+      else say(counter, "");
+      return;
+    }
+    if (sets.length > 1) {
+      const parts = sets.map(([id, { k, xs }]) => {
+        const have = xs.size;
+        return have >= k
+          ? `set ${id}: ${have}/${k} ready`
+          : `set ${id}: ${have} piece${have !== 1 ? "s" : ""} (need ${k - have} more)`;
+      });
+      const anyReady = sets.some(([, { k, xs }]) => xs.size >= k);
+      say(counter, `${sets.length} sets mixed — ${parts.join(" | ")}`, anyReady ? "ok" : "err");
+      corruptedNote();
+      return;
+    }
+    const [setId, { k, xs }] = sets[0];
+    const have = xs.size;
+    if (have >= k) {
+      say(counter, `${have} of ${k} needed · ready — set ${setId}`, "ok");
+    } else {
+      say(counter, `${have} piece${have > 1 ? "s" : ""} · set ${setId} · need ${k - have} more`);
+    }
+    corruptedNote();
+  });
+
+  $("do-split").onclick = async () => {
+    const msg = $("split-msg");
+    try {
+      const n = +$("n").value, k = +$("k").value;
+      const input = splitFileBytes !== null ? splitFileBytes : $("secret").value;
+      lastShares = await Shamir.split(input, n, k);
+      const box = $("shares"); box.innerHTML = "";
+      lastShares.forEach((s, i) => {
+        const row = document.createElement("div"); row.className = "share";
+        row.innerHTML = `<span class="n">#${i + 1}</span><code></code><button class="ghost">Copy</button><button class="ghost">Save</button>`;
+        row.querySelector("code").textContent = s;
+        row.querySelectorAll("button")[0].onclick = (e) => copy(s, e.target);
+        row.querySelectorAll("button")[1].onclick = () => {
+          const set = s.split(".")[1];
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([s + "\n"], { type: "text/plain" }));
+          a.download = `secretshare-${set}-piece-${i + 1}-of-${lastShares.length}.txt`;
+          a.click(); URL.revokeObjectURL(a.href);
+        };
+        box.appendChild(row);
+      });
+      $("split-out").hidden = false;
+      $("secret").value = "";
+      if (splitFileBytes) clearSplitFileStatus();
+      say(msg, `Made ${n} pieces (original cleared). Any ${k} of them unlock it.`, "ok");
+    } catch (e) { $("split-out").hidden = true; say(msg, e.message, "err"); }
+  };
+
+  $("copy-all").onclick = (e) => copy(lastShares.join("\n"), e.target);
+  $("verify-split").onclick = async () => {
+    const msg = $("split-msg");
+    try {
+      const k = Shamir.parse(lastShares[0]).k;
+      await Shamir.combine(lastShares.slice(0, k));
+      say(msg, `Verified — the first ${k} of ${lastShares.length} pieces correctly rebuild the secret.`, "ok");
+    } catch (e) { say(msg, e.message, "err"); }
+  };
+
+  $("dl-all").onclick = () => lastShares.forEach((s, i) => {
+    const set = s.split(".")[1];
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([s + "\n"], { type: "text/plain" }));
+    a.download = `secretshare-${set}-piece-${i + 1}-of-${lastShares.length}.txt`;
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+
+  $("do-combine").onclick = async () => {
+    const msg = $("combine-msg");
+    try {
+      const raw = $("pieces").value;
+      const tokens = raw.split(/[\s,]+/).filter(Boolean);
+      const bySet = new Map();
+      for (const t of tokens) {
+        try {
+          const p = Shamir.parse(t);
+          if (!bySet.has(p.set)) bySet.set(p.set, { k: p.k, xs: new Map() });
+          bySet.get(p.set).xs.set(p.x, t);
+        } catch { /* ignore unparseable tokens */ }
+      }
+      let selectedTokens = null, selectedSetId = null;
+      for (const [id, { k, xs }] of bySet) {
+        if (xs.size >= k) { selectedTokens = [...xs.values()]; selectedSetId = id; break; }
+      }
+      const bytes = await Shamir.combine(selectedTokens !== null ? selectedTokens : raw);
+      let text, isBinary = false;
+      try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+      catch { let s = ""; for (const c of bytes) s += String.fromCharCode(c); text = "(binary) base64: " + btoa(s); isBinary = true; }
+      lastCombineBytes = isBinary ? bytes : null;
+      $("save-file-result").hidden = !isBinary;
+      $("result").textContent = text;
+      $("combine-out").hidden = false;
+      say(msg, selectedSetId ? `Unlocked set ${selectedSetId}.` : "Unlocked.", "ok");
+    } catch (e) { $("combine-out").hidden = true; say(msg, e.message, "err"); }
+  };
+  $("save-file-result").onclick = () => {
+    if (!lastCombineBytes) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([lastCombineBytes]));
+    a.download = "secretshare-recovered";
+    a.click(); URL.revokeObjectURL(a.href);
+  };
+  $("copy-result").onclick = (e) => {
+    let text;
+    if (lastCombineBytes) { let s = ""; for (const c of lastCombineBytes) s += String.fromCharCode(c); text = btoa(s); }
+    else { text = $("result").textContent; }
+    copy(text, e.target);
+  };
+  $("hide-result").onclick = () => { $("result").textContent = ""; $("combine-out").hidden = true; lastCombineBytes = null; say($("combine-msg"), ""); };
+
+  $("pieces").addEventListener("dragover", (e) => { e.preventDefault(); $("pieces").classList.add("drag-over"); });
+  $("pieces").addEventListener("dragleave", () => $("pieces").classList.remove("drag-over"));
+  $("pieces").addEventListener("drop", (e) => {
+    e.preventDefault();
+    $("pieces").classList.remove("drag-over");
+    const files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+    const existing = new Set($("pieces").value.split(/\s+/).filter(t => t.startsWith("ss1.")));
+    let added = 0, remaining = files.length;
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        ev.target.result.split(/\s+/).filter(t => t.startsWith("ss1.")).forEach(t => {
+          if (!existing.has(t)) {
+            existing.add(t);
+            const a = $("pieces");
+            a.value = (a.value ? a.value.trimEnd() + "\n" : "") + t;
+            added++;
+          }
+        });
+        if (--remaining === 0) {
+          $("pieces").dispatchEvent(new Event("input"));
+          if (added > 0) say($("combine-msg"), `Loaded ${added} piece${added > 1 ? "s" : ""}.`, "ok");
+          else say($("combine-msg"), "No new pieces found in the dropped files.", "");
+        }
+      };
+      reader.readAsText(file);
+    });
+  });
+
+  $("load-files-btn").onclick = () => $("load-files-input").click();
+  $("load-files-input").addEventListener("change", (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    const existing = new Set($("pieces").value.split(/\s+/).filter(t => t.startsWith("ss1.")));
+    let added = 0, remaining = files.length;
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        ev.target.result.split(/\s+/).filter(t => t.startsWith("ss1.")).forEach(t => {
+          if (!existing.has(t)) {
+            existing.add(t);
+            const a = $("pieces");
+            a.value = (a.value ? a.value.trimEnd() + "\n" : "") + t;
+            added++;
+          }
+        });
+        if (--remaining === 0) {
+          $("pieces").dispatchEvent(new Event("input"));
+          if (added > 0) say($("combine-msg"), `Loaded ${added} piece${added > 1 ? "s" : ""}.`, "ok");
+          else say($("combine-msg"), "No new pieces found in the selected files.", "");
+        }
+      };
+      reader.readAsText(file);
+    });
+    e.target.value = "";
+  });
+
+  $("do-inspect").onclick = () => {
+    const msg = $("inspect-msg");
+    try {
+      const m = Shamir.inspect($("inspect-share").value.trim());
+      $("inspect-result").textContent =
+        `Set ID:    ${m.set}\nThreshold: ${m.k} pieces needed\nShare #:   ${m.x}\nPayload:   ${m.secret_bytes} bytes`;
+      $("inspect-out").hidden = false;
+      say(msg, "Parsed.", "ok");
+    } catch (e) { $("inspect-out").hidden = true; say(msg, e.message, "err"); }
+  };
+
+  $("copy-inspect").onclick = (e) => copy($("inspect-result").textContent, e.target);
+
+  $("inspect-share").addEventListener("input", () => {
+    const val = $("inspect-share").value.trim();
+    if (!val) { $("inspect-out").hidden = true; say($("inspect-msg"), ""); return; }
+    try {
+      const m = Shamir.inspect(val);
+      $("inspect-result").textContent =
+        `Set ID:    ${m.set}\nThreshold: ${m.k} pieces needed\nShare #:   ${m.x}\nPayload:   ${m.secret_bytes} bytes`;
+      $("inspect-out").hidden = false;
+      say($("inspect-msg"), "");
+    } catch { $("inspect-out").hidden = true; }
+  });
+</script>
+</body>
+</html>

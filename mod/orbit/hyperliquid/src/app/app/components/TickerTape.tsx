@@ -21,6 +21,17 @@ function fmtPx(px: number): string {
   return px.toPrecision(3);
 }
 
+// Direction as a tiny CSS triangle rather than a ▲/▼ glyph: the glyphs come
+// from whatever fallback font the host has, and differ in size per theme font.
+const Arrow = ({ dir }: { dir: 1 | -1 }) => (
+  <span
+    aria-hidden
+    className={`inline-block w-0 h-0 border-x-[3px] border-x-transparent ${
+      dir > 0 ? "border-b-[4px] border-b-win" : "border-t-[4px] border-t-loss"
+    }`}
+  />
+);
+
 export default function TickerTape() {
   const [ticks, setTicks] = useState<Tick[]>([]);
   const prev = useRef<Map<string, number>>(new Map());
@@ -62,20 +73,17 @@ export default function TickerTape() {
   if (ticks.length === 0) return null;
 
   const cell = (t: Tick, key: string) => (
-    <span key={key} className="inline-flex items-baseline gap-1.5 px-4 whitespace-nowrap">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-dim">{t.coin}</span>
+    <span key={key}
+      className="inline-flex items-center gap-1.5 px-4 whitespace-nowrap border-l border-white/[0.06] first:border-l-0">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-dim">{t.coin}</span>
       <span
         className={`num text-[11px] transition-colors duration-700 ${
-          t.dir > 0 ? "text-win" : t.dir < 0 ? "text-loss" : "text-muted"
+          t.dir > 0 ? "text-win" : t.dir < 0 ? "text-loss" : "text-ink/80"
         }`}
       >
         {fmtPx(t.px)}
       </span>
-      {t.dir !== 0 && (
-        <span className={`text-[8px] ${t.dir > 0 ? "text-win" : "text-loss"}`}>
-          {t.dir > 0 ? "▲" : "▼"}
-        </span>
-      )}
+      {t.dir !== 0 && <Arrow dir={t.dir} />}
     </span>
   );
 
@@ -84,11 +92,16 @@ export default function TickerTape() {
       className="relative overflow-hidden border-b border-white/[0.05] bg-black/20 backdrop-blur-xl select-none"
       aria-hidden
     >
+      {/* Fixed LIVE mark on the left; the tape slides in underneath it. */}
+      <div className="absolute inset-y-0 left-0 z-20 flex w-[4.75rem] items-center gap-2 pl-4 bg-bg border-r border-white/[0.06]">
+        <span className="h-1.5 w-1.5 rounded-full bg-accent live-dot" />
+        <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-accent">Live</span>
+      </div>
       {/* Edge fades so the tape dissolves instead of clipping. */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 w-16 z-10 bg-gradient-to-r from-bg to-transparent" />
+      <div className="pointer-events-none absolute inset-y-0 left-[4.75rem] w-8 z-10 bg-gradient-to-r from-bg to-transparent" />
       <div className="pointer-events-none absolute inset-y-0 right-0 w-16 z-10 bg-gradient-to-l from-bg to-transparent" />
       {/* Two copies back-to-back; the track slides -50% then loops = seamless. */}
-      <div className="flex w-max animate-ticker hover:[animation-play-state:paused] py-1">
+      <div className="flex w-max animate-ticker hover:[animation-play-state:paused] py-1.5">
         {ticks.map((t) => cell(t, t.coin))}
         {ticks.map((t) => cell(t, `${t.coin}-b`))}
       </div>

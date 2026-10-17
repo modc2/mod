@@ -1,0 +1,189 @@
+{
+  "netuid": 58,
+  "name": "Attune",
+  "symbol": "خ",
+  "owner": "5DCsuLtioCCfgiNQvfe3kiUBDXMs6X4y9PrEiAX7rMZ2e5E3",
+  "description": "The open frontier for adaptive robot intelligence",
+  "github": "https://github.com/robotensor/attune-subnet",
+  "url": "https://attune.robotensor.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1550516268002578432",
+  "logo": "https://www.robotensor.ai/logo/logo.png",
+  "registered_at": 8511017,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.007235845,
+    "moving_price": 0.007273673312738538,
+    "market_cap": 6517.115151793387,
+    "tao_in": 1069.976221204,
+    "alpha_in": 147871.624203749,
+    "alpha_out": 752799.292847872,
+    "volume": 40165.765570462,
+    "vol_24h": 465.44186743899627,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 0.1472622576106808,
+    "change_7d": -15.625567726391509
+  },
+  "spark_24h": [
+    0.007225205,
+    0.007225205,
+    0.007234203,
+    0.007218161,
+    0.007222171,
+    0.007222168,
+    0.007218536,
+    0.007217842,
+    0.007188484,
+    0.007098572,
+    0.00709855,
+    0.007098501,
+    0.007072782,
+    0.007072782,
+    0.007187799,
+    0.007187799,
+    0.007187779,
+    0.007187007,
+    0.007187007,
+    0.007187007,
+    0.007186887,
+    0.007141237,
+    0.007141192,
+    0.007141192,
+    0.007140534,
+    0.007411997,
+    0.007480003,
+    0.007493734,
+    0.007435526,
+    0.007113251,
+    0.007113251,
+    0.007113093,
+    0.007082879,
+    0.006793375,
+    0.006793375,
+    0.006784659,
+    0.006784492,
+    0.006784477,
+    0.00731012,
+    0.007485871,
+    0.007386365,
+    0.007253287,
+    0.007239979,
+    0.007426817,
+    0.00728193,
+    0.007236881,
+    0.007273457,
+    0.007235845
+  ],
+  "trades_24h": {
+    "trades": 127,
+    "buys": 67,
+    "sells": 60,
+    "buy_tao": 230.354029006,
+    "sell_tao": 201.472191268,
+    "net_tao": 28.881837738,
+    "traders": 53
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.19069339400000107,
+      "gross_tao": 50.190693394,
+      "trades": 7
+    },
+    {
+      "coldkey": "5DSGdnXCR1iA8jFVVTswNqDQFYAYmnFcyGAp74QvVLJMyXCw",
+      "net_tao": -0.08088514599999974,
+      "gross_tao": 37.080885146,
+      "trades": 6
+    },
+    {
+      "coldkey": "5GEAc2xwinJsVUftvDZQni6nUdMFGMzg76bXKrV4Ks7ZMxhA",
+      "net_tao": 20.4,
+      "gross_tao": 20.4,
+      "trades": 4
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": 0.12463043099999993,
+      "gross_tao": 19.875369569,
+      "trades": 4
+    },
+    {
+      "coldkey": "5G6XcfSHzSM8a4kT1RDovhN4Qc8qFCg7iGPJDMogv4uvzAqo",
+      "net_tao": 0.1518834920000005,
+      "gross_tao": 19.848116508,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791871853,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(vector): watch every paid champion, and give a gone king's crown…",
+      "url": "https://github.com/robotensor/attune-subnet/commit/352b96a71708f6b4bda9851789afe7e6b8397732",
+      "publisher": "robotensor/attune-subnet"
+    },
+    {
+      "ts": 1791718319,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(vector): read the lane's state only after the mirror's take-up",
+      "url": "https://github.com/robotensor/attune-subnet/commit/5a55cf9c5fa29e17a112816a9b07649861b063bd",
+      "publisher": "robotensor/attune-subnet"
+    },
+    {
+      "ts": 1791714689,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(vector): a validator on another host takes the lane up from the …",
+      "url": "https://github.com/robotensor/attune-subnet/commit/7e106274249f739eabc7699be0ddef6e9f7ffaa0",
+      "publisher": "robotensor/attune-subnet"
+    },
+    {
+      "ts": 1791557901,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(vector): ignore commitments made before the start block",
+      "url": "https://github.com/robotensor/attune-subnet/commit/25fff1ba5346ba05f98bfa4d16bc543042a23af9",
+      "publisher": "robotensor/attune-subnet"
+    },
+    {
+      "ts": 1791483956,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: keep config/ out of the repository; each host keeps its own",
+      "url": "https://github.com/robotensor/attune-subnet/commit/ba4fba46c3b183edfc4bd1c4ef2098e454447e7d",
+      "publisher": "robotensor/attune-subnet"
+    },
+    {
+      "ts": 1791483361,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(miner): `attune miner status` checks the Hub with the submission …",
+      "url": "https://github.com/robotensor/attune-subnet/commit/ab0a7a0310c7fd6aa1b104a4ea64115823ed2084",
+      "publisher": "robotensor/attune-subnet"
+    },
+    {
+      "ts": 1791375379,
+      "kind": "commit",
+      "source": "github",
+      "title": "refactor: no `attune doctor`",
+      "url": "https://github.com/robotensor/attune-subnet/commit/0f16095014543bcce61d7030b4fae5d9666e9e64",
+      "publisher": "robotensor/attune-subnet"
+    },
+    {
+      "ts": 1791374633,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(miner): robotensor-attune, the miner's package",
+      "url": "https://github.com/robotensor/attune-subnet/commit/09440b29962630d436033c6b76935058bd16513e",
+      "publisher": "robotensor/attune-subnet"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

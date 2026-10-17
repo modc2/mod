@@ -1,0 +1,189 @@
+{
+  "netuid": 120,
+  "name": "Affine",
+  "symbol": "ⴷ",
+  "owner": "5EfNFhH2s9hJoVuK8qkQRx8bkpNncRifhbCHBFKs6qKqknak",
+  "description": "Reason Mining",
+  "github": "https://github.com/AffineFoundation/affine",
+  "url": "www.affine.io",
+  "discord": "consttt",
+  "logo": "https://raw.githubusercontent.com/AffineFoundation/affine/main/affine.png",
+  "registered_at": 5749344,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.043052284,
+    "moving_price": 0.04283822444267571,
+    "market_cap": 193318.58526993677,
+    "tao_in": 75005.247657934,
+    "alpha_in": 1742189.826877129,
+    "alpha_out": 2748131.412988723,
+    "volume": 1571717.644772172,
+    "vol_24h": 1818.2975171110593,
+    "emission": 0.0,
+    "change_1h": 0.0013727683136677271,
+    "change_24h": 1.8544957135608886,
+    "change_7d": -4.829043123044007
+  },
+  "spark_24h": [
+    0.042268418,
+    0.042270171,
+    0.042272491,
+    0.042270331,
+    0.042272114,
+    0.042269929,
+    0.042603889,
+    0.042549643,
+    0.042448706,
+    0.042440867,
+    0.042381777,
+    0.042382687,
+    0.042383192,
+    0.042384371,
+    0.042388469,
+    0.042389425,
+    0.042390313,
+    0.042428232,
+    0.042316519,
+    0.042318227,
+    0.042319567,
+    0.042293412,
+    0.042261994,
+    0.042263702,
+    0.042722027,
+    0.042691311,
+    0.042692976,
+    0.042706771,
+    0.042731592,
+    0.042712758,
+    0.042715133,
+    0.042715036,
+    0.04270408,
+    0.043044471,
+    0.043028757,
+    0.043020619,
+    0.043025052,
+    0.043026793,
+    0.043029343,
+    0.04302924,
+    0.043045326,
+    0.043045322,
+    0.043045605,
+    0.043049177,
+    0.04304747,
+    0.043052418,
+    0.043055279,
+    0.043052284
+  ],
+  "trades_24h": {
+    "trades": 706,
+    "buys": 51,
+    "sells": 655,
+    "buy_tao": 1103.526617317,
+    "sell_tao": 547.483683194,
+    "net_tao": 556.042934123,
+    "traders": 100
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DoGB7XhnCZqVS3cdXX9q8FBu9FDLUG7Re1rvhMmhNkMnmu5",
+      "net_tao": 400.0,
+      "gross_tao": 400.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 0.03445197299999592,
+      "gross_tao": 299.965548027,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CPYMHskqNP85Z3pC2ba9wZJEbmCUAxun9MZe6mPpLPyr2AZ",
+      "net_tao": 295.972379769,
+      "gross_tao": 295.972379769,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DDDdanXMyBAf17hH5R8wMT3Ma44R8XGK5WxHquYNi5551gu",
+      "net_tao": 0.0948931559999977,
+      "gross_tao": 199.905106844,
+      "trades": 3
+    },
+    {
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": 0.03583679700000175,
+      "gross_tao": 81.964163203,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792012157,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #80 from AffineFoundation/fix/first-claim-wins",
+      "url": "https://github.com/AffineFoundation/affine/commit/f07c54e31bbfe8d941f6250421bf7959a4f1f67c",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1792010912,
+      "kind": "commit",
+      "source": "github",
+      "title": "Award contested tasks to the earliest Cloudflare R2 claim",
+      "url": "https://github.com/AffineFoundation/affine/commit/bcc9ead35aabeaf58256e6f3ad500a2e2ba26265",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791991017,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record confirmed hourly weight freshness recovery",
+      "url": "https://github.com/AffineFoundation/affine/commit/f704f5683f8a675da95aacc39b548013c61e8529",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791990167,
+      "kind": "commit",
+      "source": "github",
+      "title": "Restore hourly assessment freshness with parallel bounded evidence reads",
+      "url": "https://github.com/AffineFoundation/affine/commit/d3aac91fe4b35b82e1891e2c098d21f4ab33f1a1",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791941217,
+      "kind": "commit",
+      "source": "github",
+      "title": "Freeze finalized evidence inventory during history exports",
+      "url": "https://github.com/AffineFoundation/affine/commit/8b819de8c0f57c6a12d433d9505f8af5b1e13dc2",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791930602,
+      "kind": "commit",
+      "source": "github",
+      "title": "Reduce repeated commitment derivation in hourly reward assessment",
+      "url": "https://github.com/AffineFoundation/affine/commit/767046c7704c265e15994789137ed447bab71187",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791928691,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: explain current audit penalties and decaying reward assessment",
+      "url": "https://github.com/AffineFoundation/affine/commit/13585ac50a190c5d73d94810d0768ef201c8920b",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1791928299,
+      "kind": "commit",
+      "source": "github",
+      "title": "Document and support unfunded PoW miner onboarding",
+      "url": "https://github.com/AffineFoundation/affine/commit/7eef2de6f146888f92a990d41c300546f42f4780",
+      "publisher": "AffineFoundation/affine"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

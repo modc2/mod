@@ -2,7 +2,7 @@ import os
 import mod as m
 
 class Mod:
-    description = """app"""
+    description = """bt console — Next.js, exported static and served by bt.server (no node at runtime)"""
     path = os.path.dirname(os.path.abspath(__file__))
 
     def forward(self, **kwargs):
@@ -12,7 +12,8 @@ class Mod:
     def info(self):
         """Return module info."""
         return {
-            'name': 'app',
+            'name': 'bt/app',
+            'published': os.path.realpath(os.path.join(self.path, 'dist')) if os.path.isdir(os.path.join(self.path, 'dist')) else None,
             'description': self.description,
             'path': self.path,
             'files': os.listdir(self.path),
@@ -32,6 +33,7 @@ class Mod:
         return subprocess.run(['npm', 'install'], cwd=os.path.dirname(os.path.abspath(__file__)), capture_output=True, text=True).stdout
 
     def build(self):
-        """Build the project."""
+        """Type-check, build and publish (atomic symlink swap; no restart needed)."""
         import subprocess
-        return subprocess.run(['npm', 'run', 'build'], cwd=os.path.dirname(os.path.abspath(__file__)), capture_output=True, text=True).stdout
+        r = subprocess.run(['bash', 'build.sh'], cwd=self.path, capture_output=True, text=True)
+        return {'ok': r.returncode == 0, 'out': r.stdout[-2000:], 'err': r.stderr[-2000:]}

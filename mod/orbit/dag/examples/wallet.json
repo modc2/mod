@@ -1,0 +1,25 @@
+{
+  "name": "wallet-report",
+  "title": "What is this wallet holding, and is any of it risky",
+  "description": "Three questions about one Solana address. `what` and `held` do not need each other so they go at once; `top` cuts the holdings down without leaving the fleet; `risk` fans out over what is left, one call per token, in parallel.",
+  "inputs": {
+    "wallet": {"required": true, "description": "a Solana address"},
+    "top_n": {"default": 3, "description": "how many holdings to check"}
+  },
+  "steps": [
+    {"id": "what", "tool": "solana__sol_account", "args": {"address": "${inputs.wallet}"}},
+    {"id": "held", "tool": "solana__sol_portfolio", "args": {"address": "${inputs.wallet}"}},
+    {"id": "top", "use": "expr", "value": "${held.tokens}",
+     "where": [["value_usd", ">", 1]], "sort_by": "value_usd", "desc": true,
+     "limit": "${inputs.top_n}"},
+    {"id": "risk", "foreach": "${top}", "tool": "solana__sol_token",
+     "args": {"mint": "${item.mint}"},
+     "pick": "risk", "continue_on_error": true}
+  ],
+  "output": {
+    "kind": "${what.kind?}",
+    "total_usd": "${held.total_usd}",
+    "holdings": "${top.symbol}",
+    "risk": "${risk}"
+  }
+}

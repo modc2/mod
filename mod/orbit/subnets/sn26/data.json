@@ -1,0 +1,189 @@
+{
+  "netuid": 26,
+  "name": "Perturb",
+  "symbol": "ב",
+  "owner": "5FsVAEPMpkAo3eP7xTNJYLyBndi2oT5GPxVPzFT1DzSD82qx",
+  "description": "Decentralized adversarial robustness network",
+  "github": "https://github.com/0xsigurd/Perturb",
+  "url": "https://www.perturbai.io/",
+  "discord": null,
+  "logo": "https://www.perturbai.io/logo/Perturb_Logo_Light.svg",
+  "registered_at": 8123781,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.002455085,
+    "moving_price": 0.0024347754660993814,
+    "market_cap": 4390.790221241847,
+    "tao_in": 1701.807919715,
+    "alpha_in": 693176.639609721,
+    "alpha_out": 1095270.693676844,
+    "volume": 76162.904329111,
+    "vol_24h": 216.44335966999643,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 2.7127785752327327,
+    "change_7d": -1.3250521592586662
+  },
+  "spark_24h": [
+    0.002390243,
+    0.002390243,
+    0.002390243,
+    0.002389365,
+    0.002389363,
+    0.002389363,
+    0.002389009,
+    0.002403203,
+    0.002403035,
+    0.002394248,
+    0.002394239,
+    0.002394238,
+    0.002422737,
+    0.002422737,
+    0.002422735,
+    0.002422735,
+    0.002423021,
+    0.002422991,
+    0.002422991,
+    0.002422991,
+    0.002422985,
+    0.002422287,
+    0.002422286,
+    0.002422286,
+    0.002422254,
+    0.002422254,
+    0.002430845,
+    0.002459628,
+    0.002459624,
+    0.002459054,
+    0.002459054,
+    0.002459046,
+    0.002456593,
+    0.002456587,
+    0.002456587,
+    0.002456586,
+    0.002457933,
+    0.002457933,
+    0.002442406,
+    0.002442331,
+    0.002442331,
+    0.002442328,
+    0.002442328,
+    0.002442328,
+    0.002442327,
+    0.002442327,
+    0.002455096,
+    0.002455085
+  ],
+  "trades_24h": {
+    "trades": 18,
+    "buys": 9,
+    "sells": 9,
+    "buy_tao": 119.56173463399999,
+    "sell_tao": 91.041562401,
+    "net_tao": 28.520172232999997,
+    "traders": 15
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.2087030750000025,
+      "gross_tao": 92.125531993,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.17616421999999687,
+      "gross_tao": 80.17616422,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GxukLpsXFP7jrEmUnfuDWt9F3bj4Pxwkww7QAtF8Ynh7iuf",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FJ8hukYBnJmVVvJ5TvtGJkH5ssUcUvu2WuJPUh7invjzToJ",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5EtTJc8Z26EaysT9EEeJL54wkDvWW2jveHzuWnxm3yRY6Bxu",
+      "net_tao": 5.0,
+      "gross_tao": 5.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1791084666,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #60 from 0xsigurd/dev",
+      "url": "https://github.com/0xsigurd/Perturb/commit/0dad95434f28357ec518eb45ec690bc6b5f8ef7e",
+      "publisher": "0xsigurd/Perturb"
+    },
+    {
+      "ts": 1791084075,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #59 from 0xsigurd/feat/adversarial-training-evalua…",
+      "url": "https://github.com/0xsigurd/Perturb/commit/2d25075a6aa4025f11115f627fc50d20055fd574",
+      "publisher": "0xsigurd/Perturb"
+    },
+    {
+      "ts": 1791083916,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: rank scanning miners by stake-weighted consensus rank instead o…",
+      "url": "https://github.com/0xsigurd/Perturb/commit/1c87c921850307d6b09e40c70225ac1eb24bd790",
+      "publisher": "0xsigurd/Perturb"
+    },
+    {
+      "ts": 1791083889,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: weight model evaluation 3:7 toward adversarial accuracy",
+      "url": "https://github.com/0xsigurd/Perturb/commit/d111420e60a10b90bee3c39ee80123fe9630aad2",
+      "publisher": "0xsigurd/Perturb"
+    },
+    {
+      "ts": 1790598862,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #58 from 0xsigurd/dev",
+      "url": "https://github.com/0xsigurd/Perturb/commit/d3bb64ee9c554da6c0d005da9172f1b53b8fef8a",
+      "publisher": "0xsigurd/Perturb"
+    },
+    {
+      "ts": 1790598827,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #57 from 0xsigurd/feat/adversarial-training-evalua…",
+      "url": "https://github.com/0xsigurd/Perturb/commit/035c0f2ff4de00f8e2f25758db557f5462d0baec",
+      "publisher": "0xsigurd/Perturb"
+    },
+    {
+      "ts": 1790598391,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: seed evaluation sampling from the pinned dataset commit so it ca…",
+      "url": "https://github.com/0xsigurd/Perturb/commit/10679c5d472a9e630a0d5bb725d2bcd122c69ccc",
+      "publisher": "0xsigurd/Perturb"
+    },
+    {
+      "ts": 1790043192,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #56 from 0xsigurd/dev",
+      "url": "https://github.com/0xsigurd/Perturb/commit/3a12b3a87c9a10b0c067fb47e4e5c24ddb98ca9c",
+      "publisher": "0xsigurd/Perturb"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

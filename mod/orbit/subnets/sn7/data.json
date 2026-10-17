@@ -1,0 +1,189 @@
+{
+  "netuid": 7,
+  "name": "Allways",
+  "symbol": "η",
+  "owner": "5CAc19iETJmWD2rYVX1ht58ghCpyHq86MoBNdx5TzLfinzcx",
+  "description": "universal transaction layer",
+  "github": "https://github.com/entrius/allways",
+  "url": "https://all-ways.io/",
+  "discord": " ",
+  "logo": " https://allways-905418005698-us-east-2-an.s3.us-east-2.amazonaws.com/sn7-light.png",
+  "registered_at": 2627691,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.002191272,
+    "moving_price": 0.00220396276563406,
+    "market_cap": 12022.160170816398,
+    "tao_in": 5274.901333629,
+    "alpha_in": 2407232.239100331,
+    "alpha_out": 3079152.002936439,
+    "volume": 329757.920709058,
+    "vol_24h": 60.320555828977376,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.6526820899609431,
+    "change_7d": -10.889815982455065
+  },
+  "spark_24h": [
+    0.002205668,
+    0.002206889,
+    0.002206774,
+    0.002206658,
+    0.002206658,
+    0.00220653,
+    0.002202801,
+    0.002202698,
+    0.002202679,
+    0.002202679,
+    0.002202678,
+    0.002202549,
+    0.002202542,
+    0.002202542,
+    0.002202542,
+    0.002202542,
+    0.002202492,
+    0.002202417,
+    0.002202417,
+    0.002202382,
+    0.002202381,
+    0.002202307,
+    0.002202306,
+    0.002202306,
+    0.002202057,
+    0.002202057,
+    0.002202056,
+    0.002202056,
+    0.002202055,
+    0.002201997,
+    0.002201997,
+    0.002201996,
+    0.002201775,
+    0.002201775,
+    0.002201775,
+    0.002201775,
+    0.002201774,
+    0.002201774,
+    0.002201773,
+    0.002201766,
+    0.002201766,
+    0.002198761,
+    0.00219462,
+    0.00219462,
+    0.00219462,
+    0.00219462,
+    0.002191274,
+    0.002191272
+  ],
+  "trades_24h": {
+    "trades": 25,
+    "buys": 3,
+    "sells": 22,
+    "buy_tao": 21.515914737,
+    "sell_tao": 34.690132713,
+    "net_tao": -13.174217975999998,
+    "traders": 12
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": 0.020098883999999373,
+      "gross_tao": 39.979901116,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GEeXWFU6wYfs9zT2Ja1zJK14aJ2g7ZC6mWqaZ2CaABDTPeK",
+      "net_tao": -4.975195499,
+      "gross_tao": 4.975195499,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HgJnpfgqLthEZzhcHyF4R3ekNzSKx51phbEmJW8WwakaAQn",
+      "net_tao": -4.430987805,
+      "gross_tao": 4.430987805,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Hdzvh5UDPUsfmnyMZYfN71ZVCVtdK9mBbfVAgunPDUocRiD",
+      "net_tao": -3.594169232,
+      "gross_tao": 3.594169232,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HdfFz2NHwpD5L2QoqFM8aPsDEcDdp2TKEPSNXuHt8iYfcQz",
+      "net_tao": 1.466163,
+      "gross_tao": 1.466163,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792189777,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bound event ingest per pass and cap its lookback at 6h (#792)",
+      "url": "https://github.com/entrius/allways/commit/c34aac903b0340f6b830974fa7250f7a429ec497",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1792189616,
+      "kind": "commit",
+      "source": "github",
+      "title": "Emit enough in program events to follow pool, quote and config state …",
+      "url": "https://github.com/entrius/allways/commit/3b5f8618756eba6dd94364947614713aa7f25e68",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1792188065,
+      "kind": "commit",
+      "source": "github",
+      "title": "Key the source lock by deposit wallet and source address (#782)",
+      "url": "https://github.com/entrius/allways/commit/ac367cc0c87bbff8bf8a9e753d42faf41cfa1aeb",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1792182156,
+      "kind": "commit",
+      "source": "github",
+      "title": "Drop only the rejected routed request, not the whole queue behind it …",
+      "url": "https://github.com/entrius/allways/commit/3fd4917ffececfdc0df6db0d4cd7449d5e75e4d0",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1792181330,
+      "kind": "commit",
+      "source": "github",
+      "title": "Require an EVM address to be exactly 0x plus 40 hex characters (#784)",
+      "url": "https://github.com/entrius/allways/commit/63ac69834a7cba08be9a92755d70e4b190237ee5",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1792181228,
+      "kind": "commit",
+      "source": "github",
+      "title": "Create the destination ATA only when missing, so an existing ATA is a…",
+      "url": "https://github.com/entrius/allways/commit/72b028defbb3ff08906ced292d2517d289cfe4d7",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1792179055,
+      "kind": "commit",
+      "source": "github",
+      "title": "Spend only confirmed or own-change UTXOs for BTC payouts (#788)",
+      "url": "https://github.com/entrius/allways/commit/ef365e985302fa0d2af3feed14c747b45d314c32",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1792177199,
+      "kind": "commit",
+      "source": "github",
+      "title": "Send BTC to the normalized address so an uppercase bech32 dest can be…",
+      "url": "https://github.com/entrius/allways/commit/9bcf8f56e4e02a0c306ba72608a96fea0b3d6273",
+      "publisher": "entrius/allways"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

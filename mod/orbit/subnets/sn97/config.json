@@ -1,0 +1,38 @@
+{
+  "name": "sn97",
+  "version": "1.0.0",
+  "description": "SN97 Ingot — Open models, cast small. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ა",
+  "chain": "bittensor",
+  "netuid": 97,
+  "subnet": "Ingot",
+  "symbol": "ა",
+  "owner": "5GnW8owmMGn83WqL9JNYytmw458UYrTT6Ra5fH8TTUkzEbTb",
+  "github": "https://github.com/DendriteLabs/ingot",
+  "url": "https://theingot.ai",
+  "discord": null,
+  "logo": "https://theingot.ai/brand/ingot-logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-17",
+  "urls": {
+    "bt": "/bt/markets?sn=97",
+    "news": "/bt/news?netuid=97"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

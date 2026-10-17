@@ -1,0 +1,758 @@
+//! MCP server core — JSON-RPC 2.0, shared by the Streamable HTTP endpoint
+//! (/mcp) and stdio mode (--stdio).
+//!
+//! Every REST route funnels through `call_tool` too, so a capability is
+//! defined exactly once: what an agent can do over MCP is what a browser can
+//! do over HTTP, always.
+
+use crate::generate;
+use crate::arena;
+use crate::players;
+use crate::wasm;
+use serde_json::{json, Value};
+use std::sync::OnceLock;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+pub const PROTOCOL_VERSION: &str = "2025-06-18";
+pub const SERVER_NAME: &str = "modarena";
+pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Where this server answers, so the node runner it spawns can call back in.
+static BASE: OnceLock<String> = OnceLock::new();
+
+pub fn set_base(url: String) {
+    let _ = BASE.set(url);
+}
+
+pub fn base() -> String {
+    BASE.get().cloned().unwrap_or_else(|| "http://127.0.0.1:50800".into())
+}
+
+fn runner_path() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("MODARENA_RUNNER") {
+        return std::path::PathBuf::from(p);
+    }
+    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../runtime/run.mjs"))
+}
+
+pub fn tool_list() -> Value {
+    json!([
+        {
+            "name": "arena_info",
+            "description": "What this arena is and what is in it: how many modules are stored, how many of them are games, who is entered, and the ABI a module has to implement to be one.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "game_abi",
+            "description": "The contract a module implements to become a game or a player here, with a worked example. Two containers implement it: a wasm binary (lang=wasm) or a Python class (lang=class). Read this before writing one — it is the whole specification, and it is short.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "role": { "type": "string", "enum": ["game", "player"], "default": "game" },
+                    "lang": { "type": "string", "enum": ["wasm", "class"], "default": "wasm",
+                              "description": "`class` for the Python-class form: the methods to define, not the exports to compile" }
+                }
+            }
+        },
+        {
+            "name": "list_modules",
+            "description": "Every module in the registry, oldest first — wasm binaries and Python classes alike. Filter by role (game, player, command, class, wasm), by lang (wasm, python), by tag or by free text.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "role": { "type": "string", "enum": ["game", "player", "command", "class", "wasm"] },
+                    "lang": { "type": "string", "enum": ["wasm", "python"] },
+                    "q": { "type": "string" },
+                    "tag": { "type": "string" }
+                }
+            }
+        },
+        {
+            "name": "get_module",
+            "description": "One module in full. For wasm: imports and exports with signatures, the host namespaces it needs, its memory. For a class: the classes it defines, their methods and signatures, what it imports — and, unless you pass source=false, the source itself.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": { "type": "string", "description": "id, id prefix, or name" },
+                    "source": { "type": "boolean", "default": true,
+                                "description": "include the source of a class module" }
+                },
+                "required": ["module"]
+            }
+        },
+        {
+            "name": "put_module",
+            "description": "Store a mod — a folder with a config.json and an anchor (mod.py, mod.rs or mod.wasm). Pass `files` as path → contents; a .wasm file is base64. The id is the hash of the folder manifest, so storing the same folder twice is idempotent and changing any file makes a new mod. Nothing is taken on trust: the registry reads the anchor and refuses the folder if what it defines is not what config.json claims. One file passed as `text` or `bytes` instead of `files` is wrapped into a folder, config.json written from what the reader found.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "files": { "type": "object", "description": "path → file contents. config.json and an anchor at least; a .wasm value is base64" },
+                    "text": { "type": "string", "description": "one class, as source — wrapped into a folder" },
+                    "bytes": { "type": "string", "description": "one file, base64 or hex — wrapped into a folder" },
+                    "name": { "type": "string", "description": "only used when wrapping a bare file; a folder is named by its own config.json" },
+                    "description": { "type": "string" },
+                    "author": { "type": "string" },
+                    "tags": { "type": "array", "items": { "type": "string" } }
+                }
+            }
+        },
+        {
+            "name": "mod_template",
+            "description": "The folder a new mod starts as: config.json, the anchor and a README, for one kind (game | player) and one language (python | rust | wasm). This is the shape verify_mod verifies against — start here rather than from a blank file, and the checks are already passing before you have written anything.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "kind": { "type": "string", "enum": ["game", "player"], "default": "game" },
+                    "lang": { "type": "string", "enum": ["python", "rust", "wasm"], "default": "python" }
+                }
+            }
+        },
+        {
+            "name": "verify_mod",
+            "description": "Run a folder through every check the registry runs, without storing anything. Pass `files` for a candidate folder or `mod` for one already stored. Each check comes back named, with the fix in its detail; `kind_matches_anchor` is the one that matters — the registry reads your anchor and compares what it finds against what your config.json claims. With compile=true a Rust anchor also goes through rustc.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "files": { "type": "object", "description": "path → contents" },
+                    "mod": { "type": "string", "description": "id, prefix or name of a stored mod" },
+                    "compile": { "type": "boolean", "default": false, "description": "also compile a Rust anchor" }
+                }
+            }
+        },
+        {
+            "name": "mod_files",
+            "description": "The whole folder of a stored mod, file by file — what to read to fork one, publish one or see how it was written. Text where the bytes are text, {b64} where they are not.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "module": { "type": "string" } },
+                "required": ["module"]
+            }
+        },
+        {
+            "name": "smoke_mod",
+            "description": "Load a stored mod and make it answer: open it in the sandbox, show a game a seat, hand it a move that is not a move (it must refuse rather than raise), ask a player for one move. What verify_mod cannot tell you, because verify reads and this runs.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "module": { "type": "string" } },
+                "required": ["module"]
+            }
+        },
+        {
+            "name": "generate_mod",
+            "description": "Have the Claude agent on this box write a new game or agent, then prove it: the folder it answers with is put through verify_mod, and if a check fails the agent is handed the failed checks and asked again (up to `attempts` times). Nothing is stored unless a folder passes, and what is stored went in through the same call a human upload uses. The agent runs with no tools and no MCP servers — it can answer and nothing else. Returns the folder, the verification report and every attempt it took.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string", "description": "what the game or the agent should be" },
+                    "kind": { "type": "string", "enum": ["game", "player"], "default": "game" },
+                    "lang": { "type": "string", "enum": ["python", "rust"], "default": "python" },
+                    "name": { "type": "string", "description": "a slug to name it, if you care what it is called" },
+                    "model": { "type": "string", "default": "sonnet" },
+                    "attempts": { "type": "integer", "default": 3, "minimum": 1, "maximum": 5 },
+                    "store": { "type": "boolean", "default": true, "description": "store it if it verifies" }
+                },
+                "required": ["prompt"]
+            }
+        },
+        {
+            "name": "agent_status",
+            "description": "Whether there is a Claude agent on this box for generate_mod to ask, and which version. Ask before promising anyone a generated game.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "inspect_module",
+            "description": "Describe bytes without storing them — for wasm, its imports, exports and memory; for a class, the classes and methods it defines and whether the sandbox will allow its imports. Either way, the role they would take. What the console shows the moment a file is dropped on it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bytes": { "type": "string", "description": "base64 or hex" },
+                    "text": { "type": "string", "description": "class source, as plain text" }
+                }
+            }
+        },
+        {
+            "name": "put_class",
+            "description": "Upload a class and it is playable. Pass the source as plain text: a class defining `view`, `step`, `done` and `result` is a game, one defining `play(self, view, seat)` is a player. Same registry, same ids, same leaderboard as wasm — the only difference is that a class runs in a sandboxed python subprocess (no filesystem, no network, seeded random) rather than in a wasm engine, so it plays through the node runner and not in a browser tab. Call game_abi with lang=class for the contract.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "description": "The class, as Python source" },
+                    "name": { "type": "string", "description": "What to call it. Defaults to the class name." },
+                    "description": { "type": "string" },
+                    "author": { "type": "string" },
+                    "tags": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["source"]
+            }
+        },
+        {
+            "name": "delete_module",
+            "description": "Remove a module and its bytes. Refused while a player is entered with it; past matches keep their record either way.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "module": { "type": "string" } },
+                "required": ["module"]
+            }
+        },
+        {
+            "name": "list_players",
+            "description": "Everyone entered, strongest first, with the numbers that assess them: Elo, win rate, mean score, illegal-move rate, timeouts and mean time to move.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "kind": { "type": "string", "enum": ["wasm", "model", "agent_mod", "http", "human"] } }
+            }
+        },
+        {
+            "name": "get_player",
+            "description": "One player in full, including a rating per game — which is the number that means something, since being good at nim says nothing about poker.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "player": { "type": "string", "description": "id or name" } },
+                "required": ["player"]
+            }
+        },
+        {
+            "name": "enter_player",
+            "description": "Enter a player. `model` calls any OpenAI-compatible /chat/completions endpoint (config: model, base?, key?, system?, temperature?) — OpenRouter by default. `wasm` plays with a stored module that exports `play` (config: module). `agent_mod` runs an agent from this fleet's agent module (config: agent?, model?, base?, steps?, free?). `http` posts the view to config.url and reads a move back. `human` is asked in the console. Entering a name that already exists updates it and keeps its record.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" },
+                    "kind": { "type": "string", "enum": ["model", "wasm", "agent_mod", "http", "human"], "default": "model" },
+                    "config": { "type": "object", "description": "Driver settings — see the description" },
+                    "owner": { "type": "string" },
+                    "note": { "type": "string" }
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "remove_player",
+            "description": "Withdraw a player. Past matches keep their record.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "player": { "type": "string" } },
+                "required": ["player"]
+            }
+        },
+        {
+            "name": "run_match",
+            "description": "Play a match: seat the given players at the given game and run it to the end. The wasm executes in the node runner (the same execution layer the browser console uses), every move is recorded, and the result is rated. Two or more seats makes it rated; one seat is practice.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "game": { "type": "string", "description": "Game module id, prefix or name" },
+                    "players": { "type": "array", "items": { "type": "string" }, "description": "Player ids or names, in seat order" },
+                    "seed": { "type": "integer", "description": "Replay handle — the same seed and moves replay the match" },
+                    "turns": { "type": "integer", "description": "Cap the turns; defaults to the game's own limit" },
+                    "timeout_ms": { "type": "integer", "default": 300000 }
+                },
+                "required": ["game", "players"]
+            }
+        },
+        {
+            "name": "play_move",
+            "description": "Ask one player for one move, given what a seat can see. This is what a running match calls for anything the execution layer cannot drive itself — a model, a fleet agent, someone's endpoint. Useful on its own to check a player answers before entering it in a match.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "player": { "type": "string" },
+                    "view": { "type": "string", "description": "What this seat can see" },
+                    "seat": { "type": "integer", "default": 0 }
+                },
+                "required": ["player", "view"]
+            }
+        },
+        {
+            "name": "record_match",
+            "description": "Submit a finished match from a runner: the game, the seats with their scores, and the transcript. Rates it and keeps it. This is how the browser console reports what it played.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "game": { "type": "string" },
+                    "seed": { "type": "integer" },
+                    "runtime": { "type": "string", "enum": ["browser", "node"] },
+                    "summary": { "type": "string" },
+                    "seats": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "player_id": { "type": "string" },
+                                "score": { "type": "number" },
+                                "moves": { "type": "integer" },
+                                "illegal": { "type": "integer" },
+                                "timeouts": { "type": "integer" },
+                                "ms": { "type": "integer" },
+                                "error": { "type": "string" }
+                            }
+                        }
+                    },
+                    "turns": { "type": "array", "items": { "type": "object" } }
+                },
+                "required": ["game", "seats"]
+            }
+        },
+        {
+            "name": "list_matches",
+            "description": "Recent matches, newest first, with the scoreboard of each.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "integer", "default": 20 },
+                    "game": { "type": "string" }
+                }
+            }
+        },
+        {
+            "name": "get_match",
+            "description": "One match in full, including every turn: what each seat saw, what it said, what was read as its move, and whether the game accepted it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "leaderboard",
+            "description": "Players ranked by Elo. Name a game to rank at that game, which is the ranking that means something.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "game": { "type": "string" },
+                    "limit": { "type": "integer", "default": 20 }
+                }
+            }
+        },
+        {
+            "name": "plant_examples",
+            "description": "Re-read the example pack from disk and store anything new. Idempotent — ids are content, so nothing is duplicated.",
+            "inputSchema": { "type": "object", "properties": {} }
+        }
+    ])
+}
+
+fn s(args: &Value, key: &str) -> String {
+    args.get(key).and_then(|v| v.as_str()).unwrap_or("").trim().to_string()
+}
+
+fn u(args: &Value, key: &str, default: u64) -> u64 {
+    args.get(key).and_then(|v| v.as_u64()).unwrap_or(default)
+}
+
+fn list_of(args: &Value, key: &str) -> Vec<String> {
+    match args.get(key) {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect(),
+        // A comma-separated string is what a CLI hands us, and what a model
+        // reaches for when the schema says "array" and it is in a hurry.
+        Some(Value::String(one)) => one
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// The class ABI: the same game, written the way Python is written.
+fn class_abi(role: &str) -> Value {
+    let common = json!({
+        "container": "one .py file holding a class. Upload it with put_class (source as text) \
+                      or put_module (base64) — the registry reads the `def`s and decides what \
+                      it is, exactly as it reads a wasm module's exports.",
+        "state": "`self`. The object is built once per match and kept, so a class is written \
+                  the way you would write it anywhere else — no packed pointers, no state \
+                  string threaded through every call.",
+        "replay": "the process starts from the match seed and is fed the recorded moves in \
+                   order, so a transcript still replays.",
+        "sandbox": {
+            "runs_in": "a python subprocess started by the node runner — never in the server, \
+                        and never in a browser tab (a tab cannot start python)",
+            "filesystem": "none — `open` is not defined and RLIMIT_FSIZE is 0",
+            "network": "none — socket, urllib, http and subprocess are not importable",
+            "clock": "none — `time` and `datetime` are not importable, so replays cannot drift",
+            "random": "`random` is imported for you and seeded from the match seed",
+            "limits": "512 MiB of address space, 30 CPU seconds, and a per-move timeout",
+            "honest_warning": "this is a convenience sandbox, not the wasm one. CPython can be \
+                               talked out of a restricted namespace by someone who knows how. \
+                               Upload wasm for code you do not trust.",
+        },
+        "printing": "anything the class prints goes into the match transcript",
+    });
+    if role == "player" {
+        return json!({
+            "role": "player",
+            "lang": "class",
+            "required_methods": {
+                "play(self, view, seat) -> str": "the move, as text — the same question a model \
+                                                  in that seat is asked, and the same answer",
+            },
+            "optional": { "name": "a class attribute, what to call it" },
+            "template": crate::klass::PLAYER_TEMPLATE,
+            "then": "m modarena/upload path=bot.py, then \
+                     m modarena/enter name=bot kind=class config='{\"module\":\"bot\"}' \
+                     — or drop the file on the console's registry tab",
+            "example": "src/examples/classes/bot_center.py reads a board out of the view; \
+                        bot_lucky.py is the eight-line baseline.",
+            "abi": common,
+        });
+    }
+    json!({
+        "role": "game",
+        "lang": "class",
+        "required_methods": {
+            "view(self, seat) -> str": "what that seat can see. Show it only what it is \
+                                        entitled to and hidden information works. Say \
+                                        `Legal moves: …` somewhere in it — every player, \
+                                        model or bot, has only this text to go on.",
+            "step(self, moves) -> dict": "apply one round. `moves` is {seat: \"text\"}, keyed by \
+                                          both int and str. Return {seat: was_it_legal}, and add \
+                                          \"note\": \"…\" to put a line in the transcript. Return \
+                                          nothing and every move counted as legal.",
+            "done(self) -> bool": "True when the match is over",
+            "result(self) -> dict": "{\"scores\": [one per seat], \"summary\": \"…\"} — higher is better, \
+                                     and the ratings are computed from the order",
+        },
+        "optional_methods": {
+            "__init__(self, seed)": "the opening position. The seed is the match seed.",
+            "turn(self) -> int | [int]": "who moves now. Return several seats for a simultaneous \
+                                          game — they are asked at once and neither sees the other. \
+                                          Leave it out and seats alternate.",
+            "info(self) -> dict": "override the card below entirely",
+        },
+        "class_attributes": {
+            "name": "what to call the game",
+            "players": "seats — an int, or [min, max]",
+            "max_turns": "the turn cap (default 200)",
+        },
+        "template": crate::klass::GAME_TEMPLATE,
+        "illegal_moves": "whatever `step` marks False is counted against that player for good. \
+                          That number is most of what separates a model that can play from one \
+                          that can only talk about playing.",
+        "example": "src/examples/classes/connect4.py — a whole game in ninety lines. \
+                    src/examples/classes/blotto.py — the simultaneous, hidden-information case.",
+        "abi": common,
+    })
+}
+
+/// The ABI, as documentation an agent can read at run time.
+fn game_abi(role: &str, lang: &str) -> Value {
+    if matches!(lang, "class" | "python" | "py" | "classes") {
+        return class_abi(role);
+    }
+    let common = json!({
+        "strings": "The module exports `alloc(i32) -> i32`. The host writes UTF-8 there. \
+                    Anything the module returns is one i64 packed as (ptr << 32) | len.",
+        "state": "The host holds the game state as a string between calls, so every \
+                  export is a pure function of it. That is what makes a match replayable \
+                  from its seed and its moves.",
+        "host_imports": {
+            "arena.log(ptr, len)": "write a line into the transcript",
+            "arena.random() -> f64": "seeded from the match seed, so replays match",
+            "arena.now() -> f64": "milliseconds since the match started",
+        },
+        "runs_in": "the browser (a Worker) or the node runner — never on the server",
+    });
+    if role == "player" {
+        return json!({
+            "role": "player",
+            "required_exports": {
+                "alloc(i32) -> i32": "so the host can pass the view in",
+                "play(view_ptr, view_len, seat) -> i64": "the move, as packed text",
+            },
+            "notes": "A player module sees exactly what `game_view` gave its seat and \
+                      returns a move as text. The game decides whether it was legal.",
+            "abi": common,
+        });
+    }
+    json!({
+        "role": "game",
+        "required_exports": {
+            "game_init(seed: i32) -> i64": "the opening state, as packed JSON",
+            "game_view(state_ptr, state_len, seat: i32) -> i64": "what that seat can see, as packed text — show it only what it is entitled to and hidden information works",
+            "game_step(state_ptr, state_len, moves_ptr, moves_len) -> i64": "apply one round of moves; moves is JSON keyed by seat. Return {\"state\": …, \"legal\": {\"0\": true}, \"note\": \"\"}",
+            "game_done(state_ptr, state_len) -> i32": "1 when the match is over",
+            "game_result(state_ptr, state_len) -> i64": "{\"scores\": [n per seat], \"summary\": \"…\"}",
+        },
+        "optional_exports": {
+            "alloc(i32) -> i32": "required in practice — nothing can be passed in without it",
+            "game_info() -> i64": "{\"name\", \"description\", \"min_players\", \"max_players\", \"max_turns\"}",
+            "game_turn(state_ptr, state_len) -> i64": "{\"seats\": [n]} — who moves now. Return several seats for a simultaneous game. Left out, seats alternate.",
+        },
+        "example": "src/examples/rps/ — thirty lines of Rust, compiled with \
+                    `cargo build --target wasm32-unknown-unknown --release`",
+        "also": "call this with lang=class for the same game written as a Python class — \
+                 no compiler, no pointers, and the same leaderboard",
+        "abi": common,
+    })
+}
+
+/// Spawn the node runner and read its JSON back.
+///
+/// Everything that executes goes through here: a match, one turn of a table on
+/// a game's own MCP server, one question put to an agent. The server never
+/// runs a module itself, so this one function is the whole of how it makes
+/// anything happen — and because the runner is the same file the browser
+/// console imports, what happens is the same computation either way.
+pub async fn runner(args: &[String]) -> Result<Value, String> {
+    let runner = runner_path();
+    if !runner.exists() {
+        return Err(format!("no runner at {} — set MODARENA_RUNNER", runner.display()));
+    }
+    let mut cmd = tokio::process::Command::new("node");
+    cmd.arg(&runner).args(args).args(["--base", &base()]);
+
+    let timeout = std::time::Duration::from_millis(
+        std::env::var("MODARENA_RUNNER_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(300_000u64)
+            .clamp(1_000, 3_600_000),
+    );
+    let out = tokio::time::timeout(timeout, cmd.output())
+        .await
+        .map_err(|_| format!("the runner ran past {timeout:?} and was abandoned"))?
+        .map_err(|e| format!("could not start node: {e} — the runner needs node on PATH"))?;
+
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(format!(
+            "the runner failed: {}",
+            if stderr.trim().is_empty() { stdout.trim() } else { stderr.trim() }
+        ));
+    }
+    serde_json::from_str(&stdout)
+        .map_err(|e| format!("the runner returned unreadable output ({e}): {}", stdout.trim()))
+}
+
+/// Play a match by spawning the node runner — the same execution layer the
+/// browser uses, so a match run from an MCP client and a match run in a tab
+/// are the same computation.
+async fn run_match(args: &Value) -> Result<Value, String> {
+    let game = s(args, "game");
+    let names = list_of(args, "players");
+    if game.is_empty() || names.is_empty() {
+        return Err("run_match needs `game` and at least one player in `players`".into());
+    }
+    let mut argv = vec![
+        "match".to_string(),
+        "--game".into(),
+        game,
+        "--players".into(),
+        names.join(","),
+        "--quiet".into(),
+    ];
+    if let Some(seed) = args.get("seed").and_then(|v| v.as_i64()) {
+        argv.push("--seed".into());
+        argv.push(seed.to_string());
+    }
+    if let Some(turns) = args.get("turns").and_then(|v| v.as_u64()) {
+        argv.push("--turns".into());
+        argv.push(turns.to_string());
+    }
+    // Opt-in, per match, and named: the classes in this match may call these
+    // servers and no others. Left out, they have no way out at all.
+    let allow = list_of(args, "mcp");
+    if !allow.is_empty() {
+        argv.push("--mcp".into());
+        argv.push(allow.join(","));
+    }
+    runner(&argv).await
+}
+
+/// The one place an arena capability is implemented.
+pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
+    match name {
+        "arena_info" => Ok(arena::info()),
+        "game_abi" => Ok(game_abi(&s(args, "role"), &s(args, "lang"))),
+
+        "list_modules" => Ok(arena::list_modules(args)),
+        "get_module" => {
+            let key = s(args, "module");
+            if key.is_empty() {
+                return Err("get_module requires `module`".into());
+            }
+            let with_source = args.get("source").and_then(|v| v.as_bool()).unwrap_or(true);
+            arena::get_module(&key, with_source)
+        }
+        "put_module" | "put_mod" => arena::put_module(args),
+        "mod_template" | "template" => arena::template(args),
+        "verify_mod" | "verify" => arena::verify_mod(args),
+        "mod_files" => {
+            let key = s(args, "module");
+            if key.is_empty() {
+                return Err("mod_files requires `module`".into());
+            }
+            arena::mod_files(&key)
+        }
+        "smoke_mod" | "smoke" => {
+            let key = s(args, "module");
+            if key.is_empty() {
+                return Err("smoke_mod requires `module`".into());
+            }
+            arena::smoke(&key).await
+        }
+        "generate_mod" | "generate" => generate::generate(args).await,
+        "agent_status" => Ok(generate::agent_status().await),
+        "put_class" => arena::put_class(args),
+        "inspect_module" => arena::inspect(args),
+        "delete_module" => {
+            let key = s(args, "module");
+            if key.is_empty() {
+                return Err("delete_module requires `module`".into());
+            }
+            arena::delete_module(&key)
+        }
+
+        "list_players" => Ok(arena::list_players(args)),
+        "get_player" => {
+            let key = s(args, "player");
+            if key.is_empty() {
+                return Err("get_player requires `player`".into());
+            }
+            arena::get_player(&key)
+        }
+        "enter_player" => arena::enter_player(args),
+        "remove_player" => {
+            let key = s(args, "player");
+            if key.is_empty() {
+                return Err("remove_player requires `player`".into());
+            }
+            arena::remove_player(&key)
+        }
+
+        "run_match" => run_match(args).await,
+        "play_move" => {
+            let key = s(args, "player");
+            let view = args.get("view").and_then(|v| v.as_str()).unwrap_or("");
+            if key.is_empty() || view.trim().is_empty() {
+                return Err("play_move requires `player` and `view`".into());
+            }
+            arena::play(&key, view, u(args, "seat", 0) as usize).await
+        }
+        "record_match" => arena::record_match(args),
+        "list_matches" => Ok(arena::list_matches(args)),
+        "get_match" => {
+            let id = s(args, "id");
+            if id.is_empty() {
+                return Err("get_match requires `id`".into());
+            }
+            arena::get_match(&id)
+        }
+        "leaderboard" => arena::leaderboard(args),
+        "plant_examples" => Ok(arena::plant_examples()),
+
+        other => Err(format!(
+            "unknown tool: {other} — this arena stores wasm, seats {:?} at modules that \
+             export {:?}, and runs them in the browser or the node runner",
+            players::KINDS,
+            wasm::GAME_EXPORTS,
+        )),
+    }
+}
+
+fn rpc_result(id: Value, result: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "result": result })
+}
+
+fn rpc_error(id: Value, code: i64, message: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
+}
+
+/// Handle one JSON-RPC message. Returns None for notifications (no reply).
+pub async fn handle_message(msg: &Value) -> Option<Value> {
+    let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
+    let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
+
+    let id = match msg.get("id").cloned() {
+        Some(id) if !id.is_null() => id,
+        _ => return None,
+    };
+
+    Some(match method {
+        "initialize" => rpc_result(
+            id,
+            json!({
+                "protocolVersion": params.get("protocolVersion").and_then(|v| v.as_str()).unwrap_or(PROTOCOL_VERSION),
+                "capabilities": { "tools": {} },
+                "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION }
+            }),
+        ),
+        "ping" => rpc_result(id, json!({})),
+        "tools/list" => rpc_result(id, json!({ "tools": tool_list() })),
+        "tools/call" => {
+            let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            match call_tool(name, &args).await {
+                Ok(v) => rpc_result(
+                    id,
+                    json!({
+                        "content": [{ "type": "text", "text": serde_json::to_string(&v).unwrap_or_default() }],
+                        "structuredContent": v,
+                        "isError": false
+                    }),
+                ),
+                Err(e) => rpc_result(
+                    id,
+                    json!({ "content": [{ "type": "text", "text": e }], "isError": true }),
+                ),
+            }
+        }
+        "resources/list" => rpc_result(id, json!({ "resources": [] })),
+        "prompts/list" => rpc_result(id, json!({ "prompts": [] })),
+        _ => rpc_error(id, -32601, &format!("method not found: {method}")),
+    })
+}
+
+/// stdio transport: newline-delimited JSON-RPC on stdin/stdout.
+/// Usage: modarena-api --stdio
+pub async fn run_stdio() {
+    let stdin = BufReader::new(tokio::io::stdin());
+    let mut stdout = tokio::io::stdout();
+    let mut lines = stdin.lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let line = line.trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
+        let msg: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(e) => {
+                let err = rpc_error(Value::Null, -32700, &format!("parse error: {e}"));
+                let _ = stdout.write_all(format!("{err}\n").as_bytes()).await;
+                let _ = stdout.flush().await;
+                continue;
+            }
+        };
+        if let Some(resp) = handle_message(&msg).await {
+            let _ = stdout.write_all(format!("{resp}\n").as_bytes()).await;
+            let _ = stdout.flush().await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_tool_has_a_description_and_a_schema() {
+        for t in tool_list().as_array().expect("a list") {
+            let name = t["name"].as_str().expect("a name");
+            assert!(t["description"].as_str().unwrap_or("").len() > 40, "{name} needs a real description");
+            assert_eq!(t["inputSchema"]["type"], "object", "{name} schema");
+        }
+    }
+
+    #[test]
+    fn a_comma_separated_list_is_still_a_list() {
+        assert_eq!(list_of(&json!({ "players": "a, b ,c" }), "players"), vec!["a", "b", "c"]);
+        assert_eq!(list_of(&json!({ "players": ["a", "b"] }), "players"), vec!["a", "b"]);
+        assert!(list_of(&json!({}), "players").is_empty());
+    }
+}

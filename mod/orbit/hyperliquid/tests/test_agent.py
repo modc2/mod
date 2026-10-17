@@ -80,11 +80,26 @@ def test_read_only_runs_deny_every_write_tool():
 
 
 def test_local_host_tools_are_always_denied():
-    # The agent reasons over Hyperliquid, not over this host.
+    # The agent reasons over Hyperliquid and this module's own code — nothing
+    # else on this host. Shell, writes, web and unscoped search stay denied;
+    # Read is allowed only through the module-directory-scoped rule.
     for tools, act in ((READS, False), (READS + WRITES, True)):
         cmd = agent.build_cmd("q", tools, agent.LOCAL_TOOLS, act, API_URL, "tok")
         denied = cmd[cmd.index("--disallowedTools") + 1].split(",")
-        assert {"Bash", "Write", "Read"} <= set(denied)
+        assert {"Bash", "Write", "Edit", "WebFetch", "Grep", "Glob"} <= set(denied)
+        assert "Read" not in denied
+
+
+def test_code_read_is_scoped_to_the_module_directory():
+    assert agent.CODE_READ == f"Read(/{agent.ROOT_DIR}/**)"
+    assert agent.ROOT_DIR.endswith("/hyperliquid")
+
+
+def test_system_prompt_carries_a_source_map():
+    cmd = agent.build_cmd("q", READS, [], False, API_URL, "")
+    prompt = cmd[cmd.index("--append-system-prompt") + 1]
+    assert "CODE QUESTIONS" in prompt
+    assert "api/src/traders.rs" in prompt and "agent.py" in prompt
 
 
 def test_act_mode_gets_the_action_briefing():
@@ -120,8 +135,129 @@ def test_stream_events_are_translated_for_the_console():
     assert [e["type"] for e in ev] == ["text", "tool"]
     assert ev[1]["name"] == "hl_mids", "the mcp__ prefix should be stripped"
     done = list(agent._events({"type": "result", "result": "42", "num_turns": 2}))
-    assert done[0] == {"type": "done", "answer": "42", "turns": 2,
-                       "ms": None, "cost_usd": None}
+    assert done[0] == {"type": "done", "answer": "42", "session_id": None,
+                       "turns": 2, "ms": None, "cost_usd": None}
+
+
+# ── chat mode: the general chatbot on the same pipeline ─────────────────
+
+def test_chat_is_a_declared_fn():
+    assert "chat" in CONFIG["fns"]
+
+
+def test_chat_prompt_swaps_in_and_the_desk_prompt_stays_out():
+    cmd = agent.build_cmd("q", READS, agent.LOCAL_TOOLS + WRITES, False,
+                          API_URL, "", mode="chat")
+    prompt = cmd[cmd.index("--append-system-prompt") + 1]
+    assert prompt == agent.CHAT_PROMPT + agent.NAV_PROMPT
+    assert agent.ACT_PROMPT not in prompt
+    # No source map in chat — the conversation doesn't need 200 file names.
+    assert "api/src/traders.rs" not in prompt
+
+
+def test_a_session_id_becomes_a_resume_flag():
+    sid = "3f2a1b4c-0d9e-4f00-8a11-22b3c4d5e6f7"
+    cmd = agent.build_cmd("q", READS, [], False, API_URL, "",
+                          mode="chat", session=sid)
+    assert cmd[cmd.index("--resume") + 1] == sid
+    assert "--resume" not in agent.build_cmd("q", READS, [], False, API_URL, "")
+
+
+def test_chat_never_errors_on_act_without_a_token():
+    # In chat mode `act` is force-downgraded before the token check, so the
+    # "action mode needs a signed-in wallet" refusal must not fire.
+    first = next(agent.ask("hi", api_url="http://127.0.0.1:1",
+                           token="", act=True, mode="chat"))
+    assert "action mode" not in str(first.get("error", ""))
+
+
+# ── strats mode: the strat copilot on the same pipeline ─────────────────
+
+def test_strats_prompt_swaps_in_and_act_briefing_rides_along():
+    quiet = agent.build_cmd("q", READS, agent.LOCAL_TOOLS + WRITES, False,
+                            API_URL, "", mode="strats")
+    prompt = quiet[quiet.index("--append-system-prompt") + 1]
+    assert prompt == agent.STRATS_PROMPT + agent.NAV_PROMPT
+    armed = agent.build_cmd("q", READS + WRITES, agent.LOCAL_TOOLS, True,
+                            API_URL, "tok", mode="strats")
+    armed_prompt = armed[armed.index("--append-system-prompt") + 1]
+    assert agent.ACT_PROMPT in armed_prompt
+    assert armed_prompt.startswith(agent.STRATS_PROMPT)
+
+
+def test_strats_mode_honors_act_unlike_chat():
+    # The copilot's second half is writes, so act must NOT be downgraded:
+    # asking for act without a token has to hit the same refusal as ask mode.
+    first = next(agent.ask("hi", api_url="http://127.0.0.1:1",
+                           token="", act=True, mode="strats"))
+    assert "action mode" in str(first.get("error", ""))
+
+
+def test_strats_sessions_resume_like_chat():
+    sid = "3f2a1b4c-0d9e-4f00-8a11-22b3c4d5e6f7"
+    cmd = agent.build_cmd("q", READS, [], False, API_URL, "",
+                          mode="strats", session=sid)
+    assert cmd[cmd.index("--resume") + 1] == sid
+
+
+def test_every_mode_carries_the_nav_protocol():
+    for mode in ("ask", "chat", "strats"):
+        cmd = agent.build_cmd("q", READS, [], False, API_URL, "", mode=mode)
+        prompt = cmd[cmd.index("--append-system-prompt") + 1]
+        assert agent.NAV_PROMPT in prompt, f"{mode} lost the NAV protocol"
+
+
+def test_strats_prompt_teaches_the_real_tool_and_route_names():
+    # The copilot's product knowledge must track the live surface: every tool
+    # it names has to exist in the MCP schema's own vocabulary, and the invest
+    # body fields it teaches must match invest_routes.rs's CreateBody.
+    for tool in ("hl_strats_board", "hl_backtest_trader", "hl_invest_preview",
+                 "hl_invest", "hl_invest_portfolio", "hl_invest_pause",
+                 "hl_invest_close", "hl_agent_status"):
+        assert tool in agent.STRATS_PROMPT, f"copilot prompt lost {tool}"
+    create_body = (ROOT / "src" / "api" / "src" / "invest_routes.rs").read_text()
+    create_body = create_body.split("struct CreateBody")[1].split("}")[0]
+    for field in ("investor", "kind", "target", "amount_usd", "mode"):
+        assert field in create_body
+        assert field in agent.STRATS_PROMPT, f"copilot prompt lost field {field}"
+
+
+def test_the_rust_route_passes_strats_through():
+    assert '"strats"' in AGENT_RS, "agent.rs must whitelist mode=strats"
+
+
+def test_stream_events_carry_the_session_id():
+    start = list(agent._events({"type": "system", "subtype": "init",
+                                "model": "m", "session_id": "s-1", "tools": []}))
+    assert start[0]["session_id"] == "s-1"
+    done = list(agent._events({"type": "result", "result": "", "session_id": "s-1"}))
+    assert done[0]["session_id"] == "s-1"
+
+
+def test_auth_failure_detection_is_anchored():
+    fail = {"type": "done",
+            "answer": "Failed to authenticate. API Error: 401 OAuth access token has been revoked."}
+    assert agent._auth_failed(fail)
+    assert agent._auth_failed({"type": "text", "text": "Failed to authenticate. x"})
+    # A genuine answer that merely *mentions* auth must stream through.
+    assert not agent._auth_failed(
+        {"type": "text", "text": "Your API probably Failed to authenticate because…"})
+    assert not agent._auth_failed({"type": "tool", "name": "hl_mids", "args": {}})
+
+
+def test_keeper_token_honors_ready_and_expiry(tmp_path, monkeypatch):
+    import time as _time
+    f = tmp_path / "claude_host.json"
+    monkeypatch.setattr(agent, "KEEPER_FILE", str(f))
+    assert agent.keeper_token() == ""  # no file
+    f.write_text(json.dumps({"ready": True, "token": "tok",
+                             "expires_at": _time.time() + 3600}))
+    assert agent.keeper_token() == "tok"
+    f.write_text(json.dumps({"ready": False, "token": "tok"}))
+    assert agent.keeper_token() == ""
+    f.write_text(json.dumps({"ready": True, "token": "tok",
+                             "expires_at": _time.time() - 1}))
+    assert agent.keeper_token() == "", "an expired keeper token must not be used"
 
 
 # ── live: the schema really does split reads from writes ────────────────

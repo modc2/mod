@@ -1,0 +1,189 @@
+{
+  "netuid": 92,
+  "name": "REAX",
+  "symbol": "र",
+  "owner": "5GMxpAvB9iJkDtNDELhVn8GmbBz5XChnWcLaThWTJ38QmU6B",
+  "description": "Verified decision-model inference on Bittensor.",
+  "github": "https://github.com/reaxlabs/reax-subnet",
+  "url": "https://reax.co/",
+  "discord": null,
+  "logo": "https://reax.co/assets/reax-logo-512.png",
+  "registered_at": 9247819,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.034440373,
+    "moving_price": 0.008596328552812338,
+    "market_cap": 7284.535633609091,
+    "tao_in": 2454.846254186,
+    "alpha_in": 71278.153531575,
+    "alpha_out": 140233.366207456,
+    "volume": 80966.905681287,
+    "vol_24h": 18929.361960268994,
+    "emission": 0.0,
+    "change_1h": -0.47905063359539035,
+    "change_24h": 1.4632587518699003,
+    "change_7d": 662.5078043289784
+  },
+  "spark_24h": [
+    0.033943689,
+    0.033794963,
+    0.03217135,
+    0.032377831,
+    0.032377784,
+    0.032359964,
+    0.032744812,
+    0.032785517,
+    0.033199733,
+    0.033138628,
+    0.03346567,
+    0.033039586,
+    0.03287457,
+    0.032342194,
+    0.032443541,
+    0.032454603,
+    0.033843537,
+    0.034304963,
+    0.034186435,
+    0.033636433,
+    0.034323735,
+    0.035005121,
+    0.033652174,
+    0.034126956,
+    0.034259703,
+    0.034035307,
+    0.033851014,
+    0.033518223,
+    0.033421504,
+    0.031941222,
+    0.031853106,
+    0.031988483,
+    0.031908195,
+    0.032385213,
+    0.032187331,
+    0.032059307,
+    0.032129007,
+    0.032121531,
+    0.031961211,
+    0.03251193,
+    0.032601618,
+    0.033929272,
+    0.0334503,
+    0.033327515,
+    0.033575746,
+    0.033601271,
+    0.034374992,
+    0.034440373
+  ],
+  "trades_24h": {
+    "trades": 1444,
+    "buys": 323,
+    "sells": 1121,
+    "buy_tao": 9381.650081315,
+    "sell_tao": 9420.500082096,
+    "net_tao": -38.850000780999835,
+    "traders": 183
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -1.7224156499999954,
+      "gross_tao": 15988.767995132,
+      "trades": 70
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -9.085126751999999,
+      "gross_tao": 229.085126752,
+      "trades": 19
+    },
+    {
+      "coldkey": "5D2MW8D89hZa1CmTt2ZomiSemjC7VVzMRHPM497mbXBB9hZy",
+      "net_tao": -0.3475631870000049,
+      "gross_tao": 136.347563187,
+      "trades": 10
+    },
+    {
+      "coldkey": "5HTGyVdqmeRLQuVBXohbwYnvemK68uNzVi9xktzqfzBt73xg",
+      "net_tao": -2.370478344999997,
+      "gross_tao": 112.370478345,
+      "trades": 11
+    },
+    {
+      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
+      "net_tao": -3.4302563029999993,
+      "gross_tao": 109.430256303,
+      "trades": 25
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792199793,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.2.0-rc7.post1",
+      "url": "https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc7.post1",
+      "publisher": "reaxlabs/reax-subnet"
+    },
+    {
+      "ts": 1792199792,
+      "kind": "commit",
+      "source": "github",
+      "title": "Release 1.2.0rc7.post1: keep-alive pays the median inference weight p…",
+      "url": "https://github.com/reaxlabs/reax-subnet/commit/b05e834275f66315e0cdb0883eac08f2f1ef0d02",
+      "publisher": "reaxlabs/reax-subnet"
+    },
+    {
+      "ts": 1792182230,
+      "kind": "commit",
+      "source": "github",
+      "title": "release 1.2.0rc7: capacity probe in parallel shard processes (one mac…",
+      "url": "https://github.com/reaxlabs/reax-subnet/commit/d16d0f1ede3274eb76a42e88b4bc046b953ce237",
+      "publisher": "reaxlabs/reax-subnet"
+    },
+    {
+      "ts": 1792182230,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.2.0-rc7",
+      "url": "https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc7",
+      "publisher": "reaxlabs/reax-subnet"
+    },
+    {
+      "ts": 1792174414,
+      "kind": "commit",
+      "source": "github",
+      "title": "release 1.2.0rc6.post1: fair first crowning on specialist tracks (ope…",
+      "url": "https://github.com/reaxlabs/reax-subnet/commit/dad79622086a1866a88c8285680fd1c9fb6abd11",
+      "publisher": "reaxlabs/reax-subnet"
+    },
+    {
+      "ts": 1792174414,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.2.0-rc6.post1",
+      "url": "https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc6.post1",
+      "publisher": "reaxlabs/reax-subnet"
+    },
+    {
+      "ts": 1792168181,
+      "kind": "commit",
+      "source": "github",
+      "title": "release 1.2.0rc6: specialist draws 15 % procedural / 300 items with f…",
+      "url": "https://github.com/reaxlabs/reax-subnet/commit/076c800b2dbb866101fed40e73aa7e7fd28ef744",
+      "publisher": "reaxlabs/reax-subnet"
+    },
+    {
+      "ts": 1792168181,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.2.0-rc6",
+      "url": "https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc6",
+      "publisher": "reaxlabs/reax-subnet"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

@@ -12,6 +12,18 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * @dev Time-weighted staking with delegation, a weekly reward pot, and a
  *      Bitcoin-style inflation curve (halving schedule).
  *
+ *      v2 — seconds-native, linear USD·seconds model:
+ *      locks are measured in SECONDS against block.timestamp, and the BLOC
+ *      minted for a stake is
+ *
+ *          bloc = usdValue(amount) * lockSeconds * multiplier(lockSeconds)
+ *
+ *      where usdValue converts the staked token at the owner-set
+ *      `priceUsdMicro` (1e6 = $1.00 per whole token) and the multiplier curve
+ *      defaults to a single flat 1x point — pure linear USD × seconds — but
+ *      the owner can still shape it with `setPoints`. `secondsPerBlock` is
+ *      stored on-chain so UIs can offer a blocks view of the same lock.
+ *
  *      Rewards collect in a pot — inflation mints into it every epoch, and
  *      anyone can top it up with `fundPot`. Once a week, from Friday 12:00 EST
  *      onward, `distributeRewards` sweeps the entire pot out to BLOC holders
@@ -23,33 +35,38 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
     struct StakePosition {
         uint256 stakeId;
         uint256 amount;
-        uint256 startBlock;
-        uint256 lockBlocks;
+        uint256 startTime;   // block.timestamp at stake
+        uint256 lockSeconds;
         uint256 blocTimeBalance;
     }
 
     struct Point {
-        uint256 blocks;
+        uint256 lockSeconds;
         uint256 multiplier; // basis points (10000 = 1x)
     }
 
     struct Params {
-        uint256 maxLockBlocks;
-        uint256 distributionPercentage;
+        uint256 maxLockSeconds;
+        uint256 secondsPerBlock; // display conversion only (2 on Base)
     }
 
     struct InflationParams {
         uint256 initialRewardPerEpoch; // tokens minted per epoch (18 decimals)
         uint256 halvingInterval;       // epochs between halvings
         uint256 minRewardPerEpoch;     // floor
-        uint256 epochLength;           // blocks per epoch (~43200 = 1 day on Base)
-        uint256 startBlock;            // block when inflation begins
+        uint256 epochLength;           // SECONDS per epoch (86400 = 1 day)
+        uint256 startTime;             // timestamp when inflation begins
     }
 
     // ── Core State ──────────────────────────────────────────────
     IERC20 public nativeToken;
     uint256 public totalBlocTime;
     uint256 public nextStakeId;
+
+    /// @notice Owner-set price of the staked token, micro-USD per whole
+    ///         token (1e6 = $1.00). Feeds the linear USD × seconds model.
+    uint256 public priceUsdMicro;
+    uint256 public constant PRICE_SCALE = 1e6;
 
     mapping(address => mapping(uint256 => StakePosition)) public userStakes;
     mapping(address => uint256[]) public userStakeIds;
@@ -85,9 +102,10 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
     mapping(address => uint256) public rewards;
 
     // ── Events ──────────────────────────────────────────────────
-    event Staked(address indexed user, uint256 stakeId, uint256 amount, uint256 lockBlocks, uint256 blocTimeEarned);
+    event Staked(address indexed user, uint256 stakeId, uint256 amount, uint256 lockSeconds, uint256 blocTimeEarned);
     event Unstaked(address indexed user, uint256 stakeId, uint256 amount, uint256 blocTimeReturned);
-    event ParamsUpdated(uint256 maxLockBlocks, uint256 distributionPercentage);
+    event ParamsUpdated(uint256 maxLockSeconds, uint256 secondsPerBlock);
+    event PriceUpdated(uint256 priceUsdMicro);
     event PointsSet(uint256 pointCount);
     event DelegateChanged(address indexed delegator, address indexed fromDelegate, address indexed toDelegate);
     event InflationParamsUpdated(uint256 initialReward, uint256 halvingInterval, uint256 minReward, uint256 epochLength);
@@ -97,17 +115,20 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
 
     constructor(
         address _nativeToken,
-        uint256 _maxLockBlocks,
-        uint256 _distributionPercentage
+        uint256 _maxLockSeconds,
+        uint256 _priceUsdMicro
     ) ERC20("BlocTime", "BLOC") Ownable(msg.sender) {
-        require(_distributionPercentage <= 10000, "Max 100%");
+        require(_priceUsdMicro > 0, "Price > 0");
         nativeToken = IERC20(_nativeToken);
         distributionStart = block.timestamp;
+        priceUsdMicro = _priceUsdMicro;
         params = Params({
-            maxLockBlocks: _maxLockBlocks,
-            distributionPercentage: _distributionPercentage
+            maxLockSeconds: _maxLockSeconds,
+            secondsPerBlock: 2 // Base
         });
-        points.push(Point({ blocks: 0, multiplier: 10000 }));
+        // Default curve: one flat 1x point — the model is pure linear
+        // USD × seconds until the owner shapes it.
+        points.push(Point({ lockSeconds: 0, multiplier: 10000 }));
     }
 
     // ── Modifiers ───────────────────────────────────────────────
@@ -132,9 +153,9 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
         require(_points.length > 0, "Need >= 1 point");
         for (uint256 i = 0; i < _points.length; i++) {
             require(_points[i].multiplier >= 10000, "Mult >= 1x");
-            require(_points[i].blocks <= params.maxLockBlocks, "Exceeds max");
+            require(_points[i].lockSeconds <= params.maxLockSeconds, "Exceeds max");
             if (i > 0) {
-                require(_points[i].blocks > _points[i-1].blocks, "Blocks must increase");
+                require(_points[i].lockSeconds > _points[i-1].lockSeconds, "Seconds must increase");
                 require(_points[i].multiplier >= _points[i-1].multiplier, "Mult must increase");
             }
         }
@@ -145,10 +166,16 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
         emit PointsSet(_points.length);
     }
 
-    function setParams(uint256 _maxLockBlocks, uint256 _distributionPercentage) external onlyOwner {
-        require(_distributionPercentage <= 10000, "Max 100%");
-        params = Params({ maxLockBlocks: _maxLockBlocks, distributionPercentage: _distributionPercentage });
-        emit ParamsUpdated(_maxLockBlocks, _distributionPercentage);
+    function setParams(uint256 _maxLockSeconds, uint256 _secondsPerBlock) external onlyOwner {
+        require(_secondsPerBlock > 0, "SPB > 0");
+        params = Params({ maxLockSeconds: _maxLockSeconds, secondsPerBlock: _secondsPerBlock });
+        emit ParamsUpdated(_maxLockSeconds, _secondsPerBlock);
+    }
+
+    function setPriceUsd(uint256 _priceUsdMicro) external onlyOwner {
+        require(_priceUsdMicro > 0, "Price > 0");
+        priceUsdMicro = _priceUsdMicro;
+        emit PriceUpdated(_priceUsdMicro);
     }
 
     function setInflationParams(
@@ -164,7 +191,7 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
             halvingInterval: _halvingInterval,
             minRewardPerEpoch: _minRewardPerEpoch,
             epochLength: _epochLength,
-            startBlock: block.number
+            startTime: block.timestamp
         });
         lastDistributionEpoch = 0;
         emit InflationParamsUpdated(_initialRewardPerEpoch, _halvingInterval, _minRewardPerEpoch, _epochLength);
@@ -180,15 +207,15 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
 
     // ── Multiplier Curve ────────────────────────────────────────
 
-    function getMultiplier(uint256 blockCount) public view returns (uint256) {
+    function getMultiplier(uint256 lockSeconds) public view returns (uint256) {
         if (points.length == 0) return 10000;
-        if (blockCount <= points[0].blocks) return points[0].multiplier;
-        if (blockCount >= points[points.length - 1].blocks) return points[points.length - 1].multiplier;
+        if (lockSeconds <= points[0].lockSeconds) return points[0].multiplier;
+        if (lockSeconds >= points[points.length - 1].lockSeconds) return points[points.length - 1].multiplier;
         for (uint256 i = 0; i < points.length - 1; i++) {
-            if (blockCount >= points[i].blocks && blockCount <= points[i + 1].blocks) {
-                uint256 range = points[i + 1].blocks - points[i].blocks;
+            if (lockSeconds >= points[i].lockSeconds && lockSeconds <= points[i + 1].lockSeconds) {
+                uint256 range = points[i + 1].lockSeconds - points[i].lockSeconds;
                 if (range == 0) return points[i].multiplier;
-                uint256 pos = blockCount - points[i].blocks;
+                uint256 pos = lockSeconds - points[i].lockSeconds;
                 uint256 yRange = points[i + 1].multiplier - points[i].multiplier;
                 return points[i].multiplier + (yRange * pos) / range;
             }
@@ -202,33 +229,41 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
 
     // ── Staking ─────────────────────────────────────────────────
 
-    function stake(uint256 amount, uint256 lockBlocks) external nonReentrant updateReward(msg.sender) {
+    /// @notice BLOC minted for staking `amount` for `lockSeconds`:
+    ///         USD value of the stake × seconds locked × curve multiplier.
+    ///         With the default flat curve this is exactly usd * seconds.
+    function quoteBloc(uint256 amount, uint256 lockSeconds) public view returns (uint256) {
+        uint256 usdValue = (amount * priceUsdMicro) / PRICE_SCALE; // 18-decimal USD
+        return (usdValue * lockSeconds * getMultiplier(lockSeconds)) / 10000;
+    }
+
+    function stake(uint256 amount, uint256 lockSeconds) external nonReentrant updateReward(msg.sender) {
         require(amount > 0, "Amount > 0");
-        require(lockBlocks <= params.maxLockBlocks, "Exceeds max lock");
+        require(lockSeconds <= params.maxLockSeconds, "Exceeds max lock");
         nativeToken.safeTransferFrom(msg.sender, address(this), amount);
 
-        uint256 multiplier = getMultiplier(lockBlocks);
-        uint256 blocTimeEarned = (amount * multiplier) / 10000;
+        uint256 blocTimeEarned = quoteBloc(amount, lockSeconds);
+        require(blocTimeEarned > 0, "Lock too short");
         uint256 stakeId = nextStakeId++;
 
         userStakes[msg.sender][stakeId] = StakePosition({
             stakeId: stakeId,
             amount: amount,
-            startBlock: block.number,
-            lockBlocks: lockBlocks,
+            startTime: block.timestamp,
+            lockSeconds: lockSeconds,
             blocTimeBalance: blocTimeEarned
         });
         userStakeIds[msg.sender].push(stakeId);
         totalBlocTime += blocTimeEarned;
         _mint(msg.sender, blocTimeEarned);
 
-        emit Staked(msg.sender, stakeId, amount, lockBlocks, blocTimeEarned);
+        emit Staked(msg.sender, stakeId, amount, lockSeconds, blocTimeEarned);
     }
 
     function unstake(uint256 stakeId) external nonReentrant updateReward(msg.sender) {
         StakePosition storage position = userStakes[msg.sender][stakeId];
         require(position.amount > 0, "No active stake");
-        require(block.number >= position.startBlock + position.lockBlocks, "Still locked");
+        require(block.timestamp >= position.startTime + position.lockSeconds, "Still locked");
 
         uint256 amount = position.amount;
         uint256 blocTimeBalance = position.blocTimeBalance;
@@ -273,21 +308,21 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
     }
 
     function getVotingPower(address account) external view returns (uint256) {
-        uint256 own = balanceOf(account);
         uint256 received = delegatedVotingPower[account];
-        address del = delegates[account];
-        if (del != address(0) && del != account) {
-            return received; // delegated away — own power is 0
+        if (delegates[account] != address(0)) {
+            // Delegated: own balance is counted at the delegate — which is
+            // `received` itself when self-delegated — never here as well.
+            return received;
         }
-        return own + received;
+        return balanceOf(account) + received;
     }
 
     // ── Inflation & Rewards ─────────────────────────────────────
 
     function currentEpoch() public view returns (uint256) {
-        if (inflationParams.epochLength == 0 || inflationParams.startBlock == 0) return 0;
-        if (block.number < inflationParams.startBlock) return 0;
-        return (block.number - inflationParams.startBlock) / inflationParams.epochLength;
+        if (inflationParams.epochLength == 0 || inflationParams.startTime == 0) return 0;
+        if (block.timestamp < inflationParams.startTime) return 0;
+        return (block.timestamp - inflationParams.startTime) / inflationParams.epochLength;
     }
 
     function getEpochReward(uint256 epoch) public view returns (uint256) {
@@ -410,13 +445,13 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
     }
 
     function getStakePosition(address user, uint256 stakeId) external view returns (
-        uint256 amount, uint256 startBlock, uint256 lockBlocks,
-        uint256 blocTimeBalance, uint256 blocksRemaining
+        uint256 amount, uint256 startTime, uint256 lockSeconds,
+        uint256 blocTimeBalance, uint256 secondsRemaining
     ) {
         StakePosition storage position = userStakes[user][stakeId];
-        uint256 elapsed = block.number > position.startBlock ? block.number - position.startBlock : 0;
-        uint256 remaining = position.lockBlocks > elapsed ? position.lockBlocks - elapsed : 0;
-        return (position.amount, position.startBlock, position.lockBlocks, position.blocTimeBalance, remaining);
+        uint256 elapsed = block.timestamp > position.startTime ? block.timestamp - position.startTime : 0;
+        uint256 remaining = position.lockSeconds > elapsed ? position.lockSeconds - elapsed : 0;
+        return (position.amount, position.startTime, position.lockSeconds, position.blocTimeBalance, remaining);
     }
 
     /// @notice Everything the pot card needs: current pot, the schedule, the
@@ -444,11 +479,11 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
 
     function getInflationParams() external view returns (
         uint256 initialRewardPerEpoch, uint256 halvingInterval,
-        uint256 minRewardPerEpoch, uint256 epochLength, uint256 startBlock
+        uint256 minRewardPerEpoch, uint256 epochLength, uint256 startTime
     ) {
         return (
             inflationParams.initialRewardPerEpoch, inflationParams.halvingInterval,
-            inflationParams.minRewardPerEpoch, inflationParams.epochLength, inflationParams.startBlock
+            inflationParams.minRewardPerEpoch, inflationParams.epochLength, inflationParams.startTime
         );
     }
 }

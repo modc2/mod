@@ -50,8 +50,8 @@ export default function SearchBar({
     <div ref={box} className="relative w-full md:w-[260px]">
       <div className="blk flex items-center gap-2 px-2.5 py-2">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0">
-          <circle cx="7" cy="7" r="4.6" stroke="#fbd000" strokeWidth="2" />
-          <path d="M10.6 10.6L14 14" stroke="#fbd000" strokeWidth="2" strokeLinecap="square" />
+          <circle cx="7" cy="7" r="4.6" stroke="#e8b64c" strokeWidth="1.8" />
+          <path d="M10.6 10.6L14 14" stroke="#e8b64c" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
         <input
           ref={input}
@@ -81,13 +81,9 @@ export default function SearchBar({
             aria-label="Clear search"
             className="tap -mr-1.5 grid shrink-0 place-items-center px-1.5 text-nes-ink3 hover:text-nes-red"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" shapeRendering="crispEdges"
-                 fill="currentColor" aria-hidden>
-              <rect x="0" y="0" width="2" height="2" /><rect x="2" y="2" width="2" height="2" />
-              <rect x="4" y="4" width="2" height="2" /><rect x="6" y="2" width="2" height="2" />
-              <rect x="8" y="0" width="2" height="2" /><rect x="6" y="6" width="2" height="2" />
-              <rect x="8" y="8" width="2" height="2" /><rect x="2" y="6" width="2" height="2" />
-              <rect x="0" y="8" width="2" height="2" />
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
+              <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6"
+                    strokeLinecap="round" />
             </svg>
           </button>
         )}
@@ -116,7 +112,7 @@ export default function SearchBar({
               </button>
             </li>
           ))}
-          <li className="border-t-2 border-black px-2.5 py-1.5 text-[9.5px] text-nes-ink3">
+          <li className="border-t border-white/10 px-2.5 py-1.5 text-[11.5px] text-nes-ink3">
             Geocoded by OpenStreetMap Nominatim
           </li>
         </ul>

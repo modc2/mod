@@ -1,0 +1,28 @@
+pragma circom 2.1.6;
+
+// Factors: prove you know a and b with a * b = c, where c is public and
+// neither factor is 1 (otherwise "1 * c" proves nothing).
+
+// x != 1, enforced by requiring (x - 1) to have an inverse. `<--` only hints
+// the inverse; the `===` is what makes it a constraint.
+template NotOne() {
+    signal input x;
+    signal inv;
+    inv <-- 1 / (x - 1);
+    (x - 1) * inv === 1;
+}
+
+template Factors() {
+    signal input a;   // private
+    signal input b;   // private
+    signal output c;  // public: the product
+
+    component na = NotOne();
+    na.x <== a;
+    component nb = NotOne();
+    nb.x <== b;
+
+    c <== a * b;
+}
+
+component main = Factors();

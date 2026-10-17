@@ -1,0 +1,6 @@
+[
+  {"name": "adult_passes", "input": {"age": "30", "threshold": "18"}, "expect": {"ok": "1"}},
+  {"name": "exactly_threshold", "input": {"age": "18", "threshold": "18"}, "expect": {"ok": "1"}},
+  {"name": "minor_rejected", "input": {"age": "16", "threshold": "18"}, "fail": true},
+  {"name": "out_of_range_rejected", "input": {"age": "300", "threshold": "18"}, "fail": true}
+]

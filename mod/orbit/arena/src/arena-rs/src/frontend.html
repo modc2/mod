@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>inferred frontend</title>
+<style>
+  :root { --bg: #0b0f14; --card: #121820; --line: #1f2a36; --fg: #d7e2ec; --dim: #7d8fa1; --accent: #55e0c8; --bad: #ff7a86; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; padding: 12px; background: var(--bg); color: var(--fg); font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  .top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .top b { letter-spacing: 1px; }
+  .tag { font-size: 11px; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+  #status { margin: 10px 0; color: var(--dim); }
+  #status.turn { color: var(--accent); font-weight: 700; }
+  #status.over { color: var(--fg); font-weight: 700; }
+  .board { display: inline-grid; gap: 4px; padding: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin: 6px 0; }
+  .cell { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); font-size: 18px; font-weight: 700; user-select: none; }
+  .cell.empty { color: var(--line); font-weight: 400; }
+  .cell.click { cursor: pointer; border-color: var(--accent); }
+  .cell.click:hover { background: #10302c; }
+  .colhead { cursor: pointer; text-align: center; color: var(--accent); font-size: 12px; border: 1px dashed var(--accent); border-radius: 6px; padding: 2px 0; }
+  .colhead.off { cursor: default; color: var(--line); border-color: var(--line); }
+  .prose { white-space: pre-wrap; margin: 6px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+  button, input, textarea { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.go { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
+  input { flex: 1; min-width: 140px; }
+  textarea { width: 100%; min-height: 160px; font-size: 13px; }
+  .tree { font-size: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 6px 0; overflow: auto; }
+  .tree details { margin-left: 12px; } .tree .k { color: var(--accent); } .tree .v { color: var(--fg); }
+  .hint { color: var(--dim); font-size: 12px; }
+  .result { padding: 10px; border: 1px solid var(--accent); border-radius: 10px; margin: 8px 0; }
+  details.raw summary { cursor: pointer; color: var(--dim); font-size: 12px; }
+  details.raw pre { white-space: pre-wrap; font-size: 12px; color: var(--dim); }
+  #log { font-size: 12px; color: var(--dim); max-height: 120px; overflow: auto; }
+</style>
+</head>
+<body>
+<!-- The frontend the arena infers for a game that brought none. It knows
+     nothing about any game in particular: it is sent the game's schema and the
+     view a seat sees (arena-frontend/1, by postMessage) and builds what it
+     can out of their shape — a grid of cells becomes a board, a `Legal moves:`
+     line becomes buttons, JSON becomes a tree, code becomes an editor. It runs
+     sandboxed: no network, no storage, nothing but the frame that holds it. -->
+<div class="top"><b id="name">game</b><span class="tag">frontend inferred from the schema</span><span class="tag" id="shape"></span></div>
+<div id="status">waiting for the table…</div>
+<div id="stage"></div>
+<div id="controls"></div>
+<details class="raw"><summary>what the seat sees, verbatim</summary><pre id="raw"></pre></details>
+<div id="log"></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+function el(tag, props = {}, kids = []) {
+  const n = document.createElement(tag);
+  Object.assign(n, props);
+  for (const k of [].concat(kids)) if (k != null && k !== "") n.append(k.nodeType ? k : document.createTextNode(k));
+  return n;
+}
+const send = (msg) => parent.postMessage({ protocol: "arena-frontend/1", ...msg }, "*");
+const move = (mv) => send({ arena: "move", move: String(mv) });
+
+// ── reading a view ─────────────────────────────────────────────────────
+const EMPTY = new Set([".", "_", "-", "·", " ", "0"]);
+
+function asJson(text) {
+  const fence = /```(?:json)?\s*\n([\s\S]*?)```/.exec(text);
+  for (const cand of [fence?.[1], text.trim()]) {
+    if (!cand || !/^[\[{]/.test(cand.trim())) continue;
+    try { return JSON.parse(cand); } catch {}
+  }
+  return null;
+}
+
+// Rows of short tokens, all the same width, three or more deep: a board.
+function tokens(line) {
+  const t = line.trim();
+  if (!t) return null;
+  if (/\s/.test(t)) {
+    const parts = t.split(/\s+/);
+    return parts.every((p) => p.length <= 2) ? parts : null;
+  }
+  return t.length >= 3 && t.length <= 19 && /^[.\w#*@+\-·]+$/.test(t) && !/^\d+$/.test(t) && !/[a-z]{3}/i.test(t) ? [...t] : null;
+}
+function grids(lines) {
+  const out = [];
+  let run = [];
+  const flush = (end) => {
+    if (run.length >= 3) out.push({ start: end - run.length, end, rows: run.map((r) => r.t) });
+    run = [];
+  };
+  lines.forEach((line, i) => {
+    const t = tokens(line);
+    if (t && t.length >= 3 && (!run.length || run[0].t.length === t.length)) run.push({ t });
+    else { flush(i); const t2 = tokens(line); if (t2 && t2.length >= 3) run.push({ t: t2 }); }
+  });
+  flush(lines.length);
+  return out;
+}
+const isSeq = (row, from) => row.every((x, i) => x === String(from + i));
+
+function legalOf(msg) {
+  return (msg.legal || []).map(String);
+}
+
+// ── drawing ────────────────────────────────────────────────────────────
+const PALETTE = ["#55e0c8", "#ffb454", "#c792ea", "#ff7a86", "#82aaff", "#c3e88d"];
+let symbols = [];
+function colour(sym) {
+  if (EMPTY.has(sym)) return null;
+  let i = symbols.indexOf(sym);
+  if (i < 0) { symbols.push(sym); i = symbols.length - 1; }
+  return PALETTE[i % PALETTE.length];
+}
+
+function drawGrid(rows, { cellMove, colMove, legal, live }) {
+  const cols = rows[0].length;
+  const board = el("div", { className: "board" });
+  board.style.gridTemplateColumns = `repeat(${cols}, 44px)`;
+  if (colMove) {
+    for (let c = 0; c < cols; c++) {
+      const mv = colMove(c);
+      const ok = live && legal.includes(mv);
+      board.append(el("div", { className: `colhead${ok ? "" : " off"}`, textContent: ok ? "▼" : mv, title: `play ${mv}`, onclick: ok ? () => move(mv) : null }));
+    }
+  }
+  rows.forEach((row, r) => row.forEach((sym, c) => {
+    const mv = cellMove ? cellMove(r, c, sym) : null;
+    const ok = live && mv != null && legal.includes(mv);
+    const empty = EMPTY.has(sym) || (cellMove && /^\d+$/.test(sym));
+    const cell = el("div", { className: `cell${empty ? " empty" : ""}${ok ? " click" : ""}`, textContent: sym === "." ? "·" : sym });
+    const col = empty ? null : colour(sym);
+    if (col) cell.style.color = col;
+    if (ok) { cell.title = `play ${mv}`; cell.onclick = () => move(mv); }
+    board.append(cell);
+  }));
+  return board;
+}
+
+function drawTree(v, key) {
+  if (v === null || typeof v !== "object") {
+    return el("div", {}, [key != null ? el("span", { className: "k", textContent: `${key}: ` }) : null, el("span", { className: "v", textContent: JSON.stringify(v) })]);
+  }
+  const d = el("details", { open: true });
+  d.append(el("summary", {}, [el("span", { className: "k", textContent: key ?? (Array.isArray(v) ? `[${v.length}]` : "{…}") })]));
+  for (const [k, x] of Object.entries(v)) d.append(drawTree(x, k));
+  return d;
+}
+
+// Build the page for one state: the board (if the view holds one), the rest
+// of the view as prose, then whatever input the schema says a move is.
+function render(msg) {
+  const view = String(msg.view ?? "");
+  const schema = msg.schema || {};
+  const legal = legalOf(msg);
+  const live = !!msg.your_turn && !msg.done;
+  $("name").textContent = msg.game?.name || schema.name || "game";
+  $("raw").textContent = view || "(no view yet)";
+  $("status").textContent = msg.status || (msg.done ? "game over" : live ? "your move" : "waiting…");
+  $("status").className = msg.done ? "over" : live ? "turn" : "";
+
+  const stage = [];
+  const lines = view.split("\n");
+  const used = new Set();
+  const shape = [];
+  const json = asJson(view);
+  if (json) { stage.push(el("div", { className: "tree" }, drawTree(json))); shape.push("json view"); }
+
+  const found = json ? [] : grids(lines);
+  // A flat `Board: x.o......` line of n*n cells is a board too — and when a
+  // numbered grid of the same size sits beside it, the numbers are the moves.
+  const flat = /^\s*board\s*:\s*(\S+)\s*$/im.exec(view);
+  const numbered = found.find((g) => isSeq(g.rows.flat(), 1) || isSeq(g.rows.flat(), 0));
+  if (flat && Math.sqrt(flat[1].length) % 1 === 0 && flat[1].length >= 4) {
+    const n = Math.sqrt(flat[1].length);
+    const cells = [...flat[1]];
+    const rows = Array.from({ length: n }, (_, r) => cells.slice(r * n, r * n + n));
+    const base = numbered ? Number(numbered.rows[0][0]) : legal.includes("0") ? 0 : 1;
+    if (numbered && numbered.rows.flat().length === cells.length) for (let i = numbered.start; i < numbered.end; i++) used.add(i);
+    lines.forEach((l, i) => { if (/^\s*board\s*:/i.test(l)) used.add(i); });
+    stage.push(drawGrid(rows, { cellMove: (r, c, sym) => EMPTY.has(sym) ? String(base + r * n + c) : null, legal, live }));
+    shape.push(`${n}×${n} board`);
+  } else {
+    for (const g of found) {
+      let rows = g.rows;
+      for (let i = g.start; i < g.end; i++) used.add(i);
+      // A header row of column numbers: the moves are columns (drop games).
+      const head = isSeq(rows[0], 0) ? 0 : isSeq(rows[0], 1) ? 1 : null;
+      if (head != null && rows.length > 1 && !rows.slice(1).some((r) => isSeq(r, head))) {
+        rows = rows.slice(1);
+        stage.push(drawGrid(rows, { colMove: (c) => String(head + c), legal, live }));
+        shape.push(`${rows[0].length}-column board`);
+      } else {
+        // Cells that are themselves legal moves are clicked to play them;
+        // otherwise cells are addressed the way a grid usually is.
+        const flatCells = rows.flat();
+        const selfMoves = flatCells.some((x) => legal.includes(x));
+        stage.push(drawGrid(rows, { cellMove: selfMoves ? (r, c, sym) => sym : null, legal, live }));
+        shape.push(`${rows.length}×${rows[0].length} grid`);
+      }
+    }
+  }
+  // Everything the board did not take is read as words.
+  const prose = lines.filter((l, i) => !used.has(i) && !/^\s*legal moves?\s*:/i.test(l)).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (prose && !json) stage.unshift(el("div", { className: "prose", textContent: prose }));
+  $("stage").replaceChildren(...stage);
+
+  const ctrl = [];
+  if (msg.done) {
+    const sc = msg.result?.scores ?? msg.result;
+    ctrl.push(el("div", { className: "result" }, [
+      el("b", { textContent: msg.status || "game over" }),
+      Array.isArray(sc) ? el("div", { className: "hint", textContent: `scores ${sc.join(" : ")}` }) : null,
+      msg.result?.summary ? el("div", { textContent: msg.result.summary }) : null,
+    ]));
+    ctrl.push(el("div", { className: "row" }, el("button", { className: "go", textContent: "play again", onclick: () => send({ arena: "new" }) })));
+  } else if (!msg.started) {
+    ctrl.push(el("div", { className: "row" }, el("button", { className: "go", textContent: "start a game", onclick: () => send({ arena: "new" }) })));
+  } else if (live) {
+    if (legal.length && legal.length <= 60) {
+      ctrl.push(el("div", { className: "row" }, legal.map((mv) => el("button", { textContent: mv, onclick: () => move(mv) }))));
+      shape.push(`${legal.length} legal moves`);
+    }
+    const code = schema.answer === "code";
+    const box = code
+      ? el("textarea", { placeholder: "write the whole function — the fence is the move", spellcheck: false })
+      : el("input", { type: "text", placeholder: legal.length ? "or type a move" : "your move, as the view asks for it", autocomplete: "off" });
+    const go = el("button", { className: "go", textContent: code ? "submit code" : "move", onclick: () => box.value.trim() && move(code ? box.value : box.value.trim()) });
+    if (!code) box.onkeydown = (e) => { if (e.key === "Enter") go.click(); };
+    ctrl.push(code ? el("div", {}, [box, el("div", { className: "row" }, go)]) : el("div", { className: "row" }, [box, go]));
+    if (code) shape.push("code answer");
+    setTimeout(() => box.focus(), 0);
+  }
+  if (schema.simultaneous) shape.push("simultaneous");
+  if (schema.max_turns) shape.push(`≤${schema.max_turns} turns`);
+  if (schema.seats) shape.push(`${schema.seats} seats`);
+  $("shape").textContent = shape.join(" · ") || "text game";
+  $("controls").replaceChildren(...ctrl);
+  $("log").replaceChildren(...(msg.log || []).slice(0, 12).map((t) => el("div", { textContent: t })));
+}
+
+addEventListener("message", (e) => {
+  if (e.source !== parent || e.data?.arena !== "state") return;
+  render(e.data);
+});
+new ResizeObserver(() => send({ arena: "height", px: document.documentElement.scrollHeight })).observe(document.body);
+send({ arena: "ready" });
+</script>
+</body>
+</html>

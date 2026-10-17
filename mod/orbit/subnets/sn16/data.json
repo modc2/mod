@@ -1,0 +1,133 @@
+{
+  "netuid": 16,
+  "name": "kenju run next week",
+  "symbol": "π",
+  "owner": "5FkKY8WJKm1fsUXuVNeoX7ayENaSmR6L2KNoJN48ZAJwtWeU",
+  "description": "Robot task disruptions and recovery demos for VLA training",
+  "github": "https://github.com/fast-thinker/kenju",
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "registered_at": 8460646,
+  "tempo": 360,
+  "active": true,
+  "block": 9300804,
+  "related": [],
+  "market": {
+    "price": 0.001001973,
+    "moving_price": 0.000985938124358654,
+    "market_cap": 979.6372093800056,
+    "tao_in": 336.931618472,
+    "alpha_in": 336268.096430002,
+    "alpha_out": 641440.094688926,
+    "volume": 84122.94230311,
+    "vol_24h": 239.74767299499945,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -3.390673766968566,
+    "change_7d": 17.070699989484382
+  },
+  "spark_24h": [
+    0.001037139,
+    0.001046823,
+    0.001046929,
+    0.001045969,
+    0.001049747,
+    0.001049747,
+    0.001049271,
+    0.001050315,
+    0.001050061,
+    0.001050668,
+    0.001056648,
+    0.001057256,
+    0.00105778,
+    0.00105778,
+    0.001069528,
+    0.001069528,
+    0.001070184,
+    0.001070091,
+    0.001076227,
+    0.001082397,
+    0.001081934,
+    0.001043509,
+    0.001043505,
+    0.001046541,
+    0.000873427,
+    0.000967427,
+    0.000964653,
+    0.000934443,
+    0.000953075,
+    0.000940933,
+    0.000942662,
+    0.000942652,
+    0.0009413,
+    0.000931251,
+    0.000931251,
+    0.000931251,
+    0.000931242,
+    0.000936981,
+    0.000939842,
+    0.000942647,
+    0.000942647,
+    0.000942476,
+    0.000942476,
+    0.000942476,
+    0.000942475,
+    0.00094536,
+    0.000957264,
+    0.001001973
+  ],
+  "trades_24h": {
+    "trades": 177,
+    "buys": 115,
+    "sells": 62,
+    "buy_tao": 116.971763971,
+    "sell_tao": 121.824424928,
+    "net_tao": -4.852660956999998,
+    "traders": 43
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.157380647999999,
+      "gross_tao": 61.898436814,
+      "trades": 44
+    },
+    {
+      "coldkey": "5DnndN6UV7eEfEtsZnmqakv7S8RgVbFW7pkjaHyQi46dRKte",
+      "net_tao": -32.856437478000004,
+      "gross_tao": 32.856437478000004,
+      "trades": 4
+    },
+    {
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.41918248800000013,
+      "gross_tao": 26.419182488,
+      "trades": 7
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.03838249000000005,
+      "gross_tao": 16.03838249,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DoZHfuhXp4hPcFiDcwPFWvxv2tHk7qrKkV6o4L7tET7qCPF",
+      "net_tao": -0.13268379900000005,
+      "gross_tao": 12.132683799,
+      "trades": 8
+    }
+  ],
+  "news": [
+    {
+      "ts": 1792071975,
+      "kind": "commit",
+      "source": "github",
+      "title": "first commit",
+      "url": "https://github.com/fast-thinker/kenju/commit/055c22a2a5b4d8e03fa2e07949b7bf52f096a5de",
+      "publisher": "fast-thinker/kenju"
+    }
+  ],
+  "updated": 1792215661,
+  "updated_day": "2026-10-17"
+}

@@ -1,6 +1,6 @@
 [package]
 name = "x-rs"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "X (Twitter) API v2 MCP server — Rust backend for the x mod"
 
