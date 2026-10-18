@@ -35,13 +35,15 @@ import { useAuth } from "../context/AuthContext";
 import EquityChart from "./EquityChart";
 import Sparkline from "./Sparkline";
 
-/** `pool` is the server sort the board is pulled under. STEADY is computed
-    here from each row's copy replay, so it re-ranks the top-PROFIT pool. */
+/** `pool` is the server sort the board is pulled under. STEADY and PROFIT %
+    are computed here from each row's copy replay, so they re-rank the
+    top-PROFIT pool; `usd` and the rest are the server's own order. */
 const SORTS = [
-  { key: "steady", label: "STEADY", pool: "pnl" },
-  { key: "pnl", label: "PROFIT", pool: "pnl" },
-  { key: "roi", label: "ROI", pool: "roi" },
-  { key: "volume", label: "VOLUME", pool: "volume" },
+  { key: "steady", label: "STEADY", pool: "pnl", local: true },
+  { key: "pct", label: "PROFIT %", pool: "pnl", local: true },
+  { key: "usd", label: "PROFIT $", pool: "pnl", local: false },
+  { key: "roi", label: "ROI", pool: "roi", local: false },
+  { key: "volume", label: "VOLUME", pool: "volume", local: false },
 ] as const;
 
 /** Hover has to settle before a replay fires — sweeping the mouse down the
@@ -88,6 +90,13 @@ export default function CopyStudio() {
 
   // ── Board ──
   const [sort, setSort] = useState<string>("steady");
+  // Click the active sort again to flip it (worst first).
+  const [asc, setAsc] = useState(false);
+  const pickSort = (k: string) => {
+    if (k === sort) setAsc((v) => !v);
+    else { setSort(k); setAsc(false); }
+  };
+  const isLocal = SORTS.find((x) => x.key === sort)?.local ?? false;
   const pool = SORTS.find((x) => x.key === sort)?.pool ?? "pnl";
   const [search, setSearch] = useState("");
   const [topic, setTopic] = useState("");
@@ -101,7 +110,7 @@ export default function CopyStudio() {
     setBoardState("loading");
     const t = setTimeout(() => {
       fetchTradersPage({
-        days, sort: pool, order: "desc", page: 0, pageSize: PAGE_SIZE,
+        days, sort: pool, order: !isLocal && asc ? "asc" : "desc", page: 0, pageSize: PAGE_SIZE,
         search: search.trim() || undefined,
         marketQuery: topic.trim() || undefined,
         maxLastTradeHrs: activeOnly ? 24 : 0,
@@ -115,7 +124,7 @@ export default function CopyStudio() {
         .catch(() => live && setBoardState("error"));
     }, 300);
     return () => { live = false; clearTimeout(t); };
-  }, [days, pool, search, topic, activeOnly]);
+  }, [days, pool, search, topic, activeOnly, isLocal, asc]);
 
   // ── Highlight ──
   const [hovered, setHovered] = useState<string | null>(null);
@@ -213,14 +222,21 @@ export default function CopyStudio() {
   const [boardHot, setBoardHot] = useState(false);
   const heldOrder = useRef<string[]>([]);
   const rows = useMemo(() => {
-    if (sort !== "steady") return traders;
+    if (!isLocal) return traders;
     if (boardHot && heldOrder.current.length > 0) {
       const at = new Map(heldOrder.current.map((a, i) => [a, i]));
       return [...traders].sort((x, y) =>
         (at.get(x.address.toLowerCase()) ?? 1e9) - (at.get(y.address.toLowerCase()) ?? 1e9));
     }
-    return rankByScore(traders, (t) => scores.get(t.address.toLowerCase())?.score ?? null);
-  }, [traders, scores, sort, boardHot]);
+    const keyOf = (t: TopTrader): number | null => {
+      const a = t.address.toLowerCase();
+      if (sort === "steady") return scores.get(a)?.score ?? null;
+      const sim = sleeveBy.get(a) ?? rowSims.get(a);
+      return sim && sim.trades > 0 ? sim.pct : null;
+    };
+    // Unreplayed rows stay at the bottom either way.
+    return rankByScore(traders, (t) => { const v = keyOf(t); return v == null ? null : asc ? -v : v; });
+  }, [traders, scores, rowSims, sleeveBy, sort, asc, isLocal, boardHot]);
   useEffect(() => { heldOrder.current = rows.map((t) => t.address.toLowerCase()); }, [rows]);
   const replayed = traders.filter((t) => loaded.has(t.address.toLowerCase())).length;
   const shares = weights(legs);
@@ -311,11 +327,13 @@ export default function CopyStudio() {
               <button
                 key={s.key}
                 type="button"
-                onClick={() => setSort(s.key)}
+                onClick={() => pickSort(s.key)}
                 className={`pixel-btn btn-xs ${sort === s.key ? "border-pixel-green text-pixel-green" : ""}`}
-                title={s.key === "steady" ? "Most consistent to copy first — scored from each trader's copy backtest. Press HOW IT'S SCORED to see and change the mix." : undefined}
+                title={s.key === "steady" ? "Most consistent to copy first — scored from each trader's copy backtest. Press HOW IT'S SCORED to see and change the mix."
+                  : s.key === "pct" ? "Biggest % return if you had copied them (the IF COPIED column) — fair across big and small traders"
+                  : "Press again to flip the order"}
               >
-                {s.label}
+                {s.label}{sort === s.key ? (asc ? " ↑" : " ↓") : ""}
               </button>
             ))}
             <button
@@ -376,13 +394,13 @@ export default function CopyStudio() {
                 <tr className="text-[9px] tracking-[0.14em] text-pixel-gray text-left">
                   <th className="px-2 py-1.5 w-8" />
                   <th className="px-2 py-1.5">TRADER</th>
-                  <th className="px-2 py-1.5 text-right">PROFIT {days}D</th>
-                  <th className="px-2 py-1.5 text-right">VOLUME</th>
+                  <SortTh k="usd" sort={sort} asc={asc} onPick={pickSort}>PROFIT {days}D</SortTh>
+                  <SortTh k="volume" sort={sort} asc={asc} onPick={pickSort}>VOLUME</SortTh>
                   <th className="px-2 py-1.5 text-right">WIN</th>
                   <th className="px-2 py-1.5 text-right">LAST</th>
                   <th className="px-2 py-1.5">CURVE</th>
-                  <th className="px-2 py-1.5 text-right">IF COPIED</th>
-                  <th className="px-2 py-1.5 text-right" title="0–100: how consistent copying them would have been. HOW IT'S SCORED shows the mix.">STEADY</th>
+                  <SortTh k="pct" sort={sort} asc={asc} onPick={pickSort} title="% return if you had copied them — click to sort">IF COPIED</SortTh>
+                  <SortTh k="steady" sort={sort} asc={asc} onPick={pickSort} title="0–100: how consistent copying them would have been. HOW IT'S SCORED shows the mix. Click to sort.">STEADY</SortTh>
                 </tr>
               </thead>
               <tbody
@@ -455,7 +473,7 @@ export default function CopyStudio() {
               <p className="px-2 py-1.5 font-mono text-[9.5px] text-pixel-gray border-t border-pixel-border/60">
                 top {traders.length} of {boardTotal.toLocaleString()} · each row backtested at {fmtUsd(previewUsd)}
                 {replayed < traders.length ? ` · replaying ${replayed}/${traders.length}…` : ""}
-                {sort === "steady" ? " · ranked by STEADY" : ""}
+                {sort === "steady" ? " · ranked by STEADY" : sort === "pct" ? " · ranked by % return if copied" : ""}
               </p>
             )}
           </div>
@@ -659,5 +677,21 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
       <div className="text-[8.5px] tracking-[0.12em] text-pixel-gray">{label}</div>
       <div className="text-pixel-white">{value}</div>
     </div>
+  );
+}
+
+/** A header you can click to sort by; the active one shows its direction. */
+function SortTh({ k, sort, asc, onPick, title, children }: {
+  k: string; sort: string; asc: boolean; onPick: (k: string) => void; title?: string; children: React.ReactNode;
+}) {
+  const on = sort === k;
+  return (
+    <th
+      onClick={() => onPick(k)}
+      title={title ?? "Click to sort"}
+      className={`px-2 py-1.5 text-right cursor-pointer select-none hover:text-pixel-white ${on ? "text-pixel-green" : ""}`}
+    >
+      {children}{on ? (asc ? " ↑" : " ↓") : ""}
+    </th>
   );
 }
