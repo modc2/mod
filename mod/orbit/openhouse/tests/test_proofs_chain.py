@@ -115,6 +115,26 @@ def test_eth_verifier_end_to_end(tmp_path):
         s = stranger.proof_issue(tenant=CAST['jonah'], amount=620_000, period=202611)
         refused = stranger.proof_submit(s['nullifier'], chain='eth', address=addr, url=url)
         assert 'not an active bank' in refused['error'], refused
+
+        # the post-quantum door: seat the bank's OHX-KECCAK key, relay a
+        # hash-based signature, the contract burns the one-time leaf
+        ohx = oh.proof_pq()['keys']['ohx']
+        assert send(c.functions.setPQBank(bytes.fromhex(ohx['pub_seed'][2:]), bytes.fromhex(ohx['root'][2:]),
+                                          'Testnet Bank PQ', True)).status == 1
+        q = oh.proof_issue(tenant=CAST['maya'], amount=620_000, period=202612)
+        leaf = int(q['sig']['pq']['ohx'][2:10], 16)
+        res = oh.proof_submit(q['nullifier'], chain='eth', address=addr, url=url, door='pq')
+        assert res.get('ok') and res['door'] == 'pq', res
+        assert c.functions.paid(1, 202612).call() is True
+        assert c.functions.leafUsed(bytes.fromhex(ohx['id'][2:]), leaf).call() is True
+
+        # Q-day: shut the ECDSA door for good; the hash-based door still books rent
+        assert send(c.functions.requirePQ()).status == 1
+        assert c.functions.pqRequired().call() is True
+        late = oh.proof_issue(tenant=CAST['maya'], amount=620_000, period=202701)
+        closed = oh.proof_submit(late['nullifier'], chain='eth', address=addr, url=url)
+        assert 'classical door closed' in closed['error'], closed
+        assert oh.proof_submit(late['nullifier'], chain='eth', address=addr, url=url, door='pq').get('ok')
     finally:
         anvil.kill()
         anvil.wait()

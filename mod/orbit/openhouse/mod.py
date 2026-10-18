@@ -1426,17 +1426,19 @@ class Mod:
             return r
         return {**r, 'chains': self._proofs().chain_status(r)}
 
-    def proof_verify(self, receipt=None, nullifier: str = '') -> dict:
-        """Anyone, offline: recompute the fact, check both bank signatures,
+    def proof_verify(self, receipt=None, nullifier: str = '', policy: str = 'auto') -> dict:
+        """Anyone, offline: recompute the fact, check every bank signature,
         the statement version and the program hash this node runs. Pass a
-        receipt object (any node's) or a nullifier known here."""
+        receipt object (any node's) or a nullifier known here. policy:
+        'classical' | 'hybrid' | 'pq' (post-quantum only — what still counts
+        after Q-day) | 'auto' (hybrid when the receipt carries PQ sigs)."""
         floor = None
         try:
             floor = self._proofs_mod().units(self.terms().get('monthly_rent') or 0) or None
         except Exception:
             pass
         return self._proof_run(self._proofs().verify, receipt=receipt, nullifier=nullifier,
-                               rent_due_floor=floor)
+                               rent_due_floor=floor, policy=policy or 'auto')
 
     def proof_open(self, tenant: str, salt: str, receipt=None, nullifier: str = '') -> dict:
         """The tenant's move: show (tenant, salt) to whoever needs convincing;
@@ -1460,21 +1462,52 @@ class Mod:
                 'tenant_felt': pm.hex32(pm.tenant_felt(tenant))}
 
     def proof_submit(self, nullifier: str, chain: str = 'near', account: str = '',
-                     address: str = '', url: str = '', signer: str = '', key: str = '') -> dict:
+                     address: str = '', url: str = '', signer: str = '', key: str = '',
+                     door: str = 'classical') -> dict:
         """Relay a receipt to a verifier: chain='near' (the wasm contract,
         signed by the orbit/near keystore) or 'eth' (OpenHouseProofs.sol,
         signed by the issuer's own key unless key= is given). The chain
         re-checks the signature, the program hash, the property's rent due
-        and burns the nullifier."""
+        and burns the nullifier. door='pq' uses the post-quantum door
+        (OHX-KECCAK, hash-based) instead of ed25519/ECDSA."""
+        if door not in ('classical', 'pq'):
+            return {'error': "door must be 'classical' or 'pq'"}
         p = self._proofs()
         r = p.get(nullifier) if nullifier else None
         if r is None:
             return {'error': 'no such receipt'}
         if chain == 'near':
-            return self._proof_run(p.submit_near, r, account=account, signer=signer)
+            return self._proof_run(p.submit_near, r, account=account, signer=signer, door=door)
         if chain in ('eth', 'ethereum'):
-            return self._proof_run(p.submit_eth, r, address=address, url=url, key=key)
+            return self._proof_run(p.submit_eth, r, address=address, url=url, key=key, door=door)
         return {'error': "chain must be 'near' or 'eth'"}
+
+    def proof_pq(self) -> dict:
+        """Post-quantum capacity: this bank's PQ keys (OHX-KECCAK hash-based,
+        verified on Ethereum + NEAR; ML-DSA-65 lattice, offline), one-time
+        leaves left, receipts still classical-only, and the threat model —
+        what a quantum computer breaks here and what it does not."""
+        return self._proof_run(self._proofs().pq_status)
+
+    def proof_pq_upgrade(self, nullifier: str = '', key: str = '') -> dict:
+        """Countersign classical-only receipts (one, or all) with the PQ
+        keys. Facts are unchanged; the receipt gains a quantum-safe
+        signature. Operator bank key off testnet."""
+        if self.network != 'testnet':
+            blocked = self._bank_gate(key, kind='proof')
+            if blocked:
+                return blocked
+        return self._proof_run(self._proofs().pq_upgrade, nullifier)
+
+    def proof_pq_rotate(self, key: str = '') -> dict:
+        """Retire the OHX-KECCAK key (65,536 one-time leaves) and draw a new
+        one. Seat the new key on-chain (setPQBank / set_pq_bank) before
+        using the PQ door with it. Operator bank key off testnet."""
+        if self.network != 'testnet':
+            blocked = self._bank_gate(key, kind='proof')
+            if blocked:
+                return blocked
+        return self._proof_run(self._proofs().pq_rotate)
 
     def proof_chain(self, nullifier: str) -> dict:
         """Ask both verifiers whether this receipt's property/period is paid."""
@@ -1569,6 +1602,11 @@ class Mod:
             pub = p.issuer().public()
             steps.append({'step': 'set_bank', 'result': near.call(
                 target, 'set_bank', {'bank': pub['near'], 'name': bank_name or pub['name'], 'active': True},
+                account_id=owner, network=network)})
+            ohx = pub['pq']['ohx']
+            steps.append({'step': 'set_pq_bank', 'result': near.call(
+                target, 'set_pq_bank', {'pub_seed': ohx['pub_seed'], 'root': ohx['root'],
+                                        'name': (bank_name or pub['name']) + ' (post-quantum)', 'active': True},
                 account_id=owner, network=network)})
             due = int(rent_due) if rent_due not in (None, '') else pm.units(self.terms().get('monthly_rent') or 0) or 1
             steps.append({'step': 'register_property', 'result': near.call(
@@ -1979,13 +2017,23 @@ class Mod:
          'period), amount >= rent due. Private: who paid and how much. Public: '
          'that the rent for this home, this month, was paid.'),
         ('near/src/lib.rs', 'rust',
-         'The NEAR verifier (WASM): checks the bank\'s ed25519 signature over '
-         'the fact keccak256(program_hash || keccak256(outputs)), pins the '
-         'program hash and the property\'s rent due, burns the nullifier.'),
+         'The NEAR verifier (WASM): checks the bank\'s ed25519 signature — or '
+         'its post-quantum OHX-KECCAK signature — over the fact keccak256('
+         'program_hash || keccak256(outputs)), pins the program hash and the '
+         'property\'s rent due, burns the nullifier.'),
         ('contracts/OpenHouseProofs.sol', 'solidity',
          'The Ethereum verifier: the same fact, carried by the bank\'s ECDSA '
-         'signature today or a STARK fact registry (SHARP) tomorrow — one '
-         'proof books one month once, and nothing about the tenant is stored.'),
+         'signature, its post-quantum hash-based signature, or a STARK fact '
+         'registry (SHARP) — one proof books one month once, nothing about the '
+         'tenant is stored, and requirePQ() shuts the ECDSA door for good.'),
+        ('pq.py', 'python',
+         'Post-quantum capacity: OHX-KECCAK, a hash-based signature built from '
+         'keccak alone (so Ethereum and NEAR verify it today), plus ML-DSA-65 '
+         '(NIST FIPS 204). A quantum computer forges ed25519 and ECDSA; it '
+         'cannot forge these.'),
+        ('contracts/OHX.sol', 'solidity',
+         'The post-quantum signature check on Ethereum: WOTS+ chains and a '
+         'two-layer Merkle hypertree, keccak only, ~350k gas.'),
         ('contracts/OpenHouse.sol', 'solidity',
          'The single-renter contract: rent credited as principal, the quarterly '
          'BLOCTIME pool, governance. Rent is payable in any approved token — '

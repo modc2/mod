@@ -266,15 +266,56 @@ Keys can be **listed and bought**: the buyer takes the entry with its
 remaining lease and bond. Human-readable keys are the point of a namespace
 market — you cannot bid on something you cannot say.
 
-## Consensus, honestly
+## Consensus, modular
 
-Single proposer — authority, not agreement. What is real is the ordered log
-(`blocks.jsonl`), deterministic execution, and a state root anyone can
-recompute: `pq_verify` replays every block from genesis and re-checks every
-parent link, header hash, transaction root, state root and proposer
-signature, which is the check that would still matter under any consensus.
-`pq_prove` returns a Merkle path from any key to the state root — what a
-light client needs to trust a commitment without holding the store.
+The rule for who may extend the chain is an **engine** (`src/consensus.py`),
+and the chain can move from one engine to another without a fork:
+
+| engine | who proposes | final when | survives |
+|---|---|---|---|
+| `authority` | one key | its seal | nothing — the original rule |
+| `roundrobin` | validator (height+round) mod n | the proposer's seal | n-1 silent validators (round timeout skips them) |
+| `bft` | rotating | > 2/3 of voting power signed | f < n/3 byzantine; halts rather than forks |
+| `pos` | SHA3 lottery over the parent hash, weighted by balance | > 2/3 of stake signed | < 1/3 faulty stake |
+| `pow` | anyone whose header hash has `difficulty` zero bits | the work + the miner's seal | honest hash majority (Grover halves a quantum miner's bits) |
+
+Anything else is a plugin: a `.py` with `register(consensus)` in
+`src/consensus.d/` or `~/.mod/postquant/consensus/`, subclassing `Engine`
+(`proposer`, `quorum`, `header_fields`, `check`).
+
+**Post-quantum all the way down.** Every proposer seal and every vote is a
+signature under one of the chain's key types, and validators may mix them —
+ML-DSA-44 next to SLH-DSA next to a composite. No engine uses a curve, a
+pairing or a classical VRF: leader election is a SHA3 lottery, work is SHA3
+hashcash. With `require_pq` (default) a validator key must score SAFE and
+must not be few/one-time (a validator signs every block and would wear a
+CAIRO-MSS key out); private key types can never validate, because a vote has
+to be checkable by everyone.
+
+**Migration is a block.** `pq_consensus action=migrate engine=bft create=4
+schemes=ML-DSA-44,SLH-DSA-SHAKE-128f` queues an epoch `{engine, from_height,
+params, validators, require_pq}`; the next block carries it in its header as
+`migrate`, sealed (and committed) under the engine it replaces — so the old
+consensus authorises the new one. Chains created before 0.13 are a *legacy
+authority* epoch: same key, no new header fields, every old hash unchanged
+(the live 35k-block chain re-verifies clean). New chains can start on any
+engine with `POSTQUANT_CONSENSUS`.
+
+**Votes from other machines.** Keys this node holds vote locally. When their
+power is below quorum the block waits as a proposal: `action=proposal` gives
+the `vote_message` (SHA3 over chain id, height, round, hash; context
+`postquant/vote/v1`), a remote validator signs it with its own key and posts
+`action=vote validator=… sig=…` — no bearer needed, the signature is the
+credential. A proposal without quorum expires after `POSTQUANT_ROUND_SECONDS`
+and the next round's proposer tries.
+
+**What it still is not.** One node, one log: no gossip, no fork choice. An
+engine here is the RULE for which blocks are valid, applied identically by
+`produce()` and by `pq_verify`, which replays every block from genesis,
+rebuilds the engine schedule from the headers and re-checks every parent
+link, header hash, transaction root, state root, seal, commit and PoW target
+against the epoch live at that height. `pq_prove` returns a Merkle path from
+any key to the state root — what a light client needs.
 
 ## Run it
 
@@ -292,7 +333,7 @@ python3 -m pytest tests -q     # the suite, against a throwaway chain
 ## Ask it
 
 The chain speaks the fleet's agent contract, so you can just say what you
-want — in the console's ASK tab, over HTTP, or from the shell:
+want — in the console's corner ? orb, over HTTP, or from the shell:
 
 ```
 python3 src/agent.py "create wallet alice then faucet 100 to alice"

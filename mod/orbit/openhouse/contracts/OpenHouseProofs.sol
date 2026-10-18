@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {OHX} from "./OHX.sol";
+
 /// @notice A STARK fact registry (StarkWare's SHARP publishes Cairo program
 /// facts as keccak256(programHash ‖ keccak256(outputs))). Optional door.
 interface IFactRegistry {
@@ -20,9 +22,15 @@ interface IFactRegistry {
 /// books one month once. This contract never runs Cairo. It checks a FACT,
 /// keccak256(programHash ‖ keccak256(outputs)), carried one of two ways:
 ///
-///   submit(outputs, sig)   the bank signed the fact (ECDSA, personal_sign)
-///   submitFact(outputs)    a STARK of the same program landed in a fact
-///                          registry — same fact, same outputs, no new ABI
+///   submit(outputs, sig)        the bank signed the fact (ECDSA, personal_sign)
+///   submitPQ(outputs, key, sig) the bank signed the fact with OHX-KECCAK, a
+///                               hash-based post-quantum signature (OHX.sol)
+///   submitFact(outputs)         a STARK of the same program landed in a fact
+///                               registry — same fact, same outputs, no new ABI
+///
+/// Post-quantum: ECDSA falls to Shor; keccak and STARKs do not. The owner can
+/// call requirePQ() — one way, no undo — after which the ECDSA door is shut
+/// and only the hash-based doors (submitPQ, submitFact) book rent.
 ///
 /// Both doors pin the program hash, require the attested rent due to cover
 /// the property's, refuse a spent nullifier and a period already proven.
@@ -32,12 +40,17 @@ contract OpenHouseProofs {
     uint256 public constant N_OUTPUTS = 6;
     uint8 public constant KIND_ATTESTED = 1;
     uint8 public constant KIND_STARK = 2;
+    uint8 public constant KIND_PQ = 3;
 
     address public owner;
     bytes32 public programHash;
     IFactRegistry public registry;
+    /// Once true, never false: the ECDSA door is closed for good.
+    bool public pqRequired;
 
     struct Bank { string name; bool active; uint64 since; }
+    /// A bank's post-quantum key, keyed by OHX.keyId(pubSeed, root).
+    struct PQBank { string name; bool active; uint64 since; bytes32 pubSeed; bytes32 root; }
     struct Property { address owner; uint256 rentDue; bool exists; string label; }
     struct Receipt {
         bytes32 commitment;
@@ -47,11 +60,16 @@ contract OpenHouseProofs {
         uint256 rentDue;   // as attested
         uint64 at;
         uint8 kind;
+        bytes32 pqKey;     // the OHX key id for KIND_PQ, else 0
     }
 
     mapping(address => Bank) public banks;
     mapping(uint256 => Property) public properties;
     mapping(bytes32 => bool) public spent;
+    mapping(bytes32 => PQBank) public pqBanks;
+    /// Every one-time leaf a PQ key has spent here. A leaf signs once; a
+    /// second signature from the same leaf is refused even if it verifies.
+    mapping(bytes32 => mapping(uint256 => bool)) public leafUsed;
     mapping(uint256 => mapping(uint256 => Receipt)) private _receipts;
     uint256 public count;
 
@@ -59,6 +77,9 @@ contract OpenHouseProofs {
     event ProgramHashSet(bytes32 programHash);
     event RegistrySet(address registry);
     event BankSet(address indexed bank, string name, bool active);
+    event PQBankSet(bytes32 indexed key, bytes32 pubSeed, bytes32 root, string name, bool active);
+    event PQRequired();
+    event PQLeafSpent(bytes32 indexed key, uint256 leaf);
     event PropertyRegistered(uint256 indexed id, address owner, uint256 rentDue, string label);
     event RentDueSet(uint256 indexed id, uint256 rentDue);
     event RentProven(
@@ -106,6 +127,29 @@ contract OpenHouseProofs {
         b.active = active;
         if (b.since == 0) b.since = uint64(block.timestamp);
         emit BankSet(bank, name, active);
+    }
+
+    /// Seat (or deactivate) a bank's OHX-KECCAK key. Returns its id.
+    function setPQBank(bytes32 pubSeed, bytes32 root, string calldata name, bool active)
+        external onlyOwner returns (bytes32 key)
+    {
+        require(pubSeed != 0 && root != 0, "pq key required");
+        key = OHX.keyId(pubSeed, root);
+        PQBank storage b = pqBanks[key];
+        b.name = name;
+        b.active = active;
+        b.pubSeed = pubSeed;
+        b.root = root;
+        if (b.since == 0) b.since = uint64(block.timestamp);
+        emit PQBankSet(key, pubSeed, root, name, active);
+    }
+
+    /// Q-day switch. One way: after this the ECDSA door never opens again,
+    /// even for a forged owner key, because there is no setter back.
+    function requirePQ() external onlyOwner {
+        require(!pqRequired, "already required");
+        pqRequired = true;
+        emit PQRequired();
     }
 
     function registerProperty(uint256 id, address pOwner, uint256 rentDue, string calldata label)
@@ -167,6 +211,7 @@ contract OpenHouseProofs {
         why = check(o);
         f = fact(o);
         signer = recover(f, sig);
+        if (bytes(why).length == 0 && pqRequired) why = "classical door closed: post-quantum signature required";
         if (bytes(why).length == 0 && !banks[signer].active) why = "signer is not an active bank";
         ok = bytes(why).length == 0;
     }
@@ -175,12 +220,47 @@ contract OpenHouseProofs {
 
     /// The bank attested: it ran the program and signed the fact.
     function submit(uint256[] calldata o, bytes calldata sig) external returns (bytes32 f) {
+        require(!pqRequired, "classical door closed: post-quantum signature required");
         string memory why = check(o);
         require(bytes(why).length == 0, why);
         f = fact(o);
         address bank = recover(f, sig);
         require(banks[bank].active, "signer is not an active bank");
-        _record(o, f, bank, KIND_ATTESTED);
+        _record(o, f, bank, KIND_ATTESTED, 0);
+    }
+
+    /// Every PQ rule as a reason ("" = fine). A view, never reverts.
+    function verifyPQ(uint256[] calldata o, bytes32 key, bytes calldata sig)
+        public view returns (bool ok, string memory why, bytes32 f)
+    {
+        why = check(o);
+        f = fact(o);
+        if (bytes(why).length == 0) why = _pqWhy(f, key, sig);
+        ok = bytes(why).length == 0;
+    }
+
+    function _pqWhy(bytes32 f, bytes32 key, bytes calldata sig) internal view returns (string memory) {
+        PQBank storage b = pqBanks[key];
+        if (!b.active) return "not an active post-quantum bank key";
+        uint256 leaf = OHX.leafOf(sig);
+        if (leaf >= OHX.CAPACITY) return "malformed post-quantum signature";
+        if (leafUsed[key][leaf]) return "one-time leaf already used";
+        if (!OHX.verify(b.pubSeed, b.root, f, sig)) return "bad post-quantum signature";
+        return "";
+    }
+
+    /// The bank attested with a hash-based signature — survives a quantum
+    /// computer. The leaf is burned so the one-time key can never sign twice here.
+    function submitPQ(uint256[] calldata o, bytes32 key, bytes calldata sig) external returns (bytes32 f) {
+        string memory why = check(o);
+        require(bytes(why).length == 0, why);
+        f = fact(o);
+        why = _pqWhy(f, key, sig);
+        require(bytes(why).length == 0, why);
+        uint256 leaf = OHX.leafOf(sig);
+        leafUsed[key][leaf] = true;
+        emit PQLeafSpent(key, leaf);
+        _record(o, f, address(0), KIND_PQ, key);
     }
 
     /// A STARK of the same program was verified on-chain: the registry
@@ -191,13 +271,13 @@ contract OpenHouseProofs {
         require(bytes(why).length == 0, why);
         f = fact(o);
         require(registry.isValid(f), "fact not proven");
-        _record(o, f, address(registry), KIND_STARK);
+        _record(o, f, address(registry), KIND_STARK, 0);
     }
 
-    function _record(uint256[] calldata o, bytes32 f, address bank, uint8 kind) internal {
+    function _record(uint256[] calldata o, bytes32 f, address bank, uint8 kind, bytes32 pqKey) internal {
         bytes32 nullifier = bytes32(o[5]);
         spent[nullifier] = true;
-        _receipts[o[1]][o[2]] = Receipt(bytes32(o[4]), nullifier, f, bank, o[3], uint64(block.timestamp), kind);
+        _receipts[o[1]][o[2]] = Receipt(bytes32(o[4]), nullifier, f, bank, o[3], uint64(block.timestamp), kind, pqKey);
         count += 1;
         emit RentProven(o[1], o[2], bytes32(o[4]), nullifier, f, bank, kind);
     }

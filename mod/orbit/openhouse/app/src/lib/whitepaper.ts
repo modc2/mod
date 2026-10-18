@@ -281,6 +281,35 @@ export const SECTIONS: PaperSection[] = [
     ],
     pull: "The chain learns that the rent was paid. The bank keeps who. The tenant keeps the key.",
   },
+  {
+    no: "12",
+    slug: "the-quantum",
+    kicker: "The Quantum",
+    title: "A receipt that outlives the curve.",
+    body: [
+      "A rent receipt is meant to last as long as a mortgage — thirty years. The signatures banks and " +
+        "blockchains use today will not. ed25519 and ECDSA rest on elliptic curves, and Shor's algorithm " +
+        "on a large enough quantum computer recovers the private key from the public one. On that day a " +
+        "forger could sign facts in a bank's name and \"prove\" rent nobody paid. Data signed today can be " +
+        "re-litigated then; the time to fix it is before.",
+      "Most of OpenHouse is already safe, because most of it is hashing. The commitment and the nullifier " +
+        "are Poseidon hashes; the fact is keccak; a STARK is a proof built from hashes with no trusted setup. " +
+        "A quantum computer only halves a hash's strength — 256 bits become 128, still out of reach. The weak " +
+        "link was the bank's signature, so every receipt now carries two more.",
+      "The first is built from keccak and nothing else: one-time Winternitz keys under a two-layer Merkle " +
+        "tree, the same family as the XMSS and SPHINCS+ standards. Because Ethereum and NEAR both hash keccak " +
+        "natively, both contracts verify it today — about 350,000 gas on Ethereum. Each key signs 65,536 " +
+        "receipts, once each; the bank reserves a leaf on disk before it signs, and the chain burns the leaf " +
+        "it accepts, so a one-time key can never be used twice. The second is ML-DSA, NIST's lattice standard " +
+        "(FIPS 204), checked off-chain by anyone.",
+      "Old receipts are not stranded: the fact never changes, so the bank countersigns them and they become " +
+        "quantum-safe in place. And each verifier has one switch — requirePQ on Ethereum, require_pq on NEAR — " +
+        "that closes the classical door for good. There is no function to open it again, so even a forged " +
+        "owner key cannot. What remains classical is honest: the chains' own accounts are curve keys, and " +
+        "rotate when the chains do.",
+    ],
+    pull: "Hashes survive the quantum computer. So the proof of rent is now made of hashes, end to end.",
+  },
 ]
 
 /** One section plus the two either side of it — everything a section page needs. */

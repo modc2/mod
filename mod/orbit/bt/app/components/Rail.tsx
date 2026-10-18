@@ -21,6 +21,7 @@ export const ROUTES: { group: string; items: { href: string; label: string; dot:
   { group: 'You', items: [
     { href: '/wallet', label: 'Wallet', dot: '#43b047' },
     { href: '/trade', label: 'Trade', dot: '#ff8c1a' },
+    { href: '/copy', label: 'Copy', dot: '#00c2a8' },
   ] },
   { group: 'Tools', items: [
     { href: '/chat', label: 'Chat', dot: '#8f7bff' },
@@ -39,6 +40,7 @@ const ICON: Record<string, string> = {
   '/news': 'M2.5 3.5h8.5v9.5h-7a1.5 1.5 0 0 1-1.5-1.5v-8ZM11 6h2.5v5.5a1.5 1.5 0 0 1-3 0M4.8 6.2h3.9M4.8 8.5h3.9M4.8 10.8h2.4',
   '/wallet': 'M2.5 4.5h10a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-8a1.5 1.5 0 0 1 1.5-1.5h8M10.6 9h1.2',
   '/trade': 'M3 5.5h10.5L11 3M13 10.5H2.5L5 13',
+  '/copy': 'M5.5 5.5h7v7h-7v-7ZM3.5 10.5V3.5h7',
   '/chat': 'M2.5 3.5h11v7.5H7l-3 2.5v-2.5H2.5v-7.5Z',
   '/console': 'M2 3h12v10H2V3ZM4.5 6.2 6.6 8l-2.1 1.8M8 10h3.5',
   '/docs': 'M4 1.8h5.5L12.5 5v9.2H4V1.8ZM9.3 1.8V5h3.2M6 8h4.5M6 10.5h4.5',

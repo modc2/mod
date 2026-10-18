@@ -147,16 +147,32 @@ export interface ProofReceipt {
   kind: string; version: number; program_hash: string; outputs: string[]
   property_id: number; period: number; rent_due: number
   commitment: string; nullifier: string; fact: string
-  bank: { name: string; near: string; near_hex: string; eth: string }
-  sig: { near: string; eth: string }
+  bank: { name: string; near: string; near_hex: string; eth: string; pq?: ProofPQKeys }
+  sig: { near: string; eth: string; pq?: { ohx?: string; mldsa65?: string } }
+  pq_upgraded?: number
   issued: number; note?: string
   source?: { bank?: string; txn?: string; booked_at_bank?: number; matched_by?: string }
   chain: Record<string, { ok?: boolean; hash?: string; explorer?: string; contract?: string; why?: string; at?: number }>
   chains?: Record<string, ProofChainInfo>
 }
 export interface ProofVerdict {
-  ok: boolean; checks: { claim: string; ok: boolean | null }[]; fact?: string; nullifier?: string
+  ok: boolean; checks: { claim: string; ok: boolean | null; pq?: boolean; ignored?: string }[]
+  fact?: string; nullifier?: string
   kind?: string; known_here?: boolean; error?: string
+  policy?: 'classical' | 'hybrid' | 'pq'; quantum?: { safe: boolean; says: string }
+}
+export interface ProofPQKeys {
+  ohx: { scheme: string; params: string; id: string; pub_seed: string; root: string }
+  mldsa65?: { scheme: string; pk: string; fingerprint: string; ctx: string }
+}
+export interface ProofPQ {
+  schemes: Record<string, { name: string; kind: string; sig_bytes?: number; available?: boolean; verified_on: string[] }>
+  keys: ProofPQKeys
+  leaves: { capacity: number; used: number; left: number; retired_keys: number; warning: string }
+  retired: { id: string; used: number; retired: number }[]
+  receipts: { total: number; pq: number; classical_only: string[] }
+  threats: { part: string; quantum: 'safe' | 'breakable'; why: string }[]
+  switch: string
 }
 export interface ProofStatus {
   program: { program_hash: string | null; built: boolean; scarb: boolean; path: string; version: number

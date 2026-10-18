@@ -51,8 +51,8 @@ h3 { margin: 0 0 8px; font: 600 12px var(--mono); letter-spacing: .1em;
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; padding: 12px 20px;
   border-bottom: 1px solid var(--edge);
-  background: color-mix(in srgb, var(--slab) 82%, transparent);
-  position: sticky; top: 0; z-index: 5; backdrop-filter: blur(8px);
+  background: var(--slab);
+  position: sticky; top: 0; z-index: 5;
 }
 .brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .name { font: 600 16px var(--mono); letter-spacing: .05em; }

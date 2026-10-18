@@ -404,7 +404,8 @@ def _t_proof_verify(args, oh):
             raise ToolError('receipt must be a JSON object')
     if not receipt and not args.get('nullifier'):
         raise ToolError('receipt or nullifier required')
-    return _ok(oh.proof_verify(receipt=receipt or None, nullifier=str(args.get('nullifier') or '')))
+    return _ok(oh.proof_verify(receipt=receipt or None, nullifier=str(args.get('nullifier') or ''),
+                               policy=str(args.get('policy') or 'auto')))
 
 
 def _t_proof_open(args, oh):
@@ -423,7 +424,19 @@ def _t_proof_submit(args, oh):
     return _ok(oh.proof_submit(_req(args, 'nullifier'), chain=str(args.get('chain') or 'near'),
                                account=str(args.get('account') or ''), address=str(args.get('address') or ''),
                                url=str(args.get('url') or ''), signer=str(args.get('signer') or ''),
-                               key=_key(args)))
+                               key=_key(args), door=str(args.get('door') or 'classical')))
+
+
+def _t_proof_pq(args, oh):
+    return _ok(oh.proof_pq())
+
+
+def _t_proof_pq_upgrade(args, oh):
+    return _ok(oh.proof_pq_upgrade(nullifier=str(args.get('nullifier') or ''), key=_key(args)))
+
+
+def _t_proof_pq_rotate(args, oh):
+    return _ok(oh.proof_pq_rotate(key=_key(args)))
 
 
 _KEY = {'type': 'string', 'description': 'operator bank key — required for any connection that is not the sandbox'}
@@ -984,6 +997,8 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {
             'receipt': {'type': 'object', 'description': 'the receipt as returned by openhouse_proof_issue'},
             'nullifier': {'type': 'string', 'description': 'or: a nullifier this node issued'},
+            'policy': {'type': 'string', 'enum': ['auto', 'classical', 'hybrid', 'pq'],
+                       'description': "which signatures must hold: 'pq' = post-quantum only (what still counts after Q-day); 'auto' (default) = hybrid when the receipt carries PQ signatures"},
         }},
         'handler': _t_proof_verify,
     },
@@ -1026,8 +1041,41 @@ TOOLS = {
             'url': {'type': 'string', 'description': 'Ethereum RPC url (default: configured)'},
             'signer': {'type': 'string', 'description': 'NEAR keystore account to sign with'},
             'key': {'type': 'string', 'description': 'Ethereum relayer private key (default: the issuer key); off testnet also the operator bank key'},
+            'door': {'type': 'string', 'enum': ['classical', 'pq'],
+                     'description': "'pq' = the post-quantum door (OHX-KECCAK hash-based signature, submitPQ / submit_pq); default classical"},
         }, 'required': ['nullifier']},
         'handler': _t_proof_submit,
+    },
+    'openhouse_proof_pq': {
+        'description': 'Post-quantum capacity of the proof rail: the bank\'s PQ '
+                       'keys (OHX-KECCAK hash-based — verified on Ethereum and '
+                       'NEAR today — and ML-DSA-65, NIST FIPS 204), one-time '
+                       'leaves left, receipts still classical-only, and the '
+                       'threat model: what a quantum computer breaks here and '
+                       'what it does not.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_proof_pq,
+    },
+    'openhouse_proof_pq_upgrade': {
+        'description': 'WRITES. Countersign classical-only receipts (one by '
+                       'nullifier, or all) with the post-quantum keys. The fact '
+                       'is unchanged; the receipt gains a signature a quantum '
+                       'computer cannot forge. Only receipts that verify today '
+                       'are countersigned. Operator bank key off testnet.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'nullifier': {'type': 'string', 'description': 'one receipt (default: every classical-only receipt)'},
+            'key': _KEY,
+        }},
+        'handler': _t_proof_pq_upgrade,
+    },
+    'openhouse_proof_pq_rotate': {
+        'description': 'WRITES. Retire the OHX-KECCAK key (65,536 one-time '
+                       'leaves) and draw a new one; old receipts keep verifying '
+                       'against the retired key they carry. Seat the new key '
+                       'on-chain before using the PQ door. Operator bank key '
+                       'off testnet.',
+        'inputSchema': {'type': 'object', 'properties': {'key': _KEY}},
+        'handler': _t_proof_pq_rotate,
     },
 }
 

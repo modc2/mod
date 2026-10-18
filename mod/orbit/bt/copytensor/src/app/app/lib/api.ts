@@ -28,10 +28,22 @@ import type {
 // Defined in next.config.js.
 const BASE = process.env.NEXT_PUBLIC_API_URL || "/copytensor/api";
 
+// Writes to the copy book are operator-only (src/api/write_gate.py). The key
+// is pasted once on bt's Copy page (/bt/copy) — same origin, same storage —
+// and rides along on every call; reads ignore it.
+function operatorHeader(): Record<string, string> {
+  try {
+    const t = JSON.parse(localStorage.getItem("bt.ct.token") || '""');
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    headers: { "Content-Type": "application/json", ...operatorHeader(), ...(init?.headers || {}) },
     cache: "no-store",
   });
   if (!r.ok)

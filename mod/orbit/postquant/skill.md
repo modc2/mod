@@ -32,12 +32,23 @@ API `:51030` (`/postquant/api`) · console `/postquant` · MCP `POST /mcp`
 
 Not for: blob storage (8KB value cap — store the hash, keep the blob in
 `arweave`/`lighthouse`/`store`), general smart contracts (seven tx kinds, no
-VM), or real value (single-proposer devnet; the faucet pays from genesis).
+VM), or real value (one-node devnet; the faucet pays from genesis).
+
+## Consensus is a plugin
+
+`pq_consensus` (GET/POST `/consensus`, console CHAIN ▸ Consensus): engines
+`authority | roundrobin | bft | pos | pow` + plugins in `src/consensus.d/`.
+`action=migrate engine=bft create=4 schemes=ML-DSA-44,SLH-DSA-SHAKE-128f`
+switches — the switch rides in the next block, sealed by the current engine,
+and `pq_verify` replays it. `pos` needs staked validators (`stake="1000"`
+funds new ones from the treasury); `pow difficulty=12`. Validator keys must be
+quantum-safe and many-time (`require_pq`, default). `action=proposal` /
+`action=vote validator= sig=` let remote validators finish a block's quorum.
 
 ## Or just ask
 
-`POST /run/stream {"query": "..."}` (or `/run` for JSON, or the console's ASK
-tab) — "create wallet alice then faucet 100 to alice then set notes/1 to hello
+`POST /run/stream {"query": "..."}` (or `/run` for JSON, or the console's
+corner ? orb) — "create wallet alice then faucet 100 to alice then set notes/1 to hello
 for 7 days from alice". Brains: `rules` (always on — a free local command
 parser), `chat` (auto-on when the liquidai module is up on this box: rules
 executes, the resident LFM answers conversationally and streams tokens; pass

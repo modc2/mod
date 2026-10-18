@@ -6,6 +6,9 @@
                         verifiers live (NEAR testnet account, Ethereum address).
      3. The receipts  — every receipt this node issued; pick one to read it,
                         verify it, open it.
+     3b. Quantum      — which parts a quantum computer breaks and which it cannot;
+                        the bank's post-quantum keys, leaves left, countersign
+                        old receipts.
      4. Try it        — issue a testnet receipt, paste any receipt to verify it,
                         open a commitment with a tenant + salt.
      5. For builders  — the three source files and the MCP tools. */
@@ -17,7 +20,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { NextUp, PageHead, Shell } from '../../components/chrome'
 import { Reveal } from '../../components/motion'
-import { ProofReceipt, ProofStatus, ProofVerdict, api, timeAgo, useResource } from '../../lib/api'
+import { ProofPQ, ProofReceipt, ProofStatus, ProofVerdict, api, timeAgo, useResource } from '../../lib/api'
 import { LAUNCH } from '../../lib/whitepaper'
 
 const short = (h?: string, n = 10) => (h ? `${h.slice(0, n)}…${h.slice(-6)}` : '—')
@@ -45,12 +48,14 @@ function Checks({ v }: { v: ProofVerdict }) {
     <div>
       <div className={`text-[11px] font-bold uppercase tracking-widest mb-3 ${v.ok ? 'text-emerald-400' : 'text-pink'}`}>
         {v.ok ? 'Verified' : 'Not verified'}{v.known_here === false && ' · issued elsewhere'}
+        {v.policy && <span className="text-white/45"> · policy {v.policy}</span>}
       </div>
+      {v.quantum && <p className={`text-sm mb-3 font-medium ${v.quantum.safe ? 'text-emerald-400' : 'text-white/60'}`}>{v.quantum.says}</p>}
       <ul className="grid gap-1.5 md:grid-cols-2">
         {v.checks.map((c, i) => (
-          <li key={i} className="flex gap-2 text-sm text-white/80">
-            <span className={c.ok ? 'text-emerald-400 font-bold' : c.ok === null ? 'text-white/40' : 'text-pink font-bold'}>{c.ok ? '✓' : c.ok === null ? '·' : '×'}</span>
-            <span>{c.claim}</span>
+          <li key={i} className={`flex gap-2 text-sm ${c.ignored ? 'text-white/35 line-through' : 'text-white/80'}`} title={c.ignored || ''}>
+            <span className={c.ignored ? 'text-white/35' : c.ok ? 'text-emerald-400 font-bold' : c.ok === null ? 'text-white/40' : 'text-pink font-bold'}>{c.ok ? '✓' : c.ok === null ? '·' : '×'}</span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">{c.claim}{c.pq && <span className="ml-1.5 text-[9px] font-bold uppercase tracking-widest text-emerald-400 no-underline">pq</span>}</span>
           </li>
         ))}
       </ul>
@@ -66,15 +71,28 @@ function ChainBadge({ label, info, tx }: { label: string; info?: { configured?: 
   return tx?.explorer ? <a href={tx.explorer} target="_blank" rel="noreferrer" className="hover:opacity-80">{inner}</a> : inner
 }
 
-function ReceiptCard({ r, onVerify, verdict, onSubmit, busy }: {
-  r: ProofReceipt; onVerify: () => void; verdict: ProofVerdict | null; onSubmit: (chain: 'near' | 'eth') => void; busy: string
+function QuantumBadge({ r }: { r: ProofReceipt }) {
+  const safe = !!r.sig?.pq?.ohx || !!r.sig?.pq?.mldsa65
+  return (
+    <span title={safe ? 'carries a hash-based (OHX-KECCAK) and lattice (ML-DSA-65) signature a quantum computer cannot forge' : 'ed25519 + ECDSA only — forgeable by a large quantum computer'}
+      className={`text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border ${safe ? 'text-emerald-400 border-emerald-500/30' : 'text-amber-300 border-amber-400/30'}`}>
+      {safe ? 'quantum-safe' : 'classical only'}
+    </span>
+  )
+}
+
+function ReceiptCard({ r, onVerify, verdict, onSubmit, onUpgrade, busy }: {
+  r: ProofReceipt; onVerify: (policy?: 'pq') => void; verdict: ProofVerdict | null
+  onSubmit: (chain: 'near' | 'eth') => void; onUpgrade: () => void; busy: string
 }) {
   const [raw, setRaw] = useState(false)
+  const hasPQ = !!r.sig?.pq?.ohx
   return (
     <div className="glass rounded-3xl p-6 md:p-8">
       <div className="flex flex-wrap items-baseline justify-between gap-3 mb-5">
         <h3 className="font-serif-ed text-2xl text-white">Property {r.property_id} · {period(r.period)}</h3>
         <div className="flex gap-2 flex-wrap">
+          <QuantumBadge r={r} />
           <ChainBadge label="NEAR" info={r.chains?.near} tx={r.chain?.near} />
           <ChainBadge label="Ethereum" info={r.chains?.eth} tx={r.chain?.eth} />
         </div>
@@ -89,6 +107,8 @@ function ReceiptCard({ r, onVerify, verdict, onSubmit, busy }: {
           ['Program hash', <Mono key="p" value={r.program_hash} />],
           ['Bank (NEAR key)', <Mono key="bn" value={r.bank?.near} />],
           ['Bank (Ethereum)', <Mono key="be" value={r.bank?.eth} />],
+          ['Bank (post-quantum)', r.bank?.pq ? <Mono key="bq" value={r.bank.pq.ohx.id} /> : <span key="bq" className="text-white/50">none — countersign it below</span>],
+          ['PQ signature', r.sig?.pq?.ohx ? `OHX-KECCAK leaf ${parseInt(r.sig.pq.ohx.slice(2, 10), 16)}${r.sig.pq.mldsa65 ? ' + ML-DSA-65' : ''}${r.pq_upgraded ? ' · countersigned later' : ''}` : '—'],
           ['Issued', `${timeAgo(r.issued)}${r.source?.txn ? ` · from bank txn ${r.source.txn}` : ''}`],
           ['Who paid', <span key="w" className="text-white/50">not in the receipt — only the tenant can open the commitment</span>],
         ] as [string, any][]).map(([k, v]) => (
@@ -96,7 +116,10 @@ function ReceiptCard({ r, onVerify, verdict, onSubmit, busy }: {
         ))}
       </dl>
       <div className="flex flex-wrap gap-2 mt-6">
-        <button className={BTN} onClick={onVerify} disabled={!!busy}>{busy === 'verify' ? 'Checking…' : 'Verify offline'}</button>
+        <button className={BTN} onClick={() => onVerify()} disabled={!!busy}>{busy === 'verify' ? 'Checking…' : 'Verify offline'}</button>
+        {hasPQ
+          ? <button className={GHOST} onClick={() => onVerify('pq')} disabled={!!busy} title="ignore ed25519/ECDSA, as you would after Q-day">Verify as after Q-day</button>
+          : <button className={GHOST} onClick={onUpgrade} disabled={!!busy}>{busy === 'upgrade' ? 'Signing…' : 'Make quantum-safe'}</button>}
         <button className={GHOST} onClick={() => onSubmit('near')} disabled={!!busy || !!r.chain?.near?.ok}>{busy === 'near' ? 'Sending…' : r.chain?.near?.ok ? 'On NEAR' : 'Submit to NEAR'}</button>
         <button className={GHOST} onClick={() => onSubmit('eth')} disabled={!!busy || !!r.chain?.eth?.ok}>{busy === 'eth' ? 'Sending…' : r.chain?.eth?.ok ? 'On Ethereum' : 'Submit to Ethereum'}</button>
         <button className={GHOST} onClick={() => setRaw(!raw)}>{raw ? 'Hide JSON' : 'Receipt JSON'}</button>
@@ -107,9 +130,69 @@ function ReceiptCard({ r, onVerify, verdict, onSubmit, busy }: {
   )
 }
 
+function QuantumSection({ pq, onUpgradeAll, busy }: { pq: ProofPQ | null; onUpgradeAll: () => void; busy: string }) {
+  if (!pq) return null
+  const used = pq.leaves.used / pq.leaves.capacity
+  const old = pq.receipts.classical_only.length
+  return (
+    <section>
+      <h2 className="headline text-4xl md:text-5xl text-white mb-3">Ready for the quantum computer.</h2>
+      <p className="font-serif-ed text-lg text-white/68 mb-8 max-w-3xl">
+        ed25519 and ECDSA fall to Shor&apos;s algorithm: whoever runs a large enough quantum computer could forge a bank&apos;s
+        signature and &ldquo;prove&rdquo; rent nobody paid. Hashes don&apos;t fall that way. So every receipt also carries a
+        signature built from keccak alone — which Ethereum and NEAR can already check — and a NIST lattice signature.
+      </p>
+      <div className="grid gap-4 md:grid-cols-3 mb-4">
+        <div className="glass rounded-2xl p-5">
+          <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">On-chain, today</div>
+          <div className="text-white font-bold text-sm mb-1">{pq.schemes.ohx?.name} · hash-based</div>
+          <p className="text-[12px] text-white/55 leading-snug mb-2">WOTS+ one-time keys under a Merkle hypertree. {pq.schemes.ohx?.sig_bytes?.toLocaleString()} bytes, checked by Solidity and the NEAR contract.</p>
+          <div className="text-[11px] text-white/50">key id</div><Mono value={pq.keys.ohx.id} />
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Off-chain, standard</div>
+          <div className="text-white font-bold text-sm mb-1">ML-DSA-65 · NIST FIPS 204</div>
+          <p className="text-[12px] text-white/55 leading-snug mb-2">Lattice-based and stateless. Too heavy for a chain today; anyone verifies it offline.</p>
+          {pq.keys.mldsa65 ? <><div className="text-[11px] text-white/50">fingerprint</div><Mono value={pq.keys.mldsa65.fingerprint} /></>
+            : <p className="text-[12px] text-amber-300">not available on this node</p>}
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <div className="text-[10px] uppercase tracking-widest text-white/40 mb-2">One-time signatures left</div>
+          <div className="text-white font-display font-black text-3xl">{pq.leaves.left.toLocaleString()}</div>
+          <div className="h-1.5 rounded-full bg-white/10 mt-2 overflow-hidden"><div className="h-full bg-emerald-400" style={{ width: `${Math.max(used * 100, 0.5)}%` }} /></div>
+          <p className="text-[12px] text-white/55 mt-2">of {pq.leaves.capacity.toLocaleString()} · each signs once, then the key rotates{pq.leaves.retired_keys ? ` · ${pq.leaves.retired_keys} retired` : ''}</p>
+          {pq.leaves.warning && <p className="text-[12px] text-amber-300 mt-1">{pq.leaves.warning}</p>}
+        </div>
+      </div>
+      <div className="glass rounded-2xl p-5 md:p-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-3 mb-4">
+          <div className="text-white font-bold">What a quantum computer breaks here</div>
+          <div className="text-[12px] text-white/55">{pq.receipts.pq} of {pq.receipts.total} receipts quantum-safe</div>
+        </div>
+        <ul className="divide-y divide-white/[0.06]">
+          {pq.threats.map(t => (
+            <li key={t.part} className="py-2.5 grid gap-1 md:grid-cols-[16rem_7rem_1fr] md:items-baseline">
+              <span className="text-sm text-white">{t.part}</span>
+              <span className={`text-[10px] font-bold uppercase tracking-widest ${t.quantum === 'safe' ? 'text-emerald-400' : 'text-amber-300'}`}>{t.quantum}</span>
+              <span className="text-[12px] text-white/55">{t.why}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="flex flex-wrap items-center gap-3 mt-5">
+          {old > 0
+            ? <button className={BTN} onClick={onUpgradeAll} disabled={!!busy}>{busy === 'upgrade' ? 'Signing…' : `Make ${old} older receipt${old === 1 ? '' : 's'} quantum-safe`}</button>
+            : <span className="text-[12px] text-emerald-300">Every receipt here carries a post-quantum signature.</span>}
+          <span className="text-[12px] text-white/45">The switch: <code className="text-white/70">requirePQ()</code> on Ethereum, <code className="text-white/70">require_pq</code> on NEAR — shuts the classical door for good.</span>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function ProofsInner() {
   const { data: status, error, reload: reloadStatus } = useResource<ProofStatus | null>('proofs/status', null)
   const { data: receipts, reload } = useResource<ProofReceipt[]>('proofs', [])
+  const { data: pq, reload: reloadPQ } = useResource<ProofPQ | null>('proofs/pq', null)
   const [picked, setPicked] = useState<string | null>(null)
   const [verdicts, setVerdicts] = useState<Record<string, ProofVerdict>>({})
   const [busy, setBusy] = useState('')
@@ -136,16 +219,25 @@ function ProofsInner() {
     setBusy('issue')
     try {
       const r: ProofReceipt = await api('proofs/issue', { method: 'POST', body: { tenant: tenant.trim(), amount: Number(amount), period: Number(per) } })
-      await reload(); await reloadStatus(); setPicked(r.nullifier)
+      await reload(); await reloadStatus(); await reloadPQ(); setPicked(r.nullifier)
       say(true, `Receipt issued for ${period(r.period)} — nothing about ${tenant.trim().slice(0, 8)}… is in it.`)
       document.getElementById('receipt')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     } catch (e: any) { say(false, e?.message || 'refused') }
     setBusy('')
   }
-  const verify = async (r: ProofReceipt) => {
+  const verify = async (r: ProofReceipt, policy: string = 'auto') => {
     setBusy('verify')
-    try { setVerdicts(v => ({ ...v, [r.nullifier]: null as any })); const v = await api('proofs/verify', { method: 'POST', body: { nullifier: r.nullifier } }); setVerdicts(x => ({ ...x, [r.nullifier]: v })) }
+    try { setVerdicts(v => ({ ...v, [r.nullifier]: null as any })); const v = await api('proofs/verify', { method: 'POST', body: { nullifier: r.nullifier, policy } }); setVerdicts(x => ({ ...x, [r.nullifier]: v })) }
     catch (e: any) { say(false, e?.message || 'failed') }
+    setBusy('')
+  }
+  const upgrade = async (nullifier = '') => {
+    setBusy('upgrade')
+    try {
+      const res = await api('proofs/pq/upgrade', { method: 'POST', body: { nullifier } })
+      await reload(); await reloadPQ(); await reloadStatus()
+      say(true, res.upgraded.length ? `${res.upgraded.length} receipt${res.upgraded.length === 1 ? '' : 's'} now carry a post-quantum signature. The facts did not change.` : 'Nothing to countersign.')
+    } catch (e: any) { say(false, e?.message || 'refused') }
     setBusy('')
   }
   const submit = async (r: ProofReceipt, chain: 'near' | 'eth') => {
@@ -246,6 +338,9 @@ function ProofsInner() {
           )}
         </section>
 
+        {/* 3b — quantum */}
+        <QuantumSection pq={pq} busy={busy} onUpgradeAll={() => upgrade()} />
+
         {/* 3 — receipts */}
         <section id="receipt" className="scroll-mt-24">
           <h2 className="headline text-4xl md:text-5xl text-white mb-3">The receipts.</h2>
@@ -268,13 +363,15 @@ function ProofsInner() {
                       <div className="flex gap-1.5 mt-2 flex-wrap">
                         {r.chain?.near?.ok && <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400">near</span>}
                         {r.chain?.eth?.ok && <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400">eth</span>}
+                        {r.sig?.pq?.ohx && <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400">pq</span>}
                       </div>
                     </button>
                   </li>
                 ))}
               </ul>
               {current && <ReceiptCard r={current} verdict={verdicts[current.nullifier] ?? null} busy={busy}
-                onVerify={() => verify(current)} onSubmit={c => submit(current, c)} />}
+                onVerify={p => verify(current, p || 'auto')} onSubmit={c => submit(current, c)}
+                onUpgrade={() => upgrade(current.nullifier)} />}
             </div>
           )}
         </section>
@@ -296,7 +393,7 @@ function ProofsInner() {
             </div>
             <div className="glass rounded-2xl p-5 flex flex-col gap-3">
               <div className="text-white font-bold">Be anyone</div>
-              <p className="text-[13px] text-white/60 leading-snug">Paste a receipt from any node. The fact is recomputed and both bank signatures checked, offline.</p>
+              <p className="text-[13px] text-white/60 leading-snug">Paste a receipt from any node. The fact is recomputed and every bank signature checked — classical and post-quantum — offline.</p>
               <textarea className={`${INPUT} min-h-[9rem] font-mono text-[11px]`} value={paste} onChange={e => setPaste(e.target.value)} placeholder='{"kind":"attested","outputs":[…],"sig":{…}}' />
               <button className={BTN} onClick={verifyPaste} disabled={!!busy || !paste.trim()}>{busy === 'paste' ? 'Checking…' : 'Verify'}</button>
               {pasteVerdict && <Checks v={pasteVerdict} />}
@@ -327,7 +424,8 @@ function ProofsInner() {
               <ul className="text-sm text-white/70 space-y-2">
                 <li><code className="text-coral">proof/src/lib.cairo</code> — the statement; run with <code>scarb cairo-run</code>, test with <code>scarb cairo-test</code>.</li>
                 <li><code className="text-coral">near/src/lib.rs</code> — the NEAR verifier (near-sdk 5, <code>env::ed25519_verify</code>); <code>cargo test</code>, <code>cargo build --target wasm32-unknown-unknown</code>.</li>
-                <li><code className="text-coral">contracts/OpenHouseProofs.sol</code> — the Ethereum verifier (<code>ecrecover</code> + an <code>IFactRegistry</code> door for SHARP); <code>forge test</code>.</li>
+                <li><code className="text-coral">contracts/OpenHouseProofs.sol</code> — the Ethereum verifier (<code>ecrecover</code> + an <code>IFactRegistry</code> door for SHARP + <code>submitPQ</code>); <code>forge test</code>.</li>
+                <li><code className="text-coral">pq.py</code> + <code className="text-coral">contracts/OHX.sol</code> — the post-quantum signature, keccak only; one vector (<code>tests/vectors/ohx.json</code>) pinned in Python, Solidity and Rust.</li>
               </ul>
               <p className="text-[12px] text-white/50 mt-3">fact = keccak256(program_hash ‖ keccak256(outputs as 32-byte words)). One vector is pinned in all three test suites, so they cannot drift.</p>
               <Link href="/code" className="inline-block mt-4 text-[11px] font-bold uppercase tracking-widest text-coral hover:underline">Read the source →</Link>
@@ -337,7 +435,9 @@ function ProofsInner() {
               <pre className="text-[11px] text-white/75 bg-black/30 rounded-lg p-3 overflow-x-auto">{`openhouse_proof_status     openhouse_proof_program
 openhouse_proof_issue      openhouse_proofs · openhouse_proof
 openhouse_proof_verify     openhouse_proof_open · openhouse_proof_salt
-openhouse_proof_submit     chain = near | eth
+openhouse_proof_submit     chain = near | eth · door = classical | pq
+openhouse_proof_pq         keys · leaves left · threat model
+openhouse_proof_pq_upgrade countersign old receipts
 openhouse_bank_reconcile   issue_proofs = true`}</pre>
               <p className="text-[12px] text-white/50 mt-3">Issuing is open on testnet and needs the operator bank key anywhere else. Receipts carry no tenant data, so reading them is always public.</p>
               <Link href="/testnet" className="inline-block mt-4 text-[11px] font-bold uppercase tracking-widest text-coral hover:underline">Run the “Prove the rent was paid” walkthrough →</Link>

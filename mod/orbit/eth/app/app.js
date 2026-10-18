@@ -170,6 +170,9 @@ async function refresh() {
   $('who').textContent = address ? short(address) : 'not signed in';
   $('signin').textContent = address ? 'sign out' : 'sign in';
   $('signin').onclick = address ? signOut : signIn;
+  // sign in is the call to action; sign out is housekeeping, so it goes quiet
+  $('signin').classList.toggle('primary', !address);
+  $('signin').classList.toggle('ghost', !!address);
 
   fillNetworks(status.networks || []);
   renderChain(status.network);

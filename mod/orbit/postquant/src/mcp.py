@@ -29,6 +29,7 @@ if HERE not in sys.path:
     sys.path.append(HERE)
 
 import chain as C                                              # noqa: E402
+import consensus as CN                                         # noqa: E402
 import keys as K                                               # noqa: E402
 import state as S                                              # noqa: E402
 from pq import algos as ALGOS                                  # noqa: E402
@@ -2211,11 +2212,210 @@ TOOLS.update({
 })
 
 
+# ── modular consensus ─────────────────────────────────────────────
+
+
+def _list_arg(v):
+    if v in (None, ''):
+        return []
+    if isinstance(v, str):
+        v = v.strip()
+        if v.startswith('['):
+            return json.loads(v)
+        return [x.strip() for x in v.split(',') if x.strip()]
+    return list(v)
+
+
+def _validator_view(v, n, epoch, stake):
+    eng = CN.get(epoch['engine'])
+    powers = eng.powers(epoch, stake)
+    w = n._local(v['address'])
+    return {'address': v['address'], 'name': v.get('name'),
+            'scheme': v['scheme'], 'power': powers.get(v['address'], 0),
+            'local': bool(w),
+            'pq_score': PQSCORE.score_algo(v['scheme']).get('score')}
+
+
+def _epoch_view(epoch, n):
+    eng = CN.get(epoch['engine'])
+    stake = n.state.balance
+    out = {'engine': eng.name, 'title': eng.title, 'family': eng.family,
+           'from_height': epoch['from_height'],
+           'legacy': bool(epoch.get('legacy')),
+           'require_pq': epoch.get('require_pq', True),
+           'params': epoch.get('params', {}),
+           'id': CN.epoch_id(epoch),
+           'validators': [_validator_view(v, n, epoch, stake)
+                          for v in epoch['validators']]}
+    try:
+        out['quorum'] = eng.quorum(epoch, stake)
+    except StateError as e:
+        out['quorum_error'] = e.message
+    return out
+
+
+def _make_validators(a, engine):
+    """validators= names/objects, plus create=N fresh local wallets cycling
+    through schemes= (mixing key types is the point)."""
+    vals = _list_arg(a.get('validators'))
+    count = int(a.get('create') or 0)
+    if count:
+        if count > CN.MAX_VALIDATORS:
+            raise StateError(f'create at most {CN.MAX_VALIDATORS}',
+                             code='bad_consensus')
+        schemes = _list_arg(a.get('schemes')) or [K.SCHEME]
+        for i in range(count):
+            name = f'{engine}-v{i + 1}'
+            scheme = schemes[i % len(schemes)]
+            w = K.get(name, required=False)
+            if w is None or w['scheme'] != scheme:
+                K.create(name, scheme=scheme, overwrite=w is not None)
+            vals.append(name)
+    powers = a.get('powers')
+    if powers:
+        pw = [int(x) for x in _list_arg(powers)]
+        vals = [dict(CN.validator_entry(v, a.get('require_pq', True)
+                                        not in (False, 'false', '0')),
+                     power=pw[i] if i < len(pw) else 1)
+                for i, v in enumerate(vals)]
+    return vals
+
+
+def _t_consensus(a):
+    n = node()
+    action = (a.get('action') or 'info').lower()
+    if action in ('engines', 'catalog'):
+        return CN.catalog()
+    if action == 'schedule':
+        return {'epochs': [_epoch_view(e, n) for e in n.schedule],
+                'pending': (_epoch_view(n.pending_migration, n)
+                            if n.pending_migration else None)}
+    if action == 'proposal':
+        return n.proposal_view()
+    if action == 'vote':
+        if a.get('wallet') and not _is_owner():
+            raise StateError('signing a vote with a wallet on this node is '
+                             'owner-only — remote validators sign the '
+                             'vote_message themselves and pass validator= '
+                             'sig=', code='owner_only', status=403)
+        return n.vote(validator=a.get('validator'), sig=a.get('sig'),
+                      block_hash=a.get('hash'), wallet=a.get('wallet'))
+    if action in ('migrate', 'plan'):
+        engine = a.get('engine')
+        if not engine:
+            raise StateError('migrate needs engine= (pq_consensus '
+                             'action=engines lists them)',
+                             code='missing_arg')
+        require_pq = a.get('require_pq', True) not in (False, 'false', '0',
+                                                       0)
+        params = a.get('params') or {}
+        if isinstance(params, str):
+            params = json.loads(params)
+        for k in ('difficulty', 'min_stake'):
+            if a.get(k) not in (None, ''):
+                params[k] = int(a[k])
+        if action == 'plan' or a.get('dry_run'):
+            vals = _list_arg(a.get('validators'))
+            ep = CN.make_epoch(engine, vals, params,
+                               a.get('at') or n.blocks[-1]['height'] + 2,
+                               require_pq)
+            return {'dry_run': True, 'epoch': _epoch_view(ep, n)}
+        vals = _make_validators(a, engine)
+        if a.get('stake') not in (None, '', 0, '0'):
+            amount = _amount(a['stake'])
+            for v in vals:
+                w = K.get(v if isinstance(v, str) else v.get('name') or
+                          v['address'], required=False)
+                if w:
+                    n.send(n.validator, 'xfer', to=w['address'],
+                           amount=amount)
+            n.produce()
+        ep = n.migrate(engine, vals, params, a.get('at'), require_pq)
+        out = {'queued': True, 'epoch': _epoch_view(ep, n),
+               'note': f'rides in the next block under '
+                       f'{n.epoch()["engine"]}; {engine} rules from height '
+                       f'{ep["from_height"]}'}
+        if a.get('mine', True) not in (False, 'false', '0', 0):
+            r = n.produce(force=True)
+            out['mined'] = bool(r) and not r.get('proposed')
+            if r:
+                out['block'] = r['block']['height']
+                out['proposed'] = bool(r.get('proposed'))
+        return out
+    if action == 'cancel':
+        was = n.cancel_migration()
+        return {'cancelled': bool(was), 'epoch': was}
+    if action != 'info':
+        raise StateError(f'unknown action {action!r} — info | engines | '
+                         'schedule | migrate | plan | cancel | proposal | '
+                         'vote', code='bad_action')
+    cur = n.epoch()
+    return {'active': _epoch_view(cur, n),
+            'epochs': len(n.schedule),
+            'pending': (_epoch_view(n.pending_migration, n)
+                        if n.pending_migration else None),
+            **n.proposal_view(),
+            'note': n.consensus_note,
+            'engines': [e.name for e in CN.REGISTRY.values()],
+            'how': 'migrate engine=<name> validators=<wallets> (or create=N '
+                   'schemes=ML-DSA-44,SLH-DSA-SHAKE-128f): the switch rides '
+                   'in the next block, sealed by the CURRENT engine, and '
+                   'replays from the log in pq_verify'}
+
+
+TOOLS['pq_consensus'] = {
+    'description': 'Modular consensus. The rule for who may extend the '
+                   'chain is a pluggable engine — authority (one key), '
+                   'roundrobin (rotating PoA), bft (> 2/3 voting power '
+                   'signs, instant finality), pos (balance-weighted BFT, '
+                   'SHA3 stake lottery), pow (SHA3 hashcash) or a plugin '
+                   'in src/consensus.d/ — and every seal and vote is a '
+                   'signature under one of the chain\'s post-quantum key '
+                   'types, mixable per validator. Switching engines is a '
+                   'migration written into a block header and authorised '
+                   'by the engine it replaces; pq_verify rebuilds the '
+                   'schedule from the log. action=info | engines | '
+                   'schedule | plan (dry run) | migrate (engine, '
+                   'validators or create=N + schemes, powers, difficulty, '
+                   'min_stake, at, require_pq) | cancel | proposal (a '
+                   'block waiting for votes + the message to sign) | vote '
+                   '(validator + sig, or wallet= for a key held here).',
+    'inputSchema': {'type': 'object', 'properties': {
+        'action': _str('info | engines | schedule | plan | migrate | cancel '
+                       '| proposal | vote (default info)',
+                       enum=['info', 'engines', 'schedule', 'plan',
+                             'migrate', 'cancel', 'proposal', 'vote']),
+        'engine': _str('migrate/plan: authority | roundrobin | bft | pos | '
+                       'pow | a plugin'),
+        'validators': _str('migrate/plan: wallet names (comma list) or a '
+                           'JSON list of {address, pk, scheme, power}'),
+        'create': _int('migrate: create N local validator wallets '
+                       '<engine>-v1..N'),
+        'schemes': _str('migrate: key types to cycle through for create= '
+                        '(comma list)'),
+        'powers': _str('migrate: voting power per validator (comma list)'),
+        'difficulty': _int('pow: leading zero bits (1-24, default 12)'),
+        'min_stake': _int('pos: nq a validator needs to count'),
+        'stake': _str('migrate: send each local validator this much PQ '
+                      'from the node treasury first (pos)'),
+        'at': _int('migrate: activation height (default next block + 1)'),
+        'require_pq': _bool('validator keys must be quantum-safe and '
+                            'many-time (default true)'),
+        'mine': _bool('migrate: produce the carrying block now (default '
+                      'true)'),
+        'validator': _str('vote: validator address'),
+        'sig': _str('vote: hex signature over vote_message'),
+        'hash': _str('vote: the proposal hash being voted on'),
+        'wallet': _str('vote: sign with this local wallet (owner)'),
+    }},
+    'handler': _t_consensus,
+}
+
 WRITE_TOOLS = {'pq_set', 'pq_del', 'pq_fund', 'pq_sweep', 'pq_list', 'pq_buy',
                'pq_transfer', 'pq_wallet', 'pq_faucet', 'pq_mine',
                'pq_keytype', 'pq_prim', 'pq_private'}
 
-WRITE_TOOLS |= {'pq_vault', 'pq_contract'}
+WRITE_TOOLS |= {'pq_vault', 'pq_contract', 'pq_consensus'}
 
 
 def call_tool(name, args):

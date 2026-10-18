@@ -24,6 +24,8 @@
     --vt:"VT323",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     --sans:"Chakra Petch",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
     --mono:var(--vt);
+    /* chrome labels: pixel type turns to mush under ~11px, so small UI text uses this */
+    --ui:"Chakra Petch",ui-sans-serif,system-ui,sans-serif;
   }
   *{box-sizing:border-box}
   html{scrollbar-color:var(--line2) var(--bg)}
@@ -39,9 +41,9 @@
   /* CRT: scanlines + vignette, never in the way of a click */
   body::before{content:'';position:fixed;inset:0;z-index:70;pointer-events:none;
        background:repeating-linear-gradient(180deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px);
-       mix-blend-mode:multiply;opacity:.55}
+       mix-blend-mode:multiply;opacity:.22}
   body::after{content:'';position:fixed;inset:0;z-index:69;pointer-events:none;
-       background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%)}
+       background:radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,.38) 100%)}
   code,kbd,pre,.mono,.addr,.amt,.chip{font-family:var(--vt)}
   .mono,.addr,.amt{font-size:1.15em;line-height:1.2}
   a{color:var(--cy);text-decoration:none;border-bottom:1px dashed rgba(0,240,255,.4)}
@@ -51,7 +53,7 @@
   ::-webkit-scrollbar-track{background:var(--bg)}
   ::-webkit-scrollbar-thumb{background:var(--line2);border:2px solid var(--bg)}
   ::-webkit-scrollbar-thumb:hover{background:var(--mag)}
-  #lattice{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.55}
+  #lattice{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.4}
   header,main{position:relative;z-index:1}
   @keyframes fadeup{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   @keyframes fadein{from{opacity:0}to{opacity:1}}
@@ -87,9 +89,9 @@
   ::placeholder{color:#5f5588}
   input[type=checkbox]{accent-color:var(--mag);width:16px;height:16px;vertical-align:-3px}
   input[type=file]{font:15px var(--vt);padding:4px}
-  input[type=file]::file-selector-button{font:8px var(--px);background:var(--panel2);color:var(--cy);
+  input[type=file]::file-selector-button{font:600 12px var(--ui);background:var(--panel2);color:var(--cy);
     border:2px solid var(--cy);padding:6px 8px;margin-right:8px;cursor:pointer}
-  button{cursor:pointer;font:9px/1.4 var(--px);letter-spacing:.06em;text-transform:uppercase;
+  button{cursor:pointer;font:600 13px/1.4 var(--ui);letter-spacing:.06em;text-transform:uppercase;
     padding:9px 12px;color:var(--ink);background:var(--panel2);border:2px solid var(--line2);
     box-shadow:3px 3px 0 #000;transition:transform .05s, box-shadow .05s, color .1s, border-color .1s, background .1s}
   button:hover{border-color:var(--cy);color:#fff;text-shadow:0 0 6px var(--cy)}
@@ -108,20 +110,36 @@
   button.ac:hover{background:#7dff5e;color:#000;text-shadow:none}
   button.hz{background:var(--hz);color:#1a1600;border-color:#fff59e;box-shadow:3px 3px 0 #000,0 0 14px rgba(255,230,0,.4)}
   button.hz:hover{background:#fff176;color:#000;text-shadow:none}
-  button.sm{padding:5px 8px;font-size:7.5px;box-shadow:2px 2px 0 #000}
+  button.sm{padding:5px 9px;font-size:11px;box-shadow:2px 2px 0 #000}
   button.sm:active{transform:translate(2px,2px)}
   nav button{background:transparent;border:0;box-shadow:none;color:#9e93c8;flex:none;
-    font:8.5px/1 var(--px);padding:10px 10px;position:relative}
+    font:600 12.5px/1 var(--ui);padding:10px 10px;position:relative}
   nav button:hover{color:#fff;background:transparent;text-shadow:0 0 8px var(--cy)}
   nav button:active{transform:none}
   nav button.on{color:#fff;background:transparent;text-shadow:0 0 8px var(--mag)}
   nav button.on::after{content:'';position:absolute;left:8px;right:8px;bottom:0;height:3px;
     background:var(--mag);box-shadow:0 0 10px var(--mag)}
-  nav button.on::before{content:'▶';position:absolute;left:-1px;top:10px;font-size:7px;color:var(--mag);
-    animation:blink 1s steps(1) infinite}
   nav button.hot{color:var(--hz)}
   nav .sep{flex:none;width:2px;margin:12px 6px;background:var(--line)}
   main{padding:24px 22px 110px;max-width:1500px;margin:0 auto}
+  /* sub-tabs: one quiet segmented strip under the header */
+  #subnav{display:flex;gap:4px;margin:0 3px 20px;padding:4px;width:max-content;max-width:100%;
+          overflow-x:auto;scrollbar-width:none;background:var(--inset);border:2px solid var(--line2)}
+  #subnav[hidden]{display:none}
+  #subnav::-webkit-scrollbar{display:none}
+  #subnav button{flex:none;border:0;box-shadow:none;background:transparent;color:#9e93c8;
+          font:600 12.5px/1 var(--ui);padding:9px 16px}
+  #subnav button:hover{color:#fff;text-shadow:0 0 6px var(--cy)}
+  #subnav button:active{transform:none}
+  #subnav button.on{background:var(--mag);color:#14001a;text-shadow:none;
+          box-shadow:0 0 14px rgba(255,43,214,.45)}
+  details.fold > summary{list-style:none;cursor:pointer}
+  details.fold > summary::-webkit-details-marker{display:none}
+  details.fold > summary h2{margin:0}
+  details.fold > summary h2::after{content:'+  show';flex:none;width:auto;height:auto;background:none;
+          color:var(--dim);font:600 11px var(--ui);letter-spacing:.08em;margin-left:auto}
+  details.fold[open] > summary h2{margin-bottom:14px}
+  details.fold[open] > summary h2::after{content:'−  hide'}
   section{display:none} section.on{display:block;animation:fadeup .25s steps(4)}
   .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
   .grid > *{min-width:0}
@@ -135,10 +153,10 @@
          box-shadow:0 -3px 0 0 var(--line2), 0 3px 0 0 var(--line2),
                     -3px 0 0 0 var(--line2), 3px 0 0 0 var(--line2),
                     9px 9px 0 0 rgba(0,0,0,.55)}
-  .panel h2{display:flex;align-items:center;gap:10px;margin:0 0 14px;font:10px/1.4 var(--px);
+  .panel h2{display:flex;align-items:center;gap:10px;margin:0 0 14px;font:600 14px/1.4 var(--ui);
             letter-spacing:.08em;color:var(--cy);text-transform:uppercase;
             text-shadow:0 0 8px rgba(0,240,255,.55)}
-  .panel h2::before{content:'';width:8px;height:8px;flex:none;background:var(--mag);
+  .panel h2::before{content:'';width:8px;height:8px;flex:none;margin-right:10px;background:var(--mag);
             box-shadow:0 0 8px var(--mag), 10px 0 0 var(--line2)}
   .panel h2::after{content:'';flex:1;height:2px;margin-left:14px;
             background:repeating-linear-gradient(90deg,var(--line2) 0 6px,transparent 6px 10px)}
@@ -146,7 +164,7 @@
   .note{color:var(--dim);font-size:14px;margin:0 0 12px;line-height:1.55}
   .note b{color:var(--ink)}
   table{width:100%;border-collapse:collapse;font:17px/1.2 var(--vt)}
-  th{text-align:left;color:var(--mag);font:7.5px/1.4 var(--px);padding:9px 9px;
+  th{text-align:left;color:var(--mag);font:600 11.5px/1.4 var(--ui);padding:9px 9px;
      border-bottom:2px solid var(--line2);white-space:nowrap;letter-spacing:.06em;text-transform:uppercase}
   td{padding:6px 9px;border-bottom:1px dashed #22163d;vertical-align:top;white-space:nowrap}
   /* data tables render into these holders; wide ones scroll, never wrap */
@@ -155,6 +173,9 @@
   .paper table{font-family:var(--sans);font-size:15px}
   .paper td,.paper th{white-space:normal}
   tr:last-child td{border-bottom:0}
+  /* row actions: quiet until hovered, so a 14-row table isn't a wall of buttons */
+  td button,td button.sm{box-shadow:none;background:transparent;border-color:var(--line)}
+  td button:hover,td button.sm:hover{background:var(--panel2);border-color:var(--cy)}
   tr:nth-child(even) td{background:rgba(157,77,255,.035)}
   tr.click{cursor:pointer}
   tr.click:hover td{background:rgba(255,43,214,.10)}
@@ -174,12 +195,12 @@
         margin-bottom:4px;color:#fff;text-shadow:0 0 10px rgba(0,240,255,.35)}
   .stat b .amt{font-size:1em;line-height:1}
   .stat b span{font:inherit}
-  .stat > span{color:var(--dim);font:7px/1.4 var(--px);letter-spacing:.08em;text-transform:uppercase}
+  .stat > span{color:var(--dim);font:600 11px/1.4 var(--ui);letter-spacing:.08em;text-transform:uppercase}
   .pill{display:inline-block;border:2px solid var(--line2);padding:3px 9px;
         color:var(--dim);font:16px/1.1 var(--vt);background:rgba(8,4,20,.8)}
   .pill.good{border-color:#1f7a10;color:var(--ac)} .pill.bad{border-color:#7a1830;color:var(--bad)}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
-  label{color:var(--dim);font:7.5px/1.4 var(--px);letter-spacing:.06em;text-transform:uppercase}
+  label{color:var(--dim);font:600 11.5px/1.4 var(--ui);letter-spacing:.06em;text-transform:uppercase}
   label input[type=checkbox]{margin-right:6px}
   textarea{width:100%;min-height:64px;resize:vertical}
   input[type=text]{min-width:190px}
@@ -189,14 +210,14 @@
       padding:10px 12px;max-height:340px;overflow:auto;font:16px/1.25 var(--vt);
       text-shadow:0 0 6px rgba(57,255,20,.25)}
   .mono{word-break:break-all}
-  .addr{color:var(--mag)}
+  .addr{color:#f08ae0}
   .amt{color:var(--hz);font-variant-numeric:tabular-nums}
   .good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
   .err{color:var(--bad);font:17px/1.3 var(--vt)}
   .err::before{content:'!! ';color:var(--bad)}
   .muted{color:var(--dim)}
   .kv{display:grid;grid-template-columns:max-content 1fr;gap:5px 16px;font-size:14px;align-items:baseline}
-  .kv b{color:var(--cy);font:7.5px/1.6 var(--px);letter-spacing:.06em;text-transform:uppercase;font-weight:400}
+  .kv b{color:var(--cy);font:600 11.5px/1.6 var(--ui);letter-spacing:.06em;text-transform:uppercase;font-weight:400}
   .tabs2{display:flex;gap:8px;margin-bottom:12px}
   [data-copy]{cursor:copy}
   @keyframes tickflash{0%{color:var(--mag);text-shadow:0 0 20px var(--mag)}100%{color:#fff}}
@@ -229,7 +250,7 @@
   .stage .fade{position:absolute;left:0;right:0;bottom:0;height:40px;z-index:3;
         background:linear-gradient(180deg,transparent,var(--bg))}
   @keyframes gridrun{from{background-position:0 0,50% 0,0 0}to{background-position:0 46px,50% 0,0 0}}
-  .hero .ins{display:inline-block;font:9px/1 var(--px);color:var(--hz);letter-spacing:.2em;
+  .hero .ins{display:inline-block;font:600 13px/1 var(--ui);color:var(--hz);letter-spacing:.2em;
         padding:6px 10px;border:2px solid var(--hz);margin-bottom:22px;
         box-shadow:3px 3px 0 #000;animation:flick 6s infinite}
   .hero h1{font:clamp(28px,6.2vw,66px)/1.05 var(--px);margin:0 0 18px;letter-spacing:.02em;
@@ -254,9 +275,9 @@
         text-shadow:0 0 10px rgba(255,230,0,.5);letter-spacing:.04em}
   .hero .h-line{color:#c9bff0;font-size:15px;max-width:640px;margin:0 auto 18px;
         background:rgba(7,4,15,.6);padding:4px 10px}
-  .hero .h-kbd{display:inline-block;color:var(--dim);font:7.5px/1 var(--px);letter-spacing:.1em;background:rgba(7,4,15,.85);padding:6px 8px}
+  .hero .h-kbd{display:inline-block;color:var(--dim);font:600 11.5px/1 var(--ui);letter-spacing:.1em;background:rgba(7,4,15,.85);padding:6px 8px}
   .hero kbd{border:2px solid var(--line2);padding:3px 6px;background:var(--inset);
-        font:7.5px/1.5 var(--px);color:var(--cy);box-shadow:2px 2px 0 #000}
+        font:600 11.5px/1.5 var(--ui);color:var(--cy);box-shadow:2px 2px 0 #000}
   .hero .ctas{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin:6px 0 18px}
   .doors{display:grid;gap:22px;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
        max-width:1040px;margin:0 auto 22px}
@@ -271,10 +292,10 @@
                   0 0 34px color-mix(in srgb,var(--dc,var(--mag)) 45%,transparent)}
   .door .dg{font:22px/1 var(--px);color:var(--dc,var(--mag));margin-bottom:14px;
        text-shadow:0 0 12px var(--dc,var(--mag))}
-  .door .lv{position:absolute;top:12px;right:14px;font:7px/1 var(--px);color:var(--dim)}
+  .door .lv{position:absolute;top:12px;right:14px;font:600 11px/1 var(--ui);color:var(--dim)}
   .door b{display:block;font:11px/1.5 var(--px);margin-bottom:10px;color:#fff;font-weight:400}
   .door p{color:#b6acd9;font-size:14px;margin:0 0 16px;line-height:1.5}
-  .door .cta{display:inline-block;padding:8px 12px;font:8.5px/1 var(--px);letter-spacing:.08em;
+  .door .cta{display:inline-block;padding:8px 12px;font:600 12.5px/1 var(--ui);letter-spacing:.08em;
        color:#000;background:var(--dc,var(--mag));box-shadow:3px 3px 0 #000}
   .door:hover .cta::after{content:' ▶';animation:blink .6s steps(1) infinite}
   .home-wrap{max-width:1040px;margin:0 auto 22px}
@@ -283,7 +304,7 @@
   .j-step:last-child{border-bottom:0}
   .j-step .g{flex:none;width:16px;text-align:center;font-family:var(--px);font-size:10px}
   .j-step .g.run{color:var(--mag);animation:blink .5s steps(1) infinite}
-  .j-step b{flex:none;min-width:250px;font:8.5px/1.6 var(--px);font-weight:400;color:var(--cy)}
+  .j-step b{flex:none;min-width:250px;font:600 12.5px/1.6 var(--ui);font-weight:400;color:var(--cy)}
   .j-step .d{word-break:break-word}
   .j-fin{border-left:4px solid var(--mag);padding:8px 0 8px 16px;margin-top:14px;
        color:#d8cff8;font-size:14.5px;animation:fadeup .3s steps(3);background:rgba(255,43,214,.05)}
@@ -305,19 +326,21 @@
   .pal-it .h{color:var(--dim);font-size:16px;margin-left:auto;flex:none;padding-left:14px}
   .pal-it.sel,.pal-it:hover{background:var(--mag);color:#000}
   .pal-it.sel .k,.pal-it.sel .h,.pal-it:hover .k,.pal-it:hover .h{color:#000}
-  #pal-hint{padding:9px 14px;border-top:2px solid var(--line);color:var(--dim);font:7px/1.5 var(--px);letter-spacing:.06em}
+  #pal-hint{padding:9px 14px;border-top:2px solid var(--line);color:var(--dim);font:600 11px/1.5 var(--ui);letter-spacing:.06em}
   .kbtn{flex:none;display:flex;align-items:center;gap:10px;
        background:var(--inset);color:var(--cy);border:2px solid var(--cy);
-       font:8px/1 var(--px);padding:8px 8px 8px 10px;box-shadow:3px 3px 0 #000}
+       font:600 12px/1 var(--ui);padding:8px 8px 8px 10px;box-shadow:3px 3px 0 #000}
   .kbtn:hover{background:var(--cy);color:#000;border-color:var(--cy);text-shadow:none}
-  .kbtn kbd{font:7px/1 var(--px);color:inherit;padding:3px 4px;border:1px solid currentColor}
+  .kbtn kbd{font:600 11px/1 var(--ui);color:inherit;padding:3px 4px;border:1px solid currentColor}
   @media (max-width:720px){header{gap:10px;padding:0 10px}.mark .t{display:none}
-       nav{justify-content:flex-start}.kbtn kbd{display:none}}
+       nav{justify-content:flex-start;gap:0}
+       nav button{padding:10px 7px;font-size:11.5px}
+       .kbtn kbd{display:none}}
   /* ── toasts ── */
   #toasts{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);
        z-index:65;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
   .toast{border:2px solid var(--ac);padding:9px 16px;background:#061204;color:var(--ac);
-       font:8.5px/1.5 var(--px);box-shadow:4px 4px 0 #000, 0 0 18px rgba(57,255,20,.35);
+       font:600 12.5px/1.5 var(--ui);box-shadow:4px 4px 0 #000, 0 0 18px rgba(57,255,20,.35);
        animation:fadeup .15s steps(2)}
   .toast::before{content:'>> '}
   .toast.bad{border-color:var(--bad);color:var(--bad);background:#1a0408;
@@ -327,7 +350,7 @@
   @media (max-width:980px){.kt-wrap{grid-template-columns:1fr}}
   #kt-palette{display:flex;flex-direction:column;gap:14px}
   .kt-fam{display:grid;grid-template-columns:96px minmax(0,1fr);gap:10px;align-items:start}
-  .kt-fam > i{font:7px/1 var(--px);letter-spacing:.1em;color:var(--fc);padding-top:11px;
+  .kt-fam > i{font:600 11px/1 var(--ui);letter-spacing:.1em;color:var(--fc);padding-top:11px;
     text-transform:uppercase;opacity:.9}
   .kt-fam > i small{display:block;font:15px/1 var(--vt);letter-spacing:0;color:var(--dim);margin-top:6px;text-transform:none}
   .kt-chips{display:flex;flex-wrap:wrap;gap:6px}
@@ -355,8 +378,8 @@
     border:2px solid var(--line2);box-shadow:4px 4px 0 #000,0 0 30px rgba(157,77,255,.15);padding:14px 14px 16px;
     display:flex;flex-direction:column;gap:8px}
   .kt-rhd{display:flex;align-items:center;justify-content:space-between;gap:8px;
-    font:8px/1 var(--px);letter-spacing:.1em;color:var(--mag);padding-bottom:10px;border-bottom:1px dashed var(--line2)}
-  .kt-rhd button{font-size:6.5px;color:var(--hz);border-color:#6b5a10;padding:6px 7px}
+    font:600 12px/1 var(--ui);letter-spacing:.1em;color:var(--mag);padding-bottom:10px;border-bottom:1px dashed var(--line2)}
+  .kt-rhd button{font-size:10.5px;color:var(--hz);border-color:#6b5a10;padding:6px 7px}
   .kt-rhd button:hover{border-color:var(--hz);text-shadow:0 0 6px var(--hz)}
   #kt-picked{display:flex;flex-direction:column;gap:0;min-height:44px}
   .kt-empty{border:1px dashed var(--line2);padding:12px;text-align:center;color:var(--dim);font:16px/1.2 var(--vt)}
@@ -366,13 +389,18 @@
   .kt-pk .sz{color:var(--dim);font-size:14px}
   .kt-pk .x{cursor:pointer;color:var(--dim);padding:0 2px}
   .kt-pk .x:hover{color:var(--bad)}
-  .kt-join{align-self:center;font:6.5px/1 var(--px);letter-spacing:.1em;color:var(--dim);padding:5px 0}
-  .kt-lbl{font:6.5px/1 var(--px);letter-spacing:.12em;color:var(--dim);margin-top:12px}
+  .kt-join{align-self:center;font:600 10.5px/1 var(--ui);letter-spacing:.1em;color:var(--dim);padding:5px 0}
+  .kt-lbl{font:600 10.5px/1 var(--ui);letter-spacing:.12em;color:var(--dim);margin-top:12px;text-transform:uppercase}
   .kt-seg{display:grid;grid-template-columns:repeat(3,1fr)}
-  .kt-seg button{box-shadow:none;font-size:7px;padding:9px 4px;margin-left:-2px}
+  .kt-seg button{box-shadow:none;font-size:11px;padding:9px 4px;margin-left:-2px}
   .kt-seg button:first-child{margin-left:0}
   .kt-seg button.on{background:var(--mag);color:#14001a;border-color:var(--mag);text-shadow:none;position:relative}
   .kt-seg button:active{transform:none}
+  .cn-seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
+  .cn-seg button{box-shadow:none;font-size:11px;padding:9px 4px;margin-left:-2px}
+  .cn-seg button:first-child{margin-left:0}
+  .cn-seg button.on{background:var(--mag);color:#14001a;border-color:var(--mag);text-shadow:none}
+  .cn-chip{display:inline-flex;align-items:center;gap:4px;font-size:12px;cursor:pointer}
   .kt-ophint{font:15px/1.2 var(--vt);color:var(--dim)}
   .kt-recipe .kstep{align-self:flex-start}
   .kt-recipe input[type=text],.kt-recipe select{width:100%;font-size:17px;padding:6px 9px}
@@ -390,9 +418,9 @@
   .kt-chk{font:16px var(--vt);color:var(--dim)}
   #kt-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
   #kt-stats div{background:var(--inset);border:1px solid var(--line);padding:6px 8px}
-  #kt-stats b{display:block;font:6px/1 var(--px);letter-spacing:.1em;color:var(--dim);font-weight:400;margin-bottom:5px}
+  #kt-stats b{display:block;font:600 10px/1 var(--ui);letter-spacing:.1em;color:var(--dim);font-weight:400;margin-bottom:5px}
   #kt-stats span{font:19px/1 var(--vt)}
-  .kt-forge{width:100%;padding:13px;font-size:10px;margin-top:4px}
+  .kt-forge{width:100%;padding:13px;font-size:14px;margin-top:4px}
   .kt-meta{font:15px/1.2 var(--vt);color:var(--dim);text-align:center;min-height:1px}
   /* ── BUILDER: the key type DAG ── */
   #dag-wrap{overflow:auto;border:2px solid var(--line);background:
@@ -419,26 +447,20 @@
   .kstep button{padding:6px 9px;box-shadow:none}
   .kstep span{display:grid;place-items:center;min-width:52px;border-top:2px solid var(--line2);
     border-bottom:2px solid var(--line2);font:20px var(--vt);color:var(--cy)}
-  /* ── ASK ── */
-  #ask-log{display:flex;flex-direction:column;gap:12px;margin-top:14px}
-  .turn-q{align-self:flex-end;max-width:80%;background:rgba(255,43,214,.10);
-          border:2px solid var(--mag);padding:7px 12px;box-shadow:3px 3px 0 #000}
-  .turn-a{border:2px solid var(--line2);padding:9px 12px;background:var(--inset);box-shadow:3px 3px 0 #000}
-  .turn-a .ans{white-space:pre-wrap;word-break:break-word}
+  /* ── chips (tool runs, examples) ── */
   .chip{display:inline-block;border:2px solid var(--line2);padding:2px 8px;margin:0 6px 6px 0;
         font:16px/1.1 var(--vt);color:var(--dim);cursor:pointer;background:var(--inset)}
   .chip:hover{border-color:var(--cy);color:var(--cy)}
   .chip.ok{border-color:#1f7a10;color:var(--good)}
   .chip.no{border-color:#7a1830;color:var(--bad)}
   .chip.run{border-color:var(--mag);color:var(--mag)}
-  #ask-q{flex:1;min-width:240px}
   /* ── the whitepaper: pixel heads, readable body ── */
   .paper{max-width:860px;margin:0 auto;font:17px/1.75 var(--sans);padding:30px 36px 60px}
   .paper .wp-title{font:clamp(26px,5vw,44px)/1.1 var(--px);letter-spacing:.02em;margin:18px 0 14px;
          text-shadow:4px 4px 0 var(--vi)}
   .paper .wp-title .p{color:var(--cy)} .paper .wp-title .q{color:var(--mag)}
   .paper .wp-sub{font:24px/1.2 var(--vt);color:var(--hz);margin:0 0 10px}
-  .paper .wp-meta{color:var(--dim);font:7.5px/2 var(--px);letter-spacing:.06em;
+  .paper .wp-meta{color:var(--dim);font:600 11.5px/2 var(--ui);letter-spacing:.06em;
          text-transform:uppercase;border-bottom:2px dashed var(--line2);padding-bottom:18px;margin-bottom:26px}
   .paper h3{font:14px/1.5 var(--px);margin:42px 0 14px;color:#fff;letter-spacing:.02em;
          text-shadow:0 0 10px rgba(0,240,255,.35)}
@@ -456,15 +478,15 @@
   .paper table{font-size:15px;margin:8px 0 16px}
   .paper th,.paper td{padding:8px 12px}
   .paper .wp-mode{display:flex;align-items:center;gap:8px;margin:0 0 26px;flex-wrap:wrap}
-  .paper .wp-mode .lbl{color:var(--dim);font:7.5px/1 var(--px);letter-spacing:.08em}
+  .paper .wp-mode .lbl{color:var(--dim);font:600 11.5px/1 var(--ui);letter-spacing:.08em}
   .paper.human .sci{display:none}
   .paper:not(.human) .hum{display:none}
   /* ── whitepaper figures: validated pair (blue/orange pass every CVD check on --panel) ── */
   .paper{--s1:#3987e5;--s2:#d95926;--gridc:rgba(143,132,184,.18)}
   .fig{margin:22px 0 26px;border:2px solid var(--line2);background:var(--inset);padding:14px 16px 10px}
   .fig-h{font:15px/1.4 var(--sans);color:var(--ink);display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:10px}
-  .fig-h b{font:9px/1 var(--px);color:var(--mag);letter-spacing:.06em}
-  .fig-h .live{margin-left:auto;font:7px/1 var(--px);color:var(--dim);border:1px solid var(--line2);padding:4px 6px;letter-spacing:.08em}
+  .fig-h b{font:600 13px/1 var(--ui);color:var(--mag);letter-spacing:.06em}
+  .fig-h .live{margin-left:auto;font:600 11px/1 var(--ui);color:var(--dim);border:1px solid var(--line2);padding:4px 6px;letter-spacing:.08em}
   .fig-cap{font-size:14px!important;color:var(--dim)!important;margin:10px 0 2px!important;line-height:1.55}
   .fig svg{width:100%;height:auto;display:block;overflow:visible}
   .fig svg text{font-family:var(--sans);fill:var(--dim);font-size:12px}
@@ -480,13 +502,13 @@
   .fig details table{margin:6px 0 0;font-size:13px}
   .fig .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
   .fig .tile{border:2px solid var(--line2);padding:12px 14px;background:var(--panel)}
-  .fig .tile .k{font:7.5px/1.6 var(--px);color:var(--dim);letter-spacing:.06em}
+  .fig .tile .k{font:600 11.5px/1.6 var(--ui);color:var(--dim);letter-spacing:.06em}
   .fig .tile .v{font:30px/1.1 var(--vt);color:var(--ink);margin-top:6px}
   .fig .tile .u{font-size:13px;color:var(--dim)}
   .fig .tile.win{border-color:var(--s1)}
   .dg rect{stroke-width:2;fill:var(--panel)} .dg .b0{stroke:var(--line2)} .dg .b1{stroke:var(--s1)}
   .dg .b2{stroke:var(--line2);stroke-dasharray:6 4} .dg .b3{stroke:var(--s2)}
-  .dg text{text-anchor:middle} .dg .t{fill:var(--ink)!important;font:9px var(--px)!important;letter-spacing:.04em}
+  .dg text{text-anchor:middle} .dg .t{fill:var(--ink)!important;font:600 13px var(--ui)!important;letter-spacing:.04em}
   .dg .s{fill:var(--dim)} .dg .k{fill:var(--ink)!important;font-weight:600}
   .dg .ar{stroke:var(--ink);stroke-width:2;fill:none;marker-end:url(#wp-arrow)}
   .paper table.cmp{font-size:14px;width:100%} .paper table.cmp td{vertical-align:top}
@@ -524,13 +546,15 @@
           background:linear-gradient(180deg,#22164a 0%,#0d0820 100%)}
   #wp-fab.is-open::after{content:'';position:absolute;inset:0;pointer-events:none;
           box-shadow:inset 0 0 0 3px var(--cy);clip-path:inherit}
+  @media (max-width:720px){#wp-help{right:14px;bottom:14px}
+    #wp-fab{width:52px;height:52px} #wp-fab .face{font-size:16px}}
   @keyframes fab-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
   @keyframes fab-breathe{0%,100%{transform:scale(.92);opacity:.6}50%{transform:scale(1.08);opacity:1}}
   #wp-chat{display:none;width:min(380px,calc(100vw - 40px));background:#0d0820;overflow:hidden;
            box-shadow:0 -3px 0 var(--cy),0 3px 0 var(--cy),-3px 0 0 var(--cy),3px 0 0 var(--cy),9px 9px 0 #000}
   #wp-chat.open{display:block;animation:fadeup .15s steps(2)}
   #wp-chat .hd{display:flex;align-items:center;gap:8px;padding:11px 12px;
-           border-bottom:2px solid var(--line2);color:var(--cy);font:8px/1 var(--px);letter-spacing:.06em}
+           border-bottom:2px solid var(--line2);color:var(--cy);font:600 12px/1 var(--ui);letter-spacing:.06em}
   #wp-chat .hd .dot{width:8px;height:8px;background:var(--ac);box-shadow:0 0 8px var(--ac);flex:none;
            animation:blink 1.2s steps(1) infinite}
   #wp-log{max-height:300px;overflow:auto;padding:10px 12px;font:17px/1.25 var(--vt)}
@@ -543,23 +567,23 @@
 
   /* ════════════ shared arcade bits ════════════ */
   /* health bars: 16 pixel segments */
-  .bar{display:flex;align-items:center;gap:8px;font:7px/1 var(--px);color:var(--dim);margin:4px 0}
+  .bar{display:flex;align-items:center;gap:8px;font:600 11px/1 var(--ui);color:var(--dim);margin:4px 0}
   .bar .lb{width:22px;flex:none}
   .bar .segs{display:flex;gap:2px;flex:1}
   .bar .segs i{flex:1;height:9px;background:#1c1238;max-width:12px}
   .bar .segs i.on{background:var(--c,var(--cy));box-shadow:0 0 5px var(--c,var(--cy))}
   .bar .v{width:40px;text-align:right;flex:none;font:17px/1 var(--vt);color:var(--c,var(--cy))}
   .bar.dead .v{color:var(--bad)}
-  .rar{display:inline-block;font:6.5px/1 var(--px);padding:4px 6px;color:#000;background:var(--rc,#888);
+  .rar{display:inline-block;font:600 10.5px/1 var(--ui);padding:4px 6px;color:#000;background:var(--rc,#888);
        letter-spacing:.06em;box-shadow:2px 2px 0 #000}
   .bdg{display:inline-block;font:15px/1 var(--vt);padding:1px 6px;border:1px solid var(--line2);color:var(--dim);
        margin:0 4px 4px 0;text-transform:uppercase}
-  .kchip{display:inline-block;font:6.5px/1 var(--px);padding:4px 6px;border:2px solid currentColor;letter-spacing:.06em}
+  .kchip{display:inline-block;font:600 10.5px/1 var(--ui);padding:4px 6px;border:2px solid currentColor;letter-spacing:.06em}
   .k-prim{color:var(--cy)} .k-keytype{color:var(--mag)} .k-private{color:var(--hz)}
-  .onchain{display:inline-block;font:6.5px/1 var(--px);padding:4px 6px;color:#031400;background:var(--ac);
+  .onchain{display:inline-block;font:600 10.5px/1 var(--ui);padding:4px 6px;color:#031400;background:var(--ac);
        box-shadow:0 0 8px rgba(57,255,20,.5)}
   .ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .sortchip{font:7.5px/1 var(--px);padding:8px 10px}
+  .sortchip{font:600 11.5px/1 var(--ui);padding:8px 10px}
   .big-n{font:clamp(44px,7vw,84px)/1 var(--vt);color:var(--hz);text-shadow:0 0 18px rgba(255,230,0,.55), 4px 4px 0 #3a1a00}
   .hazard{background:repeating-linear-gradient(-45deg,var(--hz) 0 10px,#111 10px 20px);height:8px;margin:0 0 14px}
   .loadline{font:18px var(--vt);color:var(--dim)}
@@ -583,7 +607,7 @@
                   10px 11px 0 0 #000, 0 0 30px color-mix(in srgb,var(--rc) 50%,transparent)}
   .card .top{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px 10px;
        background:color-mix(in srgb,var(--rc) 16%,transparent);border-bottom:2px solid var(--rc)}
-  .card .nm{font:9px/1.5 var(--px);color:#fff;padding:10px 10px 4px;word-break:break-all;min-height:40px}
+  .card .nm{font:600 13px/1.5 var(--ui);color:#fff;padding:10px 10px 4px;word-break:break-all;min-height:40px}
   .card .art{margin:4px 10px 8px;height:96px;display:grid;place-items:center;position:relative;
        background:
          linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px) 0 0/8px 8px,
@@ -591,20 +615,20 @@
          radial-gradient(circle at 50% 60%, color-mix(in srgb,var(--rc) 30%,transparent), transparent 70%),#07040f;
        border:2px solid #22163d}
   .card .art svg{width:72px;height:72px;image-rendering:pixelated;filter:drop-shadow(0 0 8px color-mix(in srgb,var(--rc) 70%,transparent))}
-  .card .art .ops{position:absolute;left:6px;bottom:4px;font:6.5px var(--px);color:var(--dim)}
-  .card .art .dp{position:absolute;right:6px;bottom:4px;font:6.5px var(--px);color:var(--dim)}
+  .card .art .ops{position:absolute;left:6px;bottom:4px;font:600 10.5px var(--ui);color:var(--dim)}
+  .card .art .dp{position:absolute;right:6px;bottom:4px;font:600 10.5px var(--ui);color:var(--dim)}
   .card .bars{padding:0 10px}
   .card .meta{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:8px 10px 4px;text-align:center}
   .card .meta div{background:#0a0618;border:1px solid #22163d;padding:4px 2px}
   .card .meta b{display:block;font:20px/1 var(--vt);color:#fff;font-weight:400}
-  .card .meta span{font:6px/1 var(--px);color:var(--dim)}
+  .card .meta span{font:600 10px/1 var(--ui);color:var(--dim)}
   .card .ft{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 10px 0;
        font:15px/1 var(--vt);color:var(--dim);margin-top:auto}
   .card .bdgs{padding:2px 10px 0;min-height:20px}
   .card.refused{filter:saturate(.35)}
   .card.refused::after{content:'REFUSED';position:absolute;top:44%;left:50%;transform:translate(-50%,-50%) rotate(-12deg);
        font:12px var(--px);color:var(--bad);border:3px solid var(--bad);padding:6px 8px;background:rgba(10,0,4,.8)}
-  .price{font:8px var(--px);color:var(--hz);text-shadow:0 0 8px rgba(255,230,0,.5)}
+  .price{font:600 12px var(--ui);color:var(--hz);text-shadow:0 0 8px rgba(255,230,0,.5)}
   /* drawer */
   #drawer-wrap{position:fixed;inset:0;z-index:50;background:rgba(4,2,10,.6);display:none}
   #drawer-wrap.open{display:block}
@@ -620,11 +644,11 @@
   .dr-art svg{width:110px;height:110px;flex:none;image-rendering:pixelated;
        background:#07040f;border:3px solid var(--rc,var(--mag));padding:6px;box-shadow:5px 5px 0 #000}
   .dr-sec{margin:16px 0}
-  .dr-sec > .lbl{font:7.5px var(--px);color:var(--mag);margin-bottom:8px;letter-spacing:.06em}
+  .dr-sec > .lbl{font:600 11.5px var(--ui);color:var(--mag);margin-bottom:8px;letter-spacing:.06em}
   .partchip{display:inline-block;font:17px/1 var(--vt);padding:4px 9px;margin:0 6px 6px 0;cursor:pointer;
        border:2px solid var(--cy);color:var(--cy);background:rgba(0,240,255,.06);box-shadow:2px 2px 0 #000}
   .partchip:hover{background:var(--cy);color:#000}
-  .partop{font:7px var(--px);color:var(--hz);margin:0 6px 6px 0;display:inline-block}
+  .partop{font:600 11px var(--ui);color:var(--hz);margin:0 6px 6px 0;display:inline-block}
 
   /* ════════════ PRIMS: the periodic table ════════════ */
   .ptable{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(118px,1fr))}
@@ -634,17 +658,17 @@
   .el:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 #000,0 0 22px color-mix(in srgb,var(--ec) 55%,transparent);
       background:color-mix(in srgb,var(--ec) 20%,#0a0618)}
   .el.sel{outline:3px solid #fff;outline-offset:2px}
-  .el .z{font:7px var(--px);color:var(--ec)}
-  .el .qs{position:absolute;top:7px;right:7px;font:6px var(--px);padding:2px 3px;background:var(--ac);color:#000}
+  .el .z{font:600 11px var(--ui);color:var(--ec)}
+  .el .qs{position:absolute;top:7px;right:7px;font:600 10px var(--ui);padding:2px 3px;background:var(--ac);color:#000}
   .el .qs.no{background:var(--bad);color:#fff}
   .el .sym{font:26px/1 var(--px);color:#fff;margin:auto 0 4px;text-shadow:3px 3px 0 color-mix(in srgb,var(--ec) 60%,#000)}
-  .el .sym sub{font:9px var(--px);color:var(--ec);vertical-align:baseline;margin-left:3px;text-shadow:none}
+  .el .sym sub{font:600 13px var(--ui);color:var(--ec);vertical-align:baseline;margin-left:3px;text-shadow:none}
   .el .nm{font:15px/1 var(--vt);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .el .ms{font:14px/1 var(--vt);color:var(--dim);display:flex;justify-content:space-between;margin-top:3px}
   .el.refused{opacity:.55}
   .el.unsafe::after{content:'';position:absolute;left:0;right:0;bottom:0;height:5px;
       background:repeating-linear-gradient(-45deg,var(--hz) 0 5px,#111 5px 10px)}
-  .legend{display:flex;gap:16px;flex-wrap:wrap;font:7px var(--px);color:var(--dim);margin:0 0 14px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font:600 11px var(--ui);color:var(--dim);margin:0 0 14px}
   .legend i{display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px;border:2px solid var(--ec)}
   .screen{margin-top:14px;padding:22px 16px;text-align:center;background:#050210;
       border:3px solid var(--sc,var(--ac));box-shadow:6px 6px 0 #000,inset 0 0 40px color-mix(in srgb,var(--sc,var(--ac)) 25%,transparent);
@@ -671,24 +695,24 @@
   <div class="mark"><span class="glyph">pq</span><span class="t">POSTQUANT</span></div>
   <nav>
     <button data-tab="home" class="on">Home</button>
-    <button data-tab="keymarket" class="hot">Market</button>
-    <button data-tab="prims">Prims</button>
-    <button data-tab="builder">Builder</button>
-    <span class="sep"></span>
+    <button data-tab="keymarket">Keys</button>
     <button data-tab="chain">Chain</button>
-    <button data-tab="store">Store</button>
-    <button data-tab="market">Bytes</button>
     <button data-tab="wallet">Wallet</button>
-    <button data-tab="vault">Vault</button>
-    <button data-tab="ask">Ask</button>
     <button data-tab="about">Paper</button>
-    <!-- reached from inside Store, not from the bar -->
-    <button data-tab="write" data-parent="store" hidden>Write</button>
+    <!-- sub-tabs: reached from the strip under the header, not the bar -->
+    <button data-tab="builder" data-parent="keymarket" hidden>Builder</button>
+    <button data-tab="prims" data-parent="keymarket" hidden>Prims</button>
+    <button data-tab="store" data-parent="chain" hidden>Store</button>
+    <button data-tab="write" data-parent="chain" hidden>Write</button>
+    <button data-tab="market" data-parent="chain" hidden>Bytes</button>
+    <button data-tab="consensus" data-parent="chain" hidden>Consensus</button>
+    <button data-tab="vault" data-parent="wallet" hidden>Vault</button>
   </nav>
   <button class="kbtn" id="pal-open" title="jump anywhere, run anything">FIND <kbd id="pal-key">CTRL K</kbd></button>
 </header>
 
 <main>
+  <div id="subnav" hidden></div>
   <!-- HOME --------------------------------------------------------------- -->
   <section id="home" class="on">
     <div class="hero">
@@ -701,8 +725,6 @@
         re-checked inside sealed wasm, and the whole chain replays from block zero.</p>
       <div class="ctas">
         <button class="go" id="hero-start">&#9654; PRESS START</button>
-        <button class="cy" onclick="go('keymarket')">KEY TYPE MARKET</button>
-        <button class="hz" onclick="goPrivate()">GO PRIVATE</button>
       </div>
       <p class="h-kbd"><kbd>CTRL</kbd> <kbd>K</kbd> JUMPS ANYWHERE, RUNS ANYTHING</p>
     </div>
@@ -779,21 +801,36 @@
     </div>
   </section>
 
-  <!-- ASK --------------------------------------------------------------- -->
-  <section id="ask">
+  <!-- CONSENSUS: the engine is a plugin; switching is a block -------------- -->
+  <section id="consensus">
     <div class="panel">
-      <h2>ask the chain</h2>
-      <p class="note">Tell it what to do in plain words — it runs the same
-        tools as every other tab and shows each one it used. Chain steps with
-        "then". Add "dry run" to see the price without signing anything.</p>
-      <div class="row">
-        <input type="text" id="ask-q" placeholder='e.g. create wallet alice then faucet 100 to alice' autocomplete="off">
-        <button class="go" id="ask-go">ASK</button>
-        <span class="pill" id="ask-brain">—</span>
-      </div>
-      <div id="ask-examples"></div>
-      <div id="ask-log"></div>
+      <h2>who runs the chain</h2>
+      <div class="stats" id="cn-stats"><span class="muted">loading…</span></div>
+      <div id="cn-vals" style="margin-top:10px"></div>
+      <div id="cn-prop"></div>
     </div>
+    <div class="panel">
+      <h2>switch consensus</h2>
+      <p class="note">Pick any engine. The switch is written into the next
+        block and signed by the engine running now, so the chain never forks
+        and VERIFY replays every switch. Every validator signs with a
+        post-quantum key — mix key types freely.</p>
+      <div class="cn-seg" id="cn-seg"></div>
+      <p class="note" id="cn-about" style="margin:10px 0"></p>
+      <div class="row" id="cn-form">
+        <label class="muted" id="cn-n-l">validators
+          <input type="number" id="cn-n" min="1" max="16" value="4" style="width:64px"></label>
+        <span id="cn-schemes" class="row" style="gap:6px"></span>
+        <label class="muted" id="cn-d-l" hidden>difficulty bits
+          <input type="number" id="cn-d" min="1" max="24" value="12" style="width:64px"></label>
+        <button class="go" id="cn-go" style="margin-left:auto">SWITCH</button>
+      </div>
+      <div id="cn-out"></div>
+    </div>
+    <details class="panel fold">
+      <summary><h2>history of engines</h2></summary>
+      <div id="cn-sched" class="muted">loading…</div>
+    </details>
   </section>
 
   <!-- STORE -------------------------------------------------------------- -->
@@ -809,7 +846,6 @@
         <label><input type="checkbox" id="keys-expired"> include expired</label>
         <button class="go" id="keys-refresh">REFRESH</button>
         <span class="pill" id="keys-meta">—</span>
-        <button class="go" style="margin-left:auto" onclick="go('write')">WRITE A KEY</button>
       </div>
       <div id="keys"></div>
     </div>
@@ -978,7 +1014,6 @@
     </div>
   </section>
 
-  <!-- PRIVATE ------------------------------------------------------------ -->
   <!-- BUILDER ------------------------------------------------------------ -->
   <section id="builder">
     <div class="panel">
@@ -1139,13 +1174,12 @@
         <select id="nw-scheme" title="key type"><option value="">ML-DSA-44 (default)</option></select>
         <button class="go" id="nw-create">CREATE</button>
         <button id="w-refresh">REFRESH</button>
-        <button style="margin-left:auto" onclick="go('builder')">KEY TYPE BUILDER</button>
-        <button class="hz" onclick="goPrivate()">PRIVATE WALLET</button>
+        <button class="hz" style="margin-left:auto" onclick="goPrivate()">PRIVATE WALLET</button>
       </div>
       <div id="wallets"></div>
     </div>
-    <div class="panel">
-      <h2>key types</h2>
+    <details class="panel fold">
+      <summary><h2>key types this chain can witness</h2></summary>
       <p class="note">The algorithms this chain can witness with. Each one IS
         a wasm module: a transaction is accepted only if the verifier blob
         registered for its key type — hash-committed in the manifest — says
@@ -1158,7 +1192,7 @@
         computer ends it.</p>
       <div id="algos" class="muted">loading…</div>
       <p class="note" id="algos-gate" style="margin-top:8px"></p>
-    </div>
+    </details>
     <div class="panel">
       <h2>one account</h2>
       <div class="row">
@@ -1325,7 +1359,7 @@ mod Counter {
           <tr><td>attacker can't tell which scheme to attack</td><td class="no">no</td><td class="no">no</td><td class="ok">yes — private key types (§5c)</td></tr>
           <tr><td>off-chain data the nodes cannot read</td><td class="mid">bolt-on</td><td class="mid">bolt-on</td><td class="ok">built in — client-side AES-256-GCM vault (§5e)</td></tr>
           <tr><td>contract code verifiable by hash</td><td class="ok">yes</td><td class="ok">yes</td><td class="ok">yes — and the anchor is an owned, sellable key (§5f)</td></tr>
-          <tr><td>decentralised consensus</td><td class="ok">yes</td><td class="ok">yes</td><td class="no">no — single proposer, fully replayable (§6)</td></tr>
+          <tr><td>decentralised consensus</td><td class="ok">yes</td><td class="ok">yes</td><td class="ok">pluggable — authority, PoA, BFT, PoS or PoW, switched on chain (§6); one node today</td></tr>
         </tbody>
       </table>
       <p class="hum">That last row matters: this is the best design we know
@@ -1338,8 +1372,9 @@ mod Counter {
       <p class="sci">"Best" is claimed against the stated objective — durable,
         priced ownership under a quantum adversary — and on that objective
         every row above is a rule enforced by the node, not a roadmap item.
-        Where the design pays a cost it says so: single-proposer ordering
-        (§6, mitigated by full replay, not consensus), 2–65 KB witnesses
+        Where the design pays a cost it says so: one node, one log (§6 —
+        the consensus engine is pluggable and migrates on chain, but there is
+        no gossip or fork choice yet), 2–65 KB witnesses
         (Fig. 2, priced not hidden), proposer trust for private key types
         (§5c), and vault availability that depends on a node holding the
         ciphertext (§5e — anyone may mirror it; the cid makes every copy
@@ -1703,23 +1738,32 @@ mod Counter {
 POST /contract {"action":"show","name":"counter"}   → code, cid, verified, proof_valid
 POST /vault    {"action":"put","blob":"&lt;sealed base64&gt;","key":"vault/notes","wallet":"pioneer"}</pre>
 
-      <h3><span class="n">6</span>Consensus, honestly</h3>
-      <p class="hum">One operator decides the order of transactions — this
-        chain doesn't pretend to be a thousand-node democracy, and says so.
-        What keeps it honest is that everything is checkable: anyone can
-        press VERIFY THE CHAIN and replay the whole history from the first
-        block, and if a single byte had been altered the replay would catch
-        it. A short proof can convince even a phone that an entry is real,
-        no full copy of the chain needed.</p>
-      <p class="sci">Single proposer — <em>authority, not agreement</em>. What is real is
-        the ordered log (<code>blocks.jsonl</code>), deterministic execution,
-        and a state root anyone can recompute. VERIFY THE CHAIN replays every
-        block from genesis and re-checks every parent link, header hash,
-        transaction root, state root and proposer signature — the check that
-        would still matter under any consensus. A Merkle proof
+      <h3><span class="n">6</span>Consensus, modular</h3>
+      <p class="hum">Who gets to add the next block is a swappable part. The
+        chain started with one operator; it can switch to a rotating group,
+        a vote where two-thirds must agree, a vote weighted by how much PQ
+        each validator holds, or proof of work — and switch again later. The
+        switch itself is written into a block and signed by whoever runs
+        the chain at that moment, so history never splits. Every validator
+        signs with a post-quantum key, and they can each pick a different
+        one. VERIFY THE CHAIN still replays everything from the first block,
+        switches included.</p>
+      <p class="sci">An <em>engine</em> answers who proposes at (height,
+        round), what quorum makes a block final, and what else the header
+        must satisfy: <code>authority</code>, <code>roundrobin</code>,
+        <code>bft</code> (&gt; 2/3 voting power), <code>pos</code> (balance
+        weights, SHA3 lottery over the parent hash — no classical VRF),
+        <code>pow</code> (SHA3 hashcash; Grover halves a quantum miner's bits)
+        or a plugin in <code>src/consensus.d/</code>. The schedule of epochs
+        lives in block headers: a <code>migrate</code> field is sealed and
+        committed under the epoch it replaces, so the old consensus
+        authorises the new one, and the replay audit rebuilds the schedule
+        from the log rather than a config file. Seals and votes are
+        signatures under the chain's key types; <code>require_pq</code>
+        demands quantum-safe, many-time validator keys. What is not here:
+        gossip and fork choice — one node, one log. A Merkle proof
         (<code>pq_prove</code>) takes any key to the state root, which is
-        what a light client needs to trust a commitment without holding the
-        store.</p>
+        what a light client needs.</p>
 
       <h3><span class="n">7</span>Units</h3>
       <p class="hum">The money is <em>PQ</em>, and one PQ splits into a
@@ -1748,7 +1792,7 @@ POST /vault    {"action":"put","blob":"&lt;sealed base64&gt;","key":"vault/notes
   </section>
 </main>
 
-<!-- the corner agent: the same agent as ASK, one orb on every tab -->
+<!-- the corner agent: one orb on every tab -->
 <div id="wp-help">
   <div id="wp-chat">
     <div class="hd"><span class="dot"></span>ASK THE CHAIN
@@ -1821,7 +1865,20 @@ const out = (id, html, cls) => { const e = $(id);
 const err = (id, e) => out(id, esc(e.message || e), 'err');
 const json = o => '<pre>' + esc(JSON.stringify(o, null, 2)) + '</pre>';
 
-// ── tabs ──
+// ── tabs: five groups, sub-tabs in the strip under the header ──
+const SUB = {
+  keymarket: [['keymarket', 'Market'], ['builder', 'Builder'], ['prims', 'Prims']],
+  chain: [['chain', 'Blocks'], ['store', 'Store'], ['write', 'Write'], ['market', 'Bytes'], ['consensus', 'Consensus']],
+  wallet: [['wallet', 'Wallets'], ['vault', 'Vault']],
+};
+function drawSubnav(group, tab) {
+  const el = $('subnav'), items = SUB[group];
+  el.hidden = !items;
+  if (!items) return;
+  el.innerHTML = items.map(([t, l]) =>
+    `<button data-sub="${t}"${t === tab ? ' class="on"' : ''}>${l}</button>`).join('');
+  el.querySelectorAll('button').forEach(x => x.onclick = () => go(x.dataset.sub));
+}
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
   document.querySelectorAll('main > section').forEach(x => x.classList.remove('on'));
@@ -1832,92 +1889,17 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   if (b.dataset.tab === 'chain') _chainTimer = setInterval(loadChain, 5000);
   if (b.dataset.tab === 'home') _chainTimer = setInterval(loadHome, 5000);
   closeCard();
-  ({home: loadHome, chain: loadChain, ask: loadAsk, store: loadKeys, market: loadMarket,
+  drawSubnav(b.dataset.parent || b.dataset.tab, b.dataset.tab);
+  ({home: loadHome, chain: loadChain, store: loadKeys, market: loadMarket,
     builder: () => { loadBuilder(); fillWallets(); loadPrivate(); }, keymarket: loadKeymarket,
     prims: () => { loadPrims(); fillWallets(); },
     wallet: () => { loadWallets(); loadAlgos(); },
+    consensus: loadConsensus,
     write: fillWallets}[b.dataset.tab] || (()=>{}))();
 });
 
 // ── ASK: POST /run/stream, the fleet's agent contract ──
-let askLoaded = false;
-async function loadAsk() {
-  if (askLoaded) return;
-  try {
-    const r = await api('/agents');
-    const a = r.agents.find(x => x.id === r.default) || r.agents[0];
-    const b = r.brains || {};
-    $('ask-brain').textContent = b.llm && b.llm.ready
-      ? 'brain: ' + b.llm.model + ' (falls back to rules)'
-      : b.agent && b.agent.ready
-      ? 'brain: agent · ' + (b.agent.model || '').replace(/^LiquidAI\//, '') + ' picks the tools'
-      : b.chat && b.chat.ready
-      ? 'brain: chat · ' + (b.chat.model || '').replace(/^LiquidAI\//, '')
-      : 'brain: rules — local, free, no model';
-    $('ask-examples').innerHTML = (a.examples || []).map(e =>
-      `<span class="chip">${esc(e)}</span>`).join('');
-    document.querySelectorAll('#ask-examples .chip').forEach(c => c.onclick = () => {
-      $('ask-q').value = c.textContent; $('ask-q').focus(); });
-    askLoaded = true;
-  } catch (e) { $('ask-brain').textContent = 'agent unavailable: ' + e.message; }
-}
-const askHist = [];   // the chat brain is multi-turn; last 10 are sent
-async function ask() {
-  const q = $('ask-q').value.trim();
-  if (!q) return;
-  $('ask-q').value = ''; $('ask-go').disabled = true;
-  const turn = document.createElement('div');
-  turn.innerHTML = `<div class="turn-q">${esc(q)}</div>` +
-    '<div class="turn-a"><div class="tools"></div><div class="ans muted">working…</div></div>';
-  $('ask-log').prepend(turn);
-  const tools = turn.querySelector('.tools'), ans = turn.querySelector('.ans');
-  let chip = null, streamed = '';
-  const handle = ev => {
-    if (ev.type === 'token') {        // chat brain streams word-ish chunks
-      streamed += ev.text;
-      ans.className = 'ans'; ans.textContent = streamed;
-    } else if (ev.type === 'model_start' && ev.brain === 'agent' && !streamed) {
-      ans.className = 'ans muted';    // a small model on CPU: say it is working
-      ans.textContent = 'thinking… step ' + ((ev.step || 0) + 1);
-    } else if (ev.type === 'tool_start') {
-      chip = document.createElement('span'); chip.className = 'chip run';
-      chip.textContent = ev.tool; chip.title = JSON.stringify(ev.params);
-      tools.appendChild(chip);
-    } else if (ev.type === 'step' && ev.step.tool !== 'finish' && chip) {
-      chip.className = 'chip ' + (ev.step.error ? 'no' : 'ok');
-      chip.textContent = ev.step.tool + (ev.step.ms !== undefined ? ' ' + ev.step.ms + 'ms' : '');
-      const detail = ev.step;
-      chip.onclick = () => { const pre = turn.querySelector('pre') ||
-        turn.querySelector('.turn-a').appendChild(document.createElement('pre'));
-        pre.textContent = JSON.stringify(detail, null, 2); };
-    } else if (ev.type === 'status') {
-      ans.className = 'ans muted'; ans.textContent = ev.text;
-    } else if (ev.type === 'done') {
-      ans.className = 'ans'; ans.textContent = ev.result;   // authoritative
-      if (ev.brain) {
-        const pill = document.createElement('span');
-        pill.className = 'chip';
-        pill.textContent = ev.brain + (ev.fallback ? ' · fell back' : '') +
-          (ev.ms ? ' · ' + (ev.ms / 1000).toFixed(1) + 's' : '');
-        tools.appendChild(pill);
-      }
-      askHist.push({role: 'user', content: q},
-                   {role: 'assistant', content: ev.result});
-    } else if (ev.type === 'error') {
-      ans.className = 'ans err'; ans.textContent = ev.error;
-    }
-  };
-  try {
-    await streamRun({query: q, history: askHist.slice(-10)}, handle);
-  } catch (e) { ans.className = 'ans err'; ans.textContent = e.message; }
-  $('ask-go').disabled = false; $('ask-q').focus();
-}
-$('ask-go').onclick = ask;
-$('ask-q').onkeydown = e => { if (e.key === 'Enter') ask(); };
-
-// One SSE reader for both askers — the ASK tab and the paper's corner helper.
-// body: {query, history?, brain?} — the ASK tab leaves brain to the server's
-// auto pick (llm → agent → chat → rules), so a liquidai outage degrades by itself.
+// SSE reader for the corner agent. body: {query, history?, brain?}
 async function streamRun(body, handle) {
   const r = await fetch(API + '/run/stream', {method: 'POST',
     headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
@@ -1957,7 +1939,11 @@ $('wp-fab').onclick = () => {
 };
 document.querySelectorAll('#wp-chips .chip').forEach(c =>
   c.onclick = () => wpAsk(c.textContent));
-const wpHist = [];    // its own thread — the paper chat is not the ASK tab's
+const wpHist = [];
+function orbAsk(q) {
+  $('wp-chat').classList.add('open'); $('wp-fab').classList.add('is-open');
+  if (q) wpAsk(q); else $('wp-q').focus();
+}
 async function wpAsk(preset) {
   const q = (preset || $('wp-q').value).trim();
   if (!q) return;
@@ -2017,10 +2003,7 @@ document.addEventListener('click', e => {
 
 // ── HOME: the front door ──
 const go = tab => document.querySelector(`nav button[data-tab="${tab}"]`).click();
-document.querySelectorAll('.door[data-go]').forEach(d => d.onclick = () => {
-  go(d.dataset.go);
-  if (d.dataset.go === 'ask') $('ask-q').focus();
-});
+document.querySelectorAll('.door[data-go]').forEach(d => d.onclick = () => go(d.dataset.go));
 let _homeHeight = null;
 async function loadHome() {
   try {
@@ -2120,7 +2103,7 @@ async function journey() {
       `Or just <a href="#" id="j-ask">ask the chain</a> what to do next.`;
     $('j-store').onclick = ev => { ev.preventDefault(); go('store');
       $('get-key').value = key; $('get-btn').click(); };
-    $('j-ask').onclick = ev => { ev.preventDefault(); go('ask'); $('ask-q').focus(); };
+    $('j-ask').onclick = ev => { ev.preventDefault(); orbAsk(); };
     loadHome();
   } catch (e) { s.fail(e); }
   _jBusy = false;
@@ -2130,18 +2113,19 @@ async function journey() {
 const PAL = [
   ['Home', 'the front door', () => go('home')],
   ['Chain', 'blocks, mempool, verify', () => go('chain')],
-  ['Ask', 'the agent — plain words in', () => { go('ask'); $('ask-q').focus(); }],
+  ['Ask', 'the agent — plain words in', () => orbAsk()],
   ['Store', 'every live key', () => go('store')],
   ['Market', 'the key type marketplace', () => go('keymarket')],
   ['Prims', 'the periodic table of primitives', () => go('prims')],
   ['Builder', 'forge key types: ALL / ANY / THRESHOLD', () => go('builder')],
-    ['Bytes', 'the price of a byte', () => go('market')],
+  ['Bytes', 'the price of a byte', () => go('market')],
+  ['Vault', 'encrypt a file before it leaves you', () => go('vault')],
   ['forge a private wallet', 'cloak a key type', () => goPrivate()],
   ['add a wasm prim', 'upload a blob to the battery', () => { go('prims'); $('byo-name').focus(); }],
   ['hottest key types', 'market sorted by heat', () => { go('keymarket'); }],
   ['safest key types', 'market sorted by security', () => { go('keymarket'); document.querySelector('#mk-sorts [data-s=safe]').click(); }],
   ['Write a key', 'claim a key', () => { go('write'); $('w-key').focus(); }],
-  ['Wallet', 'the keystore + key types', () => go('wallet')],
+  ['Wallet', 'the keystore', () => go('wallet')],
   ['Paper', 'two voices, one truth', () => go('about')],
   ['first key in 60 seconds', 'the guided journey', () => { go('home'); journey(); }],
   ['mine a block now', 'force the proposer', async () => {
@@ -2168,7 +2152,7 @@ function palRun(i) {
   const q = $('pal-q').value.trim();
   palClose();
   if (i === 'ask' || +i >= palItems.length) {
-    go('ask'); $('ask-q').value = q; ask();
+    orbAsk(q);
   } else palItems[+i][2]();
 }
 function palOpen() {
@@ -3383,6 +3367,68 @@ async function loadWallets() {
   } catch (e) { err('wallets', e); }
 }
 $('w-refresh').onclick = () => { loadWallets(); loadAlgos(); };
+
+// ── CONSENSUS: pq_consensus — the engine is a plugin, a switch is a block ──
+let cnEngines = [], cnPick = 'bft';
+const CN_SCHEMES = ['ML-DSA-44', 'ML-DSA-65', 'SLH-DSA-SHAKE-128f'];
+async function loadConsensus() {
+  try {
+    const [c, e] = await Promise.all([api('/consensus'),
+      cnEngines.length ? null : api('/consensus?action=engines')]);
+    if (e) cnEngines = e.engines;
+    const a = c.active;
+    out('cn-stats', stat(esc(a.engine.toUpperCase()), 'engine') +
+      stat(a.validators.length || 'open', 'validators') +
+      stat(a.quorum ? esc(a.quorum) + ' power' : '1 seal', 'final when') +
+      stat(a.from_height, 'since block') + stat(c.epochs, 'engines so far'));
+    out('cn-vals', a.validators.length
+      ? '<table><tr><th>validator</th><th>key type</th><th>quantum</th><th class="num">power</th><th></th></tr>' +
+        a.validators.map(v => `<tr><td class="mono addr" data-copy="${esc(v.address)}">${esc(v.name || short(v.address, 22))}</td>` +
+          `<td class="mono muted">${esc(v.scheme)}</td><td>${esc(v.pq_score ?? '—')}</td>` +
+          `<td class="num">${esc(v.power)}</td><td>${v.local ? '<span class="pill">this node</span>' : ''}</td></tr>`).join('') + '</table>'
+      : '<span class="muted">open to anyone who does the work</span>');
+    const p = c.proposal;
+    out('cn-prop', (p ? `<p class="note">Block ${p.height} is waiting for votes: ${p.power} of ${p.needed} power. ` +
+      `Waiting on ${p.waiting_on.length} validator(s).</p>` : '') +
+      (c.pending ? `<p class="note">Switch to ${esc(c.pending.engine)} is queued for the next block.</p>` : '') +
+      (c.note ? `<p class="note">${esc(c.note)}</p>` : ''));
+    $('cn-seg').innerHTML = cnEngines.map(x =>
+      `<button data-e="${esc(x.name)}"${x.name === cnPick ? ' class="on"' : ''}>${esc(x.name.toUpperCase())}</button>`).join('');
+    $('cn-seg').querySelectorAll('button').forEach(b => b.onclick = () => { cnPick = b.dataset.e; loadConsensus(); });
+    const eng = cnEngines.find(x => x.name === cnPick) || {};
+    $('cn-about').innerHTML = `<b>${esc(eng.title || '')}</b> — ${esc(eng.summary || '')}. <span class="muted">Survives: ${esc(eng.faults || '')}</span>`;
+    const pow = !eng.needs_validators, one = cnPick === 'authority';
+    $('cn-n-l').hidden = pow || one; $('cn-schemes').hidden = pow;
+    $('cn-d-l').hidden = !pow;
+    if (!$('cn-schemes').childElementCount)
+      $('cn-schemes').innerHTML = CN_SCHEMES.map((x, i) =>
+        `<label class="cn-chip"><input type="checkbox" value="${x}"${i < 2 ? ' checked' : ''}>${x}</label>`).join('');
+    const s = await api('/consensus?action=schedule');
+    out('cn-sched', '<table><tr><th>from block</th><th>engine</th><th>validators</th><th>key types</th></tr>' +
+      s.epochs.map(x => `<tr><td class="num">${x.from_height}</td><td>${esc(x.title)}</td>` +
+        `<td class="num">${x.validators.length}</td>` +
+        `<td class="mono muted">${esc([...new Set(x.validators.map(v => v.scheme))].join(', ') || '—')}</td></tr>`).join('') + '</table>');
+  } catch (e) { err('cn-stats', e); }
+}
+$('cn-go').onclick = async () => {
+  const schemes = [...$('cn-schemes').querySelectorAll('input:checked')].map(x => x.value);
+  const body = {action: 'migrate', engine: cnPick};
+  if (cnPick === 'pow') body.difficulty = +$('cn-d').value || 12;
+  else {
+    body.create = cnPick === 'authority' ? 1 : Math.max(1, +$('cn-n').value || 1);
+    body.schemes = (schemes.length ? schemes : ['ML-DSA-44']).join(',');    if (cnPick === 'pos') body.stake = '1000';
+  }
+  $('cn-go').disabled = true; out('cn-out', '<span class="muted">switching…</span>');
+  try {
+    const r = await api('/consensus', body);
+    out('cn-out', `<p class="note">Done. ${esc(r.note)}${r.block !== undefined ? ' — carried by block ' + r.block : ''}.</p>`);
+    toast('consensus: ' + cnPick);
+  } catch (e) {
+    out('cn-out', esc(cnPick === 'pos' && /stake/.test(e.message)
+      ? e.message + ' (fund the new validators from the Wallet tab, then switch)' : e.message), 'err');
+  }
+  $('cn-go').disabled = false; loadConsensus();
+};
 $('nw-create').onclick = async () => {
   const name = $('nw-name').value.trim();
   if (!name) return;

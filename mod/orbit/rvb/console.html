@@ -814,9 +814,6 @@ $('#r-defenses').addEventListener('change', recomputeCostHint);
 
 // ── boot ───────────────────────────────────────────────────────
 api('/targets').then(t => {
-  const ready = Object.entries(t.providers).filter(([, p]) => p.ready)
-    .map(([n]) => n).join(' · ');
-  $('#sub').textContent = `target ${t.default} · ready: ${ready}`;
   $('#cost-hint').textContent = `${t.default} is the default; mock:* is free`;
   // Default the runners to the server's real target, not the offline mock.
   // mock:* stays one keystroke away for anyone testing the harness.

@@ -149,6 +149,9 @@ READ_ACTIONS = {
     'private': ('info', 'info', 'verify', 'check_open'),
     'vault': ('info', 'info', 'get', 'list'),
     'contract': ('info', 'info', 'show', 'list'),
+    # a vote is authenticated by its own signature, not by the bearer
+    'consensus': ('info', 'info', 'engines', 'catalog', 'schedule', 'plan',
+                  'proposal', 'vote'),
 }
 
 

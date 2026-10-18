@@ -17,6 +17,9 @@ import {
 import { replaySleeve, summarizeSleeve, type BasketFeeds, type Sleeve } from "./basketSim";
 import type { PolymarketTrade } from "./types";
 import { MAIN_TABS, activeTab } from "./navTabs";
+import {
+  DEFAULT_SCORE_WEIGHTS, cleanWeights, parseWeights, rankByScore, resampleEquity, smoothness, steadyScore,
+} from "./copyScore";
 
 let failures = 0;
 function ok(cond: unknown, msg: string): void {
@@ -195,6 +198,41 @@ console.log("\n─ nav: COPY is the front door ─");
   ok(activeTab("/copy") === "/copy" && activeTab("/copy/basket") === "/copy" && activeTab("/copy/0xabc") === "/copy", "/copy/* lights DESK");
   ok(activeTab("/strats") === "/strats", "/strats lights STRATS");
   ok(activeTab("/traders/0xabc") === "/traders" && activeTab("/markets") === "/traders", "everything else lights TRADERS");
+}
+
+console.log("\n─ STEADY score: consistency over luck, disclosed, user-weighted ─");
+{
+  const curve = (ys: number[]) => ys.map((v, i) => ({ t: i * HOUR, liq: v, pos: 0 }));
+  const sleeve = (o: Partial<Sleeve>): Sleeve => ({
+    address: A, label: "a", allocationUsd: 100, weight: 1, net: 0, pct: 0, endEquity: 100, volume: 0,
+    fees: 0, feeBps: 0, trades: 20, observed: 20, executed: 20, skipped: 0, ratio: 1, drawdown: 0,
+    confidence: 1, markets: [], equity: [], markers: [], ...o,
+  });
+  ok(smoothness([1, 2, 3, 4, 5]) > 0.99, "a straight climb is perfectly smooth");
+  ok(smoothness([5, 4, 3, 2, 1]) === 0, "a straight fall scores 0, not R²=1");
+  ok(smoothness([1, 1, 1, 1, 1]) === 0, "a flat line has nothing to judge");
+  ok(smoothness([100, 100, 100, 100, 100, 100, 100, 130]) < 0.5, "one late spike is not smooth");
+  ok(resampleEquity(curve([1, 2, 3])).length === 24, "equity is resampled to even time steps");
+
+  const stair = sleeve({ pct: 10, net: 10, drawdown: -2, equity: curve([100, 102, 104, 106, 108, 110]) });
+  const spike = sleeve({ pct: 30, net: 30, drawdown: -25, equity: curve([100, 85, 80, 78, 80, 130]) });
+  const s1 = steadyScore(stair).score!, s2 = steadyScore(spike).score!;
+  ok(s1 > s2, `a steady +10% outranks a lucky +30% under default weights (${s1} vs ${s2})`);
+  const greedy = { smooth: 0, shallow: 0, ret: 100, sample: 0, settled: 0 };
+  ok(steadyScore(spike, greedy).score! > steadyScore(stair, greedy).score!, "weights are the user's: RETURN-only flips it");
+  ok(steadyScore(sleeve({ trades: 0 })).score === null, "an idle trader has no score (not 0)");
+  ok(steadyScore(null).score === null, "a missing replay has no score");
+  ok(steadyScore(stair, { smooth: 0, shallow: 0, ret: 0, sample: 0, settled: 0 }).score === s1, "all-zero weights fall back to the defaults");
+  const few = steadyScore(sleeve({ ...stair, trades: 2 })).score!;
+  ok(few < s1, "a thin sample scores lower than the same curve on 20 trades");
+  const sc = steadyScore(stair).score!;
+  ok(sc >= 0 && sc <= 100, "score is 0–100");
+
+  ok(JSON.stringify(rankByScore(["a", "b", "c", "d"], (x) => ({ a: null, b: 40, c: 80, d: null } as Record<string, number | null>)[x]))
+    === JSON.stringify(["c", "b", "a", "d"]), "rank: best first, unscored last in their incoming order");
+  ok(cleanWeights({ smooth: 500, shallow: -3, ret: "x" }).smooth === 100 && cleanWeights({ shallow: -3 }).shallow === 0,
+    "weights are clamped 0–100");
+  ok(JSON.stringify(parseWeights("not json")) === JSON.stringify(DEFAULT_SCORE_WEIGHTS), "junk storage → default weights");
 }
 
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILED`);

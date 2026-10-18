@@ -556,6 +556,7 @@ class ProofIssueRequest(BaseModel):
 class ProofVerifyRequest(BaseModel):
     receipt: Optional[dict] = None
     nullifier: str = ""
+    policy: str = "auto"
 
 class ProofOpenRequest(BaseModel):
     tenant: str
@@ -574,6 +575,11 @@ class ProofSubmitRequest(BaseModel):
     address: str = ""
     url: str = ""
     signer: str = ""
+    key: str = ""
+    door: str = "classical"
+
+class ProofPQRequest(BaseModel):
+    nullifier: str = ""
     key: str = ""
 
 class ProofBuildRequest(BaseModel):
@@ -598,6 +604,18 @@ def proof_status():
 def proof_program():
     return get_openhouse().proof_program()
 
+@app.get("/proofs/pq")
+def proof_pq():
+    return _proof_out(get_openhouse().proof_pq())
+
+@app.post("/proofs/pq/upgrade")
+def proof_pq_upgrade(req: ProofPQRequest, request: Request):
+    return _proof_out(get_openhouse().proof_pq_upgrade(nullifier=req.nullifier, key=_bk(request, req.key)))
+
+@app.post("/proofs/pq/rotate")
+def proof_pq_rotate(req: ProofPQRequest, request: Request):
+    return _proof_out(get_openhouse().proof_pq_rotate(key=_bk(request, req.key)))
+
 @app.get("/proofs/{nullifier}")
 def proof(nullifier: str):
     result = get_openhouse().proof(nullifier)
@@ -621,7 +639,8 @@ def proof_issue(req: ProofIssueRequest, request: Request):
 
 @app.post("/proofs/verify")
 def proof_verify(req: ProofVerifyRequest):
-    return _proof_out(get_openhouse().proof_verify(receipt=req.receipt, nullifier=req.nullifier))
+    return _proof_out(get_openhouse().proof_verify(receipt=req.receipt, nullifier=req.nullifier,
+                                                   policy=req.policy))
 
 @app.post("/proofs/open")
 def proof_open(req: ProofOpenRequest):
@@ -636,7 +655,7 @@ def proof_salt(req: ProofSaltRequest, request: Request):
 def proof_submit(req: ProofSubmitRequest, request: Request):
     return _proof_out(get_openhouse().proof_submit(
         req.nullifier, chain=req.chain, account=req.account, address=req.address,
-        url=req.url, signer=req.signer, key=_bk(request, req.key)))
+        url=req.url, signer=req.signer, key=_bk(request, req.key), door=req.door))
 
 @app.post("/proofs/build")
 def proof_build(req: ProofBuildRequest = ProofBuildRequest()):

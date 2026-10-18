@@ -360,8 +360,10 @@ GLOSSARY = {
         'remaining lease and bond, so a well-funded key is worth more than '
         'an empty one. Say "market" to see what is for sale now.'),
     'consensus': (r'consensus|proposer|authority|replay|verify|light client|merkle',
-        'Consensus is a single proposer — authority, not agreement, and the '
-        'whitepaper says so out loud. What keeps it honest: the ordered log '
+        'Consensus is modular: authority, rotating PoA, BFT, proof of stake '
+        'or proof of work (pq_consensus), switched by a migration written '
+        'into a block and every vote a post-quantum signature. What keeps '
+        'it honest: the ordered log '
         'is the truth, execution is deterministic, and "verify" replays '
         'every block from genesis, re-checking every hash, root and witness. '
         'A Merkle proof (prove <key>) ties any entry to the state root.'),

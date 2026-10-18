@@ -86,6 +86,7 @@ export default function Page() {
   const [keyInput, setKeyInput] = useState("");
   const [models, setModels] = useState<VeniceModel[]>([]);
   const [model, setModel] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [mode, setMode] = useState<Mode>("byok");
 
   const [prompt, setPrompt] = useState("");
@@ -436,6 +437,7 @@ export default function Page() {
     } finally {
       setStatus(null);
       setBusy(null);
+      inputRef.current?.focus();
     }
   };
 
@@ -443,6 +445,7 @@ export default function Page() {
   // fixed overlay covering the composer, so picking one also dismisses it.
   const pickStarter = (p: string) => {
     setPrompt(p);
+    setTimeout(() => inputRef.current?.focus(), 0);
     if (window.innerWidth <= 800) {
       setSideOpen(false);
       safeSetItem(SIDE_KEY, "closed");
@@ -577,7 +580,10 @@ export default function Page() {
             for the conversation, its starting points, and the model. */}
         <div className="side-foot">
           <div className="sec-title">Model</div>
-          <select value={model} onChange={(e) => setModel(e.target.value)} title="orchestrator model (calls the image/video tools)">
+          <select
+            value={model}
+            onChange={(e) => { setModel(e.target.value); inputRef.current?.focus(); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && prompt.trim()) { e.preventDefault(); send(); } }} title="orchestrator model (calls the image/video tools)">
             {agentModels.length === 0 && <option value="">loading…</option>}
             {agentModels.map((m) => (
               <option key={m.id} value={m.id}>{m.id}</option>
@@ -689,12 +695,20 @@ export default function Page() {
           <textarea
             placeholder={
               me?.has_key || me?.paid_available
-                ? "Message venice…  (text, images, video)"
+                ? "Message venice…  (enter to send · shift+enter for a new line)"
                 : "add your Venice key up top to chat"
             }
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }}
+            onKeyDown={(e) => {
+              // Enter sends; Shift+Enter is a newline. Skip while an IME is composing.
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                if (!busy) send();
+              }
+            }}
+            ref={inputRef}
+            autoFocus
             rows={2}
           />
           <button

@@ -15,12 +15,16 @@ paid. This file is the off-chain half of making that true:
               convention, so a STARK fact registry can carry the same fact
               later without changing a byte on-chain.
     receipt   outputs + the bank's signatures over the fact — ed25519 for
-              NEAR, secp256k1 for Ethereum. The receipt carries nothing about
-              the tenant; the salt stays with the bank and the tenant.
-    verify    anyone, offline: recompute the fact, check both signatures.
+              NEAR, secp256k1 for Ethereum, and the post-quantum pair from
+              pq.py (OHX-KECCAK hash-based + ML-DSA-65) that a quantum
+              computer cannot forge. The receipt carries nothing about the
+              tenant; the salt stays with the bank and the tenant.
+    verify    anyone, offline: recompute the fact, check every signature,
+              say whether the receipt is quantum-safe.
     open      the tenant hands (tenant, salt) to whoever needs convincing;
               the commitment either matches or it does not.
-    submit    relay the receipt to near/ (wasm) or contracts/OpenHouseProofs.sol;
+    submit    relay the receipt to near/ (wasm) or contracts/OpenHouseProofs.sol,
+              through the classical door or the post-quantum one (door=pq);
               the chain re-checks the signature, pins the program hash and the
               property's rent due, and burns the nullifier so one proof books
               one month once.
@@ -31,12 +35,14 @@ eth_account. The Cairo program runs through `scarb cairo-run`, the same way
 zuma/zquorum run their provers, so signer and verifier never drift.
 """
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import secrets as _secrets
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -61,6 +67,20 @@ PROGRAM_DIR = HERE / 'proof'
 SIERRA = PROGRAM_DIR / 'target' / 'dev' / 'openhouse_proof.sierra.json'
 OUTPUT_NAMES = ('version', 'property_id', 'period', 'rent_due', 'commitment', 'nullifier')
 _LOCK = threading.Lock()
+
+
+def _pq():
+    """pq.py, the sibling file, loaded by path — this file stays liftable."""
+    name = 'openhouse_pq'
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, HERE / 'pq.py')
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+    return sys.modules[name]
+
+
+POLICIES = ('auto', 'classical', 'hybrid', 'pq')
 
 
 class ProofError(Exception):
@@ -278,6 +298,13 @@ class Issuer:
         self._seed = bytes.fromhex(d['ed25519_seed'])
         self._eth_key = d['eth_key']
         self.name = d.get('name') or name or 'openhouse node'
+        self._pq_signer = None
+
+    def pq(self):
+        """The post-quantum keys (pq.Signer), beside the classical ones."""
+        if self._pq_signer is None:
+            self._pq_signer = _pq().Signer(self.path.parent)
+        return self._pq_signer
 
     # keys
     def near_pub_raw(self) -> bytes:
@@ -295,18 +322,27 @@ class Issuer:
         """Private — the relayer key for Ethereum submits; callers keep it off every surface."""
         return self._eth_key
 
-    def public(self) -> dict:
-        return {'name': self.name, 'near': self.near_pub(),
-                'near_hex': '0x' + self.near_pub_raw().hex(), 'eth': self.eth_address()}
+    def public(self, pq: bool = True) -> dict:
+        out = {'name': self.name, 'near': self.near_pub(),
+               'near_hex': '0x' + self.near_pub_raw().hex(), 'eth': self.eth_address()}
+        if pq:
+            out['pq'] = self.pq().public()
+        return out
 
-    def sign(self, fact_hex: str) -> dict:
+    def sign_pq(self, fact_hex: str) -> dict:
+        return self.pq().sign(fact_hex)
+
+    def sign(self, fact_hex: str, pq: bool = True) -> dict:
         from nacl.signing import SigningKey
         from eth_account import Account
         from eth_account.messages import encode_defunct
         f = bytes.fromhex(fact_hex[2:])
         near_sig = SigningKey(self._seed).sign(f).signature
         eth_sig = Account.from_key(self._eth_key).sign_message(encode_defunct(primitive=f)).signature
-        return {'near': '0x' + bytes(near_sig).hex(), 'eth': '0x' + bytes(eth_sig).hex()}
+        out = {'near': '0x' + bytes(near_sig).hex(), 'eth': '0x' + bytes(eth_sig).hex()}
+        if pq:
+            out['pq'] = self.sign_pq(fact_hex)
+        return out
 
 
 def verify_signatures(fact_hex: str, bank: dict, sig: dict) -> list:
@@ -362,10 +398,19 @@ def _receipt_from_outputs(ph: str, outs: list, bank: dict, sig: dict, kind: str 
 
 
 def verify_receipt(r: dict, expect_program_hash: Optional[str] = None,
-                   rent_due_floor: Optional[int] = None) -> dict:
+                   rent_due_floor: Optional[int] = None, policy: str = 'auto') -> dict:
     """Everything a stranger can check with no secrets: shape, version,
-    the fact, both signatures, and (if told) the program hash and the
-    property's rent due."""
+    the fact, every signature, and (if told) the program hash and the
+    property's rent due.
+
+    policy — which signatures must hold:
+      classical  ed25519 + secp256k1 (any PQ signature present must hold too)
+      hybrid     classical AND post-quantum
+      pq         post-quantum only — classical signatures are reported but
+                 ignored, because after Q-day they prove nothing
+      auto       hybrid when the receipt carries PQ signatures, else classical"""
+    if policy not in POLICIES:
+        return {'ok': False, 'checks': [], 'error': f'policy must be one of {", ".join(POLICIES)}'}
     checks = []
     try:
         outs = [felt(o) for o in (r.get('outputs') or [])]
@@ -391,12 +436,30 @@ def verify_receipt(r: dict, expect_program_hash: Optional[str] = None,
         checks.append({'claim': 'program hash is the one this node runs', 'ok': ph.lower() == expect_program_hash.lower()})
     if rent_due_floor is not None:
         checks.append({'claim': f'attested rent due covers the property\'s {rent_due_floor}', 'ok': outs[3] >= int(rent_due_floor)})
-    if f:
-        checks += verify_signatures(f, r.get('bank') or {}, r.get('sig') or {})
+    bank, sig = r.get('bank') or {}, r.get('sig') or {}
+    has_pq = bool(sig.get('pq'))
+    if policy == 'auto':
+        policy = 'hybrid' if has_pq else 'classical'
+    classical = verify_signatures(f, bank, sig) if f else []
+    for c in classical:
+        c['classical'] = True
+    pqr = _pq().check(f, bank.get('pq') or {}, sig.get('pq') or {}) if (f and has_pq) else {'safe': False, 'checks': []}
+    if policy == 'pq':
+        for c in classical:
+            c['ignored'] = 'policy=pq — a quantum attacker can forge this'
+    checks += classical + pqr['checks']
+    if policy in ('hybrid', 'pq'):
+        checks.append({'claim': 'at least one post-quantum signature holds', 'ok': pqr['safe'], 'pq': True})
     checks.append({'claim': 'nothing about the tenant in the receipt',
                    'ok': not any(k in r for k in ('tenant', 'salt', 'amount', 'amount_paid', 'iban', 'payer'))})
-    return {'ok': all(c['ok'] for c in checks), 'checks': checks, 'fact': f,
-            'nullifier': hex32(outs[5]), 'kind': r.get('kind', 'attested')}
+    counted = [c for c in checks if not c.get('ignored')]
+    return {'ok': all(c['ok'] for c in counted), 'checks': checks, 'fact': f,
+            'nullifier': hex32(outs[5]), 'kind': r.get('kind', 'attested'), 'policy': policy,
+            'quantum': {'safe': pqr['safe'],
+                        'says': ('quantum-safe: a hash-based or lattice signature vouches for this fact'
+                                 if pqr['safe'] else
+                                 'classical only: forgeable by a large quantum computer — '
+                                 'ask the bank to countersign it (proof_pq_upgrade)')}}
 
 
 # ── the ETH verifier ABI (contracts/OpenHouseProofs.sol) ────────
@@ -413,7 +476,13 @@ ETH_ABI = json.loads('''[
  {"type":"function","name":"properties","stateMutability":"view","inputs":[{"name":"","type":"uint256"}],"outputs":[{"name":"owner","type":"address"},{"name":"rentDue","type":"uint256"},{"name":"exists","type":"bool"},{"name":"label","type":"string"}]},
  {"type":"function","name":"setBank","stateMutability":"nonpayable","inputs":[{"name":"bank","type":"address"},{"name":"name","type":"string"},{"name":"active","type":"bool"}],"outputs":[]},
  {"type":"function","name":"registerProperty","stateMutability":"nonpayable","inputs":[{"name":"id","type":"uint256"},{"name":"pOwner","type":"address"},{"name":"rentDue","type":"uint256"},{"name":"label","type":"string"}],"outputs":[]},
- {"type":"function","name":"setProgramHash","stateMutability":"nonpayable","inputs":[{"name":"h","type":"bytes32"}],"outputs":[]}
+ {"type":"function","name":"setProgramHash","stateMutability":"nonpayable","inputs":[{"name":"h","type":"bytes32"}],"outputs":[]},
+ {"type":"function","name":"submitPQ","stateMutability":"nonpayable","inputs":[{"name":"o","type":"uint256[]"},{"name":"key","type":"bytes32"},{"name":"sig","type":"bytes"}],"outputs":[{"name":"f","type":"bytes32"}]},
+ {"type":"function","name":"verifyPQ","stateMutability":"view","inputs":[{"name":"o","type":"uint256[]"},{"name":"key","type":"bytes32"},{"name":"sig","type":"bytes"}],"outputs":[{"name":"ok","type":"bool"},{"name":"why","type":"string"},{"name":"f","type":"bytes32"}]},
+ {"type":"function","name":"setPQBank","stateMutability":"nonpayable","inputs":[{"name":"pubSeed","type":"bytes32"},{"name":"root","type":"bytes32"},{"name":"name","type":"string"},{"name":"active","type":"bool"}],"outputs":[{"name":"key","type":"bytes32"}]},
+ {"type":"function","name":"requirePQ","stateMutability":"nonpayable","inputs":[],"outputs":[]},
+ {"type":"function","name":"pqRequired","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"bool"}]},
+ {"type":"function","name":"leafUsed","stateMutability":"view","inputs":[{"name":"","type":"bytes32"},{"name":"","type":"uint256"}],"outputs":[{"name":"","type":"bool"}]}
 ]''')
 
 
@@ -493,6 +562,8 @@ class Proofs:
                 'submitted': {'near': sum(1 for r in receipts.values() if (r.get('chain') or {}).get('near', {}).get('ok')),
                               'eth': sum(1 for r in receipts.values() if (r.get('chain') or {}).get('eth', {}).get('ok'))},
                 'chains': self.chains(), 'unit': f'amounts are integers × {UNIT} of the deal currency',
+                'quantum': {'pq_receipts': sum(1 for r in receipts.values() if (r.get('sig') or {}).get('pq')),
+                            'classical_only': sum(1 for r in receipts.values() if not (r.get('sig') or {}).get('pq'))},
                 'kinds': {'attested': 'the bank executed the Cairo program and signed the fact (today)',
                           'stark': 'a STARK of the same program, same fact, carried by a fact registry (plug-in)'}}
 
@@ -543,7 +614,7 @@ class Proofs:
             rows = [r for r in rows if int(r['period']) == int(period)]
         return sorted(rows, key=lambda r: (-int(r['period']), -int(r['issued'])))
 
-    def verify(self, receipt=None, nullifier: str = '', rent_due_floor=None) -> dict:
+    def verify(self, receipt=None, nullifier: str = '', rent_due_floor=None, policy: str = 'auto') -> dict:
         r = receipt if isinstance(receipt, dict) else None
         if r is None and nullifier:
             r = self.get(nullifier)
@@ -560,7 +631,7 @@ class Proofs:
             ph = program_hash()
         except ProofError:
             ph = None
-        out = verify_receipt(r, expect_program_hash=ph, rent_due_floor=rent_due_floor)
+        out = verify_receipt(r, expect_program_hash=ph, rent_due_floor=rent_due_floor, policy=policy)
         out['known_here'] = r.get('nullifier') in self._load(self.receipts_path, {})
         return out
 
@@ -579,6 +650,59 @@ class Proofs:
                 'says': (f'this tenant is the one who paid property {r.get("property_id")} for {r.get("period")}'
                          if match else 'this tenant did not make that payment (or the salt is wrong)')}
 
+    # -- post-quantum
+    def pq_status(self) -> dict:
+        """The PQ keys, how many one-time leaves are left, which receipts are
+        still classical-only, and the threat model in one table."""
+        pqm = _pq()
+        iss = self.issuer()
+        receipts = self._load(self.receipts_path, {})
+        return {'schemes': {'ohx': {'name': pqm.SCHEME, 'params': pqm.SCHEME_ID, 'kind': 'stateful hash-based (XMSS^MT shape, keccak256)',
+                                    'sig_bytes': pqm.SIG_BYTES, 'verified_on': ['ethereum (contracts/OHX.sol)', 'near (near/src/lib.rs)', 'offline (pq.py)']},
+                            'mldsa65': {'name': pqm.MLDSA, 'kind': 'lattice, NIST FIPS 204, stateless',
+                                        'available': pqm.mldsa_available(), 'verified_on': ['offline (orbit/postquant)']}},
+                'keys': iss.pq().public(), 'leaves': iss.pq().capacity(), 'retired': iss.pq().retired(),
+                'receipts': {'total': len(receipts),
+                             'pq': sum(1 for r in receipts.values() if (r.get('sig') or {}).get('pq')),
+                             'classical_only': [r['nullifier'] for r in receipts.values() if not (r.get('sig') or {}).get('pq')]},
+                'threats': pqm.threat_model(),
+                'switch': 'requirePQ() on Ethereum / require_pq on NEAR shuts the classical door for good'}
+
+    def pq_upgrade(self, nullifier: str = '') -> dict:
+        """Countersign classical-only receipts with the PQ keys. The fact does
+        not change, so nothing on-chain changes either — the receipt simply
+        gains a signature a quantum computer cannot forge."""
+        done, skipped = [], []
+        with _LOCK:
+            receipts = self._load(self.receipts_path, {})
+        targets = [hex32(felt(nullifier))] if nullifier else list(receipts)
+        iss = self.issuer()
+        for n in targets:
+            r = receipts.get(n)
+            if r is None:
+                raise ProofError(f'no receipt {n[:14]}… here')
+            if (r.get('sig') or {}).get('pq'):
+                skipped.append(n)
+                continue
+            if not verify_receipt(r, policy='classical')['ok']:
+                skipped.append(n)   # never vouch for a receipt that does not verify today
+                continue
+            sig_pq, pub_pq = iss.sign_pq(r['fact']), iss.pq().public()
+            with _LOCK:
+                cur = self._load(self.receipts_path, {})
+                cur[n].setdefault('sig', {})['pq'] = sig_pq
+                cur[n].setdefault('bank', {})['pq'] = pub_pq
+                cur[n]['pq_upgraded'] = int(time.time())
+                self._save(self.receipts_path, cur)
+            done.append(n)
+        return {'upgraded': done, 'skipped': skipped, 'leaves': iss.pq().capacity()}
+
+    def pq_rotate(self) -> dict:
+        """Retire the OHX key and draw a new one (seat it on-chain before
+        submitting with it). Old receipts keep verifying against the retired
+        public key they carry."""
+        return self.issuer().pq().rotate()
+
     # -- chains
     def _mark(self, nullifier: str, chain: str, result: dict):
         with _LOCK:
@@ -587,21 +711,30 @@ class Proofs:
                 receipts[nullifier].setdefault('chain', {})[chain] = result
                 self._save(self.receipts_path, receipts)
 
-    def submit_near(self, r: dict, account: str = '', signer: str = '', network: str = '') -> dict:
+    def submit_near(self, r: dict, account: str = '', signer: str = '', network: str = '',
+                    door: str = 'classical') -> dict:
         if self._near is None:
             raise ProofError('NEAR submits need the orbit/near module')
         account = account or self.chains()['near']['account']
         if not account:
             raise ProofError('no NEAR verifier account configured (config.proofs.near.<network>.account)')
         near = self._near()
-        args = {'outputs': r['outputs'], 'signature': r['sig']['near'], 'bank': r['bank']['near']}
+        if door == 'pq':
+            pq_sig = ((r.get('sig') or {}).get('pq') or {}).get('ohx')
+            if not pq_sig:
+                raise ProofError('receipt has no OHX-KECCAK signature — proof_pq_upgrade it first')
+            method, gas = 'submit_pq', 200
+            args = {'outputs': r['outputs'], 'signature': pq_sig, 'key': r['bank']['pq']['ohx']['id']}
+        else:
+            method, gas = 'submit', 60
+            args = {'outputs': r['outputs'], 'signature': r['sig']['near'], 'bank': r['bank']['near']}
         try:
-            out = near.call(account, 'submit', args, network=network or self.network,
-                            account_id=signer or None, gas_tgas=60)
+            out = near.call(account, method, args, network=network or self.network,
+                            account_id=signer or None, gas_tgas=gas)
         except Exception as e:
             raise ProofError(f'NEAR call failed: {e}')
         res = {'ok': bool(out.get('ok')), 'hash': out.get('hash'), 'explorer': out.get('explorer'),
-               'contract': account, 'failure': out.get('failure'), 'result': out.get('result'),
+               'contract': account, 'door': door, 'failure': out.get('failure'), 'result': out.get('result'),
                'at': int(time.time())}
         self._mark(r['nullifier'], 'near', res)
         if not res['ok']:
@@ -632,27 +765,38 @@ class Proofs:
         from web3 import Web3
         return w3, w3.eth.contract(address=Web3.to_checksum_address(address), abi=ETH_ABI)
 
-    def submit_eth(self, r: dict, address: str = '', url: str = '', key: str = '') -> dict:
+    def submit_eth(self, r: dict, address: str = '', url: str = '', key: str = '',
+                   door: str = 'classical') -> dict:
         """Relay to OpenHouseProofs.sol. Signed by `key` or, by default, the
         issuer's own secp256k1 key — the bank relays its own attestation."""
         w3, c = self.eth_contract(address, url)
         from eth_account import Account
         acct = Account.from_key(key or self.issuer().eth_key())
         outs = [felt(o) for o in r['outputs']]
-        sig = bytes.fromhex(r['sig']['eth'][2:])
-        ok, why, _, _ = c.functions.verify(outs, sig).call()
+        if door == 'pq':
+            pq_sig = ((r.get('sig') or {}).get('pq') or {}).get('ohx')
+            if not pq_sig:
+                raise ProofError('receipt has no OHX-KECCAK signature — proof_pq_upgrade it first')
+            sig = bytes.fromhex(pq_sig[2:])
+            pq_key = bytes.fromhex(r['bank']['pq']['ohx']['id'][2:])
+            ok, why, _ = c.functions.verifyPQ(outs, pq_key, sig).call()
+            fn = c.functions.submitPQ(outs, pq_key, sig)
+        else:
+            sig = bytes.fromhex(r['sig']['eth'][2:])
+            ok, why, _, _ = c.functions.verify(outs, sig).call()
+            fn = c.functions.submit(outs, sig)
         if not ok:
-            res = {'ok': False, 'why': why, 'contract': c.address, 'at': int(time.time())}
+            res = {'ok': False, 'why': why, 'contract': c.address, 'door': door, 'at': int(time.time())}
             self._mark(r['nullifier'], 'eth', res)
             raise ProofError(f'Ethereum verifier refuses: {why}')
-        tx = c.functions.submit(outs, sig).build_transaction({
+        tx = fn.build_transaction({
             'from': acct.address, 'nonce': w3.eth.get_transaction_count(acct.address),
             'chainId': w3.eth.chain_id})
         signed = acct.sign_transaction(tx)
         h = w3.eth.send_raw_transaction(signed.raw_transaction)
         rcpt = w3.eth.wait_for_transaction_receipt(h, timeout=120)
         res = {'ok': rcpt.status == 1, 'hash': h.hex() if h.hex().startswith('0x') else '0x' + h.hex(),
-               'block': rcpt.blockNumber, 'contract': c.address, 'chainId': w3.eth.chain_id,
+               'block': rcpt.blockNumber, 'contract': c.address, 'chainId': w3.eth.chain_id, 'door': door,
                'at': int(time.time())}
         cfg = self.chains()['eth']
         if cfg.get('explorer'):

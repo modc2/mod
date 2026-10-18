@@ -23,6 +23,10 @@ import {
 } from "../lib/copyStudio";
 import type { Sleeve } from "../lib/basketSim";
 import { useTraderFeeds } from "../lib/useTraderFeeds";
+import {
+  DEFAULT_SCORE_WEIGHTS, SCORE_PARTS, SCORE_PART_HINT, SCORE_PART_LABEL, SCORE_STORAGE_KEY,
+  cleanWeights, explainScore, parseWeights, rankByScore, steadyScore, type ScoreWeights,
+} from "../lib/copyScore";
 import { fetchTradersPage, formatVolume, timeAgo, type TopTrader } from "../lib/polymarket";
 import { COPY_BOOK_CHANGED_EVENT, upsertAllocation } from "../lib/copyBook";
 import { shortAddress } from "../lib/identityStrat";
@@ -31,10 +35,13 @@ import { useAuth } from "../context/AuthContext";
 import EquityChart from "./EquityChart";
 import Sparkline from "./Sparkline";
 
+/** `pool` is the server sort the board is pulled under. STEADY is computed
+    here from each row's copy replay, so it re-ranks the top-PROFIT pool. */
 const SORTS = [
-  { key: "pnl", label: "PROFIT" },
-  { key: "roi", label: "ROI" },
-  { key: "volume", label: "VOLUME" },
+  { key: "steady", label: "STEADY", pool: "pnl" },
+  { key: "pnl", label: "PROFIT", pool: "pnl" },
+  { key: "roi", label: "ROI", pool: "roi" },
+  { key: "volume", label: "VOLUME", pool: "volume" },
 ] as const;
 
 /** Hover has to settle before a replay fires — sweeping the mouse down the
@@ -80,7 +87,8 @@ export default function CopyStudio() {
   const eoa = getOwnerAddress() ?? auth.address ?? null;
 
   // ── Board ──
-  const [sort, setSort] = useState<string>("pnl");
+  const [sort, setSort] = useState<string>("steady");
+  const pool = SORTS.find((x) => x.key === sort)?.pool ?? "pnl";
   const [search, setSearch] = useState("");
   const [topic, setTopic] = useState("");
   const [activeOnly, setActiveOnly] = useState(true);
@@ -93,7 +101,7 @@ export default function CopyStudio() {
     setBoardState("loading");
     const t = setTimeout(() => {
       fetchTradersPage({
-        days, sort, order: "desc", page: 0, pageSize: PAGE_SIZE,
+        days, sort: pool, order: "desc", page: 0, pageSize: PAGE_SIZE,
         search: search.trim() || undefined,
         marketQuery: topic.trim() || undefined,
         maxLastTradeHrs: activeOnly ? 24 : 0,
@@ -107,7 +115,7 @@ export default function CopyStudio() {
         .catch(() => live && setBoardState("error"));
     }, 300);
     return () => { live = false; clearTimeout(t); };
-  }, [days, sort, search, topic, activeOnly]);
+  }, [days, pool, search, topic, activeOnly]);
 
   // ── Highlight ──
   const [hovered, setHovered] = useState<string | null>(null);
@@ -127,11 +135,15 @@ export default function CopyStudio() {
     : null;
 
   // ── History + replays ──
-  const feedAddrs = useMemo(
-    () => [...legs.map((l) => l.address), ...(focus ? [focus] : [])],
+  // Every board row is replayed in the background (that's what fills IF
+  // COPIED and the STEADY score); the focused row and the allocation jump
+  // the queue so pointing at someone still answers right away.
+  const urgentAddrs = useMemo(
+    () => [...(focus ? [focus] : []), ...legs.map((l) => l.address)],
     [legs, focus],
   );
-  const { feeds, loaded } = useTraderFeeds(feedAddrs);
+  const boardAddrs = useMemo(() => traders.map((t) => t.address), [traders]);
+  const { feeds, loaded } = useTraderFeeds(boardAddrs, urgentAddrs);
 
   const previewCache = useRef(new Map<string, Sleeve>());
   const preview = useMemo<Sleeve | null>(() => {
@@ -152,6 +164,65 @@ export default function CopyStudio() {
     [legsReady.map((l) => previewKey(l, days)).join(","), feeds, days],
   );
   const sleeveBy = useMemo(() => new Map((run?.sleeves ?? []).map((s) => [s.address, s])), [run]);
+
+  // Each row at the size you'd give it (its allocation $, else the preview $).
+  const rowLeg = useCallback(
+    (a: string): StudioLeg => legs.find((l) => l.address === a) ?? { address: a, usd: previewUsd, marketQuery: topic.trim() },
+    [legs, previewUsd, topic],
+  );
+  const rowSims = useMemo(() => {
+    const out = new Map<string, Sleeve>();
+    for (const t of traders) {
+      const a = t.address.toLowerCase();
+      if (!loaded.has(a)) continue;
+      const leg = rowLeg(a);
+      const key = previewKey(leg, days);
+      let sim = previewCache.current.get(key);
+      if (!sim) {
+        sim = simulateTrader(leg, feeds, days);
+        previewCache.current.set(key, sim);
+      }
+      out.set(a, sim);
+    }
+    return out;
+  }, [traders, loaded, feeds, days, rowLeg]);
+
+  // ── STEADY score: disclosed, and the weights are yours ──
+  const [scoreW, setScoreW] = useState<ScoreWeights>(DEFAULT_SCORE_WEIGHTS);
+  const [showScore, setShowScore] = useState(false);
+  useEffect(() => {
+    try { setScoreW(parseWeights(localStorage.getItem(SCORE_STORAGE_KEY))); } catch {}
+  }, []);
+  const setWeight = (k: keyof ScoreWeights, v: number) => setScoreW((w) => {
+    const next = cleanWeights({ ...w, [k]: v });
+    try { localStorage.setItem(SCORE_STORAGE_KEY, JSON.stringify(next)); } catch {}
+    return next;
+  });
+  const resetWeights = () => {
+    setScoreW(DEFAULT_SCORE_WEIGHTS);
+    try { localStorage.removeItem(SCORE_STORAGE_KEY); } catch {}
+  };
+  const scores = useMemo(() => {
+    const out = new Map<string, ReturnType<typeof steadyScore>>();
+    rowSims.forEach((sim, a) => out.set(a, steadyScore(sleeveBy.get(a) ?? sim, scoreW)));
+    return out;
+  }, [rowSims, sleeveBy, scoreW]);
+
+  // While the pointer is on the board the order holds still — rows sliding
+  // under the cursor as scores land would change who you're looking at.
+  const [boardHot, setBoardHot] = useState(false);
+  const heldOrder = useRef<string[]>([]);
+  const rows = useMemo(() => {
+    if (sort !== "steady") return traders;
+    if (boardHot && heldOrder.current.length > 0) {
+      const at = new Map(heldOrder.current.map((a, i) => [a, i]));
+      return [...traders].sort((x, y) =>
+        (at.get(x.address.toLowerCase()) ?? 1e9) - (at.get(y.address.toLowerCase()) ?? 1e9));
+    }
+    return rankByScore(traders, (t) => scores.get(t.address.toLowerCase())?.score ?? null);
+  }, [traders, scores, sort, boardHot]);
+  useEffect(() => { heldOrder.current = rows.map((t) => t.address.toLowerCase()); }, [rows]);
+  const replayed = traders.filter((t) => loaded.has(t.address.toLowerCase())).length;
   const shares = weights(legs);
   const allocated = totalUsd(legs);
 
@@ -198,7 +269,7 @@ export default function CopyStudio() {
         <div>
           <h1 className="font-mono text-[15px] tracking-[0.16em] text-pixel-white">COPY TRADERS</h1>
           <p className="font-mono text-[10.5px] text-pixel-gray mt-0.5">
-            Point at a trader to see what copying them would have made. Add the ones you like, give each an amount, then copy them all.
+            Every trader below is backtested for you and ranked by how steady copying them would have been. Point at one for the full replay, add the ones you like, then copy them all.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -242,6 +313,7 @@ export default function CopyStudio() {
                 type="button"
                 onClick={() => setSort(s.key)}
                 className={`pixel-btn btn-xs ${sort === s.key ? "border-pixel-green text-pixel-green" : ""}`}
+                title={s.key === "steady" ? "Most consistent to copy first — scored from each trader's copy backtest. Press HOW IT'S SCORED to see and change the mix." : undefined}
               >
                 {s.label}
               </button>
@@ -254,7 +326,49 @@ export default function CopyStudio() {
             >
               ACTIVE 24H
             </button>
+            <button
+              type="button"
+              onClick={() => setShowScore((v) => !v)}
+              className={`pixel-btn btn-xs ${showScore ? "border-pixel-green text-pixel-green" : ""}`}
+              title="What the STEADY score is made of — and change how much each part counts"
+            >
+              HOW IT&apos;S SCORED
+            </button>
           </div>
+
+          {showScore && (
+            <div className="p-2 border-b border-pixel-border space-y-1.5 font-mono">
+              <p className="text-[10px] text-pixel-gray leading-[1.5]">
+                STEADY (0–100) ranks traders by how consistent copying them would have been over the last {days}D at
+                your size — not by how much they made. Each part is read off the same backtest as IF COPIED, scored 0–100,
+                then blended by the weights below. Defaults favour a smooth, shallow equity line because that&apos;s what tends
+                to carry forward; past return is the least repeatable part.
+              </p>
+              <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+                {SCORE_PARTS.map((k) => (
+                  <label key={k} className="flex items-center gap-2 text-[10px]" title={SCORE_PART_HINT[k]}>
+                    <span className="w-16 tracking-[0.1em] text-pixel-white">{SCORE_PART_LABEL[k]}</span>
+                    <input
+                      type="range" min={0} max={100} step={5}
+                      value={scoreW[k]}
+                      onChange={(e) => setWeight(k, Number(e.target.value))}
+                      className="flex-1 accent-green-400"
+                    />
+                    <span className="w-8 text-right text-pixel-gray-light">{scoreW[k]}</span>
+                  </label>
+                ))}
+              </div>
+              <ul className="text-[9.5px] text-pixel-gray leading-[1.5] space-y-0.5">
+                {SCORE_PARTS.map((k) => (
+                  <li key={k}><span className="text-pixel-gray-light">{SCORE_PART_LABEL[k]}</span> — {SCORE_PART_HINT[k]}</li>
+                ))}
+              </ul>
+              <div className="flex items-center gap-2 text-[9.5px] text-pixel-gray">
+                <span>Hover a score to see its parts. Saved on this device.</span>
+                <button type="button" onClick={resetWeights} className="pixel-btn btn-xs ml-auto">RESET</button>
+              </div>
+            </div>
+          )}
 
           <div className="overflow-x-auto">
             <table className="w-full font-mono text-[11px]">
@@ -268,16 +382,19 @@ export default function CopyStudio() {
                   <th className="px-2 py-1.5 text-right">LAST</th>
                   <th className="px-2 py-1.5">CURVE</th>
                   <th className="px-2 py-1.5 text-right">IF COPIED</th>
+                  <th className="px-2 py-1.5 text-right" title="0–100: how consistent copying them would have been. HOW IT'S SCORED shows the mix.">STEADY</th>
                 </tr>
               </thead>
-              <tbody onMouseLeave={() => onHover(null)}>
-                {traders.map((t) => {
+              <tbody
+                onMouseEnter={() => setBoardHot(true)}
+                onMouseLeave={() => { setBoardHot(false); onHover(null); }}
+              >
+                {rows.map((t) => {
                   const a = t.address.toLowerCase();
                   const picked = inLegs(a);
                   const isFocus = a === focus;
-                  const sim = sleeveBy.get(a)
-                    ?? previewCache.current.get(previewKey(
-                      legs.find((l) => l.address === a) ?? { address: a, usd: previewUsd, marketQuery: topic.trim() }, days));
+                  const sim = sleeveBy.get(a) ?? rowSims.get(a);
+                  const sc = scores.get(a);
                   return (
                     <tr
                       key={a}
@@ -315,6 +432,12 @@ export default function CopyStudio() {
                       <td className={`px-2 py-1 text-right ${sim ? (sim.trades > 0 ? toneOf(sim.net) : "text-amber-400") : "text-pixel-gray"}`}>
                         {sim ? (sim.trades > 0 ? fmtPct(sim.pct) : "idle") : "·"}
                       </td>
+                      <td
+                        className={`px-2 py-1 text-right ${sc?.score == null ? "text-pixel-gray" : sc.score >= 60 ? "text-green-400" : sc.score >= 40 ? "text-pixel-gray-light" : "text-red-400"}`}
+                        title={sc ? explainScore(sc, scoreW) : "replaying…"}
+                      >
+                        {sc?.score != null ? Math.round(sc.score) : sim ? "—" : "·"}
+                      </td>
                     </tr>
                   );
                 })}
@@ -330,7 +453,9 @@ export default function CopyStudio() {
             )}
             {traders.length > 0 && (
               <p className="px-2 py-1.5 font-mono text-[9.5px] text-pixel-gray border-t border-pixel-border/60">
-                top {traders.length} of {boardTotal.toLocaleString()} · IF COPIED fills in as you point at rows
+                top {traders.length} of {boardTotal.toLocaleString()} · each row backtested at {fmtUsd(previewUsd)}
+                {replayed < traders.length ? ` · replaying ${replayed}/${traders.length}…` : ""}
+                {sort === "steady" ? " · ranked by STEADY" : ""}
               </p>
             )}
           </div>

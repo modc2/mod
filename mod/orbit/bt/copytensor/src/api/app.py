@@ -34,6 +34,7 @@ from ..engine.curve import FLOW_MIN_FRACTION, FLOW_MIN_TAO, build_curve
 from ..engine.leaderboard import build_leaderboard
 from ..engine.pnl import calculate_pnl
 from ..engine.safety import SafetyManager
+from . import write_gate
 from .models import (
     AccountResponse,
     AllocationResponse,
@@ -353,6 +354,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="copytensor", version="0.1.0", lifespan=lifespan)
 
+# Registered before CORS so CORS stays outermost and a 403 still carries
+# its headers — a browser shows the reason instead of a bare network error.
+app.middleware("http")(write_gate.middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

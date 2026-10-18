@@ -89,7 +89,32 @@ async def strip_gateway_prefix(request: Request, call_next):
 # origin), or one carrying BT_WRITE_TOKEN as a bearer token. Everyone else
 # gets a 403 — reads stay open. The stdio MCP server is local by nature.
 
-WRITE_TOKEN = os.environ.get('BT_WRITE_TOKEN', '')
+def _write_token() -> str:
+    """$BT_WRITE_TOKEN, else ~/.mod/bt/write_token — minted (0600) on first
+    boot so the operator always has a token to paste into a browser. The
+    copytensor submod reads the same file, so one token unlocks both."""
+    if os.environ.get('BT_WRITE_TOKEN'):
+        return os.environ['BT_WRITE_TOKEN']
+    path = os.path.expanduser(os.environ.get('BT_WRITE_TOKEN_FILE', '~/.mod/bt/write_token'))
+    try:
+        with open(path) as f:
+            if (t := f.read().strip()):
+                return t
+    except OSError:
+        pass
+    import secrets
+    t = secrets.token_urlsafe(32)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            f.write(t + '\n')
+    except OSError:
+        return ''             # read-only home: loopback-only, as before
+    return t
+
+
+WRITE_TOKEN = _write_token()
 _LOOPBACK = {'127.0.0.1', '::1', 'localhost'}
 _PROXY_HEADERS = ('x-forwarded-for', 'x-forwarded-host', 'forwarded', 'x-real-ip')
 
@@ -132,7 +157,7 @@ def _write_denied(name, args=None):
     if tool is not None and tool.mutates:
         return (f'{name} signs with this node\'s wallet and only runs for the '
                 'operator: call it from this machine on localhost, or send '
-                'Authorization: Bearer $BT_WRITE_TOKEN')
+                'Authorization: Bearer <token> (cat ~/.mod/bt/write_token)')
     return None
 
 

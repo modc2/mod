@@ -7,13 +7,16 @@ says so. Every hash is SHA3-256 and every signature is ML-DSA — including the
 proposer's signature over the header, which is what makes a block a claim by
 somebody rather than a file on disk.
 
-Consensus is one proposer, and this file is honest about that: it is authority,
-not agreement. There is no fork choice, no voting, no finality gadget. What is
-here is the part the market needs — an ordered log, deterministic execution,
-and a state root anyone can recompute — with the validator set left as a single
-key so the economics can be tested without a consensus protocol in the way.
-`verify()` replays the whole chain from genesis and checks every root, which is
-the check that would still matter under any consensus.
+Consensus is MODULAR (consensus.py): the rule for who may extend the chain
+is an engine — authority, round-robin PoA, BFT quorum, proof of stake, SHA3
+proof of work, or a plugin — and the chain migrates between engines with a
+`migrate` field in a block header, authorised by the engine it replaces. Every
+seal and every vote is a signature under one of the chain's post-quantum key
+types. A chain started before this existed is a legacy authority epoch and
+its blocks hash exactly as they did. What there still is not: gossip and fork
+choice — one node, one log. `verify()` replays the whole chain from genesis,
+rebuilds the consensus schedule from the headers, and checks every root,
+seal and commit against the epoch that was live at its height.
 
 Blocks are produced on demand and on a heartbeat, not on a fixed tick, because
 rent is priced in wall-clock seconds rather than block height. Nothing about
@@ -32,6 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.append(HERE)
 
+import consensus as CN                                         # noqa: E402
 import keys as K                                                # noqa: E402
 import state as S                                               # noqa: E402
 from pq import algos                                            # noqa: E402
@@ -86,6 +90,12 @@ class Node:
         self._validator_name = validator or os.environ.get(
             "POSTQUANT_VALIDATOR", "validator")
         self.validator = None
+        self.schedule = []                 # consensus epochs, oldest first
+        self.pending_migration = None      # an epoch waiting for its block
+        self.proposal = None               # a block waiting for its quorum
+        self.consensus_note = ""           # why the last produce() stalled
+        self._round_floor = (0, 0)         # (height, first round to try)
+        self.pending_file = os.path.join(self.dir, "consensus_pending.json")
         if autoload:
             self.open()
 
@@ -102,7 +112,22 @@ class Node:
             self._load()
         else:
             self._init_genesis()
+        self._load_schedule()
         return self.head()
+
+    def _load_schedule(self):
+        """Epoch 0 from genesis, then every `migrate` a header carried."""
+        self.schedule = [CN.genesis_epoch(self.genesis)]
+        for h in self.blocks:
+            if h.get("migrate"):
+                self.schedule.append(h["migrate"])
+        self.pending_migration = None
+        if os.path.exists(self.pending_file):
+            try:
+                with open(self.pending_file) as f:
+                    self.pending_migration = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                self.pending_migration = None
 
     def _init_genesis(self):
         w = K.get(self._validator_name, required=False)
@@ -110,6 +135,11 @@ class Node:
             w = K.create(self._validator_name)
             w = K.get(self._validator_name)
         self.validator = w
+        engine = os.environ.get("POSTQUANT_CONSENSUS", "")
+        spec = None
+        if engine and engine != "legacy":
+            spec = CN.make_epoch(engine, [] if engine == "pow" else
+                                 [w["name"]], from_height=0)
         genesis = {
             "chain_id": self.chain_id,
             "created": int(time.time()),
@@ -135,7 +165,10 @@ class Node:
                 },
                 "kem": "ML-KEM-768 (FIPS 203)",
                 "hash": "SHA3-256",
-                "consensus": "single proposer (authority) — no fork choice",
+                "consensus": (f"modular — epoch 0 = {spec['engine']}"
+                              if spec else
+                              "single proposer (authority) — engines are "
+                              "modular and migrate on chain (consensus.py)"),
                 "gas": {"tx_base": S.GAS_TX_BASE, "key_byte": S.GAS_KEY_BYTE,
                         "value_byte": S.GAS_VALUE_BYTE,
                         "value_byte_hash": S.GAS_VALUE_BYTE_HASH,
@@ -152,6 +185,8 @@ class Node:
                                "min_base_fee": S.BASE_FEE_MIN},
             },
         }
+        if spec:
+            genesis["consensus"] = spec
         with open(self.genesis_file, "w") as f:
             json.dump(genesis, f, indent=2)
         self.genesis = genesis
@@ -177,18 +212,19 @@ class Node:
         self.last_block_time = now
         self._snapshot()
 
-    def _seal(self, header, txs, receipts):
+    def _seal(self, header, txs, receipts, wallet=None):
         """Hash the header, then sign the hash. The proposer signs what the
         header commits to, so the signature covers the transactions and the
         resulting state root without carrying either."""
         h = block_hash(header)
         block = {"header": header, "hash": h, "txs": txs, "receipts": receipts}
-        if self.validator:
-            algo = algos.get(self.validator["scheme"])
-            block["sig"] = algo.sign(K.secret_key(self.validator),
-                                     bytes.fromhex(h),
-                                     b"postquant/block/v1").hex()
-            block["proposer_pk"] = self.validator["pk"]
+        wallet = wallet or self.validator
+        if wallet:
+            algo = algos.get(wallet["scheme"])
+            block["sig"] = algo.sign(K.secret_key(wallet), bytes.fromhex(h),
+                                     CN.BLOCK_CONTEXT).hex()
+            block["proposer_pk"] = wallet["pk"]
+            block["proposer_scheme"] = wallet["scheme"]
         return block
 
     # ── persistence ───────────────────────────────────────────────
@@ -306,6 +342,8 @@ class Node:
         parent = "0" * 64
         checked = bad = 0
         problems = []
+        schedule = [CN.genesis_epoch(genesis)]
+        scheme0 = genesis.get("scheme", K.SCHEME)
         for block in self.read_blocks():
             h = block["header"]
             checked += 1
@@ -318,16 +356,33 @@ class Node:
             if block["txs"] and tx_root(block["txs"]) != h["tx_root"]:
                 problems.append(f"height {h['height']}: tx root mismatch")
                 bad += 1
-            if block.get("sig") and block.get("proposer_pk"):
-                scheme = genesis.get("scheme", K.SCHEME)
-                pk = bytes.fromhex(block["proposer_pk"])
-                if K.address(pk, scheme) != h["proposer"] or \
-                        not algos.get(scheme).verify(
-                            pk, bytes.fromhex(block["hash"]),
-                            bytes.fromhex(block["sig"]),
-                            b"postquant/block/v1"):
-                    problems.append(f"height {h['height']}: proposer signature "
-                                    "does not verify")
+            if h["height"] == 0:
+                if block.get("sig") and not CN.seal_ok(block, scheme0):
+                    problems.append("height 0: proposer signature does not "
+                                    "verify")
+                    bad += 1
+            else:
+                epoch = CN.epoch_at(schedule, h["height"])
+                try:
+                    found = CN.check_block(epoch, block, parent, st.balance,
+                                           scheme0)
+                except StateError as e:
+                    found = [e.message]
+                for p in found:
+                    problems.append(f"height {h['height']}: {p}")
+                    bad += 1
+            if h.get("migrate"):
+                m = h["migrate"]
+                try:
+                    CN.check_epoch(m)
+                    if m["from_height"] <= h["height"] or \
+                            m["from_height"] <= schedule[-1]["from_height"]:
+                        raise StateError("activates in the past")
+                    schedule.append(m)
+                except (StateError, KeyError, TypeError) as e:
+                    problems.append(f"height {h['height']}: migration to "
+                                    f"{m.get('engine') if isinstance(m, dict) else m}"
+                                    f" is invalid — {e}")
                     bad += 1
             if h["height"] == 0:
                 st.time, st.height = h["timestamp"], 0
@@ -356,6 +411,7 @@ class Node:
             parent = block["hash"]
         return {"ok": bad == 0, "blocks": checked, "problems": problems,
                 "signatures_checked": bool(signatures),
+                "epochs": len(schedule),
                 "tip_root": st.root(),
                 "matches_live_state": st.root() == self.state.root()}
 
@@ -466,6 +522,18 @@ class Node:
         return {**self.submit(tx, now=now), "tx": tx}
 
     def _proposer(self):
+        """Who would collect tips if a block were built now — the mempool's
+        dry run needs a name, and a wrong guess only moves a tip in a probe."""
+        try:
+            epoch = self.epoch()
+            if not epoch.get("legacy"):
+                rnd, w = self._pick_proposer(
+                    epoch, self.blocks[-1]["height"] + 1, int(time.time()),
+                    self.state.balance)
+                if w:
+                    return w["address"]
+        except StateError:
+            pass
         return self.validator["address"] if self.validator else \
             self.genesis["validator"]
 
@@ -482,20 +550,74 @@ class Node:
                                           int(t["body"].get("nonce", 0)),
                                           t["hash"]))
 
+    def epoch(self, height=None):
+        if height is None:
+            height = self.blocks[-1]["height"] + 1
+        return CN.epoch_at(self.schedule, height)
+
+    def _local(self, address):
+        w = K.get(address, required=False)
+        return w if w and w["address"] == address else None
+
+    def _miner(self, epoch):
+        w = K.get(os.environ.get("POSTQUANT_MINER") or
+                  (self.validator or {}).get("name"), required=False)
+        if w and CN.key_refusal(w["scheme"], epoch.get("require_pq", True)):
+            return None
+        return w
+
+    def _pick_proposer(self, epoch, height, now, stake):
+        """(round, wallet) for the first round this node may propose in, or
+        (round, None). Round r opens r*ROUND_SECONDS after the parent — the
+        timeout that skips a silent proposer."""
+        if epoch.get("legacy"):
+            return 0, self.validator
+        eng = CN.get(epoch["engine"])
+        if eng.proposer(epoch, height, 0, self._tip_hash(), stake) is None \
+                and not eng.needs_validators:
+            return 0, self._miner(epoch)
+        floor = self._round_floor[1] if self._round_floor[0] == height else 0
+        elapsed = max(0, now - self.blocks[-1]["timestamp"])
+        rounds = max(len(epoch["validators"]), 1) * 4
+        for rnd in range(floor, floor + rounds):
+            if rnd > 0 and elapsed < rnd * CN.ROUND_SECONDS:
+                break
+            want = eng.proposer(epoch, height, rnd, self._tip_hash(), stake)
+            w = self._local(want) if want else None
+            if w:
+                return rnd, w
+        return floor, None
+
     def produce(self, now=None, force=False):
-        """Build, execute, seal and persist one block."""
+        """Build, execute, seal and persist one block — or, under a voting
+        engine whose quorum this node cannot meet alone, park it as a
+        proposal that vote() completes."""
         with self.lock:
+            if self.proposal:
+                return None
             now = int(now or time.time())
             tip = self.blocks[-1]
             now = max(now, tip["timestamp"] + 1)
+            height = tip["height"] + 1
             candidates = self._order(self.pending())[:MAX_TXS_PER_BLOCK]
-            if not candidates and not force:
+            migrate = self.pending_migration
+            if not candidates and not force and not migrate:
                 return None
+
+            epoch = self.epoch(height)
+            eng = CN.get(epoch["engine"])
+            pre = self.state
+            rnd, wallet = self._pick_proposer(epoch, height, now, pre.balance)
+            if not epoch.get("legacy") and wallet is None:
+                self.consensus_note = (
+                    f"height {height}: no {eng.name} proposer key held here "
+                    f"(round {rnd}) — waiting for the round timeout")
+                return None
+            proposer = wallet["address"] if wallet else self._proposer()
 
             st = self._fork_state()
             included, receipts, dropped = [], [], []
             gas_used = growth = 0
-            proposer = self._proposer()
             for tx in candidates:
                 try:
                     receipt = st.apply(tx, now, proposer=proposer)
@@ -515,11 +637,11 @@ class Node:
                 included.append(tx)
                 receipts.append(receipt)
 
-            st.height = tip["height"] + 1
+            st.height = height
             st.time = now
             header = {
                 "chain_id": self.chain_id,
-                "height": tip["height"] + 1,
+                "height": height,
                 "parent": self._tip_hash(),
                 "timestamp": now,
                 "proposer": proposer,
@@ -530,28 +652,197 @@ class Node:
                 "tx_root": tx_root(included),
                 "state_root": st.root(),
             }
-            block = self._seal(header, included, receipts)
-            self._cached_tip_hash = block["hash"]
-            self._block_index[block["hash"]] = header["height"]
-            with open(self.blocks_file, "a") as f:
-                f.write(json.dumps(block, separators=(",", ":")) + "\n")
+            if not epoch.get("legacy"):
+                header.update(consensus=eng.name, epoch=CN.epoch_id(epoch),
+                              round=rnd)
+            if migrate:
+                m = dict(migrate)
+                m["from_height"] = max(int(m["from_height"]), height + 1)
+                header["migrate"] = m
+            header.update(eng.header_fields(epoch, header)
+                          if not epoch.get("legacy") else {})
+            block = self._seal(header, included, receipts, wallet)
+            work = {"block": block, "st": st, "growth": growth,
+                    "gas_used": gas_used, "dropped": dropped,
+                    "epoch": epoch, "round": rnd, "created": int(time.time()),
+                    "stake": pre.balance}
+            if eng.votes and not epoch.get("legacy"):
+                votes = [{"validator": v["address"],
+                          "sig": CN.sign_vote(w, self.chain_id, height, rnd,
+                                              block["hash"])}
+                         for v in epoch["validators"]
+                         for w in [self._local(v["address"])] if w]
+                block["commit"] = {"round": rnd, "votes": votes}
+                got, need, _ = CN.tally(epoch, votes, self.chain_id, height,
+                                        rnd, block["hash"], pre.balance)
+                if got < need:
+                    self.proposal = work
+                    self.consensus_note = (
+                        f"height {height}: proposal {block['hash'][:12]} has "
+                        f"{got}/{need} voting power — waiting for votes")
+                    return {"proposed": True, "block": header,
+                            "hash": block["hash"], "power": got,
+                            "needed": need, "included": len(included),
+                            "dropped": dropped, "gas_used": gas_used,
+                            "state_bytes": growth,
+                            "next_base_fee": self.state.base_fee}
+            return self._commit(work)
 
-            st.base_fee = st.next_base_fee(growth)
-            self.state = st
-            self.blocks.append(header)
-            self.last_block_time = now
-            for tx in included:
-                self._tx_index[tx["hash"]] = header["height"]
-                self.mempool.pop(tx["hash"], None)
-            for d in dropped:
-                self.mempool.pop(d["hash"], None)
-                self.rejected.append({**d, "height": header["height"]})
-            self.rejected = self.rejected[-50:]
-            self._snapshot()
-            return {"block": header, "hash": block["hash"],
-                    "included": len(included), "dropped": dropped,
-                    "gas_used": gas_used, "state_bytes": growth,
-                    "next_base_fee": st.base_fee}
+    def _commit(self, work):
+        block, st = work["block"], work["st"]
+        header = block["header"]
+        growth = work["growth"]
+        self._cached_tip_hash = block["hash"]
+        self._block_index[block["hash"]] = header["height"]
+        with open(self.blocks_file, "a") as f:
+            f.write(json.dumps(block, separators=(",", ":")) + "\n")
+
+        st.base_fee = st.next_base_fee(growth)
+        self.state = st
+        self.blocks.append(header)
+        self.last_block_time = header["timestamp"]
+        self.proposal = None
+        self.consensus_note = ""
+        for tx in block["txs"]:
+            self._tx_index[tx["hash"]] = header["height"]
+            self.mempool.pop(tx["hash"], None)
+        for d in work["dropped"]:
+            self.mempool.pop(d["hash"], None)
+            self.rejected.append({**d, "height": header["height"]})
+        self.rejected = self.rejected[-50:]
+        if header.get("migrate"):
+            self.schedule.append(header["migrate"])
+            self.pending_migration = None
+            try:
+                os.remove(self.pending_file)
+            except FileNotFoundError:
+                pass
+        self._snapshot()
+        return {"block": header, "hash": block["hash"],
+                "included": len(block["txs"]), "dropped": work["dropped"],
+                "gas_used": work["gas_used"], "state_bytes": growth,
+                "next_base_fee": st.base_fee}
+
+    # ── consensus: migrate and vote ───────────────────────────────
+
+    def migrate(self, engine, validators=(), params=None, at=None,
+                require_pq=True):
+        """Queue a switch of consensus engine. It rides in the NEXT block's
+        header, so the current engine's seal (and quorum) is what authorises
+        it; it takes effect from height `at` (default: the block after)."""
+        with self.lock:
+            nxt = self.blocks[-1]["height"] + 1
+            at = int(at) if at not in (None, "") else nxt + 1
+            if at <= nxt:
+                raise StateError(f"activation height must be > {nxt} — the "
+                                 "migration needs a block of its own first",
+                                 code="bad_height")
+            if self.proposal:
+                raise StateError("a proposal is waiting for votes — vote or "
+                                 "let it time out first", code="busy",
+                                 status=409)
+            epoch = CN.make_epoch(engine, validators, params, at, require_pq)
+            eng = CN.get(engine)
+            # Liveness: refuse a schedule this node could never extend.
+            if eng.needs_validators:
+                held = [v for v in epoch["validators"]
+                        if self._local(v["address"])]
+                if not held:
+                    raise StateError(
+                        f"this node holds none of the {engine} validator "
+                        "keys, so it could never propose again — include "
+                        "at least one local wallet", code="no_local_validator")
+                if engine == "pos" and not sum(
+                        self.state.balance(v["address"]) for v in held):
+                    raise StateError(
+                        "no local validator holds stake — transfer PQ to one "
+                        "first (pos weighs votes by balance)",
+                        code="no_stake")
+            elif self._miner(epoch) is None:
+                raise StateError("no local miner key passes the validator "
+                                 "key rule", code="no_local_validator")
+            self.pending_migration = epoch
+            with open(self.pending_file, "w") as f:
+                json.dump(epoch, f)
+            return epoch
+
+    def cancel_migration(self):
+        with self.lock:
+            was = self.pending_migration
+            self.pending_migration = None
+            try:
+                os.remove(self.pending_file)
+            except FileNotFoundError:
+                pass
+            return was
+
+    def vote(self, validator=None, sig=None, block_hash=None, wallet=None):
+        """Add one validator's vote to the waiting proposal; commit once the
+        quorum is met. wallet= signs with a key this node holds."""
+        with self.lock:
+            p = self.proposal
+            if not p:
+                raise StateError("no proposal is waiting for votes",
+                                 code="no_proposal", status=404)
+            b = p["block"]
+            h = b["header"]
+            if block_hash and block_hash != b["hash"]:
+                raise StateError(f"stale vote: the proposal is "
+                                 f"{b['hash']}", code="stale_vote",
+                                 status=409)
+            if wallet:
+                w = K.get(wallet)
+                validator = w["address"]
+                sig = CN.sign_vote(w, self.chain_id, h["height"], p["round"],
+                                   b["hash"])
+            votes = list(b["commit"]["votes"])
+            if any(v["validator"] == validator for v in votes):
+                return {"accepted": False, "reason": "already voted",
+                        **self.proposal_view()}
+            cand = votes + [{"validator": validator, "sig": sig}]
+            got, need, probs = CN.tally(p["epoch"], cand, self.chain_id,
+                                        h["height"], p["round"], b["hash"],
+                                        p["stake"])
+            if probs:
+                raise StateError(probs[-1], code="bad_vote", status=401)
+            b["commit"]["votes"] = cand
+            if got >= need:
+                out = self._commit(p)
+                return {"accepted": True, "committed": True, **out}
+            return {"accepted": True, "committed": False,
+                    **self.proposal_view()}
+
+    def proposal_view(self):
+        p = self.proposal
+        if not p:
+            return {"proposal": None}
+        b = p["block"]
+        h = b["header"]
+        got, need, _ = CN.tally(p["epoch"], b["commit"]["votes"],
+                                self.chain_id, h["height"], p["round"],
+                                b["hash"], p["stake"])
+        voted = {v["validator"] for v in b["commit"]["votes"]}
+        return {"proposal": {
+            "height": h["height"], "round": p["round"], "hash": b["hash"],
+            "proposer": h["proposer"], "power": got, "needed": need,
+            "tx_count": h["tx_count"],
+            "vote_message": CN.vote_message(self.chain_id, h["height"],
+                                            p["round"], b["hash"]).hex(),
+            "vote_context": CN.VOTE_CONTEXT.decode(),
+            "waiting_on": [v["address"] for v in p["epoch"]["validators"]
+                           if v["address"] not in voted],
+            "age": int(time.time()) - p["created"],
+            "times_out_in": max(0, CN.ROUND_SECONDS -
+                                (int(time.time()) - p["created"]))}}
+
+    def _expire_proposal(self, now):
+        p = self.proposal
+        if p and now - p["created"] >= CN.ROUND_SECONDS:
+            h = p["block"]["header"]["height"]
+            self._round_floor = (h, p["round"] + 1)
+            self.proposal = None
+            self.consensus_note = (f"height {h}: round {p['round']} timed "
+                                   "out without a quorum — next round")
 
     def _replay_into(self, _stale, included, now, proposer):
         """A transaction failed mid-block. Rebuild the block's state from the
@@ -572,8 +863,10 @@ class Node:
         """Called by the block loop: produce if there is work, or on the
         heartbeat so wall-clock rent keeps being settled into the chain."""
         now = int(now or time.time())
-        if self.mempool:
-            return self.produce(now)
+        with self.lock:
+            self._expire_proposal(int(time.time()))
+        if self.mempool or self.pending_migration:
+            return self.produce(now, force=bool(self.pending_migration))
         if now - self.last_block_time >= HEARTBEAT_SECONDS:
             return self.produce(now, force=True)
         return None
@@ -601,7 +894,9 @@ class Node:
                 "accounts": len(self.state.accounts),
                 "burned": self.state.burned,
                 "supply": self.state.supply,
-                "proposer": self._proposer()}
+                "proposer": self._proposer(),
+                "consensus": self.epoch()["engine"],
+                "proposal": bool(self.proposal)}
 
     def block(self, ref=None):
         """A block by height, by hash, or the tip."""

@@ -1,5 +1,6 @@
 'use client';
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { BoardRow, call, Flow, TraderIndex } from '@/lib/api';
 import { useData } from '@/lib/data';
 import { useOverlay } from '@/lib/overlay';
@@ -79,7 +80,10 @@ function Tracked() {
                   <td className="num"><Pct v={t.change_7d} /></td>
                   <td className="num">{t.flows_24h || <span className="muted">0</span>}</td>
                   <td><Spark pts={t.spark} dir={t.change_24h} /></td>
-                  <td className="num row-act"><button className={'copybtn' + (sure === t.ss58 ? ' sure' : '')} style={{ position: 'static' }}
+                  <td className="num row-act" style={{ whiteSpace: 'nowrap' }}><Link className="copybtn" style={{ position: 'static' }}
+                    title="Copy this trader's subnet book" href={`/copy?target=${t.ss58}`}
+                    onClick={e => e.stopPropagation()}>Copy</Link>{' '}
+                    <button className={'copybtn' + (sure === t.ss58 ? ' sure' : '')} style={{ position: 'static' }}
                     title="Stop tracking — recorded history is kept"
                     onClick={e => { e.stopPropagation(); untrack(t.ss58); }}>{sure === t.ss58 ? 'Sure?' : 'Untrack'}</button></td>
                 </tr>
@@ -172,10 +176,12 @@ function Board({ onIndexed }: { onIndexed: () => void }) {
                       <i className="f" style={{ width: `${(f / tot) * 100}%` }} /></span></td>
                     <td>{b.top_subnet_name ? <>{b.top_subnet_name} <span className="sn-sym">#{b.top_subnet}</span></> : <span className="muted">—</span>}</td>
                     <td><Spark pts={b.spark} dir={b.market_pnl_tao} /></td>
-                    <td className="num">{tracked.has(b.ss58)
+                    <td className="num" style={{ whiteSpace: 'nowrap' }}>{tracked.has(b.ss58)
                       ? <span className="sn-sym">tracked</span>
                       : <button className="copybtn" style={{ position: 'static' }}
-                          onClick={e => { e.stopPropagation(); track(b.ss58); }}>Track</button>}</td>
+                          onClick={e => { e.stopPropagation(); track(b.ss58); }}>Track</button>}{' '}
+                      <Link className="copybtn" style={{ position: 'static' }} title="Copy this trader's subnet book"
+                        href={`/copy?target=${b.ss58}`} onClick={e => e.stopPropagation()}>Copy</Link></td>
                   </tr>
                 );
               })}
