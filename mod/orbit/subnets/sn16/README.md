@@ -1,8 +1,8 @@
-# sn16 — kenju run next week π
+# sn16 — Zero Hour π
 
 Robot task disruptions and recovery demos for VLA training
 
-Bittensor subnet **16** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **16** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/fast-thinker/kenju)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/fast-thinker/kenju)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001002 | +0.00% | -3.39% | +17.07% | 979.6372 | 336.9316 | 239.75 |
+| 0.001110 | -0.00% | +9.33% | +22.24% | 1,093 | 354.6292 | 295.86 |
 
 ## Last 24h flow
 
-177 trades by 43 coldkeys · 115 buys (116.97 τ) / 62 sells (121.82 τ) · net -4.85 τ
+78 trades by 43 coldkeys · 38 buys (155.70 τ) / 40 sells (133.02 τ) · net 22.68 τ
 
 ## News
 
+- 2026-10-17 · commit · [skeleton](https://github.com/fast-thinker/kenju/commit/92ce8a31e08860c98791f48cebde8c189a86e284) — fast-thinker/kenju
 - 2026-10-15 · commit · [first commit](https://github.com/fast-thinker/kenju/commit/055c22a2a5b4d8e03fa2e07949b7bf52f096a5de) — fast-thinker/kenju
 
 ## Use

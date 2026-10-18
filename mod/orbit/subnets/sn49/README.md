@@ -2,7 +2,7 @@
 
 Pioneering Simulation-First Robotics Development
 
-Bittensor subnet **49** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **49** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/nepher-ai/nepher-subnet) · [url](https://www.nepher.ai/) · [discord](https://discord.gg/qZUc3vdjVq)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/nepher-ai/nepher-subnet) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.007213 | -0.30% | -4.09% | -13.10% | 22,386 | 4,409 | 219.82 |
+| 0.006816 | +0.00% | -4.57% | -14.84% | 21,216 | 4,298 | 375.31 |
 
 ## Last 24h flow
 
-49 trades by 35 coldkeys · 17 buys (59.95 τ) / 32 sells (152.44 τ) · net -92.49 τ
+49 trades by 31 coldkeys · 19 buys (134.13 τ) / 30 sells (237.15 τ) · net -103.02 τ
 
 ## News
 
@@ -24,7 +24,6 @@ Links: [github](https://github.com/nepher-ai/nepher-subnet) · [url](https://www
 - 2026-09-30 · release · [v1.0.0](https://github.com/nepher-ai/nepher-subnet/releases/tag/v1.0.0) — nepher-ai/nepher-subnet
 - 2026-09-18 · commit · [Merge branch 'main' of https://github.com/nepher-ai/nepher-subnet](https://github.com/nepher-ai/nepher-subnet/commit/650a8c592310daa868f200dd7965fd7a61b5dce8) — nepher-ai/nepher-subnet
 - 2026-09-18 · commit · [Updated API URLs in configuration files and documentation to reflect …](https://github.com/nepher-ai/nepher-subnet/commit/047306b993019b0deefe190510650e8e2cc24ed3) — nepher-ai/nepher-subnet
-- 2026-09-18 · commit · [Enhance tournament reward structure to support podium placements with…](https://github.com/nepher-ai/nepher-subnet/commit/95b7244560ea0ff5730c755112f8c6c5abb655f7) — nepher-ai/nepher-subnet
 
 ## Use
 

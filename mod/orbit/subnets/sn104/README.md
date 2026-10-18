@@ -2,7 +2,7 @@
 
 Predictive Intelligence Layer for Bittensor
 
-Bittensor subnet **104** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **104** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/taostatus/taostatus-subnet) · [url](https://taostatus.com/) · [discord](https://discord.gg/t8k9vm4KMG)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/taostatus/taostatus-subnet) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004085 | +0.00% | -0.12% | -0.84% | 19,340 | 5,869 | 3.51 |
+| 0.004082 | -0.00% | -0.22% | -0.88% | 19,343 | 5,866 | 6.43 |
 
 ## Last 24h flow
 
-2 trades by 2 coldkeys · 0 buys (0.00 τ) / 2 sells (2.02 τ) · net -2.02 τ
+2 trades by 2 coldkeys · 0 buys (0.00 τ) / 2 sells (5.96 τ) · net -5.96 τ
 
 ## News
 

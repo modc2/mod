@@ -2,7 +2,7 @@
 
 Open-Source Claude Cowork
 
-Bittensor subnet **118** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **118** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/orgs/ditto-assistant/repositories) · [url](https://heyditto.ai) · [discord](https://discord.gg/qNKYZEMpkD)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/orgs/ditto-assistant/repositories) · [url](h
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004972 | +0.00% | -3.58% | -22.92% | 16,294 | 5,289 | 1,222 |
+| 0.004805 | -0.35% | -3.37% | -28.56% | 15,780 | 5,199 | 846.23 |
 
 ## Last 24h flow
 
-135 trades by 69 coldkeys · 71 buys (562.46 τ) / 64 sells (649.07 τ) · net -86.60 τ
+114 trades by 57 coldkeys · 55 buys (378.22 τ) / 59 sells (465.73 τ) · net -87.51 τ
 
 ## News
 
+- 2026-10-14 · blog · [How Ditto uses Jev to choose a model and a home for your memories](https://heyditto.ai/blog/jev-auto-model-routing-and-mcp-memory) — heyditto.ai
 - 2026-10-11 · news · [AI Has IQ But Amnesia. Ditto (SN118) Is Fixing It \| Founder Interview #TAO](https://news.google.com/rss/articles/CBMiXEFVX3lxTFBHb2Nkb1RjMGtjV0ktUmpVaVIwQnF4WHRhazF4dVQtbmk3SHVUQXVmblZrUk95VEdsT3J4cEJPNGN4OFlOcUtNOHBOeUEyMWhTdFRZOWs5bk10c3Ey?oc=5) — YouTube
 
 ## Use

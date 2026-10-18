@@ -2,7 +2,7 @@
 
 Drop-in access to Claude, GPT, and Gemini.
 
-Bittensor subnet **28** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **28** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/taostat/gm-miner) · [url](https://saygm.com/)
 
@@ -12,22 +12,22 @@ Fleet mods for this subnet: `saygm`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.033517 | -0.01% | +1.80% | +41.42% | 212,598 | 28,923 | 10,002 |
+| 0.034512 | +0.00% | +2.73% | +42.49% | 219,199 | 29,383 | 4,361 |
 
 ## Last 24h flow
 
-704 trades by 265 coldkeys · 371 buys (5,000 τ) / 333 sells (4,851 τ) · net 148.54 τ
+818 trades by 217 coldkeys · 424 buys (2,245 τ) / 394 sells (1,975 τ) · net 269.97 τ
 
 ## News
 
+- 2026-10-17 · release · [v0.5.2](https://github.com/taostat/gm-miner/releases/tag/v0.5.2) — taostat/gm-miner
+- 2026-10-17 · commit · [chore(release): promote gm-miner 0.5.2 (#327)](https://github.com/taostat/gm-miner/commit/2261fc7b780b82c8f34a7eb905dc62c425672202) — taostat/gm-miner
+- 2026-10-17 · release · [v0.5.2-dev](https://github.com/taostat/gm-miner/releases/tag/v0.5.2-dev) — taostat/gm-miner
+- 2026-10-17 · commit · [fix: allow KubeTEE DeepSeek Flash 1017 and prepare 0.5.2-dev (#326)](https://github.com/taostat/gm-miner/commit/f12202c216f358c21c82e71e9595949d120aed71) — taostat/gm-miner
+- 2026-10-17 · commit · [docs: document KubeTEE DeepSeek V4.1 Flash 1017 source (#325)](https://github.com/taostat/gm-miner/commit/aa8cb0b2ec2b03f9a960144b9d869ff2a7fd4ec3) — taostat/gm-miner
 - 2026-10-15 · release · [v0.5.1-dev](https://github.com/taostat/gm-miner/releases/tag/v0.5.1-dev) — taostat/gm-miner
 - 2026-10-15 · commit · [Add Engy MiniMax H3 video route (#324)](https://github.com/taostat/gm-miner/commit/70bc539e8bcbcfd21cf09ee252af2e2b1b757f4b) — taostat/gm-miner
 - 2026-10-15 · commit · [Document DeepInfra GLM-5.3 and Flash sourcing (#323)](https://github.com/taostat/gm-miner/commit/3de24065faf3357e2116529677f4dcb0c6c2b402) — taostat/gm-miner
-- 2026-10-14 · release · [v0.5.0](https://github.com/taostat/gm-miner/releases/tag/v0.5.0) — taostat/gm-miner
-- 2026-10-14 · commit · [chore(release): promote gm-miner 0.5.0 (#322)](https://github.com/taostat/gm-miner/commit/9324860559305fb65993490c624f4b390aeafc0c) — taostat/gm-miner
-- 2026-10-14 · release · [v0.4.29-dev](https://github.com/taostat/gm-miner/releases/tag/v0.4.29-dev) — taostat/gm-miner
-- 2026-10-14 · commit · [chore(release): gm-miner 0.4.29-dev (#320)](https://github.com/taostat/gm-miner/commit/e1f325c20c301b5fe9ea48a6e6238a25a488a2ff) — taostat/gm-miner
-- 2026-10-14 · commit · [Pin dstack-0.5.12 as the deploy OS image (#318)](https://github.com/taostat/gm-miner/commit/5b895ddb560cfa79271f15e4fc117930e9f60a4e) — taostat/gm-miner
 
 ## Use
 

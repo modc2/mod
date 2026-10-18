@@ -1,6 +1,6 @@
 # sn82 — Noah ᚢ
 
-Bittensor subnet **82** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **82** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/Vora-Inc/NOAH)
 
@@ -8,11 +8,11 @@ Links: [github](https://github.com/Vora-Inc/NOAH)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.054172 | +0.05% | -8.43% | +119.49% | 9,153 | 2,314 | 458.10 |
+| 0.052023 | -0.00% | -3.32% | +110.79% | 9,299 | 2,397 | 58.48 |
 
 ## Last 24h flow
 
-90 trades by 36 coldkeys · 39 buys (177.98 τ) / 51 sells (211.82 τ) · net -33.84 τ
+44 trades by 22 coldkeys · 10 buys (9.42 τ) / 34 sells (17.03 τ) · net -7.61 τ
 
 ## News
 

@@ -1,11 +1,11 @@
 {
   "name": "sn16",
   "version": "1.0.0",
-  "description": "SN16 kenju run next week — Robot task disruptions and recovery demos for VLA training. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "description": "SN16 Zero Hour — Robot task disruptions and recovery demos for VLA training. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
   "icon": "π",
   "chain": "bittensor",
   "netuid": 16,
-  "subnet": "kenju run next week",
+  "subnet": "Zero Hour",
   "symbol": "π",
   "owner": "5FkKY8WJKm1fsUXuVNeoX7ayENaSmR6L2KNoJN48ZAJwtWeU",
   "github": "https://github.com/fast-thinker/kenju",
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-17",
+  "updated": "2026-10-18",
   "urls": {
     "bt": "/bt/markets?sn=16",
     "news": "/bt/news?netuid=16"

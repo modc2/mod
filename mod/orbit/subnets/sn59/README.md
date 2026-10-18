@@ -1,6 +1,6 @@
 # sn59 — agent-arena د
 
-Bittensor subnet **59** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **59** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 ## Market
 

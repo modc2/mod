@@ -2,7 +2,7 @@
 
 Incentivized Compute Marketplace powered by the Targon Virtual Machine (TVM).
 
-Bittensor subnet **4** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **4** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/manifold-inc/targon) · [url](https://targon.com)
 
@@ -12,11 +12,11 @@ Fleet mods for this subnet: `targon`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.052749 | -0.01% | +2.15% | +1.59% | 341,495 | 135,369 | 3,607 |
+| 0.052667 | +0.12% | -0.15% | +1.92% | 341,400 | 135,314 | 2,280 |
 
 ## Last 24h flow
 
-301 trades by 163 coldkeys · 149 buys (2,335 τ) / 152 sells (1,070 τ) · net 1,265 τ
+244 trades by 148 coldkeys · 98 buys (903.84 τ) / 146 sells (1,162 τ) · net -257.68 τ
 
 ## News
 
@@ -25,8 +25,6 @@ Fleet mods for this subnet: `targon`
 - 2026-09-25 · commit · [update docs](https://github.com/manifold-inc/targon/commit/56a0769547474c56d14272d137ade43e58958a3c) — manifold-inc/targon
 - 2026-09-23 · commit · [add hardware profiles](https://github.com/manifold-inc/targon/commit/ee52c6b4171c6cfd952572f9db962de059472076) — manifold-inc/targon
 - 2026-09-23 · commit · [restart chain subscription on stale connection](https://github.com/manifold-inc/targon/commit/7b49a678da2a9f318372b70e1e44d42c4c4db7c3) — manifold-inc/targon
-- 2026-09-17 · commit · [flip attestation ports prio](https://github.com/manifold-inc/targon/commit/511128aabc6416ae11179306e57c144a906c9894) — manifold-inc/targon
-- 2026-09-17 · release · [v2.0.1](https://github.com/manifold-inc/targon/releases/tag/v2.0.1) — manifold-inc/targon
 
 ## Use
 

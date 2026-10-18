@@ -2,7 +2,7 @@
 
 find and fix exploits in codebases
 
-Bittensor subnet **60** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **60** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/Bitsec-AI/sandbox) · [url](https://bitsec.ai) · discord `yubo`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Bitsec-AI/sandbox) · [url](https://bitsec.ai
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003805 | +0.00% | -0.53% | -7.56% | 22,443 | 6,809 | 1,332 |
+| 0.003780 | -0.00% | -0.87% | -8.47% | 22,321 | 6,786 | 475.69 |
 
 ## Last 24h flow
 
-142 trades by 59 coldkeys · 78 buys (656.77 τ) / 64 sells (667.65 τ) · net -10.88 τ
+69 trades by 34 coldkeys · 32 buys (223.03 τ) / 37 sells (252.19 τ) · net -29.16 τ
 
 ## News
 
@@ -25,7 +25,6 @@ Links: [github](https://github.com/Bitsec-AI/sandbox) · [url](https://bitsec.ai
 - 2026-09-29 · commit · [activate sentios](https://github.com/Bitsec-AI/sandbox/commit/cf9acf215a7535109879f84b8b1d72377ef49b12) — Bitsec-AI/sandbox
 - 2026-09-22 · commit · [\[skip ci\] increment to build 60](https://github.com/Bitsec-AI/sandbox/commit/529516b7f03ca70b6377c23eb371e74217224346) — Bitsec-AI/sandbox
 - 2026-09-22 · commit · [added endpoint for fetching answers to hidden projects](https://github.com/Bitsec-AI/sandbox/commit/2c87079d1ad8651b4511c54b60053a5cbd0a0ec8) — Bitsec-AI/sandbox
-- 2026-09-17 · commit · [\[skip ci\] increment to build 59](https://github.com/Bitsec-AI/sandbox/commit/80d0293278e0606bc2f74c87be6f082600a97e0c) — Bitsec-AI/sandbox
 
 ## Use
 

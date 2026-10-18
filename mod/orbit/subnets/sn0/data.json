@@ -11,25 +11,23 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9300804,
+  "block": 9308119,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6873354.966229526,
-    "tao_in": 5450448.49741776,
-    "alpha_in": 1422906.468811766,
-    "alpha_out": 5450448.49741776,
-    "volume": 59228252.88226284,
-    "vol_24h": 37001.869191125035,
+    "market_cap": 6873579.891784275,
+    "tao_in": 5447101.738704622,
+    "alpha_in": 1426478.153079653,
+    "alpha_out": 5447101.738704622,
+    "volume": 59254831.47914368,
+    "vol_24h": 25768.302121199667,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
     "change_7d": 0.0
   },
   "spark_24h": [
-    1.0,
-    1.0,
     1.0,
     1.0,
     1.0,
@@ -145,6 +143,6 @@
       "publisher": "24/7 Wall St."
     }
   ],
-  "updated": 1792215661,
-  "updated_day": "2026-10-17"
+  "updated": 1792302061,
+  "updated_day": "2026-10-18"
 }

@@ -1,16 +1,18 @@
 # sn103 — Consted Ա
 
-Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Const : Centralised Entity deciding emission of subnets based on emotion, not by codes
+
+Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001019 | +0.00% | -25.26% | +21.25% | 669.7727 | 306.5738 | 231.21 |
+| 0.000927 | -0.00% | -9.01% | +12.10% | 616.1907 | 292.4422 | 186.41 |
 
 ## Last 24h flow
 
-149 trades by 49 coldkeys · 69 buys (91.61 τ) / 80 sells (135.89 τ) · net -44.28 τ
+104 trades by 35 coldkeys · 60 buys (86.15 τ) / 44 sells (99.45 τ) · net -13.30 τ
 
 ## Use
 

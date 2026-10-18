@@ -2,7 +2,7 @@
 
 SOTA Time Series Foundation Models
 
-Bittensor subnet **91** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **91** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/TensorLink-AI/cascade) · [url](https://www.cascade.industries/) · [discord](https://discord.gg/bittensor)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/TensorLink-AI/cascade) · [url](https://www.c
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004201 | +0.00% | -3.26% | -19.40% | 8,230 | 3,091 | 129.85 |
+| 0.004068 | -0.00% | -2.16% | -18.04% | 8,000 | 3,045 | 75.80 |
 
 ## Last 24h flow
 
-40 trades by 27 coldkeys · 8 buys (37.42 τ) / 32 sells (86.02 τ) · net -48.60 τ
+31 trades by 19 coldkeys · 4 buys (19.54 τ) / 27 sells (53.22 τ) · net -33.67 τ
 
 ## News
 
+- 2026-10-18 · commit · [king sync (finney): vault/direct@sha256:b20b875be09bda54ab6d69b0219cb…](https://github.com/TensorLink-AI/cascade/commit/aa654eb0602c19a994111e2c008d8b214eb5e53f) — TensorLink-AI/cascade
+- 2026-10-17 · commit · [Merge pull request #373 from TensorLink-AI/feat/payer-bench-unverified](https://github.com/TensorLink-AI/cascade/commit/3edd4b3e484325a72296fa166742e6b40eb20650) — TensorLink-AI/cascade
+- 2026-10-17 · commit · [Merge pull request #372 from TensorLink-AI/fix/near-dup-lineage-and-l…](https://github.com/TensorLink-AI/cascade/commit/55cd083d80f33f125f7165e59a1160bd68a9399e) — TensorLink-AI/cascade
+- 2026-10-17 · commit · [feat(telemetry): funded_bench_unverified — publish payer-pod benches …](https://github.com/TensorLink-AI/cascade/commit/5b7cc6ae3bd00cd367771c840e36a5f8daa55c92) — TensorLink-AI/cascade
+- 2026-10-17 · commit · [fix(near-dup): same-coldkey full-tree rule, era-unit lookback, visibl…](https://github.com/TensorLink-AI/cascade/commit/d7d4a06975d7784482d044fc63526aceb5291183) — TensorLink-AI/cascade
 - 2026-10-17 · commit · [Merge pull request #371 from TensorLink-AI/fix/promotion-carry-clock-…](https://github.com/TensorLink-AI/cascade/commit/82bb2145c96b12d046d29d199eb83ffff65e3fe9) — TensorLink-AI/cascade
 - 2026-10-17 · commit · [fix(promotion): anchor the trainer's reign clock where validators res…](https://github.com/TensorLink-AI/cascade/commit/447ffe3e90d82b76b08a0f74a60c5c45ea2d0dc8) — TensorLink-AI/cascade
 - 2026-10-16 · commit · [Merge pull request #370 from TensorLink-AI/docs/miner-admission-guard](https://github.com/TensorLink-AI/cascade/commit/6fc7db03edf2d08f38e0efc258230cbbccac942d) — TensorLink-AI/cascade
-- 2026-10-16 · commit · [docs+cli: miner-facing admission guard (coldkey cap, near-duplicate, …](https://github.com/TensorLink-AI/cascade/commit/8b246512aefbef039546373b84021507758fd25d) — TensorLink-AI/cascade
-- 2026-10-16 · commit · [Merge pull request #369 from TensorLink-AI/feat/admission-near-dup-guard](https://github.com/TensorLink-AI/cascade/commit/cd6f01da9dce504df8fb1a4d52c9582c4d76bc7b) — TensorLink-AI/cascade
-- 2026-10-16 · commit · [test(near-dup): capture the shadow log line without caplog (propagati…](https://github.com/TensorLink-AI/cascade/commit/793b6e58d738337afd46b54450fb6ceb4bf375a7) — TensorLink-AI/cascade
-- 2026-10-16 · commit · [feat(admission): near-duplicate tier + per-coldkey seat cap, also at …](https://github.com/TensorLink-AI/cascade/commit/8ef80161db716f166aea11221b6682f95af30546) — TensorLink-AI/cascade
-- 2026-10-16 · commit · [Merge pull request #367 from TensorLink-AI/feat/blocked-coldkeys](https://github.com/TensorLink-AI/cascade/commit/68e9dd704c4c6ba9ae21c417bfd887c9b882140a) — TensorLink-AI/cascade
 
 ## Use
 

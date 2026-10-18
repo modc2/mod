@@ -1,7 +1,7 @@
 {
   "name": "sn103",
   "version": "1.0.0",
-  "description": "SN103 Consted — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "description": "SN103 Consted — Const : Centralised Entity deciding emission of subnets based on emotion, not by codes. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
   "icon": "Ա",
   "chain": "bittensor",
   "netuid": 103,
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-17",
+  "updated": "2026-10-18",
   "urls": {
     "bt": "/bt/markets?sn=103",
     "news": "/bt/news?netuid=103"

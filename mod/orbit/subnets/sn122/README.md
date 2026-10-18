@@ -2,7 +2,7 @@
 
 Democratizing Bittensor Mining.
 
-Bittensor subnet **122** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **122** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/CookingTao) · [url](https://cookingtao.com/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/CookingTao) · [url](https://cookingtao.com/)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003765 | +0.00% | -1.83% | -15.73% | 4,831 | 1,322 | 93.78 |
+| 0.003754 | +0.00% | -0.27% | -15.04% | 4,846 | 1,320 | 31.56 |
 
 ## Last 24h flow
 
-16 trades by 10 coldkeys · 5 buys (40.77 τ) / 11 sells (42.35 τ) · net -1.58 τ
+6 trades by 4 coldkeys · 2 buys (14.88 τ) / 4 sells (15.15 τ) · net -0.27 τ
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 ChipForge decentralizes silicon design. Miners anywhere compete to build chips that accelerate AI, scored on real AI models.
 
-Bittensor subnet **108** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **108** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/TatsuProject/ChipForge_SN108) · [url](https://www.chipforge.io/) · [discord](https://discord.com/channels/799672011265015819/1408463235082092564)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/TatsuProject/ChipForge_SN108) · [url](https:
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.007911 | +0.00% | +6.18% | -16.88% | 1,548 | 680.2471 | 591.83 |
+| 0.007224 | +0.62% | -6.05% | -41.68% | 1,467 | 650.0237 | 1,120 |
 
 ## Last 24h flow
 
-240 trades by 38 coldkeys · 142 buys (306.02 τ) / 98 sells (280.91 τ) · net 25.10 τ
+329 trades by 48 coldkeys · 190 buys (549.82 τ) / 139 sells (566.92 τ) · net -17.10 τ
 
 ## News
 
+- 2026-10-17 · commit · [Merge pull request #5 from TatsuProject/feature/record-ladder](https://github.com/TatsuProject/ChipForge_SN108/commit/d68c22f299a9024ca4fd6028fea225eb31c5402e) — TatsuProject/ChipForge_SN108
+- 2026-10-17 · commit · [Ladder follows the server's repeat_hotkeys (missing = off): a hotkey …](https://github.com/TatsuProject/ChipForge_SN108/commit/903d7c73410c558c375bc6406add50dcae3b463c) — TatsuProject/ChipForge_SN108
+- 2026-10-17 · commit · [Merge pull request #4 from TatsuProject/feature/record-ladder](https://github.com/TatsuProject/ChipForge_SN108/commit/2ca53a203004978e3da85451287179640968668b) — TatsuProject/ChipForge_SN108
+- 2026-10-17 · commit · [Ladder report while emissions are banned: the header says "emissions …](https://github.com/TatsuProject/ChipForge_SN108/commit/4c8f9f6e77528b61097743db391850a4a2c66a4a) — TatsuProject/ChipForge_SN108
+- 2026-10-16 · commit · [Validators don't pay records the server marks banned (coldkey banned …](https://github.com/TatsuProject/ChipForge_SN108/commit/71124d9a22141e1fb7a6f8e65ce0ab44dd702f27) — TatsuProject/ChipForge_SN108
 - 2026-10-14 · commit · [Validator sends its EDA server the batch's time: time_limit_s (deadli…](https://github.com/TatsuProject/ChipForge_SN108/commit/a113ad925e4594d84f7d2fa549e1d968fbe9cfcf) — TatsuProject/ChipForge_SN108
 - 2026-10-10 · commit · [On a baseline_epoch change the validator's bar is exactly the server'…](https://github.com/TatsuProject/ChipForge_SN108/commit/4b8de64382a5fe68a159c5bfca5bc45e06fd0df7) — TatsuProject/ChipForge_SN108
 - 2026-10-10 · commit · [Validator resets its local challenge best and winner to the server's …](https://github.com/TatsuProject/ChipForge_SN108/commit/4af91b3aa4a8dfc96a4e284a058a984348a0db41) — TatsuProject/ChipForge_SN108
-- 2026-10-06 · social · [SN108 Chipforge // Why +300% in 24h](https://www.reddit.com/r/bittensor_/comments/1wz0mjr/sn108_chipforge_why_300_in_24h/) — r/bittensor_
-- 2026-10-06 · commit · [Minimum improvement comes from the challenge server (/validator/sync …](https://github.com/TatsuProject/ChipForge_SN108/commit/0f74767f11df47b2c8ca0000d03e1ff91f1ad000) — TatsuProject/ChipForge_SN108
-- 2026-10-06 · commit · [.env.example updated](https://github.com/TatsuProject/ChipForge_SN108/commit/3cd9f3cf6f75061f67ae7085d9fea6748a8ed02f) — TatsuProject/ChipForge_SN108
-- 2026-10-05 · commit · [docs: validator hardware requirements (min 16 physical cores + 32 GB,…](https://github.com/TatsuProject/ChipForge_SN108/commit/3e019f6fed612b085ca944cb1956d6aa16b015d2) — TatsuProject/ChipForge_SN108
-- 2026-10-05 · commit · [Stop tracking CHANGES_V2.md (local change log only) and ignore it](https://github.com/TatsuProject/ChipForge_SN108/commit/9a399e47329879b7be44f135add1c3dfd0f007b0) — TatsuProject/ChipForge_SN108
 
 ## Use
 

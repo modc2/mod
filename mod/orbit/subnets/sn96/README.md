@@ -2,7 +2,7 @@
 
 Verified AI inference and training subnet.
 
-Bittensor subnet **96** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **96** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/verathos-ai/verathos) · [url](https://verathos.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/verathos-ai/verathos) · [url](https://verath
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003781 | +0.00% | -10.97% | -11.03% | 5,926 | 2,431 | 376.54 |
+| 0.003865 | -0.00% | +2.23% | -5.73% | 6,086 | 2,458 | 67.41 |
 
 ## Last 24h flow
 
-78 trades by 40 coldkeys · 25 buys (115.45 τ) / 53 sells (258.14 τ) · net -142.69 τ
+33 trades by 18 coldkeys · 7 buys (47.10 τ) / 26 sells (19.35 τ) · net 27.76 τ
 
 ## News
 

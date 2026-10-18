@@ -2,17 +2,17 @@
 
 Reach out @SteveJYY on Telegram for subnet sale.
 
-Bittensor subnet **86** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **86** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004662 | +0.00% | -14.41% | -22.17% | 574.9479 | 509.8402 | 63.17 |
+| 0.004308 | +0.00% | -8.31% | -28.07% | 562.8369 | 490.1172 | 23.73 |
 
 ## Last 24h flow
 
-47 trades by 23 coldkeys · 14 buys (10.97 τ) / 33 sells (48.92 τ) · net -37.95 τ
+22 trades by 5 coldkeys · 1 buys (1.00 τ) / 21 sells (20.25 τ) · net -19.25 τ
 
 ## Use
 

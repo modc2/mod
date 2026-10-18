@@ -2,7 +2,7 @@
 
 Distributed AI model compression & optimization engine
 
-Bittensor subnet **65** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **65** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 Links: [github](https://github.com/taofu-labs/true-performance-network) · [url](https://www.trueperformancenetwork.com/) · [discord](https://discord.com/invite/GRVZyPYd6G)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/taofu-labs/true-performance-network) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002183 | -0.17% | -0.37% | +0.70% | 13,356 | 5,662 | 658.15 |
+| 0.002203 | +0.00% | +0.94% | -2.37% | 13,497 | 5,689 | 211.05 |
 
 ## Last 24h flow
 
-89 trades by 49 coldkeys · 33 buys (323.69 τ) / 56 sells (330.39 τ) · net -6.70 τ
+42 trades by 24 coldkeys · 20 buys (118.77 τ) / 22 sells (92.03 τ) · net 26.74 τ
 
 ## News
 
@@ -25,7 +25,6 @@ Links: [github](https://github.com/taofu-labs/true-performance-network) · [url]
 - 2026-10-05 · commit · [fix line + test](https://github.com/taofu-labs/true-performance-network/commit/0547a834a0a9bdec67a47f1770671d5d6e8f7a31) — taofu-labs/true-performance-network
 - 2026-10-01 · commit · [update miner docs](https://github.com/taofu-labs/true-performance-network/commit/9d4e3cd3ac86c6a099ba6adec9af3bac687e8a72) — taofu-labs/true-performance-network
 - 2026-09-30 · commit · [add proper ram tracking](https://github.com/taofu-labs/true-performance-network/commit/79718e5fa4ae1cdb82de3520c5d02371ec4d6d5e) — taofu-labs/true-performance-network
-- 2026-09-17 · commit · [Merge pull request #8 from taofu-labs/testnet](https://github.com/taofu-labs/true-performance-network/commit/ea73f1ecccb6bb804eb986e0e51acb7991ba81d2) — taofu-labs/true-performance-network
 
 ## Use
 

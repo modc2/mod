@@ -1,12 +1,12 @@
 # sn0 — root Τ
 
-Bittensor subnet **0** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-17 (block 9300804).
+Bittensor subnet **0** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 1.000000 | +0.00% | +0.00% | +0.00% | 6,873,355 | 5,450,448 | 37,002 |
+| 1.000000 | +0.00% | +0.00% | +0.00% | 6,873,580 | 5,447,102 | 25,768 |
 
 ## News
 
