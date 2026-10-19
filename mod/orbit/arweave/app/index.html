@@ -98,6 +98,18 @@
     <pre id="net-result" hidden></pre>
   </div>
 
+  <div class="card">
+    <h2 style="margin-top:0">Agents · MCP</h2>
+    <div class="sub" style="margin-bottom:8px">Any MCP client can drive this module as tools (no auth). Endpoint:</div>
+    <div class="row">
+      <input id="mcp-url" type="text" readonly value="…" />
+      <button class="ghost" onclick="copyText('mcp-url')">copy</button>
+      <button class="ghost" onclick="mcpTools()">tools</button>
+    </div>
+    <div class="sub" style="margin:8px 0 0">Claude Code: <code id="mcp-cmd">…</code> <button class="ghost" onclick="copyText('mcp-cmd')">copy</button></div>
+    <pre id="mcp-result" hidden></pre>
+  </div>
+
 <script>
 const API = location.origin + location.pathname.replace(/\/$/, '') + '/api';
 
@@ -120,7 +132,7 @@ async function statusCheck() {
     if (s.arweave?.ok) {
       pill.className = 'pill';
       pill.textContent = `gateway ✓ height ${s.arweave.height}` +
-        (s.wallet_configured ? ' · wallet ✓' : ' · wallet off');
+        (s.wallet_configured ? ' · wallet ✓ uploads on' : ' · no wallet: stores stay local');
     } else {
       pill.className = 'pill warn';
       pill.textContent = 'gateway offline';
@@ -178,6 +190,24 @@ async function getPrice() {
   show('net-result', await jget(`/price/${n}`));
 }
 
+const MCP_URL = API + '/mcp';
+document.getElementById('mcp-url').value = MCP_URL;
+document.getElementById('mcp-cmd').textContent = `claude mcp add --transport http arweave ${MCP_URL}`;
+
+async function copyText(id) {
+  const el = document.getElementById(id);
+  const txt = 'value' in el && el.tagName === 'INPUT' ? el.value : el.textContent;
+  try { await navigator.clipboard.writeText(txt); } catch {}
+}
+
+async function mcpTools() {
+  const r = await fetch(MCP_URL, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({jsonrpc:'2.0', id:1, method:'tools/list'})});
+  const j = await r.json();
+  const tools = (j.result?.tools || []).map(t => `${t.name} — ${t.description}`).join('\n');
+  show('mcp-result', tools || j);
+}
+
 async function refresh() {
   const r = await jget('/list');
   const tbody = document.querySelector('#list tbody');
@@ -188,7 +218,7 @@ async function refresh() {
       <td><span class="txid">${item.txid}</span></td>
       <td>${item.name || ''}</td>
       <td>${item.size ?? ''}</td>
-      <td>${item.backend}</td>
+      <td><span class="pill${item.backend === 'local' ? ' warn' : ''}">${item.backend}</span></td>
       <td>
         <button class="ghost" onclick="document.getElementById('txid').value='${item.txid}';getTx()">get</button>
         <button class="ghost" onclick="rm('${item.txid}')">rm</button>

@@ -34,6 +34,8 @@ import {
 } from "@/lib/wallet";
 import { gatewayUrl } from "@/lib/api";
 import { Nav, Footer } from "../components/Chrome";
+import PoolWidget from "../components/PoolWidget";
+import { Icon } from "../components/Icon";
 
 type Msg = { kind: "ok" | "err" | "wait"; text: string; tx?: string } | null;
 
@@ -215,12 +217,12 @@ export default function StakeConsole() {
       <Nav />
       <main className="wrap">
         <Link href="/" className="back">
-          ← all modules
+          <Icon name="arrow-left" /> All modules
         </Link>
 
         <div className="stake-hero">
           <div>
-            <h1>⧗ BlocTime</h1>
+            <h1><Icon name="clock" /> BlocTime</h1>
             <p>
               Lock NAT for a stretch of blocks and mint BLOC — time-weighted
               stake, up to 3× for the longest lock. BLOC is the weight that
@@ -243,6 +245,10 @@ export default function StakeConsole() {
             </div>
           </div>
         </div>
+
+        {/* The weekly reward pot is split by BLOC held, so it belongs next to the
+            thing that mints BLOC. */}
+        <PoolWidget />
 
         {err && <div className="chain-note">bloctime module unreachable — {err}</div>}
 
@@ -382,7 +388,7 @@ export default function StakeConsole() {
                       ? "staking…"
                       : needsApproval
                         ? "2 · Stake"
-                        : "⧗ Stake"}
+                        : "Stake"}
                   </button>
                 </div>
 
@@ -420,7 +426,7 @@ export default function StakeConsole() {
                 <div className="chain-card-head">
                   <h3>your positions</h3>
                   <span className="stake-total">
-                    ⧗ {fmt(me?.blocBalance)} BLOC
+                    <Icon name="clock" /> {fmt(me?.blocBalance)} BLOC
                   </span>
                 </div>
 
@@ -482,7 +488,7 @@ export default function StakeConsole() {
 
                 <div className="reg-fineprint">
                   Holding BLOC is what lets you back modules: open any module and
-                  stake your weight behind it in the ⛓ on-chain panel.
+                  stake your weight behind it in the “Back this module” panel.
                 </div>
               </div>
             </div>

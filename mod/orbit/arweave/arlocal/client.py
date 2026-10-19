@@ -7,8 +7,10 @@ Backends (auto-selected based on env / config):
   - Local SQLite index that tracks tx ids and metadata for easy listing.
 
 Reads never need credentials. Uploads need a wallet JWK, read from
-$ARWEAVE_WALLET or ~/.mod/arweave/wallet.json (off-tree, never committed);
-without one `put` fails with needs_key rather than inventing a tx id.
+$ARWEAVE_WALLET or ~/.mod/arweave/wallet.json (off-tree, never committed).
+Without one `put` falls back to the LOCAL backend: the bytes are kept at
+~/.arweave-mod/blobs/<sha256-id> and indexed, so put/get/list/rm round-trip
+on this box (the response carries a warning that nothing reached Arweave).
 """
 
 from __future__ import annotations
@@ -53,6 +55,8 @@ class ArweaveClient:
         self.store_dir = Path(store_path or os.path.expanduser("~/.arweave-mod"))
         self.store_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.store_dir / "index.db"
+        self.blob_dir = self.store_dir / "blobs"
+        self.blob_dir.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     # ─── local index ────────────────────────────────────────────────────────
@@ -106,10 +110,25 @@ class ArweaveClient:
         return out
 
     def rm(self, txid: str) -> Dict[str, Any]:
+        """Drop a tx id from the local index (and its local blob, if any).
+        Content already on Arweave is permanent and is NOT touched."""
         with sqlite3.connect(str(self.db_path)) as conn:
             cur = conn.execute("DELETE FROM objects WHERE txid = ?", (txid,))
             conn.commit()
-            return {"txid": txid, "removed": cur.rowcount > 0}
+        blob = self._blob_path(txid)
+        if blob is not None and blob.is_file():
+            blob.unlink()
+        return {"txid": txid, "removed": cur.rowcount > 0}
+
+    def _blob_path(self, txid: str) -> Optional[Path]:
+        # Only local placeholder ids (sha256-<43 hex>) have blobs; the id is
+        # validated so a crafted txid can never escape blob_dir.
+        if not txid.startswith("sha256-"):
+            return None
+        hexpart = txid[len("sha256-"):]
+        if len(hexpart) != 43 or any(c not in "0123456789abcdef" for c in hexpart):
+            return None
+        return self.blob_dir / hexpart
 
     # ─── put / store ────────────────────────────────────────────────────────
 
@@ -152,13 +171,19 @@ class ArweaveClient:
         if not self.wallet_path or not Path(self.wallet_path).expanduser().is_file():
             digest = hashlib.sha256(payload).hexdigest()
             txid = f"sha256-{digest[:43]}"
-            self._index(txid, name, len(payload), "local", {"pinned": False})
+            blob = self._blob_path(txid)
+            if blob is not None:
+                blob.write_bytes(payload)
+            self._index(txid, name, len(payload), "local",
+                        {"pinned": False, "content_type": content_type})
             return {
                 "txid": txid,
                 "size": len(payload),
                 "backend": "local",
+                "name": name,
                 "pinned": False,
-                "warning": "ARWEAVE_WALLET not set — content not uploaded to Arweave.",
+                "warning": "no Arweave wallet configured — content kept locally only "
+                           "(set ARWEAVE_WALLET or ~/.mod/arweave/wallet.json to upload).",
             }
 
         try:
@@ -209,9 +234,12 @@ class ArweaveClient:
 
     def _fetch(self, txid: str) -> bytes:
         if txid.startswith("sha256-"):
+            blob = self._blob_path(txid)
+            if blob is not None and blob.is_file():
+                return blob.read_bytes()
             raise ValueError(
-                f"{txid} is a local-only placeholder; configure ARWEAVE_WALLET "
-                "to upload content to Arweave before retrieval."
+                f"{txid} is a local-only id with no blob on this box; it was "
+                "stored before local blobs existed or has been removed."
             )
         gateways = [self.gateway] + [g for g in GATEWAY_FALLBACKS if g != self.gateway]
         last_err: Optional[Exception] = None

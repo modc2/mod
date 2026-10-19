@@ -30,6 +30,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
 from . import networks, paths
+from .agent import AgentError, Agents
 from .client import ZkApiError
 from .devnet import FIRST_USER, Devnet
 from .wallet import WalletError
@@ -37,6 +38,7 @@ from .wallet import WalletError
 APP_DIR = paths.SRC_DIR / "app"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 DEFAULT_DEPOSIT_GWEI = 10_000_000  # 0.01 ETH
+BUILD_API = os.environ.get("ZKAPI_BUILD_API", "http://127.0.0.1:8890").rstrip("/")
 
 
 class HttpError(Exception):
@@ -54,6 +56,8 @@ class App:
         self._rate: dict[str, list[float]] = {}
         self.boot_error: str | None = None
         self.started = time.time()
+        self.agents = Agents(self.devnet)
+        self._owner_cache: dict[str, tuple[float, bool]] = {}
 
     # -- boot ----------------------------------------------------------------------------------
     def boot(self) -> None:
@@ -99,6 +103,87 @@ class App:
         got = h.headers.get("x-zkapi-wallet-token", "")
         if not want or not got or not secrets.compare_digest(hashlib.sha256(got.encode()).hexdigest(), want):
             raise HttpError(403, f"wallet {name} belongs to someone else (X-ZKAPI-Wallet-Token)", "wallet_forbidden")
+
+    def bearer(self, h: BaseHTTPRequestHandler) -> str:
+        auth = h.headers.get("authorization", "")
+        return auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+
+    def is_owner(self, h: BaseHTTPRequestHandler) -> bool:
+        """Operator, or the build console's owner session (same-origin localStorage.build_jobs_token)."""
+        if self.is_admin(h):
+            return True
+        tok = self.bearer(h)
+        if not tok or len(tok.split(":")) not in (3, 4):
+            return False
+        key = hashlib.sha256(tok.encode()).hexdigest()
+        hit = self._owner_cache.get(key)
+        if hit and time.time() - hit[0] < 300:
+            return hit[1]
+        ok = False
+        try:
+            req = urllib.request.Request(BUILD_API + "/mcp", data=json.dumps(
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "whoami", "arguments": {}}}
+            ).encode(), headers={"content-type": "application/json", "authorization": "Bearer " + tok})
+            with urllib.request.urlopen(req, timeout=4) as r:
+                who = ((json.load(r).get("result") or {}).get("structuredContent")) or {}
+            ok = bool(who.get("address")) and who.get("is_owner") is True
+        except (urllib.error.URLError, OSError, ValueError):
+            ok = False
+        self._owner_cache[key] = (time.time(), ok)
+        return ok
+
+    def require_agent_edit(self, h: BaseHTTPRequestHandler, body: dict, aid: str | None = None) -> None:
+        """Editing is open by default on the echo devnet; only the claude brain needs the owner."""
+        if self.is_owner(h):
+            return
+        if os.environ.get("ZKAPI_AGENT_EDIT", "open") != "open" or not self.open_devnet():
+            raise HttpError(403, "agent edits are owner-only here: sign in to build as the owner", "forbidden")
+        current = None
+        if aid:
+            try:
+                current = self.agents.get(aid).get("brain")
+            except AgentError:
+                current = None
+        if body.get("brain") == "claude" or (current == "claude" and body):
+            raise HttpError(403, "the claude brain bills the host account: owner only", "forbidden")
+        self.require(h, "user")
+
+    def publish(self, h: BaseHTTPRequestHandler) -> dict:
+        """Mount this module in orbit/build's agent roster (POST /agents/mods) — owner-gated by build."""
+        if not self.is_owner(h):
+            raise HttpError(403, "publishing mounts zkapi in the build console's agent roster: owner only", "forbidden")
+        headers = {"content-type": "application/json"}
+        if self.bearer(h):
+            headers["authorization"] = "Bearer " + self.bearer(h)
+        req = urllib.request.Request(BUILD_API + "/agents/mods", method="POST", headers=headers,
+                                     data=json.dumps({"mod": "orbit/zkapi"}).encode())
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                status, out = r.status, json.load(r)
+        except urllib.error.HTTPError as e:
+            status = e.code
+            try:
+                out = json.load(e)
+            except ValueError:
+                out = {"error": f"HTTP {e.code}"}
+        except (urllib.error.URLError, OSError) as e:
+            raise HttpError(400, f"build console unreachable: {e}", "build_down")
+        already = status == 409 and "already mounted" in str(out.get("error", ""))
+        if status != 200 and not already:
+            raise HttpError(400, f"build refused the mount: {out.get('error') or status}", "publish_failed", out)
+        info = {"roster": "orbit/build", "value": "zkapi", "at": int(time.time()),
+                "probe": out.get("probe"), "cid": out.get("cid"), "already": already}
+        self.agents.mark_published("zkapi", info)
+        return {"published": True, **info}
+
+    def published(self) -> dict:
+        try:
+            with urllib.request.urlopen(BUILD_API + "/agents/mods", timeout=4) as r:
+                roster = json.load(r)
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            return {"mounted": None, "error": str(e)}
+        mounted = any(r.get("value") == "zkapi" for r in roster.get("agents") or [])
+        return {"mounted": mounted}
 
     # -- helpers ------------------------------------------------------------------------------------------
     def client(self):
@@ -176,6 +261,16 @@ class App:
                 return {"object": "list", "data": d.provider.models() if d.provider else []}
             if path == "/tree":
                 return self.client().indexer("/v1/tree/snapshot")
+            if path == "/agents":
+                return {"agents": self.agents.list(), "default": "zeke", "brains": ["zkapi", "claude"],
+                        "models": [m["id"] for m in (d.provider.models() if d.provider else [])],
+                        "can_edit": self.can_edit(h), "is_owner": self.is_owner(h)}
+            if path == "/agents/published":
+                return self.published()
+            if len(seg) == 2 and seg[0] == "agents":
+                return self.agents.public(self.agents.get(seg[1]))
+            if path == "/.well-known/agent.json":
+                return self.agents.card()
         if method == "POST":
             if path == "/devnet/up":
                 self.require(h, "admin")
@@ -244,7 +339,58 @@ class App:
                 return self.client().claim_expired(int(seg[1]), d.sender(0))
             if path == "/v1/chat/completions":
                 return self.openai_chat(h, body)
+            if path == "/agents":
+                self.require_agent_edit(h, body)
+                return self.agents.create(body)
+            if path == "/agents/publish":
+                return self.publish(h)
+            if len(seg) == 2 and seg[0] == "agents":
+                self.require_agent_edit(h, body, seg[1])
+                return self.agents.update(seg[1], body)
+            if len(seg) == 3 and seg[0] == "agents" and seg[2] == "delete":
+                self.require_agent_edit(h, {}, seg[1])
+                return self.agents.delete(seg[1])
+            if path == "/run" or (len(seg) == 3 and seg[0] == "agents" and seg[2] == "run"):
+                if len(seg) == 3:
+                    body = {**body, "agent_type": seg[1]}
+                self.require(h, "user")
+                return self.agents.run(body, self.is_owner(h), lambda ev: None)
+        if method == "PUT" and len(seg) == 2 and seg[0] == "agents":
+            self.require_agent_edit(h, body, seg[1])
+            return self.agents.update(seg[1], body)
+        if method == "DELETE" and len(seg) == 2 and seg[0] == "agents":
+            self.require_agent_edit(h, {}, seg[1])
+            return self.agents.delete(seg[1])
         raise HttpError(404, f"no route {method} {path}", "not_found")
+
+    def can_edit(self, h: BaseHTTPRequestHandler) -> bool:
+        if self.is_owner(h):
+            return True
+        return os.environ.get("ZKAPI_AGENT_EDIT", "open") == "open" and self.open_devnet()
+
+    def stream(self, h: BaseHTTPRequestHandler, body: dict) -> None:
+        """POST /run/stream — SSE in orbit/agent's shape."""
+        h.send_response(200)
+        h.send_header("content-type", "text/event-stream")
+        h.send_header("cache-control", "no-store")
+        h.send_header("access-control-allow-origin", "*")
+        h.send_header("connection", "close")
+        h.end_headers()
+        h.close_connection = True
+
+        def send(ev: dict) -> None:
+            try:
+                h.wfile.write(f"data: {json.dumps(ev, default=str)}\n\n".encode())
+                h.wfile.flush()
+            except OSError:
+                pass
+        try:
+            self.require(h, "user")
+            self.agents.run(body, self.is_owner(h), send)
+        except (HttpError, AgentError) as e:
+            send({"type": "error", "error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            send({"type": "error", "error": f"{type(e).__name__}: {e}"})
 
     def openai_chat(self, h: BaseHTTPRequestHandler, body: dict) -> Any:
         """OpenAI-compatible endpoint: every call is one anonymous, proof-paid zkAPI request."""
@@ -334,16 +480,23 @@ def make_handler(app: App):
                 return app.proxy(self, method, base + (m.group(2) or "/") + (f"?{parts.query}" if parts.query else ""),
                                  raw)
             try:
-                body = json.loads(raw or b"{}") if method == "POST" else {}
+                body = json.loads(raw or b"{}") if method in ("POST", "PUT") else {}
                 if not isinstance(body, dict):
                     raise HttpError(400, "JSON object body required", "bad_body")
             except ValueError:
                 return self._send(400, {"error": "invalid JSON", "error_code": "bad_json"})
+            sm = re.match(r"^(?:/agents/([a-z0-9_-]+))?/run/stream$", path)
+            if method == "POST" and sm:
+                if sm.group(1):
+                    body = {**body, "agent_type": sm.group(1)}
+                return app.stream(self, body)
             try:
                 result = app.route(self, method, path, dict(parse_qsl(parts.query)), body)
                 self._send(200, result)
             except HttpError as e:
                 self._send(e.status, {"error": str(e), "error_code": e.code, "detail": e.detail})
+            except AgentError as e:
+                self._send(e.status if 400 <= e.status < 500 else 400, {"error": str(e), "error_code": "agent"})
             except ZkApiError as e:
                 self._send(e.status if e.status and 400 <= e.status < 500 else 400,
                            {"error": str(e), "error_code": e.code, "detail": e.detail})
@@ -363,6 +516,9 @@ def make_handler(app: App):
         def do_POST(self):
             self._handle("POST")
 
+        def do_PUT(self):
+            self._handle("PUT")
+
         def do_PATCH(self):
             self._handle("PATCH")
 
@@ -372,7 +528,7 @@ def make_handler(app: App):
         def do_OPTIONS(self):
             self.send_response(204)
             self.send_header("access-control-allow-origin", "*")
-            self.send_header("access-control-allow-methods", "GET, POST, OPTIONS")
+            self.send_header("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS")
             self.send_header("access-control-allow-headers",
                              "content-type, authorization, x-zkapi-wallet, x-zkapi-wallet-token, x-zkapi-testnet-password")
             self.send_header("content-length", "0")

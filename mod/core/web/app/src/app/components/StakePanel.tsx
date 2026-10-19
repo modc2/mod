@@ -6,6 +6,7 @@ import { backing, type ModBacking } from "@/lib/backing";
 import { chain } from "@/lib/chain";
 import { fmt } from "@/lib/bloctime";
 import { useWallet } from "@/lib/wallet";
+import { Icon } from "./Icon";
 
 // The identity used by the server-key fallback below (a key name held on the
 // host). Shared with RegisterPanel so signing once is enough. Quota-safe:
@@ -102,8 +103,8 @@ export default function StakePanel({ name }: { name: string }) {
         kind: "ok",
         text:
           kind === "stake"
-            ? `staked ✓ — ${fmt(res.my_stake_bloc)} BLOC of yours now backs ${name}`
-            : `unstaked ✓ — ${fmt(res.my_stake_bloc)} BLOC of yours still backs ${name}`,
+            ? `Staked. ${fmt(res.my_stake_bloc)} BLOC of yours now backs ${name}`
+            : `Unstaked. ${fmt(res.my_stake_bloc)} BLOC of yours still backs ${name}`,
       });
       setAmount("");
       await load(w.address);
@@ -141,7 +142,7 @@ export default function StakePanel({ name }: { name: string }) {
             });
       setMsg({
         kind: "ok",
-        text: `${kind === "stake" ? "staked" : "unstaked"} ✓ — key ${short(
+        text: `${kind === "stake" ? "Staked" : "Unstaked"}. Key ${short(
           res.address,
         )} now backs ${name} with ${fmt(res.my_stake)} BLOC`,
       });
@@ -157,9 +158,9 @@ export default function StakePanel({ name }: { name: string }) {
   return (
     <div className="panel chain-card stake-panel">
       <div className="chain-card-head">
-        <h3>stake bloctime</h3>
+        <h3>Stake BLOC behind it</h3>
         <span className="stake-total" title="Total BlocTime backing this module">
-          ⧗ {fmt(info?.total_bloc)} BLOC
+          <Icon name="clock" /> {fmt(info?.total_bloc)} BLOC
           {info && info.stakers.length > 0 && (
             <i>
               {" "}
@@ -229,7 +230,7 @@ export default function StakePanel({ name }: { name: string }) {
                   : "no free BlocTime — stake NAT in the protocol first"
               }
             >
-              {busy === "stake" ? "signing…" : "⧗ Stake"}
+              {busy === "stake" ? "signing…" : "Stake"}
             </button>
             <button
               className="btn btn-ghost"

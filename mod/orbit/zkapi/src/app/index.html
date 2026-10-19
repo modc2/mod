@@ -39,6 +39,20 @@
   details summary { cursor:pointer; color:var(--dim); }
   .bubble { background:#1a2030; border-radius:10px; padding:10px 12px; margin:8px 0; }
   .bubble .meta { color:var(--dim); font-size:12px; margin-top:6px; }
+  .tabs { display:flex; gap:6px; padding:0 28px 8px; }
+  .tabs button { border-radius:999px; padding:5px 14px; letter-spacing:1px; font-size:12px; text-transform:uppercase; }
+  .tabs button.on { background:var(--acc); color:#0b0e14; border-color:var(--acc); font-weight:600; }
+  .tab[hidden] { display:none; }
+  .form { display:grid; grid-template-columns:max-content 1fr; gap:8px 14px; align-items:center; }
+  .form label { color:var(--dim); font-size:12.5px; text-transform:uppercase; letter-spacing:.8px; }
+  .form input, .form select { width:100%; }
+  .form textarea { min-height:140px; }
+  .agents { display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); }
+  .acard { border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:#121722; cursor:pointer; }
+  .acard.on { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc) inset; }
+  .acard .ic { display:inline-grid; place-items:center; width:26px; height:26px; border-radius:8px; font-weight:700; color:#0b0e14; margin-right:8px; }
+  .acard .d { color:var(--dim); font-size:12.5px; margin-top:6px; }
+  .steps div { font-size:12.5px; padding:2px 0; color:var(--dim); } .steps b { color:var(--text); font-weight:500; }
 </style>
 </head>
 <body>
@@ -47,7 +61,51 @@
   <span class="sub">pay for APIs from an Ethereum deposit, without the server learning which deposit is yours</span>
   <span id="ver" class="pill"></span>
 </header>
-<main>
+<nav class="tabs">
+  <button data-tab="app" onclick="tab('app')">app</button>
+  <button data-tab="params" onclick="tab('params')">params</button>
+  <button data-tab="agents" onclick="tab('agents')">agents</button>
+</nav>
+<main class="tab" id="tab-params" hidden>
+  <section>
+    <h2>Params <span id="pagent" class="pill"></span> <span id="pedit" class="pill"></span></h2>
+    <div class="form">
+      <label for="p-name">name</label><input id="p-name">
+      <label for="p-description">about</label><input id="p-description">
+      <label for="p-brain">brain</label><select id="p-brain"><option value="zkapi">zkapi · each call is a proof-paid request</option><option value="claude">claude · Claude Code (owner only)</option></select>
+      <label for="p-model">model</label><input id="p-model" list="p-models"><datalist id="p-models"></datalist>
+      <label for="p-max_tokens">max tokens</label><input id="p-max_tokens" type="number" min="16" max="8192">
+      <label for="p-temperature">temperature</label><input id="p-temperature" type="number" step="0.1" min="0" max="2">
+      <label for="p-deposit_gwei">deposit</label><select id="p-deposit_gwei"><option value="1000000">0.001 ETH</option><option value="10000000">0.01 ETH</option><option value="100000000">0.1 ETH</option></select>
+      <label for="p-icon">icon · color</label><div class="row" style="margin:0"><input id="p-icon" maxlength="2" style="width:60px"><input id="p-color" type="color" style="width:60px;padding:2px"></div>
+    </div>
+    <label for="p-prompt" style="display:block;margin:12px 0 6px;color:var(--dim);font-size:12.5px;letter-spacing:.8px">SYSTEM PROMPT</label>
+    <textarea id="p-prompt"></textarea>
+    <div class="row"><button class="primary" id="psave" onclick="saveAgent()">save</button><button id="preset" onclick="resetAgent()">reset to shipped</button><span id="pmsg" class="msg"></span></div>
+  </section>
+  <section>
+    <h2>Try it</h2>
+    <textarea id="q" placeholder="Ask the agent. On the zkapi brain each answer is paid by its own vault deposit, anonymously."></textarea>
+    <div class="row"><button class="primary" id="qsend" onclick="runAgent()">run</button><span id="qmsg" class="msg"></span></div>
+    <div id="qanswer"></div>
+    <div id="qsteps" class="steps"></div>
+  </section>
+</main>
+<main class="tab" id="tab-agents" hidden>
+  <section class="wide">
+    <h2>Agents <span class="pill" id="pubpill"></span></h2>
+    <div class="flow">Each agent is its params. They are served on the fleet's agent protocol (<span class="mono">GET /agents</span>, <span class="mono">POST /run/stream</span>), so the build console can mount zkapi and pick any of them.</div>
+    <div id="agentlist" class="agents"></div>
+    <div class="row" style="margin-top:12px">
+      <input id="newid" placeholder="new agent name" size="18"><button onclick="newAgent()">+ new agent</button>
+      <span style="flex:1"></span>
+      <button class="primary" id="pubbtn" onclick="publishAgents()">publish to build</button>
+    </div>
+    <div id="amsg" class="msg"></div>
+    <details style="margin-top:8px"><summary>agent protocol</summary><div class="out mono" id="contract"></div></details>
+  </section>
+</main>
+<main class="tab" id="tab-app">
   <section class="wide">
     <h2>How it works</h2>
     <div class="flow">Deposit ETH into the zkAPI vault once. Each request carries a Groth16 proof that some deposit in the vault can cover it, so the server issues a short-lived, spend-capped API key without learning which deposit paid. After the call, the server signs your new balance. You can withdraw the rest at any time, and you can still get it out even if the server stops cooperating. This module runs the official zkAPI stack (<span class="mono" id="up"></span>): the vault and verifier contracts, <span class="mono">zkapi serverd</span>, the indexer, the challenger and the production wallet core. It runs them on a local devnet, and it checks the live Ethereum deployments against their pinned values.</div>
@@ -214,6 +272,113 @@ async function chat() {
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
+
+// ---- tabs + agents --------------------------------------------------------------------------
+const PKEYS = ['name', 'description', 'brain', 'model', 'max_tokens', 'temperature', 'deposit_gwei', 'icon', 'color', 'prompt'];
+let agentsState = { agents: [], can_edit: false }, current = localStorage.getItem('zkapi.agent') || 'zeke';
+function tab(t) {
+  for (const id of ['app', 'params', 'agents']) $('tab-' + id).hidden = id !== t;
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  try { localStorage.setItem('zkapi.tab', t); } catch (e) {}
+  if (t !== 'app') loadAgents();
+}
+function authHeaders() {
+  const h = { 'content-type': 'application/json', accept: 'application/json' };
+  const t = localStorage.getItem('build_jobs_token');
+  if (t) h.authorization = 'Bearer ' + t;
+  return h;
+}
+async function acall(path, body, method) {
+  const r = await fetch(API + path, { method: method || (body === undefined ? 'GET' : 'POST'), headers: authHeaders(),
+    body: body === undefined ? undefined : JSON.stringify(body) });
+  const v = await r.json().catch(() => ({ error: 'bad response ' + r.status }));
+  if (!r.ok || v.error) throw new Error(v.error || ('HTTP ' + r.status));
+  return v;
+}
+async function loadAgents() {
+  try {
+    agentsState = await acall('agents');
+    if (!agentsState.agents.find(a => a.id === current)) current = agentsState.default || 'zeke';
+    $('p-models').innerHTML = (agentsState.models || []).map(m => `<option value="${escapeHtml(m)}">`).join('');
+    renderAgents(); fillParams();
+    $('contract').textContent = JSON.stringify(await acall('.well-known/agent.json'), null, 2);
+    const pub = await acall('agents/published');
+    $('pubpill').className = 'pill ' + (pub.mounted ? 'ok' : 'warn');
+    $('pubpill').textContent = pub.mounted ? 'published in build' : 'not in build yet';
+    $('pubbtn').textContent = pub.mounted ? 'published' : 'publish to build';
+  } catch (e) { $('amsg').className = 'msg err'; $('amsg').textContent = e.message; }
+}
+function renderAgents() {
+  $('agentlist').innerHTML = agentsState.agents.map(a => `<div class="acard ${a.id === current ? 'on' : ''}" onclick="pick('${a.id}')">
+    <div><span class="ic" style="background:${escapeHtml(a.color)}">${escapeHtml(a.icon)}</span><b>${escapeHtml(a.name)}</b>
+    <span class="pill">${escapeHtml(a.brain)}</span> <span class="pill">${escapeHtml(a.model)}</span></div>
+    <div class="d">${escapeHtml(a.description || 'no description')}</div>
+    <div class="row"><button onclick="event.stopPropagation();pick('${a.id}');tab('params')">edit params</button>
+    ${a.shipped ? '' : `<button onclick="event.stopPropagation();delAgent('${a.id}')">delete</button>`}</div></div>`).join('');
+}
+function pick(id) { current = id; try { localStorage.setItem('zkapi.agent', id); } catch (e) {} renderAgents(); fillParams(); }
+function fillParams() {
+  const a = agentsState.agents.find(x => x.id === current); if (!a) return;
+  for (const k of PKEYS) { const el = $('p-' + k); if (el) el.value = a.params[k] ?? ''; }
+  $('pagent').textContent = a.id;
+  $('pedit').className = 'pill ' + (agentsState.can_edit ? 'ok' : 'warn');
+  $('pedit').textContent = agentsState.can_edit ? (agentsState.is_owner ? 'owner · editable' : 'editable') : 'read only';
+  for (const k of PKEYS) { const el = $('p-' + k); if (el) el.disabled = !agentsState.can_edit; }
+  $('psave').disabled = $('preset').disabled = !agentsState.can_edit;
+  $('preset').hidden = !a.shipped;
+}
+async function saveAgent() {
+  const body = {};
+  for (const k of PKEYS) body[k] = $('p-' + k).value;
+  $('pmsg').className = 'msg'; $('pmsg').textContent = 'saving...';
+  try { await acall('agents/' + current, body); $('pmsg').textContent = 'saved'; loadAgents(); }
+  catch (e) { $('pmsg').className = 'msg err'; $('pmsg').textContent = e.message; }
+}
+async function resetAgent() {
+  try { await acall('agents/' + current, { reset: true }); $('pmsg').className = 'msg'; $('pmsg').textContent = 'reset'; loadAgents(); }
+  catch (e) { $('pmsg').className = 'msg err'; $('pmsg').textContent = e.message; }
+}
+async function newAgent() {
+  const name = $('newid').value.trim(); if (!name) { $('amsg').textContent = 'give it a name'; return; }
+  try { const a = await acall('agents', { id: name, name }); $('newid').value = ''; current = a.id; await loadAgents(); tab('params'); }
+  catch (e) { $('amsg').className = 'msg err'; $('amsg').textContent = e.message; }
+}
+async function delAgent(id) {
+  try { await acall('agents/' + id + '/delete', {}); if (current === id) current = 'zeke'; loadAgents(); }
+  catch (e) { $('amsg').className = 'msg err'; $('amsg').textContent = e.message; }
+}
+async function publishAgents() {
+  $('amsg').className = 'msg'; $('amsg').textContent = 'mounting zkapi in the build agent roster...';
+  try { const v = await acall('agents/publish', {}); $('amsg').textContent = v.already ? 'already published' : `published: build sees ${v.probe?.agents ?? '?'} agents`; loadAgents(); }
+  catch (e) { $('amsg').className = 'msg err'; $('amsg').textContent = e.message; }
+}
+async function runAgent() {
+  const query = $('q').value.trim(); if (!query) return;
+  $('qsend').disabled = true; $('qmsg').className = 'msg'; $('qmsg').textContent = 'running...';
+  $('qsteps').innerHTML = ''; $('qanswer').innerHTML = '';
+  try {
+    const r = await fetch(API + 'agents/' + current + '/run/stream', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ query }) });
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+        if (!line.startsWith('data:')) continue;
+        const ev = JSON.parse(line.slice(5));
+        if (ev.type === 'step') { const s = ev.step;
+          if (s.tool !== 'finish') $('qsteps').insertAdjacentHTML('beforeend', `<div><b>${escapeHtml(s.tool)}</b> ${escapeHtml(JSON.stringify(s.params || {})).slice(0, 220)}</div>`); }
+        else if (ev.type === 'done') {
+          const u = ev.usage || {};
+          $('qanswer').innerHTML = `<div class="bubble"><div>${escapeHtml(ev.answer ?? '')}</div><div class="meta">${u.charge_gwei !== undefined ? `charged ${u.charge_gwei} gwei · balance ${eth(u.balance_gwei)} · ${u.elapsed_s}s` : 'done'}</div></div>`;
+          $('qmsg').textContent = '';
+        } else if (ev.type === 'error') { $('qmsg').className = 'msg err'; $('qmsg').textContent = ev.error; }
+      }
+    }
+  } catch (e) { $('qmsg').className = 'msg err'; $('qmsg').textContent = e.message; }
+  $('qsend').disabled = false; refresh();
+}
+tab(localStorage.getItem('zkapi.tab') || 'app');
 refresh(); loadNets(); setInterval(refresh, 8000);
 </script>
 </body>

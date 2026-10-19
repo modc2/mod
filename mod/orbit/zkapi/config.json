@@ -2,7 +2,7 @@
     "name": "zkapi",
     "title": "zkapi \u00b7 private API credits on Ethereum",
     "description": "The Ethereum zkAPI framework (vbuterin/zkapi, Open Anonymity + Ethereum Foundation) as a mod: pay for metered APIs from an ETH vault deposit without the server learning which deposit is yours. Runs the real upstream stack unmodified from a pinned checkout (ZkApiVault + Groth16 verifier + Poseidon on a persistent anvil devnet, zkapi serverd, zkapi-indexerd, zkapi-challenged, the zkapi-browser wallet core) with an OpenRouter-compatible lease provider and a Chainlink-shaped price feed fed by the live mainnet ETH/USD answer; verifies the live mainnet and Sepolia deployments against the SDK pins, operator manifest, on-chain code hashes and local proving keys; exposes deposit / proof-paid chat / withdraw / escape over an API, an OpenAI-compatible endpoint and a web app.",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "icon": "Z",
     "color": "#7c9cff",
     "tags": [
@@ -20,10 +20,21 @@
     "app_port": 51420,
     "route": true,
     "base_path": "/zkapi",
+    "agent_contract": {
+        "list": "/agents",
+        "run": "/run/stream",
+        "card": "/.well-known/agent.json",
+        "default": "zeke",
+        "brains": [
+            "zkapi",
+            "claude"
+        ]
+    },
     "urls": {
         "api": "http://localhost:51420/zkapi/api",
         "app": "http://localhost:51420/zkapi",
-        "openai": "http://localhost:51420/zkapi/api/v1"
+        "openai": "http://localhost:51420/zkapi/api/v1",
+        "agents": "http://localhost:51420/zkapi/api/agents"
     },
     "upstream": {
         "repo": "https://github.com/vbuterin/zkapi",
@@ -142,6 +153,41 @@
             "method": "GET",
             "auth": false,
             "docs": "Models served by the lease provider"
+        },
+        "agents": {
+            "method": "GET|POST",
+            "auth": "edit: open on echo devnet, owner for claude brain",
+            "docs": "Agent contract roster {agents:[...]}; POST creates {id, name, brain, model, prompt, max_tokens, temperature, deposit_gwei}"
+        },
+        "agents/{id}": {
+            "method": "GET|POST|PUT|DELETE",
+            "auth": "edit",
+            "docs": "One agent's params; POST/PUT edits ({reset:true} restores Zeke)"
+        },
+        "agents/publish": {
+            "method": "POST",
+            "auth": "owner (build session)",
+            "docs": "Mount orbit/zkapi in the build console's agent roster"
+        },
+        "agents/published": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Is zkapi mounted in build's roster"
+        },
+        "run/stream": {
+            "method": "POST",
+            "auth": "devnet",
+            "docs": "SSE agent run {query, agent_type?}; also /agents/{id}/run/stream"
+        },
+        "run": {
+            "method": "POST",
+            "auth": "devnet",
+            "docs": "One agent run, JSON"
+        },
+        ".well-known/agent.json": {
+            "method": "GET",
+            "auth": false,
+            "docs": "agent/1.0 card"
         }
     },
     "fns": [
@@ -173,7 +219,11 @@
         "networks",
         "verify",
         "probe",
-        "live"
+        "live",
+        "agents",
+        "agent",
+        "run",
+        "publish"
     ],
     "env": {
         "ZKAPI_API_TOKEN": "bearer token for operator actions from non-loopback callers",
@@ -181,7 +231,9 @@
         "ZKAPI_DEVNET_PRICE": "fixed ETH/USD for the devnet feed (default: live Chainlink mainnet answer)",
         "ZKAPI_ETH_PRIVATE_KEY": "funded key for live (mainnet/sepolia) deposits/withdrawals via m zkapi/live",
         "ZKAPI_TESTNET_PASSWORD": "Sepolia operator's shared /v2 password",
-        "ZKAPI_DATA": "state dir (default ./state)"
+        "ZKAPI_DATA": "state dir (default ./state)",
+        "ZKAPI_AGENT_EDIT": "open (default: anyone may edit agents on the echo devnet) | owner",
+        "ZKAPI_AGENT_URL": "orbit/claudecode base for the claude brain (default http://127.0.0.1:51260)"
     },
     "schema": "QmeZbo2VbKG4z1W9pH59pYr3mCtF9wZy7rq4Piy9SZCk3z"
 }

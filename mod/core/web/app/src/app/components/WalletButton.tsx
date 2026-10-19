@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { bloctime, fmt } from "@/lib/bloctime";
 import { DEFAULT_CHAIN, useWallet } from "@/lib/wallet";
+import { Icon } from "./Icon";
 
 export default function WalletButton() {
   const w = useWallet();
@@ -58,7 +59,7 @@ export default function WalletButton() {
         }
       >
         <span className="wallet-dot" />
-        {w.connecting ? "connecting…" : "connect wallet"}
+        {w.connecting ? "Connecting…" : "Connect wallet"}
       </button>
     );
   }
@@ -75,7 +76,11 @@ export default function WalletButton() {
         {w.wrongNetwork ? (
           <span className="wallet-net warn">wrong network</span>
         ) : (
-          bloc !== null && <span className="wallet-net">⧗ {fmt(bloc)} BLOC</span>
+          bloc !== null && (
+            <span className="wallet-net">
+              <Icon name="clock" /> {fmt(bloc)} BLOC
+            </span>
+          )
         )}
       </button>
 
@@ -105,7 +110,7 @@ export default function WalletButton() {
           </div>
 
           <Link href="/stake" className="wallet-pop-link" onClick={() => setOpen(false)}>
-            ⧗ stake in the BlocTime protocol →
+            <Icon name="clock" /> Stake in the BlocTime protocol
           </Link>
           <a
             href={`${DEFAULT_CHAIN.explorer}/address/${w.address}`}
@@ -113,7 +118,7 @@ export default function WalletButton() {
             rel="noreferrer"
             className="wallet-pop-link"
           >
-            view on BaseScan ↗
+            View on BaseScan <Icon name="external" />
           </a>
           <button
             className="wallet-pop-link danger"

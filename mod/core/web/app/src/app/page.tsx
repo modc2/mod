@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   type Graph,
@@ -10,14 +10,14 @@ import {
   type SearchResult,
 } from "@/lib/api";
 import { backing, type BookTotals } from "@/lib/backing";
-import { fmt } from "@/lib/bloctime";
 import { Nav, Footer } from "./components/Chrome";
 import { ModuleCard } from "./components/ModuleCard";
+import { Icon } from "./components/Icon";
 import DepGraph from "./components/DepGraph";
-import PoolWidget from "./components/PoolWidget";
 import AddModule from "./components/AddModule";
 
 type View = "grid" | "graph";
+type Filter = "all" | "live" | "onchain";
 
 export default function Home() {
   const [info, setInfo] = useState<Info | null>(null);
@@ -27,8 +27,9 @@ export default function Home() {
   const [stakes, setStakes] = useState<BookTotals | null>(null);
   const [view, setView] = useState<View>("grid");
   const [q, setQ] = useState("");
-  const [onchainOnly, setOnchainOnly] = useState(false);
+  const [filter, setFilter] = useState<Filter>("all");
   const [err, setErr] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // Backend semantic search results for the active query (null = none yet).
   const [sem, setSem] = useState<SearchResult | null>(null);
@@ -51,6 +52,24 @@ export default function Home() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  // "/" or ⌘K focuses the hero search from anywhere; Escape clears it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      const typing =
+        el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+      if ((e.key === "/" && !typing) || (e.key === "k" && (e.metaKey || e.ctrlKey))) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      } else if (e.key === "Escape" && el === searchRef.current) {
+        setQ("");
+        searchRef.current?.blur();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // Debounced semantic search. The backend ranks by meaning when an embeddings
@@ -84,10 +103,14 @@ export default function Home() {
   const filtered = useMemo(() => {
     if (!mods) return [];
     const s = q.trim().toLowerCase();
+    const pass = (m: Module) =>
+      filter === "all" ||
+      (filter === "live" && m.on_web) ||
+      (filter === "onchain" && !!m.registered);
     // Prefer backend semantic ranking (already ordered by relevance); apply the
-    // on-chain filter client-side on top of it.
+    // filter client-side on top of it.
     if (semantic && sem) {
-      return sem.results.filter((m) => !onchainOnly || m.registered);
+      return sem.results.filter(pass);
     }
     // Keyword filter: every word of the query must appear somewhere in the
     // module — "store files" matches a module described as "file storage".
@@ -95,12 +118,13 @@ export default function Home() {
     // module matches every word, partial matches surface instead, ranked by
     // how many words hit (name hits first).
     const terms = s.split(/\s+/).filter(Boolean);
-    const pool = mods.filter((m) => !onchainOnly || m.registered);
-    // No query: BLOC-staked modules float to the top (stable within ties, so
-    // the backend's live-first ordering is preserved among the unstaked).
+    const pool = mods.filter(pass);
+    // No query: apps you can open right now come first, then BLOC-staked
+    // modules, then the backend's order (stable within ties).
     if (terms.length === 0) {
       const w = (m: Module) => stakes?.mods[m.name]?.total ?? 0;
-      return [...pool].sort((a, b) => w(b) - w(a));
+      const open = (m: Module) => (m.on_web && m.has_app ? 1 : 0);
+      return [...pool].sort((a, b) => open(b) - open(a) || w(b) - w(a));
     }
     const hits = (hay: string, t: string) =>
       hay.includes(t) ||
@@ -127,7 +151,7 @@ export default function Home() {
           a.m.name.localeCompare(b.m.name),
       )
       .map((r) => r.m);
-  }, [mods, q, onchainOnly, semantic, sem, stakes]);
+  }, [mods, q, filter, semantic, sem, stakes]);
 
   const onchainCount = useMemo(
     () => (mods ? mods.filter((m) => m.registered).length : 0),
@@ -138,106 +162,174 @@ export default function Home() {
     [mods],
   );
   const chainUp = registry?.available ?? false;
+  const searching = q.trim().length > 0;
+
+  const emptyText = (() => {
+    if (searching) return `Nothing matches “${q.trim()}”. Try a different word.`;
+    if (filter === "live") return "No live apps right now.";
+    if (filter === "onchain")
+      return chainUp
+        ? "No modules are registered on-chain yet."
+        : "On-chain status is unavailable right now, so this filter is empty.";
+    return "No modules found.";
+  })();
 
   return (
     <>
-      <Nav
-        onQuery={setQ}
-        sub={
-          <>
-            <div className="nav-sub-meta">
-              {q.trim() ? (
-                <>
-                  <span>
-                    <b>{filtered.length}</b>/{mods?.length ?? 0}{" "}
-                    {semantic ? "ranked by relevance" : "keyword matches"} for
-                    “{q.trim()}”
-                  </span>
-                  <span className={`sem-badge ${semantic ? "on" : "off"}`}>
-                    {semBusy ? "ranking…" : semantic ? "✦ semantic" : "text match"}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span>
-                    <b>{mods?.length ?? 0}</b> modules
-                  </span>
-                  <span className="sep">·</span>
-                  <span>
-                    <b>{info?.stats.functions ?? 0}</b> functions
-                  </span>
-                  <span className="sep">·</span>
-                  <span className="onweb-count" title="Modules the gateway serves live on the web">
-                    ● <b>{onWebCount}</b> live
-                  </span>
-                  {(stakes?.total ?? 0) > 0 && (
-                    <>
-                      <span className="sep">·</span>
-                      <span
-                        className="bloc-count"
-                        title="BlocTime staked to modules across the catalog"
-                      >
-                        ⧗ <b>{fmt(stakes?.total)}</b> BLOC staked
-                      </span>
-                    </>
-                  )}
-                  <span className="sep">·</span>
-                  <span
-                    className="oc"
-                    title={
-                      chainUp
-                        ? `chain · ${registry?.network}`
-                        : "chain module unreachable"
-                    }
-                  >
-                    ⛓ <b>{onchainCount}</b> on-chain
-                    <i className={`chain-dot ${chainUp ? "up" : "down"}`} />
-                  </span>
-                </>
-              )}
-            </div>
-            <div className="toolbar-controls">
-              <AddModule onAdded={() => api.mods().then(setMods).catch(() => {})} />
-              <button
-                className={`chip-toggle ${onchainOnly ? "active" : ""}`}
-                onClick={() => setOnchainOnly((v) => !v)}
-                title="Show only modules registered on-chain"
-                disabled={!chainUp}
-              >
-                ⛓ on-chain only
-              </button>
-              <div className="view-toggle">
-                <button
-                  className={view === "grid" ? "active" : ""}
-                  onClick={() => setView("grid")}
-                >
-                  ▦ Grid
-                </button>
-                <button
-                  className={view === "graph" ? "active" : ""}
-                  onClick={() => setView("graph")}
-                >
-                  ⌗ Graph
-                </button>
-              </div>
-            </div>
-          </>
-        }
-      />
+      <Nav hideSearch />
 
-      <section className="wrap">
-        <PoolWidget />
+      <section className="wrap home-hero">
+        <h1>Apps and services, running right now.</h1>
+        <p className="lede">
+          mod is a catalog of small apps and services called modules. Open any
+          one in your browser, read how it works, or back it on-chain.
+        </p>
+
+        <label className="hero-search">
+          <span className="icon">
+            <Icon name="search" />
+          </span>
+          <input
+            ref={searchRef}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="What are you looking for? Try “wallet”, “trading”, “storage”…"
+            spellCheck={false}
+            autoComplete="off"
+            aria-label="search modules"
+          />
+          {semBusy ? (
+            <span className="sem-spin" aria-label="searching" />
+          ) : q ? (
+            <button
+              type="button"
+              className="hero-search-clear"
+              onClick={() => setQ("")}
+              aria-label="clear search"
+            >
+              <Icon name="x" />
+            </button>
+          ) : (
+            <span className="kbd" aria-hidden>
+              /
+            </span>
+          )}
+        </label>
+
+        <div className="hero-stats" aria-label="catalog size">
+          <span>
+            <b>{mods?.length ?? "…"}</b> modules
+          </span>
+          <span className="live">
+            <i className="live-dot" />
+            <b>{onWebCount}</b> live apps
+          </span>
+          <span>
+            <b>{info?.stats.functions ?? "…"}</b> functions
+          </span>
+          <span title={chainUp ? `chain · ${registry?.network}` : "chain module unreachable"}>
+            <Icon name="chain" />
+            <b>{onchainCount}</b> on-chain
+          </span>
+        </div>
       </section>
 
+      {!searching && (
+        <section className="wrap steps" aria-label="how it works">
+          <div className="step">
+            <span className="step-n">1</span>
+            <div>
+              <b>Find</b>
+              <span>Search above, or scroll the grid. Green “Live” means it is running now.</span>
+            </div>
+          </div>
+          <div className="step">
+            <span className="step-n">2</span>
+            <div>
+              <b>Open</b>
+              <span>Click a card. The app loads right there, or open it in its own tab.</span>
+            </div>
+          </div>
+          <div className="step">
+            <span className="step-n">3</span>
+            <div>
+              <b>Go deeper</b>
+              <span>Read the source, see what it depends on, or back it with BLOC.</span>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="wrap" id="ecosystem">
-        {!chainUp && registry && (
-          <div className="chain-note">
-            chain module unreachable — on-chain registration status unavailable.
-            Modules still listed from the on-disk catalog.
+        <div className="filters">
+          <div className="seg" role="tablist" aria-label="filter">
+            {(
+              [
+                ["all", "All"],
+                ["live", "Live apps"],
+                ["onchain", "On-chain"],
+              ] as [Filter, string][]
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                role="tab"
+                aria-selected={filter === k}
+                className={filter === k ? "on" : ""}
+                onClick={() => setFilter(k)}
+              >
+                {k === "live" && <i className="live-dot" />}
+                {k === "onchain" && <Icon name="chain" />}
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="filters-meta">
+            {searching ? (
+              <>
+                <b>{filtered.length}</b> result{filtered.length === 1 ? "" : "s"}
+                {semantic && (
+                  <span className="sem-badge on" title="Ranked by meaning, not just matching words">
+                    by meaning
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <b>{filtered.length}</b> shown
+              </>
+            )}
+          </div>
+
+          <div className="seg view" role="tablist" aria-label="view">
+            <button
+              role="tab"
+              aria-selected={view === "grid"}
+              className={view === "grid" ? "on" : ""}
+              onClick={() => setView("grid")}
+              title="Cards"
+            >
+              <Icon name="grid" />
+              <span>Cards</span>
+            </button>
+            <button
+              role="tab"
+              aria-selected={view === "graph"}
+              className={view === "graph" ? "on" : ""}
+              onClick={() => setView("graph")}
+              title="Map of which modules use which"
+            >
+              <Icon name="map" />
+              <span>Map</span>
+            </button>
+          </div>
+        </div>
+
+        {err && (
+          <div className="empty">
+            The catalog is not reachable right now. Refresh in a moment.
           </div>
         )}
-
-        {err && <div className="empty">couldn’t reach mod-api · {err}</div>}
 
         {!mods && !err && (
           <div className="grid">
@@ -248,9 +340,7 @@ export default function Home() {
         )}
 
         {view === "grid" && mods && filtered.length === 0 && (
-          <div className="empty">
-            no modules match {onchainOnly ? "the on-chain filter" : `“${q}”`}
-          </div>
+          <div className="empty">{emptyText}</div>
         )}
 
         {view === "grid" && mods && filtered.length > 0 && (
@@ -266,13 +356,22 @@ export default function Home() {
           </div>
         )}
 
+        {view === "graph" && (
+          <p className="view-hint">
+            Each dot is a module. A line means one module uses another. Click a
+            dot to open it.
+          </p>
+        )}
         {view === "graph" && graph && <DepGraph graph={graph} />}
         {view === "graph" && !graph && !err && (
           <div className="skel" style={{ height: 560 }} />
         )}
       </section>
 
-      <Footer version={info?.version} />
+      <Footer
+        version={info?.version}
+        extra={<AddModule onAdded={() => api.mods().then(setMods).catch(() => {})} />}
+      />
     </>
   );
 }

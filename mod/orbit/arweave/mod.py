@@ -15,6 +15,10 @@ Usage (CLI):
     m arweave/get txid=abc123...
     m arweave/status
     m arweave/price num_bytes=1024
+    m arweave/mcp                             # MCP endpoint + tool roster
+
+MCP (any MCP client, Streamable HTTP, no auth):
+    claude mcp add --transport http arweave http://localhost:50153/mcp
 """
 
 from __future__ import annotations
@@ -168,6 +172,27 @@ class Mod:
         s["urls"] = self.config.get("urls", {})
         s["running"] = self._is_running()
         return s
+
+    def mcp(self) -> Dict[str, Any]:
+        """MCP endpoint info: URLs, the one-line client registration, and the live tool roster."""
+        cfg = self.config.get("mcp") or {}
+        url = f"http://localhost:{self.port}/mcp"
+        out: Dict[str, Any] = {
+            "url": url,
+            "public": cfg.get("public"),
+            "transport": "http",
+            "protocol": cfg.get("protocol", "mcp/2025-06-18"),
+            "claude": f"claude mcp add --transport http arweave {url}",
+            "running": self._is_running(),
+        }
+        try:
+            import requests
+            r = requests.post(url, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, timeout=5)
+            out["tools"] = [t["name"] for t in r.json()["result"]["tools"]]
+        except Exception as e:
+            out["tools"] = cfg.get("tools", [])
+            out["tools_source"] = f"config (server not reachable: {type(e).__name__})"
+        return out
 
     def _is_running(self) -> bool:
         try:

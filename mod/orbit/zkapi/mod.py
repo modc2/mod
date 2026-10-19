@@ -294,6 +294,22 @@ class Mod:
     def note(self, note_id: int) -> dict:
         return self._api(f"notes/{int(note_id)}")
 
+    # -- agents (agent contract: GET /agents + POST /run/stream) ---------------------------------------------------
+    def agents(self) -> dict:
+        return self._api("agents")
+
+    def agent(self, id: str = "zeke", **params) -> dict:
+        """Read an agent, or edit it when params are given (m zkapi/agent id=zeke prompt="...")."""
+        return self._api(f"agents/{id}", params) if params else self._api(f"agents/{id}")
+
+    def run(self, query: str = "what is zkapi?", agent: str = "zeke") -> dict:
+        self._ensure_server()
+        return self._api("run", {"query": query, "agent_type": agent})
+
+    def publish(self) -> dict:
+        """Mount orbit/zkapi in the build console's agent roster."""
+        return self._api("agents/publish", {})
+
     # -- live networks ---------------------------------------------------------------------------------------
     def networks(self) -> dict:
         from zkstack import networks

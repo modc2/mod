@@ -5,7 +5,13 @@ Run via the module:
     m arweave/serve
 
 Or directly:
-    uvicorn api:app --port 50151
+    uvicorn api:app --port 50153
+
+Surfaces (all on one port):
+    /            static web app          (gateway: modc2.com/arweave)
+    /api/*       REST                    (gateway: /arweave/api/*)
+    /api/mcp     MCP Streamable HTTP     (gateway: /arweave/api/mcp)
+    /docs        swagger
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ MODULE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MODULE_DIR))
 
 from arlocal import ArweaveClient  # noqa: E402
+import mcp_server as arweave_mcp  # noqa: E402  (api/mcp_server.py; not pip `mcp`, see import-shadowing note)
 
 
 app = FastAPI(
@@ -42,6 +49,14 @@ app.add_middleware(
 client = ArweaveClient()
 APP_DIR = MODULE_DIR / "app"
 BASE = "/arweave"
+
+
+def load_config() -> dict:
+    cfg_path = MODULE_DIR / "config.json"
+    return json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+
+
+arweave_mcp.bind(client, load_config)
 
 
 @app.middleware("http")
@@ -66,8 +81,7 @@ def health():
 
 @api.get("/info")
 def info():
-    cfg_path = MODULE_DIR / "config.json"
-    cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+    cfg = load_config()
     return {
         "name": cfg.get("name", "arweave"),
         "version": cfg.get("version"),
@@ -75,6 +89,7 @@ def info():
         "endpoints": list((cfg.get("endpoints") or {}).keys()),
         "gateway": client.gateway,
         "wallet": bool(client.wallet_path),
+        "mcp": {"tools": sorted(arweave_mcp.TOOLS), "urls": (cfg.get("mcp") or {})},
     }
 
 
@@ -146,6 +161,9 @@ def price(num_bytes: int):
 def network():
     return client.info()
 
+
+# MCP rides the same router so it lands at /api/mcp and bare /mcp alike.
+api.include_router(arweave_mcp.router)
 
 # /api/* is the canonical local shape; the bare include answers the gateway,
 # which strips /arweave/api (and legacy /api/arweave) before proxying.

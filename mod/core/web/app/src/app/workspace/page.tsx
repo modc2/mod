@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api, gatewayUrl, recents, type Module } from "@/lib/api";
 import { Nav } from "../components/Chrome";
+import { Icon } from "../components/Icon";
 
 const MAX_WIN = 4;
 const STORE_KEY = "mod.web.workspace.v2";
@@ -254,11 +255,11 @@ export default function Workspace() {
 
       <div className="ws-bar">
         <Link href="/" className="ws-back">
-          ← explorer
+          <Icon name="arrow-left" /> Explore
         </Link>
         <div className="ws-title" key={fullPulse} data-pulse={fullPulse > 0 || undefined}>
           <span className="ws-title-glyph" aria-hidden>
-            ▦
+            <Icon name="layout" />
           </span>
           Workspace
         </div>
@@ -480,11 +481,11 @@ function Window({
             <button className="ws-pane-name" onClick={onPick} title="switch app">
               <span className="ws-pane-dot" style={{ background: hue(name) }} />
               {name}
-              <span className="ws-caret">▾</span>
+              <span className="ws-caret"><Icon name="chevron-down" /></span>
             </button>
             <span className="ws-flex" />
             <button className="ws-icon" onClick={onReload} title="reload">
-              ↻
+              <Icon name="reload" />
             </button>
             <a
               className="ws-icon"
@@ -493,7 +494,7 @@ function Window({
               rel="noreferrer"
               title="open in new tab"
             >
-              ↗
+              <Icon name="external" />
             </a>
             <button
               className="ws-icon"
@@ -503,7 +504,7 @@ function Window({
               {maximized ? <RestoreIcon /> : <ExpandIcon />}
             </button>
             <button className="ws-icon close" onClick={onClose} title="close">
-              ✕
+              <Icon name="x" />
             </button>
           </>
         ) : (
@@ -511,7 +512,7 @@ function Window({
             <span className="ws-pane-name empty">new window</span>
             <span className="ws-flex" />
             <button className="ws-icon close" onClick={onClose} title="close">
-              ✕
+              <Icon name="x" />
             </button>
           </>
         )}

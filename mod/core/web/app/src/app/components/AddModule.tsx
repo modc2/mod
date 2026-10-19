@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, type Module } from "@/lib/api";
+import { Icon } from "./Icon";
 
 const TOKEN_KEY = "mod.web.owner";
 
@@ -87,13 +88,26 @@ export default function AddModule({ onAdded }: { onAdded?: (m: Module) => void }
 
   return (
     <>
-      <button
-        className="chip-toggle add-mod-btn"
-        onClick={() => setOpen(true)}
-        title="Owner: import a GitHub repo as a new module"
-      >
-        ＋ Add module
-      </button>
+      {/* Visitors never see an action they can't take: the full button shows
+          only once the owner token has validated. Before that it's a quiet
+          footer link so the owner can unlock on a fresh browser. */}
+      {unlocked ? (
+        <button
+          className="chip-toggle add-mod-btn"
+          onClick={() => setOpen(true)}
+          title="Import a GitHub repo as a new module"
+        >
+          <Icon name="plus" /> Add module
+        </button>
+      ) : (
+        <button
+          className="footer-link"
+          onClick={() => setOpen(true)}
+          title="Module owner? Unlock to import a GitHub repo"
+        >
+          Owner tools
+        </button>
+      )}
 
       {/* Portal: the button now lives inside the sticky nav, whose
           backdrop-filter would trap a fixed-position backdrop. */}
@@ -105,11 +119,12 @@ export default function AddModule({ onAdded }: { onAdded?: (m: Module) => void }
               <div>
                 <h3>Add a module</h3>
                 <p className="add-mod-sub">
-                  Import a GitHub repo into the catalog. Owner only.
+                  Import a GitHub repo into the catalog. Only the owner of this
+                  node can do this.
                 </p>
               </div>
               <button className="add-mod-x" onClick={close} aria-label="close">
-                ✕
+                <Icon name="x" />
               </button>
             </div>
 
@@ -142,7 +157,7 @@ export default function AddModule({ onAdded }: { onAdded?: (m: Module) => void }
             ) : done ? (
               <div className="add-mod-body">
                 <div className="add-mod-ok">
-                  imported <code>{done.name}</code> ✓
+                  <Icon name="check" /> imported <code>{done.name}</code>
                 </div>
                 <p className="add-mod-hint">
                   It’s in the catalog now. Open its page to browse the source.
