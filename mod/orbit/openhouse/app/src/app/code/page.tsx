@@ -13,7 +13,7 @@ import { NextUp, PageHead, Shell } from '../../components/chrome'
 import { Reveal } from '../../components/motion'
 import { API_URL, SourceFile, useResource } from '../../lib/api'
 import { findLines, highlightLines, splitOnQuery, TOKEN_CLASS } from '../../lib/highlight'
-import { LAUNCH } from '../../lib/whitepaper'
+import { STAGE } from '../../lib/whitepaper'
 
 const LANG_LABEL: Record<string, string> = { solidity: 'Solidity', python: 'Python', typescript: 'TypeScript', cairo: 'Cairo', rust: 'Rust' }
 
@@ -183,8 +183,8 @@ function CodeInner() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
             {[
               { k: 'Contract', v: 'OpenHouse.sol' },
-              { k: 'Network', v: `${LAUNCH.chain} · ${LAUNCH.chainId}` },
-              { k: 'Stage', v: `${LAUNCH.stage} · launch TBA` },
+              { k: 'Runs on', v: 'this node · anvil locally' },
+              { k: 'Stage', v: STAGE.stage },
               { k: 'License', v: 'MIT' },
             ].map((s, i) => (
               <div key={i} className="glass rounded-xl p-4">

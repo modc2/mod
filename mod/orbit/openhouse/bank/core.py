@@ -489,7 +489,7 @@ class Bank:
 HTTP_TIMEOUT = 20
 
 # In-process banks: inproc://<name>/… is answered by INPROC[name](method, url,
-# headers, body) without a socket. The testnet examples mount the reference
+# headers, body) without a socket. The walkthroughs mount the reference
 # bank (mockbank.py) here, and a node can host a bank for itself the same way.
 INPROC: Dict[str, Callable] = {}
 

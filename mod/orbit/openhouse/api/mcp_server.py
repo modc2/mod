@@ -16,7 +16,7 @@ importing api.py — that keeps the dependency pointing one way (api.py →
 this module) and lets the tests drive the tools against a Mod of their own.
 
 Auth: none, deliberately. The openhouse REST surface is public and this is
-the same surface; every write tool is a testnet bookkeeping entry, not a
+the same surface; every write tool is a simulated bookkeeping entry, not a
 signed transaction. Nothing here can move real money.
 
 The file is named mcp_server.py, not mcp.py, so it can never shadow the
@@ -43,15 +43,17 @@ INSTRUCTIONS = (
     'equity and the owner\'s income by whichever rent-to-own model the '
     'owner picked. Start with openhouse_terms (the live deal) and '
     'openhouse_quote (what one payment actually buys). No auth is needed. '
-    'This deployment is on testnet: the tools that write '
+    'This node runs in simulation: the tools that write '
     '(openhouse_pay_rent, openhouse_purchase, openhouse_set_terms, '
     'openhouse_claim_owner, openhouse_distribute, openhouse_toggle_active, '
     'openhouse_transfer_authority) record local bookkeeping entries, not signed '
     'on-chain transactions, and no real money or deed is involved. '
-    'New here? openhouse_examples lists guided testnet walkthroughs and '
+    'New here? openhouse_simulate plays years of the deal through the real '
+    'code in a throwaway store (openhouse_simulate_presets lists scenarios); '
+    'openhouse_examples lists guided walkthroughs and '
     'openhouse_run_example runs one in a throwaway store and returns every '
     'tool call it made. Banks: openhouse_bank_* connect any bank — a local '
-    'sandbox (testnet, open), statement files (camt.053/MT940/OFX/CSV in, '
+    'sandbox (simulated, open), statement files (camt.053/MT940/OFX/CSV in, '
     'pain.001 out), Open Banking APIs (Berlin Group PSD2, UK OBIE) or a '
     'bank\'s own MCP server — and openhouse_bank_reconcile books every '
     'transfer carrying a renter\'s reference code onto the rent ledger once. '
@@ -239,7 +241,32 @@ def _t_transfer_authority(args, oh):
                                      caller=str(args.get('caller') or '')))
 
 
-# ── testnet examples ──
+# ── simulation ──
+
+def _t_simulate(args, oh):
+    allowed = ('years', 'home_price', 'monthly_rent', 'model', 'fee_pct', 'credit_pct',
+               'option_fee_pct', 'renters', 'apy', 'rate', 'currency', 'bank', 'skip_every',
+               'proofs', 'seed', 'start')
+    kw = {k: v for k, v in args.items() if k in allowed}
+    preset = args.get('preset')
+    if preset:
+        hit = next((p for p in oh.simulate_presets() if p['id'] == preset), None)
+        if not hit:
+            raise ToolError(f'no preset {preset!r} — see openhouse_simulate_presets')
+        kw = {**{k: v for k, v in hit.items() if k not in ('id', 'title', 'shows')}, **kw}
+    out = _ok(oh.simulate(**kw))
+    if not args.get('months', False):
+        # The month table is long; by default hand back the shape of the story
+        # and let the caller ask for the rows.
+        out = {**out, 'months': f'{len(out["months"])} rows — call again with months=true for them'}
+    return out
+
+
+def _t_simulate_presets(args, oh):
+    return {'presets': oh.simulate_presets()}
+
+
+# ── walkthroughs ──
 
 def _t_examples(args, oh):
     ex = oh.examples()
@@ -703,8 +730,49 @@ TOOLS = {
         }, 'required': ['key']},
         'handler': _t_civic_resign,
     },
+    'openhouse_simulate': {
+        'description': 'SIMULATE years of the deal through the real code paths '
+                       'in a throwaway store with its own clock: the owner sets '
+                       'the terms, renters pay by sandbox bank transfer and the '
+                       'reconciler books it, the fee pools and every 90 days a '
+                       'quarter closes by bloctime, the ledger refuses the first '
+                       'payment past the price. Returns params, end (equity, fees, '
+                       'owner income, months to own), events, quarters, versus (the '
+                       'same money under a plain lease / a 15% platform), and the '
+                       'month-by-month table when months=true. The live store is '
+                       'untouched. Yield (apy) and the fiat rate are modelled; '
+                       'everything else is played.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'preset': {'type': 'string', 'description': 'start from a scenario in openhouse_simulate_presets; other args override it'},
+            'years': {'type': 'integer', 'description': '1–40 (default 10)'},
+            'home_price': {'type': 'number', 'description': 'Ξ to own outright (default 120)'},
+            'monthly_rent': {'type': 'number', 'description': 'Ξ per month, split across renters (default 0.62)'},
+            'model': {'type': 'string', 'enum': ['full_credit', 'hybrid', 'classic', 'lease']},
+            'fee_pct': {'type': 'number', 'description': 'protocol take 0–5 (default 2.5)'},
+            'credit_pct': {'type': 'number', 'description': 'override the model\'s rent credit, 0–100'},
+            'option_fee_pct': {'type': 'number', 'description': 'override the model\'s option fee, % of price'},
+            'renters': {'type': 'integer', 'description': '1–4 housemates sharing the rent'},
+            'apy': {'type': 'number', 'description': 'modelled lowfi yield on credited principal, % (default 5)'},
+            'rate': {'type': 'number', 'description': 'fiat per Ξ, pinned (default 2500)'},
+            'currency': {'type': 'string', 'description': 'bank currency label (default USD)'},
+            'bank': {'type': 'boolean', 'description': 'pay by sandbox bank transfer + reconcile (default true)'},
+            'skip_every': {'type': 'integer', 'description': 'a renter misses about one month in this many (0 = never)'},
+            'proofs': {'type': 'integer', 'description': 'issue proof-of-rent receipts for the first N bookings (slow, needs scarb)'},
+            'seed': {'type': 'string'},
+            'months': {'type': 'boolean', 'description': 'include the month-by-month rows (default false)'},
+        }},
+        'handler': _t_simulate,
+    },
+    'openhouse_simulate_presets': {
+        'description': 'Ready-made simulation scenarios (a first home paid off, '
+                       'a zero-fee owner, three housemates, the hybrid, a '
+                       'lease-option, life happens, the plain lease) with the '
+                       'knobs each one sets. Run one with openhouse_simulate preset=<id>.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_simulate_presets,
+    },
     'openhouse_examples': {
-        'description': 'Guided testnet walkthroughs: a first rent payment, a '
+        'description': 'Guided walkthroughs: a first rent payment, a '
                        'zero-fee owner, a lease-option, paying a home off, '
                        'rent paid by bank transfer, importing a real bank '
                        'statement, a city freezing payments. Lists name, '
@@ -715,7 +783,7 @@ TOOLS = {
     },
     'openhouse_run_example': {
         'description': 'Run one walkthrough end to end in a THROWAWAY store '
-                       '(the live testnet node is untouched) and return the '
+                       '(the live node is untouched) and return the '
                        'transcript: every step is a real openhouse_* tool call '
                        'with its arguments and its actual result, so you can '
                        'replay any step against this server.',
@@ -726,7 +794,7 @@ TOOLS = {
     },
     'openhouse_bank_kinds': {
         'description': 'Every bank this node can connect to and the fields '
-                       'each needs: sandbox (local testnet bank), statement '
+                       'each needs: sandbox (local simulated bank), statement '
                        '(camt.053 / MT940 / OFX / CSV in, ISO 20022 pain.001 '
                        'out — works with any bank), openbanking (Berlin Group '
                        'PSD2 or UK OBIE API) and mcp (a bank that runs its own '
@@ -973,7 +1041,7 @@ TOOLS = {
                        'reason when amount < rent_due. Amounts are integers × '
                        '1e6 of the deal currency; rent_due defaults to the '
                        'live monthly rent, period to this month. Open on '
-                       'testnet; the operator bank key elsewhere.',
+                       'a simulation; the operator bank key elsewhere.',
         'inputSchema': {'type': 'object', 'properties': {
             'tenant': {'type': 'string', 'description': 'who paid — a 0x address, a NEAR account, any stable identity (stays private)'},
             'amount': {'type': 'integer', 'description': 'what they paid, in units (deal currency × 1e6)'},
@@ -1017,7 +1085,7 @@ TOOLS = {
     },
     'openhouse_proof_salt': {
         'description': 'The salt this node keeps for a tenant — what they need '
-                       'to open their own commitments. Open on testnet; the '
+                       'to open their own commitments. Open in a simulation; the '
                        'operator bank key elsewhere.',
         'inputSchema': {'type': 'object', 'properties': {
             'tenant': {'type': 'string'},
@@ -1040,7 +1108,7 @@ TOOLS = {
             'address': {'type': 'string', 'description': 'Ethereum verifier address (default: configured)'},
             'url': {'type': 'string', 'description': 'Ethereum RPC url (default: configured)'},
             'signer': {'type': 'string', 'description': 'NEAR keystore account to sign with'},
-            'key': {'type': 'string', 'description': 'Ethereum relayer private key (default: the issuer key); off testnet also the operator bank key'},
+            'key': {'type': 'string', 'description': 'Ethereum relayer private key (default: the issuer key); outside a simulation also the operator bank key'},
             'door': {'type': 'string', 'enum': ['classical', 'pq'],
                      'description': "'pq' = the post-quantum door (OHX-KECCAK hash-based signature, submitPQ / submit_pq); default classical"},
         }, 'required': ['nullifier']},
@@ -1061,7 +1129,7 @@ TOOLS = {
                        'nullifier, or all) with the post-quantum keys. The fact '
                        'is unchanged; the receipt gains a signature a quantum '
                        'computer cannot forge. Only receipts that verify today '
-                       'are countersigned. Operator bank key off testnet.',
+                       'are countersigned. Operator bank key outside a simulation.',
         'inputSchema': {'type': 'object', 'properties': {
             'nullifier': {'type': 'string', 'description': 'one receipt (default: every classical-only receipt)'},
             'key': _KEY,
@@ -1073,7 +1141,7 @@ TOOLS = {
                        'leaves) and draw a new one; old receipts keep verifying '
                        'against the retired key they carry. Seat the new key '
                        'on-chain before using the PQ door. Operator bank key '
-                       'off testnet.',
+                       'outside a simulation.',
         'inputSchema': {'type': 'object', 'properties': {'key': _KEY}},
         'handler': _t_proof_pq_rotate,
     },

@@ -42,7 +42,7 @@ then the deposit — ERC-4626 `deposit`, Aave `supply`, Comet `supply` — and t
 wallet signs each one. The server signs nothing and holds nothing; holdings
 are read back keyless (`balanceOf` + `convertToAssets` over public RPCs), and
 each placed leg is noted in an off-tree ledger at `~/.mod/debank/savings/`.
-Every venue address in `funds.json` was verified on chain
+Every venue address in `src/api/funds.json` was verified on chain
 (`symbol()`/`asset()`/`baseToken()`) before it was written down.
 
 ```
@@ -130,7 +130,7 @@ is:
 Three transports, one registry:
 
 ```bash
-python3 mcp.py                    # stdio — for Claude Code / Desktop
+python3 src/api/mcp.py            # stdio — for Claude Code / Desktop
 curl -X POST localhost:50720/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'   # Streamable HTTP
 m debank/mcp_call tool=debank_portfolio id=0x…          # in-process, no server
@@ -206,14 +206,22 @@ module is hit directly or through the gateway.
 ## Layout
 
 ```
-mod.py          the anchor — every fn, plus serve/kill/status/test
-client.py       DeBank Cloud client: key resolution, retries, and the
-                normalizers that turn nested amounts+prices into flat USD rows
-mcp.py          tool registry + JSON-RPC 2.0 (stdio and Streamable HTTP)
-api.py          REST + MCP + console on one port
-console.html    browser console — one address in, eight views out
-test/           offline tests over fixtures: the money math, the MCP protocol,
-                key handling, and REST/MCP parity
+mod.py              the anchor — every fn, plus serve/kill/status/test;
+                    puts src/api on sys.path and dispatches, nothing more
+config.json         name, port, routes, tools, fns
+src/
+  api/              the backend — everything the server imports
+    api.py          REST + MCP + console on one port (pm2: debank-api)
+    mcp.py          tool registry + JSON-RPC 2.0 (stdio and Streamable HTTP)
+    client.py       DeBank Cloud client: key resolution, retries, and the
+                    normalizers that turn nested amounts+prices into flat USD rows,
+                    plus the keyless bank rail (public RPCs + CoinGecko)
+    savings.py      the savings desk: index funds, APY join, plans, ledger
+    funds.json      the curated venue + fund registry
+  app/              the console — static, no build step
+    index.html      the bank — one address in, every view out; served at /debank
+test/               offline tests over fixtures: the money math, the MCP protocol,
+                    key handling, and REST/MCP parity
 ```
 
 Python stdlib only. No dependencies.

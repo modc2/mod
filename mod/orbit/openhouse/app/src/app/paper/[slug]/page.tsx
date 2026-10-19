@@ -77,9 +77,9 @@ export default function PaperSectionPage({ params }: { params: { slug: string } 
             </Link>
           ) : (
             /* last section — the paper ends where the product starts */
-            <Link href="/invest" className="glass glass-hover rounded-2xl p-6 md:text-right group">
+            <Link href="/simulator" className="glass glass-hover rounded-2xl p-6 md:text-right group">
               <div className="text-[10px] font-bold uppercase tracking-widest text-coral">That's the paper →</div>
-              <div className="font-serif-ed text-xl text-white mt-2 leading-snug">Now go run it on testnet.</div>
+              <div className="font-serif-ed text-xl text-white mt-2 leading-snug">Now go play twenty years of it.</div>
             </Link>
           )}
         </nav>

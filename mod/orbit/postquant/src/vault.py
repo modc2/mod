@@ -247,7 +247,9 @@ class Store:
 
     def put(self, blob, kind='sealed', lang=None, live=()):
         """Store one blob. kind=sealed must pass looks_sealed; kind=code is
-        public contract code. Returns its listing."""
+        public contract code; kind=state / kind=receipt are the public
+        blobs an off-chain contract run leaves behind. Returns its
+        listing."""
         if len(blob) > MAX_BLOB:
             raise VaultError(f'{len(blob)} bytes is over the '
                              f'{MAX_BLOB}-byte blob cap', 'too_big', 413)
@@ -255,6 +257,10 @@ class Store:
             looks_sealed(blob)
         elif kind == 'code':
             check_code(blob, lang)
+        elif kind == 'state':
+            pass                     # contract state: public bytes, any shape
+        elif kind == 'receipt':
+            check_receipt(blob)
         else:
             raise VaultError(f'unknown blob kind {kind!r}')
         cid = cid_of(blob)
@@ -303,6 +309,16 @@ class Store:
                     pass
             dropped.append(item['cid'])
         return dropped
+
+
+def check_receipt(blob):
+    """A pqr1 execution receipt: signed JSON a contract runner publishes."""
+    try:
+        r = json.loads(blob.decode())
+        if r['over']['v'] != 'pqr1' or not r.get('sig'):
+            raise ValueError
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise VaultError('not a pqr1 receipt', 'bad_blob') from None
 
 
 def check_code(code, lang):

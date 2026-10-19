@@ -11,7 +11,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ReactNode, useEffect, useRef } from 'react'
-import { LAUNCH } from '../lib/whitepaper'
+import { STAGE } from '../lib/whitepaper'
 import { VibePicker } from './vibe'
 
 /** The site map. `blurb` is the one-line pitch the home page directory
@@ -19,8 +19,7 @@ import { VibePicker } from './vibe'
 export const ROUTES = [
   { href: '/manifesto', label: 'Manifesto', blurb: 'Why your rent should have been buying you the house all along' },
   { href: '/split',     label: 'The Split', blurb: 'Where every dollar lands — and the dial that tilts it your way' },
-  { href: '/simulator', label: 'Simulator', blurb: 'Scrub ten years in ten seconds and watch rent turn into walls' },
-  { href: '/testnet',   label: 'Testnet',   blurb: 'Run the walkthroughs — rent, any bank, a city — in a sandbox' },
+  { href: '/simulator', label: 'Simulate',  blurb: 'Play twenty years of the deal through the real code — rent, bank, quarters — in two seconds' },
   { href: '/proofs',    label: 'Proofs',    blurb: 'Prove the rent was paid — without saying who paid it' },
   { href: '/invest',    label: 'Invest',    blurb: 'The building, the float, and how to take your seat at the table' },
   { href: '/paper',     label: 'Whitepaper', blurb: 'The whole revolution in six stops, one page each' },
@@ -28,7 +27,7 @@ export const ROUTES = [
   { href: '/code',      label: 'Code',      blurb: 'Read the Solidity that holds the keys — no trust required' },
 ] as const
 
-/** The routes the top rail leads with. Eight tracked uppercase pills plus a
+/** The routes the top rail leads with. Nine tracked uppercase pills plus a
  *  logo, a vibe swatch and a CTA don't fit one line without overflowing into
  *  a half-cut word — so the rail shows the five that matter and the footer +
  *  home directory carry the full eight. */
@@ -86,8 +85,8 @@ export function SiteNav() {
 
           <div className="flex items-center gap-3 shrink-0">
             <VibePicker />
-            <Link href="/invest" className="btn-shine px-4 py-2 rounded-full bg-ink text-paper text-[11px] font-bold uppercase tracking-widest hover:bg-pink transition-colors">
-              Try Testnet
+            <Link href="/simulator" className="btn-shine px-4 py-2 rounded-full bg-ink text-paper text-[11px] font-bold uppercase tracking-widest hover:bg-pink transition-colors">
+              Simulate
             </Link>
           </div>
         </div>
@@ -104,7 +103,7 @@ export function SiteFooter() {
           <span className="w-7 h-7 rounded-md bg-gradient-to-br from-coral to-ember flex items-center justify-center text-onaccent font-black text-xs">⌂</span>
           <span className="font-display font-extrabold text-white text-sm">OpenHouse</span>
         </Link>
-        <p className="text-white/55 text-xs text-center">Rent-to-own on-chain · Fractional property via smart contracts · Base</p>
+        <p className="text-white/55 text-xs text-center">Rent-to-own on-chain · Fractional property via smart contracts · Simulated end to end</p>
         <p className="text-white/45 text-[11px] uppercase tracking-widest">Equity for everybody</p>
       </div>
 
@@ -123,8 +122,8 @@ export function SiteFooter() {
 
       <div className="max-w-6xl mx-auto px-5 md:px-8 pb-10">
         <p className="text-white/55 text-[11px] leading-relaxed text-center max-w-2xl mx-auto">
-          <span className="text-coral font-bold uppercase tracking-widest">{LAUNCH.stage} — </span>
-          {LAUNCH.notice} Nothing on this page is an offer to sell securities or financial advice.
+          <span className="text-coral font-bold uppercase tracking-widest">{STAGE.stage} — </span>
+          {STAGE.notice} Nothing on this page is an offer to sell securities or financial advice.
         </p>
       </div>
     </footer>

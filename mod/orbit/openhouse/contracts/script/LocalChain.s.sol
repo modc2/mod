@@ -12,19 +12,19 @@ interface Vm {
     function stopBroadcast() external;
 }
 
-/// @title Testnet walkthrough, on a real chain
+/// @title The walkthrough, on a real EVM
 /// @notice Deploys the token whitelist and one OpenHouse property, then has a
 ///         renter pay one month of rent in the native coin — three signed
 ///         transactions from three different keys, exactly as mainnet would.
 ///
-///   local (anvil, zero setup):   ./testnet.sh
-///   Base Sepolia (real testnet): RPC_URL=https://sepolia.base.org \
-///        OWNER_KEY=0x… BANK_KEY=0x… RENTER_KEY=0x… ./testnet.sh
+///   local (anvil, zero setup):   ./localchain.sh
+///   any other EVM RPC:           RPC_URL=http://… \
+///        OWNER_KEY=0x… BANK_KEY=0x… RENTER_KEY=0x… ./localchain.sh
 ///
 /// Keys come from the environment and are never written anywhere. The
 /// defaults are anvil's published development keys — public, worthless, and
 /// only ever valid against a local chain.
-contract Testnet {
+contract LocalChain {
     Vm constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     // anvil accounts 0, 1, 2 — public development keys
@@ -41,7 +41,7 @@ contract Testnet {
         uint256 renterKey = vm.envOr("RENTER_KEY", ANVIL_2);
         uint256 ethUsd = vm.envOr("ETH_USD", 2500) * 1e18;          // 1 ETH = $2,500
         uint256 homeUsd = vm.envOr("HOME_USD", 240_000) * 1e18;     // a $240k home
-        uint256 rentWei = vm.envOr("RENT_WEI", 0.0062 ether);       // small: testnet ETH is scarce
+        uint256 rentWei = vm.envOr("RENT_WEI", 0.0062 ether);       // small: gas on a borrowed chain is scarce
         address owner = vm.addr(ownerKey);
 
         // 1. The owner lists the payment tokens and deploys the property:

@@ -1,18 +1,19 @@
 {
     "name": "openhouse",
-    "description": "Rent-to-own, on-chain \u2014 the protocol takes 0\u20135% (owner-set, zero allowed, capped in the contract) and 95\u2013100% of every payment stays with the property as renter equity and owner income \u2014 with proof of rent paid, without the tenant: the bank runs a Cairo statement over the private payment, NEAR (WASM) and Ethereum verifiers check the fact, and the chain learns only that this home, this month, was paid \u2014 and post-quantum ready: every receipt also carries a hash-based OHX-KECCAK signature (verified on Ethereum and NEAR) and an ML-DSA-65 signature, and each verifier has a one-way switch that shuts the classical door",
-    "version": "2.4.0",
+    "description": "Rent-to-own, on-chain \u2014 the protocol takes 0\u20135% (owner-set, zero allowed, capped in the contract) and 95\u2013100% of every payment stays with the property as renter equity and owner income \u2014 with proof of rent paid, without the tenant: the bank runs a Cairo statement over the private payment, NEAR (WASM) and Ethereum verifiers check the fact, and the chain learns only that this home, this month, was paid \u2014 simulated end to end on this node (simulate: years of rent, bank transfers, quarterly closes), and post-quantum ready: every receipt also carries a hash-based OHX-KECCAK signature (verified on Ethereum and NEAR) and an ML-DSA-65 signature, and each verifier has a one-way switch that shuts the classical door",
+    "version": "2.5.0",
     "port": 50132,
     "app_port": 50131,
     "urls": {
         "api": "http://localhost:50132",
         "app": "http://localhost:50131"
     },
-    "network": "testnet",
+    "network": "simulation",
     "contracts": {
-        "testnet": {
-            "chainId": "84532",
-            "url": "https://sepolia.base.org",
+        "simulation": {
+            "chainId": "31337",
+            "url": "http://127.0.0.1:8545",
+            "note": "a local anvil chain \u2014 contracts/localchain.sh deploys and pays a month of rent on it; nothing here is a public network",
             "contracts": {
                 "OpenHouse": {
                     "address": "",
@@ -46,6 +47,8 @@
         "fx",
         "seed",
         "unseed",
+        "simulate",
+        "simulate_presets",
         "examples",
         "example",
         "bank_kinds",
@@ -100,25 +103,29 @@
         "url": "http://localhost:50132/mcp",
         "transport": "streamable-http",
         "auth": "none",
-        "docs": "Model Context Protocol (JSON-RPC 2.0 over Streamable HTTP) tool server for LLM agents \u2014 POST /mcp on the API, 58 tools. Start: openhouse_examples / openhouse_run_example (testnet walkthroughs, each a transcript of real tool calls, run in a throwaway store). Reads: openhouse_terms, quote, models, status, property, rent_stats, rent_ledger, equity, shareholders, portfolio, dividends, civic, landscape, source, fx. Writes (testnet bookkeeping, no signed transactions): openhouse_pay_rent, purchase, set_terms, claim_owner, distribute, toggle_active, transfer_authority, civic_charter, civic_override, civic_resign. Banks (any bank): openhouse_bank_kinds, bank_status, bank_connect, bank_disconnect, bank_accounts, bank_transactions, bank_import, bank_receive, bank_reference, bank_link, bank_unlink, bank_links, bank_reconcile, bank_pay \u2014 adapters: sandbox (testnet, open), statement (camt.053/MT940/OFX/CSV in, ISO 20022 pain.001 out), openbanking (Berlin Group PSD2 / UK OBIE), mcp (a bank's own MCP server). Non-sandbox banks need the operator key (~/.mod/openhouse/bank_key, never served). Pool: openhouse_pool (quarter accruing now), pool_history (closed quarters), close_quarter (freeze + lock split), pool_claim (pull an address's share), bloctime (locked liquidity and earned weight for one address). Proofs (proof of rent paid, without the tenant): openhouse_proof_status, proof_program, proofs, proof, proof_issue (bank: runs the Cairo statement proof/ over the private payment, signs the fact for NEAR + Ethereum), proof_verify (anyone, offline), proof_open (tenant opens a commitment with their salt), proof_salt, proof_submit (relay to the NEAR WASM verifier openhouse.modnear-05ce1d.testnet or contracts/OpenHouseProofs.sol; chain=near|eth); openhouse_bank_reconcile issue_proofs=true issues one per booked transfer. Post-quantum: openhouse_proof_pq (PQ keys, one-time leaves left, classical-only receipts, threat model), openhouse_proof_pq_upgrade (countersign old receipts with PQ keys), openhouse_proof_pq_rotate (new OHX key); openhouse_proof_verify policy=pq checks what still counts after Q-day; openhouse_proof_submit door=pq uses the hash-based door (submitPQ / submit_pq)."
+        "docs": "Model Context Protocol (JSON-RPC 2.0 over Streamable HTTP) tool server for LLM agents \u2014 POST /mcp on the API, 60 tools. Start: openhouse_simulate (run years of the protocol \u2014 rent, bank transfers, quarterly closes \u2014 through the real code in a throwaway store; openhouse_simulate_presets lists ready scenarios) and openhouse_examples / openhouse_run_example (walkthroughs, each a transcript of real tool calls, run in a throwaway store). Reads: openhouse_terms, quote, models, status, property, rent_stats, rent_ledger, equity, shareholders, portfolio, dividends, civic, landscape, source, fx. Writes (simulated bookkeeping on this node, no signed transactions): openhouse_pay_rent, purchase, set_terms, claim_owner, distribute, toggle_active, transfer_authority, civic_charter, civic_override, civic_resign. Banks (any bank): openhouse_bank_kinds, bank_status, bank_connect, bank_disconnect, bank_accounts, bank_transactions, bank_import, bank_receive, bank_reference, bank_link, bank_unlink, bank_links, bank_reconcile, bank_pay \u2014 adapters: sandbox (simulated, open), statement (camt.053/MT940/OFX/CSV in, ISO 20022 pain.001 out), openbanking (Berlin Group PSD2 / UK OBIE), mcp (a bank's own MCP server). Non-sandbox banks need the operator key (~/.mod/openhouse/bank_key, never served). Pool: openhouse_pool (quarter accruing now), pool_history (closed quarters), close_quarter (freeze + lock split), pool_claim (pull an address's share), bloctime (locked liquidity and earned weight for one address). Proofs (proof of rent paid, without the tenant): openhouse_proof_status, proof_program, proofs, proof, proof_issue (bank: runs the Cairo statement proof/ over the private payment, signs the fact for NEAR + Ethereum), proof_verify (anyone, offline), proof_open (tenant opens a commitment with their salt), proof_salt, proof_submit (relay to the NEAR WASM verifier openhouse.modnear-05ce1d.testnet or contracts/OpenHouseProofs.sol; chain=near|eth); openhouse_bank_reconcile issue_proofs=true issues one per booked transfer. Post-quantum: openhouse_proof_pq (PQ keys, one-time leaves left, classical-only receipts, threat model), openhouse_proof_pq_upgrade (countersign old receipts with PQ keys), openhouse_proof_pq_rotate (new OHX key); openhouse_proof_verify policy=pq checks what still counts after Q-day; openhouse_proof_submit door=pq uses the hash-based door (submitPQ / submit_pq)."
     },
-    "schema": "QmPUz6PPfVDsQbKhgYjC2w1Nd1Xi3MKj1HQjmwFAABG5xZ",
+    "schema": "QmRbtfHJwjEatRzax4etvTZKLMizhwQ1rysdiUnDtao3Jg",
     "gateway_port": 50131,
     "proofs": {
         "property_id": 1,
-        "issuer_name": "OpenHouse testnet bank",
+        "issuer_name": "OpenHouse simulated bank",
         "near": {
-            "testnet": {
+            "simulation": {
+                "network": "testnet",
                 "account": "openhouse.modnear-05ce1d.testnet",
-                "explorer": "https://testnet.nearblocks.io"
+                "explorer": "https://testnet.nearblocks.io",
+                "note": "the NEAR verifier is a real contract on NEAR's own testnet; this node's stage is a simulation"
             }
         },
         "eth": {
-            "testnet": {
+            "simulation": {
+                "network": "local",
                 "address": "",
-                "url": "https://sepolia.base.org",
-                "chainId": 84532,
-                "explorer": "https://sepolia.basescan.org"
+                "url": "http://127.0.0.1:8545",
+                "chainId": 31337,
+                "explorer": "",
+                "note": "OpenHouseProofs.sol on a local anvil chain (tests/test_proofs_chain.py deploys it); no public deployment"
             }
         }
     }

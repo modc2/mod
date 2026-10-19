@@ -1,7 +1,7 @@
 {
   "name": "subnets",
   "version": "1.0.0",
-  "description": "One mod per Bittensor subnet (subnets.sn<N>) \u2014 identity, market, 24h flow and news, regenerated once a day by cron from the local orbit/bt index. No third-party APIs, no keys; every subnet mod still answers from its snapshot when bt is down.",
+  "description": "One mod per Bittensor subnet (subnets.sn<N>, bt.subnets.sn<N> once mounted inside bt) \u2014 identity, market, 24h flow and news, regenerated once a day by cron from the local orbit/bt index. No third-party APIs, no keys; every subnet mod still answers from its snapshot when bt is down.",
   "icon": "\u03c4",
   "chain": "bittensor",
   "route": false,
@@ -14,6 +14,7 @@
     "ls",
     "get",
     "status",
+    "mount_plan",
     "install_cron",
     "uninstall_cron"
   ],
@@ -31,9 +32,15 @@
     "readme",
     "refresh"
   ],
-  "schema": "QmQk2YoTJthowHVw3oN1k1CiknQcRFkDuZGfXDuEwpLCkF",
+  "schema": "QmdDA5HLy6GwEjamxwj68tJUHP4oKH4S2w4fTHtf1Y2p8P",
   "urls": {
     "api": "http://localhost:50108"
   },
-  "port": 50108
+  "port": 50108,
+  "submod_of": "bt",
+  "mount": {
+    "parent": "bt",
+    "dir": "bt/subnets",
+    "status": "pending \u2014 run `m subnets/mount_plan` for the owner-side steps"
+  }
 }

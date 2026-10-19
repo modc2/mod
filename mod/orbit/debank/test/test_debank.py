@@ -12,9 +12,13 @@ import sys
 
 import pytest
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # module root
+API_DIR = os.path.join(HERE, 'src', 'api')
+APP_DIR = os.path.join(HERE, 'src', 'app')
+CONSOLE = os.path.join(APP_DIR, 'index.html')
+for d in (API_DIR, HERE):
+    if d not in sys.path:
+        sys.path.insert(0, d)
 
 import api      # noqa: E402
 import client   # noqa: E402
@@ -376,7 +380,7 @@ def test_rail_routes_answer_signed_out(monkeypatch):
 
 
 def test_console_is_the_bank():
-    html = open(os.path.join(HERE, 'console.html')).read()
+    html = open(CONSOLE).read()
     for needle in ('eth_requestAccounts', 'wallet_switchEthereumChain', 'eth_sendTransaction',
                    '0xa9059cbb', '0x095ea7b3', '/_api', 'x-debank-key'):
         assert needle in html
@@ -557,7 +561,7 @@ def test_savings_routes_and_tools_answer_signed_out(stub_savings, monkeypatch):
 
 
 def test_console_has_a_savings_desk():
-    html = open(os.path.join(HERE, 'console.html')).read()
+    html = open(CONSOLE).read()
     for needle in ('savings', 'planFund', 'placeLegs', 'withdrawVenue',
                    '/savings/plan', '/savings/record', 'Index funds'):
         assert needle in html
@@ -667,6 +671,6 @@ def test_humanity_needs_a_real_address():
 
 
 def test_console_wears_the_humanity_tag():
-    html = open(os.path.join(HERE, 'console.html')).read()
+    html = open(CONSOLE).read()
     for needle in ('/humanity', 'humanTag', 'HUMAN', 'proofofhumanity'):
         assert needle in html

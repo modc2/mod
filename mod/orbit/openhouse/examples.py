@@ -1,5 +1,5 @@
 """
-examples.py — testnet walkthroughs you can run, read and replay.
+examples.py — walkthroughs you can run, read and replay.
 
 Each example is a short story told entirely in MCP tool calls: claim the
 owner seat, set the deal, pay rent, pay it by bank transfer, import a real
@@ -12,7 +12,7 @@ its own bank key, its own sandbox bank) and returns the transcript:
 
 Because every step is a real `openhouse_*` tool with its real arguments,
 the transcript doubles as documentation and as a script: POST any step to
-/mcp on the live testnet node and it does the same thing there.
+/mcp on the live node and it does the same thing there.
 
 Deterministic on purpose — fixed cast (demo.py's hash-derived addresses),
 fixed fx rates, fixed amounts — so the tests assert on the same numbers the
@@ -45,7 +45,7 @@ def _tools():
 
 CAST = _load('openhouse_demo_cast', HERE / 'demo.py').CAST
 SAMPLES = HERE / 'bank' / 'samples'
-CITY_KEY = '0x' + 'c1' * 20        # a stand-in civic server key (testnet)
+CITY_KEY = '0x' + 'c1' * 20        # a stand-in civic server key (simulated)
 OWNER_IBAN = 'XT150000999988887777'
 KEY_MASK = '‹operator bank key›'
 
@@ -166,7 +166,7 @@ def payoff(r):
          level='bank')
 def bank_transfer(r):
     _deal(r)
-    r.call('openhouse_bank_connect', 'Open a sandbox bank account for the landlord (testnet, no key).',
+    r.call('openhouse_bank_connect', 'Open a sandbox bank account for the landlord (simulated, no key).',
            kind='sandbox', name='landlord', config={'currency': 'USD', 'holder': 'DEMO Landlord'})
     ref = r.call('openhouse_bank_reference', 'The code Maya puts in her transfer memo.',
                  address=CAST['maya'])['reference']
@@ -199,7 +199,7 @@ def bank_transfer(r):
          level='bank')
 def bank_proof(r):
     _deal(r)
-    r.call('openhouse_bank_connect', 'Open a sandbox bank account for the landlord (testnet, no key).',
+    r.call('openhouse_bank_connect', 'Open a sandbox bank account for the landlord (simulated, no key).',
            kind='sandbox', name='landlord', config={'currency': 'USD', 'holder': 'DEMO Landlord'})
     ref = r.call('openhouse_bank_reference', 'The code Maya puts in her transfer memo.',
                  address=CAST['maya'])['reference']
@@ -364,7 +364,7 @@ def run(name: str, Mod) -> dict:
         'steps': r.steps, 'checks': r.checks,
         'summary': f'{len(r.steps)} tool calls, {sum(c["ok"] for c in r.checks)}/'
                    f'{len(r.checks)} checks passed',
-        'store': 'throwaway — ran in a temp directory; the live testnet store is untouched',
+        'store': 'throwaway — ran in a temp directory; the live store is untouched',
         'replay': 'each step is POST /mcp {"method":"tools/call","params":{"name":tool,'
                   '"arguments":args}} — the operator key is masked in this transcript',
     }

@@ -1,5 +1,5 @@
 """
-The testnet walkthroughs must all play clean, never touch the live store,
+The walkthroughs must all play clean, never touch the live store,
 and never leak the operator key into a transcript.
 """
 import importlib.util

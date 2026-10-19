@@ -21,13 +21,15 @@
     },
     "backend": "python stdlib only (http.server + urllib) \u2014 no dependencies",
     "layout": {
-        "mod.py": "the anchor \u2014 every fn below, plus serve/kill/status/test",
-        "client.py": "the DeBank Cloud client plus the keyless bank rail: key resolution, retries, the normalizers, and public-RPC balances priced by CoinGecko",
-        "mcp.py": "MCP tool registry + JSON-RPC 2.0 (stdio and Streamable HTTP)",
-        "api.py": "REST + MCP + console on one port",
-        "savings.py": "the savings desk: index funds over yield venues \u2014 live APY join (defi module \u2192 DefiLlama \u2192 frozen hints), on-chain locked liquidity and holdings, approve+deposit plans, exit txs, off-tree ledger",
-        "funds.json": "the curated registry: 11 on-chain-verified venues and 4 index funds, each one asset on one chain",
-        "console.html": "the bank \u2014 connects to the browser wallet; overview, accounts, assets, savings, positions, statement, permissions, vault, send, receive, settings",
+        "mod.py": "the anchor \u2014 every fn below, plus serve/kill/status/test; puts src/api on sys.path and dispatches",
+        "src/api/": "the backend \u2014 everything the server imports",
+        "src/api/api.py": "REST + MCP + console on one port (the pm2 entry: debank-api)",
+        "src/api/mcp.py": "MCP tool registry + JSON-RPC 2.0 (stdio and Streamable HTTP)",
+        "src/api/client.py": "the DeBank Cloud client plus the keyless bank rail: key resolution, retries, the normalizers, and public-RPC balances priced by CoinGecko",
+        "src/api/savings.py": "the savings desk: index funds over yield venues \u2014 live APY join (defi module \u2192 DefiLlama \u2192 frozen hints), on-chain locked liquidity and holdings, approve+deposit plans, exit txs, off-tree ledger",
+        "src/api/funds.json": "the curated registry: 11 on-chain-verified venues and 4 index funds, each one asset on one chain",
+        "src/app/": "the console \u2014 static, no build step",
+        "src/app/index.html": "the bank \u2014 connects to the browser wallet; overview, accounts, assets, savings, positions, statement, permissions, vault, send, receive, settings",
         "test/test_debank.py": "offline tests: normalizers, chain aliases, MCP protocol"
     },
     "tools": [
@@ -132,7 +134,7 @@
     "mcp": {
         "endpoint": "POST /mcp",
         "schema": "GET /tools",
-        "transport": "streamable-http (JSON-RPC 2.0) + stdio (`python3 mcp.py`)",
+        "transport": "streamable-http (JSON-RPC 2.0) + stdio (`python3 src/api/mcp.py`)",
         "tool_prefix": "debank_",
         "auth": "BYOK \u2014 x-debank-key header, DEBANK_ACCESS_KEY, or ~/.mod/debank/key.json; debank_chains, debank_balances, debank_networks and debank_humanity answer without one"
     },
@@ -146,7 +148,7 @@
         ],
         "note": "an Authorization bearer is never read as a DeBank key \u2014 the gateway puts its own session tokens there"
     },
-    "schema": "QmZhDrHBaqfcKVpUEKgXx7KHrRWFcXxw8jXc4BaXZAzJBZ",
+    "schema": "QmNjnTWmj2aqVgeqBy7RQ2b3QBo3hUfgJqSm3Pd9FZQkYo",
     "wallet": {
         "standard": "EIP-1193 (window.ethereum) \u2014 MetaMask, Rabby, Coinbase Wallet, Brave",
         "actions": [

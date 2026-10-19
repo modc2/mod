@@ -78,13 +78,6 @@ body {
   line-height: 0.95;
 }
 
-/* Testnet strip — a solid gold band on paper, a dim amber console rail in
-   DIGITAL (light ink on solid gold is unreadable once the page inverts). */
-.banner-strip {
-  background: var(--sun);
-  border-bottom: 2px solid rgb(var(--ink-rgb) / 0.15);
-}
-
 /* ── Gradient + glow text ───────────────────────────────── */
 .text-surf-grad {
   /* the sun stop between mint and coral keeps the wrap-around from muddying into olive */
@@ -290,11 +283,6 @@ input[type='range'] { height: 22px; }
 [data-mode="digital"] .headline { text-shadow: 0 0 22px rgb(var(--coral-rgb) / 0.35); }
 [data-mode="digital"] .glow-warm { text-shadow: 0 0 26px rgb(var(--coral-rgb) / 0.45); }
 [data-mode="digital"] .font-serif-ed { font-style: normal; }
-
-[data-mode="digital"] .banner-strip {
-  background: rgb(var(--sun-rgb) / 0.10);
-  border-bottom: 1px solid rgb(var(--sun-rgb) / 0.35);
-}
 
 /* Panels: no washi, no hard shadow — a hairline box with its own faint glow. */
 [data-mode="digital"] .glass {

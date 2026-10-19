@@ -1,5 +1,5 @@
 """
-demo.py — a fake, fully-labelled example scenario for the testnet store.
+demo.py — a fake, fully-labelled example scenario for the store.
 
 ``seed(mod)`` populates ``~/.openhouse`` through the SAME code paths a real
 deployment uses — deploy / set_terms / pay_rent / purchase / distribute —
@@ -43,7 +43,7 @@ CAST = {
 # ── The scenario ──────────────────────────────────────────────────
 
 PROPERTY = ('DEMO — 128 Maple Ave, Cleveland OH · 3-bed brick rowhouse. '
-            'Fictional property, fake addresses, testnet bookkeeping only.')
+            'Fictional property, fake addresses, simulated bookkeeping only.')
 HOME_PRICE = 120.0        # Ξ to own outright
 MONTHLY_RENT = 0.62       # Ξ, the scheduled payment
 MODEL = 'full_credit'
@@ -86,7 +86,7 @@ def _has_data(mod):
 def seed(mod, force: bool = False) -> dict:
     """Populate the store with the demo scenario. Refuses to overwrite a
     store it didn't seed unless ``force=True`` — real bookkeeping, however
-    testnet, is not something a demo should eat silently."""
+    simulation, is not something a demo should eat silently."""
     if _has_data(mod) and not _marker(mod).exists() and not force:
         return {'error': 'Store has data this demo did not write — '
                          'pass force=True to overwrite it, or unseed first'}
@@ -102,7 +102,7 @@ def seed(mod, force: bool = False) -> dict:
     # timestamps are rewritten afterwards, because history can't be
     # asked of a clock that only knows about now.
     steps = [
-        mod.deploy(network='testnet', property_details=PROPERTY,
+        mod.deploy(network='simulation', property_details=PROPERTY,
                    total_shares=TOTAL_SHARES, share_price=SHARE_PRICE),
         mod.set_terms(model=MODEL, fee_pct=FEE_PCT,
                       home_price=HOME_PRICE, monthly_rent=MONTHLY_RENT,
@@ -157,7 +157,7 @@ def seed(mod, force: bool = False) -> dict:
         'shareholders': len(holders),
         'pool': {k: mod.pool()[k] for k in
                  ('quarter', 'pool', 'progress_pct', 'total_locked')},
-        'note': 'Fake example data on the testnet store — unseed() removes it.',
+        'note': 'Fake example data on the store — unseed() removes it.',
     }
 
 

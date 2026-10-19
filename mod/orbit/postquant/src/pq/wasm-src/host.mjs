@@ -15,10 +15,16 @@
 //         "sk":"<hex>", "msg":"<hex>", "ctx":"<hex>", "sig_bytes":N}
 //   out: {"id":3, "ok":true, "sig":"<hex>"}
 //
+//   in : {"id":4, "op":"run", "wasm":..., "sha3":..., "pure":true,
+//         "state":"<hex>", "input":"<hex>", "out_cap":N}
+//   out: {"id":4, "ok":true, "ret":<i32>, "out":"<hex>", "ms":<float>}
+//
 //   any: {"id":n, "ok":false, "error":"..."}
 //
 // op defaults to "verify" (the pq1 ABI); keygen/sign are the pq2 extension
-// user-registered key types must export. "pure":true refuses to run a module
+// user-registered key types must export; run is the pqc1 contract ABI
+// (pqc_run(state,state_len,input,input_len,out,out_cap) -> i32 = next state
+// length, or <0 to revert) that off-chain contract execution goes through. "pure":true refuses to run a module
 // that declares ANY import — inside an importless module there is no clock,
 // no randomness and no host call, so the exports are deterministic functions
 // of their inputs. That check is what lets this chain accept a stranger's
@@ -115,6 +121,25 @@ function run(req) {
       throw new Error('pq_sign refused');
     }
     return { sig: readBuf(e, sigPtr, req.sig_bytes) };
+  }
+  if (op === 'run') {
+    // pqc1: a contract is a pure state transition. The host hands it the
+    // current state and one input, gets back the next state. A negative
+    // return is a revert (the contract's own reason code); a trap
+    // (panic -> unreachable) surfaces as ok:false and is a revert too.
+    need(e, 'pqc_run', 'pqc1');
+    const [st, stLen] = place(e, req.state);
+    const [inp, inpLen] = place(e, req.input);
+    const cap = req.out_cap | 0;
+    const outPtr = outBuf(e, cap);
+    const t0 = process.hrtime.bigint();
+    const ret = e.pqc_run(st, stLen, inp, inpLen, outPtr, cap);
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    if (ret < 0) return { ret, out: '', ms };
+    if (ret > cap) {
+      throw new Error(`pqc_run claims ${ret} output bytes over the ${cap}-byte cap`);
+    }
+    return { ret, out: readBuf(e, outPtr, ret), ms };
   }
   throw new Error(`unknown op ${op}`);
 }

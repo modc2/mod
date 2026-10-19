@@ -1,5 +1,5 @@
 """
-The demo seed — fake examples on the testnet store.
+The demo seed — fake examples on the store.
 
 What these tests pin down: seeding goes through the real accounting paths
 (so the books balance), it is deterministic, it refuses to eat data it

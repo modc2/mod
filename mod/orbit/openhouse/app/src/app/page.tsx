@@ -13,7 +13,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { Shell, ROUTES } from '../components/chrome'
 import { Counter, Reveal, Skyline } from '../components/motion'
 import { StatusData, PropertyData, useResource } from '../lib/api'
-import { MANIFESTO, TICKER, LAUNCH } from '../lib/whitepaper'
+import { MANIFESTO, TICKER, STAGE } from '../lib/whitepaper'
 
 // The four places worth leading with. The full eight still live in the footer
 // and the directory below — the home hero just doesn't open with all of them.
@@ -51,10 +51,10 @@ function HomeInner() {
     { k: 'Contributed', v: <Counter value={status!.total_contributed} decimals={2} suffix=" Ξ" />, c: 'text-emerald-400' },
     { k: 'Dividends paid', v: <Counter value={status!.total_dividends_distributed} decimals={2} suffix=" Ξ" />, c: 'text-pink' },
   ] : [
-    { k: 'Stage', v: 'Testnet', c: 'text-coral' },
-    { k: 'Network', v: LAUNCH.chain, c: 'text-white' },
-    { k: 'Mainnet', v: 'TBA', c: 'text-pink' },
-    { k: 'To try', v: 'Test ETH', c: 'text-emerald-400' },
+    { k: 'Stage', v: STAGE.stage, c: 'text-coral' },
+    { k: 'Protocol take', v: '0–5%', c: 'text-pink' },
+    { k: 'Stays home', v: '95–100%', c: 'text-emerald-400' },
+    { k: 'To try', v: 'Nothing', c: 'text-white' },
   ]
 
   const featured = FEATURED
@@ -75,7 +75,7 @@ function HomeInner() {
           <Reveal>
             <div className="inline-flex flex-wrap items-center gap-2.5 px-3 py-1.5 rounded-full glass text-[11px] font-bold uppercase tracking-[0.2em] text-coral mb-8">
               <span className="w-1.5 h-1.5 rounded-full bg-coral animate-pulse" />
-              {LAUNCH.stage} on {LAUNCH.chain}
+              {STAGE.short}
             </div>
           </Reveal>
           <Reveal delay={80}>
@@ -93,10 +93,10 @@ function HomeInner() {
           <Reveal delay={280}>
             <div className="flex flex-wrap items-center gap-3 mt-10">
               <Link href="/invest" className="btn-shine px-7 py-3.5 rounded-full bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-coral/40 transition-shadow">
-                {deployed ? 'Start owning →' : 'Try it on testnet →'}
+                {deployed ? 'Start owning →' : 'Run the simulation →'}
               </Link>
-              <Link href="/paper" className="px-7 py-3.5 rounded-full border border-white/15 text-white/80 font-bold uppercase tracking-widest text-sm hover:border-coral/50 hover:text-white transition-colors">
-                Read the whitepaper
+              <Link href="/simulator" className="px-7 py-3.5 rounded-full border border-white/15 text-white/80 font-bold uppercase tracking-widest text-sm hover:border-coral/50 hover:text-white transition-colors">
+                Simulate twenty years
               </Link>
             </div>
           </Reveal>
@@ -111,8 +111,7 @@ function HomeInner() {
             </div>
             {!deployed && (
               <p className="text-white/50 text-xs mt-4 max-w-md leading-relaxed">
-                Testnet preview — the contract, the math, and the cap table are real code on {LAUNCH.chain}.
-                The money isn't. Mainnet launch {LAUNCH.date.toLowerCase()}.
+                {STAGE.claim}
               </p>
             )}
           </Reveal>
@@ -193,10 +192,10 @@ function HomeInner() {
             </div>
             <div className="shrink-0">
               <Link href="/invest" className="btn-shine inline-block px-8 py-4 rounded-full bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-coral/40 transition-shadow">
-                {deployed ? 'Start owning →' : 'Open the testnet →'}
+                {deployed ? 'Start owning →' : 'Run the simulation →'}
               </Link>
               <p className="text-white/50 text-[10px] uppercase tracking-[0.2em] font-bold mt-4 md:text-right">
-                {LAUNCH.stage} · Mainnet {LAUNCH.date.toLowerCase()}
+                {STAGE.short}
               </p>
             </div>
           </div>

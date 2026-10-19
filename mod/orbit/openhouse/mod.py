@@ -115,7 +115,7 @@ class Mod:
 
     def __init__(self, config=None, store=None):
         """store: put the whole state somewhere other than ~/.openhouse — the
-        testnet examples run each scenario in a throwaway directory this way,
+        simulations and walkthroughs run each scenario in a throwaway directory this way,
         so they never touch the live store. Bank credentials follow it there
         too; by default they live off the repo in ~/.mod/openhouse/."""
         self.module_dir = Path(__file__).parent
@@ -137,18 +137,36 @@ class Mod:
         self.civic_path = self.store_dir / 'civic.json'
 
         # Config
-        self.network = self.config.get('network', 'testnet')
+        self.network = self.config.get('network', 'simulation')
         self.port = int(self.config.get('port', 50132))
         self.app_port = int(self.config.get('app_port', 50131))
 
+        # The clock. Every timestamp the module writes comes from here, so a
+        # simulation (simulate.py) can run years of the protocol through the
+        # real code paths by handing a throwaway Mod a clock of its own.
+        self._clock = None
+
         # Chain config
         net_cfg = self.config.get('contracts', {}).get(self.network, {})
-        self.rpc_url = net_cfg.get('url', 'https://sepolia.base.org')
+        self.rpc_url = net_cfg.get('url', 'http://127.0.0.1:8545')
         self.contract_address = (
             net_cfg.get('contracts', {})
             .get('OpenHouse', {})
             .get('address', '')
         )
+
+    # Stages whose write surface is open: a simulation (this node, fake
+    # money), a local chain, or a public testnet. Anything else is real money
+    # and every bank/proof write needs the operator key.
+    OPEN_NETWORKS = ('simulation', 'local', 'testnet')
+
+    @property
+    def simulated(self) -> bool:
+        return self.network in self.OPEN_NETWORKS
+
+    def _now(self) -> int:
+        """The module's idea of now. A simulation replaces it."""
+        return int(self._clock()) if self._clock else int(time.time())
 
     def _load_config(self):
         config_path = self.module_dir / 'config.json'
@@ -303,7 +321,7 @@ class Mod:
         if treasury is not None:
             current['treasury'] = str(treasury)
 
-        current['updated'] = int(time.time())
+        current['updated'] = self._now()
         self._save_json(self.terms_path, current)
         return {'success': True, 'terms': self.terms()}
 
@@ -315,7 +333,7 @@ class Mod:
         if current.get('owner'):
             return {'error': 'Owner already set', 'owner': current['owner']}
         current['owner'] = address
-        current['updated'] = int(time.time())
+        current['updated'] = self._now()
         self._save_json(self.terms_path, current)
         return {'success': True, 'owner': address}
 
@@ -398,7 +416,7 @@ class Mod:
             return {'error': 'Home already paid off'}
 
         entry = {
-            'timestamp': int(time.time()),
+            'timestamp': self._now(),
             'renter': renter,
             'amount': split['amount'],
             'fee': split['fee'],
@@ -524,7 +542,7 @@ class Mod:
             return {'error': 'Civic seat is taken — only the authority can resign it',
                     'authority': c['authority']}
         c['authority'] = {'key': key, 'name': name or 'Chartered Authority',
-                          'region': region, 'uri': uri, 'chartered': int(time.time())}
+                          'region': region, 'uri': uri, 'chartered': self._now()}
         c.setdefault('overrides', [])
         self._save_civic(c)
         return {'success': True, 'authority': c['authority']}
@@ -551,7 +569,7 @@ class Mod:
             c['civic_paused'] = action == 'pause'
         else:
             c['civic_hold'] = action == 'hold'
-        entry = {'timestamp': int(time.time()), 'action': action,
+        entry = {'timestamp': self._now(), 'action': action,
                  'key': auth['key'], 'authority': auth['name'], 'reason': reason}
         c.setdefault('overrides', []).append(entry)
         self._save_civic(c)
@@ -571,7 +589,7 @@ class Mod:
         c['civic_paused'] = False
         c['civic_hold'] = False
         c.setdefault('overrides', []).append(
-            {'timestamp': int(time.time()), 'action': 'resign',
+            {'timestamp': self._now(), 'action': 'resign',
              'key': auth['key'], 'authority': auth['name'], 'reason': ''})
         self._save_civic(c)
         return {'success': True, 'resigned': auth['name']}
@@ -633,7 +651,7 @@ class Mod:
             start = int(closed[-1]['end'])
             idx = int(closed[-1]['quarter']) + 1
         else:
-            start = int(pool.get('genesis') or self._first_lock() or time.time())
+            start = int(pool.get('genesis') or self._first_lock() or self._now())
             idx = 0
         return idx, start, start + self.QUARTER_SECONDS
 
@@ -746,7 +764,7 @@ class Mod:
         state = self._load_pool()
         closed = state.get('quarters') or []
         idx, start, ends_at = self._quarter_window(state)
-        now = int(time.time())
+        now = self._now()
         ledger_from = int(closed[-1]['ledger_to']) if closed else 0
 
         w = self._bloctime_window(start, now)
@@ -801,7 +819,7 @@ class Mod:
         state = self._load_pool()
         closed = state.get('quarters') or []
         idx, start, ends_at = self._quarter_window(state)
-        now = int(time.time())
+        now = self._now()
 
         if now < ends_at:
             if not force:
@@ -864,7 +882,7 @@ class Mod:
             if not any(q['quarter'] == quarter for q in quarters):
                 return {'error': f'Quarter {quarter} has not closed'}
 
-        now, claimed, total = int(time.time()), [], 0.0
+        now, claimed, total = self._now(), [], 0.0
         for q in quarters:
             if quarter is not None and q['quarter'] != quarter:
                 continue
@@ -897,7 +915,7 @@ class Mod:
         state = self._load_pool()
         closed = state.get('quarters') or []
         idx, start, ends_at = self._quarter_window(state)
-        now = int(time.time())
+        now = self._now()
         genesis = int(state.get('genesis') or self._first_lock() or start)
 
         live = self._bloctime_window(start, now)
@@ -983,7 +1001,7 @@ class Mod:
         the simulator always gets an answer, marked by `source`."""
         return self._fx_mod().rates(self.fx_cache_path, refresh=refresh)
 
-    # ━━ Demo seeding (testnet) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ━━ Demo seeding (simulation) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _demo_mod(self):
         """Load demo.py by path, same reasoning as _peers_mod."""
@@ -997,7 +1015,7 @@ class Mod:
         return self._demo_cache
 
     def seed(self, force: bool = False) -> dict:
-        """Fill the testnet store with a labelled fake example scenario —
+        """Fill the store with a labelled fake example scenario —
         a fictional property, hash-derived addresses, sixty days of rent,
         shareholders and a dividend, all recorded through the real code
         paths. Refuses to overwrite data it didn't write unless force=True.
@@ -1011,14 +1029,14 @@ class Mod:
     # ━━ The bank rail ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     #
     # Most rent is paid by bank transfer, not by wallet. bank/ connects any
-    # bank — a local sandbox for testnet, statement files (camt.053, MT940,
+    # bank — a local sandbox for simulation, statement files (camt.053, MT940,
     # OFX, CSV) for every bank on earth, Open Banking APIs (Berlin Group
     # PSD2, UK OBIE), or a bank's own MCP server — and the reconciler books
     # each transfer carrying a renter's reference code onto the rent ledger
     # exactly once, converted to Ξ at the fx rate and stamped with its source.
     #
     # Who may touch what: a sandbox connection is fake money on a fake bank,
-    # so it is as open as the rest of this testnet surface. Anything else is
+    # so it is as open as the rest of this simulated surface. Anything else is
     # a real bank — its statements, its payees, its payments — so every call
     # on it needs the operator bank key, a random secret created on first use
     # at ~/.mod/openhouse/bank_key (0600). It is never served by any endpoint:
@@ -1113,7 +1131,7 @@ class Mod:
             'booked_transfers': len(matched),
             'booked_units': round(sum(float(m.get('units', 0)) for m in matched.values()), 8),
             'kinds': [k['kind'] for k in b.kinds()],
-            'gate': 'sandbox is open (testnet, fake money); every other kind needs the '
+            'gate': 'sandbox is open (simulated, fake money); every other kind needs the '
                     'operator bank key from ~/.mod/openhouse/bank_key',
         }
 
@@ -1284,7 +1302,7 @@ class Mod:
         payment short of the rent due gets the program's refusal, recorded
         on the ledger line, never a receipt."""
         pm = self._proofs_mod()
-        period = pm.period_of(int((source or {}).get('booked_at_bank') or time.time()))
+        period = pm.period_of(int((source or {}).get('booked_at_bank') or self._now()))
         due = pm.units(self.terms().get('monthly_rent') or 0)
         if due <= 0:
             return {'error': 'no monthly rent set — nothing to prove against'}
@@ -1308,7 +1326,59 @@ class Mod:
         return self._bank_run(self._bank().pay, connection, account, to_name, to_iban,
                               amount, currency, reference)
 
-    # ━━ Testnet examples ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ━━ Simulation ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    #
+    # Years of the protocol, played through the real code in a throwaway
+    # store with a clock of its own: rent by bank transfer, quarterly closes,
+    # the refusal at the end. See simulate.py.
+
+    def _simulate_mod(self):
+        if getattr(self, '_simulate_cache', None) is None:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'openhouse_simulate', self.module_dir / 'simulate.py')
+            mod_ = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_)
+            self._simulate_cache = mod_
+        return self._simulate_cache
+
+    def simulate_presets(self) -> list:
+        """Ready-made scenarios for simulate(): id, title, what each shows, its knobs."""
+        return self._simulate_mod().presets()
+
+    def simulate(self, years=10, home_price=120.0, monthly_rent=0.62, model='full_credit',
+                 fee_pct=2.5, credit_pct=None, option_fee_pct=None, renters=1, apy=5.0,
+                 rate=2500.0, currency='USD', bank=True, skip_every=0, proofs=0,
+                 seed='openhouse', start=None) -> dict:
+        """Play the deal for `years` through the real code paths and return
+        the month-by-month record.
+
+        Args:
+            years:          1–40
+            home_price:     Ξ to own outright
+            monthly_rent:   Ξ per month, split evenly across renters
+            model:          full_credit | hybrid | classic | lease
+            fee_pct:        protocol take, 0–5
+            credit_pct:     override the model's rent credit, 0–100
+            option_fee_pct: override the model's option fee, % of price
+            renters:        1–4 housemates sharing the rent
+            apy:            modelled lowfi yield on credited principal, %
+            rate:           fiat per Ξ, pinned for the run
+            bank:           pay by sandbox bank transfer + reconcile (True) or
+                            straight to pay_rent (False)
+            skip_every:     a renter misses roughly one month in this many (0 = never)
+            proofs:         issue proof-of-rent receipts for the first N bookings
+                            (needs scarb; slow — a few seconds each)
+            seed:           which months get skipped
+            start:          epoch seconds the story starts (default: today)
+        """
+        return self._simulate_mod().run(
+            type(self), years=years, home_price=home_price, monthly_rent=monthly_rent,
+            model=model, fee_pct=fee_pct, credit_pct=credit_pct, option_fee_pct=option_fee_pct,
+            renters=renters, apy=apy, rate=rate, currency=currency, bank=bank,
+            skip_every=skip_every, proofs=proofs, seed=seed, start=start)
+
+    # ━━ Walkthroughs ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _examples_mod(self):
         """Load examples.py by path, same reasoning as _peers_mod."""
@@ -1322,13 +1392,13 @@ class Mod:
         return self._examples_cache
 
     def examples(self) -> list:
-        """The testnet walkthroughs: name, title, what each one shows."""
+        """The walkthroughs: name, title, what each one shows."""
         return self._examples_mod().catalog()
 
     def example(self, name: str) -> dict:
         """Run one walkthrough end to end in a throwaway store and return its
         transcript — every step is a real MCP tool call with its real result,
-        so any step can be replayed against the live testnet node."""
+        so any step can be replayed against the live node."""
         return self._examples_mod().run(name, type(self))
 
     # ━━ Health & Status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1396,8 +1466,8 @@ class Mod:
         fact for NEAR and Ethereum, keep the receipt. The receipt carries no
         tenant data. Amounts are integers × 1e6 of the deal currency;
         rent_due defaults to the live terms' monthly rent, period to this
-        month. Needs the operator bank key off testnet."""
-        if self.network != 'testnet':
+        month. Needs the operator bank key outside a simulation."""
+        if not self.simulated:
             blocked = self._bank_gate(key, kind='proof')
             if blocked:
                 return blocked
@@ -1407,7 +1477,7 @@ class Mod:
             return {'error': 'amount required (integer units × 1e6 of the deal currency)'}
         pm = self._proofs_mod()
         pid = int(property_id or self._proof_property_id())
-        per = int(period or pm.period_of(int(time.time())))
+        per = int(period or pm.period_of(self._now()))
         if rent_due in (None, ''):
             rent_due = pm.units(self.terms().get('monthly_rent') or 0)
         return self._proof_run(self._proofs().issue, pid, per, int(rent_due), tenant,
@@ -1450,8 +1520,8 @@ class Mod:
 
     def proof_salt(self, tenant: str, key: str = '') -> dict:
         """The salt this node drew for a tenant — what the tenant needs to
-        open their own commitments. Operator key off testnet."""
-        if self.network != 'testnet':
+        open their own commitments. Operator key outside a simulation."""
+        if not self.simulated:
             blocked = self._bank_gate(key, kind='proof')
             if blocked:
                 return blocked
@@ -1492,8 +1562,8 @@ class Mod:
     def proof_pq_upgrade(self, nullifier: str = '', key: str = '') -> dict:
         """Countersign classical-only receipts (one, or all) with the PQ
         keys. Facts are unchanged; the receipt gains a quantum-safe
-        signature. Operator bank key off testnet."""
-        if self.network != 'testnet':
+        signature. Operator bank key outside a simulation."""
+        if not self.simulated:
             blocked = self._bank_gate(key, kind='proof')
             if blocked:
                 return blocked
@@ -1502,8 +1572,8 @@ class Mod:
     def proof_pq_rotate(self, key: str = '') -> dict:
         """Retire the OHX-KECCAK key (65,536 one-time leaves) and draw a new
         one. Seat the new key on-chain (setPQBank / set_pq_bank) before
-        using the PQ door with it. Operator bank key off testnet."""
-        if self.network != 'testnet':
+        using the PQ door with it. Operator bank key outside a simulation."""
+        if not self.simulated:
             blocked = self._bank_gate(key, kind='proof')
             if blocked:
                 return blocked
@@ -1569,9 +1639,9 @@ class Mod:
         """Deploy near/ to a NEAR account via the orbit/near keystore, init it
         with this node's program hash, seat this node's ed25519 key as a bank
         and register the property. create=True first makes `account` as a
-        sub-account of the signer. Testnet by default; off testnet needs the
-        operator bank key."""
-        network = network or self.network
+        sub-account of the signer. NEAR testnet by default; anywhere else
+        needs the operator bank key."""
+        network = network or self._proofs().chains()['near'].get('network') or 'testnet'
         if network != 'testnet':
             blocked = self._bank_gate(key, kind='proof')
             if blocked:
@@ -1798,7 +1868,7 @@ class Mod:
             return {'error': f'Insufficient payment. Required: {cost}, Provided: {payment}'}
 
         shareholders = self._load_shareholders()
-        now = int(time.time())
+        now = self._now()
         event = {'amount': cost, 'timestamp': now}
         if buyer in shareholders:
             shareholders[buyer]['shares'] = int(shareholders[buyer].get('shares', 0)) + share_count
@@ -1873,7 +1943,7 @@ class Mod:
         self._save_shareholders(shareholders)
 
         record = {
-            'timestamp': int(time.time()),
+            'timestamp': self._now(),
             'total_amount': total_amount,
             'per_share': round(per_share, 6),
             'recipients': len(distributions),
@@ -1898,7 +1968,7 @@ class Mod:
             'status': 'recorded',
             'action': action,
             'details': details,
-            'timestamp': int(time.time()),
+            'timestamp': self._now(),
         }
 
     def transfer_authority(self, new_authority: str, caller: str = '') -> dict:
@@ -1910,7 +1980,7 @@ class Mod:
         if recorded_owner and (caller or '').strip().lower() != recorded_owner:
             return {'error': 'Only the property owner can transfer authority'}
         current['owner'] = new_authority
-        current['updated'] = int(time.time())
+        current['updated'] = self._now()
         self._save_json(self.terms_path, current)
         return {'success': True, 'terms': self.terms()}
 
@@ -1952,13 +2022,13 @@ class Mod:
             return {'error': result.stderr, 'stdout': result.stdout}
         return {'success': True, 'output': result.stdout}
 
-    def deploy(self, network='testnet', key=None, property_details='',
+    def deploy(self, network='simulation', key=None, property_details='',
                total_shares=1000, share_price=0.1, home_price=0,
                monthly_rent=0, model=None, fee_pct=None, owner=None) -> dict:
         """Deploy OpenHouse contract.
 
         Args:
-            network: testnet | mainnet
+            network: simulation | local | testnet | mainnet
             key: signing key name
             property_details: description of the property
             total_shares: total number of shares
@@ -1985,7 +2055,7 @@ class Mod:
             'share_price': str(share_price),
             'is_active': True,
             'status': 'active',
-            'deployed': int(time.time()),
+            'deployed': self._now(),
         }
         self._save_properties(props)
 
@@ -2066,11 +2136,11 @@ class Mod:
          'The bank rail: one shape for every bank, and the reconciler that '
          'books a transfer carrying a renter\'s code onto the ledger exactly once.'),
         ('examples.py', 'python',
-         'The testnet walkthroughs — each a story told in real MCP tool calls, '
+         'The walkthroughs — each a story told in real MCP tool calls, '
          'played in a throwaway store.'),
-        ('contracts/script/Testnet.s.sol', 'solidity',
-         'Deploy a property and pay a month of rent on a real chain — anvil '
-         'locally, or Base Sepolia with your own test keys.'),
+        ('contracts/script/LocalChain.s.sol', 'solidity',
+         'Deploy a property and pay a month of rent on a real EVM — a local '
+         'anvil chain by default, or any RPC with your own keys.'),
         ('api/api.py', 'python',
          'FastAPI REST surface over the module.'),
         ('api/mcp_server.py', 'python',
@@ -2275,9 +2345,12 @@ class Mod:
             peers              - Other on-chain housing projects (refresh=)
             compare            - OpenHouse against the field (refresh=)
             fx                 - ETH in fiat currencies for display (refresh=)
-            seed               - Fill the testnet store with fake example data (force=)
+            seed               - Fill the store with fake example data (force=)
             unseed             - Remove the seeded demo data
-            examples           - The testnet walkthroughs
+            simulate           - Play the deal for years through the real code (years=, home_price=,
+                                 monthly_rent=, model=, fee_pct=, renters=, apy=, rate=, skip_every=)
+            simulate_presets   - Ready-made simulation scenarios
+            examples           - The walkthroughs (stories told in tool calls)
             example            - Run one in a throwaway store, get the transcript (name=)
             bank_kinds         - Banks this node can connect to (sandbox|statement|openbanking|mcp)
             bank_status        - Connections, links, transfers booked
@@ -2420,7 +2493,7 @@ class Mod:
             'source': lambda: self.source(),
             'compile': lambda: self.compile(),
             'deploy': lambda: self.deploy(
-                network=kwargs.get('network', 'testnet'),
+                network=kwargs.get('network', 'simulation'),
                 key=kwargs.get('key'),
                 property_details=kwargs.get('property_details', ''),
                 total_shares=int(kwargs.get('total_shares', 1000)),

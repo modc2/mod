@@ -21,7 +21,8 @@ import json
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.abspath(__file__))          # src/api
+MODULE_DIR = os.path.dirname(os.path.dirname(HERE))         # the module root
 if HERE not in sys.path:
     # Appended, not prepended: this directory holds a mod.py that would shadow
     # the protocol's own `mod` package for anything importing us.
@@ -588,7 +589,7 @@ def handle(body):
 
 def version():
     try:
-        with open(os.path.join(HERE, 'config.json')) as f:
+        with open(os.path.join(MODULE_DIR, 'config.json')) as f:
             return json.load(f).get('version') or '0.0.0'
     except Exception:
         return '0.0.0'

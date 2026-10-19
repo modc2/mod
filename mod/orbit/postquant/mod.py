@@ -139,8 +139,26 @@ class Mod:
                 'data': data.decode('utf-8', 'replace')}
 
     def contract(self, action='list', **kw):
-        """Store / read smart contracts (pq_contract)."""
+        """Store / read / run smart contracts (pq_contract)."""
         return self.call('contract', action=action, **kw)
+
+    def contract_run(self, name, input='', wallet=None, anchor=True, **kw):
+        """Run a stored wasm contract OFF chain on this node, sign a pqr1
+        receipt with the wallet and anchor it at contract/<name>/receipt.
+        input= hex bytes (see `contract examples` for each example's ABI)."""
+        return self.call('contract', action='run', name=name, input=input,
+                         wallet=wallet, anchor=anchor, **kw)
+
+    def contract_verify(self, name=None, receipt=None, **kw):
+        """Re-run a receipt (the anchored latest for name=, or receipt=cid)
+        and compare: signature, replay, owner, anchor."""
+        return self.call('contract', action='verify', name=name,
+                         receipt=receipt, **kw)
+
+    def contract_examples(self):
+        """The bundled pqc1 example contracts (counter, ledger) and how to
+        drive them."""
+        return self.call('contract', action='examples')
 
     def _remote(self, route, args, url):
         import json

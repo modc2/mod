@@ -1,12 +1,12 @@
 """
-bank/sandbox.py — the testnet bank.
+bank/sandbox.py — the simulated bank.
 
 A complete little bank that lives in one JSON file: accounts with balances,
 a booked-transaction history, outbound payments that actually debit, and
 `receive()` — the button that stands in for "a renter sent a bank transfer".
 No network, no keys, no sign-up, deterministic when given dates.
 
-It is the bank every testnet example and test runs against, and the shape a
+It is the bank every walkthrough, simulation and test runs against, and the shape a
 real adapter has to match: if a flow works against the sandbox, swapping the
 connection for a statement/openbanking/remote one changes where the numbers
 come from, not what happens to them.
@@ -31,11 +31,11 @@ def _iban(seed: str) -> str:
 
 
 class Sandbox(Adapter):
-    """A local, fake bank for testnet — accounts, balances, transfers in and
+    """A local, fake bank for simulation — accounts, balances, transfers in and
     out, all in one JSON file. Nothing leaves the machine."""
 
     kind = 'sandbox'
-    label = 'Sandbox bank (testnet)'
+    label = 'Sandbox bank (simulated)'
     live = False
     caps = ('accounts', 'transactions', 'pay', 'receive')
     fields = [

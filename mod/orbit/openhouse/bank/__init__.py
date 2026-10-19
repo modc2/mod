@@ -3,13 +3,13 @@ openhouse bank — connect any bank, turn its transfers into rent.
 
     from bank import open_bank
     b = open_bank(data_dir, secrets_dir)
-    b.connect('sandbox')                      # testnet bank, local JSON
+    b.connect('sandbox')                      # simulated bank, local JSON
     b.link('0xRenter…')                       # → reference code OH-7F3A2C
     b.adapter().receive(amount=1500, reference='OH-7F3A2C rent')
     b.reconcile(record=…, to_units=…)         # books it exactly once
 
 Adapters (one file each, one shape out — see core.py):
-    sandbox      local fake bank for testnet            sandbox.py
+    sandbox      local fake bank for simulation         sandbox.py
     statement    camt.053 / MT940 / OFX / CSV in,
                  ISO 20022 pain.001 out — any bank      statements.py
     openbanking  Berlin Group PSD2 / UK OBIE APIs       openbanking.py

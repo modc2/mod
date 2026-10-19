@@ -198,7 +198,7 @@ def test_short_bank_payment_books_but_has_no_proof(oh):
     assert oh.proofs() == [], 'but a short month has no proof'
 
 
-def test_gates_off_testnet(oh):
+def test_gates_outside_simulation(oh):
     oh.network = 'mainnet'
     assert 'key=' in oh.proof_salt(MAYA)['error']
     assert 'key=' in oh.proof_issue(tenant=MAYA, amount=1)['error']

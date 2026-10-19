@@ -121,7 +121,7 @@ export interface CompareData {
   fetched: number; cached: boolean
 }
 
-/* ── testnet examples + the bank rail ───────────────────── */
+/* ── walkthroughs + the bank rail ───────────────────────── */
 
 export interface ExampleMeta { name: string; title: string; shows: string; level: string }
 
@@ -182,4 +182,49 @@ export interface ProofStatus {
   chains: { near: { network: string; account: string; explorer: string }
             eth: { network: string; address: string; url: string; chainId: string | number; explorer: string } }
   property_id: number; rent_due: number; unit: string; kinds: Record<string, string>
+}
+
+/* ── the simulation: years of the deal, played through the real code ── */
+
+export interface SimParams {
+  years: number; home_price: number; monthly_rent: number; model: string
+  fee_pct: number; credit_pct: number | null; option_fee_pct: number | null
+  renters: number; apy: number; rate: number; currency: string; bank: boolean
+  skip_every: number; proofs: number; seed: string; months: number; start: number
+}
+export interface SimMonth {
+  m: number; t: number; period: number
+  paid: number; fees: number; equity: number; owner_income: number; credit: number
+  owned_pct: number; remaining: number; yield: number
+  paid_by: string[]; skipped: string[]
+}
+export interface SimQuarter {
+  quarter: number; month: number; pool: number; total_weight_days: number
+  allocations: { who: string; address: string; kinds: string[]; share_pct: number; amount: number }[]
+}
+export interface SimEvent { month: number; kind: 'option' | 'skipped' | 'quarter' | 'owned'; says: string; who?: string; amount?: number; quarter?: number }
+export interface SimResult {
+  ok: boolean
+  params: SimParams
+  terms: { model: string; model_name: string; fee_pct: number; credit_pct: number; option_fee_pct: number
+           home_price: number; monthly_rent: number; equity_pct_of_rent: number; owner_pct_of_rent: number; to_property_pct: number }
+  cast: { who: string; name: string; address: string; reference?: string | null }[]
+  months: SimMonth[]
+  quarters: SimQuarter[]
+  events: SimEvent[]
+  end: {
+    months_run: number; owned: boolean; owned_month: number | null; owned_pct: number
+    gross_paid: number; fees: number; equity: number; owner_income: number; yield_modeled: number
+    to_property_pct: number; quarters_closed: number; fees_distributed: number; pool_accruing: number
+    proofs_issued: number; payments: number
+    renters: { who: string; name: string; address: string; payments: number; rent_paid: number; principal: number; equity_pct: number; fees_paid: number }[]
+  }
+  versus: { note: string; plain_lease: SimVersus; platform_15: SimVersus; openhouse: SimVersus }
+  bank: { transfers: number; booked: number; booked_units: number; currency: string; rate: number; balance: number } | null
+  modeled: string[]; played: string[]; store: string; elapsed_ms: number
+}
+export interface SimVersus { paid: number; equity: number; platform_take: number }
+export interface SimPreset {
+  id: string; title: string; shows: string; years: number; model: string; fee_pct: number
+  renters: number; apy: number; skip_every?: number
 }

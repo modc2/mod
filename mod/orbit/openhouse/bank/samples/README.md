@@ -1,10 +1,10 @@
-# Sample bank statements (fake, testnet)
+# Sample bank statements (fake, simulated)
 
 One month of the demo landlord's rent account in each of the four formats the
 `statement` adapter reads. All names, IBANs and amounts are fictional; the
 `OH-9B3CD4` / `OH-E0F923` memos are the reference codes of the demo renters
 Maya and Jonah (`demo.py`), so importing any of these and running
-`bank_reconcile` books their rent onto the testnet ledger.
+`bank_reconcile` books their rent onto the ledger.
 
 | file | format | typical source |
 |---|---|---|

@@ -3,13 +3,13 @@
    What a visitor needs, in order:
      1. The idea      — three cards: the bank sees, the chain sees, you hold the key.
      2. The rail      — the statement's hash, this node's bank keys, where the two
-                        verifiers live (NEAR testnet account, Ethereum address).
+                        verifiers live (a NEAR account, an Ethereum address).
      3. The receipts  — every receipt this node issued; pick one to read it,
                         verify it, open it.
      3b. Quantum      — which parts a quantum computer breaks and which it cannot;
                         the bank's post-quantum keys, leaves left, countersign
                         old receipts.
-     4. Try it        — issue a testnet receipt, paste any receipt to verify it,
+     4. Try it        — issue a simulated receipt, paste any receipt to verify it,
                         open a commitment with a tenant + salt.
      5. For builders  — the three source files and the MCP tools. */
 
@@ -21,7 +21,6 @@ import Link from 'next/link'
 import { NextUp, PageHead, Shell } from '../../components/chrome'
 import { Reveal } from '../../components/motion'
 import { ProofPQ, ProofReceipt, ProofStatus, ProofVerdict, api, timeAgo, useResource } from '../../lib/api'
-import { LAUNCH } from '../../lib/whitepaper'
 
 const short = (h?: string, n = 10) => (h ? `${h.slice(0, n)}…${h.slice(-6)}` : '—')
 const period = (p?: number) => (p ? `${String(p).slice(0, 4)}-${String(p).slice(4)}` : '—')
@@ -273,7 +272,7 @@ function ProofsInner() {
 
   return (
     <Shell>
-      <PageHead kicker={`Proofs · ${LAUNCH.chain} + NEAR testnet`} title="Prove the rent was paid. Say nothing else.">
+      <PageHead kicker="Proofs · Cairo → NEAR + Ethereum" title="Prove the rent was paid. Say nothing else.">
         The bank sees who paid. The chain only needs to know that this home, this month, was paid.
         A small Cairo program turns one into the other — and the tenant keeps the only key that connects them.
       </PageHead>
@@ -328,10 +327,10 @@ function ProofsInner() {
                   ? <a className="font-mono text-[11px] text-coral break-all" href={`${near.explorer}/address/${near.account}`} target="_blank" rel="noreferrer">{near.account}</a>
                   : <div className="text-[12px] text-white/50">not deployed yet</div>}
                 <div className="text-[12px] text-white/55 mb-3">{status.submitted.near} receipt{status.submitted.near === 1 ? '' : 's'} on-chain</div>
-                <div className="text-white font-bold text-sm">Ethereum <span className="text-white/40 font-normal">· {LAUNCH.chain} · Solidity</span></div>
+                <div className="text-white font-bold text-sm">Ethereum <span className="text-white/40 font-normal">· {eth?.network || 'local'} · Solidity</span></div>
                 {eth?.address
                   ? <a className="font-mono text-[11px] text-coral break-all" href={`${eth.explorer}/address/${eth.address}`} target="_blank" rel="noreferrer">{eth.address}</a>
-                  : <div className="text-[12px] text-white/50">not deployed on {LAUNCH.chain} yet — runs on anvil in the test suite</div>}
+                  : <div className="text-[12px] text-white/50">no public deployment — runs on a local anvil chain in the test suite</div>}
                 <div className="text-[12px] text-white/55">{status.submitted.eth} receipt{status.submitted.eth === 1 ? '' : 's'} on-chain</div>
               </div>
             </div>
@@ -350,7 +349,7 @@ function ProofsInner() {
           </p>
           {msg && <div className={`rounded-xl px-4 py-3 text-sm mb-4 border ${msg.ok ? 'text-emerald-300 border-emerald-500/30' : 'text-pink border-pink/40'}`}>{msg.text}</div>}
           {receipts.length === 0 ? (
-            <div className="glass rounded-2xl p-6 text-sm text-white/60">No receipts yet. Issue one below — it&apos;s testnet.</div>
+            <div className="glass rounded-2xl p-6 text-sm text-white/60">No receipts yet. Issue one below — it&apos;s simulated.</div>
           ) : (
             <div className="grid gap-6 lg:grid-cols-[18rem_1fr]">
               <ul className="space-y-2 lg:max-h-[36rem] lg:overflow-y-auto">
@@ -404,7 +403,7 @@ function ProofsInner() {
               <input className={INPUT} value={who} onChange={e => setWho(e.target.value)} placeholder="tenant" />
               <div className="flex gap-2">
                 <input className={INPUT} value={salt} onChange={e => setSalt(e.target.value)} placeholder="salt (0x…)" />
-                <button className={GHOST} onClick={getSalt} disabled={!!busy || !who.trim()} title="testnet: the bank hands it out on request">{busy === 'salt' ? '…' : 'Get salt'}</button>
+                <button className={GHOST} onClick={getSalt} disabled={!!busy || !who.trim()} title="in simulation the bank hands it out on request">{busy === 'salt' ? '…' : 'Get salt'}</button>
               </div>
               <button className={BTN} onClick={open} disabled={!!busy || !who.trim() || !salt.trim() || !current}>{busy === 'open' ? 'Opening…' : `Open ${current ? period(current.period) : ''}`}</button>
               {opened && (
@@ -439,8 +438,8 @@ openhouse_proof_submit     chain = near | eth · door = classical | pq
 openhouse_proof_pq         keys · leaves left · threat model
 openhouse_proof_pq_upgrade countersign old receipts
 openhouse_bank_reconcile   issue_proofs = true`}</pre>
-              <p className="text-[12px] text-white/50 mt-3">Issuing is open on testnet and needs the operator bank key anywhere else. Receipts carry no tenant data, so reading them is always public.</p>
-              <Link href="/testnet" className="inline-block mt-4 text-[11px] font-bold uppercase tracking-widest text-coral hover:underline">Run the “Prove the rent was paid” walkthrough →</Link>
+              <p className="text-[12px] text-white/50 mt-3">Issuing is open in simulation and needs the operator bank key anywhere else. Receipts carry no tenant data, so reading them is always public.</p>
+              <Link href="/simulator#stories" className="inline-block mt-4 text-[11px] font-bold uppercase tracking-widest text-coral hover:underline">Run the “Prove the rent was paid” walkthrough →</Link>
             </div>
           </div>
         </section>

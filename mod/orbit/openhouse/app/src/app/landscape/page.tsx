@@ -194,7 +194,7 @@ function LandscapeInner() {
                   <div className="glass rounded-3xl p-7 h-full">
                     <div className="text-white/68 text-[11px] font-bold uppercase tracking-[0.25em] mb-2">Where they're ahead of us</div>
                     <p className="text-white/58 text-xs leading-relaxed mb-5">
-                      A better model on testnet loses to a worse model with a deed. Here's the honest gap.
+                      A better model in simulation loses to a worse model with a deed. Here's the honest gap.
                     </p>
                     <ul className="space-y-3">
                       {data.behind.map(b => (

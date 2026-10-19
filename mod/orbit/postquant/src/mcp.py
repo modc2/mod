@@ -1945,7 +1945,9 @@ def _vault_err(fn):
 
 
 def _live_anchors():
-    """cid -> [keys] for every unexpired hash entry: what keeps a blob."""
+    """cid -> [keys] for every unexpired hash entry: what keeps a blob.
+    A live RECEIPT keeps everything it points at (code, states, the receipt
+    before it, and so on back) — an anchored run must stay replayable."""
     n = node()
     now = int(time.time())
     out = {}
@@ -1953,6 +1955,25 @@ def _live_anchors():
         e = n.state.entry(key, now)
         if e and not e['expired'] and e.get('value_kind') == 'hash':
             out.setdefault(e['value'], []).append(key)
+    import vault as V
+    st = _vault_store()
+    todo = [c for c in list(out) if (st.meta(c) or {}).get('kind') == 'receipt']
+    seen = set()
+    while todo:
+        cid = todo.pop()
+        if cid in seen:
+            continue
+        seen.add(cid)
+        try:
+            over = json.loads(st.get(cid).decode())['over']
+        except (V.VaultError, ValueError, KeyError, TypeError):
+            continue
+        for ref in (over.get('code'), over.get('state_in'),
+                    over.get('state_out'), over.get('prev')):
+            if ref:
+                out.setdefault(ref, []).append('receipt:' + cid[:16])
+                if (st.meta(ref) or {}).get('kind') == 'receipt':
+                    todo.append(ref)
     return out
 
 
@@ -2079,6 +2100,7 @@ def _contract_names():
 @_vault_err
 def _t_contract(a):
     import base64
+    import contracts as C
     import vault as V
     st = _vault_store()
     action = a.get('action') or 'info'
@@ -2105,7 +2127,10 @@ def _t_contract(a):
             raise StateError('deploy needs name= (no slashes)',
                              code='missing_arg')
         lang = a.get('lang') or 'source'
-        if a.get('file'):
+        if a.get('example'):
+            code = C.example_blob(a['example'])
+            lang = 'wasm'
+        elif a.get('file'):
             code = _local_bytes(a['file'])
         elif a.get('code_b64'):
             code = _unb64(a['code_b64'], 'code_b64')
@@ -2116,6 +2141,8 @@ def _t_contract(a):
                              code='missing_arg')
         live = _live_anchors()
         out = st.put(code, kind='code', lang=lang, live=live)
+        if lang == 'wasm':
+            out['pqc1'] = C.inspect(code)
         out['anchor'] = _anchor(a, 'contract/' + name, out['cid'])
         out['key'] = 'contract/' + name
         return out
@@ -2143,6 +2170,11 @@ def _t_contract(a):
         out['verified'] = V.cid_of(code) == cid
         if meta.get('lang') == 'wasm':
             out['code_b64'] = base64.b64encode(code).decode()
+            out['pqc1'] = C.inspect(code)
+            rcid, r = _latest_receipt(key[9:], st)
+            out['receipt'] = rcid
+            out['runs'] = (r['over']['n'] + 1) if r else 0
+            out['state'] = r['over']['state_out'] if r else None
         else:
             out['code'] = code.decode('utf-8', 'replace')
         proof = node().state.proof(key)
@@ -2152,8 +2184,228 @@ def _t_contract(a):
         return out
     if action == 'list':
         return {'contracts': _contract_names()}
+    if action == 'examples':
+        return {'abi': C.ABI,
+                'abi_spec': 'exports memory, pq_reset(), pq_alloc(n)->ptr, '
+                            'pqc_run(state,state_len,input,input_len,out,'
+                            'out_cap)->i32 = next-state length, <0 = revert; '
+                            'NO imports',
+                'receipt': 'pqr1 — {over:{v,chain_id,contract,abi,code,n,'
+                           'prev,state_in,input,input_sha3,state_out,'
+                           'out_bytes,ret,reverted,out_cap,ts}, by, scheme, '
+                           'pk, sig} '
+                           'signed under ' + C.RECEIPT_CTX.decode(),
+                'examples': C.examples(),
+                'flow': ['pq_contract action=deploy example=counter '
+                         'name=counter wallet=<w> days=30',
+                         'pq_contract action=run name=counter input=00 '
+                         'wallet=<w>',
+                         'pq_contract action=verify name=counter',
+                         'pq_contract action=receipts name=counter',
+                         'pq_contract action=state name=counter']}
+    if action in ('run', 'verify', 'receipts', 'state'):
+        return _contract_exec(a, action, st)
     raise StateError(f'unknown contract action {action!r} — info, deploy, '
-                     'show, list', code='bad_action')
+                     'show, list, run, verify, receipts, state, examples',
+                     code='bad_action')
+
+
+def _receipt_key(name):
+    return 'contract/' + name + '/receipt'
+
+
+def _latest_receipt(name, st):
+    """(cid, receipt dict|None) anchored at contract/<name>/receipt."""
+    import contracts as C
+    import vault as V
+    e = node().state.entry(_receipt_key(name), int(time.time()))
+    if e is None or e['expired']:
+        return None, None
+    cid = e['value']
+    try:
+        return cid, C.parse_receipt(st.get(cid))
+    except (V.VaultError, StateError):
+        return cid, None
+
+
+def _contract_exec(a, action, st):
+    import contracts as C
+    import vault as V
+    name = (a.get('name') or '').strip()
+    if name.startswith('contract/'):
+        name = name[9:]
+    if action == 'verify' and a.get('receipt'):
+        name = None
+    elif not name:
+        raise StateError(f'{action} needs name=', code='missing_arg')
+    n = node()
+    now = int(time.time())
+    anchor = n.state.entry('contract/' + name, now) if name else None
+    if name and anchor is None:
+        raise StateError(f'no contract at contract/{name}', code='no_entry',
+                         status=404)
+
+    if action == 'run':
+        w = _wallet(a.get('wallet'))
+        if anchor['expired']:
+            raise StateError(f'contract/{name} has expired — re-deploy it',
+                             code='expired')
+        if w['address'] != anchor['owner']:
+            raise StateError(f'contract/{name} is owned by {anchor["owner"]}; '
+                             f'only the owner may run and anchor it (wallet '
+                             f'{w["name"]} is {w["address"]})',
+                             code='not_owner', status=403)
+        code_cid = anchor['value']
+        if not st.has(code_cid):
+            raise StateError('this node does not hold the code blob — '
+                             'fetch it from any node by cid', code='no_blob',
+                             status=404)
+        info = C.inspect(st.get(code_cid))
+        if not info['abi']:
+            raise StateError(f'contract/{name} is not a pqc1 wasm contract: '
+                             f'{info["reason"]}', code='bad_code')
+        prev_cid, prev = _latest_receipt(name, st)
+        rk = n.state.entry(_receipt_key(name), now)
+        if rk and not rk['expired'] and rk['owner'] != w['address']:
+            raise StateError(f'{_receipt_key(name)} is held by {rk["owner"]} '
+                             '— the receipt key must belong to the contract '
+                             'owner', code='key_taken', status=409)
+        if prev_cid and prev is None:
+            raise StateError(f'the anchored receipt {prev_cid[:16]}… is not '
+                             'on this node — fetch it by cid before running '
+                             'on top of it', code='no_blob', status=404)
+        if a.get('state_b64') is not None:
+            state_in = _unb64(a['state_b64'], 'state_b64')
+        elif prev:
+            so = prev['over']['state_out']
+            state_in = b'' if so == C.cid_of(b'') else st.get(so)
+        else:
+            state_in = b''
+        inp = _unb64(a['input_b64'], 'input_b64') if a.get('input_b64')             else _hexbytes(a.get('input') or '', 'input')
+        res = C.execute(st._p(code_cid), code_cid, state_in, inp)
+        seq = (prev['over']['n'] + 1) if prev else 0
+        receipt = C.make_receipt(
+            w, chain_id=n.chain_id, contract=name, code_cid=code_cid,
+            n=seq, prev=prev_cid, state_in=state_in, inp=inp, result=res)
+        blob = C.receipt_blob(receipt)
+        live = _live_anchors()
+        if state_in:
+            st.put(state_in, kind='state', live=live)
+        if not res['reverted'] and res['out']:
+            st.put(res['out'], kind='state', live=live)
+        listing = st.put(blob, kind='receipt', live=live)
+        out = {'contract': name, 'code': code_cid, 'receipt': listing['cid'],
+               'n': seq, 'prev': prev_cid, 'ret': res['ret'],
+               'reverted': res['reverted'], 'trap': res['trap'],
+               'ms': res['ms'], 'state_in': receipt['over']['state_in'],
+               'state_out': receipt['over']['state_out'],
+               'state_out_hex': (res['out'] if not res['reverted']
+                                 else state_in).hex(),
+               'out_bytes': receipt['over']['out_bytes'],
+               'signed_by': w['address'], 'scheme': w['scheme'],
+               'receipt_blob': receipt}
+        if a.get('anchor', True) in (False, 'false', '0', 0, 'no'):
+            out['anchored'] = False
+            out['note'] = 'not anchored — the receipt is signed and stored '                           'but the chain does not point at it'
+            return out
+        out['anchor'] = _anchor(a, _receipt_key(name), listing['cid'])
+        out['anchored'] = not a.get('dry_run')
+        out['key'] = _receipt_key(name)
+        return out
+
+    if action == 'state':
+        cid, r = _latest_receipt(name, st)
+        out = {'contract': name, 'receipt': cid, 'n': None, 'state': None,
+               'state_hex': None}
+        if r is None:
+            out['note'] = 'no receipt anchored' if cid is None else                 'anchored receipt not held on this node'
+            return out
+        so = r['over']['state_out']
+        out.update(n=r['over']['n'], state=so)
+        try:
+            b = b'' if so == C.cid_of(b'') else st.get(so)
+            out['state_hex'] = b.hex()
+            out['bytes'] = len(b)
+        except V.VaultError:
+            out['note'] = 'state blob not held on this node'
+        return out
+
+    if action == 'receipts':
+        cid, r = _latest_receipt(name, st)
+        chain = []
+        limit = int(a.get('limit') or 50)
+        while cid and len(chain) < limit:
+            if r is None:
+                chain.append({'receipt': cid, 'missing': True})
+                break
+            o = r['over']
+            chain.append({'receipt': cid, 'n': o['n'], 'input': o['input'],
+                          'ret': o['ret'], 'reverted': o['reverted'],
+                          'state_in': o['state_in'], 'state_out': o['state_out'],
+                          'code': o['code'], 'by': r['by'], 'ts': o['ts']})
+            cid = o['prev']
+            if cid:
+                try:
+                    r = C.parse_receipt(st.get(cid))
+                except (V.VaultError, StateError):
+                    r = None
+        return {'contract': name, 'key': _receipt_key(name),
+                'owner': anchor['owner'], 'receipts': chain,
+                'latest_first': True}
+
+    # verify
+    if a.get('receipt'):
+        cid = str(a['receipt']).strip()
+        try:
+            r = C.parse_receipt(st.get(cid))
+        except V.VaultError as e:
+            raise StateError(str(e), code='no_blob', status=404) from None
+        name = r['over']['contract']
+        anchor = n.state.entry('contract/' + name, now)
+    else:
+        cid, r = _latest_receipt(name, st)
+        if cid is None:
+            raise StateError(f'nothing anchored at {_receipt_key(name)}',
+                             code='no_entry', status=404)
+        if r is None:
+            raise StateError(f'receipt {cid[:16]}… is not held on this node',
+                             code='no_blob', status=404)
+    sig = C.check_signature(r)
+    rep = C.replay(r, st)
+    rk = n.state.entry(_receipt_key(name), now)
+    checks = {
+        'signature': sig['sig_valid'],
+        'replays': rep.get('matches'),
+        'chain_id': r['over']['chain_id'] == n.chain_id,
+        'signer_is_owner': bool(anchor) and anchor['owner'] == r['by'],
+        'anchored_latest': bool(rk) and not rk['expired']
+        and rk['value'] == cid,
+        'anchor_owner_is_owner': bool(rk and anchor)
+        and rk['owner'] == anchor['owner'],
+        'code_is_current': bool(anchor) and anchor['value'] == r['over']['code'],
+    }
+    hard = ('signature', 'replays', 'chain_id', 'signer_is_owner')
+    valid = all(checks[k] is True for k in hard)
+    return {'receipt': cid, 'contract': name, 'n': r['over']['n'],
+            'valid': valid, 'checks': checks, 'signature': sig,
+            'replay': rep,
+            'means': ('this run really happened: the owner signed it and '
+                      're-executing the code on the same state and input '
+                      'reproduces it byte for byte' if valid else
+                      'do not trust this receipt'),
+            'soft': 'anchored_latest / anchor_owner_is_owner / '
+                    'code_is_current describe the chain NOW; an old receipt '
+                    'in the chain is still valid when they are false'}
+
+
+def _hexbytes(s, what):
+    s = str(s).strip().replace(' ', '')
+    if s.startswith('0x'):
+        s = s[2:]
+    try:
+        return bytes.fromhex(s)
+    except ValueError:
+        raise StateError(f'{what} must be hex bytes', code='bad_args')             from None
 
 
 TOOLS.update({
@@ -2182,30 +2434,56 @@ TOOLS.update({
         'handler': _t_vault,
     },
     'pq_contract': {
-        'description': 'Store smart contracts: code (wasm, sierra, cairo or '
-                       'any source) goes into the vault PUBLIC and '
+        'description': 'Store AND run smart contracts. Code (wasm, sierra, '
+                       'cairo or any source) goes into the vault PUBLIC and '
                        'content-addressed, and the chain key '
                        'contract/<name> commits to SHA3-256(code) — owned, '
                        'rented and sellable like any key; rewriting it is an '
                        'upgrade with the old versions in the block log. '
-                       'Execution is off consensus and re-runnable by '
-                       'anyone. action=info | deploy (name, code|code_b64|'
-                       'file, lang, wallet, days) | show (name -> code, '
-                       'hash check, Merkle proof) | list.',
+                       'Execution is OFF chain with on-chain proof: a wasm '
+                       'contract exporting the pqc1 ABI (importless pure '
+                       'state transition pqc_run(state,input)->state) is run '
+                       'on this node by its owner, who signs a pqr1 receipt '
+                       '{code, state_in, input, state_out} with their '
+                       'post-quantum wallet; the receipt is anchored at '
+                       'contract/<name>/receipt and ANYONE verifies it by '
+                       'fetching the blobs by hash and re-running. '
+                       'action=info | examples (bundled counter + ledger) | '
+                       'deploy (name, code|code_b64|file|example, lang, '
+                       'wallet, days) | show | list | run (name, input hex, '
+                       'wallet, anchor) | verify (name or receipt cid) | '
+                       'receipts (name -> the run log) | state (name -> '
+                       'current state bytes).',
         'inputSchema': {'type': 'object', 'properties': {
-            'action': _str('info | deploy | show | list (default info)',
-                           enum=['info', 'deploy', 'show', 'list']),
-            'name': _str('deploy/show: contract name (key contract/<name>)'),
+            'action': _str('info | examples | deploy | show | list | run | '
+                           'verify | receipts | state (default info)',
+                           enum=['info', 'examples', 'deploy', 'show', 'list',
+                                 'run', 'verify', 'receipts', 'state']),
+            'name': _str('contract name (key contract/<name>)'),
+            'example': _str('deploy: bundled example to deploy instead of '
+                            'code — counter | ledger'),
+            'input': _str('run: input bytes as hex (the contract\'s own '
+                          'encoding; see examples)'),
+            'input_b64': _str('run: input bytes as base64'),
+            'state_b64': _str('run: override the input state (default: the '
+                              'anchored latest receipt\'s state_out, or '
+                              'empty)'),
+            'anchor': _bool('run: write contract/<name>/receipt (default '
+                            'true; false = sign + store only)'),
+            'receipt': _str('verify: receipt cid (default: the anchored '
+                            'latest for name=)'),
+            'limit': _str('receipts: how many back from the latest (50)'),
             'lang': _str('deploy: wasm | sierra | cairo | source (default '
                          'source)', enum=['wasm', 'sierra', 'cairo',
                                           'source']),
             'code': _str('deploy: code as text'),
             'code_b64': _str('deploy: code as base64 (wasm)'),
             'file': _str('deploy: local path (local callers only)'),
-            'wallet': _str('deploy: wallet that signs the anchor'),
-            'days': _str('deploy: anchor lease in days'),
-            'hours': _str('deploy: anchor lease in hours'),
-            'dry_run': _bool('deploy: quote the anchor without signing'),
+            'wallet': _str('deploy/run: wallet that signs the anchor / '
+                           'the receipt (must own contract/<name> to run)'),
+            'days': _str('deploy/run: anchor lease in days'),
+            'hours': _str('deploy/run: anchor lease in hours'),
+            'dry_run': _bool('deploy/run: quote the anchor without signing'),
         }},
         'handler': _t_contract,
     },

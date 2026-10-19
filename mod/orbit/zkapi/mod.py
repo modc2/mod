@@ -178,6 +178,9 @@ class Mod:
         return {"ok": ok and all(self.info()["built"].values()), "steps": steps, **self.info()}
 
     def serve(self, port: int | None = None) -> dict:
+        # `m serve zkapi` passes the module name as the first positional argument; only a real
+        # integer is a port override, anything else means the configured one.
+        port = int(port) if isinstance(port, int) or (isinstance(port, str) and port.isdigit()) else None
         if (pid := _pid()) is not None:
             return {"running": True, "pid": pid, "port": self.port}
         if not paths.bin_path("zkapi-wallet").exists():
@@ -437,8 +440,11 @@ if __name__ == "__main__":
     if "--serve" in sys.argv:
         from zkstack.server import run
 
+        # `m serve zkapi` (the build START button) runs the anchor as `mod.py --serve zkapi`; only a
+        # numeric argument is a port, anything else falls back to the configured one.
         i = sys.argv.index("--serve")
-        port = int(sys.argv[i + 1]) if len(sys.argv) > i + 1 else _config().get("port", 51420)
+        nxt = sys.argv[i + 1] if len(sys.argv) > i + 1 else ""
+        port = int(nxt) if nxt.isdigit() else int(_config().get("port", 51420))
         run(port)
     else:
         print(json.dumps(Mod().info(), indent=2))

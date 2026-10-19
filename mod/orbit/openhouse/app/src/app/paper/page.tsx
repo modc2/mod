@@ -6,7 +6,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { NextUp, Shell } from '../../components/chrome'
-import { SECTIONS, ABSTRACT, TOKENOMICS, ROADMAP, LAUNCH } from '../../lib/whitepaper'
+import { SECTIONS, ABSTRACT, TOKENOMICS, ROADMAP, STAGE } from '../../lib/whitepaper'
 import { PaperRail } from './chrome'
 
 export const metadata: Metadata = {
@@ -25,7 +25,7 @@ export default function PaperIndex() {
           <h1 className="headline text-6xl md:text-8xl text-white leading-[0.85]">RENT<br /><span className="text-surf-grad">→ OWN</span></h1>
           <p className="font-serif-ed text-xl md:text-2xl text-white/72 max-w-2xl mt-8 leading-snug border-l-2 border-coral/40 pl-6">{ABSTRACT}</p>
           <p className="text-white/50 text-xs mt-6">
-            Six sections · one page each · {LAUNCH.short.toLowerCase()}
+            Six sections · one page each · {STAGE.short.toLowerCase()}
           </p>
         </header>
 
@@ -65,8 +65,7 @@ export default function PaperIndex() {
         <section className="mt-20">
           <h2 className="headline text-3xl text-white mb-3 text-center">The road to a city you can own</h2>
           <p className="text-white/60 text-sm text-center max-w-lg mx-auto mb-10">
-            Where we actually are today: {LAUNCH.stage.toLowerCase()} on {LAUNCH.chain}.
-            Mainnet launch date — {LAUNCH.date.toLowerCase()}.
+            Where we actually are today: a simulation you can run end to end. A real home needs an audit first.
           </p>
           <div className="space-y-3">
             {ROADMAP.map((r, i) => (
@@ -86,7 +85,7 @@ export default function PaperIndex() {
 
         <div className="text-center mt-20">
           <Link href="/invest" className="btn-shine inline-block px-9 py-4 rounded-full bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-coral/40 transition-shadow">
-            Try it on testnet →
+            Run the simulation →
           </Link>
         </div>
       </div>

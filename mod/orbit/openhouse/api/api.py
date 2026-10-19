@@ -76,7 +76,7 @@ class TransferAuthorityRequest(BaseModel):
     caller: Optional[str] = None
 
 class DeployRequest(BaseModel):
-    network: str = "testnet"
+    network: str = "simulation"
     key: Optional[str] = None
     property_details: str = ""
     total_shares: int = 1000
@@ -253,9 +253,59 @@ def civic_resign(req: CivicResignRequest):
     return result
 
 
-# ── Testnet examples ────────────────────────────────────────────
+# ── Simulation ──────────────────────────────────────────────────
+# Years of the protocol through the real code in a throwaway store with its
+# own clock. GET takes the knobs as query params, POST as a body; both are
+# read-only as far as the live store is concerned.
+
+class SimulateRequest(BaseModel):
+    years: int = 10
+    home_price: float = 120.0
+    monthly_rent: float = 0.62
+    model: str = "full_credit"
+    fee_pct: float = 2.5
+    credit_pct: Optional[float] = None
+    option_fee_pct: Optional[float] = None
+    renters: int = 1
+    apy: float = 5.0
+    rate: float = 2500.0
+    currency: str = "USD"
+    bank: bool = True
+    skip_every: int = 0
+    proofs: int = 0
+    seed: str = "openhouse"
+    start: Optional[int] = None
+
+def _sim_out(result):
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.get("/simulate/presets")
+def simulate_presets():
+    return get_openhouse().simulate_presets()
+
+@app.get("/simulate")
+def simulate_get(years: int = 10, home_price: float = 120.0, monthly_rent: float = 0.62,
+                 model: str = "full_credit", fee_pct: float = 2.5,
+                 credit_pct: Optional[float] = None, option_fee_pct: Optional[float] = None,
+                 renters: int = 1, apy: float = 5.0, rate: float = 2500.0, currency: str = "USD",
+                 bank: bool = True, skip_every: int = 0, proofs: int = 0, seed: str = "openhouse",
+                 start: Optional[int] = None):
+    return _sim_out(get_openhouse().simulate(
+        years=years, home_price=home_price, monthly_rent=monthly_rent, model=model,
+        fee_pct=fee_pct, credit_pct=credit_pct, option_fee_pct=option_fee_pct, renters=renters,
+        apy=apy, rate=rate, currency=currency, bank=bank, skip_every=skip_every, proofs=proofs,
+        seed=seed, start=start))
+
+@app.post("/simulate")
+def simulate_post(req: SimulateRequest):
+    return _sim_out(get_openhouse().simulate(**req.model_dump()))
+
+
+# ── Walkthroughs ────────────────────────────────────────────────
 # Guided walkthroughs, each played in a throwaway store — running one never
-# touches the live testnet data, so GET is honest about it.
+# touches the live data, so GET is honest about it.
 
 @app.get("/examples")
 def examples():
@@ -270,7 +320,7 @@ def example(name: str):
 
 
 # ── The bank rail ───────────────────────────────────────────────
-# Any bank: sandbox (testnet, open) · statement files · Open Banking · a
+# Any bank: sandbox (simulated, open) · statement files · Open Banking · a
 # bank's own MCP server. Real banks need the operator bank key, passed as
 # the X-Bank-Key header or `key` in the body/query. Errors are 4xx, never
 # 5xx (Cloudflare strips 5xx bodies).
@@ -540,8 +590,8 @@ def toggle_active(req: ToggleActiveRequest = ToggleActiveRequest()):
 # ── Proofs — proof of rent paid, without the tenant ─────────────
 # The bank runs the Cairo statement over the private payment and signs the
 # fact; NEAR (near/) and Ethereum (contracts/OpenHouseProofs.sol) verify it.
-# Receipts carry no tenant data. Testnet: issuing is open; off testnet it
-# needs the operator bank key.
+# Receipts carry no tenant data. In a simulation issuing is open; anywhere
+# else it needs the operator bank key.
 
 class ProofIssueRequest(BaseModel):
     tenant: str

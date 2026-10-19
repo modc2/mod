@@ -29,9 +29,30 @@ export type IconName =
   | "info"
   | "dot"
   | "reload"
-  | "app";
+  | "app"
+  | "send"
+  | "spark"
+  | "wallet"
+  | "copy";
 
 const PATHS: Record<IconName, React.ReactNode> = {
+  send: <path d="M4 12l16-8-6 16-2.5-6.5L4 12z" />,
+  spark: (
+    <path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9L12 3zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16z" />
+  ),
+  wallet: (
+    <>
+      <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3" />
+      <rect x="4" y="8" width="16" height="11" rx="2.5" />
+      <circle cx="16" cy="13.5" r="1" fill="currentColor" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="8.5" y="8.5" width="11" height="11" rx="2.2" />
+      <path d="M15.5 8.5V6.7a2.2 2.2 0 0 0-2.2-2.2H6.7a2.2 2.2 0 0 0-2.2 2.2v6.6a2.2 2.2 0 0 0 2.2 2.2h1.8" />
+    </>
+  ),
   search: (
     <>
       <circle cx="11" cy="11" r="6.5" />

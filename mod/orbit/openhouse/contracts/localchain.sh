@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Deploy OpenHouse and pay one month of rent on a real chain.
 #
-#   ./testnet.sh                      local anvil chain, zero setup (default)
-#   RPC_URL=https://sepolia.base.org OWNER_KEY=0x… BANK_KEY=0x… RENTER_KEY=0x… ./testnet.sh
-#                                     Base Sepolia — needs testnet ETH on OWNER and RENTER
+#   ./localchain.sh                   local anvil chain, zero setup (default)
+#   RPC_URL=http://… OWNER_KEY=0x… BANK_KEY=0x… RENTER_KEY=0x… ./localchain.sh
+#                                     any other EVM RPC — needs gas on OWNER and RENTER
 #
 # Keys are read from the environment only. Local mode starts its own anvil
 # on ANVIL_PORT (default 8547) and stops exactly that process when done.
@@ -25,5 +25,5 @@ else
   echo "remote chain: $RPC_URL (chain $(cast chain-id --rpc-url "$RPC_URL"))"
 fi
 
-forge script script/Testnet.s.sol:Testnet --rpc-url "$RPC_URL" --broadcast --slow 2>&1 \
+forge script script/LocalChain.s.sol:LocalChain --rpc-url "$RPC_URL" --broadcast --slow 2>&1 \
   | grep -E "house|tokens|principalUsd18|equityPpm|feePoolUsd18|ONCHAIN EXECUTION|Error|error|revert" || true

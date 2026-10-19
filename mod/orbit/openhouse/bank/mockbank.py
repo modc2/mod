@@ -126,7 +126,7 @@ def app(bank: MockBank = None):
 
     @api.post('/credit')
     def credit(amount: float, name: str = '', iban: str = '', reference: str = ''):
-        """Fake an incoming transfer (testnet only)."""
+        """Fake an incoming transfer (simulation only)."""
         return bank.credit(amount, name, iban, reference)
 
     return api

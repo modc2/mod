@@ -15,7 +15,7 @@ two powers over the OpenHouse properties in its jurisdiction:
   OVERRIDE Issue a civic pause (freeze payments) or a civic hold (block a
            foreclosure) from this server. On mainnet these are signed
            transactions to OpenHouseTrust.civicSetPaused / setCivicHold from
-           the key registered in CivicRegistry.sol; on this testnet
+           the key registered in CivicRegistry.sol; on this simulated
            deployment they are pushed to the property node's API and
            recorded as bookkeeping on both sides.
 

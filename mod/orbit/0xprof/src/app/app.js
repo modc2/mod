@@ -51,6 +51,18 @@ function toast(message, bad = false) {
   toast.timer = setTimeout(() => { node.className = 'toast'; }, 4200);
 }
 
+// A yes/no question in the page's own dialog — never the browser's confirm().
+function ask(text, { title = 'Are you sure?', ok = 'Yes' } = {}) {
+  const dlg = $('#askDlg');
+  $('#askTitle').textContent = title;
+  $('#askText').textContent = text;
+  $('#askOk').textContent = ok;
+  return new Promise((resolve) => {
+    dlg.onclose = () => resolve(dlg.returnValue === 'ok');
+    dlg.showModal();
+  });
+}
+
 const escape = (text) => String(text ?? '').replace(/[&<>"]/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const short = (text, n = 10) => (text || '').slice(0, n);
@@ -92,7 +104,7 @@ function summaryBlock(result) {
   return `<div class="summary">
     <span class="status ${result.status}">${result.status}</span>
     <b> ${escape(result.why || '')}</b>
-    ${result.contested ? '<div class="hint" style="color:var(--error)">contested — somebody\'s own verifier disagrees with this box</div>' : ''}
+    ${result.contested ? '<div class="hint contested">contested — somebody\'s own verifier disagrees with this box</div>' : ''}
     ${extra}
   </div>`;
 }
@@ -110,8 +122,9 @@ function renderVerdicts(target, result) {
 // arithmetic, "0x89bc… re-ran it an hour ago" is a claim about a person, and a
 // reader is entitled to weigh them separately.
 
-const KIND_GLYPH = { published: '⊕', republished: '⊕', rechecked: '✎',
-                     witnessed: '👁', 'refund check': '↺' };
+const KIND_GLYPH = { published: 'PUB', republished: 'PUB', rechecked: 'RUN',
+                     witnessed: 'EYE', 'refund check': 'REF' };
+const glyph = (kind) => `<i>${KIND_GLYPH[kind] || '·'}</i>`;
 const KIND_WORD = {
   published: 'published it — that first run is what the listing was built from',
   republished: 'published the same bytes again, which ran the methods again',
@@ -122,7 +135,7 @@ const KIND_WORD = {
 
 function verifierChip(person) {
   const kinds = person.kinds || [];
-  const glyphs = kinds.map((k) => KIND_GLYPH[k] || '·').join('');
+  const glyphs = [...new Set(kinds.map((k) => KIND_GLYPH[k] || '·'))].map((g) => `<i>${g}</i>`).join('');
   const words = kinds.map((k) => KIND_WORD[k] || k).join('; ');
   const signed = person.signed ? ` · ${person.signed} signed` : ' · unsigned';
   return `<span class="chip${person.contested ? ' contested' : ''}${person.signed ? ' signed' : ''}"
@@ -146,7 +159,7 @@ function verifierRow(proof) {
 function checkRow(entry) {
   const ran = (entry.methods || []).join(', ');
   return `<div class="check-entry${entry.saw === 'invalid' ? ' bad' : ''}">
-    <span class="g">${KIND_GLYPH[entry.kind] || '·'}</span>
+    <span class="g">${glyph(entry.kind)}</span>
     <span class="addr">${escape(short(entry.by, 16))}</span>
     <span class="k">${escape(entry.kind)}</span>
     <span class="d">${escape(ran || '—')} → ${escape(entry.saw || entry.status || '')}</span>
@@ -168,21 +181,28 @@ function proofCard(proof) {
     ? `<span class="price">${proof.price} credits</span>`
     : '<span class="free">free</span>';
   return `<div class="card" data-id="${proof.id}">
-    <h4>${escape(proof.title)}</h4>
-    <div class="meta">${escape(proof.system)} · ${proof.zero_knowledge ? 'zero-knowledge' : 'not zero-knowledge'} · ${escape(short(proof.id, 16))}</div>
-    ${proof.description ? `<div class="desc">${escape(proof.description)}</div>` : ''}
-    <div class="row" style="margin:8px 0 0">
+    <div class="head">
+      <h4>${escape(proof.title)}</h4>
       <span class="status ${proof.status}">${proof.status}</span>
-      <span class="pips">${pips}</span>
+    </div>
+    <div class="meta">
+      <span class="tagchip">${escape(proof.system)}</span>
+      <span class="tagchip ${proof.zero_knowledge ? 'zk' : 'nzk'}">${proof.zero_knowledge ? 'zero-knowledge' : 'not zero-knowledge'}</span>
+      <span class="tagchip id" title="${escape(proof.id)}">${escape(short(proof.id, 12))}</span>
       ${price}
     </div>
-    <div class="hint" style="margin-top:6px">${escape(proof.why || '')}</div>
+    ${proof.description ? `<div class="desc">${escape(proof.description)}</div>` : ''}
+    <div class="verdict-strip">
+      <span class="pips">${pips}</span>
+      <span class="hint">${(proof.methods || []).filter((m) => m.status === 'valid').length} of ${(proof.methods || []).length} verifiers say valid</span>
+      <span class="why">${escape(proof.why || '')}</span>
+    </div>
     ${verifierRow(proof)}
     <footer>
-      <button class="ghost" data-act="open" data-id="${proof.id}">open</button>
-      <button class="ghost" data-act="recheck" data-id="${proof.id}">sign &amp; re-verify</button>
-      <button class="ghost" data-act="browser" data-id="${proof.id}">check in my browser</button>
-      ${proof.price > 0 ? `<button data-act="buy" data-id="${proof.id}">buy</button>` : ''}
+      <button class="ghost" data-act="open" data-id="${proof.id}">Details</button>
+      <button class="ghost" data-act="recheck" data-id="${proof.id}">Sign &amp; re-verify</button>
+      <button class="ghost" data-act="browser" data-id="${proof.id}">Check in my browser</button>
+      ${proof.price > 0 ? `<button data-act="buy" data-id="${proof.id}">Buy for ${proof.price}</button>` : ''}
     </footer>
     <div class="detail" id="detail-${proof.id}"></div>
   </div>`;
@@ -213,13 +233,15 @@ async function loadMarket() {
   // The stats read off /status, which counts the whole market — so when a
   // filter is on, say how many of that total the list below is showing.
   const filtered = proofs.length !== status.market.proofs;
+  const tone = { verified: 'good', invalid: 'bad', disputed: 'warn' };
   $('#marketStats').innerHTML = [
-    `<span><b>${status.market.proofs}</b> proofs${filtered ? ` <span class="hint">(${proofs.length} shown)</span>` : ''}</span>`,
-    ...Object.entries(counts).map(([k, v]) => `<span><b>${v}</b> ${k}</span>`),
-    `<span><b>${status.market.for_sale}</b> for sale</span>`,
-    `<span><b>${status.market.volume}</b> credits traded</span>`,
-    `<span><b>${status.market.checks ?? 0}</b> checks by <b>${status.market.verifiers ?? 0}</b> addresses</span>`,
-    `<span><b>${status.bounties.open}</b> open bounties</span>`,
+    `<span><b>${status.market.proofs}</b>proofs${filtered ? ` · ${proofs.length} shown` : ''}</span>`,
+    ...['verified', 'claimed', 'disputed', 'invalid'].filter((k) => counts[k])
+      .map((k) => `<span class="${tone[k] || ''}"><b>${counts[k]}</b>${k}</span>`),
+    `<span><b>${status.market.for_sale}</b>for sale</span>`,
+    `<span><b>${status.market.volume}</b>credits traded</span>`,
+    `<span><b>${status.market.checks ?? 0}</b>checks by ${status.market.verifiers ?? 0} addresses</span>`,
+    `<span><b>${status.bounties.open}</b>open bounties</span>`,
   ].join('');
   loadVerifiers().catch(() => {});
 }
@@ -228,11 +250,12 @@ async function loadVerifiers() {
   const { verifiers } = await api('/verifiers?limit=12');
   if (!verifiers.length) { $('#verifierBoard').innerHTML = ''; return; }
   $('#verifierBoard').innerHTML = `
-    <h3>Who has checked things here</h3>
+    <summary>Who has checked things here <span class="hint">${verifiers.length} addresses</span></summary>
+    <div class="body">
     <p class="hint">Nobody on this list verified anything — the methods did. What
       an address can do is put its name on a run, and the last column is the only
       one that can contradict this box: somebody's own verifier, disagreeing.</p>
-    <table>
+    <div class="wrap"><table>
       <tr>
         <th>address</th>
         <th title="a personal_sign naming one proof, spent on one re-run of every method">signed re-runs</th>
@@ -249,7 +272,7 @@ async function loadVerifiers() {
         <td${v.contested ? ' class="bad"' : ''}>${v.contested || '—'}</td>
         <td class="hint">${ago(v.last)}</td>
       </tr>`).join('')}
-    </table>`;
+    </table></div></div>`;
 }
 
 async function openProof(id, toggle = false) {
@@ -271,17 +294,17 @@ async function openProof(id, toggle = false) {
   const checks = (proof.checks || []).slice().reverse();
   box.innerHTML = `
     <div class="verdicts">${(proof.verdicts || []).map(verdictRow).join('')}</div>
-    <h4 style="margin-top:12px">who made those methods run</h4>
+    <h4>who made those methods run</h4>
     <div class="checklog">${checks.length ? checks.map(checkRow).join('')
       : '<div class="hint">nothing but the publish — nobody has re-checked this yet</div>'}</div>
     <div class="hint">a signed row is a personal_sign over a message naming this
       proof: the address is recoverable from it without asking this box anything,
       which is the point. An unsigned row is this box’s own run at publish time.</div>
-    <h4 style="margin-top:12px">statement (always public)</h4>
+    <h4>statement (always public)</h4>
     <pre>${escape(JSON.stringify({ public_signals: proof.public_signals, statement: proof.statement }, null, 1).slice(0, 3000))}</pre>
     <h4>proof</h4>${bytes}
     ${proof.cid ? `<div class="hint">pinned as ${escape(proof.cid)}</div>` : ''}
-    ${(proof.refundable_to || []).length ? `<div class="hint" style="color:var(--error)">${proof.refundable_to.length} purchase(s) can be refunded — this stopped verifying after it was sold</div>` : ''}`;
+    ${(proof.refundable_to || []).length ? `<div class="hint contested">${proof.refundable_to.length} purchase(s) can be refunded — this stopped verifying after it was sold</div>` : ''}`;
 }
 
 // ── re-verifying, which costs a signature ───────────────────────────
@@ -409,7 +432,7 @@ async function runVerify() {
     };
   } catch (e) { toast(`that is not JSON: ${e.message}`, true); return; }
   if ($('#vSystem').value) body.system = $('#vSystem').value;
-  $('#vOut').innerHTML = '<div class="empty"><span class="spin">◐</span> asking every method that can answer…</div>';
+  $('#vOut').innerHTML = '<div class="empty"><span class="spin"></span>asking every method that can answer…</div>';
   try {
     const result = await api('/verify', { method: 'POST', body });
     state.lastVerified = { ...body, system: result.system };
@@ -462,7 +485,7 @@ const PROVE_FORMS = {
 
 async function prove(system) {
   const body = { system, ...(PROVE_FORMS[system] || PROVE_FORMS.merkle)() };
-  $('#pOut').innerHTML = '<div class="empty"><span class="spin">◐</span> proving…</div>';
+  $('#pOut').innerHTML = '<div class="empty"><span class="spin"></span>proving…</div>';
   try {
     const made = await api('/prove', { method: 'POST', body });
     state.lastVerified = { system: made.system, proof: made.proof,
@@ -472,8 +495,8 @@ async function prove(system) {
       ${(made.verification.verdicts || []).map(verdictRow).join('')}
       <h4>statement</h4><pre>${escape(JSON.stringify(made.statement, null, 1))}</pre>
       <h4>proof</h4><pre>${escape(JSON.stringify(made.proof, null, 1))}</pre>
-      <div class="row"><button id="proveSend">send this to VERIFY</button>
-      <button class="ghost" id="provePublish">publish it</button></div>`;
+      <div class="row"><button id="proveSend">Send this to Verify</button>
+      <button class="ghost" id="provePublish">Publish it</button></div>`;
     $('#proveSend').onclick = () => {
       $('#vProof').value = JSON.stringify(made.proof, null, 1);
       $('#vKey').value = JSON.stringify(made.statement, null, 1);
@@ -510,8 +533,8 @@ function bountyCard(bounty) {
     && (t.holder || '').toLowerCase() === (state.address || '').toLowerCase());
   const due = staked && open && bounty.settles <= Date.now() / 1000;
   return `<div class="card">
-    <h4>${escape(bounty.title)}</h4>
-    <div class="meta">${escape(bounty.system)} · posted by ${escape(short(bounty.poster, 12))} · ${escape(bounty.state)}${staked ? ` · round ${bounty.round || 1}` : ''}</div>
+    <div class="head"><h4>${escape(bounty.title)}</h4><span class="status ${open ? 'claimed' : 'unverified'}">${escape(bounty.state)}</span></div>
+    <div class="meta"><span class="tagchip">${escape(bounty.system)}</span><span class="tagchip id">by ${escape(short(bounty.poster, 12))}</span>${staked ? `<span class="tagchip">round ${bounty.round || 1}</span>` : ''}</div>
     ${bounty.description ? `<div class="desc">${escape(bounty.description)}</div>` : ''}
     <div class="row" style="margin:8px 0 0">
       <span class="price">${bounty.reward} credits</span>
@@ -523,10 +546,10 @@ function bountyCard(bounty) {
       first token among accepted proofs wins; a seat that never submits forfeits to the winner${mine ? ` · you hold token #${mine.seq}` : ''}</div>` : ''}
     <div class="hint">${bounty.submissions.length} submission(s)${bounty.winner ? ` · won by ${escape(short(bounty.winner, 12))}` : ''}</div>
     <footer>
-      ${open && staked && !mine ? `<button data-act="join" data-id="${bounty.id}">put in ${bounty.stake} for a token</button>` : ''}
-      ${open && (!staked || mine) ? `<button data-act="submit" data-id="${bounty.id}">submit the proof in VERIFY</button>` : ''}
-      ${due ? `<button data-act="settle" data-id="${bounty.id}">settle the round</button>` : ''}
-      ${open && bounty.poster === state.address ? `<button class="ghost" data-act="cancel" data-id="${bounty.id}">cancel</button>` : ''}
+      ${open && staked && !mine ? `<button data-act="join" data-id="${bounty.id}">Put in ${bounty.stake} for a token</button>` : ''}
+      ${open && (!staked || mine) ? `<button data-act="submit" data-id="${bounty.id}">Submit a proof</button>` : ''}
+      ${due ? `<button data-act="settle" data-id="${bounty.id}">Settle the round</button>` : ''}
+      ${open && bounty.poster === state.address ? `<button class="ghost" data-act="cancel" data-id="${bounty.id}">Cancel</button>` : ''}
     </footer>
   </div>`;
 }
@@ -554,8 +577,8 @@ function parseRules(text) {
 
 function methodCard(method) {
   return `<div class="card">
-    <h4>${escape(method.method)} <span class="status ${method.available ? 'verified' : 'unverified'}">${method.available ? 'ready' : 'unavailable'}</span></h4>
-    <div class="meta">${escape(method.runs_in)} · ${method.authoritative ? 'authoritative' : 'witness'}</div>
+    <div class="head"><h4>${escape(method.method)}</h4><span class="status ${method.available ? 'verified' : 'unverified'}">${method.available ? 'ready' : 'unavailable'}</span></div>
+    <div class="meta"><span class="tagchip">${escape(method.runs_in)}</span><span class="tagchip ${method.authoritative ? 'zk' : ''}">${method.authoritative ? 'authoritative' : 'witness'}</span></div>
     <div class="desc">${escape(method.note || '')}</div>
     <div class="hint">verifies: ${(method.systems || []).join(', ') || '—'}</div>
     ${method.endpoint ? `<div class="hint">via ${escape(method.endpoint)}${method.chain_id ? ` (chain ${method.chain_id})` : ''}</div>` : ''}
@@ -565,7 +588,7 @@ function methodCard(method) {
 function systemCard(system) {
   return `<div class="card">
     <h4>${escape(system.label)}</h4>
-    <div class="meta">${escape(system.family)}${system.curves.length ? ` · ${system.curves.join(', ')}` : ''} · ${system.zero_knowledge ? 'zero-knowledge' : 'NOT zero-knowledge'}</div>
+    <div class="meta"><span class="tagchip">${escape(system.family)}</span>${system.curves.map((c) => `<span class="tagchip">${escape(c)}</span>`).join('')}<span class="tagchip ${system.zero_knowledge ? 'zk' : 'nzk'}">${system.zero_knowledge ? 'zero-knowledge' : 'not zero-knowledge'}</span></div>
     <div class="desc">“${escape(system.claims)}”</div>
     <div class="hint">setup: ${escape(system.trusted_setup || 'none')}</div>
     <div class="hint">proof: ${escape(system.proof_size)} · verifier: ${escape(system.verifier_cost)}</div>
@@ -587,9 +610,9 @@ function keyPanel() {
       and the right to speak for the proofs it published. Copy it somewhere if
       you intend to come back.</div>
     <div class="row">
-      <button class="ghost" id="keyShow">show the private key</button>
-      <button class="ghost" id="keyCopy">copy it</button>
-      <button class="ghost" id="keyForget">forget it</button>
+      <button class="ghost" id="keyShow">Show the private key</button>
+      <button class="ghost" id="keyCopy">Copy it</button>
+      <button class="ghost" id="keyForget">Forget it</button>
     </div>
     <pre id="keyOut" class="hidden"></pre>
   </div>`;
@@ -606,9 +629,10 @@ function wireKeyPanel() {
     catch { $('#keyOut').textContent = localKey(); $('#keyOut').classList.remove('hidden');
             toast('this browser blocked the clipboard — copy it from below', true); }
   };
-  $('#keyForget').onclick = () => {
-    if (!confirm('Forget this key? Anything it owns here becomes unreachable '
-                 + 'unless you have a copy of it.')) return;
+  $('#keyForget').onclick = async () => {
+    const sure = await ask('Anything this key owns here becomes unreachable unless '
+                           + 'you have a copy of it.', { title: 'Forget this key?', ok: 'Forget it' });
+    if (!sure) return;
     forgetLocalKey(); setKind(''); signOut();
     toast('key forgotten');
   };
@@ -618,30 +642,30 @@ async function loadWallet() {
   if (!state.token) {
     $('#wallet').innerHTML = `<div class="empty">sign in to see credits, purchases and escrow
       <div class="row" style="justify-content:center;margin-top:14px">
-        <button id="walletSignin">sign in</button></div>
+        <button id="walletSignin">Sign in</button></div>
       <div class="hint">a wallet, or anonymously with a key this tab makes for you</div></div>`;
     $('#walletSignin').onclick = openSignIn;
     return;
   }
   const me = await api('/me');
   $('#wallet').innerHTML = `
-    <h3>${escape(me.address)}${me.owner ? ' — owner of this deployment' : ''}</h3>
+    <h3 class="mono" style="font-size:14px;word-break:break-all">${escape(me.address)}${me.owner ? ' <span class="status verified">owner</span>' : ''}</h3>
     <div class="hint">signed in with ${kind() === 'local'
       ? 'a key made in this browser — the market cannot tell, and does not ask'
       : 'a wallet'}</div>
     ${keyPanel()}
-    <div class="stats">
-      <span><b>${me.credits}</b> credits</span>
-      <span><b>${me.escrowed}</b> in escrow</span>
-      <span><b>${me.earned}</b> earned</span>
-      <span><b>${me.spent}</b> spent</span>
-      ${me.in_debt ? '<span style="color:var(--invalid)"><b>in debt</b> — a proof you sold was refunded</span>' : ''}
+    <div class="stats" style="margin-top:16px">
+      <span><b>${me.credits}</b>credits</span>
+      <span><b>${me.escrowed}</b>in escrow</span>
+      <span class="good"><b>${me.earned}</b>earned</span>
+      <span><b>${me.spent}</b>spent</span>
+      ${me.in_debt ? '<span class="bad"><b>in debt</b>a proof you sold was refunded</span>' : ''}
     </div>
-    ${me.owner ? `<div class="row"><input id="grantTo" placeholder="0x… address"><input id="grantAmt" type="number" value="100" style="max-width:110px"><button id="grantGo">grant credits</button></div>` : ''}
+    ${me.owner ? `<div class="row"><input id="grantTo" placeholder="0x… address" class="mono" style="flex:1;min-width:240px"><input id="grantAmt" type="number" value="100" style="max-width:110px"><button id="grantGo">Grant credits</button></div>` : ''}
     <h4>purchases</h4>
-    ${me.purchases.length ? me.purchases.map((p) => `<div class="hint">${escape(short(p.proof, 16))} · ${p.price} credits · sold as ${escape(p.sold_as)}${p.refunded ? ' · REFUNDED' : ''} <button class="ghost" data-act="refund" data-id="${p.proof}">refund if it stopped verifying</button></div>`).join('') : '<div class="hint">none yet</div>'}
+    ${me.purchases.length ? me.purchases.map((p) => `<div class="purchase"><span class="addr">${escape(short(p.proof, 16))}</span><span>${p.price} credits</span><span class="status ${escape(p.sold_as)}">${escape(p.sold_as)}</span>${p.refunded ? '<span class="tagchip nzk">refunded</span>' : ''} <button class="ghost small" data-act="refund" data-id="${p.proof}">Refund if it stopped verifying</button></div>`).join('') : '<div class="hint">none yet</div>'}
     <h4>ledger</h4>
-    ${me.history.slice().reverse().map((h) => `<div class="hint">${h.delta >= 0 ? '+' : ''}${h.delta} · ${escape(h.reason)} · ${ago(h.ts)}</div>`).join('') || '<div class="hint">nothing yet</div>'}`;
+    <div class="ledger">${me.history.slice().reverse().map((h) => `<div><span class="amt ${h.delta >= 0 ? 'pos' : 'neg'}">${h.delta >= 0 ? '+' : ''}${h.delta}</span><span>${escape(h.reason)}</span><span class="t">${ago(h.ts)}</span></div>`).join('') || '<div class="hint">nothing yet</div>'}</div>`;
   if (me.owner) {
     $('#grantGo').onclick = async () => {
       try {
@@ -664,7 +688,8 @@ async function loadWallet() {
 // proofs, holds its credits and can be contradicted by name like any other.
 
 function signedInAs(address) {
-  $('#signin').textContent = address ? short(address, 8) + '…' : 'sign in';
+  $('#signin').textContent = address ? short(address, 6) + '…' + address.slice(-4) : 'Sign in';
+  $('#signin').classList.toggle('mono', !!address);
   $('#signin').title = address
     ? `${address} — ${kind() === 'local' ? 'a key made in this browser' : 'a wallet'}; click to sign out`
     : 'sign in with a wallet, or anonymously with a key this tab makes';
@@ -736,6 +761,7 @@ function showTab(name) {
 
 async function boot() {
   $$('#tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
+  $$('button[data-go]').forEach((b) => { b.onclick = () => showTab(b.dataset.go); });
   // A session that predates the two doors says which address, not which door.
   // Work it out once rather than guessing later, when the answer decides which
   // key signs a re-verification.
@@ -754,8 +780,10 @@ async function boot() {
   state.systems = (await api('/systems')).systems;
   api('/status').then(setCounts).catch(() => {});
 
-  $('#methodPips').innerHTML = state.methods.map((m) =>
+  const authoritative = state.methods.filter((m) => m.authoritative);
+  $('#methodPips').innerHTML = authoritative.map((m) =>
     `<span class="pip ${m.available ? 'up' : ''}" title="${escape(m.method)} — ${m.available ? 'ready' : 'unavailable'}"></span>`).join('');
+  $('#methodLabel').textContent = `${authoritative.filter((m) => m.available).length} of ${authoritative.length} verifiers ready`;
   $('#methodList').innerHTML = state.methods.map(methodCard).join('');
   $('#systemList').innerHTML = state.systems.map(systemCard).join('');
 
@@ -859,6 +887,7 @@ async function boot() {
   $('#vRun').onclick = runVerify;
   $('#vBrowser').onclick = runBrowserVerify;
   $('#vSample').onclick = () => loadSample().catch((e) => toast(e.message, true));
+  $('#vSampleLink').onclick = (e) => { e.preventDefault(); loadSample().catch((err) => toast(err.message, true)); };
   $('#vPublish').onclick = () => $('#publishDlg').showModal();
   $('#refresh').onclick = () => loadMarket();
   $('#q').onkeydown = (e) => { if (e.key === 'Enter') loadMarket(); };

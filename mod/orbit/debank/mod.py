@@ -30,10 +30,15 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# Appended, never prepended: this directory holds mod.py, which would shadow
-# the protocol's own `mod` package for anything that imports it after us.
-if HERE not in sys.path:
-    sys.path.append(HERE)
+# src/api is the backend (REST + MCP server, the DeBank client, the savings
+# desk); src/app is the console it serves. The anchor only dispatches.
+API_DIR = os.path.join(HERE, 'src', 'api')
+APP_DIR = os.path.join(HERE, 'src', 'app')
+# Appended, never prepended: the module root holds mod.py, which would shadow
+# the protocol's own `mod` package for anything that imports it after us —
+# so the root itself never goes on the path, only src/api.
+if API_DIR not in sys.path:
+    sys.path.append(API_DIR)
 
 
 class Mod:
@@ -227,7 +232,7 @@ class Mod:
     def mcp_config(self):
         """Drop-in client config for Claude Code / Desktop and friends."""
         return {'mcpServers': {
-            'debank': {'command': 'python3', 'args': [os.path.join(HERE, 'mcp.py')]},
+            'debank': {'command': 'python3', 'args': [os.path.join(API_DIR, 'mcp.py')]},
             'debank-http': {'type': 'http', 'url': f'http://localhost:{self.port}/mcp'},
         }}
 
@@ -242,9 +247,9 @@ class Mod:
         self.kill()
         env = {**os.environ, 'PORT': str(port)}
         subprocess.run(['pm2', 'start', sys.executable, '--name', 'debank-api',
-                        '--cwd', HERE, '--', os.path.join(HERE, 'api.py'),
+                        '--cwd', API_DIR, '--', os.path.join(API_DIR, 'api.py'),
                         '--port', str(port)],
-                       cwd=HERE, env=env, capture_output=True)
+                       cwd=API_DIR, env=env, capture_output=True)
         return {'api': f'http://localhost:{port}',
                 'console': f'http://localhost:{port}{self.base}',
                 'mcp': f'http://localhost:{port}/mcp',

@@ -494,7 +494,7 @@ class Proofs:
     wallet does the NEAR signing); None disables NEAR submits."""
 
     def __init__(self, store_dir, secrets_dir, config: Optional[dict] = None,
-                 network: str = 'testnet', near=None):
+                 network: str = 'simulation', near=None):
         self.dir = Path(store_dir) / 'proofs'
         self.dir.mkdir(parents=True, exist_ok=True)
         self.secrets_dir = Path(secrets_dir)
@@ -544,9 +544,11 @@ class Proofs:
         cfg = self.config.get('proofs', {}) if isinstance(self.config, dict) else {}
         near = (cfg.get('near') or {}).get(self.network) or {}
         eth = (cfg.get('eth') or {}).get(self.network) or {}
-        return {'near': {'network': self.network, 'account': near.get('account', ''),
+        # Each verifier names the chain it actually lives on (`network` in
+        # its config block); the stage this node runs at is only the default.
+        return {'near': {'network': near.get('network', self.network), 'account': near.get('account', ''),
                          'explorer': near.get('explorer', '')},
-                'eth': {'network': self.network, 'address': eth.get('address', ''),
+                'eth': {'network': eth.get('network', self.network), 'address': eth.get('address', ''),
                         'url': eth.get('url', ''), 'chainId': eth.get('chainId', ''),
                         'explorer': eth.get('explorer', '')}}
 
@@ -729,7 +731,7 @@ class Proofs:
             method, gas = 'submit', 60
             args = {'outputs': r['outputs'], 'signature': r['sig']['near'], 'bank': r['bank']['near']}
         try:
-            out = near.call(account, method, args, network=network or self.network,
+            out = near.call(account, method, args, network=network or self.chains()['near']['network'],
                             account_id=signer or None, gas_tgas=gas)
         except Exception as e:
             raise ProofError(f'NEAR call failed: {e}')
@@ -747,7 +749,7 @@ class Proofs:
         account = account or self.chains()['near']['account']
         if not account:
             raise ProofError('no NEAR verifier account configured')
-        return self._near().view(account, method, args, network=network or self.network)
+        return self._near().view(account, method, args, network=network or self.chains()['near']['network'])
 
     def _w3(self, url: str):
         from web3 import Web3

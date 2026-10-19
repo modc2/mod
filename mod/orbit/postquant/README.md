@@ -241,6 +241,81 @@ only the anchor's owner can write it. Execution is off consensus: anyone
 fetches the code by cid and re-runs it. A Cairo run can be STARK-proven and
 its proof hash anchored next to the code.
 
+### Running a wasm contract off chain, with proof
+
+*Execute anywhere, prove by replay.* A contract that is meant to be run is
+one **importless wasm blob exporting the pqc1 ABI**:
+
+```
+pq_reset()  pq_alloc(n) -> ptr          (the same arena exports as a key type)
+pqc_run(state, state_len, input, input_len, out, out_cap) -> i32
+```
+
+The host hands it the current state and one input; it writes the next
+state into `out` and returns its length, or a negative reason code to
+revert. No imports (parsed from the binary before anything runs, re-checked
+by the host on every call) means no clock, no randomness and no host call,
+so the output is a function of three byte strings — code, state, input — and
+nothing else. That is the whole proof system: every node holding the same
+three blobs lands on the same fourth one.
+
+A run produces a **pqr1 receipt**: canonical JSON `{code, state_in, input,
+state_out, n, prev, ret, reverted, out_cap, chain_id, ts}` where the four
+hashes are content ids of public blobs in the vault, signed by the runner's
+post-quantum wallet under `postquant/contract-receipt/v1` (a different
+context from transactions, so a receipt signature can never double as a
+witness). The receipt is itself a blob, and its hash is anchored at
+`contract/<name>/receipt`; receipts chain through `prev`, so the anchored
+latest commits to the whole execution history, and a live receipt keeps
+every blob it points at from being pruned.
+
+Only the owner of `contract/<name>` may run and anchor (`not_owner` 403
+otherwise, and the receipt key must be the owner's too). Anyone verifies:
+
+```
+pq_contract action=deploy example=counter name=ctr wallet=pioneer days=30
+pq_contract action=run name=ctr input=00 wallet=pioneer         # increment
+pq_contract action=run name=ctr input=02 2800000000000000 wallet=pioneer   # add 40
+pq_contract action=state name=ctr                               # 2900000000000000 (41)
+pq_contract action=verify name=ctr                              # re-runs, compares
+pq_contract action=receipts name=ctr                            # the run log
+```
+
+`verify` checks the signature, fetches code and `state_in` by hash,
+**re-executes** and compares the output hash to `state_out`, then reports
+the chain's view — is the signer the contract's owner, is this the anchored
+latest, is the code it ran the code the anchor commits to now. The first
+four are hard (`valid` needs them all); the rest describe the chain *today*,
+and an old receipt in the chain is still valid when they are false. A
+tampered state, a swapped input, a stranger's signature — each is refuted,
+not argued with. Reverts are receipts too: `state_out == state_in`, the
+reason code recorded, so a failed transfer is as provable as a successful
+one.
+
+Two examples ship as source + blob under `src/pq/wasm-src/examples/contracts/`
+(bare rustc, no cargo, like every blob here), listed by
+`pq_contract action=examples`:
+
+- **counter** — a u64. Input `00` inc, `01` dec, `02 <u64 LE>` add, `03`
+  reset; reverts `-4` below zero or on overflow.
+- **ledger** — a token ledger of 32-byte account ids: `00 <to> <amt>` mint,
+  `01 <from> <to> <amt>` transfer, `02 <from> <amt>` burn. Nothing in it
+  checks a signature: *authorisation is the receipt*. Only the contract's
+  owner can append to its log, and every append carries their post-quantum
+  signature, so a transfer is authorised the way a database row is. A
+  contract whose users should authorise their own moves puts a pq1 verifier
+  in the loop — a bigger blob, not a different protocol.
+
+What this is not: a STARK. The verifier re-executes rather than checks a
+succinct proof, which is right for a counter and wrong for a minute of
+compute — Cairo contracts (`lang=cairo`/`sierra`) are the succinct path, and
+a STARK proof hash would sit in the same receipt slot. And it is not
+consensus: the chain enforces who may anchor, not what the contract means.
+`out_cap` (48 KiB) is written into each receipt and replay uses the
+receipt's value, so a run that reverts for lack of output space reverts
+identically everywhere. Budgets: `POSTQUANT_CONTRACT_RUN_MS` (5000),
+`POSTQUANT_CONTRACT_INPUT_MAX` (16 KiB).
+
 ## Three prices, separate on purpose
 
 - **write gas** — one-time, per byte entering the state. A key byte costs 4x

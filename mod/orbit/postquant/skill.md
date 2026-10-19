@@ -31,8 +31,34 @@ API `:51030` (`/postquant/api`) · console `/postquant` · MCP `POST /mcp`
   state root, verifiable anywhere with SHA3-256
 
 Not for: blob storage (8KB value cap — store the hash, keep the blob in
-`arweave`/`lighthouse`/`store`), general smart contracts (seven tx kinds, no
-VM), or real value (one-node devnet; the faucet pays from genesis).
+`arweave`/`lighthouse`/`store`), on-chain smart contracts (seven tx kinds, no
+VM in consensus — see below for off-chain runs with proof), or real value
+(one-node devnet; the faucet pays from genesis).
+
+## Contracts: run off chain, prove by replay
+
+`pq_contract` stores code public by hash (`contract/<name>` = SHA3 of the
+code) and runs **pqc1** wasm (`pqc_run(state, input) → state`, importless,
+pure) off chain. The owner's run leaves a **pqr1 receipt** `{code,
+state_in, input, state_out, prev}` signed by their post-quantum wallet and
+anchored at `contract/<name>/receipt`; anyone verifies by fetching the blobs
+by hash and re-running. Examples ship: `counter`, `ledger`.
+
+```
+pq_contract action=examples                                   # ABI + the two examples
+pq_contract action=deploy example=counter name=ctr wallet=<w> days=30
+pq_contract action=run name=ctr input=00 wallet=<w>            # inc; anchor=false = sign only
+pq_contract action=state name=ctr                             # current state bytes
+pq_contract action=verify name=ctr                            # signature + replay + owner + anchor
+pq_contract action=receipts name=ctr                          # run log, latest first
+```
+
+Input is hex in the contract's own encoding (counter: `00` inc, `01` dec,
+`02`+u64 LE add, `03` reset; ledger: `00 <to:32><amt:8>` mint, `01
+<from><to><amt>` transfer, `02 <from><amt>` burn). Reverts are receipts too
+(`reverted`, `ret` < 0, state unchanged). `verify.valid` needs signature,
+replay, chain id and signer-is-owner; `anchored_latest` /
+`code_is_current` only describe the chain now.
 
 ## Consensus is a plugin
 

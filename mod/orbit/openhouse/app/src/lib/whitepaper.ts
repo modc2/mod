@@ -23,17 +23,16 @@ export const ABSTRACT =
   "confirmation, and the lender holds every lever on the contract — because it fronted " +
   "the principal and carries the loss. Control and liability are the same seat."
 
-// Where the protocol actually stands today. Every "is this live?" string on the
-// site reads from here — flip it in one place the day mainnet ships.
-export const LAUNCH = {
-  stage: "Testnet",
-  chain: "Base Sepolia",
-  chainId: "84532",
-  date: "To be announced",
-  short: "Testnet · mainnet launch TBA",
+// Where the protocol actually stands today. Every "is this real?" string on
+// the site reads from here — flip it in one place the day a real home ships.
+export const STAGE = {
+  stage: "Simulation",
+  short: "Simulated · real code, fake money",
   notice:
-    "OpenHouse is running on Base Sepolia testnet. Test ETH only — no real money, " +
-    "no real rent, no real deed. Mainnet launch date to be announced.",
+    "Everything on this site runs on this node in simulation: the real contract logic, " +
+    "the real splits, a real bank rail — and fake money. No real rent, no real deed, no token.",
+  // what a visitor is actually looking at when a number moves
+  claim: "Real code. Fake money. Every number on this page was produced by the same functions a live node runs.",
 }
 
 export interface PaperSection {
@@ -337,10 +336,10 @@ export const BENCHMARKS = [
 ]
 
 export const ROADMAP = [
-  { phase: "Now", title: "Testnet — Base Sepolia", done: true,
-    detail: "Contract, API, and app are shipped and open source. Deploy a property with test ETH and run the whole loop: pay principal, track equity, redistribute quarterly. Nothing here is real money." },
-  { phase: "Next", title: "Mainnet + first real home — launch date TBA", done: false,
-    detail: "Legal wrapper, audited contract, and live lowfi yield routing on a genuine address. We announce a date once the audit clears — not before." },
+  { phase: "Now", title: "Simulation — the whole loop, on this node", done: true,
+    detail: "Contract, API, bank rail and app are shipped and open source. Play twenty years of the deal in a few seconds: rent by bank transfer, equity, quarterly closes, the refusal at the end. Nothing here is real money." },
+  { phase: "Next", title: "A real home, a real bank", done: false,
+    detail: "Legal wrapper, audited contract, a lender's oracle on a genuine mortgage. We announce a date once the audit clears — not before." },
   { phase: "Soon", title: "Multi-home portfolios", done: false,
     detail: "Rent across buildings on one equity ledger — move and keep stacking principal." },
   { phase: "Vision", title: "A city where renters become owners", done: false,
@@ -348,7 +347,7 @@ export const ROADMAP = [
 ]
 
 export const TICKER = [
-  "TESTNET · LAUNCH TBA",
+  "SIMULATED · AUDITABLE",
   "RENT IS EXTRACTION",
   "THEY TAKE 15% · WE TAKE 0–5%",
   "95–100% STAYS WITH THE HOME",

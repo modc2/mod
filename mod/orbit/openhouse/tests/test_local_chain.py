@@ -1,5 +1,5 @@
 """
-The on-chain testnet walkthrough (contracts/testnet.sh) must deploy and take
+The on-chain walkthrough (contracts/localchain.sh) must deploy and take
 rent on a real EVM — a throwaway anvil chain. Skipped where Foundry isn't
 installed; it never touches a public network (RPC_URL is cleared).
 """
@@ -20,7 +20,7 @@ FOUNDRY = os.environ.get('FOUNDRY', '/root/.foundry/bin')
 def test_deploy_and_pay_rent_on_anvil():
     env = {**os.environ, 'FOUNDRY': FOUNDRY, 'ANVIL_PORT': '8549'}
     env.pop('RPC_URL', None)
-    out = subprocess.run([str(CONTRACTS / 'testnet.sh')], env=env, capture_output=True,
+    out = subprocess.run([str(CONTRACTS / 'localchain.sh')], env=env, capture_output=True,
                          text=True, timeout=240).stdout
     assert 'ONCHAIN EXECUTION COMPLETE & SUCCESSFUL' in out, out
     principal = int(re.search(r'principalUsd18: uint256 (\d+)', out).group(1))

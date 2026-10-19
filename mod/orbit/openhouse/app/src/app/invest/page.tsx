@@ -11,7 +11,7 @@ import { toast } from 'react-toastify'
 import { NextUp, PageHead, Shell } from '../../components/chrome'
 import { Reveal, Tilt } from '../../components/motion'
 import { PropertyData, StatusData, api, formatNum, useResource } from '../../lib/api'
-import { LAUNCH } from '../../lib/whitepaper'
+import { STAGE } from '../../lib/whitepaper'
 
 function InvestInner() {
   const { data: status, loading: sLoading, reload: reloadStatus } = useResource<StatusData | null>('status', null)
@@ -63,7 +63,7 @@ function InvestInner() {
                     <p className="text-white/60 text-sm">{deployed ? (property!.contract || 'On-chain') : 'Deploy a property to open the float'}</p>
                   </div>
                   <span className={`text-[11px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${deployed && property!.is_active ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-white/60 border-white/15'}`}>
-                    {deployed ? (property!.is_active ? '● Active' : 'Paused') : `${LAUNCH.stage} · not deployed`}
+                    {deployed ? (property!.is_active ? '● Active' : 'Paused') : `${STAGE.stage} · not deployed`}
                   </span>
                 </div>
                 {deployed ? (
@@ -102,8 +102,7 @@ function InvestInner() {
                       its float, share price, and live ownership show up here — straight from chain, no placeholders.
                     </p>
                     <p className="text-white/58 text-xs leading-relaxed max-w-sm mx-auto mt-3">
-                      On {LAUNCH.chain} you can deploy one yourself and drive the whole loop with test ETH.
-                      The first real home lands with the mainnet launch — date {LAUNCH.date.toLowerCase()}.
+                      Deploy one on this node and drive the whole loop in simulation — or let the simulator play twenty years of it for you.
                     </p>
                     <code className="inline-block mt-4 text-[11px] font-mono text-coral/80 bg-coral/5 border border-coral/15 rounded-lg px-3 py-1.5">openhouse deploy property_details=… total_shares=… share_price=…</code>
                   </div>
@@ -116,13 +115,13 @@ function InvestInner() {
             <div className="glass rounded-3xl p-7 md:p-9 h-full flex flex-col border-coral/20">
               <div className="flex items-center justify-between gap-3 mb-2">
                 <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-coral">Take a position</div>
-                <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.15em] text-onaccent bg-coral rounded px-1.5 py-0.5">{LAUNCH.stage}</span>
+                <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.15em] text-onaccent bg-coral rounded px-1.5 py-0.5">{STAGE.stage}</span>
               </div>
               <h2 className="font-serif-ed text-2xl text-white mb-2">Mint your shares</h2>
               <p className="text-[11px] text-white/60 leading-relaxed mb-6">
                 {deployed
-                  ? `Settles on ${LAUNCH.chain} with test ETH — the mainnet sale opens at launch, date ${LAUNCH.date.toLowerCase()}.`
-                  : `The mainnet sale hasn't opened. Launch date: ${LAUNCH.date.toLowerCase()}.`}
+                  ? 'A simulated mint on this node — bookkeeping, not a signed transaction. No real money moves.'
+                  : 'No sale is open. Deploy a property on this node to open a simulated float.'}
               </p>
               <label className="text-[10px] uppercase tracking-widest text-white/60 font-bold mb-1.5 block">Your wallet</label>
               <input type="text" placeholder="0x…" value={buyAddr} onChange={e => setBuyAddr(e.target.value)} className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/45 focus:outline-none focus:border-coral/50 font-mono transition-colors mb-4" />
@@ -133,12 +132,12 @@ function InvestInner() {
                 <span className="headline text-3xl text-coral tabular-nums">{deployed ? (cost ? cost.toFixed(4) : '0.00') : '—'} {deployed && <span className="text-lg">Ξ</span>}</span>
               </div>
               <button onClick={handlePurchase} disabled={!deployed || purchasing || !buyAddr.trim() || !buyShares.trim()} className="btn-shine w-full py-4 rounded-xl bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-xl hover:shadow-coral/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all mt-auto">
-                {!deployed ? 'Sale not open · launch TBA' : purchasing ? 'Minting…' : 'Own it (testnet) →'}
+                {!deployed ? 'Sale not open' : purchasing ? 'Minting…' : 'Own it (simulated) →'}
               </button>
               <p className="text-[10px] text-white/50 text-center mt-3 leading-relaxed">
                 {deployed
-                  ? `Shares are pro-rata claims on the wrapped entity. On ${LAUNCH.chain} they settle in test ETH and carry no real-world claim.`
-                  : 'The primary sale opens once a property is deployed to the contract — on testnet today, on mainnet at launch.'}
+                  ? 'Shares are pro-rata claims on the wrapped entity. In simulation they are ledger entries and carry no real-world claim.'
+                  : 'The primary sale opens once a property is deployed to the contract.'}
               </p>
             </div>
           </Reveal>

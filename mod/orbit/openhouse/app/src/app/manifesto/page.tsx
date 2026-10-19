@@ -7,7 +7,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { NextUp, PageHead, Shell } from '../../components/chrome'
-import { ABSTRACT, LAUNCH, MANIFESTO } from '../../lib/whitepaper'
+import { ABSTRACT, STAGE, MANIFESTO } from '../../lib/whitepaper'
 
 export const metadata: Metadata = {
   title: 'Manifesto — OpenHouse',
@@ -48,7 +48,7 @@ export default function ManifestoPage() {
             </li>
           </ul>
           <p className="text-white/50 text-xs mt-7 leading-relaxed">
-            {LAUNCH.stage} on {LAUNCH.chain} — mainnet launch {LAUNCH.date.toLowerCase()}. {LAUNCH.notice}
+            {STAGE.short}. {STAGE.notice}
           </p>
         </div>
       </article>

@@ -1,35 +1,49 @@
 "use client";
 
-// The header's wallet chip: connect, show who's connected and what they hold,
-// and get them onto Base Sepolia if their wallet is somewhere else. It's the
-// entry point for everything else on-chain in the explorer — the stake console
-// and the per-module backing panels both read the address from here.
+// The header's account pill. One press opens the account sidebar — the agent
+// chat and the wallet live there — so the header itself stays a single quiet
+// chip: who you are, plus one status word (your BLOC, or "wrong network").
+//
+// ⌘J / Ctrl+J opens straight to the agent from anywhere.
 
-import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { bloctime, fmt } from "@/lib/bloctime";
-import { DEFAULT_CHAIN, useWallet } from "@/lib/wallet";
+import { useCallback, useEffect, useState } from "react";
+import { bloctime, fmt, type Overview } from "@/lib/bloctime";
+import { useWallet } from "@/lib/wallet";
+import AccountSidebar, { addrGradient, type SideTab } from "./AccountSidebar";
 import { Icon } from "./Icon";
+
+const TAB_KEY = "mod.web.side.tab";
 
 export default function WalletButton() {
   const w = useWallet();
-  const [bloc, setBloc] = useState<string | null>(null);
+  const [overview, setOverview] = useState<Overview | null>(null);
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const [tab, setTabState] = useState<SideTab>("agent");
 
-  // Live BLOC balance for the connected address (the bloctime module reads it
+  useEffect(() => {
+    const t = localStorage.getItem(TAB_KEY);
+    if (t === "agent" || t === "wallet") setTabState(t);
+  }, []);
+  const setTab = useCallback((t: SideTab) => {
+    setTabState(t);
+    try {
+      localStorage.setItem(TAB_KEY, t);
+    } catch {}
+  }, []);
+
+  // Live BLOC position for the connected address (the bloctime module reads it
   // over its own RPC, so no provider round-trip from the browser).
   useEffect(() => {
     if (!w.address) {
-      setBloc(null);
+      setOverview(null);
       return;
     }
     let alive = true;
     const load = () =>
       bloctime
         .overview(w.address)
-        .then((o) => alive && setBloc(o.blocBalance))
-        .catch(() => alive && setBloc(null));
+        .then((o) => alive && setOverview(o))
+        .catch(() => alive && setOverview(null));
     load();
     const t = setInterval(load, 60_000);
     return () => {
@@ -39,99 +53,53 @@ export default function WalletButton() {
   }, [w.address]);
 
   useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "j" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setTab("agent");
+        setOpen((v) => !v || tab !== "agent");
+      }
     };
-    document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
-  }, []);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setTab, tab]);
 
-  if (!w.address) {
-    return (
-      <button
-        className="wallet-btn"
-        onClick={() => w.connect().catch(() => {})}
-        disabled={w.connecting}
-        title={
-          w.hasWallet
-            ? "Connect a browser wallet to stake BlocTime"
-            : "Install MetaMask (or any EIP-1193 wallet) to stake"
-        }
-      >
-        <span className="wallet-dot" />
-        {w.connecting ? "Connecting…" : "Connect wallet"}
-      </button>
-    );
-  }
+  const close = useCallback(() => setOpen(false), []);
 
   return (
-    <div className="wallet-wrap" ref={rootRef}>
+    <div className="wallet-wrap">
       <button
-        className={`wallet-btn on${w.wrongNetwork ? " warn" : ""}`}
+        className={`wallet-btn${w.address ? " on" : ""}${w.wrongNetwork ? " warn" : ""}${open ? " open" : ""}`}
         onClick={() => setOpen((v) => !v)}
-        title={w.address}
+        title={w.address ? `${w.address} — account & agent (⌘J)` : "Agent & wallet (⌘J)"}
+        aria-expanded={open}
       >
-        <span className="wallet-dot on" />
-        <span className="mono">{w.short}</span>
-        {w.wrongNetwork ? (
-          <span className="wallet-net warn">wrong network</span>
+        {w.address ? (
+          <>
+            <span className="wallet-ava" style={{ background: addrGradient(w.address) }} />
+            <span className="mono">{w.short}</span>
+            {w.wrongNetwork ? (
+              <span className="wallet-net warn">wrong network</span>
+            ) : (
+              overview && (
+                <span className="wallet-net">
+                  <Icon name="clock" /> {fmt(overview.blocBalance)}
+                </span>
+              )
+            )}
+          </>
         ) : (
-          bloc !== null && (
-            <span className="wallet-net">
-              <Icon name="clock" /> {fmt(bloc)} BLOC
-            </span>
-          )
+          <>
+            <span className="wallet-dot" />
+            Connect
+          </>
         )}
+        <span className="wallet-agent" aria-hidden>
+          <Icon name="spark" />
+        </span>
       </button>
 
-      {open && (
-        <div className="wallet-pop">
-          <div className="wallet-pop-head">
-            <span className="mono">{w.address}</span>
-            <span className="wallet-chain">
-              {w.wrongNetwork
-                ? `chain ${w.chainId ?? "?"}`
-                : DEFAULT_CHAIN.name}
-            </span>
-          </div>
-
-          {w.wrongNetwork && (
-            <button
-              className="btn btn-primary wallet-switch"
-              onClick={() => w.switchNetwork().catch(() => {})}
-            >
-              switch to {DEFAULT_CHAIN.name}
-            </button>
-          )}
-
-          <div className="wallet-pop-row">
-            <span className="k">BLOC held</span>
-            <span className="v mono">{bloc === null ? "—" : fmt(bloc)}</span>
-          </div>
-
-          <Link href="/stake" className="wallet-pop-link" onClick={() => setOpen(false)}>
-            <Icon name="clock" /> Stake in the BlocTime protocol
-          </Link>
-          <a
-            href={`${DEFAULT_CHAIN.explorer}/address/${w.address}`}
-            target="_blank"
-            rel="noreferrer"
-            className="wallet-pop-link"
-          >
-            View on BaseScan <Icon name="external" />
-          </a>
-          <button
-            className="wallet-pop-link danger"
-            onClick={() => {
-              w.disconnect();
-              setOpen(false);
-            }}
-          >
-            disconnect
-          </button>
-          {w.error && <div className="wallet-err">{w.error}</div>}
-        </div>
-      )}
+      <AccountSidebar open={open} tab={tab} onTab={setTab} onClose={close} overview={overview} />
     </div>
   );
 }

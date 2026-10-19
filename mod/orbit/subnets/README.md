@@ -24,6 +24,18 @@ mods as they were.
 `/history`, `/validators`, `/neurons`, `/links`, `/snapshot`, `/refresh`.
 These read live from bt and fall back to `data.json` with `stale: true`.
 
+**Inside bt.** This module is built to live at `orbit/bt/subnets` as a submod of
+`bt` (the way `copytensor` does), where it is `bt.subnets` and every child is
+`bt.subnets.sn<N>`. The generator detects the mount itself: when the parent dir's
+`config.json` lists `subnets` under `submods`, `ls`, `status` and every child
+README use the `bt.subnets.` prefix; standalone they say `subnets.`. Nothing
+else changes — children load `../base.py` relatively, the cron line is
+re-pointed by `install_cron`, and `related` still scans the orbit root (found
+by walking up to the `orbit` dir). `python3 mod.py mount_plan` prints the
+owner-side steps: `git mv`, the `submods` entry for `bt/config.json`,
+`install_cron`, `rm -rf ~/.mod/tree`. `status` reports `mounted_in` and
+`cron_stale` (a tagged crontab line that points at an old path).
+
 **Rules the generator keeps:**
 - `config.json`, `README.md` and `data.json` are rewritten each day, and only when something besides the timestamp changed.
 - `mod.py` is written once. Delete its `# GENERATED` first line and the file becomes yours; sync never touches it again.

@@ -18,7 +18,9 @@ import sys
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.abspath(__file__))          # src/api
+MODULE_DIR = os.path.dirname(os.path.dirname(HERE))         # the module root
+APP_DIR = os.path.join(MODULE_DIR, 'src', 'app')            # the console
 if HERE not in sys.path:
     sys.path.append(HERE)
 
@@ -227,7 +229,7 @@ def _need(v, name):
 
 
 def serve(port=PORT, base=BASE):
-    console = os.path.join(HERE, 'console.html')
+    console = os.path.join(APP_DIR, 'index.html')
     # The console calls `<its own path>/_api`, so it works whether the module is
     # mounted at /debank behind the gateway or served bare at :50720/.
     api_prefixes = (base.rstrip('/') + '/_api', '/api/debank', '/_api')

@@ -95,3 +95,36 @@ def test_child_shim_falls_back_to_snapshot(tmp_path, monkeypatch):
     c._b.BT_URL = 'http://127.0.0.1:9'
     info = mod.info()
     assert info['stale'] and info['netuid'] == 7 and info['name'] == 'Seven'
+
+
+def test_mounted_under_bt_names_children_bt_subnets(tmp_path, monkeypatch):
+    """Copied to <orbit>/bt/subnets with bt listing it under submods, the generator
+    names itself bt.subnets and writes child READMEs/ls rows with that prefix."""
+    import shutil
+    orbit = tmp_path / 'orbit'; bt = orbit / 'bt'; nested = bt / 'subnets'
+    nested.mkdir(parents=True)
+    for f in ('mod.py', 'base.py'):
+        shutil.copy(os.path.join(HERE, f), nested / f)
+    (bt / 'config.json').write_text(json.dumps({'name': 'bt', 'submods': {'subnets': {'dir': 'subnets'}}}))
+    (orbit / 'chutes').mkdir(); (orbit / 'chutes' / 'config.json').write_text(json.dumps({'netuid': 7}))
+    s = importlib.util.spec_from_file_location('subnets_nested', nested / 'mod.py')
+    N = importlib.util.module_from_spec(s); s.loader.exec_module(N)
+    assert (N.PARENT, N.MOD_NAME, N.REL) == ('bt', 'bt.subnets', 'bt/subnets')
+    assert N.ORBIT == str(orbit)
+    monkeypatch.setattr(N, 'bt_call', fake(ROWS))
+    monkeypatch.setattr(N, 'STATE', str(tmp_path / 'state'))
+    monkeypatch.setattr(N, 'LOCK', str(tmp_path / 'state' / 'lock'))
+    out = N.Mod().sync(verbose=False)
+    assert out['new'] == 2 and not out['errors']
+    readme = (nested / 'sn7' / 'README.md').read_text()
+    assert 'm bt.subnets.sn7/info' in readme and 'orbit/bt/subnets/sn7/mod.py' in readme
+    assert json.load(open(nested / 'sn7' / 'config.json'))['related'] == ['chutes']   # bt itself is skipped
+    assert N.Mod().ls()[1]['mod'] == 'bt.subnets.sn7'
+    plan = N.Mod().mount_plan()
+    assert plan['mounted'] and plan['name_after'] == 'bt.subnets'
+
+
+def test_mount_plan_standalone_points_at_bt(tmp_path):
+    plan = M.Mod().mount_plan()
+    assert not plan['mounted'] and plan['to'].endswith('/bt/subnets')
+    assert 'subnets' in plan['parent_config_submods_entry'] and plan['steps'][0].startswith('git ')

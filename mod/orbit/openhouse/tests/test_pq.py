@@ -180,7 +180,7 @@ def test_pq_status_and_gates(oh):
     try:
         assert 'error' in oh.proof_pq_rotate() and 'error' in oh.proof_pq_upgrade()
     finally:
-        oh.network = 'testnet'
+        oh.network = 'simulation'
     rot = oh.proof_pq_rotate()
     assert rot['current']['id'] != rot['retired']['id']
     assert len(oh.proof_pq()['retired']) == 1

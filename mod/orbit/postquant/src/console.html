@@ -1262,6 +1262,28 @@ mod Counter {
       </div>
       <div id="c-out" class="muted">—</div>
       <div id="c-list" style="margin-top:10px"><span class="loadline">loading</span></div>
+      <details class="panel fold" style="margin-top:12px">
+        <summary>run a wasm contract off chain — and prove it</summary>
+        <p class="note">A <b>pqc1</b> contract is a pure state transition in one importless wasm blob:
+          <code>pqc_run(state, input) → next state</code>. The owner runs it <b>here</b>, signs a receipt
+          <code>{code, state_in, input, state_out}</code> with their post-quantum wallet and anchors it at
+          <code>contract/&lt;name&gt;/receipt</code>. Anyone fetches the three blobs by hash, re-runs, and compares —
+          a receipt that does not replay is false. Two examples ship: <b>counter</b> (input <code>00</code> inc,
+          <code>01</code> dec, <code>02</code>+u64 LE add, <code>03</code> reset) and <b>ledger</b> (mint/transfer/burn).</p>
+        <div class="row">
+          <label>example</label><select id="cr-example"><option value="counter">counter</option><option value="ledger">ledger</option></select>
+          <label>as</label><input class="sm" type="text" id="cr-name" placeholder="counter">
+          <button class="sm" id="cr-deploy">DEPLOY EXAMPLE</button>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <label>contract</label><input class="sm" type="text" id="cr-run-name" placeholder="counter">
+          <label>input hex</label><input type="text" id="cr-input" value="00" style="min-width:220px">
+          <button class="go" id="cr-run">RUN + ANCHOR</button>
+          <button class="sm" id="cr-verify">VERIFY</button>
+          <button class="sm" id="cr-log">RECEIPTS</button>
+        </div>
+        <div id="cr-out" class="muted">—</div>
+      </details>
     </div>
   </section>
 
@@ -1706,6 +1728,20 @@ mod Counter {
         to the code — hash-based, and therefore quantum-safe, end to end.
         This node stores and verifies code; it does not run contracts in
         consensus, and does not claim to.</p>
+      <p class="sci"><em>Running it, provably.</em> A wasm contract exporting
+        the <code>pqc1</code> ABI — <code>pqc_run(state, input) → state</code>,
+        no imports, so no clock, randomness or host call — is a pure
+        function of three byte strings. Its owner runs it on any node and
+        signs a <code>pqr1</code> receipt <code>{code, state_in, input,
+        state_out, prev}</code> under a dedicated context with their
+        post-quantum wallet, then anchors the receipt's hash at
+        <code>contract/&lt;name&gt;/receipt</code>; receipts chain through
+        <code>prev</code>, so the latest one commits to the whole run log.
+        Verification is refutation: fetch the three blobs by hash, re-run,
+        compare — the chain says who was allowed to append, the wasm says
+        what the append meant. Two examples ship (<code>counter</code>,
+        <code>ledger</code>); the same receipt slot is where a STARK proof
+        hash goes once a Cairo run is proven instead of replayed.</p>
 
       <div class="fig" id="fig-contract"><div class="fig-h">
         <b>Figure 6</b> · a contract on postquant: one owned key, one hash, every version in the log</div>
@@ -1736,6 +1772,9 @@ mod Counter {
         </div></div>
 <pre class="wp-code">mod.py contract deploy name=counter lang=cairo file=src/lib.cairo wallet=pioneer days=30
 POST /contract {"action":"show","name":"counter"}   → code, cid, verified, proof_valid
+POST /contract {"action":"deploy","example":"counter","name":"ctr","wallet":"pioneer"}
+POST /contract {"action":"run","name":"ctr","input":"00","wallet":"pioneer"}   → receipt cid, state_out, anchored
+GET  /contract?action=verify&name=ctr               → valid, checks{signature, replays, signer_is_owner…}
 POST /vault    {"action":"put","blob":"&lt;sealed base64&gt;","key":"vault/notes","wallet":"pioneer"}</pre>
 
       <h3><span class="n">6</span>Consensus, modular</h3>
@@ -3882,6 +3921,53 @@ async function cList() {
       } catch (e) { vErr('c-out', e); } });
   } catch (e) { err('c-list', e); }
 }
+// ── contracts: run off chain, anchor the receipt, verify by replay ──
+$('cr-deploy').onclick = async () => {
+  const example = $('cr-example').value, name = $('cr-name').value.trim() || example;
+  try {
+    const r = await api('/contract', {action: 'deploy', example, name, wallet: $('c-wallet').value, days: $('c-days').value || '30'});
+    $('cr-run-name').value = name;
+    vOk('cr-out', `<p><b>deployed ${esc(name)}</b> = <span class="mono addr" data-copy="${esc(r.cid)}">${esc(r.cid.slice(0, 16))}…</span>
+      · ${r.pqc1 && r.pqc1.abi ? '<span class="pill good">pqc1 · runnable</span>' : '<span class="pill bad">' + esc((r.pqc1 || {}).reason || 'not runnable') + '</span>'}</p>`);
+    cList();
+  } catch (e) { vErr('cr-out', e); }
+};
+$('cr-run').onclick = async () => {
+  const name = $('cr-run-name').value.trim();
+  if (!name) return vErr('cr-out', 'name the contract');
+  try {
+    const r = await api('/contract', {action: 'run', name, input: $('cr-input').value.trim(), wallet: $('c-wallet').value, days: $('c-days').value || '30'});
+    vOk('cr-out', `<p><b>run #${r.n}</b> ${r.reverted ? '<span class="pill bad">reverted ret=' + esc(String(r.ret)) + (r.trap ? ' (trap)' : '') + '</span>' : '<span class="pill good">ok · ' + wpN(r.out_bytes) + ' state bytes</span>'}
+      · receipt <span class="mono addr" data-copy="${esc(r.receipt)}">${esc(r.receipt.slice(0, 16))}…</span>
+      ${r.anchored ? '<span class="pill good">anchored at ' + esc(r.key) + '</span>' : '<span class="pill">not anchored</span>'}</p>
+      <p class="mono" style="word-break:break-all">state: ${esc(r.state_out_hex || '(empty)')}</p>
+      <p class="muted">signed by ${esc(short(r.signed_by, 14))} · ${esc(r.scheme)} · ${r.ms != null ? r.ms.toFixed(2) + ' ms' : ''}</p>`);
+  } catch (e) { vErr('cr-out', e); }
+};
+$('cr-verify').onclick = async () => {
+  const name = $('cr-run-name').value.trim();
+  if (!name) return vErr('cr-out', 'name the contract');
+  try {
+    const v = await api('/contract?action=verify&name=' + encodeURIComponent(name));
+    const rows = Object.entries(v.checks).map(([k, ok]) => `<tr><td>${esc(k)}</td><td>${ok === true ? '<span class="pill good">yes</span>' : ok === false ? '<span class="pill bad">no</span>' : '<span class="muted">n/a</span>'}</td></tr>`).join('');
+    vOk('cr-out', `<p><b>receipt #${v.n}</b> ${v.valid ? '<span class="pill good">VALID — replays byte for byte</span>' : '<span class="pill bad">NOT VALID</span>'}
+      · <span class="mono addr" data-copy="${esc(v.receipt)}">${esc(v.receipt.slice(0, 16))}…</span></p><table>${rows}</table>
+      <p class="muted">${esc(v.means)}${v.replay && v.replay.ms != null ? ' · replay ' + v.replay.ms.toFixed(2) + ' ms' : ''}</p>`);
+  } catch (e) { vErr('cr-out', e); }
+};
+$('cr-log').onclick = async () => {
+  const name = $('cr-run-name').value.trim();
+  if (!name) return vErr('cr-out', 'name the contract');
+  try {
+    const r = await api('/contract?action=receipts&name=' + encodeURIComponent(name));
+    vOk('cr-out', r.receipts.length ? '<table><tr><th>#</th><th>input</th><th>ret</th><th>state out</th><th>receipt</th></tr>' +
+      r.receipts.map(x => `<tr><td>${x.n}</td><td class="mono">${esc((x.input || '').slice(0, 24))}${(x.input || '').length > 24 ? '…' : ''}</td>
+        <td>${x.reverted ? '<span class="pill bad">' + esc(String(x.ret)) + '</span>' : esc(String(x.ret))}</td>
+        <td class="mono addr" data-copy="${esc(x.state_out)}">${esc(x.state_out.slice(0, 12))}…</td>
+        <td class="mono addr" data-copy="${esc(x.receipt)}">${esc(x.receipt.slice(0, 12))}…</td></tr>`).join('') + '</table>'
+      : '<span class="muted">no receipts yet — run it</span>');
+  } catch (e) { vErr('cr-out', e); }
+};
 document.querySelector('nav button[data-tab="vault"]').addEventListener('click', () => { vWallets(); vList(); cList(); });
 
 </script>
