@@ -1,127 +1,127 @@
 {
-  "name": "arweave",
-  "version": "0.2.0",
-  "route": true,
-  "description": "Arweave permanent storage \u2014 gateway reads + wallet uploads (local fallback), with REST API, web app and MCP tools on one port.",
-  "port": 50153,
-  "app_port": 50153,
-  "api_port": 50153,
-  "owner": "0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB",
-  "fns": [
-    "forward",
-    "serve",
-    "kill",
-    "status",
-    "info",
-    "put",
-    "put_file",
-    "get",
-    "get_file",
-    "list",
-    "rm",
-    "tx",
-    "price",
-    "call",
-    "mcp"
-  ],
-  "endpoints": {
-    "/health": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Health check"
-    },
-    "/info": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Module info and configured backends"
-    },
-    "/status": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Backend connectivity status (Arweave gateway / wallet)"
-    },
-    "/put": {
-      "method": "POST",
-      "auth": false,
-      "docs": "Store data on Arweave (JSON body) or via multipart file upload",
-      "input": [
-        {
-          "name": "data",
-          "type": "any",
-          "value": "_empty"
-        }
-      ],
-      "output": {
-        "txid": "str"
-      }
-    },
-    "/get/{txid}": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Retrieve content from Arweave by tx id"
-    },
-    "/list": {
-      "method": "GET",
-      "auth": false,
-      "docs": "List stored tx ids from local index"
-    },
-    "/rm/{txid}": {
-      "method": "DELETE",
-      "auth": false,
-      "docs": "Remove a tx id from the local index (does not unpin remote)"
-    },
-    "/tx/{txid}": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Arweave tx record"
-    },
-    "/price/{num_bytes}": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Cost in winston to store given number of bytes"
-    },
-    "/network": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Gateway network info"
-    },
-    "/mcp": {
-      "method": "POST",
-      "auth": false,
-      "docs": "MCP Streamable HTTP (JSON-RPC 2.0): initialize, tools/list, tools/call \u2014 arweave_status, arweave_info, arweave_put, arweave_get, arweave_list, arweave_rm, arweave_tx, arweave_price, arweave_network"
-    },
-    "/docs": {
-      "method": "GET",
-      "auth": false,
-      "docs": "Swagger UI for the REST API"
-    }
-  },
-  "env": {
-    "ARWEAVE_GATEWAY": "https://arweave.net (default)",
-    "ARWEAVE_WALLET": "Optional path to a wallet JSON file to enable uploads"
-  },
-  "urls": {
-    "api": "http://localhost:50153/api",
-    "app": "http://localhost:50153",
-    "mcp": "http://localhost:50153/mcp"
-  },
-  "schema": "QmdK3PLtC5Kb1jeQNtTEkEfkKTK8SDNCzYguqGVtbUBV1f",
-  "mcp": {
-    "protocol": "mcp/2025-06-18",
-    "transport": "http",
-    "http": "http://localhost:50153/mcp",
-    "public": "https://modc2.com/arweave/api/mcp",
-    "tools": [
-      "arweave_status",
-      "arweave_info",
-      "arweave_put",
-      "arweave_get",
-      "arweave_list",
-      "arweave_rm",
-      "arweave_tx",
-      "arweave_price",
-      "arweave_network"
+    "name": "arweave",
+    "version": "0.2.0",
+    "route": true,
+    "description": "Arweave permanent storage \u2014 gateway reads + wallet uploads (local fallback), with REST API, web app and MCP tools on one port.",
+    "port": 50153,
+    "app_port": 50153,
+    "api_port": 50153,
+    "owner": "0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB",
+    "fns": [
+        "forward",
+        "serve",
+        "kill",
+        "status",
+        "info",
+        "put",
+        "put_file",
+        "get",
+        "get_file",
+        "list",
+        "rm",
+        "tx",
+        "price",
+        "call",
+        "mcp"
     ],
-    "claude": "claude mcp add --transport http arweave http://localhost:50153/mcp"
-  }
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Health check"
+        },
+        "/info": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Module info and configured backends"
+        },
+        "/status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Backend connectivity status (Arweave gateway / wallet)"
+        },
+        "/put": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Store data on Arweave (JSON body) or via multipart file upload",
+            "input": [
+                {
+                    "name": "data",
+                    "type": "any",
+                    "value": "_empty"
+                }
+            ],
+            "output": {
+                "txid": "str"
+            }
+        },
+        "/get/{txid}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Retrieve content from Arweave by tx id"
+        },
+        "/list": {
+            "method": "GET",
+            "auth": false,
+            "docs": "List stored tx ids from local index"
+        },
+        "/rm/{txid}": {
+            "method": "DELETE",
+            "auth": false,
+            "docs": "Remove a tx id from the local index (does not unpin remote)"
+        },
+        "/tx/{txid}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Arweave tx record"
+        },
+        "/price/{num_bytes}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Cost in winston to store given number of bytes"
+        },
+        "/network": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Gateway network info"
+        },
+        "/mcp": {
+            "method": "POST",
+            "auth": false,
+            "docs": "MCP Streamable HTTP (JSON-RPC 2.0): initialize, tools/list, tools/call \u2014 arweave_status, arweave_info, arweave_put, arweave_get, arweave_list, arweave_rm, arweave_tx, arweave_price, arweave_network"
+        },
+        "/docs": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Swagger UI for the REST API"
+        }
+    },
+    "env": {
+        "ARWEAVE_GATEWAY": "https://arweave.net (default)",
+        "ARWEAVE_WALLET": "Optional path to a wallet JSON file to enable uploads"
+    },
+    "urls": {
+        "api": "http://localhost:50153/api",
+        "app": "http://localhost:50153",
+        "mcp": "http://localhost:50153/mcp"
+    },
+    "schema": "QmSmRNhPVdiGvs97D9VBA8UPm8DPjvwkRc87XrrU4LziXe",
+    "mcp": {
+        "protocol": "mcp/2025-06-18",
+        "transport": "http",
+        "http": "http://localhost:50153/mcp",
+        "public": "https://modc2.com/arweave/api/mcp",
+        "tools": [
+            "arweave_status",
+            "arweave_info",
+            "arweave_put",
+            "arweave_get",
+            "arweave_list",
+            "arweave_rm",
+            "arweave_tx",
+            "arweave_price",
+            "arweave_network"
+        ],
+        "claude": "claude mcp add --transport http arweave http://localhost:50153/mcp"
+    }
 }

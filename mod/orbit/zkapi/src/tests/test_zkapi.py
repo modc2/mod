@@ -283,6 +283,19 @@ def test_e2e_http_access_model(devnet):
         assert att["state_signing_key"] == devnet.deployment["state_signing_key"]
         status, root = call("devnet/indexer/v1/tree/root")
         assert int(root["root"], 16) == devnet.client().current_root()
+        # agents: on the contract, editable by default on the echo devnet, claude brain owner-only
+        status, ag = call("agents", None, remote)
+        assert status == 200 and ag["agents"][0]["id"] == "zeke" and ag["can_edit"] and not ag["is_owner"]
+        status, z = call("agents/zeke", {"prompt": "be terse", "temperature": 0.5}, remote)
+        assert status == 200 and z["params"]["prompt"] == "be terse"
+        assert call("agents/zeke", {"brain": "claude"}, remote)[0] == 403
+        assert call("agents/publish", {}, remote)[0] == 403
+        status, a = call("agents", {"id": "scout"}, remote)
+        assert status == 200 and a["brain"] == "zkapi"
+        status, done = call("agents/scout/run", {"query": "hi"}, remote)
+        assert status == 200 and done["usage"]["charge_gwei"] > 0 and "hi" in done["answer"]
+        assert [s["tool"] for s in done["result"]][-3:] == ["zkapi:lease", "zkapi:settle", "finish"]
+        assert call("agents/zeke/delete", {}, remote)[0] == 400
     finally:
         srv.shutdown()
         srv.server_close()

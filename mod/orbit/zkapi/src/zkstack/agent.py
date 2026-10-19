@@ -78,7 +78,11 @@ class AgentError(Exception):
 class Agents:
     def __init__(self, devnet, state_dir: Path | None = None):
         self.devnet = devnet
-        self.path = (state_dir or paths.STATE_DIR) / "agents.json"
+        if state_dir is None:
+            # the module's own devnet keeps agents in state/; a scratch devnet (tests) keeps its own
+            root = Path(getattr(devnet, "root", paths.STATE_DIR)).resolve()
+            state_dir = paths.STATE_DIR if root.is_relative_to(Path(paths.STATE_DIR).resolve()) else root
+        self.path = Path(state_dir) / "agents.json"
         self._lock = threading.Lock()
         self._run_locks: dict[str, threading.Lock] = {}
 
@@ -258,6 +262,17 @@ class Agents:
         lock = self._run_locks.setdefault(a["id"], threading.Lock())
         with lock:  # one wallet, one in-flight request
             wallet = self._wallet(client, a, emit)
+            if client.wallets("pending_request", wallet=wallet):
+                # a run that died mid-request left a write-ahead journal: settle it before the next one
+                rec = client.recover(wallet)
+                emit("zkapi:recover", {"wallet": wallet}, rec)
+                if not rec.get("recovered"):
+                    # still locked (e.g. a reserved nullifier until the lease TTL): start a fresh note
+                    with self._lock:
+                        data = self._load()
+                        data["wallets"].pop(a["id"], None)
+                        self._save(data)
+                    wallet = self._wallet(client, a, emit)
             system = "\n\n".join(x for x in (a.get("prompt"), extra) if x)
             messages = ([{"role": "system", "content": system}] if system else []) + \
                 [{"role": "user", "content": query}]

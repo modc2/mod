@@ -416,8 +416,10 @@ class Devnet:
 
     def _start_provider(self) -> None:
         if self.provider is None:
-            self.provider = Provider(self.root / "provider.json")
-            self.provider.serve("127.0.0.1", self.ports["provider"])
+            provider = Provider(self.root / "provider.json")
+            # bind first: a failed bind (port briefly held) must not leave a provider with no listener
+            provider.serve("127.0.0.1", self.ports["provider"])
+            self.provider = provider
 
     def _start_server(self, dep: dict) -> None:
         sec = self.secrets()

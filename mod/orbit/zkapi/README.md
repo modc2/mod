@@ -77,6 +77,25 @@ needs `ZKAPI_ETH_PRIVATE_KEY` and `confirm=True` for transactions. Sepolia `/v2`
 also needs `ZKAPI_TESTNET_PASSWORD`. The live operators issue keys through the OA org
 (`require_oa_key_source`), and inference goes to OpenRouter.
 
+## Agents (agent protocol)
+
+The app has three tabs: **APP** (the zkAPI console), **PARAMS** and **AGENTS**. The shipped agent is **Zeke**. An agent is
+just its params: name, about, brain, model, max tokens, temperature, deposit, icon/color and system prompt. All of them
+are editable on the PARAMS tab, which opens ready to edit.
+
+- **zkapi brain** (default): each model call the agent makes is a real zkAPI request. The agent's own devnet wallet
+  deposits into the vault, proves solvency, takes an anonymous lease, and the charge is settled. Steps:
+  `deposit`, `zkapi:lease`, `zkapi:settle`, `finish`.
+- **claude brain**: runs through orbit/claudecode `/run/stream` (bills the host account), so only the operator or the
+  build owner can run it or switch an agent to it.
+- **Editing is open by default** on the echo devnet. The build owner (same-origin `build_jobs_token`, checked through
+  build's `whoami`) can always edit. Set `ZKAPI_AGENT_EDIT=owner` to lock editing to the owner.
+- **Contract**: `GET /agents` returns `{agents:[...]}`. `POST /run/stream` and `/agents/{id}/run/stream` stream SSE in
+  orbit/agent's shape. `GET /.well-known/agent.json` returns the agent card.
+- **Publish**: AGENTS ▸ *publish to build* calls `POST /agents/publish`, which mounts `orbit/zkapi` in the build
+  console's agent roster (owner only). Build passes `agent_type=<id>` to pick an agent.
+- CLI: `m zkapi/agents`, `m zkapi/agent id=zeke prompt="..."`, `m zkapi/run query="hi" agent=zeke`, `m zkapi/publish`.
+
 ## CLI
 
 ```
