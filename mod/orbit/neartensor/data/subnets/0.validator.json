@@ -1,7 +1,7 @@
 {
   "scores": {
     "0": 0.6636021740216,
-    "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": 0.48740280031057964
+    "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": 0.6304979892513008
   },
   "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
   "last_epoch": {
@@ -12,65 +12,80 @@
     "results": {
       "0": {
         "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
-        "epoch_score": 0.4961,
-        "ema_score": 0.4874,
+        "epoch_score": 0.7882,
+        "ema_score": 0.6305,
         "samples": [
           {
-            "score": null,
-            "error": "unverifiable: all NEAR RPCs failed: 429 Client Error: Too Many Requests for url: https://rpc.testnet.near.org/"
+            "score": 1.0,
+            "task": "block_header",
+            "elapsed": 0.249,
+            "signature_ok": true,
+            "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
+            "score": 0.4959522830399627,
+            "task": "gas_price",
+            "elapsed": 6.401,
+            "signature_ok": true,
+            "correct": true
           },
           {
             "score": 1.0,
             "task": "account_state",
-            "elapsed": 0.771,
+            "elapsed": 0.356,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 1.0,
+            "score": 0.81288106703282,
             "task": "block_header",
-            "elapsed": 0.377,
+            "elapsed": 3.26,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.9766666666666666,
+            "score": 0.7794311621994677,
             "task": "gas_price",
-            "elapsed": 0.695,
+            "elapsed": 3.417,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
+            "score": 0.8599999999999999,
+            "task": "account_state",
+            "elapsed": 0.428,
+            "signature_ok": true,
+            "correct": true
           },
           {
-            "score": null,
-            "error": "unverifiable: all NEAR RPCs failed: 429 Client Error: Too Many Requests for url: https://rpc.testnet.near.org/"
+            "score": 0.6935145037641947,
+            "task": "block_header",
+            "elapsed": 3.3,
+            "signature_ok": true,
+            "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
+            "score": 0.6640315163568667,
+            "task": "gas_price",
+            "elapsed": 3.396,
+            "signature_ok": true,
+            "correct": true
           }
         ]
       }
     },
-    "at": 1792370133,
+    "at": 1792390547,
     "weights": {
       "0": 1.0
     },
     "set_weights": {
       "ok": true,
-      "epoch": 134,
+      "epoch": 136,
       "consensus": "yuma",
       "incentive": {
         "0": 1.0
       }
     }
   },
-  "updated": 1792370135
+  "updated": 1792390560
 }

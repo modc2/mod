@@ -2,7 +2,7 @@
 
 Open models, cast small.
 
-Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/DendriteLabs/ingot) · [url](https://theingot.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/DendriteLabs/ingot) · [url](https://theingot
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.013033 | +0.00% | +0.04% | -14.94% | 26,398 | 10,897 | 1,031 |
+| 0.012954 | — | -0.61% | -12.04% | 26,347 | 10,892 | 161.97 |
 
 ## Last 24h flow
 
-94 trades by 51 coldkeys · 54 buys (508.28 τ) / 40 sells (510.13 τ) · net -1.85 τ
+33 trades by 21 coldkeys · 11 buys (60.28 τ) / 22 sells (94.14 τ) · net -33.85 τ
 
 ## News
 

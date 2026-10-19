@@ -2,7 +2,7 @@
 
 The Intelligence Layer for AI Inference
 
-Bittensor subnet **10** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **10** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pareton.ai/)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pare
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005095 | -0.00% | -2.06% | -16.90% | 31,483 | 14,712 | 428.11 |
+| 0.005096 | — | +0.02% | -16.86% | 31,523 | 14,714 | 575.09 |
 
 ## Last 24h flow
 
-38 trades by 28 coldkeys · 10 buys (137.12 τ) / 28 sells (290.28 τ) · net -153.16 τ
+48 trades by 27 coldkeys · 22 buys (288.31 τ) / 26 sells (285.78 τ) · net 2.52 τ
 
 ## News
 
+- 2026-10-18 · commit · [Merge pull request #205 from Pareton-ai/fix/bohdan/db-pool-wait](https://github.com/Pareton-ai/pareton/commit/3c2d824adb037aaf04ff938157c89c1789a9a9ec) — Pareton-ai/pareton
+- 2026-10-17 · commit · [fix(db): cap pool wait at 3s and log wait timeouts once per window](https://github.com/Pareton-ai/pareton/commit/d5695762fea5671aba54d700fb0fa00dbb9886e2) — Pareton-ai/pareton
+- 2026-10-17 · commit · [fix(api): serve /health on the event loop so pool waits cannot stall it](https://github.com/Pareton-ai/pareton/commit/4d805616b4902d47c9ddcd31853e6d6f69b81682) — Pareton-ai/pareton
+- 2026-10-16 · commit · [fix(db): wait for a free pooled connection instead of returning 503](https://github.com/Pareton-ai/pareton/commit/ce24035ee340f422024bdce6824b5c558c610888) — Pareton-ai/pareton
 - 2026-10-16 · commit · [feat: run Kimi K3 at C32 with 8 prompts per tier, reusing the qualifi…](https://github.com/Pareton-ai/pareton/commit/952b86c25fb1576d83336a6f3083aa6c5d7deca9) — Pareton-ai/pareton
 - 2026-10-16 · commit · [feat(rank): let a campaign pin its own baseline drift ceiling (#196)](https://github.com/Pareton-ai/pareton/commit/e37b3138cb2440f53debd68b234e944384b1ea40) — Pareton-ai/pareton
 - 2026-10-15 · commit · [Merge pull request #201 from Pareton-ai/fix/k3-natural-stop-reproduci…](https://github.com/Pareton-ai/pareton/commit/aa181158b23d6d06ffa02b1694137bb8cb09d7e3) — Pareton-ai/pareton
 - 2026-10-15 · commit · [fix(bench): avoid voiding natural-stop rounds on length variance](https://github.com/Pareton-ai/pareton/commit/33c2cca21dfa7c40691e94d265752865cf3cd194) — Pareton-ai/pareton
-- 2026-10-15 · commit · [fix(round): run rounds only for open campaigns (#200)](https://github.com/Pareton-ai/pareton/commit/1d9175ff6a162bf2ed5a558ec30772043a236b4d) — Pareton-ai/pareton
-- 2026-10-15 · commit · [fix(score): charge short completions at full length in tier timing (#…](https://github.com/Pareton-ai/pareton/commit/6b7f895652cfe051e27d295e959a2dbde5889c50) — Pareton-ai/pareton
-- 2026-10-14 · commit · [perf(weights): reuse the weights hash while cached files are unchange…](https://github.com/Pareton-ai/pareton/commit/3be5c020d595cf4f52b78914c0d606f50dac6a3c) — Pareton-ai/pareton
-- 2026-10-14 · commit · [fix(bench): give the SGLang /server_info read a 600s timeout (#198)](https://github.com/Pareton-ai/pareton/commit/8d38b48ed25ab2bd28826f916e12bce0b6e2151b) — Pareton-ai/pareton
 
 ## Use
 

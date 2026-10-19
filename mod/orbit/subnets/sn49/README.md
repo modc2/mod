@@ -2,7 +2,7 @@
 
 Pioneering Simulation-First Robotics Development
 
-Bittensor subnet **49** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **49** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/nepher-ai/nepher-subnet) · [url](https://www.nepher.ai/) · [discord](https://discord.gg/qZUc3vdjVq)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/nepher-ai/nepher-subnet) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006816 | +0.00% | -4.57% | -14.84% | 21,216 | 4,298 | 375.31 |
+| 0.007498 | — | +10.00% | -5.57% | 23,398 | 4,519 | 360.66 |
 
 ## Last 24h flow
 
-49 trades by 31 coldkeys · 19 buys (134.13 τ) / 30 sells (237.15 τ) · net -103.02 τ
+79 trades by 41 coldkeys · 52 buys (284.01 τ) / 27 sells (73.96 τ) · net 210.05 τ
 
 ## News
 
@@ -22,8 +22,6 @@ Links: [github](https://github.com/nepher-ai/nepher-subnet) · [url](https://www
 - 2026-09-30 · commit · [Fix issue: IsaacLab 3.0.0 rejects --headless](https://github.com/nepher-ai/nepher-subnet/commit/8d01570718f988296575e2aaa688cdd6cf16c3b0) — nepher-ai/nepher-subnet
 - 2026-09-30 · commit · [Upgrade validator sandbox to Isaac Sim 6.1 / Isaac Lab 3.0.0](https://github.com/nepher-ai/nepher-subnet/commit/1e23cf0664621ece7696cf0375e205d911595892) — nepher-ai/nepher-subnet
 - 2026-09-30 · release · [v1.0.0](https://github.com/nepher-ai/nepher-subnet/releases/tag/v1.0.0) — nepher-ai/nepher-subnet
-- 2026-09-18 · commit · [Merge branch 'main' of https://github.com/nepher-ai/nepher-subnet](https://github.com/nepher-ai/nepher-subnet/commit/650a8c592310daa868f200dd7965fd7a61b5dce8) — nepher-ai/nepher-subnet
-- 2026-09-18 · commit · [Updated API URLs in configuration files and documentation to reflect …](https://github.com/nepher-ai/nepher-subnet/commit/047306b993019b0deefe190510650e8e2cc24ed3) — nepher-ai/nepher-subnet
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 Agent-first GPU cloud. Rent NVIDIA GPUs via web, CLI, SDK, or API. Providers earn 95% rental revenue + bonuses.
 
-Bittensor subnet **51** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **51** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/Datura-ai/lium-io) · [url](https://lium.io) · [discord](https://discord.gg/lium)
 
@@ -12,11 +12,11 @@ Fleet mods for this subnet: `lium`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.109014 | +0.00% | +0.09% | +4.84% | 671,891 | 178,491 | 2,251 |
+| 0.109730 | — | +0.65% | +4.32% | 677,123 | 179,175 | 4,268 |
 
 ## Last 24h flow
 
-422 trades by 208 coldkeys · 195 buys (778.61 τ) / 227 sells (1,072 τ) · net -293.60 τ
+368 trades by 191 coldkeys · 170 buys (2,093 τ) / 198 sells (1,827 τ) · net 265.92 τ
 
 ## News
 

@@ -2,7 +2,7 @@
 
 NIOME is a decentralized AI subnet that enables privacy-safe genomic intelligence by replacing real human genomes with high-fidelity synthetic genomic profiles
 
-Bittensor subnet **55** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **55** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/genomesio/subnet-niome) · [url](https://niome.genomes.io) · [discord](https://discord.gg/7mJkaJZX)
 
@@ -10,14 +10,19 @@ Links: [github](https://github.com/genomesio/subnet-niome) · [url](https://niom
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002096 | +0.00% | -1.07% | -4.93% | 12,009 | 5,818 | 172.63 |
+| 0.002128 | — | +1.81% | -9.48% | 12,206 | 5,862 | 144.18 |
 
 ## Last 24h flow
 
-45 trades by 23 coldkeys · 13 buys (70.60 τ) / 32 sells (101.71 τ) · net -31.11 τ
+34 trades by 21 coldkeys · 19 buys (98.30 τ) / 15 sells (45.58 τ) · net 52.72 τ
 
 ## News
 
+- 2026-10-18 · commit · [download file with retry logic](https://github.com/genomesio/subnet-niome/commit/4625b3c6e32edbed043a2940370def7de0d2daaf) — genomesio/subnet-niome
+- 2026-10-18 · commit · [set weights using valid scores](https://github.com/genomesio/subnet-niome/commit/4f288294f219d9b343d1c4e04bf798f050b82aa7) — genomesio/subnet-niome
+- 2026-10-18 · commit · [reduce burning rate to 0.1%](https://github.com/genomesio/subnet-niome/commit/21942bd1c9b3097cae21582ebb5ecc4a04cc2d2e) — genomesio/subnet-niome
+- 2026-10-17 · commit · [improve uploading flow](https://github.com/genomesio/subnet-niome/commit/21ed3f0cb0f739dcfcdad7e39f535a08fc4be9de) — genomesio/subnet-niome
+- 2026-10-17 · commit · [add google drive provider](https://github.com/genomesio/subnet-niome/commit/017aaae607ef784fccbb962e2bc9393f4ef59274) — genomesio/subnet-niome
 - 2026-09-23 · commit · [use block hashes to generate seeds](https://github.com/genomesio/subnet-niome/commit/9d9347a7ffab85a04eda6c36b9e87c59c8bb4049) — genomesio/subnet-niome
 
 ## Use

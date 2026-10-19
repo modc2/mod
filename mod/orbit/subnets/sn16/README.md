@@ -2,7 +2,7 @@
 
 Robot task disruptions and recovery demos for VLA training
 
-Bittensor subnet **16** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **16** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/fast-thinker/kenju)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/fast-thinker/kenju)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001110 | -0.00% | +9.33% | +22.24% | 1,093 | 354.6292 | 295.86 |
+| 0.000928 | — | -16.39% | +0.43% | 920.2324 | 324.2809 | 125.83 |
 
 ## Last 24h flow
 
-78 trades by 43 coldkeys · 38 buys (155.70 τ) / 40 sells (133.02 τ) · net 22.68 τ
+110 trades by 40 coldkeys · 59 buys (47.75 τ) / 51 sells (77.64 τ) · net -29.89 τ
 
 ## News
 

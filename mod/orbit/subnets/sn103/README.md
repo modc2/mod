@@ -2,17 +2,17 @@
 
 Const : Centralised Entity deciding emission of subnets based on emotion, not by codes
 
-Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.000927 | -0.00% | -9.01% | +12.10% | 616.1907 | 292.4422 | 186.41 |
+| 0.000829 | — | -10.91% | +0.93% | 556.2642 | 276.5011 | 87.94 |
 
 ## Last 24h flow
 
-104 trades by 35 coldkeys · 60 buys (86.15 τ) / 44 sells (99.45 τ) · net -13.30 τ
+68 trades by 33 coldkeys · 29 buys (35.75 τ) / 39 sells (51.62 τ) · net -15.87 τ
 
 ## Use
 

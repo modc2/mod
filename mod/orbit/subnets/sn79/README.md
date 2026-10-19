@@ -2,7 +2,7 @@
 
 Building a SOTA Exchange for dTAO and Beyond
 
-Bittensor subnet **79** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **79** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/taos-im/sn-79) · [url](https://taos.im)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/taos-im/sn-79) · [url](https://taos.im)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003030 | -0.03% | +0.71% | -3.26% | 16,177 | 6,927 | 67.69 |
+| 0.003018 | — | -0.39% | -3.43% | 16,132 | 6,914 | 22.12 |
 
 ## Last 24h flow
 
-105 trades by 19 coldkeys · 5 buys (42.21 τ) / 100 sells (20.77 τ) · net 21.44 τ
+205 trades by 29 coldkeys · 6 buys (1.32 τ) / 199 sells (17.56 τ) · net -16.24 τ
 
 ## News
 

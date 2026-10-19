@@ -2,7 +2,7 @@
 
 The general intelligence platform
 
-Bittensor subnet **1** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **1** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/macrocosm-os/apex) · [url](https://apex.macrocosmos.ai) · [discord](https://discord.gg/bvBDat3Gy)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/macrocosm-os/apex) · [url](https://apex.macr
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006570 | -0.01% | -2.53% | +0.40% | 40,396 | 23,044 | 589.42 |
+| 0.006457 | — | -1.71% | -1.29% | 39,744 | 22,846 | 380.59 |
 
 ## Last 24h flow
 
-151 trades by 45 coldkeys · 69 buys (146.12 τ) / 82 sells (443.26 τ) · net -297.14 τ
+112 trades by 32 coldkeys · 56 buys (91.32 τ) / 56 sells (288.53 τ) · net -197.20 τ
 
 ## News
 
+- 2026-10-18 · release · [v4.4.14](https://github.com/macrocosm-os/apex/releases/tag/v4.4.14) — macrocosm-os/apex
+- 2026-10-18 · commit · [Release v4.4.14 (#975)](https://github.com/macrocosm-os/apex/commit/c98616650707226d6a29d9e738cc2e0962e0b45d) — macrocosm-os/apex
 - 2026-10-16 · release · [v4.4.13](https://github.com/macrocosm-os/apex/releases/tag/v4.4.13) — macrocosm-os/apex
 - 2026-10-16 · commit · [Release v4.4.13 (#974)](https://github.com/macrocosm-os/apex/commit/bd71ceb070cd72b4bd80562e96884b66e86d908a) — macrocosm-os/apex
 - 2026-10-02 · release · [v4.4.12](https://github.com/macrocosm-os/apex/releases/tag/v4.4.12) — macrocosm-os/apex
 - 2026-10-02 · commit · [Release v4.4.12 (#973)](https://github.com/macrocosm-os/apex/commit/da4a308ea7e097a1e357937e5a322a54bba9cc41) — macrocosm-os/apex
 - 2026-09-29 · release · [v4.4.11](https://github.com/macrocosm-os/apex/releases/tag/v4.4.11) — macrocosm-os/apex
 - 2026-09-29 · commit · [Release v4.4.11 (#972)](https://github.com/macrocosm-os/apex/commit/96d5978b823cf15f2b418d49b68da21431723197) — macrocosm-os/apex
-- 2026-09-25 · release · [v4.4.10](https://github.com/macrocosm-os/apex/releases/tag/v4.4.10) — macrocosm-os/apex
-- 2026-09-25 · commit · [Release v4.4.10 (#971)](https://github.com/macrocosm-os/apex/commit/dbb3831c13a6d21762256522bcbf2cab9d9b1e5f) — macrocosm-os/apex
 
 ## Use
 

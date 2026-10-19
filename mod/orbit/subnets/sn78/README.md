@@ -2,7 +2,7 @@
 
 Universal motion to meaning
 
-Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vision) · [discord](https://discord.gg/8pexneWef)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vis
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002821 | -0.00% | -1.99% | -24.45% | 4,489 | 1,269 | 309.92 |
+| 0.002783 | — | -2.51% | -22.43% | 4,447 | 1,260 | 140.00 |
 
 ## Last 24h flow
 
-179 trades by 91 coldkeys · 45 buys (148.60 τ) / 134 sells (160.60 τ) · net -12.00 τ
+108 trades by 83 coldkeys · 24 buys (61.58 τ) / 84 sells (77.29 τ) · net -15.71 τ
 
 ## News
 
-- 2026-10-18 · commit · [Record exact C5 checkpoint batching backport ancestry](https://github.com/Umi-BitSign/umi/commit/1455f80bc83fd74ff30643b599c7ecebf9ac0c1a) — Umi-BitSign/umi
-- 2026-10-18 · commit · [Batch retained history checkpoint metadata reads](https://github.com/Umi-BitSign/umi/commit/10c8e57c93c85b63789a4efba1e3a3b4e3f537ea) — Umi-BitSign/umi
-- 2026-10-18 · commit · [Merge pull request #299 from Umi-BitSign/perf/history-checkpoint-batches](https://github.com/Umi-BitSign/umi/commit/2f4962365b56c9724d2cebdb4d7a585c395f3b16) — Umi-BitSign/umi
-- 2026-10-17 · commit · [Record exact C5 durable coverage backport release ancestry](https://github.com/Umi-BitSign/umi/commit/a5fb84643382866802f2294dd57ecb99702b5978) — Umi-BitSign/umi
-- 2026-10-17 · commit · [Merge pull request #298 from Umi-BitSign/codex/coverage-control-runti…](https://github.com/Umi-BitSign/umi/commit/14bce82b1659db9c826948e1604c05585c0d5195) — Umi-BitSign/umi
-- 2026-10-17 · commit · [Recover historical reward coverage gaps from durable native endpoints](https://github.com/Umi-BitSign/umi/commit/3bcecc5f059f9ae1669c9bffa766b62f3dd5e9fb) — Umi-BitSign/umi
-- 2026-10-17 · commit · [Reuse owned historical control verification during coverage capture](https://github.com/Umi-BitSign/umi/commit/1576e8b52af595006010484bb2667e6ad9f1aada) — Umi-BitSign/umi
-- 2026-10-17 · commit · [Record exact C5 coverage backport release ancestry](https://github.com/Umi-BitSign/umi/commit/8d399c11f40ca34861550476cf194eeb7f15298f) — Umi-BitSign/umi
+- 2026-10-18 · commit · [Export native allocations for automatic successor cutover (#309)](https://github.com/Umi-BitSign/umi/commit/cb1380936243eb6267bf1364a72d73d52fbb13ca) — Umi-BitSign/umi
+- 2026-10-18 · commit · [Read protected decisions from the configured producer account (#308)](https://github.com/Umi-BitSign/umi/commit/8fd257f804b0d7d7ecb8dcaa36df7d6cd30275d6) — Umi-BitSign/umi
+- 2026-10-18 · commit · [Publish reference controls with atomic public R2 Worker conditions (#…](https://github.com/Umi-BitSign/umi/commit/d5e269811ed4d3893a63081cec8a3b1de1141a71) — Umi-BitSign/umi
+- 2026-10-18 · commit · [Automate certified cohort row publication and compatible validator fo…](https://github.com/Umi-BitSign/umi/commit/ae9fe1c1462a1affef88adb4ee683a03943fab41) — Umi-BitSign/umi
+- 2026-10-18 · commit · [Expose safe retry diagnostics for automatic successor delivery (#305)](https://github.com/Umi-BitSign/umi/commit/dd4ce37cf78f1c6a0e058102ec1d0092fab09f6e) — Umi-BitSign/umi
+- 2026-10-18 · commit · [Reuse compact native coverage exports and retain complete transport w…](https://github.com/Umi-BitSign/umi/commit/76be653081f8f623bdbe24f250f225ecb56eb9ce) — Umi-BitSign/umi
+- 2026-10-18 · commit · [Reuse checkpoint source metadata within read-only snapshots (#303)](https://github.com/Umi-BitSign/umi/commit/e08e21de51646ef764300fe273ef6361722654fc) — Umi-BitSign/umi
+- 2026-10-18 · commit · [Merge pull request #302 from Umi-BitSign/perf/bounded-header-hint-sna…](https://github.com/Umi-BitSign/umi/commit/e35ec2e5ca95fe3b012d5a50b865416b8b028c97) — Umi-BitSign/umi
 
 ## Use
 

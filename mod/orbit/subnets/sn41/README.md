@@ -2,7 +2,7 @@
 
 Prediction market research and intelligence.
 
-Bittensor subnet **41** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **41** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/corvxai/almanac) · [url](https://almnc.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/corvxai/almanac) · [url](https://almnc.ai)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006712 | +0.00% | -1.86% | -8.83% | 40,255 | 14,726 | 1,822 |
+| 0.006653 | — | -0.76% | -9.45% | 39,947 | 14,667 | 475.95 |
 
 ## Last 24h flow
 
-182 trades by 129 coldkeys · 47 buys (835.87 τ) / 135 sells (977.14 τ) · net -141.26 τ
+82 trades by 60 coldkeys · 27 buys (205.15 τ) / 55 sells (264.55 τ) · net -59.40 τ
 
 ## News
 

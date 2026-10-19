@@ -1,16 +1,16 @@
 # sn42 — Unknown ס
 
-Bittensor subnet **42** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **42** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002166 | +0.00% | +0.17% | +3.52% | 12,788 | 6,882 | 10.04 |
+| 0.002160 | — | -0.28% | +3.31% | 12,767 | 6,872 | 10.91 |
 
 ## Last 24h flow
 
-5 trades by 5 coldkeys · 1 buys (8.00 τ) / 4 sells (1.83 τ) · net 6.17 τ
+13 trades by 11 coldkeys · 4 buys (0.66 τ) / 9 sells (10.03 τ) · net -9.37 τ
 
 ## Use
 

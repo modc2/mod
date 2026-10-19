@@ -2,7 +2,7 @@
 
 Trusted compute for bittensor validators
 
-Bittensor subnet **12** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **12** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/backend-developers-ltd/ComputeHorde/) · [url](https://computehorde.io) · [discord](https://discordapp.com/channels/799672011265015819/1201941624243109888)
 
@@ -10,19 +10,15 @@ Links: [github](https://github.com/backend-developers-ltd/ComputeHorde/) · [url
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004789 | -0.00% | +0.14% | -2.62% | 30,870 | 12,672 | 11.13 |
+| 0.004782 | — | -0.15% | -2.73% | 30,856 | 12,663 | 11.18 |
 
 ## Last 24h flow
 
-5 trades by 5 coldkeys · 2 buys (10.01 τ) / 3 sells (0.88 τ) · net 9.13 τ
+8 trades by 7 coldkeys · 3 buys (0.90 τ) / 5 sells (10.02 τ) · net -9.12 τ
 
 ## News
 
-- 2026-09-18 · commit · [fix: evict old neurons in allowance evict_old_data task](https://github.com/backend-developers-ltd/ComputeHorde/commit/d7ba0880c13528fb45c873a6a1bb7e9dc3e29bc5) — backend-developers-ltd/ComputeHorde
-- 2026-09-18 · release · [executor-staging-2026-09-18-35367827863-335-1: fix: evict old neurons in allowance evict_old_data task](https://github.com/backend-developers-ltd/ComputeHorde/releases/tag/executor-staging-2026-09-18-35367827863-335-1) — backend-developers-ltd/ComputeHorde
-- 2026-09-18 · release · [miner-staging-2026-09-18-35367827890-422-1: fix: evict old neurons in allowance evict_old_data task](https://github.com/backend-developers-ltd/ComputeHorde/releases/tag/miner-staging-2026-09-18-35367827890-422-1) — backend-developers-ltd/ComputeHorde
-- 2026-09-18 · release · [validator-preprod-2026-09-18-35368194640-313-1: fix: evict old neurons in allowance evict_old_data task](https://github.com/backend-developers-ltd/ComputeHorde/releases/tag/validator-preprod-2026-09-18-35368194640-313-1) — backend-developers-ltd/ComputeHorde
-- 2026-09-18 · release · [validator-staging-2026-09-18-35368036673-626-1: fix: evict old neurons in allowance evict_old_data task](https://github.com/backend-developers-ltd/ComputeHorde/releases/tag/validator-staging-2026-09-18-35368036673-626-1) — backend-developers-ltd/ComputeHorde
+- 2026-10-18 · news · [Compute Horde USD (SN12-USD) Cryptocurrency Profile & Facts](https://news.google.com/rss/articles/CBMiYkFVX3lxTFBfZ0lfREFpUWxCZXR6QUd1aEhyLU9QRFRrNUdyeEI4dUdCcWJxOFQ2ZUF4Z3ktQmQtemRrN2VjTU02MHVfSFNISkl0LUZyeVdKYmdRbHpmaGstZlVncFlxR0tB?oc=5) — Yahoo! Finance Canada
 
 ## Use
 

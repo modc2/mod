@@ -2,7 +2,7 @@
 
 Reason Mining
 
-Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www.affine.io) · discord `consttt`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.042934 | +0.00% | -0.29% | -3.18% | 193,149 | 74,958 | 638.89 |
+| 0.043255 | — | +0.74% | -2.33% | 194,916 | 75,289 | 1,303 |
 
 ## Last 24h flow
 
-706 trades by 106 coldkeys · 23 buys (133.63 τ) / 683 sells (358.31 τ) · net -224.68 τ
+671 trades by 99 coldkeys · 71 buys (676.40 τ) / 600 sells (505.18 τ) · net 171.22 τ
 
 ## News
 

@@ -2,7 +2,7 @@
 
 A competition where miners submit optimized kernels to compete on end-to-end inference speed against target models.
 
-Bittensor subnet **14** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **14** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/latent-to/cacheon) · [url](https://cacheon.ai) · [discord](https://discord.gg/SFt8s4gJD)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/latent-to/cacheon) · [url](https://cacheon.a
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.008666 | +0.00% | +0.03% | -0.75% | 53,432 | 24,589 | 24.88 |
+| 0.008750 | — | +0.97% | +1.53% | 54,019 | 24,717 | 636.47 |
 
 ## Last 24h flow
 
-15 trades by 11 coldkeys · 0 buys (0.00 τ) / 15 sells (9.30 τ) · net -9.30 τ
+75 trades by 40 coldkeys · 34 buys (365.06 τ) / 41 sells (257.15 τ) · net 107.90 τ
 
 ## News
 
+- 2026-10-18 · commit · [DeepSeek mainnet: fully eager audit role, seam binds all 40 layers, r…](https://github.com/latent-to/cacheon/commit/8fdede8070ed344030b6ede832ba343992adbe9e) — latent-to/cacheon
 - 2026-10-15 · commit · [Allow sealed audit decode budgets for speculative arenas (#155)](https://github.com/latent-to/cacheon/commit/b0e5090ab7918b166150ea708a9d4f8f884d563a) — latent-to/cacheon
 - 2026-10-15 · commit · [Audit native recurrent MTP state and hybrid prefix keys (#153)](https://github.com/latent-to/cacheon/commit/89e13099f3e1fa7969a772a8e81e45d9817247dc) — latent-to/cacheon
 - 2026-10-15 · commit · [Resume checkpointed evaluations across GPU worker replacement (#151)](https://github.com/latent-to/cacheon/commit/b634933772700515f7023ca52c07724337144690) — latent-to/cacheon
@@ -25,7 +26,6 @@ Links: [github](https://github.com/latent-to/cacheon) · [url](https://cacheon.a
 - 2026-10-14 · commit · [Merge pull request #147 from latent-to/codex/qwen38-recurrent-audit](https://github.com/latent-to/cacheon/commit/074e472406978ba8b051f7455cf83d72d46ecaa5) — latent-to/cacheon
 - 2026-10-14 · commit · [Allow future arena source additions without repricing prior submissions](https://github.com/latent-to/cacheon/commit/a5128bacc0b6956819c24a1e1acfd86ed23e86b5) — latent-to/cacheon
 - 2026-10-14 · commit · [Document Qwen GPU reservation through worker drain and resume](https://github.com/latent-to/cacheon/commit/623f0d7fa5a682edd80881f884a9fb99e6521439) — latent-to/cacheon
-- 2026-10-14 · commit · [Audit native recurrent prefix checkpoints and model state](https://github.com/latent-to/cacheon/commit/4562c1909e6ef16347aeff1416d11fd506056cda) — latent-to/cacheon
 
 ## Use
 

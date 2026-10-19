@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-18 (block 9308119).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004441 | -0.71% | -5.39% | -8.23% | 26,438 | 5,306 | 1,535 |
+| 0.004782 | — | +9.00% | -1.85% | 28,503 | 5,506 | 1,879 |
 
 ## Last 24h flow
 
-157 trades by 81 coldkeys · 69 buys (693.28 τ) / 88 sells (834.13 τ) · net -140.85 τ
+147 trades by 63 coldkeys · 80 buys (1,056 τ) / 67 sells (822.16 τ) · net 233.90 τ
 
 ## News
 
+- 2026-10-18 · commit · [obs(arena): record canonical round IDs on HTTP spans (#536)](https://github.com/leadpoet/leadpoet/commit/618071fa8c9bf1bd8363585d8d070fe7634c602a) — leadpoet/leadpoet
+- 2026-10-18 · commit · [Preserve bounded store diagnostics on arena advance failures (#535)](https://github.com/leadpoet/leadpoet/commit/1211af84922802fc804ffb36313bf3a3386c7f47) — leadpoet/leadpoet
+- 2026-10-18 · commit · [Merge pull request #534 from leadpoet/fix/arena-reviewer-register-no-…](https://github.com/leadpoet/leadpoet/commit/34543d5bb0f8d041cacee2f592e8f90f7a594482) — leadpoet/leadpoet
+- 2026-10-18 · commit · [Prevent bytecode writes during reviewer runtime registration](https://github.com/leadpoet/leadpoet/commit/201c5b9740cc68216ca88538fdc5b2730b48d593) — leadpoet/leadpoet
+- 2026-10-18 · commit · [Merge pull request #533 from leadpoet/fix/arena-host-compat-capabilit…](https://github.com/leadpoet/leadpoet/commit/ab08dac67dc3dd1bfd286e6e15e18090c53ce937) — leadpoet/leadpoet
+- 2026-10-18 · commit · [fix(arena): classify unavailable frozen score routes before dispatch](https://github.com/leadpoet/leadpoet/commit/7dca2bb46d4ee5d9890eae6a591582bb6dc288d4) — leadpoet/leadpoet
 - 2026-10-18 · commit · [Prune superseded Deepline score billing heads before V3 candidate wor…](https://github.com/leadpoet/leadpoet/commit/2ae20ac465ffb4467a56ea88f9372082998cc4f9) — leadpoet/leadpoet
 - 2026-10-18 · commit · [Capture runsc child fatal logs through bounded stderr (#527)](https://github.com/leadpoet/leadpoet/commit/c6e6fd314bb53f2471db185e5e3cd84e011ce498) — leadpoet/leadpoet
-- 2026-10-18 · commit · [Preserve bounded Deepline execute responses above 1 MiB (#526)](https://github.com/leadpoet/leadpoet/commit/c5235af0f3e380b1953bf80725c477913aea34c8) — leadpoet/leadpoet
-- 2026-10-17 · commit · [Expose billing lookup and training-capture failures in Arena telemetr…](https://github.com/leadpoet/leadpoet/commit/5cf0defe7df798a8b411778c438864b2fd45d7a9) — leadpoet/leadpoet
-- 2026-10-17 · commit · [fix(arena): require worker response to fill training export gap (#524)](https://github.com/leadpoet/leadpoet/commit/f7096f9b1e224a935de42fbbd8991b830f6c118b) — leadpoet/leadpoet
-- 2026-10-17 · commit · [Update README.md](https://github.com/leadpoet/leadpoet/commit/9e01c8d5479fbd8ffdd91a05bb121c17c51c9a44) — leadpoet/leadpoet
-- 2026-10-17 · commit · [fix(arena): bound training exports separately from requests (#522)](https://github.com/leadpoet/leadpoet/commit/acc4771235cf9076cc72fd8d796c8a9709d8c175) — leadpoet/leadpoet
-- 2026-10-17 · commit · [fix(arena): allow bounded receipt reads for submission costs (#521)](https://github.com/leadpoet/leadpoet/commit/f1dd3d4ea64636490c5e9033600163fd1e95a415) — leadpoet/leadpoet
 
 ## Use
 

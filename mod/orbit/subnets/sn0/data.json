@@ -11,24 +11,23 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9308119,
+  "block": 9314686,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6873579.891784275,
-    "tao_in": 5447101.738704622,
-    "alpha_in": 1426478.153079653,
-    "alpha_out": 5447101.738704622,
-    "volume": 59254831.47914368,
-    "vol_24h": 25768.302121199667,
+    "market_cap": 6873823.597171403,
+    "tao_in": 5443716.558206143,
+    "alpha_in": 1430107.03896526,
+    "alpha_out": 5443716.558206143,
+    "volume": 59274815.596799895,
+    "vol_24h": 19799.933424532413,
     "emission": 0.0,
-    "change_1h": 0.0,
+    "change_1h": null,
     "change_24h": 0.0,
     "change_7d": 0.0
   },
   "spark_24h": [
-    1.0,
     1.0,
     1.0,
     1.0,
@@ -78,6 +77,14 @@
   "trades_24h": null,
   "top_traders_24h": [],
   "news": [
+    {
+      "ts": 1792353342,
+      "kind": "social",
+      "source": "hn",
+      "title": "My Favorite Restaurant Served Gas (2023)",
+      "url": "https://bittersoutherner.com/feature/2023/my-favorite-restaurant-served-gas-kate-medley-kiese-laymon-gas-station-food",
+      "publisher": "Hacker News"
+    },
     {
       "ts": 1792198143,
       "kind": "social",
@@ -133,16 +140,8 @@
       "title": "Buy Signal Bittensor USD - 15 Oct 2026 @ 16:53 -> $277.09",
       "url": "https://www.reddit.com/r/getagraph/comments/1x6xczm/buy_signal_bittensor_usd_15_oct_2026_1653_27709/",
       "publisher": "r/getagraph"
-    },
-    {
-      "ts": 1792080000,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Better Buy for the AI Boom: Bittensor or Bitcoin?",
-      "url": "https://news.google.com/rss/articles/CBMiqgFBVV95cUxOVzE5Ty01bjA2SVZhcHFhTXhkX1BJZDdvNlFOTHBCWXlGUHhLTE1rb2htYndqZWIwbkprX1NjNDh5enNJazdBV3dZdEc5MlF2XzJOM01zdEotRjFueklGQU5JUVhqRllmdmRJMFNXV2d1YVYweHVhTm9LbWRoNDA3UEM3bmo1RmZFN0cwN3JxZWNsajMxNTdQZ3F0XzEtejYtVlVJaFRieXlpUQ?oc=5",
-      "publisher": "24/7 Wall St."
     }
   ],
-  "updated": 1792302061,
-  "updated_day": "2026-10-18"
+  "updated": 1792388461,
+  "updated_day": "2026-10-19"
 }
