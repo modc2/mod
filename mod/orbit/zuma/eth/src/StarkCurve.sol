@@ -72,36 +72,29 @@ library StarkCurve {
         uint256[45] memory j; // 15 x (X, Y, Z)
         assembly {
             let p := 0x800000000000011000000000000000000000000000000000000000000000001
-            function dbl(x1, y1, z1, pp) -> x3, y3, z3 {
+            // dbl-2007-bl with a = 1; infinity is Z = 0
+            function dbl(x1, y1, z1) -> x3, y3, z3 {
                 if iszero(z1) {
                     x3 := x1
                     y3 := y1
-                    z3 := 0
                     leave
                 }
-                let xx := mulmod(x1, x1, pp)
-                let yy := mulmod(y1, y1, pp)
-                let yyyy := mulmod(yy, yy, pp)
-                let zz := mulmod(z1, z1, pp)
-                let s := addmod(x1, yy, pp)
-                s := mulmod(s, s, pp)
-                s := addmod(s, sub(pp, xx), pp)
-                s := addmod(s, sub(pp, yyyy), pp)
-                s := addmod(s, s, pp)
-                let m := addmod(addmod(addmod(xx, xx, pp), xx, pp), mulmod(zz, zz, pp), pp)
-                let t := addmod(mulmod(m, m, pp), sub(pp, addmod(s, s, pp)), pp)
-                x3 := t
-                let y8 := addmod(yyyy, yyyy, pp)
-                y8 := addmod(y8, y8, pp)
-                y8 := addmod(y8, y8, pp)
-                y3 := addmod(mulmod(m, addmod(s, sub(pp, t), pp), pp), sub(pp, y8), pp)
-                z3 := addmod(y1, z1, pp)
-                z3 := mulmod(z3, z3, pp)
-                z3 := addmod(z3, sub(pp, yy), pp)
-                z3 := addmod(z3, sub(pp, zz), pp)
+                let yy := mulmod(y1, y1, 0x800000000000011000000000000000000000000000000000000000000000001)
+                let zz := mulmod(z1, z1, 0x800000000000011000000000000000000000000000000000000000000000001)
+                let xx := mulmod(x1, x1, 0x800000000000011000000000000000000000000000000000000000000000001)
+                // z3 = (y1 + z1)^2 - yy - zz = 2*y1*z1
+                z3 := mulmod(add(y1, y1), z1, 0x800000000000011000000000000000000000000000000000000000000000001)
+                // s = 2*((x1 + yy)^2 - xx - yyyy) = 4*x1*yy
+                let s := mulmod(shl(2, x1), yy, 0x800000000000011000000000000000000000000000000000000000000000001)
+                // m = 3xx + zz^2
+                let m := addmod(mul(3, xx), mulmod(zz, zz, 0x800000000000011000000000000000000000000000000000000000000000001), 0x800000000000011000000000000000000000000000000000000000000000001)
+                x3 := addmod(mulmod(m, m, 0x800000000000011000000000000000000000000000000000000000000000001), sub(7237005577332262427394645566190140211246214430663193399946184112271744040962, add(s, s)), 0x800000000000011000000000000000000000000000000000000000000000001)
+                // y3 = m (s - x3) - 8 yy^2
+                y3 := addmod(mulmod(m, add(s, sub(0x800000000000011000000000000000000000000000000000000000000000001, x3)), 0x800000000000011000000000000000000000000000000000000000000000001), sub(0x800000000000011000000000000000000000000000000000000000000000001, mulmod(shl(3, yy), yy, 0x800000000000011000000000000000000000000000000000000000000000001)), 0x800000000000011000000000000000000000000000000000000000000000001)
             }
-            function madd(x1, y1, z1, x2, y2, pp) -> x3, y3, z3 {
-                if and(iszero(x2), iszero(y2)) {
+            // madd-2007-bl: (x1, y1, z1) + affine (x2, y2); (0, 0) is infinity
+            function madd(x1, y1, z1, x2, y2) -> x3, y3, z3 {
+                if iszero(or(x2, y2)) {
                     x3 := x1
                     y3 := y1
                     z3 := z1
@@ -113,46 +106,39 @@ library StarkCurve {
                     z3 := 1
                     leave
                 }
-                let z1z1 := mulmod(z1, z1, pp)
-                let u2 := mulmod(x2, z1z1, pp)
-                let s2 := mulmod(mulmod(y2, z1, pp), z1z1, pp)
-                let h := addmod(u2, sub(pp, x1), pp)
-                let r := addmod(s2, sub(pp, y1), pp)
-                r := addmod(r, r, pp)
+                let z1z1 := mulmod(z1, z1, 0x800000000000011000000000000000000000000000000000000000000000001)
+                let h := addmod(mulmod(x2, z1z1, 0x800000000000011000000000000000000000000000000000000000000000001), sub(0x800000000000011000000000000000000000000000000000000000000000001, x1), 0x800000000000011000000000000000000000000000000000000000000000001)
+                let r := addmod(mulmod(mulmod(y2, z1, 0x800000000000011000000000000000000000000000000000000000000000001), z1z1, 0x800000000000011000000000000000000000000000000000000000000000001), sub(0x800000000000011000000000000000000000000000000000000000000000001, y1), 0x800000000000011000000000000000000000000000000000000000000000001)
                 if iszero(h) {
                     if iszero(r) {
-                        x3, y3, z3 := dbl(x1, y1, z1, pp)
+                        x3, y3, z3 := dbl(x1, y1, z1)
                         leave
                     }
                     x3 := 1
                     y3 := 1
-                    z3 := 0
                     leave
                 }
-                let hh := mulmod(h, h, pp)
-                let i := addmod(hh, hh, pp)
-                i := addmod(i, i, pp)
-                let jj := mulmod(h, i, pp)
-                let v := mulmod(x1, i, pp)
-                x3 := addmod(mulmod(r, r, pp), sub(pp, addmod(jj, addmod(v, v, pp), pp)), pp)
-                let y1j := mulmod(y1, jj, pp)
-                y3 := addmod(mulmod(r, addmod(v, sub(pp, x3), pp), pp), sub(pp, addmod(y1j, y1j, pp)), pp)
-                z3 := addmod(z1, h, pp)
-                z3 := mulmod(z3, z3, pp)
-                z3 := addmod(z3, sub(pp, z1z1), pp)
-                z3 := addmod(z3, sub(pp, hh), pp)
+                r := add(r, r)
+                let hh := mulmod(h, h, 0x800000000000011000000000000000000000000000000000000000000000001)
+                // z3 = (z1 + h)^2 - z1z1 - hh = 2*z1*h
+                z3 := mulmod(add(z1, z1), h, 0x800000000000011000000000000000000000000000000000000000000000001)
+                let i := shl(2, hh)
+                let v := mulmod(x1, i, 0x800000000000011000000000000000000000000000000000000000000000001)
+                let jj := mulmod(h, i, 0x800000000000011000000000000000000000000000000000000000000000001)
+                x3 := addmod(mulmod(r, r, 0x800000000000011000000000000000000000000000000000000000000000001), sub(10855508365998393641091968349285210316869321645994790099919276168407616061443, add(jj, add(v, v))), 0x800000000000011000000000000000000000000000000000000000000000001)
+                y3 := addmod(mulmod(r, add(v, sub(0x800000000000011000000000000000000000000000000000000000000000001, x3)), 0x800000000000011000000000000000000000000000000000000000000000001), sub(0x800000000000011000000000000000000000000000000000000000000000001, mulmod(add(y1, y1), jj, 0x800000000000011000000000000000000000000000000000000000000000001)), 0x800000000000011000000000000000000000000000000000000000000000001)
             }
             // j[0] = Q, j[1] = 2Q, j[k] = j[k-1] + Q
             mstore(j, qx)
             mstore(add(j, 32), qy)
             mstore(add(j, 64), 1)
-            let x, y, z := dbl(qx, qy, 1, p)
+            let x, y, z := dbl(qx, qy, 1)
             mstore(add(j, 96), x)
             mstore(add(j, 128), y)
             mstore(add(j, 160), z)
             for { let k := 2 } lt(k, 15) { k := add(k, 1) } {
                 let o := add(j, mul(k, 96))
-                x, y, z := madd(x, y, z, qx, qy, p)
+                x, y, z := madd(x, y, z, qx, qy)
                 mstore(o, x)
                 mstore(add(o, 32), y)
                 mstore(add(o, 64), z)
@@ -188,36 +174,29 @@ library StarkCurve {
     {
         assembly {
             let p := 0x800000000000011000000000000000000000000000000000000000000000001
-            function dbl(x1, y1, z1, pp) -> x3, y3, z3 {
+            // dbl-2007-bl with a = 1; infinity is Z = 0
+            function dbl(x1, y1, z1) -> x3, y3, z3 {
                 if iszero(z1) {
                     x3 := x1
                     y3 := y1
-                    z3 := 0
                     leave
                 }
-                let xx := mulmod(x1, x1, pp)
-                let yy := mulmod(y1, y1, pp)
-                let yyyy := mulmod(yy, yy, pp)
-                let zz := mulmod(z1, z1, pp)
-                let s := addmod(x1, yy, pp)
-                s := mulmod(s, s, pp)
-                s := addmod(s, sub(pp, xx), pp)
-                s := addmod(s, sub(pp, yyyy), pp)
-                s := addmod(s, s, pp)
-                let m := addmod(addmod(addmod(xx, xx, pp), xx, pp), mulmod(zz, zz, pp), pp)
-                let t := addmod(mulmod(m, m, pp), sub(pp, addmod(s, s, pp)), pp)
-                x3 := t
-                let y8 := addmod(yyyy, yyyy, pp)
-                y8 := addmod(y8, y8, pp)
-                y8 := addmod(y8, y8, pp)
-                y3 := addmod(mulmod(m, addmod(s, sub(pp, t), pp), pp), sub(pp, y8), pp)
-                z3 := addmod(y1, z1, pp)
-                z3 := mulmod(z3, z3, pp)
-                z3 := addmod(z3, sub(pp, yy), pp)
-                z3 := addmod(z3, sub(pp, zz), pp)
+                let yy := mulmod(y1, y1, 0x800000000000011000000000000000000000000000000000000000000000001)
+                let zz := mulmod(z1, z1, 0x800000000000011000000000000000000000000000000000000000000000001)
+                let xx := mulmod(x1, x1, 0x800000000000011000000000000000000000000000000000000000000000001)
+                // z3 = (y1 + z1)^2 - yy - zz = 2*y1*z1
+                z3 := mulmod(add(y1, y1), z1, 0x800000000000011000000000000000000000000000000000000000000000001)
+                // s = 2*((x1 + yy)^2 - xx - yyyy) = 4*x1*yy
+                let s := mulmod(shl(2, x1), yy, 0x800000000000011000000000000000000000000000000000000000000000001)
+                // m = 3xx + zz^2
+                let m := addmod(mul(3, xx), mulmod(zz, zz, 0x800000000000011000000000000000000000000000000000000000000000001), 0x800000000000011000000000000000000000000000000000000000000000001)
+                x3 := addmod(mulmod(m, m, 0x800000000000011000000000000000000000000000000000000000000000001), sub(7237005577332262427394645566190140211246214430663193399946184112271744040962, add(s, s)), 0x800000000000011000000000000000000000000000000000000000000000001)
+                // y3 = m (s - x3) - 8 yy^2
+                y3 := addmod(mulmod(m, add(s, sub(0x800000000000011000000000000000000000000000000000000000000000001, x3)), 0x800000000000011000000000000000000000000000000000000000000000001), sub(0x800000000000011000000000000000000000000000000000000000000000001, mulmod(shl(3, yy), yy, 0x800000000000011000000000000000000000000000000000000000000000001)), 0x800000000000011000000000000000000000000000000000000000000000001)
             }
-            function madd(x1, y1, z1, x2, y2, pp) -> x3, y3, z3 {
-                if and(iszero(x2), iszero(y2)) {
+            // madd-2007-bl: (x1, y1, z1) + affine (x2, y2); (0, 0) is infinity
+            function madd(x1, y1, z1, x2, y2) -> x3, y3, z3 {
+                if iszero(or(x2, y2)) {
                     x3 := x1
                     y3 := y1
                     z3 := z1
@@ -229,34 +208,27 @@ library StarkCurve {
                     z3 := 1
                     leave
                 }
-                let z1z1 := mulmod(z1, z1, pp)
-                let u2 := mulmod(x2, z1z1, pp)
-                let s2 := mulmod(mulmod(y2, z1, pp), z1z1, pp)
-                let h := addmod(u2, sub(pp, x1), pp)
-                let r := addmod(s2, sub(pp, y1), pp)
-                r := addmod(r, r, pp)
+                let z1z1 := mulmod(z1, z1, 0x800000000000011000000000000000000000000000000000000000000000001)
+                let h := addmod(mulmod(x2, z1z1, 0x800000000000011000000000000000000000000000000000000000000000001), sub(0x800000000000011000000000000000000000000000000000000000000000001, x1), 0x800000000000011000000000000000000000000000000000000000000000001)
+                let r := addmod(mulmod(mulmod(y2, z1, 0x800000000000011000000000000000000000000000000000000000000000001), z1z1, 0x800000000000011000000000000000000000000000000000000000000000001), sub(0x800000000000011000000000000000000000000000000000000000000000001, y1), 0x800000000000011000000000000000000000000000000000000000000000001)
                 if iszero(h) {
                     if iszero(r) {
-                        x3, y3, z3 := dbl(x1, y1, z1, pp)
+                        x3, y3, z3 := dbl(x1, y1, z1)
                         leave
                     }
                     x3 := 1
                     y3 := 1
-                    z3 := 0
                     leave
                 }
-                let hh := mulmod(h, h, pp)
-                let i := addmod(hh, hh, pp)
-                i := addmod(i, i, pp)
-                let jj := mulmod(h, i, pp)
-                let v := mulmod(x1, i, pp)
-                x3 := addmod(mulmod(r, r, pp), sub(pp, addmod(jj, addmod(v, v, pp), pp)), pp)
-                let y1j := mulmod(y1, jj, pp)
-                y3 := addmod(mulmod(r, addmod(v, sub(pp, x3), pp), pp), sub(pp, addmod(y1j, y1j, pp)), pp)
-                z3 := addmod(z1, h, pp)
-                z3 := mulmod(z3, z3, pp)
-                z3 := addmod(z3, sub(pp, z1z1), pp)
-                z3 := addmod(z3, sub(pp, hh), pp)
+                r := add(r, r)
+                let hh := mulmod(h, h, 0x800000000000011000000000000000000000000000000000000000000000001)
+                // z3 = (z1 + h)^2 - z1z1 - hh = 2*z1*h
+                z3 := mulmod(add(z1, z1), h, 0x800000000000011000000000000000000000000000000000000000000000001)
+                let i := shl(2, hh)
+                let v := mulmod(x1, i, 0x800000000000011000000000000000000000000000000000000000000000001)
+                let jj := mulmod(h, i, 0x800000000000011000000000000000000000000000000000000000000000001)
+                x3 := addmod(mulmod(r, r, 0x800000000000011000000000000000000000000000000000000000000000001), sub(10855508365998393641091968349285210316869321645994790099919276168407616061443, add(jj, add(v, v))), 0x800000000000011000000000000000000000000000000000000000000000001)
+                y3 := addmod(mulmod(r, add(v, sub(0x800000000000011000000000000000000000000000000000000000000000001, x3)), 0x800000000000011000000000000000000000000000000000000000000000001), sub(0x800000000000011000000000000000000000000000000000000000000000001, mulmod(add(y1, y1), jj, 0x800000000000011000000000000000000000000000000000000000000000001)), 0x800000000000011000000000000000000000000000000000000000000000001)
             }
             X := 1
             Y := 1
@@ -269,18 +241,18 @@ library StarkCurve {
                 let nb := and(shr(sh, b), 15)
                 if na {
                     let o := add(ta, mul(na, 64))
-                    X, Y, Z := madd(X, Y, Z, mload(o), mload(add(o, 32)), p)
+                    X, Y, Z := madd(X, Y, Z, mload(o), mload(add(o, 32)))
                 }
                 if nb {
                     let o := add(tb, mul(nb, 64))
-                    X, Y, Z := madd(X, Y, Z, mload(o), mload(add(o, 32)), p)
+                    X, Y, Z := madd(X, Y, Z, mload(o), mload(add(o, 32)))
                 }
                 if iszero(i) { break }
                 i := sub(i, 1)
-                X, Y, Z := dbl(X, Y, Z, p)
-                X, Y, Z := dbl(X, Y, Z, p)
-                X, Y, Z := dbl(X, Y, Z, p)
-                X, Y, Z := dbl(X, Y, Z, p)
+                X, Y, Z := dbl(X, Y, Z)
+                X, Y, Z := dbl(X, Y, Z)
+                X, Y, Z := dbl(X, Y, Z)
+                X, Y, Z := dbl(X, Y, Z)
             }
         }
     }

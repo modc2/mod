@@ -104,7 +104,7 @@ export default function AccountSidebar({
               {t === "agent" ? "Agent" : "Wallet"}
             </button>
           ))}
-          <span className={`side-tab-thumb ${tab}`} aria-hidden />
+          <span className={`side-slider at-${tab}`} aria-hidden />
         </div>
         <div className="side-body">
           {tab === "agent" ? (

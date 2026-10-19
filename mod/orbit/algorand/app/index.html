@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>algorand</title>
+<style>
+:root{--bg:#0b0d10;--panel:#12161b;--line:#222a33;--ink:#e6edf3;--dim:#8b98a5;--acc:#2ee6c6;--warn:#ffb547;--bad:#ff6b6b;--ok:#4ade80}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.logo{font-weight:800;letter-spacing:.08em;font-size:15px}
+.logo b{color:var(--acc)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:none;border:0;color:var(--dim);padding:6px 12px;cursor:pointer;font:inherit;font-size:12px;letter-spacing:.06em}
+.seg button.on{background:var(--acc);color:#04201b;font-weight:700}
+.chip{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.chip b{color:var(--ink)}
+.grow{flex:1}
+nav{display:flex;gap:4px;padding:0 20px;border-bottom:1px solid var(--line);overflow-x:auto}
+nav button{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);padding:11px 14px;cursor:pointer;font:inherit;font-size:12px;letter-spacing:.1em;font-weight:600}
+nav button.on{color:var(--ink);border-color:var(--acc)}
+main{max-width:1100px;margin:0 auto;padding:20px}
+section{display:none}section.on{display:block}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h3{margin:0 0 10px;font-size:12px;letter-spacing:.12em;color:var(--dim);font-weight:700}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,textarea,select{background:#0a0d11;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:9px 11px;font:inherit;min-width:0}
+textarea{width:100%;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;min-height:150px}
+input.wide{flex:1;min-width:240px}
+input:focus,textarea:focus{outline:1px solid var(--acc)}
+button.go{background:var(--acc);color:#04201b;border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer;letter-spacing:.04em}
+button.ghost{background:none;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{background:#0a0d11;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.stat .k{font-size:11px;color:var(--dim);letter-spacing:.1em}
+.stat .v{font-size:18px;font-weight:700;margin-top:2px;word-break:break-all}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600;font-size:11px;letter-spacing:.1em}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all}
+.dim{color:var(--dim)}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+pre{background:#0a0d11;border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;max-height:460px;font-size:12px;margin:0}
+a{color:var(--acc)}
+.link{cursor:pointer;color:var(--acc)}
+.note{font-size:12px;color:var(--dim);margin-top:8px}
+.mainnet-only{display:none}body.mainnet .mainnet-only{display:inline-flex}
+label.ck{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--warn)}
+.toast{position:fixed;right:18px;bottom:18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;max-width:420px;display:none;font-size:13px}
+.toast.on{display:block}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><b>A</b> ALGORAND</div>
+  <div class="seg" id="net">
+    <button data-n="mainnet">MAINNET</button><button data-n="testnet">TESTNET</button>
+  </div>
+  <span class="chip" id="round">round <b>-</b></span>
+  <span class="chip" id="price">ALGO <b>-</b></span>
+  <span class="grow"></span>
+  <span class="chip" id="signer">no key</span>
+</header>
+<nav id="tabs">
+  <button data-t="explore" class="on">EXPLORE</button>
+  <button data-t="apps">APPS</button>
+  <button data-t="wallet">WALLET</button>
+  <button data-t="assets">ASSETS</button>
+  <button data-t="deploy">DEPLOY</button>
+  <button data-t="chain">CHAIN</button>
+  <button data-t="mcp">MCP</button>
+</nav>
+<main>
+
+<section id="explore" class="on">
+  <div class="card">
+    <h3>LOOK UP</h3>
+    <div class="row">
+      <input class="wide" id="q" placeholder="address, name.algo, asset id, app id, or transaction id">
+      <button class="go" id="qgo">GO</button>
+    </div>
+    <div class="note">Numbers are tried as an asset first, then as an app. Try <span class="link" data-ex="algo.algo">algo.algo</span>, <span class="link" data-ex="31566704">31566704</span> (USDC), <span class="link" data-ex="1002541853">1002541853</span>.</div>
+  </div>
+  <div id="qout"></div>
+</section>
+
+<section id="apps">
+  <div class="card">
+    <h3>CALL AN APP</h3>
+    <div class="row">
+      <input id="app_id" placeholder="app id" style="width:160px">
+      <input class="wide" id="app_method" placeholder="ARC-4 method, e.g. get(address)uint64 (optional)">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input class="wide" id="app_args" placeholder='args: JSON array, or comma-separated. Raw args: int:5, str:hi, addr:..., b64:...'>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="app_boxes" placeholder="boxes (names)" style="width:200px">
+      <input id="app_accounts" placeholder="accounts" style="width:200px">
+      <input id="app_pay" placeholder="pay ALGO (signed only)" style="width:180px">
+      <select id="app_oc"><option>noop</option><option>optin</option><option>closeout</option><option>clear</option><option>delete</option></select>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="go" id="simgo">SIMULATE (free)</button>
+      <button class="ghost" id="callgo">SIGN + CALL</button>
+      <label class="ck mainnet-only"><input type="checkbox" id="app_confirm"> sign on mainnet</label>
+    </div>
+    <div class="note">Simulate runs the call on algod with no key and no fee: you see the logs, the decoded return and the state changes before anything is signed.</div>
+  </div>
+  <div id="appout"></div>
+</section>
+
+<section id="wallet">
+  <div class="card">
+    <h3>KEYSTORE</h3>
+    <div id="wstat" class="dim">loading...</div>
+    <div class="row" style="margin-top:10px">
+      <button class="ghost" id="wgen">NEW KEY</button>
+      <input class="wide" id="wmn" placeholder="25-word mnemonic to import">
+      <button class="ghost" id="wimp">IMPORT</button>
+    </div>
+    <div class="note">Keys stay on this host in ~/.mod/algorand/. The page never sees a secret. Signing over HTTP needs the write token (cat ~/.mod/algorand/token):</div>
+    <div class="row" style="margin-top:6px"><input class="wide" id="token" type="password" placeholder="write token"><button class="ghost" id="tsave">SAVE</button></div>
+  </div>
+  <div class="card">
+    <h3>SEND ALGO</h3>
+    <div class="row">
+      <input class="wide" id="s_to" placeholder="to: address or name.algo">
+      <input id="s_amt" placeholder="amount" style="width:120px">
+      <input id="s_note" placeholder="note" style="width:180px">
+      <label class="ck mainnet-only"><input type="checkbox" id="s_confirm"> mainnet</label>
+      <button class="go" id="sgo">SEND</button>
+    </div>
+  </div>
+  <div id="wout"></div>
+</section>
+
+<section id="assets">
+  <div class="card">
+    <h3>FIND</h3>
+    <div class="row"><input class="wide" id="a_q" placeholder="name or unit"><button class="go" id="a_find">SEARCH</button></div>
+  </div>
+  <div class="card">
+    <h3>OPT IN / SEND</h3>
+    <div class="row">
+      <input id="a_id" placeholder="asset id" style="width:140px">
+      <button class="ghost" id="a_opt">OPT IN</button>
+      <input class="wide" id="a_to" placeholder="to">
+      <input id="a_amt" placeholder="amount" style="width:120px">
+      <button class="ghost" id="a_send">SEND</button>
+      <label class="ck mainnet-only"><input type="checkbox" id="a_confirm"> mainnet</label>
+    </div>
+    <div class="note">An account must opt in to an asset before it can hold it. Each opt-in locks 0.1 ALGO of minimum balance.</div>
+  </div>
+  <div class="card">
+    <h3>MINT</h3>
+    <div class="row">
+      <input id="m_name" placeholder="name" style="width:180px">
+      <input id="m_unit" placeholder="unit" style="width:100px">
+      <input id="m_total" placeholder="total (base units)" style="width:170px">
+      <input id="m_dec" placeholder="decimals" style="width:100px">
+      <input class="wide" id="m_url" placeholder="url (optional)">
+      <button class="go" id="m_go">MINT</button>
+    </div>
+  </div>
+  <div id="aout"></div>
+</section>
+
+<section id="deploy">
+  <div class="card">
+    <h3>DEPLOY A CONTRACT (TEAL)</h3>
+    <textarea id="teal">#pragma version 10
+// counter: every call adds one to "count" and returns it (ARC-4 style log)
+txn ApplicationID
+bz create
+txn OnCompletion
+int NoOp
+==
+assert
+byte "count"
+byte "count"
+app_global_get
+int 1
++
+dup
+store 0
+app_global_put
+byte 0x151f7c75
+load 0
+itob
+concat
+log
+int 1
+return
+create:
+int 1</textarea>
+    <div class="row" style="margin-top:8px">
+      <input id="d_gi" placeholder="global ints" value="1" style="width:110px">
+      <input id="d_gb" placeholder="global bytes" value="0" style="width:120px">
+      <input id="d_li" placeholder="local ints" value="0" style="width:110px">
+      <input id="d_lb" placeholder="local bytes" value="0" style="width:120px">
+      <button class="ghost" id="d_compile">COMPILE</button>
+      <button class="go" id="d_go">DEPLOY</button>
+      <label class="ck mainnet-only"><input type="checkbox" id="d_confirm"> mainnet</label>
+    </div>
+    <div class="note">State schema is fixed at creation. The sample counter only accepts plain calls (no update or delete). Call it from APPS with no method and no args; set the method to <span class="mono">inc()uint64</span> only if your program checks the selector.</div>
+  </div>
+  <div id="dout"></div>
+</section>
+
+<section id="chain">
+  <div class="card"><h3>NETWORK</h3><div id="netstats" class="stats"></div></div>
+  <div class="card"><h3>LATEST BLOCK</h3><div id="blk"></div></div>
+</section>
+
+<section id="mcp">
+  <div class="card">
+    <h3>CONNECT AN AGENT</h3>
+    <pre id="mcpcfg"></pre>
+    <div class="note">Same tools as this page. Writes over HTTP need token= in the arguments.</div>
+  </div>
+  <div class="card"><h3>TOOLS</h3><div id="tlist"></div></div>
+</section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+// Same-origin: app/server.py proxies <base>/_api to the API (api/api.py).
+const API = location.pathname.replace(/\/(index\.html)?$/, '') + '/_api';
+let NET = localStorage.getItem('algo_net') || 'mainnet';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const short = a => a && a.length > 20 ? a.slice(0, 6) + '...' + a.slice(-4) : (a || '');
+const big = n => n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : fmt(n, 0);
+const fmt = (n, d = 6) => n == null ? '-' : Number(n).toLocaleString(undefined, {maximumFractionDigits: d});
+
+function toast(msg, bad) {
+  const t = $('toast'); t.innerHTML = msg; t.className = 'toast on'; t.style.borderColor = bad ? 'var(--bad)' : 'var(--line)';
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.className = 'toast', 6000);
+}
+async function api(path, body, write) {
+  const opts = body ? {method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({...body, ...(write ? {token: localStorage.getItem('algo_token') || ''} : {})})} : {};
+  const sep = path.includes('?') ? '&' : '?';
+  const r = await fetch(API + path + (body ? '' : sep + 'network=' + NET), opts);
+  const j = await r.json().catch(() => ({error: 'HTTP ' + r.status}));
+  if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+function busy(btn, fn) {
+  return async () => { btn.disabled = true; try { await fn(); } catch (e) { toast(esc(e.message), true); } finally { btn.disabled = false; } };
+}
+function wnet() { return NET === 'mainnet' ? 'mainnet' : 'testnet'; }
+function txLink(r) { return r.explorer ? `<a href="${r.explorer}" target="_blank">${short(r.txid)}</a>` : esc(r.txid); }
+
+// ── network switch ─────────────────────────────────────────
+function setNet(n) {
+  NET = n; localStorage.setItem('algo_net', n);
+  document.body.classList.toggle('mainnet', n === 'mainnet');
+  document.querySelectorAll('#net button').forEach(b => b.classList.toggle('on', b.dataset.n === n));
+  head(); wallet();
+  if ($('chain').classList.contains('on')) chain();
+}
+document.querySelectorAll('#net button').forEach(b => b.onclick = () => setNet(b.dataset.n));
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('on', s.id === b.dataset.t));
+  if (b.dataset.t === 'chain') chain();
+  if (b.dataset.t === 'mcp') mcpTab();
+});
+
+async function head() {
+  try { const h = await api('/health'); $('round').innerHTML = `round <b>${fmt(h.round, 0)}</b>`; } catch (e) {}
+  try { const p = await api('/price'); $('price').innerHTML = `ALGO <b>$${fmt(p.usd, 4)}</b> <span class="${p.change_24h_pct < 0 ? 'bad' : 'ok'}">${p.change_24h_pct}%</span>`; } catch (e) {}
+}
+
+// ── explore ────────────────────────────────────────────────
+function kind(q) {
+  if (/^[A-Z2-7]{58}$/.test(q) || /\.algo$/i.test(q)) return 'account';
+  if (/^[A-Z2-7]{52}$/.test(q)) return 'tx';
+  if (/^\d+$/.test(q)) return 'number';
+  return 'search';
+}
+async function lookup(q) {
+  q = (q ?? $('q').value).trim(); if (!q) return;
+  $('q').value = q; const out = $('qout'); out.innerHTML = '<div class="card dim">looking up...</div>';
+  const k = kind(q);
+  try {
+    if (k === 'account') return out.innerHTML = renderAccount(await api('/account?address=' + encodeURIComponent(q)));
+    if (k === 'tx') return out.innerHTML = renderTx(await api('/tx?txid=' + q));
+    if (k === 'number') {
+      try { return out.innerHTML = renderAsset(await api('/asset?asset=' + q)); }
+      catch (e) { return out.innerHTML = renderApp(await api('/app?app_id=' + q + '&program=true')); }
+    }
+    const r = await api('/assets?q=' + encodeURIComponent(q));
+    out.innerHTML = renderAssetList(r);
+  } catch (e) { out.innerHTML = `<div class="card bad">${esc(e.message)}</div>`; }
+}
+$('qgo').onclick = () => lookup();
+$('q').onkeydown = e => { if (e.key === 'Enter') lookup(); };
+document.addEventListener('click', e => { const ex = e.target.dataset && e.target.dataset.ex; if (ex) { document.querySelector('[data-t=explore]').click(); lookup(ex); } });
+const go = v => `<span class="link mono" data-ex="${esc(v)}">${esc(short(String(v)))}</span>`;
+
+function renderAccount(a) {
+  const assets = a.assets.length ? `<table><tr><th>ASSET</th><th>UNIT</th><th>BALANCE</th></tr>${a.assets.map(x =>
+    `<tr><td>${go(x.asset_id)} ${esc(x.name || '')}</td><td>${esc(x.unit || '')}</td><td>${fmt(x.balance)}${x.frozen ? ' <span class="warn">frozen</span>' : ''}</td></tr>`).join('')}</table>` : '<div class="dim">no assets</div>';
+  return `<div class="card"><h3>ACCOUNT ${a.name ? '- ' + esc(a.name) : ''}</h3>
+    <div class="mono">${esc(a.address)} ${a.explorer ? `<a href="${a.explorer}" target="_blank">explorer</a>` : ''}</div>
+    <div class="stats" style="margin-top:12px">
+      <div class="stat"><div class="k">BALANCE</div><div class="v">${fmt(a.balance_algo)} ALGO</div></div>
+      <div class="stat"><div class="k">SPENDABLE</div><div class="v">${fmt(a.spendable_algo)}</div></div>
+      <div class="stat"><div class="k">MIN BALANCE</div><div class="v">${fmt(a.min_balance_algo)}</div></div>
+      <div class="stat"><div class="k">USD</div><div class="v">${a.usd != null ? '$' + fmt(a.usd, 2) : '-'}</div></div>
+      <div class="stat"><div class="k">STATUS</div><div class="v">${esc(a.status)}</div></div>
+    </div>
+    ${a.rekeyed_to ? `<div class="note warn">rekeyed: signs with ${go(a.rekeyed_to)}</div>` : ''}
+    <div class="note">apps opted in: ${a.apps_opted_in.map(go).join(' ') || 'none'} - apps created: ${a.apps_created.map(go).join(' ') || 'none'} - assets created: ${a.assets_created.map(go).join(' ') || 'none'}</div>
+  </div><div class="card"><h3>ASSETS (${a.assets.length})</h3>${assets}</div>
+  <div class="card"><h3>RECENT</h3><div id="hist" class="dim">loading...</div></div>` + (setTimeout(() => history(a.address), 0), '');
+}
+async function history(addr) {
+  try {
+    const h = await api('/history?limit=20&address=' + addr);
+    $('hist').innerHTML = `<table><tr><th>TIME</th><th>TYPE</th><th>WHAT</th><th>TX</th></tr>${h.transactions.map(t =>
+      `<tr><td class="dim">${esc(t.time || t.round)}</td><td>${esc(t.type)}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('')}</table>`;
+  } catch (e) { $('hist').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+function txWhat(t) {
+  const dir = t.direction === 'in' ? 'from ' + go(t.sender) : 'to ' + go(t.receiver || '');
+  if (t.type === 'pay') return `${fmt(t.amount_algo)} ALGO ${dir}`;
+  if (t.type === 'axfer') return t.opt_in ? `opt in to ${go(t.asset_id)}` : `${fmt(t.amount, 0)} of ${go(t.asset_id)} ${dir}`;
+  if (t.type === 'appl') return `app ${go(t.app_id)} ${esc(t.on_complete || '')}`;
+  if (t.type === 'acfg') return `${t.created ? 'created' : 'configured'} asset ${go(t.asset_id)}`;
+  return esc(t.type);
+}
+function renderTx(t) {
+  return `<div class="card"><h3>TRANSACTION</h3><div class="stats">
+    <div class="stat"><div class="k">TYPE</div><div class="v">${esc(t.type || '-')}</div></div>
+    <div class="stat"><div class="k">ROUND</div><div class="v">${esc(t.round || '-')}</div></div>
+    <div class="stat"><div class="k">STATE</div><div class="v ${t.confirmed ? 'ok' : 'warn'}">${t.confirmed ? 'confirmed' : 'pending'}</div></div></div>
+    <div class="note">${t.sender ? 'from ' + go(t.sender) + ' - ' + txWhat(t) : ''}</div>
+    <pre style="margin-top:10px">${esc(JSON.stringify(t.raw || t, null, 2))}</pre></div>`;
+}
+function renderAsset(a) {
+  return `<div class="card"><h3>ASSET ${a.asset_id}</h3><div class="stats">
+    <div class="stat"><div class="k">NAME</div><div class="v">${esc(a.name)}</div></div>
+    <div class="stat"><div class="k">UNIT</div><div class="v">${esc(a.unit)}</div></div>
+    <div class="stat"><div class="k">SUPPLY</div><div class="v">${fmt(a.total_units, 2)}</div></div>
+    <div class="stat"><div class="k">DECIMALS</div><div class="v">${a.decimals}</div></div></div>
+    <table style="margin-top:10px">${['creator', 'manager', 'reserve', 'freeze', 'clawback'].map(r =>
+      `<tr><th>${r.toUpperCase()}</th><td>${a[r] ? go(a[r]) : '<span class="dim">none (locked)</span>'}</td></tr>`).join('')}
+    ${a.url ? `<tr><th>URL</th><td>${esc(a.url)}</td></tr>` : ''}</table>
+    ${a.explorer ? `<div class="note"><a href="${a.explorer}" target="_blank">explorer</a></div>` : ''}</div>`;
+}
+function renderAssetList(r) {
+  return `<div class="card"><h3>ASSETS MATCHING "${esc(r.query)}"</h3><table><tr><th>ID</th><th>NAME</th><th>UNIT</th><th>DEC</th></tr>${r.assets.map(a =>
+    `<tr><td>${go(a.asset_id)}</td><td>${esc(a.name)}</td><td>${esc(a.unit)}</td><td>${a.decimals}</td></tr>`).join('') || '<tr><td colspan=4 class="dim">nothing</td></tr>'}</table></div>`;
+}
+function renderApp(a) {
+  const gs = Object.entries(a.global_state);
+  return `<div class="card"><h3>APP ${a.app_id}</h3><div class="stats">
+    <div class="stat"><div class="k">CREATOR</div><div class="v mono">${go(a.creator)}</div></div>
+    <div class="stat"><div class="k">APP ACCOUNT</div><div class="v mono">${go(a.address)}</div></div>
+    <div class="stat"><div class="k">BALANCE</div><div class="v">${fmt(a.balance_algo)} ALGO</div></div>
+    <div class="stat"><div class="k">PROGRAM</div><div class="v">${a.approval_bytes} B</div></div></div>
+    <div class="row" style="margin-top:10px"><button class="ghost" onclick="openApp(${a.app_id})">CALL THIS APP</button>
+    ${a.explorer ? `<a href="${a.explorer}" target="_blank">explorer</a>` : ''}</div></div>
+    <div class="card"><h3>GLOBAL STATE (${gs.length})</h3><table>${gs.map(([k, v]) =>
+      `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(v) ? go(v) : esc(v)}</td></tr>`).join('') || '<tr><td class="dim">empty</td></tr>'}</table></div>
+    ${a.boxes.length ? `<div class="card"><h3>BOXES</h3>${a.boxes.map(b => `<span class="chip mono">${esc(b)}</span>`).join(' ')}</div>` : ''}
+    <div class="card"><h3>APPROVAL PROGRAM</h3><pre>${esc(a.approval_teal || '')}</pre></div>`;
+}
+function openApp(id) { $('app_id').value = id; document.querySelector('[data-t=apps]').click(); }
+
+// ── apps ───────────────────────────────────────────────────
+function appBody() {
+  const b = {app_id: +$('app_id').value, method: $('app_method').value.trim() || undefined,
+    args: $('app_args').value.trim() || undefined, boxes: $('app_boxes').value.trim() || undefined,
+    accounts: $('app_accounts').value.trim() || undefined, on_complete: $('app_oc').value};
+  if (!b.app_id) throw new Error('app id first');
+  return b;
+}
+function renderCall(r, signed) {
+  const ok = signed ? true : r.ok;
+  return `<div class="card"><h3>${signed ? 'SIGNED CALL' : 'SIMULATION'} <span class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'FAILED'}</span></h3>
+    ${r.failure ? `<pre class="bad">${esc(r.failure)}</pre>` : ''}
+    <div class="stats"><div class="stat"><div class="k">RETURN</div><div class="v mono">${esc(r.return ?? '-')}</div></div>
+    ${r.app_budget_consumed != null ? `<div class="stat"><div class="k">BUDGET</div><div class="v">${r.app_budget_consumed}</div></div>` : ''}
+    ${signed ? `<div class="stat"><div class="k">TX</div><div class="v">${txLink(r)}</div></div>` : ''}</div>
+    ${(r.logs || []).length ? `<div class="note">logs:</div><pre>${esc((r.logs || []).join('\n'))}</pre>` : ''}
+    ${r.global_delta ? `<div class="note">state changes:</div><pre>${esc(JSON.stringify(r.global_delta, null, 2))}</pre>` : ''}</div>`;
+}
+$('simgo').onclick = busy($('simgo'), async () => {
+  const b = appBody(); b.network = NET;
+  $('appout').innerHTML = renderCall(await api('/simulate', b), false);
+});
+$('callgo').onclick = busy($('callgo'), async () => {
+  const b = appBody(); b.network = wnet(); b.confirm = $('app_confirm').checked;
+  if ($('app_pay').value) b.pay_algo = +$('app_pay').value;
+  const r = await api('/app_call', b, true);
+  $('appout').innerHTML = renderCall(r, true); toast('confirmed in round ' + r.confirmed_round);
+});
+
+// ── wallet ─────────────────────────────────────────────────
+async function wallet() {
+  try {
+    const w = await api('/wallet?op=status&network=' + wnet());
+    const sel = w.selected;
+    $('signer').innerHTML = sel ? `signer <b class="mono">${short(sel)}</b>${w.balance && w.balance.algo != null ? ' - ' + fmt(w.balance.algo) + ' ALGO' : ''}` : 'no key';
+    $('wstat').innerHTML = w.accounts.length ? `<table><tr><th>ADDRESS</th><th>LABEL</th><th></th></tr>${w.accounts.map(a =>
+      `<tr><td class="mono">${go(a.address)}</td><td>${esc(a.label || '')}</td><td>${a.selected ? '<span class="ok">signing</span>' : `<span class="link" onclick="selectKey('${a.address}')">use</span>`}</td></tr>`).join('')}</table>
+      ${w.balance ? `<div class="note">${esc(w.balance.network || wnet())}: ${w.balance.error ? esc(w.balance.error) : fmt(w.balance.algo) + ' ALGO, ' + fmt(w.balance.spendable_algo) + ' spendable'}</div>` : ''}
+      ${wnet() === 'testnet' ? '<div class="note">Need testnet ALGO? Paste the address into <a href="https://bank.testnet.algorand.network" target="_blank">the testnet dispenser</a>.</div>' : ''}`
+      : '<div class="dim">No keys yet. Make one, or import a mnemonic.</div>';
+  } catch (e) { $('wstat').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+async function selectKey(a) { try { await api('/wallet', {op: 'select', address: a}, true); wallet(); } catch (e) { toast(esc(e.message), true); } }
+$('wgen').onclick = busy($('wgen'), async () => { const r = await api('/wallet', {op: 'generate'}, true); toast('new key ' + short(r.address)); wallet(); });
+$('wimp').onclick = busy($('wimp'), async () => { const r = await api('/wallet', {op: 'import', mnemonic: $('wmn').value}, true); $('wmn').value = ''; toast('imported ' + short(r.address)); wallet(); });
+$('token').value = localStorage.getItem('algo_token') || '';
+$('tsave').onclick = () => { localStorage.setItem('algo_token', $('token').value.trim()); toast('token saved in this browser'); };
+$('sgo').onclick = busy($('sgo'), async () => {
+  const r = await api('/send', {to: $('s_to').value.trim(), amount_algo: +$('s_amt').value, note: $('s_note').value || undefined,
+    network: wnet(), confirm: $('s_confirm').checked}, true);
+  $('wout').innerHTML = `<div class="card"><h3>SENT</h3>${fmt(r.amount_algo)} ALGO - ${txLink(r)} - round ${r.confirmed_round}</div>`; wallet();
+});
+
+// ── assets ─────────────────────────────────────────────────
+$('a_find').onclick = busy($('a_find'), async () => { $('aout').innerHTML = renderAssetList(await api('/assets?q=' + encodeURIComponent($('a_q').value))); });
+$('a_opt').onclick = busy($('a_opt'), async () => {
+  const r = await api('/optin', {asset_id: $('a_id').value.trim(), network: wnet(), confirm: $('a_confirm').checked}, true);
+  $('aout').innerHTML = `<div class="card"><h3>OPTED IN</h3>${txLink(r)} - round ${r.confirmed_round}</div>`;
+});
+$('a_send').onclick = busy($('a_send'), async () => {
+  const r = await api('/asset_send', {asset_id: $('a_id').value.trim(), to: $('a_to').value.trim(), amount: +$('a_amt').value,
+    network: wnet(), confirm: $('a_confirm').checked}, true);
+  $('aout').innerHTML = `<div class="card"><h3>SENT</h3>${txLink(r)} - round ${r.confirmed_round}</div>`;
+});
+$('m_go').onclick = busy($('m_go'), async () => {
+  const r = await api('/asset_create', {name: $('m_name').value, unit: $('m_unit').value, total: +$('m_total').value,
+    decimals: +($('m_dec').value || 0), url: $('m_url').value || undefined, network: wnet(), confirm: $('a_confirm').checked}, true);
+  $('aout').innerHTML = `<div class="card"><h3>MINTED</h3>asset ${go(r.asset_id)} - ${txLink(r)}</div>`;
+});
+
+// ── deploy ─────────────────────────────────────────────────
+$('d_compile').onclick = busy($('d_compile'), async () => {
+  const r = await api('/compile', {source: $('teal').value, network: wnet()});
+  $('dout').innerHTML = `<div class="card"><h3>COMPILED <span class="ok">OK</span></h3><div class="note">${r.bytes} bytes - hash <span class="mono">${esc(r.hash)}</span></div><pre>${esc(r.b64)}</pre></div>`;
+});
+$('d_go').onclick = busy($('d_go'), async () => {
+  const r = await api('/app_create', {approval: $('teal').value, global_ints: +$('d_gi').value, global_bytes: +$('d_gb').value,
+    local_ints: +$('d_li').value, local_bytes: +$('d_lb').value, network: wnet(), confirm: $('d_confirm').checked}, true);
+  $('dout').innerHTML = `<div class="card"><h3>DEPLOYED</h3>app ${go(r.app_id)} - account <span class="mono">${esc(r.app_address)}</span> - ${txLink(r)}
+    <div class="row" style="margin-top:10px"><button class="ghost" onclick="openApp(${r.app_id})">CALL IT</button></div></div>`;
+});
+
+// ── chain + mcp ────────────────────────────────────────────
+async function chain() {
+  try {
+    const n = await api('/network');
+    $('netstats').innerHTML = [['ROUND', fmt(n.round, 0)], ['PROTOCOL', n.last_version.slice(0, 7)], ['MIN FEE', n.min_fee_algo + ' ALGO'],
+      ['SUPPLY', big(n.total_supply_algo)], ['ONLINE STAKE', big(n.online_stake_algo)], ['GENESIS', n.genesis_id]]
+      .map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${esc(v)}</div></div>`).join('');
+    const b = await api('/block');
+    $('blk').innerHTML = `<div class="stats"><div class="stat"><div class="k">ROUND</div><div class="v">${fmt(b.round, 0)}</div></div>
+      <div class="stat"><div class="k">TIME</div><div class="v" style="font-size:13px">${esc(b.time)}</div></div>
+      <div class="stat"><div class="k">TXNS</div><div class="v">${b.txn_count}</div></div>
+      <div class="stat"><div class="k">PROPOSER</div><div class="v mono">${b.proposer ? go(b.proposer) : '-'}</div></div></div>
+      <div class="note">${Object.entries(b.txn_types).map(([k, v]) => `${k}: ${v}`).join(' - ')}</div>`;
+  } catch (e) { $('netstats').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+async function mcpTab() {
+  const url = location.origin + API + '/mcp';
+  $('mcpcfg').textContent = JSON.stringify({mcpServers: {algorand: {type: 'http', url}}}, null, 2);
+  const t = await api('/tools');
+  $('tlist').innerHTML = `<table>${t.tools.map(x => `<tr><td class="mono">${x.name}</td><td class="dim">${esc(x.description)}</td></tr>`).join('')}</table>`;
+}
+
+setNet(NET);
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+[package]
+name = "zuma_solana"
+version = "0.1.0"
+edition = "2021"
+description = "zuma on Solana: anonymous Bittensor-style subnet. Verifies the same LSAG-over-STARK-curve ring signatures as the Starknet, NEAR and Ethereum contracts, split into compute-budget-sized units."
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+bench = []
+
+[dependencies]
+solana-program = "2.3"
+starknet-types-core = { version = "0.2.4", default-features = false, features = ["alloc"] }
+
+[profile.release]
+codegen-units = 1
+opt-level = 3
+lto = "fat"
+overflow-checks = false
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }
+
+[dev-dependencies]
+serde_json = "1"

@@ -16,6 +16,7 @@ is gone (its route then refuses as "unknown agent" — off by absence).
 | vibe | chat | `/_api/lab?vibe=1` (+ `?draft=1`) |
 | lab | background | `/_api/lab` (run start; the `?candidate=1` bench is ungated) |
 | autostrat | background | `/_api/autostrat` (loop + `?run=1`) |
+| bundler | background | `/_api/bundler` (6h loop, off by default + `?run=1`) — consistent copy-trade bundles proven on a holdout |
 
 ## config.json
 

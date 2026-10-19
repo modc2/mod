@@ -70,6 +70,7 @@ GET_FNS = {
     'tests': lambda q: MOD.tests(),
     'gas': lambda q: MOD.gas(),
     'compare': lambda q: MOD.compare(),
+    'costs': lambda q: MOD.costs(),
     'readme': lambda q: MOD.readme(),
 }
 # local key names are operator data: which nickname holds which public key

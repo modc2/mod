@@ -1,15 +1,15 @@
 # ── Stage 1: Python API deps ────────────────────────────────────
 FROM python:3.12-slim AS api-builder
 WORKDIR /build
-COPY api/requirements.txt* ./
+COPY src/api/requirements.txt* ./
 RUN pip install --no-cache-dir --target /build/deps -r requirements.txt 2>/dev/null || true
 
 # ── Stage 2: Build Next.js app ───────────────────────────────
 FROM node:20-slim AS app-builder
 WORKDIR /build
-COPY app/package.json app/package-lock.json* ./
+COPY src/app/package.json src/app/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
-COPY app/ ./
+COPY src/app/ ./
 ENV NEXT_PUBLIC_API_URL=/api/openhouse
 ENV NEXT_PUBLIC_BASE_PATH=/openhouse
 RUN npm run build
@@ -27,7 +27,7 @@ WORKDIR /app
 COPY config.json .
 
 # Python API
-COPY api/ /app/api/
+COPY src/api/ /app/api/
 COPY --from=api-builder /build/deps /app/deps
 ENV PYTHONPATH=/app/deps:/app
 

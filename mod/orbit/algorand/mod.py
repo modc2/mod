@@ -16,9 +16,18 @@ And the write half — a keystore under ~/.mod/algorand/, never the repo:
     m algorand/app_call <app> method='inc()uint64'
 
 Writes default to testnet; any other network refuses without confirm=true.
-`m algorand/serve` runs the REST API, console and MCP server on one port.
+
+Layout follows the fleet's api/app split:
+
+    api/api.py     the API — REST + MCP (POST /mcp) on `port` (51340);
+                   behind the gateway at {host}/algorand/api
+    app/           the console — app/server.py serves index.html at /algorand
+                   on `app_port` (51341) and proxies /algorand/_api to the API
+
+`m algorand/serve` runs both.
 """
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -40,14 +49,24 @@ class Mod:
     blocks, network, price. Writes: payments, ASA mint/opt-in/transfer, app
     deploy/call/update, atomic groups — keys in ~/.mod/algorand/, testnet by
     default, mainnet only with confirm=true. MCP tools, a REST API and a
-    console on one port.
+    console (api/ + app/).
     """
 
-    def __init__(self, port=None, **kwargs):
+    def __init__(self, port=None, app_port=None, **kwargs):
         self.dir = HERE
         cfg = self.config()
-        self.port = int(port or os.environ.get('PORT') or cfg.get('port', 51340))
+        self.port = int(port or os.environ.get('ALGORAND_API_PORT') or cfg.get('port', 51340))
+        self.app_port = int(app_port or os.environ.get('ALGORAND_APP_PORT')
+                            or cfg.get('app_port', 51341))
         self.base = cfg.get('base_path', '/algorand')
+
+    def _load(self, rel, name):
+        # By path: a bare `import api` / `import server` can resolve to some
+        # other package on sys.path (core has its own `api`).
+        spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, rel))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
     def config(self):
         try:
@@ -65,8 +84,7 @@ class Mod:
 
     def info(self):
         """What this module is, and every route it serves."""
-        import api
-        return api.info()
+        return self._load('api/api.py', 'algorand_api').info()
 
     def account(self, address, network=None):
         """Balance, min-balance, spendable, USD, ASAs, apps, rekey, NFD name."""
@@ -173,29 +191,44 @@ class Mod:
                 'stdio': {'command': sys.executable,
                           'args': [os.path.join(HERE, 'mcp.py')]}}
 
-    def serve(self, port=None, background=False):
-        """Run the REST API, the console and the MCP server on one port."""
-        port = int(port or self.port)
-        if not background:
-            import api
-            return api.serve(port)
-        proc = subprocess.Popen([sys.executable, os.path.join(HERE, 'api.py'),
-                                 '--port', str(port)],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                cwd=HERE)
-        return {'pid': proc.pid, 'port': port, 'api': f'http://localhost:{port}/',
-                'app': f'http://localhost:{port}{self.base}/',
-                'mcp': f'http://localhost:{port}/mcp'}
+    def serve(self, port=None, app_port=None, background=False, app=True):
+        """Run the API (REST + MCP, api/api.py) and the console (app/server.py).
 
-    def kill(self, port=None):
-        """Stop whatever holds the port. Targets the port, never a name —
-        this box runs ~100 services and a pattern kill takes the fleet down."""
-        port = int(port or self.port)
-        pids = subprocess.run(['bash', '-c', f'lsof -ti tcp:{port} || true'],
-                              capture_output=True, text=True).stdout.split()
-        for pid in pids:
-            subprocess.run(['kill', '-9', pid], capture_output=True)
-        return {'port': port, 'killed': pids}
+        Foreground: the console runs in a thread, the API in this process.
+        background=True starts each as its own process. app=False: API only."""
+        port, app_port = int(port or self.port), int(app_port or self.app_port)
+        urls = {'api': f'http://localhost:{port}/',
+                'app': f'http://localhost:{app_port}{self.base}',
+                'mcp': f'http://localhost:{port}/mcp'}
+        if background:
+            procs = {'api': [os.path.join(HERE, 'api', 'api.py'), '--port', str(port)]}
+            if app:
+                procs['app'] = [os.path.join(HERE, 'app', 'server.py'), '--port',
+                                str(app_port), '--api', f'http://127.0.0.1:{port}']
+            pids = {k: subprocess.Popen([sys.executable, *argv], cwd=HERE,
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL).pid
+                    for k, argv in procs.items()}
+            return {'pids': pids, 'port': port, 'app_port': app_port, **urls}
+        if app:
+            import threading
+            server = self._load('app/server.py', 'algorand_app')
+            threading.Thread(target=server.serve, daemon=True,
+                             args=(app_port, f'http://127.0.0.1:{port}')).start()
+        return self._load('api/api.py', 'algorand_api').serve(port)
+
+    def kill(self, port=None, app_port=None):
+        """Stop whatever holds the API and app ports. Targets ports, never a
+        name — this box runs ~100 services and a pattern kill takes the fleet down."""
+        ports = [int(port or self.port), int(app_port or self.app_port)]
+        killed = {}
+        for p in ports:
+            pids = subprocess.run(['bash', '-c', f'lsof -ti tcp:{p} -sTCP:LISTEN || true'],
+                                  capture_output=True, text=True).stdout.split()
+            for pid in pids:
+                subprocess.run(['kill', '-9', pid], capture_output=True)
+            killed[p] = pids
+        return {'killed': killed}
 
     def test(self, offline=False):
         """Run the test suite. offline=1 skips everything that needs the chain."""

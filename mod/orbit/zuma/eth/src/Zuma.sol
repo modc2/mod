@@ -30,9 +30,10 @@ contract Zuma {
 
     uint8 public constant ROLE_MINER = 1;
     uint8 public constant ROLE_VALIDATOR = 2;
-    /// Gas-bound, not a protocol choice: ~0.3M gas per ring member, so a
-    /// ring of 64 is ~20M gas, inside a 30M block. Starknet's cap is 64 too.
-    uint32 public constant MAX_RING = 64;
+    /// Gas-bound, not a protocol choice: ~0.41M gas per ring member, so a
+    /// ring of 32 is ~13.4M gas, inside the 2^24 per-transaction gas cap
+    /// (EIP-7825). Same cap as NEAR; Starknet allows 64.
+    uint32 public constant MAX_RING = 32;
     uint8 public constant MAX_SCORE = 100;
     uint256 internal constant TAG_MINE = 0x7a756d612d6d696e65; // 'zuma-mine'
     uint256 internal constant TAG_SCORE = 0x7a756d612d73636f7265; // 'zuma-score'
@@ -101,16 +102,15 @@ contract Zuma {
         external
         returns (uint256 tag)
     {
-        LSAG.Point[] memory r = _checkRing(ring, ROLE_MINER);
+        uint256 n = _checkRing(ring, ROLE_MINER);
         uint64 e = epoch();
-        LSAG.Signature memory s = sig;
-        require(LSAG.verify(r, mineScope(e), work, s), "bad ring signature");
-        tag = s.image.keyId();
+        require(_verify(ring, mineScope(e), work, sig), "bad ring signature");
+        tag = LSAG.keyId(sig.image);
         require(!submitted[e][tag], "already submitted this epoch");
         submitted[e][tag] = true;
         workOf[e][tag] = work;
         tags[e].push(tag);
-        emit Submitted(e, tag, work, uint32(r.length));
+        emit Submitted(e, tag, work, uint32(n));
     }
 
     function score(LSAG.Point[] calldata ring, uint256 tag, uint8 score_, LSAG.Signature calldata sig)
@@ -118,18 +118,17 @@ contract Zuma {
         returns (uint256 nullifier)
     {
         require(score_ <= MAX_SCORE, "score is 0..100");
-        LSAG.Point[] memory r = _checkRing(ring, ROLE_VALIDATOR);
+        uint256 n = _checkRing(ring, ROLE_VALIDATOR);
         uint64 e = epoch();
         require(submitted[e][tag], "no such tag this epoch");
-        LSAG.Signature memory s = sig;
-        require(LSAG.verify(r, scoreScope(e, tag), score_, s), "bad ring signature");
-        nullifier = s.image.keyId();
+        require(_verify(ring, scoreScope(e, tag), score_, sig), "bad ring signature");
+        nullifier = LSAG.keyId(sig.image);
         require(!spent[nullifier], "already scored this tag");
         spent[nullifier] = true;
         scoreSum[e][tag] += score_;
         scoreN[e][tag] += 1;
         epochTotal[e] += score_;
-        emit Scored(e, tag, score_, nullifier, uint32(r.length));
+        emit Scored(e, tag, score_, nullifier, uint32(n));
     }
 
     function claim(uint64 epoch_, LSAG.Point[] calldata ring, address recipient, LSAG.Signature calldata sig)
@@ -137,10 +136,9 @@ contract Zuma {
         returns (uint128 amount)
     {
         require(epoch_ < epoch(), "epoch still open");
-        LSAG.Point[] memory r = _checkRing(ring, ROLE_MINER);
-        LSAG.Signature memory s = sig;
-        require(LSAG.verify(r, mineScope(epoch_), uint256(uint160(recipient)), s), "bad ring signature");
-        uint256 tag = s.image.keyId();
+        _checkRing(ring, ROLE_MINER);
+        require(_verify(ring, mineScope(epoch_), uint256(uint160(recipient)), sig), "bad ring signature");
+        uint256 tag = LSAG.keyId(sig.image);
         require(submitted[epoch_][tag], "tag did not submit");
         require(!claimed[epoch_][tag], "already claimed");
         claimed[epoch_][tag] = true;
@@ -213,28 +211,35 @@ contract Zuma {
         view
         returns (bool)
     {
-        LSAG.Point[] memory r = ring;
-        LSAG.Signature memory s = sig;
-        return LSAG.verify(r, scope, msg_, s);
+        return _verify(ring, scope, msg_, sig);
     }
 
     /// @notice Stable id of a key (what rings are sorted by).
-    function keyIdOf(LSAG.Point calldata key) external pure returns (uint256) {
+    function keyIdOf(LSAG.Point calldata key) external view returns (uint256) {
         LSAG.Point memory k = key;
         return k.keyId();
     }
 
     // ---- internal ----------------------------------------------------------
 
+    function _verify(LSAG.Point[] calldata ring, uint256 scope, uint256 msg_, LSAG.Signature calldata sig)
+        internal
+        view
+        returns (bool)
+    {
+        LSAG.Point[] memory r = ring;
+        LSAG.Signature memory s = sig;
+        return LSAG.verify(r, scope, msg_, s);
+    }
+
     /// @dev Ring = strictly increasing key ids, all registered with `role`.
-    function _checkRing(LSAG.Point[] calldata ring, uint8 role) internal view returns (LSAG.Point[] memory r) {
-        uint256 n = ring.length;
+    function _checkRing(LSAG.Point[] calldata ring, uint8 role) internal view returns (uint256 n) {
+        n = ring.length;
         require(n >= minRing, "ring below min_ring");
         require(n <= MAX_RING, "ring above MAX_RING");
-        r = ring;
         uint256 prev;
         for (uint256 i = 0; i < n; i++) {
-            uint256 id = r[i].keyId();
+            uint256 id = LSAG.keyId(ring[i]);
             require(roleOfId[id] == role, "ring has a non-member");
             require(i == 0 || id > prev, "ring not sorted/unique");
             prev = id;

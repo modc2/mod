@@ -23,6 +23,12 @@ export async function register() {
     const { startAutoStratLoop } = await import("./app/lib/server/autoStrat");
     startAutoStratLoop();
   }
+  // BUNDLER — forges consistent copy-trade bundles on a slow loop (default
+  // off, 6h). See app/lib/server/bundler.ts.
+  if (process.env.NEXT_RUNTIME === "nodejs" && process.env.POLYMARKET_BUNDLER !== "0") {
+    const { startBundlerLoop } = await import("./app/lib/server/bundler");
+    startBundlerLoop();
+  }
   // STRAT PNL sidecar — samples per-strat total PnL every 10 minutes so the
   // strat cards can draw a real 7-day curve (the engine itself only retains
   // 48h of realized events). See app/lib/server/stratPnl.ts.

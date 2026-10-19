@@ -6,6 +6,8 @@ import {Zuma} from "../src/Zuma.sol";
 import {LSAG} from "../src/LSAG.sol";
 import {Poseidon} from "../src/Poseidon.sol";
 import {StarkCurve} from "../src/StarkCurve.sol";
+import {Hades} from "../src/Hades.sol";
+import {HadesCode} from "./HadesCode.sol";
 
 /// @dev The signer side (keys, Hp with a real square root, LSAG.sign), test-only:
 /// the same algorithm as lsag.cairo `sign`, so what it produces is what the
@@ -67,7 +69,7 @@ library Signer {
         (p.x, p.y) = StarkCurve.mul(secret % ORDER, hp.x, hp.y);
     }
 
-    function challenge(uint256 d, uint256 lx, uint256 ly, uint256 rx, uint256 ry) internal pure returns (uint256) {
+    function challenge(uint256 d, uint256 lx, uint256 ly, uint256 rx, uint256 ry) internal view returns (uint256) {
         return Poseidon.hash6(LSAG.TAG_CHAL, d, lx, ly, rx, ry);
     }
 
@@ -130,7 +132,7 @@ library Signer {
     }
 
     /// Insertion sort by key id ascending (what the contracts require).
-    function sortRing(LSAG.Point[] memory ring) internal pure {
+    function sortRing(LSAG.Point[] memory ring) internal view {
         for (uint256 i = 1; i < ring.length; i++) {
             LSAG.Point memory p = ring[i];
             uint256 pid = LSAG.keyId(p);
@@ -161,6 +163,8 @@ contract ZumaTest is Test {
     }
 
     function setUp() public {
+        // Hades (the Poseidon permutation) lives at a fixed CREATE2 address
+        vm.etch(Hades.ADDR, HadesCode.RUNTIME);
         fx = vm.readFile("../near/tests/fixture.json");
         vm.roll(100);
         z = new Zuma(owner, TEMPO, 3, 1000);
@@ -301,9 +305,25 @@ contract ZumaTest is Test {
         for (uint256 i = 0; i < n; i++) f[i] = salt * 100 + i + 1;
     }
 
+    /// expectRevert catches the NEXT external call, and the helpers make view
+    /// calls (scopes) before the write: arm it right before the write instead.
+    bytes pending;
+
+    function revertNext(bytes memory reason) internal {
+        pending = reason;
+    }
+
+    function arm() internal {
+        if (pending.length != 0) {
+            vm.expectRevert(pending);
+            delete pending;
+        }
+    }
+
     function submitAs(uint256 i, uint256 work) internal returns (uint256) {
         LSAG.Point[] memory ring = sorted(miners);
         LSAG.Signature memory s = Signer.sign(ring, sec(i), z.mineScope(z.epoch()), work, 500 + i, fill(4, i));
+        arm();
         vm.prank(relayer);
         return z.submit(ring, work, s);
     }
@@ -312,6 +332,7 @@ contract ZumaTest is Test {
         LSAG.Point[] memory ring = sorted(vals);
         LSAG.Signature memory s =
             Signer.sign(ring, sec(10 + v), z.scoreScope(z.epoch(), tag), score, 700 + v, fill(4, 10 + v));
+        arm();
         vm.prank(relayer);
         return z.score(ring, tag, score, s);
     }
@@ -320,6 +341,7 @@ contract ZumaTest is Test {
         LSAG.Point[] memory ring = sorted(miners);
         LSAG.Signature memory s =
             Signer.sign(ring, sec(i), z.mineScope(epoch), uint256(uint160(to)), 900 + i, fill(4, 50 + i));
+        arm();
         vm.prank(relayer);
         return z.claim(epoch, ring, to, s);
     }
@@ -344,24 +366,24 @@ contract ZumaTest is Test {
         assertEq(n0, 4);
         assertEq(z.epochTotal(e), 560);
         // claims only after the epoch closes
-        vm.expectRevert(bytes("epoch still open"));
+        revertNext(bytes("epoch still open"));
         claimAs(0, e, payee);
         vm.roll(uint256(e + 1) * TEMPO);
         uint128 got = claimAs(0, e, payee);
-        assertEq(got, 1000 * 360 / 560);
+        assertEq(uint256(got), uint256(1000 * 360) / 560);
         assertEq(z.earned(payee), got);
         assertTrue(z.claimed(e, t0));
         // the replay: same key, same epoch -> same tag -> rejected
-        vm.expectRevert(bytes("already claimed"));
+        revertNext(bytes("already claimed"));
         claimAs(0, e, payee);
         // the other tag goes to another recipient
         uint128 got1 = claimAs(1, e, address(0xCAFE));
-        assertEq(got1, 1000 * 200 / 560);
+        assertEq(uint256(got1), uint256(1000 * 200) / 560);
     }
 
     function test_one_submission_per_miner_per_epoch() public {
         submitAs(0, 1);
-        vm.expectRevert(bytes("already submitted this epoch"));
+        revertNext(bytes("already submitted this epoch"));
         submitAs(0, 2);
         // the next epoch gives a fresh, unlinkable tag
         uint64 e = z.epoch();
@@ -374,11 +396,11 @@ contract ZumaTest is Test {
     function test_one_score_per_validator_per_tag() public {
         uint256 t = submitAs(0, 1);
         scoreAs(0, t, 10);
-        vm.expectRevert(bytes("already scored this tag"));
+        revertNext(bytes("already scored this tag"));
         scoreAs(0, t, 20);
-        vm.expectRevert(bytes("no such tag this epoch"));
+        revertNext(bytes("no such tag this epoch"));
         scoreAs(1, t + 1, 20);
-        vm.expectRevert(bytes("score is 0..100"));
+        revertNext(bytes("score is 0..100"));
         scoreAs(1, t, 101);
     }
 
@@ -425,11 +447,11 @@ contract ZumaTest is Test {
     // ---- gas by ring size ----------------------------------------------------
 
     function test_gas_by_ring_size() public {
-        uint32[5] memory sizes = [uint32(4), 8, 16, 32, 64];
+        uint32[4] memory sizes = [uint32(4), 8, 16, 32];
         Zuma big = new Zuma(owner, TEMPO, 3, 1000);
-        LSAG.Point[] memory all = new LSAG.Point[](64);
+        LSAG.Point[] memory all = new LSAG.Point[](32);
         vm.startPrank(owner);
-        for (uint256 i = 0; i < 64; i++) {
+        for (uint256 i = 0; i < 32; i++) {
             all[i] = Signer.publicKey(sec(1000 + i));
             big.register(1, all[i]);
         }
@@ -446,7 +468,7 @@ contract ZumaTest is Test {
             big.submit(ring, k, s);
             g -= gasleft();
             emit log_named_uint(string.concat("gas submit ring ", vm.toString(n)), g);
-            assertLt(g, 30_000_000, "fits a block");
+            assertLt(g, 1 << 24, "fits the EIP-7825 tx gas cap");
         }
     }
 }

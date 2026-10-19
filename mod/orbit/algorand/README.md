@@ -2,8 +2,10 @@
 
 The Algorand protocol as one mod: read anything on chain, simulate any
 contract call for free, and sign payments, assets and smart-contract calls
-from a local keystore. MCP tools, a REST API and a browser console share one
-port (**51340**, mounted at `/algorand`).
+from a local keystore. It follows the fleet's api/app split: the API (REST +
+MCP) is `api/` on **51340**, reached through the gateway at `/algorand/api`;
+the browser console is `app/` on **51341** at `/algorand`, and it proxies
+`/algorand/_api` to the API so the page only ever talks to its own origin.
 
 Zero hard dependencies. Canonical msgpack, base32 addresses, 25-word
 mnemonics, ed25519 and ARC-4 encoding live in `codec.py`. PyNaCl is used for
@@ -43,7 +45,8 @@ speed when it's installed. Reads go to AlgoNode's free algod and indexer
     m algorand/app_call <app> method='inc()uint64'
     m algorand/export                          # mnemonic backup, shell only
 
-    m algorand/serve                           # API + console + MCP on :51340
+    m algorand/serve                           # API+MCP :51340, console :51341
+    pm2 start ecosystem.config.js              # same, as algorand-api + algorand-app
 
 Testnet ALGO comes from <https://bank.testnet.algorand.network>. It's behind
 a captcha, so fund a generated address there by hand.
@@ -88,6 +91,8 @@ Box names follow the same prefixes.
 | `chain.py` | algod + indexer + NFD client, reads, submit, wait, simulate |
 | `wallet.py` | keystore, token, transaction builders, sign + submit |
 | `mcp.py` | tool registry + JSON-RPC 2.0 |
-| `api.py` | one-port HTTP server: REST, `/mcp`, console |
-| `console.html` | EXPLORE · APPS · WALLET · ASSETS · DEPLOY · CHAIN · MCP |
+| `api/api.py` | the API: REST routes + `POST /mcp`, stdlib HTTP server |
+| `app/index.html` | the console: EXPLORE · APPS · WALLET · ASSETS · DEPLOY · CHAIN · MCP |
+| `app/server.py` | serves the console at `/algorand`, proxies `/algorand/_api` to the API |
+| `ecosystem.config.js` | pm2: `algorand-api` + `algorand-app` |
 | `test/` | wire-format tests offline, live chain tests online (`ALGORAND_OFFLINE=1` skips) |

@@ -79,6 +79,38 @@ const parse = (text, fallback) => {
   return JSON.parse(trimmed);
 };
 
+// Line icons, drawn inline — the host has no emoji font and the page loads
+// nothing it does not have to.
+const svg = (d, size = 14, w = 2.2) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const ICON = {
+  valid: svg('<path d="M20 6 9 17l-5-5"/>'),
+  invalid: svg('<path d="M18 6 6 18M6 6l12 12"/>'),
+  error: svg('<path d="M12 8v5M12 17h.01"/>'),
+  unavailable: svg('<path d="M6 12h12"/>'),
+  down: svg('<path d="m6 9 6 6 6-6"/>', 13),
+  sign: svg('<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>', 13),
+  tab: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>', 13),
+};
+const methodIcon = (status) => ICON[status] || ICON.unavailable;
+
+// Where each verifier runs, in three characters — so a row of them reads at
+// a glance as "five different places", which is the point.
+const METHOD_GLYPH = { native: 'py', snarkjs: 'js', node: 'big', evm: '0x06',
+                       solidity: 'sol', browser: 'you', attest: 'sig' };
+const glyphFor = (method) => `<span class="mg ${escape(method)}">${escape(METHOD_GLYPH[method] || method.slice(0, 3))}</span>`;
+
+// A dot per address, its colour derived from the address itself — the same
+// person is the same colour on every card.
+function avatar(address, extra = '', title = '') {
+  const text = String(address || '');
+  let h = 0;
+  for (const c of text.toLowerCase()) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const a = h % 360, b = (a + 40 + (h >> 9) % 80) % 360;
+  const label = /^0x[0-9a-f]/i.test(text) ? text.slice(2, 4) : text.slice(0, 2);
+  return `<span class="av ${extra}" title="${escape(title || text)}"
+    style="background:linear-gradient(135deg,hsl(${a} 70% 66%),hsl(${b} 70% 54%))">${escape(label)}</span>`;
+}
+
 // ── verdict rendering — the one component that matters ──────────────
 
 function verdictRow(verdict) {
@@ -89,9 +121,10 @@ function verdictRow(verdict) {
       .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`)
       .join('  ');
   return `<div class="verdict ${verdict.status}">
-    <span class="m">${escape(verdict.method)}${verdict.by ? `<br><span class="t">${escape(short(verdict.by, 12))}</span>` : ''}</span>
+    <span class="ic">${methodIcon(verdict.status)}</span>
+    <span class="m">${escape(verdict.method)}${verdict.by ? `<span class="t mono">${escape(short(verdict.by, 12))}</span>` : ''}</span>
     <span class="s">${escape(verdict.status)}</span>
-    <span class="d">${escape(words)}</span>
+    <span class="d" title="${escape(words)}">${escape(words)}</span>
     <span class="t">${verdict.ms != null ? `${verdict.ms}ms` : ''}</span>
   </div>`;
 }
@@ -101,7 +134,7 @@ function summaryBlock(result) {
   const extra = witnesses.valid.length || witnesses.invalid.length
     ? `<div class="hint">witnesses — ${witnesses.valid.length} say valid, ${witnesses.invalid.length} say invalid; witnesses never change the status, they only contest it</div>`
     : '';
-  return `<div class="summary">
+  return `<div class="summary ${escape(result.status)}">
     <span class="status ${result.status}">${result.status}</span>
     <b> ${escape(result.why || '')}</b>
     ${result.contested ? '<div class="hint contested">contested — somebody\'s own verifier disagrees with this box</div>' : ''}
@@ -133,26 +166,25 @@ const KIND_WORD = {
   'refund check': 'claimed a refund, which re-runs the methods before deciding',
 };
 
-function verifierChip(person) {
-  const kinds = person.kinds || [];
-  const glyphs = [...new Set(kinds.map((k) => KIND_GLYPH[k] || '·'))].map((g) => `<i>${g}</i>`).join('');
-  const words = kinds.map((k) => KIND_WORD[k] || k).join('; ');
-  const signed = person.signed ? ` · ${person.signed} signed` : ' · unsigned';
-  return `<span class="chip${person.contested ? ' contested' : ''}${person.signed ? ' signed' : ''}"
-    title="${escape(person.address)} — ${escape(words)}${escape(signed)}, last ${ago(person.last)}">
-    <span class="g">${glyphs}</span>${escape(short(person.address, 10))}${person.checks > 1 ? `<span class="n">×${person.checks}</span>` : ''}</span>`;
-}
-
 function verifierRow(proof) {
   const people = proof.verifiers || [];
   if (!people.length) return '';
-  const more = (proof.verifier_count || people.length) - people.length;
+  const total = proof.verifier_count || people.length;
+  const more = total - people.length;
   const contested = people.some((p) => p.contested);
+  const shown = people.slice(0, 5);
+  const hidden = more + people.length - shown.length;
+  const dots = shown.map((person) => {
+    const words = (person.kinds || []).map((k) => KIND_WORD[k] || k).join('; ');
+    const signed = person.signed ? ` · ${person.signed} signed` : ' · unsigned';
+    return avatar(person.address,
+      `${person.signed ? 'signed' : ''}${person.contested ? ' contested' : ''}`,
+      `${person.address} — ${words}${signed}, last ${ago(person.last)}`);
+  }).join('');
   return `<div class="who-row">
-    <span class="who-label">checked by</span>
-    ${people.map(verifierChip).join('')}
-    ${more > 0 ? `<span class="chip more">+${more}</span>` : ''}
-    ${contested ? '<span class="chip contested">one of them disagreed</span>' : ''}
+    <span class="av-stack">${dots}${hidden > 0 ? `<span class="av more">+${hidden}</span>` : ''}</span>
+    <span class="hint">checked by ${total} address${total === 1 ? '' : 'es'}</span>
+    ${contested ? '<span class="warn">· one disagreed</span>' : ''}
   </div>`;
 }
 
@@ -172,37 +204,27 @@ function checkRow(entry) {
 // ── market ──────────────────────────────────────────────────────────
 
 function proofCard(proof) {
-  const pips = (proof.methods || []).map((m) => {
-    const cls = m.status === 'valid' ? 'up' : m.status === 'invalid' ? 'down'
-      : m.status === 'error' ? 'warn' : '';
-    return `<span class="pip ${cls}" title="${escape(m.method)}: ${escape(m.status)}"></span>`;
-  }).join('');
-  const price = proof.price > 0
-    ? `<span class="price">${proof.price} credits</span>`
-    : '<span class="free">free</span>';
-  return `<div class="card" data-id="${proof.id}">
-    <div class="head">
-      <h4>${escape(proof.title)}</h4>
+  const methods = proof.methods || [];
+  const chips = methods.map((m) =>
+    `<span class="mc ${escape(m.status)}" title="${escape(m.method)}: ${escape(m.status)}${m.ms != null ? ` in ${m.ms}ms` : ''}">${methodIcon(m.status)}${escape(m.method)}</span>`).join('');
+  const buy = proof.price > 0
+    ? `<span class="end"><span class="price">${proof.price} credits</span><button class="accent small" data-act="buy" data-id="${proof.id}">Buy</button></span>`
+    : '<span class="end"><span class="free">free</span></span>';
+  return `<div class="card proof s-${escape(proof.status)}" data-id="${proof.id}">
+    <div class="top">
+      <span class="tagchip sys">${escape(proof.system)}</span>
+      <span class="tagchip ${proof.zero_knowledge ? 'zk' : 'nzk'}">${proof.zero_knowledge ? 'zero-knowledge' : 'not zero-knowledge'}</span>
       <span class="status ${proof.status}">${proof.status}</span>
     </div>
-    <div class="meta">
-      <span class="tagchip">${escape(proof.system)}</span>
-      <span class="tagchip ${proof.zero_knowledge ? 'zk' : 'nzk'}">${proof.zero_knowledge ? 'zero-knowledge' : 'not zero-knowledge'}</span>
-      <span class="tagchip id" title="${escape(proof.id)}">${escape(short(proof.id, 12))}</span>
-      ${price}
-    </div>
+    <h4>${escape(proof.title)}</h4>
     ${proof.description ? `<div class="desc">${escape(proof.description)}</div>` : ''}
-    <div class="verdict-strip">
-      <span class="pips">${pips}</span>
-      <span class="hint">${(proof.methods || []).filter((m) => m.status === 'valid').length} of ${(proof.methods || []).length} verifiers say valid</span>
-      <span class="why">${escape(proof.why || '')}</span>
-    </div>
-    ${verifierRow(proof)}
+    <div class="spacer"></div>
+    <div class="verdict-strip" title="${escape(proof.why || '')}">${chips || '<span class="hint">no method has run yet</span>'}</div>
+    <div class="who-line">${verifierRow(proof) || '<span></span>'}${buy}</div>
     <footer>
-      <button class="ghost" data-act="open" data-id="${proof.id}">Details</button>
-      <button class="ghost" data-act="recheck" data-id="${proof.id}">Sign &amp; re-verify</button>
-      <button class="ghost" data-act="browser" data-id="${proof.id}">Check in my browser</button>
-      ${proof.price > 0 ? `<button data-act="buy" data-id="${proof.id}">Buy for ${proof.price}</button>` : ''}
+      <button class="ghost" data-act="open" data-id="${proof.id}">Details ${ICON.down}</button>
+      <button class="ghost" data-act="recheck" data-id="${proof.id}" title="sign a challenge naming this proof, and every method runs again under your address">${ICON.sign}Re-verify</button>
+      <button class="ghost" data-act="browser" data-id="${proof.id}" title="run the verifier in this tab — the one check that does not trust this server">${ICON.tab}In my browser</button>
     </footer>
     <div class="detail" id="detail-${proof.id}"></div>
   </div>`;
@@ -223,6 +245,9 @@ async function loadMarket() {
   if ($('#fSystem').value) params.set('system', $('#fSystem').value);
   if ($('#fStatus').value) params.set('status', $('#fStatus').value);
   if ($('#fSale').checked) params.set('for_sale', 'true');
+  if (!state.proofs.length && !$('#proofList').children.length) {
+    $('#proofList').innerHTML = '<div class="skel"></div>'.repeat(3);
+  }
   const { proofs } = await api(`/proofs?${params}`);
   state.proofs = proofs;
   $('#proofList').innerHTML = proofs.length ? proofs.map(proofCard).join('')
@@ -240,7 +265,7 @@ async function loadMarket() {
       .map((k) => `<span class="${tone[k] || ''}"><b>${counts[k]}</b>${k}</span>`),
     `<span><b>${status.market.for_sale}</b>for sale</span>`,
     `<span><b>${status.market.volume}</b>credits traded</span>`,
-    `<span><b>${status.market.checks ?? 0}</b>checks by ${status.market.verifiers ?? 0} addresses</span>`,
+    `<span title="by ${status.market.verifiers ?? 0} addresses"><b>${status.market.checks ?? 0}</b>checks run</span>`,
     `<span><b>${status.bounties.open}</b>open bounties</span>`,
   ].join('');
   loadVerifiers().catch(() => {});
@@ -265,7 +290,7 @@ async function loadVerifiers() {
         <th>last</th>
       </tr>
       ${verifiers.map((v) => `<tr>
-        <td class="addr">${escape(short(v.address, 20))}${v.address.toLowerCase() === (state.address || '').toLowerCase() ? ' <span class="hint">(you)</span>' : ''}</td>
+        <td class="addr">${avatar(v.address)}${escape(short(v.address, 20))}${v.address.toLowerCase() === (state.address || '').toLowerCase() ? ' <span class="hint">(you)</span>' : ''}</td>
         <td>${v.signed || '—'}</td>
         <td>${v.published || '—'}</td>
         <td>${v.witnessed || '—'}</td>
@@ -432,7 +457,7 @@ async function runVerify() {
     };
   } catch (e) { toast(`that is not JSON: ${e.message}`, true); return; }
   if ($('#vSystem').value) body.system = $('#vSystem').value;
-  $('#vOut').innerHTML = '<div class="empty"><span class="spin"></span>asking every method that can answer…</div>';
+  $('#vOut').innerHTML = '<div class="placeholder"><span class="spin"></span>asking every method that can answer…</div>';
   try {
     const result = await api('/verify', { method: 'POST', body });
     state.lastVerified = { ...body, system: result.system };
@@ -467,6 +492,7 @@ async function loadSample() {
   $('#vKey').value = JSON.stringify(sample.statement, null, 1);
   $('#vPublic').value = JSON.stringify(sample.public_signals);
   $('#vSystem').value = sample.system;
+  ['vProof', 'vKey', 'vPublic'].forEach((id) => state.footFor?.($(`#${id}`)));
   toast(`${sample.system} sample loaded — ${sample.about}`);
 }
 
@@ -485,7 +511,7 @@ const PROVE_FORMS = {
 
 async function prove(system) {
   const body = { system, ...(PROVE_FORMS[system] || PROVE_FORMS.merkle)() };
-  $('#pOut').innerHTML = '<div class="empty"><span class="spin"></span>proving…</div>';
+  $('#pOut').innerHTML = '<div class="placeholder"><span class="spin"></span>proving, then checking it twice…</div>';
   try {
     const made = await api('/prove', { method: 'POST', body });
     state.lastVerified = { system: made.system, proof: made.proof,
@@ -502,6 +528,7 @@ async function prove(system) {
       $('#vKey').value = JSON.stringify(made.statement, null, 1);
       $('#vPublic').value = JSON.stringify(made.public_signals || []);
       $('#vSystem').value = made.system;
+      ['vProof', 'vKey', 'vPublic'].forEach((id) => state.footFor?.($(`#${id}`)));
       showTab('verify');
     };
     $('#provePublish').onclick = () => $('#publishDlg').showModal();
@@ -521,30 +548,37 @@ function settlesIn(ts) {
 
 function bountyCard(bounty) {
   const rules = (bounty.require || []).map((r) => {
-    if ('equals' in r) return `signal ${r.index} == ${r.equals}`;
-    if ('min' in r) return `signal ${r.index} ≥ ${r.min}`;
-    if ('max' in r) return `signal ${r.index} ≤ ${r.max}`;
+    if ('equals' in r) return `signal[${r.index}] = ${r.equals}`;
+    if ('min' in r) return `signal[${r.index}] ≥ ${r.min}`;
+    if ('max' in r) return `signal[${r.index}] ≤ ${r.max}`;
     return '';
-  }).join(', ');
+  }).filter(Boolean);
   const staked = Number(bounty.stake) > 0;
   const open = bounty.state === 'open';
   const seats = bounty.tokens || [];
   const mine = staked && seats.find((t) => t.state === 'locked'
     && (t.holder || '').toLowerCase() === (state.address || '').toLowerCase());
   const due = staked && open && bounty.settles <= Date.now() / 1000;
+  const tone = { open: 'claimed', paid: 'verified', expired: 'unverified', cancelled: 'unverified' };
+  const subs = bounty.submissions.length;
   return `<div class="card">
-    <div class="head"><h4>${escape(bounty.title)}</h4><span class="status ${open ? 'claimed' : 'unverified'}">${escape(bounty.state)}</span></div>
-    <div class="meta"><span class="tagchip">${escape(bounty.system)}</span><span class="tagchip id">by ${escape(short(bounty.poster, 12))}</span>${staked ? `<span class="tagchip">round ${bounty.round || 1}</span>` : ''}</div>
-    ${bounty.description ? `<div class="desc">${escape(bounty.description)}</div>` : ''}
-    <div class="row" style="margin:8px 0 0">
-      <span class="price">${bounty.reward} credits</span>
-      <span class="hint">must reach <b>${escape(bounty.accept_status)}</b>${rules ? ` · ${escape(rules)}` : ''}</span>
+    <div class="top">
+      <span class="tagchip sys">${escape(bounty.system)}</span>
+      ${staked ? `<span class="tagchip">round ${bounty.round || 1}</span>` : ''}
+      <span class="status ${tone[bounty.state] || 'unverified'}">${escape(bounty.state)}</span>
     </div>
-    ${staked ? `<div class="hint">staked round: <b>${bounty.stake}</b> credit(s) buys 1 token, locked until the
-      ${escape(bounty.settle || 'daily')} reset ${escape(settlesIn(bounty.settles))} ·
-      ${seats.length} prover(s) signed · pot ${bounty.pot || 0} ·
-      first token among accepted proofs wins; a seat that never submits forfeits to the winner${mine ? ` · you hold token #${mine.seq}` : ''}</div>` : ''}
-    <div class="hint">${bounty.submissions.length} submission(s)${bounty.winner ? ` · won by ${escape(short(bounty.winner, 12))}` : ''}</div>
+    <h4>${escape(bounty.title)}</h4>
+    ${bounty.description ? `<div class="desc">${escape(bounty.description)}</div>` : ''}
+    <div class="reward"><b class="price">${bounty.reward}</b><span>credits in escrow · must reach <b>${escape(bounty.accept_status)}</b></span></div>
+    ${rules.length ? `<div class="rules">${rules.map((r) => `<span class="tagchip">${escape(r)}</span>`).join('')}</div>` : ''}
+    ${staked ? `<div class="facts hint"><b>${bounty.stake}</b> credit(s) buys one token, locked until the
+      ${escape(bounty.settle || 'daily')} reset <b>${escape(settlesIn(bounty.settles))}</b> ·
+      ${seats.length} prover(s) signed · pot ${bounty.pot || 0}. The first token among accepted
+      proofs wins; a seat that never submits forfeits to the winner${mine ? ` · <b>you hold token #${mine.seq}</b>` : ''}</div>` : ''}
+    <div class="spacer"></div>
+    <div class="who-row">
+      ${avatar(bounty.poster)}<span class="hint">posted by <span class="mono">${escape(short(bounty.poster, 12))}</span> · ${subs} submission${subs === 1 ? '' : 's'}${bounty.winner ? ` · won by <span class="mono">${escape(short(bounty.winner, 12))}</span>` : ''}</span>
+    </div>
     <footer>
       ${open && staked && !mine ? `<button data-act="join" data-id="${bounty.id}">Put in ${bounty.stake} for a token</button>` : ''}
       ${open && (!staked || mine) ? `<button data-act="submit" data-id="${bounty.id}">Submit a proof</button>` : ''}
@@ -577,22 +611,30 @@ function parseRules(text) {
 
 function methodCard(method) {
   return `<div class="card">
-    <div class="head"><h4>${escape(method.method)}</h4><span class="status ${method.available ? 'verified' : 'unverified'}">${method.available ? 'ready' : 'unavailable'}</span></div>
-    <div class="meta"><span class="tagchip">${escape(method.runs_in)}</span><span class="tagchip ${method.authoritative ? 'zk' : ''}">${method.authoritative ? 'authoritative' : 'witness'}</span></div>
-    <div class="desc">${escape(method.note || '')}</div>
-    <div class="hint">verifies: ${(method.systems || []).join(', ') || '—'}</div>
-    ${method.endpoint ? `<div class="hint">via ${escape(method.endpoint)}${method.chain_id ? ` (chain ${method.chain_id})` : ''}</div>` : ''}
+    <div class="mhead">${glyphFor(method.method)}
+      <div title="${method.authoritative ? 'counts toward the quorum' : 'can contest a proof, never promote one'}"><h4>${escape(method.method)}</h4><div class="sub">${method.authoritative ? 'authoritative' : 'witness'}</div></div>
+      <span class="status ${method.available ? 'verified' : 'unverified'}">${method.available ? 'ready' : 'unavailable'}</span></div>
+    <div class="desc" style="margin-top:12px">${escape(method.note || '')}</div>
+    <dl class="kv">
+      <dt>runs in</dt><dd>${escape(method.runs_in)}</dd>
+      <dt>verifies</dt><dd>${(method.systems || []).map((x) => `<span class="tagchip sys">${escape(x)}</span>`).join('') || '—'}</dd>
+      ${method.endpoint ? `<dt>via</dt><dd class="mono">${escape(method.endpoint)}${method.chain_id ? ` · chain ${method.chain_id}` : ''}</dd>` : ''}
+    </dl>
   </div>`;
 }
 
 function systemCard(system) {
+  const by = system.available_here || system.methods;
   return `<div class="card">
-    <h4>${escape(system.label)}</h4>
-    <div class="meta"><span class="tagchip">${escape(system.family)}</span>${system.curves.map((c) => `<span class="tagchip">${escape(c)}</span>`).join('')}<span class="tagchip ${system.zero_knowledge ? 'zk' : 'nzk'}">${system.zero_knowledge ? 'zero-knowledge' : 'not zero-knowledge'}</span></div>
-    <div class="desc">“${escape(system.claims)}”</div>
-    <div class="hint">setup: ${escape(system.trusted_setup || 'none')}</div>
-    <div class="hint">proof: ${escape(system.proof_size)} · verifier: ${escape(system.verifier_cost)}</div>
-    <div class="hint">checked here by: ${(system.available_here || system.methods).join(', ')}</div>
+    <div class="head"><h4>${escape(system.label)}</h4><span class="tagchip ${system.zero_knowledge ? 'zk' : 'nzk'}">${system.zero_knowledge ? 'zero-knowledge' : 'not zero-knowledge'}</span></div>
+    <div class="claim">“${escape(system.claims)}”</div>
+    <dl class="kv">
+      <dt>family</dt><dd>${escape(system.family)}${system.curves.length ? ` · ${system.curves.map(escape).join(', ')}` : ''}</dd>
+      <dt>setup</dt><dd>${escape(system.trusted_setup || 'none')}</dd>
+      <dt>proof</dt><dd>${escape(system.proof_size)}</dd>
+      <dt>verifier</dt><dd>${escape(system.verifier_cost)}</dd>
+      <dt>checked by</dt><dd>${by.map((m) => `<span class="tagchip sys">${escape(m)}</span>`).join('')}</dd>
+    </dl>
   </div>`;
 }
 
@@ -784,6 +826,10 @@ async function boot() {
   $('#methodPips').innerHTML = authoritative.map((m) =>
     `<span class="pip ${m.available ? 'up' : ''}" title="${escape(m.method)} — ${m.available ? 'ready' : 'unavailable'}"></span>`).join('');
   $('#methodLabel').textContent = `${authoritative.filter((m) => m.available).length} of ${authoritative.length} verifiers ready`;
+  $('#heroMethods').innerHTML = authoritative.map((m) => `<div class="hb-row" title="${escape(m.note || '')}">
+    ${glyphFor(m.method)}
+    <div style="min-width:0"><b>${escape(m.method)}</b><span class="w">${escape(m.runs_in)}</span></div>
+    <span class="ok${m.available ? '' : ' off'}">${m.available ? 'ready' : 'offline'}</span></div>`).join('');
   $('#methodList').innerHTML = state.methods.map(methodCard).join('');
   $('#systemList').innerHTML = state.systems.map(systemCard).join('');
 
@@ -868,10 +914,25 @@ async function boot() {
     } catch (e) { toast(e.message, true); }
   });
 
+  const footFor = (area) => {
+    const foot = $(`.drop-foot[data-for="${area.id}"]`);
+    if (!foot) return;
+    const text = area.value.trim();
+    if (!text) { foot.className = 'drop-foot'; foot.textContent = 'paste, or drop a file here'; return; }
+    try {
+      const value = JSON.parse(text);
+      const what = Array.isArray(value) ? `${value.length} item array`
+        : `${Object.keys(value).length} keys${value.protocol ? ` · ${value.protocol}` : ''}`;
+      foot.className = 'drop-foot ok';
+      foot.textContent = `valid JSON · ${what} · ${(new Blob([text]).size / 1024).toFixed(1)} KB`;
+    } catch { foot.className = 'drop-foot bad'; foot.textContent = 'not valid JSON yet'; }
+  };
+  state.footFor = footFor;
+  ['vProof', 'vKey', 'vPublic'].forEach((id) => { $(`#${id}`).addEventListener('input', () => footFor($(`#${id}`))); });
   $$('input[type=file]').forEach((input) => {
     input.onchange = async () => {
       const file = input.files[0];
-      if (file) $(`#${input.dataset.into}`).value = await file.text();
+      if (file) { const area = $(`#${input.dataset.into}`); area.value = await file.text(); footFor(area); }
     };
   });
   $$('.drop').forEach((drop) => {
@@ -880,7 +941,7 @@ async function boot() {
     drop.ondrop = async (e) => {
       e.preventDefault(); drop.classList.remove('over');
       const file = e.dataTransfer.files[0];
-      if (file) $(`#${$('input[type=file]', drop).dataset.into}`).value = await file.text();
+      if (file) { const area = $(`#${$('input[type=file]', drop).dataset.into}`); area.value = await file.text(); footFor(area); }
     };
   });
 

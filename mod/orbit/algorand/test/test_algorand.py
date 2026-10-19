@@ -200,3 +200,59 @@ def test_live_simulate_app_create():
     assert not grp.get('failure-message')
     log = grp['txn-results'][0]['txn-result']['logs'][0]
     assert wallet._abi_return([log], 'uint64') == 42
+
+
+# ── api/app split ────────────────────────────────────────────────
+
+def _free_port():
+    import socket
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
+
+
+def _load(rel, name):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, rel))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_app_serves_console_and_proxies_api():
+    import threading
+    import time
+    import urllib.request
+    api, app = _load('api/api.py', 'algorand_api_t'), _load('app/server.py', 'algorand_app_t')
+    ap, pp = _free_port(), _free_port()
+    threading.Thread(target=api.serve, args=(ap,), daemon=True).start()
+    threading.Thread(target=app.serve, args=(pp, f'http://127.0.0.1:{ap}'), daemon=True).start()
+
+    def get(url, body=None):
+        for _ in range(50):
+            try:
+                req = urllib.request.Request(url, data=body, headers={'content-type': 'application/json'})
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    return r.headers.get('content-type'), r.read()
+            except ConnectionRefusedError:
+                time.sleep(0.05)
+            except urllib.error.URLError as e:
+                if not isinstance(e.reason, ConnectionRefusedError):
+                    raise
+                time.sleep(0.05)
+        raise AssertionError('server never came up: ' + url)
+
+    # the app: console at the bare base (no redirect), and the server source stays hidden
+    for path in ('/algorand', '/algorand/', '/algorand/server.py'):
+        ctype, body = get(f'http://127.0.0.1:{pp}{path}')
+        assert ctype.startswith('text/html') and b'<title>algorand</title>' in body
+    # the API: info + tools directly, under the gateway's prefix, and through the app proxy
+    for url in (f'http://127.0.0.1:{ap}/tools', f'http://127.0.0.1:{ap}/algorand/api/tools',
+                f'http://127.0.0.1:{pp}/algorand/_api/tools'):
+        assert json.loads(get(url)[1])['count'] == 23
+    assert json.loads(get(f'http://127.0.0.1:{ap}/')[1])['app'] == '/algorand'
+    # MCP through the proxy
+    rpc = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}).encode()
+    assert len(json.loads(get(f'http://127.0.0.1:{pp}/algorand/_api/mcp', rpc)[1])['result']['tools']) == 23
+    # the API no longer serves the console
+    assert b'<html' not in get(f'http://127.0.0.1:{ap}/')[1]

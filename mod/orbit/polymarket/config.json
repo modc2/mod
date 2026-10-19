@@ -185,6 +185,7 @@
             "pm_backtests",
             "pm_backtest_run",
             "pm_autostrat",
+            "pm_bundles",
             "pm_live_sessions",
             "pm_live_gates"
         ],

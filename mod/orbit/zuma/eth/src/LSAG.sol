@@ -44,7 +44,7 @@ library LSAG {
     }
 
     /// @notice Stable id of a public key: what membership and ring order key on.
-    function keyId(Point memory p) internal pure returns (uint256) {
+    function keyId(Point memory p) internal view returns (uint256) {
         return Poseidon.hash3(TAG_KEY, p.x, p.y);
     }
 
@@ -72,16 +72,16 @@ library LSAG {
         revert("unreachable");
     }
 
-    function digest(Point[] memory ring, uint256 scope, uint256 msg, Point memory image)
+    function digest(Point[] memory ring, uint256 scope, uint256 msg_, Point memory image)
         internal
-        pure
+        view
         returns (uint256)
     {
         uint256 n = ring.length;
         uint256[] memory xs = new uint256[](6 + 2 * n);
         xs[0] = TAG_MSG;
         xs[1] = scope;
-        xs[2] = msg;
+        xs[2] = msg_;
         xs[3] = image.x;
         xs[4] = image.y;
         xs[5] = n;
@@ -92,31 +92,55 @@ library LSAG {
         return Poseidon.hash(xs);
     }
 
+    /// @dev Precomputed 16-entry tables: G, Hp(scope), the key image.
+    struct Tables {
+        uint256[32] g;
+        uint256[32] h;
+        uint256[32] i;
+    }
+
+    /// @dev One link of the ring: c' = H(d, s*G + c*P_i, s*Hp + c*I).
+    function link(Tables memory t, uint256 d, uint256 s, uint256 c, Point memory pk)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256[32] memory tp = StarkCurve.table(pk.x, pk.y);
+        (uint256 lx, uint256 ly) = affine2(s, t.g, c, tp);
+        (uint256 rx, uint256 ry) = affine2(s, t.h, c, t.i);
+        return Poseidon.hash6(TAG_CHAL, d, lx, ly, rx, ry);
+    }
+
+    function affine2(uint256 a, uint256[32] memory ta, uint256 b, uint256[32] memory tb)
+        internal
+        view
+        returns (uint256, uint256)
+    {
+        (uint256 X, uint256 Y, uint256 Z) = StarkCurve.mul2(a, ta, b, tb);
+        return StarkCurve.toAffine(X, Y, Z);
+    }
+
     /// @notice Verify a ring signature. Pure group math plus the hint check;
-    /// no storage. Cost is linear in the ring (~0.3M gas per member).
-    function verify(Point[] memory ring, uint256 scope, uint256 msg, Signature memory sig)
+    /// no storage. Cost is linear in the ring.
+    function verify(Point[] memory ring, uint256 scope, uint256 msg_, Signature memory sig)
         internal
         view
         returns (bool)
     {
         uint256 n = ring.length;
         if (n == 0 || sig.s.length != n || !isOnCurve(sig.image)) return false;
-        for (uint256 i = 0; i < n; i++) {
-            if (!isOnCurve(ring[i])) return false;
+        for (uint256 k = 0; k < n; k++) {
+            if (!isOnCurve(ring[k])) return false;
         }
         Point memory hp = hashToPoint(scope, sig.hp);
-        uint256[32] memory tg = StarkCurve.table(StarkCurve.GX, StarkCurve.GY);
-        uint256[32] memory th = StarkCurve.table(hp.x, hp.y);
-        uint256[32] memory ti = StarkCurve.table(sig.image.x, sig.image.y);
-        uint256 d = digest(ring, scope, msg, sig.image);
+        Tables memory t;
+        t.g = StarkCurve.table(StarkCurve.GX, StarkCurve.GY);
+        t.h = StarkCurve.table(hp.x, hp.y);
+        t.i = StarkCurve.table(sig.image.x, sig.image.y);
+        uint256 d = digest(ring, scope, msg_, sig.image);
         uint256 c = sig.c0;
-        for (uint256 i = 0; i < n; i++) {
-            uint256[32] memory tp = StarkCurve.table(ring[i].x, ring[i].y);
-            (uint256 lx, uint256 ly, uint256 lz) = StarkCurve.mul2(sig.s[i], tg, c, tp);
-            (uint256 rx, uint256 ry, uint256 rz) = StarkCurve.mul2(sig.s[i], th, c, ti);
-            (lx, ly) = StarkCurve.toAffine(lx, ly, lz);
-            (rx, ry) = StarkCurve.toAffine(rx, ry, rz);
-            c = Poseidon.hash6(TAG_CHAL, d, lx, ly, rx, ry);
+        for (uint256 k = 0; k < n; k++) {
+            c = link(t, d, sig.s[k], c, ring[k]);
         }
         return c == sig.c0;
     }

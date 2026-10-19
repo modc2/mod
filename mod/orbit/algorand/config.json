@@ -1,22 +1,26 @@
 {
     "name": "algorand",
     "version": "0.1.0",
-    "description": "The Algorand protocol as one mod. Reads: accounts by address or .algo NFD name (ALGO balance, minimum balance locked by opt-ins, spendable, USD, every ASA held, apps opted-in/created, rekey), ASAs by id/name/unit, smart contracts (decoded global state, boxes, local state, disassembled TEAL, the app's own account), keyless simulated app calls with ARC-4 encoding and decoded returns, history, transactions, blocks, network, price, TEAL compile and a raw algod/indexer escape hatch. Writes: a keystore under ~/.mod/algorand/, payments (with close-out), ASA mint/opt-in/transfer, app deploy/call/update, atomic groups (pay_algo funds an app call in the same group), rekeyed signers handled. Canonical msgpack, base32 addresses, 25-word mnemonics, ed25519 (PyNaCl or pure-Python RFC 8032) and ARC-4 all in-tree - zero hard dependencies. Writes default to testnet; elsewhere confirm=true; HTTP writes need the token from ~/.mod/algorand/token. MCP tools, a REST API and a browser console on one port.",
+    "description": "The Algorand protocol as one mod. Reads: accounts by address or .algo NFD name (ALGO balance, minimum balance locked by opt-ins, spendable, USD, every ASA held, apps opted-in/created, rekey), ASAs by id/name/unit, smart contracts (decoded global state, boxes, local state, disassembled TEAL, the app's own account), keyless simulated app calls with ARC-4 encoding and decoded returns, history, transactions, blocks, network, price, TEAL compile and a raw algod/indexer escape hatch. Writes: a keystore under ~/.mod/algorand/, payments (with close-out), ASA mint/opt-in/transfer, app deploy/call/update, atomic groups (pay_algo funds an app call in the same group), rekeyed signers handled. Canonical msgpack, base32 addresses, 25-word mnemonics, ed25519 (PyNaCl or pure-Python RFC 8032) and ARC-4 all in-tree - zero hard dependencies. Writes default to testnet; elsewhere confirm=true; HTTP writes need the token from ~/.mod/algorand/token. MCP tools and a REST API (api/, :51340) plus a browser console (app/, :51341).",
     "icon": "A",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
     "port": 51340,
-    "app_port": 51340,
+    "app_port": 51341,
     "mcp_port": 51340,
     "base_path": "/algorand",
     "route": true,
     "urls": {
         "api": "http://localhost:51340",
-        "app": "http://localhost:51340/algorand/",
+        "app": "http://localhost:51341/algorand",
         "mcp": "http://localhost:51340/mcp",
         "algod": "https://mainnet-api.algonode.cloud",
         "indexer": "https://mainnet-idx.algonode.cloud",
-        "explorer": "https://allo.info"
+        "explorer": "https://allo.info",
+        "same_origin_api": "http://localhost:51341/algorand/_api",
+        "gateway_api": "https://modc2.com/algorand/api",
+        "gateway_app": "https://modc2.com/algorand",
+        "gateway_mcp": "https://modc2.com/algorand/api/mcp"
     },
     "endpoints": {
         "info": "GET /",
@@ -47,7 +51,8 @@
         "app_call": "GET|POST /app_call",
         "app_update": "GET|POST /app_update"
     },
-    "backend": "python stdlib only (http.server + urllib); msgpack, base32 addresses, mnemonics, ed25519 and ARC-4 in codec.py",
+    "backend": "api/api.py (python stdlib http.server + urllib - REST + MCP, :51340); msgpack, base32 addresses, mnemonics, ed25519 and ARC-4 in codec.py",
+    "frontend": "app/server.py (stdlib - the console app/index.html at /algorand on :51341; proxies /algorand/_api to the API)",
     "tools": [
         "algo_account",
         "algo_resolve",
@@ -113,14 +118,17 @@
     },
     "auth": "reads open; writes sign with keys from ~/.mod/algorand/ (never the repo) - non-testnet writes refuse without confirm=true, HTTP writes need the token from ~/.mod/algorand/token, no route or tool returns a secret",
     "env": {
-        "PORT": "port for API, console and MCP (default 51340)",
+        "PORT": "API port (default 51340; ALGORAND_API_PORT wins)",
         "ALGORAND_NETWORK": "default network for reads (mainnet)",
         "ALGOD_URL": "your own algod for the default network",
         "ALGOD_TOKEN": "its X-Algo-API-Token",
         "INDEXER_URL": "your own indexer for the default network",
         "ALGORAND_HOME": "keystore + token directory (default ~/.mod/algorand)",
         "ALGORAND_PRICE_TTL": "seconds the price is cached (default 60)",
-        "ALGORAND_OFFLINE": "skip the tests that need the chain"
+        "ALGORAND_OFFLINE": "skip the tests that need the chain",
+        "ALGORAND_API_PORT": "API port (default 51340)",
+        "ALGORAND_APP_PORT": "console port (default 51341)",
+        "ALGORAND_API": "API url the console proxies to (default http://127.0.0.1:51340)"
     },
-    "schema": "QmUSFEtSRpawu6oVCKjD9cZdCc4CpaAbVCjsU7YDjDdBqj"
+    "schema": "QmaroVE5PxgHyBpdskvcyQDGoHeUjD3FxETNEtA5zx3zN8"
 }

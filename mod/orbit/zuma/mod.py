@@ -80,6 +80,10 @@ NETWORKS = {
         'section': 'alpha-mainnet', 'fee': 'strk'},
 }
 NEAR_NETS = ('near', 'near-testnet')
+ETH_NETS = ('eth', 'eth-sepolia')
+SOL_NETS = ('solana', 'solana-devnet')
+SOL_MAX_RING = 32  # session layout; verification is split into units anyway
+ETH_MAX_RING = 32  # gas-bound: ~0.41M gas/member, 2^24 per-tx cap (EIP-7825)
 TESTS = os.path.join(DATA, 'tests.json')
 # measured 2026-10-15 on near-sandbox (neard 2.0): submit, fresh deploy
 NEAR_GAS_MEASURED = {'at': None, 'limit_tgas': 300, 'max_ring': 32, 'rows': [
@@ -94,8 +98,9 @@ SOURCES = [
         ('contracts/src/lsag.cairo', 'the scheme: LSAG over the STARK curve'),
         ('contracts/src/zuma.cairo', 'the subnet contract'),
         ('contracts/tests/test_zuma.cairo', 'snforge suite'),
-        ('prover/src/lib.cairo', 'the signer (cairo-run), shared by both'),
         ('contracts/Scarb.toml', 'package')]),
+    ('Signer · every chain', 'shared', [
+        ('prover/src/lib.cairo', 'the signer (cairo-run): one signature, four verifiers')]),
     ('NEAR · Rust', 'near', [
         ('near/src/lsag.rs', 'the same scheme, ported line by line'),
         ('near/src/lib.rs', 'the subnet contract (near-sdk 5)'),
@@ -104,14 +109,38 @@ SOURCES = [
         ('near/src/tests.rs', 'cargo test suite + Cairo fixtures'),
         ('near/src/bench.rs', 'in-contract gas probes'),
         ('near/Cargo.toml', 'crate + build profile')]),
-    ('Driver · both chains', 'both', [
-        ('mod.py', 'keys, prover, deploy, actions, simulate'),
-        ('near_chain.py', 'NEAR: borsh txs, sandbox, deploy'),
-        ('server.py', 'this console + JSON API'),
+    ('NEAR · driver', 'near', [
+        ('near_chain.py', 'borsh txs, sandbox, deploy'),
         ('tools/wasmlower/src/main.rs', 'wasm -> MVP lowering for nearcore'),
         ('tools/gen_fp.py', 'generates fp.rs core + poseidon.rs')]),
+    ('Ethereum · Solidity', 'eth', [
+        ('eth/src/LSAG.sol', 'the same scheme: ring check, Hp hint'),
+        ('eth/src/Zuma.sol', 'the subnet contract'),
+        ('eth/src/StarkCurve.sol', 'STARK curve in Yul: Jacobian, Straus'),
+        ('eth/src/Poseidon.sol', 'poseidon_hash_span over Hades'),
+        ('eth/src/Hades.sol', 'calls the Poseidon permutation contract'),
+        ('eth/test/Zuma.t.sol', 'forge suite + Cairo fixtures + gas'),
+        ('eth/foundry.toml', 'build profile')]),
+    ('Ethereum · driver', 'eth', [
+        ('eth_chain.py', 'anvil, deploy, txs (web3)'),
+        ('tools/gen_eth_consts.py', 'hand-assembles the Hades bytecode')]),
+    ('Solana · Rust (sBPF)', 'solana', [
+        ('solana/src/verify.rs', 'the scheme, cut into 1.4M-CU units'),
+        ('solana/src/lib.rs', 'the program: subnet, sessions, finish'),
+        ('solana/src/tests.rs', 'cargo suite on Cairo-made hints'),
+        ('near/src/fp.rs', 'field + curve (shared with NEAR)'),
+        ('near/src/poseidon.rs', 'Poseidon (shared with NEAR)'),
+        ('solana/Cargo.toml', 'crate + build profile')]),
+    ('Solana · driver', 'solana', [
+        ('solana_chain.py', 'validator, txs, sessions, units'),
+        ('stark.py', 'curve + Poseidon in Python: the hints'),
+        ('tools/gen_sol_fixture.py', 'writes the test hints')]),
+    ('Shared · every chain', 'shared', [
+        ('mod.py', 'keys, prover, deploy, actions, simulate'),
+        ('server.py', 'this console + JSON API')]),
 ]
-CHAINS = {'starknet': 'devnet', 'near': 'near'}  # simulate(chain=) -> local net
+CHAINS = {'starknet': 'devnet', 'near': 'near', 'eth': 'eth',
+          'solana': 'solana'}  # simulate(chain=) -> local net
 DEFAULT_ACCOUNTS = os.path.expanduser(
     '~/.starknet_accounts/starknet_open_zeppelin_accounts.json')
 
@@ -162,6 +191,40 @@ def _near():
     return _NEAR
 
 
+_ETH = None
+
+
+def _eth():
+    """eth_chain.EthZuma, loaded by path like _near()."""
+    global _ETH
+    if _ETH is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'zuma_eth_chain', os.path.join(HERE, 'eth_chain.py'))
+        m = importlib.util.module_from_spec(spec)
+        sys.modules['zuma_eth_chain'] = m
+        spec.loader.exec_module(m)
+        _ETH = m.EthZuma(DATA)
+    return _ETH
+
+
+_SOL = None
+
+
+def _sol():
+    """solana_chain.SolZuma, loaded by path like _near()."""
+    global _SOL
+    if _SOL is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'zuma_solana_chain', os.path.join(HERE, 'solana_chain.py'))
+        m = importlib.util.module_from_spec(spec)
+        sys.modules['zuma_solana_chain'] = m
+        spec.loader.exec_module(m)
+        _SOL = m.SolZuma(DATA)
+    return _SOL
+
+
 def _near_wasm():
     return sys.modules[type(_near()).__module__].WASM
 
@@ -210,7 +273,8 @@ class Mod:
         return {'name': 'zuma', 'description': self.description,
                 'version': self.config.get('version'),
                 'protocol': self.config.get('protocol'),
-                'networks': sorted(NETWORKS) + list(NEAR_NETS),
+                'networks': sorted(NETWORKS) + list(NEAR_NETS) + list(ETH_NETS) +
+                list(SOL_NETS),
                 'deployments': _load(DEPLOYS, {}),
                 'keys': self.keys(),
                 'fns': self.config.get('fns')}
@@ -227,7 +291,13 @@ class Mod:
                 'near': {'sandbox_up': _near()._alive(),
                          'wasm_built': os.path.exists(_near_wasm()),
                          'sandbox_bin': os.path.exists(os.path.expanduser(
-                             '~/.local/bin/near-sandbox'))}}
+                             '~/.local/bin/near-sandbox'))},
+                'eth': {'anvil_up': _eth()._alive(),
+                        'built': not _eth()._stale(),
+                        'forge': os.path.exists(os.path.expanduser(
+                            '~/.foundry/bin/forge'))},
+                'solana': {'validator_up': _sol()._alive(),
+                           'built': not _sol()._stale()}}
 
     def readme(self):
         p = os.path.join(HERE, 'README.md')
@@ -253,6 +323,10 @@ class Mod:
                                       PROVER)
         if chain in ('all', 'near'):
             out['near'] = _near().build()
+        if chain in ('all', 'eth'):
+            out['eth'] = _eth().build()
+        if chain in ('all', 'solana'):
+            out['solana'] = _sol().build()
         out['ok'] = all(v['ok'] for v in out.values())
         return out
 
@@ -271,13 +345,17 @@ class Mod:
             out['starknet'] = r
         if chain in ('all', 'near'):
             out['near'] = _near().test()
+        if chain in ('all', 'eth'):
+            out['eth'] = _eth().test()
+        if chain in ('all', 'solana'):
+            out['solana'] = _sol().test()
         out['ok'] = all(v['ok'] for v in out.values())
         out['passed'] = sum(v.get('passed') or 0 for v in out.values()
                             if isinstance(v, dict))
         out['failed'] = sum(v.get('failed') or 0 for v in out.values()
                             if isinstance(v, dict))
         cache = _load(TESTS, {})
-        for c in ('starknet', 'near'):
+        for c in ('starknet', 'near', 'eth', 'solana'):
             if c in out:
                 cache[c] = {'at': int(time.time()), 'ok': out[c]['ok'],
                             'passed': out[c].get('passed'),
@@ -320,9 +398,13 @@ class Mod:
         """NEAR verification gas by ring size (measured by gas_sweep)."""
         return _load(os.path.join(DATA, 'near_gas.json'), NEAR_GAS_MEASURED)
 
-    def gas_sweep(self, sizes='4,8,16,24,32'):
-        """Measure NEAR submit gas per ring size on the sandbox: fresh
-        deploy, len(sizes) miners each submit with a ring of that size."""
+    def gas_sweep(self, sizes='4,8,16,24,32', chain='near'):
+        """Measure submit cost per ring size on a local chain: fresh
+        deploy, len(sizes) miners each submit with a ring of that size.
+        chain = near (Tgas, sandbox) | solana (CU, units, txs; validator).
+        Ethereum's table comes from `forge test` (test_gas_by_ring_size)."""
+        if chain == 'solana':
+            return self._sol_sweep(sizes)
         net = 'near'
         sizes = [int(x) for x in str(sizes).split(',')]
         self.deploy(net, tempo=5000, min_ring=3)
@@ -344,9 +426,42 @@ class Mod:
         _save(os.path.join(DATA, 'near_gas.json'), out)
         return out
 
+    def costs(self):
+        """Verification cost by ring size, per chain, as measured:
+        near (gas_sweep on the sandbox), eth (forge test), solana
+        (gas_sweep chain=solana on the local validator)."""
+        return {'near': self.gas(),
+                'eth': _load(os.path.join(DATA, 'eth_gas.json'), None),
+                'solana': _load(os.path.join(DATA, 'solana_gas.json'), None)}
+
+    def _sol_sweep(self, sizes):
+        net = 'solana'
+        sizes = [int(x) for x in str(sizes).split(',')]
+        d = self.deploy(net, tempo=100000, min_ring=3)
+        if not d.get('ok'):
+            return d
+        names = [f'ring-m{i}' for i in range(max(sizes))]
+        for n in names:
+            self.keygen(n)
+            self.register(n, 'miner', net)
+        rows = []
+        for i, k in enumerate(sizes):
+            t0 = time.time()
+            try:
+                r = self.submit(names[i], f'cu {k}', ring_size=k, network=net)
+                rows.append({'ring': k, 'cu': r['cu'], 'cu_max': r['cu_max'],
+                             'units': r['units'], 'txs': r['txs'],
+                             'seconds': round(time.time() - t0, 1)})
+            except Exception as e:  # noqa: BLE001
+                rows.append({'ring': k, 'error': str(e)[:200]})
+        out = {'at': int(time.time()), 'cap_cu': 1_400_000,
+               'max_ring': SOL_MAX_RING, 'rows': rows}
+        _save(os.path.join(DATA, 'solana_gas.json'), out)
+        return out
+
     def compare(self):
-        """Both versions side by side: what is the same, what differs,
-        and the numbers from each chain's last full epoch."""
+        """Every version side by side: the numbers from each chain's last
+        full epoch, its tests, and the cost tables."""
         out = {}
         for chain in CHAINS:
             sim = self.last_sim(chain) or {}
@@ -362,10 +477,16 @@ class Mod:
                 'ring': next((e.get('ring') for e in acts if e.get('ring')),
                              None),
                 'tgas': [e.get('tgas') for e in acts if e.get('tgas')],
+                'gas': [e.get('gas') for e in acts if e.get('gas')],
+                'cu': [e.get('cu') for e in acts if e.get('cu')],
+                'units': [e.get('units') for e in acts if e.get('units')],
+                'txs': [e.get('txs') for e in acts if e.get('txs')],
+                'cu_max': max([e.get('cu_max') or 0 for e in acts] or [0]),
                 'steps': [e.get('steps') for e in acts if e.get('steps')],
                 'ec_op': [e.get('ec_op') for e in acts if e.get('ec_op')],
                 'tests': self.tests().get(chain)}
         out['gas'] = self.gas()
+        out['costs'] = self.costs()
         return out
 
     # ---- the prover (Cairo, same lsag module the contract runs) ------------
@@ -460,6 +581,11 @@ class Mod:
         if network in NEAR_NETS:
             sc = _felt(_near().view(network, 'mine_scope',
                                     {'epoch': int(epoch)}))
+        elif network in ETH_NETS:
+            sc = _eth().view(network, 'mineScope', int(epoch))
+        elif network in SOL_NETS:
+            sc = self._prove([5, 1, _sol()._subnet(network)['subnet_felt'],
+                              int(epoch), 0])[0]
         else:
             sc = self.scope('mine', self._deployment(network)['address'],
                             epoch)
@@ -644,6 +770,12 @@ class Mod:
         if network in NEAR_NETS:
             return _near().deploy(network, tempo=tempo, min_ring=min_ring,
                                   emission=emission, account=account)
+        if network in ETH_NETS:
+            return _eth().deploy(network, tempo=tempo, min_ring=min_ring,
+                                 emission=emission)
+        if network in SOL_NETS:
+            return _sol().deploy(network, tempo=tempo, min_ring=min_ring,
+                                 emission=emission)
         net = self._ctx(network, account, accounts_file, rpc)
         tempo = int(tempo or (50 if network == 'devnet' else 360))
         # declare is the slow step (sncast builds the package); skip it when
@@ -723,6 +855,14 @@ class Mod:
                 'role': r, 'key': {'x': k['x'], 'y': k['y']}}, as_owner=True)
             return {'ok': True, 'name': name, 'role': role, 'tx': t['hash'],
                     'tgas': t['tgas']}
+        if network in ETH_NETS:
+            t = _eth().invoke(network, 'register', r,
+                              (int(k['x'], 16), int(k['y'], 16)), role='owner')
+            return {'ok': True, 'name': name, 'role': role, 'tx': t['hash'],
+                    'gas': t['gas']}
+        if network in SOL_NETS:
+            t = _sol().register(network, r, k['x'], k['y'])
+            return {'ok': True, 'name': name, 'role': role, 'tx': t['sig']}
         tx = self._invoke(network, 'register',
                           [r, int(k['x'], 16), int(k['y'], 16)],
                           as_owner=True)
@@ -735,6 +875,11 @@ class Mod:
             t = _near().invoke(network, 'set_open', {'open': flag},
                                as_owner=True)
             return {'open': flag, 'tx': t['hash']}
+        if network in SOL_NETS:
+            return {'open': flag, 'tx': _sol().set_open(network, flag)['sig']}
+        if network in ETH_NETS:
+            return {'open': flag, 'tx': _eth().invoke(
+                network, 'setOpen', flag, role='owner')['hash']}
         return {'open': flag, 'tx': self._invoke(network, 'set_open',
                                                  [int(flag)], as_owner=True)}
 
@@ -742,6 +887,10 @@ class Mod:
         r = ROLES[str(role)]
         if network in NEAR_NETS:
             return _near().view(network, 'members', {'role': r})
+        if network in ETH_NETS:
+            return _eth().members(network, r)
+        if network in SOL_NETS:
+            return _sol().members(network, r)
         n = self._call(network, 'member_count', [r])[0]
         out = []
         for i in range(n):
@@ -755,6 +904,15 @@ class Mod:
             p, b = nz.view(network, 'params'), nz.block(network)
             return {'epoch': b // p['tempo'], 'block': b, 'tempo': p['tempo'],
                     'blocks_left': p['tempo'] - b % p['tempo']}
+        if network in SOL_NETS:
+            p = _sol().params(network)
+            return {'epoch': p['epoch'], 'block': p['slot'], 'tempo': p['tempo'],
+                    'blocks_left': p['slots_left']}
+        if network in ETH_NETS:
+            ez = _eth()
+            t, b = ez.view(network, 'tempo'), ez.block(network)
+            return {'epoch': b // t, 'block': b, 'tempo': t,
+                    'blocks_left': t - b % t}
         d = self._deployment(network)
         b = self._block(network)
         return {'epoch': self._call(network, 'epoch')[0], 'block': b,
@@ -771,7 +929,9 @@ class Mod:
         others = [p for p in everyone if int(p['x'], 16) != int(me['x'], 16)]
         if len(others) == len(everyone):
             raise ValueError(f'{name!r} is not a registered {role}')
-        cap = NEAR_MAX_RING if network in NEAR_NETS else MAX_RING
+        cap = NEAR_MAX_RING if network in NEAR_NETS else \
+            ETH_MAX_RING if network in ETH_NETS else \
+            SOL_MAX_RING if network in SOL_NETS else MAX_RING
         size = min(int(ring_size or cap), cap, len(others) + 1)
         return random.sample(others, size - 1) + [me]
 
@@ -790,6 +950,12 @@ class Mod:
         if network in NEAR_NETS:
             return self._near_act(network, 'submit', name, work=work,
                                   ring_size=ring_size)
+        if network in ETH_NETS:
+            return self._eth_act(network, 'submit', name, work=work,
+                                 ring_size=ring_size)
+        if network in SOL_NETS:
+            return self._sol_act(network, 'submit', name, work=work,
+                                 ring_size=ring_size)
         addr = self._deployment(network)['address']
         e = self._call(network, 'epoch')[0]
         sig = self.sign(name, self.scope('mine', addr, e), work,
@@ -804,6 +970,12 @@ class Mod:
         if network in NEAR_NETS:
             return self._near_act(network, 'score', name, tag=tag,
                                   score=score, ring_size=ring_size)
+        if network in ETH_NETS:
+            return self._eth_act(network, 'score', name, tag=tag,
+                                 score=score, ring_size=ring_size)
+        if network in SOL_NETS:
+            return self._sol_act(network, 'score', name, tag=tag,
+                                 score=score, ring_size=ring_size)
         addr = self._deployment(network)['address']
         e = self._call(network, 'epoch')[0]
         s = int(score)
@@ -821,6 +993,12 @@ class Mod:
         if network in NEAR_NETS:
             return self._near_act(network, 'claim', name, epoch=epoch,
                                   recipient=recipient, ring_size=ring_size)
+        if network in ETH_NETS:
+            return self._eth_act(network, 'claim', name, epoch=epoch,
+                                 recipient=recipient, ring_size=ring_size)
+        if network in SOL_NETS:
+            return self._sol_act(network, 'claim', name, epoch=epoch,
+                                 recipient=recipient, ring_size=ring_size)
         addr = self._deployment(network)['address']
         to = _felt(recipient)
         sig = self.sign(name, self.scope('mine', addr, epoch), to,
@@ -878,10 +1056,110 @@ class Mod:
                                       {'who': kw['recipient']})),
                 'tx': t['hash'], 'tgas': t['tgas'], 'sign_ms': sign_ms}
 
+    def hash_point(self, scope):
+        """Hp(scope) from the prover: the hint the EVM and Solana verifiers
+        check instead of taking a square root on-chain."""
+        x, y = self._prove([6, _felt(scope)])
+        return {'x': hex(x), 'y': hex(y)}
+
+    def _eth_act(self, net, kind, name, ring_size=None, **kw):
+        """submit | score | claim on Ethereum. Scope from the contract
+        (subnet = the contract address), signature from the Cairo prover,
+        Hp as a checked hint."""
+        ez = _eth()
+        role = 'validator' if kind == 'score' else 'miner'
+        ring = self._ring(name, role, net, ring_size)
+        if kind == 'submit':
+            e = ez.view(net, 'epoch')
+            scope, msg = ez.view(net, 'mineScope', e), _felt(kw['work'])
+        elif kind == 'score':
+            e, tag = ez.view(net, 'epoch'), _felt(kw['tag'])
+            scope, msg = ez.view(net, 'scoreScope', e, tag), int(kw['score'])
+        else:
+            e = int(kw['epoch'])
+            to = ez.w3(net).to_checksum_address(kw['recipient'])
+            scope, msg = ez.view(net, 'mineScope', e), int(to, 16)
+        s0 = time.time()
+        sig = self.sign(name, scope, msg, ring)
+        sign_ms = int((time.time() - s0) * 1000)
+        hp = self.hash_point(scope)
+        pt = lambda p: (int(p['x'], 16), int(p['y'], 16))
+        ring_t = [pt(p) for p in sig['ring']]
+        sig_t = (int(sig['c0'], 16), [int(x, 16) for x in sig['s']],
+                 pt(sig['image']), pt(hp))
+        if kind == 'submit':
+            t = ez.invoke(net, 'submit', ring_t, msg, sig_t)
+            return {'ok': True, 'epoch': e, 'tag': hex(t['result']),
+                    'ring_size': len(ring_t), 'tx': t['hash'],
+                    'gas': t['gas'], 'sign_ms': sign_ms}
+        if kind == 'score':
+            t = ez.invoke(net, 'score', ring_t, tag, msg, sig_t)
+            return {'ok': True, 'epoch': e, 'tag': hex(tag), 'score': msg,
+                    'nullifier': hex(t['result']), 'tx': t['hash'],
+                    'gas': t['gas'], 'sign_ms': sign_ms}
+        t = ez.invoke(net, 'claim', e, ring_t, to, sig_t)
+        return {'ok': True, 'epoch': e, 'tag': sig['tag'], 'recipient': to,
+                'amount': int(t['result']),
+                'earned': ez.view(net, 'earned', to), 'tx': t['hash'],
+                'gas': t['gas'], 'sign_ms': sign_ms}
+
+    def _sol_act(self, net, kind, name, ring_size=None, **kw):
+        """submit | score | claim on Solana: open a session (the program
+        computes the scope), sign it with the Cairo prover, derive the hints
+        in Python (stark.py), then upload + seal + run every unit + finish."""
+        sz = _sol()
+        sm = sys.modules[type(sz).__module__]
+        role = 'validator' if kind == 'score' else 'miner'
+        ring = self._ring(name, role, net, ring_size)
+        index = {int(m['x'], 16): i for i, m in
+                 enumerate(sz.members(net, ROLES[role]))}
+        n = len(ring)
+        if kind == 'submit':
+            msg = _felt(kw['work'])
+            ss, scope, e = sz.open_session(net, 'submit', n, msg=msg)
+        elif kind == 'score':
+            msg, tag = int(kw['score']), _felt(kw['tag'])
+            ss, scope, e = sz.open_session(net, 'score', n, msg=msg, tag=tag)
+        else:
+            to = kw['recipient']
+            msg = sm.felt_of(sm.b58decode(to))
+            ss, scope, e = sz.open_session(net, 'claim', n, epoch=kw['epoch'],
+                                           recipient=to)
+        try:
+            s0 = time.time()
+            sig = self.sign(name, scope, msg, ring)
+            sign_ms = int((time.time() - s0) * 1000)
+            I = lambda v: int(v, 16)
+            pts = [(I(p['x']), I(p['y'])) for p in sig['ring']]
+            tr = sm.load_stark().trace(pts, scope, msg, I(sig['c0']),
+                                       [I(x) for x in sig['s']],
+                                       (I(sig['image']['x']), I(sig['image']['y'])))
+            r = sz.act(net, ss, kind, [index[x] for x, _ in pts], sig, tr, e,
+                       tag=_felt(kw.get('tag', 0)), recipient=kw.get('recipient'))
+        except Exception:
+            sz.abort(net, ss)
+            raise
+        cost = {'tx': r['sig'], 'units': r['units'], 'txs': r['txs'],
+                'cu': r['cu'], 'cu_max': r['cu_max'], 'sign_ms': sign_ms,
+                'verify_s': r['verify_s']}
+        if kind == 'submit':
+            return {'ok': True, 'epoch': e, 'tag': hex(r['image_id']),
+                    'ring_size': n, **cost}
+        if kind == 'score':
+            return {'ok': True, 'epoch': e, 'tag': hex(tag), 'score': msg,
+                    'nullifier': hex(r['image_id']), **cost}
+        return {'ok': True, 'epoch': e, 'tag': hex(r['image_id']),
+                'recipient': kw['recipient'],
+                'earned': sz.earned(net, kw['recipient']), **cost}
+
     def tally(self, epoch=None, network='devnet'):
         """Every tag in an epoch with its score sum/count — never identities."""
         if network in NEAR_NETS:
             return _near().tally(network, epoch)
+        if network in ETH_NETS:
+            return _eth().tally(network, epoch)
+        if network in SOL_NETS:
+            return _sol().tally(network, epoch)
         e = int(epoch) if epoch is not None else self._call(network, 'epoch')[0]
         n = self._call(network, 'epoch_tags', [e])[0]
         rows = []
@@ -898,6 +1176,13 @@ class Mod:
         if network in NEAR_NETS:
             return {'recipient': recipient, 'earned': int(_near().view(
                 network, 'earned', {'who': recipient}))}
+        if network in ETH_NETS:
+            ez = _eth()
+            to = ez.w3(network).to_checksum_address(recipient)
+            return {'recipient': to, 'earned': ez.view(network, 'earned', to)}
+        if network in SOL_NETS:
+            return {'recipient': recipient,
+                    'earned': _sol().earned(network, recipient)}
         return {'recipient': hex(_felt(recipient)),
                 'earned': self._call(network, 'earned', [_felt(recipient)])[0]}
 
@@ -914,6 +1199,10 @@ class Mod:
     # ---- end-to-end demo -----------------------------------------------------
 
     def _bn(self, network):
+        if network in ETH_NETS:
+            return _eth().block(network)
+        if network in SOL_NETS:
+            return _sol().slot(network)
         return _near().block(network) if network in NEAR_NETS \
             else self._block(network)
 
@@ -922,6 +1211,15 @@ class Mod:
             gap = to_block - _near().block(network)
             if gap > 0:
                 _near().fast_forward(network, gap)
+            return
+        if network in ETH_NETS:
+            gap = to_block - _eth().block(network)
+            if gap > 0:
+                _eth().mine(network, gap)
+            return
+        if network in SOL_NETS:
+            # no warp on a live validator: wait the slots out (~0.4 s each)
+            _sol().wait_slot(network, to_block)
             return
         while self._block(network) < to_block:
             self._devnet_post('/create_block')
@@ -950,6 +1248,8 @@ class Mod:
         t0 = time.time()
         net = CHAINS[chain]
         near = net in NEAR_NETS
+        eth = net in ETH_NETS
+        sol = net in SOL_NETS
         events = []
 
         def ev(kind, **kw):
@@ -960,7 +1260,14 @@ class Mod:
                 on_event(e)
 
         def cost(r):
-            return {'tgas': r.get('tgas')} if near else self._steps(r['tx'])
+            if near:
+                return {'tgas': r.get('tgas')}
+            if eth:
+                return {'gas': r.get('gas')}
+            if sol:
+                return {'cu': r.get('cu'), 'units': r.get('units'),
+                        'txs': r.get('txs'), 'cu_max': r.get('cu_max')}
+            return self._steps(r['tx'])
 
         miners, validators = int(miners), int(validators)
         if not (3 <= miners <= MAX_RING and 3 <= validators <= MAX_RING):
@@ -971,22 +1278,38 @@ class Mod:
             if not st.get('up'):
                 ev('error', error=st.get('error'), stage='sandbox')
                 return {'ok': False, **st}
+        elif eth:
+            st = _eth().anvil('start')
+            if not st.get('up'):
+                ev('error', error=st.get('error'), stage='anvil')
+                return {'ok': False, **st}
+        elif sol:
+            st = _sol().validator('start')
+            if not st.get('up'):
+                ev('error', error=st.get('error'), stage='validator')
+                return {'ok': False, **st}
         else:
             self.devnet('start')
         ev('devnet', block=self._bn(net))
         ev('deploying')
         # NEAR makes ~1 block/s on its own, so its epoch must outlast the
         # 3 submits + every score; starknet-devnet only moves when told to
-        tempo = 600 if near else 60
+        # Solana's validator makes a slot every ~0.4 s and every action
+        # there is ~35 transactions, so its epoch is the longest
+        tempo = 600 if near else 180 if sol else 60
         dep = self.deploy(net, tempo=tempo, min_ring=3, emission=1000)
         if not dep.get('ok'):
             ev('error', error=dep.get('error'), stage=dep.get('stage'))
             return dep
-        contract = dep.get('address') or dep.get('account')
+        contract = dep.get('address') or dep.get('account') or dep.get('subnet')
         ev('deploy', address=contract, tempo=dep['tempo'],
            min_ring=dep['min_ring'], emission=dep['emission'],
            **({'tgas': dep.get('tgas'), 'wasm_bytes': dep.get('wasm_bytes')}
-              if near else {'class_hash': dep.get('class_hash')}))
+              if near else {'gas': dep.get('gas'), 'code_bytes': dep.get(
+                  'code_bytes'), 'hades': dep.get('hades')}
+              if eth else {'program': dep.get('program'),
+                           'program_bytes': dep.get('program_bytes')}
+              if sol else {'class_hash': dep.get('class_hash')}))
         mk = [f'sim-m{i}' for i in range(miners)]
         vk = [f'sim-v{i}' for i in range(validators)]
         for n in mk + vk:
@@ -995,9 +1318,11 @@ class Mod:
             for n in names:
                 r = self.register(n, role, net)
                 ev('register', role=role, x=self.pubkey(n)['x'],
-                   **({'tgas': r.get('tgas')} if near else {}))
-        b = self._bn(net)
-        self._advance(net, (b // tempo + 1) * tempo)  # start of a fresh epoch
+                   **({'tgas': r.get('tgas')} if near else
+                      {'gas': r.get('gas')} if eth else {}))
+        if not sol:  # a fresh Solana subnet starts its own epoch 0
+            b = self._bn(net)
+            self._advance(net, (b // tempo + 1) * tempo)  # a fresh epoch
         subs = []
         for n in mk[:3]:
             s0 = time.time()
@@ -1012,9 +1337,14 @@ class Mod:
                 ev('score', tag=s['tag'], score=r['score'],
                    nullifier=r['nullifier'], ring=len(vk), tx=r['tx'],
                    **cost(r))
-        self._advance(net, (e + 1) * tempo)
+        if sol:
+            ev('waiting', epoch=e, slots_left=_sol().params(net)['slots_left'])
+            self._advance(net, _sol().params(net)['start_slot'] +
+                          (e + 1) * tempo + 1)
+        else:
+            self._advance(net, (e + 1) * tempo)
         ev('close', epoch=e, block=self._bn(net))
-        if near:
+        if near or eth or sol:
             payee = dep['payee']
         else:
             payee = _load(os.path.join(DEVNET_DIR, 'accounts.json'), {})[
@@ -1050,6 +1380,10 @@ class Mod:
         Never touches a secret — it is exactly what any chain reader sees."""
         if network in NEAR_NETS:
             return _near().board(network, epochs)
+        if network in ETH_NETS:
+            return _eth().board(network, epochs)
+        if network in SOL_NETS:
+            return _sol().board(network, epochs)
         d = _load(DEPLOYS, {}).get(network)
         out = {'network': network, 'deployed': bool(d),
                'devnet_up': self._devnet_alive() if network == 'devnet'

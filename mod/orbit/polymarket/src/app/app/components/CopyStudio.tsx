@@ -32,6 +32,7 @@ import { COPY_BOOK_CHANGED_EVENT, upsertAllocation } from "../lib/copyBook";
 import { shortAddress } from "../lib/identityStrat";
 import { getOwnerAddress } from "../lib/access";
 import { useAuth } from "../context/AuthContext";
+import BundlerPanel from "./BundlerPanel";
 import EquityChart from "./EquityChart";
 import Sparkline from "./Sparkline";
 
@@ -305,6 +306,14 @@ export default function CopyStudio() {
           </Link>
         </div>
       </div>
+
+      {/* ── The BUNDLER agent's proposals; LOAD replaces the allocation ── */}
+      <BundlerPanel
+        onLoad={(ls) => update((s) => ({
+          ...s,
+          legs: ls.reduce<StudioLeg[]>((acc, l) => addLeg(acc, { address: l.address, usd: l.usd, label: l.label ?? null }), []),
+        }))}
+      />
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_460px]">
         {/* ── Left: the board ── */}

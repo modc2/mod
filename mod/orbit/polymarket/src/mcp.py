@@ -512,6 +512,69 @@ def _t_autostrat(args):
     return _get(_autostrat(), timeout=30)
 
 
+def _bundler(path: str = '') -> str:
+    return f'{APP_URL}{BASE_PATH}/_api/bundler{path}'
+
+
+def _bundle_brief(b: dict) -> dict:
+    """One bundle trimmed to what an agent reasons over."""
+    h = b.get('holdout') or {}
+    tr = b.get('train') or {}
+    return {
+        'id': b.get('id'),
+        'grade': b.get('grade'),
+        'gradeText': b.get('gradeText'),
+        'review': b.get('review'),
+        'totalUsd': b.get('totalUsd'),
+        'train': {'green': f"{tr.get('green')}/{tr.get('n')}", 'greenLB': tr.get('greenLB'),
+                  'meanPerBlock': tr.get('mean'), 'worstBlock': tr.get('worst')},
+        'holdout': h,
+        'testBlocksGreen': f"{(b.get('test') or {}).get('green')}/{(b.get('test') or {}).get('n')}",
+        'pWeekUp': b.get('pWeekUp'),
+        'legs': b.get('legs'),
+    }
+
+
+def _t_bundles(args):
+    """BUNDLER agent: forged copy-trade bundles, graded on a holdout.
+       op=status|latest|get|run|on|off."""
+    op = str(args.get('op') or 'latest').strip().lower()
+    if op == 'run':
+        body = {}
+        forge = {k: args[k] for k in ('legUsd', 'minLegs', 'maxLegs', 'blockDays', 'blocks',
+                                      'testBlocks', 'bundles', 'maxOverlap') if args.get(k) is not None}
+        if forge:
+            body['forge'] = forge
+        if args.get('review') is not None:
+            body['review'] = bool(args['review'])
+        return _post(_bundler('?run=1'), body, timeout=60)
+    if op in ('on', 'off'):
+        body = {'enabled': op == 'on'}
+        if args.get('intervalSecs') is not None:
+            body['intervalSecs'] = int(args['intervalSecs'])
+        return _post(_bundler(), body, timeout=30)
+    if op == 'get':
+        rid = str(args.get('id') or '').strip()
+        if not rid:
+            raise ValueError('id required for op=get (from op=status runs[])')
+        run = _get(_bundler(f'?id={urllib.parse.quote(rid)}'), timeout=30)
+        return {**run, 'bundles': [_bundle_brief(b) for b in run.get('bundles') or []]}
+    st = _get(_bundler(), timeout=30)
+    if op == 'status':
+        return {k: st.get(k) for k in ('settings', 'active', 'runs')}
+    latest = st.get('latest') or {}
+    if not latest:
+        return {'latest': None, 'active': st.get('active'),
+                'note': 'no finished forge run yet — op=run starts one (takes a few minutes)'}
+    return {
+        'id': latest.get('id'), 'at': latest.get('at'), 'summary': latest.get('summary'),
+        'pool': latest.get('pool'), 'survivors': latest.get('survivors'),
+        'forge': latest.get('forge'), 'reviewed': latest.get('reviewed'),
+        'active': st.get('active'),
+        'bundles': [_bundle_brief(b) for b in latest.get('bundles') or []],
+    }
+
+
 def _t_live_sessions(args):
     eoa = str(args.get('eoa') or '').strip() or _owner()
     sessions = _get(f'{API_URL}/live/sessions?eoa={urllib.parse.quote(eoa)}', timeout=30).get('sessions') or []
@@ -1426,6 +1489,35 @@ TOOLS = {
         }},
         'handler': _t_autostrat,
     },
+    'pm_bundles': {
+        'description': 'BUNDLER — copy-trade bundles forged for CONSISTENT success. A run replays '
+                       'every cached trader in 3-day blocks through the real copy engine, picks '
+                       '3-5 legs using OLDER blocks only, then replays the most recent ~9 days '
+                       'the search never saw (HOLDOUT) and grades each bundle A consistent / B '
+                       'promising / C unproven / F failed holdout; a reviewer agent adds name, '
+                       'thesis, risks and deploy/watch/skip. op="latest" (default) = newest '
+                       'finished run\'s bundles; op="status" = settings + runs; op="get" id=… = '
+                       'one run; op="run" = forge now (minutes; returns an id — poll op=status); '
+                       'op="on"/"off" = the slow background loop. Judge by grade and holdout, '
+                       'never train alone. Proposes only: to copy a bundle, pm_copy_allocate each '
+                       'leg (owner-approved) and pm_copy_start (DRY RUN by default).',
+        'inputSchema': {'type': 'object', 'properties': {
+            'op': {'type': 'string', 'enum': ['latest', 'status', 'get', 'run', 'on', 'off']},
+            'id': {'type': 'string', 'description': 'op=get: run id, e.g. bdl_mf1x2y'},
+            'legUsd': {'type': 'number', 'description': 'op=run: $ per leg (default 250; '
+                                                        'whales need 250-500 to clear floors)'},
+            'minLegs': {'type': 'integer'},
+            'maxLegs': {'type': 'integer'},
+            'blockDays': {'type': 'integer', 'description': 'op=run: block length (default 3)'},
+            'blocks': {'type': 'integer', 'description': 'op=run: block count (blocks*blockDays<=30)'},
+            'testBlocks': {'type': 'integer', 'description': 'op=run: holdout blocks (default 3)'},
+            'bundles': {'type': 'integer', 'description': 'op=run: how many bundles (default 5)'},
+            'maxOverlap': {'type': 'number', 'description': 'op=run: max market Jaccard between legs'},
+            'review': {'type': 'boolean', 'description': 'op=run: ask the reviewer agent (default on)'},
+            'intervalSecs': {'type': 'integer', 'description': 'op=on: loop cadence, min 1800'},
+        }},
+        'handler': _t_bundles,
+    },
     'pm_strat_create': {
         'description': 'Create a new PRIVATE strat in the owner\'s console: a copy-index '
                        'watching the given traders, saved PAUSED (creating is never starting). '
@@ -1523,6 +1615,7 @@ GATED_TOOLS = {
     'pm_copy_start': 'money',       # starts sessions (even DRY RUN is a commitment)
     'pm_lab_start': 'spend',        # background run that spends inference
     'pm_autostrat': 'spend',        # op=run/on only — see _gate_kind
+    'pm_bundles': 'spend',          # op=run/on only — see _gate_kind
     'pm_strat_create': 'strat',
     'pm_strat_update': 'strat',
     'pm_strat_delete': 'strat',
@@ -1564,6 +1657,8 @@ def _gate_kind(name: str, args: dict):
     # pm_autostrat op=status reads, op=off only stops spend — both free.
     if name == 'pm_autostrat' and str(args.get('op') or 'status') not in ('run', 'on'):
         return None
+    if name == 'pm_bundles' and str(args.get('op') or 'latest') not in ('run', 'on'):
+        return None
     return kind
 
 
@@ -1581,6 +1676,8 @@ def _gate_summary(name: str, args: dict) -> str:
             return f"start copying {args.get('address') or 'the whole book'} ({mode})"
         if name == 'pm_lab_start':
             return f"start a STRAT LAB run: {str(args.get('goal') or 'best copy-index')[:80]}"
+        if name == 'pm_bundles':
+            return f"BUNDLER {args.get('op')}" + (f" (${args.get('legUsd')}/leg)" if args.get('legUsd') else '')
         if name == 'pm_autostrat':
             theme = str(args.get('theme') or '')[:60]
             return f"AUTO STRAT {args.get('op')}" + (f': {theme}' if theme else '')

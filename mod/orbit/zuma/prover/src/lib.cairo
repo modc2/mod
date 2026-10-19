@@ -86,6 +86,11 @@ fn main(args: Array<felt252>) {
         } else {
             out(poseidon_hash_span(array!['zuma-score', subnet, epoch, tag].span()));
         }
+    } else if op == 6 {
+        // Hp(scope): the hint the EVM and Solana verifiers check (no sqrt there)
+        let (x, y) = lsag::xy(lsag::hash_to_point(*a.at(1)));
+        out(x);
+        out(y);
     } else {
         panic!("unknown op");
     }
