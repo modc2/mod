@@ -144,6 +144,30 @@ class Mod:
         and reason, nothing recorded. spec = the same JSON a bench seat takes."""
         return self.book.score(spec, input)
 
+    # ── the agent protocol (agentproto.py) ───────────────────────
+
+    def agents(self):
+        """This module's agent-protocol roster: the scorer and every panel."""
+        import agentproto
+        return agentproto.agents(self.book)
+
+    def run(self, query, agent_type='scorer', **body):
+        """An agent-protocol run on this module: agent_type=scorer scores
+        the query 0-100, agent_type=<panel> puts it before that panel."""
+        import agentproto
+        return agentproto.run_local(self.book, dict(body, query=query,
+                                                    agent_type=agent_type))
+
+    def roster(self, provider='judge'):
+        """Any agent-protocol provider's agents (agent, claudecode, hermes …)."""
+        import agentproto
+        return agentproto.roster(provider, self.book)
+
+    def providers(self):
+        """Every mod on this box that speaks the agent protocol."""
+        import agentproto
+        return {'providers': agentproto.providers()}
+
     def verdict(self, id):
         """One verdict, with every judge's score and reason."""
         return self.book.verdict(int(id))

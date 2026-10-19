@@ -277,6 +277,10 @@ function putResult(el, r) {
       : `<span style="color:${s.status === 401 ? 'var(--warn)' : 'var(--bad)'}">not registered — ${esc(s.error || '')}</span>`]);
   }
   result(el, rows);
+  // the beam passes over the page: something was just kept forever
+  document.body.classList.remove('lit-up');
+  void document.body.offsetWidth;
+  document.body.classList.add('lit-up');
   refreshObjects();
 }
 
@@ -292,11 +296,14 @@ function objectCard(o, source) {
   } else {
     pills.push('<span class="pill">perpetual</span>');
   }
+  const name = o.key || 'unnamed';
+  const at = name.lastIndexOf('.');
+  const ext = at > 0 && name.length - at <= 5 ? name.slice(at + 1) : (o.mime || '').split('/')[1] || 'ipfs';
   return `<div class="obj">
-    <div>
-      <div class="cid">${esc(o.cid)}</div>
-      <div class="meta">${esc(o.key || 'unnamed')} · ${bytes(o.size)}${when ? ` · ${esc(when)}` : ''} ${pills.join(' ')}</div>
-    </div>
+    <span class="ext">${esc(ext.slice(0, 4).toUpperCase())}</span>
+    <div class="title" title="${esc(name)}">${esc(name)}</div>
+    <div class="cid" title="${esc(o.cid)}">${esc(o.cid)}</div>
+    <div class="meta">${bytes(o.size)}${when ? ` · ${esc(when)}` : ''} ${pills.join(' ')}</div>
     <div class="acts">
       <button data-copy="${esc(o.cid)}">copy</button>
       <a href="${esc(url)}" target="_blank" rel="noreferrer"><button>open</button></a>

@@ -8,12 +8,14 @@ don't vote — and if fewer than `min_votes` judges manage to vote,
 the verdict fails closed.
 
 Judge kinds:
+  agent — the default: every judge is an agent spoken to over the agent
+          protocol (agentproto.py). `provider` is any mod with an
+          agent_contract (default: this module, whose `scorer` agent is
+          one fast turn on the local LFM weights) and `agent_type` an
+          agent off its roster; the run's finish summary is the score.
   rule  — deterministic, offline: length bounds, required / forbidden words.
-  llm   — a model scores the input against the judge's criteria: the
-          LFM weights on this box via the liquidai module by default, or
-          any OpenAI-compatible chat endpoint when the spec names a url.
-  agent — an agent-protocol agent (orbit/agent POST /run with an
-          agent_type); its finish summary is parsed as the score.
+  llm   — legacy: same as an agent judge on judge/scorer; with a `url`
+          it talks to an OpenAI-compatible chat endpoint directly.
   panel — another panel sits as one judge: its vote is that panel's
           weighted average. Judges of judges — cycles fail closed.
           The agent/panel kinds and the judge market live in market.py.
@@ -208,7 +210,7 @@ class Panels:
         j = next((x for x in p['judges'] if x['name'] == judge), None)
         if not j:
             return {'error': f'no judge {judge!r} on panel {name!r}'}
-        return {'panel': name, 'judge': judge, 'kind': j.get('kind', 'llm'),
+        return {'panel': name, 'judge': judge, 'kind': j.get('kind', 'agent'),
                 'goal': j.get('goal'), 'keys': j['keys']}
 
     def remove(self, name, creator):
@@ -238,7 +240,7 @@ class Panels:
             if j['name'] in names:
                 return {'error': f'duplicate judge name {j["name"]!r}'}
             names.add(j['name'])
-            kind = j.get('kind', 'llm')
+            kind = j.setdefault('kind', 'agent')
             if kind not in ('llm', 'rule', 'agent', 'panel'):
                 return {'error': f'judge {j["name"]!r}: kind must be llm, rule, agent or panel'}
             goal = j.get('goal')
@@ -300,18 +302,23 @@ class Panels:
 
     # ── judging ──────────────────────────────────────────────────
 
-    def judge(self, panel, input, _seen=None):
+    def judge(self, panel, input, _seen=None, on_vote=None):
         """Put one input before the panel and record the verdict. `_seen`
         is the chain of panels already deliberating this input — panel-kind
         judges thread it down so a panel can never (transitively) sit on
-        its own bench at judge time."""
+        its own bench at judge time. `on_vote(score)` is called as each
+        judge votes — the agent-protocol stream rides it."""
         p = self.get(panel)
         if 'error' in p:
             return p
         if not input:
             return {'error': 'nothing to judge'}
         seen = (_seen or frozenset()) | {panel}
-        scores = [self._score(j, input, seen) for j in p['judges']]
+        scores = []
+        for j in p['judges']:
+            scores.append(self._score(j, input, seen))
+            if on_vote:
+                on_vote(scores[-1])
         voted = [s for s in scores if s['score'] is not None]
         if len(voted) < p['min_votes']:
             approved, average = False, None
@@ -446,12 +453,13 @@ class Panels:
 
     def _score(self, j, text, seen=frozenset()):
         """One judge's vote: {name, score 0-100 | None, weight, reason}."""
-        kind = j.get('kind', 'llm')
+        kind = j.get('kind', 'agent')
         try:
             if kind == 'rule':
                 score, reason = _rule_score(j, text)
-            elif kind == 'agent':
-                score, reason = market.agent_score(j, text)
+            elif kind == 'agent' or (kind == 'llm' and not (j.get('url') or DEFAULT_LLM_URL)):
+                spec = j if kind == 'agent' else dict(j, provider='judge', agent_type='scorer')
+                score, reason = market.agent_score(spec, text, self, seen)
             elif kind == 'panel':
                 score, reason = market.panel_score(self, j, text, seen)
             else:

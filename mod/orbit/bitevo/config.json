@@ -1,12 +1,12 @@
 {
     "name": "bitevo",
-    "version": "2.0.0",
-    "description": "Bittensor subnet \u2014 miners pitch YC-style startups judged by validators; evolutionary genome populations fit multivariate predictions of the future",
-    "port": 50120,
-    "app_port": 50121,
+    "version": "2.1.0",
+    "description": "Bittensor subnet on the zuma protocol \u2014 anonymous miners pitch YC-style startups, anonymous validators judge them (LSAG ring signatures, wire-compatible with orbit/zuma's Starknet/NEAR contracts); evolutionary genome populations fit multivariate predictions of the future",
+    "port": 51460,
+    "app_port": 51461,
     "urls": {
-        "api": "http://localhost:50120",
-        "app": "http://localhost:50121"
+        "api": "http://localhost:51460",
+        "app": "http://localhost:51461"
     },
     "fns": [
         "forward",
@@ -22,6 +22,8 @@
         "forecast",
         "population",
         "datasets",
+        "zuma",
+        "audit",
         "backends",
         "whitepaper",
         "test",
@@ -88,8 +90,24 @@
         "/whitepaper": {
             "method": "GET",
             "docs": "Bitevo whitepaper (markdown)"
+        },
+        "/zuma": {
+            "method": "GET",
+            "docs": "zuma subnet registry: rings, emission, credits per payout"
+        },
+        "/audit": {
+            "method": "GET",
+            "docs": "Re-verify every ring signature of an epoch (query ?epoch=N)"
         }
     },
     "schema": "Qmcd1M6e7QkGTPj7dAp9Cq4uY4PMp5XS14UHjBuHhZyaG9",
-    "gateway_port": 50121
+    "gateway_port": 51461,
+    "protocol": {
+        "name": "zuma",
+        "impl": "core/zuma.py (pure Python, imports orbit/zuma/stark.py)",
+        "submit": "miner LSAG over msg=work in H('zuma-mine', subnet, epoch); tag = key_id(image)",
+        "score": "validator LSAG over msg=score 0..100 in H('zuma-score', subnet, epoch, tag); nullifier = key_id(image)",
+        "claim": "miner re-signs the mine scope with msg=payout; credited emission*tag_sum/epoch_total",
+        "state": "~/.bitevo/zuma/keys.json (0600) + subnet.json"
+    }
 }

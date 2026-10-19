@@ -57,6 +57,10 @@ class MinerResponse(BaseModel):
     model_used: str = ""
     generation_time: float = 0.0
     timestamp: float = Field(default_factory=time.time)
+    # zuma: anonymous submission — tag = key image under the epoch mine scope
+    tag: str = ""
+    work: str = ""
+    zuma_sig: Optional[Dict] = None
 
 
 class ValidatorScore(BaseModel):
@@ -67,6 +71,8 @@ class ValidatorScore(BaseModel):
     composite_score: float = 0.0
     feedback: str = ""
     timestamp: float = Field(default_factory=time.time)
+    tag: str = ""
+    nullifier: str = ""
 
 
 class EpochResult(BaseModel):
@@ -75,4 +81,5 @@ class EpochResult(BaseModel):
     responses: List[MinerResponse] = []
     scores: List[ValidatorScore] = []
     weights: Dict[str, float] = {}
+    zuma: Dict = {}
     timestamp: float = Field(default_factory=time.time)

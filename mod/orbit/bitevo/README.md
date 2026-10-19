@@ -7,7 +7,7 @@ Bittensor subnet with two tracks under one incentive mechanism:
 
 **Whitepaper:** [WHITEPAPER.md](WHITEPAPER.md) — mechanism design, scoring rubric, EMA/softmax incentives, genome design, walk-forward fitness. Also served at `/whitepaper` on the API and as the WHITEPAPER tab in the web console.
 
-**Web console:** `m bitevo/serve` → `http://localhost:50121` — CONSOLE (leaderboard, epochs, judge your own idea), EVOLVE (run evolution, fitness curve, multivariate forecast chart, genome leaderboard), EPOCHS (full archive), WHITEPAPER. Zero-dep static app (`app/server.py` + `app/index.html`) proxying `/api/*` to the FastAPI backend.
+**Web console:** `m bitevo/serve` → `http://localhost:51461` — CONSOLE (leaderboard, epochs, judge your own idea), EVOLVE (run evolution, fitness curve, multivariate forecast chart, genome leaderboard), EPOCHS (full archive), WHITEPAPER. Zero-dep static app (`app/server.py` + `app/index.html`) proxying `/api/*` to the FastAPI backend.
 
 ## Backends
 
@@ -134,7 +134,7 @@ m bitevo/test backends='["chutes"]' full=true
 
 ## API
 
-Start with `m bitevo/serve`, docs at `http://localhost:50120/docs`.
+Start with `m bitevo/serve`, docs at `http://localhost:51460/docs`.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|

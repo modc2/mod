@@ -8,6 +8,13 @@ without importing the orbit loader.
     /api/judge/{fn}     → the API (prefix stripped by the gateway)
     /{fn}               → the API, bare, for local curl
 
+It also speaks the agent protocol (agentproto.py), so every judge here is
+an agent the fleet can mount (orbit/build POST /agents/mods):
+
+    GET  /agents        → {"agents": ["scorer", <every panel>...]}
+    POST /run/stream    {query, agent_type, prompt, model} → SSE steps/done
+    POST /run           the same, blocking
+
 Reads are GET with query args. Writes are POST with a JSON body. The panel
 params are the multisig itself, so create_panel / update_panel / remove_panel
 / add_judge / install_judge / score answer only a caller who has said who
@@ -33,8 +40,6 @@ import json
 import os
 import secrets
 import sys
-import time
-import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -46,15 +51,17 @@ MAX_BODY = 1 * 1024 * 1024
 if MODULE_DIR not in sys.path:
     sys.path.append(MODULE_DIR)
 
+import agentproto  # noqa: E402
 import identity  # noqa: E402
 import market  # noqa: E402
 import panel  # noqa: E402
 
 READ_FNS = ('health', 'info', 'readme', 'panels', 'panel', 'verdict',
             'verdicts', 'verify', 'key_kinds', 'market', 'listing',
-            'agents', 'auth', 'whoami', 'judge_keys')
+            'agents', 'roster', 'providers', 'auth', 'whoami', 'judge_keys')
 WRITE_FNS = ('judge', 'score', 'create_panel', 'update_panel', 'remove_panel',
-             'add_judge', 'publish_judge', 'unpublish_judge', 'install_judge')
+             'add_judge', 'publish_judge', 'unpublish_judge', 'install_judge',
+             'run', 'run/stream')
 # Need a known caller: the box, or a signed address.
 GATED = ('score', 'create_panel', 'update_panel', 'remove_panel', 'add_judge',
          'install_judge')
@@ -101,24 +108,6 @@ def token():
     with os.fdopen(fd, 'w') as f:
         f.write(t)
     return t
-
-
-# The agent-protocol roster, for the console's agent_type picker.
-AGENT_API = market.DEFAULT_AGENT_URL.rsplit('/run', 1)[0]
-_roster = {'t': 0.0, 'v': None}
-
-
-def agents():
-    if _roster['v'] is not None and time.time() - _roster['t'] < 60:
-        return _roster['v']
-    try:
-        with urllib.request.urlopen(AGENT_API + '/agents', timeout=5) as r:
-            names = json.loads(r.read().decode()).get('agents', [])
-    except Exception as e:
-        return {'agents': [], 'source': AGENT_API,
-                'error': f'agent module unreachable: {e}'}
-    _roster.update(t=time.time(), v={'agents': names, 'source': AGENT_API})
-    return _roster['v']
 
 
 def _config():
@@ -181,8 +170,14 @@ def api(fn, a):
         return {'listings': shop().list(a.get('q', ''), a.get('kind', ''))}
     if fn == 'listing':
         return shop().get(int(a.get('id', 0)))
-    if fn == 'agents':
-        return agents()
+    if fn == 'agents':  # this module's own agent-protocol roster
+        return agentproto.agents(b)
+    if fn == 'roster':  # any provider's roster, for the console's pickers
+        return agentproto.roster(a.get('provider') or agentproto.SELF, b)
+    if fn == 'providers':
+        return {'providers': agentproto.providers(), 'default': agentproto.SELF}
+    if fn == 'run':
+        return agentproto.run_local(b, a)
     if fn == 'publish_judge':
         return shop().publish(a.get('name', ''), a.get('author', ''),
                               a.get('spec'), a.get('description', ''),
@@ -236,6 +231,29 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({'error': f'{type(e).__name__}: {e}'}, 422)
         return self._json(out)
 
+    def _stream(self, args):
+        """POST /run/stream: the agent protocol's SSE — `data: {type…}`."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.close_connection = True
+
+        def emit(ev):
+            self.wfile.write(f'data: {json.dumps(ev)}\n\n'.encode())
+            self.wfile.flush()
+        try:
+            agentproto.run_local(book(), args, emit)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as e:  # noqa: BLE001 — the stream carries the reason
+            try:
+                emit({'type': 'error', 'error': str(e)})
+            except Exception:
+                pass
+
     def _trusted(self):
         # A gateway on this box also connects from loopback, so a forwarded
         # request is treated as remote whatever its socket says — unless it
@@ -276,6 +294,16 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({'error': 'body must be JSON'}, 400)
         if not isinstance(args, dict):
             return self._json({'error': 'body must be a JSON object'}, 400)
+        if fn in ('run', 'run/stream'):
+            # Scoring with the bare scorer spends a model turn like /score
+            # does; posing an input to a panel is open like /judge.
+            if ((a_t := args.get('agent_type') or agentproto.SCORER) == agentproto.SCORER
+                    and who['role'] == 'anon'):
+                return self._json({'error': 'the scorer agent needs a signed-in '
+                                            'caller (Authorization: Bearer <token>)',
+                                   'agent_type': a_t}, 401)
+            if fn == 'run/stream':
+                return self._stream(args)
         # A signed caller is whoever signed — not whoever they claim to be.
         if who['role'] == 'signed' and fn in SIGNER_FIELD:
             args[SIGNER_FIELD[fn]] = who['address']

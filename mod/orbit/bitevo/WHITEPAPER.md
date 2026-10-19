@@ -206,4 +206,4 @@ Bitevo demonstrates that a Bittensor subnet can price two very different kinds o
 
 ---
 
-*Bitevo is a mod-protocol module. Run it locally: `m bitevo/serve` → console on `:50121`, API on `:50120`. Evolve: `m bitevo/evolve` · Forecast: `m bitevo/forecast`.*
+*Bitevo is a mod-protocol module. Run it locally: `m bitevo/serve` → console on `:51461`, API on `:51460`. Evolve: `m bitevo/evolve` · Forecast: `m bitevo/forecast`.*

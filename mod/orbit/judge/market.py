@@ -5,8 +5,9 @@ composable judge kinds, and `Market` is a listing board kept in the same
 SQLite file.
 
   agent judge — the judge is an agent speaking the agent protocol
-      (orbit/agent): the input is posed as a run (POST /run with an
-      agent_type) and the run's finish summary is parsed as
+      (agentproto.py): any provider mod (this one's fast local `scorer`
+      by default, or orbit/agent, claudecode, hermes …) is posed the
+      input as a run and the finish summary is parsed as
       {"score": 0-100, "reason": "..."}.
   panel judge — the judge IS another panel: its vote is that panel's
       weighted average, so panels compose into panels of panels. The
@@ -20,9 +21,10 @@ import json
 import os
 import re
 import time
-import urllib.request
 
-# The agent protocol: orbit/agent's blocking run endpoint.
+import agentproto
+
+# Kept for anything that imported it: orbit/agent's run endpoint.
 DEFAULT_AGENT_URL = os.environ.get('JUDGE_AGENT_URL',
                                    'http://localhost:50117/run')
 
@@ -33,9 +35,16 @@ DEFAULT_AGENT_URL = os.environ.get('JUDGE_AGENT_URL',
 def check_judge(panels, j, kind, panel_name=None):
     """Kind-specific validation for agent/panel judges; None when fine."""
     if kind == 'agent':
-        if not j.get('agent_type'):
-            return {'error': f'judge {j["name"]!r}: agent judge needs an agent_type'}
-        if not (j.get('prompt') or j.get('goal')):
+        prov, atype = agentproto.target(j)
+        if not j.get('url') and not agentproto.provider(prov):
+            return {'error': f'judge {j["name"]!r}: {prov!r} does not speak the '
+                             'agent protocol'}
+        if prov == agentproto.SELF and atype != agentproto.SCORER:
+            if panel_name and atype == panel_name:
+                return {'error': f'judge {j["name"]!r}: a panel cannot sit on its own bench'}
+            if 'error' in panels.get(atype):
+                return {'error': f'judge {j["name"]!r}: no agent {atype!r} on {prov!r}'}
+        elif not (j.get('prompt') or j.get('goal')):
             return {'error': f'judge {j["name"]!r}: agent judge needs a goal or a criteria prompt'}
     if kind == 'panel':
         sub = j.get('panel')
@@ -60,51 +69,39 @@ def judge_brief(j):
     return ' '.join(parts)
 
 
-def agent_score(j, text):
-    """Agent-protocol judge: pose the input as a run, read the finish summary."""
-    url = j.get('url') or DEFAULT_AGENT_URL
-    query = (f'You are {j["name"]!r}, one judge on a review panel. '
-             f'{judge_brief(j)} '
-             'Score the INPUT from 0 (worst) to 100 (best) against the goal and criteria. '
-             'Finish with ONLY a JSON object: '
-             '{"score": <number>, "reason": "<one line>"}'
-             f'\n\nINPUT:\n{text}')
-    # A scoring run needs no tools — a tight step budget keeps it quick
-    # (the fleet default provider can be a local CPU model).
-    body = {'query': query, 'agent_type': j['agent_type'],
-            'steps': int(j.get('steps', 3)), 'temperature': 0,
-            'free': bool(j.get('free', True))}
-    for k in ('model', 'provider', 'key'):
+def agent_score(j, text, panels=None, seen=frozenset()):
+    """Agent-protocol judge: pose the input as a run on the judge's
+    provider, parse the answer. A panel of this module named as the
+    agent_type is judged in-process so the cycle guard still holds."""
+    prov, atype = agentproto.target(j)
+    if prov == agentproto.SELF and atype != agentproto.SCORER and not j.get('url'):
+        return panel_score(panels, dict(j, panel=atype), text, seen)
+    brief = judge_brief(j)
+    if prov == agentproto.SELF:
+        # The scorer takes the input as the query and the brief as its prompt.
+        body = {'query': text, 'agent_type': atype,
+                'prompt': f'You are {j["name"]!r}, one judge on a review panel. {brief}'}
+    else:
+        body = {'query': (f'You are {j["name"]!r}, one judge on a review panel. '
+                          f'{brief} '
+                          'Score the INPUT from 0 (worst) to 100 (best) against the goal '
+                          'and criteria. Use no tools. Finish with ONLY a JSON object: '
+                          '{"score": <number>, "reason": "<one line>"}'
+                          f'\n\nINPUT:\n{text}'),
+                'agent_type': atype,
+                # A scoring run needs no tools or memory — a tight budget
+                # keeps it quick on a CPU model.
+                'steps': int(j.get('steps', 3)), 'temperature': 0,
+                'memory': 'ephemeral', 'free': bool(j.get('free', True))}
+    for k in ('model', 'provider_model', 'key', 'runtime'):
         if j.get(k):
-            body[k] = j[k]
-    req = urllib.request.Request(url, json.dumps(body).encode(),
-                                 {'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=float(j.get('timeout', 300))) as r:
-        data = json.loads(r.read().decode())
-    if data.get('error'):
-        raise ValueError(f'agent run failed: {data["error"]}')
-    answer = _answer_of(data.get('result'))
-    if not answer:
-        raise ValueError('agent run produced no answer')
+            body['provider' if k == 'provider_model' else k] = j[k]
+    answer = agentproto.run(prov, body, url=j.get('url'),
+                            timeout=j.get('timeout', 300), panels=panels)
     return parse_score(answer)
 
 
-def _answer_of(result):
-    """A run's answer, by the protocol's own rule: the finish step's
-    params.summary, else the last response step."""
-    if isinstance(result, str):
-        return result
-    if not isinstance(result, list):
-        return ''
-    summary = response = ''
-    for s in result:
-        if not isinstance(s, dict):
-            continue
-        if s.get('tool') == 'finish':
-            summary = s.get('params', {}).get('summary', '') or summary
-        elif s.get('tool') == 'response' and s.get('result'):
-            response = str(s['result'])
-    return summary or response
+_answer_of = agentproto.answer_of
 
 
 def panel_score(panels, j, text, seen):
@@ -143,15 +140,15 @@ SEED_LISTINGS = [
      'Offline rule judge: fails walls of text (over 1200 characters).',
      {'kind': 'rule', 'max_len': 1200}, ['style', 'offline']),
     ('clarity',
-     'LLM judge: is the input clear, specific and unambiguous?',
-     {'kind': 'llm',
+     'Agent judge (local scorer): is the input clear, specific and unambiguous?',
+     {'kind': 'agent', 'provider': 'judge', 'agent_type': 'scorer',
       'prompt': 'Is the input clear, specific and unambiguous? Reward '
                 'concrete, well-structured writing; punish vagueness and filler.'},
      ['quality']),
     ('reviewer',
      'Agent-protocol judge: an orbit/agent agent reviews the input as a '
      'proposed change.',
-     {'kind': 'agent', 'agent_type': 'default',
+     {'kind': 'agent', 'provider': 'agent', 'agent_type': 'default',
       'prompt': 'Review the input as a proposed change: is it correct, '
                 'safe and complete?'},
      ['agent', 'review']),
@@ -287,5 +284,5 @@ class Market:
         d = dict(r)
         d['tags'] = json.loads(d['tags'])
         d['spec'] = json.loads(d['spec'])
-        d['kind'] = d['spec'].get('kind', 'llm')
+        d['kind'] = d['spec'].get('kind', 'agent')
         return d

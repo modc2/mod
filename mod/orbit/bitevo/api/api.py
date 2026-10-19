@@ -48,8 +48,9 @@ class EpochRequest(BaseModel):
 
 
 class AddMinerRequest(BaseModel):
-    backend: str = "openrouter"
+    backend: str = "claude"
     model: Optional[str] = None
+    payout: Optional[str] = None
 
 
 class ScoreIdeaRequest(BaseModel):
@@ -91,11 +92,26 @@ async def simulate(req: SimulateRequest):
         raise HTTPException(status_code=500, detail=f"{e}\n{traceback.format_exc()}")
 
 
+@app.get("/zuma")
+async def zuma():
+    return {"result": get_bitevo().zuma()}
+
+
+@app.get("/audit")
+async def audit(epoch: Optional[int] = Query(None)):
+    try:
+        return {"result": get_bitevo().audit(epoch=epoch)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/epoch")
 async def epoch(req: EpochRequest):
     try:
         result = get_bitevo().epoch(challenge_type=req.challenge_type)
         return {"result": result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{e}\n{traceback.format_exc()}")
 
@@ -113,7 +129,8 @@ async def results(epoch: Optional[int] = Query(None)):
 @app.post("/miner")
 async def add_miner(req: AddMinerRequest):
     try:
-        result = get_bitevo().add_miner(backend=req.backend, model=req.model)
+        result = get_bitevo().add_miner(backend=req.backend, model=req.model,
+                                        payout=req.payout)
         return {"result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,6 +1,11 @@
 """
 Bitevo — Bittensor subnet for YC-style startup idea generation & judging.
 
+Runs on the zuma protocol (orbit/zuma): miners and validators are public
+SETS and every submission / score / claim is an LSAG ring signature over the
+STARK curve, so a validator scores a pitch without knowing which miner sent
+it and a miner never learns which validator scored it (core/zuma.py).
+
 Miners generate startup pitches using LLMs (OpenRouter / Venice AI / Chutes).
 Validators act as YC judges: score, critique, and rank pitches.
 
@@ -32,8 +37,8 @@ import sys
 from pathlib import Path
 
 DIR = Path(__file__).resolve().parent.parent  # orbit/bitevo/
-API_PORT = 50120
-APP_PORT = 50121
+API_PORT = 51460
+APP_PORT = 51461  # was 50120/50121 — :50121 is orbit/zuma's console
 
 # Ensure bitevo root is on path for core/neurons imports
 _bitevo_root = str(DIR)
@@ -48,6 +53,7 @@ class Mod:
         'forward', 'simulate', 'epoch', 'leaderboard', 'results',
         'status', 'add_miner', 'challenge', 'score_idea',
         'evolve', 'forecast', 'population', 'datasets',
+        'zuma', 'audit',
         'backends', 'whitepaper', 'test', 'serve', 'kill',
     ]
 
@@ -100,6 +106,7 @@ class Mod:
             'miners': len(self.validator._local_miners),
             'leaderboard': self.validator.leaderboard(),
             'evolution': self._evo_summary(),
+            'zuma': self.validator.zuma.status(),
             'urls': self.config.get('urls', {}),
         }
 
@@ -154,15 +161,37 @@ class Mod:
     def results(self, epoch: int = None):
         return self.validator.results(epoch=int(epoch) if epoch is not None else None)
 
-    def add_miner(self, backend='openrouter', uid=None, model=None):
+    def add_miner(self, backend='claude', uid=None, model=None, payout=None):
         from neurons.miner import BitevoMiner
         if uid is None:
             uid = len(self.validator._local_miners)
         else:
             uid = int(uid)
-        miner = BitevoMiner(backend=backend, uid=uid, model=model, local=True)
+        miner = BitevoMiner(backend=backend, uid=uid, model=model, local=True,
+                            payout=payout)
         self.validator.add_miner(miner)
-        return {'uid': uid, 'backend': backend, 'model': miner.model}
+        return {'uid': uid, 'backend': backend, 'model': miner.model,
+                'payout': miner.payout,
+                'zuma_key_id': self.validator.zuma.keygen(miner.zuma_key, 'miner')['key_id']}
+
+    # ── zuma (anonymous subnet protocol) ──────────────────────────
+
+    def zuma(self):
+        """Subnet registry: ring sizes, min_ring, emission, credits per payout."""
+        z = self.validator.zuma
+        return {**z.status(),
+                'members': {r: [m['key_id'] for m in z.members[r]] for r in z.members}}
+
+    def audit(self, epoch: int = None):
+        """Re-verify every ring signature (submit/score/claim) of an epoch
+        from the public record — anyone can run this."""
+        z = self.validator.zuma
+        if epoch is None:
+            done = [int(k) for k, e in z.epochs.items() if not e['open']]
+            if not done:
+                return {'error': 'no zuma epochs yet — run simulate or epoch'}
+            epoch = max(done)
+        return z.audit(int(epoch))
 
     def challenge(self, challenge_type=None):
         c = self.validator.challenge_gen.generate(
