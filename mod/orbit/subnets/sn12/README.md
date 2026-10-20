@@ -2,7 +2,7 @@
 
 Trusted compute for bittensor validators
 
-Bittensor subnet **12** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **12** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/backend-developers-ltd/ComputeHorde/) · [url](https://computehorde.io) · [discord](https://discordapp.com/channels/799672011265015819/1201941624243109888)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/backend-developers-ltd/ComputeHorde/) · [url
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004782 | — | -0.15% | -2.73% | 30,856 | 12,663 | 11.18 |
+| 0.004778 | -0.00% | -0.08% | -3.03% | 30,870 | 12,658 | 4.99 |
 
 ## Last 24h flow
 
-8 trades by 7 coldkeys · 3 buys (0.90 τ) / 5 sells (10.02 τ) · net -9.12 τ
+4 trades by 4 coldkeys · 1 buys (0.04 τ) / 3 sells (3.51 τ) · net -3.48 τ
 
 ## News
 

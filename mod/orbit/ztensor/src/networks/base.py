@@ -188,3 +188,9 @@ class Network:
 
     def close_epoch(self, net, epoch, tempo, ev):
         self.advance(net, (epoch + 1) * tempo)
+
+    def audit(self, net):
+        """After simulate(): an independent check of the whole run, if the
+        chain offers one beyond its own consensus (postquant replays every
+        receipt). None = nothing to add."""
+        return None

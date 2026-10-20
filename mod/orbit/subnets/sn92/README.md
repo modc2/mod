@@ -2,7 +2,7 @@
 
 Verified decision-model inference on Bittensor.
 
-Bittensor subnet **92** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **92** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/reaxlabs/reax-subnet) · [url](https://reax.co/)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/reaxlabs/reax-subnet) · [url](https://reax.c
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.042293 | — | +6.07% | +836.31% | 9,561 | 2,830 | 4,402 |
+| 0.035184 | +0.17% | -16.14% | +678.92% | 8,311 | 2,691 | 14,212 |
 
 ## Last 24h flow
 
-1074 trades by 169 coldkeys · 463 buys (2,213 τ) / 611 sells (2,134 τ) · net 79.09 τ
+1114 trades by 214 coldkeys · 539 buys (6,957 τ) / 575 sells (7,187 τ) · net -229.32 τ
 
 ## News
 
+- 2026-10-19 · commit · [deploy/approvals: publish the owner's signed award approvals (6 entri…](https://github.com/reaxlabs/reax-subnet/commit/e68693bff627ceff8260e41120c149b73f92fd6b) — reaxlabs/reax-subnet
+- 2026-10-19 · release · [v1.2.0-rc9.post3](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc9.post3) — reaxlabs/reax-subnet
+- 2026-10-19 · commit · [1.2.0rc9.post3 (competition worker only): evaluation v3 binding mode …](https://github.com/reaxlabs/reax-subnet/commit/5d6b14afda676a8e55f831b0be6ed64cdc6494c2) — reaxlabs/reax-subnet
 - 2026-10-18 · commit · [tests: add httpx and huggingface_hub to the test extra; make the v3 f…](https://github.com/reaxlabs/reax-subnet/commit/ff057432e921ed1087f3d9f67c895206d9fddc70) — reaxlabs/reax-subnet
 - 2026-10-18 · release · [v1.2.0-rc9.post2](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc9.post2) — reaxlabs/reax-subnet
 - 2026-10-18 · release · [v1.2.0-rc9](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc9) — reaxlabs/reax-subnet
 - 2026-10-18 · commit · [1.2.0rc9: mechanism v2 release B, per-hotkey speed cap x2 for s1-fast…](https://github.com/reaxlabs/reax-subnet/commit/6ce318045d12bcbc4e0e51b787e58a54626ef8fd) — reaxlabs/reax-subnet
 - 2026-10-18 · commit · [1.2.0rc9.post2 (competition worker only): start-up failures count ove…](https://github.com/reaxlabs/reax-subnet/commit/fccf67633d5058381afb55baaeb29941690e4273) — reaxlabs/reax-subnet
-- 2026-10-17 · release · [v1.2.0-rc8.post2](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc8.post2) — reaxlabs/reax-subnet
-- 2026-10-17 · commit · [1.2.0rc8.post2: competition worker queue liveness fixes + first-draw …](https://github.com/reaxlabs/reax-subnet/commit/6d1271ac9528a363cda4b40ef0048cab2cf0e21a) — reaxlabs/reax-subnet
-- 2026-10-17 · release · [v1.2.0-rc8.post1](https://github.com/reaxlabs/reax-subnet/releases/tag/v1.2.0-rc8.post1) — reaxlabs/reax-subnet
 
 ## Use
 

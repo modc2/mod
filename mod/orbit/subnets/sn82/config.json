@@ -9,14 +9,14 @@
   "symbol": "ᚢ",
   "owner": "5GGrRdUatgDLiJxnytdWfYCwsAb1Cyo4U5Dw1HmLiAcbWj88",
   "github": "https://github.com/Vora-Inc/NOAH",
-  "url": null,
+  "url": "https://subnet82.com",
   "discord": null,
-  "logo": null,
+  "logo": "https://subnet82.com/noah-n-512.png",
   "related": [],
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-19",
+  "updated": "2026-10-20",
   "urls": {
     "bt": "/bt/markets?sn=82",
     "news": "/bt/news?netuid=82"

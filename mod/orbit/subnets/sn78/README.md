@@ -2,7 +2,7 @@
 
 Universal motion to meaning
 
-Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vision) · [discord](https://discord.gg/8pexneWef)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vis
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002783 | — | -2.51% | -22.43% | 4,447 | 1,260 | 140.00 |
+| 0.002458 | -3.97% | -12.48% | -32.31% | 3,948 | 1,185 | 391.30 |
 
 ## Last 24h flow
 
-108 trades by 83 coldkeys · 24 buys (61.58 τ) / 84 sells (77.29 τ) · net -15.71 τ
+133 trades by 66 coldkeys · 40 buys (154.85 τ) / 93 sells (232.39 τ) · net -77.53 τ
 
 ## News
 
-- 2026-10-18 · commit · [Export native allocations for automatic successor cutover (#309)](https://github.com/Umi-BitSign/umi/commit/cb1380936243eb6267bf1364a72d73d52fbb13ca) — Umi-BitSign/umi
-- 2026-10-18 · commit · [Read protected decisions from the configured producer account (#308)](https://github.com/Umi-BitSign/umi/commit/8fd257f804b0d7d7ecb8dcaa36df7d6cd30275d6) — Umi-BitSign/umi
-- 2026-10-18 · commit · [Publish reference controls with atomic public R2 Worker conditions (#…](https://github.com/Umi-BitSign/umi/commit/d5e269811ed4d3893a63081cec8a3b1de1141a71) — Umi-BitSign/umi
-- 2026-10-18 · commit · [Automate certified cohort row publication and compatible validator fo…](https://github.com/Umi-BitSign/umi/commit/ae9fe1c1462a1affef88adb4ee683a03943fab41) — Umi-BitSign/umi
-- 2026-10-18 · commit · [Expose safe retry diagnostics for automatic successor delivery (#305)](https://github.com/Umi-BitSign/umi/commit/dd4ce37cf78f1c6a0e058102ec1d0092fab09f6e) — Umi-BitSign/umi
-- 2026-10-18 · commit · [Reuse compact native coverage exports and retain complete transport w…](https://github.com/Umi-BitSign/umi/commit/76be653081f8f623bdbe24f250f225ecb56eb9ce) — Umi-BitSign/umi
-- 2026-10-18 · commit · [Reuse checkpoint source metadata within read-only snapshots (#303)](https://github.com/Umi-BitSign/umi/commit/e08e21de51646ef764300fe273ef6361722654fc) — Umi-BitSign/umi
-- 2026-10-18 · commit · [Merge pull request #302 from Umi-BitSign/perf/bounded-header-hint-sna…](https://github.com/Umi-BitSign/umi/commit/e35ec2e5ca95fe3b012d5a50b865416b8b028c97) — Umi-BitSign/umi
+- 2026-10-20 · commit · [Merge pull request #321 from Umi-BitSign/retained-checkpoint-header-h…](https://github.com/Umi-BitSign/umi/commit/e797fd71f5eb2cd743784d0a18249f6e1adfe6e8) — Umi-BitSign/umi
+- 2026-10-20 · commit · [Restore completed control history from retained checkpoint header hints](https://github.com/Umi-BitSign/umi/commit/fae0118a0f741c73dc5b1dcec78f818e183872b2) — Umi-BitSign/umi
+- 2026-10-19 · commit · [Merge pull request #320 from Umi-BitSign/runtime-adoption-authenticat…](https://github.com/Umi-BitSign/umi/commit/525ca54c4b27ce108ae7ee1d4778c4ab64d4a69f) — Umi-BitSign/umi
+- 2026-10-19 · commit · [Authorize contained runtime code supersession without replacing signe…](https://github.com/Umi-BitSign/umi/commit/95276f8d4da846fa6cfa8d8fe70f96858e66b0b5) — Umi-BitSign/umi
+- 2026-10-19 · commit · [Merge pull request #319 from Umi-BitSign/qualify-runtime481-eligibility](https://github.com/Umi-BitSign/umi/commit/2c127fa3c961536baf6b19ff7c30d769eecafdc0) — Umi-BitSign/umi
+- 2026-10-19 · commit · [Reuse canonical retained bytes during checkpoint metadata loading (#318)](https://github.com/Umi-BitSign/umi/commit/ba20e668c1e1aaae87444006087877f08c65aab1) — Umi-BitSign/umi
+- 2026-10-19 · commit · [Batch checkpoint source identities within fresh SQL snapshots (#317)](https://github.com/Umi-BitSign/umi/commit/662821998437948f60a8b2149d3ea86eb6e2b431) — Umi-BitSign/umi
+- 2026-10-19 · commit · [Merge pull request #316 from Umi-BitSign/fix/canonical-small-document…](https://github.com/Umi-BitSign/umi/commit/fa87e0add020be1ebd04837de75840d6b3c92f18) — Umi-BitSign/umi
 
 ## Use
 

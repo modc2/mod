@@ -2,7 +2,7 @@
 
 THE OPEN INTELLIGENCE LAYER FOR HUMANS AND AGENTS
 
-Bittensor subnet **36** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **36** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/EpagoFoundation/epago) · [url](https://epago.ai/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/EpagoFoundation/epago) · [url](https://epago
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001386 | — | +14.18% | -13.30% | 523.2115 | 257.9176 | 54.26 |
+| 0.001057 | -3.50% | -23.68% | -34.73% | 407.6697 | 225.3193 | 106.65 |
 
 ## Last 24h flow
 
-34 trades by 18 coldkeys · 25 buys (35.41 τ) / 9 sells (18.28 τ) · net 17.13 τ
+46 trades by 19 coldkeys · 16 buys (37.03 τ) / 30 sells (64.23 τ) · net -27.20 τ
 
 ## News
 

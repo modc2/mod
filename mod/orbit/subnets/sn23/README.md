@@ -2,7 +2,7 @@
 
 Trishool is the AI alignment protocol built on Bittensor
 
-Bittensor subnet **23** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **23** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/TrishoolAI/trishool-phase2) · [url](https://trishool.ai) · [discord](https://discord.com/channels/799672011265015819/1437447445176127618)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/TrishoolAI/trishool-phase2) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004552 | — | -0.58% | -9.20% | 28,438 | 7,713 | 66.71 |
+| 0.004459 | -0.59% | -2.12% | -4.65% | 27,891 | 7,633 | 142.85 |
 
 ## Last 24h flow
 
-65 trades by 15 coldkeys · 6 buys (22.06 τ) / 59 sells (44.39 τ) · net -22.33 τ
+29 trades by 23 coldkeys · 8 buys (30.24 τ) / 21 sells (111.26 τ) · net -81.03 τ
 
 ## News
 

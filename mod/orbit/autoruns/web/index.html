@@ -5,32 +5,128 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>AUTO RUNS</title>
 <link rel="stylesheet" href="kit.css" />
+<style>
+  /* autoruns-only styles; kit.css is shared with the other agent apps */
+  .stats { margin-top: 14px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .stat b { font-size: 22px; }
+  .stat small { display: block; color: var(--dim); font-size: 11.5px; margin-top: 2px; }
+  .stat.hot b { color: var(--accent); }
+
+  .start { display: grid; gap: 10px; grid-template-columns: minmax(0, 1.4fr) auto auto minmax(0, 1fr); align-items: end; }
+  .start .goal { grid-column: 1 / -1; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line2); border-radius: 10px; background: #060d0b; height: 38px; }
+  .stepper button { border: 0; background: none; padding: 0 12px; height: 100%; font-size: 15px !important; color: var(--dim); }
+  .stepper b { font: 600 14px var(--sans); color: var(--text); min-width: 26px; text-align: center; font-variant-numeric: tabular-nums; }
+  .seg { height: 38px; }
+  .seg button { padding: 0 13px; height: 100%; color: var(--dim); }
+  .startbar { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+  .startbar .hint { flex: 1; font-size: 12px; color: var(--faint); }
+  .startbar .primary { padding: 11px 20px; }
+
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .bar .sp { flex: 1; }
+  .bar .seg { height: 32px; }
+  .bar .seg button { padding: 0 11px; font-size: 10px !important; }
+  .bar input { max-width: 200px; padding: 7px 10px; }
+  .card h2 .n { color: var(--faint); letter-spacing: .1em; }
+
+  .day { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--faint); margin: 14px 2px 2px; display: flex; gap: 10px; }
+  .day:first-child { margin-top: 0; }
+  .day span:last-child { margin-left: auto; letter-spacing: .08em; }
+
+  .run { border: 1px solid var(--line); border-radius: 12px; background: var(--panel2); cursor: pointer; }
+  .run:hover { border-color: var(--line2); }
+  .run.open { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .run .top { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; }
+  .run .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .run .s { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+  .run .mod { color: var(--accent); font-weight: 700; margin-right: 6px; }
+  .run .right { display: flex; gap: 10px; align-items: center; }
+  .run .usd { font: 12px var(--mono); color: var(--dim); min-width: 46px; text-align: right; }
+
+  .track { display: flex; gap: 3px; width: 56px; }
+  .track i { flex: 1 1 0; min-width: 3px; height: 8px; border-radius: 3px; background: var(--line); }
+  .track i.ok { background: var(--green); }
+  .track i.miss { background: var(--red); }
+  .track i.meh { background: var(--amber); }
+  .track i.now { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  .tag { font: 700 9.5px/1 var(--sans); letter-spacing: .14em; text-transform: uppercase; padding: 5px 8px; border-radius: 6px;
+    border: 1px solid var(--line2); color: var(--dim); white-space: nowrap; }
+  .tag.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+  .tag.miss { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+  .tag.meh { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+  .tag.now { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+
+  .steps { border-top: 1px solid var(--line); padding: 6px 12px 10px; cursor: default; }
+  .st { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; padding: 7px 0; align-items: start; }
+  .st + .st { border-top: 1px dashed var(--line); }
+  .st .k { font: 12px var(--mono); color: var(--faint); padding-top: 1px; }
+  .st .t { white-space: normal; font-weight: 500; }
+  .st .s { white-space: normal; }
+  .foot { display: flex; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); margin-top: 4px; font-size: 12px; color: var(--faint); }
+  .foot .sp { flex: 1; }
+  .foot .btn, .foot button { padding: 6px 10px; font-size: 10px !important; border-radius: 8px; }
+
+  .live .run { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+  .live .track { width: 120px; }
+  .live .track i { height: 10px; }
+  .more { display: block; margin: 12px auto 0; }
+
+  @media (max-width: 640px) {
+    .start { grid-template-columns: 1fr 1fr; }
+    .start .modf { grid-column: 1 / -1; }
+    .startbar { flex-direction: column; align-items: stretch; }
+    .run .usd, .run .track { display: none; }
+    .run .top { grid-template-columns: minmax(0, 1fr) auto; }
+    .live .run .top { grid-template-columns: auto minmax(0, 1fr) auto; }
+    .live .run .track { display: flex; width: 40px; }
+    .seg button { white-space: nowrap; padding: 0 10px; }
+    .start .modeseg { grid-column: span 1; }
+  }
+</style>
 </head>
 <body>
 <div class="wrap">
   <div id="hdr"></div>
+  <div id="stats" class="stats"></div>
+
   <div class="grid">
     <div class="card wide">
       <h2>Start a run</h2>
-      <div class="form">
-        <label class="f">module<input id="a_mod" placeholder="which mod?" /></label>
-        <label class="f">steps<input id="a_steps" type="number" min="1" max="20" value="3" /></label>
+      <div class="start">
+        <label class="f modf">module<input id="a_mod" list="mods" placeholder="which mod?" autocomplete="off" /></label>
+        <label class="f">steps
+          <span class="stepper"><button data-d="-1" aria-label="fewer">−</button><b id="a_steps">3</b><button data-d="1" aria-label="more">+</button></span>
+        </label>
+        <label class="f">mode
+          <span class="seg" id="a_mode"><button class="sel" data-v="play">build it</button><button data-v="ideas">ideas only</button></span>
+        </label>
         <label class="f">model<input id="a_model" placeholder="default" /></label>
-        <label class="f full">goal (optional)<input id="a_goal" placeholder="e.g. polish the mobile layout" /></label>
-        <label class="chk full"><input id="a_play" type="checkbox" checked /> play each idea (off = ideas only: file them under your name and stop)</label>
+        <label class="f goal">goal · optional<input id="a_goal" placeholder="e.g. polish the mobile layout — leave empty and the agent picks" /></label>
       </div>
-      <div class="inline" style="justify-content:flex-end;margin-top:10px">
-        <span class="faint" style="flex:1;font-size:12px">Each step: one agent writes an idea for the mod, a second implements it. Playing pre-approves N plays on your own account.</span>
+      <datalist id="mods"></datalist>
+      <div class="startbar">
+        <span class="hint" id="hint"></span>
         <button id="startBtn" class="primary">start run</button>
       </div>
     </div>
-    <div class="card wide">
-      <h2>Live <span class="sp"></span><input id="filter" placeholder="filter by module…" style="max-width:220px;padding:6px 10px" /></h2>
+
+    <div class="card wide live">
+      <h2>Running now <span class="n" id="liveN"></span></h2>
       <div id="live" class="rows"></div>
     </div>
+
     <div class="card wide">
-      <h2>Finished</h2>
+      <h2>History <span class="n" id="doneN"></span></h2>
+      <div class="bar">
+        <span class="seg" id="show"><button class="sel" data-v="all">all</button><button data-v="ok">landed</button><button data-v="miss">missed</button></span>
+        <span class="sp"></span>
+        <input id="filter" placeholder="filter by module…" />
+      </div>
       <div id="done" class="rows"></div>
+      <button id="moreBtn" class="more" hidden>show more</button>
     </div>
   </div>
 </div>
@@ -38,57 +134,190 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let runs = [];
+let limit = 40;
+let show = "all";
+let steps = 3;
+let mode = "play";
 const open = new Set();
 const isLive = (r) => r.status === "running" || r.status === "stopping";
+const landed = (o) => o === "played" || o === "filed";
 
-function row(r) {
-  const kind = isLive(r) ? "on" : r.status === "failed" ? "bad" : r.status === "done" ? "acc" : "";
+// outcome → plain words + colour
+const OUT = {
+  played: ["landed", "ok"], filed: ["idea filed", "ok"],
+  test_failed: ["tests failed", "miss"], play_failed: ["build failed", "miss"], idea_failed: ["idea agent failed", "miss"],
+  no_idea: ["no idea found", "meh"], duplicate: ["duplicate idea", "meh"], blocked: ["blocked", "meh"],
+  timeout: ["timed out", "meh"], capped: ["spend cap hit", "meh"], stopped: ["stopped", "meh"],
+};
+const PHASE = { ideating: "writing an idea", implementing: "implementing" };
+const outOf = (s) => OUT[s.outcome] || [s.outcome || PHASE[s.phase] || s.phase || "", s.outcome ? "" : "now"];
+const model = (m) => String(m || "default").replace(/^claude-/, "");
+const usd = (v) => (+v ? `$${(+v).toFixed(2)}` : "");
+
+function verdict(r) {
+  const h = r.history || [];
+  if (isLive(r)) return [r.status === "stopping" ? "stopping" : `step ${h.length}/${r.steps}`, "now"];
+  if (!h.length) return [r.status, "meh"];
+  const ok = h.filter((s) => landed(s.outcome)).length;
+  if (h.length === 1) return outOf(h[0]);
+  if (ok === h.length) return [`${ok}/${h.length} landed`, "ok"];
+  if (!ok) return [r.status === "stopped" ? "stopped" : "nothing landed", "miss"];
+  return [`${ok}/${h.length} landed`, "meh"];
+}
+
+function track(r) {
+  const h = r.history || [];
+  const n = Math.max(r.steps || 0, h.length);
+  let out = "";
+  for (let i = 0; i < n; i++) {
+    const s = h[i];
+    const k = !s ? "" : s.outcome ? (landed(s.outcome) ? "ok" : OUT[s.outcome]?.[1] || "miss") : "now";
+    out += `<i class="${k}" title="${s ? K.esc(outOf(s)[0]) : "not started"}"></i>`;
+  }
+  return `<span class="track">${out}</span>`;
+}
+
+function run(r) {
+  const h = r.history || [];
+  const [word, kind] = verdict(r);
+  const cur = h[h.length - 1];
+  const title = (isLive(r) && cur ? cur.title || `${PHASE[cur.phase] || cur.phase}…` : h.find((s) => s.title)?.title) || r.goal || r.note || "free pick";
   const mine = K.address && r.started_by && r.started_by.toLowerCase() === K.address.toLowerCase();
   const canStop = isLive(r) && r.status !== "stopping" && (K.isOwner || mine);
-  const steps = open.has(r.id) ? `<div class="rows" style="margin-top:8px;flex-basis:100%">${(r.history || []).map((s) =>
-    `<div class="row"><span class="pill">${s.step}</span><div class="grow"><div class="t">${K.esc(s.title || s.phase)}</div>
-     <div class="s">${K.esc(s.phase)}${s.outcome ? " · " + K.esc(s.outcome) : ""}${s.cid ? ` · <span class="mono">${K.esc(s.cid.slice(0, 12))}</span>` : ""}</div></div></div>`).join("") || `<div class="empty">no steps yet</div>`}</div>` : "";
-  return `<div class="row click" data-id="${r.id}" style="flex-wrap:wrap">
-    <span class="pill ${kind}">${K.esc(r.status)}</span>
-    <div class="grow"><div class="t">${K.esc(r.module)}${r.source === "evolver" ? ` <span class="pill acc" style="padding:3px 7px">evolver</span>` : ""} <span class="faint">· ${(r.history || []).length}/${r.steps} steps</span></div>
-      <div class="s">${K.esc(r.goal || "free pick")} · ${K.esc(r.model)} · ${r.started_by ? K.esc(K.short(r.started_by)) : "host"} · ${K.ago(r.updated_at)}${r.usd ? ` · $${(+r.usd).toFixed(2)}` : ""}</div></div>
-    <div class="acts"><a class="btn sm" style="padding:6px 9px;font-size:10px" href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">open</a>${canStop ? `<button class="sm danger" data-a="stop">stop</button>` : ""}</div>
-    ${steps}</div>`;
+  const who = r.source === "evolver" ? "evolver" : r.started_by ? K.short(r.started_by) : "host";
+  const meta = [r.goal ? `goal: ${r.goal}` : "", model(r.model), who, K.ago(r.updated_at)].filter(Boolean).map(K.esc).join(" · ");
+  const isOpen = open.has(r.id);
+  const body = !isOpen ? "" : `<div class="steps">${h.map((s) => {
+    const [w, k] = outOf(s);
+    const took = s.ended_at && s.started_at ? ` · ${K.dur(s.ended_at - s.started_at)}` : "";
+    return `<div class="st"><span class="k">${s.step}</span>
+      <div><div class="t">${K.esc(s.title || "(no idea yet)")}</div>
+      <div class="s">${s.cid ? `snapshot <span class="mono">${K.esc(s.cid.slice(0, 12))}</span>` : ""}${took}</div></div>
+      <span class="tag ${k}">${K.esc(w)}</span></div>`;
+  }).join("") || `<div class="empty">no steps yet</div>`}
+    <div class="foot"><span>${K.esc(r.note || "")}</span><span class="sp"></span>
+      ${canStop ? `<button class="danger" data-a="stop">stop</button>` : ""}
+      <a class="btn" href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">open ${K.esc(r.module)} ↗</a></div></div>`;
+  return `<div class="run${isOpen ? " open" : ""}" data-id="${r.id}">
+    <div class="top">${track(r)}
+      <div><div class="t"><span class="mod">${K.esc(r.module)}</span>${K.esc(title)}</div><div class="s">${meta}</div></div>
+      <div class="right"><span class="usd">${usd(r.usd)}</span><span class="tag ${kind}">${K.esc(word)}</span></div></div>
+    ${body}</div>`;
+}
+
+function dayLabel(ts) {
+  const d = new Date(ts * 1000), t = new Date();
+  const k = (x) => x.toDateString();
+  if (k(d) === k(t)) return "today";
+  t.setDate(t.getDate() - 1);
+  if (k(d) === k(t)) return "yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function grouped(list) {
+  let out = "", cur = null, buf = [];
+  const flush = () => {
+    if (!buf.length) return;
+    const spent = buf.reduce((a, r) => a + (+r.usd || 0), 0);
+    out += `<div class="day"><span>${cur}</span><span>${buf.length} run${buf.length > 1 ? "s" : ""}${spent ? ` · $${spent.toFixed(2)}` : ""}</span></div>` + buf.map(run).join("");
+    buf = [];
+  };
+  for (const r of list) { const d = dayLabel(r.updated_at); if (d !== cur) { flush(); cur = d; } buf.push(r); }
+  flush();
+  return out;
+}
+
+function renderStats() {
+  const now = Date.now() / 1000;
+  const day = runs.filter((r) => now - r.updated_at < 86400);
+  const stepsOf = (l) => l.flatMap((r) => r.history || []).filter((s) => s.outcome);
+  const all = stepsOf(runs), d = stepsOf(day);
+  const rate = (l) => (l.length ? Math.round((100 * l.filter((s) => landed(s.outcome)).length) / l.length) : 0);
+  const spent = (l) => l.reduce((a, r) => a + (+r.usd || 0), 0);
+  const live = runs.filter(isLive).length;
+  $("stats").innerHTML = [
+    [live, "running now", live ? "agents at work" : "idle", live > 0],
+    [day.length, "runs · 24h", `${runs.length} all time`],
+    [`${rate(d)}%`, "landed · 24h", `${rate(all)}% all time`],
+    [`$${spent(day).toFixed(0)}`, "spent · 24h", `$${spent(runs).toFixed(0)} all time`],
+  ].map(([b, l, s, hot]) => `<div class="stat${hot ? " hot" : ""}"><span>${l}</span><b>${b}</b><small>${s}</small></div>`).join("");
 }
 
 function render() {
   const f = $("filter").value.trim().toLowerCase();
   const vis = runs.filter((r) => !f || r.module.toLowerCase().includes(f));
-  const live = vis.filter(isLive), done = vis.filter((r) => !isLive(r));
-  K.setState(K.pill(live.length > 0, `${live.length} live`, "quiet"));
-  $("live").innerHTML = live.map(row).join("") || `<div class="empty">nothing running</div>`;
-  $("done").innerHTML = done.slice(0, 30).map(row).join("") || `<div class="empty">no finished runs</div>`;
+  const live = vis.filter(isLive);
+  let done = vis.filter((r) => !isLive(r));
+  if (show !== "all") done = done.filter((r) => verdict(r)[1] === show || (show === "miss" && verdict(r)[1] === "meh"));
+  K.setState(K.pill(live.length > 0, `${live.length} running`, "quiet"));
+  renderStats();
+  $("liveN").textContent = live.length ? `· ${live.length}` : "";
+  $("doneN").textContent = done.length ? `· ${done.length}` : "";
+  $("live").innerHTML = live.map(run).join("") || `<div class="empty">Nothing running. Start one above, or let the evolver pick.</div>`;
+  $("done").innerHTML = grouped(done.slice(0, limit)) || `<div class="empty">${f || show !== "all" ? "no runs match" : "no finished runs yet"}</div>`;
+  $("moreBtn").hidden = done.length <= limit;
+  $("moreBtn").textContent = `show more (${done.length - limit} left)`;
 }
 
-async function load() { const r = await K.api("/auto"); if (r.ok) { runs = (r.data.runs || []).sort((a, b) => b.updated_at - a.updated_at); render(); } }
+function renderHint() {
+  $("a_steps").textContent = steps;
+  $("hint").textContent = mode === "play"
+    ? `${steps} step${steps > 1 ? "s" : ""}: each one, an agent writes an idea and a second builds it. Pre-approves ${steps} build${steps > 1 ? "s" : ""} on your account.`
+    : `${steps} idea${steps > 1 ? "s" : ""} filed under your name — nothing gets built.`;
+}
+
+async function load() {
+  const r = await K.api("/auto");
+  if (!r.ok) return;
+  runs = (r.data.runs || []).sort((a, b) => b.updated_at - a.updated_at);
+  const mods = [...new Set(runs.map((x) => x.module))].sort();
+  $("mods").innerHTML = mods.map((m) => `<option value="${K.esc(m)}">`).join("");
+  render();
+}
 
 document.body.addEventListener("click", async (e) => {
-  const rowEl = e.target.closest(".row[data-id]"); if (!rowEl || e.target.closest("a")) return;
-  const id = rowEl.dataset.id;
-  if (e.target.dataset.a === "stop") {
+  const el = e.target.closest(".run[data-id]");
+  if (!el || e.target.closest("a")) return;
+  const id = el.dataset.id;
+  if (e.target.closest("[data-a=stop]")) {
     if (await K.ask("Stop this run? It stops between phases; a job already in flight finishes.", "Stop", true)) { await K.act(`/auto/${id}/stop`, {}, "stopping"); load(); }
     return;
   }
-  open.has(id) ? open.delete(id) : open.add(id); render();
+  if (e.target.closest(".steps") && !e.target.closest(".foot")) return;
+  open.has(id) ? open.delete(id) : open.add(id);
+  render();
 });
-$("filter").oninput = render;
+document.querySelector(".stepper").onclick = (e) => {
+  const d = +e.target.closest("button")?.dataset.d || 0;
+  e.preventDefault();
+  steps = Math.min(20, Math.max(1, steps + d));
+  renderHint();
+};
+const seg = (id, set) => ($(id).onclick = (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  e.preventDefault();
+  $(id).querySelectorAll("button").forEach((x) => x.classList.toggle("sel", x === b));
+  set(b.dataset.v);
+});
+seg("a_mode", (v) => { mode = v; renderHint(); });
+seg("show", (v) => { show = v; limit = 40; render(); });
+$("filter").oninput = () => { limit = 40; render(); };
+$("moreBtn").onclick = () => { limit += 40; render(); };
 $("startBtn").onclick = async (e) => {
   const mod = $("a_mod").value.trim();
-  if (!mod) return K.toast("pick a module", true);
-  const body = { steps: +$("a_steps").value || 1, goal: $("a_goal").value.trim(), play: $("a_play").checked };
+  if (!mod) { $("a_mod").focus(); return K.toast("pick a module", true); }
+  const body = { steps, goal: $("a_goal").value.trim(), play: mode === "play" };
   if ($("a_model").value.trim()) body.model = $("a_model").value.trim();
   const go = async () => { if (await K.act(`/modules/${encodeURIComponent(mod)}/auto`, body, "run started")) load(); };
-  body.play ? K.armed(e.target, `sure? ${body.steps} plays`, go) : go();
+  body.play ? K.armed(e.target, `sure? ${steps} build${steps > 1 ? "s" : ""}`, go) : go();
 };
+$("a_mod").onkeydown = $("a_goal").onkeydown = (e) => { if (e.key === "Enter") $("startBtn").click(); };
+
 const q = new URLSearchParams(location.search);
 if (q.get("mod")) { $("a_mod").value = q.get("mod"); $("filter").value = q.get("mod"); }
+renderHint();
 
-K.init({ glyph: "▶", title: "Auto runs", accent: "#63d4a8", sub: "Drive a mod's idea queue for N steps with nobody at the wheel: one agent proposes, another implements." })
+K.init({ glyph: "▶", title: "Auto runs", accent: "#63d4a8", sub: "Point agents at a mod and walk away: one proposes an idea, another builds it, N times." })
   .then(() => { $("startBtn").disabled = !K.token; K.poll(load, 5000); });
 </script>
 </body>

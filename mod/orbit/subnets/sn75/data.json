@@ -11,113 +11,156 @@
   "registered_at": 5102795,
   "tempo": 360,
   "active": true,
-  "block": 9314686,
+  "block": 9322663,
   "related": [
     "hippius"
   ],
   "market": {
-    "price": 0.018003634,
-    "moving_price": 0.018172773998230696,
-    "market_cap": 105165.54954797798,
-    "tao_in": 34469.11705344,
-    "alpha_in": 1914564.468427627,
-    "alpha_out": 3926786.758106859,
-    "volume": 1629087.072257267,
-    "vol_24h": 2090.9029287670273,
+    "price": 0.018357771,
+    "moving_price": 0.01826220448128879,
+    "market_cap": 107401.67441823565,
+    "tao_in": 34827.437595204,
+    "alpha_in": 1897149.570488939,
+    "alpha_out": 3953325.109592628,
+    "volume": 1632968.762636229,
+    "vol_24h": 3481.293278191937,
     "emission": 0.0,
-    "change_1h": null,
-    "change_24h": -3.1386794043004373,
-    "change_7d": 3.1872699030132345
+    "change_1h": 0.07593283893307934,
+    "change_24h": 1.75834945210942,
+    "change_7d": 7.814518188832098
   },
   "spark_24h": [
-    0.018587021,
-    0.018589017,
-    0.018250209,
-    0.018257739,
-    0.018260381,
-    0.018257303,
-    0.018253001,
-    0.018254377,
-    0.018254585,
-    0.018254644,
-    0.018254846,
-    0.018255073,
-    0.018254993,
-    0.018256313,
-    0.018254684,
-    0.018254912,
-    0.018255378,
-    0.018259957,
-    0.018260125,
-    0.018289135,
-    0.018289026,
-    0.018289554,
-    0.01829945,
-    0.018302447,
-    0.018302666,
-    0.018304001,
-    0.018303946,
-    0.018304884,
-    0.018087829,
-    0.018088054,
-    0.017983095,
-    0.01798331,
-    0.017974986,
-    0.017971879,
-    0.017906934,
-    0.017890265,
-    0.017885251,
-    0.017885633,
-    0.017884918,
-    0.017885106,
-    0.017885319,
-    0.01788553,
-    0.017885719,
-    0.018010492,
-    0.018003634
+    0.018040555,
+    0.017965351,
+    0.018251323,
+    0.01821458,
+    0.018224396,
+    0.018340949,
+    0.018341262,
+    0.018246821,
+    0.018481058,
+    0.018549576,
+    0.018524911,
+    0.018622795,
+    0.01839172,
+    0.01840471,
+    0.01840242,
+    0.018422637,
+    0.018406141,
+    0.018378945,
+    0.018380176,
+    0.018266401,
+    0.018203152,
+    0.018180734,
+    0.018181172,
+    0.01818173,
+    0.018182425,
+    0.018183076,
+    0.018189308,
+    0.018191883,
+    0.018192405,
+    0.018199971,
+    0.018198201,
+    0.018195913,
+    0.01824416,
+    0.018224169,
+    0.018243787,
+    0.018244318,
+    0.018244635,
+    0.018244777,
+    0.018244824,
+    0.01824537,
+    0.018246184,
+    0.018244643,
+    0.01828904,
+    0.018289337,
+    0.018340226,
+    0.018343842,
+    0.018332627,
+    0.018357771
   ],
   "trades_24h": {
-    "trades": 242,
-    "buys": 88,
-    "sells": 154,
-    "buy_tao": 710.871835796,
-    "sell_tao": 1316.619367716,
-    "net_tao": -605.7475319199999,
-    "traders": 117
+    "trades": 357,
+    "buys": 207,
+    "sells": 150,
+    "buy_tao": 1827.118146626,
+    "sell_tao": 1578.501745497,
+    "net_tao": 248.616401129,
+    "traders": 129
   },
   "top_traders_24h": [
     {
-      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
-      "net_tao": 0.5827033300000082,
-      "gross_tao": 639.990652322,
-      "trades": 14
-    },
-    {
-      "coldkey": "5CwFy3THKxXsAcXzNaAUebfnojr53qsmgzZTm8ZBGCXPTMAQ",
-      "net_tao": -63.910191528,
-      "gross_tao": 83.910191528,
-      "trades": 4
+      "coldkey": "5F1XjkDCLVygZb73otM2ePzRgyZ6U2g2F6CMLD4uwuktzi8g",
+      "net_tao": -0.13645750999999962,
+      "gross_tao": 460.13645751,
+      "trades": 18
     },
     {
       "coldkey": "5GYXXTfXDMWdktsUg6Sh46EVKwnQVwxWLdbMH7Rb7AQzRHkh",
-      "net_tao": 80.0,
-      "gross_tao": 80.0,
-      "trades": 1
+      "net_tao": -190.29188049200002,
+      "gross_tao": 331.980234856,
+      "trades": 9
     },
     {
       "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
-      "net_tao": 0.10916741199999791,
-      "gross_tao": 79.890832588,
-      "trades": 2
+      "net_tao": 0.6758812119999931,
+      "gross_tao": 299.324118788,
+      "trades": 5
     },
     {
-      "coldkey": "5FP5qvcaFLnTE9K7rgopGpHGEVTZjn1GqnhMqoe7JpPrMrDN",
-      "net_tao": -72.43382427399999,
-      "gross_tao": 72.43382427399999,
-      "trades": 2
+      "coldkey": "5GBQXjLLLNUcZZBHgJJtG5vvWa6hwToVf4hRYe8Bqinvq6aP",
+      "net_tao": -0.666671081000004,
+      "gross_tao": 200.666671081,
+      "trades": 5
+    },
+    {
+      "coldkey": "5GbSr2iJhgQj1V2XB3oQBT9jkz1VMB8uVSoskAwbWSSJEcgD",
+      "net_tao": -0.22710838500000108,
+      "gross_tao": 200.227108385,
+      "trades": 4
     }
   ],
   "news": [
+    {
+      "ts": 1792405806,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #73 from thenervelab/fix/hip-01-ranking-registration",
+      "url": "https://github.com/thenervelab/thebrain/commit/32b5dae555d7a691d560e17fb0557250e26d5bef",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792404914,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: resolve code review findings for PR #73",
+      "url": "https://github.com/thenervelab/thebrain/commit/3a3372279130be6504a3f6714a87565de685984b",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792397930,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge branch 'main' into fix/hip-01-ranking-registration",
+      "url": "https://github.com/thenervelab/thebrain/commit/151d3aac129567a53b785503e8e9de90f8569d01",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792396892,
+      "kind": "commit",
+      "source": "github",
+      "title": "updated spec version",
+      "url": "https://github.com/thenervelab/thebrain/commit/39fbcd49ff60848805a739a4422ca01d544292ef",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1792395350,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(security): restrict ranking writes and bind registration signer t…",
+      "url": "https://github.com/thenervelab/thebrain/commit/906464a0586f49bdf1f27b555cd1563d43375c14",
+      "publisher": "thenervelab/thebrain"
+    },
     {
       "ts": 1792094287,
       "kind": "commit",
@@ -141,40 +184,8 @@
       "title": "Merge pull request #63 from thenervelab/feat/marketplace-buy-credits",
       "url": "https://github.com/thenervelab/thebrain/commit/530ef9997385b54fa450aab4e5835dd3865a18de",
       "publisher": "thenervelab/thebrain"
-    },
-    {
-      "ts": 1791222684,
-      "kind": "commit",
-      "source": "github",
-      "title": "feat(marketplace): buy_credits — users pay native tokens for credits …",
-      "url": "https://github.com/thenervelab/thebrain/commit/b4cd2511199e009c2147f2f2bfa343ce4b9b060b",
-      "publisher": "thenervelab/thebrain"
-    },
-    {
-      "ts": 1790371942,
-      "kind": "commit",
-      "source": "github",
-      "title": "Merge pull request #60 from thenervelab/feat/marketplace-compute-usage",
-      "url": "https://github.com/thenervelab/thebrain/commit/6c42aa9da10027cfdf89527e805390000761905b",
-      "publisher": "thenervelab/thebrain"
-    },
-    {
-      "ts": 1790291059,
-      "kind": "commit",
-      "source": "github",
-      "title": "fix(marketplace): price compute billing proof size at FRAME's unbound…",
-      "url": "https://github.com/thenervelab/thebrain/commit/dc8f2b5bc6baebb89f71bf5b9bba31ff5cc61176",
-      "publisher": "thenervelab/thebrain"
-    },
-    {
-      "ts": 1790289660,
-      "kind": "commit",
-      "source": "github",
-      "title": "feat(marketplace): charge hourly compute usage once per account and p…",
-      "url": "https://github.com/thenervelab/thebrain/commit/cc94609226a34ddcb4298a672bb2e59ad7753bf7",
-      "publisher": "thenervelab/thebrain"
     }
   ],
-  "updated": 1792388461,
-  "updated_day": "2026-10-19"
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
 }

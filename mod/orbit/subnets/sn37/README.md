@@ -2,7 +2,7 @@
 
 Decentralized Alignment of Artificial Intelligence
 
-Bittensor subnet **37** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **37** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/Aurelius-Protocol/Aurelius-Protocol) · [url](https://aureliusaligned.ai)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/Aurelius-Protocol/Aurelius-Protocol) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002827 | — | -0.56% | +2.06% | 17,749 | 7,334 | 51.84 |
+| 0.002749 | -0.37% | -2.77% | -1.10% | 17,279 | 7,232 | 142.39 |
 
 ## Last 24h flow
 
-18 trades by 14 coldkeys · 4 buys (15.65 τ) / 14 sells (35.91 τ) · net -20.26 τ
+13 trades by 11 coldkeys · 2 buys (20.03 τ) / 11 sells (121.38 τ) · net -101.35 τ
 
 ## News
 
+- 2026-10-20 · commit · [fix(miner): admit reviewed runtime481 funding (#32)](https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/4be6392bec8f03f7963368c97be9e301c4fbdcc7) — Aurelius-Protocol/Aurelius-Protocol
 - 2026-10-17 · commit · [fix(miner): enable reviewed runtime479 funding (#31)](https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/5350e9bd057a6d3075d084425784cb412a05555f) — Aurelius-Protocol/Aurelius-Protocol
 - 2026-10-16 · commit · [fix(miner): support reviewed mainnet runtime479 (#30)](https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/c664c09b68f749b166878c79eb4e3346702666f2) — Aurelius-Protocol/Aurelius-Protocol
 - 2026-10-14 · commit · [docs: describe planned stake-retention mechanism in INCENTIVES.md](https://github.com/Aurelius-Protocol/Aurelius-Protocol/commit/294b3a49f301ed4b3249405a59d291fbe745655c) — Aurelius-Protocol/Aurelius-Protocol

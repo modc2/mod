@@ -2,7 +2,7 @@
 
 Making every camera intelligent
 
-Bittensor subnet **44** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **44** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/score-technologies/turbovision) · [url](https://www.wearescore.com/)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/score-technologies/turbovision) · [url](http
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.035060 | — | +1.68% | +2.88% | 218,567 | 66,028 | 1,617 |
+| 0.035395 | -0.18% | +1.62% | +3.52% | 220,976 | 66,381 | 5,905 |
 
 ## Last 24h flow
 
-161 trades by 98 coldkeys · 82 buys (1,000 τ) / 79 sells (529.68 τ) · net 470.42 τ
+463 trades by 178 coldkeys · 237 buys (3,109 τ) / 226 sells (2,673 τ) · net 435.47 τ
 
 ## News
 
+- 2026-10-19 · commit · [fix backfill + recent batch common](https://github.com/score-technologies/turbovision/commit/036fb553e774e864df54c5d126469b065463f076) — score-technologies/turbovision
 - 2026-10-17 · commit · [historical to 3](https://github.com/score-technologies/turbovision/commit/39d9ca6c7e0e77387ea5b44b2c2bbf3d39f85173) — score-technologies/turbovision
 - 2026-10-16 · commit · [update index once](https://github.com/score-technologies/turbovision/commit/d56cb8279444897bc3d60b2c7e02106e23a4a56a) — score-technologies/turbovision
 - 2026-10-15 · commit · [fix bytes read index](https://github.com/score-technologies/turbovision/commit/5432c1898dc61f9bfad7bfef9573a6405cc105c2) — score-technologies/turbovision
@@ -25,7 +26,6 @@ Links: [github](https://github.com/score-technologies/turbovision) · [url](http
 - 2026-10-12 · commit · [add blacklist](https://github.com/score-technologies/turbovision/commit/6408194c0e4b1222af810fa41cabd9e2c352ed96) — score-technologies/turbovision
 - 2026-10-01 · commit · [change cricket weights](https://github.com/score-technologies/turbovision/commit/bef6ad70de458c16bfaa8dfe9361b65f0d42ec3b) — score-technologies/turbovision
 - 2026-09-29 · commit · [room iou](https://github.com/score-technologies/turbovision/commit/52201651f2175048a7fbdcf2c1da206667a942d2) — score-technologies/turbovision
-- 2026-09-24 · commit · [add retrys set weights+add logs long emits](https://github.com/score-technologies/turbovision/commit/f1defeea7ffdcd9c0c662ecfa7dce711574a348f) — score-technologies/turbovision
 
 ## Use
 

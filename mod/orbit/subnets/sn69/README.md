@@ -2,7 +2,7 @@
 
 Incentivising Mainstream Media via PR Firms
 
-Bittensor subnet **69** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **69** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/HeraldMedia/herald) · [url](https://www.heraldmedia.ai) · [discord](https://discord.gg/kQpeef9EPe)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/HeraldMedia/herald) · [url](https://www.hera
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005337 | — | -2.32% | -4.78% | 11,266 | 3,590 | 45.64 |
+| 0.005316 | -0.00% | -0.37% | -4.97% | 11,264 | 3,583 | 164.70 |
 
 ## Last 24h flow
 
-15 trades by 11 coldkeys · 5 buys (1.61 τ) / 10 sells (42.84 τ) · net -41.24 τ
+15 trades by 6 coldkeys · 6 buys (79.00 τ) / 9 sells (81.61 τ) · net -2.61 τ
 
 ## News
 

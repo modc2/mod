@@ -11,23 +11,26 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9314686,
+  "block": 9322663,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6873823.597171403,
-    "tao_in": 5443716.558206143,
-    "alpha_in": 1430107.03896526,
-    "alpha_out": 5443716.558206143,
-    "volume": 59274815.596799895,
-    "vol_24h": 19799.933424532413,
+    "market_cap": 6874435.732120689,
+    "tao_in": 5444764.306357617,
+    "alpha_in": 1429671.425763073,
+    "alpha_out": 5444764.306357617,
+    "volume": 59311481.77639959,
+    "vol_24h": 35036.379317358136,
     "emission": 0.0,
-    "change_1h": null,
+    "change_1h": 0.0,
     "change_24h": 0.0,
     "change_7d": 0.0
   },
   "spark_24h": [
+    1.0,
+    1.0,
+    1.0,
     1.0,
     1.0,
     1.0,
@@ -78,6 +81,22 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1792431333,
+      "kind": "release",
+      "source": "feeds",
+      "title": "Runtime 481",
+      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v481",
+      "publisher": "subtensor releases"
+    },
+    {
+      "ts": 1792424524,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor (TAO): 2,500 slots per subnet instead of 256, and what TAO stakers need to know",
+      "url": "https://news.google.com/rss/articles/CBMic0FVX3lxTE5fallaVm0xOXFpU2l2OUFVdjlQMFJISWhMZmxOWUNvMl9JRzIzcURnUWx5WEtVbEJUVHlrQWJyUUlSZ3pJaEdOUXJzQWFxdVgtVzNBVUF3ejUtRFBaeUozd2NaS2hIbGRDSTNmR3ZIV1NjRlU?oc=5",
+      "publisher": "CryptoTicker"
+    },
+    {
       "ts": 1792353342,
       "kind": "social",
       "source": "hn",
@@ -124,24 +143,8 @@
       "title": "Bittensor (TAO) jumps 7.68% in four hours, hitt...",
       "url": "https://news.google.com/rss/articles/CBMikgFBVV95cUxOTXVleGlDNUR0NWZQeFJCU2xvQWlHZU9ScEkweFJvU1dwRDA3ZWtaVkFtU2k4dHFIelhOSXpUblE0eXhJd3luMDlIMWVpUUpRVnJjUF83aGhReVhtV0tYR2hxR1VxeW1PLVVSbk5xUU04a1lTai1MckF4cFFnVWtNYnBYUWc5a0dZUGFLNXZLaXVjUQ?oc=5",
       "publisher": "Pluang"
-    },
-    {
-      "ts": 1792114682,
-      "kind": "social",
-      "source": "reddit",
-      "title": "Buy Signal Bittensor USD - 15 Oct 2026 @ 21:35 -> $281.26",
-      "url": "https://www.reddit.com/r/getagraph/comments/1x73k3u/buy_signal_bittensor_usd_15_oct_2026_2135_28126/",
-      "publisher": "r/getagraph"
-    },
-    {
-      "ts": 1792097762,
-      "kind": "social",
-      "source": "reddit",
-      "title": "Buy Signal Bittensor USD - 15 Oct 2026 @ 16:53 -> $277.09",
-      "url": "https://www.reddit.com/r/getagraph/comments/1x6xczm/buy_signal_bittensor_usd_15_oct_2026_1653_27709/",
-      "publisher": "r/getagraph"
     }
   ],
-  "updated": 1792388461,
-  "updated_day": "2026-10-19"
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
 }

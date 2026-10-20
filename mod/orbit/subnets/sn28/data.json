@@ -11,113 +11,164 @@
   "registered_at": 4878363,
   "tempo": 360,
   "active": true,
-  "block": 9314686,
+  "block": 9322663,
   "related": [
     "saygm"
   ],
   "market": {
-    "price": 0.034063351,
-    "moving_price": 0.03413870488293469,
-    "market_cap": 216595.40020315116,
-    "tao_in": 29220.80529119,
-    "alpha_in": 857837.112562287,
-    "alpha_out": 5500768.069973958,
-    "volume": 6715652.606417961,
-    "vol_24h": 2970.0297537688166,
+    "price": 0.035338814,
+    "moving_price": 0.03320068935863674,
+    "market_cap": 225023.85150076635,
+    "tao_in": 29799.086299269,
+    "alpha_in": 843239.611920169,
+    "alpha_out": 5524372.258154654,
+    "volume": 6740721.76653084,
+    "vol_24h": 24633.292251665145,
     "emission": 0.0,
-    "change_1h": null,
-    "change_24h": -0.9456808554078044,
-    "change_7d": 34.21291671059874
+    "change_1h": -0.25148534023033964,
+    "change_24h": 4.886251731950075,
+    "change_7d": 19.469960190556602
   },
   "spark_24h": [
-    0.034388557,
-    0.034210548,
-    0.034150995,
-    0.034152546,
-    0.034143088,
-    0.034143303,
-    0.034154851,
-    0.034155216,
-    0.034156013,
-    0.034156427,
-    0.034072123,
-    0.034073108,
-    0.03406532,
-    0.033819297,
-    0.033793582,
-    0.033783212,
-    0.03378502,
-    0.033818124,
-    0.03381898,
-    0.033756663,
-    0.033785282,
-    0.033775608,
-    0.033915654,
-    0.03392453,
-    0.033925524,
-    0.034041992,
-    0.034136423,
-    0.034144284,
-    0.034542061,
-    0.03433384,
-    0.034364717,
-    0.034366039,
-    0.034387346,
-    0.034395808,
-    0.034420647,
-    0.034349088,
-    0.034338897,
-    0.03433352,
-    0.034269511,
-    0.034239317,
-    0.034175025,
-    0.034168016,
-    0.034169389,
-    0.034061011,
-    0.034063351
+    0.033692513,
+    0.033097203,
+    0.031633064,
+    0.031532833,
+    0.031733837,
+    0.03154707,
+    0.031724415,
+    0.031725512,
+    0.031751009,
+    0.031702877,
+    0.031772075,
+    0.031774149,
+    0.032253392,
+    0.032269531,
+    0.032308058,
+    0.032352136,
+    0.032362302,
+    0.032934302,
+    0.032914138,
+    0.03239386,
+    0.032385461,
+    0.032696335,
+    0.032702398,
+    0.032882252,
+    0.033103628,
+    0.033150953,
+    0.03314461,
+    0.033130142,
+    0.033132433,
+    0.033122413,
+    0.032686581,
+    0.032869242,
+    0.032880888,
+    0.032880302,
+    0.032885166,
+    0.032884223,
+    0.032885714,
+    0.033814949,
+    0.033829676,
+    0.033483407,
+    0.035188337,
+    0.034681191,
+    0.034857832,
+    0.034847615,
+    0.035242764,
+    0.03542791,
+    0.035439,
+    0.035338814
   ],
   "trades_24h": {
-    "trades": 553,
-    "buys": 149,
-    "sells": 404,
-    "buy_tao": 1301.827803416,
-    "sell_tao": 1545.792030245,
-    "net_tao": -243.96422682899993,
-    "traders": 190
+    "trades": 1151,
+    "buys": 610,
+    "sells": 541,
+    "buy_tao": 12528.757569392,
+    "sell_tao": 12049.309532188,
+    "net_tao": 479.4480372040016,
+    "traders": 360
   },
   "top_traders_24h": [
     {
-      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
-      "net_tao": 0.8519787920000041,
-      "gross_tao": 299.148021208,
-      "trades": 6
-    },
-    {
-      "coldkey": "5D2MW8D89hZa1CmTt2ZomiSemjC7VVzMRHPM497mbXBB9hZy",
-      "net_tao": 40.639597257000005,
-      "gross_tao": 199.360402743,
-      "trades": 6
-    },
-    {
-      "coldkey": "5Gb23Q7n115ypiHr6jAMRhkhADhEkRFYa5ovgipVApqMt3FV",
-      "net_tao": -80.656790935,
-      "gross_tao": 180.656790935,
-      "trades": 3
-    },
-    {
       "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
-      "net_tao": -0.037731092000001354,
-      "gross_tao": 128.181596462,
-      "trades": 2
+      "net_tao": -9.982105845999854,
+      "gross_tao": 7652.9240777919995,
+      "trades": 12
     },
     {
-      "coldkey": "5GHfXPxrFpyPDVM7tUdqa7oeVpFfdH9CWiHyDMnsjjvd4pjR",
-      "net_tao": 0.1548001680000013,
-      "gross_tao": 119.84519983199999,
-      "trades": 4
+      "coldkey": "5Cw2qFy2tZy9ZLt4LsJc9b68nffQndZDHF1KZynmVbA4Z3pC",
+      "net_tao": -0.08043014099999546,
+      "gross_tao": 1190.080430141,
+      "trades": 29
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -4.3182409369999935,
+      "gross_tao": 894.318240937,
+      "trades": 24
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.08752138099999307,
+      "gross_tao": 892.087521381,
+      "trades": 8
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.5686207120000013,
+      "gross_tao": 702.298152728,
+      "trades": 22
     }
   ],
   "news": [
+    {
+      "ts": 1792451881,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.4",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.4",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792450618,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): promote gm-miner 0.5.4 (#333)",
+      "url": "https://github.com/taostat/gm-miner/commit/b8daef9290bbdd964fcd2a8f103f3aed387cd616",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792450228,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.4-dev",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.4-dev",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792448943,
+      "kind": "commit",
+      "source": "github",
+      "title": "Use one request per connection to Engy and prepare 0.5.4-dev (#332)",
+      "url": "https://github.com/taostat/gm-miner/commit/7f5d4ae97ec5f870e6770d7ecb87b3cc2e5bec5e",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792421062,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.5.3-dev",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.3-dev",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1792420027,
+      "kind": "commit",
+      "source": "github",
+      "title": "Cap HTTP/2 upstream streams per connection and prepare 0.5.3-dev (#331)",
+      "url": "https://github.com/taostat/gm-miner/commit/63190d8d0ceccb8943c8988ec7a0c38f556ccd3f",
+      "publisher": "taostat/gm-miner"
+    },
     {
       "ts": 1792245157,
       "kind": "release",
@@ -133,56 +184,8 @@
       "title": "chore(release): promote gm-miner 0.5.2 (#327)",
       "url": "https://github.com/taostat/gm-miner/commit/2261fc7b780b82c8f34a7eb905dc62c425672202",
       "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1792243343,
-      "kind": "release",
-      "source": "github",
-      "title": "v0.5.2-dev",
-      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.2-dev",
-      "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1792242451,
-      "kind": "commit",
-      "source": "github",
-      "title": "fix: allow KubeTEE DeepSeek Flash 1017 and prepare 0.5.2-dev (#326)",
-      "url": "https://github.com/taostat/gm-miner/commit/f12202c216f358c21c82e71e9595949d120aed71",
-      "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1792231120,
-      "kind": "commit",
-      "source": "github",
-      "title": "docs: document KubeTEE DeepSeek V4.1 Flash 1017 source (#325)",
-      "url": "https://github.com/taostat/gm-miner/commit/aa8cb0b2ec2b03f9a960144b9d869ff2a7fd4ec3",
-      "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1792084709,
-      "kind": "release",
-      "source": "github",
-      "title": "v0.5.1-dev",
-      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.5.1-dev",
-      "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1792080543,
-      "kind": "commit",
-      "source": "github",
-      "title": "Add Engy MiniMax H3 video route (#324)",
-      "url": "https://github.com/taostat/gm-miner/commit/70bc539e8bcbcfd21cf09ee252af2e2b1b757f4b",
-      "publisher": "taostat/gm-miner"
-    },
-    {
-      "ts": 1792078816,
-      "kind": "commit",
-      "source": "github",
-      "title": "Document DeepInfra GLM-5.3 and Flash sourcing (#323)",
-      "url": "https://github.com/taostat/gm-miner/commit/3de24065faf3357e2116529677f4dcb0c6c2b402",
-      "publisher": "taostat/gm-miner"
     }
   ],
-  "updated": 1792388461,
-  "updated_day": "2026-10-19"
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
 }

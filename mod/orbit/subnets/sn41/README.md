@@ -2,7 +2,7 @@
 
 Prediction market research and intelligence.
 
-Bittensor subnet **41** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **41** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/corvxai/almanac) · [url](https://almnc.ai)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/corvxai/almanac) · [url](https://almnc.ai)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006653 | — | -0.76% | -9.45% | 39,947 | 14,667 | 475.95 |
+| 0.007690 | +0.32% | +14.33% | +5.68% | 46,242 | 15,777 | 8,006 |
 
 ## Last 24h flow
 
-82 trades by 60 coldkeys · 27 buys (205.15 τ) / 55 sells (264.55 τ) · net -59.40 τ
+666 trades by 217 coldkeys · 328 buys (4,509 τ) / 338 sells (3,486 τ) · net 1,022 τ
 
 ## News
 
+- 2026-10-19 · commit · [Merge pull request #62 from corvxai/etao_update](https://github.com/corvxai/almanac/commit/e1280c05e3ef3e081f40ace76047503e4d7d41a8) — corvxai/almanac
+- 2026-10-19 · commit · [Updating market weight share back to 95% because overall pool is larg…](https://github.com/corvxai/almanac/commit/6edd093e8fb935806c1531156b5d82014b27da03) — corvxai/almanac
+- 2026-10-19 · commit · [Updating default miner alpha to 3600, or 50% of total emissions with …](https://github.com/corvxai/almanac/commit/d11863b6325d3f3ca98795ce4dbf87b916f45495) — corvxai/almanac
+- 2026-10-19 · commit · [Merge pull request #61 from corvxai/pm-data-v2](https://github.com/corvxai/almanac/commit/e1c643f3192fc07afdb0f85a840d9f8470d95a55) — corvxai/almanac
+- 2026-10-19 · commit · [Migrating from PM's Data V1 to V2 API.](https://github.com/corvxai/almanac/commit/cf558ea3887233f2e272d4cf691882e381f7104b) — corvxai/almanac
 - 2026-10-17 · commit · [Merge pull request #60 from corvxai/wvk_bump](https://github.com/corvxai/almanac/commit/935764a96fa8d3c4ea99e03720d3f5d7a2bfa7c0) — corvxai/almanac
 - 2026-10-17 · commit · [Upping key to 5](https://github.com/corvxai/almanac/commit/4174fe2a6e842775aad4fa8f48cc0419ce2d6526) — corvxai/almanac
 - 2026-10-17 · commit · [Merge pull request #59 from corvxai/vali_no_assign_before_scoring](https://github.com/corvxai/almanac/commit/977b909986bfae2d0a07a69b0b8061098aa31cb4) — corvxai/almanac
-- 2026-10-17 · commit · [Agent and event assignment and execution will not execute within 5 mi…](https://github.com/corvxai/almanac/commit/8c391c6773263ab58b64470ccb347a4b2b0ad305) — corvxai/almanac
-- 2026-10-15 · commit · [Merge pull request #58 from corvxai/vali_stale_weights_etc](https://github.com/corvxai/almanac/commit/60111f58ed4d4312b2b85a871c49197f01f02c57) — corvxai/almanac
-- 2026-10-15 · commit · [Upping weights_version_key to 4](https://github.com/corvxai/almanac/commit/c8f41159cac7f64b90eeb3e82c8dc3b9da1e3902) — corvxai/almanac
-- 2026-10-15 · commit · [Adding retries, logging, better timeouts, increased limit of 200 to f…](https://github.com/corvxai/almanac/commit/b59e179e84551a5da910d3bc4ef7ed496bb27863) — corvxai/almanac
-- 2026-10-14 · commit · [Merge pull request #57 from corvxai/effn-gate-at-last-resolution](https://github.com/corvxai/almanac/commit/df48ccf6ced8c4b29cc61e98adbf6cef89162149) — corvxai/almanac
 
 ## Use
 

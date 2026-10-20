@@ -10,7 +10,7 @@ import Stage, { derive } from './Stage';
 
 const PACE: Record<string, number> = {
   devnet: 250, deploying: 350, deploy: 450, register: 60, submit: 450,
-  score: 120, close: 400, settle: 350, claim: 550, replay: 500, done: 200,
+  score: 120, close: 400, settle: 350, claim: 550, replay: 500, audit: 500, done: 200,
 };
 
 function caption(e: SimEvent | undefined, chain: Chain | undefined, s: ReturnType<typeof derive>) {
@@ -27,6 +27,7 @@ function caption(e: SimEvent | undefined, chain: Chain | undefined, s: ReturnTyp
     case 'settle': return [`Zuma settled ${T}`, `Consensus ${e.consensus}: the highest score at least half the validators gave. Raw ${e.raw} clipped to ${e.rank} → share ${e.share}.`];
     case 'claim': return [`${T} claimed ${fmt(e.earned)}`, `The miner re-signed in the epoch scope and paid a fresh address${e.expected !== undefined ? ` (Zuma said ${e.expected})` : ''}.`];
     case 'replay': return [String(e.result || '').startsWith('rejected') ? 'Replay rejected' : 'Replay', `Same signature, second claim: ${e.result}.`];
+    case 'audit': return [e.ok ? 'Every receipt replays' : 'Audit failed', `${e.receipts} signed receipts (${(e.schemes || []).join(', ') || 'post-quantum'}) re-run byte for byte by a third party, each one linked to the last.`];
     case 'done': return ['Epoch complete', `${e.seconds}s end to end on ${chain?.title}.`];
     case 'error': return ['Run failed', e.error];
     default: return [e.kind, ''];
@@ -35,7 +36,7 @@ function caption(e: SimEvent | undefined, chain: Chain | undefined, s: ReturnTyp
 
 const KCOL: Record<string, string> = {
   submit: 'rgb(var(--c-rgb))', score: '#fff', settle: 'var(--warn)', claim: 'var(--good)',
-  replay: 'var(--bad)', error: 'var(--bad)', deploy: 'rgb(var(--c-rgb))', done: 'var(--good)',
+  replay: 'var(--bad)', audit: 'var(--good)', error: 'var(--bad)', deploy: 'rgb(var(--c-rgb))', done: 'var(--good)',
 };
 
 function detail(e: SimEvent) {
@@ -47,6 +48,7 @@ function detail(e: SimEvent) {
     case 'claim': return `${fmt(e.earned)} → ${short(e.recipient, 6, 4)}`;
     case 'deploy': return short(e.address, 10, 6);
     case 'replay': return String(e.result);
+    case 'audit': return `${e.receipts} receipts · replay ${e.replay_ms}ms · ${e.ok ? 'valid' : 'INVALID'}`;
     case 'devnet': return `block ${e.block}`;
     case 'close': return `epoch ${e.epoch} @ block ${e.block}`;
     case 'done': return `${e.seconds}s`;

@@ -2,7 +2,7 @@
 
 CliqueAI - AI-Powered Maximum Clique Solver Network
 
-Bittensor subnet **83** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **83** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/toptensor/CliqueAI) · [url](https://cliqueai.toptensor.ai/) · [discord](https://discord.com/channels/799672011265015819/1355560253076410428)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/toptensor/CliqueAI) · [url](https://cliqueai
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.007546 | — | -0.39% | -3.36% | 30,462 | 7,999 | 28.42 |
+| 0.007557 | +0.36% | +0.18% | -2.70% | 30,575 | 8,016 | 100.33 |
 
 ## Last 24h flow
 
-89 trades by 15 coldkeys · 7 buys (0.95 τ) / 82 sells (20.93 τ) · net -19.98 τ
+88 trades by 16 coldkeys · 6 buys (47.75 τ) / 82 sells (41.04 τ) · net 6.72 τ
 
 ## Use
 

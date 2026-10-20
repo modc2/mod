@@ -2,7 +2,7 @@
 
 Decentralized Generative Video Platform
 
-Bittensor subnet **126** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **126** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/attelierai/attelierai_subnet/) · [url](https://attelier.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/attelierai/attelierai_subnet/) · [url](https
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004181 | — | -0.33% | -1.79% | 8,883 | 2,400 | 4.75 |
+| 0.005020 | +4.67% | +20.12% | +18.59% | 10,706 | 2,630 | 297.48 |
 
 ## Last 24h flow
 
-15 trades by 8 coldkeys · 7 buys (0.37 τ) / 8 sells (3.18 τ) · net -2.80 τ
+22 trades by 16 coldkeys · 15 buys (263.97 τ) / 7 sells (29.75 τ) · net 234.22 τ
 
 ## Use
 

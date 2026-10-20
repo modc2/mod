@@ -2,7 +2,7 @@
 
 NIOME is a decentralized AI subnet that enables privacy-safe genomic intelligence by replacing real human genomes with high-fidelity synthetic genomic profiles
 
-Bittensor subnet **55** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **55** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/genomesio/subnet-niome) · [url](https://niome.genomes.io) · [discord](https://discord.gg/7mJkaJZX)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/genomesio/subnet-niome) · [url](https://niom
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002128 | — | +1.81% | -9.48% | 12,206 | 5,862 | 144.18 |
+| 0.002653 | -0.05% | +24.71% | +13.19% | 15,235 | 6,545 | 6,370 |
 
 ## Last 24h flow
 
-34 trades by 21 coldkeys · 19 buys (98.30 τ) / 15 sells (45.58 τ) · net 52.72 τ
+616 trades by 123 coldkeys · 324 buys (3,527 τ) / 292 sells (2,840 τ) · net 687.29 τ
 
 ## News
 
+- 2026-10-19 · commit · [pass receiver ss58](https://github.com/genomesio/subnet-niome/commit/64b946ee6cb3abadaa4aa73699750e5bb0029524) — genomesio/subnet-niome
 - 2026-10-18 · commit · [download file with retry logic](https://github.com/genomesio/subnet-niome/commit/4625b3c6e32edbed043a2940370def7de0d2daaf) — genomesio/subnet-niome
 - 2026-10-18 · commit · [set weights using valid scores](https://github.com/genomesio/subnet-niome/commit/4f288294f219d9b343d1c4e04bf798f050b82aa7) — genomesio/subnet-niome
 - 2026-10-18 · commit · [reduce burning rate to 0.1%](https://github.com/genomesio/subnet-niome/commit/21942bd1c9b3097cae21582ebb5ecc4a04cc2d2e) — genomesio/subnet-niome

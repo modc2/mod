@@ -78,6 +78,21 @@ export default function Page() {
     get('tests').then(setTests).catch(() => {});
   }, []);
   useEffect(() => { refreshSlow(); }, [refreshSlow]);
+  // phone: the tab strip scrolls sideways, keep the open tab in view
+  useEffect(() => {
+    const nav = document.querySelector<HTMLElement>('.tabs');
+    const on = nav?.querySelector<HTMLElement>('button.on');
+    if (nav && on && nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: on.offsetLeft - 24, behavior: 'smooth' });
+  }, [tab]);
+
+  // sticky things under the header (paper contents) sit at --toph
+  useEffect(() => {
+    const top = document.querySelector<HTMLElement>('header.top');
+    if (!top) return;
+    const ro = new ResizeObserver(() => document.documentElement.style.setProperty('--toph', `${top.offsetHeight}px`));
+    ro.observe(top);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     const h = () => get('health').then(setHealth).catch(() => {});
@@ -97,6 +112,17 @@ export default function Page() {
     const id = window.setInterval(loadBoard, 8000);
     return () => clearInterval(id);
   }, [loadBoard]);
+
+  // node asleep: the hero still shows the epoch the last recorded run left behind
+  const [lastEpoch, setLastEpoch] = useState<number | undefined>();
+  const asleep = !!board && !board.devnet_up && board.epoch === undefined;
+  useEffect(() => {
+    setLastEpoch(undefined);
+    if (!asleep || !chain) return;
+    let live = true;
+    get('last_sim', { chain: chain.chain }).then((d) => { if (live) setLastEpoch(d?.result?.epoch); }).catch(() => {});
+    return () => { live = false; };
+  }, [asleep, chain]);
 
   const onSimDone = useCallback(() => { loadBoard(); refreshSlow(); }, [loadBoard, refreshSlow]);
 
@@ -145,7 +171,7 @@ export default function Page() {
             </p>
           </div>
           <div className="stats">
-            <div className="stat"><div className="k">Epoch</div><div className="v">{board?.epoch ?? '—'}</div><div className="s">{board?.blocks_left !== undefined ? `${board.blocks_left} blocks left` : board && !board.devnet_up ? `${net} · asleep` : net}</div></div>
+            <div className="stat"><div className="k">Epoch</div><div className="v" style={board?.epoch === undefined && lastEpoch !== undefined ? { opacity: 0.55 } : undefined}>{board?.epoch ?? lastEpoch ?? '—'}</div><div className="s">{board?.blocks_left !== undefined ? `${board.blocks_left} blocks left` : board && !board.devnet_up ? (lastEpoch !== undefined ? 'last run · asleep' : `${net} · asleep`) : net}</div></div>
             <div className="stat"><div className="k">Max ring</div><div className="v">{chain?.max_ring ?? '—'}</div><div className="s">anonymity set</div></div>
             <div className="stat"><div className="k">$ / score</div><div className="v">{usd(scoreUsd)}</div><div className="s">mainnet est.</div></div>
             <div className="stat"><div className="k">Suite</div><div className="v" style={{ color: suite ? (suite.ok ? 'var(--good)' : 'var(--bad)') : undefined }}>{suite ? `${suite.passed}/${(suite.passed || 0) + (suite.failed || 0)}` : '—'}</div><div className="s">{chain?.title ?? ''} native</div></div>

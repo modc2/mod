@@ -2,7 +2,7 @@
 
 The RL layer of Bittensor
 
-Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.reliqua.ai/) · [discord](https://discord.com/channels/799672011265015819/1493247592551678012)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005200 | — | +0.26% | -9.62% | 29,536 | 16,546 | 97.56 |
+| 0.005095 | -0.24% | -2.01% | -9.10% | 28,981 | 16,378 | 267.28 |
 
 ## Last 24h flow
 
-27 trades by 19 coldkeys · 7 buys (59.69 τ) / 20 sells (37.38 τ) · net 22.31 τ
+33 trades by 18 coldkeys · 6 buys (49.98 τ) / 27 sells (215.07 τ) · net -165.09 τ
 
 ## News
 

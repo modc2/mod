@@ -2,7 +2,7 @@
 
 The Privacy Protocol
 
-Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) · discord `xcolwell`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) ·
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005776 | — | -0.20% | -9.25% | 35,897 | 12,351 | 317.59 |
+| 0.005531 | +0.00% | -4.41% | -14.75% | 34,424 | 12,093 | 909.41 |
 
 ## Last 24h flow
 
-47 trades by 34 coldkeys · 21 buys (150.68 τ) / 26 sells (164.23 τ) · net -13.56 τ
+64 trades by 38 coldkeys · 27 buys (315.06 τ) / 37 sells (590.81 τ) · net -275.75 τ
 
 ## News
 
-- 2026-10-19 · release · [v2026.10.18-1075707760](https://github.com/urfoundation/sn/releases/tag/v2026.10.18-1075707760) — urfoundation/sn
-- 2026-10-19 · commit · [Merge fix/provider-diagnostics-windows-console into main](https://github.com/urfoundation/sn/commit/6e22ce9a574cafa20736d1df2f01df130336a7d9) — urfoundation/sn
-- 2026-10-19 · commit · [Deliver diagnostics to Windows consoles and pipes](https://github.com/urfoundation/sn/commit/e817976c85d2a1ac43591fc4bb728e849291d0b0) — urfoundation/sn
-- 2026-10-19 · commit · [Merge fix/provider-diagnostics-sink into main](https://github.com/urfoundation/sn/commit/9a2075784702d34ac5e10fba44dc2312536427d8) — urfoundation/sn
-- 2026-10-18 · commit · [Admit regular files and macOS terminals as diagnostic sinks](https://github.com/urfoundation/sn/commit/3306a0bb3b86170d793aa960543b215c60e8cc92) — urfoundation/sn
-- 2026-10-18 · release · [v2026.10.18-1075514170](https://github.com/urfoundation/sn/releases/tag/v2026.10.18-1075514170) — urfoundation/sn
-- 2026-10-18 · commit · [Merge completed gate fixes with explicit staging contracts](https://github.com/urfoundation/sn/commit/26fb89501ee44e0581a06efaa29b2a09cdfed4ba) — urfoundation/sn
-- 2026-10-18 · commit · [feat(competition): document explicit v2 staging contracts](https://github.com/urfoundation/sn/commit/906cc7d179f9f4381644c71cc2038ad1cfa4d8cb) — urfoundation/sn
+- 2026-10-19 · commit · [Merge root monitor regular file regression coverage](https://github.com/urfoundation/sn/commit/b94c2ff28456183fb4ec14fdede348eccb31ecbf) — urfoundation/sn
+- 2026-10-19 · commit · [Align root monitor tests with supported regular file sinks](https://github.com/urfoundation/sn/commit/6f920279a2a1d3d27640320f784e504ad7912e2f) — urfoundation/sn
+- 2026-10-19 · commit · [Merge reviewed runtime 481 compatibility and rehearsal qualification](https://github.com/urfoundation/sn/commit/a4abe646cb7d952630b21b5937d9ab2a2a65349d) — urfoundation/sn
+- 2026-10-19 · commit · [Admit reviewed runtime 481 and qualify settlement rehearsals](https://github.com/urfoundation/sn/commit/22c38068faccfef8b3676238f77110f123fab7a2) — urfoundation/sn
+- 2026-10-19 · commit · [competition: document immutable runtime blob capability](https://github.com/urfoundation/sn/commit/c1ab8c19d75bbf556711415df3d45d3d788c54b4) — urfoundation/sn
+- 2026-10-19 · release · [v2026.10.19-1076177550](https://github.com/urfoundation/sn/releases/tag/v2026.10.19-1076177550) — urfoundation/sn
+- 2026-10-19 · release · [v2026.10.19-1076002880](https://github.com/urfoundation/sn/releases/tag/v2026.10.19-1076002880) — urfoundation/sn
+- 2026-10-19 · release · [v2026.10.18-1075928470](https://github.com/urfoundation/sn/releases/tag/v2026.10.18-1075928470) — urfoundation/sn
 
 ## Use
 

@@ -1,13 +1,13 @@
 {
   "name": "sn103",
   "version": "1.0.0",
-  "description": "SN103 Consted — Const : Centralised Entity deciding emission of subnets based on emotion, not by codes. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "description": "SN103 ayp — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
   "icon": "Ա",
   "chain": "bittensor",
   "netuid": 103,
-  "subnet": "Consted",
+  "subnet": "ayp",
   "symbol": "Ա",
-  "owner": "5H3SQ4du9ThumJcUQb1VL2dixRBDKtt8hDRWLyPuANhHon7Y",
+  "owner": "5FHb1T5Qmh5o1S8KdXjCQp1vx7PSg5mXb1eYh5gYp1xuPzXz",
   "github": null,
   "url": null,
   "discord": null,
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-19",
+  "updated": "2026-10-20",
   "urls": {
     "bt": "/bt/markets?sn=103",
     "news": "/bt/news?netuid=103"
@@ -34,5 +34,14 @@
     "snapshot",
     "readme",
     "refresh"
+  ],
+  "previous": [
+    {
+      "subnet": "Consted",
+      "owner": "5H3SQ4du9ThumJcUQb1VL2dixRBDKtt8hDRWLyPuANhHon7Y",
+      "github": null,
+      "url": null,
+      "updated": "2026-10-19"
+    }
   ]
 }

@@ -2,7 +2,7 @@
 
 Open models, cast small.
 
-Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/DendriteLabs/ingot) · [url](https://theingot.ai)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/DendriteLabs/ingot) · [url](https://theingot
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.012954 | — | -0.61% | -12.04% | 26,347 | 10,892 | 161.97 |
+| 0.012800 | +0.01% | -1.14% | -6.32% | 26,168 | 10,860 | 1,772 |
 
 ## Last 24h flow
 
-33 trades by 21 coldkeys · 11 buys (60.28 τ) / 22 sells (94.14 τ) · net -33.85 τ
+117 trades by 46 coldkeys · 52 buys (855.25 τ) / 65 sells (894.12 τ) · net -38.87 τ
 
 ## News
 
-- 2026-10-17 · commit · [feat(web): link the vs-king name in the history table to the king's H…](https://github.com/DendriteLabs/ingot/commit/2e3ad444e56ae40c8a3d207b2793bf4647f216ba) — DendriteLabs/ingot
-- 2026-10-17 · commit · [fix: reject FP8 where genesis is not and split fused projections; a c…](https://github.com/DendriteLabs/ingot/commit/eca63a0bc61038a1b051379709bc048cf68f2a03) — DendriteLabs/ingot
-- 2026-10-16 · commit · [feat: order samples by prompt length, more teacher models](https://github.com/DendriteLabs/ingot/commit/08d9f36c4632aa3a4f94a6250072d6c7a94fc730) — DendriteLabs/ingot
-- 2026-10-16 · commit · [fix(promoter): publish a king in one commit after the repo's initial one](https://github.com/DendriteLabs/ingot/commit/93b28b686f22c79a3c51b40fe5c38258237b9567) — DendriteLabs/ingot
-- 2026-10-16 · commit · [feat: eval stage timing logs, loosened dedup thresholds, chain reader…](https://github.com/DendriteLabs/ingot/commit/271a12ae53303b79b747485d80f5297fbe58814a) — DendriteLabs/ingot
-- 2026-10-16 · commit · [init: init of ingot](https://github.com/DendriteLabs/ingot/commit/e6c8206179153e228a021ff709dd9e311c066225) — DendriteLabs/ingot
-- 2026-10-09 · commit · [fix: git -C diffs count as patches; heredoc edits reach the simulator…](https://github.com/unarbos/albedo/commit/4983bfbcb2d238390d967ca5bdd8ac7d01dc0899) — unarbos/albedo
-- 2026-10-09 · commit · [fix: manifest upload works on R2; defaults point at the 13-source man…](https://github.com/unarbos/albedo/commit/2fdceb103c49c279150df4512bbe94cc2e37ccff) — unarbos/albedo
+- 2026-10-19 · commit · [feat(model_validation): reject models with NaN or infinite weights](https://github.com/DendriteLabs/ingot/commit/8c22cdacb16b57abae07eebb352ca090f6ebd83f) — DendriteLabs/ingot
+- 2026-10-19 · commit · [fix(web): lineage rows share the chart's height when there are few kings](https://github.com/DendriteLabs/ingot/commit/a7a3681846c0df8fc1e5fe07a79533254d9ac79b) — DendriteLabs/ingot
+- 2026-10-19 · commit · [feat(web): kings lineage beside the staircase; three benchmarks in on…](https://github.com/DendriteLabs/ingot/commit/e719abc456373c40ecef10379bb3e393ddad122b) — DendriteLabs/ingot
+- 2026-10-19 · commit · [fix(web): stop iOS Safari enlarging the fails table's text](https://github.com/DendriteLabs/ingot/commit/ba3e9dcf1236c83a0d5d414fb436ac86cd7a72ee) — DendriteLabs/ingot
+- 2026-10-19 · commit · [feat(web): better charts](https://github.com/DendriteLabs/ingot/commit/62732716aea52e69fa536f9b8ff6a93325e0a5d1) — DendriteLabs/ingot
+- 2026-10-19 · commit · [feat(model_dedup): only near-identical copies are duplicates (corr 0.…](https://github.com/DendriteLabs/ingot/commit/83097373f8a5a2b4209b5c66ff1a69988c1ae914) — DendriteLabs/ingot
+- 2026-10-19 · commit · [fix(web): push the HTML as no-store and stamp scripts, styles and imp…](https://github.com/DendriteLabs/ingot/commit/1fba61df978c3c6d05954e7285146a09bc62beb5) — DendriteLabs/ingot
+- 2026-10-19 · commit · [feat: win margins as a share of the king's score (KL 1.5%, distance 0…](https://github.com/DendriteLabs/ingot/commit/67a4a2413322ce355c849253dcc36670a0170abf) — DendriteLabs/ingot
 
 ## Use
 

@@ -1,6 +1,7 @@
 'use client';
 /* WHITEPAPER: GET whitepaper, rendered by a small markdown subset,
-   with a sticky contents rail (scroll-spy over the h2s) on wide screens. */
+   Contents is a dropdown everywhere; on wide screens the reader can pin it
+   as a sticky sidebar instead (scroll-spy over the h2s, choice remembered). */
 import { useEffect, useRef, useState } from 'react';
 import { get } from '@/lib/api';
 
@@ -60,7 +61,20 @@ export default function Paper() {
   const [src, setSrc] = useState('');
   const [err, setErr] = useState('');
   const [on, setOn] = useState('');
+  const [rail, setRail] = useState(true);
+  const [open, setOpen] = useState(false);
   const ref = useRef<HTMLElement>(null);
+  const drop = useRef<HTMLDivElement>(null);
+  useEffect(() => { setRail(localStorage.getItem('ztensor.toc') !== 'off'); }, []);
+  const pin = (v: boolean) => { setRail(v); setOpen(false); localStorage.setItem('ztensor.toc', v ? 'on' : 'off'); };
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: Event) => { if (!drop.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', off);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', off); document.removeEventListener('keydown', esc); };
+  }, [open]);
   useEffect(() => {
     get('whitepaper').then((d) => setSrc(typeof d === 'string' ? d : d?.text ?? d?.markdown ?? '')).catch((e) => setErr(e.message));
   }, []);
@@ -78,17 +92,34 @@ export default function Paper() {
     hs.forEach((h) => io.observe(h));
     return () => io.disconnect();
   }, [html]); // eslint-disable-line react-hooks/exhaustive-deps
-  const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const go = (id: string) => { setOpen(false); document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const cur = secs.find((s) => s.id === on);
   if (err) return <div className="card fade"><div className="err">{err}</div></div>;
   return (
-    <div className="paperwrap fade">
+    <div className={`paperwrap fade${rail ? ' rail' : ''}`}>
       {secs.length > 0 && (
         <nav className="toc" aria-label="Contents">
-          <div className="toc-h">Contents <span>{mins} min read</span></div>
+          <div className="toc-h">Contents <span>{mins} min read</span>
+            <button className="toc-x" title="fold the sidebar into a dropdown" onClick={() => pin(false)}>hide</button></div>
           {secs.map((s) => (
             <button key={s.id} className={on === s.id ? 'on' : ''} onClick={() => go(s.id)}>{s.title}</button>
           ))}
         </nav>
+      )}
+      {secs.length > 0 && (
+        <div className="tocdrop" ref={drop}>
+          <button className={`tocsel${open ? ' open' : ''}`} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            <span className="k">Contents</span><span className="cur">{cur?.title ?? `${secs.length} sections · ${mins} min read`}</span><i />
+          </button>
+          <button className="tocpin" title="pin contents as a sidebar" onClick={() => pin(true)}>sidebar</button>
+          {open && (
+            <div className="tocmenu" role="menu">
+              {secs.map((s) => (
+                <button key={s.id} role="menuitem" className={on === s.id ? 'on' : ''} onClick={() => go(s.id)}>{s.title}</button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
       <div className="card" style={{ padding: 0, minWidth: 0 }}>
         <article ref={ref} className="paper" dangerouslySetInnerHTML={{ __html: html || '<p class="muted">loading…</p>' }} />

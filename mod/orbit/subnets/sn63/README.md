@@ -2,7 +2,7 @@
 
 Breaking today to build tomorrow
 
-Bittensor subnet **63** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **63** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/qbittensor-labs/enigma) · [url](https://www.qbittensorlabs.com/) · discord `qbittensorlabs`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/qbittensor-labs/enigma) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003812 | — | -0.00% | -4.90% | 23,687 | 10,610 | 40.46 |
+| 0.003767 | -0.00% | -0.98% | -6.50% | 23,438 | 10,549 | 269.16 |
 
 ## Last 24h flow
 
-8 trades by 5 coldkeys · 4 buys (20.11 τ) / 4 sells (20.03 τ) · net 0.08 τ
+30 trades by 20 coldkeys · 10 buys (108.65 τ) / 20 sells (159.03 τ) · net -50.39 τ
 
 ## News
 

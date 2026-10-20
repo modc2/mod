@@ -1,16 +1,16 @@
 # sn57 — gaia ح
 
-Bittensor subnet **57** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **57** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002341 | — | +2.89% | +1.05% | 3,894 | 1,235 | 79.38 |
+| 0.002330 | -0.00% | -0.47% | +1.04% | 3,894 | 1,232 | 32.88 |
 
 ## Last 24h flow
 
-19 trades by 10 coldkeys · 11 buys (48.42 τ) / 8 sells (30.31 τ) · net 18.11 τ
+7 trades by 4 coldkeys · 1 buys (15.00 τ) / 6 sells (15.79 τ) · net -0.79 τ
 
 ## Use
 

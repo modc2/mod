@@ -2,7 +2,7 @@
 
 Pioneering the Future of Cloud & Blockchain
 
-Bittensor subnet **128** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **128** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/byteleapai/byteleap-Miner) · [url](https://ByteLeap.ai) · [discord](https://discord.com/channels/799672011265015819/1387438124132733110)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/byteleapai/byteleap-Miner) · [url](https://B
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002762 | — | -0.01% | -0.37% | 12,646 | 4,017 | 0.50 |
+| 0.002760 | -0.00% | -0.07% | -0.36% | 12,660 | 4,016 | 1.41 |
 
 ## Last 24h flow
 
-7 trades by 4 coldkeys · 4 buys (0.11 τ) / 3 sells (0.05 τ) · net 0.07 τ
+1 trades by 1 coldkeys · 0 buys (0.00 τ) / 1 sells (0.23 τ) · net -0.23 τ
 
 ## Use
 

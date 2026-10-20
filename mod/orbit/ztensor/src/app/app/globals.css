@@ -351,7 +351,7 @@ table.t tr:hover td { background: rgba(255,255,255,0.02); }
 .paper th, .paper td { border-bottom: 1px solid var(--line); padding: 7px 9px; text-align: left; }
 .paper blockquote { margin: 16px 0; padding: 4px 18px; border-left: 3px solid rgb(var(--c-rgb)); color: var(--ink2); }
 .paper a { color: rgb(var(--c-rgb)); }
-.paper h2[id], .paper h3[id] { scroll-margin-top: 24px; }
+.paper h2[id], .paper h3[id] { scroll-margin-top: calc(var(--toph, 64px) + 64px); }
 .paper h2 { padding-top: 14px; border-top: 1px solid var(--line); }
 .paper h1 + p, .paper h1 + blockquote { font-size: 17px; color: var(--ink2); }
 .paper .tblwrap { overflow-x: auto; margin: 14px 0; }
@@ -359,14 +359,44 @@ table.t tr:hover td { background: rgba(255,255,255,0.02); }
 .paper th { font: 600 11px/1.2 var(--sans); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink2); }
 .paper tbody tr:hover td { background: rgba(255,255,255,0.025); }
 .paperwrap { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
-.toc { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px; padding: 14px 10px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); max-height: calc(100vh - 32px); overflow-y: auto; }
+.toc { position: sticky; top: calc(var(--toph, 64px) + 4px); display: flex; flex-direction: column; gap: 2px; padding: 14px 10px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); max-height: calc(100vh - var(--toph, 64px) - 20px); overflow-y: auto; }
 .toc-h { display: flex; justify-content: space-between; align-items: baseline; padding: 0 8px 10px; font: 700 11px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); }
 .toc-h span { font: 500 10.5px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink3); }
 .toc button { all: unset; cursor: pointer; padding: 7px 8px 7px 10px; border-radius: 8px; font: 500 12.5px/1.35 var(--sans); color: var(--ink2); border-left: 2px solid transparent; transition: color .15s, background .15s; }
 .toc button:hover { color: var(--ink); background: rgba(255,255,255,0.04); }
 .toc button.on { color: var(--ink); border-left-color: rgb(var(--c-rgb)); background: rgba(var(--c-rgb), 0.08); }
 .toc button:focus-visible { outline: 2px solid rgb(var(--c-rgb)); outline-offset: 1px; }
-@media (max-width: 1100px) { .paperwrap { grid-template-columns: 1fr; } .toc { display: none; } }
+.paperwrap.rail { grid-template-columns: 220px minmax(0, 1fr); }
+.paperwrap:not(.rail) { grid-template-columns: minmax(0, 1fr); }
+.paperwrap:not(.rail) .toc, .paperwrap.rail .tocdrop { display: none; }
+.toc-x { all: unset; cursor: pointer; margin-left: auto; padding-left: 10px; font: 500 10.5px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink3); }
+.toc-x:hover { color: var(--ink); }
+.toc-h { justify-content: flex-start; gap: 8px; white-space: nowrap; }
+/* contents dropdown: sticky above the article */
+.tocdrop { position: sticky; top: calc(var(--toph, 64px) + 4px); z-index: 15; display: flex; gap: 8px; }
+.tocsel { all: unset; box-sizing: border-box; cursor: pointer; flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--line); transition: border-color .15s; }
+.tocsel:hover, .tocsel.open { border-color: var(--line-hi); }
+.tocsel:focus-visible, .tocpin:focus-visible, .tocmenu button:focus-visible { outline: 2px solid rgb(var(--c-rgb)); outline-offset: 1px; }
+.tocsel .k { font: 700 10.5px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: rgb(var(--c-rgb)); flex: none; }
+.tocsel .cur { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px/1.2 var(--sans); color: var(--ink); }
+.tocsel i { flex: none; width: 7px; height: 7px; border-right: 1.5px solid var(--ink2); border-bottom: 1.5px solid var(--ink2); transform: translateY(-2px) rotate(45deg); transition: transform .15s; }
+.tocsel.open i { transform: translateY(2px) rotate(225deg); }
+.tocpin { all: unset; cursor: pointer; flex: none; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 82%, transparent);
+  font: 600 11px/1 var(--sans); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink2); display: flex; align-items: center; }
+.tocpin:hover { color: var(--ink); border-color: var(--line-hi); }
+.tocmenu { position: absolute; top: calc(100% + 6px); left: 0; right: 0; display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: 12px;
+  background: var(--bg); border: 1px solid var(--line-hi); box-shadow: 0 18px 40px rgba(0,0,0,0.5); max-height: min(60vh, 460px); overflow-y: auto; }
+.tocmenu button { all: unset; cursor: pointer; padding: 9px 10px; border-radius: 8px; font: 500 13px/1.35 var(--sans); color: var(--ink2); border-left: 2px solid transparent; }
+.tocmenu button:hover { color: var(--ink); background: rgba(255,255,255,0.04); }
+.tocmenu button.on { color: var(--ink); border-left-color: rgb(var(--c-rgb)); background: rgba(var(--c-rgb), 0.08); }
+/* narrow (phone, or the host's sidebar is open): the dropdown only */
+@media (max-width: 860px) {
+  .paperwrap.rail { grid-template-columns: minmax(0, 1fr); }
+  .paperwrap.rail .toc { display: none; }
+  .paperwrap.rail .tocdrop { display: flex; }
+  .tocpin { display: none; }
+}
 
 .empty { padding: 36px; text-align: center; color: var(--ink3); }
 .hint { margin-top: 12px; color: var(--ink3); font-size: 12px; }
@@ -416,6 +446,8 @@ table.t tr:hover td { background: rgba(255,255,255,0.02); }
   .tabs::-webkit-scrollbar { display: none; }
   .tabs button { scroll-snap-align: start; flex: none; }
   .stage .bar .spacer { display: none; }
+  .paper h1 { font-size: 27px; line-height: 1.1; }
+  .paper h1 + p, .paper h1 + blockquote { font-size: 15px; }
   .stage .bar .btn.go { flex: 1 1 100%; justify-content: center; }
   .stats { grid-template-columns: 1fr 1fr; }
   .grid3 { grid-template-columns: 1fr; }

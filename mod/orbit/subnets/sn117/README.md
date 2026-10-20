@@ -2,7 +2,7 @@
 
 Every frame gets craft
 
-Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url](https://everyframe.studio/) · [discord](https://discord.com/channels/799672011265015819/1544011415692644444)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002216 | — | +0.73% | -19.33% | 6,828 | 2,692 | 10.59 |
+| 0.002180 | +0.00% | -1.66% | -18.71% | 6,725 | 2,669 | 22.75 |
 
 ## Last 24h flow
 
-14 trades by 9 coldkeys · 11 buys (10.16 τ) / 3 sells (0.05 τ) · net 10.11 τ
+7 trades by 7 coldkeys · 1 buys (0.11 τ) / 6 sells (21.09 τ) · net -20.98 τ
 
 ## News
 
+- 2026-10-19 · release · [everycli v0.5.8](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.5.8) — everyframe-studios/everyframe-miner
+- 2026-10-19 · commit · [Merge pull request #37 from everyframe-studio/fix/provider-catalog-av…](https://github.com/everyframe-studio/everyframe-miner/commit/b1c20c77f4bbdbab8574d5faaa5d44dfd58b7f7b) — everyframe-studios/everyframe-miner
+- 2026-10-19 · commit · [release: prepare everycli v0.5.8 provider availability fixes](https://github.com/everyframe-studio/everyframe-miner/commit/9ffd78aed252dab03d3a736a54e0960224a52ae6) — everyframe-studios/everyframe-miner
+- 2026-10-19 · commit · [fix: classify catalog refusals as safe pre-submit rejections](https://github.com/everyframe-studio/everyframe-miner/commit/ea6910d79af8e556ac7cbd041e93495989953551) — everyframe-studios/everyframe-miner
+- 2026-10-19 · commit · [fix: validate provider model availability and clarify catalog IDs](https://github.com/everyframe-studio/everyframe-miner/commit/8a2ee9f55349334481b35297caae3063aae27333) — everyframe-studios/everyframe-miner
 - 2026-10-15 · commit · [Merge pull request #36 from everyframe-studio/fix/report-provider-fai…](https://github.com/everyframe-studio/everyframe-miner/commit/9addfdba9182aaaaebed2b363f1e4fa6f6cf027f) — everyframe-studios/everyframe-miner
 - 2026-10-15 · release · [v0.5.7](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.5.7) — everyframe-studios/everyframe-miner
 - 2026-10-15 · commit · [fix: preserve provider failure categories and prepare v0.5.7](https://github.com/everyframe-studio/everyframe-miner/commit/39d431a19d857f20e779d15a58748d682b47f51a) — everyframe-studios/everyframe-miner
-- 2026-10-15 · commit · [Report a fixed provider failure category; renew sessions for 12-minut…](https://github.com/everyframe-studio/everyframe-miner/commit/b30e92eac6dee0393808431e0da705820f74c09f) — everyframe-studios/everyframe-miner
-- 2026-10-14 · release · [everycli v0.5.6](https://github.com/everyframe-studio/everyframe-miner/releases/tag/v0.5.6) — everyframe-studios/everyframe-miner
-- 2026-10-14 · commit · [Merge pull request #35 from everyframe-studio/release/v0.5.6-recovery…](https://github.com/everyframe-studio/everyframe-miner/commit/9fe18293c7e83ac56ef7ed7c7dc3a4d8a3d1729d) — everyframe-studios/everyframe-miner
-- 2026-10-14 · commit · [fix: reconcile abandoned deployment preparation and release v0.5.6](https://github.com/everyframe-studio/everyframe-miner/commit/a9c90e6d28fbbbc9d78aae06b276012c12c76f11) — everyframe-studios/everyframe-miner
-- 2026-10-14 · commit · [feat: report Fal, BFL and Runway balances from the keys workers run with](https://github.com/everyframe-studio/everyframe-miner/commit/33d893eb78d591e35a5d855dccf1f60e40e85724) — everyframe-studios/everyframe-miner
 
 ## Use
 

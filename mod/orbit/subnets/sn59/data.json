@@ -11,7 +11,7 @@
   "registered_at": 8938771,
   "tempo": 360,
   "active": true,
-  "block": 9314686,
+  "block": 9322663,
   "related": [],
   "market": {
     "price": 0.005123504,
@@ -23,11 +23,14 @@
     "volume": 1.384702197,
     "vol_24h": 0.0,
     "emission": 0.0,
-    "change_1h": null,
+    "change_1h": 0.0,
     "change_24h": 0.0,
     "change_7d": 0.0
   },
   "spark_24h": [
+    0.005123504,
+    0.005123504,
+    0.005123504,
     0.005123504,
     0.005123504,
     0.005123504,
@@ -85,6 +88,6 @@
   },
   "top_traders_24h": [],
   "news": [],
-  "updated": 1792388461,
-  "updated_day": "2026-10-19"
+  "updated": 1792474861,
+  "updated_day": "2026-10-20"
 }

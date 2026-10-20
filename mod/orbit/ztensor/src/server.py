@@ -73,7 +73,7 @@ GET_FNS = {
     'last_sim': lambda q: MOD.last_sim(_q(q, 'chain', 'starknet')),
     'files': lambda q: MOD.files(),
     'source': lambda q: MOD.source(q['path']),
-    'whitepaper': lambda q: MOD.whitepaper(),
+    'whitepaper': lambda q: MOD.whitepaper(_q(q, 'kind', 'technical')),
     'tests': lambda q: MOD.tests(),
     'gas': lambda q: MOD.gas(),
     'compare': lambda q: MOD.compare(),

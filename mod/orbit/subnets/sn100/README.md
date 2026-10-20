@@ -2,7 +2,7 @@
 
 The open alternative to frontier AI | Efficient autonomous research
 
-Bittensor subnet **100** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **100** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/CortexLM/cortex) · [url](https://network.cortex.foundation)
 
@@ -10,21 +10,22 @@ Links: [github](https://github.com/CortexLM/cortex) · [url](https://network.cor
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003170 | — | -0.95% | -13.32% | 8,843 | 2,266 | 342.80 |
+| 0.003003 | -0.00% | -4.43% | -17.57% | 8,402 | 2,206 | 285.65 |
 
 ## Last 24h flow
 
-60 trades by 33 coldkeys · 34 buys (166.00 τ) / 26 sells (176.10 τ) · net -10.10 τ
+70 trades by 36 coldkeys · 29 buys (117.56 τ) / 41 sells (166.21 τ) · net -48.66 τ
 
 ## News
 
+- 2026-10-19 · commit · [Merge pull request #320 from CortexLM/chore/bump-aiohttp-3.14.4](https://github.com/CortexLM/cortex/commit/85b6f8a60117d6d57f71e7b802990c9830ab0ea1) — CortexLM/cortex
+- 2026-10-19 · commit · [fix(deps): bump aiohttp to 3.14.4 for CVE-2026-111064 and GHSA-2g87-p…](https://github.com/CortexLM/cortex/commit/e9fb2a5f29b1dedab36c567b1c519a7a71206747) — CortexLM/cortex
+- 2026-10-19 · commit · [Merge pull request #319 from CortexLM/forge/no-signatures](https://github.com/CortexLM/cortex/commit/cd5d4b5d08b95b28518d7f47a23802b7d0edb136) — CortexLM/cortex
+- 2026-10-19 · commit · [docs(validator): cover both profile version caps and restart wording](https://github.com/CortexLM/cortex/commit/b50cb7ac9cccd78eb523a03ea8c44edda742904f) — CortexLM/cortex
+- 2026-10-19 · commit · [test(validator): skip read-only watermark reset cases as root](https://github.com/CortexLM/cortex/commit/71b0cca4ec0d07a16b7f9480175cdf6611e4ffde) — CortexLM/cortex
 - 2026-10-16 · commit · [fix(challenges): raise get_weights timeout to 180 seconds (#318)](https://github.com/CortexLM/cortex/commit/602ea0298b2f18cccee219dd13ec290eb902b622) — CortexLM/cortex
 - 2026-10-08 · commit · [docs(repo): remove retired products, add readme and validator script …](https://github.com/CortexLM/cortex/commit/df0ce4a63b334a6205d7bf1f8bea61424c90e29c) — CortexLM/cortex
 - 2026-09-28 · commit · [feat(master): send the completed epoch's chain time to challenges (#315)](https://github.com/CortexLM/cortex/commit/d738424c09213af3634b24a1ba1a0fddb7a9379d) — CortexLM/cortex
-- 2026-09-25 · commit · [test(network): verify opentype 75/25 sealed payouts (#314)](https://github.com/CortexLM/cortex/commit/540b4fe48cc65e6d0e1645f00f9de5a00ba394e7) — CortexLM/cortex
-- 2026-09-25 · commit · [fix: bring production hotfixes into main; algorithm 3 empty-epoch bur…](https://github.com/CortexLM/cortex/commit/163f814698d1c3db0e0d98e1c5020db86607dd93) — CortexLM/cortex
-- 2026-09-24 · commit · [feat(challenges): load docker challenges and move bounty out (#312)](https://github.com/CortexLM/cortex/commit/6c6d72b15c45b35c29428abb7ef87a509212ec85) — CortexLM/cortex
-- 2026-09-21 · commit · [fix(hooks): isolate fixture git context before push (#308)](https://github.com/CortexLM/cortex/commit/89b9760067fbc444cc387cc595bcd51709e05179) — CortexLM/cortex
 
 ## Use
 

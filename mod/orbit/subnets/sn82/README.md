@@ -1,21 +1,23 @@
 # sn82 — Noah ᚢ
 
-Bittensor subnet **82** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **82** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
-Links: [github](https://github.com/Vora-Inc/NOAH)
+Links: [github](https://github.com/Vora-Inc/NOAH) · [url](https://subnet82.com)
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.052058 | — | +0.09% | +110.92% | 9,788 | 2,538 | 1,511 |
+| 0.049585 | +0.01% | -4.81% | -15.14% | 9,809 | 2,569 | 362.79 |
 
 ## Last 24h flow
 
-51 trades by 24 coldkeys · 23 buys (756.29 τ) / 28 sells (721.31 τ) · net 34.98 τ
+66 trades by 35 coldkeys · 32 buys (149.46 τ) / 34 sells (131.69 τ) · net 17.77 τ
 
 ## News
 
+- 2026-10-19 · commit · [Allow configured validator publishing identities (#2)](https://github.com/Vora-Inc/NOAH/commit/3d2f07615922f577f76aec4543fcbdb5041c2c11) — Vora-Inc/NOAH
+- 2026-10-19 · commit · [Allow configured validator publishing identities](https://github.com/Vora-Inc/NOAH/commit/95302dc6908ff9cdf4ce44872a33852399e1ce94) — Vora-Inc/NOAH
 - 2026-10-18 · release · [v0.1.0 — Miner and validator source release](https://github.com/Vora-Inc/NOAH/releases/tag/v0.1.0) — Vora-Inc/NOAH
 - 2026-10-18 · commit · [Release v0.1.0: multisig receipts and surplus-bonus scoring](https://github.com/Vora-Inc/NOAH/commit/bf171203f5149ec15d3c8a9cc85c47519bd5bdb6) — Vora-Inc/NOAH
 - 2026-10-18 · commit · [Release multisig receipts and surplus-bonus scoring documentation](https://github.com/Vora-Inc/NOAH/commit/b593f181e7299ba05fb1d3e3ed447b92c9872e96) — Vora-Inc/NOAH

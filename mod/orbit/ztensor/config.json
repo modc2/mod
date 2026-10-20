@@ -37,7 +37,9 @@
         "eth": "local anvil on :51334 (prague)",
         "eth-sepolia": "ZTENSOR_RPC_ETH_SEPOLIA + ZTENSOR_ETH_KEY",
         "solana": "local solana-test-validator on :51335",
-        "solana-devnet": "ZTENSOR_SOLANA_DEVNET_RPC + ZTENSOR_SOLANA_KEYPAIR"
+        "solana-devnet": "ZTENSOR_SOLANA_DEVNET_RPC + ZTENSOR_SOLANA_KEYPAIR",
+        "postquant": "own postquant node on :51336 (orbit/postquant src/api.py, chain ztensor-pq, data/postquant/; wallets relayer + payee); pqc1 wasm contract run off chain, ML-DSA receipts",
+        "postquant-1": "any postquant node: ZTENSOR_PQ_URL (default :51030) + ZTENSOR_PQ_TOKEN + ZTENSOR_PQ_WALLET"
     },
     "state": "data/ next to config.json: keys.json (0600, member secrets, never leave the box), deployments.json, per-chain local state \u2014 all gitignored",
     "fns": [
@@ -84,7 +86,7 @@
         "costs",
         "hash_point"
     ],
-    "schema": "QmTn2czAdDChTqc9doTwzg9yTvJVWpYYowXdp63H6p9yFx",
+    "schema": "QmUE78stikzdZUeUgKW1xJgLsKTJKmUxnhUYpww2YMQXGB",
     "urls": {
         "app": "http://localhost:50121/ztensor/",
         "api": "http://localhost:50121/ztensor/api",

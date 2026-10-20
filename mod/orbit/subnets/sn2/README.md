@@ -2,7 +2,7 @@
 
 Distributed Accelerated Neural intelligence
 
-Bittensor subnet **2** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-19 (block 9314686).
+Bittensor subnet **2** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-20 (block 9322663).
 
 Links: [github](https://github.com/DaniLabsAI/subnet) · [url](https://danilabs.ai/) · discord `opendansor`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/DaniLabsAI/subnet) · [url](https://danilabs.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003839 | — | +5.43% | +29.85% | 23,017 | 8,660 | 2,662 |
+| 0.003337 | -0.24% | -13.00% | +12.91% | 20,033 | 8,074 | 2,212 |
 
 ## Last 24h flow
 
-234 trades by 83 coldkeys · 110 buys (1,444 τ) / 124 sells (1,217 τ) · net 227.43 τ
+190 trades by 93 coldkeys · 80 buys (815.30 τ) / 110 sells (1,396 τ) · net -580.22 τ
 
 ## Use
 

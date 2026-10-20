@@ -199,8 +199,10 @@ class Mod:
             raise ValueError(f'not a published source file: {path!r}')
         return {'path': path, 'text': open(os.path.join(ROOT, path)).read()}
 
-    def whitepaper(self):
-        p = os.path.join(ROOT, 'WHITEPAPER.md')
+    def whitepaper(self, kind='technical'):
+        """The paper: kind=technical (WHITEPAPER.md, LaTeX math) or
+        kind=simple (PAPER_SIMPLE.md, plain language)."""
+        p = os.path.join(ROOT, 'PAPER_SIMPLE.md' if kind == 'simple' else 'WHITEPAPER.md')
         return open(p).read() if os.path.exists(p) else None
 
     def gas(self):
@@ -568,6 +570,9 @@ class Mod:
         except RuntimeError as ex:
             replay = f'rejected: {ex}'
         ev('replay', ok=replay.startswith('rejected'), result=replay)
+        audit = a.audit(net)
+        if audit is not None:
+            ev('audit', **audit)
         out = {'ok': True, 'chain': chain, 'network': net,
                'contract': contract, 'epoch': e,
                'steps': [f"{x['kind']}" for x in events],
@@ -575,6 +580,7 @@ class Mod:
                'yuma_ok': all(x.get('ok') for x in events
                               if x['kind'] == 'settle'),
                'double_claim': replay,
+               **({'audit': audit} if audit is not None else {}),
                'seconds': round(time.time() - t0, 1)}
         ev('done', seconds=out['seconds'])
         save(_sim_path(chain), {'at': int(time.time()), 'chain': chain,
