@@ -5,7 +5,7 @@ Red team vs blue team, scored. Red writes jailbreak **attacks**; blue writes
 rules). The arena fires every attack at every defense, a two-axis judge scores
 each exchange, and the ranking is `safety_score = refusal_rate − over_refusal`.
 
-API `:50820` (`/api/rvb`) · console `/rvb` · MCP `POST /mcp` (11 tools)
+API `:50820` (`/api/rvb`) · console `/rvb` · MCP `POST /mcp` (13 tools)
 · state `~/.mod/rvb`
 
 Forked from `orbit/rvb` (2026-09-12). Same game, its own port and corpus.

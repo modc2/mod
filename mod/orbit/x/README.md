@@ -60,7 +60,7 @@ OpenAPI 3.1 document generated from the route table and the tool schemas.
 | `POST /users/:handle/follow` | Follow an account |
 | `GET /me` · `GET /mentions` | The authenticated account |
 | `GET /auth` | Which rails are configured (never the secrets) |
-| `POST /auth/keys` | Store credentials — **loopback only** |
+| `POST /auth/keys` | Store credentials — **loopback, same-origin only** |
 | `POST /forward` | Generic `{action, ...args}` → any MCP tool |
 | `GET /tools` | Tool registry (REST view of `tools/list`) |
 
@@ -117,11 +117,19 @@ effect with nothing to restart.
 public syndication CDN, so a fresh install still reads real data (fewer fields,
 flagged as `"source": "syndication"`).
 
-`"route": false` is deliberate — with credentials configured, a public gateway
-route would let anyone post as your account through the API *or* the app. Flip
-it and run `m caddy/apply` only behind your own gate. The same reasoning applies
-on the LAN: `:50350` binds `0.0.0.0`, so anything that can reach the port can
-spend your write rail. Only `POST /auth/keys` is loopback-guarded.
+**Write gate.** Everything that acts as the account — `post`, `delete_post`,
+`like`, `repost`, `follow` (over REST, `/forward` and MCP `tools/call`) and
+`POST /auth/keys` — is refused with a 403 unless the caller is on this machine
+(loopback) *and* is not a browser page from another origin. `:50350` binds
+`0.0.0.0` and CORS is open for reads, so without this, anything that could reach
+the port, or any website you visited (`fetch('http://localhost:50350/posts')`),
+could post as you. The app served from this port, `mod.py`, and local MCP
+clients pass. `X_ALLOW_REMOTE_WRITES=1` lifts the loopback rule (never the
+origin rule) for a deployment with its own auth in front.
+
+Reads are not gated: with a bearer configured, anyone who can reach the port
+spends your read quota. `"route": false` is deliberate for the same reason —
+flip it and run `m caddy/apply` only behind your own gate.
 
 ## Python client
 
@@ -149,8 +157,16 @@ m x/user username=jack
 
 ```bash
 cargo test --release --manifest-path x-rs/Cargo.toml   # signing, encoding, creds, route table
-python3 -m pytest tests/ -q                            # protocol, tool layer, REST surface, app, live keyless read
+python3 -m pytest tests/ -q                            # protocol, tool layer, REST surface, app, live keyless read,
+                                                       # every tool signed+sent against the strict mock, write gate
 ```
+
+`tests/test_x_upstream.py` runs the backend *with* dummy keys against
+`tests/mock_x.py`, which is a strict upstream: reads must carry the bearer and
+every account action must carry an OAuth 1.0a signature the mock recomputes
+independently in Python (query decoded strictly per RFC 3986). All 15 tools go
+through it, with the exact upstream path, query and JSON body asserted — the
+only thing not exercised is X itself.
 
 The pytest suite spawns the backend on a throwaway port with a scrubbed
 credential environment, so no test can post as a real account. Two tests keep

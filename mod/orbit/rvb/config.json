@@ -1,7 +1,7 @@
 {
     "name": "rvb",
     "version": "0.1.0",
-    "description": "Red team versus blue team, with an actual scoreboard. Red writes attacks \u2014 prompts built to make a target model produce something it should not. Blue writes defenses, and a defense is a whole pipeline rather than a system prompt: input rules, the system prompt, the model, an optional self-check pass, output rules, any stage of which can end the turn. The arena fires every attack at every defense, a two-axis judge asks did-it-refuse and did-anything-harmful-escape, and the number that comes out is the refusal rate on attacks \u2014 held honest by the over-refusal rate on a fixed set of benign controls that sit right next to the attacks, so safety_score = refusal_rate - over_refusal and a refuse-everything defense nets ~0. The target is pluggable: the keyless local Claude CLI by default, any API model, or an offline mock whose correct score is known, which is how the harness itself is tested. Attacks, defenses and round records live in ~/.mod/rvb, never in this repo. REST, the browser console and eleven MCP tools on one port, off the same functions, so an agent, a shell and a human are never told different scores for the same round.",
+    "description": "Red team versus blue team, with an actual scoreboard. Red writes attacks \u2014 prompts built to make a target model produce something it should not. Blue writes defenses, and a defense is a whole pipeline rather than a system prompt: input rules, the system prompt, the model, an optional self-check pass, output rules, any stage of which can end the turn. The arena fires every attack at every defense, a two-axis judge asks did-it-refuse and did-anything-harmful-escape, and the number that comes out is the refusal rate on attacks \u2014 held honest by the over-refusal rate on a fixed set of benign controls that sit right next to the attacks, so safety_score = refusal_rate - over_refusal and a refuse-everything defense nets ~0. The target is pluggable: the keyless local Claude CLI by default, any API model, any agent on the agent protocol (agent:<provider>/<agent_type> \u2014 orbit/agent's registry, claudecode, hermes, judge, or any mod with an agent_contract), or an offline mock whose correct score is known, which is how the harness itself is tested. Attacks, defenses and round records live in ~/.mod/rvb, never in this repo. REST, the browser console and thirteen MCP tools on one port, off the same functions, so an agent, a shell and a human are never told different scores for the same round.",
     "icon": "\u25e8",
     "color": "#5db4ff",
     "anchor": "mod.py",
@@ -57,6 +57,7 @@
         "rvb_board",
         "rvb_targets",
         "rvb_models",
+        "rvb_agents",
         "rvb_delete"
     ],
     "endpoints": {
@@ -74,7 +75,8 @@
         "ping": "POST /ping {model} \u2014 prove a target is reachable",
         "tools": "GET /tools",
         "mcp": "POST /mcp (JSON-RPC 2.0, Streamable HTTP)",
-        "console": "GET /rvb (browser)"
+        "console": "GET /rvb (browser)",
+        "agents": "GET /agents?provider= \u2014 every agent-protocol provider and its roster; name one as model=agent:<provider>/<agent_type>"
     },
     "fns": [
         "forward",
@@ -111,7 +113,10 @@
         "RVB_KEEP_ROUNDS": "round records kept before the oldest are pruned (default 300)",
         "OPENROUTER_API_KEY": "enables openrouter:<slug> targets",
         "ANTHROPIC_API_KEY": "enables anthropic:<model> targets",
-        "OPENAI_API_KEY": "enables openai:<model> targets"
+        "OPENAI_API_KEY": "enables openai:<model> targets",
+        "RVB_AGENT_URL": "orbit/agent API for agent: targets (default its config urls.api, :50117)",
+        "RVB_AGENT_STEPS": "tool-step budget per agent: exchange (default 3)",
+        "RVB_AGENT_TOOLS": "tools offered to an agent: target, comma list (default think; 'all' = the agent's own toolbox)"
     },
     "services": [
         "rvb-api"

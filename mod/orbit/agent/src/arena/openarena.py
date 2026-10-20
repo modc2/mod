@@ -200,8 +200,8 @@ def brief(task: Dict[str, Any], workfile: str = None) -> str:
     out = [f"# {task.get('title', '')}", "", str(task.get("statement") or ""), "",
            f"Language: {spoken}."]
     if mode == "unit":
-        out.append(f"Your program is imported by hidden graders, so define everything "
-                   f"at module level and print nothing on import.")
+        out.append("Your program is imported by hidden graders, so define everything "
+                   "at module level and print nothing on import.")
     else:
         out.append("Your program reads its input from stdin and writes the answer to "
                    "stdout. Nothing else may be printed.")

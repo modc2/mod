@@ -19,18 +19,26 @@ Fail-closed by design: a judge that errors doesn't vote, and if fewer than
 | `min_votes` | quorum — judges that must vote for a verdict to count | all of them |
 | `creator` | who owns the panel; the only identity that can update/remove it | required |
 
-Two judge kinds:
+Every model judge is an agent spoken to over the agent protocol
+(`GET /agents` + `POST /run/stream`). A judge names a `provider` — any mod on
+this box whose config.json declares an `agent_contract` (`GET /providers`
+lists them: this module, agent, claudecode, hermes, zkapi …) — and an
+`agent_type` off that provider's roster (`GET /roster?provider=`). The input is
+posed as a run; the finish summary is parsed as `{"score", "reason"}`.
 
 ```jsonc
-// an agent: a model scores the input 0-100 against a criteria prompt.
-// No url = the LFM weights on this box via the liquidai module (keyless,
-// default model LiquidAI/LFM2.5-1.2B-Instruct, ~30-60s a vote on CPU);
-// a url = any OpenAI-compatible chat endpoint.
-{"name": "clarity", "kind": "llm", "prompt": "Is the text clear and specific?",
- "model": "LiquidAI/LFM2.5-1.2B-Instruct",  // optional; a repo id liquidai can load, or the endpoint's model
- "url": "https://host/v1/chat/completions",  // optional; JUDGE_LLM_URL sets a fleet-wide default
- "api_key_env": "OPENROUTER_KEY",       // optional env var holding a bearer key (url path only)
- "weight": 2}                           // optional, default 1
+// an agent judge. No provider/agent_type = judge/scorer, this module's own
+// agent: one turn on the LFM weights via liquidai (keyless, ~30-60s on CPU).
+{"name": "clarity", "kind": "agent", "prompt": "Is the text clear and specific?",
+ "provider": "judge", "agent_type": "scorer",  // or e.g. "claudecode"/"claude", "agent"/"default"
+ "model": "LiquidAI/LFM2.5-1.2B-Instruct",     // optional, passed to the run
+ "chat_url": "https://host/v1/chat/completions", // scorer only: OpenAI-compatible endpoint instead of liquidai
+ "api_key_env": "OPENROUTER_KEY",              // scorer only, with chat_url
+ "steps": 3,                                   // remote providers: run budget
+ "weight": 2}                                  // optional, default 1
+
+// "kind": "llm" is a legacy alias — saved as the agent judge above on
+// judge/scorer (its `url` becomes `chat_url`). Old benches still run.
 
 // deterministic, offline: starts at 100, loses 50 per violated rule
 {"name": "short", "kind": "rule", "max_len": 500, "min_len": 10,
@@ -41,7 +49,7 @@ Two judge kinds:
 
 ```bash
 m judge/create_panel name=pr creator=alice threshold=70 \
-    judges='[{"name":"clarity","kind":"llm","prompt":"Is it clear?"},
+    judges='[{"name":"clarity","kind":"agent","prompt":"Is it clear?"},
              {"name":"short","kind":"rule","max_len":500}]'
 
 m judge/judge panel=pr input="Ship the fix because the test now covers the regression."
@@ -61,7 +69,7 @@ HTTP (same functions): reads are GET, writes are POST JSON, at
 curl -s localhost:51150/panels
 curl -s -X POST localhost:51150/judge -d '{"panel":"pr","input":"..."}'
 # try one judge spec without a panel — its 0-100 score + reason, nothing recorded (trusted callers)
-curl -s -X POST localhost:51150/score -d '{"spec":{"kind":"llm","prompt":"is it clear?"},"input":"..."}'
+curl -s -X POST localhost:51150/score -d '{"spec":{"kind":"agent","prompt":"is it clear?"},"input":"..."}'
 curl -s localhost:51150/verify?id=3          # re-check a verdict's signatures
 curl -s localhost:51150/key_kinds            # the key types judges are issued
 ```
@@ -112,7 +120,7 @@ TOKEN=$(python3 -c "import mod as m; print(m.mod('auth')().token({'mod':'judge'}
 curl -s localhost:51150/whoami -H "Authorization: Bearer $TOKEN"
 curl -s -X POST localhost:51150/create_panel -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"name":"pr","judges":[{"name":"clarity","kind":"llm","goal":"approve only clear, specific writing"}]}'
+  -d '{"name":"pr","judges":[{"name":"clarity","kind":"agent","goal":"approve only clear, specific writing"}]}'
 # → creator = your address, whatever the body said
 ```
 
@@ -120,9 +128,9 @@ curl -s -X POST localhost:51150/create_panel -H "Authorization: Bearer $TOKEN" \
 
 Every judge takes an optional **`goal`** — one line on what this judge is
 judging *for*, set by the panel's creator (`"approve only PRs that keep the
-API backwards compatible"`). For `llm` and `agent` judges it is put before the
+API backwards compatible"`). For agent judges it is put before the
 model as `Goal: …` ahead of the criteria `prompt`, and either may stand alone
-(a goal is enough to seat an LLM judge). Rule and panel judges carry it as
+(a goal is enough to seat an agent judge). Rule and panel judges carry it as
 documentation; the console shows it under every judge.
 
 `POST /add_judge {name, creator, judge}` seats one more judge on an existing
@@ -165,7 +173,7 @@ tags}`) — a listing is just a spec, it runs nothing until seated. Browse with
 same `(name, author)` updates your listing, and only the author can
 `POST /unpublish_judge`. `POST /install_judge {id, panel, creator}` seats a
 listing on a panel (creator only; bench name clashes auto-suffix). The board
-seeds with three starters: `concise` (rule), `clarity` (llm), `reviewer`
+seeds with three starters: `concise` (rule), `clarity` (agent, judge/scorer), `reviewer`
 (agent).
 
 Panel writes (`create/update/remove_panel`, `install_judge`) answer loopback

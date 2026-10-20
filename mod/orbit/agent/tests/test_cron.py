@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.cron import compute
-from src.cron.mod import Cron, ModHost, Scheduler, Standing, MIN_EVERY
+from src.cron.mod import Cron, Scheduler, Standing, MIN_EVERY
 from src.mod import Mod
 
 OWNER, FRIEND, STRANGER = "0x" + "a" * 40, "0x" + "b" * 40, "0x" + "c" * 40

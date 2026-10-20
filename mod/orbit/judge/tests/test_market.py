@@ -152,10 +152,27 @@ def test_agent_judge_error_means_no_vote(book, agent_api):
 
 
 def test_agent_judge_validation(book):
-    assert 'error' in book.create('x', 'a', [
-        {'name': 'j', 'kind': 'agent', 'prompt': 'p'}])          # no agent_type
-    assert 'error' in book.create('x', 'a', [
+    # no provider/agent_type = this module's own scorer agent
+    ok = book.create('x', 'a', [{'name': 'j', 'kind': 'agent', 'prompt': 'p'}])
+    assert 'error' not in ok
+    assert 'error' in book.create('y', 'a', [
         {'name': 'j', 'kind': 'agent', 'agent_type': 'default'}])  # no prompt
+    assert 'error' in book.create('y', 'a', [
+        {'name': 'j', 'kind': 'agent', 'provider': 'nope', 'prompt': 'p'}])
+    assert 'error' in book.create('y', 'a', [
+        {'name': 'j', 'kind': 'agent', 'agent_type': 'ghost', 'provider': 'judge',
+         'prompt': 'p'}])                                          # not on our roster
+
+
+def test_llm_is_an_agent_judge(book):
+    """`llm` is a legacy alias: saved as an agent judge on judge/scorer, its
+    OpenAI-compatible url kept as the scorer's chat_url."""
+    p = book.create('l', 'a', [{'name': 'j', 'kind': 'llm', 'prompt': 'p',
+                                'url': 'http://x/v1/chat/completions'}])
+    j = p['judges'][0]
+    assert j['kind'] == 'agent' and j['provider'] == 'judge'
+    assert j['agent_type'] == 'scorer' and j['chat_url'].startswith('http://x')
+    assert 'url' not in j
 
 
 # ── the judge market ────────────────────────────────────────────

@@ -1,127 +1,225 @@
-# ztensor
+# ztensor: anonymous subnets with Zuma consensus, on any chain
 
-**Anonymous voting & consensus for miner/validator networks.**
+ztensor runs a Bittensor-style subnet where **miners and validators don't know
+each other.** Each one only knows that the other is in the registered set.
+Emission is split by **Zuma consensus**, computed on chain.
 
-Miners and validators participate in consensus **without being able to identify
-each other**. A member proves they belong to the eligible set and casts a vote,
-but the tally can never map a vote back to a specific participant. This kills the
-things that make open validator sets fragile: collusion, vote-buying, and
-targeted retaliation against whoever voted "wrong".
+- The **sets are public.** The owner (or anyone, while registration is open)
+  registers STARK-curve public keys as `miner` or `validator`.
+- Every **action is a ring signature** over a ring of members of the right
+  role. The proof says "one of these N miners/validators signed this" and
+  nothing more. A Starknet contract verifies it with the native EC builtin.
 
-## Design stance: private ballots, public books
+| action | who | proves | key image is… | enforces |
+|---|---|---|---|---|
+| `submit(ring, work, sig)` | miner | one of the miners, for `(subnet, epoch)` | the miner's **tag** for this epoch | one submission per miner per epoch |
+| `score(ring, tag, score, sig)` | validator | one of the validators, for `(subnet, epoch, tag)` | a **nullifier** | one score per validator per tag |
+| `settle(epoch, tag)` | anyone | — | — | Zuma consensus for one tag once the epoch closes: consensus + clipped rank |
+| `claim(epoch, ring, to, sig)` | miner | same key as the tag (same scope gives the same image) | the tag again | one claim per tag, after every tag is settled; credits `emission · rank / Σ rank` to `to` |
 
-Two properties pull in opposite directions, and ztensor keeps them separate on
-purpose:
+## Zuma consensus
 
-| Layer            | Property        | Why                                              |
-| ---------------- | --------------- | ------------------------------------------------ |
-| **Votes**        | unlinkable      | no one learns which validator cast which ballot  |
-| **Reward payouts** | transparent   | anyone can audit that the pool was split honestly |
+Validators are anonymous, so there is no per-validator stake. A ring is one
+stake tier, and **membership is the stake**: every validator weighs 1. With
+κ = ½:
 
-The anonymity lives on the *ballot*. The *money* stays fully auditable: payout
-instructions name the recipient, the vote count, and the share, so the books can
-be checked against the public tally. ztensor does **not** obfuscate fund flows,
-rotate funds through intermediary keys, or mix provenance — that is a different
-(and dangerous) kind of system, and deliberately out of scope.
+- **Consensus** `C` for a tag is the highest score that at least half of the
+  validator set gave it. A validator who didn't score the tag counts as 0.
+- **Rank** `R = Σ min(score, C)`: every score is clipped to consensus.
+- A miner's share is `emission · R / Σ R` over the epoch's tags.
 
-## How the anonymity works
+A minority can't raise consensus. One validator pumping a tag from 10 to 100
+adds nothing, because three others said 10. The validator set `V` is
+snapshotted at the epoch's first submit, so registering validators late
+can't move payouts.
 
-The core primitive is a **Linkable Spontaneous Anonymous Group signature
-(LSAG)** — the Liu-Wei-Wong construction over a prime-order subgroup of an
-RFC 3526 safe-prime group. No trusted setup. It exists in three byte-for-byte
-compatible implementations, cross-checked against each other in CI-able tests:
+`score` adds to a 0..100 histogram per tag. `settle` walks the histogram down
+from the top score until half the set is covered. That takes at most 101
+reads, whatever the set size. `src/core/yuma.py` is the reference that every
+chain's contract is tested against, and `m ztensor/yuma scores='{"a":[90,90,90,100]}'
+validators=4` runs it by hand. Validator dividends and bonds are not paid:
+bonds need one validator identity across rounds, which anonymity removes (see
+`cairo.zuma` for per-round bonds with stake-tier rings).
 
-| Implementation      | Role                                                |
-| ------------------- | --------------------------------------------------- |
-| `ring.py`           | reference (pure python, stdlib only)                |
-| `api/src/lsag.rs`   | the verifier the Rust service runs                  |
-| `app/lib/lsag.mjs`  | the browser signer (keygen + sign, WebCrypto BigInt)|
+Validators score tags. They never learn which miner is behind a tag. Tags in
+different epochs can't be linked to each other, and they can't be linked to
+the miner's key. Miners see their scores but never learn who gave them. When
+one validator scores two different tags, the two scores can't be linked to
+each other either. Payouts are **public books**: every credit is visible, but
+nobody can tell which member it belongs to.
 
-- **Anonymity** — a signature proves *some* member of the ring signed it, never which.
-- **Double-vote resistance** — each signature carries a per-topic *key image* (tag);
-  the same member signing the same topic twice yields the same tag and is rejected.
-- **Unlinkable across topics** — the tag is derived from `(ring, topic)`, so votes
-  on different topics can't be correlated to the same (unknown) member.
-- **Soundness** — only a true member of the eligible set can produce a valid signature.
+## One signer, a verifier per chain
 
-> A production deployment can swap LSAG for a SNARK-backed membership circuit
-> (Semaphore-style) behind the same API; the trust properties above are the
-> contract.
+Every chain is an **adapter** in `src/networks/<chain>/`. They all verify the
+same signature, which one Cairo prover (`src/core/prover/`) makes.
 
-### Keys never touch the server
+| | Starknet | NEAR | Ethereum | Solana |
+|---|---|---|---|---|
+| contract | Cairo (`ztensor.cairo`) | Rust/wasm (near-sdk 5) | Solidity + Yul | Rust sBPF program |
+| curve math | native EC builtin | `fp.rs`, 9x29-bit limbs | `StarkCurve.sol` in Yul | NEAR's `fp.rs`, in units |
+| local chain | starknet-devnet :51332 | near-sandbox :51333 | anvil :51334 | solana-test-validator :51335 |
+| ring ≤ | 64 | 32 (300 Tgas/call) | 32 (EIP-7825) | 32 (session layout) |
+| verify, ring 4 | ~15.8k steps, 19 ec_op | ~37 Tgas | ~2.1M gas | ~40M CU over ~41 units |
+| native tests | snforge (10) | cargo (25) | forge (11) | cargo (8) |
 
-`register` stores a **public** key only. Signing happens client-side with the
-member's secret key, which never leaves their machine. The service stores public
-keys, vote choices, and tags — nothing that can deanonymize a voter or that is
-worth stealing.
+Every write fn takes `network=` any adapter's net (`devnet|sepolia|mainnet|
+near|near-testnet|eth|eth-sepolia|solana|solana-devnet`); `simulate
+chain=<chain>` runs a full epoch on that chain's local net. Only the scope's
+`subnet` felt is chain-specific, so adapters read it from their contract.
+**Adding a chain = adding a package**: see `src/networks/README.md`.
 
-## Endpoints
+**NEAR build traps (all handled by `src/networks/near/client.py`):** modern rustc's std
+carries bulk-memory + overlong call_indirect → `PrepareError:
+Deserialization`; `near/tools/wasmlower` lowers and validates to MVP. Without
+`--cfg near`, near-sdk 5.2x panics are a bare `unreachable` trap and sha256
+runs in wasm. Sandbox txs must reference the OPTIMISTIC head (after
+`sandbox_fast_forward` the final block is outside the validity window).
 
-Every API route is mounted at `/`, `/api/*`, `/_api/*`, `/ztensor/api/*` and
-`/ztensor/_api/*` (the gateway strips `/ztensor/api` on the api route and keeps
-the prefix on the app route; the console calls `/ztensor/_api/*`).
+## The scheme
 
-| Method | Route       | Does                                                          |
-| ------ | ----------- | ------------------------------------------------------------- |
-| GET    | `/health`   | liveness                                                       |
-| GET    | `/info`     | scheme + guarantees                                            |
-| POST   | `/register` | `{pub}` → add a public key to the eligible set                |
-| GET    | `/set`      | current eligible set                                           |
-| GET    | `/ring`     | `?topic=` → the ring to sign against (frozen at first vote)   |
-| POST   | `/vote`     | `{topic, choice, sig}` → record an anonymous vote             |
-| GET    | `/tally`    | `?topic=` → public vote counts                                |
-| GET    | `/payout`   | `?topic=&pool=` → transparent reward split by vote share      |
-| GET    | `/topics`   | all topics with ring size + vote count                         |
-| GET    | `/status`   | participants + topic names                                     |
+LSAG (Liu–Wei–Wong) over the STARK curve, with Poseidon challenges:
 
-`sig` fields (`c0`, `s[]`, `tag`) are accepted as decimal strings, `0x`-hex
-strings, or raw JSON integers (what `json.dumps` of `ring.sign(...)` emits).
-
-## CLI
-
-```sh
-m ztensor/demo                        # end-to-end anonymous vote, in-process
-m ztensor/test                        # self-check: sign/verify + double-vote + outsider
-m ztensor/register pub=<hex>          # add a public key
-m ztensor/set
-m ztensor/tally topic=reward-epoch-1
-m ztensor/payout topic=reward-epoch-1 pool=1000
-m ztensor/build                       # next build -> dist (atomic) + cargo release
-m ztensor/serve                       # api + console on :51180, route /ztensor
-m ztensor/kill
+```
+I   = x · Hp(scope)                     key image (Hp: try-and-increment poseidon -> curve x)
+L_i = s_i·G + c_i·P_i
+R_i = s_i·Hp(scope) + c_i·I
+c_{i+1} = poseidon('zuma-chal', poseidon('zuma-msg', scope, msg, I, ring), L_i, R_i)
+valid  iff  the ring closes: c_n == c_0
 ```
 
-## Client sketch
+`src/networks/starknet/contract/src/lsag.cairo` is the reference. The Starknet
+contract verifies with it. `src/core/prover/` is a Cairo program that links the **same module** to
+handle keygen, signing and verification off-chain, run through
+`scarb cairo-run`. The Python anchor never touches curve math, so the signer
+and the verifier can't drift apart.
 
-```python
-import ring
-secret, pub = ring.keygen()                 # keep `secret` private, register `pub`
-# ... everyone registers; `rng` = the eligible set's public keys ...
-topic = b"reward-epoch-1"
-msg = b"reward-epoch-1|minerA"              # topic|choice
-sig = ring.sign(secret, rng, topic, msg)    # POST {topic, choice, sig} to /vote
+## The set-size limitation (read this)
+
+Your anonymity set is the ring, and nothing more:
+
+- **Small sets leak.** With 3 validators, each score has a 1-in-3 chance of
+  pointing to any given one. With 1 validator there is no anonymity at all.
+  The contract enforces `min_ring` (set at deploy) and rejects rings with
+  duplicate keys (key ids must be strictly increasing). It **can't** create
+  members who don't exist.
+- **Big rings cost gas, and the cost grows linearly.** A ring of 4 costs
+  about 16k Cairo steps and 19 `ec_op` per verify (measured on devnet).
+  Rings are capped at **64** (`MAX_RING`). That gives ~250k steps, which is
+  well inside Starknet's limits but costs real fees. Default rings use every
+  member, up to 64.
+- **Metadata still leaks.** The Starknet tx sender is public, so a member must
+  never post from their own registered account. All actions go through a
+  **relayer** account, because the contract never checks the caller. Timing,
+  IP and work content can also identify a miner. ztensor hides the key, not
+  your behaviour.
+- **Collusion.** A validator who is also a miner knows its own tag and could
+  score it high. Zuma consensus clips that score to what half the set agrees on, so it
+  only counts if a majority colludes.
+
+## Use
+
+```bash
+m ztensor/networks                  # every chain adapter: nets, ring cap, cost unit
+m ztensor/build                     # prover + every chain's contract; chain=<chain> for one
+m ztensor/test                      # every chain's native suite; chain=<chain> for one
+m ztensor/simulate                  # fresh local devnet, deploy, 4+4 members, submit, score (one pumped), settle (Zuma consensus), claim
+m ztensor/settle epoch=3             # anyone: run Zuma consensus for every unsettled tag of a closed epoch
+m ztensor/simulate chain=near       # the same epoch on near-sandbox (~75s); eth, solana too
+m ztensor/gas_sweep chain=near      # cost per ring size on any chain -> data/<chain>_gas.json
+m ztensor/economics fresh=1         # mainnet USD per action + 1 h epoch limits (live gas+price, 10 min cache)
+
+m ztensor/keygen name=alice         # random secret -> data/keys.json (0600); prints the public key
+m ztensor/deploy network=devnet tempo=50 min_ring=3 emission=1000
+m ztensor/register name=alice role=miner
+m ztensor/submit name=alice work="sha of my model"         # -> tag
+m ztensor/score  name=val1 tag=0x… score=87
+m ztensor/tally                                            # tags + sums, never identities
+m ztensor/claim  name=alice epoch=3 recipient=0x…
+m ztensor/mytag  name=alice epoch=3                        # only the key holder can compute it
 ```
+
+### Console
+
+`src/server.py` is one stdlib process on **:50121** (pm2 `ztensor`). It serves the
+console at `/ztensor/` and the JSON API at `/ztensor/api/<fn>`; the console's own
+calls go to `/ztensor/_api/<fn>`.
+
+The console is a Next.js app in `src/app/` (static export, no node at runtime):
+`src/app/build.sh` builds it and swaps `src/app/dist` atomically. It **adapts to
+the adapters**: chain buttons, theme color, nets, ring caps and cost columns all
+come from `GET networks`, so a new `src/networks/<chain>/` gets every tab for free.
+Tabs: LIVE (run/replay an epoch, ring stage + Zuma consensus bars + event log), SUBNET
+(board: params, epoch clock, member sets, recent epochs), COSTS (economics + ring sweep vs chain limit),
+CODE, TESTS, PAPER.
+
+- **Stage.** It draws both public sets as rings. Each submit pulses the whole
+  miner ring, never one node, and drops an anonymous tag. Each score pulses the
+  validator ring and fills that tag's bar. A claim pays the payee, and the
+  replayed claim flashes red when the contract rejects it.
+- **Run an anonymous epoch** calls `simulate` on the local devnet with
+  throwaway `sim-*` keys and streams each on-chain step (`GET sim?since=N`).
+  **Replay last epoch** re-animates `data/last_sim.json`.
+- **Who can call what.** Reads (`board`, `tally`, `members`, `epoch`,
+  `last_sim`, ...), off-chain `verify`, and `simulate` are public. Public
+  `simulate` runs one at a time, has a 60s cooldown (`ZTENSOR_SIM_COOLDOWN`) and
+  allows at most 8 members per set. Everything that touches `data/keys.json`
+  or spends from an account (keygen, sign, submit, score, claim, register,
+  deploy, devnet, ...) is loopback-only: it must come from 127.0.0.1 and
+  carry no proxy headers.
+- **Reads.** Views use raw `starknet_call` (selector = starknet_keccak).
+  `board` takes about 0.3s, where it used to cost one sncast process per read.
+
+```bash
+python3 src/server.py 50121      # or: m ztensor/serve
+python3 -m pytest                # offline: every chain's adapter tests + core + server (~4s)
+ZTENSOR_NATIVE=1 python3 -m pytest -m native   # + snforge / cargo / forge (~1 min)
+ZTENSOR_LIVE=1 python3 -m pytest src/networks/near -m live   # a full epoch on one chain
+```
+
+### Deploying to Sepolia or mainnet
+
+```bash
+sncast account create --name ztensor-owner --url <rpc>   # then fund it with STRK and `sncast account deploy`
+m ztensor/deploy network=sepolia account=ztensor-owner relayer=ztensor-relay tempo=360 min_ring=8
+```
+
+The default RPCs are publicnode, which you can override with `rpc=` or with
+`ZTENSOR_RPC_SEPOLIA` / `ZTENSOR_RPC_MAINNET`. Fees are paid in STRK. sncast 0.31
+speaks RPC 0.7. The accounts file defaults to
+`~/.starknet_accounts/starknet_open_zeppelin_accounts.json`.
 
 ## Layout
 
 ```
-ztensor/
-  config.json        # port 51180, endpoints, fns
-  mod.py             # Mod: register/set/vote/tally/payout/test/build/serve
-  ring.py            # LSAG reference implementation (pure python)
-  api/               # Rust service (axum): JSON API + serves the console
-    src/lsag.rs      #   LSAG verifier (+ sign for self-check endpoints)
-    src/main.rs      #   routes, state, static dist serving
-    tests/           #   python-signed fixture for cross-implementation tests
-  app/               # Next.js console (output: 'export', basePath /ztensor)
-    lib/lsag.mjs     #   browser keygen + signer — secrets never leave the client
-    scripts/crosstest.mjs  # JS<->python wire-compatibility check
-  dist -> releases/<ts>   # published console, atomic symlink swap (build.sh)
-  server.py          # pure-python fallback server (used when api/ not built)
-  state/             # local state (public keys, tags, choices) — git-ignored
+config.json, README.md, WHITEPAPER.md, pytest.ini
+data/                  keys.json (secrets, 0600), deployments.json, per-chain local state (gitignored)
+src/
+  mod.py               the module: keys, dispatch to adapters, simulate, compare, gas_sweep
+  server.py            console + JSON API on :50121 (public reads, loopback-only key ops)
+  app/                 the console: Next.js static export (basePath /ztensor);
+                       app/build.sh -> releases/<ts> -> dist symlink, served by server.py
+  static/index.html    fallback console while app/dist is unbuilt
+  core/
+    signer.py          keys + the Cairo prover bridge
+    prover/            Cairo program over ztensor::lsag (keygen, sign, verify, image, scope, Hp)
+    stark.py           curve + Poseidon in Python (hints for Solana, cross-checks)
+    util.py            felts, JSON state
+  networks/
+    base.py            the Network contract every adapter implements
+    __init__.py        registry (one package = one chain)
+    starknet/          adapter.py, contract/ (Scarb + snforge), tests/
+    near/              adapter.py, client.py, contract/ (crate), tools/ (wasmlower, gen_fp), tests/
+    eth/               adapter.py, client.py, contract/ (Foundry), tools/ (gen_consts), tests/
+    solana/            adapter.py, client.py, contract/ (sBPF crate), tools/ (gen_fixture), tests/
+    _template/         copy to add a chain
+  tests/               server, adapter conformance, core crypto
 ```
 
-One process, one port: the Rust binary serves the API and the static console;
-no node process at runtime. Verify the three LSAG implementations agree with
-`cd api && cargo test` (verifies a python-signed fixture) and
-`cd app && node scripts/crosstest.mjs` (JS signs, python verifies).
+## Scope of v0.2
+
+- Credits are **points** recorded in contract storage (`earned(addr)`). No
+  token is transferred. A real emission token can pay out against `earned`
+  later.
+- The console is read-mostly: anything that touches member keys stays on the anchor host.
+- Epochs follow block number (`epoch = block / tempo`). A submission and its
+  scores must land in the same epoch.

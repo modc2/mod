@@ -104,15 +104,23 @@ const sessionId = (): string => {
 type Tab = 'tasks' | 'output' | 'tools' | 'memory' | 'agents'
 // the TOOLS tab answers two questions: what did this run call, and what can
 // the agent call at all
-type ToolPane = 'trace' | 'registry'
+type ToolPane = 'trace' | 'registry' | 'memory'
 // the three shelves inside HUB — the things a chat pulls from, and the runs
 // it left going, all under one top-level tab
-// the three tabs on the hub strip — BUILD (make an agent from one sentence),
-// AGENTS (the registry) and TOOLS (what they can call). LIBRARY and RUNS are
-// still panes, reached through doors (the running-count chip, "pull from the
-// library"), not tabs: three is the number that fits in one glance.
-type HubPane = 'build' | 'agents' | 'tools' | 'library' | 'tasks'
-const HUB_TABS = ['build', 'agents', 'tools'] as const
+// two sections, AGENTS and TOOLS, and every hub pane belongs to one of them.
+// An agent is the thing that runs; a tool is anything it can reach for —
+// the callable registry, its memory, the library of prompts and notes. The
+// top bar names the section; the slim strip under it names the face.
+type HubPane = 'build' | 'agents' | 'tasks' | 'tools' | 'memory' | 'library'
+const HUB_SECTIONS = {
+  agents: ['agents', 'build', 'tasks'],
+  tools: ['tools', 'memory', 'library'],
+} as const satisfies Record<string, readonly HubPane[]>
+const hubSection = (p: HubPane): 'agents' | 'tools' =>
+  (HUB_SECTIONS.tools as readonly HubPane[]).includes(p) ? 'tools' : 'agents'
+const HUB_FACE_LABEL: Record<HubPane, string> = {
+  agents: 'all', build: 'new', tasks: 'runs', tools: 'callable', memory: 'memory', library: 'library',
+}
 
 // an image staged in the composer, not yet sent
 type Attachment = { id: string; name: string; url: string; thumb: string }
@@ -306,6 +314,8 @@ type ServerTask = {
   summary?: string | null; chain?: boolean
   cancelling?: boolean       // stop flag set — the run ends at its next step
   images?: number            // attachments the run carried — previews are a separate fetch
+  cost?: number | null       // running USD total from _task_usage()
+  tokens?: number            // cumulative token count
 }
 
 // one step of a run's trace (GET /tasks/{id}) — tool name plus the file or
@@ -314,6 +324,13 @@ type TraceStep = { tool?: string | null; path?: string | null }
 
 // the tail of a path is the part a human recognizes at a glance
 const pathTail = (p: string) => p.split('/').filter(Boolean).slice(-2).join('/')
+
+const highlightTerm = (text: string, term: string) => {
+  const t = term.trim().toLowerCase()
+  if (!t || !text.toLowerCase().includes(t)) return text
+  const idx = text.toLowerCase().indexOf(t)
+  return <>{text.slice(0, idx)}<span className="bg-yellow-400/20 text-yellow-200">{text.slice(idx, idx + t.length)}</span>{text.slice(idx + t.length)}</>
+}
 
 // a prompt from the library, selectable as an agent's system prompt
 type LibPrompt = Owned & { id: string; name: string; description: string; body?: string; tags: string[] }
@@ -389,6 +406,9 @@ export default function Home() {
   // appears inline in the transcript and again in the trace, and opening one
   // shouldn't open the other
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({})
+  const [expandedResults, setExpandedResults] = useState<Record<string, boolean>>({})
+  const [copiedBlock, setCopiedBlock] = useState<string | null>(null)
+  const toggleResult = (k: string) => setExpandedResults(r => ({ ...r, [k]: !r[k] }))
   const [composeFocused, setComposeFocused] = useState(false)
   // images staged in the composer + the group open in the viewer
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -409,6 +429,8 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null)
   // prompt history navigation index (-1 = new prompt)
   const historyIdx = useRef(-1)
+  // draft query saved when the user first presses ArrowUp from a partial entry
+  const historyBufRef = useRef('')
   // 1s ticker so the elapsed-time display updates while a task runs
   const [, setClockTick] = useState(0)
 
@@ -532,6 +554,7 @@ export default function Home() {
   const [serverTasks, setServerTasks] = useState<ServerTask[]>([])
   const [taskFilter, setTaskFilter] = useState<'all' | 'running' | 'done' | 'error' | 'cancelled'>('all')
   const [taskSearch, setTaskSearch] = useState('')
+  const [traceFilter, setTraceFilter] = useState('')
   const [expandedServerTasks, setExpandedServerTasks] = useState<Record<string, boolean>>({})
   // attachment previews per task id — base64, so they're fetched only when a
   // task is opened and never ride along with the 4s registry poll
@@ -652,7 +675,7 @@ export default function Home() {
       const pane = localStorage.getItem('agent_rail_pane')
       if (pane === 'chats' || pane === 'agents') setRailPane(pane)
       const hp = localStorage.getItem('agent_hub_pane')
-      if (hp === 'build' || hp === 'agents' || hp === 'tools' || hp === 'library' || hp === 'tasks') setHubPane(hp)
+      if (hp && (Object.values(HUB_SECTIONS) as readonly (readonly string[])[]).some(f => f.includes(hp))) setHubPane(hp as HubPane)
       // an arena page's "play in console" — ArenaPortal consumes the key
       if (localStorage.getItem('agent_arena_go')) setView('arena')
       const mw = Number(localStorage.getItem('agent_market_w'))
@@ -1600,12 +1623,16 @@ export default function Home() {
     return () => clearInterval(iv)
   }, [fetchServerTasks])
 
-  // Trace tail for every OPENED running row. The polled /tasks list strips
-  // traces; /tasks/{id} carries the [{tool, path}] history. Each 4s poll
-  // replaces serverTasks, which re-runs this — so an open row's step list
-  // stays fresh without its own timer.
+  // Trace tail for every OPENED row. The polled /tasks list strips traces;
+  // /tasks/{id} carries the [{tool, path}] history. Running rows refresh on
+  // every 4s poll; completed rows fetch once (trace is frozen after finish).
   useEffect(() => {
-    const open = serverTasks.filter(t => t.status === 'running' && expandedServerTasks[t.id])
+    const open = serverTasks.filter(t =>
+      expandedServerTasks[t.id] && (
+        t.status === 'running' ||
+        !taskTraces[t.id]
+      )
+    )
     if (!open.length) return
     let dead = false
     open.forEach(t => {
@@ -1613,7 +1640,7 @@ export default function Home() {
         .then(r => r.json())
         .then(d => {
           if (dead || !Array.isArray(d.trace)) return
-          setTaskTraces(m => ({ ...m, [t.id]: d.trace.slice(-14) }))
+          setTaskTraces(m => ({ ...m, [t.id]: t.status === 'running' ? d.trace.slice(-14) : d.trace }))
         })
         .catch(() => {})
     })
@@ -1718,7 +1745,7 @@ export default function Home() {
         const restored = savedTasks.map(t => {
           const base = t.uid ? t : { ...t, uid: genUid() }
           return base.status === 'running'
-            ? { ...base, status: 'error' as const, messages: [...base.messages, { role: 'system' as const, text: 'Interrupted — page closed while this task was running.' }] }
+            ? { ...base, status: 'error' as const, messages: [...base.messages.map(msg => msg.live ? { ...msg, live: undefined, draft: undefined, running: null } : msg), { role: 'system' as const, text: 'Interrupted — page closed while this task was running.' }] }
             : base
         })
         if (restored.length) {
@@ -1808,12 +1835,13 @@ export default function Home() {
               query: c.query || '(untitled)',
               status: c.status === 'error' ? 'error' as const : 'done' as const,
               messages: Array.isArray(c.messages) ? c.messages : [],
+              stepCount: Array.isArray(c.messages) ? c.messages.flatMap((m: any) => m.steps || []).length : undefined,
               agent_type: c.agent_type,
               startedAt: c.started ? c.started * 1000 : undefined,
               finishedAt: c.updated ? c.updated * 1000 : undefined,
             })
           }
-          return merged
+          return [...merged].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))
         })
       })
       .catch(() => {})
@@ -1836,6 +1864,9 @@ export default function Home() {
   useEffect(() => {
     setAtBottom(true)
     scrollToBottom()
+    setTraceFilter('')
+    setExpandedSteps({})
+    setExpandedResults({})
   }, [selectedTask, scrollToBottom])
 
   useEffect(() => {
@@ -2163,7 +2194,7 @@ export default function Home() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       historyIdx.current = -1
       run()
@@ -2181,13 +2212,14 @@ export default function Home() {
       if (!history.length) return
       e.preventDefault()
       if (e.key === 'ArrowUp') {
+        if (historyIdx.current === -1) historyBufRef.current = query
         const next = Math.min(historyIdx.current + 1, history.length - 1)
         historyIdx.current = next
         setQuery(history[next])
       } else {
         const next = historyIdx.current - 1
         historyIdx.current = Math.max(next, -1)
-        setQuery(next < 0 ? '' : history[next])
+        setQuery(next < 0 ? historyBufRef.current : history[next])
       }
     }
   }
@@ -2289,15 +2321,20 @@ export default function Home() {
 
   // markdown-lite: render ``` fences, `inline code`, **bold**, *italic*, ## headings, bullet lists
   const renderText = (text: string) => {
-    const hasAny = text.includes('`') || text.includes('\n> ') || text.startsWith('> ') || /\*\*|\*[^*]|\[.+\]\(https?:\/\/|^[*\-] |^#{1,3} |^\d+\. /m.test(text) || /^\|/m.test(text)
+    const hasAny = text.includes('`') || text.includes('\n> ') || text.startsWith('> ') || /\*\*|\*[^*]|\[.+\]\(https?:\/\/|^[*\-] |^#{1,3} |^\d+\. /m.test(text) || /^\|/m.test(text) || /^-{3,}$/m.test(text)
     if (!hasAny) return text
 
     // inline pass: **bold**, *italic*, `code` within a single string
     const renderInline = (s: string, kb: string) => {
       const out: React.ReactNode[] = []
-      s.split('`').forEach((b, j) => {
-        if (j % 2 === 1) { out.push(<code key={`${kb}-ic${j}`} className="inline-code">{b}</code>); return }
-        const re = /\*\*(.+?)\*\*|\*([^*\n]+?)\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g
+      const parts = s.split('`')
+      const hasUnpaired = parts.length % 2 === 0
+      parts.forEach((b, j) => {
+        if (j % 2 === 1) {
+          if (hasUnpaired && j === parts.length - 1) { out.push('`' + b); return }
+          out.push(<code key={`${kb}-ic${j}`} className="inline-code">{b}</code>); return
+        }
+        const re = /\*\*(.+?)\*\*|\*(\S[^*\n]*?\S|\S)\*|\[([^\]]+)\]\((https?:\/\/(?:[^\s()]+|\([^\s()]*\))+)\)/g
         let last = 0, n = 0, m: RegExpExecArray | null
         while ((m = re.exec(b)) !== null) {
           if (m.index > last) out.push(b.slice(last, m.index))
@@ -2316,7 +2353,7 @@ export default function Home() {
 
     // per-segment renderer: headings, bullet lists, then inline
     const renderSeg = (seg: string, si: number) => {
-      const hasBlock = /^#{1,3} |^[*\-] |^\d+\. |^> |^\|/m.test(seg)
+      const hasBlock = /^#{1,3} |^[*\-] |^\d+\. |^> |^\||^---/m.test(seg)
       if (!hasBlock) return <Fragment key={si}>{renderInline(seg, `${si}`)}</Fragment>
 
       const lines = seg.split('\n')
@@ -2431,6 +2468,9 @@ export default function Home() {
         } else if (/^\s*\|/.test(line)) {
           flushList(); flushOList(); flushQuote()
           tableBuf.push(line)
+        } else if (/^-{3,}$/.test(line)) {
+          flushList(); flushOList(); flushQuote(); flushTable()
+          nodes.push(<hr key={`${si}-hr${k++}`} style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.07)', margin: '0.5rem 0' }} />)
         } else {
           flushList(); flushOList(); flushQuote(); flushTable()
           nodes.push(<Fragment key={`${si}-t${k++}`}>{renderInline(line, `${si}-ln${li}`)}{li < lines.length - 1 ? '\n' : ''}</Fragment>)
@@ -2440,8 +2480,10 @@ export default function Home() {
       return <Fragment key={si}>{nodes}</Fragment>
     }
 
-    return text.split('```').map((seg, i) => {
+    const segs = text.split('```')
+    return segs.map((seg, i) => {
       if (i % 2 === 1) {
+        if (i === segs.length - 1 && segs.length % 2 === 0) return renderSeg(seg, i)
         const nl = seg.indexOf('\n')
         const lang = nl > -1 ? seg.slice(0, nl).trim() : ''
         const code = (nl > -1 ? seg.slice(nl + 1) : seg).replace(/\n$/, '')
@@ -2848,6 +2890,25 @@ export default function Home() {
   // --- Background tasks — live server-side registry, visible from anywhere ---
   const runningCount = serverTasks.filter(t => t.status === 'running').length
 
+  const prevRunningCount = useRef(0)
+  const titleResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    const prev = prevRunningCount.current
+    prevRunningCount.current = runningCount
+    if (titleResetRef.current) clearTimeout(titleResetRef.current)
+    if (runningCount > 0) {
+      document.title = `(${runningCount} running) Agent`
+    } else if (prev > 0) {
+      document.title = '✓ done — Agent'
+      titleResetRef.current = setTimeout(() => {
+        document.title = 'Agent — Mod Agent OS'
+      }, 3000)
+    } else {
+      document.title = 'Agent — Mod Agent OS'
+    }
+    return () => { if (titleResetRef.current) clearTimeout(titleResetRef.current) }
+  }, [runningCount])
+
   // previews for a task, pulled the first time it's opened
   const loadTaskImages = (t: ServerTask) => {
     if (!t.images || taskImages[t.id]) return
@@ -2960,7 +3021,7 @@ export default function Home() {
                     {agentOptions.find(a => a.value === t.agent_type)?.icon || '>_'}
                   </span>
                   <span className={`flex-1 text-gray-200 text-sm min-w-0 ${expanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>
-                    {t.query}
+                    {highlightTerm(t.query, taskSearch)}
                   </span>
                   {!!t.images && (
                     <span className="text-[10px] shrink-0 px-1.5 py-px rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300/80"
@@ -2969,7 +3030,7 @@ export default function Home() {
                     </span>
                   )}
                   <span className="text-[11px] text-gray-500 shrink-0 font-mono" title={`${t.steps} steps`}>
-                    {t.steps} step{t.steps !== 1 ? 's' : ''} · {serverTaskTime(t)}
+                    {t.steps} step{t.steps !== 1 ? 's' : ''} · {serverTaskTime(t)}{t.cost != null && fmtUSD(t.cost) !== null ? ` · ${fmtUSD(t.cost)}` : ''}
                   </span>
                   {t.status === 'running' && (
                     <button
@@ -2992,7 +3053,7 @@ export default function Home() {
                   )}
                   {t.status !== 'running' && t.summary && (
                     <span className={`text-[11px] text-gray-500 min-w-0 ${expanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>
-                      {t.summary}
+                      {highlightTerm(t.summary, taskSearch)}
                     </span>
                   )}
                   <span className="ml-auto flex items-center gap-2 shrink-0">
@@ -3021,27 +3082,26 @@ export default function Home() {
                     {!taskImages[t.id] && <span className="text-[10px] text-gray-600 font-mono">loading images…</span>}
                   </div>
                 )}
-                {/* live trace — an opened running row is a window on the run:
-                    each step's tool + the file it touched, newest at the
-                    bottom, refreshed with the registry poll */}
-                {expanded && t.status === 'running' && (
-                  (taskTraces[t.id] || []).length > 0 ? (
-                    <div className="mt-2 pl-8 space-y-0.5 border-l border-emerald-500/15 ml-4">
-                      {(taskTraces[t.id] || []).map((s, k, arr) => (
-                        <div key={k} className={`flex items-center gap-2 pl-3 text-[10px] font-mono min-w-0 ${
-                          k === arr.length - 1 ? 'text-emerald-300/90' : 'text-gray-500'
-                        }`}>
-                          <span className="shrink-0">{s.tool || '·'}</span>
-                          {s.path && <span className="truncate opacity-80" title={s.path}>{s.path}</span>}
-                          {k === arr.length - 1 && (
-                            <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-2 pl-8 text-[10px] text-gray-600 font-mono">waiting for the first step…</div>
-                  )
+                {/* step trace — expanded rows show the tool+path history.
+                    Running: last 14 steps, live-refreshed, pulse on current.
+                    Completed/error/cancelled: full list, no animation. */}
+                {expanded && (taskTraces[t.id] || []).length > 0 && (
+                  <div className="mt-2 pl-8 space-y-0.5 border-l border-emerald-500/15 ml-4">
+                    {(taskTraces[t.id] || []).map((s, k, arr) => (
+                      <div key={k} className={`flex items-center gap-2 pl-3 text-[10px] font-mono min-w-0 ${
+                        k === arr.length - 1 && t.status === 'running' ? 'text-emerald-300/90' : 'text-gray-500'
+                      }`}>
+                        <span className="shrink-0">{s.tool || '·'}</span>
+                        {s.path && <span className="truncate opacity-80" title={s.path}>{pathTail(s.path)}</span>}
+                        {k === arr.length - 1 && t.status === 'running' && (
+                          <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {expanded && t.status === 'running' && !(taskTraces[t.id] || []).length && (
+                  <div className="mt-2 pl-8 text-[10px] text-gray-600 font-mono">waiting for the first step…</div>
                 )}
                 {expanded && (
                   <div className="mt-2 pl-8 flex items-center gap-4 text-[10px] text-gray-600 font-mono flex-wrap">
@@ -3617,7 +3677,7 @@ export default function Home() {
       <textarea
         ref={inputRef}
         value={query}
-        onChange={e => { historyIdx.current = -1; setQuery(e.target.value) }}
+        onChange={e => { historyIdx.current = -1; historyBufRef.current = ''; setQuery(e.target.value) }}
         onKeyDown={handleKeyDown}
         onPaste={onPasteCompose}
         onFocus={() => setComposeFocused(true)}
@@ -3737,7 +3797,8 @@ export default function Home() {
   // command, and only a tool with neither falls back to the path it touched.
   const stepTarget = (step: any) =>
     step?.params?.pattern || step?.params?.query || step?.params?.command ||
-    step?.params?.url || step?.params?.path || step?.params?.file_path || ''
+    step?.params?.url || step?.params?.path || step?.params?.file_path ||
+    (step?.tool === 'think' && step?.params?.thought ? String(step.params.thought).slice(0, 80) : '') || ''
 
   // One tool call, drawn the same way wherever it appears: a row you can open
   // for the arguments it went out with and what came back. `n` numbers it in
@@ -3784,24 +3845,89 @@ export default function Home() {
             : <span className="text-emerald-400/50 shrink-0 text-[10px]">⚙</span>}
           <span className="text-gray-600 shrink-0">{open ? '▼' : '▶'}</span>
           <span className="text-emerald-300 font-mono shrink-0">{step.tool}</span>
-          {target && <span className="text-gray-600 truncate font-mono">{shortPath(String(target))}</span>}
+          {target && <span className={`text-gray-600 truncate ${step.tool === 'think' ? 'italic' : 'font-mono'}`}>{step.tool === 'think' ? String(target) : shortPath(String(target))}</span>}
           {step.error && <span className="text-red-400 ml-auto shrink-0">err</span>}
         </button>
         {open && (
           <div className="px-2.5 pb-2 space-y-1">
-            {step.params && Object.keys(step.params).length > 0 && (
-              <pre className="text-gray-500 overflow-x-auto max-h-40 text-[11px] leading-relaxed border-l border-white/[0.06] pl-2">
-                {JSON.stringify(step.params, null, 2)}
-              </pre>
-            )}
-            {step.result != null && step.result !== '' && (
-              <pre className="text-gray-400 overflow-x-auto max-h-72 text-[11px] leading-relaxed border-l border-emerald-500/20 pl-2">
-                {typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2)}
-              </pre>
-            )}
-            {step.error && (
-              <pre className="text-red-400 overflow-x-auto max-h-40 text-[11px] leading-relaxed border-l border-red-500/30 pl-2">{step.error}</pre>
-            )}
+            {step.params && Object.keys(step.params).length > 0 && (() => {
+              const pk = key + '-params'
+              const exp = !!expandedResults[pk]
+              const isThink = step.tool === 'think' && step.params?.thought
+              return (
+                <div className="relative group">
+                  {isThink ? (
+                    <div className={`text-gray-500 text-[11px] leading-relaxed border-l border-white/[0.06] pl-2 overflow-hidden${exp ? '' : ' max-h-40'}`}>
+                      {renderText(String(step.params.thought))}
+                    </div>
+                  ) : (
+                  <pre className={`text-gray-500 overflow-x-auto text-[11px] leading-relaxed border-l border-white/[0.06] pl-2${exp ? '' : ' max-h-40'}`}>
+                    {JSON.stringify(step.params, null, 2)}
+                  </pre>
+                  )}
+                  <button
+                    onClick={() => { copy(JSON.stringify(step.params, null, 2)); setCopiedBlock(pk); setTimeout(() => setCopiedBlock(c => c === pk ? null : c), 1500) }}
+                    className="absolute top-0.5 right-6 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition"
+                    title="Copy"
+                  >{copiedBlock === pk ? '✓' : '⧉'}</button>
+                  <button
+                    onClick={() => toggleResult(pk)}
+                    className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition"
+                    title={exp ? 'Collapse' : 'Expand'}
+                  >{exp ? '↑' : '↕'}</button>
+                  {!exp && (
+                    <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-black/50 to-transparent rounded-b" />
+                  )}
+                </div>
+              )
+            })()}
+            {step.result != null && step.result !== '' && (() => {
+              const rk = key + '-result'
+              const exp = !!expandedResults[rk]
+              const resultText = typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2)
+              return (
+                <div className="relative group">
+                  <pre className={`text-gray-400 overflow-x-auto text-[11px] leading-relaxed border-l border-emerald-500/20 pl-2${exp ? '' : ' max-h-72'}`}>
+                    {resultText}
+                  </pre>
+                  <button
+                    onClick={() => { copy(resultText); setCopiedBlock(rk); setTimeout(() => setCopiedBlock(c => c === rk ? null : c), 1500) }}
+                    className="absolute top-0.5 right-6 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition"
+                    title="Copy"
+                  >{copiedBlock === rk ? '✓' : '⧉'}</button>
+                  <button
+                    onClick={() => toggleResult(rk)}
+                    className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition"
+                    title={exp ? 'Collapse' : 'Expand'}
+                  >{exp ? '↑' : '↕'}</button>
+                  {!exp && (
+                    <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-black/50 to-transparent rounded-b" />
+                  )}
+                </div>
+              )
+            })()}
+            {step.error && (() => {
+              const ek = key + '-error'
+              const exp = !!expandedResults[ek]
+              return (
+                <div className="relative group">
+                  <pre className={`text-red-400 overflow-x-auto text-[11px] leading-relaxed border-l border-red-500/30 pl-2${exp ? '' : ' max-h-40'}`}>{step.error}</pre>
+                  <button
+                    onClick={() => { copy(step.error); setCopiedBlock(ek); setTimeout(() => setCopiedBlock(c => c === ek ? null : c), 1500) }}
+                    className="absolute top-0.5 right-6 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition"
+                    title="Copy"
+                  >{copiedBlock === ek ? '✓' : '⧉'}</button>
+                  <button
+                    onClick={() => toggleResult(ek)}
+                    className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition"
+                    title={exp ? 'Collapse' : 'Expand'}
+                  >{exp ? '↑' : '↕'}</button>
+                  {!exp && (
+                    <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-black/50 to-transparent rounded-b" />
+                  )}
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>
@@ -3820,21 +3946,36 @@ export default function Home() {
             {currentTask.status === 'running' ? 'No tool calls yet…' : 'No tool calls — the agent answered directly'}
           </p>
         )
+        const indexedSteps = steps.map((s: any, i: number) => ({ step: s, i }))
+        const visibleSteps = traceFilter.trim()
+          ? indexedSteps.filter(({ step }: { step: any }) =>
+              step.tool?.toLowerCase().includes(traceFilter.toLowerCase()) ||
+              stepTarget(step).toLowerCase().includes(traceFilter.toLowerCase()))
+          : indexedSteps
+        if (visibleSteps.length === 0) return (
+          <p className="text-sm text-gray-600 text-center mt-8">No steps match "{traceFilter}"</p>
+        )
         return (
           <div className="space-y-0.5">
-            {steps.map((step: any, j: number) => stepRow(step, `trace-${j}`, j + 1))}
+            {visibleSteps.map(({ step, i }: { step: any, i: number }) => stepRow(step, `trace-${i}`, i + 1))}
           </div>
         )
       })()}
     </div>
   )
 
+  const memoryPanel = (
+    <MemoryPanel token={auth?.token} session={sessionId()} memSel={memSel} onToggleMem={toggleNote}
+      onNotesChanged={() => { fetchLibrary(); libChanged() }} />
+  )
+
   // TRACE is this run's history; REGISTRY is the whole tool surface, and
-  // where a new tool gets added
+  // where a new tool gets added; MEMORY is the tool the agent reads itself
+  // through — its notes, facts and what it would recall
   const toolTrace = (
     <div>
       <div className="px-3 pt-3 max-w-4xl mx-auto w-full flex items-center gap-1.5">
-        {(['trace', 'registry'] as ToolPane[]).map(p => (
+        {(['trace', 'registry', 'memory'] as ToolPane[]).map(p => (
           <button key={p} onClick={() => setToolPane(p)}
             className={`px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider transition border ${
               toolPane === p ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
@@ -3847,11 +3988,37 @@ export default function Home() {
             {p === 'registry' && toolCounts && (
               <span className="ml-1 text-gray-500 normal-case">{toolCounts.total}</span>
             )}
+            {p === 'memory' && memSel.length > 0 && (
+              <span className="ml-1 text-sky-400/80 normal-case">{memSel.length}</span>
+            )}
           </button>
         ))}
+        {toolPane === 'trace' && currentTask && (() => {
+          const steps = getSteps(currentTask)
+          if (steps.length === 0) return null
+          const matched = traceFilter.trim()
+            ? steps.filter((s: any) =>
+                s.tool?.toLowerCase().includes(traceFilter.toLowerCase()) ||
+                stepTarget(s).toLowerCase().includes(traceFilter.toLowerCase())).length
+            : steps.length
+          return (
+            <div className="ml-auto flex items-center gap-1.5">
+              {traceFilter.trim() && (
+                <span className="text-[10px] text-gray-500 whitespace-nowrap">{matched} / {steps.length}</span>
+              )}
+              <input
+                value={traceFilter}
+                onChange={e => setTraceFilter(e.target.value)}
+                placeholder="filter tool or path…"
+                className="h-6 px-2 rounded-md text-[10px] bg-white/[0.03] border border-white/[0.06] text-gray-300 placeholder-gray-600 focus:outline-none focus:border-emerald-500/40 w-24 focus:w-32 transition-all"
+              />
+            </div>
+          )
+        })()}
       </div>
       {toolPane === 'registry'
         ? <Tools token={auth?.token} isHost={isHost} onCount={setToolCounts} />
+        : toolPane === 'memory' ? memoryPanel
         : traceBody}
     </div>
   )
@@ -3860,10 +4027,7 @@ export default function Home() {
   const transcript = (
     <div className="h-full min-h-0 relative">
     <div ref={scrollContainerRef} onScroll={handleTranscriptScroll} className="h-full overflow-y-auto min-h-0">
-      {activeTab === 'tools' ? toolTrace : activeTab === 'memory' ? (
-        <MemoryPanel token={auth?.token} session={sessionId()} memSel={memSel} onToggleMem={toggleNote}
-          onNotesChanged={() => { fetchLibrary(); libChanged() }} />
-      ) : activeTab === 'agents' ? (
+      {activeTab === 'tools' || activeTab === 'memory' ? toolTrace : activeTab === 'agents' ? (
         // The roster, in the console where runs start — pick a row and the
         // next run is that agent. The full gallery (models, memory, FLOW
         // wiring) still lives in the HUB; this is the short way there.
@@ -3950,7 +4114,7 @@ export default function Home() {
                 {toolSel.length ? 'tools' : toolCounts?.total ? 'tools' : 'full toolbox'}
               </button>
               {memSel.length > 0 && (
-                <button className="ctx-chip" onClick={() => setActiveTab('memory')}
+                <button className="ctx-chip" onClick={() => { setActiveTab('tools'); setToolPane('memory') }}
                   title="Memory notes riding along with this run">
                   <span className="ctx-chip__d bg-sky-400/70" />
                   <span className="ctx-chip__n">{memSel.length}</span>
@@ -4115,7 +4279,9 @@ export default function Home() {
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                         <span className="text-emerald-300 font-mono shrink-0 shimmer-text">{msg.running.tool}</span>
                         {stepTarget(msg.running) && (
-                          <span className="text-gray-600 truncate font-mono">{shortPath(String(stepTarget(msg.running)))}</span>
+                          <span className={`text-gray-600 truncate ${msg.running.tool === 'think' ? 'italic' : 'font-mono'}`}>
+                            {msg.running.tool === 'think' ? String(stepTarget(msg.running)) : shortPath(String(stepTarget(msg.running)))}
+                          </span>
                         )}
                         {(msg.running.n || 0) > 1 && (
                           <span className="text-gray-700 ml-auto shrink-0 text-[10px]">{msg.running.i}/{msg.running.n}</span>
@@ -4148,6 +4314,16 @@ export default function Home() {
             </div>
           )})}
           {currentTask.status === 'running' && workingIndicator(currentTask)}
+          {currentTask.status === 'error' && (
+            <div className="flex justify-center py-3">
+              <button
+                onClick={() => { newChat(); setQuery(currentTask.query) }}
+                className="text-[11px] px-3 py-1 rounded border border-red-500/20 text-red-400/80 hover:bg-red-500/10 transition"
+              >
+                ↺ retry with same prompt
+              </button>
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
       )}
@@ -4221,7 +4397,22 @@ export default function Home() {
             {agentOptions.find(a => a.value === t.agent_type)?.icon}
           </span>
         )}
-        <span className="truncate flex-1 text-[13px] text-gray-300 group-hover:text-gray-200">{t.query}</span>
+        <span className="truncate flex-1 text-[13px] text-gray-300 group-hover:text-gray-200">
+          {(() => {
+            const term = chatSearch.trim().toLowerCase()
+            if (!term || !t.query.toLowerCase().includes(term)) return t.query
+            const idx = t.query.toLowerCase().indexOf(term)
+            const before = t.query.slice(0, idx)
+            const match = t.query.slice(idx, idx + term.length)
+            const after = t.query.slice(idx + term.length)
+            return <>{before}<span className="bg-yellow-400/20 text-yellow-200">{match}</span>{after}</>
+          })()}
+        </span>
+        <button
+          onClick={e => { e.stopPropagation(); newChat(); setQuery(t.query) }}
+          title="Start a new chat with this query"
+          className="w-4 h-4 hidden group-hover:flex items-center justify-center rounded text-gray-600 hover:text-emerald-400 shrink-0 text-[10px]"
+        >↺</button>
         <button
           onClick={e => { e.stopPropagation(); deleteConversation(t) }}
           title="Delete conversation (local + server)"
@@ -4243,9 +4434,41 @@ export default function Home() {
         )
       })()}
       {(() => {
+        const stripMd = (s: string) => s
+          .replace(/^#{1,3}\s+/, '')
+          .replace(/^[*\-]\s+/, '')
+          .replace(/\*\*([^*]+)\*\*/g, '$1')
+          .replace(/\*([^*]+)\*/g, '$1')
+          .replace(/`([^`]+)`/g, '$1')
+          .trim()
+        const isStructural = (s: string) => /^```|^---+$|^===+$|^#{1,3}\s*$/.test(s)
+        const term = chatSearch.trim().toLowerCase()
+        if (term) {
+          const matchMsg = t.messages.find(m => m.role === 'agent' && !m.live && m.text.trim() && m.text.toLowerCase().includes(term))
+          if (matchMsg) {
+            const text = matchMsg.text
+            const pos = text.toLowerCase().indexOf(term)
+            const start = Math.max(0, pos - 30)
+            const raw = stripMd(text.slice(start, pos + 60))
+            const ti = raw.toLowerCase().indexOf(term)
+            if (ti >= 0) {
+              const before = raw.slice(0, ti)
+              const match = raw.slice(ti, ti + term.length)
+              const after = raw.slice(ti + term.length)
+              return (
+                <div className="mt-0.5 pl-[18px] text-[10px] text-gray-500 truncate">
+                  {start > 0 ? '…' : ''}{before}<span className="bg-yellow-400/20 text-yellow-200">{match}</span>{after}
+                </div>
+              )
+            }
+            if (raw) return <div className="mt-0.5 pl-[18px] text-[10px] text-gray-500 truncate">{raw}</div>
+          }
+        }
         const lastAgentMsg = [...t.messages].reverse().find(m => m.role === 'agent' && !m.live && m.text.trim())
         if (!lastAgentMsg) return null
-        const preview = lastAgentMsg.text.split('\n').find(l => l.trim())?.trim().slice(0, 90) ?? ''
+        const lines = lastAgentMsg.text.split('\n').map(l => l.trim()).filter(Boolean)
+        const raw = lines.slice(0, 5).find(l => !isStructural(l)) ?? ''
+        const preview = stripMd(raw).slice(0, 90)
         if (!preview) return null
         return <div className="mt-0.5 pl-[18px] text-[10px] text-gray-500 truncate">{preview}</div>
       })()}
@@ -4448,16 +4671,15 @@ export default function Home() {
       <div className="border-b border-white/[0.06] shrink-0 min-w-0">
       <div className="px-2 flex flex-wrap items-center gap-x-2 gap-y-1 py-1 min-w-0">
         <div className="tab-strip shrink-0 max-w-full">
-          {/* the run's own three faces — the transcript, its tool trace, and
-              what the agent remembers (its notes, its durable facts, what it
-              would recall). agents moved up to the top bar as the hub door;
-              memory stays here because it is scoped to this run's agent. */}
-          {(['output', 'tools', 'memory'] as Tab[]).map(tab => (
+          {/* the run's two faces — the transcript, and everything it reached
+              for. Memory is a tool (recall/remember read and write it), so it
+              lives inside TOOLS beside the trace and the registry. */}
+          {(['output', 'tools'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`tab-btn px-3 py-2 font-medium uppercase tracking-wider transition-colors relative ${
-                activeTab === tab ? 'text-white' : 'text-gray-600 hover:text-gray-400'
+                (activeTab === tab || (tab === 'tools' && activeTab === 'memory')) ? 'text-white' : 'text-gray-600 hover:text-gray-400'
               }`}
             >
               {/* not "chat": the top-bar chat icon already names this view,
@@ -4469,10 +4691,7 @@ export default function Home() {
               ) : toolCounts ? (
                 <span className="tab-badge ml-1 text-gray-600 normal-case">{toolCounts.total}</span>
               ) : null)}
-              {tab === 'memory' && memSel.length > 0 && (
-                <span className="tab-badge ml-1 text-sky-400/80 normal-case">{memSel.length}</span>
-              )}
-              {activeTab === tab && (
+              {(activeTab === tab || (tab === 'tools' && activeTab === 'memory')) && (
                 <span className="absolute bottom-0 left-1 right-1 h-[1.5px] bg-emerald-500 rounded-full" />
               )}
             </button>
@@ -4495,6 +4714,28 @@ export default function Home() {
                 <button onClick={completeTask}
                   className="w-6 h-6 flex items-center justify-center rounded text-[10px] text-emerald-400 hover:bg-emerald-500/10 transition shrink-0"
                   title="Mark done">✓</button>
+              )}
+              {currentTask.status !== 'running' && (
+                <button
+                  onClick={() => {
+                    const q = currentTask.query
+                    const slug = q.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50)
+                    const lines: string[] = [`# ${q}`, '']
+                    for (const msg of currentTask.messages) {
+                      if (msg.live) continue
+                      if (msg.role === 'user') { lines.push(`**User:** ${msg.text}`, '') }
+                      else if (msg.role === 'agent' && msg.text.trim()) { lines.push(msg.text.trim(), '') }
+                    }
+                    const stepCount = currentTask.stepCount ?? getSteps(currentTask).length
+                    lines.push(`---`, `*${stepCount} step${stepCount !== 1 ? 's' : ''}*`)
+                    const md = lines.join('\n')
+                    const a = document.createElement('a')
+                    a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }))
+                    a.download = `${slug || 'chat'}.md`
+                    a.click()
+                  }}
+                  className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-gray-300 hover:bg-white/5 transition text-[11px] shrink-0"
+                  title="Download as Markdown">↓</button>
               )}
               <button onClick={dismissTask}
                 className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:text-gray-400 hover:bg-white/5 transition text-xs shrink-0"
@@ -4976,6 +5217,10 @@ export default function Home() {
     </div>
   )
 
+  const memoryPage = (
+    <div className="flex-1 min-h-0 overflow-y-auto">{memoryPanel}</div>
+  )
+
   const libraryPage = (
     <div className="flex-1 min-h-0">
       <Library
@@ -5049,8 +5294,8 @@ export default function Home() {
         <nav className="tab-strip nav-seg min-w-0" aria-label="sections">
           {(['chat', 'agents', 'tools', 'arena'] as const).map(v => {
             const lit = v === 'chat' ? view === 'chat'
-              : v === 'agents' ? view === 'hub' && hubPane !== 'tools'
-              : v === 'tools' ? view === 'hub' && hubPane === 'tools'
+              : v === 'agents' ? view === 'hub' && hubSection(hubPane) === 'agents'
+              : v === 'tools' ? view === 'hub' && hubSection(hubPane) === 'tools'
               : view === 'arena'
             return (
               <button key={v} type="button" aria-current={lit ? 'page' : undefined}
@@ -5063,7 +5308,7 @@ export default function Home() {
                 className={`nav-seg-btn tab-btn ${lit ? 'nav-seg-btn--on' : ''}`}
                 title={v === 'chat' ? 'Talk to an agent'
                   : v === 'agents' ? 'Build agents, browse them, and set their tools'
-                  : v === 'tools' ? 'What agents can call — shipped, custom, and every module on the host'
+                  : v === 'tools' ? 'Anything an agent can reach for — callable tools, its memory, the library'
                   : 'The arena — every agent ranked, signed in as you'}>
                 <NavIcon name={v} />
                 <span>{v}</span>
@@ -5105,14 +5350,12 @@ export default function Home() {
             shelf strip instead of three tabs crowding the chat */}
         {view === 'hub' && (<>
           <div className="flex-1 min-h-0 flex flex-col">
-            {/* one strip, three tabs: BUILD · AGENTS · TOOLS. The old shelf
-                row (AGENTS · LIBRARY · RUNS) stacked on the builder's own mode
-                row (BROWSE · FLOW · TASK) was two strips of six words before
-                anything happened. RUNS survives as a status chip on the right
-                while something is running; LIBRARY opens from the chat. */}
+            {/* the section's faces, one slim strip: AGENTS = all · new · runs,
+                TOOLS = callable · memory · library. The section itself is
+                named once, in the top bar, so this strip never repeats it. */}
             <div className="border-b border-white/[0.06] px-3 py-2 shrink-0 flex items-center gap-3">
-              <nav className="nav-seg nav-seg--sub flex items-center" aria-label="hub">
-                {HUB_TABS.map(p => {
+              <nav className="nav-seg nav-seg--sub flex items-center" aria-label={hubSection(hubPane)}>
+                {HUB_SECTIONS[hubSection(hubPane)].map(p => {
                   const lit = hubPane === p
                   return (
                     <button key={p} type="button" aria-current={lit ? 'page' : undefined}
@@ -5120,11 +5363,22 @@ export default function Home() {
                       className={`nav-seg-btn ${lit ? 'nav-seg-btn--on' : ''}`}
                       title={p === 'build' ? 'Make a new agent from one sentence'
                         : p === 'agents' ? 'Every agent — its prompt, model and memory'
-                        : 'What agents can call — and which tools yours get'}>
-                      <NavIcon name={p} />
-                      <span>{p}</span>
+                        : p === 'tasks' ? 'Every run on the server, live'
+                        : p === 'tools' ? 'What agents can call — shipped, custom, and every module on the host'
+                        : p === 'memory' ? 'What agents remember — notes, facts, past turns'
+                        : 'Prompts, tool docs, memory and agents to pull into a chat'}>
+                      <span>{HUB_FACE_LABEL[p]}</span>
                       {p === 'tools' && toolCounts && toolCounts.total > 0 && (
                         <span className="nav-seg-badge">{toolCounts.total}</span>
+                      )}
+                      {p === 'memory' && memSel.length > 0 && (
+                        <span className="nav-seg-badge">{memSel.length}</span>
+                      )}
+                      {p === 'tasks' && runningCount > 0 && (
+                        <span className="nav-seg-badge">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          {runningCount}
+                        </span>
                       )}
                     </button>
                   )
@@ -5133,27 +5387,18 @@ export default function Home() {
               <span className="text-[11px] text-gray-600 truncate min-w-0 hidden lg:block">
                 {hubPane === 'build' ? 'one sentence in, an agent out'
                   : hubPane === 'agents' ? 'pick one to read it, run it, or wire it into a flow'
+                  : hubPane === 'tasks' ? 'every run on the server, live'
                   : hubPane === 'tools' ? 'shipped, custom, and every module on the host'
-                  : hubPane === 'library' ? 'prompts, tools, memory, agents — pull one into a chat'
-                  : 'every run on the server, live'}
+                  : hubPane === 'memory' ? 'the memory tool — what recall finds and remember writes'
+                  : 'prompts, tools, memory, agents — pull one into a chat'}
               </span>
-              {(runningCount > 0 || hubPane === 'tasks') && (
-                <button onClick={() => openHub('tasks')}
-                  title="every run on the server"
-                  className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider border transition ${
-                    hubPane === 'tasks' ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-200'
-                                        : 'bg-white/[0.03] border-white/[0.06] text-gray-500 hover:text-gray-200'
-                  }`}>
-                  {runningCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-                  runs{runningCount > 0 ? ` · ${runningCount}` : ''}
-                </button>
-              )}
             </div>
             <div className="flex-1 min-h-0 flex">
               {hubPane === 'build' && buildPage}
               {hubPane === 'agents' && agentsCanvas}
               {hubPane === 'tools' && toolsPage}
               {hubPane === 'tasks' && tasksPage}
+              {hubPane === 'memory' && memoryPage}
               {hubPane === 'library' && libraryPage}
             </div>
           </div>

@@ -151,10 +151,9 @@
       <h2 id="adder-title">Add a judge</h2>
       <div class="row">
         <select id="a-kind">
-          <option value="llm">llm — an agent scores against a goal</option>
-          <option value="agent">agent — agent protocol</option>
-          <option value="rule">rule — offline checks</option>
+          <option value="agent">agent — an agent scores against a goal</option>
           <option value="panel">panel — another panel votes</option>
+          <option value="rule">rule — offline checks, no agent</option>
         </select>
         <span class="tiny">give the judge a goal: what it is judging for</span>
       </div>
@@ -178,8 +177,7 @@
       <div id="e-judges"></div>
       <div class="row">
         <select id="e-kind">
-          <option value="llm">llm — a model scores your criteria 0–100</option>
-          <option value="agent">agent — an agent-protocol run scores 0–100</option>
+          <option value="agent">agent — an agent scores your criteria 0–100</option>
           <option value="panel">panel — another panel's average votes</option>
           <option value="rule">rule — offline checks, no agent</option>
         </select>
@@ -201,7 +199,7 @@
         <input id="m-q" placeholder="search judges…" style="flex:1">
         <select id="m-kind">
           <option value="">all kinds</option>
-          <option>llm</option><option>agent</option>
+          <option>agent</option>
           <option>panel</option><option>rule</option>
         </select>
       </div>
@@ -213,8 +211,7 @@
         <input id="p-name" placeholder="listing name (a-z 0-9 - _)">
         <input id="p-author" placeholder="you (author)">
         <select id="p-kind">
-          <option value="llm">llm — a model scores your criteria 0–100</option>
-          <option value="agent">agent — an agent-protocol run scores 0–100</option>
+          <option value="agent">agent — an agent scores your criteria 0–100</option>
           <option value="panel">panel — another panel's average votes</option>
           <option value="rule">rule — offline checks, no agent</option>
         </select>
@@ -234,7 +231,7 @@
       <div id="p-msg" class="msg"></div>
     </div>
   </div>
-  <datalist id="agentlist"></datalist>
+  <div id="rosters"></div>
 </div>
 
 <script>
@@ -271,8 +268,13 @@ show('judge');
 function kindPill(j) {
   const w = j.weight && j.weight !== 1 ? ' ×' + j.weight : '';
   const ref = j.kind === 'panel' ? ' → ' + esc(j.panel)
-            : j.kind === 'agent' ? ' · ' + esc(j.agent_type) : '';
+            : j.kind === 'agent' || j.kind === 'llm' ? ' · ' + esc(agentRef(j)) : '';
   return `<span class="pill kind-${esc(j.kind)}">${esc(j.name)} (${esc(j.kind)}${ref}${w})</span>`;
+}
+
+function agentRef(j) {
+  const prov = j.provider || (j.agent_type && j.agent_type !== 'scorer' ? 'agent' : 'judge');
+  return prov + '/' + (j.agent_type || (prov === 'judge' ? 'scorer' : 'default'));
 }
 
 function judgeCard(j) {
@@ -509,8 +511,7 @@ function drawIdentity() {
 
 /* ── panel editor ─────────────────────────────────────────── */
 const KIND_HINT = {
-  llm:   'the judge is an agent: it reads the input, applies your criteria and returns {"score": 0–100, "reason"} — on this box\'s LFM weights (liquidai) by default, or any OpenAI-compatible endpoint when you give a url',
-  agent: 'the judge is an orbit/agent run: the input is posed as a run and its finish summary is parsed as {"score": 0–100, "reason"}',
+  agent: 'every judge is an agent over the agent protocol: pick a provider (any mod that speaks it — this module\'s fast local scorer by default, or agent, claudecode, hermes …) and an agent off its roster; the input is posed as a run and the finish summary is its {"score": 0–100, "reason"}',
   panel: 'the judge is a whole panel: its weighted average becomes this vote (judges of judges)',
   rule:  'no agent — offline length/word checks, −50 per fault; handy as a cheap gate beside agent judges',
 };
@@ -518,10 +519,7 @@ const KIND_FIELDS = {
   rule:  [['min_len', 'min length', 'num'], ['max_len', 'max length', 'num'],
           ['require', 'require words (comma)', 'list'],
           ['forbid', 'forbid words (comma)', 'list']],
-  llm:   [['prompt', 'criteria — what earns 100, what earns 0', 'wide'],
-          ['model', 'model (optional)', 'txt'],
-          ['url', 'endpoint url (optional)', 'txt']],
-  agent: [['agent_type', 'agent type', 'agent'],
+  agent: [['provider', 'provider', 'provider'], ['agent_type', 'agent (scorer)', 'agent'],
           ['prompt', 'criteria — what earns 100, what earns 0', 'wide'],
           ['model', 'model (optional)', 'txt'], ['steps', 'steps (default 3)', 'num']],
   panel: [['panel', 'panel that votes', 'panelref']],
@@ -537,7 +535,8 @@ function judgeRow(j, i) {
         .filter(p => p.name !== (EDIT.orig || $('e-name').value))
         .map(p => `<option ${p.name === v ? 'selected' : ''}>${esc(p.name)}</option>`)
         .join('') + '</select>';
-    const list = t === 'agent' ? 'list="agentlist"' : '';
+    if (t === 'provider') return providerSelect('data-k', v);
+    const list = t === 'agent' ? `list="${rosterId(j.provider)}"` : '';
     const val = Array.isArray(v) ? v.join(', ') : v;
     return `<input data-k="${k}" ${list} placeholder="${label}"
             value="${esc(val)}" style="width:${t === 'num' ? 110 : 180}px">`;
@@ -579,7 +578,12 @@ function readJudges(root = $('e-judges'), list = EDIT && EDIT.judges) {
 function openEditor(p) {
   EDIT = p
     ? { orig: p.name,
-        judges: p.judges.map(j => { const c = {...j}; delete c.keys; return c; }) }
+        judges: p.judges.map(j => { const c = {...j}; delete c.keys;
+          if (c.kind === 'llm') {   // legacy alias: the server saves it as judge/scorer
+            Object.assign(c, {kind: 'agent', provider: 'judge', agent_type: 'scorer'});
+            if (c.url) { c.chat_url = c.url; delete c.url; }
+          }
+          return c; }) }
     : { orig: null, judges: [] };
   $('editor-title').textContent = p ? 'Edit panel — ' + p.name : 'New panel';
   $('e-name').value = p ? p.name : '';
@@ -598,7 +602,7 @@ function openAdder(p) {
   const kind = $('a-kind').value;
   const j = {kind, name: kind + '-' + (p.judges.length + 1)};
   if (kind === 'panel' && PANELS.length) j.panel = PANELS.find(x => x.name !== p.name)?.name;
-  if (kind === 'agent') j.agent_type = 'default';
+  if (kind === 'agent') Object.assign(j, {provider: 'judge', agent_type: 'scorer'});
   ADD = {panel: p, judges: [j]};
   const keep = EDIT; EDIT = {orig: p.name, judges: ADD.judges};   // judgeRow reads EDIT.orig
   $('a-judge').innerHTML = judgeRow(j, 0);
@@ -630,7 +634,7 @@ $('e-add').onclick = () => {
   const kind = $('e-kind').value;
   const j = {kind, name: kind + '-' + (EDIT.judges.length + 1)};
   if (kind === 'panel' && PANELS.length) j.panel = PANELS[0].name;
-  if (kind === 'agent') j.agent_type = 'default';
+  if (kind === 'agent') Object.assign(j, {provider: 'judge', agent_type: 'scorer'});
   EDIT.judges.push(j);
   renderJudges();
 };
@@ -691,7 +695,8 @@ function renderPublishFields() {
     if (t === 'panelref')
       return `<select data-pk="${k}">${PANELS.map(p =>
         `<option>${esc(p.name)}</option>`).join('')}</select>`;
-    const list = t === 'agent' ? 'list="agentlist"' : '';
+    if (t === 'provider') return providerSelect('data-pk', '');
+    const list = t === 'agent' ? `list="${rosterId('')}"` : '';
     if (t === 'wide')
       return `<textarea data-pk="${k}" placeholder="${label}" rows="3"
               style="width:100%;margin-bottom:6px"></textarea>`;
@@ -701,7 +706,7 @@ function renderPublishFields() {
   $('p-hint').textContent = KIND_HINT[kind] || '';
   $('p-score').innerHTML = '';
 }
-const EDITPUB = {kind: 'llm'};
+const EDITPUB = {kind: 'agent'};
 $('p-kind').onchange = renderPublishFields;
 
 function readPublishSpec() {
@@ -748,16 +753,53 @@ $('p-go').onclick = async () => {
   if (!r.error) loadMarket();
 };
 
-/* ── agent roster for the pickers ─────────────────────────── */
-async function loadAgents() {
-  const d = await api('agents');
-  $('agentlist').innerHTML = (d.agents || []).map(a =>
-    `<option value="${esc(a)}">`).join('');
+/* ── agent-protocol providers + their rosters, for the pickers ── */
+let PROVIDERS = ['judge'];
+const rosterId = p => 'roster-' + (p || 'judge').replace(/[^a-z0-9_-]/gi, '_');
+
+function providerSelect(attr, v) {
+  v = v || 'judge';
+  const names = PROVIDERS.includes(v) ? PROVIDERS : [v, ...PROVIDERS];
+  return `<select ${attr}="provider" class="prov" title="the mod this agent runs on">` +
+    names.map(n => `<option value="${esc(n)}" ${n === v ? 'selected' : ''}>${
+      esc(n === 'judge' ? 'judge (local scorer)' : n)}</option>`).join('') + '</select>';
 }
 
-checkAuth().then(loadPanels).then(() => { loadMarket(); renderPublishFields(); });
+const ROSTERS = {};
+async function loadRoster(p) {
+  p = p || 'judge';
+  if (!ROSTERS[p]) ROSTERS[p] = api('roster?provider=' + encodeURIComponent(p));
+  const d = await ROSTERS[p];
+  let el = document.getElementById(rosterId(p));
+  if (!el) { el = document.createElement('datalist'); el.id = rosterId(p); $('rosters').appendChild(el); }
+  el.innerHTML = (d.agents || []).map(a => `<option value="${esc(a)}">`).join('');
+  return d.agents || [];
+}
+
+// Changing a judge's provider points its agent box at that provider's
+// roster and fills in the roster's first agent.
+document.addEventListener('change', async e => {
+  const sel = e.target;
+  if (!sel.classList || !sel.classList.contains('prov')) return;
+  const row = sel.closest('.jrow') || $('p-fields');
+  const box = row.querySelector('[data-k="agent_type"], [data-pk="agent_type"]');
+  if (!box) return;
+  box.setAttribute('list', rosterId(sel.value));
+  const names = await loadRoster(sel.value);
+  if (!names.includes(box.value)) box.value = names[0] || '';
+});
+
+async function loadAgents() {
+  const d = await api('providers');
+  PROVIDERS = (d.providers || []).map(p => p.name);
+  if (!PROVIDERS.length) PROVIDERS = ['judge'];
+  loadRoster('judge');
+}
+
+const agentsReady = loadAgents().catch(() => {});
+checkAuth().then(loadPanels).then(() => agentsReady)
+  .then(() => { loadMarket(); renderPublishFields(); });
 loadVerdicts();
-loadAgents();
 </script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 """
 Bitevo — Bittensor subnet for YC-style startup idea generation & judging.
 
-Runs on the zuma protocol (orbit/zuma): miners and validators are public
+Runs on the zuma protocol (orbit/ztensor): miners and validators are public
 SETS and every submission / score / claim is an LSAG ring signature over the
 STARK curve, so a validator scores a pitch without knowing which miner sent
 it and a miner never learns which validator scored it (core/zuma.py).
@@ -32,13 +32,14 @@ Usage (CLI):
 import json
 import os
 import signal
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 DIR = Path(__file__).resolve().parent.parent  # orbit/bitevo/
 API_PORT = 51460
-APP_PORT = 51461  # was 50120/50121 — :50121 is orbit/zuma's console
+APP_PORT = 51461  # was 50120/50121 — :50121 is orbit/ztensor's console
 
 # Ensure bitevo root is on path for core/neurons imports
 _bitevo_root = str(DIR)
@@ -303,31 +304,48 @@ class Mod:
         env['PYTHONPATH'] = f"{mod_root}:{self.module_dir}:{env.get('PYTHONPATH', '')}"
         env['PORT'] = str(api_port)
 
-        api_log = open(log_dir / 'api.log', 'w')
         cmd = [
             'python3', '-m', 'uvicorn', 'api:app',
             '--host', '0.0.0.0', '--port', str(api_port),
             '--app-dir', str(api_dir),
         ]
-        if dev:
-            cmd.append('--reload')
-        subprocess.Popen(cmd, env=env, stdout=api_log, stderr=subprocess.STDOUT)
-
-        app_log = open(log_dir / 'app.log', 'w')
-        subprocess.Popen(
-            ['python3', str(self.module_dir / 'app' / 'server.py'), str(app_port)],
-            env=env, stdout=app_log, stderr=subprocess.STDOUT,
-        )
+        app_cmd = ['python3', str(self.module_dir / 'app' / 'server.py'), str(app_port)]
+        # pm2 keeps both up across external kills/host restarts and lets the
+        # activator sleep/wake them like the rest of the fleet. dev (--reload)
+        # or no pm2 -> detached Popen, logs in /tmp/bitevo.
+        if not dev and shutil.which('pm2'):
+            for name, c in [(self.PM2_NAMES[0], cmd), (self.PM2_NAMES[1], app_cmd)]:
+                subprocess.run(
+                    ['pm2', 'start', c[0], '--name', name, '--interpreter', 'none',
+                     '--cwd', str(self.module_dir), '--', *c[1:]],
+                    env=env, capture_output=True, text=True,
+                )
+            subprocess.run(['pm2', 'save'], capture_output=True)
+            mode = 'pm2'
+        else:
+            if dev:
+                cmd.append('--reload')
+            subprocess.Popen(cmd, env=env, stdout=open(log_dir / 'api.log', 'w'),
+                             stderr=subprocess.STDOUT, start_new_session=True)
+            subprocess.Popen(app_cmd, env=env, stdout=open(log_dir / 'app.log', 'w'),
+                             stderr=subprocess.STDOUT, start_new_session=True)
+            mode = 'popen'
 
         return {
             'api': f'http://localhost:{api_port}',
             'app': f'http://localhost:{app_port}',
             'docs': f'http://localhost:{api_port}/docs',
-            'logs': str(log_dir),
+            'logs': 'pm2 logs bitevo-api' if mode == 'pm2' else str(log_dir),
+            'mode': mode,
         }
+
+    PM2_NAMES = ('bitevo-api', 'bitevo-app')
 
     def kill(self):
         killed = []
+        if shutil.which('pm2'):
+            for name in self.PM2_NAMES:
+                subprocess.run(['pm2', 'delete', name], capture_output=True)
         for port in [self.api_port, self.app_port]:
             try:
                 result = subprocess.run(

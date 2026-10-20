@@ -48,14 +48,16 @@
 
         <div class="pane on" id="pane-file">
           <label class="drop" id="drop">
-            <input type="file" id="file" hidden>
+            <input type="file" id="file" multiple hidden>
             <span class="drop-icon" aria-hidden="true"></span>
-            <span id="drop-label">choose a file, or drop one here</span>
+            <span id="drop-label">choose files, drop them anywhere, or paste</span>
+            <span class="drop-sub" id="drop-sub"></span>
           </label>
         </div>
 
         <div class="pane" id="pane-text">
           <textarea id="text" rows="6" placeholder="a note, a poem, a manifesto — whatever should outlive you"></textarea>
+          <p class="hint tight"><span id="text-count">0 characters</span> · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> sends it</p>
         </div>
 
         <details class="opts">
@@ -71,6 +73,7 @@
         </details>
 
         <button id="put" class="primary big">send it to the lighthouse</button>
+        <div class="progress" id="put-progress" hidden><i></i><span></span></div>
         <p class="hint" id="put-hint"></p>
         <div id="put-out" class="out"></div>
       </div>
@@ -120,6 +123,7 @@
         <button class="tab on" data-src="module">this lighthouse</button>
         <button class="tab" data-src="store">in the store</button>
       </div>
+      <input id="shelf-q" class="search" type="search" placeholder="filter by name or CID" autocomplete="off" spellcheck="false">
       <button id="refresh" class="ghost">refresh</button>
     </div>
     <div id="objects" class="objects"><p class="hint cursor">loading</p></div>
@@ -209,6 +213,20 @@
 </main>
 
 <div id="toast" class="toast"></div>
+
+<!-- sign in without a wallet extension: an in-page sheet, never a browser prompt -->
+<div class="sheet" id="sheet" hidden>
+  <form class="card sheet-card" id="sheet-form">
+    <h3>sign in</h3>
+    <p class="hint first">No wallet extension in this browser. Paste a mod-protocol token instead &mdash;
+      <code>m.mod("auth")().token({})</code> on a box that holds your key makes one.</p>
+    <textarea id="sheet-token" rows="4" placeholder="paste token" spellcheck="false"></textarea>
+    <div class="row end">
+      <button type="button" class="ghost" id="sheet-cancel">cancel</button>
+      <button type="submit" class="primary">sign in</button>
+    </div>
+  </form>
+</div>
 <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -24,7 +24,7 @@ import studio
 
 ORBIT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SANDBOX = os.path.join(ORBIT, 'cairo', 'src', '.sandbox', 'deployments.json')
-ZUMA = os.path.join(ORBIT, 'zuma', 'data', 'deployments.json')
+ZUMA = os.path.join(ORBIT, 'ztensor', 'data', 'deployments.json')
 
 
 def _load(path):
@@ -54,7 +54,7 @@ def _yours():
     z = (_load(ZUMA).get('devnet') or {})
     if z.get('address'):
         out.append({'name': 'zuma (mod)', 'description': 'The zuma mod\'s own LSAG subnet contract.',
-                    'template': None, 'state': None, 'mod': 'zuma', 'app': None,
+                    'template': None, 'state': None, 'mod': 'ztensor', 'app': None,
                     'devnet': {'address': z['address'], 'class_hash': z.get('class_hash'),
                                'port': 51332}})
     return out, err

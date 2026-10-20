@@ -160,7 +160,7 @@
         "serve_app",
         "kill"
     ],
-    "schema": "QmUiXbRJ1qVb8Aq4GJrbhSSxdcr8KD5NMNptgqLbdrsNgS",
+    "schema": "QmZYEUdt7CjyrLsosv3sA1LwdpJbdSGMTZbad7i52oom9M",
     "mcp": {
         "http": "http://localhost:50410/mcp",
         "stdio": {

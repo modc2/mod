@@ -196,6 +196,20 @@ def t_models(a):
     return {'provider': 'venice', 'count': len(ms), 'models': ms}
 
 
+def t_agents(a):
+    """Agent-protocol providers and their rosters — choices for an agent: target."""
+    agentproto = models.agentproto
+    want = (a.get('provider') or '').strip()
+    names = [want] if want else [p['name'] for p in agentproto.providers()]
+    out = []
+    for n in names:
+        r = agentproto.roster(n)
+        out.append({**r, 'targets': [f'agent:{n}/{x["name"]}' for x in r['agents']]})
+    return {'providers': out, 'count': sum(len(r['agents']) for r in out),
+            'usage': 'model="agent:<provider>/<agent_type>" — any of these, '
+                     'in fight, round or ping'}
+
+
 def t_delete(a):
     kind = a.get('kind') or 'attack'
     if kind == 'defense' and a['id'] in _builtins():
@@ -347,7 +361,7 @@ TOOLS = {
     },
     'rvb_targets': {
         'description': 'Which model backends can run right now (claude CLI, '
-                       'openrouter, anthropic, openai, mock) and how to enable '
+                       'openrouter, anthropic, openai, venice, agent, mock) and how to enable '
                        'the rest.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': t_targets,
@@ -357,6 +371,15 @@ TOOLS = {
                        'a venice:<slug> target. Public, no key needed to list.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': t_models,
+    },
+    'rvb_agents': {
+        'description': 'Every agent on the agent protocol this box can reach '
+                       '(orbit/agent and any mod with an agent_contract), with '
+                       'each provider\'s roster. Name one as the target with '
+                       'model="agent:<provider>/<agent_type>".',
+        'inputSchema': {'type': 'object', 'properties': {
+            'provider': _str('One provider only (e.g. agent, claudecode, hermes)')}},
+        'handler': t_agents,
     },
     'rvb_delete': {
         'description': 'Delete an attack or a defense (kind=attack|defense). '
@@ -408,7 +431,9 @@ def info():
                     'output rules; any stage can end the turn, and the record '
                     'says which did',
         'targets': 'model= chooses the backend: claude:haiku (default, keyless), '
-                   'openrouter:<slug>, anthropic:<model>, openai:<model>, or '
+                   'openrouter:<slug>, anthropic:<model>, openai:<model>, '
+                   'agent:<provider>/<agent_type> (any agent-protocol agent, '
+                   'see rvb_agents), or '
                    'mock:naive|strict|compliant (offline, known score)',
         'tools': sorted(TOOLS),
         'builtin_defenses': ['none', 'prompt-only', 'filtered', 'layered'],

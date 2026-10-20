@@ -139,6 +139,7 @@ export default function Flow({
   const [heights, setHeights] = useState<Record<string, number>>({})
   const nodeEls = useRef<Record<string, HTMLDivElement | null>>({})
 
+  const needFitRef = useRef(false)
   const flashT = useRef<number | undefined>(undefined)
   const flash = (ok: boolean, text: string) => {
     setMsg({ ok, text })
@@ -178,6 +179,35 @@ export default function Flow({
     return (proto?.kinds[n.kind]?.out || []) as string[]
   }, [proto])
   const heightOf = (n: FNode) => heights[n.id] || (HEADER_H + 90 + portsOf(n).length * PORT_ROW)
+
+  const PAD = 40
+  const fitToGraph = useCallback(() => {
+    if (!nodes.length) return
+    const r = canvasRef.current?.getBoundingClientRect()
+    const canvasW = r?.width || 800
+    const canvasH = r?.height || 600
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+    for (const n of nodes) {
+      const h = heights[n.id] || (HEADER_H + 90)
+      if (n.x < minX) minX = n.x
+      if (n.x + NODE_W > maxX) maxX = n.x + NODE_W
+      if (n.y < minY) minY = n.y
+      if (n.y + h > maxY) maxY = n.y + h
+    }
+    const gw = maxX - minX
+    const gh = maxY - minY
+    const k = Math.min(Math.max(Math.min((canvasW - 2 * PAD) / gw, (canvasH - 2 * PAD) / gh), 0.3), 1.4)
+    const x = (canvasW - gw * k) / 2 - minX * k
+    const y = (canvasH - gh * k) / 2 - minY * k
+    setViewport({ x, y, k })
+  }, [nodes, heights])
+
+  useEffect(() => {
+    if (needFitRef.current && Object.keys(heights).length > 0) {
+      needFitRef.current = false
+      fitToGraph()
+    }
+  }, [heights, fitToGraph])
 
   const toWorld = (cx: number, cy: number) => {
     const r = canvasRef.current?.getBoundingClientRect()
@@ -263,6 +293,7 @@ export default function Flow({
         setLoadedId(g.id); setDirty(false)
         setStates({}); setResult(null); setLog([])
         if (g.viewport) setViewport(g.viewport)
+        else needFitRef.current = true
       })
       .catch(e => flash(false, String(e.message || e)))
   }, [token])
@@ -289,6 +320,21 @@ export default function Flow({
     }, 400)
     return () => clearTimeout(t)
   }, [nodes, edges, name])
+
+  // ── Delete/Backspace removes the selected node ──
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      if (!selected) return
+      const el = document.activeElement as HTMLElement | null
+      if (!el) return
+      const tag = el.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable) return
+      removeNode(selected)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, removeNode])
 
   // ── save / delete ──
   const save = async (): Promise<string | null> => {
@@ -358,7 +404,12 @@ export default function Flow({
       setStates({}); setResult(null); setLog([])
       setDirty(true)
       setVibeText('')
-      setViewport({ x: 40, y: 40, k: 0.9 })
+      const dNodes: FNode[] = (draft.nodes || []).map((n: any) => ({ ...n, data: n.data || {} }))
+      if (dNodes.length) {
+        needFitRef.current = true
+      } else {
+        setViewport({ x: 40, y: 40, k: 0.9 })
+      }
       flash(!!d.valid?.ok, d.valid?.ok
         ? `drafted "${draft.name || 'flow'}" — look it over, then save`
         : `drafted, but: ${d.valid?.errors?.[0] || 'it needs fixing'}`)
@@ -989,7 +1040,7 @@ export default function Flow({
                 {label}
               </button>
             ))}
-            <button onClick={() => setViewport({ x: 40, y: 40, k: 0.9 })}
+            <button onClick={fitToGraph}
               className="w-7 h-7 rounded-md bg-surface-2 border border-white/10 text-gray-400 hover:text-gray-200 transition text-sm flex items-center justify-center">⌂</button>
           </div>
 

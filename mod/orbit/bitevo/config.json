@@ -1,7 +1,7 @@
 {
     "name": "bitevo",
     "version": "2.1.0",
-    "description": "Bittensor subnet on the zuma protocol \u2014 anonymous miners pitch YC-style startups, anonymous validators judge them (LSAG ring signatures, wire-compatible with orbit/zuma's Starknet/NEAR contracts); evolutionary genome populations fit multivariate predictions of the future",
+    "description": "Bittensor subnet on the zuma protocol \u2014 anonymous miners pitch YC-style startups, anonymous validators judge them (LSAG ring signatures, wire-compatible with orbit/ztensor's Starknet/NEAR contracts); evolutionary genome populations fit multivariate predictions of the future",
     "port": 51460,
     "app_port": 51461,
     "urls": {
@@ -100,11 +100,11 @@
             "docs": "Re-verify every ring signature of an epoch (query ?epoch=N)"
         }
     },
-    "schema": "Qmcd1M6e7QkGTPj7dAp9Cq4uY4PMp5XS14UHjBuHhZyaG9",
+    "schema": "QmPa4odHd9FhYmGEG8zNEtVtAN9Muo2RBNfr7yUVfnaibs",
     "gateway_port": 51461,
     "protocol": {
         "name": "zuma",
-        "impl": "core/zuma.py (pure Python, imports orbit/zuma/stark.py)",
+        "impl": "core/zuma.py (pure Python, imports orbit/ztensor/src/core/stark.py)",
         "submit": "miner LSAG over msg=work in H('zuma-mine', subnet, epoch); tag = key_id(image)",
         "score": "validator LSAG over msg=score 0..100 in H('zuma-score', subnet, epoch, tag); nullifier = key_id(image)",
         "claim": "miner re-signs the mine scope with msg=payout; credited emission*tag_sum/epoch_total",

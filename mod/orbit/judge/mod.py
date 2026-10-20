@@ -1,7 +1,7 @@
 """judge — a multisig of agent judges that approves or fails an input.
 
-The creator of a panel sets the params: the judges that sit on it (LLM
-agents with a criteria prompt, or deterministic rule judges), the approval
+The creator of a panel sets the params: the judges that sit on it (agents
+over the agent protocol with a criteria prompt, or deterministic rule judges), the approval
 threshold (0-100) and the quorum. Every judge scores the input 0-100; if
 the weighted average falls under the threshold — or too few judges manage
 to vote — the verdict is FAIL. Verdicts are recorded with every judge's
@@ -9,7 +9,7 @@ score and reason.
 
     m judge                                        # null call → info()
     m judge/create_panel name=pr creator=alice threshold=70 \
-        judges='[{"name":"clarity","kind":"llm","prompt":"Is it clear?"},
+        judges='[{"name":"clarity","kind":"agent","prompt":"Is it clear?"},
                  {"name":"short","kind":"rule","max_len":500}]'
     m judge/judge panel=pr input="the thing to approve"
     m judge/panels                                 # every panel, with params
@@ -38,7 +38,7 @@ if HERE not in sys.path:
 class Mod:
     description = """
     judge — approval as a multisig of agents. A panel's creator picks the
-    judges (LLM agents with criteria prompts, or offline rule judges), the
+    judges (agent-protocol agents with criteria prompts, or offline rule judges), the
     threshold and the quorum; each judge scores an input 0-100 and the
     weighted average must reach the threshold or the verdict fails. Errors
     fail closed: a judge that cannot vote never counts toward approval.
@@ -198,7 +198,7 @@ class Mod:
 
     def market(self, q='', kind=''):
         """Browse the judge market — most installed first; q searches
-        name/author/description/tags, kind filters rule/llm/agent/panel."""
+        name/author/description/tags, kind filters rule/agent/panel."""
         return {'listings': self.shop.list(q, kind)}
 
     def listing(self, id):

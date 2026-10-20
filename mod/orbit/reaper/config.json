@@ -1,0 +1,34 @@
+{
+  "name": "reaper",
+  "title": "Reaper \u00b7 build agent",
+  "version": "0.1.0",
+  "description": "The fleet's scale-to-zero activator: sleeps idle modules, wakes them on first byte. Memory, idle timeout, and per-module pin/sleep/wake. App for build's REAPER.",
+  "icon": "\u263e",
+  "color": "#ef7a62",
+  "anchor": "mod.py",
+  "port": 51487,
+  "app_port": 51487,
+  "gateway_port": 51487,
+  "base_path": "/reaper",
+  "route": true,
+  "deps": [
+    "build"
+  ],
+  "urls": {
+    "app": "http://localhost:51487/reaper/"
+  },
+  "agent": {
+    "of": "build",
+    "status": "/reaper",
+    "console": "build \u25b8 ACCOUNT \u25b8 AGENT \u25b8 AGENTS"
+  },
+  "fns": [
+    "forward",
+    "info",
+    "status",
+    "serve",
+    "kill"
+  ],
+  "schema": "QmXC4YJEfv5AxDKbvuDkWyKL9RTGquamXPtaPHE24oyq4G",
+  "always_on": true
+}

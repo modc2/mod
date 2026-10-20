@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LOOPS</title>
+<link rel="stylesheet" href="kit.css" />
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div class="grid">
+    <div class="card wide">
+      <h2>Loop agents <span class="sp"></span><span id="caps" class="faint"></span><button id="newBtn" class="primary sm">+ new loop</button></h2>
+      <div id="form" class="card" style="display:none;margin-bottom:12px;background:var(--panel2)">
+        <div class="form">
+          <label class="f">name<input id="f_name" placeholder="fix-tests" /></label>
+          <label class="f">module<input id="f_module" placeholder="build (or leave empty and set cwd)" /></label>
+          <label class="f">cwd<input id="f_cwd" placeholder="/root/mod/mod/orbit/…" /></label>
+          <label class="f">model<input id="f_model" placeholder="default" /></label>
+          <label class="f full">command (bash, run each iteration)<textarea id="f_cmd" placeholder="pytest -x -q"></textarea></label>
+          <label class="f full">goal for the agent (its output is fed this command's output)<textarea id="f_goal" placeholder="make the tests pass without weakening them"></textarea></label>
+          <label class="f">every (seconds)<input id="f_every" type="number" min="10" value="60" /></label>
+          <label class="f">max iterations<input id="f_max" type="number" min="1" max="500" value="20" /></label>
+          <label class="chk full"><input id="f_until" type="checkbox" checked /> stop as soon as the command exits 0</label>
+        </div>
+        <div class="inline" style="margin-top:12px;justify-content:flex-end">
+          <span class="faint" style="flex:1;font-size:12px">command only + no "stop on pass" = a watch loop (no agent). The agent ends a loop by printing LOOP_DONE.</span>
+          <button id="cancelBtn">cancel</button><button id="createBtn" class="primary">create + start</button>
+        </div>
+      </div>
+      <div id="list" class="rows"><div class="empty">loading…</div></div>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+const open = new Set();
+let last = null;
+
+const st = (s) => s === "running" ? "on" : s === "error" ? "bad" : s === "done" ? "acc" : "";
+
+function render() {
+  const d = last;
+  const list = document.getElementById("list");
+  if (!d) return;
+  if (d.error) { list.innerHTML = `<div class="notice bad">${K.esc(d.error)}</div>`; return; }
+  const loops = d.loops || [];
+  const running = loops.filter((l) => l.status === "running").length;
+  K.setState(K.pill(running > 0, `${running} running`, "idle"));
+  document.getElementById("caps").textContent = `${loops.length}/${d.cap} loops · ${running}/${d.running_cap} running · min ${d.min_every_secs}s`;
+  if (!loops.length) { list.innerHTML = `<div class="empty">No loops yet. A loop runs a command, feeds its output to an agent, waits, and repeats.</div>`; return; }
+  list.innerHTML = loops.map((l) => {
+    const where = l.module ? `mod ${l.module}` : l.cwd;
+    const log = open.has(l.id) ? `<pre class="log">${(l.log || []).slice(-40).map((e) =>
+      `[${new Date(e.ts * 1000).toLocaleTimeString()}] #${e.iter} ${e.kind}${e.code != null ? ` exit ${e.code}` : ""}${e.cmd ? ` $ ${K.esc(e.cmd)}` : ""}\n${K.esc((e.out || "").slice(-2000))}`).join("\n\n") || "no events yet"}</pre>` : "";
+    return `<div class="row click" data-id="${l.id}" style="flex-wrap:wrap">
+      <span class="pill ${st(l.status)}">${K.esc(l.status)}</span>
+      <div class="grow">
+        <div class="t">${K.esc(l.name)} <span class="faint mono">· ${K.esc(where)}</span></div>
+        <div class="s mono">${l.cmd ? "$ " + K.esc(l.cmd) : ""}${l.goal ? ` → ${K.esc(l.goal)}` : ""}</div>
+        <div class="s">iter ${l.iter}/${l.max_iters} · every ${K.dur(l.every_secs)}${l.until_pass ? " · until pass" : ""}${l.status === "running" && l.next_at ? ` · next ${K.ago(l.next_at)}` : ""}${l.note ? ` · ${K.esc(l.note)}` : ""} · updated ${K.ago(l.updated_at)}</div>
+      </div>
+      <div class="acts">
+        ${l.status === "running" ? `<button class="sm" data-a="stop">stop</button>` : `<button class="sm" data-a="start">start</button>`}
+        <button class="sm danger" data-a="del">delete</button>
+      </div>
+      <div style="flex-basis:100%">${log}</div>
+    </div>`;
+  }).join("");
+}
+
+async function load() {
+  if (!K.token) { last = { error: "Loops are owner-only (their log is raw host terminal output). Sign in to build as the owner." }; return render(); }
+  const r = await K.api("/loops");
+  last = r.ok ? r.data : { error: r.data?.error || `failed (${r.status})` };
+  render();
+}
+
+document.getElementById("list").addEventListener("click", async (e) => {
+  const row = e.target.closest(".row"); if (!row) return;
+  const id = row.dataset.id, a = e.target.closest("button")?.dataset.a;
+  if (!a) { open.has(id) ? open.delete(id) : open.add(id); return render(); }
+  if (a === "start") await K.act(`/loops/${id}/start`, {}, "started");
+  if (a === "stop") await K.act(`/loops/${id}/stop`, {}, "stopped");
+  if (a === "del" && await K.ask("Delete this loop and its log?", "Delete", true)) await K.act(`/loops/${id}`, undefined, "deleted", "DELETE");
+  load();
+});
+
+const form = document.getElementById("form");
+document.getElementById("newBtn").onclick = () => { form.style.display = form.style.display === "none" ? "" : "none"; };
+document.getElementById("cancelBtn").onclick = () => { form.style.display = "none"; };
+document.getElementById("createBtn").onclick = async () => {
+  const v = (id) => document.getElementById(id).value.trim();
+  const body = {
+    name: v("f_name"), module: v("f_module"), cwd: v("f_cwd"), cmd: v("f_cmd"), goal: v("f_goal"), model: v("f_model"),
+    every_secs: +v("f_every") || 60, max_iters: +v("f_max") || 20, until_pass: document.getElementById("f_until").checked,
+  };
+  const made = await K.act("/loops", body, "loop created");
+  if (!made) return;
+  const id = made.id || made.loop?.id;
+  if (id && made.loop?.status !== "running" && made.status !== "running") await K.act(`/loops/${id}/start`, {}, "started");
+  form.style.display = "none";
+  load();
+};
+
+// Prefill from ?cmd=&module=&cwd= (e.g. a link from a terminal).
+const q = new URLSearchParams(location.search);
+for (const k of ["cmd", "module", "cwd", "goal", "name"]) if (q.get(k)) { document.getElementById("f_" + k).value = q.get(k); form.style.display = ""; }
+
+K.init({ glyph: "⟳", title: "Loops", accent: "#5fd3b8", sub: "Run a command in a module, hand its output to an agent, wait, repeat — until it passes, the agent says LOOP_DONE, or you stop it." })
+  .then(() => K.poll(load, 4000));
+</script>
+</body>
+</html>

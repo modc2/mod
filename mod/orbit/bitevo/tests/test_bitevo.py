@@ -446,14 +446,14 @@ def test_zuma_epoch():
 
 def test_zuma_wire():
     """A bitevo signature verifies in zuma's own Cairo verifier (same scheme,
-    same scopes, same keys). Skipped when orbit/zuma's toolchain is absent."""
+    same scopes, same keys). Skipped when orbit/ztensor's toolchain is absent."""
     import importlib.util
     import os
     from core import zuma as Z
     t0 = time.time()
-    zmod = Z.ZUMA_DIR / 'mod.py'
+    zmod = Z.ZUMA_DIR / 'src' / 'mod.py'
     if not zmod.exists() or not os.path.exists(os.path.expanduser('~/.local/bin/scarb')):
-        return _result('zuma_wire', True, 'skipped (no orbit/zuma toolchain)')
+        return _result('zuma_wire', True, 'skipped (no orbit/ztensor toolchain)')
     spec = importlib.util.spec_from_file_location('zuma_mod_wire', zmod)
     zm = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(zm)
@@ -468,7 +468,7 @@ def test_zuma_wire():
         Z.score_scope(subnet, 5, int(sig['tag'], 16)), 'score scope differs'
     assert z.verify(sc, 4242, sig)['valid'], 'zuma Cairo verifier rejected it'
     assert not z.verify(sc, 4243, sig)['valid']
-    csig = z._prove([4, 303, sc])
+    csig = zm.SIGNER.prove([4, 303, sc])
     assert hex(csig[2]) == hex(Z.key_id(Z.key_image(303, sc))), 'tag differs'
     return _result('zuma_wire', True, 'Cairo lsag::verify accepts bitevo sigs',
                    time.time() - t0)

@@ -206,7 +206,7 @@ class Graphs:
                 continue
             data = n.get("data") or {}
             if kind == "agent" and not data.get("agent"):
-                errors.append(f"an Agent node has no agent picked")
+                errors.append("an Agent node has no agent picked")
             if kind == "agent" and data.get("agent") and self.agents:
                 try:
                     self.agents.get(data["agent"])

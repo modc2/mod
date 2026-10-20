@@ -79,7 +79,7 @@ def _zuma():
                 for i, r in enumerate(rows)]
     except Exception:  # noqa: BLE001 — down: reported by status
         pass
-    dep = _load(os.path.join(ORBIT, 'zuma', 'data', 'deployments.json'), {})
+    dep = _load(os.path.join(ORBIT, 'ztensor', 'data', 'deployments.json'), {})
     if (dep.get('devnet') or {}).get('address'):
         out.append({'name': 'zuma', 'kind': 'contract',
                     'address': dep['devnet']['address']})

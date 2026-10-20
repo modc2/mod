@@ -11,7 +11,7 @@ not a distilled skill. That is the scrape module's job.
 """
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 PAGES_CAP = 15
 CHARS_CAP = 8000

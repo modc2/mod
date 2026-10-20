@@ -188,11 +188,14 @@ fn q(pairs: Vec<(&str, String)>) -> Vec<(String, String)> {
 }
 
 /// Post ids arrive as bare ids or as pasted x.com/twitter.com status URLs.
-fn post_id(raw: &str) -> String {
-    raw.rsplit(['/', '?'])
+/// Anything without a numeric id in it is refused rather than spliced into an
+/// upstream path as-is.
+fn post_id(raw: &str) -> Result<String, String> {
+    raw.trim()
+        .rsplit(['/', '?', '#'])
         .find(|seg| !seg.is_empty() && seg.chars().all(|c| c.is_ascii_digit()))
-        .unwrap_or(raw)
-        .to_string()
+        .map(String::from)
+        .ok_or_else(|| format!("not a post id or status URL: {raw:?}"))
 }
 
 /// Default read expansions — author objects inline, so a search result is
@@ -244,7 +247,7 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
         }
 
         "get_post" => {
-            let id = post_id(s(args, "id").ok_or("get_post requires `id`")?);
+            let id = post_id(s(args, "id").ok_or("get_post requires `id`")?)?;
             if !creds.has_any() {
                 return x::syndication_post(&id).await.map_err(|e| e.to_string());
             }
@@ -254,8 +257,8 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
         "user" => {
             let who = s(args, "username")
                 .or_else(|| s(args, "id"))
-                .ok_or("user requires `username`")?
-                .trim_start_matches('@');
+                .ok_or("user requires `username`")?;
+            let who = x::handle(who).map_err(|e| e.to_string())?;
             let params = q(vec![("user.fields", USER_FIELDS.into())]);
             let path = if who.chars().all(|c| c.is_ascii_digit()) {
                 format!("/2/users/{who}")
@@ -318,10 +321,10 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
             let text = s(args, "text").ok_or("post requires `text`")?;
             let mut body = json!({ "text": text });
             if let Some(reply_to) = s(args, "reply_to") {
-                body["reply"] = json!({ "in_reply_to_tweet_id": post_id(reply_to) });
+                body["reply"] = json!({ "in_reply_to_tweet_id": post_id(reply_to)? });
             }
             if let Some(quote) = s(args, "quote_post_id") {
-                body["quote_tweet_id"] = json!(post_id(quote));
+                body["quote_tweet_id"] = json!(post_id(quote)?);
             }
             if let Some(opts) = args.get("poll_options").and_then(|v| v.as_array()) {
                 if !opts.is_empty() {
@@ -335,12 +338,12 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
         }
 
         "delete_post" => {
-            let id = post_id(s(args, "id").ok_or("delete_post requires `id`")?);
+            let id = post_id(s(args, "id").ok_or("delete_post requires `id`")?)?;
             x::delete(&format!("/2/tweets/{id}"), &creds).await
         }
 
         "like" | "repost" => {
-            let id = post_id(s(args, "id").ok_or("requires `id`")?);
+            let id = post_id(s(args, "id").ok_or("requires `id`")?)?;
             match x::me_id(&creds).await {
                 Err(e) => Err(e),
                 Ok(me) => {

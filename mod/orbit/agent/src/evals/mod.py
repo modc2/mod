@@ -24,7 +24,7 @@ Usage:
 """
 import importlib.util
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 try:
     import mod as m

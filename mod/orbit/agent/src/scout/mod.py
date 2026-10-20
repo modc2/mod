@@ -36,7 +36,6 @@ import random
 import re
 import threading
 import time
-import urllib.parse
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from html import unescape

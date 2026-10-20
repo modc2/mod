@@ -1,6 +1,6 @@
 """search - search the web"""
 import requests
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 class Tool:
     description = "Search the web via DuckDuckGo"

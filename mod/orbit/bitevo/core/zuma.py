@@ -1,9 +1,9 @@
 """
 zuma protocol for bitevo — anonymous miners and validators.
 
-Implements orbit/zuma's scheme (scope-linkable LSAG over the STARK curve,
+Implements orbit/ztensor's scheme (scope-linkable LSAG over the STARK curve,
 Poseidon challenges, key image I = x * Hp(scope)) in pure Python. The curve,
-Poseidon and hash-to-point come straight from orbit/zuma/stark.py, so a
+Poseidon and hash-to-point come straight from orbit/ztensor/src/core/stark.py, so a
 signature made here verifies in zuma's Cairo prover / Starknet contract /
 NEAR contract unchanged (the `zuma_wire` test proves it).
 
@@ -30,13 +30,13 @@ import secrets as _secrets
 import time
 from pathlib import Path
 
-ZUMA_DIR = Path(__file__).resolve().parents[2] / 'zuma'
+ZUMA_DIR = Path(__file__).resolve().parents[2] / 'ztensor'
 
 
 def _load_stark():
-    path = ZUMA_DIR / 'stark.py'
+    path = ZUMA_DIR / 'src' / 'core' / 'stark.py'
     if not path.exists():
-        raise ImportError(f'zuma protocol needs {path} (orbit/zuma)')
+        raise ImportError(f'zuma protocol needs {path} (orbit/ztensor)')
     spec = importlib.util.spec_from_file_location('zuma_stark', path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

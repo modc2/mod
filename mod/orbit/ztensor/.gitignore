@@ -1,11 +1,17 @@
-state/
+data/
 __pycache__/
 *.pyc
-api/target/
-app/node_modules/
-app/out/
-app/.next*
-app/next-env.d.ts
-app/tsconfig.tsbuildinfo
-dist
-releases/
+.pytest_cache/
+# build output of every chain's contract project and the prover
+src/**/target/
+src/**/.snfoundry_cache/
+src/networks/eth/contract/out/
+src/networks/eth/contract/cache/
+# the Next.js console's install + build output
+src/app/node_modules/
+src/app/.next/
+src/app/.next-dev/
+src/app/out/
+src/app/releases/
+src/app/dist
+src/app/tsconfig.tsbuildinfo

@@ -10,10 +10,10 @@ import apps  # noqa: E402
 
 
 class Mod:
-    """starknet.zuma — points at orbit/zuma (its API is POST-only)."""
+    """starknet.zuma — points at orbit/ztensor (its API is POST-only)."""
 
     def facts(self):
-        s = apps.get(f"http://127.0.0.1:{apps.port_of('zuma')}/status", body={})
+        s = apps.get(f"http://127.0.0.1:{apps.port_of('ztensor')}/status", body={})
         dev = (s.get('deployments') or {}).get('devnet') or {}
         ep = s.get('epoch') or {}
         h = s.get('health') or {}

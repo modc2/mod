@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>APPWATCH</title>
+<link rel="stylesheet" href="kit.css" />
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div class="grid">
+    <div class="card wide">
+      <h2>Build app <span class="sp"></span><span id="tick" class="faint"></span></h2>
+      <div id="stats" class="stats"></div>
+      <div id="down" style="margin-top:12px"></div>
+    </div>
+    <div class="card wide">
+      <h2>Uptime this session <span class="sp"></span><span class="faint" id="upPct"></span></h2>
+      <div id="strip" style="display:flex;gap:2px;height:34px;align-items:stretch"></div>
+      <div class="faint" style="margin-top:8px;font-size:12px">One bar per check this page saw (newest right). Kept in this browser only.</div>
+    </div>
+    <div class="card wide">
+      <h2>How it works</h2>
+      <div class="muted" style="font-size:13px">Build's API checks the console's app port every few seconds. When it goes dark for a couple of ticks, the API starts the app again itself and backs off between attempts. Switch it off with <span class="mono">BUILD_APPWATCH=0</span> on build's API — read-only here on purpose.</div>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const HIST = "appwatch_hist";
+let hist = [];
+try { hist = JSON.parse(localStorage.getItem(HIST) || "[]"); } catch {}
+
+function render(A) {
+  const up = A.up === true, unknown = A.up == null;
+  K.setState(K.pill(A.enabled, "on", "off") + " " + (unknown ? `<span class="pill">checking</span>` : K.pill(up, "app up", "app down", up ? "" : "bad")));
+  $("tick").textContent = `:${A.port} · every ${K.dur(A.tick_seconds)} · last check ${K.ago(A.last_check)}`;
+  $("stats").innerHTML = [["misses", A.misses], ["restarts tried", A.starts], ["recovered", A.recovered], ["attempts", A.attempts ?? "—"]]
+    .map(([k, v]) => `<div class="stat"><b>${v ?? 0}</b><span>${k}</span></div>`).join("");
+  $("down").innerHTML = A.down_since
+    ? `<div class="notice bad">dark since ${K.ago(A.down_since)}${A.in_progress ? " · restart in progress" : ""}${A.next_attempt ? ` · next attempt ${K.ago(A.next_attempt)}` : ""}</div>`
+    : `<div class="inline"><span class="muted">${A.last_start ? `last restart ${K.ago(A.last_start)}` : "never needed a restart this run"}</span><span class="sp" style="flex:1"></span><a class="btn sm" style="padding:6px 9px;font-size:10px" href="${K.BUILD_APP}">open build ↗</a></div>`;
+  const pct = hist.length ? Math.round((hist.filter((h) => h.up).length / hist.length) * 100) : null;
+  $("upPct").textContent = pct == null ? "" : `${pct}% of ${hist.length} checks`;
+  $("strip").innerHTML = hist.slice(-120).map((h) =>
+    `<i title="${new Date(h.t * 1000).toLocaleTimeString()} ${h.up ? "up" : "down"}" style="flex:1;border-radius:2px;background:${h.up ? "var(--green)" : h.up === false ? "var(--red)" : "var(--line2)"};opacity:${h.up ? .75 : 1}"></i>`).join("");
+}
+
+async function load() {
+  const r = await K.api("/appwatch/status");
+  if (!r.ok) { K.setState(`<span class="pill bad">build unreachable</span>`); return; }
+  const A = r.data;
+  if (!hist.length || hist[hist.length - 1].c !== A.last_check) {
+    hist.push({ t: Math.floor(Date.now() / 1000), c: A.last_check, up: A.up });
+    hist = hist.slice(-500);
+    try { localStorage.setItem(HIST, JSON.stringify(hist)); } catch {}
+  }
+  render(A);
+}
+
+K.init({ glyph: "♥", title: "Appwatch", accent: "#5ee08a", sub: "Keeps the build console's app up — notices when its port goes dark and starts it again." })
+  .then(() => K.poll(load, 5000));
+</script>
+</body>
+</html>

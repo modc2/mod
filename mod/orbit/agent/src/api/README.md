@@ -7,11 +7,7 @@ A thin FastAPI gateway over `mod.forward()`. All real logic lives in `agent/mod.
 | File | Purpose |
 |---|---|
 | `api.py` | The gateway. ~70 routes across agents, library, credits, tasks, discovery. |
-| `crud_api.py` | Standalone FastAPI CRUD demo (in-memory items store). |
-| `test_crud_api.py` | Tests for the CRUD demo. |
-| `README_CRUD_API.md` | Docs for the CRUD demo. |
 | `_serve_api.sh` | Launch script. |
-| `simple_crud_api/venv` | Virtualenv for the demo. |
 | `__init__.py` | Package marker. |
 
 ## Running
@@ -84,4 +80,3 @@ Interactive docs are served by FastAPI at `/docs` and `/redoc`.
 
 - Adding a route means adding a `forward()` case in `agent/mod.py`, not business logic here.
 - Keep the module docstring at the top of `api.py` in sync with this file when routes change.
-- The CRUD demo in `crud_api.py` is independent of the gateway — see `README_CRUD_API.md`.

@@ -1,7 +1,6 @@
 """tree - directory tree visualization"""
-import os
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 
 class Tool:

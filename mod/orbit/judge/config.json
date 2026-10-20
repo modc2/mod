@@ -109,7 +109,7 @@
         "POST /run": "Same as /run/stream, blocking \u2014 {result: [steps], task_id}"
     },
     "key": "judge",
-    "schema": "QmdUXi1BDfQi1Yxq6fbKy4H63bbc2wmhigFquxjw5HZ5WF",
+    "schema": "QmXJav4aaTJvW1CW2soAqFWsypS7efbMfQfEfNpu3h78kp",
     "agent_contract": {
         "list": "/agents",
         "run": "/run/stream",

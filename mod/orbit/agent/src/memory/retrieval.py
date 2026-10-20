@@ -27,7 +27,7 @@ Usage:
 """
 import math
 import time
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 # words that carry no retrieval signal — dropped from queries and documents
 # alike, so "what is the port" doesn't match every document with "the" in it

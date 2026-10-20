@@ -22,7 +22,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src import fleet as fl
-from src.fleet import Fleet, FleetModel, Worker, is_fleet, name_of
+from src.fleet import Fleet, FleetModel, is_fleet, name_of
 from src.fleet_worker import ids_of, text_of
 
 

@@ -290,7 +290,6 @@ def board(matches: Iterable[Dict[str, Any]], min_agents: int = 2) -> List[Dict[s
         agents.sort(key=lambda r: (-r["elo"], -r["score"]))
         played = _played(rows)
         cost = sum(float(m.get("cost") or 0.0) for m in played)
-        scores = [float(m.get("score") or 0.0) for m in played]
         spread = _spread(agents)
         spread["separates"] = spread["separates"] and common is not None
         out.append({

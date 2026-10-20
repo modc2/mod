@@ -10,6 +10,7 @@ import TopBar from './TopBar';
 import Rail from './Rail';
 import Overlays from './Overlays';
 import ChatDock from './ChatDock';
+import CopyDock from './CopyDock';
 
 /* the single-file console routed on #hash — keep those links alive */
 const LEGACY_HASH: Record<string, string> = {
@@ -56,6 +57,7 @@ export default function Shell({ children }: { children: ReactNode }) {
             <main>{children}</main>
             <Footer />
             <Overlays />
+            <CopyDock />
             <ChatDock />
           </ChatProvider>
         </OverlayProvider>

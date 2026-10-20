@@ -74,6 +74,45 @@ const ROUTES: &[RouteDoc] = &[
         summary: "Generic adapter: {action, ...args} → any MCP tool.", query: &[] },
 ];
 
+/// Tools that act as the account. With keys configured these spend the
+/// owner's identity, so they only run for a caller on this machine that is not
+/// a web page from some other origin (the port binds 0.0.0.0, CORS is open for
+/// reads, and a browser will happily POST to localhost on a site's behalf).
+pub const WRITE_TOOLS: &[&str] = &["post", "delete_post", "like", "repost", "follow"];
+
+/// `None` when the caller may act as the account, else the 403 to send.
+/// `X_ALLOW_REMOTE_WRITES=1` lifts the loopback rule (not the origin rule) for
+/// a deployment that fronts this with its own auth.
+fn write_gate(peer: &SocketAddr, headers: &HeaderMap) -> Option<Response> {
+    let remote_ok = std::env::var("X_ALLOW_REMOTE_WRITES").is_ok_and(|v| v == "1");
+    let why = if !peer.ip().is_loopback() && !remote_ok {
+        "writes (post, like, repost, follow, delete, credentials) are only accepted \
+         from this machine (loopback)"
+    } else if cross_origin(headers) {
+        "cross-origin write refused — only the app served from this port, or a \
+         non-browser client, may act as the account"
+    } else {
+        return None;
+    };
+    Some((StatusCode::FORBIDDEN, Json(json!({ "error": why }))).into_response())
+}
+
+/// A browser request from a page whose origin isn't this server.
+fn cross_origin(headers: &HeaderMap) -> bool {
+    let h = |k: &str| headers.get(k).and_then(|v| v.to_str().ok());
+    if h("sec-fetch-site").is_some_and(|v| v == "cross-site" || v == "same-site") {
+        return true;
+    }
+    match (h("origin"), h("host")) {
+        (None, _) => false,
+        (Some(origin), Some(host)) => {
+            let o = origin.split_once("://").map(|(_, rest)| rest).unwrap_or(origin);
+            !o.eq_ignore_ascii_case(host)
+        }
+        (Some(_), None) => true,
+    }
+}
+
 fn header_key(headers: &HeaderMap) -> Option<String> {
     headers
         .get("x-api-key")
@@ -124,7 +163,19 @@ async fn root(req: Request) -> Response {
     }
 }
 
-async fn mcp_endpoint(headers: HeaderMap, Json(msg): Json<Value>) -> Response {
+async fn mcp_endpoint(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(msg): Json<Value>,
+) -> Response {
+    let tool = msg.pointer("/params/name").and_then(|n| n.as_str()).unwrap_or("");
+    if msg.get("method").and_then(|m| m.as_str()) == Some("tools/call")
+        && WRITE_TOOLS.contains(&tool)
+    {
+        if let Some(denied) = write_gate(&peer, &headers) {
+            return denied;
+        }
+    }
     let key = header_key(&headers);
     match mcp::handle_message(&msg, key.as_deref()).await {
         Some(resp) => Json(resp).into_response(),
@@ -196,19 +247,47 @@ async fn get_post(headers: HeaderMap, Path(id): Path<String>) -> Response {
     via_tool("get_post", json!({ "id": id }), header_key(&headers)).await
 }
 
-async fn create_post(headers: HeaderMap, Json(body): Json<Value>) -> Response {
+async fn create_post(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Some(denied) = write_gate(&peer, &headers) {
+        return denied;
+    }
     via_tool("post", body, header_key(&headers)).await
 }
 
-async fn delete_post(headers: HeaderMap, Path(id): Path<String>) -> Response {
+async fn delete_post(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Some(denied) = write_gate(&peer, &headers) {
+        return denied;
+    }
     via_tool("delete_post", json!({ "id": id }), header_key(&headers)).await
 }
 
-async fn like_post(headers: HeaderMap, Path(id): Path<String>) -> Response {
+async fn like_post(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Some(denied) = write_gate(&peer, &headers) {
+        return denied;
+    }
     via_tool("like", json!({ "id": id }), header_key(&headers)).await
 }
 
-async fn repost_post(headers: HeaderMap, Path(id): Path<String>) -> Response {
+async fn repost_post(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Some(denied) = write_gate(&peer, &headers) {
+        return denied;
+    }
     via_tool("repost", json!({ "id": id }), header_key(&headers)).await
 }
 
@@ -216,7 +295,14 @@ async fn get_user(headers: HeaderMap, Path(handle): Path<String>) -> Response {
     via_tool("user", json!({ "username": handle }), header_key(&headers)).await
 }
 
-async fn follow_user(headers: HeaderMap, Path(handle): Path<String>) -> Response {
+async fn follow_user(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(handle): Path<String>,
+) -> Response {
+    if let Some(denied) = write_gate(&peer, &headers) {
+        return denied;
+    }
     via_tool("follow", json!({ "username": handle }), header_key(&headers)).await
 }
 
@@ -282,12 +368,17 @@ async fn auth_status(headers: HeaderMap) -> Response {
 /// these are the keys that let this server act as the account, so a request
 /// from anywhere but this machine has no business setting them. `resolve`
 /// re-reads the file per request, so there is nothing to restart.
-async fn set_keys(ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(body): Json<Value>) -> Response {
-    if !peer.ip().is_loopback() {
+async fn set_keys(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if !peer.ip().is_loopback() || cross_origin(&headers) {
         return (
             StatusCode::FORBIDDEN,
             Json(json!({
-                "error": "credentials can only be set from this machine (loopback); \
+                "error": "credentials can only be set from this machine (loopback), \
+                          by this app or a non-browser client; \
                           use `m x/set_keys ... persist=True` on the host"
             })),
         )
@@ -310,12 +401,21 @@ async fn set_keys(ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(body): Json<V
 
 /// Generic escape hatch: any MCP tool by name, same shape as the mod protocol
 /// `forward` call.
-async fn forward(headers: HeaderMap, Json(mut body): Json<Value>) -> Response {
+async fn forward(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(mut body): Json<Value>,
+) -> Response {
     let action = body
         .as_object_mut()
         .and_then(|o| o.remove("action").or_else(|| o.remove("fn")))
         .and_then(|a| a.as_str().map(String::from))
         .unwrap_or_else(|| "search".into());
+    if WRITE_TOOLS.contains(&action.as_str()) {
+        if let Some(denied) = write_gate(&peer, &headers) {
+            return denied;
+        }
+    }
     via_tool(&action, body, header_key(&headers)).await
 }
 

@@ -1310,7 +1310,7 @@ class TestToolPipeline:
     def test_multi_file_grep(self, builtin, tmpdir):
         for i in range(5):
             p = os.path.join(tmpdir, f"file{i}.py")
-            content = f"TARGET_{i} = True\n" if i % 2 == 0 else f"other = False\n"
+            content = f"TARGET_{i} = True\n" if i % 2 == 0 else "other = False\n"
             builtin.run("write", file_path=p, content=content)
         r = builtin.run("grep", pattern="TARGET", path=tmpdir, file_pattern="*.py")
         assert r["success"]
@@ -1898,7 +1898,7 @@ class TestApi:
         assert r.status_code == 200
         data = r.json()
         assert "tools" in data
-        assert len(data["tools"]) == BUILTIN_COUNT
+        assert len(data["tools"]) >= BUILTIN_COUNT  # + the host's custom tools
 
     def test_agents_list(self):
         client = self._get_app()

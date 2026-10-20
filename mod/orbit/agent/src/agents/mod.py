@@ -21,13 +21,12 @@ Usage:
     agents.register("myagent", key=k)   # register on-chain
     agents.forward("architect")         # mod protocol entry point
 """
-import os
 import json
 import time
 import secrets
 import types
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 
 try:
     import mod as m
@@ -45,7 +44,7 @@ except ImportError:  # running the registry standalone
 BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer",
             "safety", "claude-code", "codex", "claude-mod", "build-mod", "chain-mod",
             "task-builder", "vibe-builder", "idea-scout", "tool-builder",
-            "flow-builder"}
+            "flow-builder", "feedback"}
 
 # the integrations an agent is built from. An agent is one node; these are
 # the four things wired into it, and the template written below declares all
@@ -170,6 +169,10 @@ class Agents:
             # set -> the run is handed to an external CLI (see harness/mod.py)
             # instead of this module's own loop
             "harness": getattr(cls, "harness", None),
+            # set -> the agent is a builder ⇄ reviewer feedback loop over two
+            # other agents ({"builder": name, "reviewer": name}), run by
+            # Mod._run_feedback for `rounds` passes instead of one loop
+            "loop": getattr(cls, "loop", None),
             # the agent's own UI — a gateway path ('/hermes') or a URL the
             # console connects to when this agent is selected. None = the
             # console itself is the interface. Hub-installed agents get one

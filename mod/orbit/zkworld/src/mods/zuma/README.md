@@ -1,7 +1,7 @@
 # zuma — zk Yuma consensus
 
 `zkworld.zuma`, forked from [`zkworld.subnet`](../subnet/) (sealed Yuma). It adds the
-ring signatures from [`orbit/zuma`](../../../../zuma/) so that **miners and
+ring signatures from [`orbit/ztensor`](../../../../ztensor/) so that **miners and
 validators know they are in the set, but nobody knows who is who.**
 
 Collusion in a subnet needs one party to recognize the other. Zuma removes that:

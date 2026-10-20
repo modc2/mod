@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AUTO RUNS</title>
+<link rel="stylesheet" href="kit.css" />
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div class="grid">
+    <div class="card wide">
+      <h2>Start a run</h2>
+      <div class="form">
+        <label class="f">module<input id="a_mod" placeholder="which mod?" /></label>
+        <label class="f">steps<input id="a_steps" type="number" min="1" max="20" value="3" /></label>
+        <label class="f">model<input id="a_model" placeholder="default" /></label>
+        <label class="f full">goal (optional)<input id="a_goal" placeholder="e.g. polish the mobile layout" /></label>
+        <label class="chk full"><input id="a_play" type="checkbox" checked /> play each idea (off = ideas only: file them under your name and stop)</label>
+      </div>
+      <div class="inline" style="justify-content:flex-end;margin-top:10px">
+        <span class="faint" style="flex:1;font-size:12px">Each step: one agent writes an idea for the mod, a second implements it. Playing pre-approves N plays on your own account.</span>
+        <button id="startBtn" class="primary">start run</button>
+      </div>
+    </div>
+    <div class="card wide">
+      <h2>Live <span class="sp"></span><input id="filter" placeholder="filter by module…" style="max-width:220px;padding:6px 10px" /></h2>
+      <div id="live" class="rows"></div>
+    </div>
+    <div class="card wide">
+      <h2>Finished</h2>
+      <div id="done" class="rows"></div>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let runs = [];
+const open = new Set();
+const isLive = (r) => r.status === "running" || r.status === "stopping";
+
+function row(r) {
+  const kind = isLive(r) ? "on" : r.status === "failed" ? "bad" : r.status === "done" ? "acc" : "";
+  const mine = K.address && r.started_by && r.started_by.toLowerCase() === K.address.toLowerCase();
+  const canStop = isLive(r) && r.status !== "stopping" && (K.isOwner || mine);
+  const steps = open.has(r.id) ? `<div class="rows" style="margin-top:8px;flex-basis:100%">${(r.history || []).map((s) =>
+    `<div class="row"><span class="pill">${s.step}</span><div class="grow"><div class="t">${K.esc(s.title || s.phase)}</div>
+     <div class="s">${K.esc(s.phase)}${s.outcome ? " · " + K.esc(s.outcome) : ""}${s.cid ? ` · <span class="mono">${K.esc(s.cid.slice(0, 12))}</span>` : ""}</div></div></div>`).join("") || `<div class="empty">no steps yet</div>`}</div>` : "";
+  return `<div class="row click" data-id="${r.id}" style="flex-wrap:wrap">
+    <span class="pill ${kind}">${K.esc(r.status)}</span>
+    <div class="grow"><div class="t">${K.esc(r.module)}${r.source === "evolver" ? ` <span class="pill acc" style="padding:3px 7px">evolver</span>` : ""} <span class="faint">· ${(r.history || []).length}/${r.steps} steps</span></div>
+      <div class="s">${K.esc(r.goal || "free pick")} · ${K.esc(r.model)} · ${r.started_by ? K.esc(K.short(r.started_by)) : "host"} · ${K.ago(r.updated_at)}${r.usd ? ` · $${(+r.usd).toFixed(2)}` : ""}</div></div>
+    <div class="acts"><a class="btn sm" style="padding:6px 9px;font-size:10px" href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">open</a>${canStop ? `<button class="sm danger" data-a="stop">stop</button>` : ""}</div>
+    ${steps}</div>`;
+}
+
+function render() {
+  const f = $("filter").value.trim().toLowerCase();
+  const vis = runs.filter((r) => !f || r.module.toLowerCase().includes(f));
+  const live = vis.filter(isLive), done = vis.filter((r) => !isLive(r));
+  K.setState(K.pill(live.length > 0, `${live.length} live`, "quiet"));
+  $("live").innerHTML = live.map(row).join("") || `<div class="empty">nothing running</div>`;
+  $("done").innerHTML = done.slice(0, 30).map(row).join("") || `<div class="empty">no finished runs</div>`;
+}
+
+async function load() { const r = await K.api("/auto"); if (r.ok) { runs = (r.data.runs || []).sort((a, b) => b.updated_at - a.updated_at); render(); } }
+
+document.body.addEventListener("click", async (e) => {
+  const rowEl = e.target.closest(".row[data-id]"); if (!rowEl || e.target.closest("a")) return;
+  const id = rowEl.dataset.id;
+  if (e.target.dataset.a === "stop") {
+    if (await K.ask("Stop this run? It stops between phases; a job already in flight finishes.", "Stop", true)) { await K.act(`/auto/${id}/stop`, {}, "stopping"); load(); }
+    return;
+  }
+  open.has(id) ? open.delete(id) : open.add(id); render();
+});
+$("filter").oninput = render;
+$("startBtn").onclick = async (e) => {
+  const mod = $("a_mod").value.trim();
+  if (!mod) return K.toast("pick a module", true);
+  const body = { steps: +$("a_steps").value || 1, goal: $("a_goal").value.trim(), play: $("a_play").checked };
+  if ($("a_model").value.trim()) body.model = $("a_model").value.trim();
+  const go = async () => { if (await K.act(`/modules/${encodeURIComponent(mod)}/auto`, body, "run started")) load(); };
+  body.play ? K.armed(e.target, `sure? ${body.steps} plays`, go) : go();
+};
+const q = new URLSearchParams(location.search);
+if (q.get("mod")) { $("a_mod").value = q.get("mod"); $("filter").value = q.get("mod"); }
+
+K.init({ glyph: "▶", title: "Auto runs", accent: "#63d4a8", sub: "Drive a mod's idea queue for N steps with nobody at the wheel: one agent proposes, another implements." })
+  .then(() => { $("startBtn").disabled = !K.token; K.poll(load, 5000); });
+</script>
+</body>
+</html>

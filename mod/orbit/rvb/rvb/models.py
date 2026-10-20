@@ -9,6 +9,7 @@ round are all portable: they name a model, not a provider.
     anthropic:<model>       ANTHROPIC_API_KEY
     openai:<model>          OPENAI_API_KEY
     venice:<slug>           BYOK, VENICE_API_KEY or ~/.mod/rvb/venice.key
+    agent:<prov>/<type>     any agent on the agent protocol (see agents.py)
     mock:<behaviour>        deterministic, offline, no network
 
 Venice is OpenAI-compatible and its catalogue is public (`venice_models()`
@@ -36,6 +37,11 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
+
+try:
+    from . import agents as agentproto
+except ImportError:  # loaded as a top-level module (tests, scripts)
+    import agents as agentproto
 
 DEFAULT = os.environ.get('RVB_MODEL', 'claude:haiku')
 JUDGE_MODEL = os.environ.get('RVB_JUDGE_MODEL', DEFAULT)
@@ -81,6 +87,12 @@ def providers():
         out[name] = {'ready': bool(key), 'keyless': False,
                      'how': f'{env} is set' if key else
                             f'set {env} or write {files[0]}'}
+    provs = agentproto.providers()
+    out['agent'] = {'ready': bool(provs), 'keyless': True,
+                    'how': 'agent:<provider>/<agent_type> — providers: ' +
+                           ', '.join(p['name'] for p in provs),
+                    'note': 'any mod with an agent_contract; GET /agents '
+                            'lists each roster'}
     out['mock'] = {'ready': True, 'keyless': True,
                    'how': 'offline, deterministic — for testing the harness'}
     return out
@@ -117,7 +129,8 @@ def complete(messages, system=None, model=None, max_tokens=None, timeout=None):
     max_tokens = int(max_tokens or MAX_TOKENS)
     timeout = int(timeout or TIMEOUT)
     fn = {'claude': _claude, 'openrouter': _openrouter, 'anthropic': _anthropic,
-          'openai': _openai, 'venice': _venice, 'mock': _mock}.get(provider)
+          'openai': _openai, 'venice': _venice, 'agent': _agent,
+          'mock': _mock}.get(provider)
     if fn is None:
         raise ModelError(f'no backend {provider!r} — one of '
                          f'{", ".join(providers())}. Models are "provider:name".')
@@ -174,6 +187,13 @@ def _claude(messages, system, name, max_tokens, timeout):
         raise ModelError(f'claude CLI exited {p.returncode}: '
                          f'{(p.stderr or p.stdout or "").strip()[:400]}')
     return (p.stdout or '').strip()
+
+
+def _agent(messages, system, name, max_tokens, timeout):
+    # One run per exchange; a multi-turn attack is posed as its transcript,
+    # the same way the CLI gets it.
+    return agentproto.run(_flatten(messages), system=system, name=name,
+                          timeout=timeout, error=ModelError)
 
 
 def _post(url, payload, headers, timeout):

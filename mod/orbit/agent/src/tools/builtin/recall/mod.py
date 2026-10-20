@@ -1,5 +1,5 @@
 """recall - retrieval over the agent's own memory module"""
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 LAYERS = ('semantic', 'dialogue', 'episodic', 'working')
 

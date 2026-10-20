@@ -1009,6 +1009,82 @@ class Mod:
                 killed.append(name)
         return {'killed': killed}
 
+    # ── graphs: states, judges, feedback ─────────────────────────
+    #
+    # A state is the world an agent acts on (a game, a computer, a mod); a
+    # judge reviews the agent's whole episode 0-100; feedback hands the
+    # judges' reasons back and the agent goes again. src/graph/runner.py
+    # has the document shape. Runs in this process — no server needed.
+
+    @staticmethod
+    def _graph():
+        try:
+            from . import graph as G
+        except ImportError:                      # run as a script, not a package
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import graph as G                    # type: ignore
+        return G
+
+    @staticmethod
+    def _json(v):
+        return json.loads(v) if isinstance(v, str) and v.strip()[:1] in '{[' else v
+
+    def states(self):
+        """The kinds of world an agent can act on, and the graph node kinds."""
+        G = self._graph()
+        return {'states': G.states.kinds(), 'agents': sorted(G.actors.KINDS),
+                'judges': sorted(G.judges.KINDS), 'nodes': G.runner.KINDS}
+
+    def graph_templates(self):
+        return self._graph().runner.templates()
+
+    def graph_template(self, name: str = 'game'):
+        return self._graph().runner.template(name)
+
+    def graph_check(self, graph):
+        return {'problems': self._graph().runner.check(self._json(graph))}
+
+    def graph_save(self, graph):
+        return self._graph().runner.save(self._json(graph))
+
+    def graphs(self):
+        R = self._graph().runner
+        return {'saved': R.saved(), 'templates': R.templates()}
+
+    def graph_run(self, graph='game', seed: int = None, state=None, agent=None, judges=None,
+                  rounds: int = None, threshold: float = None, steps: int = None, **kwargs):
+        """Run a graph — a saved name, a template name, or the document.
+        state/agent/judges override the player loop's nodes, so
+        `m arena/graph_run state='{"kind":"game","game":"blotto"}' agent='{"kind":"protocol"}'`
+        just works."""
+        R = self._graph().runner
+        g = self._json(graph)
+        g = R.load(g) if isinstance(g, str) else dict(g)
+        nodes = {n['id']: n for n in g.get('nodes', [])}
+        if state is not None and 'world' in nodes:
+            nodes['world']['state'] = self._json(state)
+        if agent is not None and 'player' in nodes:
+            nodes['player']['agent'] = self._json(agent)
+        if judges is not None and 'review' in nodes:
+            nodes['review']['judges'] = self._json(judges)
+        for k, v in (('rounds', rounds), ('threshold', threshold), ('steps', steps)):
+            if v is not None:
+                g[k] = v
+        r = R.run(g, seed=seed)
+        if r.get('error') and 'rounds' not in r:
+            return r
+        return {k: r.get(k) for k in ('id', 'name', 'status', 'scores', 'best', 'error')} | {
+            'rounds': [{'round': x['round'], 'steps': len(x['episode']['steps']),
+                        'done': x['episode']['done'],
+                        'score': (x.get('verdict') or {}).get('score'),
+                        'feedback': x.get('feedback', '')} for x in r['rounds']]}
+
+    def graph_runs(self, limit: int = 20):
+        return self._graph().runner.runs(limit)
+
+    def graph_result(self, id: str):
+        return self._graph().runner.get_run(id)
+
     # ── test ─────────────────────────────────────────────────────
 
     def test(self, **kwargs):

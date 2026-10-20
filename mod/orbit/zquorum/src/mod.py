@@ -44,7 +44,7 @@ DEVNET_PORT = int(os.environ.get('ZQUORUM_DEVNET_PORT', 51302))
 
 # Where the ZQuorum contract can live. sncast picks the accounts-file
 # section from the chain id; devnet reports SN_SEPOLIA, so its accounts
-# sit under alpha-sepolia too (same convention as orbit/zuma).
+# sit under alpha-sepolia too (same convention as orbit/ztensor).
 NETWORKS = {
     'devnet': {'rpc': f'http://127.0.0.1:{DEVNET_PORT}/rpc',
                'section': 'alpha-sepolia', 'fee': 'eth'},

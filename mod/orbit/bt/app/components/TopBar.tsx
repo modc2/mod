@@ -8,6 +8,7 @@ import { useData } from '@/lib/data';
 import { compact, fmt, fmtPrice, looksSS58, short } from '@/lib/format';
 import { Ident, Pct, SubnetLogo } from './ui';
 import { BASE } from '@/lib/api';
+import { toggleCopy, useCopyOpen } from '@/lib/ct';
 
 function ThemeButton() {
   const [dark, setDark] = useState(false);
@@ -242,6 +243,17 @@ function WalletButton() {
   );
 }
 
+/* copy trading + strats sidebar (components/CopyDock) */
+function CopyButton() {
+  const on = useCopyOpen();
+  return (
+    <button className={'cbtn' + (on ? ' on' : '')} onClick={toggleCopy} aria-pressed={on}
+            title={on ? 'Hide copy trading' : 'Copy trading & strats'}>
+      <svg viewBox="0 0 16 16" aria-hidden><path d="M5.5 5.5h7v7h-7v-7ZM3.5 10.5V3.5h7" /></svg>Copy
+    </button>
+  );
+}
+
 export default function TopBar() {
   const w = useWallet();
   return (
@@ -250,6 +262,7 @@ export default function TopBar() {
         <a className="nav-logo" href={BASE || '/'}><span className="rb-mark">τ</span></a>
         <Jump />
         <span className="grow" />
+        <CopyButton />
         <CcyButton />
         <ThemeButton />
         <SkinButton />

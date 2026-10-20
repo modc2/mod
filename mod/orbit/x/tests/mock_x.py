@@ -13,8 +13,20 @@ it here drives the whole rendering path — author joins out of `includes.users`
 
 Then open http://localhost:51997/. Nothing here reaches the real X.
 """
-import json, re
+import base64, hashlib, hmac, json, os, re, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import quote, unquote
+
+# The dummy credentials the backend under test is started with. The mock is a
+# strict upstream: reads must carry this bearer, and anything acting as the
+# account must carry an OAuth 1.0a header whose HMAC-SHA1 signature it
+# recomputes independently — so a signing or wire-encoding bug fails loudly
+# here instead of as a 401 from the real X.
+BEARER = "mock"
+CONSUMER_KEY, CONSUMER_SECRET = "k", "s"
+ACCESS_TOKEN, ACCESS_SECRET = "at", "as"
+PORT = int(os.environ.get("MOCK_X_PORT") or (sys.argv[1] if len(sys.argv) > 1 else 51999))
+LOG = []  # every request seen, for GET /_mock/log
 
 USERS = {
     "jack": {"id": "12", "name": "jack", "username": "jack",
@@ -53,8 +65,54 @@ INCLUDES = {"users": list(USERS.values())}
 COUNTS = [{"start": f"2026-08-{d:02d}T00:00:00.000Z", "end": f"2026-08-{d+1:02d}T00:00:00.000Z",
            "tweet_count": c} for d, c in zip(range(22, 29), [412, 903, 1180, 760, 2400, 1890, 1330])]
 
+def pct(v):
+    return quote(v, safe="-._~")
+
+
+def oauth_ok(method, url, query, header):
+    """RFC 5849 §3.4 base string from what actually arrived on the wire."""
+    if not header.startswith("OAuth "):
+        return False
+    oauth = {}
+    for part in header[6:].split(","):
+        k, _, v = part.strip().partition("=")
+        oauth[k] = unquote(v.strip('"'))
+    sig = oauth.pop("oauth_signature", "")
+    if oauth.get("oauth_consumer_key") != CONSUMER_KEY or oauth.get("oauth_token") != ACCESS_TOKEN:
+        return False
+    params = sorted([(pct(k), pct(v)) for k, v in oauth.items()] +
+                    [(pct(k), pct(v)) for k, v in query])
+    base = "&".join([method, pct(url), pct("&".join(f"{k}={v}" for k, v in params))])
+    key = f"{pct(CONSUMER_SECRET)}&{pct(ACCESS_SECRET)}".encode()
+    want = base64.b64encode(hmac.new(key, base.encode(), hashlib.sha1).digest()).decode()
+    return hmac.compare_digest(want, sig)
+
+
+# GETs that read as the account; every POST/DELETE acts as it.
+USER_CONTEXT_GETS = re.compile(r"^/2/users/(me|\d+/mentions)$")
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
+
+    def authorized(self, body=None):
+        """Strict upstream auth. Returns False (and has replied 401) on failure."""
+        path, _, qs = self.path.partition("?")
+        # Strict RFC 3986: a literal `+` stays a `+`, exactly like X's verifier.
+        query = [(unquote(k), unquote(v)) for k, _, v in
+                 (p.partition("=") for p in qs.split("&") if p)]
+        auth = self.headers.get("authorization", "")
+        user_ctx = self.command != "GET" or bool(USER_CONTEXT_GETS.match(path))
+        if user_ctx:
+            ok = oauth_ok(self.command, f"http://127.0.0.1:{PORT}{path}", query, auth)
+        else:
+            ok = auth == f"Bearer {BEARER}" or oauth_ok(
+                self.command, f"http://127.0.0.1:{PORT}{path}", query, auth)
+        LOG.append({"method": self.command, "path": path, "query": dict(query),
+                    "auth": auth.split(" ")[0], "ok": ok, "body": body})
+        if not ok:
+            self.send({"title": "Unauthorized", "detail": "mock: bad or missing credentials"}, 401)
+        return ok
 
     def send(self, obj, code=200):
         body = json.dumps(obj).encode()
@@ -66,6 +124,10 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = self.path.split("?")[0]
+        if p == "/_mock/log":
+            return self.send(LOG)
+        if not self.authorized():
+            return
         if p == "/2/tweets/search/recent":
             return self.send({"data": TWEETS, "includes": INCLUDES,
                               "meta": {"result_count": len(TWEETS)}})
@@ -93,8 +155,24 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("content-length") or 0)
         body = json.loads(self.rfile.read(n) or b"{}")
-        if self.path.startswith("/2/tweets"):
-            return self.send({"data": {"id": "1900000000000000042", "text": body.get("text", "")}})
-        self.send({"data": {"ok": True}})
+        if not self.authorized(body):
+            return
+        p = self.path.split("?")[0]
+        if p == "/2/tweets":
+            return self.send({"data": {"id": "1900000000000000042", "text": body.get("text", "")}}, 201)
+        m = re.match(r"^/2/users/(\d+)/(likes|retweets|following)$", p)
+        if m:
+            key = {"likes": "liked", "retweets": "retweeted", "following": "following"}[m.group(2)]
+            return self.send({"data": {key: True}})
+        self.send({"detail": "mock: no route " + p}, 404)
 
-HTTPServer(("127.0.0.1", 51999), H).serve_forever()
+    def do_DELETE(self):
+        if not self.authorized():
+            return
+        if re.match(r"^/2/tweets/\d+$", self.path):
+            return self.send({"data": {"deleted": True}})
+        self.send({"detail": "mock: no route " + self.path}, 404)
+
+
+if __name__ == "__main__":
+    HTTPServer(("127.0.0.1", PORT), H).serve_forever()

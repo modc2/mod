@@ -88,10 +88,20 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const GROUPS = ['category','status','ecosystem','topic','mechanism','amount','other'];
 const LABEL = {category:'Category', status:'Status', ecosystem:'Ecosystem', topic:'Topic', mechanism:'Mechanism', amount:'Size', other:'Other tags'};
 let sel = new Set((new URLSearchParams(location.hash.slice(1)).get('tags') || '').split(',').filter(Boolean));
-let armed = null, timer = null;
+let armed = null, timer = null, owner = false;
 
-async function j(path, opt) {
-  const r = await fetch(API + path, opt);
+// Sign-in is build's: same origin -> its localStorage token, embedded -> ask the parent frame.
+let token = localStorage.getItem('build_jobs_token') || '';
+addEventListener('message', e => {
+  const d = e.data || {};
+  if (d.type === 'mod.session' && d.token && d.token !== token) { token = d.token; who(); }
+  if (d.type === 'mod.session.end') { token = ''; who(); }
+});
+if (parent !== window) parent.postMessage({ type: 'mod.session.request' }, '*');
+
+async function j(path, opt = {}) {
+  const headers = { ...(opt.headers || {}), ...(token ? { Authorization: 'Bearer ' + token } : {}) };
+  const r = await fetch(API + path, { ...opt, headers });
   const b = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(b.error || r.status);
   return b;
@@ -135,10 +145,16 @@ async function list() {
     </div>`).join('') || '<div class="empty">Nothing matches. Clear a filter or run the agent.</div>';
 }
 
+async function who() {
+  owner = (await j('/whoami').catch(() => ({}))).owner === true;
+  $('sweepNote').innerHTML = owner ? '' : '<div class="note">Running the agent spends the owner\'s Claude account. Sign in to build as the owner to find new grants.</div>';
+  runs();
+}
+
 async function runs() {
   const [s, r, h] = await Promise.all([j('/sweep'), j('/runs?k=14'), j('/health')]);
   $('meta').textContent = `${h.grants} grants · $${h.spent_usd.toFixed(2)} agent spend · last run ${ago(h.last_run)}`;
-  $('sweepBtn').disabled = s.running;
+  $('sweepBtn').disabled = s.running || !owner;
   $('sweepBtn').textContent = s.running ? 'Agent running...' : (armed ? 'Run all lanes?' : 'Find grants');
   $('runs').innerHTML = r.runs.map(x => `<div><b>${esc(x.lane)}</b> · ${esc(x.status)}${x.status === 'running' ? ` · ${x.steps.length} steps · ${esc((x.steps.at(-1)||{}).arg||'').slice(0,40)}` : ` · ${x.found} found, ${x.new} new · $${(+x.cost).toFixed(2)}`}${x.error ? `<div style="color:var(--bad)">${esc(x.error).slice(0,120)}</div>` : ''}</div>`).join('') || 'No runs yet.';
   clearTimeout(timer);
@@ -166,7 +182,7 @@ $('sweepBtn').addEventListener('click', async () => {
 });
 
 $('q').value = new URLSearchParams(location.hash.slice(1)).get('q') || '';
-facets(); list(); runs();
+facets(); list(); who();
 </script>
 </body>
 </html>

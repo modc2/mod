@@ -10,15 +10,13 @@ import json
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 import pytest
 
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.tools.mcp.mod import (Client, McpError, McpTools, PREFIX,
-                               _parse_body)
+from src.tools.mcp.mod import (McpTools, PREFIX, _parse_body)
 from src.tools.mod import Tools
 
 TOOLS = [

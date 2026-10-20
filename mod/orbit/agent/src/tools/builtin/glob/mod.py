@@ -1,6 +1,6 @@
 """glob - find files by pattern"""
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 class Tool:
     description = "Find files matching a glob pattern"

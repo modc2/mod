@@ -16,6 +16,7 @@ the same round. There is exactly one scoreboard.
     GET  /board             standings, blue and red
     GET  /targets           which backends can run right now
     GET  /models            Venice model catalogue (choices for a venice: target)
+    GET  /agents            agent-protocol providers + rosters (agent: targets)
     POST /ping              prove a target is reachable
     GET  /tools             the MCP registry
     POST /mcp               MCP JSON-RPC 2.0 (Streamable HTTP)
@@ -94,6 +95,8 @@ def info():
             'GET /board': '?rounds=8 — standings, blue and red',
             'GET /targets': 'which model backends can run right now',
             'GET /models': 'Venice model catalogue — choices for a venice: target',
+            'GET /agents': '?provider= — agent-protocol agents, choices for an '
+                           'agent:<provider>/<agent_type> target',
             'POST /ping': '{model} — prove a target is reachable',
             'GET /tools': 'the MCP tool registry',
             'POST /mcp': 'MCP JSON-RPC 2.0',
@@ -181,6 +184,9 @@ def route(method, path, query, body):
 
     if path == '/models' and method == 'GET':
         return mcpsrv.t_models({})
+
+    if path == '/agents' and method == 'GET':
+        return mcpsrv.t_agents({'provider': arg('provider')})
 
     if path == '/ping' and method == 'POST':
         try:

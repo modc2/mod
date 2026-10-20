@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EVOLVER</title>
+<link rel="stylesheet" href="kit.css" />
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div class="grid">
+    <div class="card">
+      <h2>Switch <span class="sp"></span><span id="skip" class="faint"></span></h2>
+      <div class="inline" style="margin-bottom:12px">
+        <button id="enableBtn" class="primary">turn on</button>
+        <div class="seg" id="modeSeg"><button data-m="idle">idle</button><button data-m="meta">meta</button></div>
+      </div>
+      <div id="modeNote" class="muted" style="font-size:12.5px"></div>
+      <div id="live" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <h2>Budget</h2>
+      <div id="budget"></div>
+    </div>
+    <div class="card wide">
+      <h2>Settings <span class="sp"></span><button id="saveBtn" class="sm">save</button></h2>
+      <div class="form">
+        <label class="f">model<input id="s_model" /></label>
+        <label class="f">runs / week<input id="s_cap" type="number" min="1" max="500" /></label>
+        <label class="f">quiet before a run (s)<input id="s_idle" type="number" min="0" /></label>
+        <label class="f">stand down at plan %<input id="s_guard" type="number" min="1" max="100" /></label>
+        <label class="f full">standing goal (empty = each run picks freely)<input id="s_goal" placeholder="e.g. polish mobile layouts" /></label>
+      </div>
+    </div>
+    <div class="card wide">
+      <h2>Focus <span class="sp"></span><span class="faint" id="focusNote"></span></h2>
+      <div class="chips" id="focus"></div>
+      <div class="inline" style="margin-top:10px"><input id="focusIn" placeholder="add a module to focus on…" style="max-width:300px" /><button id="focusAdd" class="sm">add</button></div>
+    </div>
+    <div class="card">
+      <h2>Timers <span class="sp"></span><span class="faint" id="schedCap"></span></h2>
+      <div id="scheds" class="rows"></div>
+      <div class="form" style="margin-top:10px">
+        <label class="f">module<input id="t_mod" /></label>
+        <label class="f">every (min)<input id="t_every" type="number" min="5" value="60" /></label>
+        <label class="f full">prompt<input id="t_prompt" placeholder="empty = standing goal" /></label>
+      </div>
+      <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="t_add" class="sm">+ timer</button></div>
+    </div>
+    <div class="card">
+      <h2>Task queue <span class="sp"></span><span class="faint" id="taskCap"></span></h2>
+      <div id="tasks" class="rows"></div>
+      <div class="form" style="margin-top:10px">
+        <label class="f">module<input id="q_mod" placeholder="empty = loop picks" /></label>
+        <label class="f full">task<input id="q_prompt" placeholder="what should it do?" /></label>
+      </div>
+      <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="q_add" class="sm">+ queue</button></div>
+    </div>
+    <div class="card wide">
+      <h2>Recent runs</h2>
+      <div id="recent" class="rows"></div>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+let D = null, formSeeded = false;
+const $ = (id) => document.getElementById(id);
+
+function render() {
+  if (!D) return;
+  K.setState(K.pill(D.enabled, D.mode === "meta" ? "on · meta" : "on · idle", "off"));
+  const en = $("enableBtn");
+  en.textContent = D.enabled ? "turn off" : "turn on";
+  en.className = D.enabled ? "danger" : "primary";
+  en.disabled = !K.isOwner;
+  for (const b of $("modeSeg").children) { b.classList.toggle("sel", b.dataset.m === D.mode); b.disabled = !K.isOwner; }
+  $("modeNote").textContent = D.mode === "meta"
+    ? "META: keeps looping while you work — still one run at a time."
+    : `IDLE: runs only after ${K.dur(D.idle_secs)} with no writes in the console (quiet for ${K.dur(D.idle_for || 0)} now).`;
+  $("skip").textContent = D.last_skip ? `last tick: ${D.last_skip} · ${K.ago(D.last_tick)}` : "";
+  $("live").innerHTML = D.live
+    ? `<div class="row"><span class="pill on">live</span><div class="grow"><div class="t">${K.esc(D.live.module)}</div><div class="s">${K.esc(D.live.title || D.live.status)} · ${K.ago(D.live.created_at)}</div></div>${K.isOwner ? `<button class="sm danger" id="stopLive">stop</button>` : ""}</div>`
+    : `<div class="faint" style="font-size:12.5px">no run in flight</div>`;
+  if ($("stopLive")) $("stopLive").onclick = async () => { if (await K.ask("Stop the evolver's run in flight? A job already running finishes on its own.", "Stop", true)) { await K.act("/evolver/stop", {}, "stopping"); load(); } };
+
+  const w = D.week || {};
+  const pw = D.plan_weekly;
+  const pct = pw ? Math.round(pw.percent ?? 0) : null;
+  $("budget").innerHTML = `
+    <div class="stats">
+      <div class="stat"><b>${w.used ?? 0}/${w.cap ?? "—"}</b><span>runs this week</span></div>
+      <div class="stat"><b>$${(w.cost_usd ?? 0).toFixed(2)}</b><span>spent this week</span></div>
+      <div class="stat"><b>${pct == null ? "—" : pct + "%"}</b><span>${K.esc(pw?.label || "plan weekly")}</span></div>
+    </div>
+    <div style="margin-top:12px" class="muted">${D.budget === "plan" ? "Binding ceiling: the subscription's weekly window" : "Binding ceiling: the run cap"} · stands down at ${D.plan_guard_pct}%</div>
+    <div class="meter" style="margin-top:8px"><i style="width:${Math.min(100, D.budget === "plan" && pct != null ? pct : ((w.used || 0) / (w.cap || 1)) * 100)}%"></i></div>
+    <div class="faint" style="margin-top:6px;font-size:12px">${w.resets_at ? `resets ${K.ago(w.resets_at)}` : ""}${pw && pw.resets_at ? ` · plan resets ${K.ago(pw.resets_at)}` : ""}</div>`;
+
+  if (!formSeeded) {
+    $("s_model").value = D.model || ""; $("s_cap").value = w.cap ?? 70; $("s_idle").value = D.idle_secs;
+    $("s_guard").value = D.plan_guard_pct; $("s_goal").value = D.goal || ""; formSeeded = true;
+  }
+  $("focus").innerHTML = (D.focus || []).length
+    ? D.focus.map((m) => `<span class="chip">${K.esc(m)}${K.isOwner ? `<button data-f="${K.esc(m)}" title="remove">✕</button>` : ""}</span>`).join("")
+    : `<span class="faint">all mods — the ${D.pool_size} most recently updated</span>`;
+  $("focusNote").textContent = (D.focus || []).length ? "rotation = exactly these" : "";
+
+  $("schedCap").textContent = `${(D.schedules || []).length}/${D.sched_cap}`;
+  $("scheds").innerHTML = (D.schedules || []).map((s) => `<div class="row" data-id="${s.id}">
+      <span class="pill ${s.paused ? "" : "on"}">${s.paused ? "paused" : "◷"}</span>
+      <div class="grow"><div class="t">${K.esc(s.module)} · every ${s.every_mins}m</div>
+      <div class="s">${K.esc(s.prompt || "standing goal")} · ${s.paused ? "paused" : s.next_at ? "next " + K.ago(s.next_at) : "due"}</div></div>
+      ${K.isOwner ? `<div class="acts"><button class="sm" data-a="pause">${s.paused ? "resume" : "pause"}</button><button class="sm danger" data-a="del">✕</button></div>` : ""}</div>`).join("") || `<div class="empty">no timers</div>`;
+
+  $("taskCap").textContent = `${(D.tasks || []).length}/${D.task_cap}`;
+  $("tasks").innerHTML = (D.tasks || []).map((t, i) => `<div class="row" data-id="${t.id}">
+      <span class="pill">${i + 1}</span><div class="grow"><div class="t">${K.esc(t.prompt)}</div><div class="s">${K.esc(t.module || "loop picks")} · queued ${K.ago(t.created_at)}</div></div>
+      ${K.isOwner ? `<div class="acts"><button class="sm danger" data-a="del">✕</button></div>` : ""}</div>`).join("") || `<div class="empty">queue empty</div>`;
+
+  $("recent").innerHTML = (D.recent || []).slice(0, 20).map((r) => {
+    const mark = r.sched ? "◷ " : r.task ? "⚑ " : "";
+    const kind = r.outcome === "played" ? "on" : r.status === "failed" ? "bad" : r.status === "running" ? "warn" : "";
+    return `<div class="row"><span class="pill ${kind}">${K.esc(r.outcome || r.status)}</span><div class="grow">
+      <div class="t">${mark}${K.esc(r.module)} — ${K.esc(r.title || r.task || "")}</div>
+      <div class="s mono">${K.ago(r.ts)} · ${K.esc(r.run_id)} · <a href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">open mod</a></div></div></div>`;
+  }).join("") || `<div class="empty">no runs yet</div>`;
+  for (const id of ["saveBtn", "focusAdd", "t_add", "q_add"]) $(id).disabled = !K.isOwner;
+}
+
+async function load() { const r = await K.api("/evolver"); if (r.ok) { D = r.data; render(); } else K.setState(`<span class="pill bad">unreachable</span>`); }
+const post = async (body, msg) => { await K.act("/evolver", body, msg); load(); };
+
+$("enableBtn").onclick = (e) => D.enabled ? post({ enabled: false }, "evolver off") : K.armed(e.target, "sure? spends while idle", () => post({ enabled: true }, "evolver on"));
+$("modeSeg").onclick = (e) => { const m = e.target.dataset.m; if (m && m !== D.mode) post({ mode: m }, `mode: ${m}`); };
+$("saveBtn").onclick = () => post({
+  model: $("s_model").value.trim(), weekly_cap: +$("s_cap").value, idle_secs: +$("s_idle").value,
+  plan_guard_pct: +$("s_guard").value, goal: $("s_goal").value.trim(),
+}, "saved");
+$("focusAdd").onclick = () => { const m = $("focusIn").value.trim(); if (!m) return; $("focusIn").value = ""; post({ focus: [...new Set([...(D.focus || []), m])] }, "focus updated"); };
+$("focusIn").onkeydown = (e) => { if (e.key === "Enter") $("focusAdd").click(); };
+$("focus").onclick = (e) => { const m = e.target.dataset.f; if (m) post({ focus: D.focus.filter((x) => x !== m) }, "focus updated"); };
+$("t_add").onclick = async () => {
+  if (await K.act("/evolver/schedules", { module: $("t_mod").value.trim(), every_mins: +$("t_every").value, prompt: $("t_prompt").value.trim() }, "timer added")) { $("t_mod").value = $("t_prompt").value = ""; }
+  load();
+};
+$("scheds").onclick = async (e) => {
+  const a = e.target.dataset.a, id = e.target.closest(".row")?.dataset.id; if (!a) return;
+  const s = D.schedules.find((x) => x.id === id);
+  if (a === "pause") await K.act(`/evolver/schedules/${id}`, { paused: !s.paused }, s.paused ? "resumed" : "paused");
+  if (a === "del" && await K.ask(`Delete the ${s.module} timer?`, "Delete", true)) await K.act(`/evolver/schedules/${id}`, undefined, "deleted", "DELETE");
+  load();
+};
+$("q_add").onclick = async () => {
+  if (await K.act("/evolver/tasks", { module: $("q_mod").value.trim(), prompt: $("q_prompt").value.trim() }, "queued")) { $("q_mod").value = $("q_prompt").value = ""; }
+  load();
+};
+$("q_prompt").onkeydown = (e) => { if (e.key === "Enter") $("q_add").click(); };
+$("tasks").onclick = async (e) => {
+  const id = e.target.closest(".row")?.dataset.id;
+  if (e.target.dataset.a === "del") { await K.act(`/evolver/tasks/${id}`, undefined, "removed", "DELETE"); load(); }
+};
+
+K.init({ glyph: "✦", title: "Evolver", accent: "#5ee08a", sub: "The meta agent: improves your most recently updated mods one run at a time, on timers, a task queue, or a rotation — within a weekly budget." })
+  .then(() => K.poll(load, 8000));
+</script>
+</body>
+</html>

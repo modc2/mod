@@ -203,6 +203,9 @@ class RunRequest(BaseModel):
     browser_session: Optional[str] = None   # tab id a `browser` run generates in
     session: Optional[str] = None           # console conversation — makes the run a remembered exchange
     harness_args: Optional[dict] = None     # runner-specific knobs for a harness agent (chainmod: project, address, network)
+    rounds: Optional[int] = None            # feedback agents: builder passes, reviewer between each (default 3)
+    builder: Optional[str] = None           # feedback agents: override the agent doing the work
+    reviewer: Optional[str] = None          # feedback agents: override the agent reviewing it
     key: Optional[str] = None
 
 class GraphSaveRequest(BaseModel):
@@ -250,11 +253,6 @@ class GraphVibeRequest(BaseModel):
     # hand the drafting run to an external agent CLI ('build' = the build
     # console, 'claude' = Claude Code) — host / console-owner only
     harness: Optional[str] = None
-    key: Optional[str] = None
-
-class ToolRunRequest(BaseModel):
-    name: str
-    params: dict = {}
     key: Optional[str] = None
 
 class AgentCreateRequest(BaseModel):
@@ -3335,6 +3333,7 @@ def run_agent(req: RunRequest):
             images=req.images,
             session=req.session,
             harness_args=req.harness_args,
+            **{k: v for k, v in (('rounds', req.rounds), ('builder', req.builder), ('reviewer', req.reviewer)) if v},
             on_step=lambda s: _task_step(task, s),
             on_usage=lambda u: _task_usage(task, u),
             budget=_run_budget(req, task),
@@ -3498,6 +3497,7 @@ def run_agent_stream(req: RunRequest):
                     images=req.images,
                     session=req.session,
                     harness_args=req.harness_args,
+                    **{k: v for k, v in (('rounds', req.rounds), ('builder', req.builder), ('reviewer', req.reviewer)) if v},
                     on_step=on_step,
                     on_usage=on_usage,
                     on_live=on_live,

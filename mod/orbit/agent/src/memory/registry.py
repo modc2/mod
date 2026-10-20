@@ -22,9 +22,8 @@ Usage:
     mems.make()                  # the default one
 """
 import importlib.util
-import types
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from .mod import Memory as BaseMemory
 

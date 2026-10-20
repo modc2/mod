@@ -10,6 +10,7 @@ import { useChat } from '@/lib/chat';
 import { BASE } from '@/lib/api';
 import { compact, fmt, short } from '@/lib/format';
 import { Ident } from './ui';
+import { toggleCopy, useCopyOpen } from '@/lib/ct';
 
 export const ROUTES: { group: string; items: { href: string; label: string; dot: string }[] }[] = [
   { group: 'Explore', items: [
@@ -53,6 +54,7 @@ export default function Rail() {
   const d = useData();
   const w = useWallet();
   const chat = useChat();
+  const copyOn = useCopyOpen();
   const badge: Record<string, string | undefined> = {
     '/markets': d.screener?.rows?.length ? String(d.screener.rows.length) : undefined,
     '/traders': d.traders?.length ? String(d.traders.length) : undefined,
@@ -70,7 +72,13 @@ export default function Rail() {
       {ROUTES.map(g => (
         <div className="rail-group" key={g.group}>
           <span className="rail-label">{g.group}</span>
-          {g.items.map(r => (
+          {g.items.map(r => r.href === '/copy' ? (
+            /* Copy is a sidebar, not a page: the entry toggles it */
+            <button key={r.href} className={'rail-tog' + (copyOn || path === '/copy' ? ' active' : '')} onClick={toggleCopy}
+                    style={{ ['--dot' as string]: r.dot }} aria-pressed={copyOn}>
+              <svg className="ri" viewBox="0 0 16 16" aria-hidden><path d={ICON[r.href]} /></svg>{r.label}
+            </button>
+          ) : (
             <Link key={r.href} href={r.href} className={path === r.href ? 'active' : ''}
                   style={{ ['--dot' as string]: r.dot }}>
               <svg className="ri" viewBox="0 0 16 16" aria-hidden><path d={ICON[r.href]} /></svg>{r.label}{badge[r.href] && <em className="rbadge">{badge[r.href]}</em>}

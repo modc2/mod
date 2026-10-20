@@ -255,9 +255,18 @@
         "vibes",
         "vibe_status",
         "vibe_store",
-        "vibe_cancel"
+        "vibe_cancel",
+        "states",
+        "graph_templates",
+        "graph_template",
+        "graph_check",
+        "graph_save",
+        "graphs",
+        "graph_run",
+        "graph_runs",
+        "graph_result"
     ],
-    "schema": "QmRe5yfQtR1mDq6WMkRykFswYgYJGutsgiQ1brMXk7ioEq",
+    "schema": "QmRAK5XtByv9dy94jKZURYKRJ5edrU9YzbLphLu7bEfV5U",
     "langs": [
         "wasm",
         "python",
@@ -290,5 +299,9 @@
         "sandbox": "served with CSP `sandbox allow-scripts; default-src 'none'` and framed sandbox=allow-scripts: opaque origin, no network, no arena token",
         "inferred": "src/arena-rs/src/frontend.html"
     },
-    "creator": "every module card carries creator {name (author claim, else short address), address (verified owner, else the box), is_host, made_with}"
+    "creator": "every module card carries creator {name (author claim, else short address), address (verified owner, else the box), is_host, made_with}",
+    "graphs": {
+        "what": "states agents act on (game|shell|mod), judges that review the episode 0-100, feedback back to the agent \u2014 src/graph/",
+        "runs": "~/.mod/arena/graphs/runs/<id>.json"
+    }
 }

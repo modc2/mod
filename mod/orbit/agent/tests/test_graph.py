@@ -17,12 +17,11 @@ import json
 import shutil
 import tempfile
 import pytest
-from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.graph.protocol import KINDS, OPS, descriptor
-from src.graph.runner import GraphRun, run_graph, match_rule, match_rules, msg
+from src.graph.protocol import KINDS, descriptor
+from src.graph.runner import run_graph, match_rule, match_rules, msg
 from src.graph.mod import Graphs
 
 
@@ -131,7 +130,7 @@ def test_gate_fail_port_routes_elsewhere():
                    N("yes", "agent", agent="ship"), N("no", "agent", agent="fix")],
          "edges": [E("in", "g"), E("g", "yes", "pass"), E("g", "no", "fail")]}
     ex = echo()
-    res = run_graph(g, "nope", execute=ex)
+    run_graph(g, "nope", execute=ex)
     assert [c[0] for c in ex.calls] == ["no"]
 
 

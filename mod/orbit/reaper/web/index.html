@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>REAPER</title>
+<link rel="stylesheet" href="kit.css" />
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div id="err"></div>
+  <div class="grid">
+    <div class="card">
+      <h2>Memory</h2>
+      <div id="mem"></div>
+    </div>
+    <div class="card">
+      <h2>Idle timeout</h2>
+      <div class="inline"><button id="minus" class="sm">− 60s</button><b id="idle" style="font-size:22px;min-width:90px;text-align:center">—</b><button id="plus" class="sm">+ 60s</button></div>
+      <div id="policy" class="faint" style="font-size:12px;margin-top:10px"></div>
+      <div class="form" style="margin-top:12px">
+        <label class="f">keep this much RAM free (MB)<input id="minFree" type="number" min="0" step="500" /></label>
+        <label class="f">max running (0 = no cap)<input id="maxRun" type="number" min="0" /></label>
+      </div>
+      <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="guardSave" class="sm">save guard</button></div>
+    </div>
+    <div class="card wide">
+      <h2>Modules <span class="sp"></span><span id="counts" class="faint"></span></h2>
+      <div class="inline" style="margin-bottom:10px">
+        <input id="q" placeholder="search…" style="max-width:240px" />
+        <div class="seg" id="seg"><button data-v="all" class="sel">all</button><button data-v="awake">awake</button><button data-v="asleep">asleep</button><button data-v="pinned">pinned</button><button data-v="disabled">disabled</button></div>
+      </div>
+      <div id="mods" class="rows"></div>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let R = null, view = "all", seeded = false, showAll = false;
+
+function render() {
+  const s = R.state || {}, m = R.memory || {}, g = s.guard || {};
+  if (!R.activator) { K.setState(`<span class="pill bad">unreachable</span>`); $("err").innerHTML = `<div class="notice bad">${K.esc(R.error || "activator unreachable")}</div>`; }
+  else { $("err").innerHTML = ""; K.setState(K.pill(true, g.underPressure ? "under pressure" : "on", "", g.underPressure ? "warn" : "on")); }
+  const usedPct = m.total_mb ? Math.round((m.used_mb / m.total_mb) * 100) : 0;
+  $("mem").innerHTML = `<div class="stats"><div class="stat"><b>${(m.available_mb / 1024 || 0).toFixed(1)}G</b><span>free</span></div>
+    <div class="stat"><b>${(m.used_mb / 1024 || 0).toFixed(1)}G</b><span>used</span></div><div class="stat"><b>${(m.total_mb / 1024 || 0).toFixed(1)}G</b><span>total</span></div></div>
+    <div class="meter" style="margin-top:12px"><i style="width:${usedPct}%;background:${usedPct > 85 ? "var(--red)" : "var(--accent)"}"></i></div>
+    <div class="faint" style="font-size:12px;margin-top:8px">${s.sweep ? `${s.sweep.idleStops ?? 0} idle stops` : ""}${g.pressureStops ? ` · ${g.pressureStops} pressure stops` : ""}${g.minFreeMb ? ` · guard keeps ${g.minFreeMb} MB free` : ""}</div>`;
+  $("idle").textContent = s.idleSeconds ? K.dur(s.idleSeconds) : "—";
+  $("policy").textContent = s.policy || "";
+  if (!seeded && s.guard) { $("minFree").value = g.minFreeMb ?? ""; $("maxRun").value = g.maxRunning ?? 0; seeded = true; }
+  for (const id of ["minus", "plus", "guardSave"]) $(id).disabled = !K.isOwner || !R.activator;
+
+  const mods = s.modules || [];
+  const awake = mods.filter((x) => x.running).length;
+  $("counts").textContent = `${awake} awake · ${mods.length - awake} asleep · ${mods.filter((x) => x.pinned).length} pinned`;
+  const q = $("q").value.trim().toLowerCase();
+  const vis = mods.filter((x) => (!q || x.module.toLowerCase().includes(q)) && (view === "all" || (view === "awake" && x.running) ||
+    (view === "asleep" && !x.running) || (view === "pinned" && x.pinned) || (view === "disabled" && x.disabled)))
+    .sort((a, b) => (b.running - a.running) || (b.hits || 0) - (a.hits || 0));
+  $("mods").innerHTML = vis.slice(0, showAll ? 999 : 40).map((x) => {
+    const st = x.disabled ? ["disabled", "bad"] : x.running ? ["awake", "on"] : x.slept ? ["asleep", ""] : ["down", ""];
+    const ports = [x.apiPort, x.appPort].filter(Boolean).filter((p, i, a) => a.indexOf(p) === i).map((p) => ":" + p).join(" ");
+    const btn = (a, label, cls = "") => `<button class="sm ${cls}" data-a="${a}">${label}</button>`;
+    return `<div class="row" data-m="${K.esc(x.module)}"><span class="pill ${st[1]}">${st[0]}</span>
+      <div class="grow"><div class="t">${K.esc(x.module)}${x.pinned ? ` <span class="pill acc" style="padding:3px 7px">pinned</span>` : ""}${x.alwaysOn ? ` <span class="pill acc" style="padding:3px 7px">always on</span>` : ""}</div>
+      <div class="s mono">${ports} · ${x.hits || 0} hits · idle ${K.dur(x.idleSeconds || 0)}</div></div>
+      ${K.isOwner ? `<div class="acts">${x.running ? btn("sleep", "sleep") : btn("wake", "wake")}${x.pinned ? btn("unpin", "unpin") : btn("pin", "pin")}${x.disabled ? btn("enable", "enable") : btn("disable", "disable", "danger")}</div>` : ""}</div>`;
+  }).join("") + (vis.length > 40 ? `<button class="sm" id="more" style="align-self:center">${showAll ? "show fewer" : `show all ${vis.length}`}</button>` : "") || `<div class="empty">no modules match</div>`;
+}
+
+async function load() { const r = await K.api("/reaper"); if (r.ok) { R = r.data; render(); } else K.setState(`<span class="pill bad">build unreachable</span>`); }
+const setIdle = async (d) => { const cur = R?.state?.idleSeconds || 60; await K.act("/reaper/config", { idle_seconds: Math.max(60, cur + d) }, "idle timeout set"); load(); };
+$("minus").onclick = () => setIdle(-60);
+$("plus").onclick = () => setIdle(60);
+$("guardSave").onclick = async () => { await K.act("/reaper/config", { min_free_mb: +$("minFree").value, max_running: +$("maxRun").value }, "guard saved"); load(); };
+$("q").oninput = () => R && render();
+$("seg").onclick = (e) => { const v = e.target.dataset.v; if (!v) return; view = v; for (const b of $("seg").children) b.classList.toggle("sel", b.dataset.v === v); render(); };
+$("mods").onclick = async (e) => {
+  if (e.target.id === "more") { showAll = !showAll; return render(); }
+  const a = e.target.dataset.a, m = e.target.closest(".row")?.dataset.m; if (!a || !m) return;
+  if (a === "disable" && !(await K.ask(`Disable ${m}? It stays down until you enable it — first-byte wake won't start it.`, "Disable", true))) return;
+  e.target.disabled = true;
+  await K.act("/reaper/control", { module: m, action: a }, `${m}: ${a}`);
+  load();
+};
+
+K.init({ glyph: "☾", title: "Reaper", accent: "#ef7a62", sub: "The fleet's scale-to-zero activator: sleeps idle modules and holds their ports, so the first byte wakes them again." })
+  .then(() => K.poll(load, 10000));
+</script>
+</body>
+</html>

@@ -69,6 +69,16 @@ def judge_brief(j):
     return ' '.join(parts)
 
 
+def from_llm(j):
+    """A legacy `llm` judge as the agent judge it always was: judge/scorer,
+    with its OpenAI-compatible `url` (if any) moved to the scorer's chat_url."""
+    out = {k: v for k, v in j.items() if k != 'url'}
+    out.update(kind='agent', provider=agentproto.SELF, agent_type=agentproto.SCORER)
+    if j.get('url'):
+        out['chat_url'] = j['url']
+    return out
+
+
 def agent_score(j, text, panels=None, seen=frozenset()):
     """Agent-protocol judge: pose the input as a run on the judge's
     provider, parse the answer. A panel of this module named as the
@@ -81,6 +91,9 @@ def agent_score(j, text, panels=None, seen=frozenset()):
         # The scorer takes the input as the query and the brief as its prompt.
         body = {'query': text, 'agent_type': atype,
                 'prompt': f'You are {j["name"]!r}, one judge on a review panel. {brief}'}
+        for k in ('chat_url', 'api_key_env', 'timeout'):
+            if j.get(k):
+                body['url' if k == 'chat_url' else k] = j[k]
     else:
         body = {'query': (f'You are {j["name"]!r}, one judge on a review panel. '
                           f'{brief} '

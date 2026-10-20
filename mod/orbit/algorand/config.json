@@ -130,5 +130,5 @@
         "ALGORAND_APP_PORT": "console port (default 51341)",
         "ALGORAND_API": "API url the console proxies to (default http://127.0.0.1:51340)"
     },
-    "schema": "QmaroVE5PxgHyBpdskvcyQDGoHeUjD3FxETNEtA5zx3zN8"
+    "schema": "Qmcny14sZsB5zo1psXBDn323KFG8SJNvdVkAg9MyY5G61v"
 }

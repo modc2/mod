@@ -235,5 +235,5 @@
         "ZKAPI_AGENT_EDIT": "open (default: anyone may edit agents on the echo devnet) | owner",
         "ZKAPI_AGENT_URL": "orbit/claudecode base for the claude brain (default http://127.0.0.1:51260)"
     },
-    "schema": "QmeZbo2VbKG4z1W9pH59pYr3mCtF9wZy7rq4Piy9SZCk3z"
+    "schema": "QmYE54YF8zwsdR8iu7hJV6R28cmc17fJ3auf9JjNzVJVfA"
 }

@@ -12,8 +12,12 @@
     POST /verify {id}
     GET  /export.csv
 
+    GET  /whoami          {owner, via} — may this caller run sweeps?
+
 Writes (POST/DELETE) start agent runs on the host's Claude account, so they
-are loopback-only: refused when the request came through a proxy.
+need the owner: a loopback request that did not come through a proxy, or a
+bearer that is the build console's session for the deployment owner (build's
+own `whoami` MCP tool decides, so signing in to build is signing in here).
 Paths are also accepted under /grantfinder and /grantfinder/api.
 Failures are 4xx with {error}: Cloudflare eats 5xx bodies.
 """
@@ -21,9 +25,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import json
+import time
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -32,6 +39,31 @@ from . import agent, lanes as L, store, sweep
 ROOT = Path(__file__).resolve().parents[3]
 WEB = ROOT / 'src' / 'app' / 'index.html'
 PREFIXES = ('/grantfinder/api', '/grantfinder', '/api')
+BUILD = 'http://127.0.0.1:8890'
+_OWNER: dict[str, tuple[float, bool]] = {}  # sha256(token) -> (checked_at, is_owner)
+
+
+def owner_session(token: str) -> bool:
+    """Is this bearer the build console's session for the deployment owner?"""
+    parts = token.split(':')  # build mints address:ts:hmac (or address:ts:ho:hmac)
+    if len(parts) not in (3, 4) or not parts[1].isdigit():
+        return False
+    key = hashlib.sha256(token.encode()).hexdigest()
+    hit = _OWNER.get(key)
+    if hit and time.time() - hit[0] < 60:
+        return hit[1]
+    body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                       'params': {'name': 'whoami', 'arguments': {}}}).encode()
+    req = urllib.request.Request(BUILD + '/mcp', data=body, headers={
+        'content-type': 'application/json', 'authorization': 'Bearer ' + token})
+    try:
+        with urllib.request.urlopen(req, timeout=4) as r:
+            who = (json.load(r).get('result') or {}).get('structuredContent') or {}
+        ok = bool(who.get('address')) and who.get('is_owner') is True
+    except Exception:
+        return False  # build unreachable: not cached, so the next call retries
+    _OWNER[key] = (time.time(), ok)
+    return ok
 
 
 def version() -> str:
@@ -93,6 +125,15 @@ class Handler(BaseHTTPRequestHandler):
         proxied = any(self.headers.get(h) for h in ('X-Forwarded-For', 'X-Real-IP', 'Forwarded'))
         return self.client_address[0] in ('127.0.0.1', '::1') and not proxied
 
+    def _who(self) -> dict:
+        if self._local():
+            return {'owner': True, 'via': 'this machine'}
+        auth = self.headers.get('Authorization') or ''
+        token = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
+        if token and owner_session(token):
+            return {'owner': True, 'via': 'build session'}
+        return {'owner': False, 'via': 'session' if token else 'none'}
+
     def _run(self, fn):
         try:
             self._send(200, fn())
@@ -131,14 +172,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(lambda: {'runs': store.runs(q.get('sweep', ''), int(q.get('k') or 50))})
         if path == '/sweep':
             return self._run(sweep.current)
+        if path == '/whoami':
+            return self._send(200, self._who())
         if path == '/export.csv':
             return self._send(200, csv_export(), 'text/csv; charset=utf-8')
         self._send(404, {'error': f'no route {path}'})
 
     def do_POST(self):
         path, _ = self._split()
-        if not self._local():
-            return self._send(403, {'error': 'sweeps run on the host\'s Claude account — loopback only'})
+        if not self._who()['owner']:
+            return self._send(403, {'error': 'sweeps spend the owner\'s Claude account — sign in to build as the owner'})
         b = self._body()
         if path == '/sweep':
             return self._run(lambda: sweep.sweep(
@@ -150,8 +193,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         path, _ = self._split()
-        if not self._local():
-            return self._send(403, {'error': 'loopback only'})
+        if not self._who()['owner']:
+            return self._send(403, {'error': 'owner only — sign in to build as the owner'})
         if path.startswith('/grants/'):
             return self._run(lambda: store.delete(path.split('/')[2]))
         self._send(404, {'error': f'no route {path}'})

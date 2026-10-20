@@ -10,7 +10,7 @@
         "tone": "#22d3ee",
         "tag": "privacy",
         "kind": "mod",
-        "mod": "zuma",
+        "mod": "ztensor",
         "order": 70,
         "pitch": "A Bittensor-style subnet where miners and validators stay anonymous: every action is a ring signature checked by a Starknet contract."
     },

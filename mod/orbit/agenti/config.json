@@ -33,7 +33,7 @@
         "mcp": "http://localhost:50129/mcp"
     },
     "port": 50129,
-    "schema": "QmTbXwb4ZUsnGnAWSV7PqmPNYjoA8JxTD5AtDKhV2ad3S3",
+    "schema": "QmPZPQbrHLUzuSPpbzScpGHGkq6uRqL8zUbibktQF6HKoS",
     "app_port": 50129,
     "route": true,
     "mcp": {

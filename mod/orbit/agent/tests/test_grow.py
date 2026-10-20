@@ -6,12 +6,10 @@ the recipe catalog renders to valid read-only shell, a tick files a matched
 pair, the guards (cap, daily model cap, cooldown, no overlap) hold, drafted
 commands are held to the allowlist, and only the owner can change anything.
 """
-import json
 import os
 import subprocess
 import sys
 import threading
-from types import SimpleNamespace
 
 import pytest
 

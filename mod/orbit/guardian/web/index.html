@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GUARDIAN</title>
+<link rel="stylesheet" href="kit.css" />
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div class="grid">
+    <div class="card">
+      <h2>Console-wide</h2>
+      <div class="inline" style="margin-bottom:12px"><button id="enBtn">…</button></div>
+      <div id="what" class="muted" style="font-size:12.5px"></div>
+      <div class="form" style="margin-top:12px">
+        <label class="f">screening model<input id="g_model" /></label>
+        <label class="f">timeout (ms)<input id="g_timeout" type="number" min="5000" max="300000" /></label>
+        <label class="chk full"><input id="g_comments" type="checkbox" /> also screen replies / comments</label>
+      </div>
+      <div class="inline" style="justify-content:flex-end;margin-top:10px"><button id="gSave" class="sm">save</button></div>
+    </div>
+    <div class="card">
+      <h2>Modules with their own rules</h2>
+      <div id="mods" class="rows"></div>
+    </div>
+    <div class="card wide">
+      <h2>Per module <span class="sp"></span>
+        <input id="modIn" placeholder="module name…" style="max-width:220px;padding:6px 10px" /><button id="modLoad" class="sm">open</button></h2>
+      <div id="mod"><div class="empty">Open a module to see and set its guardian: house rules, edit approvals, AUTO mode.</div></div>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let G = null, seeded = false, cur = null;
+
+function renderGlobal() {
+  K.setState(K.pill(G.enabled, "on", "off", G.enabled ? "" : "warn"));
+  const b = $("enBtn");
+  b.textContent = G.enabled ? "turn off" : "turn on";
+  b.className = G.enabled ? "danger" : "primary";
+  b.disabled = !K.isOwner;
+  $("what").textContent = G.what || "";
+  if (!seeded) { $("g_model").value = G.model; $("g_timeout").value = G.timeout_ms; $("g_comments").checked = !!G.screen_comments; seeded = true; }
+  $("gSave").disabled = !K.isOwner;
+  const mods = Object.entries(G.modules || {});
+  $("mods").innerHTML = mods.map(([n, m]) => `<div class="row click" data-m="${K.esc(n)}">
+    <span class="pill ${m.enabled === false ? "" : "on"}">${m.enabled === false ? "off" : "on"}</span>
+    <div class="grow"><div class="t">${K.esc(n)}</div><div class="s">${m.auto_play ? "AUTO · " : ""}${m.approve_edits === false ? "edits unheld · " : ""}${K.esc(m.rules || "no house rules")}</div></div></div>`).join("")
+    || `<div class="empty">every module uses the defaults</div>`;
+}
+
+function renderMod(m, upd) {
+  const sw = (key, label, note) => `<label class="chk"><input type="checkbox" data-k="${key}" ${m[key] ? "checked" : ""}/> <span><b style="color:var(--text)">${label}</b> — ${note}</span></label>`;
+  const ups = (upd?.updates || []);
+  $("mod").innerHTML = `
+    <div class="inline" style="margin-bottom:10px"><span class="pill acc">${K.esc(m.module)}</span>${m.screening ? `<span class="pill on">screening</span>` : `<span class="pill warn">keyword pass only</span>`}<span class="faint" style="font-size:12px">${K.esc(m.note || "")}</span></div>
+    <div class="rows">
+      ${sw("enabled", "guardian on", "this module's guardian reads every suggestion and reply")}
+      ${sw("approve_edits", "hold foreign edits", "an edit task by anyone but the owner waits for approval")}
+      ${sw("auto_play", "AUTO mode", "the guardian plays safe foreign ideas itself, on the owner's account; doubt holds")}
+    </div>
+    <label class="f" style="margin-top:12px">house rules — what is out of scope here, in your words<textarea id="m_rules">${K.esc(m.rules || "")}</textarea></label>
+    <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="mSave" class="primary sm">save ${K.esc(m.module)}</button></div>
+    <h2 style="margin-top:16px">Held updates <span class="sp"></span><span class="faint">${upd?.pending ?? 0} pending</span></h2>
+    <div class="rows">${ups.map((u) => `<div class="row" data-u="${K.esc(u.id)}"><span class="pill ${u.status === "pending" ? "warn" : ""}">${K.esc(u.status || "")}</span>
+      <div class="grow"><div class="t">${K.esc(u.title || u.prompt || u.id)}</div><div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}${u.screen?.verdict ? " · guardian: " + K.esc(u.screen.verdict) : ""}</div></div>
+      ${u.status === "pending" && K.isOwner ? `<div class="acts"><button class="sm" data-a="approve">approve</button><button class="sm danger" data-a="reject">reject</button></div>` : ""}</div>`).join("") || `<div class="empty">nothing held</div>`}</div>`;
+  $("mSave").onclick = async () => {
+    const body = { rules: $("m_rules").value };
+    for (const c of $("mod").querySelectorAll("input[data-k]")) body[c.dataset.k] = c.checked;
+    const go = async () => { if (await K.act(`/modules/${encodeURIComponent(m.module)}/guardian`, body, "saved")) { openMod(m.module); load(); } };
+    if (body.auto_play && !m.auto_play) { if (await K.ask("AUTO mode lets the guardian play strangers' ideas on your account when it judges them safe. Turn it on?", "Turn on")) go(); }
+    else go();
+  };
+}
+
+async function openMod(name) {
+  cur = name;
+  const [g, u] = await Promise.all([K.api(`/modules/${encodeURIComponent(name)}/guardian`), K.api(`/modules/${encodeURIComponent(name)}/updates`)]);
+  if (!g.ok) { $("mod").innerHTML = `<div class="notice bad">${K.esc(g.data?.error || "not found")}</div>`; return; }
+  renderMod(g.data, u.ok ? u.data : null);
+}
+
+async function load() { const r = await K.api("/guardian"); if (r.ok) { G = r.data; renderGlobal(); } }
+
+$("enBtn").onclick = async (e) => {
+  const go = async () => { await K.act("/guardian", { enabled: !G.enabled }, G.enabled ? "guardian off" : "guardian on"); load(); };
+  G.enabled ? K.armed(e.target, "sure? unscreened", go) : go();
+};
+$("gSave").onclick = async () => { await K.act("/guardian", { model: $("g_model").value.trim(), timeout_ms: +$("g_timeout").value, screen_comments: $("g_comments").checked }, "saved"); load(); };
+$("modLoad").onclick = () => { const n = $("modIn").value.trim(); if (n) openMod(n); };
+$("modIn").onkeydown = (e) => { if (e.key === "Enter") $("modLoad").click(); };
+$("mods").onclick = (e) => { const n = e.target.closest(".row")?.dataset.m; if (n) { $("modIn").value = n; openMod(n); } };
+$("mod").addEventListener("click", async (e) => {
+  const a = e.target.dataset.a, id = e.target.closest(".row")?.dataset.u; if (!a || !id) return;
+  if (await K.ask(a === "approve" ? "Run this held update exactly as filed, on the requester's account?" : "Refuse this update?", a, a === "reject")) { await K.act(`/updates/${id}/${a}`, {}, a + "d"); openMod(cur); }
+});
+const q = new URLSearchParams(location.search);
+
+K.init({ glyph: "◈", title: "Guardian", accent: "#c8e65a", sub: "A tool-less agent that reads every suggestion before it enters a module's queue — allows, flags or blocks — and in AUTO mode plays the safe ones." })
+  .then(() => { K.poll(load, 15000); const m = q.get("mod"); if (m) { $("modIn").value = m; openMod(m); } });
+</script>
+</body>
+</html>

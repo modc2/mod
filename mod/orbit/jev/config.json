@@ -207,5 +207,5 @@
         "paying": "callers from this box (CLI, loopback with no forwarding header) are the owner and never pay; everyone else pays per question in USDC via x402 or prepaid credits. A failed answer is never charged (verify before, settle after). Replays are refused by nonce.",
         "secrets": "The TypeSafe key is read from the environment by the Go binary and never written anywhere in this module. pay_to is public; the ledger is private state under ~/.mod/jev."
     },
-    "schema": "QmdVnEbeLAVGFwKa53SJXcuAzLVenRsQXvCEx3sktVefUJ"
+    "schema": "Qme3PNTEsJtDzQUqMbPpwEcDQsA4mwz5hc4Cyg2VNx3aHb"
 }

@@ -21,7 +21,7 @@ export const ROUTES = [
   { href: '/split',     label: 'The Split', blurb: 'Where every dollar lands — and the dial that tilts it your way' },
   { href: '/simulator', label: 'Simulate',  blurb: 'Play twenty years of the deal through the real code — rent, bank, quarters — in two seconds' },
   { href: '/proofs',    label: 'Proofs',    blurb: 'Prove the rent was paid — without saying who paid it' },
-  { href: '/invest',    label: 'Invest',    blurb: 'The building, the float, and how to take your seat at the table' },
+  { href: '/invest',    label: 'The House', blurb: 'The live house: who owns how much, and a rent check you can write' },
   { href: '/paper',     label: 'Whitepaper', blurb: 'The whole revolution in six stops, one page each' },
   { href: '/landscape', label: 'Landscape', blurb: 'Every other on-chain housing project, honestly scored' },
   { href: '/code',      label: 'Code',      blurb: 'Read the Solidity that holds the keys — no trust required' },

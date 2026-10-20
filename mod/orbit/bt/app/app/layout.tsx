@@ -6,6 +6,7 @@ import './styles/tx.css';
 import './styles/subnet.css';
 import './styles/market.css';
 import './styles/dock.css';
+import './styles/copydock.css';
 import './styles/traders.css';
 import './styles/polish.css';
 import './styles/dev.css';

@@ -61,7 +61,19 @@ and a refuse-everything defense nets ~0. That is not a claim, it is a test:
 | `openrouter:<slug>`   | BYOK, `OPENROUTER_API_KEY` or `~/.mod/openrouter/key` |
 | `anthropic:<model>`   | `ANTHROPIC_API_KEY`                              |
 | `openai:<model>`      | `OPENAI_API_KEY`                                 |
+| `venice:<slug>`       | BYOK, `VENICE_API_KEY`; `GET /models` lists them |
+| `agent:<provider>/<agent_type>` | any agent on the agent protocol      |
 | `mock:naive\|strict\|compliant` | offline, deterministic, known score    |
+
+`agent:` targets any agent on the agent protocol: orbit/agent's registry
+(`agent:agent/<type>`, or just `agent:<type>`) and every mod whose config.json
+declares an `agent_contract` (`agent:claudecode/claude`, `agent:hermes`,
+`agent:judge/scorer`, …) — a mod that ships a contract is a target with no
+change here. `GET /agents` (MCP `rvb_agents`) lists each provider's roster.
+One exchange = one `POST /run/stream`; the defense's system prompt goes in as
+the protocol's `prompt` override, and the answer is the finish step's
+`params.summary`. The agent is offered only `think` (`RVB_AGENT_TOOLS`) with
+a 3-step budget (`RVB_AGENT_STEPS`) — it is scored on what it says.
 
 `mock` exists because a scoring harness that cannot be tested without spending
 money on a frontier model is a harness nobody tests. The whole suite runs
@@ -94,7 +106,8 @@ GET  /                    the rules and every route      GET  /board
 GET  /health              GET /attacks  POST /attacks    GET  /rounds?id=
 GET  /defenses            POST /defenses                 GET  /controls
 POST /fight               POST /round {background:true}  GET  /targets
-POST /mcp                 JSON-RPC 2.0, 11 tools         GET  /rvb (console)
+GET  /agents              agent: target rosters          GET  /models
+POST /mcp                 JSON-RPC 2.0, 13 tools         GET  /rvb (console)
 ```
 
 Writes — the routes that spend model calls or edit a corpus — are gated by a

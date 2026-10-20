@@ -14,8 +14,9 @@ Judge kinds:
           one fast turn on the local LFM weights) and `agent_type` an
           agent off its roster; the run's finish summary is the score.
   rule  — deterministic, offline: length bounds, required / forbidden words.
-  llm   — legacy: same as an agent judge on judge/scorer; with a `url`
-          it talks to an OpenAI-compatible chat endpoint directly.
+  llm   — legacy alias, rewritten on save into an agent judge on
+          judge/scorer (a `url` becomes the scorer's `chat_url`), so every
+          model judge runs over the agent protocol.
   panel — another panel sits as one judge: its vote is that panel's
           weighted average. Judges of judges — cycles fail closed.
           The agent/panel kinds and the judge market live in market.py.
@@ -251,9 +252,10 @@ class Panels:
                 j['goal'] = goal.strip()
                 if not j['goal']:
                     j.pop('goal')
-            if kind == 'llm' and not (j.get('prompt') or j.get('goal')):
-                return {'error': f'judge {j["name"]!r}: llm judge needs a goal '
-                                 'or a criteria prompt'}
+            if kind == 'llm':
+                new = market.from_llm(j)
+                j.clear(); j.update(new)
+                kind = 'agent'
             err = market.check_judge(self, j, kind, panel_name)
             if err:
                 return err
@@ -457,13 +459,11 @@ class Panels:
         try:
             if kind == 'rule':
                 score, reason = _rule_score(j, text)
-            elif kind == 'agent' or (kind == 'llm' and not (j.get('url') or DEFAULT_LLM_URL)):
-                spec = j if kind == 'agent' else dict(j, provider='judge', agent_type='scorer')
-                score, reason = market.agent_score(spec, text, self, seen)
             elif kind == 'panel':
                 score, reason = market.panel_score(self, j, text, seen)
-            else:
-                score, reason = _llm_score(j, text)
+            else:  # agent — and benches seated before llm became an alias
+                spec = market.from_llm(j) if kind == 'llm' else j
+                score, reason = market.agent_score(spec, text, self, seen)
             score = max(0.0, min(100.0, float(score)))
         except Exception as e:
             score, reason = None, f'judge error: {e}'
@@ -500,32 +500,6 @@ def _rule_score(j, text):
         if w.lower() in low:
             score -= 50; faults.append(f'contains {w!r}')
     return max(score, 0.0), ('; '.join(faults) or 'all rules pass')
-
-
-def _llm_score(j, text):
-    """Model judge: a chat model scores the input 0-100 — local LFM weights
-    by default, an OpenAI-compatible endpoint when the spec has a url."""
-    url = j.get('url') or DEFAULT_LLM_URL
-    user = f'INPUT:\n{text}'
-    system = (f'You are {j["name"]!r}, one judge on a review panel. '
-              f'{market.judge_brief(j)} '
-              'Score the INPUT from 0 (worst) to 100 (best) against the goal and criteria. '
-              'Reply with ONLY a JSON object: {"score": <number>, "reason": "<one line>"}')
-    if url:
-        content = _chat_http(j, url, system, user)
-    else:
-        content = _chat_local(j, system, user)
-    m = re.search(r'\{.*\}', content, re.S)
-    if m:
-        try:
-            v = json.loads(m.group(0))
-            return float(v['score']), str(v.get('reason', ''))[:400]
-        except Exception:
-            pass
-    m = re.search(r'-?\d+(\.\d+)?', content)
-    if not m:
-        raise ValueError(f'no score in reply: {content[:120]!r}')
-    return float(m.group(0)), content.strip()[:400]
 
 
 def _chat_http(j, url, system, user):

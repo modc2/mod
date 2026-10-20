@@ -114,5 +114,5 @@
         "POST /spend": "Steward: pay treasury dollars out {token, to, dollars, memo?}"
     },
     "key": "dollartime",
-    "schema": "QmR7B7UkDhZM73sbA4CvtCbEvX22BY2bqxUnme1YW9Sotk"
+    "schema": "QmQFLVuqAERfZqgTYKRUc6nrhfdGDwqehSX2MrhbjhpE7X"
 }

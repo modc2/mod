@@ -26,7 +26,7 @@ A Cairo contract mod (submod of `zkworld`), addressed `zkworld.subnet`.
 
 Weights stay hidden for as long as they could be copied, then become public. That's the same
 guarantee as Bittensor commit-reveal. Who-voted-what stays visible. For anonymous validators
-(ring signatures) see `orbit/zuma`. Stake is paper (set by the owner) and no token moves.
+(ring signatures) see `orbit/ztensor`. Stake is paper (set by the owner) and no token moves.
 
 ```sh
 m zkworld.subnet/build

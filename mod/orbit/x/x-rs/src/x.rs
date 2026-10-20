@@ -36,7 +36,7 @@ fn client() -> &'static reqwest::Client {
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
-            .user_agent("mod-x/0.2 (+https://github.com/mod)")
+            .user_agent(concat!("mod-x/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("reqwest client")
     })
@@ -314,7 +314,20 @@ pub async fn request(
     auth: Auth,
 ) -> Result<Value, ApiError> {
     let url = format!("{}{}", base_url(), path);
-    let mut req = client().request(method.clone(), &url);
+    // The query is encoded here, with the same RFC 3986 rule the OAuth 1.0a
+    // signature uses — reqwest's `.query()` form-encodes (space → `+`), which
+    // would put different bytes on the wire than the ones we signed.
+    let wire = if query.is_empty() {
+        url.clone()
+    } else {
+        let qs = query
+            .iter()
+            .map(|(k, v)| format!("{}={}", pct(k), pct(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+        format!("{url}?{qs}")
+    };
+    let mut req = client().request(method.clone(), &wire);
 
     // User context prefers OAuth 1.0a; a bearer only works here if it happens
     // to be an OAuth 2.0 *user* token, so we pass it through and let X judge.
@@ -331,9 +344,6 @@ pub async fn request(
         return Err(err(401, NO_CREDS));
     }
 
-    if !query.is_empty() {
-        req = req.query(query);
-    }
     if let Some(b) = body {
         req = req.json(b);
     }
@@ -404,10 +414,24 @@ pub async fn me_id(creds: &Creds) -> Result<String, ApiError> {
     Ok(id)
 }
 
+/// An @handle or numeric id, checked before it is spliced into an upstream
+/// path — `../` in a handle would otherwise re-aim an authenticated request.
+pub fn handle(raw: &str) -> Result<&str, ApiError> {
+    let who = raw.trim().trim_start_matches('@');
+    let ok = !who.is_empty()
+        && who.len() <= 20
+        && who.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if ok {
+        Ok(who)
+    } else {
+        Err(err(400, format!("not an X handle or user id: {raw:?}")))
+    }
+}
+
 /// Accept a numeric id or an @handle anywhere a user is named.
 pub async fn user_id(who: &str, creds: &Creds) -> Result<String, ApiError> {
-    let who = who.trim().trim_start_matches('@');
-    if !who.is_empty() && who.chars().all(|c| c.is_ascii_digit()) {
+    let who = handle(who)?;
+    if who.chars().all(|c| c.is_ascii_digit()) {
         return Ok(who.to_string());
     }
     let u = get(&format!("/2/users/by/username/{who}"), &[], creds, Auth::App).await?;

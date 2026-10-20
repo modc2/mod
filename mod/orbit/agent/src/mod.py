@@ -3440,18 +3440,6 @@ class Mod(Agent):
                                                       id=kwargs.get('id') or kwargs.get('arena', '')),
             'arena_arena_results': lambda: self.arena.forward('arena_results',
                                                              id=kwargs.get('id') or kwargs.get('arena', '')),
-            'arena_skill_create': lambda: self.arena.forward('skill_create',
-                                                              name=kwargs.get('name', ''),
-                                                              description=kwargs.get('description', ''),
-                                                              tasks=kwargs.get('tasks') or [],
-                                                              owner=kwargs.get('owner', '')),
-            'arena_skill_update': lambda: self.arena.forward('skill_update',
-                                                              id=kwargs.get('id') or kwargs.get('skill', ''),
-                                                              name=kwargs.get('name'),
-                                                              description=kwargs.get('description'),
-                                                              tasks=kwargs.get('tasks')),
-            'arena_skill_rm': lambda: self.arena.forward('skill_rm',
-                                                          id=kwargs.get('id') or kwargs.get('skill', '')),
             # hand-written tasks: draft one with the task-builder agent, store
             # it under your address, remove your own
             'arena_task_draft': lambda: self.arena_task_draft(
@@ -3785,6 +3773,9 @@ class Mod(Agent):
             if agent_config.get('provider') and not agent_provider:
                 agent_provider = agent_config['provider']
             agent_harness = agent_config.get('harness')
+            # a feedback agent is two other agents taking turns, not a persona
+            if isinstance(agent_config.get('loop'), dict) and not kwargs.get('_in_feedback'):
+                return self._run_feedback(agent_config, **kwargs)
 
         # explicit system prompt (library prompt or free text) beats the agent goal
         if kwargs.get('prompt'):
@@ -3863,6 +3854,105 @@ class Mod(Agent):
         finally:
             self._unbind_memory()
             self._clear_run_state()
+
+    # ── feedback loops (builder ⇄ reviewer) ─────────────────────────
+
+    FEEDBACK_MAX_ROUNDS = 10
+
+    def _run_feedback(self, agent_config: Dict[str, Any], **kwargs):
+        """Run a feedback agent: builder, review, builder-with-feedback, … .
+
+        `rounds` builder passes (kwarg, else the agent's params, else 3), with
+        the reviewer between each, so the last thing that runs is a builder
+        acting on the newest feedback. Each pass is a whole run of that agent
+        through _run — its own goal, tools, harness and model defaults — and
+        every step streams through the caller's on_step, so the console watches
+        the loop as one task. Returns the combined trace, closed by a finish
+        step carrying the last builder's report.
+        """
+        loop = agent_config.get('loop') or {}
+        params = agent_config.get('params') or {}
+        rounds = kwargs.get('rounds') or params.get('rounds') or 3
+        try:
+            rounds = int(rounds)
+        except (TypeError, ValueError):
+            raise ValueError(f"rounds must be a number, got {rounds!r}")
+        rounds = max(1, min(rounds, self.FEEDBACK_MAX_ROUNDS))
+        builder = kwargs.get('builder') or loop.get('builder') or 'builder'
+        reviewer = kwargs.get('reviewer') or loop.get('reviewer') or 'reviewer'
+        known = self.agents.ls()
+        for role, name in (('builder', builder), ('reviewer', reviewer)):
+            if name not in known:
+                raise ValueError(f"feedback {role} agent not found: {name}")
+            if self.agents.get(name).get('loop'):
+                raise ValueError(f"feedback {role} can't be another loop agent: {name}")
+
+        task = kwargs.get('query') or 'help me with this'
+        # a console sends the picked agent's goal back as `prompt`; that text
+        # describes the loop and must not become the builder's persona. What
+        # remains (a module note, extra chain blocks) is context for the builder.
+        prompt = (kwargs.get('prompt') or '').replace(agent_config.get('goal') or '', '').strip()
+        on_step = kwargs.get('on_step')
+        trace: List[Dict[str, Any]] = []
+
+        def emit(st):
+            trace.append(st)
+            if on_step:
+                on_step(st)
+
+        def mark(text):
+            emit({'tool': 'think', 'params': {'thought': text}, 'result': None})
+
+        base = {k: v for k, v in kwargs.items()
+                if k not in ('query', 'prompt', 'agent', 'agent_type', 'rounds',
+                             'builder', 'reviewer', 'on_step')}
+
+        def turn(agent, query, extra_prompt=None):
+            steps_run = []
+            last = self._run(**base, query=query, agent_type=agent,
+                             _in_feedback=True,
+                             **({'prompt': extra_prompt} if extra_prompt else {}),
+                             on_step=lambda st: (steps_run.append(st), emit(st)))
+            steps_run = steps_run or (last if isinstance(last, list) else [])
+            return self.graph_answer(steps_run) or 'the run produced nothing'
+
+        # the builder keeps its own goal; console context rides after it
+        builder_prompt = None
+        if prompt:
+            goal = self.agents.get(builder).get('goal') or ''
+            builder_prompt = f"{goal}\n\n{prompt}".strip()
+
+        report, feedback = '', ''
+        for r in range(1, rounds + 1):
+            if r == 1:
+                mark(f"↻ round 1/{rounds} · {builder} — doing the task")
+                query = task
+            else:
+                mark(f"↻ round {r}/{rounds} · {builder} — redoing the task with the review")
+                query = (
+                    f"{task}\n\n"
+                    f"── FEEDBACK LOOP · round {r} of {rounds} ──\n"
+                    f"An earlier round already worked on this task; its changes are on disk. "
+                    f"Do the task again, starting from that work, and address EVERY point the "
+                    f"reviewer raised. Keep what the reviewer did not object to.\n\n"
+                    f"Previous round's report:\n{report}\n\n"
+                    f"Reviewer feedback:\n{feedback}")
+            report = turn(builder, query, builder_prompt)
+            if r == rounds:
+                break
+            mark(f"◉ review {r}/{rounds - 1} · {reviewer}")
+            feedback = turn(reviewer, (
+                f"Review the work a builder agent just did on this task.\n\n"
+                f"TASK:\n{task}\n\n"
+                f"BUILDER'S REPORT (round {r} of {rounds}):\n{report}\n\n"
+                f"Read the actual files it touched — don't trust the report. Your review is "
+                f"handed straight to the builder for the next round, so make it a numbered list "
+                f"of concrete, actionable fixes (file + what to change), most important first. "
+                f"Bugs and missing requirements before style. If nothing needs changing, say so."))
+
+        summary = f"↻ feedback loop · {rounds} round{'s' if rounds != 1 else ''} · {builder} ⇄ {reviewer}\n\n{report}"
+        emit({'tool': 'finish', 'params': {'summary': summary}, 'result': summary})
+        return trace
 
     # ── harness runs (external agent CLIs) ───────────────────────────
 
@@ -5258,7 +5348,6 @@ class Mod(Agent):
         out: List[Dict[str, Any]] = []
         order = ('openrouter', 'venice', 'liquidai-cloud', 'liquidai', 'hermes')
         for short in order:
-            path = self.PROVIDERS.get(short, short)
             ready = self.has_model(short)
             free_ids = set()
             if ready:

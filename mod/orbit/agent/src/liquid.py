@@ -21,11 +21,10 @@ tab POSTs the answer back to /browser/completion, which wakes the waiting run.
 The session is bound per thread because that is where a run lives: one run,
 one thread, one tab (see Meter for the same reason).
 """
-import json
 import threading
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 try:
     import mod as m

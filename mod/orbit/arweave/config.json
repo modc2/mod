@@ -105,7 +105,7 @@
         "app": "http://localhost:50153",
         "mcp": "http://localhost:50153/mcp"
     },
-    "schema": "QmSmRNhPVdiGvs97D9VBA8UPm8DPjvwkRc87XrrU4LziXe",
+    "schema": "QmSqZ8xXAQWbyDotBdNKeTn6o9JQhwxYkFreQh29xFFN88",
     "mcp": {
         "protocol": "mcp/2025-06-18",
         "transport": "http",

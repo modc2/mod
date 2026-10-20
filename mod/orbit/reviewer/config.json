@@ -73,5 +73,5 @@
         "POST /mcp": "MCP JSON-RPC: reviewer_review, reviewer_get, reviewer_list, reviewer_rules, reviewer_targets, reviewer_status"
     },
     "key": "reviewer",
-    "schema": "QmVPAq3Fq3mK2WQqFyu8HfkBHaynY6jxUXfbGi1nHrWoDk"
+    "schema": "QmVc6b4U7jSCEah6Y3k9dv4hiACW91ALPpf525RBFrzYk8"
 }

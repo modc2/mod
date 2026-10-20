@@ -75,5 +75,5 @@
         "POST /retract": "Take a published aggregator off the market {id} \u2014 loopback only"
     },
     "key": "reviews",
-    "schema": "QmUXeRg4QCL4Fs1kdRPkdYuj7mUBheAWyEcDgbnUmqfgqA"
+    "schema": "QmRGtuiMvBPgv69B6f8wYxK9pqRKEmA3SQr9dbJspeGDeP"
 }

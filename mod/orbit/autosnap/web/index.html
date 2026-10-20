@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AUTOSNAP</title>
+<link rel="stylesheet" href="kit.css" />
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <div class="grid">
+    <div class="card wide">
+      <h2>Loop <span class="sp"></span><span id="tick" class="faint"></span></h2>
+      <div id="stats" class="stats"></div>
+      <div class="faint" style="margin-top:10px;font-size:12.5px">The switch is the <span class="mono">BUILD_AUTOSNAP</span> env on build's API on purpose — a loop that mints provenance shouldn't flip off from a tab.</div>
+    </div>
+    <div class="card">
+      <h2>Snapshot now</h2>
+      <div class="form">
+        <label class="f">module<input id="s_mod" /></label>
+        <label class="f full">message<input id="s_msg" placeholder="manual snapshot" /></label>
+      </div>
+      <div class="inline" style="justify-content:flex-end;margin-top:10px"><button id="snapBtn" class="primary">snapshot</button></div>
+      <div id="snapOut" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <h2>Failures <span class="sp"></span><span class="faint" id="failN"></span></h2>
+      <div id="fails" class="rows"></div>
+    </div>
+    <div class="card wide">
+      <h2>Recent <span class="sp"></span><input id="filter" placeholder="filter…" style="max-width:200px;padding:6px 10px" /></h2>
+      <div id="recent" class="rows"></div>
+    </div>
+  </div>
+</div>
+<script src="kit.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let S = null;
+const cidShort = (c) => (c ? (c.length > 16 ? c.slice(0, 10) + "…" + c.slice(-4) : c) : "");
+
+function row(r) {
+  return `<div class="row click" data-m="${K.esc(r.module)}"><span class="pill ${r.error ? "bad" : "on"}">${r.error ? "fail" : "snap"}</span>
+    <div class="grow"><div class="t">${K.esc(r.module)}</div><div class="s ${r.error ? "" : "mono"}">${r.error ? K.esc(r.error) : K.esc(cidShort(r.cid))} · ${K.ago(r.ts)}</div></div></div>`;
+}
+function render() {
+  K.setState(K.pill(S.enabled, "on", "off"));
+  $("tick").textContent = `every ${K.dur(S.tick_secs)} · ${S.per_tick}/tick · last ${K.ago(S.last_tick)}`;
+  $("stats").innerHTML = [["snapped", S.snapped], ["pending", S.pending], ["failed", S.failed], ["per tick", S.per_tick]]
+    .map(([k, v]) => `<div class="stat"><b>${v ?? "—"}</b><span>${k}</span></div>`).join("");
+  const f = $("filter").value.trim().toLowerCase();
+  const rec = [...(S.recent || [])].reverse();
+  $("recent").innerHTML = rec.filter((r) => !f || r.module.toLowerCase().includes(f)).map(row).join("") || `<div class="empty">nothing yet</div>`;
+  const fails = rec.filter((r) => r.error);
+  $("failN").textContent = fails.length;
+  $("fails").innerHTML = fails.map(row).join("") || `<div class="empty">no failures in the recent window</div>`;
+}
+async function load() { const r = await K.api("/autosnap/status"); if (r.ok) { S = r.data; render(); } }
+
+$("filter").oninput = () => S && render();
+document.body.addEventListener("click", (e) => { const m = e.target.closest(".row[data-m]")?.dataset.m; if (m) $("s_mod").value = m; });
+$("snapBtn").onclick = async () => {
+  const m = $("s_mod").value.trim(); if (!m) return K.toast("pick a module", true);
+  $("snapBtn").disabled = true; $("snapOut").innerHTML = `<span class="faint">snapshotting ${K.esc(m)}…</span>`;
+  const d = await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: $("s_msg").value.trim() || "manual snapshot (autosnap app)" }, "snapshot taken");
+  $("snapBtn").disabled = !K.token;
+  $("snapOut").innerHTML = d ? `<div class="row"><span class="pill on">ok</span><div class="grow"><div class="s mono">${K.esc(d.cid || d.version?.cid || JSON.stringify(d).slice(0, 160))}</div></div><a class="btn sm" style="padding:6px 9px;font-size:10px" href="${K.BUILD_APP}?mod=${encodeURIComponent(m)}">versions</a></div>` : "";
+  load();
+};
+
+K.init({ glyph: "⌬", title: "Autosnap", accent: "#dfeee6", sub: "Snapshots every module that changed into the versions ledger, a few per tick, so nothing is lost between edits." })
+  .then(() => { $("snapBtn").disabled = !K.token; K.poll(load, 10000); });
+</script>
+</body>
+</html>

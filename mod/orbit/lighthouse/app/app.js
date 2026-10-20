@@ -33,6 +33,8 @@ let address = null;
 let byok = '';            // this tab only, on purpose
 let listSource = 'module';
 let state = { lh: null, store: null };
+let picked = [];          // the files the button will send
+let showPane = () => {};  // set in init(), once the tabs are wired
 
 const $ = (id) => document.getElementById(id);
 
@@ -66,6 +68,27 @@ async function call(path, { method = 'GET', body, json, form } = {}) {
   try { data = text ? JSON.parse(text) : {}; } catch { data = { detail: text.slice(0, 400) }; }
   if (!res.ok) throw Object.assign(new Error(data.detail || `${res.status}`), { status: res.status, data });
   return data;
+}
+
+/**
+ * `call` for a multipart upload, over XHR because fetch still cannot report
+ * upload progress. Same error shape as `call`, so callers treat them alike.
+ */
+function upload(path, form, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API}${path}`);
+    Object.entries(headers()).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      let data;
+      try { data = xhr.responseText ? JSON.parse(xhr.responseText) : {}; } catch { data = { detail: xhr.responseText.slice(0, 400) }; }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(Object.assign(new Error(data.detail || `${xhr.status}`), { status: xhr.status, data }));
+    };
+    xhr.onerror = () => reject(new Error('the connection dropped'));
+    xhr.send(form);
+  });
 }
 
 /* ── the token a wallet signs ───────────────────────────────── */
@@ -107,13 +130,16 @@ async function signIn() {
   }
   // No extension: a protocol token minted anywhere else is just as good —
   // `m.mod('auth')().token({})` on a box with the key, for instance.
-  const pasted = prompt('No wallet extension found.\n\nPaste a mod-protocol token '
-    + '(m.mod("auth")().token({}) on a box that holds your key):');
-  if (!pasted) return;
-  token = pasted.trim();
-  write(TOKEN_KEY, token);
-  await refresh();
+  openSheet();
 }
+
+function openSheet() {
+  $('sheet').hidden = false;
+  $('sheet-token').value = '';
+  $('sheet-token').focus();
+}
+
+function closeSheet() { $('sheet').hidden = true; }
 
 function signOut() {
   token = ''; address = null; write(TOKEN_KEY, '');
@@ -258,10 +284,21 @@ function result(el, rows, bad = false) {
     `<div class="line"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`).join('');
 }
 
-function putResult(el, r) {
-  const url = r.url || '';
+/** Copy, and say so on the button that did it — a toast is easy to miss. */
+function copyTo(btn, text, label = 'copied') {
+  navigator.clipboard.writeText(text).then(() => {
+    const was = btn.textContent;
+    btn.textContent = label;
+    btn.classList.add('done');
+    setTimeout(() => { btn.textContent = was; btn.classList.remove('done'); }, 1400);
+  }, () => toast('the browser refused the clipboard', true));
+}
+
+/** One upload, kept: the link is the headline, everything else folds away. */
+function keptCard(r) {
+  const url = r.url || gatewayUrl(r.cid);
   const rows = [
-    ['cid', `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(r.cid)}</a>`],
+    ['cid', `<code>${esc(r.cid)}</code>`],
     ['name', esc(r.key || '—')],
     ['size', bytes(r.size)],
   ];
@@ -276,18 +313,40 @@ function putResult(el, r) {
       ? `registered${s.public ? ' (public)' : ' (private)'}`
       : `<span style="color:${s.status === 401 ? 'var(--warn)' : 'var(--bad)'}">not registered — ${esc(s.error || '')}</span>`]);
   }
-  result(el, rows);
+  return `<div class="kept">
+    <div class="kept-head"><span class="dot ok"></span><b>kept forever</b><span class="kept-name">${esc(r.key || '')}</span></div>
+    <a class="kept-link" href="${esc(url)}" target="_blank" rel="noreferrer">${esc(url)}</a>
+    <div class="kept-acts">
+      <button class="primary" data-copy-link="${esc(url)}">copy link</button>
+      <button data-copy-cid="${esc(r.cid)}">copy CID</button>
+      <a href="${esc(url)}" target="_blank" rel="noreferrer"><button>open</button></a>
+    </div>
+    <details class="kept-more"><summary>details</summary>${rows.map(([k, v]) =>
+    `<div class="line"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`).join('')}</details>
+  </div>`;
+}
+
+function putResult(el, results) {
+  const list = Array.isArray(results) ? results : [results];
+  el.className = 'out ok';
+  el.innerHTML = list.map(keptCard).join('');
+  el.querySelectorAll('[data-copy-link]').forEach((b) => { b.onclick = () => copyTo(b, b.dataset.copyLink, 'link copied'); });
+  el.querySelectorAll('[data-copy-cid]').forEach((b) => { b.onclick = () => copyTo(b, b.dataset.copyCid); });
   // the beam passes over the page: something was just kept forever
   document.body.classList.remove('lit-up');
   void document.body.offsetWidth;
   document.body.classList.add('lit-up');
-  refreshObjects();
+  refresh();   // the shelf, and the anon budget the upload just spent
 }
 
 /* ── objects ────────────────────────────────────────────────── */
 
+const gatewayUrl = (cid) => `${(state.lh && state.lh.gateway) || 'https://gateway.lighthouse.storage'}/ipfs/${cid}`;
+const IMAGE = /^(png|jpe?g|gif|webp|avif|svg)$/i;
+let shelf = { objects: [], source: 'module' };
+
 function objectCard(o, source) {
-  const url = o.url || `${(state.lh && state.lh.gateway) || 'https://gateway.lighthouse.storage'}/ipfs/${o.cid}`;
+  const url = o.url || gatewayUrl(o.cid);
   const when = o.timestamp ? new Date(o.timestamp * 1000).toISOString().slice(0, 16).replace('T', ' ') : '';
   const pills = [];
   if (source === 'store') {
@@ -299,13 +358,18 @@ function objectCard(o, source) {
   const name = o.key || 'unnamed';
   const at = name.lastIndexOf('.');
   const ext = at > 0 && name.length - at <= 5 ? name.slice(at + 1) : (o.mime || '').split('/')[1] || 'ipfs';
+  // Images show themselves; the gateway is public, so the thumb costs nothing to sign.
+  const face = IMAGE.test(ext)
+    ? `<span class="ext thumb"><img src="${esc(url)}" alt="" loading="lazy" onerror="this.remove()">${esc(ext.slice(0, 4).toUpperCase())}</span>`
+    : `<span class="ext">${esc(ext.slice(0, 4).toUpperCase())}</span>`;
   return `<div class="obj">
-    <span class="ext">${esc(ext.slice(0, 4).toUpperCase())}</span>
+    ${face}
     <div class="title" title="${esc(name)}">${esc(name)}</div>
     <div class="cid" title="${esc(o.cid)}">${esc(o.cid)}</div>
     <div class="meta">${bytes(o.size)}${when ? ` · ${esc(when)}` : ''} ${pills.join(' ')}</div>
     <div class="acts">
-      <button data-copy="${esc(o.cid)}">copy</button>
+      <button data-link="${esc(url)}">copy link</button>
+      <button data-copy="${esc(o.cid)}">copy CID</button>
       <a href="${esc(url)}" target="_blank" rel="noreferrer"><button>open</button></a>
       ${source === 'module' && token ? `<button data-rm="${esc(o.cid)}">forget</button>` : ''}
       ${source === 'store' && o.backend !== 'lighthouse' ? `<button data-mirror="${esc(o.cid)}">mirror</button>` : ''}
@@ -326,31 +390,49 @@ async function refreshObjects() {
     } else {
       objects = (await call('/store/objects?all_backends=1&limit=100')).objects || [];
     }
-    const lead = !token && listSource === 'module'
-      ? '<p class="hint">uploads made without sign-in, by anyone — sign in to see yours.</p>' : '';
-    box.innerHTML = lead + (objects.length
-      ? objects.map((o) => objectCard(o, listSource)).join('')
-      : `<p class="hint">${listSource === 'module'
-        ? (token ? 'nothing uploaded through this module yet.' : 'no anonymous uploads yet.')
-        : 'no objects in the store for this address yet.'}</p>`);
-    box.querySelectorAll('[data-copy]').forEach((b) => {
-      b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast('CID copied'); };
-    });
-    box.querySelectorAll('[data-rm]').forEach((b) => {
-      b.onclick = async () => {
-        try {
-          const r = await call(`/rm?cid=${encodeURIComponent(b.dataset.rm)}`, { method: 'DELETE' });
-          toast(r.note || 'forgotten');
-          refreshObjects();
-        } catch (e) { toast(e.message, true); }
-      };
-    });
-    box.querySelectorAll('[data-mirror]').forEach((b) => {
-      b.onclick = () => { $('mirror-cid').value = b.dataset.mirror; $('mirror').click(); };
-    });
+    shelf = { objects, source: listSource };
+    renderShelf();
   } catch (e) {
     box.innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`;
   }
+}
+
+/** Draw the shelf from what was last fetched, through the filter box. */
+function renderShelf() {
+  const box = $('objects');
+  const { objects, source } = shelf;
+  const q = $('shelf-q').value.trim().toLowerCase();
+  const shown = q ? objects.filter((o) => `${o.key || ''} ${o.cid}`.toLowerCase().includes(q)) : objects;
+  const lead = !token && source === 'module'
+    ? '<p class="hint">uploads made without sign-in, by anyone — sign in to see yours.</p>' : '';
+  let empty;
+  if (q && objects.length) empty = `nothing on the shelf matches “${esc(q)}”.`;
+  else if (source === 'module') empty = token ? 'nothing uploaded through this module yet — the first one is above.' : 'no anonymous uploads yet.';
+  else empty = 'no objects in the store for this address yet.';
+  box.innerHTML = lead + (shown.length
+    ? shown.map((o) => objectCard(o, source)).join('')
+    : `<p class="hint">${empty}</p>`);
+  box.querySelectorAll('[data-copy]').forEach((b) => { b.onclick = () => copyTo(b, b.dataset.copy); });
+  box.querySelectorAll('[data-link]').forEach((b) => { b.onclick = () => copyTo(b, b.dataset.link, 'link copied'); });
+  box.querySelectorAll('[data-rm]').forEach((b) => {
+    b.onclick = async () => {
+      // two taps, no browser dialog: the first arms it, the second forgets
+      if (!b.classList.contains('armed')) {
+        b.classList.add('armed');
+        b.textContent = 'tap again to forget';
+        setTimeout(() => { b.classList.remove('armed'); b.textContent = 'forget'; }, 3000);
+        return;
+      }
+      try {
+        const r = await call(`/rm?cid=${encodeURIComponent(b.dataset.rm)}`, { method: 'DELETE' });
+        toast(r.note || 'forgotten');
+        refreshObjects();
+      } catch (e) { toast(e.message, true); }
+    };
+  });
+  box.querySelectorAll('[data-mirror]').forEach((b) => {
+    b.onclick = () => { $('mirror-cid').value = b.dataset.mirror; $('mirror').click(); };
+  });
 }
 
 /* ── the mcp server, shown rather than described ─────────────── */
@@ -469,6 +551,32 @@ async function refresh() {
   refreshObjects();
 }
 
+/* ── the upload card ──────────────────────────────────────── */
+
+function pick(files) {
+  picked = files;
+  if (files.length) showPane('pane-file');
+  const size = files.reduce((n, f) => n + f.size, 0);
+  $('drop-label').textContent = !files.length ? 'choose files, drop them anywhere, or paste'
+    : files.length === 1 ? files[0].name : `${files.length} files`;
+  $('drop-sub').textContent = files.length ? `${bytes(size)} · click to choose again` : '';
+  $('drop').classList.toggle('has', !!files.length);
+  // a name is for one file; with several, each keeps its own
+  $('objkey').disabled = files.length > 1;
+  $('objkey').placeholder = files.length > 1 ? 'each file keeps its own name' : 'name (optional)';
+  if (!files.length) $('file').value = '';
+}
+
+/** The bar under the button: a fraction 0..1, or null to put it away. */
+function progress(frac, label = '') {
+  const el = $('put-progress');
+  if (frac === null) { setTimeout(() => { el.hidden = true; }, 600); return; }
+  el.hidden = false;
+  el.querySelector('i').style.width = `${Math.round(frac * 100)}%`;
+  el.querySelector('span').textContent = frac >= 1 ? label
+    : `${label ? `${label} · ` : ''}${Math.round(frac * 100)}%`;
+}
+
 /* ── wiring ─────────────────────────────────────────────────── */
 
 function tabs(container, attr, onPick) {
@@ -497,22 +605,68 @@ function init() {
   tabs($('put-tabs'), 'pane', (pane) => {
     document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.id === pane));
   });
+  // the same switch, from code (a paste or a drop picks the pane for you)
+  showPane = (pane) => {
+    document.querySelectorAll('#put-tabs .tab').forEach((t) => t.classList.toggle('on', t.dataset.pane === pane));
+    document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.id === pane));
+  };
   tabs($('list-tabs'), 'src', (src) => { listSource = src; refreshObjects(); });
 
-  // file picking, by click or by drop
+  // Files arrive three ways — picked, dropped anywhere on the page, pasted —
+  // and all land in `picked`, which is what the button sends.
   const drop = $('drop');
   const file = $('file');
-  file.onchange = () => {
-    $('drop-label').textContent = file.files[0] ? `${file.files[0].name} · ${bytes(file.files[0].size)}` : 'choose a file, or drop one here';
-  };
-  ['dragenter', 'dragover'].forEach((e) => drop.addEventListener(e, (ev) => {
-    ev.preventDefault(); drop.classList.add('over');
-  }));
-  ['dragleave', 'drop'].forEach((e) => drop.addEventListener(e, () => drop.classList.remove('over')));
-  drop.addEventListener('drop', (ev) => {
-    ev.preventDefault();
-    if (ev.dataTransfer.files[0]) { file.files = ev.dataTransfer.files; file.onchange(); }
+  file.onchange = () => pick([...file.files]);
+  let depth = 0;   // dragenter/leave fire per child element; count them
+  const hasFiles = (ev) => [...(ev.dataTransfer?.types || [])].includes('Files');
+  window.addEventListener('dragenter', (ev) => {
+    if (!hasFiles(ev)) return;
+    ev.preventDefault(); depth += 1; document.body.classList.add('dragging');
   });
+  window.addEventListener('dragover', (ev) => { if (hasFiles(ev)) ev.preventDefault(); });
+  window.addEventListener('dragleave', () => {
+    depth = Math.max(0, depth - 1);
+    if (!depth) document.body.classList.remove('dragging');
+  });
+  window.addEventListener('drop', (ev) => {
+    if (!hasFiles(ev)) return;
+    ev.preventDefault(); depth = 0; document.body.classList.remove('dragging');
+    if (ev.dataTransfer.files.length) pick([...ev.dataTransfer.files]);
+  });
+  ['dragenter', 'dragover'].forEach((e) => drop.addEventListener(e, () => drop.classList.add('over')));
+  ['dragleave', 'drop'].forEach((e) => drop.addEventListener(e, () => drop.classList.remove('over')));
+  window.addEventListener('paste', (ev) => {
+    const files = [...(ev.clipboardData?.files || [])];
+    if (files.length) { ev.preventDefault(); pick(files); return; }
+    // pasted text outside any field goes to the text pane, ready to send
+    const t = ev.target;
+    if (t.closest && t.closest('input, textarea')) return;
+    const text = ev.clipboardData?.getData('text');
+    if (text) { ev.preventDefault(); showPane('pane-text'); $('text').value = text; $('text').oninput(); $('text').focus(); }
+  });
+
+  $('text').oninput = () => {
+    const n = $('text').value.length;
+    $('text-count').textContent = `${n.toLocaleString()} character${n === 1 ? '' : 's'}`;
+  };
+  $('text').onkeydown = (ev) => {
+    if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); $('put').click(); }
+  };
+
+  $('sheet-form').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const pasted = $('sheet-token').value.trim();
+    if (!pasted) return;
+    token = pasted;
+    write(TOKEN_KEY, token);
+    closeSheet();
+    await refresh();
+  };
+  $('sheet-cancel').onclick = closeSheet;
+  $('sheet').onclick = (ev) => { if (ev.target === $('sheet')) closeSheet(); };
+  window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !$('sheet').hidden) closeSheet(); });
+
+  $('shelf-q').oninput = renderShelf;
 
   $('byok-use').onclick = () => {
     byok = $('byok').value.trim();
@@ -542,29 +696,56 @@ function init() {
     const isPublic = $('public').checked;
     btn.disabled = true;
     out.className = 'out';
-    out.innerHTML = '<div class="line"><span class="k">uploading</span><span class="v">to Lighthouse…</span></div>';
+    out.innerHTML = '';
+    if (!textPane) progress(0);
     try {
-      let r;
+      const kept = [];
       if (textPane) {
         const text = $('text').value;
-        if (!text) throw new Error('nothing to store');
-        r = await call('/put/text', { method: 'POST', json: { text, key: key || null, register, public: isPublic, pool: pool || null } });
+        if (!text.trim()) throw new Error('nothing to store — write something first');
+        kept.push(await call('/put/text', { method: 'POST', json: { text, key: key || null, register, public: isPublic, pool: pool || null } }));
+        $('text').value = ''; $('text').oninput();
       } else {
-        const f = $('file').files[0];
-        if (!f) throw new Error('choose a file first');
-        const form = new FormData();
-        form.append('file', f);
-        if (key) form.append('key', key);
-        if (pool) form.append('pool', pool);
-        form.append('register', String(register));
-        form.append('public', String(isPublic));
-        r = await call('/put', { method: 'POST', form });
+        if (!picked.length) throw new Error('choose a file first');
+        const total = picked.reduce((n, f) => n + f.size, 0) || 1;
+        let done = 0;
+        // one at a time: the anon budget is per upload, and a failure part-way
+        // should leave the ones already kept on screen, not hide them
+        for (const [i, f] of picked.entries()) {
+          const form = new FormData();
+          form.append('file', f);
+          // a name typed for a batch would collide; it names a single file only
+          if (key && picked.length === 1) form.append('key', key);
+          if (pool) form.append('pool', pool);
+          form.append('register', String(register));
+          form.append('public', String(isPublic));
+          const label = picked.length > 1 ? `${i + 1} of ${picked.length} · ${f.name}` : f.name;
+          try {
+            kept.push(await upload('/put', form, (frac) => progress((done + frac * f.size) / total, label)));
+          } catch (e) {
+            if (kept.length) putResult(out, kept);
+            throw Object.assign(e, { message: `${f.name}: ${e.message}` });
+          }
+          done += f.size;
+        }
+        pick([]);
       }
-      putResult(out, r);
-      toast(token ? 'stored forever' : 'stored forever — sign in to register it in the store');
+      progress(1, 'pinned');
+      putResult(out, kept);
+      $('objkey').value = '';
+      const what = kept.length > 1 ? `${kept.length} things stored forever` : 'stored forever';
+      toast(token ? what : `${what} — sign in to register it in the store`);
     } catch (e) {
-      result(out, [['error', esc(e.message)]], true);
-    } finally { btn.disabled = false; }
+      const err = document.createElement('div');
+      out.className = `out${out.querySelector('.kept') ? ' ok' : ' err'}`;
+      if (!out.querySelector('.kept')) out.innerHTML = '';
+      err.className = 'line fail';
+      err.innerHTML = `<span class="k">error</span><span class="v">${esc(e.message)}</span>`;
+      out.appendChild(err);
+    } finally {
+      btn.disabled = false;
+      progress(null);
+    }
   };
 
   $('mirror').onclick = async () => {

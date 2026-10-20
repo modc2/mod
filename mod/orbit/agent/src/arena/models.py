@@ -24,7 +24,7 @@ daily round, playing one model, never does. A model with no such pairing keeps
 the starting rating and is flagged `rated: false` rather than being ranked on a
 comparison that was never made.
 """
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List
 
 ELO_START = 1200.0
 ELO_K = 32.0

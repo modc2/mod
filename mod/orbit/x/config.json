@@ -1,6 +1,6 @@
 {
     "name": "x",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "description": "X (Twitter) API v2 \u2014 Rust MCP server, REST API and browser app off one tool layer",
     "port": 50350,
     "route": false,

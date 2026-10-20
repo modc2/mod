@@ -118,6 +118,7 @@
       <div class="row">
         <label>target</label><input type="text" id="r-model" value="claude:haiku" size="22">
         <select id="r-venice" class="venice-pick" title="pick a Venice model as the target"><option value="">Venice ▾</option></select>
+        <select id="r-agent" class="venice-pick" title="pick any agent on the agent protocol as the target"><option value="">Agent ▾</option></select>
         <label>judge</label>
         <select id="r-judge"><option>heuristic</option><option>model</option></select>
         <label>parallel</label><input type="text" class="sm" id="r-par" value="6">
@@ -218,6 +219,7 @@
         <span id="f-cost-hint"></span>
         <label>target</label><input type="text" id="f-model" value="claude:haiku" size="20">
         <select id="f-venice" class="venice-pick" title="pick a Venice model as the target"><option value="">Venice ▾</option></select>
+        <select id="f-agent" class="venice-pick" title="pick any agent on the agent protocol as the target"><option value="">Agent ▾</option></select>
         <label>judge</label>
         <select id="f-judge"><option>heuristic</option><option>model</option></select>
         <button class="go" id="f-go">FIGHT</button>
@@ -840,6 +842,24 @@ api('/models').then(m => {
   ['#r-venice', '#f-venice'].forEach(id => {
     $(id).insertAdjacentHTML('beforeend', opts);
   });
+}).catch(() => {});
+
+// ── agent-protocol picker ──────────────────────────────────────
+// Every provider that speaks the agent protocol (orbit/agent + any mod with
+// an agent_contract), one optgroup each; the value is the whole target.
+function wireAgent(selId, inputId) {
+  const sel = $(selId);
+  sel.addEventListener('change', () => { if (sel.value) $(inputId).value = sel.value; });
+}
+wireAgent('#r-agent', '#r-model');
+wireAgent('#f-agent', '#f-model');
+api('/agents').then(a => {
+  const groups = (a.providers || []).filter(p => (p.agents || []).length).map(p =>
+    `<optgroup label="${esc(p.provider)}">` + p.agents.map(x =>
+      `<option value="${esc('agent:' + p.provider + '/' + x.name)}">${esc(x.label || x.name)}</option>`
+    ).join('') + '</optgroup>').join('');
+  if (!groups) return;
+  ['#r-agent', '#f-agent'].forEach(id => $(id).insertAdjacentHTML('beforeend', groups));
 }).catch(() => {});
 
 loadBoard();

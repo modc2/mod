@@ -598,6 +598,39 @@ rustc     1.95.0 → wasm32-unknown-unknown
 
 ---
 
+## Graphs: states, judges, feedback
+
+The arena seats players at games. A graph goes one step further: an agent acts
+on a **state**, **judges** review the agent's whole episode, and **feedback**
+carries their reasons back for the next try. Lives in `src/graph/`, runs
+in-process (no server needed), records under `~/.mod/arena/graphs/runs/`.
+
+- **state**: the world an agent interfaces with. `reset / observe / tools / act /
+  done / score`. Kinds: `game` (any class game here, played from one seat, the
+  other seats random; sandboxed in `runtime/host.py`), `shell` (a scratch
+  computer, the build mod's world in miniature: commands run in a temp dir
+  until a `check` exits 0. Not a sandbox), `mod` (any fleet mod, its fns as
+  actions, e.g. superhood). `states.as_tool(state)` turns any state into a tool.
+- **agent**: `random`, `script`, `fn`, or `protocol` (any fleet agent over
+  orbit/agent `POST /run`; `agent_type`/`provider`/`model`).
+- **judge**: reads the transcript, returns 0-100 plus a reason. `outcome` and
+  `efficiency` are offline. `panel` is an orbit/judge panel and `spec` is one
+  orbit/judge spec (e.g. an agent judge). A judge that errors abstains.
+- **feedback**: the judges' reasons, joined, or written by a feedback agent
+  when the node has an `agent`.
+
+Nodes are `state | agent | judge | feedback | end`. Edges take `when: pass | fail`
+and nothing else, the same rule as orbit/agent FLOW graphs.
+
+    m arena/states                                   # kinds of everything
+    m arena/graph_templates                          # game · shell · judged
+    m arena/graph_template name=game                 # the document, to edit
+    m arena/graph_run graph=game rounds=3
+    m arena/graph_run graph=game state='{"kind":"game","game":"blotto"}' agent='{"kind":"protocol"}'
+    m arena/graph_save graph='{...}'  ·  m arena/graphs  ·  m arena/graph_runs  ·  m arena/graph_result id=<id>
+
+Tests: `pytest src/tests/test_graph.py -q` (offline).
+
 ## Layout
 
 ```
