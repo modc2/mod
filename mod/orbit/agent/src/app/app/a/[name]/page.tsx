@@ -168,6 +168,14 @@ export default function AgentPage() {
                   className="px-3 py-1.5 rounded-md text-[11px] uppercase tracking-wider border border-emerald-500/25 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 transition">
                   use in console
                 </button>
+                <button onClick={() => {
+                    try { localStorage.setItem('agent_graph_go', name) } catch {}
+                    window.location.href = `${BASE}/`
+                  }}
+                  title="See this agent as the graph it runs — request in, answer out — and edit it"
+                  className="px-3 py-1.5 rounded-md text-[11px] uppercase tracking-wider border border-white/[0.08] text-gray-300 hover:text-gray-100 transition">
+                  graph ↗
+                </button>
                 <button onClick={openCode} disabled={srcBusy}
                   className="px-3 py-1.5 rounded-md text-[11px] uppercase tracking-wider border border-white/[0.08] text-gray-400 hover:text-gray-200 transition disabled:opacity-40">
                   {srcBusy ? 'reading…' : source !== null ? 'hide code' : 'open code'}

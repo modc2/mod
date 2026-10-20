@@ -30,6 +30,7 @@ import {
 import { approveAgentFlow } from "../lib/hlActions";
 import { useSession } from "../lib/auth";
 import { useWallet } from "../lib/wallet";
+import { openWalletOp } from "./AccountPanel";
 import AuthGate from "./AuthGate";
 
 type Kind = "trader" | "vault" | "strat";
@@ -211,7 +212,7 @@ export default function InvestPanel({
           <div className="text-[11px] text-muted mt-1.5">
             {free > 1
               ? <>You have <span className="text-ink num">{fmtUsd(free)}</span> free to invest.</>
-              : <>No free balance — <a className="text-accent2 hover:text-accent" href="/wallet">add USDC</a> {kind !== "vault" && "or try this with paper money"}.</>}
+              : <>No free balance — <button className="text-accent2 hover:text-accent" onClick={() => openWalletOp("deposit")}>add USDC</button> {kind !== "vault" && "or try this with paper money"}.</>}
           </div>
         )}
       </div>

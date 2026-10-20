@@ -109,6 +109,7 @@ class Hyperliquid(m.Mod):
         "usd_class_transfer", "withdraw", "usd_send", "spot_send",
         # cross-chain deposit rails
         "deposit_chains", "deposit_balances", "deposit_quote", "deposit_status",
+        "deposit_evm_chains", "deposit_token",
         # referrer
         "set_referrer",
         # live copy-trade engine
@@ -811,9 +812,21 @@ class Hyperliquid(m.Mod):
         """Source chains and the tokens each one can be funded from."""
         return self._get("/deposit/chains")
 
-    def deposit_balances(self, eoa: str) -> Any:
-        """Every spendable balance this address holds across those chains."""
+    def deposit_balances(self, eoa: str, extra: Optional[str] = None) -> Any:
+        """Every spendable balance this address holds across those chains.
+
+        `extra` adds custom tokens on ANY EVM chain: "<chainId>:<address|native>,…".
+        """
+        if extra: return self._get("/deposit/balances", eoa=eoa, extra=extra)
         return self._get("/deposit/balances", eoa=eoa)
+
+    def deposit_evm_chains(self) -> Any:
+        """Every EVM chain a deposit can start from (built-ins + LI.FI's registry)."""
+        return self._get("/deposit/evm_chains")
+
+    def deposit_token(self, chain_id: int, address: str) -> Any:
+        """Look up any token on any EVM chain: symbol, decimals, USD price."""
+        return self._get("/deposit/token", chain_id=chain_id, address=address)
 
     def deposit_quote(self, from_chain_id: int, token: str, amount: str, eoa: str,
                       to_chain_id: Optional[int] = None,

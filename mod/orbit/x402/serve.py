@@ -223,6 +223,27 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json({'error': f'{type(e).__name__}: {e}',
                                'kind': 'error'}, 400)
 
+    def _passport(self, sub, query):
+        """Relay GETs to orbit/passport (the fleet auth protocol) so the
+        console's /passport/passport.js also resolves on a bare local port;
+        behind the gateway /passport is routed to passport directly."""
+        import urllib.error
+        import urllib.request
+        url = os.environ.get('PASSPORT_URL', 'http://127.0.0.1:51390') + sub + ('?' + query if query else '')
+        try:
+            with urllib.request.urlopen(url, timeout=5) as r:
+                code, ctype, body = r.status, r.headers.get('Content-Type'), r.read()
+        except urllib.error.HTTPError as e:
+            code, ctype, body = e.code, e.headers.get('Content-Type'), e.read()
+        except Exception as e:                            # noqa: BLE001 — passport down
+            return self._json({'error': f'passport unreachable: {e}'}, 502)
+        self.send_response(code)
+        self.send_header('Content-Type', ctype or 'application/octet-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_OPTIONS(self):
         self._json({'ok': True})
 
@@ -235,6 +256,8 @@ class Handler(SimpleHTTPRequestHandler):
         if path in MCP_PATHS:          # no server-initiated stream; POST only
             return self._json({'error': 'MCP here is POST (stateless streamable HTTP)',
                                'tools': [t['name'] for t in mcp.tool_list()]}, 405)
+        if raw.startswith('/passport/'):
+            return self._passport(raw[len('/passport'):], parsed.query)
         fn = self._fn(path)
         if fn:
             return self._dispatch(fn, args, 'GET')

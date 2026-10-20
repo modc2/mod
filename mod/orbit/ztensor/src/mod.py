@@ -56,7 +56,7 @@ def _package():
 
 _package()
 from ztensor_src import DATA, ROOT  # noqa: E402
-from ztensor_src.core import fees, util, yuma  # noqa: E402
+from ztensor_src.core import experiment as ex, fees, forecast as fc, util, yuma  # noqa: E402
 from ztensor_src.core.signer import Signer  # noqa: E402
 from ztensor_src.core.util import ROLES, load, save  # noqa: E402
 from ztensor_src.networks import Registry  # noqa: E402
@@ -327,12 +327,88 @@ class Mod:
                 'block_seconds': bs, 'min_tempo': fees.min_tempo(bs),
                 'block_capacity': cap, 'capacity_unit': m.get('capacity_unit'),
                 'tx_cap': m.get('tx_cap'), 'rounds': a.rounds,
+                'capacity_estimated': bool(m.get('capacity_estimated')),
                 'max_ring': a.max_ring, 'ring': ring, 'actions': kinds,
                 'by_ring': by_ring,
                 'actions_per_block': per_block,
                 'actions_per_hour': per_block * 3600 / bs
                 if per_block and bs else None}
         return out
+
+    def forecast(self, chain=None, miners='16,256', validators='4,64',
+                 months=12, shape='exp', ring=16, epoch_hours=1, k=None):
+        """Cost over time as the subnet grows: miners/validators = 'start,end'
+        over `months` (shape exp | linear | logistic), every epoch priced at
+        today's mainnet gas for today's contract (baseline) and for each
+        compression step — modeled, see core/forecast: the linking ladder
+        (batch, lazy, proof) and the privacy-preserving one (committee,
+        private), each with what an observer learns (`privacy`).
+        No chain = every priced chain, side by side."""
+        eco = self.economics()
+        q = (fees.quote(NETS).get('chains') or {})
+        pair = lambda v: tuple(int(x) for x in str(v).replace(' ', '').split(',')[:2])  # noqa: E731
+        M, V = pair(miners), pair(validators)
+        if len(M) == 1:
+            M = (M[0], M[0])
+        if len(V) == 1:
+            V = (V[0], V[0])
+        out = {'at': eco.get('at'), 'miners': M, 'validators': V,
+               'months': int(months), 'shape': shape, 'chains': {},
+               'entry_of_settle': fc.ENTRY_OF_SETTLE,
+               'prover_usd_per_mstep': fc.PROVER_USD_PER_MSTEP}
+        for a in NETS:
+            row = eco['chains'].get(a.chain)
+            if not row or (chain and a.chain != chain):
+                continue
+            proof = None
+            pc, m = fc.PROOF_COST.get(a.chain), q.get(a.chain)
+            if pc and m and m.get('usd'):
+                n = a.fee(pc, m)
+                proof = n * m['usd'] if n else None
+            u = fc.units(row, proof)
+            if not u:
+                continue
+            out['chains'][a.chain] = {
+                'symbol': a.symbol, 'proof_estimated': pc is not None,
+                **fc.project(u, M, V, int(months), shape, int(ring),
+                             float(epoch_hours), int(k) if k else None)}
+        return out
+
+    def experiment(self, chain='near', hours='1,2,4,6,12,24', ring=16,
+                   strategy='baseline', share=0.1, budget_day=None,
+                   trials=200, vol=0.5, p_min=0.8, seed=7):
+        """ONE chain: sweep epoch length x miners x validators. Per epoch
+        length the largest subnet that fits `share` of the chain's blockspace
+        (and $/day <= budget_day if set), and a Monte Carlo of $ per epoch
+        (gas lognormal(vol), turnout uniform(p_min, 1)) on a miners x
+        validators grid. See core/experiment."""
+        a = NETS.chain(chain)
+        eco = self.economics()
+        row = eco['chains'].get(a.chain)
+        if not row:
+            return {'ok': False, 'chain': a.chain,
+                    'error': f'{a.chain} has no mainnet price (no token or no '
+                             'priced run yet)'}
+        q = (fees.quote(NETS).get('chains') or {}).get(a.chain) or {}
+        pc = fc.PROOF_COST.get(a.chain)
+        proof = cap_proof = None
+        if pc and q.get('usd'):
+            n = a.fee(pc, q)
+            proof = n * q['usd'] if n else None
+            cap_proof = a.load(pc)
+        u = fc.units(row, proof)
+        if not u:
+            return {'ok': False, 'chain': a.chain, 'error': 'no priced run yet'}
+        lu = ex.load_units(row, cap_proof)
+        ints = lambda v: tuple(sorted({int(float(x)) for x in str(v).split(',') if x.strip()}))  # noqa: E731
+        out = ex.run(row, u, lu, hours=ints(hours) or ex.HOURS, ring=int(ring),
+                     strategy=strategy, share=float(share),
+                     budget_day=float(budget_day) if budget_day not in (None, '', '0') else None,
+                     trials=max(20, min(int(trials), 1000)), vol=float(vol),
+                     p_min=min(max(float(p_min), 0.05), 1.0), seed=int(seed))
+        return {'ok': True, 'chain': a.chain, 'symbol': a.symbol,
+                'usd_price': row.get('usd_price'), 'at': eco.get('at'),
+                'max_ring': a.max_ring, 'modeled': strategy != 'baseline', **out}
 
     # ---- keys + the signer (chain-independent) -------------------------------
 

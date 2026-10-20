@@ -145,6 +145,11 @@ export default function TraderPage() {
           attached. Renders its own panel chrome so the header can carry the
           checks verdict. */}
       <BacktestPanel addr={addr} days={days} />
+      <div className="-mt-3 text-right">
+        <Link href={`/invest/split?add=${addr}`} className="text-[11px] text-accent2 hover:text-accent">
+          add to my $-per-trader plan →
+        </Link>
+      </div>
 
       {/* Open positions — perps only. `clearinghouseState` does not carry spot
           balances, so "none" here means no perp exposure, not a flat account. */}

@@ -20,8 +20,12 @@
  *                        readable by all of them.
  *
  * Neither is required. The deployment mints its own Lighthouse key from the
- * box wallet, and an upload with no token is recorded under `anon` within a
- * budget the lighthouse panel shows; sign-in only unlocks the store half.
+ * box wallet. Uploads are paid with **x402**: the console asks `/price` for
+ * what this file costs THIS caller, the browser wallet signs that USDC offer
+ * (EIP-3009, no gas), and the upload goes once with `X-PAYMENT`. The server
+ * verifies before the bytes move and settles after the CID comes back.
+ * Bringing your own Lighthouse key makes it free; sign-in only unlocks the
+ * store half.
  */
 
 const API = '_api';
@@ -35,6 +39,7 @@ let listSource = 'module';
 let state = { lh: null, store: null };
 let picked = [];          // the files the button will send
 let showPane = () => {};  // set in init(), once the tabs are wired
+let priceTimer = 0;
 
 const $ = (id) => document.getElementById(id);
 
@@ -52,8 +57,8 @@ function headers(extra = {}) {
   return h;
 }
 
-async function call(path, { method = 'GET', body, json, form } = {}) {
-  const opts = { method, headers: headers() };
+async function call(path, { method = 'GET', body, json, form, extra } = {}) {
+  const opts = { method, headers: headers(extra) };
   if (json !== undefined) {
     opts.body = JSON.stringify(json);
     opts.headers['Content-Type'] = 'application/json';
@@ -74,11 +79,11 @@ async function call(path, { method = 'GET', body, json, form } = {}) {
  * `call` for a multipart upload, over XHR because fetch still cannot report
  * upload progress. Same error shape as `call`, so callers treat them alike.
  */
-function upload(path, form, onProgress) {
+function upload(path, form, onProgress, extra) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API}${path}`);
-    Object.entries(headers()).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    Object.entries(headers(extra)).forEach(([k, v]) => xhr.setRequestHeader(k, v));
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
     xhr.onload = () => {
       let data;
@@ -89,6 +94,78 @@ function upload(path, form, onProgress) {
     xhr.onerror = () => reject(new Error('the connection dropped'));
     xhr.send(form);
   });
+}
+
+/* ── x402: what an upload costs, and the wallet paying it ──── */
+
+const usdText = (u) => `$${Number(u).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`;
+
+/** `/price` for this caller: {due, why, usd, x402: <the 402 body>}. */
+const priceOf = (size) => call(`/price?size=${Math.max(0, Math.floor(size))}`);
+
+/**
+ * Sign one of the 402's `accepts` with the browser wallet: an EIP-3009
+ * transferWithAuthorization for exactly the price, on the chain the wallet is
+ * on when it is offered, else the first offer (the wallet is asked to switch).
+ * Returns the base64 X-PAYMENT header. Nothing moves until the server settles.
+ */
+async function payHeader(req) {
+  if (!window.ethereum) throw new Error(`this upload costs ${usdText(req.price.usd)} USDC — open the page in a browser with an EVM wallet (MetaMask, Rabby, Coinbase) to pay, or use your own Lighthouse key below`);
+  const [from] = await window.ethereum.request({ method: 'eth_requestAccounts' });
+  const nets = Object.fromEntries(((state.lh && state.lh.pay && state.lh.pay.networks) || []).map((n) => [n.network, n]));
+  const current = window.ethereum.chainId ? parseInt(window.ethereum.chainId, 16) : null;
+  const offers = (req.accepts || []).filter((a) => nets[a.network]);
+  const offer = offers.find((a) => nets[a.network].chain_id === current) || offers[0];
+  if (!offer) throw new Error('no payment offer on a chain this console knows');
+  const chainId = nets[offer.network].chain_id;
+  if (current !== chainId) {
+    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${chainId.toString(16)}` }] });
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const nonce = `0x${[...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+  const authorization = {
+    from, to: offer.payTo, value: String(offer.maxAmountRequired),
+    validAfter: String(now - 600), validBefore: String(now + (offer.maxTimeoutSeconds || 300)), nonce,
+  };
+  const typed = {
+    types: {
+      EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
+      TransferWithAuthorization: [{ name: 'from', type: 'address' }, { name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'validAfter', type: 'uint256' }, { name: 'validBefore', type: 'uint256' }, { name: 'nonce', type: 'bytes32' }],
+    },
+    primaryType: 'TransferWithAuthorization',
+    domain: { name: offer.extra.name, version: offer.extra.version, chainId, verifyingContract: offer.asset },
+    message: authorization,
+  };
+  const signature = await window.ethereum.request({ method: 'eth_signTypedData_v4', params: [from, JSON.stringify(typed)] });
+  return btoa(JSON.stringify({ x402Version: 1, scheme: offer.scheme, network: offer.network, payload: { signature, authorization } }));
+}
+
+/** Headers that pay for `size` bytes, or {} when this caller uploads free. */
+async function payFor(size, label) {
+  const q = await priceOf(size);
+  if (!q.due) return {};
+  progress(0, `approve ${usdText(q.usd)} USDC in your wallet${label ? ` · ${label}` : ''}`);
+  return { 'X-PAYMENT': await payHeader(q.x402) };
+}
+
+/** The price line under the button, for whatever is about to be sent. */
+async function showPrice() {
+  const el = $('put-price');
+  if (!el) return;
+  const textPane = $('pane-text').classList.contains('on');
+  const sizes = textPane ? [new TextEncoder().encode($('text').value).length] : picked.map((f) => f.size);
+  const pay = state.lh && state.lh.pay;
+  if (!pay || !pay.enabled) { el.innerHTML = 'free on this node'; return; }
+  if (!sizes.length || (textPane && !sizes[0])) {
+    el.innerHTML = `x402 · ${usdText(pay.price_usd)} + ${usdText(pay.price_per_mib_usd)}/MiB USDC on ${esc(pay.networks.map((n) => n.network).join(', '))} · no account`;
+    return;
+  }
+  try {
+    const qs = await Promise.all(sizes.map(priceOf));
+    if (!qs[0].due) { el.innerHTML = `free for you (${esc(qs[0].why)})`; return; }
+    const total = qs.reduce((n, q) => n + q.usd, 0);
+    el.innerHTML = `<b>${usdText(total)} USDC</b> · x402, your wallet signs${qs.length > 1 ? ` ${qs.length} payments` : ''} · charged only if it lands`;
+  } catch { el.textContent = ''; }
 }
 
 /* ── the token a wallet signs ───────────────────────────────── */
@@ -212,10 +289,14 @@ function renderLighthouse(s) {
     ['indexed', `${s.objects ?? 0} object${s.objects === 1 ? '' : 's'}`],
     ['pinning', 'perpetual (IPFS + Filecoin)'],
   ];
-  if (anon.enabled) {
+  const pay = s.pay || {};
+  rows.push(['x402', pay.enabled
+    ? `${usdText(pay.price_usd)} + ${usdText(pay.price_per_mib_usd)}/MiB USDC · ${esc((pay.networks || []).map((n) => n.network).join(', '))} · to <code>${esc(short(pay.pay_to))}</code>`
+    : 'off — uploads are free here', pay.enabled ? 'ok' : 'warn']);
+  if (anon.enabled && !pay.enabled) {
     rows.push(['anon today', `${bytes(anon.used_today)} of ${bytes(anon.daily_bytes)} · ${bytes(anon.max_bytes)} per upload`
       + meter(anon.used_today, anon.daily_bytes)]);
-  } else if (anon.owner) {
+  } else if (anon.owner && !pay.enabled) {
     rows.push(['anon', 'uploads without sign-in are off here', 'warn']);
   }
   facts($('lh-facts'), rows);
@@ -224,14 +305,16 @@ function renderLighthouse(s) {
   $('byok-hint').style.display = byok || configured ? 'none' : '';
   $('key-hint').style.display = byok ? 'none' : '';
   $('key-hint').textContent = configured && s.key_source === 'wallet'
-    ? 'No key was pasted: this box signed a Lighthouse nonce with its own wallet and keeps the key it got back. Anyone can upload.'
-    : (configured ? 'A deployment key is set. Anyone can upload; sign in to register in the store.'
+    ? 'No key was pasted: this box signed a Lighthouse nonce with its own wallet and keeps the key it got back. Anyone can upload' + (s.pay && s.pay.enabled ? ', paying per upload with x402.' : '.')
+    : (configured ? `A deployment key is set. Anyone can upload${s.pay && s.pay.enabled ? ' (x402, per upload)' : ''}; sign in to register in the store.`
       : 'No key to paste: on first upload this box signs a Lighthouse nonce with its own wallet and keeps the key it gets back.');
   document.body.classList.toggle('owner', !!(state.me && state.me.owner));
   const hint = $('put-hint');
   hint.innerHTML = token
     ? 'Signed in — the CID is registered in the store under your address.'
-    : `Not signed in — the upload still lands (recorded as <code>anon</code>${anon.enabled ? `, ${esc(bytes(anon.remaining_today))} left today` : ''}); sign in to register it in the store.`;
+    : (s.pay && s.pay.enabled
+      ? 'No account needed — pay per upload with your wallet (x402). Sign in to also register it in the store.'
+      : `Not signed in — the upload still lands (recorded as <code>anon</code>${anon.enabled ? `, ${esc(bytes(anon.remaining_today))} left today` : ''}); sign in to register it in the store.`);
 }
 
 function renderStore(s) {
@@ -306,6 +389,14 @@ function keptCard(r) {
     rows.push(['from store', esc(r.source_cid)]);
     rows.push(['same cid', r.same_cid ? 'yes — identical content hash'
       : 'no — different chunking, the Lighthouse CID is the one registered']);
+  }
+  const p = r.payment;
+  if (p && p.mode === 'x402') {
+    rows.push(['paid', p.settled
+      ? `${usdText(p.usd)} USDC on ${esc(p.network)}${p.tx ? ` · tx <code>${esc(p.tx.slice(0, 12))}…</code>` : ''}`
+      : `<span style="color:var(--warn)">not settled — ${esc(p.error || 'the facilitator did not confirm')}</span>`]);
+  } else if (p) {
+    rows.push(['paid', `free${p.why ? ` (${esc(p.why)})` : ''}`]);
   }
   const s = r.store;
   if (s) {
@@ -548,6 +639,7 @@ async function refresh() {
     document.body.classList.remove('owner');
     renderLighthouse(state.lh);
   }
+  showPrice();
   refreshObjects();
 }
 
@@ -565,6 +657,7 @@ function pick(files) {
   $('objkey').disabled = files.length > 1;
   $('objkey').placeholder = files.length > 1 ? 'each file keeps its own name' : 'name (optional)';
   if (!files.length) $('file').value = '';
+  showPrice();
 }
 
 /** The bar under the button: a fraction 0..1, or null to put it away. */
@@ -604,6 +697,7 @@ function init() {
 
   tabs($('put-tabs'), 'pane', (pane) => {
     document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.id === pane));
+    showPrice();
   });
   // the same switch, from code (a paste or a drop picks the pane for you)
   showPane = (pane) => {
@@ -648,6 +742,7 @@ function init() {
   $('text').oninput = () => {
     const n = $('text').value.length;
     $('text-count').textContent = `${n.toLocaleString()} character${n === 1 ? '' : 's'}`;
+    clearTimeout(priceTimer); priceTimer = setTimeout(showPrice, 400);
   };
   $('text').onkeydown = (ev) => {
     if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); $('put').click(); }
@@ -703,7 +798,8 @@ function init() {
       if (textPane) {
         const text = $('text').value;
         if (!text.trim()) throw new Error('nothing to store — write something first');
-        kept.push(await call('/put/text', { method: 'POST', json: { text, key: key || null, register, public: isPublic, pool: pool || null } }));
+        const extra = await payFor(new TextEncoder().encode(text).length);
+        kept.push(await call('/put/text', { method: 'POST', extra, json: { text, key: key || null, register, public: isPublic, pool: pool || null } }));
         $('text').value = ''; $('text').oninput();
       } else {
         if (!picked.length) throw new Error('choose a file first');
@@ -721,7 +817,8 @@ function init() {
           form.append('public', String(isPublic));
           const label = picked.length > 1 ? `${i + 1} of ${picked.length} · ${f.name}` : f.name;
           try {
-            kept.push(await upload('/put', form, (frac) => progress((done + frac * f.size) / total, label)));
+            const extra = await payFor(f.size, label);
+            kept.push(await upload('/put', form, (frac) => progress((done + frac * f.size) / total, label), extra));
           } catch (e) {
             if (kept.length) putResult(out, kept);
             throw Object.assign(e, { message: `${f.name}: ${e.message}` });

@@ -404,3 +404,43 @@ def test_a_seed_is_forked_not_overwritten(reg):
 
 def test_self_test(reg):
     assert reg.test()
+
+
+# ── an agent's own graph ─────────────────────────────────────────────
+
+class _Agents:
+    def __init__(self, owner):
+        self.owner = owner
+    def get(self, name):
+        if name != "scout":
+            raise KeyError(name)
+        return {"name": name}
+    def can_manage(self, name, key):
+        return key == self.owner
+    def _require_manage(self, name, key, operation="modify"):
+        if key != self.owner:
+            raise PermissionError(operation)
+
+
+def test_agent_graph_defaults_then_saves_with_a_loop(tmp_path):
+    from src.graph.mod import Graphs
+    g = Graphs(identity=None, agents=_Agents("me"), dir=str(tmp_path))
+    d = g.for_agent("scout", key="me")
+    assert d["default"] and d["can_edit"] and d["valid"]["ok"]
+    assert [n["kind"] for n in d["nodes"]] == ["input", "agent", "output"]
+    nodes = d["nodes"] + [
+        {"id": "rv", "kind": "agent", "data": {"agent": "scout"}},
+        {"id": "lp", "kind": "loop", "data": {"max": 2}}]
+    edges = [e for e in d["edges"] if e["to"] != "out"] + [
+        {"from": "a0", "to": "rv", "port": "out"},
+        {"from": "rv", "to": "lp", "port": "out"},
+        {"from": "lp", "to": "a0", "port": "out"},
+        {"from": "lp", "to": "out", "port": "done"}]
+    saved = g.save_for_agent("scout", {"nodes": nodes, "edges": edges}, key="me")
+    assert saved["id"] == "agent-scout" and saved["agent"] == "scout"
+    assert saved["valid"]["ok"], saved["valid"]
+    back = g.for_agent("scout", key="you")
+    assert not back["default"] and not back["can_edit"] and len(back["nodes"]) == 5
+    with pytest.raises(PermissionError):
+        g.save_for_agent("scout", {"nodes": nodes, "edges": edges}, key="you")
+    assert g.reset_for_agent("scout", key="me")["default"]

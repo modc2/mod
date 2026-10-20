@@ -1,7 +1,7 @@
 {
     "name": "lighthouse",
-    "version": "1.1.0",
-    "description": "Store files forever on IPFS/Filecoin via Lighthouse \u2014 no API key to paste: the deployment mints its own from the box wallet, and the MCP server takes callers with no token at all. Upload once, get a permanent link, and every file shows up in your store with its sharing and permissions.",
+    "version": "1.2.0",
+    "description": "Store files forever on IPFS/Filecoin via Lighthouse, paid per upload with x402 (USDC on Base, no account, no KYC): an unpaid upload answers HTTP 402 with `accepts`, the caller's wallet signs an EIP-3009 transfer, the retry with X-PAYMENT is verified before the bytes move and settled after the CID comes back. No API key to paste: the deployment mints its own from the box wallet, and the MCP server takes callers with no token. Every file shows up in your store with its sharing and permissions.",
     "icon": "\u25ce",
     "color": "#f5b942",
     "anchor": "mod.py",
@@ -61,13 +61,24 @@
         "serve",
         "stop",
         "app",
-        "api"
+        "api",
+        "pricing"
     ],
     "endpoints": {
         "/health": {
             "method": "GET",
             "auth": false,
             "docs": "Liveness probe"
+        },
+        "/price": {
+            "method": "GET",
+            "auth": "optional",
+            "docs": "?size=N \u2192 what an upload of N bytes costs THIS caller: {due, why, usd, units, x402: the exact 402 body /put would answer} \u2014 sign first, upload once"
+        },
+        "/pay": {
+            "method": "GET/POST",
+            "auth": "optional",
+            "docs": "GET the x402 policy (price, chains, USDC asset + EIP-712 domain, pay_to, facilitator, stats; owner also sees payments). POST (owner) change it off-chain"
         },
         "/status": {
             "method": "GET",
@@ -86,13 +97,13 @@
         },
         "/put": {
             "method": "POST",
-            "auth": "optional",
-            "docs": "Upload a file to Lighthouse (perpetual IPFS/Filecoin pin); form: key, register=true, public, pool. No token needed: an anonymous upload is recorded under `anon` and spends the deployment key within the anonymous budget (429 past it). Registers the CID in the store only for a signed caller"
+            "auth": "x402",
+            "docs": "Upload a file to Lighthouse (perpetual IPFS/Filecoin pin); form: key, register=true, public, pool. Paid with x402: no X-PAYMENT \u2192 402 {x402Version, accepts[]}; sign one, retry with X-PAYMENT; receipt in X-PAYMENT-RESPONSE, `payment` in the body. Verified before upload, settled after, never charged for a failure. Free for the box, the owner token and x-lh-key. Registers the CID in the store only for a signed caller"
         },
         "/put/text": {
             "method": "POST",
-            "auth": "optional",
-            "docs": "Same as /put for a string body: {text, key, register, public, pool}"
+            "auth": "x402",
+            "docs": "Same as /put (and the same x402 gate) for a string body: {text, key, register, public, pool}"
         },
         "/get": {
             "method": "GET",
@@ -220,7 +231,8 @@
             "per_upload": "LIGHTHOUSE_ANON_MAX_BYTES (default 8 MiB)",
             "per_day": "LIGHTHOUSE_ANON_DAILY_BYTES (default 256 MiB)",
             "off": "set either to 0"
-        }
+        },
+        "x402": "lighthouse_put / lighthouse_mirror without `payment` answer an isError result carrying the 402 body (accepts + price); sign one and call again with `payment` (or X-PAYMENT on the MCP request). Free over stdio, for the owner token, or with your own api_key"
     },
     "env": {
         "LIGHTHOUSE_API_KEY": "API key from files.lighthouse.storage \u2014 optional, the box mints its own (or persist one via m lighthouse/set_key)",
@@ -236,8 +248,29 @@
         "LIGHTHOUSE_API_PORT": "API port (default 50680)",
         "LIGHTHOUSE_APP_PORT": "Console port (default 50681)",
         "LIGHTHOUSE_OPEN": "1 = treat every caller as signed in (local development only)",
-        "LIGHTHOUSE_OWNER": "Fallback owner address when ~/.mod/lighthouse/owner.json is absent"
+        "LIGHTHOUSE_OWNER": "Fallback owner address when ~/.mod/lighthouse/owner.json is absent",
+        "LIGHTHOUSE_PAY_TO": "receiving EVM address for x402 upload payments (overrides ~/.mod/lighthouse/pay.json)",
+        "LIGHTHOUSE_FREE": "1 = turn x402 off: uploads are free again (anonymous ones within the anon budget)",
+        "LIGHTHOUSE_FACILITATOR": "x402 facilitator base URL (default https://facilitator.payai.network)"
     },
     "credentials": "~/.mod/lighthouse/credentials.json (api_key + source: wallet|pasted, address) + owner.json (off-chain, never committed)",
-    "schema": "QmWJab1nTyYgNkvGE1wXpSidhPZAjS6FNucihbsBKWygu5"
+    "schema": "QmY3HzNBvf3GgmQafhX5YzqTm7oS3w6KMMnP3G14XM4RZN",
+    "pay": {
+        "protocol": "x402 v1, scheme exact (EIP-3009 USDC transferWithAuthorization)",
+        "price_usd": 0.001,
+        "price_per_mib_usd": 0.001,
+        "max_mb": 100,
+        "currency": "USDC",
+        "networks": [
+            "base"
+        ],
+        "facilitator": "https://facilitator.payai.network",
+        "free_for": [
+            "this box (loopback)",
+            "the owner token",
+            "x-lh-key (caller's own Lighthouse key)"
+        ],
+        "kyc": "none",
+        "note": "public defaults; pay_to and overrides live off-chain in ~/.mod/lighthouse/pay.json (m lighthouse/pricing pay_to=0x\u2026); ledger in ~/.mod/lighthouse/pay.db"
+    }
 }

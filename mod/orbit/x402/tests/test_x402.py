@@ -177,7 +177,7 @@ def test_http_surface(monkeypatch):
             urllib.request.urlopen(f'{base}/x402/api/sync')
         assert e.value.code == 405
         html = urllib.request.urlopen(f'{base}/x402/').read()
-        assert b'X402' in html
+        assert b'x402' in html and b'/passport/passport.js' in html   # sign-in = passport
     finally:
         httpd.shutdown()
 

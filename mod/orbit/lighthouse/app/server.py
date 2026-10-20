@@ -96,8 +96,13 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else None
         request = urllib.request.Request(target, data=body, method=method)
         for name, value in self.headers.items():
-            if name.lower() not in HOP:
+            if name.lower() not in HOP and name.lower() != 'x-forwarded-for':
                 request.add_header(name, value)
+        # Say who is really calling: the API treats bare loopback as the box
+        # itself (free uploads), so a visitor must never arrive looking like it.
+        prior = self.headers.get('x-forwarded-for')
+        peer = self.client_address[0]
+        request.add_header('X-Forwarded-For', f'{prior}, {peer}' if prior else peer)
         try:
             with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
                 self.relay(response.status, response.headers, response.read())

@@ -301,6 +301,7 @@ mod tests {
             fee: fee.to_string(),
             tid: 0,
             oid: 0,
+            dir: String::new(),
         }
     }
 

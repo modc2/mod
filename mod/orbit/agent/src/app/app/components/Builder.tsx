@@ -58,6 +58,8 @@ type Props = {
   // "+ New agent" on the registry goes to the hub's BUILD tab, not to a
   // name field — an agent is made from one sentence there
   onCreate?: () => void
+  // an agent's own graph — the hub's GRAPH face, drawn for that agent
+  onOpenGraph?: (name: string) => void
 }
 
 // what the two non-registry faces are for — read on the crumb that leads
@@ -73,7 +75,7 @@ const FACES: Record<Exclude<Mode, 'browse'>, { icon: string; label: string; hint
 
 export default function Builder({
   onUseAgent, onAgentsChanged, initialAgent, initialGraph, initialMode, initialCreate,
-  token, isHost, onSignIn, address, onOpenArena, onRunAgent, onEditAgent, onCreate,
+  token, isHost, onSignIn, address, onOpenArena, onRunAgent, onEditAgent, onCreate, onOpenGraph,
 }: Props) {
   const [mode, setMode] = useState<Mode>(
     initialMode || (initialGraph || initialAgent ? 'flow' : 'browse'))
@@ -111,6 +113,7 @@ export default function Builder({
             initialCreate={initialCreate}
             onCreate={onCreate}
             onUseInFlow={name => { setSeedAgent(name); setMode('flow') }}
+            onOpenGraph={onOpenGraph}
             onRun={(name, prompt, memoryIds) => onRunAgent
               ? onRunAgent(name, prompt, memoryIds)
               : onUseAgent(name, memoryIds)}

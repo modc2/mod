@@ -80,6 +80,8 @@ type Props = {
   /** hand this agent to the FLOW canvas — a new graph with it on it.
       Not "edit it there": the canvas connects agents, it doesn't build one. */
   onUseInFlow?: (name: string) => void
+  /** open this agent's own graph — request in, answer out */
+  onOpenGraph?: (name: string) => void
   /** hand a prompt to this agent in the console */
   onRun?: (name: string, prompt: string, memoryIds: string[]) => void
   /** the registry changed — the console refetches its own agent list */
@@ -124,7 +126,7 @@ const writeNoteBindings = (map: Record<string, string[]>) => {
 const MODEL_CHIPS = 12
 
 export default function AgentsPanel({
-  token, address, isHost, onSignIn, onUseInFlow, onRun, onChanged, initialCreate, onCreate,
+  token, address, isHost, onSignIn, onUseInFlow, onOpenGraph, onRun, onChanged, initialCreate, onCreate,
 }: Props) {
   const [agents, setAgents] = useState<Record<string, AgentSchema>>({})
   const [order, setOrder] = useState<string[]>([])
@@ -506,6 +508,13 @@ export default function AgentsPanel({
                     title="Read this agent's mod.py">
                     {srcBusy ? 'reading…' : source ? 'hide code' : 'open code'}
                   </button>
+                  {onOpenGraph && (
+                    <button onClick={() => onOpenGraph(selected!)}
+                      className="px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider border border-emerald-400/25 text-emerald-300/90 hover:bg-emerald-500/10 transition"
+                      title="See this agent as the graph it runs — request in, answer out — and edit it">
+                      graph
+                    </button>
+                  )}
                   {onUseInFlow && (
                     <button onClick={() => onUseInFlow(selected!)}
                       className="px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider border border-violet-400/25 text-violet-300/90 hover:bg-violet-500/10 transition"

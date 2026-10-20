@@ -57,6 +57,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import identity  # noqa: E402
+import lhpay  # noqa: E402  — x402: strangers pay per upload in USDC
 import mcp  # noqa: E402  — this module's mcp.py; ROOT leads sys.path above
 from store_link import StoreLink, StoreError  # noqa: E402
 
@@ -80,7 +81,8 @@ STORE = StoreLink()
 app = FastAPI(title='lighthouse', version=VERSION,
               description=CONFIG.get('description', 'Lighthouse perpetual storage'))
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'],
-                   allow_headers=['*'], allow_credentials=False)
+                   allow_headers=['*'], allow_credentials=False,
+                   expose_headers=['X-PAYMENT-RESPONSE'])
 
 
 @app.middleware('http')
@@ -162,6 +164,70 @@ def anon_guard(lh, address: str, byok: Optional[str], size: int) -> None:
             raise HTTPException(429, str(e))
 
 
+def exemption(request: Request, authorization: Optional[str],
+              byok: Optional[str]) -> str:
+    """Why this caller does not pay for an upload ('' = they do): their own
+    Lighthouse key, this box itself, or the owner's token."""
+    if (byok or '').strip():
+        return 'byok'
+    if lhpay.is_local(request.client.host if request.client else '', request.headers):
+        return 'local'
+    try:
+        address = identity.whoami(authorization)
+    except identity.AuthError:
+        address = None
+    if address and identity.is_owner(address):
+        return 'owner'
+    return ''
+
+
+def charge(request: Request, authorization: Optional[str], byok: Optional[str],
+           size: int, resource: str) -> 'lhpay.Charge':
+    """The x402 gate, before a byte leaves the box. A 402 carries `accepts`;
+    the caller signs one and retries with X-PAYMENT."""
+    c = lhpay.Charge(request.headers, size, resource,
+                     exempt=exemption(request, authorization, byok))
+    if c.refusal:
+        status, body = c.refusal
+        raise PaymentRefused(status, body)
+    return c
+
+
+class PaymentRefused(Exception):
+    def __init__(self, status: int, body: dict):
+        self.status, self.body = status, body
+
+
+@app.exception_handler(PaymentRefused)
+async def _payment_refused(request: Request, e: PaymentRefused):
+    # A plain JSON body, not FastAPI's {detail}: an x402 client reads
+    # `accepts` at the top level of the 402.
+    return JSONResponse(e.body, status_code=e.status)
+
+
+def nothing_sent(request: Request, authorization: Optional[str],
+                 byok: Optional[str], path: str, what: str):
+    """An empty request is how x402 clients and crawlers ask the price: answer
+    the 402 for the smallest upload, or say what is missing if they need not pay."""
+    charge(request, authorization, byok, 0, resource_url(request, path))
+    raise HTTPException(422, f'nothing to store — send {what}')
+
+
+def paid(result: dict, c: 'lhpay.Charge') -> JSONResponse:
+    """Settle after the CID came back and hand the receipt over."""
+    info, extra = c.settle(result.get('cid', ''))
+    result['payment'] = info
+    return JSONResponse(result, headers=extra)
+
+
+def resource_url(request: Request, path: str) -> str:
+    proto = request.headers.get('x-forwarded-proto') or request.url.scheme
+    host = request.headers.get('x-forwarded-host')
+    if host:
+        return f"{proto}://{host.split(',')[0].strip()}/{CONFIG['name']}/api{path}"
+    return f"{proto}://{request.headers.get('host') or request.url.netloc}{path}"
+
+
 def token_of(authorization: Optional[str]) -> str:
     token = identity.strip(authorization)
     if not token:
@@ -195,6 +261,7 @@ def status(authorization: Optional[str] = Header(default=None)):
         'auth': identity.status(),
         'store': STORE.status(identity.strip(authorization)),
         'perpetual': True,
+        'pay': lhpay.public(),
         'mcp': {'endpoint': 'POST /mcp', 'schema': 'GET /mcp',
                 'transport': 'Streamable HTTP (JSON-RPC 2.0)',
                 'stdio': 'python3 mcp.py', 'tools': len(mcp.TOOLS)},
@@ -238,6 +305,59 @@ def preview(cid: str, max_bytes: int = Query(default=65536, ge=1, le=1 << 20)):
         raise HTTPException(404, str(e))
     except RuntimeError as e:
         raise HTTPException(502, str(e))
+
+
+# ── x402 ─────────────────────────────────────────────────────────────
+
+@app.get('/price')
+def price(request: Request, size: int = Query(default=0, ge=0),
+          authorization: Optional[str] = Header(default=None),
+          x_lh_key: Optional[str] = Header(default=None)):
+    """What an upload of `size` bytes costs THIS caller, before sending it.
+    `due` false = free for you (and `why`); otherwise `x402` is the exact 402
+    body /put would answer, so a client can sign first and upload once."""
+    p = lhpay.policy()
+    why = exemption(request, authorization, x_lh_key)
+    out = {'size': size, 'due': lhpay.active(p) and not why, 'why': why or None,
+           'usd': lhpay.usd(lhpay.cost(size, p)), 'units': lhpay.cost(size, p),
+           'pay': lhpay.public(p)}
+    if out['due']:
+        out['x402'] = lhpay.required(out['units'], resource_url(request, '/put'),
+                                     None, p, size=size)
+    return out
+
+
+@app.get('/pay')
+def pay_info(authorization: Optional[str] = Header(default=None)):
+    """The x402 policy: price, chains, USDC asset + EIP-712 domain, pay_to,
+    facilitator. The owner also sees the ledger."""
+    out = {**lhpay.public(), 'stats': lhpay.stats()}
+    try:
+        address = identity.whoami(authorization)
+    except identity.AuthError:
+        address = None
+    if address and identity.is_owner(address):
+        out['payments'] = lhpay.payments(50)
+    return out
+
+
+class PayBody(BaseModel):
+    enabled: Optional[bool] = None
+    pay_to: Optional[str] = None
+    networks: Optional[List[str]] = None
+    price_usd: Optional[float] = None
+    price_per_mib_usd: Optional[float] = None
+    max_mb: Optional[int] = None
+
+
+@app.post('/pay')
+def pay_set(body: PayBody, authorization: Optional[str] = Header(default=None)):
+    """(owner) Change the price, chains or receiving address — off-chain."""
+    owner_caller(authorization)
+    try:
+        return lhpay.public(lhpay.set_policy(**body.model_dump(exclude_none=True)))
+    except lhpay.PayError as e:
+        raise HTTPException(400, str(e))
 
 
 # ── identity ─────────────────────────────────────────────────────────
@@ -333,7 +453,8 @@ def _register_after_put(result: dict, token: Optional[str], public: bool,
 
 
 @app.post('/put')
-async def put(file: UploadFile = File(...),
+async def put(request: Request,
+              file: Optional[UploadFile] = File(default=None),
               key: Optional[str] = Form(default=None),
               register: bool = Form(default=True),
               public: bool = Form(default=False),
@@ -345,6 +466,8 @@ async def put(file: UploadFile = File(...),
     No token needed for the upload itself: an anonymous caller gets a CID,
     recorded under `anon` and spending the deployment key within its budget.
     The store half needs a signer and is reported, not demanded."""
+    if file is None:
+        nothing_sent(request, authorization, x_lh_key, '/put', 'a multipart `file`')
     address = caller_or_anon(authorization)
     lh = lighthouse(x_lh_key)
     if not lh.api_key:
@@ -355,11 +478,14 @@ async def put(file: UploadFile = File(...),
         with open(tmp, 'wb') as f:
             while chunk := await file.read(1 << 20):
                 f.write(chunk)
-        anon_guard(lh, address, x_lh_key, tmp.stat().st_size)
+        size = tmp.stat().st_size
+        c = charge(request, authorization, x_lh_key, size, resource_url(request, '/put'))
+        if c.mode == 'free':
+            anon_guard(lh, address, x_lh_key, size)   # a paid upload paid for itself
         try:
             result = lh.put(str(tmp), owner=address, key=name)
         except Exception as e:
-            raise HTTPException(502, f'lighthouse upload failed: {e}')
+            raise HTTPException(502, f'lighthouse upload failed (not charged): {e}')
     finally:
         try:
             tmp.unlink(missing_ok=True)
@@ -369,11 +495,11 @@ async def put(file: UploadFile = File(...),
     if register:
         result['store'] = _register_after_put(result, identity.strip(authorization),
                                               public, pool)
-    return result
+    return paid(result, c)
 
 
 class TextBody(BaseModel):
-    text: str
+    text: Optional[str] = None
     key: Optional[str] = None
     register: bool = True
     public: bool = False
@@ -381,14 +507,20 @@ class TextBody(BaseModel):
 
 
 @app.post('/put/text')
-def put_text(body: TextBody, authorization: Optional[str] = Header(default=None),
+def put_text(request: Request, body: Optional[TextBody] = Body(default=None),
+             authorization: Optional[str] = Header(default=None),
              x_lh_key: Optional[str] = Header(default=None)):
     """The same as /put for a string — what a console's text box needs."""
+    if body is None or body.text is None:
+        nothing_sent(request, authorization, x_lh_key, '/put/text', '{"text": "..."}')
     address = caller_or_anon(authorization)
     lh = lighthouse(x_lh_key)
     if not lh.api_key:
         raise no_key_error(lh)
-    anon_guard(lh, address, x_lh_key, len(body.text.encode()))
+    size = len(body.text.encode())
+    c = charge(request, authorization, x_lh_key, size, resource_url(request, '/put/text'))
+    if c.mode == 'free':
+        anon_guard(lh, address, x_lh_key, size)
     name = body.key or f'text-{int(time.time())}.txt'
     tmp = Path(tempfile.mkdtemp(prefix='lighthouse-')) / Path(name).name
     try:
@@ -396,7 +528,7 @@ def put_text(body: TextBody, authorization: Optional[str] = Header(default=None)
         try:
             result = lh.put(str(tmp), owner=address, key=name)
         except Exception as e:
-            raise HTTPException(502, f'lighthouse upload failed: {e}')
+            raise HTTPException(502, f'lighthouse upload failed (not charged): {e}')
     finally:
         try:
             tmp.unlink(missing_ok=True)
@@ -406,7 +538,7 @@ def put_text(body: TextBody, authorization: Optional[str] = Header(default=None)
     if body.register:
         result['store'] = _register_after_put(result, identity.strip(authorization),
                                               body.public, body.pool)
-    return result
+    return paid(result, c)
 
 
 # ── this module's index ──────────────────────────────────────────────
@@ -535,7 +667,7 @@ class MirrorBody(BaseModel):
 
 
 @app.post('/store/mirror')
-def store_mirror(body: MirrorBody,
+def store_mirror(body: MirrorBody, request: Request,
                  authorization: Optional[str] = Header(default=None),
                  x_lh_key: Optional[str] = Header(default=None)):
     """Make an object the store already has perpetual.
@@ -564,10 +696,12 @@ def store_mirror(body: MirrorBody,
             STORE.fetch(token, body.cid, local)
         except StoreError as e:
             raise store_error(e)
+        c = charge(request, authorization, x_lh_key, local.stat().st_size,
+                   resource_url(request, '/store/mirror'))
         try:
             result = lh.put(str(local), owner=address, key=str(name))
         except Exception as e:
-            raise HTTPException(502, f'lighthouse upload failed: {e}')
+            raise HTTPException(502, f'lighthouse upload failed (not charged): {e}')
     finally:
         for p in sorted(tmpdir.rglob('*'), reverse=True):
             try:
@@ -581,7 +715,7 @@ def store_mirror(body: MirrorBody,
     result['source_cid'] = body.cid
     result['same_cid'] = result['cid'] == body.cid
     result['store'] = _register_after_put(result, token, body.public, body.pool)
-    return result
+    return paid(result, c)
 
 
 # ── mcp ──────────────────────────────────────────────────────────────
@@ -665,7 +799,10 @@ async def mcp_rpc(request: Request,
                                  '2025-06-18)')
     if identity.strip(authorization):
         caller(authorization)                 # a bad token is refused, not ignored
-    ctx = mcp.Ctx(token=identity.strip(authorization), key=x_lh_key, local=False)
+    ctx = mcp.Ctx(token=identity.strip(authorization), key=x_lh_key, local=False,
+                  payment=lhpay.payment_header(request.headers),
+                  exempt=exemption(request, authorization, x_lh_key),
+                  resource=_mcp_url(request))
     response = mcp.handle(body, ctx)
     if response is None:
         return Response(status_code=202)          # a notification, per the spec

@@ -457,6 +457,15 @@ export type BacktestCheck = {
   status: "pass" | "warn" | "fail";
   detail: string;
 };
+/** One of the trader's fills replayed at your $N. */
+export type CopyTrade = {
+  time: number; coin: string; side: "buy" | "sell"; dir?: string; px: number;
+  their_size: number; their_notional: number;
+  size: number; notional: number;
+  realized: number; fee: number; net: number;
+  /** running net of your $N through this trade */
+  cum_net: number;
+};
 export type TraderBacktest = {
   address: string;
   days: number;
@@ -482,6 +491,9 @@ export type TraderBacktest = {
     roi_pct: number;
     truncated: boolean;
   };
+  /** The trader's in-window trades at your size, newest first (capped). */
+  trades?: CopyTrade[];
+  trades_total?: number;
   checks: BacktestCheck[];
   ok: boolean;
   available: boolean;
@@ -737,6 +749,11 @@ export const intentUsdClassTransfer = (amount: string, to_perp: boolean) =>
     method: "POST", body: JSON.stringify({ amount, to_perp }),
   });
 
+export const intentUsdSend = (destination: string, amount: string) =>
+  j<SignedIntent>(`/intent/usd_send`, {
+    method: "POST", body: JSON.stringify({ destination, amount }),
+  });
+
 export const exchangeRelay = (b: { action: any; nonce: number; signature: { r: string; s: string; v: number }; vaultAddress?: string }) =>
   j<any>(`/exchange/relay`, { method: "POST", body: JSON.stringify(b) });
 
@@ -782,6 +799,8 @@ export type DepositSourceRow = {
   gasReserve: number;
   /** USDC on Arbitrum: goes to Hyperliquid's own bridge, no router. */
   direct: boolean;
+  /** A token the user added themselves (any EVM chain). */
+  custom?: boolean;
 };
 export type DepositSource = DepositSourceRow & { chain: DepositChain };
 export type DepositBalance = {
@@ -807,10 +826,39 @@ export type DepositStatus = {
   receivedUsdc?: number | null; receivingTxHash?: string | null;
 };
 
+/** Any EVM chain LI.FI routes from (built-ins first). */
+export type EvmChain = {
+  chainId: number; chainIdHex: string; key: string; name: string;
+  rpcUrl: string; explorerUrl: string; nativeSymbol: string; nativeDecimals: number;
+  logo: string | null; builtin: boolean;
+};
+export type TokenInfo = {
+  chainId: number; address: string; symbol: string; name: string; decimals: number;
+  native: boolean; priceUsd: number | null; logo: string | null; verified: boolean;
+  /** already in that chain's built-in list — adding it changes nothing */
+  builtin: boolean;
+  chain: EvmChain;
+};
+/** A token the user added — kept in this browser. */
+export type CustomToken = { chainId: number; address: string; symbol: string; chainName: string };
+export type CustomScan = { chainId: number; address: string; symbol?: string; ok: boolean; balance?: number; error?: string };
+
+/** EvmChain → the DepositChain shape the deposit flow signs against. */
+export const evmToDepositChain = (c: EvmChain): DepositChain => ({
+  key: c.key, name: c.name, chainId: c.chainId, chainIdHex: c.chainIdHex,
+  rpcUrl: c.rpcUrl, explorerUrl: c.explorerUrl, usdcAddress: "",
+  nativeSymbol: c.nativeSymbol, gasReserve: 0, direct: false, tokens: [],
+});
+
 export const depositChains = () => j<DepositChains>(`/deposit/chains`);
-export const depositBalances = (eoa: string) =>
-  j<{ eoa: string; chains: DepositBalance[]; sources: DepositSourceRow[] }>(
-    `/deposit/balances?eoa=${encodeURIComponent(eoa)}`);
+export const depositEvmChains = () =>
+  j<{ testnet: boolean; count: number; chains: EvmChain[] }>(`/deposit/evm_chains`);
+export const depositToken = (chainId: number, address: string) =>
+  j<TokenInfo>(`/deposit/token?chain_id=${chainId}&address=${encodeURIComponent(address)}`);
+export const depositBalances = (eoa: string, extra: { chainId: number; address: string }[] = []) =>
+  j<{ eoa: string; chains: DepositBalance[]; sources: DepositSourceRow[]; custom?: CustomScan[] }>(
+    `/deposit/balances?eoa=${encodeURIComponent(eoa)}` +
+    (extra.length ? `&extra=${encodeURIComponent(extra.map((t) => `${t.chainId}:${t.address}`).join(","))}` : ""));
 export const depositQuote = (b: {
   from_chain_id: number;
   /** "usdc", "native", a symbol, or a token address. */
@@ -824,6 +872,11 @@ export const depositStatus = (txHash: string, fromChainId: number, toChainId?: n
     (toChainId ? `&to_chain_id=${toChainId}` : ""));
 
 export const userState = (addr: string) => j<any>(`/user/${addr}/state`);
+/** Spot balances: `{ balances: [{ coin, total, hold, entryNtl }] }`. */
+export const userSpot = (addr: string) => j<any>(`/user/${addr}/spot`);
+export type LedgerUpdate = { time: number; hash: string; delta: { type: string; usdc?: string; amount?: string; [k: string]: any } };
+/** Non-funding balance changes (deposits, withdrawals, sends, vault flows), last 90d. */
+export const userLedger = (addr: string) => j<LedgerUpdate[]>(`/user/${addr}/ledger`);
 
 // ── trade actions ──
 export const trade = (b: {

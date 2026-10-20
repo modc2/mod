@@ -86,7 +86,14 @@ function NewInvestment() {
               </button>
             ))}
           </div>
-          <p className="text-xs text-muted -mt-2">{KINDS.find((k) => k.key === kind)?.blurb}</p>
+          <p className="text-xs text-muted -mt-2">
+            {KINDS.find((k) => k.key === kind)?.blurb}{" "}
+            {kind !== "vault" && (
+              <Link href="/invest/split" className="text-accent2 hover:text-accent">
+                Or put a different $ amount on several traders →
+              </Link>
+            )}
+          </p>
 
           {kind === "trader" && <TraderPicker onPick={(t) => pick("trader", t.address)} />}
           {kind === "vault" && <VaultPicker onPick={(v) => pick("vault", v.address, v.name)} />}

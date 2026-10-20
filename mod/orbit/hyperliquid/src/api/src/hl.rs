@@ -158,6 +158,18 @@ impl Client {
         self.info(json!({"type": "clearinghouseState", "user": addr})).await
     }
 
+    /// Spot balances (USDC + tokens) — perp margin lives in clearinghouseState.
+    pub async fn spot_state(&self, addr: &str) -> anyhow::Result<Value> {
+        self.info(json!({"type": "spotClearinghouseState", "user": addr})).await
+    }
+
+    /// Deposits, withdrawals, sends, perp<->spot moves and vault flows —
+    /// every non-funding balance change over the last 90 days.
+    pub async fn user_ledger(&self, addr: &str) -> anyhow::Result<Value> {
+        let start = chrono::Utc::now().timestamp_millis() - 90 * 86_400_000;
+        self.info(json!({"type": "userNonFundingLedgerUpdates", "user": addr, "startTime": start})).await
+    }
+
     pub async fn user_fills(&self, addr: &str) -> anyhow::Result<Value> {
         self.info(json!({"type": "userFills", "user": addr})).await
     }
@@ -297,6 +309,9 @@ pub struct Fill {
     pub tid: u64,
     #[serde(default, rename = "oid")]
     pub oid: u64,
+    /// HL's label: "Open Long", "Close Short", "Buy", …
+    #[serde(default)]
+    pub dir: String,
 }
 
 pub fn parse_fills(v: &Value) -> Vec<Fill> {

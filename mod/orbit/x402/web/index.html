@@ -24,6 +24,11 @@
         font:800 15px/1 var(--mono);letter-spacing:-.02em;box-shadow:0 6px 24px -6px rgba(250,204,21,.5)}
   h1{font-size:22px;font-weight:750;letter-spacing:-.01em;line-height:1.1}
   header .sub{color:var(--dim);font-size:13px;margin-top:2px}
+  #who{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+  #who .addr{font:12px var(--mono);color:var(--text);background:var(--panel);border:1px solid var(--line);
+             border-radius:999px;padding:5px 11px}
+  #who .tier{color:var(--accent)}
+  #who button{padding:7px 14px;font-size:12px}
   .hint{color:var(--dim);font-size:13px;margin-bottom:16px;max-width:760px}
   .hint code{font-family:var(--mono);font-size:12px;color:var(--text)}
   .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin:0 0 22px;gap:1px;
@@ -166,6 +171,7 @@
 <header>
   <div class="logo">402</div>
   <div><h1>x402</h1><div class="sub">Every pay-per-request API, in one local index</div></div>
+  <div id="who"></div>
 </header>
 <div class="stats" id="stats"></div>
 <nav id="tabs">
@@ -185,6 +191,7 @@
 <div id="view"></div>
 <aside id="drawer"><button class="quiet x" id="close">close</button><div id="dbody"></div></aside>
 
+<script src="/passport/passport.js"></script>
 <script>
 const API = 'api/';   // relative: resolves under /x402/ locally and behind the gateway
 const $ = s => document.querySelector(s);
@@ -194,15 +201,41 @@ const big = n => n == null ? '0' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 
 const ago = t => { if (!t) return 'never'; const s = Date.now()/1000 - t;
   return s < 90 ? 'just now' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
 
+// Sign-in is the fleet auth protocol (orbit/passport): one session shared with
+// every console and build; the server asks passport who the token belongs to.
+const PP = window.Passport;
+function authed(h = {}) {
+  const s = PP && PP.session();
+  return s ? {...h, Authorization: 'Bearer ' + s.token} : h;
+}
+async function who() {
+  const box = $('#who');
+  const s = PP && PP.session();
+  if (!PP) { box.innerHTML = '<span class="dim">sign-in unavailable</span>'; return; }
+  let me = null;
+  try { me = await get('whoami'); } catch {}
+  const badge = me ? `<span class="tier" title="trust ${me.score}/100">${esc(me.tier)} · ${me.score}</span>` : '';
+  if (s) {
+    box.innerHTML = `${badge}<span class="addr" title="${esc(s.address)}">${esc(s.address.slice(0, 6) + '…' + s.address.slice(-4))}</span>
+      <button class="quiet" id="signout">sign out</button>`;
+    $('#signout').onclick = () => PP.signOut();
+  } else {
+    box.innerHTML = `${badge}<button id="signin">sign in</button>`;
+    $('#signin').onclick = async () => {
+      try { await PP.signIn('x402'); } catch (e) { status('sign in: ' + e.message, true); }
+    };
+  }
+}
+
 async function get(fn, args = {}) {
   const qs = new URLSearchParams(Object.entries(args).filter(([, v]) => v !== '' && v != null));
-  const r = await fetch(API + fn + (qs.toString() ? '?' + qs : ''));
+  const r = await fetch(API + fn + (qs.toString() ? '?' + qs : ''), {headers: authed()});
   const j = await r.json();
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
 }
 async function post(fn, body = {}) {
-  const r = await fetch(API + fn, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const r = await fetch(API + fn, {method: 'POST', headers: authed({'Content-Type': 'application/json'}), body: JSON.stringify(body)});
   const j = await r.json();
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
@@ -386,7 +419,7 @@ async function askAgent(q) {
   const steps = turn.querySelector('.steps'), ans = turn.querySelector('.ans'), tl = turn.querySelector('.tiles');
   let said = '';
   try {
-    const r = await fetch(API + 'ask', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    const r = await fetch(API + 'ask', {method: 'POST', headers: authed({'Content-Type': 'application/json'}),
       body: JSON.stringify({question: q, session: ag.session || undefined})});
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '';
     for (;;) {
@@ -532,6 +565,7 @@ async function render() {
 }
 document.querySelectorAll('#tabs a').forEach(a => a.onclick = () => { st.q = ''; tab(a.dataset.t); });
 
+if (PP) { PP.onChange(who); PP.ready().then(who); } else who();
 loadStats().then(render);
 setInterval(loadStats, 30000);
 </script>

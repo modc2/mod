@@ -7,6 +7,7 @@ import type { LibItem } from './components/Library'
 import Market from './components/Market'
 import ArenaPortal from './components/ArenaPortal'
 import Builder from './components/Builder'
+import AgentGraph from './components/AgentGraph'
 import AgentEditor from './components/AgentEditor'
 import SchedulePanel from './components/SchedulePanel'
 import CreditsSidebar, { CreditsInfo } from './components/Credits'
@@ -111,15 +112,15 @@ type ToolPane = 'trace' | 'registry' | 'memory'
 // An agent is the thing that runs; a tool is anything it can reach for —
 // the callable registry, its memory, the library of prompts and notes. The
 // top bar names the section; the slim strip under it names the face.
-type HubPane = 'build' | 'agents' | 'tasks' | 'tools' | 'memory' | 'library'
+type HubPane = 'build' | 'agents' | 'graph' | 'tasks' | 'tools' | 'memory' | 'library'
 const HUB_SECTIONS = {
-  agents: ['agents', 'build', 'tasks'],
+  agents: ['agents', 'graph', 'build', 'tasks'],
   tools: ['tools', 'memory', 'library'],
 } as const satisfies Record<string, readonly HubPane[]>
 const hubSection = (p: HubPane): 'agents' | 'tools' =>
   (HUB_SECTIONS.tools as readonly HubPane[]).includes(p) ? 'tools' : 'agents'
 const HUB_FACE_LABEL: Record<HubPane, string> = {
-  agents: 'all', build: 'new', tasks: 'runs', tools: 'callable', memory: 'memory', library: 'library',
+  agents: 'all', graph: 'graph', build: 'new', tasks: 'runs', tools: 'callable', memory: 'memory', library: 'library',
 }
 
 // an image staged in the composer, not yet sent
@@ -391,6 +392,9 @@ export default function Home() {
   const [view, setView] = useState<'chat' | 'hub' | 'arena'>('chat')
   // which shelf of the hub is open
   const [hubPane, setHubPane] = useState<HubPane>('agents')
+  // which agent the GRAPH face draws — the one picked there last, else the
+  // console's own agent
+  const [graphAgent, setGraphAgent] = useState<string | null>(null)
   // the look: palette + skin, persisted and applied to <html>
   const [theme, setTheme] = useTheme()
   const [query, setQuery] = useState('')
@@ -676,6 +680,14 @@ export default function Home() {
       if (pane === 'chats' || pane === 'agents') setRailPane(pane)
       const hp = localStorage.getItem('agent_hub_pane')
       if (hp && (Object.values(HUB_SECTIONS) as readonly (readonly string[])[]).some(f => f.includes(hp))) setHubPane(hp as HubPane)
+      const ga = localStorage.getItem('agent_graph_agent')
+      if (ga) setGraphAgent(ga)
+      // an agent page's "graph ↗" — land on that agent's graph
+      const gg = localStorage.getItem('agent_graph_go')
+      if (gg) {
+        localStorage.removeItem('agent_graph_go')
+        setGraphAgent(gg); setHubPane('graph'); setView('hub')
+      }
       // an arena page's "play in console" — ArenaPortal consumes the key
       if (localStorage.getItem('agent_arena_go')) setView('arena')
       const mw = Number(localStorage.getItem('agent_market_w'))
@@ -1019,6 +1031,16 @@ export default function Home() {
   // starts a new flow with that agent already on it; a graph id opens that
   // saved flow. Plain navigation to the AGENTS shelf lands on BROWSE, the
   // registry itself, because that is where an agent is made.
+  // jump to an agent's own graph — request in, answer out, editable and live
+  const openGraph = (name?: string | null) => {
+    if (name) {
+      setGraphAgent(name)
+      try { localStorage.setItem('agent_graph_agent', name) } catch {}
+    }
+    setShowPicker(false)
+    openHub('graph')
+  }
+
   const openFlow = (opts?: { agent?: string | null; graph?: string | null }) => {
     setBuilderAgent(opts?.agent || null)
     setBuilderGraph(opts?.graph || null)
@@ -5140,6 +5162,7 @@ export default function Home() {
         initialGraph={builderGraph}
         initialMode={builderMode}
         onEditAgent={(name) => openAgentEditor(name)}
+        onOpenGraph={(name) => openGraph(name)}
         onCreate={() => openHub('build')}
         initialCreate={builderCreate > 0}
         onUseAgent={(name, memoryIds) => {
@@ -5176,6 +5199,28 @@ export default function Home() {
   // --- Hub: BUILD — a new agent from one sentence. The same editor the rail
   //     opens, but on the hub's full width and with nothing beside it: the
   //     complaint was that making one next to a sidebar was hard. ---
+  // --- Hub: GRAPH — every agent drawn as the DAG it runs (AgentGraph.tsx) ---
+  const graphPage = (
+    <div className="flex-1 min-h-0 min-w-0 flex">
+      <AgentGraph
+        agent={graphAgent || agentType || 'default'}
+        token={auth?.token}
+        isHost={isHost}
+        address={auth?.address}
+        onSignIn={signIn}
+        onPickAgent={(name) => {
+          setGraphAgent(name)
+          try { localStorage.setItem('agent_graph_agent', name) } catch {}
+        }}
+        onChat={(name) => {
+          selectAgent(name)
+          goChat()
+          setTimeout(() => inputRef.current?.focus(), 60)
+        }}
+      />
+    </div>
+  )
+
   const buildPage = (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="max-w-2xl mx-auto w-full px-3 py-4">
@@ -5363,6 +5408,7 @@ export default function Home() {
                       className={`nav-seg-btn ${lit ? 'nav-seg-btn--on' : ''}`}
                       title={p === 'build' ? 'Make a new agent from one sentence'
                         : p === 'agents' ? 'Every agent — its prompt, model and memory'
+                        : p === 'graph' ? 'Every agent as the graph it runs — request in, answer out, live'
                         : p === 'tasks' ? 'Every run on the server, live'
                         : p === 'tools' ? 'What agents can call — shipped, custom, and every module on the host'
                         : p === 'memory' ? 'What agents remember — notes, facts, past turns'
@@ -5387,6 +5433,7 @@ export default function Home() {
               <span className="text-[11px] text-gray-600 truncate min-w-0 hidden lg:block">
                 {hubPane === 'build' ? 'one sentence in, an agent out'
                   : hubPane === 'agents' ? 'pick one to read it, run it, or wire it into a flow'
+                  : hubPane === 'graph' ? 'request ▸ prompt · memory · model ⟲ tools ▸ answer — drag ports to wire, run to watch it'
                   : hubPane === 'tasks' ? 'every run on the server, live'
                   : hubPane === 'tools' ? 'shipped, custom, and every module on the host'
                   : hubPane === 'memory' ? 'the memory tool — what recall finds and remember writes'
@@ -5396,6 +5443,7 @@ export default function Home() {
             <div className="flex-1 min-h-0 flex">
               {hubPane === 'build' && buildPage}
               {hubPane === 'agents' && agentsCanvas}
+              {hubPane === 'graph' && graphPage}
               {hubPane === 'tools' && toolsPage}
               {hubPane === 'tasks' && tasksPage}
               {hubPane === 'memory' && memoryPage}

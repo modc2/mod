@@ -4,11 +4,12 @@ Every MCP (and API) caller resolves to one id, strongest proof first:
 
     local     the box itself — stdio MCP, the CLI, loopback with no
               forwarding header. Owner standing.
-    0x…       a wallet, proven by a mod-protocol token (base64url of
-              {data,time,key,signature}, EIP-191 or raw-keccak over
-              {"data","time"}) in `token`, `x-mod-token` or
-              `Authorization: Bearer`. Verified here with eth_account —
-              the protocol package is never imported.
+    0x…       a signed-in address, proven by any token the fleet's auth
+              protocol (orbit/passport) accepts — a wallet-signed mod token
+              or a build console session — in `token`, `x-mod-token` or
+              `Authorization: Bearer`. Passport decides; the local
+              eth_account check below is only used if passport's client
+              cannot be loaded at all.
     key:…     an API key this node issued (x402_register), sent as
               `Authorization: Bearer x402_…`. Only its hash is stored.
     anon:…    nobody: a stable hash of ip + user-agent.
@@ -171,10 +172,42 @@ def _b64url(s):
     return base64.urlsafe_b64decode(s + '=' * (-len(s) % 4))
 
 
+_pp = None
+
+
+def _passport():
+    """orbit/passport's client — the one auth protocol. Loaded by path (a
+    plain import would collide with our own mod.py), False when absent."""
+    global _pp
+    if _pp is None:
+        try:
+            import importlib.util
+            path = os.environ.get('PASSPORT_CLIENT') or os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                'passport', 'src', 'client.py')
+            spec = importlib.util.spec_from_file_location('passport_client', path)
+            _pp = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(_pp)
+        except Exception:                                 # noqa: BLE001 — no passport on this node
+            _pp = False
+    return _pp
+
+
 def verify_token(token, max_age=TOKEN_MAX_AGE):
-    """Address a mod-protocol token proves (lowercase), or '' for no proof.
-    Accepts the browser/Rust form (EIP-191 personal_sign) and the Python
-    key's raw keccak signature; `data` may be a string or an object."""
+    """Address a token proves (lowercase), or '' for no proof. Asks passport
+    (the fleet auth protocol: mod tokens + build sessions, its own max ages);
+    falls back to the local check only when passport is not installed."""
+    pp = _passport()
+    if pp:
+        try:
+            return (pp.address(str(token).strip()) or '').lower()
+        except Exception:                                 # noqa: BLE001 — no proof is not an error
+            return ''
+    return _verify_local(token, max_age)
+
+
+def _verify_local(token, max_age=TOKEN_MAX_AGE):
+    """Fallback: EIP-191 personal_sign or the Python key's raw keccak."""
     try:
         claim = json.loads(_b64url(str(token).strip()))
         data, t, key, sig = claim['data'], claim['time'], claim['key'], claim['signature']

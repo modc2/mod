@@ -53,6 +53,10 @@ SIERRA_GAS = {'steps': 100, 'range_check_builtin_applications': 70,
               'ecdsa_builtin_applications': 10561,
               'keccak_builtin_applications': 136189}
 OTHER_PER_STEP = 17  # range_check+pedersen+poseidon per step, ring-4 receipt
+# mainnet block / tx ceilings in L2 gas (sequencer bouncer config, 0.13.4+);
+# not exposed over RPC, so these are published-config ESTIMATES
+BLOCK_L2_GAS = 5_000_000_000
+TX_L2_GAS = 1_000_000_000
 
 
 def l2_gas(er):
@@ -113,17 +117,23 @@ class Starknet(Network):
                 'gas': {'l2_strk': fri('l2_gas_price'),
                         'l1_data_strk': fri('l1_data_gas_price'),
                         'version': head.get('starknet_version')},
-                'block_capacity': None, 'capacity_unit': 'L2 gas',
+                'block_capacity': BLOCK_L2_GAS, 'capacity_unit': 'L2 gas',
+                'tx_cap': TX_L2_GAS, 'capacity_estimated': True,
                 'note': 'L2 gas (steps x100 + builtins at Sierra-gas weights) x '
                         'L2 gas price + data-availability gas; estimate, the '
                         'account\'s own validate/execute is not counted'}
 
-    def fee(self, cost, m):
-        if not cost.get('steps'):
+    def load(self, cost):
+        if not cost.get('steps') and not cost.get('l2_gas'):
             return None
-        l2 = cost.get('l2_gas') or (
+        return cost.get('l2_gas') or (
             cost['steps'] * (SIERRA_GAS['steps'] + OTHER_PER_STEP) +
             (cost.get('ec_op') or 0) * SIERRA_GAS['ec_op_builtin_applications'])
+
+    def fee(self, cost, m):
+        l2 = self.load(cost)
+        if l2 is None:
+            return None
         g = m['gas']
         return l2 * g['l2_strk'] + (cost.get('da_gas') or 0) * g['l1_data_strk']
 

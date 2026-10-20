@@ -376,6 +376,9 @@ body.dragging::after {
 }
 
 .hint.tight { margin-top: 8px; font-size: 12px; }
+.price { margin: 10px 0 0; font-size: 13px; color: var(--dim); text-align: center; }
+.price:empty { display: none; }
+.price b { color: var(--glow); }
 kbd {
   font: 600 10.5px/1 var(--sans); padding: 3px 6px; border-radius: 6px;
   border: 1px solid var(--line-2); border-bottom-width: 2px; background: var(--card-2); color: var(--ink);

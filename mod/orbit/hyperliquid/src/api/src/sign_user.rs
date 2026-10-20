@@ -311,6 +311,21 @@ pub fn withdraw3_typed_data(destination: &str, amount: &str, time_ms: u64, is_ma
     )
 }
 
+pub fn usd_send_typed_data(destination: &str, amount: &str, time_ms: u64, is_mainnet: bool) -> Value {
+    user_typed_data(
+        "HyperliquidTransaction:UsdSend",
+        &[("hyperliquidChain", "string"), ("destination", "string"),
+          ("amount", "string"), ("time", "uint64")],
+        json!({
+            "hyperliquidChain": hyperliquid_chain(is_mainnet),
+            "destination": destination,
+            "amount": amount,
+            "time": time_ms,
+        }),
+        is_mainnet,
+    )
+}
+
 pub fn usd_class_transfer_typed_data(amount: &str, to_perp: bool, nonce: u64, is_mainnet: bool) -> Value {
     user_typed_data(
         "HyperliquidTransaction:UsdClassTransfer",

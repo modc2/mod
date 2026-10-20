@@ -2255,7 +2255,7 @@ class Mod(Agent):
 
         self._public_actions = {'status', 'health', 'schema',
                                 'agents', 'agent', 'chains', 'harnesses', 'agent_cids',
-                                'graph_kinds', 'graphs', 'graph', 'graph_validate',
+                                'graph_kinds', 'graphs', 'graph', 'graph_validate', 'agent_graph',
                                 'agent_load', 'library', 'prompts', 'prompt_add',
                                 'prompt_rm', 'memory', 'memory_add', 'memory_rm',
                                 'upload', 'library_import', 'formats',
@@ -2339,7 +2339,7 @@ class Mod(Agent):
                                 # both), and running one answers to run policy
                                 # exactly like a single agent does
                                 'graph_save', 'graph_rm', 'graph_import',
-                                'graph_run'}
+                                'graph_run', 'agent_graph_save', 'agent_graph_reset'}
         self._admin_actions = {'run', 'plan', 'serve', 'kill',
                                'test', 'grant', 'revoke', 'acl',
                                'agent_save', 'agent_install', 'set_key',
@@ -3331,6 +3331,9 @@ class Mod(Agent):
             'graph_save': lambda: self.graphs.save(kwargs.get('graph') or {}, key=key),
             'graph_rm': lambda: self.graphs.rm(kwargs.get('id', ''), key=key),
             'graph_import': lambda: self.graphs.import_cid(kwargs.get('cid', ''), key=key),
+            'agent_graph': lambda: self.graphs.for_agent(kwargs.get('name', ''), key=key),
+            'agent_graph_save': lambda: self.graphs.save_for_agent(kwargs.get('name', ''), kwargs.get('graph') or {}, key=key),
+            'agent_graph_reset': lambda: self.graphs.reset_for_agent(kwargs.get('name', ''), key=key),
             'graph_run': lambda: self.graph_run(kwargs.get('graph') or kwargs.get('id', ''),
                                                kwargs.get('query', ''), key=key),
             'memory': lambda: {'memory': self.library.notes()},

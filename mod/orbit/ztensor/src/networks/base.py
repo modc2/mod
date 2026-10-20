@@ -25,7 +25,6 @@ Return shapes (what mod.py, simulate() and the console rely on):
 cu, ...); a claim that is replayed must raise RuntimeError.
 """
 import os
-import random
 import sys
 
 from ..core.util import ROLES
@@ -34,6 +33,18 @@ from ..core.util import ROLES
 REQUIRED = ('health', 'build', 'test', 'up', 'block', 'advance', 'deploy',
             'register', 'set_open', 'members', 'epoch', 'mine_scope', 'submit',
             'score', 'settle', 'claim', 'tally', 'earned', 'board')
+
+
+def partition_ring(members, idx, size):
+    """members[idx]'s block when `members` (registration order) is cut into
+    consecutive blocks of `size`; a short last block is the final `size`
+    members instead, so no ring is smaller than `size` (or the whole set)."""
+    n = len(members)
+    size = max(1, min(int(size), n))
+    start = idx // size * size
+    if start + size > n:
+        start = n - size
+    return list(members[start:start + size])
 
 
 class Network:
@@ -142,16 +153,21 @@ class Network:
     # ---- shared --------------------------------------------------------------
 
     def ring(self, net, name, role, ring_size=None):
-        """Your key plus a random sample of the other members (default:
-        everyone, capped at max_ring). Bigger ring = bigger anonymity set."""
+        """The ring you sign with: everyone when the set fits (capped at
+        max_ring), else your block of a FIXED public partition of the set in
+        registration order — never a fresh random sample. A claim carries
+        the same key image as its submission, so two different random rings
+        would be intersected and shrink the claimant's anonymity set to the
+        overlap; with one ring per member both actions show the same n keys.
+        The last block borrows from the one before it so every ring is full."""
         me = self.signer.pubkey(name)
         everyone = self.members(net, ROLES[role])
-        others = [p for p in everyone if int(p['x'], 16) != int(me['x'], 16)]
-        if len(others) == len(everyone):
+        idx = next((i for i, p in enumerate(everyone)
+                    if int(p['x'], 16) == int(me['x'], 16)), None)
+        if idx is None:
             raise ValueError(f'{name!r} is not a registered {role}')
-        size = min(int(ring_size or self.max_ring), self.max_ring,
-                   len(others) + 1)
-        return random.sample(others, size - 1) + [me]
+        return partition_ring(everyone, idx, min(
+            int(ring_size or self.max_ring), self.max_ring))
 
     def cost(self, r):
         return {k: r[k] for k in self.cost_fields if r.get(k) is not None}

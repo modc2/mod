@@ -63,6 +63,7 @@ export default function InvestPage() {
         blurb="Every dollar you've put to work — vault deposits and traders you're backing — valued live."
         right={
           <div className="flex items-center gap-2">
+            <Link href="/invest/split" className="btn">$ per trader</Link>
             <Link href="/invest/new" className="btn-primary">invest</Link>
           </div>
         }
@@ -213,6 +214,8 @@ function Empty() {
           body="Your account holds what they hold, scaled to your money. No lockup." />
         <Choice href="/invest/new?kind=vault" title="Deposit into a vault"
           body="Hyperliquid's own vaults. The leader trades it; HL does the accounting." />
+        <Choice href="/invest/split" title="Several traders, $ on each"
+          body="Set a dollar amount per trader and see every one of their trades at your size first." />
       </div>
     </div>
   );

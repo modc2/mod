@@ -104,6 +104,74 @@ pub struct Mirror {
     pub truncated: bool,
 }
 
+/// One of the trader's fills, replayed at YOUR size: what your $N would have
+/// bought or sold, and what that one trade made or cost you.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CopyTrade {
+    pub time: i64,
+    pub coin: String,
+    /// "buy" | "sell"
+    pub side: String,
+    /// HL's own label for the fill: "Open Long", "Close Short", …
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub dir: String,
+    pub px: f64,
+    /// The trader's size and dollar notional.
+    pub their_size: f64,
+    pub their_notional: f64,
+    /// The same fill at capital / basis.
+    pub size: f64,
+    pub notional: f64,
+    /// closedPnl × ratio (nonzero only on closing fills).
+    pub realized: f64,
+    /// What the copy pays: max(taker on your notional, trader fee × ratio).
+    pub fee: f64,
+    /// realized − fee.
+    pub net: f64,
+    /// Running net PnL of your $N through this trade, oldest → newest.
+    pub cum_net: f64,
+}
+
+/// At most this many trades ride along in a backtest response (newest kept).
+pub const TRADES_CAP: usize = 500;
+
+/// The trader's in-window fills at your size, newest first. Pure: same
+/// ratio, spot filter and fee rule as the mirror, so `Σ net` over the full
+/// list equals `mirror.net_pnl`.
+pub fn copy_trades(fills: &[Fill], ratio: f64, cutoff: i64, perp_only: bool) -> Vec<CopyTrade> {
+    let mut book: Vec<&Fill> = fills.iter()
+        .filter(|f| f.time >= cutoff && (!perp_only || !is_spot(f)))
+        .collect();
+    book.sort_by_key(|f| f.time);
+    let mut cum = 0.0;
+    let mut out: Vec<CopyTrade> = book.iter().map(|f| {
+        let px = parse_f(&f.px);
+        let sz = parse_f(&f.sz).abs();
+        let realized = parse_f(&f.closed_pnl) * ratio;
+        let fee = copy_fee(f, ratio).0;
+        let net = realized - fee;
+        cum += net;
+        CopyTrade {
+            time: f.time,
+            coin: f.coin.clone(),
+            side: if f.side == "B" { "buy".into() } else { "sell".into() },
+            dir: f.dir.clone(),
+            px,
+            their_size: sz,
+            their_notional: cents(px * sz),
+            size: sz * ratio,
+            notional: cents(px * sz * ratio),
+            realized: cents(realized),
+            fee: (fee * 1e4).round() / 1e4,
+            net: cents(net),
+            cum_net: cents(cum),
+        }
+    }).collect();
+    out.reverse();
+    out.truncate(TRADES_CAP);
+    out
+}
+
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 pub struct Backtest {
     pub address: String,
@@ -144,6 +212,13 @@ pub struct Backtest {
     pub wiped: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mirror: Option<Mirror>,
+    /// The trader's in-window trades at your size, newest first (single-
+    /// trader backtests only; capped at `TRADES_CAP`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub trades: Vec<CopyTrade>,
+    /// Total in-window trades before the cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trades_total: Option<usize>,
     /// The data-quality verdicts. Read these before the numbers.
     pub checks: Vec<Check>,
     /// False when any check failed. The numbers are then either absent or
@@ -422,6 +497,8 @@ pub fn shape(
         basis_equity: cents(basis),
         wiped,
         mirror: Some(mirror),
+        trades: vec![],
+        trades_total: None,
         checks,
         ok,
         available: true,
@@ -437,8 +514,20 @@ pub fn shape(
 /// spends, so a backtest costs nothing new. Never errors — bad input or a
 /// silent exchange degrades to `available: false` with the reason.
 pub async fn run(hl: Arc<Client>, address: &str, days: u32, capital: f64) -> Backtest {
-    run_windows(hl, address, &[days], capital).await.pop()
-        .unwrap_or_else(|| Backtest::unavailable(address, days, capital, "no window asked for", vec![]))
+    let mut b = run_windows(hl.clone(), address, &[days], capital).await.pop()
+        .unwrap_or_else(|| Backtest::unavailable(address, days, capital, "no window asked for", vec![]));
+    // The single-trader view also lists the trades your $N would have made.
+    // The fills tape is the same cached call run_windows just spent.
+    if let (true, Some(m)) = (b.available, b.mirror.as_ref()) {
+        let cutoff = chrono::Utc::now().timestamp_millis() - (days as i64) * 86_400_000;
+        if let Ok(v) = hl.user_fills_by_time(address, cutoff).await {
+            let fills = parse_fills(&v);
+            let all = copy_trades(&fills, m.ratio, cutoff, b.source == "perp");
+            b.trades_total = Some(m.fills);
+            b.trades = all;
+        }
+    }
+    b
 }
 
 /// The same replay over several windows at once, one result per entry of
@@ -510,8 +599,34 @@ mod tests {
         Fill {
             coin: "ETH".into(), side: "B".into(), px: "1".into(), sz: "1".into(),
             time, closed_pnl: format!("{closed_pnl}"), fee: format!("{fee}"),
-            tid: 1, oid: 1,
+            tid: 1, oid: 1, dir: String::new(),
         }
+    }
+
+    #[test]
+    fn copy_trades_sum_to_the_mirror_and_scale_by_ratio() {
+        let p = portfolio(&[0.0, 50.0, 100.0], &[10_000.0, 10_050.0, 10_100.0]);
+        let mut a = fill(NOW - DAY, 200.0, 2.0);
+        a.px = "100".into(); a.sz = "10".into(); a.side = "A".into(); a.dir = "Close Long".into();
+        let b_ = fill(NOW - 2 * DAY + 1, 0.0, 1.0);
+        let stale = fill(NOW - 30 * DAY, 999.0, 0.0);
+        let mut spot = fill(NOW - DAY, 500.0, 0.0);
+        spot.coin = "@107".into();
+        let fills = vec![a, b_, stale, spot];
+        let bt = shape("0xA", 2, 1_000.0, &p, &fills, NOW);
+        let m = bt.mirror.as_ref().unwrap();
+        let t = copy_trades(&fills, m.ratio, NOW - 2 * DAY, true);
+        assert_eq!(t.len(), 2, "stale and spot fills drop out");
+        assert_eq!(t[0].coin, "ETH");
+        assert_eq!(t[0].side, "sell");
+        assert_eq!(t[0].dir, "Close Long");
+        assert!((t[0].size - 10.0 * m.ratio).abs() < 1e-9);
+        assert!((t[0].realized - 200.0 * m.ratio).abs() < 0.01);
+        // Newest first, and the running total on the newest equals Σ net = mirror net.
+        assert!(t[0].time > t[1].time);
+        let sum: f64 = t.iter().map(|x| x.net).sum();
+        assert!((sum - m.net_pnl).abs() < 0.02, "{sum} vs {}", m.net_pnl);
+        assert!((t[0].cum_net - m.net_pnl).abs() < 0.02);
     }
 
     fn check<'a>(b: &'a Backtest, name: &str) -> &'a Check {

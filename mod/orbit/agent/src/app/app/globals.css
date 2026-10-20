@@ -1925,3 +1925,147 @@ g:hover > .builder-wire {
 .nav-seg--sub .nav-seg-btn { padding: 4px 10px; font-size: 11px; gap: 6px; }
 .nav-seg--sub .nav-seg-btn svg { width: 13px; height: 13px; }
 :root[data-skin="pixel"] .nav-seg--sub .nav-seg-btn { padding: 5px 8px; font-size: 8px; }
+
+/* ── AgentGraph (components/AgentGraph.tsx): every agent as the DAG it runs ──
+   All colour comes off the skin's tokens (--ink, --s-*, --a/i/w/v/d-*), so the
+   canvas reads the same in a dark skin and in paper/daylight. --acc is set per
+   node to its kind's accent. */
+.dag-root { background: rgb(var(--s-0)); }
+.dag-canvas {
+  background-color: rgb(var(--s-0));
+  background-image: radial-gradient(circle at 1px 1px, rgb(var(--ink) / 0.075) 1px, transparent 0);
+  cursor: grab;
+}
+.dag-canvas:active { cursor: grabbing; }
+.dag-canvas::after {   /* a soft vignette so the cards float */
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 40%, transparent 55%, rgb(var(--s-0) / 0.65));
+}
+.dag-node {
+  position: absolute; border-radius: 14px; cursor: default;
+  background: linear-gradient(180deg, rgb(var(--s-2)) 0%, rgb(var(--s-1)) 100%);
+  border: 1px solid rgb(var(--ink) / 0.09);
+  box-shadow: 0 1px 0 rgb(var(--ink) / 0.04) inset, 0 10px 30px -12px rgb(0 0 0 / 0.55);
+  transition: border-color .18s, box-shadow .18s, transform .18s;
+}
+.dag-node::before {    /* the kind's accent, one hairline across the top */
+  content: ""; position: absolute; left: 14px; right: 14px; top: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(var(--acc) / 0.75), transparent);
+}
+.dag-node:hover { border-color: rgb(var(--ink) / 0.16); }
+.dag-node--sel { border-color: rgb(var(--acc) / 0.65); box-shadow: 0 0 0 3px rgb(var(--acc) / 0.14), 0 14px 36px -12px rgb(0 0 0 / 0.6); }
+.dag-node--self { background: linear-gradient(180deg, rgb(var(--acc) / 0.07) 0%, rgb(var(--s-1)) 60%); }
+.dag-node--target { border-color: rgb(var(--acc) / 0.9); box-shadow: 0 0 0 4px rgb(var(--acc) / 0.18); }
+.dag-node--running { border-color: rgb(var(--acc) / 0.8); animation: dag-breathe 1.6s ease-in-out infinite; }
+.dag-node--done { border-color: rgb(var(--a-400) / 0.35); }
+.dag-node--error { border-color: rgb(var(--d-400) / 0.6); }
+.dag-node--parked { border-color: rgb(var(--w-400) / 0.6); }
+@keyframes dag-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--acc) / 0.0), 0 10px 30px -12px rgb(0 0 0 / .55); }
+  50% { box-shadow: 0 0 0 6px rgb(var(--acc) / 0.13), 0 0 28px rgb(var(--acc) / 0.25); }
+}
+.dag-head { display: flex; align-items: center; gap: 10px; padding: 0 14px 0 12px; cursor: grab; }
+.dag-icon {
+  width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 9px;
+  font-size: 13px; color: rgb(var(--acc, var(--a-400)));
+  background: rgb(var(--acc, var(--a-400)) / 0.12); border: 1px solid rgb(var(--acc, var(--a-400)) / 0.22);
+}
+.dag-icon--sm { width: 24px; height: 24px; font-size: 11px; border-radius: 7px; }
+.dag-name { display: block; font-size: 13px; font-weight: 600; color: rgb(var(--g-100)); letter-spacing: -0.01em;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.dag-sub { display: block; font-size: 10px; color: rgb(var(--g-500)); text-transform: uppercase; letter-spacing: .08em; margin-top: 2px; }
+.dag-body { padding: 10px 14px; border-top: 1px solid rgb(var(--ink) / 0.05); }
+.dag-summary { font-size: 11.5px; color: rgb(var(--g-400)); line-height: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dag-anatomy { display: flex; flex-direction: column; }
+.dag-stage { display: flex; align-items: center; gap: 8px; height: 24px; font-size: 11.5px; position: relative; isolation: isolate; }
+.dag-stage-rail { position: relative; width: 9px; height: 24px; flex: none; }
+.dag-stage-dot { position: absolute; left: 1px; top: 8px; width: 7px; height: 7px; border-radius: 99px;
+  background: rgb(var(--s-1)); border: 1.5px solid rgb(var(--ink) / 0.22); transition: all .2s; }
+.dag-stage-line { position: absolute; left: 4px; top: 16px; width: 1px; height: 16px; background: rgb(var(--ink) / 0.1); }
+.dag-stage-k { width: 48px; flex: none; font-size: 9.5px; text-transform: uppercase; letter-spacing: .09em; color: rgb(var(--g-600)); }
+.dag-stage-v { min-width: 0; flex: 1; color: rgb(var(--g-200)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dag-stage-loop { font-size: 11px; color: rgb(var(--g-600)); }
+.dag-stage--on .dag-stage-dot { background: rgb(var(--acc)); border-color: rgb(var(--acc)); box-shadow: 0 0 0 3px rgb(var(--acc) / 0.2), 0 0 10px rgb(var(--acc) / 0.7); }
+.dag-stage--on .dag-stage-k { color: rgb(var(--acc)); }
+.dag-stage--on .dag-stage-v { color: rgb(var(--g-100)); }
+.dag-stage--on::after { content: ""; position: absolute; inset: 2px -8px; border-radius: 6px; background: rgb(var(--acc) / 0.07); z-index: -1; }
+.dag-muted { color: rgb(var(--g-600)) !important; }
+.dag-ports { border-top: 1px solid rgb(var(--ink) / 0.05); padding: 4px 0; }
+.dag-port-row { position: relative; display: flex; align-items: center; justify-content: flex-end; padding-right: 16px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.dag-port {
+  position: absolute; width: 11px; height: 11px; margin-top: -5.5px; border-radius: 99px;
+  background: rgb(var(--acc)); border: 2px solid rgb(var(--s-1)); box-shadow: 0 0 0 1px rgb(var(--acc) / 0.5);
+  transition: transform .15s;
+}
+.dag-port--in { left: -6px; background: rgb(var(--s-2)); box-shadow: 0 0 0 1px rgb(var(--ink) / 0.3); }
+.dag-port--out { right: -6px; cursor: crosshair; }
+.dag-port--out:hover { transform: scale(1.45); }
+.dag-node--target .dag-port--in { background: rgb(var(--acc)); transform: scale(1.4); }
+.dag-spin { width: 14px; height: 14px; border-radius: 99px; border: 2px solid rgb(var(--acc) / 0.25); border-top-color: rgb(var(--acc)); animation: dag-spin .8s linear infinite; }
+@keyframes dag-spin { to { transform: rotate(360deg); } }
+.dag-badge { font-size: 10px; padding: 2px 6px; border-radius: 99px; background: rgb(var(--ink) / 0.06); color: rgb(var(--g-400)); white-space: nowrap; }
+.dag-badge--ok { background: rgb(var(--a-400) / 0.13); color: rgb(var(--a-300)); }
+.dag-badge--err { background: rgb(var(--d-400) / 0.15); color: rgb(var(--d-300)); }
+.dag-under { position: absolute; left: 10px; right: 10px; top: calc(100% + 7px); font-size: 10.5px; color: rgb(var(--g-500));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dag-under--out { color: rgb(var(--g-300)); padding: 5px 9px; border-radius: 8px; background: rgb(var(--s-2) / 0.9);
+  border: 1px solid rgb(var(--ink) / 0.07); }
+.dag-wire-label { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.dag-wire--hot { stroke-dasharray: 6 8; animation: dag-flow .5s linear infinite; stroke-width: 2.4px; }
+@keyframes dag-flow { to { stroke-dashoffset: -14; } }
+
+/* chrome floating over the canvas */
+.dag-glass {
+  background: rgb(var(--s-1) / 0.78); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid rgb(var(--ink) / 0.09); border-radius: 12px; box-shadow: 0 12px 32px -14px rgb(0 0 0 / 0.6);
+}
+.dag-bar { z-index: 5; }
+.dag-pick { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; font-size: 13px; font-weight: 600; color: rgb(var(--g-100)); }
+.dag-pick:hover { background: rgb(var(--ink) / 0.06); }
+.dag-pick-icon { color: rgb(var(--a-400)); font-size: 12px; }
+.dag-crumb { font-size: 12px; color: rgb(var(--g-500)); padding: 4px 4px 4px 8px; }
+.dag-crumb:hover { color: rgb(var(--g-200)); }
+.dag-chip { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; padding: 3px 8px; border-radius: 99px;
+  background: rgb(var(--ink) / 0.06); color: rgb(var(--g-400)); white-space: nowrap; }
+.dag-chip--on { background: rgb(var(--a-400) / 0.13); color: rgb(var(--a-300)); }
+.dag-chip--warn { background: rgb(var(--w-400) / 0.14); color: rgb(var(--w-300)); }
+.dag-chip--err { background: rgb(var(--d-400) / 0.14); color: rgb(var(--d-300)); }
+.dag-meta { font-size: 11px; color: rgb(var(--g-600)); white-space: nowrap; padding: 0 4px; }
+.dag-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 8px; font-size: 11.5px;
+  color: rgb(var(--g-300)); transition: background .15s, color .15s; white-space: nowrap; }
+.dag-btn:hover:not(:disabled) { background: rgb(var(--ink) / 0.07); color: rgb(var(--g-100)); }
+.dag-btn:disabled { opacity: .35; cursor: not-allowed; }
+.dag-btn--accent { color: rgb(var(--a-300)); }
+.dag-btn--primary { background: rgb(var(--a-400) / 0.9); color: rgb(var(--s-0)); font-weight: 600; }
+.dag-btn--primary:hover:not(:disabled) { background: rgb(var(--a-400)); color: rgb(var(--s-0)); }
+.dag-btn--stop { background: rgb(var(--d-400) / 0.18); color: rgb(var(--d-300)); }
+.dag-btn--danger { color: rgb(var(--d-300)); border: 1px solid rgb(var(--d-400) / 0.25); }
+.dag-btn--danger:hover:not(:disabled) { background: rgb(var(--d-400) / 0.12); color: rgb(var(--d-200)); }
+.dag-pop { position: absolute; top: calc(100% + 8px); z-index: 20; overflow: hidden;
+  background: rgb(var(--s-1) / 0.97); backdrop-filter: blur(14px); border: 1px solid rgb(var(--ink) / 0.1); border-radius: 12px;
+  box-shadow: 0 20px 50px -16px rgb(0 0 0 / 0.7); padding: 4px; animation: dag-pop .14s ease-out; }
+@keyframes dag-pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.dag-pop-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 7px 9px; border-radius: 8px; }
+.dag-pop-row:hover { background: rgb(var(--ink) / 0.06); }
+.dag-pop-row--on { background: rgb(var(--a-400) / 0.1); }
+.dag-run { border-radius: 14px; padding-left: 12px; }
+.dag-run-dot { width: 7px; height: 7px; border-radius: 99px; background: rgb(var(--ink) / 0.2); flex: none; }
+.dag-run-dot[data-on] { background: rgb(var(--a-400)); box-shadow: 0 0 10px rgb(var(--a-400)); animation: ap-pulse 1s infinite; }
+.dag-result { animation: dag-pop .18s ease-out; }
+.dag-toast { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); z-index: 30; font-size: 12px; padding: 7px 14px;
+  border-radius: 99px; background: rgb(var(--a-400) / 0.15); color: rgb(var(--a-200)); border: 1px solid rgb(var(--a-400) / 0.3);
+  backdrop-filter: blur(10px); animation: dag-pop .15s ease-out; max-width: 80%; text-align: center; }
+.dag-toast--err { background: rgb(var(--d-400) / 0.15); color: rgb(var(--d-200)); border-color: rgb(var(--d-400) / 0.3); }
+.dag-inspector { background: rgb(var(--s-1)); border-left: 1px solid rgb(var(--ink) / 0.07); animation: dag-slide .18s ease-out; }
+@keyframes dag-slide { from { opacity: 0; transform: translateX(12px); } }
+.dag-ins-title { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: rgb(var(--g-500)); font-weight: 600; }
+.dag-tool { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 4px 2px 8px; border-radius: 99px;
+  background: rgb(var(--a-400) / 0.1); color: rgb(var(--a-300)); border: 1px solid rgb(var(--a-400) / 0.2); }
+.dag-tool button { opacity: .6; padding: 0 3px; } .dag-tool button:hover { opacity: 1; }
+.dag-toggle { width: 34px; height: 19px; border-radius: 99px; background: rgb(var(--ink) / 0.12); position: relative; transition: background .15s; }
+.dag-toggle span { position: absolute; left: 2px; top: 2px; width: 15px; height: 15px; border-radius: 99px; background: rgb(var(--g-200)); transition: left .15s; }
+.dag-toggle--on { background: rgb(var(--a-400) / 0.85); } .dag-toggle--on span { left: 17px; background: rgb(var(--s-0)); }
+:root[data-skin="pixel"] .dag-name, :root[data-skin="pixel"] .dag-pick { font-size: 9px; }
+:root[data-skin="pixel"] .dag-stage, :root[data-skin="pixel"] .dag-summary { font-size: 8px; }
+:root[data-skin="pixel"] .dag-stage-k { font-size: 7px; }

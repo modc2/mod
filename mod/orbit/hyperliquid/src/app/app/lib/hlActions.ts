@@ -15,7 +15,7 @@
 
 import {
   approveAgentIntent, depositBalances, depositQuote, depositStatus, exchangeRelay,
-  intentWithdraw, intentUsdClassTransfer,
+  intentWithdraw, intentUsdClassTransfer, intentUsdSend,
   type DepositChain, type DepositQuote, type DepositSource,
   type SignedIntent, type WalletNetConfig,
 } from "./api";
@@ -58,6 +58,12 @@ export async function withdrawFlow(wallet: Signer, cfg: WalletNetConfig, destina
 /** Move USDC between HL spot and perp balances. */
 export async function usdClassTransferFlow(wallet: Signer, cfg: WalletNetConfig, amountUsd: string, toPerp: boolean): Promise<any> {
   const intent = await intentUsdClassTransfer(amountUsd, toPerp);
+  return signAndRelay(wallet, cfg, intent);
+}
+
+/** Send USDC from this Hyperliquid account to another one — instant, no fee. */
+export async function usdSendFlow(wallet: Signer, cfg: WalletNetConfig, destination: string, amountUsd: string): Promise<any> {
+  const intent = await intentUsdSend(destination, amountUsd);
   return signAndRelay(wallet, cfg, intent);
 }
 

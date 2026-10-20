@@ -8,11 +8,12 @@ import { useWallet } from "../lib/wallet";
 import { useSession } from "../lib/auth";
 import ThemePicker from "./ThemePicker";
 import { useDock } from "../lib/dock";
+import { WATCH_EVENT } from "./AccountPanel";
 
 // The console is seven nouns: four places to find something to back, one book
-// of what you've backed, the desk agent, and the chatbot. Everything else — the money
-// plumbing and the two older copy engines the invest book superseded — lives
-// under MORE, which also holds the primary links when they're hidden on a
+// of what you've backed, the desk agent, and the chatbot. Money (deposit,
+// withdraw, send) is the account chip → desk wallet tab. The two older copy
+// engines the invest book superseded and the plumbing pages live under MORE, which also holds the primary links when they're hidden on a
 // narrow viewport, so no page is ever unreachable.
 const NAV = [
   { href: "/", label: "Traders" },
@@ -25,7 +26,6 @@ const NAV = [
 ];
 
 const MORE = [
-  { href: "/wallet", label: "Wallet" },
   { href: "/live", label: "Live engine" },
   { href: "/follows", label: "Follows" },
   { href: "/signals", label: "Signals" },
@@ -123,105 +123,27 @@ function NavBar({ path }: { path: string | null }) {
 }
 
 // ── Account ───────────────────────────────────────────────────────────────
-// One chip for the whole session. Disconnect is destructive and belongs
-// inside the menu, not shouting in red next to the primary action.
-function AccountMenu({ onWatchAnother, onSignIn, onConnect, error }: {
-  onWatchAnother: () => void;
-  onSignIn: () => Promise<void>;
-  onConnect: () => Promise<void>;
-  error: string | null;
-}) {
-  const { address, kind, hasProvider, disconnect } = useWallet();
+// The chip IS the way into your account: it opens the desk's wallet tab,
+// where every money operation lives (deposit, withdraw, perp/spot, send,
+// agent auth, sign in, disconnect) — no menu in between.
+function AccountChip() {
+  const { address } = useWallet();
   // Not `!!token` — a restored token is a claim until /auth/me agrees with it.
-  // The chip used to go green on a week-old token the server had already
-  // stopped accepting, which is how "Signed in" and a 401 coexisted.
   const { canWrite, isWatching } = useSession();
-  // The account chip is also the shortest way into the desk's wallet tab.
-  const { show: showDesk } = useDock();
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const ref = useDismiss(open, useCallback(() => setOpen(false), []));
-
+  const { open, tab, toggle } = useDock();
   if (!address) return null;
-  const authed = canWrite;
-  const status = authed ? "Signed in" : isWatching ? "Watch only" : "Sign in to trade";
-
-  // The parent owns the error copy, so a rejected signature shows up in this
-  // menu instead of vanishing.
-  const run = async (fn: () => Promise<void>) => {
-    setBusy(true);
-    try { await fn(); } finally { setBusy(false); }
-  };
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {}
-  };
-
-  const item = "w-full text-left px-2 py-1.5 rounded text-[11px] font-medium uppercase tracking-wider transition-colors";
-
+  const status = canWrite ? "Signed in" : isWatching ? "Watch only" : "Sign in to trade";
+  const on = open && tab === "wallet";
   return (
-    <div className="relative" ref={ref}>
-      <button
-        className="btn !px-2.5 gap-1.5 font-mono !text-[11px] !text-ink"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title={`${address} — ${status}`}
-      >
-        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${authed ? "bg-accent live-dot" : "bg-warn"}`} />
-        {shortAddr(address)}
-        {chevron(open)}
-      </button>
-
-      {open && (
-        <div role="menu" className="panel bg-panel absolute right-0 mt-2 w-60 p-1.5 z-50 shadow-lift animate-fadeUp">
-          <div className="px-2 pt-1 pb-2">
-            <div className="label mb-1">{status}</div>
-            <button onClick={copy}
-              className="w-full text-left font-mono text-[10px] leading-relaxed break-all text-muted hover:text-accent transition-colors"
-              title="Copy address">
-              {copied ? "copied" : address}
-            </button>
-          </div>
-
-          {error && (
-            <div className="px-2 pb-2 text-[10px] leading-snug text-loss break-words">{error}</div>
-          )}
-
-          <div className="border-t border-white/[0.06] pt-1.5 space-y-0.5">
-            {kind === "metamask" && !authed && (
-              <button className={`${item} text-accent bg-accent/10 hover:bg-accent/15`} disabled={busy}
-                onClick={() => run(onSignIn)}>
-                Sign in
-              </button>
-            )}
-            {kind === "watch" && hasProvider && (
-              <button className={`${item} text-muted hover:text-ink hover:bg-white/[0.05]`} disabled={busy}
-                onClick={() => run(onConnect)}>
-                Connect MetaMask
-              </button>
-            )}
-            <button className={`${item} text-muted hover:text-ink hover:bg-white/[0.05]`}
-              onClick={() => { setOpen(false); showDesk("wallet"); }}>
-              Balance &amp; positions
-            </button>
-            <button className={`${item} text-muted hover:text-ink hover:bg-white/[0.05]`}
-              onClick={() => { setOpen(false); onWatchAnother(); }}>
-              Watch another address
-            </button>
-            <button className={`${item} text-loss hover:bg-loss/10`}
-              onClick={() => { setOpen(false); disconnect(); }}>
-              Disconnect
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+    <button
+      className={`btn !px-2.5 gap-1.5 font-mono !text-[11px] !text-ink ${on ? "!border-accent/40 bg-accent/10" : ""}`}
+      onClick={() => toggle("wallet")}
+      aria-expanded={on}
+      title={`${address} — ${status} · deposit, withdraw, send`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${canWrite ? "bg-accent live-dot" : "bg-warn"}`} />
+      {shortAddr(address)}
+    </button>
   );
 }
 
@@ -251,8 +173,7 @@ function DeskToggle() {
 
 export default function Header() {
   const path = usePathname();
-  const { address, kind, hasProvider, signIn, connect, watch } = useWallet();
-  const { canWrite } = useSession();
+  const { address, hasProvider, connect, watch } = useWallet();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(address ?? "");
   const [connectErr, setConnectErr] = useState<string | null>(null);
@@ -274,10 +195,12 @@ export default function Header() {
     try { await connect(); } catch (e) { report(e); }
   };
 
-  const onSignIn = async () => {
-    setConnectErr(null);
-    try { await signIn(); } catch (e) { report(e); }
-  };
+  // The desk's wallet tab asks for the watch-address input; it lives here.
+  useEffect(() => {
+    const onWatch = () => { setDraft(""); setEditing(true); };
+    window.addEventListener(WATCH_EVENT, onWatch);
+    return () => window.removeEventListener(WATCH_EVENT, onWatch);
+  }, []);
 
   return (
     <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-bg/70 backdrop-blur-xl">
@@ -320,12 +243,7 @@ export default function Header() {
           <ThemePicker />
           {address ? (
             <>
-              <AccountMenu
-                onWatchAnother={() => { setDraft(""); setEditing(true); }}
-                onSignIn={onSignIn}
-                onConnect={onConnect}
-                error={connectErr}
-              />
+              <AccountChip />
             </>
           ) : (
             <>

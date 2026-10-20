@@ -3,33 +3,24 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
-  agentStatus, deleteIndex, indexPerf, listIndexes, userState,
-  ago, fmtPnl, fmtUsd, shortAddr, Index,
+  deleteIndex, indexPerf, listIndexes,
+  ago, fmtPnl, Index,
 } from "../lib/api";
-import { portfolio, type Portfolio } from "../lib/invest";
 import { useWallet } from "../lib/wallet";
 import { useSession } from "../lib/auth";
 import { DOCK_TABS, useDock, type DockTab } from "../lib/dock";
 import { Identicon } from "./BoardBits";
 import AskConsole from "./AskConsole";
+import AccountPanel from "./AccountPanel";
 
 // ── The desk ──────────────────────────────────────────────────────────────
 // Three things you need on every page and shouldn't have to navigate away to
-// get: the agent, the strats you run, and the account they run on. Docks as a
+// get: the agent, the strats you run, and the account they run on — every
+// money operation (deposit, withdraw, perp/spot, send, agent auth) included. Docks as a
 // column at ≥1280px (globals.css reserves the width off `data-dock`), and
 // slides over the page as a drawer below that.
 
 const row = "flex items-center justify-between gap-2";
-
-function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: "win" | "loss" }) {
-  return (
-    <div className="panel px-3 py-2">
-      <div className="eyebrow">{label}</div>
-      <div className={`mt-1 text-[15px] font-semibold num leading-none
-        ${tone === "win" ? "text-win" : tone === "loss" ? "text-loss" : "text-ink"}`}>{value}</div>
-    </div>
-  );
-}
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="panel p-4 text-[11px] leading-snug text-muted">{children}</div>;
@@ -134,129 +125,6 @@ function StratsTab({ onNavigate }: { onNavigate: () => void }) {
   );
 }
 
-// ── My wallet ─────────────────────────────────────────────────────────────
-function WalletTab({ onNavigate }: { onNavigate: () => void }) {
-  const { address, kind, hasProvider, connect, disconnect } = useWallet();
-  const { canWrite, needsSignIn, signIn, me } = useSession();
-  const [state, setState] = useState<any>(null);
-  const [book, setBook] = useState<Portfolio | null>(null);
-  const [agent, setAgent] = useState<{ approved: boolean } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!address) { setState(null); setBook(null); setAgent(null); return; }
-    userState(address).then(setState).catch(() => setState(null));
-    agentStatus(address).then((r) => setAgent({ approved: r.approved })).catch(() => setAgent(null));
-  }, [address]);
-
-  // The invest book is wallet-scoped: asking for it without a token is a
-  // guaranteed 401, so a watch-only session simply doesn't have one.
-  useEffect(() => {
-    if (!me) { setBook(null); return; }
-    portfolio(me).then(setBook).catch(() => setBook(null));
-  }, [me]);
-
-  if (!address) {
-    return (
-      <div className="space-y-3">
-        <Empty>Connect MetaMask to see your balance, positions and the strats you back.</Empty>
-        <button className="btn-primary w-full" onClick={() => connect()} disabled={!hasProvider}>
-          {hasProvider ? "connect metamask" : "MetaMask not detected"}
-        </button>
-      </div>
-    );
-  }
-
-  const accountValue = Number(state?.marginSummary?.accountValue ?? 0);
-  const withdrawable = Number(state?.withdrawable ?? 0);
-  const positions: any[] = state?.assetPositions ?? [];
-  const unrealized = positions.reduce((s, p) => s + Number(p?.position?.unrealizedPnl ?? 0), 0);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {}
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="panel p-3 space-y-2">
-        <div className={row}>
-          <div className="flex items-center gap-2 min-w-0">
-            <Identicon address={address} size={18} />
-            <button className="font-mono text-[12px] text-ink hover:text-accent transition-colors truncate"
-              onClick={copy} title="Copy address">
-              {copied ? "copied" : shortAddr(address)}
-            </button>
-          </div>
-          <span className={`pill ${canWrite ? "text-accent border-accent/30" : "text-warn border-warn/30"}`}>
-            {canWrite ? "signed in" : kind === "watch" ? "watch only" : "signed out"}
-          </span>
-        </div>
-        {needsSignIn && (
-          <button className="btn-primary w-full" disabled={busy}
-            onClick={async () => { setBusy(true); try { await signIn(); } finally { setBusy(false); } }}>
-            sign in to trade
-          </button>
-        )}
-        {agent && !agent.approved && canWrite && (
-          <Link href="/wallet" className="btn w-full" onClick={onNavigate}>authorize trading agent →</Link>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <Stat label="Account value" value={fmtUsd(accountValue)} />
-        <Stat label="Withdrawable" value={fmtUsd(withdrawable)} />
-        <Stat label="Unrealized" value={fmtPnl(unrealized)} tone={unrealized >= 0 ? "win" : "loss"} />
-        <Stat label="Invested" value={book ? fmtUsd(book.totals.equity) : canWrite ? "…" : "—"}
-          tone={book && book.totals.pnl !== 0 ? (book.totals.pnl > 0 ? "win" : "loss") : undefined} />
-      </div>
-
-      {positions.length > 0 && (
-        <div className="panel divide-y divide-white/[0.05]">
-          <div className="eyebrow px-3 py-2">Open positions</div>
-          {positions.slice(0, 8).map((p, i) => {
-            const pos = p.position ?? {};
-            const sz = Number(pos.szi ?? 0);
-            const pnl = Number(pos.unrealizedPnl ?? 0);
-            return (
-              <div key={i} className={`${row} px-3 py-2 text-[11px]`}>
-                <span className="font-semibold text-ink">{pos.coin}</span>
-                <span className={`num ${sz >= 0 ? "text-win" : "text-loss"}`}>
-                  {sz >= 0 ? "long" : "short"} {fmtUsd(Math.abs(Number(pos.positionValue ?? 0)))}
-                </span>
-                <span className={`num ${pnl >= 0 ? "text-win" : "text-loss"}`}>{fmtPnl(pnl)}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {book && book.positions.length > 0 && (
-        <div className="panel divide-y divide-white/[0.05]">
-          <div className="eyebrow px-3 py-2">Backing</div>
-          {book.positions.slice(0, 6).map((p) => (
-            <Link key={p.id} href={`/invest/${p.id}`} onClick={onNavigate}
-              className={`${row} px-3 py-2 text-[11px] hover:bg-white/[0.03] transition-colors`}>
-              <span className="text-ink truncate">{p.name}</span>
-              <span className={`num shrink-0 ${p.value.pnl >= 0 ? "text-win" : "text-loss"}`}>{fmtPnl(p.value.pnl)}</span>
-            </Link>
-          ))}
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-2">
-        <Link href="/wallet" className="btn" onClick={onNavigate}>deposit</Link>
-        <Link href="/wallet" className="btn" onClick={onNavigate}>withdraw</Link>
-      </div>
-      <button className="btn-danger w-full" onClick={disconnect}>disconnect</button>
-    </div>
-  );
-}
-
 // ── Shell ─────────────────────────────────────────────────────────────────
 export default function Dock() {
   const { open, tab, setTab, close } = useDock();
@@ -312,7 +180,7 @@ export default function Dock() {
             {ever && <StratsTab onNavigate={close} />}
           </div>
           <div className={`h-full overflow-y-auto p-3 ${tab === "wallet" ? "block" : "hidden"}`}>
-            {ever && <WalletTab onNavigate={close} />}
+            {ever && <AccountPanel onNavigate={close} />}
           </div>
         </div>
       </aside>

@@ -16,12 +16,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import { backtestTrader, fmtPnl, fmtUsd, TraderBacktest } from "../lib/api";
+import CopyTrades from "./CopyTrades";
 
 const H = 160;
 const PAD = { t: 10, r: 12, b: 20, l: 52 };
 
-export default function BacktestPanel({ addr, days }: { addr: string; days: number }) {
-  const [capital, setCapital] = useState(1000);
+export default function BacktestPanel({ addr, days, initialCapital = 1000 }: {
+  addr: string; days: number; initialCapital?: number;
+}) {
+  const [capital, setCapital] = useState(initialCapital);
+  const [showTrades, setShowTrades] = useState(false);
   const [data, setData] = useState<TraderBacktest | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -131,6 +135,18 @@ export default function BacktestPanel({ addr, days }: { addr: string; days: numb
           </div>
 
           {data.points.length >= 2 && <EquityCurve data={data} />}
+
+          {/* Every one of their trades, at your dollars. */}
+          {data.trades && data.trades.length > 0 && (
+            <div className="border-t border-border">
+              <button className="w-full px-4 py-2 flex items-center justify-between text-left text-[11px] uppercase tracking-wider text-muted hover:text-ink"
+                onClick={() => setShowTrades((v) => !v)} aria-expanded={showTrades}>
+                <span>your {fmtUsd(data.capital)}, trade by trade · {data.trades_total ?? data.trades.length} trades</span>
+                <span>{showTrades ? "hide" : "show"}</span>
+              </button>
+              {showTrades && <CopyTrades trades={data.trades} total={data.trades_total} capital={data.capital} />}
+            </div>
+          )}
 
           <div className="px-4 py-2 text-[10px] text-muted border-t border-border">
             Scaled against {fmtUsd(data.basis_equity)} of trader equity at the window open; the trader

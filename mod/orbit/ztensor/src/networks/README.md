@@ -12,6 +12,7 @@ networks/
   near/            Rust/wasm verifier    (near | near-testnet)
   eth/             Solidity verifier     (eth | eth-sepolia)
   solana/          sBPF verifier, units  (solana | solana-devnet)
+  substrate/       ink! verifier, weight (substrate | substrate-testnet)
   postquant/       pqc1 wasm, off chain + ML-DSA receipts (postquant | postquant-1)
   _template/       copy this to add a chain (skipped by the registry)
 ```

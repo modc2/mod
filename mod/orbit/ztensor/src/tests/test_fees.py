@@ -17,6 +17,10 @@ QUOTE = {'at': 1, 'chains': {
     'solana': {'block_seconds': 0.4, 'usd': 100.0, 'block_capacity': 60_000_000,
                'capacity_unit': 'CU', 'tx_cap': 1_400_000,
                'gas': {'lamports_per_sig': 5000, 'micro_lamports_per_cu': 0}},
+    'substrate': {'block_seconds': 6.2, 'usd': 0.006, 'block_capacity': 1500.0,
+                  'capacity_unit': 'ms ref_time', 'tx_cap': 1300.0,
+                  'gas': {'astr_per_ms': 0.327, 'astr_per_byte': 2.35e-5,
+                          'multiplier': 0.1, 'base_ms': 0.094}},
 }}
 
 
@@ -35,7 +39,8 @@ def test_min_tempo_is_an_hour_rounded_up():
 def test_every_priced_adapter_prices_its_own_cost(nets):
     want = {'starknet': {'steps': 16069, 'ec_op': 19},
             'near': {'tgas': 37.0}, 'eth': {'gas': 2_300_000},
-            'solana': {'cu': 40_000_000, 'txs': 47}}
+            'solana': {'cu': 40_000_000, 'txs': 47},
+            'substrate': {'weight_ms': 29.4, 'proof_kb': 287, 'bytes': 583}}
     for a in nets:
         if not a.token:
             continue

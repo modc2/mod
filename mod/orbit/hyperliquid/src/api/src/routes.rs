@@ -71,6 +71,8 @@ pub fn router() -> Router<AppState> {
         .route("/user/:addr/pnl", get(user_pnl))
         .route("/user/:addr/orders", get(user_orders))
         .route("/user/:addr/funding", get(user_funding))
+        .route("/user/:addr/spot", get(user_spot))
+        .route("/user/:addr/ledger", get(user_ledger))
 
         // ── trader analytics ──
         .route("/leaderboard", get(leaderboard))
@@ -124,6 +126,7 @@ pub fn router() -> Router<AppState> {
         // back through /exchange/relay.
         .route("/intent/withdraw", post(intent_withdraw))
         .route("/intent/usd_class_transfer", post(intent_usd_class_transfer))
+        .route("/intent/usd_send", post(intent_usd_send))
         .route("/exchange/relay", post(exchange_relay))
         .route("/wallet/config", get(wallet_config))
 
@@ -132,6 +135,8 @@ pub fn router() -> Router<AppState> {
         .route("/deposit/balances", get(crate::deposit::deposit_balances))
         .route("/deposit/quote", post(crate::deposit::deposit_quote))
         .route("/deposit/status", get(crate::deposit::deposit_status))
+        .route("/deposit/evm_chains", get(crate::deposit::deposit_evm_chains))
+        .route("/deposit/token", get(crate::deposit::deposit_token))
 
         // ── trading actions (signed by backend agent) ──
         .route("/trade", post(trade))
@@ -371,7 +376,7 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
         "endpoints": {
             // `crate::auth::is_public` is the authority; mcp::tools() carries
             // the same flag per tool and a test holds the two in agreement.
-            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/traders/market", "/trader/:addr/analyze", "/trader/:addr/backtest", "/user/:addr/*", "/vaults", "/strats/board", "/strats/backtest", "/scout", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
+            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/traders/market", "/trader/:addr/analyze", "/trader/:addr/backtest", "/user/:addr/*", "/vaults", "/strats/board", "/strats/backtest", "/scout", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/evm_chains", "/deposit/token", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
             "gated": ["/auth/me", "/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action", "/deposit/quote", "POST /indexes", "PATCH|DELETE /indexes/:id"],
         },
         // The mod-protocol fn surface is also an MCP tool server; /mcp/schema
@@ -470,6 +475,12 @@ async fn user_pnl(State(s): State<AppState>, Path(a): Path<String>) -> Result<Js
 }
 async fn user_orders(State(s): State<AppState>, Path(a): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     s.hl.open_orders(&a).await.map(Json).map_err(err500)
+}
+async fn user_spot(State(s): State<AppState>, Path(a): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    s.hl.spot_state(&a).await.map(Json).map_err(err500)
+}
+async fn user_ledger(State(s): State<AppState>, Path(a): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    s.hl.user_ledger(&a).await.map(Json).map_err(err500)
 }
 async fn user_funding(State(s): State<AppState>, Path(a): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     s.hl.user_funding(&a).await.map(Json).map_err(err500)
@@ -1313,6 +1324,23 @@ async fn intent_withdraw(State(s): State<AppState>, Json(b): Json<WithdrawIntent
     let now = chrono::Utc::now().timestamp_millis() as u64;
     let (action, digest) = sign_user::build_withdraw3(&b.destination, &b.amount, now, is_mainnet);
     let typed_data = sign_user::withdraw3_typed_data(&b.destination, &b.amount, now, is_mainnet);
+    Ok(Json(json!({
+        "action": action,
+        "nonce": now,
+        "digest": format!("0x{}", hex::encode(digest)),
+        "typedData": typed_data,
+    })))
+}
+
+/// `usdSend` — HL → HL USDC to another account. Same Withdraw-shaped
+/// typed data, so the master wallet signs it in the browser like withdraw3.
+async fn intent_usd_send(State(s): State<AppState>, Json(b): Json<WithdrawIntentBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let is_mainnet = !s.hl.testnet;
+    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let (action, digest) = sign_user::build_usd_send(&b.destination, &b.amount, now, is_mainnet);
+    let typed_data = sign_user::usd_send_typed_data(&b.destination, &b.amount, now, is_mainnet);
     Ok(Json(json!({
         "action": action,
         "nonce": now,

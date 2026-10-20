@@ -52,6 +52,12 @@ const SORTS = [
 const HOVER_SETTLE_MS = 220;
 const PAGE_SIZE = 40;
 
+/** Frequency floor — average trades per day over the backtest window. Low-
+    frequency traders give a copy book too few fills to learn anything from.
+    Applied server-side (`minTrades` = per-day × window) so the top-40 pool is
+    drawn from frequent traders only, not thinned after the fact. */
+const MIN_PER_DAY_KEY = "poly:copyStudio:minPerDay:v1";
+
 const TONE: Record<Verdict, string> = {
   up: "text-green-400",
   down: "text-red-400",
@@ -59,6 +65,10 @@ const TONE: Record<Verdict, string> = {
   idle: "text-amber-400",
   loading: "text-pixel-gray",
 };
+
+function fmtPerDay(v: number): string {
+  return v >= 10 ? String(Math.round(v)) : v >= 1 ? v.toFixed(1) : v > 0 ? v.toFixed(2) : "0";
+}
 
 function toneOf(v: number): string {
   return v > 0.005 ? "text-green-400" : v < -0.005 ? "text-red-400" : "text-pixel-gray-light";
@@ -102,6 +112,15 @@ export default function CopyStudio() {
   const [search, setSearch] = useState("");
   const [topic, setTopic] = useState("");
   const [activeOnly, setActiveOnly] = useState(true);
+  const [minPerDay, setMinPerDayRaw] = useState(0);
+  useEffect(() => {
+    try { const v = Number(localStorage.getItem(MIN_PER_DAY_KEY)); if (v > 0) setMinPerDayRaw(v); } catch {}
+  }, []);
+  const setMinPerDay = (v: number) => {
+    const n = Number.isFinite(v) && v > 0 ? Math.min(v, 1000) : 0;
+    setMinPerDayRaw(n);
+    try { if (n > 0) localStorage.setItem(MIN_PER_DAY_KEY, String(n)); else localStorage.removeItem(MIN_PER_DAY_KEY); } catch {}
+  };
   const [traders, setTraders] = useState<TopTrader[]>([]);
   const [boardTotal, setBoardTotal] = useState(0);
   const [boardState, setBoardState] = useState<"loading" | "ready" | "cold" | "error">("loading");
@@ -115,6 +134,7 @@ export default function CopyStudio() {
         search: search.trim() || undefined,
         marketQuery: topic.trim() || undefined,
         maxLastTradeHrs: activeOnly ? 24 : 0,
+        minTrades: minPerDay > 0 ? Math.ceil(minPerDay * days) : undefined,
       })
         .then((r) => {
           if (!live) return;
@@ -125,7 +145,7 @@ export default function CopyStudio() {
         .catch(() => live && setBoardState("error"));
     }, 300);
     return () => { live = false; clearTimeout(t); };
-  }, [days, pool, search, topic, activeOnly, isLocal, asc]);
+  }, [days, pool, search, topic, activeOnly, minPerDay, isLocal, asc]);
 
   // ── Highlight ──
   const [hovered, setHovered] = useState<string | null>(null);
@@ -283,13 +303,13 @@ export default function CopyStudio() {
     <div className="space-y-3">
       {/* ── Header: the one sentence + window ── */}
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
+        <div className="flex-1 min-w-[16rem]">
           <h1 className="font-mono text-[15px] tracking-[0.16em] text-pixel-white">COPY TRADERS</h1>
           <p className="font-mono text-[10.5px] text-pixel-gray mt-0.5">
             Every trader below is backtested for you and ranked by how steady copying them would have been. Point at one for the full replay, add the ones you like, then copy them all.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <span className="font-mono text-[9.5px] tracking-[0.14em] text-pixel-gray">BACKTEST</span>
           {STUDIO_WINDOWS.map((d) => (
             <button
@@ -353,6 +373,21 @@ export default function CopyStudio() {
             >
               ACTIVE 24H
             </button>
+            <label
+              className={`flex items-center gap-1 font-mono text-[9.5px] tracking-[0.12em] ${minPerDay > 0 ? "text-pixel-green" : "text-pixel-gray"}`}
+              title={`Only traders who averaged at least this many trades a day over the ${days}D window — drops the low-frequency ones. 0 = off.`}
+            >
+              MIN
+              <input
+                type="number" min={0} step={1}
+                value={minPerDay || ""}
+                placeholder="N"
+                onChange={(e) => setMinPerDay(Number(e.target.value))}
+                className="pixel-input w-12 text-[11px] py-0"
+                aria-label="minimum trades per day"
+              />
+              TRADES/DAY
+            </label>
             <button
               type="button"
               onClick={() => setShowScore((v) => !v)}
@@ -405,6 +440,7 @@ export default function CopyStudio() {
                   <th className="px-2 py-1.5">TRADER</th>
                   <SortTh k="usd" sort={sort} asc={asc} onPick={pickSort}>PROFIT {days}D</SortTh>
                   <SortTh k="volume" sort={sort} asc={asc} onPick={pickSort}>VOLUME</SortTh>
+                  <th className="px-2 py-1.5 text-right" title={`Average trades per day over the ${days}D window`}>TRADES/D</th>
                   <th className="px-2 py-1.5 text-right">WIN</th>
                   <th className="px-2 py-1.5 text-right">LAST</th>
                   <th className="px-2 py-1.5">CURVE</th>
@@ -447,6 +483,9 @@ export default function CopyStudio() {
                       </td>
                       <td className={`px-2 py-1 text-right ${toneOf(t.pnl)}`}>{fmtUsd(t.pnl, true)}</td>
                       <td className="px-2 py-1 text-right text-pixel-gray-light">{formatVolume(t.volume)}</td>
+                      <td className="px-2 py-1 text-right text-pixel-gray-light" title={`${t.recentTrades} trades in ${days}D · ${t.trades24h ?? 0} in the last 24h`}>
+                        {fmtPerDay(t.recentTrades / Math.max(1, days))}
+                      </td>
                       <td className="px-2 py-1 text-right text-pixel-gray-light">
                         {t.winRate >= 0 ? `${Math.round(t.winRate)}%` : "—"}
                       </td>
@@ -475,6 +514,7 @@ export default function CopyStudio() {
                 {boardState === "loading" ? "loading traders…"
                   : boardState === "cold" ? "the leaderboard is still warming up — try again in a minute"
                   : boardState === "error" ? "could not reach the leaderboard"
+                  : minPerDay > 0 ? `no traders match — nobody here averages ${minPerDay}+ trades a day; lower MIN TRADES/DAY`
                   : "no traders match — clear the search, or turn off ACTIVE 24H"}
               </p>
             )}
@@ -482,6 +522,7 @@ export default function CopyStudio() {
               <p className="px-2 py-1.5 font-mono text-[9.5px] text-pixel-gray border-t border-pixel-border/60">
                 top {traders.length} of {boardTotal.toLocaleString()} · each row backtested at {fmtUsd(previewUsd)}
                 {replayed < traders.length ? ` · replaying ${replayed}/${traders.length}…` : ""}
+                {minPerDay > 0 ? ` · ${minPerDay}+ trades/day` : ""}
                 {sort === "steady" ? " · ranked by STEADY" : sort === "pct" ? " · ranked by % return if copied" : ""}
               </p>
             )}

@@ -102,3 +102,17 @@ Withdrawing is the mirror image, from the Withdraw panel on `/wallet`:
   QA-ing the gated quote route without a real wallet.
 - Live smoke: `GET /deposit/chains` → 12 chains; `POST /deposit/quote` from
   each chain returns `transactionRequest` + `landsOnHyperliquid: true`.
+
+## Custom tokens — any EVM chain (2026-10-20)
+
+The twelve chains above have curated token lists, but any token on any EVM
+chain LI.FI routes from (~59 today) can be deposited:
+
+- `GET /deposit/evm_chains` — built-ins first, then LI.FI's EVM registry (cached 6h).
+- `GET /deposit/token?chain_id=&address=` — symbol, decimals, USD price, verified flag (404 = LI.FI can't route it).
+- `GET /deposit/balances?eoa=&extra=<chainId>:<address|native>,…` — custom tokens are read with a direct
+  `balanceOf`/`eth_getBalance` (max 40), priced off LI.FI; results also in `custom[]`.
+- `POST /deposit/quote` accepts any of those chain ids and any token address.
+
+UI: Wallet → Deposit → "+ add a token from any EVM chain". The list lives in the
+browser (`hl.deposit.customTokens`), not on the server.

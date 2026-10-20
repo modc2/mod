@@ -659,7 +659,23 @@ pub fn tools() -> &'static [Tool] {
              'what can I fund with?' before quoting a route. `sources[]` is the \
              flat list of spendable (chain, token) pairs; `max` already reserves \
              native gas.",
-            vec![("eoa", p("string", "0x wallet address to scan"))], &["eoa"]),
+            vec![
+                ("eoa", p("string", "0x wallet address to scan")),
+                ("extra", p("string", "custom tokens to scan too, on ANY EVM chain LI.FI routes from: \
+                    comma list of <chainId>:<tokenAddress|native>, e.g. \"8453:0x4ed4…efed,81457:native\"")),
+            ], &["eoa"]),
+        tool("hl_deposit_evm_chains", "deposit_evm_chains", "GET", "/deposit/evm_chains", true,
+            "Every EVM chain a deposit can start from: the twelve built-ins (curated \
+             token lists) plus every other EVM chain LI.FI routes from (~65), with \
+             chain id, RPC and explorer. Any of these ids works as from_chain_id.",
+            vec![], &[]),
+        tool("hl_deposit_token", "deposit_token", "GET", "/deposit/token", true,
+            "Look up any token on any EVM chain before adding it: symbol, decimals, \
+             USD price and LI.FI verification. 404 means LI.FI can't route it.",
+            vec![
+                ("chain_id", p("integer", "EVM chain id (see hl_deposit_evm_chains)")),
+                ("address", p("string", "token contract address, or \"native\"")),
+            ], &["chain_id", "address"]),
         tool("hl_deposit_quote", "deposit_quote", "POST", "/deposit/quote", false,
             "Quote a route that funds a Hyperliquid account from another chain and \
              return the transaction for the wallet to sign. The default \
@@ -668,8 +684,8 @@ pub fn tools() -> &'static [Tool] {
              to bridge Arbitrum USDC back out instead. This only builds an \
              unsigned transaction; nothing moves until the wallet signs it.",
             vec![
-                ("from_chain_id", p("integer", "source chain id — any chainId from hl_deposit_chains")),
-                ("token", p("string", "what to spend: \"usdc\", \"native\", a symbol like \"WETH\", or a token address")),
+                ("from_chain_id", p("integer", "source chain id — any chainId from hl_deposit_evm_chains")),
+                ("token", p("string", "what to spend: \"usdc\", \"native\", a symbol like \"WETH\", or ANY token address on that chain")),
                 ("amount", p("string", "amount in whole token units, e.g. \"120.5\"")),
                 ("eoa", eoa()),
                 ("to_chain_id", p("integer", "destination chain id (default: Hyperliquid, 1337)")),

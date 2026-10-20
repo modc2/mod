@@ -286,3 +286,14 @@ PYTHONPATH=/root/mod python3 -m pytest test/ -q
 They run against a throwaway state dir (`LIGHTHOUSE_DIR`), never the real
 `~/.mod/lighthouse`. Bridge tests that need a live store skip themselves when
 nothing is listening on `:50152`.
+
+## Paying: x402 (since 1.2.0)
+
+Uploads spend the deployment's Lighthouse key, so a stranger pays for each one in USDC. There is no account and no KYC (`lhpay.py`, the same wire format as `orbit/jev`).
+
+- `POST /put` or `/put/text` without payment returns **HTTP 402** `{x402Version: 1, accepts: [...]}`. Each offer is USDC `exact` on Base, priced at `$0.001 + $0.001/MiB`. An empty POST also returns the 402, so crawlers can read the price.
+- `GET /price?size=N` returns what N bytes cost *you*: `{due, why, usd, x402}`. A client can sign first and upload once.
+- Sign the EIP-3009 `transferWithAuthorization`, then retry with `X-PAYMENT: <base64>`. The PayAI facilitator **verifies before** the bytes move and **settles after** the CID comes back, so a failed upload is never charged. The receipt comes back in `X-PAYMENT-RESPONSE` and as `payment` in the body. A nonce can be used only once.
+- **Free for:** the box itself (loopback with nothing forwarded; the console's app server now sets X-Forwarded-For), the owner token, and `x-lh-key` (your own Lighthouse key).
+- **MCP:** `lighthouse_put` or `lighthouse_mirror` without `payment` return an isError result that carries the 402 body. Call again with `payment`, or send an `X-PAYMENT` header on the MCP request.
+- **Policy:** defaults are in `config.json` `pay`. Overrides are off-chain in `~/.mod/lighthouse/pay.json` (`m lighthouse/pricing pay_to=0x… price_usd=…`, or owner `POST /pay`). The ledger is `pay.db`. Set `LIGHTHOUSE_FREE=1` to turn payment off.

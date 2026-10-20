@@ -6,6 +6,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Chain } from '@/lib/api';
 import { fmt, usd } from '@/lib/api';
+import Forecast from './Forecast';
+import Experiment from './Experiment';
 
 const SHAPES = ['circle', 'square', 'diamond', 'triangle'] as const;
 
@@ -187,15 +189,16 @@ export default function Costs({ chains, chain, eco, costs, onPick }: { chains: C
   const cheapest = scores.length ? Math.min(...scores) : 0;
   return (
     <div className="stack fade">
-      <div className="card hi">
-        <h3><span className="n">$</span> Mainnet cost per action</h3>
+      <Experiment chain={chain} />
+      <div className="card">
+        <h3><span className="n">$</span> {chain?.title ?? 'Mainnet'} cost per action</h3>
         <p className="lede">
           Live gas and token price applied to what each verifier actually burned on its local chain.
           Epochs are at least {eco?.min_epoch_s ? `${eco.min_epoch_s / 3600}h` : '1h'}.
           {eco?.price_error ? <span style={{ color: 'var(--warn)' }}> price feed: {eco.price_error}</span> : null}
         </p>
         <div className="eco">
-          {chains.map((c) => {
+          {chains.filter((c) => c.chain === chain?.chain).map((c) => {
             const m = eco?.chains?.[c.chain];
             const on = c.chain === chain?.chain;
             const s = m?.actions?.score?.usd;
@@ -238,8 +241,9 @@ export default function Costs({ chains, chain, eco, costs, onPick }: { chains: C
       <div className="card">
         <h3><span className="n">RING</span> Price of anonymity</h3>
         <p className="lede">Dollars per score as the ring grows: a bigger set hides you better and costs linearly more. Log scale.</p>
-        <RingChart chains={chains} eco={eco} sel={chain?.chain} />
+        <RingChart chains={chains.filter((c) => c.chain === chain?.chain)} eco={eco} sel={chain?.chain} />
       </div>
+      <Forecast chain={chain} />
       {chain && (
         <div className="card">
           <h3><span className="n">LIMIT</span> {chain.title} in its own units</h3>

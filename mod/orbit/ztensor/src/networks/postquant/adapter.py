@@ -34,7 +34,7 @@ from .client import (MAX_RING, PAYEE, POSTQUANT, WASM, PostquantZTensor,
 
 class Postquant(Network):
     chain = 'postquant'
-    title = 'postquant'
+    title = 'Postquant'
     nets = ('postquant', 'postquant-1')
     order = 50
     max_ring = MAX_RING

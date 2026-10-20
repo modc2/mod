@@ -309,6 +309,7 @@ class Graphs:
             "nodes": nodes,
             "edges": edges,
             "viewport": graph.get("viewport") or None,
+            "agent": graph.get("agent") or (existing or {}).get("agent") or None,
             "owner": (existing or {}).get("owner") or addr,
             "created": (existing or {}).get("created") or now,
             "updated": now,
@@ -317,6 +318,69 @@ class Graphs:
         data[gid] = rec
         self._write(data)
         return {**rec, "valid": self.validate(rec)}
+
+    # ── an agent's own graph ─────────────────────────────────────────
+    #
+    # Every agent has one graph that says what happens between the request
+    # coming in and the answer going out. Untouched it is the trivial one —
+    # input ▸ the agent ▸ output — and an owner who wires a reviewer, a gate
+    # or a loop round it makes the agent mean that whole graph. It is an
+    # ordinary saved graph under the fixed id `agent-<name>`, so it runs,
+    # validates and shares by CID like any other; only who may write it
+    # differs: the agent's owner (or the host), not whoever got there first.
+
+    @staticmethod
+    def agent_graph_id(name: str) -> str:
+        return f"agent-{slugify(name)}"
+
+    def default_for_agent(self, name: str) -> Dict:
+        return {"nodes": [
+            {"id": "in", "kind": "input", "x": 40, "y": 120, "data": {"label": "request"}},
+            {"id": "a0", "kind": "agent", "x": 280, "y": 120, "data": {"agent": name}},
+            {"id": "out", "kind": "output", "x": 520, "y": 120, "data": {"label": "answer"}}],
+            "edges": [{"id": "e0", "from": "in", "to": "a0", "port": "out"},
+                      {"id": "e1", "from": "a0", "to": "out", "port": "out"}]}
+
+    def for_agent(self, name: str, key: Any = None) -> Dict:
+        """The agent's graph — saved, or the trivial one if never edited."""
+        if not name:
+            raise ValueError("name an agent")
+        gid = self.agent_graph_id(name)
+        can_edit = bool(self.agents.can_manage(name, key)) if self.agents else True
+        saved = self._read().get(gid)
+        if saved:
+            return {**self.get(gid, key=key), "agent": name, "default": False,
+                    "can_edit": can_edit}
+        g = {"id": gid, "name": f"{name} graph", "agent": name,
+             **self.default_for_agent(name)}
+        return {**g, "default": True, "can_edit": can_edit, "valid": self.validate(g)}
+
+    def save_for_agent(self, name: str, graph: Dict, key: Any = None) -> Dict:
+        """Write the agent's graph. Only someone who may edit the agent may
+        change what the agent is wired into."""
+        if self.agents:
+            self.agents.get(name)  # KeyError for an unknown agent
+            self.agents._require_manage(name, key, operation="edit the graph of")
+        elif self.identity:
+            self.identity.require_signed_in(key, "save a graph")
+        gid = self.agent_graph_id(name)
+        data = self._read()
+        if gid in data:
+            # the agent's manager owns its graph, whoever saved it last
+            data[gid]["owner"] = self.identity.addr(key) if self.identity else None
+            self._write(data)
+        rec = self.save({**(graph or {}), "id": gid, "agent": name,
+                         "name": (graph or {}).get("name") or f"{name} graph"}, key=key)
+        return {**rec, "default": False, "can_edit": True}
+
+    def reset_for_agent(self, name: str, key: Any = None) -> Dict:
+        """Drop the saved graph — the agent is back to input ▸ agent ▸ output."""
+        if self.agents:
+            self.agents._require_manage(name, key, operation="reset the graph of")
+        data = self._read()
+        data.pop(self.agent_graph_id(name), None)
+        self._write(data)
+        return self.for_agent(name, key)
 
     @staticmethod
     def _free_id(data: Dict, base: str) -> str:
@@ -471,6 +535,10 @@ class Graphs:
                                     kwargs.get("query", ""), key=key),
             "validate": lambda: self.validate(kwargs.get("graph") or {}),
             "import": lambda: self.import_cid(kwargs.get("cid", ""), key=key),
+            "agent": lambda: self.for_agent(kwargs.get("name", ""), key=key),
+            "agent_save": lambda: self.save_for_agent(kwargs.get("name", ""),
+                                                      kwargs.get("graph") or {}, key=key),
+            "agent_reset": lambda: self.reset_for_agent(kwargs.get("name", ""), key=key),
         }
         if action not in actions:
             raise ValueError(f"unknown graph action: {action}")

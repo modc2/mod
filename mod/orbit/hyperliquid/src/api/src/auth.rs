@@ -227,6 +227,7 @@ pub fn is_public(method: &Method, path: &str) -> bool {
         // deposit GETs are on-chain-public data (chain registry, balances,
         // bridge status) — watch-mode users see them without signing in.
         | "/deposit/chains" | "/deposit/balances" | "/deposit/status"
+        | "/deposit/evm_chains" | "/deposit/token"
         // Sizing arithmetic over a leader's PUBLIC portfolio: "what would
         // $250 in this trader buy me?" is a read, and asking it before
         // connecting a wallet is the whole point.

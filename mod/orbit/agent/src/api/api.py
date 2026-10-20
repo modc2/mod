@@ -1824,6 +1824,46 @@ def update_agent(name: str, req: AgentUpdateRequest):
     except (KeyError, ValueError) as e:
         return {"error": str(e)}
 
+class AgentGraphRequest(BaseModel):
+    """An agent's own graph — input ▸ … ▸ output, in the graph protocol's
+    shape (GET /graph/kinds). Loops are wired through a Loop node."""
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    name: Optional[str] = None
+    description: str = ""
+    viewport: Optional[dict] = None
+    key: Optional[str] = None
+
+@app.get("/agents/{name}/graph")
+def get_agent_graph(name: str, key: Optional[str] = None):
+    """The DAG an agent runs as, from input to output. Never edited = the
+    trivial input ▸ agent ▸ output (`default: true`)."""
+    try:
+        return get_mod().forward('agent_graph', name=name, key=key)
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}
+
+@app.put("/agents/{name}/graph")
+def put_agent_graph(name: str, req: AgentGraphRequest):
+    """Save the agent's graph. The agent's owner or the host."""
+    try:
+        return get_mod().forward('agent_graph_save', name=name, key=req.key,
+                                 graph=req.model_dump(exclude={"key"}))
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}
+
+@app.delete("/agents/{name}/graph")
+def reset_agent_graph(name: str, key: Optional[str] = None):
+    """Back to input ▸ agent ▸ output."""
+    try:
+        return get_mod().forward('agent_graph_reset', name=name, key=key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (KeyError, ValueError) as e:
+        return {"error": str(e)}
+
 @app.delete("/agents/{name}")
 def remove_agent(name: str, key: Optional[str] = None):
     """Remove an agent. Its owner or the host — built-ins are host-only."""

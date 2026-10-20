@@ -13,6 +13,14 @@
 //!   GET  /deposit/balances  — every spendable balance for an EOA, priced
 //!   POST /deposit/quote     — route into Hyperliquid (tx for the wallet)
 //!   GET  /deposit/status    — transfer status by source tx hash
+//!   GET  /deposit/evm_chains — EVERY EVM chain LI.FI can route from (~65)
+//!   GET  /deposit/token     — look up any ERC-20 on any of those chains
+//!
+//! Custom tokens: the twelve built-in chains carry a curated token list, but
+//! any (chain, token) LI.FI knows can ride along — `/deposit/balances` takes
+//! `extra=<chainId>:<address|native>,…` and `/deposit/quote` accepts any
+//! EVM chain id + token address. The browser keeps the user's list; the
+//! server only prices, reads balances and routes.
 //!
 //! Arbitrum USDC keeps its own path: a plain ERC-20 transfer straight to
 //! Hyperliquid's bridge, which costs nothing and needs no third party.
@@ -266,6 +274,271 @@ fn multicall_for(chain_id: u64) -> &'static str {
     if chain_id == 324 { MULTICALL3_ZKSYNC } else { MULTICALL3 }
 }
 
+// ── Any EVM chain / any token (LI.FI registry) ──────────────────────────
+
+/// A source chain resolved at runtime — one of `CHAINS`, or any EVM chain
+/// in LI.FI's registry. Owned, so both kinds flow through the same code.
+#[derive(Clone, Debug)]
+pub struct AnyChain {
+    pub chain_id: u64,
+    pub key: String,
+    pub name: String,
+    pub rpc: String,
+    pub explorer: String,
+    pub native_symbol: String,
+    pub native_decimals: u32,
+    pub logo: Option<String>,
+    /// True for the twelve chains with a curated token list.
+    pub builtin: bool,
+}
+
+impl AnyChain {
+    fn from_builtin(c: &Chain) -> AnyChain {
+        AnyChain {
+            chain_id: c.chain_id, key: c.key.into(), name: c.name.into(),
+            rpc: c.rpc.into(), explorer: c.explorer.into(),
+            native_symbol: c.native_symbol.into(), native_decimals: 18,
+            logo: None, builtin: true,
+        }
+    }
+
+    fn json(&self) -> Value {
+        json!({
+            "chainId": self.chain_id,
+            "chainIdHex": format!("0x{:x}", self.chain_id),
+            "key": self.key,
+            "name": self.name,
+            "rpcUrl": self.rpc,
+            "explorerUrl": self.explorer,
+            "nativeSymbol": self.native_symbol,
+            "nativeDecimals": self.native_decimals,
+            "logo": self.logo,
+            "builtin": self.builtin,
+        })
+    }
+}
+
+/// Parse one entry of LI.FI's `/chains?chainTypes=EVM`. Anything without a
+/// usable RPC is dropped — we could not read a balance there anyway.
+fn parse_lifi_chain(v: &Value) -> Option<AnyChain> {
+    let id = v.get("id")?.as_u64()?;
+    if id == HL_CHAIN_ID || v.get("mainnet").and_then(|m| m.as_bool()) == Some(false) {
+        return None;
+    }
+    let mm = v.get("metamask");
+    let rpc = mm
+        .and_then(|m| m.get("rpcUrls"))
+        .and_then(|r| r.as_array())
+        .and_then(|a| a.iter().filter_map(|u| u.as_str()).find(|u| u.starts_with("https://")))?
+        .to_string();
+    let explorer = mm
+        .and_then(|m| m.get("blockExplorerUrls"))
+        .and_then(|r| r.as_array())
+        .and_then(|a| a.first())
+        .and_then(|u| u.as_str())
+        .unwrap_or("")
+        .trim_end_matches('/')
+        .to_string();
+    let native = mm.and_then(|m| m.get("nativeCurrency"));
+    Some(AnyChain {
+        chain_id: id,
+        key: v.get("key").and_then(|k| k.as_str()).unwrap_or("").to_string(),
+        name: v.get("name").and_then(|k| k.as_str()).unwrap_or("").to_string(),
+        rpc,
+        explorer,
+        native_symbol: native
+            .and_then(|n| n.get("symbol")).and_then(|s| s.as_str())
+            .or_else(|| v.get("coin").and_then(|c| c.as_str()))
+            .unwrap_or("ETH").to_string(),
+        native_decimals: native
+            .and_then(|n| n.get("decimals")).and_then(|d| d.as_u64())
+            .unwrap_or(18) as u32,
+        logo: v.get("logoURI").and_then(|l| l.as_str()).map(String::from),
+        builtin: false,
+    })
+}
+
+type Stamped<T> = (std::time::Instant, T);
+static LIFI_CHAINS: std::sync::OnceLock<parking_lot::RwLock<Option<Stamped<Vec<AnyChain>>>>> =
+    std::sync::OnceLock::new();
+const LIFI_CHAINS_TTL: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
+
+/// Every EVM source chain: the built-ins first (our curated RPCs win), then
+/// whatever else LI.FI routes from. Cached 6h; a failed refresh keeps the
+/// stale list, and with no list at all the built-ins still answer.
+pub async fn evm_chains(http: &reqwest::Client) -> Vec<AnyChain> {
+    let cell = LIFI_CHAINS.get_or_init(|| parking_lot::RwLock::new(None));
+    let cached = cell.read().clone();
+    let fresh = cached.as_ref().map(|(t, _)| t.elapsed() < LIFI_CHAINS_TTL).unwrap_or(false);
+    let remote = if fresh {
+        cached.map(|(_, v)| v).unwrap_or_default()
+    } else {
+        let got = async {
+            let v: Value = http
+                .get(format!("{LIFI}/chains?chainTypes=EVM"))
+                .timeout(std::time::Duration::from_secs(15))
+                .send().await.ok()?
+                .json().await.ok()?;
+            let list: Vec<AnyChain> = v.get("chains")?.as_array()?
+                .iter().filter_map(parse_lifi_chain).collect();
+            (!list.is_empty()).then_some(list)
+        }.await;
+        match got {
+            Some(list) => {
+                *cell.write() = Some((std::time::Instant::now(), list.clone()));
+                list
+            }
+            None => cached.map(|(_, v)| v).unwrap_or_default(),
+        }
+    };
+    merge_chains(remote)
+}
+
+fn merge_chains(remote: Vec<AnyChain>) -> Vec<AnyChain> {
+    let mut out: Vec<AnyChain> = CHAINS.iter().map(AnyChain::from_builtin).collect();
+    for o in out.iter_mut() {
+        if let Some(rc) = remote.iter().find(|c| c.chain_id == o.chain_id) {
+            o.logo = rc.logo.clone();
+        }
+    }
+    let mut extra: Vec<AnyChain> = remote
+        .into_iter()
+        .filter(|c| chain_by_id(c.chain_id).is_none())
+        .collect();
+    extra.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.extend(extra);
+    out
+}
+
+/// Resolve any EVM source chain id.
+pub async fn any_chain(http: &reqwest::Client, id: u64) -> Option<AnyChain> {
+    if let Some(c) = chain_by_id(id) {
+        return Some(AnyChain::from_builtin(c));
+    }
+    evm_chains(http).await.into_iter().find(|c| c.chain_id == id)
+}
+
+/// A token as LI.FI knows it — symbol, decimals, and a USD price.
+#[derive(Clone, Debug)]
+pub struct TokenInfo {
+    pub chain_id: u64,
+    pub address: String,
+    pub symbol: String,
+    pub name: String,
+    pub decimals: u32,
+    pub price_usd: Option<f64>,
+    pub logo: Option<String>,
+    pub verified: bool,
+}
+
+impl TokenInfo {
+    fn native(&self) -> bool { self.address == NATIVE }
+    fn json(&self) -> Value {
+        json!({
+            "chainId": self.chain_id,
+            "address": self.address,
+            "symbol": self.symbol,
+            "name": self.name,
+            "decimals": self.decimals,
+            "native": self.native(),
+            "priceUsd": self.price_usd,
+            "logo": self.logo,
+            "verified": self.verified,
+        })
+    }
+}
+
+fn parse_lifi_token(v: &Value) -> Option<TokenInfo> {
+    let address = v.get("address")?.as_str()?.to_string();
+    Some(TokenInfo {
+        chain_id: v.get("chainId")?.as_u64()?,
+        symbol: v.get("symbol").and_then(|s| s.as_str()).unwrap_or("?").to_string(),
+        name: v.get("name").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+        decimals: v.get("decimals")?.as_u64()? as u32,
+        price_usd: v.get("priceUSD")
+            .and_then(|p| p.as_str().and_then(|s| s.parse::<f64>().ok()).or_else(|| p.as_f64()))
+            .filter(|p| *p > 0.0),
+        logo: v.get("logoURI").and_then(|l| l.as_str()).map(String::from),
+        verified: v.get("verificationStatus").and_then(|s| s.as_str()) == Some("verified"),
+        address: if address == NATIVE { NATIVE.to_string() } else { address },
+    })
+}
+
+static TOKENS: std::sync::OnceLock<dashmap::DashMap<String, Stamped<Option<TokenInfo>>>> =
+    std::sync::OnceLock::new();
+const TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Look a token up on LI.FI (`native` = the chain's own coin). `None` means
+/// LI.FI doesn't know it — and a token LI.FI can't name it can't route, so
+/// that is the honest "unsupported" answer. Cached 5 min (prices move).
+pub async fn lookup_token(http: &reqwest::Client, chain_id: u64, token: &str) -> Option<TokenInfo> {
+    let token = if token.eq_ignore_ascii_case("native") { NATIVE } else { token };
+    if !is_addr(token) {
+        return None;
+    }
+    let key = format!("{chain_id}:{}", token.to_lowercase());
+    let map = TOKENS.get_or_init(dashmap::DashMap::new);
+    if let Some(hit) = map.get(&key) {
+        if hit.0.elapsed() < TOKEN_TTL {
+            return hit.1.clone();
+        }
+    }
+    let resp = http
+        .get(format!("{LIFI}/token?chain={chain_id}&token={token}"))
+        .timeout(std::time::Duration::from_secs(12))
+        .send().await.ok()?;
+    let found = if resp.status().is_success() {
+        resp.json::<Value>().await.ok().as_ref().and_then(parse_lifi_token)
+    } else if resp.status().as_u16() == 404 || resp.status().as_u16() == 400 {
+        None
+    } else {
+        // Rate limit / outage — don't cache a transient miss.
+        return None;
+    };
+    if map.len() > 2000 {
+        map.clear();
+    }
+    map.insert(key, (std::time::Instant::now(), found.clone()));
+    found
+}
+
+/// Parse `extra=8453:0xabc…,10:native` — at most 40 entries, deduped.
+pub fn parse_extra(s: &str) -> Vec<(u64, String)> {
+    let mut out: Vec<(u64, String)> = Vec::new();
+    for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let Some((cid, tok)) = part.split_once(':') else { continue };
+        let Ok(cid) = cid.trim().parse::<u64>() else { continue };
+        let tok = tok.trim().to_lowercase();
+        let tok = if tok == "native" { NATIVE.to_string() } else { tok };
+        if cid == HL_CHAIN_ID || !is_addr(&tok) || out.iter().any(|(c, t)| *c == cid && *t == tok) {
+            continue;
+        }
+        out.push((cid, tok));
+        if out.len() >= 40 {
+            break;
+        }
+    }
+    out
+}
+
+/// One balance read: native via eth_getBalance, ERC-20 via balanceOf.
+async fn read_balance(http: &reqwest::Client, rpc_url: &str, token: &str, eoa: &str, decimals: u32) -> Option<f64> {
+    let res = if token == NATIVE {
+        rpc(http, rpc_url, "eth_getBalance", json!([eoa, "latest"])).await.ok()?
+    } else {
+        let who = pad32(eoa.trim_start_matches("0x"));
+        rpc(http, rpc_url, "eth_call",
+            json!([{"to": token, "data": format!("0x70a08231{who}")}, "latest"])).await.ok()?
+    };
+    let hex_s = res.as_str()?.trim_start_matches("0x");
+    if hex_s.is_empty() {
+        return Some(0.0);
+    }
+    let padded = format!("{:0>64}", hex_s);
+    let bytes = hex::decode(&padded[padded.len().saturating_sub(64)..]).ok()?;
+    Some(word_units(&bytes, decimals))
+}
+
 fn chain_json(c: &Chain) -> Value {
     json!({
         "key": c.key,
@@ -469,9 +742,59 @@ pub async fn deposit_chains(State(s): State<AppState>) -> Json<Value> {
     }))
 }
 
+/// Every EVM chain a deposit can start from — the twelve built-ins (with
+/// curated token lists) plus everything else LI.FI routes from.
+pub async fn deposit_evm_chains(State(s): State<AppState>) -> Json<Value> {
+    if s.hl.testnet {
+        return Json(json!({"testnet": true, "chains": []}));
+    }
+    let chains = evm_chains(&s.http).await;
+    Json(json!({
+        "testnet": false,
+        "count": chains.len(),
+        "chains": chains.iter().map(AnyChain::json).collect::<Vec<_>>(),
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct TokenQuery {
+    chain_id: u64,
+    /// ERC-20 address, or `native`.
+    address: String,
+}
+
+/// Look up one token on any EVM chain: symbol, decimals, USD price and
+/// whether LI.FI can route it. Used by "add a token" before it is saved.
+pub async fn deposit_token(
+    State(s): State<AppState>,
+    Query(q): Query<TokenQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let addr = q.address.trim();
+    if !(addr.eq_ignore_ascii_case("native") || is_addr(addr)) {
+        return Err(err(StatusCode::BAD_REQUEST, "address must be a 0x token address or 'native'"));
+    }
+    let chain = any_chain(&s.http, q.chain_id).await
+        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "LI.FI doesn't route from this chain"))?;
+    let tok = lookup_token(&s.http, chain.chain_id, addr).await.ok_or_else(|| {
+        err(StatusCode::NOT_FOUND, format!(
+            "LI.FI doesn't know this token on {} — check the address (it must be the token contract on that chain)",
+            chain.name))
+    })?;
+    let mut v = tok.json();
+    v["chain"] = chain.json();
+    // Already scanned by default? Then adding it changes nothing.
+    v["builtin"] = json!(chain_by_id(chain.chain_id)
+        .map(|c| c.tokens.iter().any(|t| t.address.eq_ignore_ascii_case(&tok.address)))
+        .unwrap_or(false));
+    Ok(Json(v))
+}
+
 #[derive(Deserialize)]
 pub struct BalancesQuery {
     eoa: String,
+    /// Custom tokens to scan as well: `<chainId>:<address|native>,…`.
+    #[serde(default)]
+    extra: Option<String>,
 }
 
 pub async fn deposit_balances(
@@ -571,6 +894,70 @@ pub async fn deposit_balances(
         }));
     }
 
+    // Custom tokens — any EVM chain LI.FI routes from. Each is one direct
+    // read (no multicall: arbitrary chains don't all have Multicall3), priced
+    // off LI.FI's own token price. A token that's already in a built-in list
+    // was scanned above and is skipped here.
+    let extra = q.extra.as_deref().map(parse_extra).unwrap_or_default();
+    let mut custom = Vec::new();
+    if !extra.is_empty() {
+        let reads = extra.into_iter()
+            .filter(|(cid, tok)| !chain_by_id(*cid)
+                .map(|c| c.tokens.iter().any(|t| t.address.eq_ignore_ascii_case(tok)))
+                .unwrap_or(false))
+            .map(|(cid, tok)| {
+                let http = s.http.clone();
+                let eoa = eoa.clone();
+                async move {
+                    let chain = any_chain(&http, cid).await;
+                    let info = lookup_token(&http, cid, &tok).await;
+                    let bal = match (&chain, &info) {
+                        (Some(c), Some(t)) => read_balance(&http, &c.rpc, &t.address, &eoa, t.decimals).await,
+                        _ => None,
+                    };
+                    (cid, tok, chain, info, bal)
+                }
+            });
+        for (cid, tok, chain, info, bal) in futures::future::join_all(reads).await {
+            let (Some(c), Some(t)) = (chain, info) else {
+                custom.push(json!({"chainId": cid, "address": tok, "ok": false,
+                    "error": "LI.FI doesn't know this chain or token — it can't be routed"}));
+                continue;
+            };
+            let Some(balance) = bal else {
+                custom.push(json!({"chainId": cid, "address": t.address, "symbol": t.symbol,
+                    "ok": false, "error": format!("{} RPC unreachable", c.name)}));
+                continue;
+            };
+            // Natives keep ~$1 of gas back (or a sliver when unpriced).
+            let reserve = if t.native() {
+                t.price_usd.map(|p| (1.0 / p).min(balance)).unwrap_or(balance * 0.02)
+            } else { 0.0 };
+            custom.push(json!({"chainId": cid, "address": t.address, "symbol": t.symbol,
+                "ok": true, "balance": balance}));
+            let max = (balance - reserve).max(0.0);
+            if balance <= 0.0 || max <= 0.0 {
+                continue;
+            }
+            sources.push(json!({
+                "chainKey": c.key,
+                "chainName": c.name,
+                "chainId": c.chain_id,
+                "symbol": t.symbol,
+                "address": t.address,
+                "decimals": t.decimals,
+                "native": t.native(),
+                "balance": balance,
+                "max": max,
+                "priceUsd": t.price_usd,
+                "usd": t.price_usd.map(|p| balance * p),
+                "gasReserve": reserve,
+                "direct": false,
+                "custom": true,
+            }));
+        }
+    }
+
     // Richest first — the default pick should be the one that can actually
     // clear the minimum. Unpriced tokens sort last but stay selectable.
     sources.sort_by(|a, b| {
@@ -578,7 +965,7 @@ pub async fn deposit_balances(
         v(b).partial_cmp(&v(a)).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    Ok(Json(json!({"eoa": eoa, "chains": chains, "sources": sources})))
+    Ok(Json(json!({"eoa": eoa, "chains": chains, "sources": sources, "custom": custom})))
 }
 
 #[derive(Deserialize)]
@@ -598,6 +985,13 @@ pub struct QuoteBody {
     /// Recipient on the destination chain — defaults to `eoa`.
     #[serde(default)]
     pub to_address: Option<String>,
+}
+
+/// A resolved source token (built-in or looked up).
+struct Tok {
+    symbol: String,
+    address: String,
+    decimals: u32,
 }
 
 /// Resolve a `token` field against a chain's token list.
@@ -630,14 +1024,23 @@ pub async fn deposit_quote(
     if s.hl.testnet {
         return Err(err(StatusCode::BAD_REQUEST, "cross-chain deposit is mainnet-only"));
     }
-    let chain = chain_by_id(b.from_chain_id)
-        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "unsupported source chain"))?;
+    // Built-in chains resolve against their curated list (symbols, `usdc`,
+    // `native`); anything else — or an address not in that list — goes to
+    // LI.FI's registry, so any EVM chain and any token LI.FI can route works.
+    let chain = any_chain(&s.http, b.from_chain_id).await
+        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "unsupported source chain — LI.FI doesn't route from it"))?;
     let amount: f64 = b.amount.trim().parse().unwrap_or(0.0);
     if amount <= 0.0 {
         return Err(err(StatusCode::BAD_REQUEST, "amount must be > 0"));
     }
-    let tok = resolve_token(chain, b.token.trim())
-        .ok_or_else(|| err(StatusCode::BAD_REQUEST, format!("unknown token on {}", chain.name)))?;
+    let want = b.token.trim();
+    let tok: Tok = match chain_by_id(chain.chain_id).and_then(|c| resolve_token(c, want)) {
+        Some(t) => Tok { symbol: t.symbol.to_string(), address: t.address.to_string(), decimals: t.decimals },
+        None => lookup_token(&s.http, chain.chain_id, want).await
+            .map(|t| Tok { symbol: t.symbol, address: t.address, decimals: t.decimals })
+            .ok_or_else(|| err(StatusCode::BAD_REQUEST,
+                format!("unknown token on {} — pass its 0x address", chain.name)))?,
+    };
 
     // Destination: Hyperliquid Core by default (deposit). Withdrawals name a
     // real EVM chain, which must be one we know how to price and explore.
@@ -863,5 +1266,58 @@ mod tests {
         w[24..32].copy_from_slice(&1_500_000u64.to_be_bytes());
         assert_eq!(word_units(&w, 6), 1.5);
         assert_eq!(word_units(&w, 0), 1_500_000.0);
+    }
+
+    #[test]
+    fn extra_tokens_parse_dedupe_and_reject_junk() {
+        let x = parse_extra("8453:0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed, 10:native,\
+            8453:0x4ed4e862860bed51a9570b96d89af5e1b0efefed,1337:native,abc:0x1,5:nope,,");
+        assert_eq!(x.len(), 2);
+        assert_eq!(x[0], (8453, "0x4ed4e862860bed51a9570b96d89af5e1b0efefed".to_string()));
+        assert_eq!(x[1], (10, NATIVE.to_string()));
+        let many: String = (0..60).map(|i| format!("{i}:native,")).collect();
+        assert_eq!(parse_extra(&many).len(), 40);
+    }
+
+    #[test]
+    fn lifi_chain_and_token_parse() {
+        let c = parse_lifi_chain(&json!({
+            "id": 81457, "key": "bls", "name": "Blast", "coin": "ETH", "mainnet": true,
+            "logoURI": "x.svg",
+            "metamask": {"rpcUrls": ["wss://no", "https://rpc.blast.io"],
+                         "blockExplorerUrls": ["https://blastscan.io/"],
+                         "nativeCurrency": {"symbol": "ETH", "decimals": 18}}
+        })).unwrap();
+        assert_eq!(c.rpc, "https://rpc.blast.io");
+        assert_eq!(c.explorer, "https://blastscan.io");
+        assert!(!c.builtin);
+        // Hyperliquid Core itself and RPC-less chains are not sources.
+        assert!(parse_lifi_chain(&json!({"id": 1337, "metamask": {"rpcUrls": ["https://x"]}})).is_none());
+        assert!(parse_lifi_chain(&json!({"id": 5, "metamask": {"rpcUrls": []}})).is_none());
+
+        let t = parse_lifi_token(&json!({"address": "0xabc", "chainId": 8453, "symbol": "DEGEN",
+            "decimals": 18, "priceUSD": "0.00095", "verificationStatus": "verified"})).unwrap();
+        assert_eq!(t.decimals, 18);
+        assert!((t.price_usd.unwrap() - 0.00095).abs() < 1e-12);
+        assert!(t.verified);
+        let z = parse_lifi_token(&json!({"address": NATIVE, "chainId": 1, "symbol": "ETH",
+            "decimals": 18, "priceUSD": "0"})).unwrap();
+        assert!(z.native() && z.price_usd.is_none());
+    }
+
+    #[test]
+    fn merged_registry_keeps_builtins_first_and_unique() {
+        let remote = vec![
+            AnyChain { chain_id: 8453, key: "bas".into(), name: "Base".into(), rpc: "https://other".into(),
+                explorer: "".into(), native_symbol: "ETH".into(), native_decimals: 18,
+                logo: Some("b.svg".into()), builtin: false },
+            AnyChain { chain_id: 81457, key: "bls".into(), name: "Blast".into(), rpc: "https://rpc.blast.io".into(),
+                explorer: "".into(), native_symbol: "ETH".into(), native_decimals: 18, logo: None, builtin: false },
+        ];
+        let m = merge_chains(remote);
+        assert_eq!(m.len(), CHAINS.len() + 1);
+        let base = m.iter().find(|c| c.chain_id == 8453).unwrap();
+        assert!(base.builtin && base.rpc != "https://other" && base.logo.as_deref() == Some("b.svg"));
+        assert_eq!(m.last().unwrap().chain_id, 81457);
     }
 }

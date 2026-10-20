@@ -2,7 +2,7 @@
 /* ztensor console. The chain list, its colors, nets, ring caps and cost
  * units all come from GET networks — drop a new adapter under
  * src/networks/<chain>/ and it gets a button, a theme and every tab. */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Board as B, Chain } from '@/lib/api';
 import { get, usd } from '@/lib/api';
 import Live from '@/components/Live';
@@ -37,6 +37,8 @@ export default function Page() {
   const [info, setInfo] = useState<any>(null);
   const [local, setLocal] = useState(false);
   const [fatal, setFatal] = useState('');
+  const [netOpen, setNetOpen] = useState(false);
+  const netRef = useRef<HTMLDivElement>(null);
 
   // url: #<tab>/<chain>
   useEffect(() => {
@@ -84,6 +86,15 @@ export default function Page() {
     const on = nav?.querySelector<HTMLElement>('button.on');
     if (nav && on && nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: on.offsetLeft - 24, behavior: 'smooth' });
   }, [tab]);
+
+  useEffect(() => {
+    if (!netOpen) return;
+    const close = (e: MouseEvent) => { if (!netRef.current?.contains(e.target as Node)) setNetOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setNetOpen(false); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+  }, [netOpen]);
 
   // sticky things under the header (paper contents) sit at --toph
   useEffect(() => {
@@ -133,9 +144,9 @@ export default function Page() {
   }, [chain]);
 
   const up = (c: string) => health?.[c]?.up ?? (c === 'starknet' ? health?.devnet_up : undefined);
-  // live nodes first, then unknown, then down (stable within each group)
-  const rank = (c: string) => (up(c) === true ? 0 : up(c) === false ? 2 : 1);
-  const ordered = [...chains].sort((a, b) => rank(a.chain) - rank(b.chain));
+  // adapter order (GET networks), never re-sorted by node status: a tile must
+  // not jump when its node sleeps or wakes, the dot already says which is up
+  const ordered = chains;
   const suite = chain ? tests?.[chain.chain] : null;
   const passed = Object.values(tests || {}).reduce((a: number, s: any) => a + (s?.passed || 0), 0);
   const scoreUsd = chain ? eco?.chains?.[chain.chain]?.actions?.score?.usd : undefined;
@@ -156,6 +167,34 @@ export default function Page() {
               </button>
             ))}
           </nav>
+          <div className="netdd" ref={netRef}>
+            <button className="netbtn" aria-haspopup="listbox" aria-expanded={netOpen}
+              style={chain ? { '--cc': rgb(chain.color) } as React.CSSProperties : undefined}
+              onClick={() => setNetOpen((o) => !o)}>
+              <span className={`dot${up(sel) === true ? ' up' : up(sel) === false ? ' down' : ''}`} />
+              <span className="lbl">Network</span>
+              <b>{chain?.title ?? '—'}</b>
+              {chain && <span className="info">{chain.local ?? chain.net} · ring ≤ {chain.max_ring}</span>}
+              <span className="chev">▾</span>
+            </button>
+            {netOpen && (
+              <div className="netmenu" role="listbox" aria-label="Network">
+                {ordered.map((c) => {
+                  const u = up(c.chain);
+                  const on = c.chain === sel;
+                  return (
+                    <button key={c.chain} role="option" aria-selected={on} className={on ? 'on' : ''}
+                      style={{ '--cc': rgb(c.color) } as React.CSSProperties}
+                      onClick={() => { setSel(c.chain); setNetOpen(false); history.replaceState(null, '', `#${tab}/${c.chain}`); }}>
+                      <span className={`dot${u === true ? ' up' : u === false ? ' down' : ''}`} />
+                      <span className="nm">{c.title}</span>
+                      <span className="sub">{c.local ?? c.net} · ring ≤ {c.max_ring}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           <div className="spacer" />
           <span className={`who${local ? ' local' : ''}`} title={local ? 'on the anchor host: key-touching fns allowed' : 'public: reads + sandbox runs only'}>
             {local ? 'anchor host' : 'public · read-only'}
@@ -163,6 +202,10 @@ export default function Page() {
         </header>
 
         {fatal && <div className="err">API unreachable: {fatal}</div>}
+
+        {/* costs leads: the $ per action is the point of the tab, hero + chains follow */}
+        {tab === 'costs' && <Costs chains={chains} chain={chain} eco={eco} costs={costs}
+          onPick={(c) => { setSel(c); history.replaceState(null, '', `#${tab}/${c}`); }} />}
 
         <section className={`hero${tab === 'live' ? '' : ' compact'}`}>
           <div>
@@ -181,27 +224,8 @@ export default function Page() {
           </div>
         </section>
 
-        <div className="chains">
-          {ordered.map((c) => {
-            const u = up(c.chain);
-            return (
-              <button key={c.chain} className={`chainbtn${c.chain === sel ? ' on' : ''}`} style={{ '--cc': rgb(c.color) } as React.CSSProperties}
-                onClick={() => { setSel(c.chain); history.replaceState(null, '', `#${tab}/${c.chain}`); }}>
-                <span className="glyph">{c.title.slice(0, 1)}</span>
-                <span>
-                  <div className="nm">{c.title}</div>
-                  <div className="sub">{c.local ?? c.net} · ring ≤ {c.max_ring}</div>
-                </span>
-                <span className={`dot${u === true ? ' up' : u === false ? ' down' : ''}`} title={u ? 'local node up' : u === false ? 'local node down' : ''} />
-              </button>
-            );
-          })}
-        </div>
-
         {tab === 'live' && <Live chain={chain} board={board} local={local} onDone={onSimDone} />}
         {tab === 'subnet' && <Board chain={chain} board={board} net={net} setNet={setNet} err={boardErr} onRun={() => go('live')} />}
-        {tab === 'costs' && <Costs chains={chains} chain={chain} eco={eco} costs={costs}
-          onPick={(c) => { setSel(c); history.replaceState(null, '', `#${tab}/${c}`); }} />}
         {tab === 'code' && <Code chain={chain} />}
         {tab === 'tests' && <Tests chains={chains} chain={chain} tests={tests} />}
         {tab === 'paper' && <Paper />}

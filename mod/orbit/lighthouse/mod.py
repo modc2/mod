@@ -88,7 +88,7 @@ class Mod:
         'forward', 'put', 'get', 'preview', 'pin', 'list', 'rm',
         'status', 'usage', 'uploads', 'set_key', 'mint_key', 'key_status', 'install',
         'store', 'push', 'mirror', 'mcp', 'mcp_tools', 'mcp_call',
-        'serve', 'stop', 'app', 'api',
+        'serve', 'stop', 'app', 'api', 'pricing',
     ]
 
     def __init__(self, api_key: str = None, store_path: str = None, **kw):
@@ -436,6 +436,17 @@ class Mod:
                          params={'pageNo': page}, headers=self._auth(), timeout=15)
         r.raise_for_status()
         return r.json()
+
+    def pricing(self, **changes) -> dict:
+        """x402 price list; with kwargs (owner, on the box) change it off-chain:
+        m lighthouse/pricing pay_to=0x… price_usd=0.001 price_per_mib_usd=0.001
+        networks=base,polygon enabled=true. Ledger stats ride along."""
+        import sys
+        if str(DIR) not in sys.path:
+            sys.path.append(str(DIR))
+        import lhpay
+        p = lhpay.set_policy(**changes) if changes else None
+        return {**lhpay.public(p), 'stats': lhpay.stats()}
 
     def status(self) -> dict:
         conn = self._db()

@@ -72,9 +72,12 @@ INSTRUCTIONS = (
     '(`store.blockers` names what is in the way, `store.can_push` is the verdict '
     '— check it BEFORE uploading rather than reading a failure afterwards). '
     'No credential is needed to connect: without a protocol token you are '
-    '`anon`, lighthouse_put still returns a CID (spending the deployment\'s '
-    'own key, within a daily anonymous budget reported under `anon`), and the '
-    'store half simply waits for a signer. '
+    '`anon` and the store half simply waits for a signer. Uploads are paid '
+    'per upload with x402 (USDC, no account, no KYC; lighthouse_status shows '
+    'the price under `pay`): lighthouse_put without `payment` returns the 402 '
+    '`accepts`, you sign one EIP-3009 transfer and call again with `payment` — '
+    'verified before the upload, settled after, never charged for a failure. '
+    'Passing your own `api_key` makes it free. '
     'lighthouse_mirror makes something the store already holds perpetual. '
     'Every store call forwards the CALLER\'S OWN protocol token, so the store\'s '
     'whitelist, terms and quota apply to whoever signed — this server holds no '
@@ -115,12 +118,18 @@ class Ctx:
     the paths mean anything to them.
     """
 
-    def __init__(self, token=None, key=None, local=True):
+    def __init__(self, token=None, key=None, local=True, payment=None,
+                 exempt=None, resource=None):
         self._token = (token or '').strip() or None
         if self._token and self._token.lower().startswith('bearer '):
             self._token = self._token[7:].strip()
         self.key = (key or '').strip() or None
         self.local = bool(local)
+        # x402: the X-PAYMENT the request carried, why this caller does not pay
+        # ('' = they do; stdio is the box itself), and the url being paid for
+        self.payment = (payment or '').strip() or None
+        self.exempt = ('local' if self.local else '') if exempt is None else exempt
+        self.resource = resource or 'lighthouse/mcp/lighthouse_put'
 
     @property
     def anonymous(self) -> bool:
@@ -135,7 +144,27 @@ class Ctx:
         """The same caller, spending a key they passed on this one call."""
         if not (key or '').strip():
             return self
-        return Ctx(token=self._token, key=key, local=self.local)
+        return Ctx(token=self._token, key=key, local=self.local, payment=self.payment,
+                   exempt=('byok' if (key or '').strip() else self.exempt),
+                   resource=self.resource)
+
+    def charge(self, size, payment=None):
+        """The x402 gate for an upload of `size` bytes. A refusal is a tool
+        error carrying the 402 body: sign one of `accepts` and call again with
+        `payment` (or an X-PAYMENT header on the MCP request)."""
+        import lhpay
+        raw = (payment or '').strip() or self.payment
+        c = lhpay.Charge({'X-PAYMENT': raw} if raw else {}, size, self.resource,
+                         exempt=self.exempt)
+        if c.refusal:
+            status, body = c.refusal
+            raise Refused(f'{status} — pay with x402: sign one of `accepts` '
+                          '(EIP-3009 USDC transferWithAuthorization), base64 the '
+                          'payment JSON and pass it as `payment` (or send '
+                          '`X-PAYMENT` on the MCP request). Verified before the '
+                          'upload, settled after — a failed upload is never '
+                          'charged.\n' + json.dumps(body, indent=2))
+        return c
 
     # the Lighthouse key
     def lh(self):
@@ -216,6 +245,9 @@ def _t_status(a, ctx):
         'perpetual': True,
         'store': STORE.status(ctx.maybe_token()),
     })
+    import lhpay
+    out['pay'] = {**lhpay.public(), 'you_pay': lhpay.active() and not ctx.exempt,
+                  'why_free': ctx.exempt or None}
     if ctx.anonymous:
         out['note'] = ('no token sent — uploads work and are recorded under '
                        '`anon`; the store (visibility, grants, pools) needs a '
@@ -254,7 +286,10 @@ def _t_put(a, ctx):
     if path is not None:
         ctx.filesystem('`path`')
     lh = ctx.paying_key()
-    if ctx.anonymous and not ctx.key:
+    size = (Path(path).stat().st_size if path is not None
+            else len(str(text).encode()))
+    c = ctx.charge(size, a.get('payment'))
+    if ctx.anonymous and not ctx.key and c.mode == 'free':
         # Spending the deployment's key with no signer behind it is allowed,
         # within a budget the status tool reports — the refusal names it.
         try:
@@ -282,6 +317,7 @@ def _t_put(a, ctx):
                            'error': 'register=false — this CID is pinned but the '
                                     'store does not know about it; '
                                     'lighthouse_register adds it later'}
+    result['payment'], _ = c.settle(result.get('cid', ''))
     return result
 
 
@@ -403,7 +439,9 @@ def _t_mirror(a, ctx):
         except StoreError as e:
             raise Refused(f'store would not hand over {a["cid"]} ({e.status}): '
                           f'{e.message}')
+        c = ctx.charge(Path(local).stat().st_size, a.get('payment'))
         result = lh.put(path=str(local), owner=ctx.address(), key=str(name))
+        result['payment'], _ = c.settle(result.get('cid', ''))
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
     result['source_cid'] = a['cid']
@@ -437,6 +475,9 @@ def _bool(desc):
 
 
 _CID = _str('an IPFS CID — Qm… (v0) or bafy… (v1)')
+_PAYMENT = _str('x402 payment: base64 of {x402Version:1, scheme, network, payload:{signature, authorization}} '
+                'signing one of the `accepts` the unpaid call returned (EIP-3009 USDC). '
+                'Omit to get the price')
 _KEY = _str('your own Lighthouse API key for this call, sent instead of the '
             'deployment key and never written to disk (files.lighthouse.storage)')
 _PUBLIC = _bool('list the object publicly in the store (default false — private, '
@@ -469,10 +510,11 @@ TOOLS = {
                        'a file on the box (stdio only). Returns the CID, the '
                        'gateway url and a `store` block saying whether the '
                        'registration landed — if it did not, the bytes ARE still '
-                       'pinned and lighthouse_register can add them later. Needs '
-                       'no token: an anonymous call still gets a CID, recorded '
-                       'under `anon` and spending the deployment key within its '
-                       'anonymous budget.',
+                       'pinned and lighthouse_register can add them later. Paid '
+                       'with x402 (USDC, no account): a call without `payment` '
+                       'answers an error carrying the 402 `accepts` and price; '
+                       'sign one (EIP-3009) and call again with `payment`. Free '
+                       'with your own `api_key`, over stdio, or for the owner.',
         'inputSchema': {'type': 'object', 'properties': {
             'text': _str('the content to store, as a string'),
             'path': _str('a file on the server\'s filesystem — stdio transport only'),
@@ -482,6 +524,7 @@ TOOLS = {
             'public': _PUBLIC,
             'pool': _POOL,
             'api_key': _KEY,
+            'payment': _PAYMENT,
         }},
         'annotations': _WRITE,
         'auth': 'optional',
@@ -629,6 +672,7 @@ TOOLS = {
             'public': _PUBLIC,
             'pool': _POOL,
             'api_key': _KEY,
+            'payment': _PAYMENT,
         }, 'required': ['cid']},
         'annotations': _WRITE,
         'key_arg': 'api_key',
@@ -738,7 +782,12 @@ def describe(url=None):
                               'call and is never written to disk. Omit it to use '
                               "the deployment's key, which the box mints from its "
                               'own wallet when it has none.',
-            'anonymous': 'uploads with no token spend the deployment key within '
+            'x402': 'uploads are paid per upload in USDC (HTTP 402 / x402 v1, '
+                    'scheme exact, EIP-3009): call lighthouse_put without '
+                    '`payment` to get `accepts`, sign one, call again with '
+                    '`payment` or an X-PAYMENT header. Free over stdio, for the '
+                    'owner token, or with your own `api_key`',
+            'anonymous': 'when payment is off, uploads with no token spend the deployment key within '
                          'LIGHTHOUSE_ANON_MAX_BYTES per upload and '
                          'LIGHTHOUSE_ANON_DAILY_BYTES per day (lighthouse_status '
                          'reports both under `anon`)',

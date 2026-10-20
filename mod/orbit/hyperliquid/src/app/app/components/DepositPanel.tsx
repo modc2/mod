@@ -1,6 +1,7 @@
 "use client";
 
 // One-button deposit into Hyperliquid from Ethereum, Arbitrum, Base, OP,
+// (plus any token on any EVM chain the user adds — see AddToken below)
 // Polygon, BNB Chain, Avalanche, Linea, Scroll, zkSync Era, Gnosis or
 // Unichain, spending whichever token the wallet actually holds (ETH, USDC
 // and USDT everywhere they exist). We scan every chain, the user picks a
@@ -10,10 +11,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  depositBalances, depositChains, depositQuote, fmtUsd,
-  type DepositChain, type DepositChains, type DepositQuote, type DepositSource,
-  type WalletNetConfig,
+  depositBalances, depositChains, depositEvmChains, depositQuote, depositToken, evmToDepositChain, fmtUsd,
+  type CustomScan, type CustomToken, type DepositChain, type DepositChains, type DepositQuote, type DepositSource,
+  type EvmChain, type TokenInfo, type WalletNetConfig,
 } from "../lib/api";
+import { loadCustomTokens, saveCustomTokens, tokenKey } from "../lib/customTokens";
 import { bridgeDepositFlow, crossChainDepositFlow, type DepositStep } from "../lib/hlActions";
 
 type Signer = {
@@ -67,19 +69,30 @@ export default function DepositPanel({
 
   useEffect(() => { depositChains().then(setMeta).catch(() => {}); }, []);
 
+  // Custom tokens: any EVM chain LI.FI routes from, added by the user.
+  const [evm, setEvm] = useState<EvmChain[]>([]);
+  const [custom, setCustom] = useState<CustomToken[]>([]);
+  const [customScan, setCustomScan] = useState<CustomScan[]>([]);
+  useEffect(() => { setCustom(loadCustomTokens()); }, []);
+  useEffect(() => { depositEvmChains().then((r) => setEvm(r.chains)).catch(() => {}); }, []);
+  const setCustomList = (list: CustomToken[]) => { setCustom(list); saveCustomTokens(list); };
+
   const scan = useCallback(async () => {
     if (!eoa || !meta) return;
     setScanning(true);
     try {
-      const byId = new Map<number, DepositChain>(meta.chains.map((c) => [c.chainId, c]));
-      const rows = (await depositBalances(eoa)).sources ?? [];
-      setSources(rows.flatMap((r) => {
-        const chain = byId.get(r.chainId);
-        return chain ? [{ ...r, chain }] : [];
+      const byId = new Map<number, DepositChain>(evm.map((c) => [c.chainId, evmToDepositChain(c)]));
+      // Built-ins win: they carry the curated config (usdc, gas reserve).
+      for (const c of meta.chains) byId.set(c.chainId, c);
+      const r = await depositBalances(eoa, custom);
+      setCustomScan(r.custom ?? []);
+      setSources((r.sources ?? []).flatMap((row) => {
+        const chain = byId.get(row.chainId);
+        return chain ? [{ ...row, chain }] : [];
       }));
     } catch { setSources([]); }
     finally { setScanning(false); }
-  }, [eoa, meta]);
+  }, [eoa, meta, evm, custom]);
   // Scan on open (and re-scan on re-open — balances move); never while folded.
   useEffect(() => { if (open) scan(); }, [scan, open]);
 
@@ -214,6 +227,7 @@ export default function DepositPanel({
                     ? "border-accent/50 text-accent bg-accent/10"
                     : "border-white/10 text-muted hover:text-ink"}`}>
                   {s.chainName} · {fmtBal(s.balance)} {s.symbol}
+                  {s.custom && <span className={on ? "text-accent/70" : "text-muted/70"}> ·added</span>}
                   {s.usd != null && (
                     <span className={on ? "text-accent/70" : "text-muted/70"}> ({fmtUsd(s.usd)})</span>
                   )}
@@ -223,6 +237,10 @@ export default function DepositPanel({
           </div>
         )}
       </div>
+
+      <AddToken evm={evm} custom={custom} scans={customScan} disabled={busy}
+        onAdd={(t) => setCustomList([...custom.filter((c) => tokenKey(c) !== tokenKey(t)), t])}
+        onRemove={(t) => setCustomList(custom.filter((c) => tokenKey(c) !== tokenKey(t)))} />
 
       {/* 2 · how much */}
       {src && (
@@ -348,6 +366,12 @@ export default function DepositPanel({
               seconds to ~18 minutes depending on the chain. Minimum ${minUsd}.
             </li>
             <li>
+              Holding something else? <span className="text-ink">add a token</span> from any of
+              ~{evm.length || 65} EVM chains LI.FI routes from — paste its contract address and
+              it joins the scan (saved in this browser). Anything LI.FI can price and route
+              lands as USDC in your Hyperliquid account the same way.
+            </li>
+            <li>
               Your keys never leave MetaMask — the server only prices routes and watches
               for the credit. Withdrawing back out works the same way from the Withdraw
               panel, to any of these chains.
@@ -356,6 +380,116 @@ export default function DepositPanel({
         )}
       </div>
       </>)}
+    </div>
+  );
+}
+
+// ─── add a token from any EVM chain ──────────────────────────────────────
+
+function AddToken({
+  evm, custom, scans, disabled, onAdd, onRemove,
+}: {
+  evm: EvmChain[];
+  custom: CustomToken[];
+  scans: CustomScan[];
+  disabled: boolean;
+  onAdd: (t: CustomToken) => void;
+  onRemove: (t: CustomToken) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [chainId, setChainId] = useState<number>(8453);
+  const [addr, setAddr] = useState("");
+  const [found, setFound] = useState<TokenInfo | null>(null);
+  const [looking, setLooking] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const a = addr.trim();
+  const valid = /^0x[a-fA-F0-9]{40}$/.test(a) || a.toLowerCase() === "native";
+
+  // Look up as soon as the address is well-formed — no extra click.
+  useEffect(() => {
+    setFound(null); setErr(null);
+    if (!open || !valid) return;
+    let alive = true;
+    setLooking(true);
+    const t = setTimeout(() => {
+      depositToken(chainId, a)
+        .then((r) => { if (alive) setFound(r); })
+        .catch((e) => { if (alive) setErr(String(e?.message ?? e).replace(/^\/deposit\/token \d+ /, "")); })
+        .finally(() => { if (alive) setLooking(false); });
+    }, 300);
+    return () => { alive = false; clearTimeout(t); setLooking(false); };
+  }, [open, chainId, a, valid]);
+
+  const scanOf = (t: CustomToken) => scans.find((s) => tokenKey(s) === tokenKey(t));
+  const already = found ? custom.some((c) => tokenKey(c) === tokenKey(found)) : false;
+
+  return (
+    <div className="space-y-1.5">
+      {custom.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 items-center">
+          <span className="text-[10px] uppercase tracking-wider text-muted">added</span>
+          {custom.map((t) => {
+            const sc = scanOf(t);
+            return (
+              <span key={tokenKey(t)} className="pill !py-0.5 text-[10px] border-white/10 text-muted flex items-center gap-1"
+                title={sc?.error ?? t.address}>
+                {t.symbol} · {t.chainName}
+                {sc?.ok === false && <span className="text-warn"> !</span>}
+                {sc?.ok && sc.balance === 0 && <span className="text-muted/60"> · 0</span>}
+                <button className="hover:text-loss ml-0.5" disabled={disabled}
+                  aria-label={`remove ${t.symbol}`} onClick={() => onRemove(t)}>×</button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <button type="button" className="text-[10px] text-accent2 hover:text-accent" disabled={disabled}
+        onClick={() => setOpen((o) => !o)}>
+        {open ? "− close" : "+ add a token from any EVM chain"}
+      </button>
+      {open && (
+        <div className="rounded border border-white/10 bg-white/[0.02] p-3 space-y-2">
+          <div className="flex gap-2 flex-wrap">
+            <select className="input !w-auto text-xs" value={chainId}
+              onChange={(e) => setChainId(Number(e.target.value))}>
+              {(evm.length ? evm : [{ chainId: 8453, name: "Base" } as EvmChain]).map((c) => (
+                <option key={c.chainId} value={c.chainId}>{c.name}</option>
+              ))}
+            </select>
+            <input className="input flex-1 min-w-[220px] font-mono text-xs"
+              placeholder="token contract 0x…  (or 'native')"
+              value={addr} onChange={(e) => setAddr(e.target.value)} />
+          </div>
+          {looking && <p className="text-[11px] text-muted">Looking it up…</p>}
+          {err && <p className="text-[11px] text-warn">{err}</p>}
+          {found && (
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="min-w-0 truncate">
+                <span className="text-ink">{found.symbol}</span>
+                <span className="text-muted"> · {found.name} on {found.chain.name}</span>
+                {found.priceUsd != null && <span className="text-muted"> · {fmtUsd(found.priceUsd)}</span>}
+                {!found.verified && <span className="text-warn"> · unverified — double-check the address</span>}
+              </span>
+              {found.builtin ? (
+                <span className="text-muted shrink-0">already scanned</span>
+              ) : (
+                <button className="btn shrink-0" disabled={already}
+                  onClick={() => {
+                    onAdd({ chainId: found.chainId, address: found.address, symbol: found.symbol, chainName: found.chain.name });
+                    setAddr(""); setFound(null);
+                  }}>
+                  {already ? "added" : "add"}
+                </button>
+              )}
+            </div>
+          )}
+          <p className="text-[10px] text-muted">
+            Any token LI.FI can route works — it&apos;s swapped and delivered as USDC in your
+            Hyperliquid account in one transaction. Saved in this browser only.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

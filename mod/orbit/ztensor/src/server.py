@@ -81,6 +81,15 @@ GET_FNS = {
     'readme': lambda q: MOD.readme(),
     'networks': lambda q: MOD.networks(),
     'economics': lambda q: MOD.economics(),  # fresh= is loopback-only (cli)
+    'forecast': lambda q: MOD.forecast(
+        _q(q, 'chain'), _q(q, 'miners', '16,256'), _q(q, 'validators', '4,64'),
+        min(int(_q(q, 'months', 12)), 120), _q(q, 'shape', 'exp'),
+        _q(q, 'ring', 16), _q(q, 'epoch_hours', 1), _q(q, 'k')),
+    'experiment': lambda q: MOD.experiment(
+        _q(q, 'chain', 'near'), ','.join(str(_q(q, 'hours', '1,2,4,6,12,24')).split(',')[:8]),
+        _q(q, 'ring', 16), _q(q, 'strategy', 'baseline'), _q(q, 'share', 0.1),
+        _q(q, 'budget_day'), min(int(_q(q, 'trials', 200)), 400),
+        _q(q, 'vol', 0.5), _q(q, 'p_min', 0.8), _q(q, 'seed', 7)),
 }
 # local key names are operator data: which nickname holds which public key
 # never leaves the box (the sets themselves are public on-chain)
