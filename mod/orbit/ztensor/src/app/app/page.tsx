@@ -133,6 +133,9 @@ export default function Page() {
   }, [chain]);
 
   const up = (c: string) => health?.[c]?.up ?? (c === 'starknet' ? health?.devnet_up : undefined);
+  // live nodes first, then unknown, then down (stable within each group)
+  const rank = (c: string) => (up(c) === true ? 0 : up(c) === false ? 2 : 1);
+  const ordered = [...chains].sort((a, b) => rank(a.chain) - rank(b.chain));
   const suite = chain ? tests?.[chain.chain] : null;
   const passed = Object.values(tests || {}).reduce((a: number, s: any) => a + (s?.passed || 0), 0);
   const scoreUsd = chain ? eco?.chains?.[chain.chain]?.actions?.score?.usd : undefined;
@@ -179,7 +182,7 @@ export default function Page() {
         </section>
 
         <div className="chains">
-          {chains.map((c) => {
+          {ordered.map((c) => {
             const u = up(c.chain);
             return (
               <button key={c.chain} className={`chainbtn${c.chain === sel ? ' on' : ''}`} style={{ '--cc': rgb(c.color) } as React.CSSProperties}
