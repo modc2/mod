@@ -14,6 +14,7 @@ Adapters (one file each, one shape out — see core.py):
                  ISO 20022 pain.001 out — any bank      statements.py
     openbanking  Berlin Group PSD2 / UK OBIE APIs       openbanking.py
     mcp          a bank that runs its own MCP server    remote.py
+    near         a NEAR account paid in native NEAR     near.py
 
 Adding a bank = one Adapter subclass + one line in ADAPTERS.
 
@@ -21,12 +22,13 @@ No openhouse imports anywhere in this package: copy the directory into any
 module that needs "did the money arrive, and whose was it".
 """
 from .core import Adapter, Bank, BankError, reference_code  # noqa: F401
+from .near import Near
 from .openbanking import OpenBanking
 from .remote import RemoteMCP
 from .sandbox import Sandbox
 from .statements import Statements, parse as parse_statement, pain001  # noqa: F401
 
-ADAPTERS = {cls.kind: cls for cls in (Sandbox, Statements, OpenBanking, RemoteMCP)}
+ADAPTERS = {cls.kind: cls for cls in (Sandbox, Statements, OpenBanking, RemoteMCP, Near)}
 
 
 def open_bank(data_dir, secrets_dir) -> Bank:

@@ -69,6 +69,10 @@ pub struct ServerEntry {
     /// directory listing. Shown in the console so a row can be traced back.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub origin: String,
+    /// "x402" — an HTTP 402 from this server is answered through the x402
+    /// module (pay, then retry) instead of being surfaced as an error.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub pay: String,
 }
 
 impl ServerEntry {

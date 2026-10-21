@@ -123,6 +123,25 @@
   .sbot .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .sbot .m{color:var(--faint);font:10px var(--mono);white-space:nowrap;
         overflow:hidden;text-overflow:ellipsis;max-width:40%}
+  .sbot .pub{font:9px var(--mono);letter-spacing:.14em;color:var(--hot);
+        border:1px solid rgba(110,231,255,.35);border-radius:999px;padding:1px 6px}
+  #exploreopen{margin:0 12px 10px;display:flex;align-items:center;gap:8px;
+        padding:8px 10px;border-radius:10px;border:1px dashed var(--line);
+        background:none;color:var(--dim);font-size:13px}
+  #exploreopen:hover{color:var(--ink);border-color:var(--hot)}
+  #exploreopen .n{margin-left:auto;font:10px var(--mono);color:var(--faint)}
+  #explore .modal{width:min(720px,calc(100vw - 32px))}
+  .pbot{border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+        margin-bottom:8px;background:var(--raised)}
+  .pbot.on{border-color:var(--hot);box-shadow:0 0 14px rgba(110,231,255,.15)}
+  .pbot .hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pbot .hd b{font-weight:600}
+  .pbot .tag{font:10px var(--mono);color:var(--faint)}
+  .pbot .sys{color:var(--dim);font-size:12.5px;margin:6px 0 0;white-space:pre-wrap;
+        display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+        overflow:hidden}
+  .pbot .acts{margin-left:auto;display:flex;gap:4px}
+  .pbot .mine{font:9px var(--mono);letter-spacing:.14em;color:var(--hot)}
   #sidefoot{border-top:1px solid var(--line);padding:12px}
   #sidefoot .who{display:flex;align-items:center;gap:8px;font:12px var(--mono);
         color:var(--dim);overflow:hidden;margin-bottom:8px}
@@ -467,6 +486,11 @@
       <button class="plus" id="newbot" title="make a grokbot">+</button>
     </div>
     <div id="sidebots"></div>
+    <button id="exploreopen" title="bots other people published">
+      <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/>
+        <path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>
+      Explore bots <span class="n" id="pubcount"></span>
+    </button>
     <div id="sidefoot"></div>
   </nav>
 
@@ -548,9 +572,26 @@
             <option value="on">search: on</option>
           </select>
         </div>
+        <div class="row"><input id="bdesc" placeholder="one line — what it is for (shown when published)"></div>
+        <div class="row">
+          <label class="muted" style="display:flex;gap:6px;align-items:center;cursor:pointer">
+            <input type="checkbox" id="bpublic" style="flex:none;min-width:0"> publish &mdash;
+            anyone can see it, chat with it on their own credits, or copy it</label>
+        </div>
         <div class="row"><button class="go" id="savebot">SAVE BOT</button></div>
       </div>
     </section>
+  </div>
+</div>
+
+<!-- explore: every bot anyone published on this deployment -->
+<div class="veil" id="explore">
+  <div class="modal">
+    <h2>Published grokbots <button class="close" data-close="explore">×</button></h2>
+    <div class="row"><input id="pubq" placeholder="search name, prompt or owner"></div>
+    <div id="publist"></div>
+    <div class="muted" style="margin-top:8px">Chatting with someone's bot spends
+      your own xAI credits. COPY puts a private, editable copy on your account.</div>
   </div>
 </div>
 
@@ -606,6 +647,7 @@ const API = /\/grokbot$/.test(P) ? P + '/_api' : (P === '/console' ? '' : P + '/
 const TKEY = 'grokbot.token', AKEY = 'grokbot.token.at';
 let TOKEN = localStorage.getItem(TKEY) || '';
 let YOU = null, MODELS = [], BOTS = [], BOT = null, BUSY = false;
+let PUBLIC = [];                         // everyone's published bots
 let CONVOS = [], ACTIVE = null;          // the sidebar — [{id,title,msgs,ts}]
 let ABORT = null;                        // AbortController while streaming
 let RUNS = [], RCOUNTS = {all:0, live:0, done:0, error:0}, RFILTER = 'all';
@@ -820,12 +862,31 @@ function drawBots(){
         <span>
           <button class="small use" data-bot="${esc(b.name)}">${
             BOT === b.name ? 'ON' : 'USE'}</button>
+          <button class="small edit" data-bot="${esc(b.name)}">EDIT</button>
+          <button class="small pubt" data-bot="${esc(b.name)}" data-pub="${b.public ? 1 : ''}"
+            title="${b.public ? 'published — click to make private' : 'private — click to publish'}">${
+            b.public ? 'PUBLIC' : 'PRIVATE'}</button>
           <button class="small del" data-bot="${esc(b.name)}">X</button>
         </span>
       </div>`).join('');
     wrap.querySelectorAll('.use').forEach(el => el.onclick = () => {
       BOT = BOT === el.dataset.bot ? null : el.dataset.bot;
       drawBots(); drawHint();
+    });
+    wrap.querySelectorAll('.edit').forEach(el => el.onclick = () => {
+      const b = BOTS.find(x => x.name === el.dataset.bot); if (!b) return;
+      $('#bname').value = b.name; $('#bsystem').value = b.system || '';
+      $('#bmodel').value = b.model || ''; $('#bsearch').value = b.search || '';
+      $('#bdesc').value = b.description || ''; $('#bpublic').checked = !!b.public;
+      $('#bname').focus();
+    });
+    wrap.querySelectorAll('.pubt').forEach(el => el.onclick = async () => {
+      const on = !el.dataset.pub;
+      try { await api('/bots/publish', {method:'POST',
+                      body:{name: el.dataset.bot, public: on}});
+            toast(on ? 'published ' + el.dataset.bot : el.dataset.bot + ' is private');
+            loadBots(); loadPublic(); }
+      catch(e){ toast(e.message, true); }
     });
     wrap.querySelectorAll('.del').forEach(el => el.onclick = async () => {
       try { await api('/bots?name=' + encodeURIComponent(el.dataset.bot),
@@ -857,6 +918,7 @@ function drawSideBots(){
          title="${esc(b.system || '')}">
       <span class="bdot"></span>
       <span class="t">${esc(b.name)}</span>
+      ${b.public ? '<span class="pub" title="published">PUB</span>' : ''}
       <span class="m">${esc(b.model || 'default')}${
         b.search ? ' · search' : ''}</span>
     </div>`).join('');
@@ -869,7 +931,9 @@ function drawSideBots(){
 
 function drawBotPick(){
   $('#botpick').innerHTML = ['<option value="">no bot</option>'].concat(
-    BOTS.map(b => `<option value="${esc(b.name)}">bot: ${esc(b.name)}</option>`)
+    BOTS.map(b => `<option value="${esc(b.name)}">bot: ${esc(b.name)}</option>`),
+    BOT && BOT.includes('/') ? [`<option value="${esc(BOT)}">bot: ${
+      esc(refLabel(BOT))}</option>`] : []
   ).join('');
   $('#botpick').value = BOT || '';
 }
@@ -886,7 +950,7 @@ function drawModels(){
 
 function drawHint(){
   const bits = [];
-  if (BOT) bits.push('bot: ' + BOT);
+  if (BOT) bits.push('bot: ' + refLabel(BOT));
   if (!YOU || !YOU.signed_in) bits.push('connect a wallet in the sidebar to chat');
   else if (!YOU.key || !YOU.key.key)
     bits.push('no key resolved — open settings (the gear) and save one');
@@ -1177,7 +1241,7 @@ async function refresh(){
   if (YOU && !YOU.signed_in && TOKEN){ keepToken(''); }
   loadConvos();
   drawIdentity(); drawKey(); drawHint(); drawThread(); drawSetup();
-  await Promise.all([loadModels(), loadBots(), loadRuns()]);
+  await Promise.all([loadModels(), loadBots(), loadRuns(), loadPublic()]);
   drawSetup();
 }
 
@@ -1193,6 +1257,62 @@ async function loadBots(){
   try { BOTS = (await api('/bots')).bots || []; }
   catch(e){ BOTS = []; }
   drawBots(); drawSetup();
+}
+
+// someone else's bot reads as name @0xabcd…1234
+function refLabel(ref){
+  const i = String(ref).lastIndexOf('/');
+  return i < 0 ? ref : ref.slice(i + 1) + ' @' + short(ref.slice(0, i));
+}
+
+async function loadPublic(){
+  try { PUBLIC = (await api('/public')).bots || []; }
+  catch(e){ PUBLIC = []; }
+  $('#pubcount').textContent = PUBLIC.length ? String(PUBLIC.length) : '';
+  drawPublic();
+}
+
+function drawPublic(){
+  const wrap = $('#publist'), q = $('#pubq').value.trim().toLowerCase();
+  const rows = PUBLIC.filter(b => !q || [b.name, b.system, b.description, b.owner]
+    .join(' ').toLowerCase().includes(q));
+  if (!rows.length){
+    wrap.innerHTML = '<div class="muted">' + (PUBLIC.length ? 'nothing matches'
+      : 'nobody has published a bot yet — open settings, EDIT one of yours and '
+        + 'tick publish to be the first') + '</div>';
+    return;
+  }
+  const signed = !!(YOU && YOU.address);
+  wrap.innerHTML = rows.map(b => {
+    const run = b.mine ? b.name : b.ref;
+    return `<div class="pbot ${BOT === run ? 'on' : ''}">
+      <div class="hd"><b>${esc(b.name)}</b>
+        ${b.mine ? '<span class="mine">YOURS</span>'
+                 : `<span class="tag">by ${esc(short(b.owner))}</span>`}
+        <span class="tag">${esc(b.model || 'default')}${
+          b.search ? ' · search ' + esc(b.search) : ''}${
+          b.uses ? ' · ' + b.uses + ' chat' + (b.uses === 1 ? '' : 's') : ''}</span>
+        <span class="acts">
+          <button class="small pchat" data-run="${esc(run)}">${
+            BOT === run ? 'ON' : 'CHAT'}</button>
+          ${signed && !b.mine ? `<button class="small pcopy" data-ref="${
+            esc(b.ref)}">COPY</button>` : ''}
+        </span></div>
+      ${b.description ? `<div class="sys" style="color:var(--ink)">${esc(b.description)}</div>` : ''}
+      <div class="sys">${esc(b.system || '(no system prompt)')}</div>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('.pchat').forEach(el => el.onclick = () => {
+    if (!signed) return toast('connect a wallet first — chats spend your own credits', true);
+    BOT = BOT === el.dataset.run ? null : el.dataset.run;
+    drawBots(); drawHint(); drawPublic();
+    if (BOT){ closeVeil('explore'); toast('chatting as ' + refLabel(BOT)); }
+  });
+  wrap.querySelectorAll('.pcopy').forEach(el => el.onclick = async () => {
+    try { const got = await api('/bots/copy', {method:'POST', body:{ref: el.dataset.ref}});
+          toast('copied as ' + got.name); loadBots(); }
+    catch(e){ toast(e.message, true); }
+  });
 }
 
 // ── actions ────────────────────────────────────────────────────────
@@ -1223,11 +1343,15 @@ $('#forgetkey').onclick = async () => {
 $('#savebot').onclick = async () => {
   const body = {name: $('#bname').value.trim(), system: $('#bsystem').value,
                 model: $('#bmodel').value || null,
-                search: $('#bsearch').value || null};
+                search: $('#bsearch').value || null,
+                description: $('#bdesc').value.trim() || null,
+                public: $('#bpublic').checked};
   if (!body.name) return toast('a bot needs a name', true);
   try { await api('/bots', {method:'POST', body});
         $('#bname').value = ''; $('#bsystem').value = '';
-        toast('saved ' + body.name); loadBots(); }
+        $('#bdesc').value = ''; $('#bpublic').checked = false;
+        toast((body.public ? 'published ' : 'saved ') + body.name);
+        loadBots(); loadPublic(); }
   catch(e){ toast(e.message, true); }
 };
 
@@ -1245,6 +1369,9 @@ $('#newbot').onclick = () => {
   openVeil('settings');
   setTimeout(() => $('#bname').focus(), 50);
 };
+$('#exploreopen').onclick = () => { openVeil('explore'); loadPublic();
+  setTimeout(() => $('#pubq').focus(), 50); };
+$('#pubq').oninput = drawPublic;
 $('#setupbtn').onclick = () => { drawSetup(); drawRecipes(); openVeil('guide'); };
 $('#openactivity').onclick = () => { openVeil('activity'); loadRuns(); };
 document.querySelectorAll('[data-close]').forEach(el =>

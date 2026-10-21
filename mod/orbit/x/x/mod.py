@@ -191,6 +191,14 @@ class Mod:
                              sort_order=sort_order, start_time=start_time,
                              end_time=end_time, next_token=next_token)
 
+    def summarize(self, feed: str, max_results: int = 50, estimate_only: bool = False,
+                  exclude: str = None):
+        """Digest of any feed (@handle, x.com profile/list/status/search URL, #tag,
+        query, list:<id>, home) plus what it costs on X's pay-per-use API.
+        estimate_only=True prices it without reading anything."""
+        return self.mcp_call('summarize', feed=feed, max_results=max_results,
+                             estimate_only=estimate_only, exclude=exclude)
+
     def counts(self, query: str, granularity: str = 'day'):
         """Post volume matching a query over time."""
         return self.mcp_call('counts', query=query, granularity=granularity)

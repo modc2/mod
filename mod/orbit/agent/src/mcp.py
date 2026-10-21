@@ -19,6 +19,11 @@ neither can drift away from the other when a rule changes.
     agent_tools        the whole registry — shipped, custom, and the fleet
     agent_toolbox      the bundles, and snapping one on
     agent_tool_run     call one tool directly, without a model in the loop
+    agent_x402         paid x402 services: find, mount as tools + agents, pay
+    x402__<slug>       every MOUNTED x402 service, as its own MCP tool
+    agent__<name>      every tool-agent (x402-<slug> …) as its own MCP tool:
+                       its tool's params, or a task (AGENT_MCP_AGENTS=all
+                       lists every agent; agent_run reaches any of them)
     agent_recall       facts, scored against a query
     agent_retrieve     every memory layer at once, ranked
     agent_remember     write a fact future runs will find
@@ -536,6 +541,107 @@ def _t_tool_run(a: dict, key):
     if not name:
         return {'error': 'name is required — agent_tools lists them'}
     return api.run_tool(name, api.ToolRunRequest(params=a.get('params') or {}, key=key))
+
+
+def _t_x402(a: dict, key):
+    """x402 services as tools AND agents: the paid-API world, mounted."""
+    op = (a.get('op') or 'list').lower()
+    if op == 'list':
+        return _fwd('x402_tools', key)
+    if op == 'find':
+        return _fwd('x402_find', key, q=a.get('q') or '', k=int(a.get('k') or 10),
+                    mcp=bool(a.get('mcp')), max_price=a.get('max_price'),
+                    network=a.get('network'))
+    if op == 'mount':
+        kw = {k: a[k] for k in ('url', 'server', 'name', 'pay', 'max_price_usd',
+                                'description', 'method', 'params', 'agent')
+              if a.get(k) is not None}
+        return _fwd('x402_mount', key, **kw)
+    if op == 'unmount':
+        return _fwd('x402_unmount', key, name=a.get('name') or '')
+    if op == 'pay':
+        return _fwd('x402_pay', key, name=a.get('name') or '', pay=a.get('pay'),
+                    max_price_usd=a.get('max_price_usd'))
+    return {'error': f'unknown op {op!r}',
+            'options': ['list', 'find', 'mount', 'unmount', 'pay']}
+
+
+# ── the registry, re-served: mounted x402 services and every agent as
+# first-class MCP tools. Names are MCP-safe (dots -> '_'), so a client sees
+# `x402__automatom-forecast` and `agent__reviewer` beside the static tools
+# and never has to learn agent_tool_run. Calls go through the same
+# run_tool handler, so the same gate holds: signed in, and fleet-kind tools
+# (x402.*, agent.*) are host/admin.
+
+DYN_X402, DYN_AGENT = 'x402__', 'agent__'
+DYN_MAX = 200
+# which agents get an MCP tool of their own: 'tool' (default) = tool-agents
+# only — the x402-<slug> ones mounting makes, a handful — since hundreds of
+# vibe-made personas would bury the static tools; 'all' = every agent;
+# 'none' = no agents. Any agent is still reachable through agent_run.
+DYN_AGENTS = os.environ.get('AGENT_MCP_AGENTS', 'tool').lower()
+
+
+def _mcp_name(prefix: str, slug: str) -> str:
+    import re as _re
+    return (prefix + _re.sub(r'[^A-Za-z0-9_-]', '_', slug))[:64]
+
+
+def _json_schema(params: dict) -> dict:
+    props, req = {}, []
+    for k, v in (params or {}).items():
+        v = v if isinstance(v, dict) else {}
+        t = v.get('type') or 'string'
+        t = {'str': 'string', 'int': 'integer', 'float': 'number', 'bool': 'boolean',
+             'dict': 'object', 'list': 'array'}.get(t, t)
+        if t not in ('string', 'integer', 'number', 'boolean', 'object', 'array'):
+            t = 'string'
+        props[k] = {'type': t}
+        if v.get('hint') or v.get('description'):
+            props[k]['description'] = str(v.get('hint') or v.get('description'))[:300]
+        if v.get('required'):
+            req.append(k)
+    props['key'] = _KEY
+    out = {'type': 'object', 'properties': props}
+    if req:
+        out['required'] = req
+    return out
+
+
+def _dynamic() -> Dict[str, dict]:
+    """{mcp name: {tool: registry name, description, inputSchema}} — built
+    fresh per tools/list so a mount or a new agent shows up at once."""
+    out: Dict[str, dict] = {}
+    try:
+        tools = _mod().tools
+    except Exception:
+        return out
+    for reg, prefix, strip in ((tools.x402, DYN_X402, 'x402.'),
+                               (tools.agents, DYN_AGENT, 'agent.')):
+        try:
+            names = reg.ls()
+            if reg is tools.agents:
+                if DYN_AGENTS == 'none':
+                    continue
+                if DYN_AGENTS != 'all':
+                    names = [n for n in names if (reg._cfg(n) or {}).get('tool')]
+            names = names[:DYN_MAX]
+            sch = reg.schema(names)
+        except Exception:
+            continue
+        for n in names:
+            s_ = sch.get(n) or {}
+            out[_mcp_name(prefix, n[len(strip):])] = {
+                'tool': n, 'description': s_.get('description') or n,
+                'inputSchema': _json_schema(s_.get('params') or {})}
+    return out
+
+
+def _call_dynamic(name: str, args: dict, key):
+    ent = _dynamic().get(name)
+    if ent is None:
+        return None
+    return _t_tool_run({'name': ent['tool'], 'params': args}, key)
 
 
 # ── memory ───────────────────────────────────────────────────────────
@@ -1101,6 +1207,36 @@ TOOLS: Dict[str, dict] = {
         }},
         'handler': _t_tools,
     },
+    'agent_x402': {
+        'auth': {'mount', 'unmount', 'pay'},
+        'description': 'Paid x402 APIs (HTTP 402 pay-per-request) as tools AND agents. '
+                       'find searches every x402 service in the world by meaning '
+                       '(mcp=true: paid MCP servers). mount makes one service (url) — or '
+                       'every service on a paid host / MCP server (server) — a tool '
+                       'x402.<slug> with its published input schema and price, plus a '
+                       'tool-agent x402-<slug> the other agents can delegate to; both '
+                       'then appear in this server as x402__<slug> / agent__x402-<slug>. '
+                       'pay: none (default — a 402 comes back as the price), auto / house '
+                       '(the node wallet pays up to max_price_usd). Mount/unmount/pay are '
+                       'owner-only: a paying mount spends the house budget.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'op': _str('what to do', enum=['list', 'find', 'mount', 'unmount', 'pay']),
+            'q': _str('find: what you need, in words'),
+            'k': _num('find: how many (default 10)'),
+            'mcp': _bool('find: rank paid MCP servers instead of single endpoints'),
+            'max_price': _num('find: USD per call ceiling'),
+            'network': _str('find: base | solana | …'),
+            'url': _str('mount: the service URL'),
+            'server': _str('mount: a host / MCP server URL — mounts every service on it'),
+            'name': _str('mount: tool slug override; unmount/pay: the tool '
+                         '(x402.<slug>, slug, URL or server:<label>)'),
+            'pay': _str('none | auto | house', enum=['none', 'auto', 'house']),
+            'max_price_usd': _num('per-call spending cap for auto/house'),
+            'agent': _bool('mount: also create the tool-agent (default true)'),
+            'key': _KEY,
+        }},
+        'handler': _t_x402,
+    },
     'agent_toolbox': {
         'auth': {'snap', 'unsnap', 'select', 'save', 'remove'},
         'description': 'Tool bundles: list them, snap one onto the live agent, refine '
@@ -1339,8 +1475,11 @@ TOOLS: Dict[str, dict] = {
 
 
 def tool_list() -> List[dict]:
-    return [{'name': n, 'description': t['description'], 'inputSchema': t['inputSchema']}
-            for n, t in TOOLS.items()]
+    static = [{'name': n, 'description': t['description'], 'inputSchema': t['inputSchema']}
+              for n, t in TOOLS.items()]
+    return static + [{'name': n, 'description': d['description'],
+                      'inputSchema': d['inputSchema']}
+                     for n, d in _dynamic().items() if n not in TOOLS]
 
 
 # ── resources: the live module, readable as documents ────────────────
@@ -1451,6 +1590,15 @@ def _error(id_, code, message):
 def call_tool(name: str, args: dict, key=None):
     """Run one tool. The per-call `key` argument beats the transport's."""
     tool = TOOLS.get(name)
+    if not tool and name.startswith((DYN_X402, DYN_AGENT)):
+        args = dict(args or {})
+        key = args.pop('key', None) or key
+        if not LOCAL and not _signed_in(key):
+            raise PermissionError('this call needs a signed-in caller, and the '
+                                  'connection carried no token')
+        out = _call_dynamic(name, args, key)
+        if out is not None:
+            return out
     if not tool:
         raise ValueError(f'unknown tool: {name} — have {", ".join(TOOLS)}')
     args = dict(args or {})

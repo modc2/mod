@@ -59,6 +59,7 @@ from state import StateError
 import vault as V
 
 ABI = 'pqc1'
+EXT_ABI = 'ext'   # a machine whose code is not pqc1 wasm; accepted by a proof, never re-run
 RECEIPT_V = 'pqr1'
 RECEIPT_CTX = b'postquant/contract-receipt/v1'
 
@@ -83,6 +84,17 @@ EXAMPLES = {
         'reverts': '-1 bad input, -2 out too small, -3 bad state, '
                    '-4 under/overflow',
         'try': ['00', '00', '02' + (40).to_bytes(8, 'little').hex(), '01'],
+    },
+    'ladder': {
+        'what': 'a hash ladder with no code to run: each step is a nonce '
+                'that pushes the state hash under a 16-bit target — '
+                'accepted by the pow-ladder verifier, never re-executed',
+        'state': '32 bytes (empty = zero genesis)',
+        'input': 'any bytes (a label)',
+        'reverts': 'none — a step is a valid proof or it is not a step',
+        'try': [(b'first').hex(), (b'second').hex()],
+        'source_only': True,
+        'verifier': 'pow-ladder',
     },
     'ledger': {
         'what': 'a token ledger: mint, transfer, burn over 32-byte account '
@@ -112,6 +124,12 @@ def cid_of(b: bytes) -> str:
 def examples():
     out = []
     for name, e in EXAMPLES.items():
+        if e.get('source_only'):
+            out.append({'name': name, **e, 'abi': EXT_ABI, 'imports': 0,
+                        'exports': [], 'runnable': False,
+                        'source': f'src/pq/wasm-src/examples/contracts/'
+                                  f'{name}.txt'})
+            continue
         path = os.path.join(EXAMPLES_DIR, name + '.wasm')
         item = {'name': name, **e, 'source': f'src/pq/wasm-src/examples/'
                                              f'contracts/{name}.rs'}
@@ -131,6 +149,9 @@ def example_blob(name) -> bytes:
         raise StateError(f'no example contract {name!r} — '
                          f'{", ".join(EXAMPLES)}', code='no_example',
                          status=404)
+    if EXAMPLES[name].get('source_only'):
+        with open(os.path.join(EXAMPLES_DIR, name + '.txt'), 'rb') as f:
+            return f.read()
     with open(os.path.join(EXAMPLES_DIR, name + '.wasm'), 'rb') as f:
         return f.read()
 
@@ -227,6 +248,28 @@ def make_receipt(wallet, *, chain_id, contract, code_cid, n, prev,
             'context': RECEIPT_CTX.decode()}
 
 
+def make_transition_receipt(wallet, *, chain_id, contract, code_cid, abi, n,
+                            prev, state_in: bytes, inp: bytes,
+                            state_out: bytes, proof: dict | None) -> dict:
+    """A receipt for a transition ACCEPTED by a proof system rather than
+    executed here. `proof` is proofs.descriptor() (None = replay shape)."""
+    over = {
+        'v': RECEIPT_V, 'chain_id': chain_id, 'contract': contract,
+        'abi': abi, 'code': code_cid, 'n': n, 'prev': prev,
+        'state_in': cid_of(state_in), 'input': inp.hex(),
+        'input_sha3': cid_of(inp), 'state_out': cid_of(state_out),
+        'out_bytes': len(state_out), 'ret': len(state_out),
+        'reverted': False, 'out_cap': OUT_CAP, 'ts': int(time.time()),
+    }
+    if proof:
+        over['proof'] = proof
+    algo = algos.get(wallet['scheme'])
+    sig = algo.sign(K.secret_key(wallet), canonical(over), RECEIPT_CTX)
+    return {'over': over, 'by': wallet['address'], 'scheme': wallet['scheme'],
+            'pk': wallet['pk'], 'sig': sig.hex(),
+            'context': RECEIPT_CTX.decode()}
+
+
 def receipt_blob(receipt: dict) -> bytes:
     return canonical(receipt)
 
@@ -235,7 +278,7 @@ def parse_receipt(blob: bytes) -> dict:
     try:
         r = json.loads(blob.decode())
         over = r['over']
-        assert over['v'] == RECEIPT_V and over['abi'] == ABI
+        assert over['v'] == RECEIPT_V and over['abi'] in (ABI, EXT_ABI)
         for k in ('chain_id', 'contract', 'code', 'n', 'state_in', 'input',
                   'state_out', 'ret', 'reverted'):
             assert k in over

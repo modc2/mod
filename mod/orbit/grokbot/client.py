@@ -118,15 +118,28 @@ def bots(address):
 
 
 def get_bot(address, name):
-    got = (load_user(address).get('bots') or {}).get(_slug(name))
+    """One bot. `owner/name` reaches someone else's bot, if they published it."""
+    owner, _, slug = str(name or '').rpartition('/')
+    owner = owner.strip().lower()
+    if owner and owner != (address or '').lower():
+        got = (load_user(owner).get('bots') or {}).get(_slug(slug))
+        if not got or not got.get('public'):
+            raise GrokError(f'no published bot {name!r} — GET /public lists them',
+                            status=404)
+        return {**got, 'owner': owner, 'ref': f'{owner}/{got["name"]}'}
+    got = (load_user(address).get('bots') or {}).get(_slug(slug))
     if not got:
         raise GrokError(f'no bot named {name!r} — GET /bots lists yours', status=404)
     return got
 
 
 def save_bot(address, name, system=None, model=None, temperature=None,
-             search=None, description=None):
-    """A grokbot is a name, a model and a system prompt. Nothing more."""
+             search=None, description=None, public=None):
+    """A grokbot is a name, a model and a system prompt. Nothing more.
+
+    `public=True` publishes it: anyone can see it on GET /public, chat with it
+    as `<your address>/<name>` (on their own credits) or copy it.
+    """
     slug = _slug(name)
     if not slug:
         raise GrokError('name is required', status=400)
@@ -138,10 +151,97 @@ def save_bot(address, name, system=None, model=None, temperature=None,
                          ('description', description)):
         if value is not None:
             bot[field] = value
+    if public is not None:
+        _set_public(bot, public)
     bot['updated'] = int(time.time())
     all_bots[slug] = bot
     save_user(address, user)
     return bot
+
+
+def _set_public(bot, public):
+    on = public not in (False, 0, '0', 'false', 'False', 'off', '')
+    if on and not bot.get('public'):
+        bot['published'] = int(time.time())
+    if not on:
+        bot.pop('published', None)
+    bot['public'] = on
+
+
+def publish_bot(address, name, public=True):
+    """Flip one of your bots between private and published."""
+    user = load_user(address)
+    bot = (user.get('bots') or {}).get(_slug(name))
+    if not bot:
+        raise GrokError(f'no bot named {name!r}', status=404)
+    _set_public(bot, public)
+    bot['updated'] = int(time.time())
+    save_user(address, user)
+    return bot
+
+
+def public_bots(q=None, owner=None, limit=200):
+    """Every published bot on this deployment, newest first.
+
+    A bot holds no secret — name, model, prompt — so this is readable signed
+    out. Keys sit in the same file and never leave it.
+    """
+    try:
+        files = os.listdir(USERS)
+    except FileNotFoundError:
+        files = []
+    needle = str(q or '').strip().lower()
+    out = []
+    for fname in files:
+        if not fname.endswith('.json'):
+            continue
+        addr = fname[:-5]
+        if owner and addr != str(owner).lower():
+            continue
+        for b in (load_user(addr).get('bots') or {}).values():
+            if not b.get('public'):
+                continue
+            row = {k: b.get(k) for k in ('name', 'model', 'system', 'search',
+                                         'temperature', 'description',
+                                         'published', 'updated', 'uses')}
+            row.update(owner=addr, ref=f'{addr}/{b["name"]}')
+            if needle and needle not in ' '.join(
+                    str(row.get(k) or '') for k in
+                    ('name', 'system', 'description', 'owner')).lower():
+                continue
+            out.append(row)
+    out.sort(key=lambda r: r.get('published') or 0, reverse=True)
+    return out[:int(limit or 200)]
+
+
+def copy_bot(address, ref, name=None):
+    """Take a published bot home: a private copy on your account."""
+    src = get_bot(address, ref)
+    bot = save_bot(address, name or src['name'], system=src.get('system'),
+                   model=src.get('model'), temperature=src.get('temperature'),
+                   search=src.get('search'), description=src.get('description'),
+                   public=False)
+    if src.get('ref'):
+        user = load_user(address)
+        user['bots'][bot['name']]['from'] = src['ref']
+        save_user(address, user)
+        bot['from'] = src['ref']
+    return bot
+
+
+def count_use(ref):
+    """Someone ran a published bot — bump its counter on the owner's record."""
+    owner, _, slug = str(ref or '').rpartition('/')
+    if not owner:
+        return
+    try:
+        user = load_user(owner)
+        bot = (user.get('bots') or {}).get(_slug(slug))
+        if bot and bot.get('public'):
+            bot['uses'] = int(bot.get('uses') or 0) + 1
+            save_user(owner, user)
+    except Exception:
+        pass
 
 
 def delete_bot(address, name):
@@ -313,9 +413,11 @@ class Client:
                 temperature=None, max_tokens=None, search=None, bot=None,
                 tools=None, stream=False, **opts):
         """Build the chat body without sending it — the one place shape lives."""
-        persona = get_bot(self.address, bot) if bot else {}
-        if persona and not self.address:
+        if bot and not self.address:
             raise GrokError('bots are per account — sign in first', status=401)
+        persona = get_bot(self.address, bot) if bot else {}
+        if persona.get('ref'):
+            count_use(persona['ref'])
         msgs = list(messages or [])
         if not msgs:
             if not prompt:

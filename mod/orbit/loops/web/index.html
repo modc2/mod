@@ -14,19 +14,23 @@
       <h2>Loop agents <span class="sp"></span><span id="caps" class="faint"></span><button id="newBtn" class="primary sm">+ new loop</button></h2>
       <div id="form" class="card" style="display:none;margin-bottom:12px;background:var(--panel2)">
         <div class="form">
-          <label class="f">name<input id="f_name" placeholder="fix-tests" /></label>
-          <label class="f">module<input id="f_module" placeholder="build (or leave empty and set cwd)" /></label>
-          <label class="f">cwd<input id="f_cwd" placeholder="/root/mod/mod/orbit/…" /></label>
-          <label class="f">model<input id="f_model" placeholder="default" /></label>
-          <label class="f full">command (bash, run each iteration)<textarea id="f_cmd" placeholder="pytest -x -q"></textarea></label>
-          <label class="f full">goal for the agent (its output is fed this command's output)<textarea id="f_goal" placeholder="make the tests pass without weakening them"></textarea></label>
-          <label class="f">every (seconds)<input id="f_every" type="number" min="10" value="60" /></label>
-          <label class="f">max iterations<input id="f_max" type="number" min="1" max="500" value="20" /></label>
-          <label class="chk full"><input id="f_until" type="checkbox" checked /> stop as soon as the command exits 0</label>
+          <label class="f">mod to improve<select id="f_module"><option value="">loading mods…</option></select></label>
+          <label class="f">name (optional)<input id="f_name" placeholder="auto" /></label>
+          <label class="f full">goal for the agent<textarea id="f_goal"></textarea></label>
+          <label class="f full">command to check each round (optional, bash, runs in the mod)<textarea id="f_cmd" placeholder="e.g. pytest -x -q  — empty = the agent just keeps improving"></textarea></label>
         </div>
+        <details style="margin-top:10px"><summary class="faint" style="cursor:pointer;font-size:12px">more options</summary>
+          <div class="form" style="margin-top:10px">
+            <label class="f">cwd (only if no mod)<input id="f_cwd" placeholder="/root/mod/mod/orbit/…" /></label>
+            <label class="f">model<input id="f_model" placeholder="default" /></label>
+            <label class="f">every (seconds)<input id="f_every" type="number" min="10" value="60" /></label>
+            <label class="f">max iterations<input id="f_max" type="number" min="1" max="500" value="5" /></label>
+            <label class="chk full"><input id="f_until" type="checkbox" /> stop as soon as the command exits 0</label>
+          </div>
+        </details>
         <div class="inline" style="margin-top:12px;justify-content:flex-end">
-          <span class="faint" style="flex:1;font-size:12px">command only + no "stop on pass" = a watch loop (no agent). The agent ends a loop by printing LOOP_DONE.</span>
-          <button id="cancelBtn">cancel</button><button id="createBtn" class="primary">create + start</button>
+          <span class="faint" style="flex:1;font-size:12px">Pick a mod and go: the agent works in that mod's folder and ends the loop by printing LOOP_DONE.</span>
+          <button id="cancelBtn">cancel</button><button id="createBtn" class="primary">improve it</button>
         </div>
       </div>
       <div id="list" class="rows"><div class="empty">loading…</div></div>
@@ -49,7 +53,7 @@ function render() {
   const running = loops.filter((l) => l.status === "running").length;
   K.setState(K.pill(running > 0, `${running} running`, "idle"));
   document.getElementById("caps").textContent = `${loops.length}/${d.cap} loops · ${running}/${d.running_cap} running · min ${d.min_every_secs}s`;
-  if (!loops.length) { list.innerHTML = `<div class="empty">No loops yet. A loop runs a command, feeds its output to an agent, waits, and repeats.</div>`; return; }
+  if (!loops.length) { list.innerHTML = `<div class="empty">No loops yet. Hit + new loop, pick a mod, and an agent keeps improving it.</div>`; return; }
   list.innerHTML = loops.map((l) => {
     const where = l.module ? `mod ${l.module}` : l.cwd;
     const log = open.has(l.id) ? `<pre class="log">${(l.log || []).slice(-40).map((e) =>
@@ -88,25 +92,45 @@ document.getElementById("list").addEventListener("click", async (e) => {
 });
 
 const form = document.getElementById("form");
-document.getElementById("newBtn").onclick = () => { form.style.display = form.style.display === "none" ? "" : "none"; };
+const DEFAULT_GOAL = "Improve this module: read it, find the most valuable bug fix or improvement, make it, and keep its tests passing. Small, safe steps. Say what you changed.";
+const goalEl = document.getElementById("f_goal");
+goalEl.value = DEFAULT_GOAL;
+const modEl = document.getElementById("f_module");
+const createBtn = document.getElementById("createBtn");
+const syncBtn = () => { createBtn.textContent = modEl.value ? `improve ${modEl.value}` : "create + start"; };
+modEl.onchange = syncBtn;
+K.api("/modules").then((r) => {
+  const mods = (r.data?.modules || []).filter((m) => m.name && !m.name.includes("/") && ["orbit", "core"].includes(m.category));
+  const by = {};
+  for (const m of mods) (by[m.category] = by[m.category] || []).push(m);
+  modEl.innerHTML = `<option value="">pick a mod…</option>` + Object.keys(by).map((t) =>
+    `<optgroup label="${K.esc(t)}">${by[t].sort((x, y) => x.name.localeCompare(y.name)).map((m) => `<option value="${K.esc(m.name)}">${K.esc(m.name)}</option>`).join("")}</optgroup>`).join("");
+  if (modEl.dataset.want) modEl.value = modEl.dataset.want;
+  syncBtn();
+}).catch(() => { modEl.innerHTML = `<option value="">mod list unavailable</option>`; });
+function openForm(mod) { form.style.display = ""; if (mod) { modEl.dataset.want = mod; modEl.value = mod; syncBtn(); } }
+document.getElementById("newBtn").onclick = () => { form.style.display === "none" ? openForm() : (form.style.display = "none"); };
 document.getElementById("cancelBtn").onclick = () => { form.style.display = "none"; };
-document.getElementById("createBtn").onclick = async () => {
+createBtn.onclick = async () => {
   const v = (id) => document.getElementById(id).value.trim();
+  if (!v("f_module") && !v("f_cwd")) return K.toast("pick a mod first", true);
   const body = {
     name: v("f_name"), module: v("f_module"), cwd: v("f_cwd"), cmd: v("f_cmd"), goal: v("f_goal"), model: v("f_model"),
-    every_secs: +v("f_every") || 60, max_iters: +v("f_max") || 20, until_pass: document.getElementById("f_until").checked,
+    every_secs: +v("f_every") || 60, max_iters: +v("f_max") || 5, until_pass: document.getElementById("f_until").checked,
   };
   const made = await K.act("/loops", body, "loop created");
   if (!made) return;
   const id = made.id || made.loop?.id;
   if (id && made.loop?.status !== "running" && made.status !== "running") await K.act(`/loops/${id}/start`, {}, "started");
   form.style.display = "none";
+  goalEl.value = DEFAULT_GOAL;
   load();
 };
 
 // Prefill from ?cmd=&module=&cwd= (e.g. a link from a terminal).
 const q = new URLSearchParams(location.search);
-for (const k of ["cmd", "module", "cwd", "goal", "name"]) if (q.get(k)) { document.getElementById("f_" + k).value = q.get(k); form.style.display = ""; }
+for (const k of ["cmd", "cwd", "goal", "name"]) if (q.get(k)) { document.getElementById("f_" + k).value = q.get(k); form.style.display = ""; }
+if (q.get("module")) openForm(q.get("module"));
 
 K.init({ glyph: "⟳", title: "Loops", accent: "#5fd3b8", sub: "Run a command in a module, hand its output to an agent, wait, repeat — until it passes, the agent says LOOP_DONE, or you stop it." })
   .then(() => K.poll(load, 4000));

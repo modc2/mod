@@ -174,6 +174,23 @@ export interface ProofPQ {
   threats: { part: string; quantum: 'safe' | 'breakable'; why: string }[]
   switch: string
 }
+export interface NearStatus {
+  verifier: {
+    account: string; network: string; explorer: string; live: boolean
+    program_hash?: string; program_hash_matches_local?: boolean; properties?: number
+    banks?: { key: string; name: string; active: boolean; since: number }[]
+    owner?: string; pq_required?: boolean | null; pq_door?: boolean
+    this_month?: { property_id: number; period: number; paid: boolean }
+    receipts_on_chain: number; error?: string
+  }
+  rent_rail: {
+    connected: boolean; currency: string; connection?: string; account_id?: string; network?: string
+    balance?: number | null; monthly_rent_eth: number; monthly_rent_near: number | null
+    rate: { near_per_eth: number | null; source: string }
+    booked_transfers?: number; booked_units?: number; linked_payers?: number; error?: string
+    recent: { id: string; counterparty: string; amount: number; date: number; linked?: boolean; booked?: boolean }[]
+  }
+}
 export interface ProofStatus {
   program: { program_hash: string | null; built: boolean; scarb: boolean; path: string; version: number
     public_outputs: string[]; private_inputs: string[]; fact: string; source_sha256?: string; error?: string }

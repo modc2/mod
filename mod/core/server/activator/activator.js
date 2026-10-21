@@ -72,6 +72,9 @@ const MIN_FREE_MB = parseInt(process.env.MIN_FREE_MB || "1500", 10);
 // Hard cap on concurrently RUNNING managed modules (0 = uncapped). Waking one
 // more evicts the LRU first, so "too many apps" can't accumulate.
 const MAX_RUNNING = parseInt(process.env.MAX_RUNNING || "0", 10);
+// Below this MemAvailable (MB) the guard also stops modules that DO have
+// traffic. Above it, only modules nobody is using right now are taken out.
+const EMERGENCY_FREE_MB = parseInt(process.env.EMERGENCY_FREE_MB || "1000", 10);
 
 // ── host overrides (the host owns this machine; manual control beats automation)
 // ~/.mod/activator/overrides.json = { "disabled": [...], "pinned": [...], "idleSeconds": N }
@@ -398,7 +401,13 @@ function onHeldConn(mod, host, port, sock) {
   sock.once("close", () => clearTimeout(idleKill));
   sock.once("data", (chunk) => {
     woke = true; clearTimeout(idleKill);
-    sock.pause(); sock.unshift(chunk);
+    sock.pause();
+    // A person opening the page gets the "starting" placeholder right away
+    // instead of a blank tab for the cold start; it reloads itself once the
+    // module answers. Everything else (fetches, API calls, peers) waits and
+    // is spliced through as before.
+    if (isPageNavigation(chunk)) return onHeldPage(mod, port, sock);
+    sock.unshift(chunk);
     onHeldRequest(mod, host, port, sock);
   });
   sock.resume();
@@ -406,10 +415,73 @@ function onHeldConn(mod, host, port, sock) {
 
 function onHeldRequest(mod, host, port, sock) {
   lastAccess[mod] = now(); hits[mod] = (hits[mod] || 0) + 1;
-  (pending[mod] = pending[mod] || []).push({ sock, host, port });
-  if (pending[mod].length > 1) return; // a wake is already under way
+  if (pending[mod]) { pending[mod].push({ sock, host, port }); return; } // a wake is already under way
+  pending[mod] = [{ sock, host, port }];
   log(`hold ${mod}: connection on :${port} from ${whoIs(sock)} → waking`);
-  activate(mod);
+  activate(mod, port);
+}
+
+function onHeldPage(mod, port, sock) {
+  lastAccess[mod] = now(); hits[mod] = (hits[mod] || 0) + 1;
+  sock.end(placeholderResponse(mod));
+  if (pending[mod]) return;
+  pending[mod] = [];
+  log(`hold ${mod}: page visit on :${port} → placeholder, waking`);
+  activate(mod, port);
+}
+
+// ── placeholder ─────────────────────────────────────────────────────────────
+// Shown to a browser while its module cold-starts (held port) and, via Caddy's
+// handle_errors → GET /_placeholder, whenever the gateway would otherwise
+// show "502 Bad Gateway". 200 + no-store: Cloudflare swaps any 5xx body for
+// its own text, and this page must never be cached as the app.
+const PLACEHOLDER_PATH = path.join(__dirname, "placeholder.html");
+function placeholderHtml(mod) {
+  let tpl;
+  try { tpl = fs.readFileSync(PLACEHOLDER_PATH, "utf8"); }
+  catch { tpl = "<!doctype html><title>starting</title><p>{{MOD}} is starting…</p><script>setTimeout(()=>location.reload(),3000)</script>"; }
+  return tpl.replace(/\{\{MOD\}\}/g, String(mod || "app").replace(/[^A-Za-z0-9._-]/g, ""));
+}
+const PLACEHOLDER_HEADERS = {
+  "content-type": "text/html; charset=utf-8",
+  "cache-control": "no-store, max-age=0",
+  "x-mod-placeholder": "1",
+  "retry-after": "2",
+};
+function placeholderResponse(mod) {
+  const body = Buffer.from(placeholderHtml(mod));
+  let head = "HTTP/1.1 200 OK\r\n";
+  for (const [k, v] of Object.entries(PLACEHOLDER_HEADERS)) head += `${k}: ${v}\r\n`;
+  head += `content-length: ${body.length}\r\nconnection: close\r\n\r\n`;
+  return Buffer.concat([Buffer.from(head), body]);
+}
+// A top-level (or iframe) page load: GET, no upgrade, and the browser says
+// it is navigating (Sec-Fetch-Mode), or — older browsers — asks for HTML.
+function isPageNavigation(chunk) {
+  const head = chunk.toString("latin1", 0, Math.min(chunk.length, 8192));
+  if (!head.startsWith("GET ")) return false;
+  const h = head.toLowerCase();
+  if (/\r\nupgrade:/.test(h)) return false;
+  const mode = (h.match(/\r\nsec-fetch-mode:\s*([^\r]*)/) || [])[1];
+  if (mode) return mode.trim() === "navigate";
+  return /\r\naccept:[^\r]*text\/html/.test(h);
+}
+
+// Caddy got a dial error / 5xx for a page load. If the module's pm2 procs
+// aren't online (crashed, stopped by someone, slept without a hold) start it
+// the same way a held-port wake would; if they ARE online it's mid-boot or
+// mid-restart, so just let the placeholder wait.
+async function kickFromError(mod) {
+  if (!REGISTRY[mod] || !isManaged(mod) || isDisabled(mod) || pending[mod] || waking[mod]) return;
+  const port = REGISTRY[mod].appPort || REGISTRY[mod].apiPort;
+  if (!port) return;
+  if (!holds[mod]) {
+    const procs = pm2NamesFor(REGISTRY[mod].dir);
+    if (!procs.length || procs.some((p) => p.status === "online")) return;
+  }
+  log(`placeholder ${mod}: gateway error on a page load → waking`);
+  pending[mod] = [];
+  activate(mod, port);
 }
 
 // "caddy", "python3[123] /root/mod/mod/orbit/x" — who knocked, for the log.
@@ -424,10 +496,9 @@ function whoIs(sock) {
   } catch { return `${sock.remoteAddress}:${sock.remotePort}`; }
 }
 
-async function activate(mod) {
+async function activate(mod, port) {
   const t0 = now();
-  const first = pending[mod][0];
-  const ok = await wake(mod, first.port);
+  const ok = await wake(mod, port);
   const queue = pending[mod] || [];
   delete pending[mod];
   if (ok) {
@@ -495,15 +566,23 @@ async function relievePressure(excludeMod) {
     candidates = candidates.filter((m) => m !== mod);
   };
 
-  // Idle victims first, LRU order.
+  // Victims with no traffic right now first, LRU order. "Traffic" = a
+  // connection on its ports that moved bytes inside the idle window; an idle
+  // keepalive Caddy parked there doesn't make a module "in use".
+  const snap = snapshot();
+  const within = Math.min(idleMsNow(), 60000);
   for (const mod of [...candidates]) {
     if (!overCap() && !underFloor()) return;
+    const ports = modulePorts(mod, snap).map((p) => p.port);
     const info = REGISTRY[mod];
-    if (establishedConns(info.apiPort) + establishedConns(info.appPort) > 0) continue;
+    if (liveConns(ports.length ? ports : [info.apiPort, info.appPort], snap, within) > 0) continue;
     await evict(mod, overCap() ? "cap" : "pressure", overCap() ? "capStops" : "pressureStops");
   }
-  // Still under the memory floor with only busy modules left → evict anyway.
-  while (underFloor() && candidates.length) {
+  // Only busy modules left. Someone is using them, so they stay up unless the
+  // box is about to OOM (well under the floor) — then a dropped request beats
+  // the kernel picking a victim.
+  const emergency = () => memAvailableMb() < Math.min(floor, EMERGENCY_FREE_MB);
+  while (emergency() && candidates.length) {
     await evict(candidates[0], "pressure(busy)", "pressureStops");
   }
 }
@@ -587,6 +666,15 @@ function proxyPath(url, strip) {
 const server = http.createServer(async (req, res) => {
   // Host control plane (localhost-only) — see handleControl.
   if (req.url.startsWith("/_activator")) return handleControl(req, res);
+  // Caddy's handle_errors sends failed page loads here (X-Mod-Orig = the
+  // path the visitor asked for). Wakes the module if it's down, shows the
+  // placeholder either way.
+  if (req.url.split("?")[0] === "/_placeholder") {
+    const r = route(req.headers["x-mod-orig"] || "/");
+    if (r) { lastAccess[r.mod] = now(); kickFromError(r.mod).catch((e) => log("placeholder error", e.message)); }
+    res.writeHead(200, PLACEHOLDER_HEADERS);
+    return res.end(placeholderHtml(r ? r.mod : ""));
+  }
 
   const r = route(req.url);
   if (!r || !r.port) { res.writeHead(404, { "content-type": "text/plain" }); return res.end("activator: no route\n"); }

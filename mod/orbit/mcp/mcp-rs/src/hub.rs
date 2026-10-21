@@ -91,9 +91,15 @@ fn native_tools() -> Vec<Value> {
                     "name": { "type": "string" },
                     "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Sent on every upstream request, e.g. Authorization" },
                     "note": { "type": "string" },
+                    "pay": { "type": "string", "enum": ["x402"], "description": "Answer this server's HTTP 402 through the x402 module (pay within its policy, then retry)" },
                     "force": { "type": "boolean", "default": false }
                 }
             }
+        }),
+        json!({
+            "name": "hub_x402",
+            "description": "Find every MCP server that is paid over x402 (the x402 index) and connect the ones that answer — or answer 402 and nothing else. Servers that want an account or API key are skipped. Probing never pays; a tool call that meets a 402 is paid by the x402 module within its own policy. Runs a scan of ~100 remote servers (about 20s). Needs registry-edit rights.",
+            "inputSchema": { "type": "object", "properties": {} }
         }),
     ]
 }
@@ -131,7 +137,8 @@ async fn server_rows(state: &Arc<AppState>) -> Vec<Value> {
             let p = probes.get(&s.id).cloned().unwrap_or_default();
             json!({
                 "id": s.id, "name": s.name, "url": s.url, "source": s.source,
-                "note": s.note, "added_at": s.added_at,
+                "note": s.note, "added_at": s.added_at, "pay": s.pay,
+                "needs_payment": !p.ok && p.error.contains("402"),
                 "enabled": !disabled.contains(&s.id),
                 "auth_headers": s.headers.keys().collect::<Vec<_>>(),
                 "probe": probe_json(&p),
@@ -186,10 +193,14 @@ pub async fn register_server(state: &Arc<AppState>, body: &Value) -> Result<Valu
         note: body.get("note").and_then(|v| v.as_str()).unwrap_or("").chars().take(300).collect(),
         added_at: crate::store::now(),
         origin: body.get("origin").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        pay: body.get("pay").and_then(|v| v.as_str()).filter(|p| *p == "x402").unwrap_or("").to_string(),
         ..Default::default()
     };
     let probe = upstream::probe(&entry).await;
-    if !probe.ok && body.get("force").and_then(|v| v.as_bool()) != Some(true) {
+    // A paid server may refuse the free handshake with a 402 — that is the
+    // reason it is being registered, not a reason to refuse it.
+    let pay_gated = entry.pay == "x402" && probe.error.contains("HTTP 402");
+    if !probe.ok && !pay_gated && body.get("force").and_then(|v| v.as_bool()) != Some(true) {
         return Err(format!("probe failed ({}). Pass force:true to register anyway.", probe.error));
     }
     {
@@ -266,6 +277,12 @@ pub async fn call_tool(state: &Arc<AppState>, name: &str, args: &Value, may_writ
             let mut view = crate::hubs::view(state, &crate::store::public_url(), max_age).await;
             view["manifest"] = crate::hubs::manifest(state, &crate::store::public_url()).await;
             return Ok(wrap_result(view));
+        }
+        "hub_x402" => {
+            if !may_write {
+                return Err("hub_x402 edits the registry: it needs an owner/editor wallet token or a caller on the hub's host".into());
+            }
+            return Ok(wrap_result(crate::x402::enable(state).await?));
         }
         "hub_connect" => {
             if !may_write {

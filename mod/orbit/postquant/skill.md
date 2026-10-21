@@ -60,6 +60,28 @@ Input is hex in the contract's own encoding (counter: `00` inc, `01` dec,
 replay, chain id and signer-is-owner; `anchored_latest` /
 `code_is_current` only describe the chain now.
 
+### Customizable proofs (pqp1)
+
+How a step is accepted is the machine owner's **proof policy**
+(`contract/<name>/proof`): `replay` (re-run), `wasm` (a custom importless
+`pqp_verify(state_in,input,state_out,proof)->1` blob — `verifier_deploy`), or
+`quorum` (k-of-n post-quantum `attest`ations). Machines need not be wasm.
+
+```
+pq_contract action=proofs                                  # systems + verifiers + machines
+pq_contract action=verifier_deploy example=pow-ladder wallet=<w>
+pq_contract action=deploy example=ladder name=ladder wallet=<w>
+pq_contract action=set_policy name=ladder system=wasm verifier=pow-ladder wallet=<w>
+pq_contract action=solve name=ladder input=<hex>           # bundled prover
+pq_contract action=submit name=ladder input=<hex> state_out_b64=.. proof_b64=.. wallet=<w>
+pq_contract action=check ...                               # same, dry, signs nothing
+pq_contract action=attest name=.. input=.. state_out_b64=.. wallet=<signer>   # quorum vote
+```
+
+`policy` only reads; `set_policy`/`submit`/`attest`/`verifier_deploy` are
+writes. Bad proof → 422 `proof_rejected`, no receipt. `verify` returns
+`proof:{system,...}` and a soft `proof_policy` check.
+
 ## Consensus is a plugin
 
 `pq_consensus` (GET/POST `/consensus`, console CHAIN ▸ Consensus): engines

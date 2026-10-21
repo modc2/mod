@@ -61,9 +61,12 @@ def server(id):
     return _req(f"/servers/{id}")
 
 
-def add_server(url, id=None, name=None, headers=None, note=None, force=False):
-    """Probe-then-register a remote MCP server on the hub."""
+def add_server(url, id=None, name=None, headers=None, note=None, force=False, pay=None):
+    """Probe-then-register a remote MCP server on the hub. pay="x402" answers
+    the server's HTTP 402 through the x402 module."""
     body = {"url": url, "force": force}
+    if pay:
+        body["pay"] = pay
     if id:
         body["id"] = id
     if name:
@@ -123,6 +126,18 @@ def refresh(id=None, wake=True):
     if id:
         return _req(f"/servers/{id}/refresh?wake={'1' if wake else '0'}", {})
     return _req("/refresh", {})
+
+
+def x402_status():
+    """The last x402 scan: every paid MCP server the index knows and what a probe found."""
+    return _req("/x402")
+
+
+def x402_enable(wait=False):
+    """Scan the x402 index for paid MCP servers and register every one that
+    answers (or answers 402). Probing never pays; calls are paid by the x402
+    module within its own policy. wait=True blocks for the summary (~20s)."""
+    return _req("/x402/enable" + ("?wait=1" if wait else ""), {}, auth=True)
 
 
 def discover():

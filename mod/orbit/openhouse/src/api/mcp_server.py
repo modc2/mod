@@ -398,6 +398,10 @@ def _t_bloctime(args, oh):
 
 # ── proofs ──
 
+def _t_near(args, oh):
+    return oh.near_status()
+
+
 def _t_proof_status(args, oh):
     return oh.proof_status()
 
@@ -993,6 +997,16 @@ TOOLS = {
             'address': {'type': 'string', 'description': '0x address to look up'},
         }, 'required': ['address']},
         'handler': _t_bloctime,
+    },
+    'openhouse_near': {
+        'description': 'The NEAR business at a glance: the verifier contract read '
+                       'live off NEAR (program hash vs this node\'s, seated banks, '
+                       'whether this month is paid, receipts on chain) and the '
+                       'rent rail — the NEAR account that takes rent in native '
+                       'NEAR, the monthly rent in NEAR at the live rate, and the '
+                       'transfers seen with which are linked/booked. Read-only.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_near,
     },
     'openhouse_proof_status': {
         'description': 'The proof-of-rent rail at a glance: the Cairo statement '

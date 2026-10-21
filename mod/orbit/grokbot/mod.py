@@ -132,12 +132,27 @@ class Mod:
         return client.get_bot(self._who(), name)
 
     def save_bot(self, name, system=None, model=None, temperature=None,
-                 search=None, description=None):
+                 search=None, description=None, public=None):
         """Create or update a bot — a name, a model, a system prompt."""
         import client
         return client.save_bot(self._who(), name, system=system, model=model,
                                temperature=temperature, search=search,
-                               description=description)
+                               description=description, public=public)
+
+    def public_bots(self, q=None, owner=None, limit=200):
+        """Everyone's published bots — run one with bot=<address>/<name>."""
+        import client
+        return client.public_bots(q=q, owner=owner, limit=limit)
+
+    def publish_bot(self, name, public=True):
+        """Publish (or public=False to unpublish) one of your bots."""
+        import client
+        return client.publish_bot(self._who(), name, public=public)
+
+    def copy_bot(self, ref, name=None):
+        """A private copy of a published bot (ref=<address>/<name>)."""
+        import client
+        return client.copy_bot(self._who(), ref, name=name)
 
     def delete_bot(self, name):
         """Delete one of your bots."""

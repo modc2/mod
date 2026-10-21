@@ -1958,6 +1958,15 @@ def _live_anchors():
     import vault as V
     st = _vault_store()
     todo = [c for c in list(out) if (st.meta(c) or {}).get('kind') == 'receipt']
+    for c in list(out):
+        if (st.meta(c) or {}).get('kind') == 'state' and \
+                (st.meta(c) or {}).get('bytes', 1 << 20) < 4096:
+            try:
+                v = json.loads(st.get(c).decode()).get('verifier')
+            except (V.VaultError, ValueError, AttributeError, TypeError):
+                continue
+            if isinstance(v, str) and len(v) == 64:
+                out.setdefault(v, []).append('policy:' + c[:16])
     seen = set()
     while todo:
         cid = todo.pop()
@@ -1968,8 +1977,10 @@ def _live_anchors():
             over = json.loads(st.get(cid).decode())['over']
         except (V.VaultError, ValueError, KeyError, TypeError):
             continue
+        pf = over.get('proof') or {}
         for ref in (over.get('code'), over.get('state_in'),
-                    over.get('state_out'), over.get('prev')):
+                    over.get('state_out'), over.get('prev'),
+                    pf.get('proof_sha3'), pf.get('verifier')):
             if ref:
                 out.setdefault(ref, []).append('receipt:' + cid[:16])
                 if (st.meta(ref) or {}).get('kind') == 'receipt':
@@ -2129,7 +2140,8 @@ def _t_contract(a):
         lang = a.get('lang') or 'source'
         if a.get('example'):
             code = C.example_blob(a['example'])
-            lang = 'wasm'
+            lang = 'source' if C.EXAMPLES[a['example']].get('source_only') \
+                else 'wasm'
         elif a.get('file'):
             code = _local_bytes(a['file'])
         elif a.get('code_b64'):
@@ -2205,8 +2217,11 @@ def _t_contract(a):
                          'pq_contract action=state name=counter']}
     if action in ('run', 'verify', 'receipts', 'state'):
         return _contract_exec(a, action, st)
+    if action in _PROVE_ACTIONS:
+        return _contract_prove(a, action, st)
     raise StateError(f'unknown contract action {action!r} — info, deploy, '
-                     'show, list, run, verify, receipts, state, examples',
+                     'show, list, run, verify, receipts, state, examples, '
+                     + ', '.join(_PROVE_ACTIONS),
                      code='bad_action')
 
 
@@ -2256,6 +2271,12 @@ def _contract_exec(a, action, st):
                              f'{w["name"]} is {w["address"]})',
                              code='not_owner', status=403)
         code_cid = anchor['value']
+        _pcid, _pol = _policy_of(name, st)
+        if _pol and _pol['system'] != 'replay':
+            raise StateError(f'contract/{name} requires {_pol["system"]} '
+                             'proofs — use action=submit with a proof '
+                             '(or set_policy system=replay)',
+                             code='policy_requires_proof', status=409)
         if not st.has(code_cid):
             raise StateError('this node does not hold the code blob — '
                              'fetch it from any node by cid', code='no_blob',
@@ -2342,7 +2363,9 @@ def _contract_exec(a, action, st):
             chain.append({'receipt': cid, 'n': o['n'], 'input': o['input'],
                           'ret': o['ret'], 'reverted': o['reverted'],
                           'state_in': o['state_in'], 'state_out': o['state_out'],
-                          'code': o['code'], 'by': r['by'], 'ts': o['ts']})
+                          'code': o['code'], 'by': r['by'], 'ts': o['ts'],
+                          'proof': (o.get('proof') or {}).get('system',
+                                                              'replay')})
             cid = o['prev']
             if cid:
                 try:
@@ -2370,9 +2393,13 @@ def _contract_exec(a, action, st):
         if r is None:
             raise StateError(f'receipt {cid[:16]}… is not held on this node',
                              code='no_blob', status=404)
+    import proofs as P
     sig = C.check_signature(r)
-    rep = C.replay(r, st)
+    rep = P.check_receipt(r, st)
     rk = n.state.entry(_receipt_key(name), now)
+    _pc, pol = _policy_of(name, st)
+    rproof = r['over'].get('proof') or {}
+    rsys = rproof.get('system', 'replay')
     checks = {
         'signature': sig['sig_valid'],
         'replays': rep.get('matches'),
@@ -2383,19 +2410,381 @@ def _contract_exec(a, action, st):
         'anchor_owner_is_owner': bool(rk and anchor)
         and rk['owner'] == anchor['owner'],
         'code_is_current': bool(anchor) and anchor['value'] == r['over']['code'],
+        'proof_policy': (pol is None and rsys == 'replay') or bool(
+            pol and pol['system'] == rsys
+            and pol.get('verifier') == rproof.get('verifier')),
     }
     hard = ('signature', 'replays', 'chain_id', 'signer_is_owner')
     valid = all(checks[k] is True for k in hard)
+    means = ('this run really happened: the owner signed it and '
+             're-executing the code on the same state and input '
+             'reproduces it byte for byte' if rsys == 'replay' else
+             f'the owner signed this step and its {rsys} proof checks out '
+             'against the state, input and result — nothing was re-run')
     return {'receipt': cid, 'contract': name, 'n': r['over']['n'],
             'valid': valid, 'checks': checks, 'signature': sig,
-            'replay': rep,
-            'means': ('this run really happened: the owner signed it and '
-                      're-executing the code on the same state and input '
-                      'reproduces it byte for byte' if valid else
-                      'do not trust this receipt'),
+            'replay': rep, 'proof': {'system': rsys, **rep,
+                                     'policy_now': pol},
+            'means': means if valid else 'do not trust this receipt',
             'soft': 'anchored_latest / anchor_owner_is_owner / '
-                    'code_is_current describe the chain NOW; an old receipt '
-                    'in the chain is still valid when they are false'}
+                    'code_is_current / proof_policy describe the chain NOW; '
+                    'an old receipt in the chain is still valid when they '
+                    'are false'}
+
+
+_PROVE_ACTIONS = ('proofs', 'verifiers', 'verifier_deploy', 'policy',
+                  'set_policy', 'solve', 'attest', 'check', 'submit')
+
+
+def _verifier_names():
+    n = node()
+    now = int(time.time())
+    out = []
+    for key in sorted(n.state.store):
+        if not key.startswith('verifier/') or key.count('/') != 1:
+            continue
+        e = n.state.entry(key, now)
+        out.append({'name': key[9:], 'key': key, 'cid': e['value'],
+                    'owner': e['owner'], 'expired': e['expired'],
+                    'expires_in': e['expires_in']})
+    return out
+
+
+def _policy_of(name, st):
+    """(cid, policy|None) anchored at contract/<name>/proof."""
+    import proofs as P
+    import vault as V
+    e = node().state.entry(P.policy_key(name), int(time.time()))
+    if e is None or e['expired']:
+        return None, None
+    try:
+        return e['value'], P.parse_policy(st.get(e['value']))
+    except (V.VaultError, StateError):
+        return e['value'], None
+
+
+def _resolve_verifier(ref, st):
+    """name | cid | example name -> cid (example blobs are stored on use)."""
+    import proofs as P
+    ref = (ref or '').strip()
+    if ref.startswith('verifier/'):
+        ref = ref[9:]
+    if len(ref) == 64 and all(c in '0123456789abcdef' for c in ref):
+        if not st.has(ref):
+            raise StateError(f'this node does not hold verifier {ref[:16]}… '
+                             '— verifier_deploy it or fetch it by cid',
+                             code='no_blob', status=404)
+        return ref
+    e = node().state.entry('verifier/' + ref, int(time.time()))
+    if e and not e['expired']:
+        return e['value']
+    if ref in P.VERIFIER_EXAMPLES:
+        blob = P.example_verifier(ref)
+        return st.put(blob, kind='code', lang='wasm',
+                      live=_live_anchors())['cid']
+    raise StateError(f'no verifier {ref!r} — deploy one with '
+                     'action=verifier_deploy', code='no_entry', status=404)
+
+
+def _machine(name, st):
+    """(anchor entry, code cid, abi) for contract/<name>."""
+    import contracts as C
+    name = (name or '').strip()
+    if name.startswith('contract/'):
+        name = name[9:]
+    if not name:
+        raise StateError('name= is required', code='missing_arg')
+    anchor = node().state.entry('contract/' + name, int(time.time()))
+    if anchor is None:
+        raise StateError(f'no contract at contract/{name}', code='no_entry',
+                         status=404)
+    abi = C.EXT_ABI
+    if st.has(anchor['value']) and (st.meta(anchor['value']) or {}).get(
+            'lang') == 'wasm':
+        if C.inspect(st.get(anchor['value']))['abi']:
+            abi = C.ABI
+    return name, anchor, anchor['value'], abi
+
+
+def _bytes_arg(a, b64, hexk, what):
+    if a.get(b64) not in (None, ''):
+        return _unb64(a[b64], b64)
+    if a.get(hexk) not in (None, ''):
+        return _hexbytes(a[hexk], hexk)
+    return None
+
+
+def _contract_prove(a, action, st):
+    import json as _json
+    import contracts as C
+    import proofs as P
+    import vault as V
+    n = node()
+    now = int(time.time())
+
+    if action == 'verifiers':
+        return {'abi': P.ABI, 'verifiers': _verifier_names(),
+                'examples': P.verifier_examples()}
+
+    if action == 'proofs':
+        dep = {v['cid']: v for v in _verifier_names()}
+        ver = []
+        for e in P.verifier_examples():
+            d = dep.pop(e.get('cid'), None)
+            ver.append({**e, 'deployed': bool(d),
+                        'key': d['key'] if d else None,
+                        'owner': d['owner'] if d else None})
+        for cid, d in dep.items():
+            info = {'abi': None}
+            try:
+                info = P.inspect(st.get(cid))
+            except V.VaultError:
+                info['reason'] = 'blob not held on this node'
+            ver.append({'name': d['name'], 'cid': cid, 'example': False,
+                        'deployed': True, 'key': d['key'],
+                        'owner': d['owner'], 'pqp1': info,
+                        'what': 'deployed by ' + d['owner'][:12] + '…'})
+        machines = []
+        for c in _contract_names():
+            _cid, pol = _policy_of(c['name'], st)
+            machines.append({'name': c['name'], 'owner': c['owner'],
+                             'system': pol['system'] if pol else None,
+                             'verifier': (pol or {}).get('verifier'),
+                             'k': (pol or {}).get('k'),
+                             'signers': (pol or {}).get('signers')})
+        return {
+            'abi': P.ABI,
+            'abi_spec': 'exports memory, pq_reset(), pq_alloc(n)->ptr, '
+                        'pqp_verify(state_in,sl,input,il,state_out,ol,'
+                        'proof,pl)->i32 (1 = valid); NO imports',
+            'systems': [{'id': k, **v} for k, v in P.SYSTEM_INFO.items()],
+            'verifiers': ver, 'machines': machines,
+            'attest': 'quorum signers sign pqa1 {chain_id, contract, code, '
+                      'prev, state_in, input_sha3, state_out} under '
+                      + P.ATTEST_CTX.decode(),
+            'flow': ['pq_contract action=verifier_deploy example=pow-ladder '
+                     'wallet=<w>',
+                     'pq_contract action=deploy example=ladder name=ladder '
+                     'wallet=<w>',
+                     'pq_contract action=set_policy name=ladder system=wasm '
+                     'verifier=pow-ladder wallet=<w>',
+                     'pq_contract action=solve name=ladder input=<hex>',
+                     'pq_contract action=submit name=ladder input=<hex> '
+                     'state_out_b64=… proof_b64=… wallet=<w>',
+                     'pq_contract action=verify name=ladder']}
+
+    if action == 'verifier_deploy':
+        ex = a.get('example')
+        name = (a.get('name') or ex or '').strip()
+        if not name or '/' in name:
+            raise StateError('verifier_deploy needs name= (no slashes)',
+                             code='missing_arg')
+        if ex:
+            blob = P.example_verifier(ex)
+        elif a.get('code_b64'):
+            blob = _unb64(a['code_b64'], 'code_b64')
+        elif a.get('file'):
+            blob = _local_bytes(a['file'])
+        else:
+            raise StateError('verifier_deploy needs example=, code_b64= or '
+                             'file=', code='missing_arg')
+        info = P.inspect(blob)
+        if not info['abi']:
+            raise StateError(f'not a pqp1 verifier: {info["reason"]}',
+                             code='bad_code')
+        out = st.put(blob, kind='code', lang='wasm', live=_live_anchors())
+        out['pqp1'] = info
+        out['key'] = 'verifier/' + name
+        out['anchor'] = _anchor(a, out['key'], out['cid'])
+        return out
+
+    name, anchor, code_cid, abi = _machine(a.get('name'), st)
+    pcid, pol = _policy_of(name, st)
+
+    if action == 'policy':
+        if a.get('system'):
+            raise StateError('policy only reads — use action=set_policy to '
+                             'change it', code='bad_action')
+        return {'name': name, 'policy': pol, 'cid': pcid,
+                'key': P.policy_key(name), 'owner': anchor['owner'],
+                'abi': abi}
+
+    if action == 'set_policy':
+        w = _wallet(a.get('wallet'))
+        if w['address'] != anchor['owner']:
+            raise StateError(f'contract/{name} is owned by {anchor["owner"]}'
+                             f'; only the owner sets its proof policy',
+                             code='not_owner', status=403)
+        system = a.get('system')
+        if system == 'replay' and abi != C.ABI:
+            raise StateError('replay needs a pqc1 wasm contract — this '
+                             'machine has none', code='bad_policy')
+        verifier = None
+        if system == 'wasm':
+            verifier = _resolve_verifier(a.get('verifier'), st)
+        newp = P.make_policy(system, verifier=verifier, k=a.get('k'),
+                             signers=_list_arg(a.get('signers')))
+        blob = P.canonical(newp)
+        listing = st.put(blob, kind='state', live=_live_anchors())
+        out = {'name': name, 'policy': newp, 'cid': listing['cid'],
+               'key': P.policy_key(name)}
+        out['anchor'] = _anchor(a, P.policy_key(name), listing['cid'])
+        return out
+
+    # transition actions ------------------------------------------------
+    prev_cid, prev = _latest_receipt(name, st)
+    if prev_cid and prev is None:
+        raise StateError(f'the anchored receipt {prev_cid[:16]}… is not on '
+                         'this node — fetch it by cid first', code='no_blob',
+                         status=404)
+    state_in = _bytes_arg(a, 'state_b64', 'state_hex', 'state')
+    if state_in is None:
+        so = prev['over']['state_out'] if prev else None
+        state_in = b'' if (so is None or so == C.cid_of(b'')) else st.get(so)
+    inp = _bytes_arg(a, 'input_b64', 'input', 'input') or b''
+    claim = {'chain_id': n.chain_id, 'contract': name, 'code': code_cid,
+             'prev': prev_cid}
+    code_path = None
+    if abi == C.ABI and st.has(code_cid):
+        code_path = st._p(code_cid)
+
+    def effective_policy():
+        sysname = a.get('system')
+        if pol and sysname and sysname != pol['system']:
+            raise StateError(f'contract/{name} has a {pol["system"]} policy '
+                             f'— a {sysname} proof is not accepted',
+                             code='policy_mismatch', status=409)
+        if pol:
+            return pol
+        if not sysname:
+            return P.make_policy('replay') if abi == C.ABI else None
+        return P.make_policy(
+            sysname, verifier=(_resolve_verifier(a.get('verifier'), st)
+                               if sysname == 'wasm' else None),
+            k=a.get('k'), signers=_list_arg(a.get('signers')))
+
+    if action == 'solve':
+        policy = effective_policy()
+        if policy is None:
+            raise StateError('this machine has no policy and no code to '
+                             'run — set_policy first', code='bad_policy')
+        sysname, got, note = policy['system'], None, None
+        if sysname == 'wasm':
+            ex = P.known_example(policy['verifier'])
+            if ex:
+                got = P.solve_example(ex, state_in, inp)
+                note = f'bundled prover for {ex}'
+        if got is None and code_path:
+            res = C.execute(code_path, code_cid, state_in, inp)
+            if res['reverted']:
+                raise StateError('the contract reverts on this input '
+                                 f'(ret {res["ret"]}) — nothing to prove',
+                                 code='reverted', status=422)
+            got = (res['out'], b'')
+            note = 'ran the contract (replay); for quorum, have signers ' \
+                   'attest this state_out'
+        if got is None:
+            raise StateError('no bundled prover for this verifier — build '
+                             'state_out and proof yourself and use check',
+                             code='no_solver', status=404)
+        state_out, proof = got
+        import base64
+        return {'system': sysname, 'state_in': C.cid_of(state_in),
+                'state_out': C.cid_of(state_out),
+                'state_out_b64': base64.b64encode(state_out).decode(),
+                'state_out_hex': state_out.hex(),
+                'proof_b64': base64.b64encode(proof).decode(),
+                'proof_hex': proof.hex(), 'note': note}
+
+    state_out = _bytes_arg(a, 'state_out_b64', 'state_out_hex', 'state_out')
+    if state_out is None:
+        raise StateError(f'{action} needs state_out_b64= (the claimed next '
+                         'state)', code='missing_arg')
+
+    if action == 'attest':
+        w = _wallet(a.get('wallet'))
+        msg = P.claim_message(state_in=state_in, inp=inp,
+                              state_out=state_out, **claim)
+        return {'attestation': P.make_attestation(w, msg),
+                'message_sha3': C.cid_of(msg), 'contract': name,
+                'prev': prev_cid, 'state_in': C.cid_of(state_in),
+                'state_out': C.cid_of(state_out)}
+
+    # check / submit
+    policy = effective_policy()
+    if policy is None:
+        raise StateError('this machine is not wasm and has no proof policy '
+                         '— pass system= (wasm + verifier=, or quorum + '
+                         'signers=, k=) or set_policy', code='bad_policy')
+    attestations = None
+    if policy['system'] == 'quorum':
+        raw = a.get('attestations')
+        if raw is None and a.get('proof_b64'):
+            raw = _unb64(a['proof_b64'], 'proof_b64')
+        elif isinstance(raw, str):
+            raw = raw.encode()
+        attestations = P.parse_attestations(raw if raw is not None else [])
+        proof = P.canonical(attestations)
+    else:
+        proof = _bytes_arg(a, 'proof_b64', 'proof_hex', 'proof') or b''
+    res = P.check_transition(
+        policy['system'], store=st, policy=policy, claim=claim,
+        state_in=state_in, inp=inp, state_out=state_out, proof=proof,
+        attestations=attestations, code_path=code_path)
+    if action == 'check':
+        res['contract'] = name
+        res['policy'] = policy
+        return res
+    if not res['valid']:
+        raise StateError(f'{policy["system"]} proof rejected: '
+                         f'{res.get("reason") or "invalid"}',
+                         code='proof_rejected', status=422)
+
+    w = _wallet(a.get('wallet'))
+    if anchor['expired']:
+        raise StateError(f'contract/{name} has expired — re-deploy it',
+                         code='expired')
+    if w['address'] != anchor['owner']:
+        raise StateError(f'contract/{name} is owned by {anchor["owner"]}; '
+                         f'only the owner may submit and anchor transitions '
+                         f'(wallet {w["name"]} is {w["address"]})',
+                         code='not_owner', status=403)
+    rk = n.state.entry(_receipt_key(name), now)
+    if rk and not rk['expired'] and rk['owner'] != w['address']:
+        raise StateError(f'{_receipt_key(name)} is held by {rk["owner"]} — '
+                         'the receipt key must belong to the contract owner',
+                         code='key_taken', status=409)
+    seq = (prev['over']['n'] + 1) if prev else 0
+    receipt = C.make_transition_receipt(
+        w, chain_id=n.chain_id, contract=name, code_cid=code_cid, abi=abi,
+        n=seq, prev=prev_cid, state_in=state_in, inp=inp,
+        state_out=state_out,
+        proof=P.descriptor(policy['system'], policy, proof))
+    live = _live_anchors()
+    for blob in (state_in, state_out):
+        if blob:
+            st.put(blob, kind='state', live=live)
+    if receipt['over'].get('proof'):
+        st.put(proof, kind='state', live=live)
+    listing = st.put(C.receipt_blob(receipt), kind='receipt', live=live)
+    out = {'contract': name, 'code': code_cid, 'receipt': listing['cid'],
+           'n': seq, 'prev': prev_cid, 'ret': receipt['over']['ret'],
+           'reverted': False, 'state_in': receipt['over']['state_in'],
+           'state_out': receipt['over']['state_out'],
+           'state_out_hex': state_out.hex(),
+           'out_bytes': len(state_out), 'signed_by': w['address'],
+           'scheme': w['scheme'], 'receipt_blob': receipt,
+           'proof': {'system': policy['system'],
+                     'verifier': policy.get('verifier'),
+                     'proof_sha3': C.cid_of(proof),
+                     'proof_bytes': len(proof), 'ms': res.get('ms')}}
+    if a.get('anchor', True) in (False, 'false', '0', 0, 'no'):
+        out['anchored'] = False
+        return out
+    out['anchor'] = _anchor(a, _receipt_key(name), listing['cid'])
+    out['anchored'] = not a.get('dry_run')
+    out['key'] = _receipt_key(name)
+    return out
 
 
 def _hexbytes(s, what):
@@ -2453,12 +2842,25 @@ TOOLS.update({
                        'wallet, days) | show | list | run (name, input hex, '
                        'wallet, anchor) | verify (name or receipt cid) | '
                        'receipts (name -> the run log) | state (name -> '
-                       'current state bytes).',
+                       'current state bytes). PROOF SYSTEMS (v0.15): how a '
+                       'transition is accepted off chain is the owner\'s '
+                       'choice — replay | wasm (a custom importless pqp1 '
+                       'verifier blob) | quorum (k-of-n post-quantum '
+                       'attestations). proofs (list systems, verifiers, '
+                       'machines) | verifier_deploy (name, example|code_b64) '
+                       '| policy (read) | set_policy (name, system, '
+                       'verifier, k, signers) | solve (bundled prover) | '
+                       'attest (a signer vouches) | check (dry) | submit '
+                       '(state_out_b64 + proof_b64 or attestations -> a '
+                       'signed, anchored receipt).',
         'inputSchema': {'type': 'object', 'properties': {
             'action': _str('info | examples | deploy | show | list | run | '
                            'verify | receipts | state (default info)',
                            enum=['info', 'examples', 'deploy', 'show', 'list',
-                                 'run', 'verify', 'receipts', 'state']),
+                                 'run', 'verify', 'receipts', 'state',
+                                 'proofs', 'verifiers', 'verifier_deploy',
+                                 'policy', 'set_policy', 'solve', 'attest',
+                                 'check', 'submit']),
             'name': _str('contract name (key contract/<name>)'),
             'example': _str('deploy: bundled example to deploy instead of '
                             'code — counter | ledger'),
@@ -2473,6 +2875,20 @@ TOOLS.update({
             'receipt': _str('verify: receipt cid (default: the anchored '
                             'latest for name=)'),
             'limit': _str('receipts: how many back from the latest (50)'),
+            'system': _str('policy/check/submit: replay | wasm | quorum',
+                           enum=['replay', 'wasm', 'quorum']),
+            'verifier': _str('wasm: verifier name or cid (verifier/<name>)'),
+            'k': _str('quorum: signatures required'),
+            'signers': _str('quorum: allowed signer addresses (list or '
+                            'comma-separated)'),
+            'state_out_b64': _str('check/submit/attest: the claimed next '
+                                  'state, base64'),
+            'proof_b64': _str('check/submit: the proof bytes, base64 '
+                              '(wasm); quorum accepts the attestations '
+                              'list here as JSON'),
+            'attestations': {'type': 'array', 'items': {'type': 'object'},
+                             'description': 'quorum: attestations from '
+                                            'action=attest'},
             'lang': _str('deploy: wasm | sierra | cairo | source (default '
                          'source)', enum=['wasm', 'sierra', 'cairo',
                                           'source']),

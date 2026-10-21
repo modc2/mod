@@ -73,6 +73,10 @@ class Agent:
     # set -> a feedback loop: {{"builder": name, "reviewer": name}} take turns
     # for `rounds` passes (params.rounds). Either may be this agent itself.
     loop = {loop}
+    # set -> a tool-agent: the agent IS this one tool ("x402.<slug>",
+    # "mcp.<mod>.<tool>", "mod.<name>", a builtin…). JSON params call it
+    # straight with no model in the loop; prose runs the loop on it alone.
+    tool = {tool}
 
     # the integrations this agent requires wired in: its prompt, the model it
     # calls, the toolbox it may reach, and the memory it thinks with
@@ -112,6 +116,18 @@ def _check_params(params):
         raise ValueError(f"params too large ({len(blob)} chars, max {PARAMS_MAX_CHARS})")
     # round-trip through JSON so the written literal is plain data only
     return _json.loads(blob)
+
+
+def _check_tool(tool):
+    """Validate a tool-agent's tool before it is written into an agent file:
+    one tool name (dotted for the fleet kinds). None/'' clear it. Whether it
+    exists is checked when the agent runs — a mount can come and go."""
+    if not tool:
+        return None
+    if not isinstance(tool, str) or len(tool) > 200 or \
+            not re.fullmatch(r"[A-Za-z0-9_.:\-]+", tool):
+        raise ValueError("tool must be one tool name, e.g. x402.weather-forecast")
+    return tool
 
 
 def _check_loop(loop):
@@ -201,6 +217,10 @@ class Agents:
             # other agents ({"builder": name, "reviewer": name}), run by
             # Mod._run_feedback for `rounds` passes instead of one loop
             "loop": getattr(cls, "loop", None),
+            # set -> a tool-agent: this agent is one tool with a persona on
+            # it (see Mod._run_tool_agent) — how a paid x402 service, an MCP
+            # tool or a fleet module becomes an agent the others can call
+            "tool": getattr(cls, "tool", None),
             # the agent's own UI — a gateway path ('/hermes') or a URL the
             # console connects to when this agent is selected. None = the
             # console itself is the interface. Hub-installed agents get one
@@ -286,7 +306,8 @@ class Agents:
                icon: str = ">_", tools: list = None, model: str = None,
                memory: str = None, harness: str = None,
                interface: str = None, params: dict = None,
-               loop: dict = None, key: str = None) -> Dict[str, Any]:
+               loop: dict = None, tool: str = None,
+               key: str = None) -> Dict[str, Any]:
         """Create a new agent locally in agents/ directory.
 
         Signed-in callers only — the agent is filed under the address that
@@ -320,6 +341,7 @@ class Agents:
         interface = self._check_interface(interface)
         params = _check_params(params)
         loop = _check_loop(loop)
+        tool = _check_tool(tool)
         self.identity.require_signed_in(key, f"create agent: {name}")
         agent_dir = self._dir / name
         if agent_dir.exists():
@@ -341,6 +363,7 @@ class Agents:
             owner=repr(owner) if owner else "None",
             params=repr(params) if params else "None",
             loop=repr(loop) if loop else "None",
+            tool=repr(tool) if tool else "None",
             goal=goal or f"You are a {label} agent.",
         )
         (agent_dir / "mod.py").write_text(content)
@@ -353,7 +376,7 @@ class Agents:
     def update(self, name: str, description: str = None, goal: str = None,
                icon: str = None, tools: list = ..., model: str = ...,
                memory: str = ..., harness: str = ..., interface: str = ...,
-               params: dict = ..., loop: dict = ...,
+               params: dict = ..., loop: dict = ..., tool: str = ...,
                key: str = None) -> Dict[str, Any]:
         """Update an agent in place. The owner or the host may edit it —
         for everyone else built-ins are read-only, so clone them instead.
@@ -379,6 +402,7 @@ class Agents:
         new_params = (current.get("params") if params is ...
                       else _check_params(params))
         new_loop = current.get("loop") if loop is ... else _check_loop(loop)
+        new_tool = current.get("tool") if tool is ... else _check_tool(tool)
         label = name.replace("-", " ").title()
         content = AGENT_TEMPLATE.format(
             name=name,
@@ -394,6 +418,7 @@ class Agents:
             owner=repr(self._recorded_owner(name)) if self._recorded_owner(name) else "None",
             params=repr(new_params) if new_params else "None",
             loop=repr(new_loop) if new_loop else "None",
+            tool=repr(new_tool) if new_tool else "None",
             goal=goal if goal is not None else (current.get("goal") or f"You are a {label} agent."),
         )
         (agent_dir / "mod.py").write_text(content)
@@ -620,6 +645,7 @@ class Agents:
             interface=data.get("interface"),
             params=data.get("params") if isinstance(data.get("params"), dict) else None,
             loop=data.get("loop") if isinstance(data.get("loop"), dict) else None,
+            tool=data.get("tool") if isinstance(data.get("tool"), str) else None,
             key=key,
         )
 
@@ -719,6 +745,7 @@ class Agents:
                 interface=kwargs.get("interface"),
                 params=kwargs.get("params"),
                 loop=kwargs.get("loop"),
+                tool=kwargs.get("tool"),
                 key=kwargs.get("key"),
             )
         if action == "update":
@@ -734,6 +761,7 @@ class Agents:
                 interface=kwargs.get("interface", ...),
                 params=kwargs.get("params", ...),
                 loop=kwargs.get("loop", ...),
+                tool=kwargs.get("tool", ...),
                 key=kwargs.get("key"),
             )
         if action == "remove":

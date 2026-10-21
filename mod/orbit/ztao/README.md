@@ -17,6 +17,25 @@ Emission is split by **Zuma consensus**, computed on chain.
 | `settle(epoch, tag)` | anyone | — | — | Zuma consensus for one tag once the epoch closes: consensus + clipped rank |
 | `claim(epoch, ring, to, sig)` | miner | same key as the tag (same scope gives the same image) | the tag again | one claim per tag, after every tag is settled; credits `emission · rank / Σ rank` to `to` |
 
+
+## What ztao adds over ztensor (v0.5)
+
+ztao is a fork of `ztensor` 0.4. It uses the same contracts, signer and adapters, on its own ports.
+
+- **Pre-flight guard** (`src/core/guard.py`). Before anything is signed,
+  `submit` / `score` / `claim` refuse actions the chain would revert: a ring
+  below `min_ring`, a score that isn't an integer from 0 to 100, a score for
+  a tag with no submission this epoch, or a claim before every tag is settled
+  (or one already claimed). A reverted tx still costs the relayer its fee.
+  Pass `check=False` to skip the guard.
+- **`preflight(action, name, ...)`** runs the same checks as a dry run and
+  returns `{ok, reason}`. It needs loopback, because it uses key names.
+- **`anonymity(role, network)`** is a public read. It reports how big a
+  crowd each member hides in: ring size, number of rings, bits, and warnings.
+- Ports: API/console :50122, starknet-devnet :51502, near-sandbox :51503
+  (p2p :51501), anvil :51504, postquant :51506, substrate :51507,
+  solana :51510. Env vars are `ZTAO_*`.
+
 ## Zuma consensus
 
 Validators are anonymous, so there is no per-validator stake. A ring is one

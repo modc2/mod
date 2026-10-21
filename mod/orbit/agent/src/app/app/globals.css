@@ -2002,6 +2002,13 @@ g:hover > .builder-wire {
 .dag-port--out { right: -6px; cursor: crosshair; }
 .dag-port--out:hover { transform: scale(1.45); }
 .dag-node--target .dag-port--in { background: rgb(var(--acc)); transform: scale(1.4); }
+.dag-port::after { content: ''; position: absolute; inset: -8px; border-radius: 99px; }
+.dag-port--in { cursor: grab; }
+.dag-port--in:hover { transform: scale(1.45); background: rgb(var(--acc)); }
+.dag-wire-grab { cursor: grab; }
+.dag-agg-hint { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); text-align: center; pointer-events: none;
+  font-size: 10px; color: rgb(var(--i-300)); background: rgb(var(--s-1) / 0.95); border: 1px solid rgb(var(--i-400) / 0.35);
+  border-radius: 99px; padding: 3px 8px; white-space: nowrap; }
 .dag-spin { width: 14px; height: 14px; border-radius: 99px; border: 2px solid rgb(var(--acc) / 0.25); border-top-color: rgb(var(--acc)); animation: dag-spin .8s linear infinite; }
 @keyframes dag-spin { to { transform: rotate(360deg); } }
 .dag-badge { font-size: 10px; padding: 2px 6px; border-radius: 99px; background: rgb(var(--ink) / 0.06); color: rgb(var(--g-400)); white-space: nowrap; }

@@ -155,6 +155,18 @@ class Mod:
         return self.call('contract', action='verify', name=name,
                          receipt=receipt, **kw)
 
+    def proofs(self):
+        """Proof systems for off-chain state machines: replay | wasm (a
+        custom pqp1 verifier) | quorum — plus verifiers and machines."""
+        return self.call('contract', action='proofs')
+
+    def contract_submit(self, name, input='', state_out_b64='', wallet=None,
+                        **kw):
+        """Submit a transition computed elsewhere: accepted by the machine's
+        proof policy (proof_b64= / attestations=), signed and anchored."""
+        return self.call('contract', action='submit', name=name, input=input,
+                         state_out_b64=state_out_b64, wallet=wallet, **kw)
+
     def contract_examples(self):
         """The bundled pqc1 example contracts (counter, ledger) and how to
         drive them."""

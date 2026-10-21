@@ -1,6 +1,6 @@
 {
     "name": "x",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "description": "X (Twitter) API v2 \u2014 Rust MCP server, REST API and browser app off one tool layer",
     "port": 50350,
     "route": true,
@@ -30,11 +30,13 @@
         "auth": "GET /auth",
         "set_keys": "POST /auth/keys (loopback only)",
         "forward": "POST /forward",
-        "tools": "GET /tools"
+        "tools": "GET /tools",
+        "summarize": "GET /summarize?feed=&max_results=&estimate_only="
     },
     "fns": [
         "forward",
         "search",
+        "summarize",
         "counts",
         "get_post",
         "user",
@@ -64,6 +66,6 @@
     ],
     "backend": "x-rs (Rust: axum \u2014 MCP JSON-RPC 2.0 over Streamable HTTP + stdio, REST, embedded app)",
     "secrets": "~/.mod/x/credentials.json",
-    "schema": "QmVst4nunrKiXVCpvVhvgUkEu86s1XkUYvRzKJnSA5RVVX",
+    "schema": "QmQGzn4Rk4Yyxxwrypmn9EQ2T83pY5DoR564mj6e2h4CoD",
     "gateway_port": 50350
 }

@@ -44,12 +44,13 @@ _spec.loader.exec_module(_anchor)
 MOD = _anchor.Mod()
 
 import jevpay as pay            # noqa: E402 — the door
+from jevrelay import credits_ok as pay_credits_ok   # noqa: E402
 
 FREE_FNS = ('info', 'health', 'status', 'models', 'price', 'pay', 'whoami', 'balance',
-            'readme', 'encode', 'version', 'tools', 'stats')
+            'readme', 'encode', 'version', 'tools', 'stats', 'relay')
 PAID_FNS = ('ask', 'noul', 'choice', 'score')
 TOPUP_FNS = ('topup',)
-OWNER_FNS = ('grant', 'ledger', 'payments', 'pricing')        # this box only
+OWNER_FNS = ('grant', 'ledger', 'payments', 'pricing', 'wallet')        # this box only
 API_FNS = FREE_FNS + PAID_FNS + TOPUP_FNS + OWNER_FNS
 MCP_PATHS = ('/mcp', f'{PREFIX}/mcp', f'/api{PREFIX}/mcp')
 STARTED = time.time()
@@ -217,7 +218,15 @@ class Handler(SimpleHTTPRequestHandler):
                 return {'error': 'send a mod-protocol token or address=0x…', 'code': 'invalid_request'}
             return pay.balance(addr)
         if fn in ('price', 'pay'):
-            return pay.public()
+            pub, rel = pay.public(), MOD.relay()
+            relayed = rel.get('backend') == 'relay'
+            # one line a console or an agent can read: who answers, what one ask costs
+            answers = {'backend': rel.get('backend'), 'live': not relayed or 'via' in rel,
+                       'via': rel.get('via') if relayed else 'TypeSafe (direct)',
+                       'per': 'call' if relayed else 'question',
+                       'usd': rel.get('seller_usd') if relayed else pub['price_usd'],
+                       'paid_to': 'the Jev seller' if relayed else 'this node'}
+            return {**pub, 'relay': rel, 'answers': answers, 'credits_available': pay_credits_ok()}
         if fn == 'tools':
             return {'tools': TOOLS}
         if fn == 'stats':
@@ -236,6 +245,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return MOD.payments(**args)
             if fn == 'pricing':
                 return MOD.pricing(**args)
+            if fn == 'wallet':
+                return MOD.wallet(**args)
         except (pay.PayError, TypeError, ValueError) as e:
             return {'error': str(e), 'code': 'invalid_request'}
         return {'error': 'unknown', 'code': 'not_found'}

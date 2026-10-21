@@ -53,6 +53,9 @@ DEFAULTS = {
     'max_questions': 32,        # per call
     'timeout_s': 300,           # how long a signed payment stays valid
     'description': 'jev: typed questions over the Jev model (TypeSafe System One)',
+    'backend': 'auto',          # auto | direct (jevgo + TYPESAFE_API_KEY) | relay (a Jev x402 seller)
+    'upstreams': [],            # relay sellers, in order (empty = jevrelay.UPSTREAMS)
+    'relay_timeout_s': 90,
 }
 
 # USDC on each chain this node will accept. `name`/`version` are the token's
@@ -126,8 +129,12 @@ def set_policy(**changes):
             v = str(v).lower() in ('1', 'true', 'yes', 'on') if not isinstance(v, bool) else v
         elif k in ('price_usd', 'min_topup_usd'):
             v = float(v)
-        elif k in ('max_questions', 'timeout_s'):
+        elif k in ('max_questions', 'timeout_s', 'relay_timeout_s'):
             v = int(v)
+        elif k == 'backend' and v not in ('auto', 'direct', 'relay'):
+            raise PayError('backend must be auto, direct or relay')
+        elif k == 'upstreams' and isinstance(v, str):
+            v = [u.strip() for u in v.split(',') if u.strip()]
         elif k == 'networks' and isinstance(v, str):
             v = [n.strip() for n in v.split(',') if n.strip()]
         elif k == 'pay_to':
@@ -475,12 +482,14 @@ def payments(limit=100):
 def stats():
     with _lock:
         c = db()
-        paid = c.execute('SELECT COUNT(*) n, COALESCE(SUM(units),0) u FROM payments').fetchone()
+        paid = c.execute("SELECT COUNT(*) n, COALESCE(SUM(units),0) u FROM payments WHERE kind != 'relay'").fetchone()
+        relayed = c.execute("SELECT COUNT(*) n, COALESCE(SUM(units),0) u FROM payments WHERE kind = 'relay'").fetchone()
         cred = c.execute('SELECT COUNT(*) n, COALESCE(SUM(units),0) u FROM credits').fetchone()
         spent = c.execute("SELECT COALESCE(-SUM(delta),0) u FROM ledger WHERE kind='spend'").fetchone()
     return {'payments': paid['n'], 'received_usd': usd(paid['u']),
             'credit_accounts': cred['n'], 'credits_outstanding_usd': usd(cred['u']),
-            'credits_spent_usd': usd(spent['u'])}
+            'credits_spent_usd': usd(spent['u']),
+            'relayed_calls': relayed['n'], 'relayed_to_sellers_usd': usd(relayed['u'])}
 
 
 # ── the gate ──────────────────────────────────────────────────────
@@ -511,6 +520,10 @@ def charge(headers, n_questions, resource, run, local=False, description=None):
         cost = quote(n_questions, p)
     except PayError as e:
         return 400, {'error': str(e), 'code': 'invalid_request'}, extra
+
+    import jevrelay
+    if jevrelay.backend(p) == 'relay':
+        return _charge_relay(headers, n_questions, cost, resource, run, local, description, p, who)
 
     if not p['enabled'] or not _pay_to_ok(p) or (local and p['free_local']):
         out = run()
@@ -565,12 +578,102 @@ def charge(headers, n_questions, resource, run, local=False, description=None):
     return 402, required(cost, resource, description, None, p, questions=n_questions), extra
 
 
+# ── relay: no TypeSafe key here, a Jev x402 seller answers ───────
+
+PING = {'state': 'ping', 'questions': {'q': {'type': 'noul', 'instructions': 'ping'}}}
+
+
+def _relay_required(offers, info, resource, error=None, p=None, **extra):
+    """A 402 whose offer is the SELLER's (its payTo and price): sign it and the
+    payment goes straight to the seller, jev only forwards it."""
+    p = p or policy()
+    return {
+        'x402Version': 1,
+        'error': error or 'payment required',
+        'accepts': offers,
+        'price': {'usd': info['usd'], 'units': units(info['usd']), 'currency': 'USDC', 'per': 'call', **extra},
+        'relay': {'via': info['via'], 'note': 'this node has no TypeSafe key: your payment goes to the Jev seller '
+                                              f'{info["via"]} and jev forwards your question to it'},
+        'credits': {'topup': 'POST /jev/api/topup with X-PAYMENT (>= $%s); spend with a `token:` header'
+                             % p['min_topup_usd'], 'min_usd': p['min_topup_usd']},
+        'kyc': 'none',
+    }
+
+
+def _run_relay(run, raw=None, node=False):
+    import jevrelay
+    jevrelay.pay_with(raw, node)
+    try:
+        return run()
+    finally:
+        jevrelay.clear()
+
+
+def _charge_relay(headers, n_questions, cost, resource, run, local, description, p, who):
+    import jevrelay
+    extra = {}
+    try:
+        offers, info = jevrelay.accepts(PING, resource, description, p)
+    except jevrelay.RelayError as e:
+        return e.status, {'error': str(e), 'code': e.code}, extra
+
+    if (local and p['free_local']) or not p['enabled']:
+        out = _run_relay(run, node=True)
+        return _status(out), {**out, 'payment': {'mode': 'node', 'who': who['id'], 'usd': info['usd'],
+                                                  'via': info['via']}}, extra
+
+    raw = payment_header(headers)
+    if raw:
+        payment = decode(raw)
+        req = match(payment, offers)
+        if not req:
+            return 402, _relay_required(offers, info, resource, 'payment does not match the offer '
+                                        '(scheme, network, payTo or amount)', p), extra
+        nonce = authorization(payment).get('nonce')
+        if nonce and seen(nonce):
+            return 402, _relay_required(offers, info, resource, 'payment already used', p), extra
+        out = _run_relay(run, raw=raw)
+        relay = out.get('relay') or {}
+        if out.get('code') == 'payment':
+            return 402, _relay_required(offers, info, resource, out['error'], p), extra
+        rec = relay.get('receipt') or {}
+        receipt = {'success': bool(rec.get('success', 'error' not in out)), 'transaction': rec.get('tx') or '',
+                   'network': rec.get('network') or req['network'],
+                   'payer': rec.get('payer') or authorization(payment).get('from') or '', 'errorReason': ''}
+        if 'error' in out:
+            return _status(out), {**out, 'payment': {'mode': 'x402', 'via': info['via'], 'settled': False,
+                                                      'note': 'the seller did not answer'}}, extra
+        record_payment(payment, req, receipt, 'relay', resource)
+        extra['X-PAYMENT-RESPONSE'] = receipt_header(receipt)
+        return 200, {**out, 'payment': {'mode': 'x402', 'via': info['via'], 'settled': receipt['success'],
+                                        'payer': receipt['payer'], 'network': receipt['network'],
+                                        'tx': receipt['transaction'], 'usd': info['usd']}}, extra
+
+    if who['kind'] == 'wallet' and _pay_to_ok(p):
+        have = balance(who['id'])['units']
+        if have >= cost:
+            out = _run_relay(run, node=True)
+            if 'error' in out:
+                return _status(out), {**out, 'payment': {'mode': 'credits', 'charged': False}}, extra
+            left = debit(who['id'], cost, resource)
+            extra['X-Jev-Credits-Left'] = str(left['usd'])
+            return 200, {**out, 'payment': {'mode': 'credits', 'usd': usd(cost), 'left_usd': left['usd'],
+                                            'address': who['id'], 'via': info['via']}}, extra
+
+    return 402, _relay_required(offers, info, resource, None, p, questions=n_questions), extra
+
+
 def topup(headers, resource='topup'):
     """Credit the PAYING address with whatever an X-PAYMENT carries (>= min).
     → (status, body, extra_headers)."""
     p = policy()
     if not p['enabled'] or not _pay_to_ok(p):
         return 400, {'error': 'this node does not charge, nothing to top up', 'code': 'free'}, {}
+    import jevrelay
+    if not jevrelay.credits_ok(p):
+        return 409, {'error': 'credits are off: this node relays to a Jev seller and has no wallet to pay it '
+                              'with, so credits could not be spent. Pay per call instead.',
+                     'code': 'credits_off'}, {}
     raw = payment_header(headers)
     floor = units(p['min_topup_usd'])
     if not raw:
@@ -614,7 +717,7 @@ def _status(out):
         return 200
     return {'authentication': 502, 'permission_denied': 502, 'rate_limit': 429, 'overloaded': 503,
             'timeout': 504, 'connection': 502, 'invalid_request': 400, 'invalid_config': 500,
-            'bridge': 500, 'build': 500}.get(out.get('code'), 400)
+            'bridge': 500, 'build': 500, 'payment': 402, 'no_wallet': 402, 'relay': 502}.get(out.get('code'), 400)
 
 
 class Gate:

@@ -111,7 +111,24 @@ def _t_bot_save(a, token, key):
     address = _need_who(a, token)
     return C.save_bot(address, a['name'], system=a.get('system'),
                       model=a.get('model'), temperature=a.get('temperature'),
-                      search=a.get('search'), description=a.get('description'))
+                      search=a.get('search'), description=a.get('description'),
+                      public=a.get('public'))
+
+
+def _t_public_bots(a, token, key):
+    rows = C.public_bots(q=a.get('q'), owner=a.get('owner'),
+                         limit=a.get('limit') or 200)
+    return {'bots': rows, 'count': len(rows),
+            'run': 'grok_chat bot=<ref> runs one on your own credits'}
+
+
+def _t_bot_publish(a, token, key):
+    return C.publish_bot(_need_who(a, token), a['name'],
+                         public=a.get('public', True))
+
+
+def _t_bot_copy(a, token, key):
+    return C.copy_bot(_need_who(a, token), a['ref'], name=a.get('name'))
 
 
 def _t_bot_delete(a, token, key):
@@ -146,7 +163,8 @@ TOOLS = {
                          'description': 'OpenAI-shaped [{role, content}, …]'},
             'system': {'type': 'string'},
             'model': {'type': 'string'},
-            'bot': {'type': 'string', 'description': 'a saved bot (needs token)'},
+            'bot': {'type': 'string', 'description': 'a saved bot, or '
+                    '<address>/<name> for a published one (needs token)'},
             'temperature': {'type': 'number'},
             'max_tokens': {'type': 'integer'},
             'search': {'type': 'string', 'enum': ['auto', 'on', 'off'],
@@ -201,7 +219,34 @@ TOOLS = {
             'name': {'type': 'string'}, 'system': {'type': 'string'},
             'model': {'type': 'string'}, 'temperature': {'type': 'number'},
             'search': {'type': 'string', 'enum': ['auto', 'on', 'off']},
-            'description': {'type': 'string'}, 'token': _TOKEN}},
+            'description': {'type': 'string'},
+            'public': {'type': 'boolean', 'description': 'publish it — anyone '
+                       'can see, run and copy it'}, 'token': _TOKEN}},
+    },
+    'grok_public_bots': {
+        'fn': _t_public_bots,
+        'description': "Everyone's published grokbots on this deployment, "
+                       'newest first. No sign-in needed to browse. Each has a '
+                       'ref (<address>/<name>): grok_chat bot=<ref> runs it on '
+                       'your own credits, grok_bot_copy takes a private copy.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'q': {'type': 'string', 'description': 'search name/prompt/owner'},
+            'owner': {'type': 'string'}, 'limit': {'type': 'integer'}}},
+    },
+    'grok_bot_publish': {
+        'fn': _t_bot_publish,
+        'description': 'Publish (public=true) or unpublish one of your bots.',
+        'inputSchema': {'type': 'object', 'required': ['name'], 'properties': {
+            'name': {'type': 'string'}, 'public': {'type': 'boolean'},
+            'token': _TOKEN}},
+    },
+    'grok_bot_copy': {
+        'fn': _t_bot_copy,
+        'description': 'Copy a published bot (ref=<address>/<name>) onto your '
+                       'account as a private bot you can edit.',
+        'inputSchema': {'type': 'object', 'required': ['ref'], 'properties': {
+            'ref': {'type': 'string'}, 'name': {'type': 'string'},
+            'token': _TOKEN}},
     },
     'grok_bot_delete': {
         'fn': _t_bot_delete,

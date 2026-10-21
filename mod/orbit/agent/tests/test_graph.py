@@ -21,7 +21,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.graph.protocol import KINDS, descriptor
-from src.graph.runner import run_graph, match_rule, match_rules, msg
+from src.graph.runner import run_graph, match_rule, match_rules, msg, read_prediction, aggregate
 from src.graph.mod import Graphs
 
 
@@ -168,6 +168,63 @@ def test_join_vote_picks_the_agreed_answer():
          "edges": [E("in", "a"), E("in", "b"), E("in", "c"),
                    E("a", "j"), E("b", "j"), E("c", "j"), E("j", "out")]}
     assert run_graph(g, "?", execute=execute)["answer"] == "yes"
+
+
+def _forecasters(answers):
+    def execute(kind, node, message):
+        return {"ok": True, "text": answers[node["id"]], "agent": node["id"]}
+    ids = list(answers)
+    g = {"nodes": [N("in", "input")] + [N(i, "agent", agent=i) for i in ids]
+                  + [N("j", "join", mode="auto"), N("out", "output")],
+         "edges": [E("in", i) for i in ids] + [E(i, "j") for i in ids] + [E("j", "out")]}
+    return g, execute
+
+
+def test_read_prediction_finds_the_number_however_it_is_written():
+    assert read_prediction({"data": {"probability": 0.3}}) == 0.3
+    assert read_prediction({"text": '```json\n{"prediction": 0.62}\n```'}) == 0.62
+    assert read_prediction({"text": "After weighing it up.\nProbability: 70%"}) == 0.7
+    assert read_prediction({"text": "0.4"}) == 0.4
+    assert read_prediction({"text": "no idea, 3 reasons"}) is None
+    assert read_prediction({"text": "no idea, 3 reasons"}, lenient=True) == 3.0
+
+
+def test_join_auto_aggregates_predictions_into_one_number():
+    g, ex = _forecasters({"a": "0.2", "b": "probability: 40%", "c": '{"prediction": 0.6}'})
+    res = run_graph(g, "will it rain?", execute=ex)
+    assert float(res["answer"]) == pytest.approx(0.4)
+    join = [t for t in res["trail"] if t["kind"] == "join"]
+    assert len(join) == 1
+
+
+def test_join_auto_falls_back_to_concat_for_prose():
+    g, ex = _forecasters({"a": "0.2", "b": "it depends on the wind"})
+    res = run_graph(g, "?", execute=ex)
+    assert "0.2" in res["answer"] and "wind" in res["answer"]
+
+
+def test_aggregate_modes():
+    vs = [("a", 0.2), ("b", 0.4), ("c", 0.9)]
+    assert aggregate(vs, "mean") == pytest.approx(0.5)
+    assert aggregate(vs, "median") == 0.4
+    assert aggregate(vs, "min") == 0.2 and aggregate(vs, "max") == 0.9
+    assert aggregate(vs, "weighted", {"c": 2}) == pytest.approx((0.2 + 0.4 + 1.8) / 4)
+    assert aggregate([("a", 0.5), ("b", 0.5)], "logodds") == pytest.approx(0.5)
+    # pooled log-odds keeps a confident consensus confident
+    assert aggregate([("a", 0.9), ("b", 0.9)], "logodds") == pytest.approx(0.9)
+    assert aggregate([("a", 0.1), ("b", 0.9)], "logodds") == pytest.approx(0.5)
+
+
+def test_numeric_join_reports_its_inputs_and_drops_non_numbers():
+    def execute(kind, node, message):
+        return {"ok": True, "text": {"a": "0.3", "b": "0.5", "c": "shrug"}[node["id"]],
+                "agent": node["id"]}
+    g = {"nodes": [N("in", "input"), N("a", "agent", agent="a"), N("b", "agent", agent="b"),
+                   N("c", "agent", agent="c"), N("j", "join", mode="mean"), N("out", "output")],
+         "edges": [E("in", "a"), E("in", "b"), E("in", "c"),
+                   E("a", "j"), E("b", "j"), E("c", "j"), E("j", "out")]}
+    res = run_graph(g, "?", execute=execute)
+    assert float(res["answer"]) == pytest.approx(0.4)
 
 
 def test_router_takes_the_first_matching_route():

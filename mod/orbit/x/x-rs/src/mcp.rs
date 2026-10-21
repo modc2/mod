@@ -30,6 +30,20 @@ pub fn tool_list() -> Value {
             }
         },
         {
+            "name": "summarize",
+            "description": "Summarize any X feed (an @handle, x.com profile/search/list/hashtag/status URL, #hashtag, search query, list:<id>, or \"home\" for your own following feed): digest with top posts, topics, hashtags, links, activity, plus what the API calls cost. Set estimate_only to price it without spending anything.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "feed": { "type": "string", "description": "@handle, x.com URL (profile, search, list, hashtag, status=thread), #tag, search query, list:<id>, or home" },
+                    "max_results": { "type": "integer", "default": 50, "description": "5–300 posts to read; cost scales with this" },
+                    "estimate_only": { "type": "boolean", "default": false, "description": "Return only the cost estimate; no API call" },
+                    "exclude": { "type": "string", "description": "Timeline/home only: retweets,replies (timeline default retweets)" }
+                },
+                "required": ["feed"]
+            }
+        },
+        {
             "name": "counts",
             "description": "Volume of posts matching a query over time (last 7 days), bucketed by minute/hour/day.",
             "inputSchema": {
@@ -370,6 +384,97 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
                     .await
                 }
             }
+        }
+
+        "summarize" => {
+            use crate::summary::{digest, estimate, parse_feed, Feed};
+            let feed = parse_feed(s(args, "feed").ok_or("summarize requires `feed`")?)?;
+            let want = u(args, "max_results", 50).clamp(5, 300);
+            let owned = feed == Feed::Home;
+            // Profile reads we always pay for: the handle -> id lookup (timeline)
+            // or /users/me (home). Search/list/thread may bring one author per post.
+            let lookups = u64::from(matches!(feed, Feed::Timeline(_) | Feed::Home));
+            let max_users = match feed {
+                Feed::Timeline(_) => 1,
+                _ => want,
+            };
+            let est = estimate(want, lookups, max_users, owned);
+            let label = feed.label();
+            if args.get("estimate_only").and_then(|v| v.as_bool()).unwrap_or(false) {
+                return Ok(json!({ "feed": label, "estimate": est, "fetched": false }));
+            }
+            let missing = if owned && !creds.has_user() {
+                Some("the home feed acts as your account: it needs the OAuth 1.0a user keys (Auth tab).")
+            } else if !creds.has_any() {
+                Some("no X credentials: reading a feed needs a bearer token (Auth tab).")
+            } else {
+                None
+            };
+            if let Some(why) = missing {
+                return Ok(json!({ "feed": label, "error": format!("{why} Estimate below."), "estimate": est, "fetched": false }));
+            }
+            let (path, base, auth): (String, Vec<(String, String)>, Auth) = match &feed {
+                Feed::Timeline(h) => {
+                    let id = x::user_id(h, &creds).await.map_err(|e| e.to_string())?;
+                    let ex = s(args, "exclude").unwrap_or("retweets").into();
+                    (format!("/2/users/{id}/tweets"), q(vec![("exclude", ex)]), Auth::App)
+                }
+                Feed::Home => {
+                    let me = x::get("/2/users/me", &[], &creds, Auth::User).await.map_err(|e| e.to_string())?;
+                    let id = me["data"]["id"].as_str().ok_or("couldn't resolve the signed-in account")?.to_string();
+                    let ex = s(args, "exclude").unwrap_or("").into();
+                    (format!("/2/users/{id}/timelines/reverse_chronological"), q(vec![("exclude", ex)]), Auth::User)
+                }
+                Feed::List(id) => (format!("/2/lists/{id}/tweets"), vec![], Auth::App),
+                Feed::Search(query) | Feed::Thread(query) => {
+                    let query = match &feed {
+                        Feed::Thread(_) => format!("conversation_id:{query}"),
+                        _ if query.contains("is:retweet") => query.clone(),
+                        _ => format!("{query} -is:retweet"),
+                    };
+                    (
+                        "/2/tweets/search/recent".into(),
+                        q(vec![("query", query), ("sort_order", "recency".into())]),
+                        Auth::App,
+                    )
+                }
+            };
+            let paged_by_next = matches!(feed, Feed::Search(_) | Feed::Thread(_));
+            let (mut posts, mut users_seen, mut token): (Vec<Value>, Vec<Value>, Option<String>) =
+                (vec![], vec![], None);
+            while (posts.len() as u64) < want {
+                // Lists cap pages at 100 like the rest; search needs >= 10.
+                let page = (want - posts.len() as u64).clamp(10, 100);
+                let mut params = base.clone();
+                params.extend(q(vec![("max_results", page.to_string())]));
+                params.extend(q(read_fields()));
+                if let Some(t) = &token {
+                    let key = if paged_by_next { "next_token" } else { "pagination_token" };
+                    params.push((key.into(), t.clone()));
+                }
+                let v = x::get(&path, &params, &creds, auth).await.map_err(|e| e.to_string())?;
+                posts.extend(v["data"].as_array().cloned().unwrap_or_default());
+                users_seen.extend(v["includes"]["users"].as_array().cloned().unwrap_or_default());
+                token = v["meta"]["next_token"].as_str().map(String::from);
+                if token.is_none() {
+                    break;
+                }
+            }
+            posts.truncate(want as usize);
+            // Billing dedupes within a UTC day, so count each author once.
+            let mut ids: Vec<&str> = users_seen.iter().filter_map(|u| u["id"].as_str()).collect();
+            ids.sort();
+            ids.dedup();
+            let billed_users = match feed {
+                Feed::Timeline(_) => 1,
+                _ => ids.len() as u64 + lookups,
+            };
+            let actual = estimate(posts.len() as u64, billed_users, billed_users, owned);
+            let mut out = digest(&posts, &users_seen);
+            out["feed"] = json!(label);
+            out["cost"] = actual;
+            out["fetched"] = json!(true);
+            Ok(out)
         }
 
         other => return Err(format!("unknown tool: {other}")),

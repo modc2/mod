@@ -58,6 +58,8 @@ def test_examples_are_listed_and_inspectable():
     names = {e['name'] for e in ex['examples']}
     assert {'counter', 'ledger'} <= names
     for e in ex['examples']:
+        if e.get('source_only'):
+            continue
         assert e['abi'] == 'pqc1' and e['imports'] == 0
         assert 'pqc_run' in e['exports'] and e['cid']
 

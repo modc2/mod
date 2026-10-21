@@ -48,7 +48,9 @@
         "hubs",
         "add_hub",
         "remove_hub",
-        "connect_hub"
+        "connect_hub",
+        "x402_status",
+        "x402_enable"
     ],
     "endpoints": {
         "servers": {

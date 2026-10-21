@@ -89,7 +89,7 @@ def oauth_ok(method, url, query, header):
 
 
 # GETs that read as the account; every POST/DELETE acts as it.
-USER_CONTEXT_GETS = re.compile(r"^/2/users/(me|\d+/mentions)$")
+USER_CONTEXT_GETS = re.compile(r"^/2/users/(me|\d+/mentions|\d+/timelines/reverse_chronological)$")
 
 
 class H(BaseHTTPRequestHandler):
@@ -143,6 +143,8 @@ class H(BaseHTTPRequestHandler):
         if m:
             rows = [t for t in TWEETS if t["author_id"] == m.group(1)] or TWEETS
             return self.send({"data": rows, "includes": INCLUDES, "meta": {"result_count": len(rows)}})
+        if re.match(r"^/2/users/\d+/timelines/reverse_chronological$", p) or re.match(r"^/2/lists/\d+/tweets$", p):
+            return self.send({"data": TWEETS, "includes": INCLUDES, "meta": {"result_count": len(TWEETS)}})
         m = re.match(r"^/2/users/(\d+)/(followers|following)$", p)
         if m:
             return self.send({"data": list(USERS.values()), "meta": {"result_count": len(USERS)}})

@@ -389,7 +389,7 @@ export default function Home() {
   // agent in. HUB is everything you keep — the agents you wired, the library
   // you pull from, the runs still going — behind one door instead of three
   // tabs competing with the one that matters. ARENA is the ranked board.
-  const [view, setView] = useState<'chat' | 'hub' | 'arena'>('chat')
+  const [view, setView] = useState<'chat' | 'hub' | 'arena'>('hub')
   // which shelf of the hub is open
   const [hubPane, setHubPane] = useState<HubPane>('agents')
   // which agent the GRAPH face draws — the one picked there last, else the
@@ -5322,53 +5322,12 @@ export default function Home() {
         {/* the brand is a mark, not a label — the word "agent" beside an
             AGENTS tab read as two names for one place. Clicking it still
             goes home to the chat. */}
-        <button type="button" onClick={goChat} aria-label="home — chat"
+        <button type="button" onClick={() => { setBuilderMode('browse'); openHub('agents') }} aria-label="home — agents"
           className="flex items-center shrink-0">
           <div className="brand-mark w-7 h-7 flex items-center justify-center shrink-0">
             <span className="select-none">{'>'}_</span>
           </div>
         </button>
-
-        {/* Four tabs in one segmented pill: CHAT (talk to an agent), AGENTS
-            (the hub — build, roster, library, runs), TOOLS (its own section:
-            the registry, what agents can call) and ARENA (a portal to the
-            arena mod, signed in as you). TOOLS is the hub's tools pane lifted
-            to the top bar — it stays a tab on the hub strip as well, so both
-            doors land on the same page and light the same way. AGENTS wears
-            the running count — the runs shelf lives behind it. */}
-        <nav className="tab-strip nav-seg min-w-0" aria-label="sections">
-          {(['chat', 'agents', 'tools', 'arena'] as const).map(v => {
-            const lit = v === 'chat' ? view === 'chat'
-              : v === 'agents' ? view === 'hub' && hubSection(hubPane) === 'agents'
-              : v === 'tools' ? view === 'hub' && hubSection(hubPane) === 'tools'
-              : view === 'arena'
-            return (
-              <button key={v} type="button" aria-current={lit ? 'page' : undefined}
-                onClick={() => {
-                  if (v === 'chat') goChat()
-                  else if (v === 'agents') { setBuilderMode('browse'); openHub('agents') }
-                  else if (v === 'tools') openHub('tools')
-                  else setView('arena')
-                }}
-                className={`nav-seg-btn tab-btn ${lit ? 'nav-seg-btn--on' : ''}`}
-                title={v === 'chat' ? 'Talk to an agent'
-                  : v === 'agents' ? 'Build agents, browse them, and set their tools'
-                  : v === 'tools' ? 'Anything an agent can reach for — callable tools, its memory, the library'
-                  : 'The arena — every agent ranked, signed in as you'}>
-                <NavIcon name={v} />
-                <span>{v}</span>
-                {v === 'agents' && runningCount > 0 && (
-                  <span className="nav-seg-badge"
-                    onClick={e => { e.stopPropagation(); openHub('tasks') }}
-                    title="running now — open the runs">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    {runningCount}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </nav>
 
         <div className="flex items-center gap-3 ml-auto shrink-0">
           {/* the running count lives on the BACKGROUND tab now — one count,
@@ -5384,6 +5343,35 @@ export default function Home() {
               API offline
             </span>
           )}
+          {/* two tabs, right side: AGENTS (the hub — build, roster, runs;
+              tools and the chat are doors from there) and ARENA (a portal to
+              the arena mod, signed in as you). CHAT and TOOLS left the bar. */}
+          <nav className="tab-strip nav-seg min-w-0" aria-label="sections">
+            {(['agents', 'arena'] as const).map(v => {
+              const lit = v === 'agents' ? view === 'hub' : view === 'arena'
+              return (
+                <button key={v} type="button" aria-current={lit ? 'page' : undefined}
+                  onClick={() => {
+                    if (v === 'agents') { setBuilderMode('browse'); openHub('agents') }
+                    else setView('arena')
+                  }}
+                  className={`nav-seg-btn tab-btn ${lit ? 'nav-seg-btn--on' : ''}`}
+                  title={v === 'agents' ? 'Build agents, browse them, and set their tools'
+                    : 'The arena — every agent ranked, signed in as you'}>
+                  <NavIcon name={v} />
+                  <span>{v}</span>
+                  {v === 'agents' && runningCount > 0 && (
+                    <span className="nav-seg-badge"
+                      onClick={e => { e.stopPropagation(); openHub('tasks') }}
+                      title="running now — open the runs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      {runningCount}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </nav>
           <ThemePicker theme={theme} onPick={setTheme} />
           {userChip}
         </div>

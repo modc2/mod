@@ -233,12 +233,22 @@ class Mod:
                         continue
                     if p and p not in replicas:
                         replicas.append(p)
+                # `app_replicas`: the same for the app (one per build node).
+                app_pool = []
+                for p in [app] + list(cfg.get("app_replicas") or []):
+                    try:
+                        p = int(p)
+                    except (TypeError, ValueError):
+                        continue
+                    if p and p not in app_pool:
+                        app_pool.append(p)
                 if live_only:
                     # Keep only the ports that are actually serving. A replica
                     # pool counts as live while ANY member serves.
                     pool_live = len(replicas) > 1 and any(self._port_live(p) for p in replicas)
                     api = api if (pool_live or self._port_live(api)) else None
-                    app = app if self._port_live(app) else None
+                    app_live = len(app_pool) > 1 and any(self._port_live(p) for p in app_pool)
+                    app = app if (app_live or self._port_live(app)) else None
                     if not api and not app:
                         continue
                 out.append({
@@ -247,6 +257,7 @@ class Mod:
                     "api_port": api,
                     "api_replicas": replicas if api and len(replicas) > 1 else [],
                     "app_port": app,
+                    "app_replicas": app_pool if app and len(app_pool) > 1 else [],
                     "aliases": [a for a in (cfg.get("aliases") or []) if isinstance(a, str)],
                 })
         return out
@@ -339,6 +350,8 @@ class Mod:
                     spec["api"]["upstreams"] = [f'{s["upstream_host"]}:{p}' for p in mod["api_replicas"]]
             if mod["app_port"]:
                 spec["app"] = {"upstream": f'{s["upstream_host"]}:{mod["app_port"]}', "strip": False}
+                if mod.get("app_replicas"):
+                    spec["app"]["upstreams"] = [f'{s["upstream_host"]}:{p}' for p in mod["app_replicas"]]
             if spec:
                 table[n] = spec
         overridden = self.overrides()
@@ -504,11 +517,19 @@ class Mod:
     # health interval, and a request whose dial fails is retried on another.
     LB_COOKIE = "mod_lb"
 
-    def _proxy_lines(self, spec, name="", indent="        "):
+    def _proxy_lines(self, spec, name="", indent="        ", active_health=True):
         ups = spec.get("upstreams") or []
         if len(ups) < 2:
             return [f"{indent}reverse_proxy {spec['upstream']}"]
         i2 = indent + "    "
+        # App pools (`app_replicas`) have no /health of their own — they are
+        # checked passively: a failed dial marks the member down for
+        # fail_duration and the request is retried on another one.
+        health = [
+            f"{i2}health_uri /health",
+            f"{i2}health_interval 3s",
+            f"{i2}health_timeout 2s",
+        ] if active_health else []
         return [
             f"{indent}reverse_proxy {' '.join(ups)} {{",
             # one cookie per module: pools never overwrite each other's pin
@@ -516,9 +537,7 @@ class Mod:
             f"{i2}lb_try_duration 5s",
             f"{i2}lb_try_interval 250ms",
             f"{i2}fail_duration 20s",
-            f"{i2}health_uri /health",
-            f"{i2}health_interval 3s",
-            f"{i2}health_timeout 2s",
+            *health,
             f"{i2}flush_interval -1",
             f"{indent}}}",
         ]
@@ -528,6 +547,18 @@ class Mod:
         catch-all. Matcher names are per-site in Caddy, so the same names can
         repeat across host blocks."""
         lines = [f"{host} {{"]
+        # JSON access log — the traffic module tails it for live users per app.
+        log = self.settings().get("access_log", "/var/log/caddy/access.log")
+        if log:
+            lines += [
+                "    log {",
+                f"        output file {log} {{",
+                "            roll_size 50MiB",
+                "            roll_keep 5",
+                "        }",
+                "        format json",
+                "    }",
+            ]
         for n in sorted(routes):
             spec = routes[n]
             if spec.get("alias"):
@@ -567,8 +598,25 @@ class Mod:
                 lines.append(f"    handle @{n}_app {{")
                 if r.get("strip"):
                     lines.append(f"        uri strip_prefix {prefix}")
-                lines.append(f"        reverse_proxy {r['upstream']}")
+                lines += self._proxy_lines(r, n, active_health=False)
                 lines.append("    }")
+        # A page load that hits a dead upstream (module crashed, booting,
+        # mid-restart) gets the activator's "starting" placeholder instead
+        # of a bare 502; the placeholder also wakes the module and reloads
+        # itself once it answers. API calls and fetches keep the real error.
+        wait = self.settings().get("placeholder_upstream", "localhost:9000")
+        if wait:
+            lines += [
+                "    handle_errors {",
+                "        @mod_starting expression `{http.error.status_code} in [502, 503, 504] && {http.request.method} == 'GET' && ({http.request.header.Sec-Fetch-Mode} == 'navigate' || ({http.request.header.Sec-Fetch-Mode} == '' && {http.request.header.Accept}.contains('text/html')))`",
+                "        handle @mod_starting {",
+                "            rewrite * /_placeholder",
+                f"            reverse_proxy {wait} {{",
+                "                header_up X-Mod-Orig {http.request.orig_uri.path}",
+                "            }",
+                "        }",
+                "    }",
+            ]
         if root_redirect:
             lines += [
                 "    # Default landing. 302 (not 301) so it can be flipped later",

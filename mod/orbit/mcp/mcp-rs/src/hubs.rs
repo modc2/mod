@@ -192,6 +192,14 @@ fn builtin(public_url: &str) -> Vec<Hub> {
             "PULSEMCP_API_KEY",
         ),
         directory(
+            "x402",
+            "x402 paid MCP servers",
+            &format!("{}/mcp", crate::x402::base()),
+            "https://www.x402.org/",
+            "MCP servers whose tools are paid per request over x402, read from the local x402 index. Enabling one routes its HTTP 402 through the x402 module, which pays within its own policy.",
+            "",
+        ),
+        directory(
             "docker",
             "Docker MCP catalog",
             "https://github.com/docker/mcp-registry/tree/main/servers",
@@ -343,6 +351,10 @@ async fn fill(h: &mut Hub, headers: &std::collections::HashMap<String, String>) 
                 }
                 None => Err("no key — set GLAMA_API_KEY or web.json `glama`".into()),
             },
+            "x402" => {
+                h.servers = Some(crate::x402::scan().await?.len() as u64);
+                Ok(())
+            }
             "pulsemcp" => match crate::web::key("pulsemcp") {
                 Some(k) => {
                     let mut hd = headers.clone();

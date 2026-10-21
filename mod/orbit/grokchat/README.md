@@ -11,6 +11,15 @@ on top of it:
   `x-xai-key` headers verbatim, passes `stream:true` SSE through
   byte-for-byte, and knocks the activator (`:9000/api/grokbot`) once if
   grokbot is asleep. It stores nothing.
+- **Same account as grokbot.** The app signs in with the same wallet token and
+  uses the same localStorage slot (`grokbot.token`), so on one origin, signing
+  in to either app signs you in to both. Your xAI key, your bots and your chats
+  are the ones grokbot has.
+- **MY GROKBOTS**: create, edit, rename, publish or unpublish, and delete,
+  using the same fields as grokbot's settings. **EXPLORE** lists everyone's
+  published bots (OTHER PEOPLE / YOURS / ALL), and you can CHAT with any of
+  them on your own credits or COPY one to your account. The BOT dropdown in
+  the top bar holds yours plus other people's published bots.
 - **`app/`** (`:3930`, Next.js 14, basePath `/grokchat`) — the chat UI:
   model picker, live-search toggle, BYOK key field (kept in the browser's
   localStorage, sent per-request), streaming replies with citations.

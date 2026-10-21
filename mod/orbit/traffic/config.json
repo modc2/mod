@@ -1,0 +1,48 @@
+{
+    "name": "traffic",
+    "version": "0.1.0",
+    "description": "Live users per app across the whole {host}/{mod} router, and how that changes over time. Tails Caddy's JSON access log, counts distinct people (anonymous salted hash of client IP + browser, bots and the box itself left out) per app per minute in a local SQLite file, and charts it: who is on which app right now, and users over 1H/6H/24H/7D/30D per app.",
+    "icon": "T",
+    "color": "#3987e5",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51540,
+    "app_port": 51540,
+    "gateway_port": 51540,
+    "base_path": "/traffic",
+    "route": true,
+    "always_on": true,
+    "deps": [
+        "caddy"
+    ],
+    "urls": {
+        "app": "http://localhost:51540/traffic/",
+        "api": "http://localhost:51540"
+    },
+    "state": "~/.mod/traffic/traffic.db (override with TRAFFIC_DIR); log from TRAFFIC_LOG=/var/log/caddy/access.log",
+    "fns": [
+        "forward",
+        "info",
+        "live",
+        "series",
+        "sparks",
+        "serve",
+        "test",
+        "kill"
+    ],
+    "api_fns": [
+        "info",
+        "health",
+        "live",
+        "series",
+        "sparks"
+    ],
+    "endpoints": {
+        "GET /live": "People on each app in the last `window` seconds (default 300) + total across all sites",
+        "GET /series": "Users per bucket per app over a range (range=1h|6h|24h|7d|30d, top=8, apps=a,b) + full app table",
+        "GET /sparks": "Every app's per-bucket users for the range (table sparklines)",
+        "GET /health": "Liveness + log lines read",
+        "GET /info": "What this is, which log it reads"
+    },
+    "schema": "QmSKF7dtnwAuJUJqmY8SwHqHTZ7kp55arcFfo1Mpw44LSu"
+}

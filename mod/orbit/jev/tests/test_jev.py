@@ -28,7 +28,11 @@ def home(tmp_path, monkeypatch):
     pay.reset(home=str(tmp_path))
     monkeypatch.delenv('JEV_FREE', raising=False)
     monkeypatch.delenv('JEV_PAY_TO', raising=False)
-    pay.set_policy(pay_to=PAY_TO, price_usd=0.001, networks='base,base-sepolia', min_topup_usd=0.25)
+    pay.set_policy(pay_to=PAY_TO, price_usd=0.001, networks='base,base-sepolia', min_topup_usd=0.25,
+                   backend='direct')      # relay has its own tests below
+    import jevrelay
+    jevrelay.WALLET = os.path.join(str(tmp_path), 'wallet.json')
+    jevrelay._offers.clear()
     yield tmp_path
     pay.reset(home=str(tmp_path))
 
@@ -360,3 +364,172 @@ def test_server_mcp(server, monkeypatch):
     assert body['result']['structuredContent']['noul'] == 0.42
     s, body, _ = http(server + '/jev/mcp', {'jsonrpc': '2.0', 'id': 5, 'method': 'initialize', 'params': {}})
     assert body['result']['serverInfo']['name'] == 'jev'
+
+
+# ── relay: no TypeSafe key, a Jev x402 seller answers ─────────────
+
+SELLER = '0x' + '5e' * 20
+
+
+class Seller:
+    """A v2 Jev x402 seller: 402 with PAYMENT-REQUIRED unpaid, answers when a
+    PAYMENT-SIGNATURE for its payTo arrives (or refuses with a reason)."""
+
+    def __init__(self, refuse=None):
+        self.refuse, self.calls = refuse, []
+
+    def doc(self):
+        return {'x402Version': 2, 'error': 'Payment required', 'resource': {'url': 'https://seller/jev'},
+                'accepts': [{'scheme': 'exact', 'network': 'eip155:8453', 'amount': '1000',
+                             'asset': pay.ASSETS['base']['asset'], 'payTo': SELLER, 'maxTimeoutSeconds': 120,
+                             'extra': {'name': 'USD Coin', 'version': '2'}}]}
+
+    def __call__(self, url, body, headers=None, timeout=60):
+        self.calls.append((url, body, dict(headers or {})))
+        sig = (headers or {}).get('PAYMENT-SIGNATURE')
+        if not sig:
+            return 402, {'payment-required': base64.b64encode(json.dumps(self.doc()).encode()).decode()}, {}
+        if self.refuse:
+            d = {**self.doc(), 'error': self.refuse}
+            return 402, {'payment-required': base64.b64encode(json.dumps(d).encode()).decode()}, {}
+        answers = {}
+        for name, q in body['questions'].items():
+            answers[name] = {'noul': {'type': 'noul', 'noul': 0.8},
+                             'choice': {'type': 'choice', 'choice': 'billing', 'confidence': 0.9,
+                                        'probabilities': {'billing': 0.95, 'other': 0.05}},
+                             'score': {'type': 'score', 'score': 1.7, 'confidence': 0.6,
+                                       'legend': {'0': 'a', '1': 'b', '2': 'c'},
+                                       'probabilities': {'0': 0.1, '1': 0.1, '2': 0.8}}}[q['type']]
+        rec = base64.b64encode(json.dumps({'success': True, 'transaction': '0x' + '77' * 32,
+                                           'network': 'eip155:8453', 'payer': '0x' + 'ef' * 20}).encode()).decode()
+        return 200, {'payment-response': rec}, {'model': 'jev-1.13.0', 'answers': answers}
+
+
+@pytest.fixture
+def relay(monkeypatch):
+    import jevrelay
+    s = Seller()
+    monkeypatch.setattr(jevrelay, '_post', s)
+    monkeypatch.delenv('TYPESAFE_API_KEY', raising=False)
+    pay.set_policy(backend='auto', upstreams='https://seller/jev')
+    return s
+
+
+def anchor():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('jev_anchor_t', os.path.join(ROOT, 'mod.py'))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m.Mod()
+
+
+def test_relay_backend_auto(monkeypatch, relay):
+    import jevrelay
+    assert jevrelay.backend() == 'relay'
+    monkeypatch.setenv('TYPESAFE_API_KEY', 'k')
+    assert jevrelay.backend() == 'direct'
+    pay.set_policy(backend='relay')
+    assert jevrelay.backend() == 'relay'
+
+
+def test_relay_402_carries_the_sellers_offer(relay):
+    status, body, _ = pay.charge({}, 3, 'http://x/jev/api/ask', run_ok)
+    assert status == 402
+    a = body['accepts'][0]
+    assert a['payTo'] == SELLER and a['network'] == 'base' and a['maxAmountRequired'] == '1000'
+    assert a['resource'] == 'http://x/jev/api/ask'          # ours, not the seller's
+    assert body['relay']['via'] == 'seller' and body['price']['usd'] == 0.001
+
+
+def test_relay_forwards_caller_payment_as_v2(relay):
+    m = anchor()
+    raw = x_payment(1000, to=SELLER)
+    status, body, extra = pay.charge({'X-PAYMENT': raw}, 1, 'http://x/jev/api/noul',
+                                     lambda: m.noul('charged twice', 'angry?'))
+    assert status == 200, body
+    assert body['noul'] == 0.8 and body['relay']['paid_by'] == 'caller'
+    assert body['payment']['mode'] == 'x402' and body['payment']['settled'] and body['payment']['via'] == 'seller'
+    fwd = pay.decode(relay.calls[-1][2]['PAYMENT-SIGNATURE'])
+    assert fwd['x402Version'] == 2 and fwd['accepted']['payTo'] == SELLER
+    assert fwd['payload'] == pay.decode(raw)['payload']    # the caller's signature, untouched
+    assert relay.calls[-1][1]['questions']['q']['type'] == 'noul'   # jevgo's wire body
+    assert 'X-PAYMENT-RESPONSE' in extra
+    # replay refused, and relayed money is not counted as the owner's income
+    status, body, _ = pay.charge({'X-PAYMENT': raw}, 1, 'http://x/jev/api/noul', lambda: m.noul('x', 'y'))
+    assert status == 402 and 'already used' in body['error']
+    st = pay.stats()
+    assert st['relayed_calls'] == 1 and st['payments'] == 0
+
+
+def test_relay_maps_choice_and_score(relay):
+    m = anchor()
+    pay.set_policy(enabled=False)
+    import jevrelay
+    jevrelay.wallet(create=True)
+    jevrelay.pay_with(node=True)
+    try:
+        c = m.choice('charged twice', 'team?', 'billing,other')
+        s = m.score('charged twice', 'how bad?', 'a,b,c')
+    finally:
+        jevrelay.clear()
+    assert c['choice'] == 'billing' and c['probabilities']['billing'] == 0.95
+    assert s['score'] == 1.7 and s['level'] == 2
+    fwd = pay.decode(relay.calls[-1][2]['PAYMENT-SIGNATURE'])
+    assert fwd['payload']['authorization']['to'] == SELLER and fwd['payload']['signature'].startswith('0x')
+
+
+def test_relay_wrong_payee_is_refused_before_forwarding(relay):
+    status, body, _ = pay.charge({'X-PAYMENT': x_payment(1000)}, 1, 'http://x/jev/api/noul', run_ok)
+    assert status == 402 and 'does not match' in body['error']
+    assert all('PAYMENT-SIGNATURE' not in c[2] for c in relay.calls)
+
+
+def test_relay_seller_refusal_is_a_402(relay):
+    relay.refuse = 'insufficient_funds'
+    m = anchor()
+    status, body, _ = pay.charge({'X-PAYMENT': x_payment(1000, to=SELLER)}, 1, 'http://x/jev/api/noul',
+                                 lambda: m.noul('x', 'y'))
+    assert status == 402 and 'insufficient_funds' in body['error'] and body['accepts'][0]['payTo'] == SELLER
+    assert pay.stats()['relayed_calls'] == 0
+
+
+def test_relay_local_without_wallet_explains(relay):
+    m = anchor()
+    status, body, _ = pay.charge({}, 1, 'http://x/jev/api/noul', lambda: m.noul('x', 'y'), local=True)
+    assert status == 402 and body['code'] == 'no_wallet'
+
+
+def test_relay_credits_use_node_wallet(relay):
+    import jevrelay
+    jevrelay.wallet(create=True)
+    m = anchor()
+    acct, tok = mod_token()
+    pay.credit(acct.address, 5000, 'grant')
+    status, body, extra = pay.charge({'token': tok}, 1, 'http://x/jev/api/noul', lambda: m.noul('x', 'y'))
+    assert status == 200 and body['payment']['mode'] == 'credits' and body['relay']['paid_by'] == 'node'
+    assert extra['X-Jev-Credits-Left'] == '0.004'
+
+
+def test_relay_refusal_says_why_in_plain_words(relay):
+    relay.refuse = 'invalid_payload: contract call failed: execution reverted'
+    m = anchor()
+    status, body, _ = pay.charge({'X-PAYMENT': x_payment(1000, to=SELLER)}, 1, 'http://x/jev/api/noul',
+                                 lambda: m.noul('x', 'y'))
+    assert status == 402 and 'no USDC on Base' in body['error']
+
+
+def test_relay_topup_off_without_node_wallet(relay):
+    # credits paid to the owner could never be spent: the node has nothing to pay the seller with
+    status, body, _ = pay.topup({'X-PAYMENT': x_payment(500000)})
+    assert status == 409 and body['code'] == 'credits_off'
+    import jevrelay
+    jevrelay.wallet(create=True)
+    assert jevrelay.credits_ok()
+
+
+def test_server_price_says_who_answers(server, relay):
+    s, body, _ = http(server + '/jev/api/price')
+    assert s == 200
+    assert body['answers'] == {'backend': 'relay', 'live': True, 'via': 'seller', 'per': 'call', 'usd': 0.001,
+                               'paid_to': 'the Jev seller'}
+    assert body['credits_available'] is False

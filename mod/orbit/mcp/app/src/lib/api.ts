@@ -21,7 +21,17 @@ export type Server = {
   enabled: boolean;
   added_at: number;
   auth_headers: string[];
+  /// "x402" — an HTTP 402 from this server is paid through the x402 module.
+  pay?: string;
+  needs_payment?: boolean;
   probe: Probe;
+};
+
+export type X402Status = {
+  running: boolean;
+  known: number;
+  verdicts: Record<string, number>;
+  last?: { running?: boolean; phase?: string; error?: string; scanned?: number; enabled?: number; gated?: number; needs_key?: number; down?: number; added?: string[] } | null;
 };
 
 export type Tool = {
@@ -83,6 +93,9 @@ export type Listing = {
   /// live | auth | down | error | unknown — what an index last saw.
   status?: string;
   tools?: number;
+  /// "x402" — paid per request; connect with pay so the x402 module answers its 402.
+  pay?: string;
+  price_usd?: number;
 };
 
 /// Anything that lists MCP servers. kind: mod (a hub like this one — this
@@ -212,6 +225,7 @@ export const api = {
     name?: string;
     note?: string;
     headers?: Record<string, string>;
+    pay?: string;
     force?: boolean;
   }) => req<{ added: Server; probe: Probe }>("/servers", { method: "POST", body: JSON.stringify(body) }),
   removeServer: (id: string) => req<{ removed: string }>(`/servers/${id}`, { method: "DELETE" }),
@@ -240,6 +254,10 @@ export const api = {
 
   /// Knock on every fleet port and adopt whatever speaks MCP.
   discover: () => req<{ swept: number; servers: string[] }>("/discover", { method: "POST", body: "{}" }),
+
+  /// Scan the x402 index for paid MCP servers and register every one that answers.
+  x402Enable: () => req<{ started?: boolean; note?: string }>("/x402/enable", { method: "POST", body: "{}" }),
+  x402Status: () => req<X402Status>("/x402"),
 
   search: (q: string, count = 8, provider?: string) =>
     req<SearchResult>(

@@ -2269,6 +2269,11 @@ class Mod(Agent):
                                 # the fleet index; refresh probes localhost
                                 # only and mutates nothing but a cache
                                 'mcp_servers', 'mcp_tools', 'mcp_refresh',
+                                # the mounted x402 services and the agents-
+                                # as-tools list are reads; find searches the
+                                # public x402 index. Mounting is owner-only:
+                                # a mount with pay=auto spends the house wallet
+                                'x402_tools', 'x402_find', 'agent_tools',
                                 # what the agent is made of, and the memory
                                 # modules one can be built with
                                 'parts', 'memories', 'mcp',
@@ -3379,6 +3384,19 @@ class Mod(Agent):
                 limit=kwargs.get('limit')),
             'mcp_refresh': lambda: self.tools.mcp.refresh(
                 kwargs.get('server'), kwargs.get('wake')),
+            # paid x402 services: search the index, mount one (or a whole
+            # paid MCP server) as tools x402.<slug> + tool-agents x402-<slug>
+            'x402_tools': lambda: self.tools.x402.forward(),
+            'x402_find': lambda: self.tools.x402.find(
+                kwargs.get('q', ''), kwargs.get('k', 10), bool(kwargs.get('mcp')),
+                kwargs.get('max_price'), kwargs.get('network')),
+            'x402_mount': lambda: self.x402_mount(key=key, **kwargs),
+            'x402_unmount': lambda: self.x402_unmount(kwargs.get('name', ''), key=key),
+            'x402_pay': lambda: self.x402_pay(kwargs.get('name', ''), kwargs.get('pay'),
+                                              kwargs.get('max_price_usd'), key=key),
+            # every agent as a tool (agent.<name>) — tool-agents included
+            'agent_tools': lambda: {'tools': self.tools.agents.items(
+                kwargs.get('q', ''), kwargs.get('limit'))},
             # the agent box and every sub-component in it
             'parts': lambda: self.parts(),
             # the same API, spoken as Model Context Protocol (src/mcp.py)
@@ -3784,6 +3802,17 @@ class Mod(Agent):
             # a feedback agent is two other agents taking turns, not a persona
             if isinstance(agent_config.get('loop'), dict) and not kwargs.get('_in_feedback'):
                 return self._run_feedback(agent_config, _loop_name=agent_type, **kwargs)
+            # a tool-agent is one tool with a persona on it: JSON in = a
+            # straight call, no model; prose = the loop, holding that tool
+            if agent_config.get('tool'):
+                direct = self._run_tool_agent(agent_config, kwargs.get('query'),
+                                              allowed_paths, kwargs.get('on_step'),
+                                              kwargs.get('tool_params'))
+                if direct is not None:
+                    return direct
+                if not kwargs.get('tools'):
+                    agent_tools = list(dict.fromkeys(
+                        [agent_config['tool']] + list(agent_tools or [])))
 
         # explicit system prompt (library prompt or free text) beats the agent goal
         if kwargs.get('prompt'):
@@ -3866,6 +3895,140 @@ class Mod(Agent):
     # ── feedback loops (builder ⇄ reviewer) ─────────────────────────
 
     FEEDBACK_MAX_ROUNDS = 10
+
+    # ── x402: paid services as tools AND agents ─────────────────────
+
+    X402_AGENT_PREFIX = 'x402-'
+
+    def x402_mount(self, url: str = None, server: str = None, name: str = None,
+                   pay: str = 'none', max_price_usd: float = None,
+                   agent: bool = True, key=None, **kw) -> Dict[str, Any]:
+        """Owner: mount an x402 service (url=) or every service on a paid
+        host / MCP server (server=) as tools `x402.<slug>`, and — unless
+        agent=False — give each a tool-agent `x402-<slug>` so the other
+        agents can delegate to it (`agent.x402-<slug>`) and the console
+        lists it beside every other agent."""
+        x = self.tools.x402
+        if server:
+            res = x.mount_server(server, pay=pay or 'none', max_price_usd=max_price_usd)
+            names = res['mounted']
+        elif url:
+            res = x.mount(url, name=name, pay=pay or 'none', max_price_usd=max_price_usd,
+                          description=kw.get('description'), method=kw.get('method'),
+                          params=kw.get('params') if isinstance(kw.get('params'), dict) else None)
+            names = [res['name']]
+        else:
+            raise ValueError("x402_mount needs url= (one service) or server= (a whole host)")
+        if agent not in (False, 'false', 0, '0'):
+            res['agents'] = [self._x402_agent(n, key) for n in names]
+        return res
+
+    def _x402_agent(self, tool: str, key=None) -> Dict[str, Any]:
+        """The tool-agent for one mounted x402 tool — created, or refreshed
+        if it already wraps that tool. An agent of the same name over a
+        different tool is left alone."""
+        slug = tool[len('x402.'):].replace('.', '-')
+        name = (self.X402_AGENT_PREFIX + slug)[:64].strip('-')
+        e = self.tools.x402.get(tool)
+        desc = (e.get('description') or e['url'])[:300]
+        price = e.get('price_usd')
+        goal = (f"You are the {name} agent: the paid x402 service {e['url']} "
+                f"({e.get('host')}, {'$%s/call' % price if price is not None else 'price unknown'}) "
+                f"is your one tool, {tool}. {desc}\n\nWork out the arguments from "
+                f"the task, call {tool}, and answer from what it returns. If it "
+                f"answers 402 (payment required) say what it costs and stop — "
+                f"never retry a payment.")
+        fields = dict(description=f"x402 · {desc}"[:300], goal=goal,
+                      icon='$', tools=[tool], tool=tool)
+        try:
+            if name in self.agents.ls():
+                if self.agents.get(name).get('tool') != tool:
+                    return {'name': name, 'skipped': 'an agent of that name wraps another tool'}
+                self.agents.update(name, key=key, **fields)
+                return {'name': name, 'tool': tool, 'updated': True}
+            self.agents.create(name, key=key, **fields)
+            return {'name': name, 'tool': tool, 'created': True}
+        except Exception as ex:
+            return {'name': name, 'tool': tool, 'error': str(ex)[:300]}
+
+    def x402_unmount(self, name: str, key=None) -> Dict[str, Any]:
+        """Owner: drop a mount (tool name, slug, URL or `server:<label>`)
+        and the tool-agents that wrapped it."""
+        res = self.tools.x402.unmount(name)
+        gone = set(res['removed'])
+        removed = []
+        for a in list(self.agents.ls()):
+            if not a.startswith(self.X402_AGENT_PREFIX):
+                continue
+            try:
+                if self.agents.get(a).get('tool') in gone:
+                    self.agents.remove(a, key=key)
+                    removed.append(a)
+            except Exception:
+                pass
+        return {**res, 'agents_removed': removed}
+
+    def x402_pay(self, name: str, pay: str = None, max_price_usd: float = None,
+                 key=None) -> Dict[str, Any]:
+        """Owner: change how a mount pays (none | auto | house) and its cap."""
+        return self.tools.x402.set_pay(name, pay, max_price_usd)
+
+    def _run_tool_agent(self, cfg: Dict[str, Any], query=None, allowed_paths=None,
+                        on_step=None, params=None):
+        """A tool-agent called with arguments, not a task: run its tool once,
+        no model in the loop, and hand back a two-step trace (the call, then
+        a finish carrying the result) so every caller — graph node, agent.*
+        delegation, /run — reads it like any other run.
+
+        `params` wins; else a query that parses as a JSON object IS the
+        arguments. Anything else (prose) returns None and the caller runs
+        the ordinary loop with the tool loaded."""
+        if not isinstance(params, dict):
+            params = None
+            q = (query or '').strip() if isinstance(query, str) else query
+            if isinstance(q, dict):
+                params = q
+            elif isinstance(q, str) and q.startswith('{'):
+                try:
+                    params = json.loads(q)
+                except ValueError:
+                    params = None
+            if not isinstance(params, dict):
+                return None
+        tool = cfg['tool']
+
+        def emit(st):
+            if on_step:
+                try:
+                    on_step(st)
+                except Exception:
+                    pass
+            return st
+
+        kind = self.tools.kind(tool)
+        if kind is None:
+            return [emit({'tool': 'error', 'params': params,
+                          'error': f"{cfg.get('name')}: its tool {tool} is not "
+                                   f"available here (unmounted or offline)"})]
+        # same rule run_plan enforces: a sandboxed caller gets no fleet code
+        if allowed_paths is not None and kind not in ('builtin', 'custom'):
+            return [emit({'tool': 'error', 'params': params,
+                          'error': f"Permission denied: {tool} runs on the host. "
+                                   f"Fleet, MCP, x402 and agent tools are host-only."})]
+        try:
+            out = self.tools.run(tool, **params)
+        except Exception as e:
+            out = {'success': False, 'error': f"{type(e).__name__}: {e}"}
+        failed = isinstance(out, dict) and (out.get('success') is False or
+                                            (out.get('error') and 'result' not in out))
+        if failed:
+            # one error step, so a caller counting failures sees a failed run
+            return [emit({'tool': 'error', 'params': params, 'call': tool,
+                          'detail': out, 'error': f"{tool}: {out.get('error')}"[:2000]})]
+        step = emit({'tool': tool, 'params': params, 'result': out})
+        res = out.get('result', out) if isinstance(out, dict) else out
+        text = res if isinstance(res, str) else json.dumps(res, indent=2, default=str)
+        return [step, emit({'tool': 'finish', 'params': {'summary': text[:8000]}})]
 
     def _run_feedback(self, agent_config: Dict[str, Any], **kwargs):
         """Run a feedback agent: builder, review, builder-with-feedback, … .

@@ -14,6 +14,7 @@ mod stdio;
 mod store;
 mod upstream;
 mod web;
+mod x402;
 
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -117,6 +118,8 @@ async fn main() {
         .route("/search", get(web_search).post(web_search_post))
         .route("/fetch", get(web_fetch).post(web_fetch_post))
         .route("/catalog", get(catalog_search))
+        .route("/x402", get(x402_status))
+        .route("/x402/enable", post(x402_enable))
         .route("/hub", get(hub_manifest))
         .route("/hubs", get(list_hubs).post(add_hub))
         .route("/hubs/refresh", post(refresh_hubs))
@@ -277,6 +280,7 @@ async fn info(State(st): State<App>) -> Json<Value> {
             "GET|POST /fetch": "?url=&max_chars= — read one page as text",
             "GET /catalog": "?q=&registry=all|featured|official|smithery|glama|pulsemcp|<index>|<peer> — search for servers across every hub",
             "GET /hub": "this hub's manifest — what kind of hub it is (mod) and what it holds; what a peer reads",
+            "GET /x402": "paid MCP servers from the x402 index and what the last probe found; POST /x402/enable scans, probes and registers the ones that answer (a 402 is paid through the x402 module)",
             "GET /hubs": "every hub type this one can see: itself (mod), peer mod hubs, the fleet's index, the public directories — with counts (?refresh=1 re-probes)",
             "POST /hubs": "{url, id?, name?, headers?} — add a peer hub by URL (write-gated); it must answer /hub or /stats like a hub",
             "DELETE /hubs/:id": "forget a peer hub (write-gated)",
@@ -677,6 +681,34 @@ async fn discover(State(st): State<App>) -> Json<Value> {
         "servers": found,
         "note": "mods serving MCP without declaring it in config.json",
     }))
+}
+
+async fn x402_status() -> Json<Value> {
+    Json(x402::status())
+}
+
+/// Scan the x402 index for MCP servers and register every one that answers
+/// (or answers 402). Runs in the background — a probe of ~110 remote servers
+/// takes a minute — unless `?wait=1`.
+async fn x402_enable(
+    State(st): State<App>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    authorized(&headers)?;
+    if x402::status()["running"] == true {
+        return Ok(Json(json!({ "started": false, "note": "a scan is already running", "status": x402::status()["last"] })));
+    }
+    if q.get("wait").map(|v| v == "1" || v == "true").unwrap_or(false) {
+        return x402::enable(&st).await.map(Json).map_err(|e| err(StatusCode::BAD_GATEWAY, e));
+    }
+    let bg = st.clone();
+    tokio::spawn(async move {
+        if let Err(e) = x402::enable(&bg).await {
+            eprintln!("x402 enable: {e}");
+        }
+    });
+    Ok(Json(json!({ "started": true, "note": "GET /x402 for progress" })))
 }
 
 async fn adhoc_probe(

@@ -462,9 +462,11 @@ function objectCard(o, source) {
       <button data-link="${esc(url)}">copy link</button>
       <button data-copy="${esc(o.cid)}">copy CID</button>
       <a href="${esc(url)}" target="_blank" rel="noreferrer"><button>open</button></a>
+      <button data-peek="${esc(o.cid)}">peek</button>
       ${source === 'module' && token ? `<button data-rm="${esc(o.cid)}">forget</button>` : ''}
       ${source === 'store' && o.backend !== 'lighthouse' ? `<button data-mirror="${esc(o.cid)}">mirror</button>` : ''}
     </div>
+    <div class="obj-peek" style="display:none"></div>
   </div>`;
 }
 
@@ -523,6 +525,26 @@ function renderShelf() {
   });
   box.querySelectorAll('[data-mirror]').forEach((b) => {
     b.onclick = () => { $('mirror-cid').value = b.dataset.mirror; $('mirror').click(); };
+  });
+  box.querySelectorAll('[data-peek]').forEach((b) => {
+    b.onclick = async () => {
+      const panel = b.closest('.obj').querySelector('.obj-peek');
+      if (panel.style.display !== 'none') { panel.style.display = 'none'; b.textContent = 'peek'; return; }
+      b.textContent = '…';
+      try {
+        const r = await call('/preview?cid=' + encodeURIComponent(b.dataset.peek));
+        if (r.is_text) {
+          panel.innerHTML = `<pre class="code">${esc(r.text)}</pre>${r.truncated ? '<p class="hint">truncated at 64 KB</p>' : ''}`;
+        } else {
+          panel.innerHTML = `<p class="hint">${esc(r.content_type || 'binary')} · ${bytes(r.bytes ?? 0)}</p>`;
+        }
+        panel.style.display = '';
+      } catch (e) {
+        panel.innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`;
+        panel.style.display = '';
+      }
+      b.textContent = 'peek';
+    };
   });
 }
 

@@ -946,11 +946,6 @@
     "saved": 1790965430.5751455
   },
   {
-    "cid": "QmXC2LjfWpM7oqQvPqjoTE12LRSnraUDu5dZG2Kcq6aQ3M",
-    "name": "vibe-smoke-test-agent",
-    "saved": 1792100498.2669873
-  },
-  {
     "cid": "QmY8Wkrr38SBWmqsPtELCkaSe6Y5RV8ARAEiiUJagNdN4K",
     "name": "nyc-atlas",
     "saved": 1792100707.0581677
@@ -971,18 +966,28 @@
     "saved": 1792247325.5151737
   },
   {
-    "cid": "QmcKbGRM3dubAmQwQRmQPj1NiKjUL2YLBWWQJqafqDhBKU",
+    "cid": "QmQ7hiEUBBfDPhN5toC3QeGjkh3HsgyuXYTF5e6u4GyEiR",
     "name": "test-custom-agent",
-    "saved": 1792441153.5706017
+    "saved": 1792546048.4012358
   },
   {
-    "cid": "QmXGUn6PfPqxTwaeLNPiqQNZk6QCEGFv7wb5ZE4ZMgRtuS",
+    "cid": "QmSRqHr8D3iu6LCm7cV3eJLQ4iSaGmFSTPU4C2PiMbadTq",
     "name": "test-owned-agent",
-    "saved": 1792441153.6596053
+    "saved": 1792546048.5247467
   },
   {
-    "cid": "QmYUqufrXRvc8qhCJXY8rhJsVgnTfFHGuazgaCwjCA89Zr",
+    "cid": "QmUsvXbaz2HyxSpzRr4Eay9dVzgVAy2Z1gBatgJZheC3Te",
     "name": "test-unbound-agent",
-    "saved": 1792441153.6898108
+    "saved": 1792546048.594529
+  },
+  {
+    "cid": "QmSHk2M4snDYECMaVqaReYZRDVy7gv1cNKCyLYanWMozBR",
+    "name": "vibe-smoke-test-agent",
+    "saved": 1792546292.1656497
+  },
+  {
+    "cid": "Qmb2CLNg66VXZWE9pso61oaGdBVJZE7XTcjGKjE4RWvBH9",
+    "name": "x402-forecast",
+    "saved": 1792546350.732562
   }
 ]

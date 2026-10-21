@@ -49,6 +49,7 @@ OpenAPI 3.1 document generated from the route table and the tool schemas.
 | `GET /openapi.json` | The REST surface, generated — never hand-maintained |
 | `GET /search?q=` | Recent search (full X query syntax) |
 | `GET /counts?q=` | Post volume over time, bucketed |
+| `GET /summarize?feed=` | Digest of any feed — `@handle`, x.com profile / search / list / hashtag / status (thread) URL, `#tag`, query, `list:<id>`, `home` — plus API cost (range, daily-for-a-month, per 1k). `estimate_only=true` prices it without reading. Rates: `X_PRICE_POST_READ` / `X_PRICE_USER_READ` / `X_PRICE_OWNED_READ` (default $0.005 / $0.010 / $0.001) |
 | `GET /posts/:id` | One post — id or a pasted `x.com/…/status/…` URL |
 | `POST /posts` | Publish `{text, reply_to?, quote_post_id?, poll_options?}` |
 | `DELETE /posts/:id` | Delete one of your posts |
@@ -66,7 +67,7 @@ OpenAPI 3.1 document generated from the route table and the tool schemas.
 
 MCP tools: `search`, `counts`, `get_post`, `user`, `timeline`, `mentions`,
 `followers`, `following`, `me`, `post`, `delete_post`, `like`, `repost`,
-`follow`, `auth_status`.
+`follow`, `summarize`, `auth_status`.
 
 ## Run
 

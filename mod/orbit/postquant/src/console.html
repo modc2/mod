@@ -146,7 +146,7 @@
   select{max-width:100%}
   @media (max-width:520px){.grid{grid-template-columns:1fr}
     main{padding:16px 10px 110px}.panel{padding:14px 12px}.panel h2::after{display:none}
-    .hero{margin:-16px -10px 14px}}
+    .hero{--floor:250px;margin:-16px -10px 14px}}
   /* panels: notched pixel corners from stepped shadows + a hard drop */
   .panel{position:relative;background:linear-gradient(180deg,rgba(18,10,42,.94),rgba(10,6,24,.94));
          padding:18px 20px;margin:3px 3px 20px;
@@ -223,37 +223,39 @@
   @keyframes tickflash{0%{color:var(--mag);text-shadow:0 0 20px var(--mag)}100%{color:#fff}}
   b.tickflash{animation:tickflash 1.4s steps(6)}
   /* ── HOME: the cabinet ── */
-  .hero{position:relative;text-align:center;padding:40px 16px 215px;overflow:hidden;
-        margin:-24px -22px 18px}
+  /* --floor: how tall the sun+grid stage is; hero bottom padding clears it */
+  .hero{--floor:230px;position:relative;text-align:center;padding:34px 16px calc(var(--floor) + 18px);
+        overflow:hidden;margin:-24px -22px 18px}
   .hero > *{position:relative;z-index:2}
-  .hero > .stage{position:absolute;left:0;right:0;bottom:0;height:300px;z-index:0;
+  .hero > .stage{position:absolute;left:0;right:0;bottom:0;height:var(--floor);z-index:0;
         pointer-events:none;overflow:hidden}
-  .stage .sun{position:absolute;left:50%;bottom:34px;width:230px;height:230px;
-        transform:translateX(-50%);border-radius:50%;
+  /* sun sits on the horizon, fully inside the floor — never cropped by the hero edge */
+  .stage .sun{position:absolute;left:50%;bottom:calc(var(--floor) * .42);width:min(210px,46vw);
+        aspect-ratio:1;transform:translateX(-50%);border-radius:50%;
         background:linear-gradient(180deg,var(--hz) 0%,var(--or) 38%,var(--mag) 70%,var(--vi) 100%);
-        -webkit-mask:linear-gradient(180deg,#000 0 46%,transparent 46%),
+        -webkit-mask:linear-gradient(180deg,#000 0 50%,transparent 50%),
                      repeating-linear-gradient(180deg,transparent 0 5px,#000 5px 15px);
         -webkit-mask-composite:source-over;
-        mask:linear-gradient(180deg,#000 0 46%,transparent 46%),
+        mask:linear-gradient(180deg,#000 0 50%,transparent 50%),
              repeating-linear-gradient(180deg,transparent 0 5px,#000 5px 15px);
         mask-composite:add;
-        opacity:.9;filter:drop-shadow(0 0 34px rgba(255,43,214,.65))}
-  .stage .grid3d{position:absolute;left:-60%;right:-60%;bottom:0;height:600px;
+        opacity:.92;filter:drop-shadow(0 0 30px rgba(255,43,214,.6))}
+  .stage .grid3d{position:absolute;left:-60%;right:-60%;bottom:0;height:calc(var(--floor) * 2.2);
         background:
-          linear-gradient(0deg, rgba(255,43,214,.85) 3px, transparent 3px) 0 0/100% 46px,
-          linear-gradient(90deg, rgba(0,240,255,.7) 3px, transparent 3px) 50% 0/64px 100%,
-          linear-gradient(180deg, #12052a 0%, #1f0636 100%);
-        transform:perspective(300px) rotateX(60deg);transform-origin:50% 100%;
+          linear-gradient(0deg, rgba(255,43,214,.8) 2px, transparent 2px) 0 0/100% 40px,
+          linear-gradient(90deg, rgba(0,240,255,.62) 2px, transparent 2px) 50% 0/60px 100%,
+          linear-gradient(180deg, #11052a 0%, #1d0634 100%);
+        transform:perspective(300px) rotateX(62deg);transform-origin:50% 100%;
         animation:gridrun .9s linear infinite}
-  .stage .horizon{position:absolute;left:0;right:0;bottom:110px;height:3px;z-index:2;
-        background:#ff8cec;box-shadow:0 0 14px var(--mag),0 0 40px var(--mag),0 -20px 60px rgba(255,43,214,.35)}
-  .stage .fade{position:absolute;left:0;right:0;bottom:0;height:40px;z-index:3;
-        background:linear-gradient(180deg,transparent,var(--bg))}
-  @keyframes gridrun{from{background-position:0 0,50% 0,0 0}to{background-position:0 46px,50% 0,0 0}}
-  .hero .ins{display:inline-block;font:600 13px/1 var(--ui);color:var(--hz);letter-spacing:.2em;
-        padding:6px 10px;border:2px solid var(--hz);margin-bottom:22px;
+  .stage .horizon{position:absolute;left:0;right:0;bottom:calc(var(--floor) * .42);height:2px;z-index:2;
+        background:#ff8cec;box-shadow:0 0 12px var(--mag),0 0 34px var(--mag),0 -18px 54px rgba(255,43,214,.32)}
+  .stage .fade{position:absolute;left:0;right:0;top:0;height:48%;z-index:3;
+        background:linear-gradient(180deg,var(--bg),transparent)}
+  @keyframes gridrun{from{background-position:0 0,50% 0,0 0}to{background-position:0 40px,50% 0,0 0}}
+  .hero .ins{display:inline-block;font:600 12px/1 var(--ui);color:var(--hz);letter-spacing:.2em;
+        padding:6px 10px;border:2px solid var(--hz);margin-bottom:18px;
         box-shadow:3px 3px 0 #000;animation:flick 6s infinite}
-  .hero h1{font:clamp(28px,6.2vw,66px)/1.05 var(--px);margin:0 0 18px;letter-spacing:.02em;
+  .hero h1{font:clamp(28px,6.2vw,62px)/1.05 var(--px);margin:0 0 14px;letter-spacing:.02em;
         color:#fff;position:relative;display:inline-block;
         text-shadow:4px 4px 0 var(--vi), 0 0 24px rgba(255,43,214,.6)}
   .hero h1 .p{color:var(--cy)} .hero h1 .q{color:var(--mag)}
@@ -271,14 +273,21 @@
         81%{clip-path:inset(60% 0 15% 0);transform:translate(6px,2px)}
         85%{clip-path:inset(20% 0 62% 0);transform:translate(-5px,-1px)}
         88%{clip-path:inset(35% 0 40% 0);transform:translate(3px,0)}}
-  .hero .h-sub{font:clamp(18px,2.4vw,26px)/1.2 var(--vt);color:var(--hz);margin:0 0 12px;
-        text-shadow:0 0 10px rgba(255,230,0,.5);letter-spacing:.04em}
-  .hero .h-line{color:#c9bff0;font-size:15px;max-width:640px;margin:0 auto 18px;
-        background:rgba(7,4,15,.6);padding:4px 10px}
-  .hero .h-kbd{display:inline-block;color:var(--dim);font:600 11.5px/1 var(--ui);letter-spacing:.1em;background:rgba(7,4,15,.85);padding:6px 8px}
+  .hero .h-sub{font:600 clamp(13px,1.7vw,17px)/1.4 var(--ui);color:var(--hz);margin:0 0 14px;
+        text-shadow:0 0 10px rgba(255,230,0,.45);letter-spacing:.14em;text-transform:uppercase}
+  /* the pitch: a soft glass slab — readable, rounded, blurred backdrop */
+  .hero .h-line{color:#d3ccec;font:15px/1.6 var(--sans);max-width:620px;margin:0 auto 20px;
+        padding:14px 20px;border:1px solid rgba(123,100,180,.35);border-radius:14px;
+        background:rgba(14,9,30,.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 8px 28px rgba(0,0,0,.35)}
+  .hero .h-kbd{display:inline-block;color:var(--dim);font:600 11px/1 var(--ui);letter-spacing:.1em;
+        background:rgba(7,4,15,.7);border-radius:10px;padding:7px 11px}
   .hero kbd{border:2px solid var(--line2);padding:3px 6px;background:var(--inset);
         font:600 11.5px/1.5 var(--ui);color:var(--cy);box-shadow:2px 2px 0 #000}
-  .hero .ctas{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin:6px 0 18px}
+  .hero .ctas{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin:4px 0 14px}
+  /* short landscape (e.g. 800x500): shrink the floor so the sun stays whole and the CTA stays in view */
+  @media (max-height:560px){.hero{--floor:150px;padding-top:22px}
+        .hero .ins{margin-bottom:12px}.hero .h-line{margin-bottom:14px}}
   .doors{display:grid;gap:22px;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
        max-width:1040px;margin:0 auto 22px}
   .door{position:relative;cursor:pointer;padding:20px 20px 18px;
@@ -454,6 +463,43 @@
   .chip.ok{border-color:#1f7a10;color:var(--good)}
   .chip.no{border-color:#7a1830;color:var(--bad)}
   .chip.run{border-color:var(--mag);color:var(--mag)}
+  /* ── MACHINES: the guided proof flow ── */
+  .mc-step{display:inline-grid;place-items:center;width:22px;height:22px;flex:none;
+       background:var(--mag);color:#14001a;font:600 12px/1 var(--ui);box-shadow:2px 2px 0 #000}
+  .panel h2 .mc-step{margin-right:2px}
+  .mc-cards{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+  .mc-card{border:2px solid var(--line2);background:linear-gradient(180deg,#140b2e,#0b0619);
+       padding:12px 14px;box-shadow:4px 4px 0 #000;display:flex;flex-direction:column;gap:8px}
+  .mc-card-h{font:11px/1.2 var(--px);color:var(--cy);text-shadow:0 0 8px rgba(0,240,255,.4)}
+  .mc-card p{color:#b6acd9;font-size:13.5px;margin:0;line-height:1.5;flex:1}
+  .mc-card .sm{align-self:flex-start}
+  /* proof-system segmented cards */
+  .mc-syscards{display:grid;gap:12px;grid-template-columns:repeat(3,1fr);margin:4px 0 6px}
+  @media (max-width:760px){.mc-syscards{grid-template-columns:1fr}}
+  .mc-sys{border:2px solid var(--line2);border-top:3px solid var(--sc,var(--line2));
+       background:linear-gradient(180deg,#120a2a,#0a0618);padding:12px 14px;cursor:pointer;
+       box-shadow:3px 3px 0 #000;transition:transform .08s steps(2),box-shadow .08s}
+  .mc-sys:hover{transform:translate(-2px,-2px);box-shadow:5px 5px 0 #000}
+  .mc-sys.on{border-color:var(--sc,var(--mag));
+       box-shadow:3px 3px 0 #000,0 0 22px color-mix(in srgb,var(--sc,var(--mag)) 40%,transparent)}
+  .mc-sys-h{font:600 12px/1.2 var(--ui);letter-spacing:.08em;text-transform:uppercase;
+       color:var(--sc,var(--cy));margin-bottom:6px}
+  .mc-sys p{margin:0;color:#c4bbe2;font-size:13px;line-height:1.5}
+  .mc-sys-x{margin-top:7px;color:var(--dim);font:15px/1.2 var(--vt)}
+  .mc-sys.on .mc-sys-h::after{content:' ◂ SELECTED';font-size:9px;color:var(--dim);letter-spacing:.1em}
+  /* proof-system inline chip (receipts, policy, chips) */
+  .mc-chip{display:inline-block;border:1px solid var(--sc,var(--line2));color:var(--sc,var(--dim));
+       padding:1px 7px;font:14px/1.3 var(--vt);background:rgba(8,4,20,.7);vertical-align:1px}
+  /* config blocks (verifier picker, quorum, attest) */
+  .mc-cfg{border:1px dashed var(--line2);background:var(--inset);padding:12px 14px;margin-top:10px}
+  .mc-cfg-lbl{display:block;font:600 10.5px/1.4 var(--ui);letter-spacing:.1em;color:var(--dim);
+       text-transform:uppercase;margin-bottom:8px}
+  .mc-file{display:inline-flex;align-items:center;gap:8px;font:600 11.5px/1.4 var(--ui);
+       letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+  .mc-verify{padding:10px 12px;background:var(--inset);border-left:4px solid var(--mag);margin:4px 0}
+  .mc-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .mc-pills .pill{font-size:14px}
+  tr.mc-vrow td{padding:0 9px 10px}
   /* ── the whitepaper: pixel heads, readable body ── */
   .paper{max-width:860px;margin:0 auto;font:17px/1.75 var(--sans);padding:30px 36px 60px}
   .paper .wp-title{font:clamp(26px,5vw,44px)/1.1 var(--px);letter-spacing:.02em;margin:18px 0 14px;
@@ -707,6 +753,7 @@
     <button data-tab="market" data-parent="chain" hidden>Bytes</button>
     <button data-tab="consensus" data-parent="chain" hidden>Consensus</button>
     <button data-tab="vault" data-parent="wallet" hidden>Vault</button>
+    <button data-tab="machines" data-parent="wallet" hidden>Machines</button>
   </nav>
   <button class="kbtn" id="pal-open" title="jump anywhere, run anything">FIND <kbd id="pal-key">CTRL K</kbd></button>
 </header>
@@ -1262,28 +1309,108 @@ mod Counter {
       </div>
       <div id="c-out" class="muted">—</div>
       <div id="c-list" style="margin-top:10px"><span class="loadline">loading</span></div>
-      <details class="panel fold" style="margin-top:12px">
-        <summary>run a wasm contract off chain — and prove it</summary>
-        <p class="note">A <b>pqc1</b> contract is a pure state transition in one importless wasm blob:
-          <code>pqc_run(state, input) → next state</code>. The owner runs it <b>here</b>, signs a receipt
-          <code>{code, state_in, input, state_out}</code> with their post-quantum wallet and anchors it at
-          <code>contract/&lt;name&gt;/receipt</code>. Anyone fetches the three blobs by hash, re-runs, and compares —
-          a receipt that does not replay is false. Two examples ship: <b>counter</b> (input <code>00</code> inc,
-          <code>01</code> dec, <code>02</code>+u64 LE add, <code>03</code> reset) and <b>ledger</b> (mint/transfer/burn).</p>
+      <p class="note" style="margin-top:12px">Want to <b>run</b> a wasm state machine off chain and prove each
+        transition with a receipt? That lives in <a href="#" onclick="go('machines');return false">WALLET &#9656; Machines</a>
+        — deploy a machine, pick how its transitions are proved, and submit them.</p>
+    </div>
+  </section>
+
+  <!-- MACHINES: off-chain state machines + customizable proof systems ------- -->
+  <section id="machines">
+    <div class="panel">
+      <h2>off-chain state machines <span class="tag">PQR1 RECEIPTS</span></h2>
+      <p class="note">A <b>machine</b> is a state transition anchored at <code>contract/&lt;name&gt;</code>. Each
+        transition produces a signed post-quantum receipt (<b>pqr1</b>). How a transition is <b>accepted off chain</b>
+        is a <b>proof system</b> you choose — re-run the code, run a custom wasm verifier anyone can deploy, or collect
+        k-of-n signer attestations. Three steps: pick a machine, choose its proof, submit a transition. Nothing here
+        touches consensus; the receipt is the proof, verifiable by anyone.</p>
+      <div id="mc-abi" class="muted" style="margin-bottom:4px"></div>
+    </div>
+
+    <!-- STEP 1 — pick / deploy a machine -->
+    <div class="panel">
+      <h2><span class="mc-step">1</span> pick a machine</h2>
+      <div id="mc-examples" class="mc-cards"><span class="loadline">loading</span></div>
+      <div class="row" style="margin-top:12px">
+        <label>deploy</label><select id="mc-ex-pick"></select>
+        <label>as</label><input class="sm" type="text" id="mc-ex-name" placeholder="counter">
+        <label>wallet</label><select id="mc-wallet"></select>
+        <label>days</label><input class="sm" type="text" id="mc-days" value="30">
+        <button class="go" id="mc-deploy">DEPLOY</button>
+      </div>
+      <div id="mc-machines" style="margin-top:10px"><span class="loadline">loading</span></div>
+      <div id="mc-deploy-out" class="muted" style="margin-top:8px">—</div>
+    </div>
+
+    <!-- STEP 2 — choose the proof system -->
+    <div class="panel" id="mc-proof-panel">
+      <h2><span class="mc-step">2</span> choose how transitions are proved</h2>
+      <p class="note">Machine <b id="mc-sel-name" class="addr">—</b> · current policy
+        <span id="mc-cur-policy" class="pill">—</span></p>
+      <div id="mc-systems" class="mc-syscards"><span class="loadline">loading</span></div>
+      <!-- wasm verifier picker (shown for CUSTOM WASM) -->
+      <div id="mc-wasm-cfg" class="mc-cfg" hidden>
+        <label class="mc-cfg-lbl">pick a verifier</label>
         <div class="row">
-          <label>example</label><select id="cr-example"><option value="counter">counter</option><option value="ledger">ledger</option></select>
-          <label>as</label><input class="sm" type="text" id="cr-name" placeholder="counter">
-          <button class="sm" id="cr-deploy">DEPLOY EXAMPLE</button>
+          <select id="mc-verifier" style="min-width:260px"></select>
+          <span class="muted">or</span>
+          <label class="mc-file">upload your own .wasm<input type="file" id="mc-vfile" accept=".wasm"></label>
+          <input class="sm" type="text" id="mc-vname" placeholder="verifier name" style="width:150px">
+          <button class="sm" id="mc-vdeploy">DEPLOY VERIFIER</button>
         </div>
-        <div class="row" style="margin-top:6px">
-          <label>contract</label><input class="sm" type="text" id="cr-run-name" placeholder="counter">
-          <label>input hex</label><input type="text" id="cr-input" value="00" style="min-width:220px">
-          <button class="go" id="cr-run">RUN + ANCHOR</button>
-          <button class="sm" id="cr-verify">VERIFY</button>
-          <button class="sm" id="cr-log">RECEIPTS</button>
+        <div id="mc-verifier-out" class="muted">—</div>
+      </div>
+      <!-- quorum config (shown for QUORUM) -->
+      <div id="mc-quorum-cfg" class="mc-cfg" hidden>
+        <div class="row">
+          <label>k (signatures needed)</label><input class="sm" type="text" id="mc-k" value="2">
+          <span class="muted">of</span><span id="mc-n" class="pill">0</span><span class="muted">signers</span>
         </div>
-        <div id="cr-out" class="muted">—</div>
-      </details>
+        <label class="mc-cfg-lbl">signer addresses (one per line)</label>
+        <textarea id="mc-signers" placeholder="pq1...&#10;pq1..." style="min-height:72px"></textarea>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="go" id="mc-save-policy">SAVE POLICY</button>
+        <span class="muted">signs with wallet <b id="mc-pol-wallet">—</b></span>
+      </div>
+      <div id="mc-policy-out" class="muted" style="margin-top:6px">—</div>
+    </div>
+
+    <!-- STEP 3 — submit a transition -->
+    <div class="panel">
+      <h2><span class="mc-step">3</span> submit a transition</h2>
+      <div class="row">
+        <label>input hex</label><input type="text" id="mc-input" value="00" style="min-width:220px">
+        <button class="sm" id="mc-solve">SOLVE</button>
+        <button class="sm" id="mc-check">CHECK (dry)</button>
+        <button class="go" id="mc-submit">SUBMIT + ANCHOR</button>
+      </div>
+      <p class="note" style="margin:4px 0 0">SOLVE fills the next state + proof from the bundled prover (it re-runs
+        the code for replay machines, mines the nonce for the ladder). CHECK verifies without signing. SUBMIT signs a
+        receipt and anchors it.</p>
+      <div id="mc-solve-box" hidden style="margin-top:8px">
+        <div class="kv">
+          <b>state out</b><span class="mono" id="mc-state-out" style="word-break:break-all">—</span>
+          <b>proof</b><span class="mono" id="mc-proof" style="word-break:break-all">—</span>
+        </div>
+      </div>
+      <!-- quorum: collect attestations -->
+      <div id="mc-attest-cfg" class="mc-cfg" hidden style="margin-top:10px">
+        <label class="mc-cfg-lbl">collect attestations (quorum)</label>
+        <div class="row">
+          <label>signer wallet</label><select id="mc-att-wallet"></select>
+          <button class="sm" id="mc-attest">ATTEST</button>
+          <span class="muted">need <b id="mc-att-need">0</b> · have <b id="mc-att-have">0</b></span>
+        </div>
+        <div id="mc-attest-list" class="muted">no attestations yet</div>
+      </div>
+      <div id="mc-submit-out" class="muted" style="margin-top:8px">—</div>
+    </div>
+
+    <!-- receipts timeline -->
+    <div class="panel">
+      <h2>receipts timeline</h2>
+      <div id="mc-receipts"><span class="muted">pick a machine above</span></div>
     </div>
   </section>
 
@@ -1742,6 +1869,15 @@ mod Counter {
         what the append meant. Two examples ship (<code>counter</code>,
         <code>ledger</code>); the same receipt slot is where a STARK proof
         hash goes once a Cairo run is proven instead of replayed.</p>
+      <p class="sci"><em>Proof systems.</em> How a transition is accepted off
+        chain is not fixed — each machine declares a <b>proof system</b>:
+        <code>replay</code> (re-execute the code, above), <code>wasm</code> (a
+        custom importless verifier blob exporting the <code>pqp1</code> ABI,
+        <code>pqp_verify(state_in, input, state_out, proof) → 1/0</code>, that
+        anyone can deploy by hash so the proof carries the work instead of the
+        code), or <code>quorum</code> (k-of-n named post-quantum signers attest
+        the step, nothing executed). The receipt records which system judged it;
+        the console drives the whole flow in WALLET &#9656; Machines.</p>
 
       <div class="fig" id="fig-contract"><div class="fig-h">
         <b>Figure 6</b> · a contract on postquant: one owned key, one hash, every version in the log</div>
@@ -1908,7 +2044,7 @@ const json = o => '<pre>' + esc(JSON.stringify(o, null, 2)) + '</pre>';
 const SUB = {
   keymarket: [['keymarket', 'Market'], ['builder', 'Builder'], ['prims', 'Prims']],
   chain: [['chain', 'Blocks'], ['store', 'Store'], ['write', 'Write'], ['market', 'Bytes'], ['consensus', 'Consensus']],
-  wallet: [['wallet', 'Wallets'], ['vault', 'Vault']],
+  wallet: [['wallet', 'Wallets'], ['vault', 'Vault'], ['machines', 'Machines']],
 };
 function drawSubnav(group, tab) {
   const el = $('subnav'), items = SUB[group];
@@ -1933,6 +2069,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
     builder: () => { loadBuilder(); fillWallets(); loadPrivate(); }, keymarket: loadKeymarket,
     prims: () => { loadPrims(); fillWallets(); },
     wallet: () => { loadWallets(); loadAlgos(); },
+    machines: loadMachines,
     consensus: loadConsensus,
     write: fillWallets}[b.dataset.tab] || (()=>{}))();
 });
@@ -2159,6 +2296,8 @@ const PAL = [
   ['Builder', 'forge key types: ALL / ANY / THRESHOLD', () => go('builder')],
   ['Bytes', 'the price of a byte', () => go('market')],
   ['Vault', 'encrypt a file before it leaves you', () => go('vault')],
+  ['Machines', 'off-chain state machines + custom proofs', () => go('machines')],
+  ['prove a transition', 'replay, custom wasm verifier, or quorum', () => go('machines')],
   ['forge a private wallet', 'cloak a key type', () => goPrivate()],
   ['add a wasm prim', 'upload a blob to the battery', () => { go('prims'); $('byo-name').focus(); }],
   ['hottest key types', 'market sorted by heat', () => { go('keymarket'); }],
@@ -3921,54 +4060,350 @@ async function cList() {
       } catch (e) { vErr('c-out', e); } });
   } catch (e) { err('c-list', e); }
 }
-// ── contracts: run off chain, anchor the receipt, verify by replay ──
-$('cr-deploy').onclick = async () => {
-  const example = $('cr-example').value, name = $('cr-name').value.trim() || example;
-  try {
-    const r = await api('/contract', {action: 'deploy', example, name, wallet: $('c-wallet').value, days: $('c-days').value || '30'});
-    $('cr-run-name').value = name;
-    vOk('cr-out', `<p><b>deployed ${esc(name)}</b> = <span class="mono addr" data-copy="${esc(r.cid)}">${esc(r.cid.slice(0, 16))}…</span>
-      · ${r.pqc1 && r.pqc1.abi ? '<span class="pill good">pqc1 · runnable</span>' : '<span class="pill bad">' + esc((r.pqc1 || {}).reason || 'not runnable') + '</span>'}</p>`);
-    cList();
-  } catch (e) { vErr('cr-out', e); }
-};
-$('cr-run').onclick = async () => {
-  const name = $('cr-run-name').value.trim();
-  if (!name) return vErr('cr-out', 'name the contract');
-  try {
-    const r = await api('/contract', {action: 'run', name, input: $('cr-input').value.trim(), wallet: $('c-wallet').value, days: $('c-days').value || '30'});
-    vOk('cr-out', `<p><b>run #${r.n}</b> ${r.reverted ? '<span class="pill bad">reverted ret=' + esc(String(r.ret)) + (r.trap ? ' (trap)' : '') + '</span>' : '<span class="pill good">ok · ' + wpN(r.out_bytes) + ' state bytes</span>'}
-      · receipt <span class="mono addr" data-copy="${esc(r.receipt)}">${esc(r.receipt.slice(0, 16))}…</span>
-      ${r.anchored ? '<span class="pill good">anchored at ' + esc(r.key) + '</span>' : '<span class="pill">not anchored</span>'}</p>
-      <p class="mono" style="word-break:break-all">state: ${esc(r.state_out_hex || '(empty)')}</p>
-      <p class="muted">signed by ${esc(short(r.signed_by, 14))} · ${esc(r.scheme)} · ${r.ms != null ? r.ms.toFixed(2) + ' ms' : ''}</p>`);
-  } catch (e) { vErr('cr-out', e); }
-};
-$('cr-verify').onclick = async () => {
-  const name = $('cr-run-name').value.trim();
-  if (!name) return vErr('cr-out', 'name the contract');
-  try {
-    const v = await api('/contract?action=verify&name=' + encodeURIComponent(name));
-    const rows = Object.entries(v.checks).map(([k, ok]) => `<tr><td>${esc(k)}</td><td>${ok === true ? '<span class="pill good">yes</span>' : ok === false ? '<span class="pill bad">no</span>' : '<span class="muted">n/a</span>'}</td></tr>`).join('');
-    vOk('cr-out', `<p><b>receipt #${v.n}</b> ${v.valid ? '<span class="pill good">VALID — replays byte for byte</span>' : '<span class="pill bad">NOT VALID</span>'}
-      · <span class="mono addr" data-copy="${esc(v.receipt)}">${esc(v.receipt.slice(0, 16))}…</span></p><table>${rows}</table>
-      <p class="muted">${esc(v.means)}${v.replay && v.replay.ms != null ? ' · replay ' + v.replay.ms.toFixed(2) + ' ms' : ''}</p>`);
-  } catch (e) { vErr('cr-out', e); }
-};
-$('cr-log').onclick = async () => {
-  const name = $('cr-run-name').value.trim();
-  if (!name) return vErr('cr-out', 'name the contract');
-  try {
-    const r = await api('/contract?action=receipts&name=' + encodeURIComponent(name));
-    vOk('cr-out', r.receipts.length ? '<table><tr><th>#</th><th>input</th><th>ret</th><th>state out</th><th>receipt</th></tr>' +
-      r.receipts.map(x => `<tr><td>${x.n}</td><td class="mono">${esc((x.input || '').slice(0, 24))}${(x.input || '').length > 24 ? '…' : ''}</td>
-        <td>${x.reverted ? '<span class="pill bad">' + esc(String(x.ret)) + '</span>' : esc(String(x.ret))}</td>
-        <td class="mono addr" data-copy="${esc(x.state_out)}">${esc(x.state_out.slice(0, 12))}…</td>
-        <td class="mono addr" data-copy="${esc(x.receipt)}">${esc(x.receipt.slice(0, 12))}…</td></tr>`).join('') + '</table>'
-      : '<span class="muted">no receipts yet — run it</span>');
-  } catch (e) { vErr('cr-out', e); }
-};
 document.querySelector('nav button[data-tab="vault"]').addEventListener('click', () => { vWallets(); vList(); cList(); });
+
+/* ══════════════════════════════════════════════════════════════════════
+   MACHINES — off-chain state machines + customizable proof systems.
+   Backend: POST /contract {action: proofs|set_policy|policy|verifier_deploy|
+   deploy|solve|attest|check|submit}. proofs/policy/solve/check are reads.
+   ══════════════════════════════════════════════════════════════════════ */
+let MC = {                       // module-local state
+  data: null,                    // last /proofs payload
+  machine: '',                   // selected machine name
+  system: 'replay',             // chosen proof system id
+  verifier: '',                  // chosen verifier (name or cid)
+  solved: null,                  // {state_out_b64, proof_b64, state_out_hex, proof_hex}
+  atts: [],                      // collected attestations (quorum)
+};
+const EX_WHAT = {counter: 'a u64 that goes up and down (wasm)',
+  ledger: 'balances you mint, transfer and burn (wasm)',
+  ladder: 'a proof-of-work ladder — no code, proved by the pow-ladder verifier'};
+
+async function cPost(body){ return api('/contract', body); }               // write
+async function cGet(action, name){
+  return api('/contract', {action, ...(name ? {name} : {})});             // read (POST body)
+}
+function mcWalletOpts(sel){
+  const o = MC.wallets || [];
+  return o.map(n => `<option${n === sel ? ' selected' : ''}>${esc(n)}</option>`).join('')
+    || '<option value="">— make a wallet first —</option>';
+}
+
+async function loadMachines(){
+  // wallets for every <select>
+  try { const w = await api('/wallet?action=list');
+    MC.wallets = (w.wallets || []).map(x => x.name);
+    MC._defaultWallet = w.default || MC.wallets[0] || '';
+  } catch(e){ MC.wallets = MC.wallets || []; }
+  ['mc-wallet','mc-att-wallet'].forEach(id => { if($(id)) $(id).innerHTML = mcWalletOpts(MC._defaultWallet); });
+  $('mc-pol-wallet').textContent = MC._defaultWallet || '—';
+
+  try {
+    const r = await cPost({action: 'proofs'});
+    MC.data = r;
+    $('mc-abi').innerHTML = `ABI <span class="pill">${esc(r.abi || 'pqp1')}</span> `
+      + (r.abi_spec ? `<span class="muted">${esc(r.abi_spec)}</span>` : '');
+    mcDrawExamples(r);
+    mcDrawMachines(r);
+    mcDrawSystems();
+    mcDrawVerifiers(r);
+    // default-select first machine if none picked
+    if (!MC.machine && r.machines && r.machines.length) mcSelect(r.machines[0].name);
+    else mcSelect(MC.machine);
+  } catch(e){
+    MC.data = null;
+    $('mc-abi').innerHTML = `<span class="pill bad">proof systems offline</span> <span class="muted">${esc(e.message || e)} — the backend action isn't live yet. Deploy + solve + submit will light up once it is.</span>`;
+    // still show example cards from a static fallback so the flow is visible
+    mcDrawExamples({systems: [], verifiers: []});
+    out('mc-machines', '<span class="muted">no machines (backend offline)</span>');
+    out('mc-receipts', '<span class="muted">—</span>');
+    mcDrawSystems();
+  }
+}
+
+function mcDrawExamples(r){
+  const exs = ['counter','ledger','ladder'];
+  $('mc-ex-pick').innerHTML = exs.map(e => `<option value="${e}">${e}</option>`).join('');
+  out('mc-examples', exs.map(e => `
+    <div class="mc-card" data-ex="${e}">
+      <div class="mc-card-h">${esc(e.toUpperCase())}</div>
+      <p>${esc(EX_WHAT[e] || '')}</p>
+      <button class="sm mc-pick-ex" data-ex="${e}">USE THIS</button>
+    </div>`).join(''));
+  $('mc-examples').querySelectorAll('.mc-pick-ex').forEach(b => b.onclick = () => {
+    $('mc-ex-pick').value = b.dataset.ex;
+    if (!$('mc-ex-name').value.trim()) $('mc-ex-name').value = b.dataset.ex;
+    $('mc-ex-name').focus();
+  });
+}
+
+function mcDrawMachines(r){
+  const ms = r.machines || [];
+  if (!ms.length){ out('mc-machines', '<span class="muted">no machines yet — deploy one above</span>'); return; }
+  out('mc-machines', '<table><tr><th>machine</th><th>proof system</th><th>verifier / k-of-n</th><th></th></tr>' +
+    ms.map(m => {
+      const detail = m.system === 'quorum' ? `${esc(String(m.k ?? '?'))}-of-${esc(String((m.signers||[]).length))}`
+        : m.system === 'wasm' ? esc(m.verifier || '—') : '<span class="muted">re-run the code</span>';
+      return `<tr class="click${m.name === MC.machine ? ' on' : ''}" data-m="${esc(m.name)}">
+        <td><b>${esc(m.name)}</b></td>
+        <td>${mcSysChip(m.system)}</td>
+        <td class="mono">${detail}</td>
+        <td><button class="sm" data-m="${esc(m.name)}">OPEN</button></td></tr>`;
+    }).join('') + '</table>');
+  $('mc-machines').querySelectorAll('[data-m]').forEach(el => el.onclick = () => mcSelect(el.dataset.m));
+}
+
+const SYS_META = {
+  replay: ['REPLAY', 'var(--cy)', 're-run the wasm — anyone replays and compares'],
+  wasm:   ['CUSTOM WASM', 'var(--mag)', 'a custom importless verifier blob (pqp1) decides'],
+  quorum: ['QUORUM', 'var(--hz)', 'k-of-n post-quantum signer attestations, no execution'],
+};
+function mcSysChip(s){ const m = SYS_META[s] || [s, 'var(--dim)', ''];
+  return `<span class="mc-chip" style="--sc:${m[1]}">${esc(m[0])}</span>`; }
+
+function mcDrawSystems(){
+  const sys = (MC.data && MC.data.systems) || [];
+  // merge backend descriptions over our three known cards
+  const order = ['replay','wasm','quorum'];
+  out('mc-systems', order.map(id => {
+    const meta = SYS_META[id], be = sys.find(s => s.id === id) || {};
+    const what = be.what || meta[2];
+    const extra = [be.cost ? `cost ${esc(be.cost)}` : '', be.trust ? `trust ${esc(be.trust)}` : '']
+      .filter(Boolean).join(' · ');
+    return `<div class="mc-sys${id === MC.system ? ' on' : ''}" data-sys="${id}" style="--sc:${meta[1]}">
+      <div class="mc-sys-h">${esc(be.title || meta[0])}</div>
+      <p>${esc(what)}</p>
+      ${extra ? `<div class="mc-sys-x">${extra}</div>` : ''}
+    </div>`;
+  }).join(''));
+  $('mc-systems').querySelectorAll('.mc-sys').forEach(el => el.onclick = () => mcSetSystem(el.dataset.sys));
+}
+
+function mcDrawVerifiers(r){
+  const vs = (r && r.verifiers) || [];
+  const opts = vs.map(v => {
+    const runnable = v.pqp1 && v.pqp1.runnable;
+    const tag = v.deployed ? '' : ' (example)';
+    return `<option value="${esc(v.cid || v.name)}"${!runnable ? ' disabled' : ''}>${esc(v.name)}${tag}${runnable ? '' : ' — not runnable'}</option>`;
+  }).join('');
+  $('mc-verifier').innerHTML = '<option value="">— pick a verifier —</option>' + opts;
+  if (MC.verifier) $('mc-verifier').value = MC.verifier;
+}
+
+function mcSelect(name){
+  MC.machine = name || '';
+  MC.solved = null; MC.atts = [];
+  $('mc-sel-name').textContent = MC.machine || '—';
+  $('mc-solve-box').hidden = true;
+  mcDrawMachines(MC.data || {});
+  // load its policy
+  mcLoadPolicy();
+  mcLoadReceipts();
+}
+
+async function mcLoadPolicy(){
+  if (!MC.machine){ $('mc-cur-policy').textContent = '—'; return; }
+  try {
+    const r = await cPost({action: 'policy', name: MC.machine});
+    const p = r.policy;
+    if (p){
+      MC.system = p.system || 'replay';
+      MC.verifier = p.verifier || '';
+      $('mc-cur-policy').innerHTML = mcSysChip(p.system) +
+        (p.system === 'quorum' ? ` ${esc(String(p.k ?? '?'))}-of-${esc(String((p.signers||[]).length))}`
+          : p.system === 'wasm' ? ` · ${esc(p.verifier || '—')}` : '');
+      if (p.k != null) $('mc-k').value = p.k;
+      if (p.signers) $('mc-signers').value = (p.signers || []).join('\n');
+    } else {
+      MC.system = 'replay';
+      $('mc-cur-policy').innerHTML = mcSysChip('replay') + ' <span class="muted">(default)</span>';
+    }
+  } catch(e){
+    $('mc-cur-policy').innerHTML = '<span class="muted">unknown</span>';
+  }
+  mcSetSystem(MC.system, true);
+}
+
+function mcSetSystem(sys, quiet){
+  MC.system = sys;
+  mcDrawSystems();
+  $('mc-wasm-cfg').hidden = sys !== 'wasm';
+  $('mc-quorum-cfg').hidden = sys !== 'quorum';
+  $('mc-attest-cfg').hidden = sys !== 'quorum';
+  mcUpdateN();
+}
+function mcUpdateN(){
+  const n = $('mc-signers').value.split('\n').map(s => s.trim()).filter(Boolean).length;
+  $('mc-n').textContent = n;
+}
+$('mc-signers').addEventListener('input', mcUpdateN);
+
+/* STEP 1 — deploy a machine */
+$('mc-deploy').onclick = async () => {
+  const example = $('mc-ex-pick').value, name = $('mc-ex-name').value.trim() || example;
+  out('mc-deploy-out', '<span class="loadline">deploying</span>');
+  try {
+    const r = await cPost({action: 'deploy', example, name, wallet: $('mc-wallet').value, days: $('mc-days').value || '30'});
+    out('mc-deploy-out', `<p><b>deployed ${esc(name)}</b>${r.cid ? ` = <span class="mono addr" data-copy="${esc(r.cid)}">${esc(r.cid.slice(0,16))}…</span>` : ''}
+      ${r.pqc1 ? (r.pqc1.abi || r.pqc1.runnable ? '<span class="pill good">runnable</span>' : '<span class="pill bad">' + esc((r.pqc1||{}).reason || 'not runnable') + '</span>') : ''}</p>`);
+    await loadMachines();
+    mcSelect(name);
+  } catch(e){ err('mc-deploy-out', e); }
+};
+
+/* STEP 2 — verifier deploy + save policy */
+$('mc-vdeploy').onclick = async () => {
+  const f = $('mc-vfile').files[0], name = $('mc-vname').value.trim();
+  out('mc-verifier-out', '<span class="loadline">deploying verifier</span>');
+  try {
+    const body = {action: 'verifier_deploy', name, wallet: $('mc-wallet').value, days: $('mc-days').value || '30'};
+    if (f) body.code_b64 = vB64(new Uint8Array(await f.arrayBuffer()));
+    else if (name === 'counter-spec' || name === 'pow-ladder') body.example = name;
+    else return err('mc-verifier-out', new Error('upload a .wasm, or name it counter-spec / pow-ladder'));
+    const r = await cPost(body);
+    const ok = !r.pqp1 || r.pqp1.runnable;
+    out('mc-verifier-out', `<p><b>verifier ${esc(name)}</b> ${r.cid ? `<span class="mono addr" data-copy="${esc(r.cid)}">${esc(r.cid.slice(0,16))}…</span>` : ''}
+      ${ok ? '<span class="pill good">pqp1 · runnable</span>' : '<span class="pill bad">' + esc((r.pqp1||{}).reason || 'not runnable') + '</span>'}</p>`);
+    MC.verifier = r.cid || name;
+    const r2 = await cPost({action: 'proofs'}); MC.data = r2; mcDrawVerifiers(r2);
+    $('mc-verifier').value = MC.verifier;
+  } catch(e){ err('mc-verifier-out', e); }
+};
+$('mc-verifier').addEventListener('change', () => { MC.verifier = $('mc-verifier').value; });
+
+$('mc-save-policy').onclick = async () => {
+  if (!MC.machine) return err('mc-policy-out', new Error('pick a machine first'));
+  out('mc-policy-out', '<span class="loadline">saving policy</span>');
+  try {
+    const body = {action: 'set_policy', name: MC.machine, system: MC.system,
+      wallet: $('mc-wallet').value, days: $('mc-days').value || '30'};
+    if (MC.system === 'wasm'){
+      const v = $('mc-verifier').value || MC.verifier;
+      if (!v) return err('mc-policy-out', new Error('pick or upload a verifier'));
+      body.verifier = v;
+    }
+    if (MC.system === 'quorum'){
+      body.k = parseInt($('mc-k').value, 10) || 1;
+      body.signers = $('mc-signers').value.split('\n').map(s => s.trim()).filter(Boolean);
+      if (!body.signers.length) return err('mc-policy-out', new Error('add at least one signer address'));
+    }
+    const r = await cPost(body);
+    out('mc-policy-out', `<p><span class="pill good">policy saved</span> ${mcSysChip(MC.system)}
+      ${r.anchor ? '<span class="muted">anchored</span>' : ''}</p>`);
+    mcLoadPolicy();
+    loadMachines();
+  } catch(e){ err('mc-policy-out', e); }
+};
+
+/* STEP 3 — solve / check / submit */
+$('mc-solve').onclick = async () => {
+  if (!MC.machine) return err('mc-submit-out', new Error('pick a machine first'));
+  out('mc-submit-out', '<span class="loadline">solving</span>');
+  try {
+    const r = await cPost({action: 'solve', name: MC.machine, input: $('mc-input').value.trim()});
+    MC.solved = r;
+    $('mc-solve-box').hidden = false;
+    $('mc-state-out').textContent = r.state_out_hex || r.state_out_b64 || '(empty)';
+    $('mc-proof').textContent = r.proof_hex || r.proof_b64 || (r.note || '—');
+    out('mc-submit-out', `<p class="muted">solved via ${mcSysChip(r.system || MC.system)} ${r.note ? '· ' + esc(r.note) : ''} — now CHECK or SUBMIT</p>`);
+  } catch(e){ err('mc-submit-out', e); }
+};
+function mcTransitionBody(){
+  const b = {name: MC.machine, input: $('mc-input').value.trim()};
+  if (MC.solved && MC.solved.state_out_b64) b.state_out_b64 = MC.solved.state_out_b64;
+  if (MC.system === 'quorum') b.attestations = MC.atts;
+  else if (MC.solved && MC.solved.proof_b64) b.proof_b64 = MC.solved.proof_b64;
+  return b;
+}
+$('mc-check').onclick = async () => {
+  if (!MC.machine) return err('mc-submit-out', new Error('pick a machine first'));
+  if (!MC.solved && MC.system !== 'quorum') return err('mc-submit-out', new Error('SOLVE first to produce a proof'));
+  out('mc-submit-out', '<span class="loadline">checking</span>');
+  try {
+    const r = await cPost({action: 'check', ...mcTransitionBody()});
+    out('mc-submit-out', `<p>${r.valid ? '<span class="pill good">VALID</span>' : '<span class="pill bad">INVALID</span>'}
+      ${mcSysChip(r.system || MC.system)} <span class="muted">${esc(r.reason || '')}${r.ms != null ? ' · ' + (+r.ms).toFixed(2) + ' ms' : ''}</span></p>
+      <p class="muted">dry check — nothing signed, nothing anchored.</p>`);
+  } catch(e){ err('mc-submit-out', e); }
+};
+$('mc-submit').onclick = async () => {
+  if (!MC.machine) return err('mc-submit-out', new Error('pick a machine first'));
+  if (!MC.solved && MC.system !== 'quorum') return err('mc-submit-out', new Error('SOLVE first to produce a proof'));
+  out('mc-submit-out', '<span class="loadline">signing + anchoring</span>');
+  try {
+    const r = await cPost({action: 'submit', ...mcTransitionBody(),
+      wallet: $('mc-wallet').value, anchor: true, days: $('mc-days').value || '30'});
+    const pr = r.proof || {};
+    out('mc-submit-out', `<p><b>submitted #${esc(String(r.n))}</b>
+      ${r.reverted ? '<span class="pill bad">reverted</span>' : '<span class="pill good">ok</span>'}
+      ${mcSysChip(pr.system || MC.system)}
+      · receipt <span class="mono addr" data-copy="${esc(r.receipt || '')}">${esc((r.receipt||'').slice(0,16))}…</span></p>
+      <p class="mono" style="word-break:break-all">state: ${esc(r.state_out_hex || '(empty)')}</p>
+      <p class="muted">signed by ${esc(short(r.signed_by, 14))}${pr.proof_sha3 ? ' · proof ' + esc(pr.proof_sha3.slice(0,12)) + '…' : ''}</p>`);
+    MC.solved = null; MC.atts = []; mcRenderAtts();
+    mcLoadReceipts();
+  } catch(e){ err('mc-submit-out', e); }
+};
+
+/* quorum attestations */
+$('mc-attest').onclick = async () => {
+  if (!MC.machine) return err('mc-submit-out', new Error('pick a machine first'));
+  if (!MC.solved || !MC.solved.state_out_b64) return err('mc-submit-out', new Error('SOLVE first so signers have a state to vouch for'));
+  try {
+    const r = await cPost({action: 'attest', name: MC.machine, input: $('mc-input').value.trim(),
+      state_out_b64: MC.solved.state_out_b64, wallet: $('mc-att-wallet').value});
+    if (r.attestation) MC.atts.push(r.attestation);
+    mcRenderAtts();
+  } catch(e){ err('mc-submit-out', e); }
+};
+function mcRenderAtts(){
+  const need = parseInt($('mc-k').value, 10) || 0;
+  $('mc-att-need').textContent = need;
+  $('mc-att-have').textContent = MC.atts.length;
+  out('mc-attest-list', MC.atts.length
+    ? MC.atts.map(a => `<span class="pill good" style="margin:2px 4px 2px 0">${esc(short(a.by || a.pk || 'signer', 16))}</span>`).join('')
+    : '<span class="muted">no attestations yet</span>');
+}
+
+/* receipts timeline */
+async function mcLoadReceipts(){
+  if (!MC.machine){ out('mc-receipts', '<span class="muted">pick a machine above</span>'); return; }
+  out('mc-receipts', '<span class="loadline">loading</span>');
+  try {
+    const r = await cPost({action: 'receipts', name: MC.machine});
+    const rows = r.receipts || [];
+    if (!rows.length){ out('mc-receipts', '<span class="muted">no receipts yet — submit a transition</span>'); return; }
+    out('mc-receipts', '<table><tr><th>#</th><th>proof</th><th>input</th><th>result</th><th>state out</th><th>receipt</th><th></th></tr>' +
+      rows.map(x => `<tr>
+        <td>${esc(String(x.n))}</td>
+        <td>${mcSysChip(x.proof || 'replay')}</td>
+        <td class="mono">${esc((x.input || '').slice(0,20))}${(x.input||'').length>20?'…':''}</td>
+        <td>${x.reverted ? '<span class="pill bad">reverted</span>' : '<span class="pill good">ok</span>'}</td>
+        <td class="mono addr" data-copy="${esc(x.state_out || '')}">${esc((x.state_out||'').slice(0,12))}…</td>
+        <td class="mono addr" data-copy="${esc(x.receipt || '')}">${esc((x.receipt||'').slice(0,12))}…</td>
+        <td><button class="sm" data-verify="${esc(String(x.n))}">VERIFY</button></td></tr>
+        <tr class="mc-vrow" data-vrow="${esc(String(x.n))}" hidden><td colspan="7"></td></tr>`).join('') + '</table>');
+    $('mc-receipts').querySelectorAll('[data-verify]').forEach(b => b.onclick = () => mcVerifyRow(b.dataset.verify));
+  } catch(e){ err('mc-receipts', e); }
+}
+async function mcVerifyRow(n){
+  const cell = $('mc-receipts').querySelector(`[data-vrow="${n}"] td`);
+  const row = $('mc-receipts').querySelector(`[data-vrow="${n}"]`);
+  row.hidden = false;
+  cell.innerHTML = '<span class="loadline">verifying</span>';
+  try {
+    const v = await cPost({action: 'verify', name: MC.machine, n: parseInt(n, 10)});
+    const checks = v.checks || {};
+    const pills = Object.entries(checks).map(([k, ok]) =>
+      `<span class="pill ${ok === true ? 'good' : ok === false ? 'bad' : ''}">${esc(k)}${ok === true ? ' ✓' : ok === false ? ' ✗' : ''}</span>`).join(' ');
+    const pr = v.proof || {};
+    cell.innerHTML = `<div class="mc-verify">
+      <p>${v.valid ? '<span class="pill good">VALID</span>' : '<span class="pill bad">NOT VALID</span>'}
+        ${mcSysChip(pr.system || 'replay')}
+        <span class="muted">${esc(pr.reason || v.means || '')}${pr.ms != null ? ' · ' + (+pr.ms).toFixed(2) + ' ms' : ''}</span></p>
+      <div class="mc-pills">${pills}</div></div>`;
+  } catch(e){ cell.innerHTML = `<span class="err">${esc(e.message || e)}</span>`; }
+}
 
 </script>
 </body>

@@ -24,6 +24,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src import mcp
 
+DYNAMIC = (mcp.DYN_X402, mcp.DYN_AGENT)   # re-served registry entries
+
 
 def call(name, args=None, key=None):
     """One tools/call round trip -> (isError, parsed structuredContent or text)."""
@@ -53,7 +55,9 @@ class TestToolRegistry:
 
     def test_tool_list_is_the_wire_shape(self):
         listed = mcp.tool_list()
-        assert {t['name'] for t in listed} == set(mcp.TOOLS)
+        # the static tools, plus mounted x402 services and tool-agents
+        static = {t['name'] for t in listed if not t['name'].startswith(DYNAMIC)}
+        assert static == set(mcp.TOOLS)
         for t in listed:
             assert set(t) == {'name', 'description', 'inputSchema'}
 
@@ -104,7 +108,7 @@ class TestProtocol:
 
     def test_tools_list_over_the_wire(self):
         r = mcp.handle({'jsonrpc': '2.0', 'id': 4, 'method': 'tools/list'})
-        assert len(r['result']['tools']) == len(mcp.TOOLS)
+        assert len([t for t in r['result']['tools'] if not t['name'].startswith(DYNAMIC)]) == len(mcp.TOOLS)
 
     def test_unknown_tool_is_a_result_not_a_crash(self):
         # a tool failure is a successful JSON-RPC response carrying isError, so
@@ -352,7 +356,7 @@ class TestHttpTransport:
 
     def test_schema_route_lists_the_tools(self):
         d = self._client().get('/mcp/schema').json()
-        assert len(d['tools']) == len(mcp.TOOLS)
+        assert len([t for t in d['tools'] if not t['name'].startswith(DYNAMIC)]) == len(mcp.TOOLS)
         assert d['resources'] and d['instructions']
 
     def test_health_advertises_the_endpoint(self):

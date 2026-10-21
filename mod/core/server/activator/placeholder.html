@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{MOD}} is starting</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0d10;color:#d8dde3;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:24px;box-sizing:border-box}
+  .name{font:600 22px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em}
+  .bar{width:220px;height:3px;border-radius:3px;background:#1c2128;overflow:hidden;position:relative}
+  .bar i{position:absolute;inset:0 auto 0 0;width:40%;background:#5aa9ff;border-radius:3px;animation:slide 1.2s ease-in-out infinite}
+  @keyframes slide{0%{left:-40%}100%{left:100%}}
+  .msg{color:#8b95a1;max-width:420px}
+  .slow .bar i{background:#d9a441}
+  .dead .bar{display:none}
+  button{background:#1c2128;color:#d8dde3;border:1px solid #2c333d;border-radius:6px;padding:7px 14px;font:inherit;cursor:pointer;display:none}
+  .dead button{display:inline-block}
+</style>
+</head>
+<body>
+<div class="wrap" id="w">
+  <div class="name">{{MOD}}</div>
+  <div class="bar"><i></i></div>
+  <div class="msg" id="m">Waking up. This page opens by itself when it is ready.</div>
+  <button onclick="location.reload()">Try again</button>
+</div>
+<script>
+(function () {
+  var w = document.getElementById("w"), m = document.getElementById("m");
+  var t0 = Date.now(), tries = 0;
+  function check() {
+    tries++;
+    // Accept */* so the gateway answers with the real page (or its real
+    // error), never this placeholder again.
+    var ctl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 35000);
+    fetch(location.href, { headers: { Accept: "*/*" }, cache: "no-store", credentials: "same-origin", signal: ctl && ctl.signal })
+      .then(function (r) {
+        clearTimeout(timer);
+        if (r.status < 500 && !r.headers.get("x-mod-placeholder")) return location.reload();
+        later();
+      })
+      .catch(function () { clearTimeout(timer); later(); });
+  }
+  function later() {
+    var s = (Date.now() - t0) / 1000;
+    if (s > 180) {
+      w.className = "wrap dead";
+      m.textContent = "This app did not come up. It may be broken or switched off.";
+      return;
+    }
+    if (s > 25) {
+      w.className = "wrap slow";
+      m.textContent = "Still starting. Some apps take a minute on first open.";
+    }
+    setTimeout(check, Math.min(4000, 800 + tries * 400));
+  }
+  setTimeout(check, 700);
+})();
+</script>
+</body>
+</html>

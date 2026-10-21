@@ -70,8 +70,15 @@ def info():
             'POST /chat': '{prompt|messages, model, system, bot, temperature, '
                           'max_tokens, search, stream}',
             'GET /bots': 'your saved bots',
-            'POST /bots': '{name, system, model, temperature, search, description}',
+            'POST /bots': '{name, system, model, temperature, search, description, public}',
             'DELETE /bots': 'name=… — delete one',
+            'POST /bots/publish': '{name, public} — publish or unpublish one '
+                                  'of your bots',
+            'POST /bots/copy': '{ref: "<address>/<name>", name} — a private '
+                               'copy of a published bot',
+            'GET /public': "everyone's published bots (q=, owner=) — no "
+                           'sign-in needed to browse; chat one with '
+                           'bot=<address>/<name>',
             'GET /runs': 'your run ledger — every chat/stream/image, '
                          'status=live|done|error to filter, with the counts',
             'DELETE /runs': 'clear your run ledger',
@@ -155,10 +162,25 @@ def route(method, path, query, body, token, key):
                               system=b.get('system'), model=b.get('model'),
                               temperature=b.get('temperature'),
                               search=b.get('search'),
-                              description=b.get('description'))
+                              description=b.get('description'),
+                              public=b.get('public'))
         if method == 'DELETE':
             return C.delete_bot(address, _need(arg('name'), 'name'))
         return {'bots': C.bots(address), 'address': address}
+    if path == '/bots/publish' and method == 'POST':
+        return C.publish_bot(signed(), _need(b.get('name'), 'name'),
+                             public=b.get('public', True))
+    if path == '/bots/copy' and method == 'POST':
+        return C.copy_bot(signed(), _need(b.get('ref'), 'ref'),
+                          name=b.get('name'))
+    if path == '/public':
+        # Published bots are public by definition — readable signed out.
+        me = identity.whoami(token)
+        rows = C.public_bots(q=arg('q'), owner=arg('owner'),
+                             limit=arg('limit', 200))
+        for r in rows:
+            r['mine'] = bool(me) and r['owner'] == me
+        return {'bots': rows, 'count': len(rows)}
     if path == '/images' and method == 'POST':
         return Client(key=key, address=signed()).images(
             _need(b.get('prompt'), 'prompt'), model=b.get('model', 'grok-2-image'),

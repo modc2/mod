@@ -367,3 +367,69 @@ def test_unknown_tool_names_the_ones_that_exist():
     with pytest.raises(GrokError) as e:
         mcp.call_tool('grok_teleport', {})
     assert 'grok_chat' in str(e.value)
+
+
+# ── published bots ───────────────────────────────────────────────────
+
+OTHER = '0xdef0000000000000000000000000000000000002'
+
+
+def test_a_bot_is_private_until_published():
+    import client
+    client.set_user_key(ADDR, 'xai-secret-key')
+    client.save_bot(ADDR, 'skeptic', system='doubt it')
+    assert client.public_bots() == []
+    client.publish_bot(ADDR, 'skeptic')
+    rows = client.public_bots()
+    assert [r['ref'] for r in rows] == [f'{ADDR}/skeptic']
+    assert rows[0]['system'] == 'doubt it' and rows[0]['published']
+    assert 'xai-secret-key' not in json.dumps(rows)
+    client.publish_bot(ADDR, 'skeptic', public=False)
+    assert client.public_bots() == []
+
+
+def test_anyone_can_run_a_published_bot_by_ref_and_it_counts_the_use():
+    import client
+    client.save_bot(ADDR, 'pirate', system='arr', model='grok-3', public=True)
+    body = client.Client(key='xai-k', address=OTHER).payload(
+        prompt='hi', bot=f'{ADDR}/pirate')
+    assert body['model'] == 'grok-3'
+    assert body['messages'][0] == {'role': 'system', 'content': 'arr'}
+    assert client.public_bots()[0]['uses'] == 1
+
+
+def test_an_unpublished_bot_is_not_reachable_by_ref():
+    import client
+    client.save_bot(ADDR, 'secret', system='shh')
+    with pytest.raises(client.GrokError) as e:
+        client.get_bot(OTHER, f'{ADDR}/secret')
+    assert e.value.status == 404
+
+
+def test_copy_makes_a_private_bot_that_remembers_where_it_came_from():
+    import client
+    client.save_bot(ADDR, 'pirate', system='arr', public=True)
+    got = client.copy_bot(OTHER, f'{ADDR}/pirate', name='my-pirate')
+    assert got['name'] == 'my-pirate' and got['from'] == f'{ADDR}/pirate'
+    assert got['public'] is False
+    assert [b['name'] for b in client.bots(OTHER)] == ['my-pirate']
+
+
+def test_public_route_is_readable_signed_out_and_searchable():
+    import api
+    import client
+    client.save_bot(ADDR, 'pirate', system='talks like a pirate', public=True)
+    client.save_bot(OTHER, 'lawyer', system='cites cases', public=True)
+    out = api.route('GET', '/public', '', {}, None, None)
+    assert out['count'] == 2 and not any(r['mine'] for r in out['bots'])
+    hit = api.route('GET', '/public', 'q=pirate', {}, None, None)
+    assert [r['name'] for r in hit['bots']] == ['pirate']
+
+
+def test_publish_and_copy_routes_need_a_signature():
+    import api
+    import identity
+    for path, body in (('/bots/publish', {'name': 'x'}),
+                       ('/bots/copy', {'ref': f'{ADDR}/x'})):
+        with pytest.raises(identity.AuthError):
+            api.route('POST', path, '', body, None, None)

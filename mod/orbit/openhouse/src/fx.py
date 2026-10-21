@@ -46,7 +46,7 @@ CURRENCIES = {
 
 # Last resort only: a hand-recorded snapshot (2026-09), served when the
 # network AND the cache have both failed. The UI must label it approximate.
-FALLBACK_RATES = {
+FALLBACK_RATES = {  # 'near' = NEAR per ETH (rent rail), not on the display menu
     'usd': 2631.0,
     'eur': 2292.0,
     'gbp': 1965.0,
@@ -59,11 +59,12 @@ FALLBACK_RATES = {
     'brl': 13531.0,
     'mxn': 45329.0,
     'krw': 3647267.0,
+    'near': 490.0,
 }
 
 
 def _fetch_live():
-    url = f"{COINGECKO_FX}?ids=ethereum&vs_currencies={','.join(CURRENCIES)}"
+    url = f"{COINGECKO_FX}?ids=ethereum,near&vs_currencies={','.join(CURRENCIES)}"
     req = urllib.request.Request(url, headers={
         'accept': 'application/json',
         'user-agent': 'openhouse-mod/2.1 (+https://github.com/mod-protocol)',
@@ -74,6 +75,10 @@ def _fetch_live():
     rates = {c: float(eth[c]) for c in CURRENCIES if eth.get(c)}
     if not rates:
         raise ValueError('coingecko returned no rates')
+    # NEAR per ETH, off the two USD prices — the rent rail's native currency.
+    near_usd, eth_usd = (rows.get('near') or {}).get('usd'), eth.get('usd')
+    if near_usd and eth_usd:
+        rates['near'] = float(eth_usd) / float(near_usd)
     return rates
 
 

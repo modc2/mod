@@ -58,6 +58,20 @@ export default function TraderPage() {
   const fillsDesc = [...windowFills].sort((a: any, b: any) => Number(b.time) - Number(a.time));
   const fillsClosedPnl = windowFills.reduce((a: number, f: any) => a + (Number(f.closedPnl) || 0), 0);
 
+  const coinMap = new Map<string, { pnl: number; closes: number; fills: number }>();
+  for (const f of windowFills) {
+    const pnl = Number(f.closedPnl) || 0;
+    const entry = coinMap.get(f.coin) ?? { pnl: 0, closes: 0, fills: 0 };
+    entry.pnl += pnl;
+    if (pnl !== 0) entry.closes++;
+    entry.fills++;
+    coinMap.set(f.coin, entry);
+  }
+  const coinBreakdown = [...coinMap.entries()]
+    .map(([coin, v]) => ({ coin, ...v }))
+    .sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
+  const coinAbsTotal = coinBreakdown.reduce((s, e) => s + Math.abs(e.pnl), 0);
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -140,6 +154,40 @@ export default function TraderPage() {
       <Panel title={`pnl over time (${days}d)`}>
         <PnlChart portfolio={data.pnl_history} days={days} windowPnl={s.pnl} />
       </Panel>
+
+      {/* PnL by coin — answers "where did the money actually come from?" without
+          any extra request. One outsized BTC day is a very different copy risk
+          than steady gains spread across six coins. */}
+      {coinBreakdown.length > 0 && (
+        <Panel title={`pnl by coin (${days}d)`}>
+          <div className="grid grid-cols-[1fr_1fr_2fr_0.6fr] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted border-b border-border">
+            <div>coin</div><div className="text-right">pnl</div><div /><div className="text-right">fills</div>
+          </div>
+          {coinBreakdown.map((e) => {
+            const pct = coinAbsTotal > 0 ? Math.abs(e.pnl) / coinAbsTotal : 0;
+            const win = e.pnl >= 0;
+            const barPct = `${(pct * 100).toFixed(1)}%`;
+            return (
+              <div key={e.coin} className="grid grid-cols-[1fr_1fr_2fr_0.6fr] gap-2 px-4 py-1.5 table-row items-center">
+                <div className="text-ink">{e.coin}</div>
+                <div className={`num text-right ${win ? "text-win" : "text-loss"}`}>
+                  {e.pnl === 0 ? "—" : fmtPnl(e.pnl)}
+                </div>
+                <div className="flex items-center h-4 relative">
+                  <div className="absolute left-1/2 top-0 bottom-0 w-px bg-border" />
+                  <div className="w-1/2 flex justify-end pr-px">
+                    {!win && <div className="h-2.5 rounded-sm bg-loss/60" style={{ width: barPct }} />}
+                  </div>
+                  <div className="w-1/2 pl-px">
+                    {win && <div className="h-2.5 rounded-sm bg-win/60" style={{ width: barPct }} />}
+                  </div>
+                </div>
+                <div className="num text-right text-[11px] text-muted">{e.fills}</div>
+              </div>
+            );
+          })}
+        </Panel>
+      )}
 
       {/* "$N on this trader" — server-side replay with its data checks
           attached. Renders its own panel chrome so the header can carry the

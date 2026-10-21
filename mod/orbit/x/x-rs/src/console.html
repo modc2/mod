@@ -153,6 +153,7 @@ code{font:12px var(--mono);background:var(--elev);border-radius:5px;padding:1px 
     </div>
     <a class="item" data-nav="accounts" href="#/accounts"><span class="ico">AC</span><span class="lbl">Accounts</span></a>
     <a class="item" data-nav="search" href="#/search"><span class="ico">SR</span><span class="lbl">Search</span></a>
+    <a class="item" data-nav="summary" href="#/summary"><span class="ico">SU</span><span class="lbl">Summarize</span></a>
     <a class="item" data-nav="post"   href="#/post"><span class="ico">PO</span><span class="lbl">Post</span></a>
     <a class="item" data-nav="user"   href="#/user"><span class="ico">@</span><span class="lbl">Profile</span></a>
     <a class="item" data-nav="mentions" href="#/mentions"><span class="ico">ME</span><span class="lbl">Mentions</span></a>
@@ -382,6 +383,50 @@ function route() {
 const setHead = (t, c) => { $('#title').textContent = t; $('#crumb').textContent = c || ''; };
 const render = (...nodes) => $('#view').replaceChildren(...nodes.filter(Boolean));
 const rail = (...nodes) => $('#rail').replaceChildren(...nodes.filter(Boolean));
+
+/* ── view: summarize ─────────────────────────────────────── */
+ROUTES.summary = async (seg, q) => {
+  setHead('Summarize', 'GET /summarize?feed= · any @handle, URL, list, thread, #tag, query or home · with API cost');
+  const input = el('input', { placeholder: '@handle, x.com URL (profile, list, thread), #tag, query, or home', value: q.get('feed') || ls.get('feed', '') });
+  const count = el('select', { style: 'width:auto' }, ...[25, 50, 100, 200, 300].map(n => el('option', { value: n, text: n + ' posts' })));
+  count.value = q.get('n') || '50';
+  const out = el('div');
+  const run = async (estimate) => {
+    const v = input.value.trim();
+    if (!v) return;
+    ls.set('feed', v);
+    out.replaceChildren(el('div', { class: 'load', text: estimate ? 'pricing…' : 'reading feed…' }));
+    try {
+      const p = new URLSearchParams({ feed: v, max_results: count.value });
+      if (estimate) p.set('estimate_only', 'true');
+      const d = await api('/summarize?' + p);
+      const c = d.cost || d.estimate;
+      const range = c.usd_max > c.usd ? '$' + c.usd.toFixed(3) + ' – $' + c.usd_max.toFixed(3) : '$' + c.usd.toFixed(3);
+      const kids = [el('div', { class: 'card' },
+        el('b', { text: (d.cost ? 'Cost: ' : 'Estimated cost: ') + range + (d.feed ? ' · ' + d.feed : '') }),
+        el('div', { text: 'Run it daily for a month: about $' + c.daily_for_a_month_usd.toFixed(2) + ' · $' + c.per_1000_posts_usd + ' per 1,000 posts' + (c.rates.owned ? ' (owned-read rate)' : '') }),
+        el('div', { class: 'sub', text: c.posts_read + ' posts + ' + c.user_reads + ' profile reads' + (c.usd_max > c.usd ? ' (up to one author per post)' : '') + '. ' + c.note }))];
+      if (d.error) kids.push(el('div', { class: 'card', text: d.error }));
+      if (d.summary) {
+        kids.push(el('div', { class: 'card', style: 'white-space:pre-wrap', text: d.summary }));
+        const list = (title, rows) => rows && rows.length ? el('div', { class: 'row wrap', style: 'margin-top:8px' },
+          el('b', { text: title + ' ' }), ...rows.map(r => el('span', { class: 'chip', text: r.term + ' ' + r.count }))) : '';
+        kids.push(el('div', { class: 'card' }, list('Topics', d.topics), list('Hashtags', d.hashtags),
+          list('Links', d.domains), list('Mentions', d.mentions)));
+        for (const t of d.top_posts) kids.push(el('div', { class: 'card' },
+          el('a', { href: t.url, target: '_blank', text: '@' + t.author }),
+          el('div', { text: t.text }), el('div', { class: 'sub', text: t.likes + ' likes · ' + t.reposts + ' reposts · ' + t.replies + ' replies' })));
+      }
+      out.replaceChildren(...kids);
+    } catch (e) { out.replaceChildren(errBox(e)); }
+  };
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') run(false); });
+  render(el('div', { class: 'card' },
+    el('div', { class: 'row' }, el('div', { class: 'grow' }, input),
+      el('button', { class: 'btn', text: 'Summarize', onclick: () => run(false) })),
+    el('div', { class: 'row wrap', style: 'margin-top:9px' }, count,
+      el('button', { class: 'chip', text: 'Estimate cost only', onclick: () => run(true) }))), out);
+};
 
 /* ── view: search ────────────────────────────────────────── */
 const PRESETS = ['from:jack', '#bittensor -is:retweet', 'mcp lang:en -is:retweet',

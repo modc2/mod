@@ -1,7 +1,7 @@
 {
     "name": "grokbot",
-    "version": "0.2.0",
-    "description": "Grok (xAI) as one mod, with an account behind it. Sign in from the website with a wallet \u2014 that mints the same mod-protocol token every module in this fleet verifies \u2014 and the address inside it is the account your xAI key and your saved bots hang off. A grokbot is a name, a model and a system prompt; chat runs one, with live search over X and the web when you ask for it, and the citations come back with the text. BYOK throughout: every call spends the caller's own xAI credits, keys are stored 0600 under ~/.mod/grokbot and never in this repo. Sign-in is required: every route that touches Grok demands the token, and the console is a CONNECT WALLET gate until one exists. Every call lands on your run ledger \u2014 ALL / LIVE / DONE / ERROR, with duration and tokens. One port serves the REST API, the browser console and eleven MCP tools off the same client, so an agent, a shell and a human never see different answers.",
+    "version": "0.3.0",
+    "description": "Grok (xAI) as one mod, with an account behind it. Sign in from the website with a wallet \u2014 that mints the same mod-protocol token every module in this fleet verifies \u2014 and the address inside it is the account your xAI key and your saved bots hang off. A grokbot is a name, a model and a system prompt \u2014 keep it private or PUBLISH it so anyone can browse it, chat with it as <address>/<name> on their own credits, or copy it; chat runs one, with live search over X and the web when you ask for it, and the citations come back with the text. BYOK throughout: every call spends the caller's own xAI credits, keys are stored 0600 under ~/.mod/grokbot and never in this repo. Sign-in is required: every route that touches Grok demands the token, and the console is a CONNECT WALLET gate until one exists. Every call lands on your run ledger \u2014 ALL / LIVE / DONE / ERROR, with duration and tokens. One port serves the REST API, the browser console and fourteen MCP tools off the same client, so an agent, a shell and a human never see different answers.",
     "icon": "\u2726",
     "color": "#6ee7ff",
     "anchor": "mod.py",
@@ -38,6 +38,9 @@
         "grok_set_key",
         "grok_bots",
         "grok_bot_save",
+        "grok_public_bots",
+        "grok_bot_publish",
+        "grok_bot_copy",
         "grok_bot_delete",
         "grok_runs",
         "grok_raw"
@@ -51,14 +54,15 @@
         "model": "GET /model?id=grok-4-fast",
         "keyinfo": "GET /keyinfo \u2014 what xAI says about the key itself",
         "chat": "POST /chat {prompt|messages, model, system, bot, temperature, max_tokens, search, stream}",
-        "bots": "GET /bots | POST /bots {name, system, model, temperature, search} | DELETE /bots?name=",
+        "bots": "GET /bots | POST /bots {name, system, model, temperature, search, public} | DELETE /bots?name= | POST /bots/publish {name, public} | POST /bots/copy {ref, name}",
         "runs": "GET /runs?status=live|done|error \u2014 your run ledger with the ALL/LIVE/DONE/ERROR counts | DELETE /runs \u2014 clear it",
         "images": "POST /images {prompt, model, n}",
         "raw": "POST /raw {path, method, body, params} \u2014 any xAI route",
         "stats": "GET /stats \u2014 accounts and bots on this deployment (owner only)",
         "tools": "GET /tools",
         "mcp": "POST /mcp (JSON-RPC 2.0, Streamable HTTP)",
-        "console": "GET /grokbot (browser)"
+        "console": "GET /grokbot (browser)",
+        "public": "GET /public?q=&owner= \u2014 everyone's published bots, readable signed out; chat one with bot=<address>/<name>"
     },
     "fns": [
         "forward",
@@ -74,6 +78,9 @@
         "bots",
         "bot",
         "save_bot",
+        "public_bots",
+        "publish_bot",
+        "copy_bot",
         "delete_bot",
         "runs",
         "set_key",
@@ -100,5 +107,5 @@
     "services": [
         "grokbot-api"
     ],
-    "schema": "QmaNJmkdUXCfgLFe5XJiMiomemNWLYYEAoazet4DEU82Bd"
+    "schema": "QmezgJJjZVUKRAYPSSRLCbYznfGLS7mn7juSmzVrf8GevH"
 }

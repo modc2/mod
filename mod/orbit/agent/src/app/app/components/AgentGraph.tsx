@@ -566,7 +566,7 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
   }
   const onBgDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('[data-node],[data-ui]')) return
-    setSel(null); setPalette(false); setPicker(false)
+    setSel(null); setPalette(false); setPicker(false); setQuick(null)
     const sx = e.clientX, sy = e.clientY, v0 = viewRef.current
     const move = (ev: PointerEvent) => setView(v => ({ ...v, x: v0.x + ev.clientX - sx, y: v0.y + ev.clientY - sy }))
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
@@ -699,7 +699,7 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
   const curCfg = cfgOf(cur)
   const doneCount = Object.values(live).filter(l => l.status === 'done').length
 
-  const wires = edges.map(e => {
+  const wires = edges.filter(e => e.id !== wire?.orig?.id).map(e => {
     const a = byId[e.from], b = byId[e.to]
     if (!a || !b) return null
     const ga = geoms[a.id], gb = geoms[b.id]
@@ -793,11 +793,16 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
               return (
                 <g key={w.e.id}>
                   <path d={w.d} fill="none" stroke="transparent" strokeWidth={14} className="pointer-events-auto cursor-pointer"
-                    onPointerDown={ev => { ev.stopPropagation(); setSel({ edge: w.e.id }) }} />
+                    onPointerDown={ev => onWireDown(ev, w)} />
                   <path d={w.d} fill="none" stroke={tone(w.color, on ? 0.95 : done ? 0.7 : 0.38)}
                     strokeWidth={on ? 2.4 : 1.6} strokeLinecap="round"
                     className={hot ? 'dag-wire--hot' : ''} style={hot ? { stroke: tone(w.color, 1) } : undefined} />
-                  <circle cx={w.p2.x} cy={w.p2.y} r={3} fill={tone(w.color, on ? 1 : 0.55)} />
+                  <circle cx={w.p2.x} cy={w.p2.y} r={on ? 4.5 : 3} fill={tone(w.color, on ? 1 : 0.55)} />
+                  {/* the arrow end is a handle: drag it to another node, or off into nothing */}
+                  <circle cx={w.p2.x - 9} cy={w.p2.y} r={8} fill="transparent" className="pointer-events-auto dag-wire-grab"
+                    onPointerDown={ev => { ev.stopPropagation(); ev.preventDefault(); carry(ev, { from: w.e.from, port: w.e.port, orig: w.e }) }}>
+                    <title>drag to move this wire · drop on nothing to remove it</title>
+                  </circle>
                   {w.e.port !== 'out' && (
                     <text x={w.p1.x + 10} y={w.p1.y - 6} className="dag-wire-label" fill={tone(w.color, 0.85)}>{w.e.port}</text>
                   )}
@@ -814,10 +819,13 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
               )
             })}
             {wire && (() => {
-              const a = byId[wire.from]
-              const p1 = a ? geoms[a.id].at[wire.port] : null
-              return p1 ? <path d={wirePath(p1, wire, Math.max(p1.y, wire.y))} fill="none"
-                stroke={tone(PORT_TONE[wire.port] || '--a-400', 0.9)} strokeWidth={2} strokeDasharray="5 5" /> : null
+              const a = wire.from ? byId[wire.from] : null, b = wire.to ? byId[wire.to] : null
+              const p1 = a && wire.port ? geoms[a.id].at[wire.port] : null
+              const p2 = !p1 && b ? geoms[b.id].inAt : null
+              const col = tone(PORT_TONE[wire.port || wire.orig?.port || 'out'] || '--a-400', 0.9)
+              if (p1) return <path d={wirePath(p1, wire, Math.max(p1.y, wire.y))} fill="none" stroke={col} strokeWidth={2} strokeDasharray="5 5" />
+              if (p2) return <path d={wirePath(wire, p2, Math.max(p2.y, wire.y))} fill="none" stroke={col} strokeWidth={2} strokeDasharray="5 5" />
+              return null
             })()}
           </svg>
 
@@ -835,7 +843,17 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
                 onPointerDown={e => onNodeDown(e, n)}
                 onDoubleClick={() => { if ((n.kind === 'agent' || n.kind === 'judge') && n.data.agent && n.data.agent !== cur) goAgent(n.data.agent, true) }}>
                 {/* in */}
-                {spec?.inputs !== 0 && <span className="dag-port dag-port--in" style={{ top: HEAD / 2 }} />}
+                {spec?.inputs !== 0 && (
+                  <span data-port className="dag-port dag-port--in" style={{ top: HEAD / 2 }}
+                    title={edges.some(e => e.to === n.id)
+                      ? 'drag to move the last wire in · alt-drag to wire another source'
+                      : 'drag back to the node that should feed this one'}
+                    onPointerDown={e => onInDown(e, n)} />
+                )}
+                {wire?.from && hoverTarget === n.id && wouldAggregate(wire.from, n.id,
+                  wire.orig ? edges.filter(e => e.id !== wire.orig!.id) : edges) && (
+                  <span className="dag-agg-hint">⊕ joins its other inputs — they'll be aggregated</span>
+                )}
                 <div className="dag-head" style={{ height: HEAD }}>
                   <span className="dag-icon">{t.icon}</span>
                   <span className="min-w-0 flex-1">
@@ -878,6 +896,20 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
             )
           })}
         </div>
+
+        {/* dropped a wire on nothing: make the node it should go to */}
+        {quick && (
+          <div data-ui className="dag-pop w-64" style={{ left: Math.min(quick.sx, (boxRef.current?.clientWidth || 600) - 264), top: Math.min(quick.sy - 8, (boxRef.current?.clientHeight || 600) - 320) }}>
+            <div className="px-2 pt-1 pb-1.5 text-[10px] uppercase tracking-wider text-gray-500">wire it into a new…</div>
+            {Object.entries(kinds).filter(([k]) => k !== 'input').map(([k, s]) => (
+              <button key={k} className="dag-pop-row" onClick={() => quickAdd(k)}>
+                <span className="dag-icon dag-icon--sm" style={{ ['--acc' as any]: `var(${ACCENT[s.accent] || '--a-400'})` }}>{s.icon}</span>
+                <span className="min-w-0"><span className="block text-[12px] text-gray-200">{s.label}</span>
+                  <span className="block text-[10px] text-gray-500 truncate">{s.summary}</span></span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* top bar */}
         <div data-ui className="dag-bar absolute left-3 right-3 top-3 flex items-center gap-2 pointer-events-none">

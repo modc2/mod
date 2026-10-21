@@ -45,6 +45,7 @@ pub const SWEEP_TIMEOUT: u64 = 5;
 fn client(secs: u64) -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(secs))
+        .user_agent(concat!("mcp-hub/", env!("CARGO_PKG_VERSION")))
         .build()
         .expect("reqwest client")
 }
@@ -169,6 +170,7 @@ async fn post_rpc(
     session: Option<&str>,
     rpc_id: u64,
     timeout: u64,
+    pay: bool,
 ) -> Result<(Value, Option<String>), String> {
     let mut req = client(timeout)
         .post(&server.url)
@@ -184,6 +186,11 @@ async fn post_rpc(
     let body = json!({ "jsonrpc": "2.0", "id": rpc_id, "method": method, "params": params });
     let resp = req.json(&body).send().await.map_err(|e| format!("unreachable: {e}"))?;
     let status = resp.status();
+    if status.as_u16() == 402 && pay && server.pay == "x402" {
+        let (text, ctype) =
+            crate::x402::relay(&server.url, &body, &server.headers, session, PROTOCOL_VERSION).await?;
+        return finish(&text, &ctype, rpc_id, method, None);
+    }
     let new_session = resp
         .headers()
         .get("mcp-session-id")
@@ -200,23 +207,33 @@ async fn post_rpc(
         let snippet: String = text.chars().take(300).collect();
         return Err(format!("HTTP {status}: {snippet}"));
     }
-    let reply = extract_reply(&text, &ctype, rpc_id)?;
+    finish(&text, &ctype, rpc_id, method, new_session)
+}
+
+fn finish(
+    text: &str,
+    ctype: &str,
+    rpc_id: u64,
+    method: &str,
+    session: Option<String>,
+) -> Result<(Value, Option<String>), String> {
+    let reply = extract_reply(text, ctype, rpc_id)?;
     if let Some(err) = reply.get("error") {
         let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("rpc error");
         return Err(format!("{method}: {msg}"));
     }
-    Ok((reply.get("result").cloned().unwrap_or(Value::Null), new_session))
+    Ok((reply.get("result").cloned().unwrap_or(Value::Null), session))
 }
 
 /// Full handshake: initialize (+ initialized notification). Returns
 /// (initialize result, session id if the server issued one).
-async fn handshake(server: &ServerEntry, timeout: u64) -> Result<(Value, Option<String>), String> {
+async fn handshake(server: &ServerEntry, timeout: u64, pay: bool) -> Result<(Value, Option<String>), String> {
     let params = json!({
         "protocolVersion": PROTOCOL_VERSION,
         "capabilities": {},
         "clientInfo": { "name": "mcp-hub", "version": env!("CARGO_PKG_VERSION") }
     });
-    let (result, sid) = post_rpc(server, "initialize", params, None, 1, timeout).await?;
+    let (result, sid) = post_rpc(server, "initialize", params, None, 1, timeout, pay).await?;
     // Fire the initialized notification; stateless servers may 4xx it — ignore.
     let mut req = client(timeout)
         .post(&server.url)
@@ -258,14 +275,14 @@ async fn rpc_direct(server: &ServerEntry, method: &str, params: Value) -> Result
     let t = default_timeout();
     let cached = session_get(&server.id);
     if cached.is_some() {
-        match post_rpc(server, method, params.clone(), cached.as_deref(), 2, t).await {
+        match post_rpc(server, method, params.clone(), cached.as_deref(), 2, t, true).await {
             Ok((v, _)) => return Ok(v),
             Err(_) => session_set(&server.id, None), // stale session — re-handshake below
         }
     }
-    let (_, sid) = handshake(server, t).await?;
+    let (_, sid) = handshake(server, t, true).await?;
     session_set(&server.id, sid.clone());
-    let (v, _) = post_rpc(server, method, params, sid.as_deref(), 2, t).await?;
+    let (v, _) = post_rpc(server, method, params, sid.as_deref(), 2, t, true).await?;
     Ok(v)
 }
 
@@ -296,15 +313,15 @@ pub async fn probe_in(server: &ServerEntry, timeout: u64, wake: bool) -> Probe {
     }
     if wake && asleep(server) {
         // Dialing the held port IS the wake; give it the cold-start budget.
-        return probe_once(server, timeout.max(default_timeout())).await;
+        return probe_once(server, timeout.max(default_timeout()), wake).await;
     }
-    let p = probe_once(server, timeout).await;
+    let p = probe_once(server, timeout, wake).await;
     if p.ok || !wake || !is_unreachable(&p.error) {
         return p;
     }
     match woken(server) {
         Some(w) => {
-            let mut woke = probe_once(&w, timeout.max(default_timeout())).await;
+            let mut woke = probe_once(&w, timeout.max(default_timeout()), wake).await;
             if woke.ok {
                 woke.via = w.url;
             } else {
@@ -316,16 +333,16 @@ pub async fn probe_in(server: &ServerEntry, timeout: u64, wake: bool) -> Probe {
     }
 }
 
-async fn probe_once(server: &ServerEntry, timeout: u64) -> Probe {
+async fn probe_once(server: &ServerEntry, timeout: u64, pay: bool) -> Probe {
     let started = Instant::now();
-    let (init, sid) = match handshake(server, timeout).await {
+    let (init, sid) = match handshake(server, timeout, pay).await {
         Ok(x) => x,
         Err(e) => {
             return Probe { ok: false, error: e, checked_at: now(), ..Default::default() }
         }
     };
     session_set(&server.id, sid.clone());
-    let tools = match post_rpc(server, "tools/list", json!({}), sid.as_deref(), 2, timeout).await {
+    let tools = match post_rpc(server, "tools/list", json!({}), sid.as_deref(), 2, timeout, pay).await {
         Ok((v, _)) => v.get("tools").and_then(|t| t.as_array()).cloned().unwrap_or_default(),
         Err(e) => {
             return Probe {

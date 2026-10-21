@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>traffic</title>
+<style>
+.viz-root {
+  color-scheme: dark;
+  --surface-0: #0f0f0e;
+  --surface-1: #141413;
+  --line: #2a2a27;
+  --grid: #222220;
+  --text-primary: #f4f3ee;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8a897f;
+  --accent: #cc785c;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --spark: #8a897f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--surface-0); }
+body { font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text-primary); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 24px 20px 60px; }
+header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; }
+.hero { margin-top: 6px; display: flex; align-items: baseline; gap: 12px; }
+.hero b { font-size: 48px; line-height: 1; font-weight: 650; font-variant-numeric: tabular-nums; }
+.hero span { color: var(--text-secondary); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #1baf7a; margin-right: 6px; vertical-align: 1px; animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.ranges { display: flex; gap: 4px; background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; padding: 3px; }
+.ranges button { all: unset; cursor: pointer; padding: 5px 11px; border-radius: 6px; color: var(--text-secondary); font-size: 12px; font-weight: 600; letter-spacing: .04em; }
+.ranges button[aria-pressed="true"] { background: #2a2a27; color: var(--text-primary); }
+.card { margin-top: 18px; background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px; padding: 16px 16px 10px; }
+.card h2 { margin: 0 0 2px; font-size: 15px; font-weight: 600; }
+.card .sub { color: var(--text-muted); font-size: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 4px; }
+.legend button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+.legend button[aria-pressed="false"] { opacity: .4; }
+.legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.chart { position: relative; }
+svg { display: block; width: 100%; overflow: visible; }
+.axis text { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tip { position: absolute; pointer-events: none; background: #1f1f1d; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; min-width: 150px; box-shadow: 0 6px 20px rgba(0,0,0,.4); display: none; z-index: 2; }
+.tip .t { color: var(--text-muted); margin-bottom: 4px; }
+.tip .r { display: flex; justify-content: space-between; gap: 14px; color: var(--text-secondary); }
+.tip .r b { color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 600; }
+.tip .r i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th { text-align: left; font-weight: 600; color: var(--text-muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+td { padding: 7px 8px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+th.n, td.n { text-align: right; }
+tr.row { cursor: pointer; }
+tr.row:hover td { background: #1b1b19; }
+td.app .nm { display: inline-flex; align-items: center; gap: 8px; }
+td.app i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+td.app a { color: var(--text-muted); text-decoration: none; font-size: 12px; }
+td.app a:hover { color: var(--accent); }
+.live0 { color: var(--text-muted); }
+.livepos { color: #1baf7a; font-weight: 600; }
+.empty { color: var(--text-muted); padding: 30px 0; text-align: center; }
+.note { color: var(--text-muted); font-size: 12px; margin-top: 10px; }
+:where(html[data-ui="phone"]) .hero b { font-size: 36px; }
+.ctry-chart { margin-top: 10px; }
+.ctry-chart svg { display: block; width: 100%; overflow: visible; }
+</style>
+</head>
+<body class="viz-root">
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Traffic &middot; every app on modc2.com</h1>
+      <div class="hero"><b id="total">-</b><span><span class="dot"></span>people using the sites right now</span></div>
+    </div>
+    <div class="ranges" id="ranges" role="group" aria-label="Time range"></div>
+  </header>
+
+  <section class="card">
+    <h2>Users over time, per app</h2>
+    <div class="sub" id="chartsub">Distinct people per time bucket</div>
+    <div class="legend" id="legend"></div>
+    <div class="chart" id="chart"><svg id="svg" height="300"></svg><div class="tip" id="tip"></div></div>
+  </section>
+
+  <section class="card" id="countries-card" style="display:none">
+    <h2>Where in the world</h2>
+    <div class="sub" id="countries-sub">Distinct people by country</div>
+    <div class="ctry-chart" id="countries-chart"></div>
+  </section>
+
+  <section class="card">
+    <h2>All apps</h2>
+    <div class="sub">"Now" = anyone who loaded or used the app in the last 5 minutes. Click a row to add it to the chart.</div>
+    <table>
+      <thead><tr><th>App</th><th class="n">Now</th><th class="n" id="hdrUsers">People</th><th class="n">Requests</th><th>Trend</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="note" id="note"></div>
+  </section>
+</div>
+
+<script>
+const BASE = location.pathname.replace(/\/+$/, '') ;
+const API = (fn, q) => fetch(`${BASE}/api/${fn}${q ? '?' + new URLSearchParams(q) : ''}`, { cache: 'no-store' }).then(r => r.json());
+const RANGES = ['1h', '6h', '24h', '7d', '30d'];
+const SLOTS = 8;
+const state = { range: localStorage.getItem('traffic.range') || '24h', pinned: JSON.parse(localStorage.getItem('traffic.pinned') || 'null'), hidden: new Set(), data: null, sparks: {} };
+
+// Color follows the app, not its rank: an app keeps its slot while it stays on the chart.
+let colorOf = JSON.parse(localStorage.getItem('traffic.colors') || '{}');
+function assignColors(apps) {
+  const keep = {}; apps.forEach(a => { if (colorOf[a]) keep[a] = colorOf[a]; });
+  const used = new Set(Object.values(keep));
+  apps.forEach(a => { if (!keep[a]) { for (let s = 1; s <= SLOTS; s++) if (!used.has(s)) { keep[a] = s; used.add(s); break; } } });
+  colorOf = { ...colorOf, ...keep };
+  localStorage.setItem('traffic.colors', JSON.stringify(colorOf));
+}
+const cssColor = a => colorOf[a] ? `var(--s${colorOf[a]})` : 'var(--spark)';
+
+const rangesEl = document.getElementById('ranges');
+RANGES.forEach(r => {
+  const b = document.createElement('button'); b.textContent = r.toUpperCase(); b.dataset.r = r;
+  b.onclick = () => { state.range = r; localStorage.setItem('traffic.range', r); load(); };
+  rangesEl.appendChild(b);
+});
+
+function fmtTime(ts, step) {
+  const d = new Date(ts * 1000);
+  if (step >= 3600 * 6) return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  if (step >= 3600) return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: 'numeric' });
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function niceMax(v) { if (v <= 4) return 4; const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p; return v; }
+
+function drawChart() {
+  const d = state.data, svg = document.getElementById('svg'), tip = document.getElementById('tip');
+  const W = svg.clientWidth || 900, H = 300, L = 36, R = 92, T = 10, B = 26;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const shown = d.series.filter(s => !state.hidden.has(s.app));
+  const n = d.buckets.length;
+  if (!d.series.length) { svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#8a897f" font-size="13">No visits recorded in this range yet</text>`; return; }
+  const max = niceMax(Math.max(1, ...shown.flatMap(s => s.values)));
+  const x = i => L + (n <= 1 ? 0 : i * (W - L - R) / (n - 1));
+  const y = v => T + (H - T - B) * (1 - v / max);
+  let g = '<g class="axis">';
+  for (let k = 0; k <= 4; k++) {
+    const v = max * k / 4, yy = y(v);
+    g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="${k ? '#222220' : '#3a3a36'}" />`;
+    g += `<text x="${L - 8}" y="${yy + 4}" text-anchor="end">${Number.isInteger(v) ? v : v.toFixed(1)}</text>`;
+  }
+  const ticks = Math.min(6, n);
+  for (let k = 0; k < ticks; k++) {
+    const i = Math.round(k * (n - 1) / Math.max(1, ticks - 1));
+    g += `<text x="${x(i)}" y="${H - 6}" text-anchor="${k === 0 ? 'start' : k === ticks - 1 ? 'end' : 'middle'}">${fmtTime(d.buckets[i], d.step)}</text>`;
+  }
+  g += '</g>';
+  let lines = '';
+  shown.forEach(s => {
+    const pts = s.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    lines += `<polyline points="${pts}" fill="none" stroke="${cssColor(s.app)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />`;
+  });
+  // Direct labels at the line ends for the top 4, nudged apart so they never collide.
+  const ends = shown.slice(0, 4).map(s => ({ app: s.app, v: s.values[n - 1], y: y(s.values[n - 1]) })).sort((a, b) => a.y - b.y);
+  for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 14) ends[i].y = ends[i - 1].y + 14;
+  let labels = '';
+  ends.forEach(e => { labels += `<text x="${W - R + 8}" y="${e.y + 4}" fill="#c3c2b7" font-size="11">${esc(e.app)} ${e.v}</text>`; });
+  svg.innerHTML = g + lines + labels + `<line id="xh" y1="${T}" y2="${H - B}" stroke="#55544e" stroke-width="1" style="display:none" /><g id="dots"></g><rect id="hit" x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent" />`;
+
+  const hit = svg.querySelector('#hit'), xh = svg.querySelector('#xh'), dots = svg.querySelector('#dots');
+  hit.onmousemove = ev => {
+    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width;
+    const i = Math.max(0, Math.min(n - 1, Math.round((px - L) / ((W - L - R) / Math.max(1, n - 1)))));
+    xh.setAttribute('x1', x(i)); xh.setAttribute('x2', x(i)); xh.style.display = '';
+    dots.innerHTML = shown.map(s => `<circle cx="${x(i)}" cy="${y(s.values[i])}" r="4" fill="${cssColor(s.app)}" stroke="#141413" stroke-width="2" />`).join('');
+    const rows = shown.map(s => ({ app: s.app, v: s.values[i] })).sort((a, b) => b.v - a.v);
+    tip.innerHTML = `<div class="t">${fmtTime(d.buckets[i], 60)}${d.step > 60 ? ' &middot; ' + (d.step / 60 >= 60 ? d.step / 3600 + 'h' : d.step / 60 + 'm') + ' bucket' : ''}</div>`
+      + `<div class="r"><span>all sites</span><b>${d.total[i]}</b></div>`
+      + rows.map(o => `<div class="r"><span><i style="background:${cssColor(o.app)}"></i>${esc(o.app)}</span><b>${o.v}</b></div>`).join('');
+    tip.style.display = 'block';
+    const cx = x(i) * r.width / W, tw = tip.offsetWidth;
+    tip.style.left = (cx + 14 + tw > r.width ? cx - tw - 14 : cx + 14) + 'px';
+    tip.style.top = '10px';
+  };
+  hit.onmouseleave = () => { tip.style.display = 'none'; xh.style.display = 'none'; dots.innerHTML = ''; };
+}
+
+function spark(vals) {
+  if (!vals || !vals.length) return '';
+  const w = 120, h = 22, m = Math.max(1, ...vals);
+  const pts = vals.map((v, i) => `${(i * w / Math.max(1, vals.length - 1)).toFixed(1)},${(h - 2 - (h - 4) * v / m).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(--spark)" stroke-width="1.5" stroke-linejoin="round" /></svg>`;
+}
+
+function render() {
+  const d = state.data;
+  [...rangesEl.children].forEach(b => b.setAttribute('aria-pressed', b.dataset.r === state.range));
+  document.getElementById('hdrUsers').textContent = 'People (' + state.range + ')';
+  const onChart = new Set(d.series.map(s => s.app));
+  assignColors(d.series.map(s => s.app));
+  document.getElementById('legend').innerHTML = d.series.map(s =>
+    `<button aria-pressed="${!state.hidden.has(s.app)}" data-app="${esc(s.app)}"><i style="background:${cssColor(s.app)}"></i>${esc(s.app)}</button>`).join('');
+  document.querySelectorAll('#legend button').forEach(b => b.onclick = () => {
+    const a = b.dataset.app; state.hidden.has(a) ? state.hidden.delete(a) : state.hidden.add(a); render();
+  });
+  document.getElementById('chartsub').textContent = state.pinned
+    ? 'Showing the apps you picked. Click a row again to remove it.'
+    : `Top ${d.series.length} apps by people in the last ${state.range}. Hover for exact numbers.`;
+  drawChart();
+  const rows = document.getElementById('rows');
+  rows.innerHTML = d.table.length ? d.table.map(t => `<tr class="row" data-app="${esc(t.app)}">
+      <td class="app"><span class="nm"><i style="background:${onChart.has(t.app) ? cssColor(t.app) : 'transparent'};border:1px solid ${onChart.has(t.app) ? 'transparent' : '#55544e'}"></i>${esc(t.app)} <a href="/${encodeURIComponent(t.app)}/" target="_blank" rel="noopener" title="open">open</a></span></td>
+      <td class="n ${t.live ? 'livepos' : 'live0'}">${t.live}</td>
+      <td class="n">${t.users}</td>
+      <td class="n">${t.hits.toLocaleString()}</td>
+      <td>${spark(state.sparks[t.app])}</td></tr>`).join('')
+    : `<tr><td colspan="5" class="empty">No visits recorded in this range yet</td></tr>`;
+  rows.querySelectorAll('tr.row').forEach(tr => tr.onclick = ev => {
+    if (ev.target.tagName === 'A') return;
+    const a = tr.dataset.app;
+    let p = state.pinned || d.series.map(s => s.app);
+    p = p.includes(a) ? p.filter(x => x !== a) : [...p, a].slice(-SLOTS);
+    state.pinned = p.length ? p : null;
+    localStorage.setItem('traffic.pinned', JSON.stringify(state.pinned));
+    load();
+  });
+  const since = d.first ? new Date(d.first * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
+  document.getElementById('note').textContent = (since ? `Counting since ${since}. ` : '') +
+    'People are counted by browser (an anonymous hash of address + browser), bots and the server itself are left out. ' +
+    (state.pinned ? 'Reset the chart to the top apps: ' : '');
+  if (state.pinned) {
+    const b = document.createElement('a'); b.href = '#'; b.textContent = 'show top apps'; b.style.color = 'var(--accent)';
+    b.onclick = e => { e.preventDefault(); state.pinned = null; localStorage.removeItem('traffic.pinned'); load(); };
+    document.getElementById('note').appendChild(b);
+  }
+}
+
+function renderCountries(data) {
+  const card = document.getElementById('countries-card');
+  const el = document.getElementById('countries-chart');
+  if (!data || !data.countries || !data.countries.length) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  const rows = data.countries;
+  const max = rows[0].users;
+  const rowH = 20, padV = 6, labelW = 26, countW = 38, gap = 8, W = 500;
+  const barMaxW = W - labelW - countW - gap * 2;
+  const H = rows.length * rowH + padV * 2;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" aria-label="Country distribution">`;
+  rows.forEach((r, i) => {
+    const y = padV + i * rowH;
+    const bw = Math.max(2, Math.round(r.users / max * barMaxW));
+    svg += `<text x="${labelW - 4}" y="${y + 14}" text-anchor="end" fill="var(--text-muted)" font-size="11" font-family="ui-monospace,monospace,sans-serif">${esc(r.code)}</text>`;
+    svg += `<rect x="${labelW}" y="${y + 5}" width="${bw}" height="10" rx="2" fill="var(--accent)" opacity="0.75"/>`;
+    svg += `<text x="${labelW + bw + gap}" y="${y + 14}" fill="var(--text-secondary)" font-size="11">${r.users}</text>`;
+  });
+  svg += '</svg>';
+  el.innerHTML = svg;
+}
+
+async function load() {
+  try {
+    const q = { range: state.range, top: SLOTS };
+    if (state.pinned) q.apps = state.pinned.join(',');
+    const [s, sp, lv, ct] = await Promise.all([
+      API('series', q), API('sparks', { range: state.range }), API('live'),
+      API('countries', { range: state.range })
+    ]);
+    state.data = s; state.sparks = sp;
+    document.getElementById('total').textContent = lv.total;
+    render();
+    renderCountries(ct);
+  } catch (e) {
+    document.getElementById('chartsub').textContent = 'Could not reach the traffic API: ' + e;
+  }
+}
+load();
+setInterval(load, 15000);
+addEventListener('resize', () => state.data && drawChart());
+</script>
+</body>
+</html>

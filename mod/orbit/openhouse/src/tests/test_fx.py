@@ -64,8 +64,8 @@ def test_never_online_still_answers(tmp_path, monkeypatch):
     out = fx.rates(tmp_path / 'fx.json')
     assert out['source'] == 'fallback'
     assert out['fetched'] == 0
-    assert set(out['rates']) == set(fx.CURRENCIES)
+    assert set(out['rates']) - {'near'} == set(fx.CURRENCIES)
 
 
 def test_menu_and_fallback_agree():
-    assert set(fx.FALLBACK_RATES) == set(fx.CURRENCIES)
+    assert set(fx.FALLBACK_RATES) - {'near'} == set(fx.CURRENCIES)

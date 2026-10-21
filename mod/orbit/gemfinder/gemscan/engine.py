@@ -620,7 +620,7 @@ def scan(asset: str = 'all', k: int = 20, narrative: Optional[str] = None, min_s
         label = full['theme']['label']
         gems = [g for g in gems if label in g['narratives']]
     gems = [g for g in gems if g['score'] >= float(min_score)]
-    gems = sorted(gems, key=(lambda g: (-g['upside'], -g['score'])) if sort == 'upside' else (lambda g: -g['score']))[:int(k)]
+    gems = sorted(gems, key=(lambda g: (-g['upside'], -g['score'])) if sort == 'upside' else (lambda g: -g['score']))[:max(1, int(k))]
     res = {k_: v for k_, v in full.items() if k_ != 'gems_all'}
     res.update({'gems': gems, 'pick': pick(gems), 'sort': sort, 'cached': cached,
                 'age_s': int(time.time() - full['ts']), 'ttl_s': SCAN_TTL})

@@ -1,9 +1,9 @@
 {
     "name": "grokchat",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "A Next.js chat app and a Python API that connect to orbit/grokbot. The Python half (:50930, stdlib only) proxies chat, models and bots to grokbot on :50890, forwards the caller's mod-protocol token and BYOK x-xai-key untouched, streams SSE through byte-for-byte, and knocks the activator if grokbot is asleep. The Next.js half (:3930, basePath /grokchat) is the chat surface: pick a model, paste a key or sign in, watch tokens stream in. Nothing is stored here \u2014 identity and keys stay grokbot's problem.",
-    "icon": "\u273d",
-    "color": "#c4b5fd",
+    "icon": "\u2726",
+    "color": "#6ee7ff",
     "anchor": "mod.py",
     "port": 50930,
     "app_port": 3930,
@@ -16,7 +16,7 @@
         "grokbot": "http://localhost:50890"
     },
     "backend": "api.py \u2014 python stdlib only (http.server + urllib), proxy to grokbot",
-    "frontend": "app/ \u2014 Next.js 14, basePath /grokchat, /_api rewrite to the python API",
+    "frontend": "app/ \u2014 Next.js 14, basePath /grokchat: grokbot's mark+palette, wallet sign-in (same token slot as the grokbot console), MY GROKBOTS (create/edit/publish/delete), EXPLORE everyone's published bots (chat/copy), bot dropdown, xAI key, streaming chat",
     "auth": {
         "passthrough": "Authorization: Bearer <mod token> and x-xai-key are forwarded to grokbot verbatim; grokbot resolves identity and the xAI key",
         "stored_here": "nothing"
@@ -26,8 +26,13 @@
         "health": "GET /health \u2014 own ok + grokbot reachability",
         "models": "GET /models?refresh=1",
         "me": "GET /me",
-        "bots": "GET /bots",
-        "chat": "POST /chat {prompt|messages, model, system, bot, search, stream}"
+        "bots": "GET|POST|DELETE /bots \u2014 your bots",
+        "chat": "POST /chat {prompt|messages, model, system, bot, search, stream}",
+        "publish": "POST /bots/publish",
+        "copy": "POST /bots/copy",
+        "public": "GET /public \u2014 everyone's published bots",
+        "key": "GET|POST|DELETE /key",
+        "runs": "GET|DELETE /runs"
     },
     "fns": [
         "forward",

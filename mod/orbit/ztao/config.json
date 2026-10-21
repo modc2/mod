@@ -1,7 +1,7 @@
 {
     "name": "ztao",
     "title": "ztao \u00b7 anonymous subnets with Zuma consensus, on any chain",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "description": "A zk approach to Bittensor-style subnets on ANY chain with an adapter: miners and validators are public SETS, but every action is a scope-linkable ring signature (LSAG over the STARK curve) made once by a Cairo prover and verified on-chain by each network's own contract \u2014 Starknet (Cairo), NEAR (Rust/wasm), Ethereum (Solidity/Yul), Solana (sBPF, in compute units), Substrate (ink! on pallet-contracts, in weight). Emission is split by Zuma consensus on chain: each tag\u2019s consensus is the highest score half the validator set gave it, every score is clipped to it. A validator scores a miner's per-epoch tag without knowing which miner it is; a miner is scored without knowing which validator scored it.",
     "icon": "Z",
     "color": "#14b8a6",
@@ -87,9 +87,11 @@
         "compare",
         "networks",
         "costs",
-        "hash_point"
+        "hash_point",
+        "preflight",
+        "anonymity"
     ],
-    "schema": "QmTiZ5kKYNXb93WqARbkhzbQgz5BGvjyWQDPsmWVvyPnYN",
+    "schema": "QmZtoysAwLgyvUgxin2qmcqhMZTJBvQbSBSeSf4zuiUTC9",
     "urls": {
         "app": "http://localhost:50122/ztao/",
         "api": "http://localhost:50122/ztao/api",

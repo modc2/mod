@@ -316,6 +316,67 @@ receipt's value, so a run that reverts for lack of output space reverts
 identically everywhere. Budgets: `POSTQUANT_CONTRACT_RUN_MS` (5000),
 `POSTQUANT_CONTRACT_INPUT_MAX` (16 KiB).
 
+### Customizable proofs: verifying state machines you never run
+
+Replay is one way to be believed; it is the wrong one for a minute of
+compute, or for a machine that is not wasm at all. So *how a transition is
+accepted* is the machine owner's choice, set as a **proof policy** anchored
+at `contract/<name>/proof` (`{system, verifier?, k?, signers?}`). Three
+proof systems ship; the receipt names the one it was accepted under
+(`over.proof`), so it re-checks without the policy and without the prover.
+A receipt with no `over.proof` is replay — every earlier receipt verifies
+unchanged.
+
+- **replay** — re-execute the pqc1 wasm (the section above).
+- **wasm** — a *verifier*: one importless wasm blob exporting the **pqp1** ABI
+
+  ```
+  pq_reset()  pq_alloc(n) -> ptr
+  pqp_verify(state_in,sl, input,il, state_out,ol, proof,pl) -> i32   (1 = valid)
+  ```
+
+  Same admission rule as every blob here: zero imports, parsed from the
+  binary and re-checked by the host per call, so the verdict is a function of
+  five byte strings and the blob's hash. Deploy yours with
+  `verifier_deploy name=<n> code_b64=...` (anchored at `verifier/<name>`).
+  The chain does not care what the proof *is* — a spec checker, a hash
+  puzzle, a Merkle path, a SNARK/STARK verifier compiled to wasm — only that
+  the blob accepts it. The prover can be anyone, anywhere; the machine need
+  not be wasm, or run on a node at all.
+- **quorum** — `k` of `n` named post-quantum keys vouch for the step
+  (`action=attest`, any registered key type, ctx `postquant/transition-attest/v1`,
+  over `{chain_id, contract, code, prev, state_in, input_sha3, state_out}` — `prev`
+  binds it to its place in the receipt chain so it cannot be replayed on
+  another step). Nothing is executed: trust moves from code to people, the
+  honest model for oracles and hardware.
+
+```
+pq_contract action=proofs                                       # systems, verifiers, machines
+pq_contract action=verifier_deploy example=pow-ladder wallet=<w> days=30
+pq_contract action=deploy example=ladder name=ladder wallet=<w> days=30
+pq_contract action=set_policy name=ladder system=wasm verifier=pow-ladder wallet=<w>
+pq_contract action=solve name=ladder input=<hex>                # bundled prover (mines the nonce)
+pq_contract action=check name=ladder input=<hex> state_out_b64=... proof_b64=...   # dry
+pq_contract action=submit name=ladder input=<hex> state_out_b64=... proof_b64=... wallet=<w>
+pq_contract action=verify name=ladder                           # signature + proof + owner + anchor
+# quorum: set_policy system=quorum k=2 signers=<addr1>,<addr2>,<addr3>; each signer
+# `attest`s the same state_out; submit attestations=[...]
+```
+
+Once a policy is set, `run` is refused (`policy_requires_proof` 409) and
+`submit` accepts only that system (`policy_mismatch` 409). A bad proof is
+refused with 422 `proof_rejected` and leaves no receipt; `verify` adds a soft
+`proof_policy` check (does the receipt match the policy now). Two verifiers
+ship under `src/pq/wasm-src/examples/provers/`: **counter-spec** checks counter
+steps from their rules alone (no proof, no counter code — any implementation
+can have run it) and **pow-ladder** accepts a nonce with 16 leading zero bits
+(~65k hashes to find, one to check) for the non-wasm **ladder** machine.
+Honest limits: a verifier is trusted by its hash, not by magic — read it
+before you rely on a receipt; a quorum is only as good as its signers; none
+of this is consensus, and nothing here is zero-knowledge. A STARK verifier is
+the same slot, one wasm blob. Budgets: `POSTQUANT_PROOF_MS` (2000),
+`POSTQUANT_PROOF_MAX` (64 KiB).
+
 ## Three prices, separate on purpose
 
 - **write gas** — one-time, per byte entering the state. A key byte costs 4x

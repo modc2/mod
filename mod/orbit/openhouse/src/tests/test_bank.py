@@ -422,7 +422,7 @@ def test_rest_bank_routes(oh, monkeypatch):
                   headers={'X-Bank-Key': k}).status_code == 200
     assert c.get('/bank/reference/' + MAYA).json()['reference'] == 'OH-9B3CD4'
     assert c.post('/bank/pay', json={'amount': 1, 'to_iban': 'XT1', 'connection': 'nope'}).status_code == 400
-    assert {k_['kind'] for k_ in c.get('/bank/kinds').json()} == {'sandbox', 'statement', 'openbanking', 'mcp'}
+    assert {k_['kind'] for k_ in c.get('/bank/kinds').json()} == {'sandbox', 'statement', 'openbanking', 'mcp', 'near'}
     assert c.get('/bank').json()['connections'][0]['kind'] == 'sandbox'
     # /forward can never reach the key
     assert c.post('/forward', json={'action': '_bank_key'}).status_code == 404

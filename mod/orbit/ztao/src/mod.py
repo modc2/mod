@@ -56,7 +56,7 @@ def _package():
 
 _package()
 from ztao_src import DATA, ROOT  # noqa: E402
-from ztao_src.core import experiment as ex, fees, forecast as fc, util, yuma  # noqa: E402
+from ztao_src.core import experiment as ex, fees, forecast as fc, guard, util, yuma  # noqa: E402
 from ztao_src.core.signer import Signer  # noqa: E402
 from ztao_src.core.util import ROLES, load, save  # noqa: E402
 from ztao_src.networks import Registry  # noqa: E402
@@ -492,25 +492,87 @@ class Mod:
     def epoch(self, network='devnet'):
         return NETS.net(network).epoch(network)
 
-    def submit(self, name, work, ring_size=None, network='devnet'):
-        """Miner: post a work commitment for the current epoch, anonymously.
-        Returns your tag (validators see only this)."""
-        a = NETS.net(network)
-        return a.submit(network, name, work,
-                        a.ring(network, name, 'miner', ring_size))
+    def _min_ring(self, network):
+        dep = load(util.DEPLOYS, {}).get(network) or {}
+        return int(dep.get('min_ring') or guard.MIN_RING)
 
-    def score(self, name, tag, score, ring_size=None, network='devnet'):
+    def _tally(self, a, network, epoch=None):
+        """Best-effort public read for the pre-flight checks: None when the
+        chain can't answer, so a flaky read never blocks a valid action."""
+        try:
+            return a.tally(network, epoch)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def submit(self, name, work, ring_size=None, network='devnet', check=True):
+        """Miner: post a work commitment for the current epoch, anonymously.
+        Returns your tag (validators see only this). check=False skips the
+        local pre-flight (core/guard.py) that refuses what the chain would
+        revert — a reverted tx still costs the relayer its fee."""
+        a = NETS.net(network)
+        ring = a.ring(network, name, 'miner', ring_size)
+        if str(check).lower() not in ('0', 'false', 'no', 'off'):
+            guard.ring_size(ring, self._min_ring(network))
+        return a.submit(network, name, work, ring)
+
+    def score(self, name, tag, score, ring_size=None, network='devnet',
+              check=True):
         """Validator: score a tag (0-100) in the current epoch, anonymously."""
         a = NETS.net(network)
-        return a.score(network, name, tag, score,
-                       a.ring(network, name, 'validator', ring_size))
+        ring = a.ring(network, name, 'validator', ring_size)
+        if str(check).lower() not in ('0', 'false', 'no', 'off'):
+            score = guard.score_value(score)
+            guard.ring_size(ring, self._min_ring(network))
+            t = self._tally(a, network)
+            if t is not None:
+                guard.tag_open(t, tag)
+        return a.score(network, name, tag, score, ring)
 
-    def claim(self, name, epoch, recipient, ring_size=None, network='devnet'):
+    def claim(self, name, epoch, recipient, ring_size=None, network='devnet',
+              check=True):
         """Miner: after `epoch` closed, credit your share to `recipient`
         (in the chain's own address format)."""
         a = NETS.net(network)
-        return a.claim(network, name, epoch, recipient,
-                       a.ring(network, name, 'miner', ring_size))
+        ring = a.ring(network, name, 'miner', ring_size)
+        if str(check).lower() not in ('0', 'false', 'no', 'off'):
+            guard.ring_size(ring, self._min_ring(network))
+            t = self._tally(a, network, epoch)
+            if t is not None:
+                guard.claimable(t, self.mytag(name, epoch, network)['tag'])
+        return a.claim(network, name, epoch, recipient, ring)
+
+    def preflight(self, action, name, network='devnet', tag=None, score=None,
+                  epoch=None, ring_size=None):
+        """Dry-run the checks submit/score/claim would make, without signing
+        or posting: {'ok': True} or {'ok': False, 'reason': ...}."""
+        a = NETS.net(network)
+        role = 'validator' if action == 'score' else 'miner'
+        try:
+            ring = a.ring(network, name, role, ring_size)
+            guard.ring_size(ring, self._min_ring(network))
+            if action == 'score':
+                guard.score_value(score)
+                t = self._tally(a, network)
+                if t is not None:
+                    guard.tag_open(t, tag)
+            elif action == 'claim':
+                t = self._tally(a, network, epoch)
+                if t is not None:
+                    guard.claimable(t, self.mytag(name, epoch, network)['tag'])
+            elif action != 'submit':
+                raise ValueError(f'action must be submit | score | claim, got {action!r}')
+        except ValueError as e:
+            return {'ok': False, 'action': action, 'reason': str(e)}
+        return {'ok': True, 'action': action, 'ring': len(ring)}
+
+    def anonymity(self, role='miner', network='devnet', ring_size=None):
+        """How big a crowd each member of `role` hides in on this net: ring
+        size, rings, bits of anonymity and plain-language warnings."""
+        a = NETS.net(network)
+        n = len(a.members(network, ROLES[str(role)]))
+        return {'role': role, 'network': network,
+                **guard.anonymity(n, ring_size, a.max_ring,
+                                  self._min_ring(network))}
 
     def settle(self, epoch, tag=None, network='devnet'):
         """Anyone, after `epoch` closed: run Yuma on chain for `tag`, or for

@@ -48,6 +48,12 @@ Endpoints:
     GET  /tools/mods   - the fleet on its own (?q= filters), one tool per module
     GET  /tools/mcp    - fleet MCP tools (?q= filters; ?servers=1 = server rows)
     POST /tools/mcp/refresh - re-probe the fleet's MCP servers (?server= wakes one)
+    GET  /tools/x402   - mounted x402 services (tools x402.<slug>)
+    GET  /tools/x402/find - search the x402 index (?q= ?mcp=1 paid MCP servers)
+    POST /tools/x402/mount - owner: mount url|server as tools + tool-agents x402-<slug>
+    DELETE /tools/x402/{name} - owner: unmount (+ its tool-agents)
+    POST /tools/x402/{name}/pay - owner: pay none|auto|house, max_price_usd
+    GET  /tools/agents - every agent as a tool agent.<name>
     POST /tools        - host: create/update a custom tool  DELETE /tools/{name}
     POST /tools/{name}/run - host: execute one tool (the console's test run)
     POST /tools/select - host: pin the loadout to an exact list (null = toolboxes)
@@ -267,6 +273,7 @@ class AgentCreateRequest(BaseModel):
     interface: Optional[str] = None # the agent's own UI: '/hermes' or an http(s) URL
     params: Optional[Dict[str, Any]] = None  # console params saved with the agent (runner/tool/model/backend)
     loop: Optional[Dict[str, str]] = None    # feedback loop {builder, reviewer}; 'self' = this agent
+    tool: Optional[str] = None      # tool-agent: the agent IS this tool ('x402.<slug>', 'mcp.<mod>.<tool>' …)
     key: Optional[str] = None
 
 class AgentUpdateRequest(BaseModel):
@@ -287,6 +294,8 @@ class AgentUpdateRequest(BaseModel):
     clear_params: bool = False    # explicit: forget the saved console params
     loop: Optional[Dict[str, str]] = None  # replace the feedback-loop wiring
     clear_loop: bool = False      # explicit: no longer a loop
+    tool: Optional[str] = None    # make it a tool-agent over this tool
+    clear_tool: bool = False      # explicit: no longer a tool-agent
     key: Optional[str] = None
 
 class DefaultAgentRequest(BaseModel):
@@ -1810,7 +1819,7 @@ def create_agent(req: AgentCreateRequest):
             name=req.name, description=req.description, goal=req.goal,
             icon=req.icon, tools=req.tools, model=req.model,
             memory=req.memory, harness=req.harness, interface=req.interface,
-            params=req.params, loop=req.loop, key=req.key)
+            params=req.params, loop=req.loop, tool=req.tool, key=req.key)
         if isinstance(result, dict):
             result = {k: v for k, v in result.items() if k != 'cls'}
         return result
@@ -1831,11 +1840,12 @@ def update_agent(name: str, req: AgentUpdateRequest):
         interface = None if req.clear_interface else (req.interface if req.interface is not None else ...)
         params = None if req.clear_params else (req.params if req.params is not None else ...)
         loop = None if req.clear_loop else (req.loop if req.loop is not None else ...)
+        tool = None if req.clear_tool else (req.tool if req.tool is not None else ...)
         result = mod.agents.update(
             name=name, description=req.description, goal=req.goal,
             icon=req.icon, tools=tools, model=model, memory=memory,
             harness=harness, interface=interface, params=params, loop=loop,
-            key=req.key)
+            tool=tool, key=req.key)
         return {k: v for k, v in result.items() if k != 'cls'}
     except PermissionError as e:
         return {"error": str(e), "code": 403}
@@ -2450,6 +2460,11 @@ def list_tools(mods: bool = False, q: str = "", limit: int = 40):
             tools.append({**mod.tools.mcp.get(n), "builtin": False,
                           "active": True,
                           "params": mod.tools.mcp.schema([n])[n]["params"]})
+        else:
+            reg = mod.tools.registry(n)     # x402.* / agent.*
+            if reg is not None and reg not in (mod.tools.mods, mod.tools.mcp):
+                tools.append({**reg.get(n), "builtin": False, "active": True,
+                              "params": reg.schema([n])[n]["params"]})
     return {"tools": tools, "snapped": mod.snapped(),
             "toolboxes": mod.toolboxes.items(), "host": mod._owner,
             "fleet": len(mod.tools.mods.ls()), "mods": mods, "q": q}
@@ -2530,6 +2545,81 @@ def refresh_mcp(server: Optional[str] = None, wake: Optional[bool] = None):
         return get_mod().tools.mcp.refresh(server, wake)
     except KeyError as e:
         return {"error": str(e), "code": 404}
+
+class X402MountRequest(BaseModel):
+    """Mount one x402 service (url) or every service on a paid host / MCP
+    server (server) as tools x402.<slug> — and, unless agent=false, a
+    tool-agent x402-<slug> per tool."""
+    url: Optional[str] = None
+    server: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    method: Optional[str] = None
+    params: Optional[Dict[str, Any]] = None
+    pay: str = "none"                    # none | auto | house
+    max_price_usd: Optional[float] = None
+    agent: bool = True
+    key: Optional[str] = None
+
+class X402PayRequest(BaseModel):
+    pay: Optional[str] = None
+    max_price_usd: Optional[float] = None
+    key: Optional[str] = None
+
+def _x402(action: str, key=None, **kw):
+    try:
+        return get_mod().forward(action, key=key, **kw)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e).strip("'"), "code": 404}
+    except Exception as e:      # x402 down, bad URL …
+        return {"error": f"{type(e).__name__}: {e}"[:600]}
+
+@app.get("/tools/x402")
+def list_x402_tools():
+    """Mounted x402 services — each a tool `x402.<slug>` (and, usually, a
+    tool-agent `x402-<slug>`): price, pay mode, cap, the service URL."""
+    return _x402('x402_tools')
+
+@app.get("/tools/x402/find")
+def find_x402(q: str = "", k: int = 10, mcp: bool = False,
+              max_price: Optional[float] = None, network: Optional[str] = None):
+    """Search every x402 service in the world (the orbit/x402 index, by
+    meaning). `mcp=true` ranks paid MCP servers instead. Each row says if
+    it is mounted and the tool name it would mount as."""
+    return _x402('x402_find', q=q, k=k, mcp=mcp, max_price=max_price, network=network)
+
+@app.post("/tools/x402/mount")
+def mount_x402(req: X402MountRequest):
+    """Owner: mount a service / a whole paid server as tools + agents."""
+    body = {k: v for k, v in req.dict().items() if k != "key" and v is not None}
+    return _x402('x402_mount', key=req.key, **body)
+
+@app.delete("/tools/x402/{name}")
+def unmount_x402(name: str, key: Optional[str] = None):
+    """Owner: unmount (tool name, slug, URL or server:<label>) and drop the
+    tool-agents that wrapped it."""
+    return _x402('x402_unmount', key=key, name=name)
+
+@app.post("/tools/x402/{name}/pay")
+def pay_x402(name: str, req: X402PayRequest):
+    """Owner: how a mount pays — none (402 = the price), auto, house — and
+    the per-call cap."""
+    return _x402('x402_pay', key=req.key, name=name, pay=req.pay,
+                 max_price_usd=req.max_price_usd)
+
+@app.get("/tools/agents")
+def list_agent_tools(q: str = "", limit: int = 100):
+    """Every agent as a tool `agent.<name>` — the other half of agents ⇄
+    tools. A tool-agent's params are its tool's own plus an optional task."""
+    mod = get_mod()
+    active = mod.active_tools() or []
+    items = mod.tools.agents.items(q, limit)
+    sch = mod.tools.agents.schema([e["name"] for e in items])
+    return {"tools": [{**e, "active": e["name"] in active,
+                       "params": sch.get(e["name"], {}).get("params", {})}
+                      for e in items], "total": len(items), "q": q}
 
 @app.post("/tools/{name}/run")
 def run_tool(name: str, req: ToolRunRequest):

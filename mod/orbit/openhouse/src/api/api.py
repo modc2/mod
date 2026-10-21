@@ -646,6 +646,10 @@ def _proof_out(result):
 def proofs(property_id: Optional[int] = None, period: Optional[int] = None):
     return get_openhouse().proofs(property_id, period)
 
+@app.get("/near")
+def near_status():
+    return get_openhouse().near_status()
+
 @app.get("/proofs/status")
 def proof_status():
     return get_openhouse().proof_status()

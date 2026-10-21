@@ -14,7 +14,8 @@
       <h2>Switch <span class="sp"></span><span id="skip" class="faint"></span></h2>
       <div class="inline" style="margin-bottom:12px">
         <button id="enableBtn" class="primary">turn on</button>
-        <div class="seg" id="modeSeg"><button data-m="idle">idle</button><button data-m="meta">meta</button></div>
+        <div class="seg" id="modeSeg"><button data-m="idle">idle</button><button data-m="meta">meta</button><button data-m="overdrive">overdrive</button></div>
+        <label class="inline faint" id="lanesBox" style="font-size:12px;gap:6px">lanes<input id="s_lanes" type="number" min="1" max="6" style="width:56px" /></label>
       </div>
       <div id="modeNote" class="muted" style="font-size:12.5px"></div>
       <div id="live" style="margin-top:12px"></div>
@@ -70,20 +71,27 @@ const $ = (id) => document.getElementById(id);
 
 function render() {
   if (!D) return;
-  K.setState(K.pill(D.enabled, D.mode === "meta" ? "on · meta" : "on · idle", "off"));
+  K.setState(K.pill(D.enabled, `on · ${D.mode}`, "off"));
   const en = $("enableBtn");
   en.textContent = D.enabled ? "turn off" : "turn on";
   en.className = D.enabled ? "danger" : "primary";
   en.disabled = !K.isOwner;
   for (const b of $("modeSeg").children) { b.classList.toggle("sel", b.dataset.m === D.mode); b.disabled = !K.isOwner; }
-  $("modeNote").textContent = D.mode === "meta"
+  const od = D.mode === "overdrive";
+  $("lanesBox").style.display = od ? "" : "none";
+  if (document.activeElement !== $("s_lanes")) $("s_lanes").value = D.lanes ?? 3;
+  $("s_lanes").disabled = !K.isOwner;
+  $("modeNote").textContent = od
+    ? `OVERDRIVE: ${D.lanes} runs in parallel, each on its own mod. It picks the coolest mods across the fleet by itself (apps first), stays off whatever you touched in the last 2h and off build itself, and goes for big, demo-worthy changes. Focus is ignored. Burns the week until the plan guard (${D.plan_guard_pct}%).`
+    : D.mode === "meta"
     ? "META: keeps looping while you work — still one run at a time."
     : `IDLE: runs only after ${K.dur(D.idle_secs)} with no writes in the console (quiet for ${K.dur(D.idle_for || 0)} now).`;
   $("skip").textContent = D.last_skip ? `last tick: ${D.last_skip} · ${K.ago(D.last_tick)}` : "";
-  $("live").innerHTML = D.live
-    ? `<div class="row"><span class="pill on">live</span><div class="grow"><div class="t">${K.esc(D.live.module)}</div><div class="s">${K.esc(D.live.title || D.live.status)} · ${K.ago(D.live.created_at)}</div></div>${K.isOwner ? `<button class="sm danger" id="stopLive">stop</button>` : ""}</div>`
+  const lives = D.lives || (D.live ? [D.live] : []);
+  $("live").innerHTML = lives.length
+    ? lives.map((l, i) => `<div class="row"><span class="pill on">live</span><div class="grow"><div class="t">${K.esc(l.module)}</div><div class="s">${K.esc(l.title || l.status)} · ${K.ago(l.created_at)}</div></div>${K.isOwner && i === 0 ? `<button class="sm danger" id="stopLive">stop${lives.length > 1 ? " all" : ""}</button>` : ""}</div>`).join("")
     : `<div class="faint" style="font-size:12.5px">no run in flight</div>`;
-  if ($("stopLive")) $("stopLive").onclick = async () => { if (await K.ask("Stop the evolver's run in flight? A job already running finishes on its own.", "Stop", true)) { await K.act("/evolver/stop", {}, "stopping"); load(); } };
+  if ($("stopLive")) $("stopLive").onclick = async () => { if (await K.ask("Stop the evolver's run(s) in flight? A job already running finishes on its own.", "Stop", true)) { await K.act("/evolver/stop", {}, "stopping"); load(); } };
 
   const w = D.week || {};
   const pw = D.plan_weekly;
@@ -134,6 +142,7 @@ const post = async (body, msg) => { await K.act("/evolver", body, msg); load(); 
 
 $("enableBtn").onclick = (e) => D.enabled ? post({ enabled: false }, "evolver off") : K.armed(e.target, "sure? spends while idle", () => post({ enabled: true }, "evolver on"));
 $("modeSeg").onclick = (e) => { const m = e.target.dataset.m; if (m && m !== D.mode) post({ mode: m }, `mode: ${m}`); };
+$("s_lanes").onchange = () => post({ lanes: +$("s_lanes").value }, `lanes: ${$("s_lanes").value}`);
 $("saveBtn").onclick = () => post({
   model: $("s_model").value.trim(), weekly_cap: +$("s_cap").value, idle_secs: +$("s_idle").value,
   plan_guard_pct: +$("s_guard").value, goal: $("s_goal").value.trim(),
@@ -162,7 +171,7 @@ $("tasks").onclick = async (e) => {
   if (e.target.dataset.a === "del") { await K.act(`/evolver/tasks/${id}`, undefined, "removed", "DELETE"); load(); }
 };
 
-K.init({ glyph: "✦", title: "Evolver", accent: "#5ee08a", sub: "The meta agent: improves your most recently updated mods one run at a time, on timers, a task queue, or a rotation — within a weekly budget." })
+K.init({ glyph: "✦", title: "Evolver", accent: "#5ee08a", sub: "The meta agent: improves your mods — one run at a time, or OVERDRIVE lanes in parallel — on timers, a task queue, or a rotation — within a weekly budget." })
   .then(() => K.poll(load, 8000));
 </script>
 </body>

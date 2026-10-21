@@ -80,6 +80,9 @@ GET_FNS = {
     'costs': lambda q: MOD.costs(),
     'readme': lambda q: MOD.readme(),
     'networks': lambda q: MOD.networks(),
+    'anonymity': lambda q: MOD.anonymity(_q(q, 'role', 'miner'),
+                                         _q(q, 'network', 'devnet'),
+                                         _q(q, 'ring_size')),
     'economics': lambda q: MOD.economics(),  # fresh= is loopback-only (cli)
     'forecast': lambda q: MOD.forecast(
         _q(q, 'chain'), _q(q, 'miners', '16,256'), _q(q, 'validators', '4,64'),
@@ -96,7 +99,7 @@ GET_FNS = {
 LOCAL_GET = {'keys': lambda q: MOD.keys()}
 PUBLIC_POST = {'verify', 'scope', 'simulate', 'yuma'} | set(GET_FNS)
 LOCAL_POST = {'keys', 'keygen', 'sign', 'mytag', 'register', 'set_open', 'submit',
-              'score', 'settle', 'claim', 'deploy', 'devnet', 'build', 'test', 'gas_sweep'}
+              'score', 'settle', 'claim', 'preflight', 'deploy', 'devnet', 'build', 'test', 'gas_sweep'}
 
 
 def _route(path):

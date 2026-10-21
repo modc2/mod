@@ -124,10 +124,13 @@ export default function CopyStudio() {
   const [traders, setTraders] = useState<TopTrader[]>([]);
   const [boardTotal, setBoardTotal] = useState(0);
   const [boardState, setBoardState] = useState<"loading" | "ready" | "cold" | "error">("loading");
+  const [page, setPage] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     let live = true;
     setBoardState("loading");
+    setPage(0);
     const t = setTimeout(() => {
       fetchTradersPage({
         days, sort: pool, order: !isLocal && asc ? "asc" : "desc", page: 0, pageSize: PAGE_SIZE,
@@ -146,6 +149,26 @@ export default function CopyStudio() {
     }, 300);
     return () => { live = false; clearTimeout(t); };
   }, [days, pool, search, topic, activeOnly, minPerDay, isLocal, asc]);
+
+  const loadMore = useCallback(() => {
+    if (loadingMore || traders.length >= boardTotal) return;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    fetchTradersPage({
+      days, sort: pool, order: !isLocal && asc ? "asc" : "desc", page: nextPage, pageSize: PAGE_SIZE,
+      search: search.trim() || undefined,
+      marketQuery: topic.trim() || undefined,
+      maxLastTradeHrs: activeOnly ? 24 : 0,
+      minTrades: minPerDay > 0 ? Math.ceil(minPerDay * days) : undefined,
+    })
+      .then((r) => {
+        setTraders((prev) => [...prev, ...(r.traders ?? [])]);
+        setBoardTotal(r.total ?? 0);
+        setPage(nextPage);
+        setLoadingMore(false);
+      })
+      .catch(() => setLoadingMore(false));
+  }, [loadingMore, traders.length, boardTotal, page, days, pool, isLocal, asc, search, topic, activeOnly, minPerDay]);
 
   // ── Highlight ──
   const [hovered, setHovered] = useState<string | null>(null);
@@ -525,6 +548,18 @@ export default function CopyStudio() {
                 {minPerDay > 0 ? ` · ${minPerDay}+ trades/day` : ""}
                 {sort === "steady" ? " · ranked by STEADY" : sort === "pct" ? " · ranked by % return if copied" : ""}
               </p>
+            )}
+            {boardState === "ready" && traders.length < boardTotal && (
+              <div className="flex justify-center py-2 border-t border-pixel-border/60">
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="pixel-btn btn-xs"
+                >
+                  {loadingMore ? "LOADING…" : `LOAD MORE (${traders.length} / ${boardTotal.toLocaleString()})`}
+                </button>
+              </div>
             )}
           </div>
         </section>

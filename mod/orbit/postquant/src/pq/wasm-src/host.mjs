@@ -141,6 +141,19 @@ function run(req) {
     }
     return { ret, out: readBuf(e, outPtr, ret), ms };
   }
+  if (op === 'prove') {
+    // pqp1: a proof system is a pure verdict over (state_in, input,
+    // state_out, proof). 1 = valid; the host never interprets anything else.
+    need(e, 'pqp_verify', 'pqp1');
+    const [si, siLen] = place(e, req.state_in);
+    const [inp, inpLen] = place(e, req.input);
+    const [so, soLen] = place(e, req.state_out);
+    const [pr, prLen] = place(e, req.proof);
+    const t0 = process.hrtime.bigint();
+    const ret = e.pqp_verify(si, siLen, inp, inpLen, so, soLen, pr, prLen);
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    return { valid: ret === 1, ret, ms };
+  }
   throw new Error(`unknown op ${op}`);
 }
 

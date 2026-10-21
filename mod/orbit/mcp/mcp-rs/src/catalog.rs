@@ -56,6 +56,12 @@ pub struct Listing {
     pub needs_key: bool,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// "x402" — paid per request; registering it with `pay: "x402"` lets the
+    /// x402 module answer the server's HTTP 402.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub pay: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price_usd: Option<f64>,
 }
 
 fn client() -> reqwest::Client {
@@ -420,6 +426,7 @@ async fn peer(hub: &crate::hubs::Hub, headers: &HashMap<String, String>, q: &str
             via: if local { hub.id.clone() } else { String::new() },
             status: if ok { "live".into() } else { "down".into() },
             tools: s["probe"]["toolCount"].as_u64(),
+            ..Default::default()
         };
         if !matches(&l, q) {
             continue;
@@ -474,6 +481,9 @@ pub async fn search(state: &Arc<AppState>, q: &str, registry: &str, limit: usize
     }
     if want("smithery") {
         jobs.push(Box::pin(async move { ("smithery".to_string(), smithery(q, limit).await) }));
+    }
+    if want("x402") {
+        jobs.push(Box::pin(async move { ("x402".to_string(), crate::x402::listings(q, limit).await) }));
     }
     if want("glama") && (!all || crate::web::key("glama").is_some()) {
         jobs.push(Box::pin(async move { ("glama".to_string(), glama(q, limit).await) }));

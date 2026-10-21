@@ -1478,6 +1478,78 @@ class Mod:
             out['rent_due'] = self._proofs_mod().units(t.get('monthly_rent') or 0)
         return out
 
+    def _near_view(self, method: str, args: Optional[dict] = None):
+        out = self._proofs().view_near(method, args or {})
+        return out.get('result') if isinstance(out, dict) and 'result' in out else out
+
+    def near_status(self) -> dict:
+        """The NEAR business at a glance: the verifier contract (read live off
+        the chain), and the rent rail — a NEAR account that takes rent in
+        native NEAR, what the monthly rent is in NEAR right now, and the
+        transfers it has seen. Read-only; every chain read degrades to an
+        `error` field rather than failing the page."""
+        pm = self._proofs_mod()
+        chain = self._proofs().chains()['near']
+        ver = {'account': chain['account'], 'network': chain['network'],
+               'explorer': chain['explorer'], 'live': False}
+        local_hash = pm.program_info().get('program_hash')
+        try:
+            ver['program_hash'] = self._near_view('program_hash')
+            ver['program_hash_matches_local'] = (str(ver['program_hash']).lower() == str(local_hash).lower())
+            ver['properties'] = self._near_view('count')
+            ver['banks'] = self._near_view('banks')
+            ver['owner'] = self._near_view('owner')
+            try:
+                ver['pq_required'] = self._near_view('pq_required')
+                ver['pq_door'] = True
+            except Exception:         # the live deployment predates the hash-based door
+                ver['pq_required'], ver['pq_door'] = None, False
+            ver['live'] = True
+            pid, period = self._proof_property_id(), pm.period_of(self._now())
+            ver['this_month'] = {'property_id': pid, 'period': period,
+                                 'paid': self._near_view('paid', {'property_id': pid, 'period': period})}
+        except Exception as e:                       # network, RPC, missing contract
+            ver['error'] = str(e)[:240]
+        ver['receipts_on_chain'] = self._proofs().status()['submitted']['near']   # receipts THIS node relayed
+
+        rail = {'connected': False, 'currency': 'NEAR'}
+        fx = self.fx()
+        near_per_eth = (fx.get('rates') or {}).get('near')
+        rent_eth = float(self.terms().get('monthly_rent') or 0)
+        rail['rate'] = {'near_per_eth': near_per_eth, 'source': fx.get('source')}
+        rail['monthly_rent_eth'] = rent_eth
+        rail['monthly_rent_near'] = round(rent_eth * near_per_eth, 2) if near_per_eth else None
+        bank = self._bank()
+        conns = [c for c in bank.connections() if c['kind'] == 'near']
+        recent = []
+        if conns:
+            c = conns[0]
+            cfg = c.get('config', {})
+            rail.update(connected=True, connection=c['id'], account_id=cfg.get('account_id'),
+                        network=cfg.get('network') or 'testnet')
+            try:
+                ad = bank.adapter(c['id'])
+                rail['balance'] = (ad.accounts()[0] or {}).get('balance')
+                recent = sorted(ad.transactions(), key=lambda t: -t['date'])[:8]
+            except self._bank_pkg().BankError as e:
+                rail['error'] = str(e)
+            matched = bank.matched()
+            booked = [v for k, v in matched.items() if k.startswith(c['id'] + ':')]
+            rail['booked_transfers'] = len(booked)
+            rail['booked_units'] = round(sum(float(v.get('units', 0)) for v in booked), 8)
+            links = {(l['payer_name'] or '').casefold(): l for l in bank.links() if l.get('payer_name')}
+            rail['linked_payers'] = len(links)
+            for t in recent:
+                hit = links.get(t['counterparty'].casefold())
+                t['linked'] = bool(hit)
+                t['booked'] = f'{c["id"]}:{t["id"]}' in matched
+        rail['recent'] = recent
+        rail['how'] = ('Connect the rent account once (bank_connect kind=near, key= the operator bank '
+                       'key), link each renter with bank_link(address, payer_name=<their NEAR account>), '
+                       'then bank_reconcile books every transfer from a linked account as that renter\'s '
+                       'rent — once — and issue_proofs=true pairs it with a proof receipt on the verifier.')
+        return {'verifier': ver, 'rent_rail': rail}
+
     def proof_program(self) -> dict:
         """The statement: proof/src/lib.cairo, its program hash, the output
         layout and how the fact is derived from it."""
@@ -2381,7 +2453,8 @@ class Mod:
             simulate_presets   - Ready-made simulation scenarios
             examples           - The walkthroughs (stories told in tool calls)
             example            - Run one in a throwaway store, get the transcript (name=)
-            bank_kinds         - Banks this node can connect to (sandbox|statement|openbanking|mcp)
+            near_status        - NEAR verifier (live on-chain) + the native-NEAR rent rail
+            bank_kinds         - Banks this node can connect to (sandbox|statement|openbanking|mcp|near)
             bank_status        - Connections, links, transfers booked
             bank_connect       - Connect a bank (kind=, name=, config=, key=)
             bank_accounts      - Accounts + balances (connection=, key=)
@@ -2461,6 +2534,7 @@ class Mod:
             'unseed': lambda: self.unseed(),
             'examples': lambda: self.examples(),
             'example': lambda: self.example(kwargs.get('name', '')),
+            'near_status': lambda: self.near_status(),
             'bank_kinds': lambda: self.bank_kinds(),
             'bank_status': lambda: self.bank_status(),
             'bank_connect': lambda: self.bank_connect(

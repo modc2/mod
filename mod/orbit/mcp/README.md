@@ -99,6 +99,28 @@ API key buys tool calls, not edits.
 `mcpServers` config blob, a `claude mcp add` one-liner, the text a QR decoded to
 — and returns candidate servers.
 
+## Paid servers (x402)
+
+Some MCP servers charge per request over x402 (HTTP 402). The x402 module
+(`orbit/x402`) indexes every paid resource that exists; the ones that live
+under an MCP endpoint (an `mcp.*` host, a `/mcp` path segment, a listing typed
+`mcp`) are the hub's `x402` directory.
+
+- `GET /catalog?registry=x402` — those servers, cheapest price and the verdict
+  of the last probe on each row.
+- `POST /x402/enable` (write-gated; `?wait=1` blocks, ~20s) — scan, probe each
+  endpoint, and register every one that answers, or answers 402 and nothing
+  else, with `pay: "x402"`. A server that wants an account or key (401/403) is
+  skipped: x402 alone does not unlock it. `GET /x402` shows the last run.
+  The same is the `hub_x402` MCP tool and the console's *enable x402* button.
+- A `pay: "x402"` server that answers HTTP 402 to a tool call is replayed
+  through `x402_call` on the x402 module (`X402_URL`, default
+  `http://127.0.0.1:51110`), which pays under its own policy — house wallet,
+  trust tier, daily budget. If the node may not pay, the tool error carries the
+  price and says to use `x402_quote` with your own wallet. The hub holds no key,
+  and background probes never spend: only a tool call, or an explicit re-probe
+  of a server that refuses the free handshake, can reach the payer.
+
 ## Hourly search + code cache
 
 `cron_cache.py` runs from crontab once an hour (`23 * * * *`, log at

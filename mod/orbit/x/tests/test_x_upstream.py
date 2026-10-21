@@ -251,3 +251,42 @@ def test_writes_from_another_machine_are_refused(server):
     assert requests.get(f'{remote}/search?q=mcp').status_code == 200
     r = requests.post(f'{remote}/posts', json={'text': 'from the LAN'})
     assert r.status_code == 403 and 'loopback' in r.json()['error']
+
+
+# ----------------------------------------------------------------- summarize
+
+@pytest.mark.parametrize('feed,path,label', [
+    ('@jack', '/2/users/12/tweets', '@jack'),
+    ('https://x.com/search?q=mcp%20rust&f=live', '/2/tweets/search/recent', 'search: mcp rust'),
+    ('https://x.com/i/lists/777', '/2/lists/777/tweets', 'list 777'),
+    ('https://x.com/jack/status/1900000000000000001', '/2/tweets/search/recent', 'thread 1900000000000000001'),
+    ('home', '/2/users/999/timelines/reverse_chronological', 'home feed'),
+])
+def test_summarize_any_feed(server, mock, feed, path, label):
+    d = requests.get(f'{server}/summarize', params={'feed': feed, 'max_results': 20}).json()
+    assert d['fetched'] and d['feed'] == label, d
+    assert d['posts'] >= 2 and d['summary'] and d['top_posts'][0]['likes'] == 21000
+    assert last(mock, 'GET', path)['ok']
+    c = d['cost']
+    assert c['posts_read'] == d['posts'] and c['usd'] > 0
+    if feed == 'home':
+        assert c['rates']['owned'] and c['rates']['post_read'] == 0.001
+
+
+def test_summarize_thread_queries_the_conversation(server, mock):
+    requests.get(f'{server}/summarize', params={'feed': 'https://x.com/jack/status/42'})
+    assert last(mock, 'GET', '/2/tweets/search/recent')['query']['query'] == 'conversation_id:42'
+
+
+def test_summarize_estimate_spends_nothing(server, mock):
+    before = len(requests.get(f'{mock}/_mock/log').json())
+    d = requests.get(f'{server}/summarize', params={'feed': '#bittensor', 'max_results': 100,
+                                                     'estimate_only': 'true'}).json()
+    assert not d['fetched'] and len(requests.get(f'{mock}/_mock/log').json()) == before
+    e = d['estimate']
+    assert e['usd'] == 0.5 and e['usd_max'] == 1.5 and e['daily_for_a_month_usd'] == 45.0
+
+
+def test_summarize_via_mcp_client(mod):
+    d = mod.summarize('@jack', max_results=10)
+    assert d['fetched'] and d['cost']['user_reads'] == 1

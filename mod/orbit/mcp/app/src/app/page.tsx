@@ -351,6 +351,7 @@ function AddSheet({
         name: name.trim() || undefined,
         note: note.trim() || undefined,
         headers: h,
+        pay: seed?.pay || undefined,
       });
       onAdded();
       onClose();
@@ -730,11 +731,16 @@ function CatalogSheet({
                   <div className="row">
                     <span className="badge plain">{l.registry}</span>
                     {l.status && (
-                      <span className={`badge ${l.status === "live" ? "good" : l.status === "auth" ? "warn" : "bad"}`}>
+                      <span className={`badge ${l.status === "live" ? "good" : l.status === "auth" || l.status === "paid" ? "warn" : "bad"}`}>
                         {l.status}
                       </span>
                     )}
                     {l.tools ? <span className="muted small">{l.tools} tools</span> : null}
+                    {l.pay && (
+                      <span className="badge warn" title="paid per request over x402 — the hub pays through its x402 module">
+                        x402{l.price_usd != null ? ` from $${l.price_usd}` : ""}
+                      </span>
+                    )}
                     {l.needs_key && <span className="badge warn">needs key</span>}
                     {l.uses ? <span className="muted small">{l.uses.toLocaleString()} uses</span> : null}
                     <button className="sm" disabled={already} onClick={() => onConnect(l)}>
@@ -1129,6 +1135,7 @@ export default function Page() {
   const [refreshing, setRefreshing] = useState(false);
   const [sweeping, setSweeping] = useState(false);
   const [sweepNote, setSweepNote] = useState("");
+  const [paying, setPaying] = useState(false);
   const [loadError, setLoadError] = useState("");
 
   const load = useCallback(() => {
@@ -1160,6 +1167,33 @@ export default function Page() {
       load();
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  /// Scan the x402 index for paid MCP servers and register every one that answers.
+  const enableX402 = async () => {
+    setPaying(true);
+    setSweepNote("scanning the x402 index and probing every paid MCP server…");
+    try {
+      await api.x402Enable();
+      for (let i = 0; i < 90; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const st = await api.x402Status();
+        if (!st.running) {
+          const l = st.last;
+          setSweepNote(
+            l?.error
+              ? `x402: ${l.error}`
+              : `x402: ${l?.scanned ?? 0} paid MCP servers found — ${l?.enabled ?? 0} enabled, ${l?.gated ?? 0} pay-to-connect, ${l?.needs_key ?? 0} need a key, ${l?.down ?? 0} not answering`
+          );
+          break;
+        }
+      }
+      load();
+    } catch (e) {
+      setSweepNote(String((e as Error).message || e));
+    } finally {
+      setPaying(false);
     }
   };
 
@@ -1236,6 +1270,9 @@ export default function Page() {
           <button className="sm" disabled={sweeping} onClick={sweepFleet}>
             {sweeping ? "scanning ports…" : "scan fleet"}
           </button>
+          <button className="sm" disabled={paying} onClick={enableX402} title="find every MCP server that is paid over x402 and connect the ones that answer">
+            {paying ? "scanning x402…" : "enable x402"}
+          </button>
           <button className="sm" onClick={() => setSearching(true)}>
             search web
           </button>
@@ -1291,6 +1328,11 @@ export default function Page() {
                 {v} {k}
               </span>
             ))}
+            {servers && servers.some((s) => s.pay) && (
+              <span className="badge warn" title="servers whose 402 is paid through the x402 module">
+                {servers.filter((s) => s.pay).length} x402
+              </span>
+            )}
             {stats.hubs && (
               <button
                 className="badge"
@@ -1361,6 +1403,7 @@ export default function Page() {
                 ) : (
                   <span style={{ color: "var(--bad-ink)" }}>{s.probe.error?.slice(0, 60) || "unprobed"}</span>
                 )}
+                {s.pay && <span className="tag" title="a 402 from this server is paid through the x402 module">x402</span>}
                 {!s.enabled && <span className="tag">disabled</span>}
               </div>
             </div>

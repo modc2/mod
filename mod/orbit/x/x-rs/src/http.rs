@@ -38,6 +38,9 @@ const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "GET", path: "/search", tool: "search",
         summary: "Search public posts from the last 7 days (full X query syntax).",
         query: &["q", "max_results", "sort_order", "start_time", "end_time", "next_token"] },
+    RouteDoc { method: "GET", path: "/summarize", tool: "summarize",
+        summary: "Digest of any feed (@handle, URL, #tag, query) plus API cost; estimate_only=true prices without fetching.",
+        query: &["feed", "max_results", "estimate_only", "exclude"] },
     RouteDoc { method: "GET", path: "/counts", tool: "counts",
         summary: "Post volume matching a query, bucketed by minute/hour/day.",
         query: &["q", "granularity"] },
@@ -233,6 +236,17 @@ async fn search(headers: HeaderMap, Query(q): Query<HashMap<String, String>>) ->
         ],
     );
     via_tool("search", args, header_key(&headers)).await
+}
+
+async fn summarize(headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+    let mut args = args_from_query(&q, &[("max_results", "max_results"), ("exclude", "exclude")]);
+    if let Some(f) = q.get("feed") {
+        args["feed"] = json!(f);
+    }
+    if let Some(e) = q.get("estimate_only") {
+        args["estimate_only"] = json!(e == "true" || e == "1");
+    }
+    via_tool("summarize", args, header_key(&headers)).await
 }
 
 async fn counts(headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
@@ -576,6 +590,7 @@ pub async fn serve(port: u16) {
         )
         .route("/search", get(search))
         .route("/counts", get(counts))
+        .route("/summarize", get(summarize))
         .route("/posts", post(create_post))
         .route("/posts/:id", get(get_post).delete(delete_post))
         .route("/posts/:id/like", post(like_post))

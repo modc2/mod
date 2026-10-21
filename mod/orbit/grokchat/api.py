@@ -21,6 +21,14 @@ GROKBOT = os.environ.get('GROKBOT_URL', 'http://localhost:50890').rstrip('/')
 ACTIVATOR = os.environ.get('ACTIVATOR_URL', 'http://localhost:9000').rstrip('/')
 CHAT_TIMEOUT = int(os.environ.get('GROKCHAT_TIMEOUT', 300))
 FORWARD = ('authorization', 'x-xai-key')
+# Everything grokbot exposes that a person manages from the app: identity,
+# key, models, their bots, everyone's published bots, the run ledger, chat.
+ROUTES = {
+    'GET': ('/models', '/model', '/me', '/key', '/keyinfo', '/bots',
+            '/public', '/runs'),
+    'POST': ('/chat', '/key', '/bots', '/bots/publish', '/bots/copy'),
+    'DELETE': ('/key', '/bots', '/runs'),
+}
 
 
 def info():
@@ -33,7 +41,12 @@ def info():
             'GET /health': 'own health + grokbot reachability',
             'GET /models': 'proxy → grokbot /models (?refresh=1)',
             'GET /me': 'proxy → grokbot /me (needs Authorization)',
-            'GET /bots': 'proxy → grokbot /bots (needs Authorization)',
+            'GET|POST|DELETE /bots': 'proxy → grokbot — your bots',
+            'POST /bots/publish': 'proxy → grokbot — publish/unpublish one',
+            'POST /bots/copy': 'proxy → grokbot — copy a published bot',
+            'GET /public': "proxy → grokbot — everyone's published bots",
+            'GET|POST|DELETE /key': 'proxy → grokbot — your xAI key',
+            'GET|DELETE /runs': 'proxy → grokbot — your run ledger',
             'POST /chat': 'proxy → grokbot /chat; stream:true is SSE passthrough',
         },
         'headers': 'Authorization: Bearer <mod token> · x-xai-key: xai-… (BYOK)',
@@ -71,7 +84,7 @@ def _open(method, path, body=None, headers=None, timeout=30):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'grokchat/0.1'
+    server_version = 'grokchat/0.2'
 
     def log_message(self, fmt, *args):
         sys.stderr.write('%s %s\n' % (self.command or '-', self.path))
@@ -82,7 +95,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('access-control-allow-origin', '*')
         self.send_header('access-control-allow-headers',
                          'content-type, authorization, x-xai-key')
-        self.send_header('access-control-allow-methods', 'GET, POST, OPTIONS')
+        self.send_header('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS')
 
     def _send(self, code, payload, ctype='application/json'):
         self.send_response(code)
@@ -142,18 +155,25 @@ class Handler(BaseHTTPRequestHandler):
                 up = {'error': f'{type(e).__name__}: {e}'}
             return self._json(200, {'ok': True, 'grokbot': up,
                                     'grokbot_ok': bool(up and up.get('ok'))})
-        if path in ('/models', '/me', '/bots'):
-            return self._proxy('GET', path + (f'?{query}' if query else ''))
-        self._json(404, {'error': f'no route {path}'})
+        self._relay('GET')
 
     def do_POST(self):
-        path = self.path.partition('?')[0]
-        if path != '/chat':
-            return self._json(404, {'error': f'no route {path}'})
-        body = self._body()
-        if body.get('stream'):
+        self._relay('POST')
+
+    def do_DELETE(self):
+        self._relay('DELETE')
+
+    def _relay(self, method):
+        path, _, query = self.path.partition('?')
+        path = path.rstrip('/') or '/'
+        if path not in ROUTES.get(method, ()):
+            return self._json(404, {'error': f'no route {method} {path}'})
+        target = path + (f'?{query}' if query else '')
+        body = self._body() if method == 'POST' else None
+        if path == '/chat' and body.get('stream'):
             return self._stream(body)
-        self._proxy('POST', '/chat', body=body, timeout=CHAT_TIMEOUT)
+        self._proxy(method, target, body=body,
+                    timeout=CHAT_TIMEOUT if path == '/chat' else 30)
 
     def _stream(self, body):
         """SSE passthrough — grokbot's frames go to the browser unchanged."""

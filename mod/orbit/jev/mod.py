@@ -51,6 +51,7 @@ if HERE not in sys.path:
     sys.path.append(HERE)
 
 import jevpay                                             # noqa: E402
+import jevrelay                                           # noqa: E402
 
 OPTION_KEYS = ('model', 'timeout_s', 'max_retries', 'retry', 'headers', 'log_level',
                'include_headers', 'include_raw', 'trace', 'base_url', 'extra')
@@ -148,6 +149,13 @@ class Mod:
             req = {'state': _jsonish(state), 'questions': questions, **self._options(kw)}
         except ValueError as e:
             return {'error': str(e), 'code': 'invalid_request'}
+        if jevrelay.backend() == 'relay':
+            # No TypeSafe key here: jevgo still validates and encodes the exact
+            # wire body, and a Jev x402 seller answers it (see jevrelay).
+            enc = self._bridge('encode', req)
+            if 'error' in enc:
+                return enc
+            return jevrelay.system_one(enc['body'])
         return self._bridge('system_one', req)
 
     @staticmethod
@@ -155,7 +163,7 @@ class Mod:
         if 'error' in r:
             return r
         a = r['answers'][name]
-        meta = {k: r[k] for k in ('model', 'usage', 'request_id', 'attempts') if k in r}
+        meta = {k: r[k] for k in ('model', 'usage', 'request_id', 'attempts', 'relay') if k in r}
         for k in ('headers', 'raw', 'trace'):
             if k in r:
                 meta[k] = r[k]
@@ -230,14 +238,20 @@ class Mod:
 
     def models(self, **kw) -> dict:
         """ListModels — every model the API offers, with release dates."""
+        if jevrelay.backend() == 'relay':
+            via = jevrelay.status()
+            return {'models': [{'name': 'jev-latest', 'description': f'served by the Jev seller {via.get("via", "?")}'
+                                                                     ' over x402 (this node has no TypeSafe key)'}],
+                    'relay': via}
         try:
             return self._bridge('models', self._options(kw))
         except ValueError as e:
             return {'error': str(e), 'code': 'invalid_request'}
 
     def info(self) -> dict:
-        """What the client would use: base URL, default model, retry defaults, whether a key is set."""
-        return self._bridge('info')
+        """What the client would use: base URL, default model, retry defaults, whether a key is set,
+        and which backend answers (direct jevgo, or relay through a Jev x402 seller)."""
+        return {**self._bridge('info'), 'backend': jevrelay.backend()}
 
     def version(self) -> dict:
         cfg = _config()
@@ -255,11 +269,21 @@ class Mod:
 
     def pricing(self, **changes) -> dict:
         """Owner: set pay_to=0x…, price_usd, networks=base,polygon, facilitator, enabled,
-        free_local, min_topup_usd, max_questions, timeout_s. No args = show the full policy."""
+        free_local, min_topup_usd, max_questions, timeout_s, backend=auto|direct|relay,
+        upstreams=url,url, relay_timeout_s. No args = show the full policy."""
         if changes:
             return jevpay.set_policy(**changes)
         p = jevpay.policy()
         return {**p, 'file': jevpay.POLICY, 'public': jevpay.public(p)}
+
+    def relay(self) -> dict:
+        """Which backend answers and, when relaying, which Jev x402 seller and at what price."""
+        return jevrelay.status()
+
+    def wallet(self, create: bool = False) -> dict:
+        """Owner: the node wallet that pays Jev sellers for local calls and credit spends
+        when there is no TypeSafe key. create=1 makes one (fund it with USDC on Base)."""
+        return jevrelay.wallet(str(create).lower() in ('1', 'true', 'yes', 'on'))
 
     def grant(self, address: str, usd: float = 0.0, note: str = 'grant') -> dict:
         """Owner: give an address prepaid credits (negative usd takes them back)."""

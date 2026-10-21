@@ -10,7 +10,8 @@ hands the token to `m.mod('auth')` and gets back one lowercase address.
 That address is the account: it is what a stored xAI key and a saved bot hang
 off. There is no password, no email, no session table.
 
-    anon     reads the module's own description and health. Nothing more —
+    anon     reads the module's own description, health and the published
+             bots (GET /public). Nothing more —
              sign-in is required for anything that touches Grok.
     signed   any wallet. Owns its key, its bots and its run ledger, and
              nobody else's. A BYOK key still says whose credits get spent,
@@ -155,6 +156,6 @@ def status():
             'owner': 'the deployment stats; the first signed caller claims it',
             'signed': 'own xAI key, own bots, own chats, own run ledger — and '
                       'sign-in is required for anything that touches Grok',
-            'anon': 'reads the module description and health, nothing more',
+            'anon': 'reads the module description, health and the published bots, nothing more',
         },
     }
