@@ -19,5 +19,6 @@
     ],
     "depends": [
         "starktime"
-    ]
+    ],
+    "schema": "QmRkp3jZTiuTfcuYxx2PX8uyzAL1KB9CRDg4mAmXwPmFhL"
 }

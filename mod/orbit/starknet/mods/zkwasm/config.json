@@ -20,5 +20,6 @@
     ],
     "depends": [
         "zkwasm"
-    ]
+    ],
+    "schema": "QmUBLnULgFnTKGrFYMAibXKJcBg8hDeb8EQih7vetvk92C"
 }

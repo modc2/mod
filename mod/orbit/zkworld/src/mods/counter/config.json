@@ -23,5 +23,6 @@
         "call",
         "events"
     ],
-    "framework": "cairo"
+    "framework": "cairo",
+    "schema": "QmPBkc4rYZm38RSpqHrQxdJUMebPVswhAQcRL7tzDrNYvv"
 }

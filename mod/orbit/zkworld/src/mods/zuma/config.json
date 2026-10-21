@@ -43,5 +43,6 @@
         "finalize",
         "claim"
     ],
-    "framework": "cairo"
+    "framework": "cairo",
+    "schema": "Qmd2zA7MqpttShMBJZ751iWMbrfFnbvhQRcbBSZ5eR6VS3"
 }

@@ -36,5 +36,6 @@
         "emission": "ownerCut off the top; minerShare of the rest by I, remainder by D; dust to owner"
     },
     "deployments": {},
-    "whitepaper": "whitepaper.md"
+    "whitepaper": "whitepaper.md",
+    "schema": "QmfArhNByfczFsSRgcZjQsTn24MDAszhc5KZJiEp5bDPuN"
 }

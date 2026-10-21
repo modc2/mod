@@ -23,5 +23,6 @@
     "mcp": "http://127.0.0.1:50479/m/hello/mcp",
     "serves": "arena",
     "plays_in": "arena",
-    "nested_in": "arena"
+    "nested_in": "arena",
+    "schema": "QmSz7AcKun8mCEadVUzNgizcSNNvM3cvuQKMPGEt2qkRzH"
 }

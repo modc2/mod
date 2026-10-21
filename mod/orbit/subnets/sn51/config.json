@@ -1,40 +1,41 @@
 {
-  "name": "sn51",
-  "version": "1.0.0",
-  "description": "SN51 lium.io — Agent-first GPU cloud. Rent NVIDIA GPUs via web, CLI, SDK, or API. Providers earn 95% rental revenue + bonuses. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
-  "icon": "ת",
-  "chain": "bittensor",
-  "netuid": 51,
-  "subnet": "lium.io",
-  "symbol": "ת",
-  "owner": "5FqACMtcegZxxopgu1g7TgyrnyD8skurr9QDPLPhxNQzsThe",
-  "github": "https://github.com/Datura-ai/lium-io",
-  "url": "https://lium.io",
-  "discord": "https://discord.gg/lium",
-  "logo": "https://lium.io/web-app-manifest-512x512.png",
-  "related": [
-    "lium"
-  ],
-  "active": true,
-  "route": false,
-  "generated_by": "subnets",
-  "updated": "2026-10-20",
-  "urls": {
-    "bt": "/bt/markets?sn=51",
-    "news": "/bt/news?netuid=51"
-  },
-  "fns": [
-    "info",
-    "price",
-    "news",
-    "trades",
-    "daily",
-    "history",
-    "validators",
-    "neurons",
-    "links",
-    "snapshot",
-    "readme",
-    "refresh"
-  ]
+    "name": "sn51",
+    "version": "1.0.0",
+    "description": "SN51 lium.io \u2014 Agent-first GPU cloud. Rent NVIDIA GPUs via web, CLI, SDK, or API. Providers earn 95% rental revenue + bonuses. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+    "icon": "\u05ea",
+    "chain": "bittensor",
+    "netuid": 51,
+    "subnet": "lium.io",
+    "symbol": "\u05ea",
+    "owner": "5FqACMtcegZxxopgu1g7TgyrnyD8skurr9QDPLPhxNQzsThe",
+    "github": "https://github.com/Datura-ai/lium-io",
+    "url": "https://lium.io",
+    "discord": "https://discord.gg/lium",
+    "logo": "https://lium.io/web-app-manifest-512x512.png",
+    "related": [
+        "lium"
+    ],
+    "active": true,
+    "route": false,
+    "generated_by": "subnets",
+    "updated": "2026-10-20",
+    "urls": {
+        "bt": "/bt/markets?sn=51",
+        "news": "/bt/news?netuid=51"
+    },
+    "fns": [
+        "info",
+        "price",
+        "news",
+        "trades",
+        "daily",
+        "history",
+        "validators",
+        "neurons",
+        "links",
+        "snapshot",
+        "readme",
+        "refresh"
+    ],
+    "schema": "QmPS88qR7Eykf76Yc2zpChEazzjUhNT8nTPNRM9mCDUfYJ"
 }

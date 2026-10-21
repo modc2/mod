@@ -36,5 +36,6 @@
         ],
         "summary": "Keeps the allowlist off the chain until each person claims their own line."
     },
-    "private": false
+    "private": false,
+    "schema": "QmWqKXzB6saGScHfAm6EYjJQ38sYm2GPonM4Rm7TwZhEXE"
 }

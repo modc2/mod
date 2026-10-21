@@ -282,7 +282,7 @@
     ],
     "rebalance_threshold_pct": 5.0,
     "route": true,
-    "schema": "QmVg8RzEDF6SBc3pwnyabmjb5M8XAtjTy1UMfyMoVXfJfV",
+    "schema": "QmNf6iKhgNwgztH2fHw2Qe96K2BTYphWCam7VoyF688xnP",
     "seed_validators": [
         {
             "label": "Top delegate #1 owner",

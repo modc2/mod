@@ -19,5 +19,6 @@
     ],
     "depends": [
         "cairo"
-    ]
+    ],
+    "schema": "QmZYUPNuYsLdCG4cU38nYvbpjKGuwEDxuuLWYRPKEQt2Fp"
 }

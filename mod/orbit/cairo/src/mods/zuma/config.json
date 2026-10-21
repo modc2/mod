@@ -57,5 +57,6 @@
         ],
         "summary": "Members prove they belong without saying who they are (ring signatures)."
     },
-    "private": false
+    "private": false,
+    "schema": "Qmc3wW78fNNKfgS9Mkpdbbwn1CU4awoBgXPpZQ69T5gCkE"
 }

@@ -20,5 +20,6 @@
         "head",
         "gas"
     ],
-    "write_fns": []
+    "write_fns": [],
+    "schema": "QmfEG8gdA9gv7pUwX17wLFrELhBVeeroth2q9HZWRqyshd"
 }

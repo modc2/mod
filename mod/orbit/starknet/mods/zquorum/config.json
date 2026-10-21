@@ -19,5 +19,6 @@
     ],
     "depends": [
         "zquorum"
-    ]
+    ],
+    "schema": "QmTdS4pcNsiyaNy2PVAiN1rsYFjmXp1NLXhfN7ErtUaosJ"
 }

@@ -89,7 +89,7 @@
         "costs",
         "hash_point"
     ],
-    "schema": "QmagvacoojhkVbHbmUstBLmwHFbi7gQu3iRigLbXxVK731",
+    "schema": "Qme2GZukrJSn4KxAhiKZPmG7CRjAa7jLrXHuofDmfLKprP",
     "urls": {
         "app": "http://localhost:50121/ztensor/",
         "api": "http://localhost:50121/ztensor/api",

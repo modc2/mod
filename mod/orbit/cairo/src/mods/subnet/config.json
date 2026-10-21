@@ -35,5 +35,6 @@
         ],
         "summary": "Keeps weights sealed until everyone has committed; after the reveal they are public."
     },
-    "private": false
+    "private": false,
+    "schema": "QmWqKXzB6saGScHfAm6EYjJQ38sYm2GPonM4Rm7TwZhEXE"
 }

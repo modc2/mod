@@ -34,5 +34,6 @@
         "kept_secret": [],
         "summary": "Keeps no secrets. Note: the reserves number is just what the issuer claims; the chain cannot check a bank account."
     },
-    "private": false
+    "private": false,
+    "schema": "QmWqKXzB6saGScHfAm6EYjJQ38sYm2GPonM4Rm7TwZhEXE"
 }

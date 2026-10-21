@@ -66,6 +66,6 @@
     ],
     "backend": "x-rs (Rust: axum \u2014 MCP JSON-RPC 2.0 over Streamable HTTP + stdio, REST, embedded app)",
     "secrets": "~/.mod/x/credentials.json",
-    "schema": "QmQGzn4Rk4Yyxxwrypmn9EQ2T83pY5DoR564mj6e2h4CoD",
+    "schema": "QmSLH3itq2pJni1TxBHoVAuTetLj5aeHu3EiK7bVRpPuxH",
     "gateway_port": 50350
 }

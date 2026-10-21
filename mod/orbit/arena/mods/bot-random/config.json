@@ -25,5 +25,6 @@
     "mcp": "http://127.0.0.1:50479/m/bot-random/mcp",
     "serves": "arena",
     "plays_in": "arena",
-    "nested_in": "arena"
+    "nested_in": "arena",
+    "schema": "Qma56suATVUFnFyA9CR8BWZLgdBpuSpUgLxGNadAaJvuJp"
 }

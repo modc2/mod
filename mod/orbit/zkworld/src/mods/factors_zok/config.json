@@ -22,5 +22,6 @@
         "app",
         "witness"
     ],
-    "statement": "factors"
+    "statement": "factors",
+    "schema": "QmPBkc4rYZm38RSpqHrQxdJUMebPVswhAQcRL7tzDrNYvv"
 }
