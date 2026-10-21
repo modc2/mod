@@ -17,7 +17,7 @@ Both need the parties to know *who* they are dealing with, and nothing more. Eve
 
 **Approach.** Replace identity with *membership plus a scope-bound pseudonym*. A linkable ring signature proves "some member of this public ring signed". Its key image $I = x\cdot H_p(\sigma)$ is deterministic in the secret $x$ and a scope $\sigma$: the same key in the same scope gives the same image, while images in different scopes cannot be linked. Choosing the scopes defines the protocol.
 
-**Non-goals.** ztensor does not hide *that* someone is a member, how many members there are, or the content of the work. Sybil resistance stays with whoever admits keys. No tokens move: payouts are credits in contract storage, so ztensor is not a mixer.
+**Non-goals.** ztensor does not hide *that* someone is a member, how many members there are, or the content of the work. Sybil resistance stays with whoever admits keys. No tokens move yet: payouts are credits in contract storage. Planned transfers run on a dedicated postquant-based L1 on which every wallet is shielded by default (§9).
 
 ## 2. Related work
 
@@ -151,6 +151,7 @@ USD per day, $M=256$, $V=64$, $n=16$, 1 h epochs, $K=24$, $C=32$ (only "today" i
 - **No quantum security.** Shor's algorithm breaks unforgeability and anonymity (DLP and DDH). The postquant deployment's ML-DSA receipts protect the history, not anonymity. Lattice-based linkable ring signatures or STARK membership proofs are the main open direction.
 - **The cost reductions are modeled.** Committees and private settlement are not deployed; committees trade the deterministic sub-quorum bound for the probabilistic one above, and private settlement adds a prover that can delay but not forge an epoch.
 - **Validator rewards** that preserve nullifier unlinkability are future work.
+- **Shielded transfers (planned).** Token payouts will run on a ztensor L1 built from the postquant system, where every wallet is shielded automatically: balances are SHA3 note commitments in a Merkle tree, spends reveal nullifiers $\mathrm{SHA3}(sk,\rho)$ with a hash-based STARK of membership and value balance, and spend authority is ML-DSA. A claim mints directly into a shielded note. Scores and per-tag claim sizes stay public. The STARK is the same component as the post-quantum membership proof above.
 - **Threats to validity.** Costs are local measurements; Starknet's USD is an estimate and extrapolated from ring 4; ETH figures scale with the base fee; the proofs are sketches with Poseidon modelled as a random oracle; a bug shared by the signer and every verifier would not show up as cross-chain disagreement.
 
 ## Reproduce

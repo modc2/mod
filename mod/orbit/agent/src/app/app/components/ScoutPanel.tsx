@@ -20,6 +20,9 @@ import { API_URL } from '../config'
 export type ScoutDraft = {
   name?: string; icon?: string; description?: string; goal?: string
   tools?: string[] | null; model?: string | null
+  // set when the draft was built on a code-edit bot / as a feedback loop
+  harness?: string | null; loop?: { builder?: string; reviewer?: string } | null
+  params?: Record<string, any> | null
 }
 type Signal = { n: number; source: string; title: string; url: string; meta?: string; snippet?: string }
 type Read = { n: number; url: string; status: string; note?: string; preview?: string; done: boolean }

@@ -1,0 +1,1416 @@
+<!doctype html>
+<html lang="en" data-chain="starknet">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ztao · anonymous subnets on Starknet, NEAR, Ethereum and Solana</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%2314b8a6%22/%3E%3Ctext x=%2216%22 y=%2223%22 text-anchor=%22middle%22 font-family=%22monospace%22 font-weight=%22800%22 font-size=%2220%22 fill=%22%23031311%22%3EZ%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#05080a;--panel:#0b1114;--panel2:#0f171b;--line:#1a262c;--line2:#24343b;
+  --ink:#e6f2f1;--dim:#8aa3a6;--mute:#566d71;
+  --teal:#14b8a6;--teal2:#5eead4;--amber:#f59e0b;--violet:#a78bfa;--red:#f43f5e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --sn:#ff875b;--nr:#00ec97;--eth:#8ea2ff;--sol:#b57cff;--sol2:#14f195;
+  --acc:var(--sn);--acc2:#ffb38f;--accbg:rgba(255,135,91,.10);--accln:rgba(255,135,91,.38);
+}
+html[data-chain=near]{--acc:var(--nr);--acc2:#7af7c6;--accbg:rgba(0,236,151,.09);--accln:rgba(0,236,151,.36)}
+html[data-chain=eth]{--acc:var(--eth);--acc2:#c3cdff;--accbg:rgba(142,162,255,.10);--accln:rgba(142,162,255,.40)}
+html[data-chain=solana]{--acc:var(--sol);--acc2:var(--sol2);--accbg:rgba(181,124,255,.10);--accln:rgba(181,124,255,.40)}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
+body{min-height:100vh;background:
+  radial-gradient(900px 520px at 12% -12%,var(--accbg),transparent 62%),
+  radial-gradient(800px 500px at 100% 0%,rgba(167,139,250,.08),transparent 60%),var(--bg);
+  transition:background .4s}
+a{color:var(--acc2)}
+.wrap{max-width:1200px;margin:0 auto;padding:20px 20px 60px}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;
+  font:800 22px var(--mono);color:#031311;background:linear-gradient(135deg,var(--teal2),var(--teal));
+  box-shadow:0 0 30px rgba(20,184,166,.40)}
+h1{margin:0;font-size:20px;letter-spacing:.3px}
+.sub{color:var(--dim);font-size:13px}
+.sp{flex:1}
+.chip{font:12px var(--mono);border:1px solid var(--line2);background:var(--panel);
+  padding:5px 10px;border-radius:999px;color:var(--dim);display:inline-flex;gap:6px;align-items:center;cursor:default;white-space:nowrap}
+.chip b{color:var(--ink);font-weight:600}
+.chip.click{cursor:pointer}.chip.click:hover{border-color:var(--acc)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--mute)}
+.dot.on{background:var(--acc);box-shadow:0 0 10px var(--acc)}
+button{font:600 13px var(--sans)!important;border-radius:10px;border:1px solid var(--line2);
+  background:var(--panel2);color:var(--ink);padding:11px 16px;cursor:pointer;transition:.15s}
+button:hover:not(:disabled){border-color:var(--acc);color:var(--acc2)}
+button.go{background:linear-gradient(135deg,var(--acc),var(--acc2));border-color:transparent;color:#05080a;
+  box-shadow:0 6px 30px var(--accbg)}
+button.go:hover:not(:disabled){color:#05080a;filter:brightness(1.08)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.go.running{background:linear-gradient(90deg,var(--acc),var(--violet),var(--acc));background-size:200% 100%;
+  animation:sweep 1.6s linear infinite;opacity:1!important}
+@keyframes sweep{to{background-position:-200% 0}}
+.glyph{width:16px;height:16px;flex:none}
+
+/* chain switch: one tile per network */
+.chains{position:relative;display:inline-block;margin:20px 0 0;width:min(460px,100%)}
+.chains>.ctile{width:100%}.chains .chev{margin-left:auto;color:var(--mute);font:12px var(--mono);transition:.15s}
+.chains.open .chev{transform:rotate(180deg);color:var(--c)}
+.ddr{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:2px;font:600 11px var(--mono);white-space:nowrap}
+.ddr .usd{color:var(--ink)}.ddr .ok{position:static!important;color:var(--mute)}
+.ddmenu{position:absolute;z-index:30;top:calc(100% + 6px);left:0;width:100%;display:none;flex-direction:column;gap:6px;
+  padding:6px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px -20px #000}
+.chains.open .ddmenu{display:flex}
+.ddmenu .ctile:focus-visible{outline:2px solid var(--c);outline-offset:1px}
+.ctile{position:relative;display:flex;align-items:center;gap:12px;text-align:left;padding:12px 14px!important;
+  border-radius:14px;background:var(--panel);border:1px solid var(--line);color:var(--dim);overflow:hidden}
+.ctile .gl{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--panel2);
+  border:1px solid var(--line2);color:var(--c);flex:none}
+.ctile .gl svg{width:18px;height:18px}
+.ctile b{display:block;font:700 13px var(--mono);letter-spacing:1.2px;color:var(--ink)}
+.ctile small{display:block;font:11px var(--mono);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctile:hover:not(:disabled){border-color:var(--c);color:var(--ink)}
+.ctile.on{border-color:var(--c);background:linear-gradient(180deg,color-mix(in srgb,var(--c) 12%,var(--panel)),var(--panel));
+  box-shadow:0 0 0 1px var(--c) inset,0 10px 40px -18px var(--c)}
+.ctile.on .gl{background:var(--c);color:#05080a;border-color:transparent}
+.ctile .ok{position:absolute;top:10px;right:12px;font:600 10px var(--mono);color:var(--mute)}
+.ctile.on .ok{color:var(--c)}
+.ctile[data-chain=starknet]{--c:var(--sn)}.ctile[data-chain=near]{--c:var(--nr)}
+.ctile[data-chain=eth]{--c:var(--eth)}.ctile[data-chain=solana]{--c:var(--sol)}
+
+/* tabs */
+nav.tabs{display:flex;gap:2px;margin:18px 0 0;border-bottom:1px solid var(--line);overflow-x:auto;align-items:flex-end}
+nav.tabs a{font:700 12px var(--mono);letter-spacing:1.4px;color:var(--mute);text-decoration:none;padding:11px 14px;
+  border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:inline-flex;gap:6px;align-items:center}
+nav.tabs a:hover{color:var(--ink)}
+nav.tabs a.on{color:var(--acc2);border-bottom-color:var(--acc)}
+nav.tabs .cnt{color:var(--mute);font-weight:500}
+nav.tabs .scope{font:600 10px var(--mono);letter-spacing:1.2px;color:var(--acc);padding:0 10px 12px 2px;white-space:nowrap}
+nav.tabs .gap{flex:1;min-width:16px}
+.pane{display:none}.pane.on{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* chain banner: what this network is, shown on every chain-scoped tab */
+.banner{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:18px;padding:16px 18px;border-radius:16px;
+  border:1px solid var(--accln);background:linear-gradient(120deg,var(--accbg),transparent 70%),var(--panel)}
+.banner .gl{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:var(--acc);color:#05080a;flex:none;
+  box-shadow:0 0 30px var(--accbg)}
+.banner .gl svg{width:24px;height:24px}
+.banner h2{margin:0;font-size:19px;letter-spacing:-.2px}
+.banner p{margin:2px 0 0;color:var(--dim);font-size:13px;max-width:560px}
+.banner .meta{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-left:auto}
+.banner .chip b{color:var(--acc2)}
+
+.hero{margin:22px 0 16px;display:grid;grid-template-columns:1.25fr 1fr;gap:22px;align-items:end}
+.hero h2{font-size:32px;line-height:1.12;margin:0 0 10px;letter-spacing:-.5px}
+.hero h2 em{font-style:normal;background:linear-gradient(90deg,var(--acc),var(--acc2));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--dim);margin:0;max-width:620px}
+.actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.clock{display:flex;align-items:center;gap:14px;margin:4px 0 14px;font:12px var(--mono);color:var(--dim)}
+.bar{flex:1;height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--violet));width:0;transition:width .6s}
+.stage{position:relative;background:linear-gradient(180deg,var(--panel),#070c0e);border:1px solid var(--line);
+  border-radius:16px;overflow:hidden}
+.stage svg{display:block;width:100%;height:auto}
+.caption{position:absolute;left:0;right:0;bottom:14px;text-align:center;font:600 13px var(--mono);
+  color:var(--acc2);text-shadow:0 0 18px var(--accbg);pointer-events:none;transition:opacity .3s}
+.grid{display:grid;grid-template-columns:1.35fr 1fr;gap:18px;margin-top:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card h3{margin:0 0 12px;font-size:12px;letter-spacing:1.4px;color:var(--dim);font-weight:700;
+  display:flex;align-items:center;gap:8px}
+.card h3 .sp{flex:1}
+table{width:100%;border-collapse:collapse;font:12px var(--mono)}
+th{color:var(--mute);text-align:left;font-weight:500;padding:6px 6px;border-bottom:1px solid var(--line)}
+td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.tag{color:var(--teal2)}
+.sbar{height:6px;background:var(--panel2);border-radius:9px;overflow:hidden;min-width:80px}
+.sbar i{display:block;height:100%;background:var(--teal);border-radius:9px;transition:width .5s}
+.pill{font:600 10px var(--mono);padding:2px 7px;border-radius:99px;border:1px solid var(--line2);color:var(--dim);white-space:nowrap}
+.pill.ok{color:var(--amber);border-color:rgba(245,158,11,.4)}
+.pill.open{color:var(--acc2);border-color:var(--accln)}
+.log{font:12px/1.65 var(--mono);height:340px;overflow:auto;color:var(--dim)}
+.log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log .k{display:inline-block;width:82px;font-weight:700}
+.log .t{color:var(--mute);display:inline-block;width:48px}
+.k.submit{color:var(--teal2)}.k.score{color:var(--violet)}.k.claim{color:var(--amber)}
+.k.replay{color:var(--red)}.k.deploy,.k.deploying,.k.register,.k.devnet,.k.close,.k.done{color:var(--ink)}.k.error{color:var(--red)}
+.empty{color:var(--mute);font:12px var(--mono);padding:18px 0;text-align:center}
+.how{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
+.how .card p{color:var(--dim);margin:0;font-size:13px}
+.how .card code{font:12px var(--mono);color:var(--acc2)}
+.how .n{font:700 11px var(--mono);color:var(--mute);letter-spacing:1.2px}
+.how h4{margin:4px 0 6px;font-size:16px}
+.limits ul{margin:0;padding-left:18px;color:var(--dim)}
+.limits li{margin:4px 0}
+.limits b{color:var(--ink)}
+.limits code{font:12px var(--mono);color:var(--acc2)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font:12px var(--mono)}
+.kv span:nth-child(odd){color:var(--mute)}
+.kv span:nth-child(even){color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toast{position:fixed;right:18px;bottom:18px;background:var(--panel2);border:1px solid var(--line2);
+  padding:10px 14px;border-radius:10px;font:12px var(--mono);opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none;z-index:9}
+.toast.on{opacity:1;transform:none}
+footer{margin-top:30px;color:var(--mute);font:12px var(--mono);text-align:center}
+/* svg */
+.ringline{fill:none;stroke:var(--line2);stroke-dasharray:3 6;animation:dash 40s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-900}}
+.node{transition:fill .25s;animation:breathe 3.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{stroke-opacity:1}50%{stroke-opacity:.35}}
+.lbl{font:600 10px var(--mono);fill:var(--mute);letter-spacing:1.5px}
+.keylbl{font:9px var(--mono);fill:var(--mute)}
+.glow{filter:url(#glow)}
+.facts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.fact{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);background:rgba(11,17,20,.7);
+  padding:4px 9px;border-radius:7px;display:inline-flex;gap:6px;align-items:center}
+.fact b{color:var(--acc2);font-weight:600}.fact.red b{color:var(--red)}
+.fact svg{width:10px;height:10px}
+.hist{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.hist .h{font:600 10px var(--mono);letter-spacing:1.4px;color:var(--mute);margin-bottom:6px}
+.hrow{display:grid;grid-template-columns:70px 1fr 60px 64px;gap:10px;align-items:center;font:12px var(--mono);
+  color:var(--dim);padding:5px 0}
+.hrow .spark{display:flex;gap:3px;height:16px;align-items:flex-end}
+.hrow .spark i{flex:1;max-width:22px;background:var(--teal);opacity:.75;border-radius:2px 2px 0 0}
+.hrow .spark i.c{background:var(--amber)}
+.log .sep{color:var(--mute);font-size:11px;letter-spacing:1px;margin:2px 0 6px;border-bottom:1px dashed var(--line);padding-bottom:4px}
+@media (prefers-reduced-motion:reduce){.ringline,.node,button.go.running,.pane.on{animation:none}}
+.chainbadge{font:700 10px var(--mono);letter-spacing:1.2px;padding:3px 8px;border-radius:6px;border:1px solid;white-space:nowrap}
+.chainbadge.starknet{color:var(--sn);border-color:rgba(255,135,91,.4)}
+.chainbadge.near{color:var(--nr);border-color:rgba(0,236,151,.4)}
+.chainbadge.eth{color:var(--eth);border-color:rgba(142,162,255,.4)}
+.chainbadge.solana{color:var(--sol);border-color:rgba(181,124,255,.45)}
+.chainbadge.shared{color:var(--teal2);border-color:rgba(20,184,166,.4)}
+/* code */
+.code{display:grid;grid-template-columns:270px 1fr;gap:16px;margin-top:18px}
+.tree{display:flex;flex-direction:column;gap:14px;position:sticky;top:12px;align-self:start}
+.tree h5{margin:0 0 6px;font:700 10px var(--mono);letter-spacing:1.4px;color:var(--mute);display:flex;gap:8px;align-items:center}
+.tree a{display:block;padding:7px 10px;border-radius:9px;color:var(--dim);text-decoration:none;border:1px solid transparent}
+.tree a b{display:block;font:600 12px var(--mono);color:var(--ink)}
+.tree a span{font-size:11px}
+.tree a:hover{border-color:var(--line2)}
+.tree a.on{background:var(--panel2);border-color:var(--accln)}
+.tree a.on b{color:var(--acc2)}
+.tree details summary{cursor:pointer;list-style:none}
+.tree details summary::-webkit-details-marker{display:none}
+.viewer{min-width:0}
+.vbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.vbar .path{font:600 13px var(--mono)}
+.vbar .meta{color:var(--mute);font:12px var(--mono)}
+.vbar button{padding:7px 12px}
+.src{display:grid;gap:14px}
+.src.two{grid-template-columns:1fr 1fr}
+.srcbox{background:#070c0e;border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:76vh}
+.srcbox .h{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:8px 12px;
+  font:600 12px var(--mono);display:flex;gap:8px;align-items:center;z-index:1}
+pre.cl{margin:0;padding:10px 0;font:12.5px/1.6 var(--mono);counter-reset:ln;tab-size:4}
+pre.cl span.l{display:block;padding:0 14px 0 0;white-space:pre}
+pre.cl span.l::before{counter-increment:ln;content:counter(ln);display:inline-block;width:46px;padding-right:14px;
+  text-align:right;color:#2c3d43;user-select:none}
+pre.cl span.l:hover{background:rgba(94,234,212,.04)}
+.tk-c{color:#5b7378;font-style:italic}.tk-s{color:#fcd34d}.tk-k{color:#c4b5fd}.tk-n{color:#fda4af}
+.tk-f{color:#5eead4}.tk-t{color:#93c5fd}.tk-a{color:#8aa3a6}
+/* costs + compare */
+.cmp{width:100%;border-collapse:collapse;font:13px var(--sans)}
+.cmp th,.cmp td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.cmp th{font:700 11px var(--mono);letter-spacing:1.2px;color:var(--mute)}
+.cmp td:first-child{color:var(--dim);width:22%}
+.cmp td code{font:12px var(--mono);color:var(--acc2)}
+.cmp a{text-decoration:none}
+.cmp tr.same td:not(:first-child){color:var(--ink)}
+.big{font:700 26px var(--mono);letter-spacing:-.5px}
+.big small{font:500 12px var(--mono);color:var(--mute);margin-left:6px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.stat .lab{font:700 10px var(--mono);letter-spacing:1.3px;color:var(--mute);margin-bottom:6px}
+.stat .big{color:var(--acc2)}
+.stat .sub2{color:var(--dim);font-size:12px;margin-top:4px}
+.chart{position:relative}
+.chart svg{display:block;width:100%;height:auto}
+.chart .tip{position:absolute;pointer-events:none;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;
+  padding:6px 9px;font:12px var(--mono);color:var(--ink);opacity:0;transition:opacity .12s;white-space:nowrap}
+.note{color:var(--dim);font-size:13px;margin:10px 0 0}
+.econ{margin-top:18px}.ectl{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end}
+.ectl label{display:flex;flex-direction:column;gap:4px;font:700 10px var(--mono);letter-spacing:1.3px;color:var(--mute)}
+.ectl select{font:600 13px var(--mono);color:var(--ink);background:var(--panel2);border:1px solid var(--line2);border-radius:10px;
+  padding:8px 30px 8px 12px;cursor:pointer;appearance:none;-webkit-appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px;background-repeat:no-repeat}
+.ectl select:hover,.ectl select:focus{border-color:var(--acc);outline:none}
+.econ .stats{margin-top:14px}
+.lims{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:8px}
+.lims li{display:grid;grid-template-columns:62px 1fr;gap:12px;align-items:start;font-size:13px;color:var(--dim);
+  padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.lims li b{color:var(--ink)}
+.lims .v{font:700 10px var(--mono);letter-spacing:1.2px;text-align:center;padding:3px 0;border-radius:6px;border:1px solid}
+.lims .v.ok{color:var(--acc2);border-color:var(--accln)}.lims .v.warn{color:#fbbf24;border-color:#fbbf2466}.lims .v.bad{color:#f43f5e;border-color:#f43f5e66}
+.allc{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+.acard{cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;transition:.15s}
+.acard:hover{border-color:var(--c);transform:translateY(-2px)}
+.acard .top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.acard .gl{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--c);color:#05080a}
+.acard .gl svg{width:16px;height:16px}
+.acard b{font:700 13px var(--mono);letter-spacing:1.2px}
+.acard .kv span:nth-child(even){color:var(--ink)}
+.acard[data-chain=starknet]{--c:var(--sn)}.acard[data-chain=near]{--c:var(--nr)}
+.acard[data-chain=eth]{--c:var(--eth)}.acard[data-chain=solana]{--c:var(--sol)}
+/* tests */
+.tgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 26px}
+.trow{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font:12px var(--mono)}
+.ok2{color:var(--acc2);font-weight:700;width:38px}.bad2{color:var(--red);font-weight:700;width:38px}
+.tsum{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:14px}
+.ring{width:74px;height:74px}
+/* paper */
+.paper{max-width:820px;margin:26px auto 0;font-size:15px;line-height:1.7}
+.paper h1{font-size:30px;letter-spacing:-.4px;margin:0 0 6px}
+.paper h2{font-size:20px;margin:34px 0 10px;padding-top:14px;border-top:1px solid var(--line)}
+.paper h3{font-size:16px;margin:24px 0 8px}
+.paper p,.paper li{color:#c6d6d7}
+.paper em{color:var(--dim)}
+.paper code{font:13px var(--mono);color:var(--teal2);background:var(--panel2);padding:1px 5px;border-radius:5px}
+.paper pre{background:#070c0e;border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto}
+.paper pre code{background:none;padding:0;color:var(--ink)}
+.paper table{margin:14px 0;font:13px var(--sans)}
+.paper th{color:var(--dim)}
+.paper td,.paper th{padding:7px 10px}
+@media (max-width:980px){.allc{grid-template-columns:1fr 1fr}}
+@media (max-width:860px){.hero,.grid,.how,.code,.src.two,.tgrid{grid-template-columns:1fr}.actions{justify-content:flex-start}
+  .ctile .ok,.banner .gl{display:none}.ctile{padding:10px 12px!important}
+  .hero h2{font-size:25px}.tree{position:static}.stats{grid-template-columns:1fr 1fr}.banner .meta{margin-left:0;justify-content:flex-start}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">Z</div>
+    <div><h1>ztao</h1><div class="sub" id="hsub">anonymous subnets · one signature scheme, four chains</div></div>
+    <div class="sp"></div>
+    <span class="chip"><span class="dot" id="netdot"></span><b id="net">devnet</b><span id="blk">-</span></span>
+    <span class="chip click" id="addrchip" title="copy contract address">contract <b id="addr">not deployed</b></span>
+  </header>
+
+  <div class="chains" id="chainsw" role="tablist" aria-label="network"></div>
+
+  <nav class="tabs" id="tabs">
+    <span class="scope" id="scope">STARKNET</span>
+    <a href="#live" data-tab="live">LIVE</a>
+    <a href="#code" data-tab="code">CONTRACT</a>
+    <a href="#costs" data-tab="costs">COSTS</a>
+    <a href="#tests" data-tab="tests">TESTS<span class="cnt" id="tcount"></span></a>
+    <span class="gap"></span>
+    <a href="#all" data-tab="all">ALL CHAINS</a>
+    <a href="#paper" data-tab="paper">WHITEPAPER</a>
+  </nav>
+
+  <section class="banner" id="banner">
+    <div class="gl" id="bglyph"></div>
+    <div><h2 id="bname">Starknet</h2><p id="bline"></p></div>
+    <div class="meta" id="bmeta"></div>
+  </section>
+
+  <div class="pane" id="pane-live">
+  <section class="hero">
+    <div>
+      <h2>Miners and validators who <em>never learn who the other is.</em></h2>
+      <p>Each one only knows that the other is in the registered set. Every submit, score and claim is a
+        ring signature over the STARK curve, verified on-chain <span id="verifier">by a Cairo contract</span>.
+        A validator scores a <b>tag</b>, never a miner. A miner gets paid and never learns which validators scored it.</p>
+      <div class="facts" id="facts"></div>
+    </div>
+    <div class="actions">
+      <button id="replay" title="replay the last recorded epoch">Replay last epoch</button>
+      <button class="go" id="run">Run an anonymous epoch</button>
+    </div>
+  </section>
+
+  <div class="clock">
+    <span>EPOCH <b id="ep" style="color:var(--ink)">-</b></span>
+    <div class="bar"><i id="epbar"></i></div>
+    <span id="left">-</span>
+  </div>
+
+  <div class="stage">
+    <svg id="svg" viewBox="0 0 1140 440" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="caption" id="cap"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>TAGS <span class="sp"></span><span class="pill" id="tallyep">-</span></h3>
+      <div id="tally"><div class="empty">no tags yet. Run an epoch.</div></div>
+    </div>
+    <div class="card">
+      <h3>ON-CHAIN EVENTS <span class="sp"></span><span class="pill" id="logstate">idle</span></h3>
+      <div class="log" id="log"><div class="empty">waiting for a run</div></div>
+    </div>
+  </div>
+
+  <div class="how">
+    <div class="card"><div class="n">01 · MINER</div><h4>submit</h4>
+      <p>The miner signs <code>work</code> with a ring of miners in scope <code>H(mine, subnet, epoch)</code>.
+        The key image is its <b>tag</b> for this epoch. That gives one submission per miner per epoch, and
+        the tag can't be linked to its key or to its tags in other epochs.</p></div>
+    <div class="card"><div class="n">02 · VALIDATOR</div><h4>score</h4>
+      <p>The validator signs a 0-100 score with a ring of validators in scope <code>H(score, subnet, epoch, tag)</code>.
+        The key image is a <b>nullifier</b>. That gives one score per validator per tag, and its scores on
+        different tags can't be linked.</p></div>
+    <div class="card"><div class="n">03 · MINER</div><h4>claim</h4>
+      <p>After the epoch closes, the miner re-signs in the same mine scope. The same key gives the
+        <b>same image</b>, which proves it owns the tag. It credits <code>emission x sum / total</code> to any
+        recipient, and a replay is rejected.</p></div>
+  </div>
+
+  <div class="grid limits">
+    <div class="card">
+      <h3>READ THIS · LIMITS ON <span id="limchain">STARKNET</span></h3>
+      <ul>
+        <li><b>Your anonymity set is the ring, nothing more.</b> With 3 validators each score points to 1 of 3.
+          The contract enforces <code>min_ring</code> and rejects padded rings (key ids strictly increasing).</li>
+        <li id="costli"></li>
+        <li><b>The tx sender is public.</b> Actions go through a relayer, because the contract never checks the caller.
+          Timing, IP and work content can still identify you.</li>
+        <li><b>Payouts are public books.</b> Points are credited in storage, and no token moves.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>SUBNET ON-CHAIN</h3>
+      <div class="kv" id="params"><span>status</span><span>loading</span></div>
+    </div>
+  </div>
+  </div>
+
+  <div class="pane" id="pane-code">
+    <div class="code">
+      <div class="tree" id="tree"></div>
+      <div class="viewer">
+        <div class="vbar"><span class="path" id="vpath">-</span><span class="meta" id="vmeta"></span><span class="sp"></span>
+          <button id="sbs" title="this chain's verifier next to the Cairo reference">Verifier vs Cairo</button>
+          <button id="copysrc">Copy</button></div>
+        <div class="src" id="src"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-costs">
+    <div class="stats" id="cstats"></div>
+    <div class="grid" style="grid-template-columns:1.15fr 1fr">
+      <div class="card"><h3 id="charttitle">COST BY RING SIZE <span class="sp"></span><span class="pill" id="gasnote">measured</span></h3>
+        <div class="chart" id="gaschart"></div>
+        <p class="note" id="chartnote"></p>
+        <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--mute);font:12px var(--mono)">table view</summary><div id="gastable"></div></details>
+      </div>
+      <div class="card"><h3>HOW THIS CHAIN VERIFIES IT</h3><div id="ctable"></div></div>
+    </div>
+    <div class="card econ">
+      <h3>MAINNET COST IN DOLLARS <span class="sp"></span><span class="pill" id="econat">loading</span></h3>
+      <div class="ectl">
+        <label>EPOCH<select id="eep"></select></label>
+        <label>MINERS<select id="emin"></select></label>
+        <label>VALIDATORS<select id="evals"></select></label>
+        <label>RING<select id="ering"></select></label>
+      </div>
+      <div class="stats" id="estats"></div>
+      <div class="grid" style="grid-template-columns:1fr 1.25fr;margin-top:14px">
+        <div><table class="cmp" id="etable"></table><p class="note" id="enote"></p></div>
+        <div><h3 style="margin:0">LIMITS AT THIS SIZE</h3><ul class="lims" id="elims"></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-tests">
+    <div class="card" style="margin-top:18px" id="tlist"></div>
+  </div>
+
+  <div class="pane" id="pane-all">
+    <div class="allc" id="allcards"></div>
+    <div class="card" style="margin-top:18px"><h3>SAME PROTOCOL · FOUR VERIFIERS</h3><div id="alltable" style="overflow-x:auto"></div></div>
+  </div>
+
+  <div class="pane" id="pane-paper">
+    <article class="paper" id="paper"><div class="empty">loading the paper</div></article>
+  </div>
+
+  <footer>LSAG over the STARK curve · Poseidon challenges · key image I = x · Hp(scope) · Cairo · Rust/wasm · Solidity+Yul · sBPF · <a id="apilink" href="#">api</a></footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const BASE = location.pathname.startsWith('/ztao') ? '/ztao' : '';
+const API = fn => `${BASE}/_api/${fn}`;
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+const short = h => h ? (h.length > 14 ? h.slice(0, 8) + '..' + h.slice(-4) : h) : '-';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+$('apilink').href = `${BASE}/api/info`;
+const esc = t => String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const GLYPH = {
+  starknet: '<svg viewBox="0 0 16 16" class="glyph"><path d="M8 1l1.7 5.3L15 8l-5.3 1.7L8 15l-1.7-5.3L1 8l5.3-1.7z" fill="currentColor"/></svg>',
+  near: '<svg viewBox="0 0 16 16" class="glyph"><path d="M3.5 13V3l9 10V3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></svg>',
+  eth: '<svg viewBox="0 0 16 16" class="glyph"><path d="M8 1l4.6 7L8 10.7 3.4 8z" fill="currentColor"/><path d="M3.4 9.2L8 15l4.6-5.8L8 12z" fill="currentColor" opacity=".7"/></svg>',
+  solana: '<svg viewBox="0 0 16 16" class="glyph"><path d="M4.2 3h10l-2.4 2.4h-10zM1.8 6.8h10l2.4 2.4h-10zM4.2 10.6h10l-2.4 2.4h-10z" fill="currentColor"/></svg>',
+};
+/* the chain this page is looking at: ?chain= > localStorage > starknet.
+   Everything chain-scoped below (live stage, contract files, costs, tests) reads CH[CHAIN]. */
+const CH = {
+  starknet: {name: 'Starknet', net: 'devnet', local: 'starknet-devnet', port: 51502,
+    lang: 'Cairo contract', tile: 'Cairo · native EC',
+    line: 'A Cairo contract verifies every ring signature with the native EC and Poseidon builtins. The reference implementation.',
+    verifier: 'by a Cairo contract (native EC builtin)', cap: 64, capWhy: 'set by the contract, far under the step limit',
+    deploying: 'declaring + deploying the Cairo verifier', runner: 'snforge', unit: 'steps',
+    costli: '<b>Cost is linear in the ring.</b> A ring of 4 is about 16k Cairo steps and 19 <code>ec_op</code>. The contract caps rings at 64.',
+    how: [['contract', 'ztao.cairo, the subnet. lsag.cairo holds the scheme'],
+      ['curve math', 'native <code>ec_op</code> builtin'], ['Poseidon', 'native builtin'],
+      ['subnet felt', 'the contract address'], ['recipient', 'a felt (any address)'],
+      ['max ring', '64'], ['hash to point', 'try-and-increment computed on-chain'],
+      ['tests', 'snforge, plus a full epoch on starknet-devnet'], ['local chain', 'starknet-devnet :51502']]},
+  near: {name: 'NEAR', net: 'near', local: 'near-sandbox', port: 51503,
+    lang: 'Rust / wasm contract', tile: 'Rust · wasm',
+    line: 'A near-sdk 5 contract compiled to wasm verifies the same signatures with its own field and curve math.',
+    verifier: 'by a Rust/wasm contract on NEAR (same signatures, own curve math)', cap: 32, capWhy: '300 Tgas per call',
+    deploying: 'deploying the wasm verifier to a fresh NEAR account', runner: 'cargo test', unit: 'Tgas',
+    costli: '<b>Cost is linear in the ring.</b> On NEAR a ring of 4 is about 37 Tgas, roughly 7.5 Tgas per member. A call may burn 300 Tgas, so the cap is 32.',
+    how: [['contract', 'lib.rs (near-sdk 5). lsag.rs is the port of the scheme'],
+      ['curve math', '<code>fp.rs</code>: 9 x 29-bit limbs, Straus windows, in wasm'],
+      ['Poseidon', '<code>poseidon.rs</code> on the fast field'],
+      ['subnet felt', 'sha256(account id), top 5 bits cleared'], ['recipient', 'a NEAR account (signed as sha256)'],
+      ['max ring', '32 (300 Tgas per call)'], ['hash to point', 'hint from the <code>hash_point</code> view, checked on-chain'],
+      ['build', 'RUSTFLAGS <code>--cfg near</code> + wasmlower to MVP wasm'],
+      ['tests', 'cargo test on Cairo-made fixtures'], ['local chain', 'near-sandbox :51503']]},
+  eth: {name: 'Ethereum', net: 'eth', local: 'anvil', port: 51504,
+    lang: 'Solidity + Yul contract', tile: 'Solidity · Yul',
+    line: 'The EVM has no STARK curve, so the group law is written in Yul on mulmod and Poseidon runs in a hand-assembled contract.',
+    verifier: 'by a Solidity contract on the EVM (STARK-curve math in Yul)', cap: 32, capWhy: 'EIP-7825 caps a tx at 2^24 gas',
+    deploying: 'deploying Hades + the Solidity verifier', runner: 'forge test', unit: 'gas',
+    costli: '<b>Cost is linear in the ring.</b> A ring of 4 is about 2.1M gas, roughly 0.41M per member. EIP-7825 caps a transaction at 16.7M gas, so the cap is 32.',
+    how: [['contract', 'ZTao.sol, the subnet. LSAG.sol holds the scheme'],
+      ['curve math', '<code>StarkCurve.sol</code>: Jacobian coordinates + Straus tables in Yul'],
+      ['Poseidon', 'the Hades permutation as a hand-assembled contract at a fixed CREATE2 address'],
+      ['subnet felt', 'the contract address as a number'], ['recipient', 'an address'],
+      ['max ring', '32 (16.7M gas per tx, EIP-7825)'], ['hash to point', 'hint in the signature, checked on-chain'],
+      ['tests', 'forge, incl. Cairo-made signatures'], ['local chain', 'anvil :51504 (prague)']]},
+  solana: {name: 'Solana', net: 'solana', local: 'solana-test-validator', port: 51510,
+    lang: 'Rust sBPF program', tile: 'Rust · sBPF units',
+    line: 'No transaction can afford a ring signature, so verification is cut into independent units under 1.4M compute units each.',
+    verifier: 'by a Solana program, split into compute units', cap: 32, capWhy: 'fixed by the session account layout',
+    deploying: 'deploying the sBPF program + subnet account', runner: 'cargo test', unit: 'CU',
+    costli: '<b>Cost is linear in the ring.</b> A ring of 4 is about 40M compute units, spread over ~41 units in ~47 transactions. Each tx stays under the 1.4M CU limit. The cap is 32.',
+    how: [['program', 'lib.rs: subnet, sessions, units, finish. verify.rs holds the scheme'],
+      ['curve math', 'NEAR\'s <code>fp.rs</code>, reused, in sBPF'],
+      ['Poseidon', 'NEAR\'s <code>poseidon.rs</code>, reused'],
+      ['verification', 'relayer opens a SESSION account, uploads the signature + hints, then sends UNITS. Each unit checks one slice and sets one bit. <code>finish</code> applies the action'],
+      ['subnet felt', 'sha256(subnet account), top 5 bits cleared'], ['recipient', 'a pubkey, credited in an EARNED PDA'],
+      ['nullifier', 'a PDA per nullifier: exists = spent'],
+      ['hash to point', 'hint uploaded with the session, checked by a unit'],
+      ['max ring', '32'], ['tests', 'cargo test on Cairo-made hints'], ['local chain', 'solana-test-validator :51510']]},
+};
+const ORDER = ['starknet', 'near', 'eth', 'solana'];
+const WANT = new URLSearchParams(location.search).get('chain') || localStorage.getItem('ztao.chain') || 'starknet';
+let CHAIN = CH[WANT] ? WANT : 'starknet';
+const NET = () => CH[CHAIN].net;
+/* a chain the server has an adapter for (src/networks/<chain>/) but this page
+   has no hand-written copy of gets a generic entry from GET networks */
+function adoptNetworks(list) {
+  const css = [];
+  for (const n of list || []) {
+    if (CH[n.chain]) continue;
+    const col = n.color || '#9aa4b2';
+    CH[n.chain] = {name: n.name || n.title, net: n.net, local: n.local || n.net, port: '', generic: true,
+      lang: `${n.title} contract`, tile: n.title, line: n.verifier || '', verifier: n.verifier || '',
+      cap: n.max_ring, capWhy: '', deploying: n.deploying || 'deploying the verifier', runner: 'native suite',
+      unit: (n.cost_fields || [])[0] || '', costKey: (n.cost_fields || [])[0], costli: '',
+      how: [['networks', esc(n.nets.join(' · '))], ['max ring', n.max_ring], ['local chain', esc(n.local || n.net)]]};
+    GLYPH[n.chain] = `<svg viewBox="0 0 16 16" class="glyph"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="2"/><text x="8" y="11.2" text-anchor="middle" font-size="8.5" font-weight="700" fill="currentColor">${esc(CH[n.chain].name[0])}</text></svg>`;
+    ORDER.push(n.chain);
+    css.push(`.ctile[data-chain=${n.chain}],.acard[data-chain=${n.chain}]{--c:${col}}html[data-chain=${n.chain}]{--acc:${col};--acc2:${col};--accbg:${col}1a;--accln:${col}66}`);
+  }
+  if (css.length) document.head.insertAdjacentHTML('beforeend', `<style>${css.join('')}</style>`);
+  return css.length;
+}
+
+async function get(fn, q = '') {
+  const r = await fetch(API(fn) + q); return r.json();
+}
+async function post(fn, body = {}) {
+  const r = await fetch(API(fn), {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  return r.json();
+}
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2600);
+}
+/* shared data, fetched once: compare (costs + last runs per chain) and tests */
+let CMP = null, TESTS = null;
+const cmpP = get('compare').then(c => (CMP = c)).catch(() => (CMP = {}));
+const testsP = get('tests').then(t => (TESTS = t)).catch(() => (TESTS = {}));
+/* mainnet dollars: live gas + token price on the costs measured locally */
+let ECON = null;
+const econP = get('economics').then(e => (ECON = e)).catch(() => (ECON = {}));
+const usd = v => v == null ? '-' : v >= 100 ? '$' + Math.round(v).toLocaleString() : v >= 1 ? '$' + v.toFixed(2) : v >= .01 ? '$' + v.toFixed(3) : '$' + v.toPrecision(2);
+/* one validator score at the measured ring: the action an epoch is mostly made of */
+const econOf = c => { const e = ((ECON || {}).chains || {})[c]; return e && (e.actions.score || e.actions.submit); };
+econP.then(() => { renderSwitch(); if (TAB === 'costs') renderEcon(); if (TAB === 'all') renderAll(); });
+const avg = a => a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+const fmtM = v => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
+/* ring-4 verify cost on one chain, as [big, unit, sub] */
+function verifyCost(c) {
+  const x = (CMP || {})[c] || {};
+  if (c === 'starknet') { const s = avg(x.steps), e = avg(x.ec_op); return s ? [(s / 1000).toFixed(1) + 'k', 'steps', `${Math.round(e)} ec_op · ring ${x.ring || 4}`] : null; }
+  if (c === 'near') { const g = avg(x.tgas); return g ? [g.toFixed(1), 'Tgas', `ring ${x.ring || 4} · was 214 Tgas before fp.rs`] : null; }
+  if (c === 'eth') { const g = avg(x.gas); return g ? [(g / 1e6).toFixed(2) + 'M', 'gas', `ring ${x.ring || 4} · per action, incl. calldata`] : null; }
+  if (c === 'solana') { const g = avg(x.cu); return g ? [(g / 1e6).toFixed(1) + 'M', 'CU', `${Math.round(avg(x.units))} units · ${Math.round(avg(x.txs))} txs · ring ${x.ring || 4}`] : null; }
+  const k = CH[c] && CH[c].costKey, g = k && avg(x[k]);
+  return g ? [fmtM(g), k, `ring ${x.ring || 4}`] : null;
+}
+const testsOf = c => { const t = (TESTS || {})[c]; return t ? `${t.passed}/${t.passed + (t.failed || 0)}` : '-'; };
+
+/* ---------------- stage ---------------- */
+// two stage layouts: side by side on wide screens, stacked on phones
+const LAYOUTS = {
+  wide: {W: 1140, H: 440, m: [210, 210, 120], v: [930, 210, 120], tagx: 570, tagy0: 70, title: 40,
+    mIn: T => [T.p.x - 130, T.p.y + 25], vIn: T => [T.p.x + 130, T.p.y + 25], payY: () => 370},
+  tall: {W: 440, H: 900, m: [220, 160, 86], v: [220, 730, 86], tagx: 220, tagy0: 310, title: 292,
+    mIn: T => [T.p.x, T.p.y], vIn: T => [T.p.x, T.p.y + 50], payY: n => 310 + Math.max(3, n) * 62 + 6},
+};
+let L, W, H, TAGX, TAGY0, mode;
+const SETS = {miner: {color: '#14b8a6', label: 'MINERS'}, validator: {color: '#a78bfa', label: 'VALIDATORS'}};
+let S = {miner: [], validator: [], tags: new Map()};
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const svg = $('svg');
+function initStage() {
+  mode = innerWidth < 700 ? 'tall' : 'wide';
+  L = LAYOUTS[mode]; W = L.W; H = L.H; TAGX = L.tagx; TAGY0 = L.tagy0;
+  [SETS.miner.cx, SETS.miner.cy, SETS.miner.r] = L.m;
+  [SETS.validator.cx, SETS.validator.cy, SETS.validator.r] = L.v;
+  S = {miner: [], validator: [], tags: new Map()};
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = '';
+  const defs = el('defs', {}, svg);
+  const f = el('filter', {id: 'glow', x: '-50%', y: '-50%', width: '200%', height: '200%'}, defs);
+  el('feGaussianBlur', {stdDeviation: '6', result: 'b'}, f);
+  const m = el('feMerge', {}, f); el('feMergeNode', {in: 'b'}, m); el('feMergeNode', {in: 'SourceGraphic'}, m);
+  const g = el('pattern', {id: 'grid', width: 28, height: 28, patternUnits: 'userSpaceOnUse'}, defs);
+  el('path', {d: 'M28 0H0V28', fill: 'none', stroke: '#0f1a1e', 'stroke-width': 1}, g);
+  el('rect', {width: W, height: H, fill: 'url(#grid)'}, svg);
+  S.layers = {sets: el('g', {}, svg), tags: el('g', {}, svg), fx: el('g', {}, svg)};
+  for (const role of ['miner', 'validator']) {
+    const s = SETS[role], g = el('g', {}, S.layers.sets);
+    s.g = g;
+    s.halo = el('circle', {cx: s.cx, cy: s.cy, r: s.r + 26, fill: s.color, opacity: 0}, g);
+    el('circle', {cx: s.cx, cy: s.cy, r: s.r, class: 'ringline'}, g);
+    el('text', {x: s.cx, y: s.cy - s.r - 34, 'text-anchor': 'middle', class: 'lbl'}, g).textContent = s.label;
+    s.count = el('text', {x: s.cx, y: s.cy + 6, 'text-anchor': 'middle', fill: s.color,
+      style: 'font:700 30px var(--mono)'}, g);
+    s.sub = el('text', {x: s.cx, y: s.cy + 26, 'text-anchor': 'middle', class: 'keylbl'}, g);
+    s.nodes = el('g', {}, g);
+    // a comet orbiting each set: the ring is alive even when idle
+    const orb = el('g', {}, g);
+    el('circle', {cx: s.cx, cy: s.cy - s.r, r: 3, fill: s.color, class: 'glow'}, orb);
+    for (let k = 1; k < 7; k++) {
+      const a = -Math.PI / 2 - k * 0.07;
+      el('circle', {cx: s.cx + s.r * Math.cos(a), cy: s.cy + s.r * Math.sin(a), r: 2.6 - k * .3,
+        fill: s.color, opacity: .5 - k * .07}, orb);
+    }
+    if (!reduced) el('animateTransform', {attributeName: 'transform', type: 'rotate',
+      from: `0 ${s.cx} ${s.cy}`, to: `${role === 'miner' ? 360 : -360} ${s.cx} ${s.cy}`,
+      dur: role === 'miner' ? '14s' : '17s', repeatCount: 'indefinite'}, orb);
+  }
+  const t = el('text', {x: TAGX, y: L.title, 'text-anchor': 'middle', class: 'lbl'}, S.layers.sets);
+  t.textContent = 'TAGS · ANONYMOUS';
+  S.tagTitle = t;
+  S.payeeG = el('g', {opacity: 0}, S.layers.sets);
+  el('rect', {x: TAGX - 110, y: 0, width: 220, height: 36, rx: 10, fill: '#120d03', stroke: '#f59e0b'}, S.payeeG);
+  S.payeeT = el('text', {x: TAGX, y: 23, 'text-anchor': 'middle', fill: '#f59e0b',
+    style: 'font:600 12px var(--mono)'}, S.payeeG);
+}
+function drawSet(role, keys) {
+  const s = SETS[role]; s.nodes.innerHTML = '';
+  S[role] = keys;
+  s.count.textContent = keys.length || '0';
+  s.sub.textContent = keys.length ? `ring of ${Math.min(keys.length, CH[CHAIN].cap)} · any one of these` : 'no members';
+  keys.forEach((k, i) => {
+    const a = -Math.PI / 2 + i * 2 * Math.PI / keys.length;
+    const x = s.cx + s.r * Math.cos(a), y = s.cy + s.r * Math.sin(a);
+    const c = el('circle', {cx: x, cy: y, r: 9, fill: '#0b1114', stroke: s.color, 'stroke-width': 2, class: 'node',
+      style: `animation-delay:${(-i * 0.45).toFixed(2)}s`}, s.nodes);
+    el('title', {}, c).textContent = `${role} public key\nx = ${k.x}`;
+    const lx = s.cx + (s.r + 24) * Math.cos(a), ly = s.cy + (s.r + 24) * Math.sin(a) + 3;
+    el('text', {x: lx, y: ly, 'text-anchor': Math.abs(Math.cos(a)) < .3 ? 'middle' : (Math.cos(a) > 0 ? 'start' : 'end'),
+      class: 'keylbl'}, s.nodes).textContent = (k.x || '').slice(0, 7);
+    k._el = c; k._x = x; k._y = y;
+  });
+}
+function tagPos(i) { return {x: TAGX, y: TAGY0 + i * 62}; }
+function drawTag(tag, sum = 0, n = 0, claimed = false) {
+  if (S.tags.has(tag)) return S.tags.get(tag);
+  const i = S.tags.size, p = tagPos(i);
+  const g = el('g', {transform: `translate(${p.x - 130},${p.y})`, opacity: 0}, S.layers.tags);
+  const box = el('rect', {width: 260, height: 50, rx: 10, fill: '#071513', stroke: '#14b8a6', 'stroke-opacity': .5}, g);
+  el('text', {x: 14, y: 20, fill: '#5eead4', style: 'font:600 12px var(--mono)'}, g).textContent = short(tag);
+  const sc = el('text', {x: 246, y: 20, 'text-anchor': 'end', fill: '#e6f2f1', style: 'font:700 12px var(--mono)'}, g);
+  el('rect', {x: 14, y: 30, width: 232, height: 6, rx: 3, fill: '#0f171b'}, g);
+  const bar = el('rect', {x: 14, y: 30, width: 0, height: 6, rx: 3, fill: '#a78bfa'}, g);
+  const dots = el('g', {transform: 'translate(14,44)'}, g);
+  const T = {g, box, sc, bar, dots, sum, n, claimed, p, tag};
+  S.tags.set(tag, T); updTag(T);
+  requestAnimationFrame(() => { g.style.transition = 'opacity .4s'; g.setAttribute('opacity', 1); });
+  return T;
+}
+function updTag(T) {
+  T.sc.textContent = T.claimed ? 'CLAIMED' : `${T.sum} · ${T.n}x`;
+  T.sc.setAttribute('fill', T.claimed ? '#f59e0b' : '#e6f2f1');
+  T.box.setAttribute('stroke', T.claimed ? '#f59e0b' : '#14b8a6');
+  const max = Math.max(100 * Math.max(1, S.validator.length), 1);
+  T.bar.setAttribute('width', Math.min(232, 232 * T.sum / max));
+  T.dots.innerHTML = '';
+  for (let k = 0; k < T.n; k++) el('circle', {cx: k * 9, cy: 0, r: 2.5, fill: '#a78bfa'}, T.dots);
+}
+function pulse(role) {
+  const s = SETS[role];
+  s.halo.style.transition = 'none'; s.halo.setAttribute('opacity', .22);
+  for (const k of S[role]) k._el && k._el.setAttribute('fill', s.color);
+  requestAnimationFrame(() => {
+    s.halo.style.transition = 'opacity .9s'; s.halo.setAttribute('opacity', 0);
+    setTimeout(() => { for (const k of S[role]) k._el && k._el.setAttribute('fill', '#0b1114'); }, 450);
+  });
+}
+async function signRing(role, fast) {
+  const s = SETS[role], keys = S[role].filter(k => k._el);
+  if (!keys.length) return pulse(role);
+  for (const k of keys) {
+    const ln = el('line', {x1: k._x, y1: k._y, x2: s.cx, y2: s.cy, stroke: s.color, 'stroke-width': 1.2,
+      'stroke-opacity': .7}, S.layers.fx);
+    setTimeout(() => { ln.style.transition = 'stroke-opacity .7s'; ln.setAttribute('stroke-opacity', 0);
+      setTimeout(() => ln.remove(), 800); }, fast ? 120 : 380);
+  }
+  if (!fast && !reduced) {
+    for (let j = 0; j < 7; j++) {
+      const k = keys[Math.floor(Math.random() * keys.length)];
+      k._el.setAttribute('fill', s.color); await sleep(42); k._el.setAttribute('fill', '#0b1114');
+    }
+  }
+  pulse(role);
+}
+function fly(x1, y1, x2, y2, color, ms = 650) {
+  return new Promise(res => {
+    const c = el('circle', {cx: x1, cy: y1, r: 6, fill: color, class: 'glow'}, S.layers.fx);
+    const trail = el('line', {x1, y1, x2: x1, y2: y1, stroke: color, 'stroke-width': 1.5, 'stroke-opacity': .5}, S.layers.fx);
+    const t0 = performance.now();
+    (function step(t) {
+      const k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+      const horiz = Math.abs(x2 - x1) > Math.abs(y2 - y1);
+      const mx = (x1 + x2) / 2 + (horiz ? 0 : 70), my = horiz ? Math.min(y1, y2) - 60 : (y1 + y2) / 2;
+      const x = (1 - e) * (1 - e) * x1 + 2 * (1 - e) * e * mx + e * e * x2;
+      const y = (1 - e) * (1 - e) * y1 + 2 * (1 - e) * e * my + e * e * y2;
+      c.setAttribute('cx', x); c.setAttribute('cy', y);
+      trail.setAttribute('x2', x); trail.setAttribute('y2', y);
+      if (k < 1) requestAnimationFrame(step);
+      else { c.remove(); trail.style.transition = 'opacity .5s'; trail.setAttribute('stroke-opacity', 0); setTimeout(() => trail.remove(), 600); res(); }
+    })(t0);
+  });
+}
+function caption(t) { const c = $('cap'); c.style.opacity = 0; setTimeout(() => { c.textContent = t; c.style.opacity = 1; }, 120); }
+
+/* ---------------- event playback ---------------- */
+let logN = 0;
+const cost = e => e.tgas ? `${e.tgas} Tgas` : e.cu ? `${fmtM(e.cu)} CU · ${e.units} units · ${e.txs} txs`
+  : e.gas ? `${fmtM(e.gas)} gas` : e.steps ? `${(e.steps / 1000).toFixed(1)}k steps · ${e.ec_op} ec_op` : (e.ms ? `signed ${e.ms}ms` : 'verified');
+function logEv(e) {
+  const L = $('log'); if (!logN) L.innerHTML = '';
+  logN++;
+  const txt = {
+    devnet: () => `${CH[e.chain || 'starknet'].local} up at block ${e.block}`,
+    deploying: () => CH[e.chain || 'starknet'].deploying,
+    deploy: () => `ZTao ${short(e.address)} · tempo ${e.tempo} · min_ring ${e.min_ring}${e.tgas ? ` · ${e.tgas} Tgas` : e.gas ? ` · ${fmtM(e.gas)} gas` : e.program_bytes ? ` · program ${Math.round(e.program_bytes / 1024)} KiB` : ''}`,
+    register: () => `${e.role} key ${short(e.x)}`,
+    submit: () => `tag ${short(e.tag)} · ring ${e.ring} · ${cost(e)}`,
+    score: () => `${e.score} -> ${short(e.tag)} · nullifier ${short(e.nullifier)} · ${cost(e)}`,
+    close: () => `epoch ${e.epoch} closed at block ${e.block}`,
+    claim: () => `${e.earned} pts -> ${short(e.recipient)} · ${cost(e)}`,
+    replay: () => `double claim ${e.result}`,
+    done: () => `epoch proved end to end in ${e.seconds}s`,
+    error: () => e.error,
+  }[e.kind];
+  const d = document.createElement('div');
+  d.innerHTML = `<span class="t">${e.t != null ? e.t.toFixed(1) + 's' : ''}</span><span class="k ${e.kind}">${e.kind}</span>`;
+  d.appendChild(document.createTextNode(txt ? txt() : JSON.stringify(e)));
+  L.appendChild(d); L.scrollTop = L.scrollHeight;
+}
+async function playEvent(e, fast) {
+  logEv(e);
+  const s = SETS;
+  switch (e.kind) {
+    case 'devnet':
+    case 'deploying':
+      // the old epoch fades out while the new contract lands
+      S.layers.tags.style.transition = 'opacity .6s'; S.layers.tags.style.opacity = .18;
+      for (const r of ['miner', 'validator']) SETS[r].g.style.opacity = .35;
+      caption(e.kind === 'devnet' ? `${CH[CHAIN].local} up. Deploying a fresh subnet contract`
+        : CH[CHAIN].deploying);
+      break;
+    case 'deploy':
+      S.layers.tags.style.opacity = 1;
+      for (const r of ['miner', 'validator']) { SETS[r].g.style.transition = 'opacity .5s'; SETS[r].g.style.opacity = 1; }
+      S.tags.clear(); S.layers.tags.innerHTML = ''; S.payeeG.setAttribute('opacity', 0);
+      drawSet('miner', []); drawSet('validator', []);
+      $('addr').textContent = short(e.address); caption('contract deployed. Registering the public sets');
+      break;
+    case 'register':
+      S[e.role].push({x: e.x}); drawSet(e.role, S[e.role]);
+      break;
+    case 'submit': {
+      caption(`a miner submitted. Ring of ${e.ring}: nobody can tell which one`);
+      await signRing('miner', fast);
+      const T = drawTag(e.tag); T.g.setAttribute('opacity', 0);
+      await fly(s.miner.cx, s.miner.cy, ...L.mIn(T), '#14b8a6', fast ? 250 : 700);
+      T.g.setAttribute('opacity', 1);
+      S.tagTitle.textContent = `TAGS · EPOCH ${e.epoch}`;
+      break;
+    }
+    case 'score': {
+      caption(`a validator scored a tag ${e.score}. One nullifier, no identity`);
+      await signRing('validator', fast);
+      const T = drawTag(e.tag);
+      await fly(s.validator.cx, s.validator.cy, ...L.vIn(T), '#a78bfa', fast ? 180 : 420);
+      T.sum += e.score; T.n += 1; updTag(T);
+      break;
+    }
+    case 'close': caption(`epoch ${e.epoch} closed. Zuma consensus settles every tag`); break;
+    case 'settle': {
+      const T = drawTag(e.tag);
+      caption(e.raw > e.rank
+        ? `Zuma consensus: ${e.consensus}. ${e.raw - e.rank} points above it clipped`
+        : `Zuma consensus: ${e.consensus}, rank ${e.rank}`);
+      T.sum = e.rank; updTag(T);
+      if (!fast) await new Promise(r => setTimeout(r, 500));
+      break;
+    }
+    case 'claim': {
+      const T = drawTag(e.tag);
+      caption('the owner of one tag re-signed and proved the same key image');
+      await signRing('miner', fast);
+      const py = L.payY(S.tags.size);
+      S.payeeG.setAttribute('transform', `translate(0,${py})`);
+      await fly(T.p.x, T.p.y + 50, TAGX, py + 18, '#f59e0b', fast ? 300 : 800);
+      T.claimed = true; updTag(T);
+      S.payeeT.textContent = `+${e.earned} pts -> ${short(e.recipient)}`;
+      S.payeeG.setAttribute('opacity', 1);
+      break;
+    }
+    case 'replay':
+      caption(e.ok ? 'replayed claim REJECTED: same key, same tag' : 'replay ACCEPTED (bug)');
+      { const r = el('rect', {x: 0, y: 0, width: W, height: H, fill: '#f43f5e', opacity: .14}, S.layers.fx);
+        setTimeout(() => { r.style.transition = 'opacity .8s'; r.setAttribute('opacity', 0); setTimeout(() => r.remove(), 900); }, 120); }
+      break;
+    case 'done': caption(`proved on-chain in ${e.seconds}s. Every tag is scored, nobody is named`); break;
+    case 'error': caption('error: ' + e.error); break;
+  }
+  if (!fast) await sleep(e.kind === 'register' ? 60 : 120);
+}
+
+/* ---------------- board (idle state) ---------------- */
+let busy = false, lastBoard = null;
+function renderTally(b) {
+  const box = $('tally');
+  const ep = (b.epochs || [])[0];
+  if (!ep) { box.innerHTML = '<div class="empty">no tags yet. Run an epoch.</div>'; $('tallyep').textContent = '-'; return; }
+  $('tallyep').textContent = `epoch ${ep.epoch}${ep.open ? ' · open' : ''}`;
+  const max = Math.max(1, ...ep.tags.map(t => t.score_sum));
+  let h = '<table><tr><th>tag</th><th>score</th><th></th><th>share</th><th></th></tr>';
+  for (const t of ep.tags) {
+    const share = ep.total ? Math.floor((b.emission || 0) * t.score_sum / ep.total) : 0;
+    h += `<tr><td class="tag">${short(t.tag)}</td><td>${t.score_sum} <span style="color:var(--mute)">/${t.scores}</span></td>
+      <td style="width:35%"><div class="sbar"><i style="width:${100 * t.score_sum / max}%"></i></div></td>
+      <td>${share}</td><td>${t.claimed ? '<span class="pill ok">claimed</span>' : (ep.open ? '<span class="pill open">open</span>' : '<span class="pill">claimable</span>')}</td></tr>`;
+  }
+  h += '</table>';
+  const old = (b.epochs || []).slice(1);
+  if (old.length) {
+    h += '<div class="hist"><div class="h">EARLIER EPOCHS</div>';
+    for (const o of old) {
+      const mx = Math.max(1, ...o.tags.map(t => t.score_sum));
+      const bars = o.tags.map(t => `<i class="${t.claimed ? 'c' : ''}" style="height:${Math.max(12, 100 * t.score_sum / mx)}%" title="${short(t.tag)} · ${t.score_sum}"></i>`).join('');
+      const cl = o.tags.filter(t => t.claimed).length;
+      h += `<div class="hrow"><span>epoch ${o.epoch}</span><span class="spark">${bars}</span><span>${o.tags.length} tags</span><span style="color:${cl ? 'var(--amber)' : 'var(--mute)'}">${cl} claimed</span></div>`;
+    }
+    h += '</div>';
+  }
+  box.innerHTML = h;
+}
+const ago = s => s < 90 ? `${Math.round(s)}s ago` : s < 5400 ? `${Math.round(s / 60)}m ago` : s < 129600 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`;
+const tick = '<svg viewBox="0 0 10 10"><path d="M1.5 5.5l2.3 2.3L8.5 2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+function renderFacts(sim) {
+  const f = $('facts');
+  if (!sim || !sim.result) { f.innerHTML = ''; return; }
+  const r = sim.result, ok = String(r.double_claim || '').startsWith('rejected');
+  const sub = (sim.events || []).find(e => e.kind === 'submit');
+  const n = (sim.events || []).filter(e => e.kind === 'score').length;
+  f.innerHTML = [
+    `<span class="fact" style="color:var(--teal2)">${tick}<b>proved on ${CH[sim.chain || 'starknet'].name}</b> ${ago(Date.now() / 1000 - sim.at)}</span>`,
+    `<span class="fact">full epoch <b>${r.seconds}s</b></span>`,
+    sub ? `<span class="fact">ring ${sub.ring} verify <b>${cost(sub)}</b></span>` : '',
+    `<span class="fact">${n} anonymous scores</span>`,
+    `<span class="fact ${ok ? 'red' : ''}">double claim <b>${ok ? 'rejected' : 'ACCEPTED'}</b></span>`,
+  ].join('');
+}
+function preloadLog(sim) {
+  if (!sim || !sim.events || logN) return;
+  const box = $('log'); box.innerHTML = `<div class="sep">LAST RUN · ${ago(Date.now() / 1000 - sim.at).toUpperCase()}</div>`;
+  logN = 1;
+  for (const e of sim.events) logEv(e);
+  box.scrollTop = 0;
+}
+function renderParams(b) {
+  const rows = b.deployed && b.contract ? [
+    ['contract', b.contract], ['owner', b.owner], ['tempo', `${b.tempo} blocks / epoch`],
+    ['min_ring', b.min_ring], ['emission', `${b.emission} pts / epoch`],
+    ['registration', b.open ? 'open' : 'owner only'],
+    ['miners', (b.miners || []).length], ['validators', (b.validators || []).length],
+  ] : [['status', b.devnet_up === false ? `${CH[CHAIN].local} down. Run an epoch to boot it` : 'not deployed. Run an epoch']];
+  $('params').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span title="${v}">${v}</span>`).join('');
+}
+async function refresh() {
+  let b;
+  const want = CHAIN;
+  try { b = await get('board', `?network=${NET()}`); } catch { return; }
+  if (b.error || want !== CHAIN) return;
+  lastBoard = b;
+  $('netdot').classList.toggle('on', !!b.devnet_up);
+  $('blk').textContent = b.block != null ? `#${b.block}` : 'offline';
+  $('addr').textContent = b.contract ? short(b.contract) : 'not deployed';
+  if (b.tempo) {
+    $('ep').textContent = b.epoch;
+    $('epbar').style.width = `${100 * (b.tempo - b.blocks_left) / b.tempo}%`;
+    $('left').textContent = `${b.blocks_left} blocks left · tempo ${b.tempo}`;
+  }
+  renderParams(b);
+  if (busy) return;
+  renderTally(b);
+  // idle stage = the chain as any reader sees it
+  if ((b.miners || []).length !== S.miner.length || (b.validators || []).length !== S.validator.length) {
+    drawSet('miner', (b.miners || []).map(k => ({x: k.x}))); drawSet('validator', (b.validators || []).map(k => ({x: k.x})));
+  }
+  const ep = (b.epochs || [])[0];
+  if (ep) {
+    S.tagTitle.textContent = `TAGS · EPOCH ${ep.epoch}`;
+    const want = ep.tags.map(t => t.tag).join();
+    if ([...S.tags.keys()].join() !== want) { S.tags.clear(); S.layers.tags.innerHTML = ''; }
+    for (const t of ep.tags.slice(0, 5)) { const T = drawTag(t.tag); T.sum = t.score_sum; T.n = t.scores; T.claimed = t.claimed; updTag(T); }
+  }
+}
+
+/* ---------------- actions ---------------- */
+function setBusy(on, label) {
+  busy = on; $('run').disabled = on; $('replay').disabled = on;
+  $('logstate').textContent = label || (on ? 'live' : 'idle');
+  $('logstate').className = 'pill' + (on ? ' open' : '');
+}
+async function run() {
+  const r = await post('simulate', {miners: 4, validators: 4, chain: CHAIN});
+  if (r.cooldown) return toast(`cooling down: ${r.cooldown}s. Try the replay meanwhile`);
+  if (!r.started && !r.running) return toast(r.error || 'could not start');
+  setBusy(true, 'live · on-chain');
+  const btn = $('run'), t0 = Date.now(); btn.classList.add('running');
+  const timer = setInterval(() => { btn.textContent = `Proving on-chain · ${Math.floor((Date.now() - t0) / 1000)}s`; }, 250);
+  logN = 0; $('log').innerHTML = '';
+  caption(`booting a fresh contract on ${CH[CHAIN].local}`);
+  let since = 0, queue = [], done = false;
+  const pump = (async () => {
+    while (!done || queue.length) {
+      if (queue.length) await playEvent(queue.shift(), queue.length > 6);
+      else await sleep(120);
+    }
+  })();
+  while (true) {
+    const s = await get('sim', `?since=${since}`);
+    queue.push(...s.events); since = s.next;
+    if (!s.running) { done = true; break; }
+    await sleep(500);
+  }
+  await pump;
+  clearInterval(timer); btn.classList.remove('running'); btn.textContent = 'Run an anonymous epoch';
+  setBusy(false); refresh(); get('last_sim', `?chain=${CHAIN}`).then(renderFacts);
+}
+async function replay() {
+  const r = await get('last_sim', `?chain=${CHAIN}`);
+  if (!r || !r.events) return toast('no recorded run yet. Run one first');
+  setBusy(true, 'replay');
+  logN = 0; $('log').innerHTML = '';
+  for (const e of r.events) await playEvent(e, false);
+  setBusy(false);
+  setTimeout(refresh, 2500);
+}
+$('run').onclick = run;
+$('replay').onclick = replay;
+$('addrchip').onclick = () => {
+  if (lastBoard && lastBoard.contract) { navigator.clipboard && navigator.clipboard.writeText(lastBoard.contract); toast('contract address copied'); }
+};
+
+/* ---------------- chain switch : one dropdown ---------------- */
+const tileInner = c => `<span class="gl">${GLYPH[c]}</span>
+  <span style="min-width:0"><b>${CH[c].name.toUpperCase()}</b><small>${CH[c].tile}</small></span>`;
+const perAction = c => { const a = econOf(c); return a && a.usd != null ? `${usd(a.usd)} / action` : ''; };
+function renderSwitch() {
+  const sw = $('chainsw');
+  sw.innerHTML = `<button class="ctile on" data-chain="${CHAIN}" id="ddbtn" aria-haspopup="listbox" aria-expanded="false" title="switch chain">${tileInner(CHAIN)}
+    <span class="ddr"><span class="usd" data-usd="${CHAIN}">${perAction(CHAIN)}</span><span class="ok" data-ok="${CHAIN}"></span></span><span class="chev">&#9662;</span></button>
+    <div class="ddmenu" role="listbox" aria-label="network">${ORDER.map(c => `<button class="ctile${c === CHAIN ? ' on' : ''}" data-chain="${c}" role="option" aria-selected="${c === CHAIN}">${tileInner(c)}
+      <span class="ddr"><span class="usd" data-usd="${c}">${perAction(c)}</span><span class="ok" data-ok="${c}"></span></span></button>`).join('')}</div>`;
+  const open = on => { sw.classList.toggle('open', on); $('ddbtn').setAttribute('aria-expanded', on);
+    if (on) (sw.querySelector('.ddmenu .on') || sw.querySelector('.ddmenu button')).focus(); };
+  $('ddbtn').onclick = e => { e.stopPropagation(); open(!sw.classList.contains('open')); };
+  sw.querySelectorAll('.ddmenu button').forEach(b => b.onclick = () => { open(false); setChain(b.dataset.chain, true); });
+  sw.onkeydown = e => {
+    const items = [...sw.querySelectorAll('.ddmenu button')], i = items.indexOf(document.activeElement);
+    if (e.key === 'Escape') { open(false); $('ddbtn').focus(); }
+    else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && sw.classList.contains('open')) {
+      e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
+  };
+  renderOk();
+}
+document.addEventListener('click', e => { if (!$('chainsw').contains(e.target)) $('chainsw').classList.remove('open'); });
+function renderOk() {
+  document.querySelectorAll('[data-ok]').forEach(e => {
+    const t = (TESTS || {})[e.dataset.ok]; e.textContent = t ? `${t.passed} ok` : '';
+  });
+}
+renderSwitch();
+function renderBanner() {
+  const c = CH[CHAIN], v = verifyCost(CHAIN);
+  $('bglyph').innerHTML = GLYPH[CHAIN];
+  $('bname').textContent = `${c.name} · ${c.lang}`;
+  $('bline').textContent = c.line;
+  $('bmeta').innerHTML = [
+    v ? `<span class="chip">ring 4 <b>${v[0]} ${v[1]}</b></span>` : '',
+    `<span class="chip">max ring <b>${c.cap}</b></span>`,
+    `<span class="chip">tests <b>${testsOf(CHAIN)}</b></span>`,
+    c.port ? `<span class="chip">${esc(c.local)} <b>:${c.port}</b></span>` : `<span class="chip">${esc(c.local)}</span>`,
+  ].join('');
+  renderOk();
+  const t = (TESTS || {})[CHAIN]; $('tcount').textContent = t ? t.passed : '';
+}
+function setChain(c, user) {
+  if (!CH[c] || (busy && user)) return busy && user && toast('an epoch is running. Switch when it finishes');
+  CHAIN = c; localStorage.setItem('ztao.chain', c);
+  document.documentElement.dataset.chain = c;
+  const u = new URL(location.href); u.searchParams.set('chain', c); history.replaceState(null, '', u);
+  renderSwitch();
+  $('scope').textContent = CH[c].name.toUpperCase();
+  $('limchain').textContent = CH[c].name.toUpperCase();
+  $('net').textContent = CH[c].local; $('verifier').textContent = CH[c].verifier;
+  $('costli').innerHTML = CH[c].costli;
+  renderBanner();
+  if (!busy) {
+    initStage(); logN = 0; $('log').innerHTML = '<div class="empty">waiting for a run</div>';
+    $('tally').innerHTML = '<div class="empty">loading</div>'; $('facts').innerHTML = '';
+    $('addr').textContent = 'loading';
+    refresh(); get('last_sim', `?chain=${c}`).then(sim => { renderFacts(sim); preloadLog(sim); }).catch(() => {});
+  }
+  route();
+}
+Promise.all([cmpP, testsP]).then(() => { renderBanner(); if (TAB === 'costs') renderCosts(); if (TAB === 'tests') renderTests(); if (TAB === 'all') renderAll(); });
+let rz;
+addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => {
+  if (busy || (innerWidth < 700 ? 'tall' : 'wide') === mode) return;
+  initStage(); refresh();
+}, 200); });
+setInterval(() => { if (TAB === 'live') refresh(); }, 4000);
+async function followRunning() {
+  setBusy(true, 'live · on-chain'); logN = 0;
+  let since = 0;
+  while (true) {
+    const s = await get('sim', `?since=${since}`);
+    for (const e of s.events) await playEvent(e, true);
+    since = s.next; if (!s.running) break; await sleep(500);
+  }
+  setBusy(false); refresh();
+}
+
+/* ---------------- tabs ---------------- */
+const TABS = ['live', 'code', 'costs', 'tests', 'all', 'paper'];
+const SCOPED = ['live', 'code', 'costs', 'tests'];
+let TAB = 'live', paperLoaded = false;
+function route() {
+  let [tab, ...rest] = (location.hash.slice(1) || 'live').split('/');
+  if (tab === 'compare') tab = 'costs';
+  const t = TABS.includes(tab) ? tab : 'live';
+  TAB = t;
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + t));
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === t));
+  $('banner').style.display = SCOPED.includes(t) ? '' : 'none';
+  $('scope').style.visibility = SCOPED.includes(t) ? '' : 'hidden';
+  if (t === 'code') openCode(rest.join('/'));
+  if (t === 'costs') renderCosts();
+  if (t === 'tests') renderTests();
+  if (t === 'all') renderAll();
+  if (t === 'paper' && !paperLoaded) { paperLoaded = true; loadPaper(); }
+}
+addEventListener('hashchange', route);
+
+/* ---------------- code ---------------- */
+const KW = {
+  rs: 'as|break|const|continue|crate|else|enum|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|type|unsafe|use|where|while|true|false|Some|None|Ok|Err',
+  cairo: 'as|break|const|continue|else|enum|fn|for|if|impl|let|loop|match|mod|mut|pub|ref|return|self|struct|super|trait|type|use|while|true|false|Option|Some|None|Array|Span|felt252|u8|u32|u64|u128|u256|bool|ContractAddress|of',
+  py: 'and|as|assert|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|None|not|or|pass|raise|return|True|False|try|while|with|yield|self',
+  toml: 'true|false',
+  sol: 'pragma|solidity|contract|library|interface|function|returns|return|memory|calldata|storage|uint256|uint128|uint64|uint32|uint8|int256|bool|address|bytes32|bytes|struct|mapping|if|else|for|while|require|revert|emit|event|error|external|internal|public|private|view|pure|payable|assembly|let|true|false|immutable|constant|new|using|import|is|modifier|unchecked|switch|case|default|leave',
+};
+function lang(path) {
+  const e = path.split('.').pop();
+  return {rs: 'rs', cairo: 'cairo', py: 'py', toml: 'toml', sol: 'sol'}[e] || 'rs';
+}
+function highlight(code, lg) {
+  const cm = lg === 'py' || lg === 'toml' ? '#[^\\n]*' : '//[^\\n]*';
+  const st = lg === 'py' ? '"""[\\s\\S]*?"""|\'\'\'[\\s\\S]*?\'\'\'|"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\''
+    : lg === 'cairo' ? '"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\'' : '"(?:\\\\.|[^"\\\\])*"|b\'(?:\\\\.|[^\'\\\\])\'|\'(?:\\\\.|[^\'\\\\])\'(?!\\w)';
+  const re = new RegExp(`(${cm})|(${st})|\\b(${KW[lg] || KW.rs})\\b|\\b(0x[0-9a-fA-F_]+|\\d[\\d_]*(?:\\.\\d+)?)\\b|(#!?\\[[^\\]\\n]*\\]|@\\w+)|\\b([A-Z][A-Za-z0-9_]*)\\b|\\b([a-z_][a-z0-9_]*)(?=\\s*(?:!|::<[^>]*>)?\\()`, 'g');
+  let out = '', last = 0, m;
+  while ((m = re.exec(code))) {
+    out += esc(code.slice(last, m.index));
+    const cls = m[1] ? 'c' : m[2] ? 's' : m[3] ? 'k' : m[4] ? 'n' : m[5] ? 'a' : m[6] ? 't' : 'f';
+    out += `<span class="tk-${cls}">${esc(m[0])}</span>`;
+    last = re.lastIndex;
+  }
+  out += esc(code.slice(last));
+  // one span per line (comments/strings may span lines: close+reopen per line)
+  const open = [];
+  return out.split('\n').map(line => {
+    const pre = open.join('');
+    for (const t of line.match(/<span class="tk-\w">|<\/span>/g) || []) t === '</span>' ? open.pop() : open.push(t);
+    return `<span class="l">${pre}${line || ' '}${'</span>'.repeat(open.length)}</span>`;
+  }).join('');
+}
+let FILES = null, CUR = null;
+const srcCache = {};
+async function source(path) {
+  if (!srcCache[path]) srcCache[path] = get('source', `?path=${encodeURIComponent(path)}`);
+  return srcCache[path];
+}
+
+/* ---------------- contract (code) : only this chain's files ---------------- */
+const VERIFY_FN = {
+  starknet: [/lsag\.cairo$/, 'pub fn verify(', '\n}\n', '\n}', 'verify'],
+  near: [/lsag\.rs$/, 'pub fn verify_hinted(', '\n}\n', '\n}', 'verify_hinted'],
+  eth: [/LSAG\.sol$/, 'function verify(Point[]', '\n    }\n', '\n    }', 'verify'],
+  solana: [/lib\.rs$/, 'fn unit(', '\n}\n', '\n}', 'unit: one slice of verify'],
+};
+async function loadTree() {
+  if (FILES) return FILES;
+  const f = await get('files').catch(() => []);
+  if (Array.isArray(f) && f.some(g => g.files.length)) FILES = f;
+  return f || [];
+}
+const filesOf = (all, c) => all.filter(g => g.chain === c).flatMap(g => g.files);
+function findFile(all, c, re) { return filesOf(all, c).find(f => re.test(f.path)); }
+function drawTree(all) {
+  const mine = all.filter(g => g.chain === CHAIN && g.files.length);
+  const shared = all.filter(g => g.chain === 'shared' && g.files.length);
+  const link = f => `<a href="#code/${f.path}" data-path="${esc(f.path)}"><b>${esc(f.path.split('/').pop())}</b><span>${esc(f.note)} · ${f.lines} lines</span></a>`;
+  $('tree').innerHTML = mine.map(g => `<div><h5><span class="chainbadge ${CHAIN}">${CH[CHAIN].name.toUpperCase()}</span>${esc(g.group.split(' · ')[1] || '')}</h5>${g.files.map(link).join('')}</div>`).join('') +
+    (shared.length ? `<details><summary><h5><span class="chainbadge shared">SHARED</span>signer + server, every chain</h5></summary>${shared.flatMap(g => g.files).map(link).join('')}</details>` : '');
+  return mine;
+}
+async function openCode(path) {
+  const all = await loadTree();
+  const mine = drawTree(all);
+  $('sbs').style.display = CHAIN === 'starknet' ? 'none' : '';
+  if (!mine.length) { $('vpath').textContent = '-'; $('vmeta').textContent = ''; $('src').className = 'src';
+    $('src').innerHTML = '<div class="empty">no source listed for this chain yet (the module may be mid-update). Try again in a moment.</div>'; return; }
+  if (path === 'side-by-side') return sideBySide(all);
+  const mineP = mine.flatMap(g => g.files).map(f => f.path), sharedP = filesOf(all, 'shared').map(f => f.path);
+  if (!path || !(mineP.includes(path) || sharedP.includes(path))) path = mineP.includes(CUR) ? CUR : mineP[0];
+  CUR = path;
+  document.querySelectorAll('#tree a').forEach(a => a.classList.toggle('on', a.dataset.path === path));
+  const r = await source(path);
+  if (r.error) { $('src').innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
+  const f = all.flatMap(g => g.files).find(x => x.path === path) || {};
+  $('vpath').textContent = path; $('vmeta').textContent = f.note || '';
+  $('src').className = 'src'; $('src').innerHTML = box(path, r.text);
+  $('copysrc').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(r.text); toast('copied ' + path); };
+}
+function box(path, text) {
+  return `<div class="srcbox"><div class="h">${esc(path)}<span class="sp" style="flex:1"></span><span style="color:var(--mute)">${text.split('\n').length} lines</span></div><pre class="cl">${highlight(text, lang(path))}</pre></div>`;
+}
+function slice(text, start, endPat, tail) {
+  const i = text.indexOf(start); if (i < 0) return text;
+  const j = text.indexOf(endPat, i + start.length);
+  return text.slice(i, j < 0 ? undefined : j).trimEnd() + (j < 0 ? '' : tail);
+}
+/* this chain's verifier next to the Cairo reference */
+async function sideBySide(all) {
+  CUR = null;
+  document.querySelectorAll('#tree a').forEach(a => a.classList.remove('on'));
+  const [rre, rs, re2, rt] = VERIFY_FN.starknet, [mre, ms, me, mt, mlab] = VERIFY_FN[CHAIN];
+  const ref = findFile(all, 'starknet', rre), mine = findFile(all, CHAIN, mre);
+  if (!ref || !mine) return openCode('');
+  const [c, r] = await Promise.all([source(ref.path), source(mine.path)]);
+  const cv = slice(c.text || '', rs, re2, rt), rv = slice(r.text || '', ms, me, mt);
+  $('vpath').textContent = `verify: ${CH[CHAIN].name} vs Cairo`;
+  $('vmeta').textContent = 'same ring equation, same Poseidon challenges, same wire format';
+  $('src').className = 'src two';
+  $('src').innerHTML = box(`${mine.path} · ${mlab}`, rv) + box(`${ref.path} · verify (reference)`, cv);
+  $('copysrc').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(rv + '\n\n' + cv); toast('copied both'); };
+}
+$('sbs').onclick = () => { location.hash = 'code/side-by-side'; };
+
+/* ---------------- costs : only this chain ---------------- */
+let lastSims = {};
+async function renderCosts() {
+  await cmpP;
+  const c = CHAIN, x = (CMP || {})[c] || {}, costs = (CMP || {}).costs || {}, v = verifyCost(c);
+  const stat = (lab, big, unit, sub) => `<div class="stat"><div class="lab">${lab}</div><div class="big">${big}<small>${unit}</small></div><div class="sub2">${sub}</div></div>`;
+  let rows = [], opt = {};
+  if (c === 'near') {
+    const g = costs.near || {};
+    rows = (g.rows || []).map(d => ({x: d.ring, v: d.tgas, tip: d.tgas != null ? `ring ${d.ring} · <b>${d.tgas} Tgas</b> · ${(d.tgas / d.ring).toFixed(1)} per member` : `ring ${d.ring} · over the 300 Tgas limit`}));
+    opt = {limit: g.limit_tgas || 300, limitLabel: `${g.limit_tgas || 300} Tgas per-call limit`, unit: 'Tgas', at: g.at,
+      title: 'TGAS PER ACTION, BY RING SIZE', note: 'One action verifies one ring signature. NEAR caps a call at 300 Tgas, so the contract caps rings at 32.'};
+  } else if (c === 'eth') {
+    const g = costs.eth || {}, cap = (g.cap || 16777216) / 1e6;
+    rows = (g.rows || []).map(d => ({x: d.ring, v: d.gas / 1e6, tip: `ring ${d.ring} · <b>${fmtM(d.gas)} gas</b> · ${fmtM(d.gas / d.ring)} per member`}));
+    opt = {limit: cap, limitLabel: `EIP-7825 tx cap ${cap.toFixed(1)}M`, unit: 'M gas', at: g.at,
+      title: 'GAS PER ACTION, BY RING SIZE (FORGE)', note: 'Measured by forge on the verify path. A transaction may use at most 2^24 gas (EIP-7825), so rings stop at 32, at about 13.5M.'};
+  } else if (c === 'solana') {
+    const g = costs.solana || {};
+    rows = (g.rows || []).map(d => ({x: d.ring, v: d.cu / 1e6, tip: `ring ${d.ring} · <b>${fmtM(d.cu)} CU</b> · ${d.units} units · ${d.txs} txs · heaviest tx ${fmtM(d.cu_max)}`}));
+    opt = {unit: 'M CU', at: g.at, title: 'TOTAL COMPUTE UNITS PER ACTION, BY RING SIZE',
+      note: `No single transaction can verify a signature. The work is split into units, each under the ${fmtM(g.cap_cu || 1400000)} CU per-tx limit. The heaviest tx stays near ${fmtM(Math.max(0, ...(g.rows || []).map(d => d.cu_max || 0)))}. Total cost grows with the ring, the per-tx cost does not.`};
+  } else {
+    if (!lastSims.starknet) lastSims.starknet = await get('last_sim', '?chain=starknet').catch(() => ({}));
+    const ev = (lastSims.starknet.events || []).filter(e => e.steps);
+    rows = ev.map((e, i) => ({x: e.kind.slice(0, 3), v: e.steps / 1000, tip: `${e.kind} #${i + 1} · <b>${e.steps} steps</b> · ${e.ec_op} ec_op`}));
+    opt = {unit: 'k steps', at: lastSims.starknet.at, title: 'CAIRO STEPS PER ACTION · LAST EPOCH (RING 4)', xlabel: 'ACTION',
+      note: 'Every submit, score and claim in the last recorded epoch. Starknet verifies on the native EC builtin, so a ring of 4 costs about 16k steps. The contract allows rings up to 64.'};
+  }
+  const sw = c === 'starknet' ? null : (() => { const r = rows.filter(d => d.v != null); return r.length > 1 ? (r[r.length - 1].v - r[0].v) / (r[r.length - 1].x - r[0].x) : null; })();
+  const per = c === 'starknet' ? (v ? [`~${(avg(x.steps) / 4000).toFixed(1)}k`, 'steps', 'ring-4 cost / 4, roughly linear'] : null)
+    : sw == null ? null : c === 'near' ? [sw.toFixed(1), 'Tgas', 'slope of the sweep'] : c === 'eth' ? [(sw).toFixed(2) + 'M', 'gas', 'slope of the sweep'] : [(sw).toFixed(2) + 'M', 'CU', 'slope of the sweep'];
+  $('cstats').innerHTML = [
+    stat('VERIFY COST · RING 4', v ? v[0] : '-', v ? v[1] : '', v ? v[2] : `run a ${CH[c].name} epoch`),
+    stat('PER EXTRA MEMBER', per ? per[0] : '-', per ? per[1] : '', per ? per[2] : 'no sweep yet'),
+    stat('MAX RING', CH[c].cap, 'members', CH[c].capWhy),
+    stat('FULL EPOCH', x.seconds || '-', 's', `${x.actions || 0} actions · double claim ${String(x.double_claim || '-').split(':')[0]}`),
+  ].join('');
+  $('charttitle').firstChild.textContent = opt.title + ' ';
+  $('gasnote').textContent = opt.at ? `measured ${ago(Date.now() / 1000 - opt.at)}` : CH[c].local;
+  $('chartnote').textContent = opt.note;
+  barChart(rows, opt);
+  renderEcon();
+  const same = [['scheme', 'LSAG over the STARK curve, Poseidon challenges'], ['signer', 'the shared Cairo prover. One signature verifies on every chain'],
+    ['rules', 'one submit per miner per epoch · one score per validator per tag · one claim per tag']];
+  $('ctable').innerHTML = `<table class="cmp">${CH[c].how.map(([k, val]) => `<tr><td>${k}</td><td>${val}</td></tr>`).join('')}
+    <tr><th colspan="2" style="padding-top:16px">SAME ON EVERY CHAIN</th></tr>${same.map(([k, val]) => `<tr class="same"><td>${k}</td><td>${val}</td></tr>`).join('')}
+    <tr><td>last contract</td><td><code>${esc(x.contract || '-')}</code></td></tr></table>`;
+}
+/* ---------------- costs : mainnet dollars, epoch sizing, limits ---------------- */
+const EOPT = {
+  eep: [[1, '1 hour (minimum)'], [2, '2 hours'], [4, '4 hours'], [6, '6 hours'], [12, '12 hours'], [24, '1 day'], [168, '1 week']],
+  emin: [3, 4, 8, 16, 32, 64, 128, 256].map(n => [n, n]),
+  evals: [3, 4, 8, 16, 32, 64].map(n => [n, n]),
+  ering: [[0, 'whole set'], [4, 4], [8, 8], [16, 16], [32, 32], [64, 64]],
+};
+const EDEF = {eep: 1, emin: 16, evals: 8, ering: 0};
+const ESET = Object.assign({}, EDEF, JSON.parse(localStorage.getItem('ztao.econ') || '{}'));
+for (const id in EOPT) {
+  $(id).innerHTML = EOPT[id].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $(id).value = EOPT[id].some(([v]) => v == ESET[id]) ? ESET[id] : EDEF[id];
+  $(id).onchange = () => { ESET[id] = +$(id).value; localStorage.setItem('ztao.econ', JSON.stringify(ESET)); renderEcon(); };
+}
+/* value of `rows` (sorted by ring) at ring n, linear between points */
+function atRing(rows, n, k) {
+  const r = rows.filter(d => d[k] != null);
+  if (!r.length) return null;
+  if (r.length === 1) return r[0][k] * n / r[0].ring;
+  let i = r.findIndex(d => d.ring >= n); if (i <= 0) i = i === 0 ? 1 : r.length - 1;
+  const a = r[i - 1], b = r[i];
+  return a[k] + (b[k] - a[k]) * (n - a.ring) / (b.ring - a.ring);
+}
+const dur = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${(s / 86400).toFixed(1)} days`;
+const pct = f => f < .001 ? '<0.1%' : f < .1 ? (100 * f).toFixed(1) + '%' : Math.round(100 * f) + '%';
+async function renderEcon() {
+  await econP;
+  const c = CHAIN, e = ((ECON || {}).chains || {})[c];
+  const hrs = +$('eep').value, M = +$('emin').value, V = +$('evals').value, R = +$('ering').value;
+  if (!e) {
+    $('econat').textContent = 'no mainnet data';
+    $('estats').innerHTML = ''; $('etable').innerHTML = ''; $('elims').innerHTML = '';
+    $('enote').textContent = CH[c].generic ? 'This adapter does not report mainnet fees yet (mainnet() / fee() in its adapter.py).' : 'Mainnet RPC or price feed unreachable.';
+    return;
+  }
+  $('econat').textContent = `${e.stale ? 'stale · ' : 'live · '}${e.symbol} ${usd(e.usd_price)} · ${ago(Date.now() / 1000 - ECON.at)}`;
+  const cap = n => Math.max(1, Math.min(R || n, n, e.max_ring));
+  const ringM = cap(M), ringV = cap(V), base = e.ring || 4;
+  const scale = n => { const a = atRing(e.by_ring, n, 'usd'), b = atRing(e.by_ring, base, 'usd'); return a && b ? a / b : n / base; };
+  const loadAt = n => { const a = atRing(e.by_ring, n, 'load'), b = atRing(e.by_ring, base, 'load'); return a && b ? a / b : n / base; };
+  const K = e.actions, row = (k, n) => K[k] ? {usd: K[k].usd * (n ? scale(n) : 1), native: K[k].native * (n ? scale(n) : 1),
+    load: K[k].load != null ? K[k].load * (n ? loadAt(n) : 1) : null, ms: K[k].ms} : null;
+  const sub = row('submit', ringM), sco = row('score', ringV), clm = row('claim', ringM), reg = row('register');
+  // steady state, per epoch: every miner submits once and claims the last
+  // epoch, every validator scores every tag
+  const nSub = M, nSco = M * V, nClm = M, acts = nSub + nSco + nClm;
+  const perEpoch = (sub ? sub.usd * nSub : 0) + (sco ? sco.usd * nSco : 0) + (clm ? clm.usd * nClm : 0);
+  const epochS = hrs * 3600, perDay = perEpoch * 24 / hrs;
+  const tempo = Math.ceil(epochS / e.block_seconds - 1e-6);
+  const stat = (lab, big, sub2) => `<div class="stat"><div class="lab">${lab}</div><div class="big">${big}</div><div class="sub2">${sub2}</div></div>`;
+  $('estats').innerHTML = [
+    stat('ONE SCORE', usd(sco && sco.usd), `ring ${ringV} · ${sco ? (+sco.native.toPrecision(3)) + ' ' + e.symbol : '-'}`),
+    stat('ONE EPOCH', usd(perEpoch), `${acts.toLocaleString()} actions · ${M} submits · ${nSco.toLocaleString()} scores · ${M} claims`),
+    stat('PER DAY · 30 DAYS', usd(perDay), `${usd(perDay * 30)} a month · ${(24 / hrs).toFixed(hrs > 24 ? 2 : 0)} epochs a day`),
+    stat('EPOCH LENGTH', tempo.toLocaleString(), `blocks · ${(+e.block_seconds.toFixed(2))} s each · floor ${e.min_tempo.toLocaleString()}`),
+  ].join('');
+  const tr = (lab, r, n, cnt) => `<tr><td>${lab}${n ? ` <span style="color:var(--mute)">ring ${n}</span>` : ''}</td><td>${r ? +r.native.toPrecision(3) + ' ' + e.symbol : '-'}</td><td><b>${usd(r && r.usd)}</b></td><td>${cnt == null ? 'once' : '×' + cnt.toLocaleString()}</td></tr>`;
+  $('etable').innerHTML = `<tr><th>action</th><th>${e.symbol}</th><th>USD</th><th>per epoch</th></tr>
+    ${tr('submit', sub, ringM, nSub)}${tr('score', sco, ringV, nSco)}${tr('claim', clm, ringM, nClm)}${tr('register', reg, 0, null)}
+    <tr><td>max ring ${e.max_ring}</td><td colspan="3">${usd(sco && K.score.usd * scale(e.max_ring))} per action${e.by_ring.some(d => d.est) ? ' (linear estimate)' : ''}</td></tr>`;
+  $('enote').textContent = `${e.note}. Costs measured on ${CH[c].local}, priced at mainnet gas now.` +
+    (c === 'solana' ? ` Priority fee median ${e.gas.micro_lamports_per_cu} µlamports/CU.` : c === 'eth' ? ` Gas ${(+e.gas.gwei.toPrecision(3))} gwei.` : '');
+  // limits
+  const L = [];
+  const lim = (v, html) => L.push(`<li><span class="v ${v}">${{ok: 'OK', warn: 'TIGHT', bad: 'LIMIT'}[v]}</span><span>${html}</span></li>`);
+  lim('ok', `<b>Epoch floor: 1 hour = ${e.min_tempo.toLocaleString()} blocks</b> at ${(+e.block_seconds.toFixed(2))} s per block (measured on mainnet now). <code>deploy</code> refuses a shorter tempo on public networks and uses this as the default.`);
+  const perAct = (sco && sco.ms ? sco.ms : (sub && sub.ms) || 2000) / 1000 + e.rounds * e.block_seconds;
+  const serial = acts * perAct, relayers = Math.ceil(serial / epochS);
+  lim(serial <= epochS * .5 ? 'ok' : serial <= epochS ? 'warn' : 'bad',
+    `<b>One relayer needs ${dur(serial)}</b> to post ${acts.toLocaleString()} actions one at a time (~${perAct.toFixed(1)} s each: signing + ${e.rounds > 1 ? e.rounds + ' block rounds' : 'one block'}). ` +
+    (serial <= epochS ? `That is ${pct(serial / epochS)} of the epoch.` : `The epoch is ${dur(epochS)}: run <b>${relayers} relayers</b> in parallel, or fewer validators.`));
+  if (e.block_capacity && sco && sco.load) {
+    const need = nSub * (sub ? sub.load : 0) + nSco * sco.load + nClm * (clm ? clm.load : 0), have = e.block_capacity * tempo;
+    const f = need / have, fastest = need / e.block_capacity * e.block_seconds;
+    lim(f < .01 ? 'ok' : f < .1 ? 'warn' : 'bad', `<b>Uses ${pct(f)} of ${CH[c].name}'s ${c === 'near' ? 'shard' : 'block'} space</b> over the epoch (${fmtM(need)} of ${fmtM(have)} ${e.capacity_unit}). ` +
+      `One block holds ${Math.floor(e.block_capacity / sco.load) || '<1'} scores, so with every block to itself the epoch could be as short as ${dur(fastest)}.`);
+  } else lim('ok', `<b>Block space is not the binding limit</b> on ${CH[c].name} at this size; the relayer and the fee are.`);
+  if (e.tx_cap && sco && sco.load) {
+    const big = sco.load * loadAt(e.max_ring) / loadAt(ringV);
+    lim(c === 'solana' ? 'ok' : big <= e.tx_cap ? 'ok' : 'bad', c === 'solana'
+      ? `<b>No transaction can verify a signature alone</b> (${fmtM(e.tx_cap)} CU per tx), so each action is ${Math.round(avg(((CMP || {}).solana || {}).txs) || 47)} txs. Fees grow with the ring, the per-tx cost does not.`
+      : `<b>Ring cap ${e.max_ring}</b>: one action may burn at most ${fmtM(e.tx_cap)} ${e.capacity_unit} per transaction, a ring of ${e.max_ring} uses about ${fmtM(big)} ${e.capacity_unit}.`);
+  } else lim('ok', `<b>Ring cap ${e.max_ring}</b>: the contract's own limit; cost is linear in the ring.`);
+  if (M > 0 && R && (R > M || R > V)) lim('warn', `<b>Ring ${R} is larger than a set</b>: rings are capped at the set size (${ringM} miners, ${ringV} validators).`);
+  lim(V >= 3 && M >= 3 ? 'ok' : 'bad', `<b>Anonymity is the ring</b>: a score hides among ${ringV} validators, a submit among ${ringM} miners. Bigger rings cost ${usd(sco && sco.usd / ringV)} more per member per score.`);
+  $('elims').innerHTML = L.join('');
+}
+function barChart(rows, o) {
+  const W = 560, H = 280, l = 50, r = 16, t = 22, b = 38, n = Math.max(1, rows.length);
+  const max = Math.max(o.limit || 0, ...rows.map(d => d.v || 0)) * 1.14 || 1;
+  const step = (() => { const raw = max / 4, p = Math.pow(10, Math.floor(Math.log10(raw))); return [1, 2, 2.5, 5, 10].map(k => k * p).find(k => k >= raw); })();
+  const x = i => l + (i + .5) * (W - l - r) / n, bw = Math.max(6, Math.min(46, (W - l - r) / n - (n > 10 ? 6 : 14)));
+  const y = v => t + (H - t - b) * (1 - v / max);
+  let h = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.title || 'cost')}">`;
+  for (let v = 0; v <= max; v += step) h += `<line x1="${l}" x2="${W - r}" y1="${y(v)}" y2="${y(v)}" stroke="#152126"/><text x="${l - 8}" y="${y(v) + 4}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${+v.toFixed(2)}</text>`;
+  if (o.limit) {
+    h += `<line x1="${l}" x2="${W - r}" y1="${y(o.limit)}" y2="${y(o.limit)}" stroke="#f43f5e" stroke-dasharray="5 4" stroke-width="1.5"/>`;
+    h += `<text x="${W - r}" y="${y(o.limit) - 6}" text-anchor="end" fill="#8aa3a6" style="font:11px var(--mono)">${esc(o.limitLabel)}</text>`;
+  }
+  rows.forEach((d, i) => {
+    const cx = x(i);
+    if (d.v != null) {
+      const top = y(d.v), base = y(0), rr = Math.min(4, bw / 3);
+      h += `<path d="M${cx - bw / 2},${base} V${top + rr} Q${cx - bw / 2},${top} ${cx - bw / 2 + rr},${top} H${cx + bw / 2 - rr} Q${cx + bw / 2},${top} ${cx + bw / 2},${top + rr} V${base} Z" fill="var(--acc)"/>`;
+      if (n <= 10) h += `<text x="${cx}" y="${top - 6}" text-anchor="middle" fill="#e6f2f1" style="font:600 11px var(--mono)">${d.v >= 100 ? Math.round(d.v) : +d.v.toFixed(d.v >= 10 ? 1 : 2)}</text>`;
+    } else if (o.limit) {
+      h += `<text x="${cx}" y="${y(o.limit) + 18}" text-anchor="middle" fill="#f43f5e" style="font:600 11px var(--mono)">over</text>`;
+    }
+    if (n <= 10 || i % 2 === 0) h += `<text x="${cx}" y="${H - b + 18}" text-anchor="middle" fill="#8aa3a6" style="font:${n > 10 ? 9 : 11}px var(--mono)">${esc(d.x)}</text>`;
+    h += `<rect x="${cx - (W - l - r) / n / 2}" y="${t}" width="${(W - l - r) / n}" height="${H - t - b}" fill="transparent" data-i="${i}"/>`;
+  });
+  h += `<text x="${l - 40}" y="${t - 8}" fill="#566d71" style="font:10px var(--mono)">${esc(o.unit || '')}</text>`;
+  h += `<text x="${l + (W - l - r) / 2}" y="${H - 4}" text-anchor="middle" fill="#566d71" style="font:10px var(--mono);letter-spacing:1.2px">${o.xlabel || 'RING SIZE (MEMBERS)'}</text></svg><div class="tip"></div>`;
+  const el2 = $('gaschart');
+  el2.innerHTML = rows.length ? h : `<div class="empty">no measurements yet: <code>m ztao/gas_sweep chain=${CHAIN}</code></div>`;
+  const tip = el2.querySelector('.tip');
+  el2.querySelectorAll('rect[data-i]').forEach(rc => {
+    rc.onmousemove = ev => {
+      const d = rows[+rc.dataset.i], bb = el2.getBoundingClientRect();
+      tip.innerHTML = d.tip;
+      tip.style.left = Math.max(0, Math.min(ev.clientX - bb.left + 12, bb.width - 300)) + 'px'; tip.style.top = (ev.clientY - bb.top - 34) + 'px'; tip.style.opacity = 1;
+    };
+    rc.onmouseleave = () => { tip.style.opacity = 0; };
+  });
+  $('gastable').innerHTML = `<table><tr><th>${o.xlabel ? 'action' : 'ring'}</th><th>${esc(o.unit)}</th></tr>${rows.map(d => `<tr><td>${esc(d.x)}</td><td>${d.v != null ? +d.v.toFixed(3) : 'over limit'}</td></tr>`).join('')}</table>`;
+}
+
+/* ---------------- tests : only this chain ---------------- */
+async function renderTests() {
+  await testsP;
+  const c = CHAIN, x = (TESTS || {})[c];
+  const head = `<h3><span class="chainbadge ${c}">${CH[c].name.toUpperCase()}</span> ${CH[c].runner.toUpperCase()}<span class="sp"></span>`;
+  if (!x) { $('tlist').innerHTML = `${head}</h3><div class="empty">not run yet: <code>m ztao/test chain=${c}</code></div>`; return; }
+  const tot = x.passed + (x.failed || 0), f = tot ? x.passed / tot : 0, R = 30, L2 = 2 * Math.PI * R;
+  $('tlist').innerHTML = `${head}<span class="pill ${x.ok ? 'open' : ''}">${x.passed} passed${x.failed ? ` · ${x.failed} failed` : ''}</span></h3>
+    <div class="tsum"><svg class="ring" viewBox="0 0 74 74"><circle cx="37" cy="37" r="${R}" fill="none" stroke="#152126" stroke-width="7"/>
+      <circle cx="37" cy="37" r="${R}" fill="none" stroke="${x.failed ? 'var(--red)' : 'var(--acc)'}" stroke-width="7" stroke-linecap="round"
+        stroke-dasharray="${L2 * f} ${L2}" transform="rotate(-90 37 37)"/>
+      <text x="37" y="42" text-anchor="middle" fill="#e6f2f1" style="font:700 15px var(--mono)">${x.passed}/${tot}</text></svg>
+      <div><div style="font:600 14px var(--sans)">${x.ok ? 'Every test passes' : 'Some tests fail'} on the ${esc(CH[c].lang)}</div>
+      <div style="color:var(--mute);font:12px var(--mono);margin-top:4px">${esc(CH[c].runner)} · ran ${ago(Date.now() / 1000 - x.at)} · rerun: <code>m ztao/test chain=${c}</code></div></div></div>
+    <div class="tgrid">${x.tests.map(([st, n]) => `<div class="trow"><span class="${st === 'PASS' ? 'ok2' : 'bad2'}">${st}</span><span>${esc(n.replace(/^test_/, '').replace(/_/g, ' '))}</span></div>`).join('')}</div>`;
+}
+
+/* ---------------- all chains : the one cross-chain view ---------------- */
+async function renderAll() {
+  await Promise.all([cmpP, testsP]);
+  $('allcards').innerHTML = ORDER.map(c => {
+    const v = verifyCost(c), x = (CMP || {})[c] || {};
+    return `<div class="acard" data-chain="${c}"><div class="top"><span class="gl">${GLYPH[c]}</span><b>${CH[c].name.toUpperCase()}</b></div>
+      <div class="kv"><span>verify ring 4</span><span>${v ? `${v[0]} ${v[1]}` : '-'}</span><span>max ring</span><span>${CH[c].cap}</span>
+      <span>mainnet / action</span><span>${econOf(c) ? usd(econOf(c).usd) : '-'}</span>
+      <span>full epoch</span><span>${x.seconds ? x.seconds + 's' : '-'}</span><span>tests</span><span>${testsOf(c)}</span>
+      <span>language</span><span>${esc(CH[c].lang)}</span></div></div>`;
+  }).join('');
+  document.querySelectorAll('.acard').forEach(a => a.onclick = () => { location.hash = 'live'; setChain(a.dataset.chain, true); });
+  const key = {contract: ['contract', 'program']};
+  const rowsK = ['contract', 'curve math', 'Poseidon', 'subnet felt', 'recipient', 'max ring', 'hash to point', 'tests', 'local chain'];
+  const val = (c, k) => { const ks = key[k] || [k]; const r = CH[c].how.find(([kk]) => ks.includes(kk)); return r ? r[1] : '-'; };
+  $('alltable').innerHTML = `<table class="cmp"><tr><th></th>${ORDER.map(c => `<th><span class="chainbadge ${c}">${CH[c].name.toUpperCase()}</span></th>`).join('')}</tr>
+    <tr class="same"><td>scheme</td><td colspan="4">LSAG over the STARK curve, Poseidon challenges, key image I = x · Hp(scope). One Cairo signer for every chain</td></tr>
+    ${rowsK.map(k => `<tr><td>${k}</td>${ORDER.map(c => `<td>${val(c, k)}</td>`).join('')}</tr>`).join('')}
+    <tr><td>verify cost, ring 4</td>${ORDER.map(c => { const v = verifyCost(c); return `<td>${v ? `<b>${v[0]}</b> ${v[1]}` : '-'}</td>`; }).join('')}</tr>
+    <tr><td>mainnet USD / action</td>${ORDER.map(c => `<td>${econOf(c) ? `<b>${usd(econOf(c).usd)}</b>` : '-'}</td>`).join('')}</tr>
+    <tr><td>1 h epoch</td>${ORDER.map(c => { const e = ((ECON || {}).chains || {})[c]; return `<td>${e ? `${e.min_tempo.toLocaleString()} blocks` : '-'}</td>`; }).join('')}</tr></table>`;
+}
+
+/* ---------------- paper ---------------- */
+function inline(t) {
+  return esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+function md(src) {
+  const lines = src.split('\n'); let h = '', i = 0;
+  while (i < lines.length) {
+    const ln = lines[i];
+    if (ln.startsWith('```')) { const buf = []; i++; while (i < lines.length && !lines[i].startsWith('```')) buf.push(lines[i++]); i++; h += `<pre><code>${esc(buf.join('\n'))}</code></pre>`; continue; }
+    const hm = ln.match(/^(#{1,3}) (.*)/); if (hm) { h += `<h${hm[1].length}>${inline(hm[2])}</h${hm[1].length}>`; i++; continue; }
+    if (ln.startsWith('|')) { const rows = []; while (i < lines.length && lines[i].startsWith('|')) rows.push(lines[i++]);
+      const cells = r => r.split('|').slice(1, -1).map(c => c.trim());
+      h += '<table class="cmp"><tr>' + cells(rows[0]).map(c => `<th>${inline(c)}</th>`).join('') + '</tr>' +
+        rows.slice(2).map(r => '<tr>' + cells(r).map(c => `<td>${inline(c)}</td>`).join('') + '</tr>').join('') + '</table>'; continue; }
+    if (/^(- |\d+\. )/.test(ln)) { const ol = /^\d/.test(ln), items = [];
+      while (i < lines.length && (/^(- |\d+\. )/.test(lines[i]) || (/^ {2,}\S/.test(lines[i]) && items.length))) {
+        if (/^ {2,}\S/.test(lines[i])) items[items.length - 1] += ' ' + lines[i].trim(); else items.push(lines[i].replace(/^(- |\d+\. )/, '')); i++; }
+      h += `<${ol ? 'ol' : 'ul'}>${items.map(x => `<li>${inline(x)}</li>`).join('')}</${ol ? 'ol' : 'ul'}>`; continue; }
+    if (!ln.trim()) { i++; continue; }
+    const buf = []; while (i < lines.length && lines[i].trim() && !/^(#|```|\||- |\d+\. )/.test(lines[i])) buf.push(lines[i++]);
+    h += `<p>${inline(buf.join(' '))}</p>`;
+  }
+  return h;
+}
+async function loadPaper() {
+  const t = await get('whitepaper');
+  $('paper').innerHTML = t ? md(t) : '<div class="empty">no WHITEPAPER.md</div>';
+}
+initStage();
+setChain(CHAIN);
+get('networks').then(list => {
+  if (!adoptNetworks(list)) return;
+  $('hsub').textContent = `anonymous subnets · one signature scheme, ${ORDER.length} chains`;
+  renderSwitch(); renderBanner();
+  if (CH[WANT] && WANT !== CHAIN && !busy) setChain(WANT);
+}).catch(() => {});
+get('sim').then(s => { if (s.running) { if (s.chain && s.chain !== CHAIN) setChain(s.chain); toast('an epoch is running: following it'); followRunning(); } });
+</script>
+</body>
+</html>

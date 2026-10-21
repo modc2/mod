@@ -77,7 +77,7 @@ function HomeInner() {
                 ].map(([v, k, c]) => (
                   <div key={k}>
                     <dt className={`headline text-2xl ${c}`}>{v}</dt>
-                    <dd className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/55 mt-1">{k}</dd>
+                    <dd className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/70 mt-1">{k}</dd>
                   </div>
                 ))}
               </dl>
@@ -98,7 +98,7 @@ function HomeInner() {
       <div className="border-y border-white/10 bg-white/[0.02] py-4 overflow-hidden">
         <div className="marquee">
           {[...TICKER, ...TICKER].map((t, i) => (
-            <span key={i} className="headline text-xl md:text-2xl text-white/22 px-8 whitespace-nowrap flex items-center gap-8">
+            <span key={i} className="headline text-xl md:text-2xl text-white/40 px-8 whitespace-nowrap flex items-center gap-8">
               {t} <span className="text-coral/35">✦</span>
             </span>
           ))}
@@ -124,7 +124,7 @@ function HomeInner() {
         <Reveal>
           <div className="flex items-end justify-between flex-wrap gap-4 mb-10">
             <h2 className="headline text-4xl md:text-6xl text-white">Start anywhere.</h2>
-            <span className="text-white/45 text-[11px] font-bold uppercase tracking-[0.2em] pb-1">Eight doors in</span>
+            <span className="text-white/70 text-[11px] font-bold uppercase tracking-[0.2em] pb-1">Eight doors in</span>
           </div>
         </Reveal>
 
@@ -133,12 +133,12 @@ function HomeInner() {
           {featured.map((r, i) => (
             <Reveal key={r.href} delay={40 + i * 50}>
               <Link href={r.href} className="glass glass-hover rounded-2xl p-6 h-full flex flex-col group">
-                <div className="headline text-3xl text-white/[0.16] leading-none group-hover:text-coral/40 transition-colors">
+                <div className="headline text-3xl text-white/35 leading-none group-hover:text-coral transition-colors">
                   {String(i + 1).padStart(2, '0')}
                 </div>
                 <h3 className="font-display font-extrabold text-white text-lg mt-3">{r.label}</h3>
                 <p className="text-white/60 text-[13px] leading-relaxed mt-2 flex-1">{r.blurb}</p>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-white/45 group-hover:text-coral transition-colors mt-5">Open →</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-white/70 group-hover:text-coral transition-colors mt-5">Open →</span>
               </Link>
             </Reveal>
           ))}
@@ -148,7 +148,7 @@ function HomeInner() {
           <div className="flex flex-wrap gap-x-6 gap-y-2 mt-6">
             {ROUTES.filter(r => !FEATURED.includes(r.href)).map(r => (
               <Link key={r.href} href={r.href}
-                className="text-[11px] font-bold uppercase tracking-widest text-white/50 hover:text-coral transition-colors">
+                className="text-[11px] font-bold uppercase tracking-widest text-white/70 hover:text-coral transition-colors">
                 {r.label} →
               </Link>
             ))}

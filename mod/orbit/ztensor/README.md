@@ -122,6 +122,37 @@ node: `ZTENSOR_PQ_URL` (default the fleet's :51030), `ZTENSOR_PQ_TOKEN`
 is written but not exercised. No USD view, because postquant has no mainnet
 token price.
 
+## Transfers: shielded wallets by default (planned)
+
+Today no token moves (credits are points, see *Scope*). When transfers ship,
+they will not go out on the four public chains. They will run on a **ztensor
+L1**, a dedicated chain built from the postquant system (its modular consensus,
+ML-DSA / SLH-DSA keys, SHA3-256 commitments). On that chain **every wallet is
+shielded automatically**. There is no transparent address, no public balance
+and no opt-in step:
+
+- **Balances are notes.** A note is a commitment
+  `cm = SHA3(value, owner_pk, rho, r)` appended to a SHA3 Merkle tree. The
+  chain stores commitments, never amounts or owners.
+- **Spending** publishes a nullifier `nf = SHA3(sk, rho)` (one per note, so no
+  double spend) and new output notes, with a proof that the input note is in
+  the tree and that value in equals value out. Spend authority is an ML-DSA
+  signature, so no step relies on an elliptic curve.
+- **Payouts land shielded.** A Zuma `claim` mints its amount straight into a
+  note for the miner's shielded address. `earned` never passes through a
+  public account, so the payout is not linked to the miner's registered key,
+  and later transfers are not linked to the claim.
+- **What stays public.** The subnet's books do not change: scores, the
+  emission split and the size of each claim per tag are still on chain.
+  Shielding hides who received a payout and where it went afterwards, not how
+  much a tag earned.
+
+Status: **design, not built.** The proof needs a hash-based STARK over SHA3
+(membership in the note tree plus value balance). That is the same component
+the post-quantum anonymity layer needs (a STARK of `H(sk)` in a SHA3 Merkle
+set), so both land together. Until then the postquant adapter keeps credits as
+points, and no wallet code exists in this module.
+
 ## The scheme
 
 LSAG (Liu–Wei–Wong) over the STARK curve, with Poseidon challenges:
@@ -267,8 +298,8 @@ src/
 ## Scope of v0.2
 
 - Credits are **points** recorded in contract storage (`earned(addr)`). No
-  token is transferred. A real emission token can pay out against `earned`
-  later.
+  token is transferred. Real payouts are planned on the ztensor L1, where
+  every wallet is shielded by default (see *Transfers*).
 - The console is read-mostly: anything that touches member keys stays on the anchor host.
 - Epochs follow block number (`epoch = block / tempo`). A submission and its
   scores must land in the same epoch.

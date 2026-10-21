@@ -1,0 +1,12 @@
+[package]
+name = "wasmlower"
+version = "0.1.0"
+edition = "2021"
+description = "Lower a rustc wasm32 build to what nearcore accepts: MVP + sign-ext. memory.copy/fill become calls to two appended helpers, call_indirect is re-encoded canonically, the DataCount and custom sections are dropped."
+
+[dependencies]
+wasmparser = "0.244"
+wasm-encoder = { version = "0.244", features = ["wasmparser"] }
+
+[profile.release]
+opt-level = 2

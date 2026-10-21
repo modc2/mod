@@ -22,6 +22,8 @@ The run never blocks on a person. A Human node files what reached it and the
 branch ends there, parked; the graph's result says which branches are open.
 """
 import re
+import json
+import math
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -66,6 +68,108 @@ def _num(v: Any) -> Optional[float]:
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+# ── predictions ──────────────────────────────────────────────────────
+#
+# A join aggregating predictions needs one number per branch. Branches are
+# agents, so the number is rarely handed over clean: it is read, in order of
+# trust, from the structured data, a JSON answer, a labelled line, and — only
+# when the caller asked for numbers outright — the first number in the text.
+
+PRED_KEYS = ("prediction", "probability", "prob", "p", "forecast",
+             "estimate", "value", "score")
+_NUM = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+_LABELLED = re.compile(r"\b(?:%s)\b\s*[:=]?\s*(?:is\s+|of\s+|≈\s*|~\s*)?(%s)\s*(%%)?"
+                       % ("|".join(PRED_KEYS), _NUM), re.I)
+_BARE = re.compile(r"^\s*[*_`\"']*\s*(%s)\s*(%%)?\s*[*_`\"'.]*\s*$" % _NUM)
+_ANY = re.compile(r"(%s)\s*(%%)?" % _NUM)
+NUMERIC_MODES = ("mean", "median", "weighted", "logodds", "min", "max")
+
+
+def _pct(v: str, pct: Optional[str]) -> Optional[float]:
+    x = _num(v)
+    return None if x is None else (x / 100.0 if pct else x)
+
+
+def read_prediction(message: Dict[str, Any], lenient: bool = False) -> Optional[float]:
+    """The number a branch predicted, or None when it didn't give one."""
+    data = message.get("data") or {}
+    for k in PRED_KEYS:
+        if isinstance(data.get(k), (int, float)) and not isinstance(data.get(k), bool):
+            return float(data[k])
+    text = (message.get("text") or "").strip()
+    if not text:
+        return None
+    blob = text
+    if blob.startswith("```"):
+        blob = blob.strip("`").split("\n", 1)[-1]
+    start, end = blob.find("{"), blob.rfind("}")
+    if 0 <= start < end:
+        try:
+            obj = json.loads(blob[start:end + 1])
+            if isinstance(obj, dict):
+                for k in PRED_KEYS:
+                    v = obj.get(k)
+                    if isinstance(v, str):
+                        m = _BARE.match(v)
+                        v = _pct(m.group(1), m.group(2)) if m else None
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
+                        return float(v)
+        except ValueError:
+            pass
+    m = _BARE.match(text) or _LABELLED.search(text)
+    if m:
+        return _pct(m.group(1), m.group(2))
+    if lenient:
+        m = _ANY.search(text)
+        if m:
+            return _pct(m.group(1), m.group(2))
+    return None
+
+
+def _weights(spec: Any) -> Dict[str, float]:
+    """`a=2, b=1` (or a dict) → {a: 2.0, b: 1.0}."""
+    if isinstance(spec, dict):
+        return {str(k).strip().lower(): float(v) for k, v in spec.items()
+                if _num(v) is not None}
+    out: Dict[str, float] = {}
+    for part in re.split(r"[,;\n]", str(spec or "")):
+        if "=" in part or ":" in part:
+            k, v = re.split(r"[=:]", part, 1)
+            if _num(v.strip()) is not None and k.strip():
+                out[k.strip().lower()] = float(v)
+    return out
+
+
+def aggregate(values: List[tuple], mode: str, weights: Dict[str, float] = None) -> float:
+    """Combine [(source, value)] into one number. `logodds` pools
+    probabilities as the weighted mean of their log-odds — the standard way to
+    average forecasters without dragging confident ones toward 0.5."""
+    xs = [v for _, v in values]
+    w = [max(0.0, (weights or {}).get(str(s).lower(), 1.0)) for s, _ in values]
+    if mode == "median":
+        s = sorted(xs)
+        mid = len(s) // 2
+        return s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2
+    if mode == "min":
+        return min(xs)
+    if mode == "max":
+        return max(xs)
+    if mode not in ("weighted", "logodds"):
+        w = [1.0] * len(xs)
+    if not sum(w):
+        w = [1.0] * len(xs)
+    if mode == "logodds" and all(0.0 <= x <= 1.0 for x in xs):
+        eps = 1e-6
+        lo = sum(wi * math.log(min(1 - eps, max(eps, x)) / (1 - min(1 - eps, max(eps, x))))
+                 for wi, x in zip(w, xs)) / sum(w)
+        return 1 / (1 + math.exp(-lo))
+    return sum(wi * x for wi, x in zip(w, xs)) / sum(w)
+
+
+def _fmt(x: float) -> str:
+    return f"{x:.4f}".rstrip("0").rstrip(".") if x == x else "nan"
 
 
 def match_rule(message: Dict[str, Any], rule: Dict[str, Any]) -> bool:
@@ -408,6 +512,37 @@ class GraphRun:
         held = message.get("_gathered") or [message]
         mode = str(data.get("mode") or "concat").lower()
         texts = [(m.get("agent") or m.get("from") or "branch", m.get("text") or "") for m in held]
+        sources = [m.get("agent") or m.get("from") for m in held]
+        ok = all(m.get("ok", True) for m in held)
+        if mode == "auto" or mode in NUMERIC_MODES:
+            read = [(name, read_prediction(m, lenient=mode != "auto"))
+                    for (name, _), m in zip(texts, held)]
+            got = [(n, v) for n, v in read if v is not None]
+            if mode == "auto":
+                # numbers from every branch → they are predictions; anything
+                # else is prose, and one branch alone passes through as is
+                mode = "mean" if got and len(got) == len(read) else (
+                    "first" if len(held) == 1 else "concat")
+            if mode in NUMERIC_MODES:
+                if not got:
+                    out = msg("no branch gave a number to aggregate:\n\n" + "\n\n".join(
+                        f"── {n} ──\n{t}" for n, t in texts if t), node=node["id"], ok=False)
+                    out["data"] = {"branches": len(held), "sources": sources,
+                                   "method": mode, "dropped": [n for n, _ in read]}
+                    return [("out", out)]
+                value = aggregate(got, mode, _weights(data.get("weights")))
+                xs = [v for _, v in got]
+                mu = sum(xs) / len(xs)
+                out = msg(_fmt(value), node=node["id"], ok=ok)
+                out["data"] = {
+                    "prediction": value, "method": mode,
+                    "branches": len(held), "sources": sources,
+                    "inputs": [{"source": n, "value": v} for n, v in got],
+                    "dropped": [n for n, v in read if v is None],
+                    "min": min(xs), "max": max(xs),
+                    "spread": math.sqrt(sum((x - mu) ** 2 for x in xs) / len(xs)),
+                }
+                return [("out", out)]
         if mode == "first":
             text = texts[0][1]
         elif mode == "longest":
@@ -422,9 +557,8 @@ class GraphRun:
                          if " ".join((t or "").lower().split())[:400] == winner), "")
         else:
             text = "\n\n".join(f"── {name} ──\n{t}" for name, t in texts if t)
-        out = msg(text, node=node["id"], ok=all(m.get("ok", True) for m in held))
-        out["data"] = {"branches": len(held),
-                       "sources": [m.get("agent") or m.get("from") for m in held]}
+        out = msg(text, node=node["id"], ok=ok)
+        out["data"] = {"branches": len(held), "sources": sources, "method": mode}
         return [("out", out)]
 
     def _do_agent(self, node, message):

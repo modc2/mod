@@ -257,6 +257,27 @@ USD per day, $M=256$, $V=64$, $n=16$, 1 h epochs, $K=24$, $C=32$ (only "today" i
 
 The FORECAST and MAX cards on the COSTS tab plot both ladders live (`forecast`, `experiment strategy=committee|private`).
 
+### Transfers on a shielded post-quantum L1 (planned)
+
+Credits are points today. Transfers are planned on a dedicated **ztensor L1**
+built from the postquant system (modular consensus, ML-DSA / SLH-DSA keys,
+SHA3-256), where **every wallet is shielded automatically**: no transparent
+addresses, no public balances, no opt-in.
+
+- A balance is a set of notes $cm = \mathrm{SHA3}(v, pk, \rho, r)$ in an
+  append-only SHA3 Merkle tree.
+- A spend reveals nullifiers $nf = \mathrm{SHA3}(sk, \rho)$ and output
+  commitments, with a hash-based STARK that each input is in the tree and
+  $\sum v_\text{in} = \sum v_\text{out}$. Spend authority is ML-DSA (FIPS 204).
+- A Zuma claim mints its amount directly as a note to the miner's shielded
+  address, so the payout is linked neither to the registered key nor to later
+  transfers.
+- Scores, the emission split and per-tag claim sizes stay public. Shielding
+  hides recipients and flows, not amounts earned per tag.
+
+The STARK is the same component the post-quantum membership proof needs (§9),
+so both ship together. Nothing here is implemented yet.
+
 ## 9. Security and limits
 
 - **The anonymity set is the ring.** With 3 validators a score points to 1 of 3.
@@ -271,8 +292,9 @@ The FORECAST and MAX cards on the COSTS tab plot both ladders live (`forecast`, 
   deployed. Committees trade the deterministic majority bound for a small,
   quantified capture/starve probability; batched weights and lazy claims are
   cheaper only without a prover, and they link actions.
-- **Public books.** Credits are points in contract storage; no token moves.
-  ztensor deliberately does not become a pay-anyone mixer.
+- **Public books.** Credits are points in contract storage; no token moves
+  yet. Planned transfers run on the ztensor L1 with shielded wallets by
+  default (§8); the subnet's scores and emission split stay public there.
 - **Not post-quantum.** The postquant adapter makes the *execution record*
   quantum-safe (ML-DSA receipts, SHA3 commitments). The anonymity layer is still
   discrete-log based: an adversary who can compute $x = \log_H I$ links every

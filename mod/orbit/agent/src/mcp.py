@@ -460,7 +460,8 @@ def _t_vibe(a: dict, key):
                        name=a.get('name'), model=a.get('model'),
                        provider=a.get('provider'), free=bool(a.get('free')),
                        steps=a.get('steps') or 4, save=bool(a.get('save')),
-                       harness=a.get('harness')))
+                       harness=a.get('harness'), base=a.get('base'),
+                       rounds=a.get('rounds'), reviewer=a.get('reviewer')))
 
 
 def _t_scout(a: dict, key):
@@ -906,8 +907,11 @@ TOOLS: Dict[str, dict] = {
                        'and reported as tools_dropped). Omit `name` and it mints one '
                        'no existing agent answers to. The draft comes back for '
                        'review; save=true files it under your address in the same '
-                       'call. This is a model run, so it answers to run policy like '
-                       'agent_run does.',
+                       'call. base= builds it ON a code-edit bot (claude-code, '
+                       'codex, builder, …) — its harness, tools and model; rounds>=2 '
+                       'makes it a feedback loop that redoes the task n times with a '
+                       'reviewer between passes. This is a model run, so it answers '
+                       'to run policy like agent_run does.',
         'inputSchema': {'type': 'object', 'properties': {
             'description': _str('what the agent should be — the whole brief'),
             'name': _str('the name you want, verbatim — omit to have one made up '
@@ -921,6 +925,12 @@ TOOLS: Dict[str, dict] = {
                             'instead of this loop: build (the build console) | '
                             'claude | codex | chainmod — host / console-owner '
                             'only, like any harness run'),
+            'base': _str('the code-edit bot the NEW agent is built on: '
+                         'claude-code | codex | builder | refactorer | … '
+                         '(GET /agents/vibe/bases)'),
+            'rounds': _num('2-10 = a feedback loop: the agent builds, the reviewer '
+                           'reviews, n builder passes. Omit/1 = a plain agent'),
+            'reviewer': _str('the agent that reviews between rounds (default reviewer)'),
             'key': _KEY,
         }, 'required': ['description']},
         'handler': _t_vibe,

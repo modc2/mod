@@ -68,7 +68,7 @@ export function SiteNav() {
 
           {/* Five primary destinations, centred, with room to breathe. The
               other three live in the footer and the home directory. */}
-          <div className="flex-1 min-w-0 hidden md:flex items-center justify-center gap-1.5">
+          <div className="flex-1 min-w-0 hidden lg:flex items-center justify-center gap-1.5">
             {ROUTES.filter(r => NAV_PRIMARY.includes(r.href)).map(r => {
               const here = isHere(pathname, r.href)
               return (
@@ -91,7 +91,7 @@ export function SiteNav() {
         </div>
         {/* Phones: every route on a second row that scrolls sideways from the
             left edge, so nothing is cut mid-word. */}
-        <div ref={rail} className="md:hidden flex items-center gap-1 overflow-x-auto no-bar px-4 pb-2.5 -mt-1">
+        <div ref={rail} className="lg:hidden flex items-center gap-1 overflow-x-auto no-bar px-4 pb-2.5 -mt-1">
           {ROUTES.map(r => {
             const here = isHere(pathname, r.href)
             return (

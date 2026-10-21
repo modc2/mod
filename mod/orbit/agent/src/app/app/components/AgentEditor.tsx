@@ -15,6 +15,8 @@
 //                                memory module; GET /memory/modules lists them)
 //   tools                      — the exact loadout (empty = every tool)
 //   harness                    — hand the run to a CLI instead of this loop
+//   loop · rounds              — a feedback loop: it builds, a reviewer
+//                                critiques, n passes (vibe: build on + rounds)
 //
 // A brand-new agent has no form at all: you say what you want, the
 // vibe-builder designs it and it is saved and selected in one go
@@ -36,6 +38,10 @@ type Toolbox = { name: string; description?: string; tools: string[]; builtin?: 
 type Harness = { name: string; label?: string; description?: string; available?: boolean; install?: string }
 type ProviderInfo = { key: string; models: string[]; default_model: string; configured?: boolean; keyless?: boolean; free?: boolean }
 type MemModule = { name: string; label?: string; description?: string; default?: boolean }
+// a code-edit bot a vibed agent can be built on (GET /agents/vibe/bases)
+type Base = { name: string; label?: string; icon?: string; harness?: string | null; description?: string; allowed?: boolean }
+type Loop = { builder?: string; reviewer?: string }
+const MAX_ROUNDS = 10
 
 type Props = {
   /** null = a fresh agent; a slug = edit that one */
@@ -119,6 +125,10 @@ export default function AgentEditor({
   // hasn't picked one
   const [memory, setMemory] = useState('')
   const [harness, setHarness] = useState('')
+  // a feedback loop ({builder: 'self', reviewer}) and the console params that
+  // carry its rounds — null = a plain agent
+  const [loop, setLoop] = useState<Loop | null>(null)
+  const [params, setParams] = useState<Record<string, any> | null>(null)
   const [tools, setTools] = useState<string[]>([])
   const [builtin, setBuiltin] = useState(false)
   // who the loaded agent belongs to — 'host' means nobody recorded one, so
@@ -181,6 +191,8 @@ export default function AgentEditor({
         // its own author is refused at run time. The field isn't even shown
         // to them, so it would be an invisible one at that.
         setHarness(!name && !isHost ? '' : cfg.harness || '')
+        setLoop(cfg.loop || null)
+        setParams(cfg.params || null)
         setMemory(cfg.memory || '')
         setTools(Array.isArray(cfg.tools) ? cfg.tools : [])
         // a copy is a new agent under your address — never a built-in
@@ -238,6 +250,13 @@ export default function AgentEditor({
 
   const flash = (ok: boolean, text: string) => setMsg({ ok, text })
 
+  // rounds live in params (where the build console reads them too)
+  const rounds = Number(params?.rounds) || 3
+  const setRounds = (n: number) => {
+    const r = Math.max(1, Math.min(MAX_ROUNDS, n || 1))
+    setParams(p => ({ console: 'build', runner: 'agent', ...(p || {}), agent: { ...(p?.agent || {}), rounds: r }, rounds: r }))
+  }
+
   // ── vibe — describe the agent, the rest of the form is drafted ──
   // POST /agents/vibe runs the vibe-builder against the live tool catalog
   // (read off the module's own MCP server) and comes back with a draft:
@@ -250,6 +269,17 @@ export default function AgentEditor({
   // when this caller could actually run it (useDraftEngines checks).
   const [vibeEngine, setVibeEngine] = useState('')
   const engines = useDraftEngines(token)
+  // what the new agent is built ON ('' = its own tools on this loop) and how
+  // many feedback rounds it runs (1 = no loop)
+  const [vibeBase, setVibeBase] = useState('')
+  const [vibeRounds, setVibeRounds] = useState(1)
+  const [bases, setBases] = useState<Base[]>([])
+  useEffect(() => {
+    fetch(`${API_URL}/agents/vibe/bases${token ? `?key=${encodeURIComponent(token)}` : ''}`,
+      { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json()).then(d => setBases((d.bases || []).filter((b: Base) => b.allowed !== false)))
+      .catch(() => {})
+  }, [token])
 
   // a draft — from vibe, or from the scout — lands in the form, never saved
   const applyDraft = useCallback((d: ScoutDraft, dropped: string[]) => {
@@ -259,6 +289,9 @@ export default function AgentEditor({
     if (d.goal) setGoal(d.goal)
     setTools(Array.isArray(d.tools) ? d.tools : [])
     if (d.model) setModel(d.model)
+    if (d.harness !== undefined) setHarness(d.harness || '')
+    if (d.loop !== undefined) setLoop(d.loop || null)
+    if (d.params !== undefined) setParams(d.params || null)
     flash(true, `drafted "${d.name}" — review it, then create${
       dropped.length ? ` · dropped unknown tools: ${dropped.join(', ')}` : ''}`)
   }, [])
@@ -318,6 +351,8 @@ export default function AgentEditor({
           // drafter only mints one when the field is empty
           name: slugify(slug) || null,
           harness: vibeEngine || null,
+          base: vibeBase || null,
+          rounds: vibeRounds > 1 ? vibeRounds : null,
           save: fresh,
           key: token,
         }),
@@ -331,7 +366,7 @@ export default function AgentEditor({
     } finally {
       setVibing(false)
     }
-  }, [vibeText, token, slug, vibeEngine, applyDraft, fresh, makeDefault, onMakeDefault, onUse, onSaved])
+  }, [vibeText, token, slug, vibeEngine, vibeBase, vibeRounds, applyDraft, fresh, makeDefault, onMakeDefault, onUse, onSaved])
 
   const save = useCallback(async (thenUse: boolean) => {
     const s = isNew ? slugify(slug) : name!
@@ -355,6 +390,8 @@ export default function AgentEditor({
               // one rule, enforced where it counts: only the host can mint an
               // agent that hands its run to a CLI on the host's own shell
               harness: (isHost && harness) || null,
+              loop: loop || null,
+              params: params || null,
             }),
           })
         : await fetch(`${API_URL}/agents/${encodeURIComponent(s)}`, {
@@ -366,6 +403,8 @@ export default function AgentEditor({
               ...(model ? { model } : { clear_model: true }),
               ...(memory ? { memory } : { clear_memory: true }),
               ...(harness ? { harness } : { clear_harness: true }),
+              ...(loop ? { loop } : { clear_loop: true }),
+              ...(params ? { params } : { clear_params: true }),
             }),
           })
       const data = await res.json()
@@ -387,7 +426,7 @@ export default function AgentEditor({
       setSaving(false)
     }
   }, [isNew, slug, name, goal, token, builtin, isHost, description, icon, tools,
-      model, memory, harness, makeDefault, onMakeDefault, onSaved, onUse])
+      model, memory, harness, loop, params, makeDefault, onMakeDefault, onSaved, onUse])
 
   // make the agent already on the server the default, without a save
   const setAsDefault = useCallback(async () => {
@@ -448,6 +487,33 @@ export default function AgentEditor({
           <div className="text-[9px] text-gray-600 mt-1">
             it picks the name, prompt and tools for you · you can still tweak it later
           </div>
+        </div>
+        {/* what it's built on, and whether it loops */}
+        <div className="flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            <div className={legend}>build on</div>
+            <Select value={vibeBase} accent="violet" size="sm" className="w-full"
+              title="The code-edit bot your agent is built on — it keeps that bot's tools and CLI"
+              onChange={setVibeBase}
+              options={[{ value: '', label: 'its own tools', hint: 'picked for the job' },
+                ...bases.map(b => ({ value: b.name, label: `${b.icon ? b.icon + ' ' : ''}${b.label || b.name}`,
+                                     hint: b.description }))]} />
+          </div>
+          <div className="shrink-0">
+            <div className={legend}>rounds</div>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setVibeRounds(r => Math.max(1, r - 1))} disabled={vibing || vibeRounds <= 1}
+                className="w-6 h-6 rounded border border-white/10 text-gray-400 hover:text-violet-200 disabled:opacity-30">-</button>
+              <span className="w-5 text-center text-[12px] text-gray-200 tabular-nums">{vibeRounds}</span>
+              <button onClick={() => setVibeRounds(r => Math.min(MAX_ROUNDS, r + 1))} disabled={vibing || vibeRounds >= MAX_ROUNDS}
+                className="w-6 h-6 rounded border border-white/10 text-gray-400 hover:text-violet-200 disabled:opacity-30">+</button>
+            </div>
+          </div>
+        </div>
+        <div className="text-[9px] text-gray-600 -mt-1">
+          {vibeRounds > 1
+            ? `feedback loop: it does the task, a reviewer checks it, it redoes it — ${vibeRounds} times`
+            : 'runs once · add rounds for a feedback loop with a reviewer'}
         </div>
         <div className="flex items-center gap-1.5">
           {/* who builds it — this module's loop, or a harness CLI this
@@ -687,6 +753,31 @@ export default function AgentEditor({
             <SchedulePanel token={token} agent={name} isHost={isHost} />
           </div>
         )}
+
+        {/* feedback loop — it builds, the reviewer critiques, n passes */}
+        <div>
+          <div className={legend}>feedback loop</div>
+          {loop ? (
+            <div className="flex items-center gap-1.5 text-[11px] text-gray-300">
+              <span className="truncate">↻ {loop.builder === 'self' ? 'this agent' : loop.builder} ⇄ {loop.reviewer || 'reviewer'}</span>
+              <div className="ml-auto flex items-center gap-1 shrink-0">
+                <button onClick={() => setRounds(rounds - 1)} disabled={rounds <= 1}
+                  className="w-5 h-5 rounded border border-white/10 text-gray-400 hover:text-violet-200 disabled:opacity-30">-</button>
+                <span className="w-5 text-center tabular-nums">{rounds}</span>
+                <button onClick={() => setRounds(rounds + 1)} disabled={rounds >= MAX_ROUNDS}
+                  className="w-5 h-5 rounded border border-white/10 text-gray-400 hover:text-violet-200 disabled:opacity-30">+</button>
+                <span className="text-[9px] text-gray-600">rounds</span>
+                <button onClick={() => setLoop(null)} title="Make it a plain agent again"
+                  className="ml-1 text-[9px] px-1.5 py-0.5 rounded border border-white/10 text-gray-500 hover:text-red-300">off</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => { setLoop({ builder: 'self', reviewer: 'reviewer' }); setRounds(3) }}
+              className="text-[10px] px-1.5 py-0.5 rounded border border-violet-400/25 text-violet-300/90 hover:bg-violet-500/10 transition">
+              ↻ add a feedback loop
+            </button>
+          )}
+        </div>
 
         {/* harness — the run leaves this loop entirely, so it's host-gated */}
         {isHost && (

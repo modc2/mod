@@ -220,9 +220,24 @@ class Mod:
                 app = cfg.get("app_port") or (cfg.get("ports") or {}).get("app")
                 if not api and not app:
                     continue
+                # `api_replicas`: extra ports running the SAME api over shared
+                # state. They join the primary in one load-balanced upstream
+                # pool; Caddy's own health checks (not this regen-time
+                # liveness snapshot) decide which members get traffic, so a
+                # replica restarting at regen time stays in the pool.
+                replicas = []
+                for p in [api] + list(cfg.get("api_replicas") or []):
+                    try:
+                        p = int(p)
+                    except (TypeError, ValueError):
+                        continue
+                    if p and p not in replicas:
+                        replicas.append(p)
                 if live_only:
-                    # Keep only the ports that are actually serving.
-                    api = api if self._port_live(api) else None
+                    # Keep only the ports that are actually serving. A replica
+                    # pool counts as live while ANY member serves.
+                    pool_live = len(replicas) > 1 and any(self._port_live(p) for p in replicas)
+                    api = api if (pool_live or self._port_live(api)) else None
                     app = app if self._port_live(app) else None
                     if not api and not app:
                         continue
@@ -230,6 +245,7 @@ class Mod:
                     "name": cfg.get("name", name),
                     "dir": d,
                     "api_port": api,
+                    "api_replicas": replicas if api and len(replicas) > 1 else [],
                     "app_port": app,
                     "aliases": [a for a in (cfg.get("aliases") or []) if isinstance(a, str)],
                 })
@@ -319,6 +335,8 @@ class Mod:
             spec = {}
             if mod["api_port"]:
                 spec["api"] = {"upstream": f'{s["upstream_host"]}:{mod["api_port"]}', "strip": True}
+                if mod.get("api_replicas"):
+                    spec["api"]["upstreams"] = [f'{s["upstream_host"]}:{p}' for p in mod["api_replicas"]]
             if mod["app_port"]:
                 spec["app"] = {"upstream": f'{s["upstream_host"]}:{mod["app_port"]}', "strip": False}
             if spec:
@@ -480,6 +498,31 @@ class Mod:
         return out
 
     # ── generation ───────────────────────────────────────────────────────────
+    # How a replica pool is balanced. `cookie` pins each browser to one
+    # replica (its live job streams stay put) while new browsers spread over
+    # the pool; a dead or draining member (/health 503) drops out within one
+    # health interval, and a request whose dial fails is retried on another.
+    LB_COOKIE = "mod_lb"
+
+    def _proxy_lines(self, spec, name="", indent="        "):
+        ups = spec.get("upstreams") or []
+        if len(ups) < 2:
+            return [f"{indent}reverse_proxy {spec['upstream']}"]
+        i2 = indent + "    "
+        return [
+            f"{indent}reverse_proxy {' '.join(ups)} {{",
+            # one cookie per module: pools never overwrite each other's pin
+            f"{i2}lb_policy cookie {self.LB_COOKIE}_{re.sub(r'[^A-Za-z0-9_]', '_', name)}",
+            f"{i2}lb_try_duration 5s",
+            f"{i2}lb_try_interval 250ms",
+            f"{i2}fail_duration 20s",
+            f"{i2}health_uri /health",
+            f"{i2}health_interval 3s",
+            f"{i2}health_timeout 2s",
+            f"{i2}flush_interval -1",
+            f"{indent}}}",
+        ]
+
     def _site_lines(self, host, routes, root_redirect, fallback):
         """One `host { ... }` site block: module routes + root landing +
         catch-all. Matcher names are per-site in Caddy, so the same names can
@@ -515,7 +558,7 @@ class Mod:
                         # Non-strip upstreams (the activator) speak the legacy
                         # /api/{n} shape — normalize before proxying.
                         lines.append(f"        uri replace /{n}/api /api/{n}")
-                    lines.append(f"        reverse_proxy {api['upstream']}")
+                    lines += self._proxy_lines(api, n)
                     lines.append("    }")
             r = spec.get("app")
             if r:

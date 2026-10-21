@@ -2313,6 +2313,8 @@ class Mod(Agent):
                                 # and, being a model run, run policy — exactly
                                 # like a task draft
                                 'agent_vibe',
+                                # the code-edit bots vibe can build on — a list
+                                'vibe_bases',
                                 # same self-gating as agent_vibe
                                 'graph_vibe',
                                 # scouting is vibe with the internet in front
@@ -3470,7 +3472,10 @@ class Mod(Agent):
                 model=kwargs.get('model'), provider=kwargs.get('provider'),
                 free=bool(kwargs.get('free')), steps=kwargs.get('steps', 4),
                 save=bool(kwargs.get('save')),
-                harness=kwargs.get('harness'), key=key),
+                harness=kwargs.get('harness'), base=kwargs.get('base'),
+                rounds=kwargs.get('rounds'), reviewer=kwargs.get('reviewer'),
+                key=key),
+            'vibe_bases': lambda: {'bases': self.vibe_bases(key)},
             # go on the internet, come back with an agent idea (and, unless
             # vibe=false, the agent itself) — see agent_scout
             'agent_scout': lambda: self.agent_scout(
@@ -3778,7 +3783,7 @@ class Mod(Agent):
             agent_harness = agent_config.get('harness')
             # a feedback agent is two other agents taking turns, not a persona
             if isinstance(agent_config.get('loop'), dict) and not kwargs.get('_in_feedback'):
-                return self._run_feedback(agent_config, **kwargs)
+                return self._run_feedback(agent_config, _loop_name=agent_type, **kwargs)
 
         # explicit system prompt (library prompt or free text) beats the agent goal
         if kwargs.get('prompt'):
@@ -3883,11 +3888,17 @@ class Mod(Agent):
         rounds = max(1, min(rounds, self.FEEDBACK_MAX_ROUNDS))
         builder = kwargs.get('builder') or loop.get('builder') or 'builder'
         reviewer = kwargs.get('reviewer') or loop.get('reviewer') or 'reviewer'
+        # a vibed loop agent names ITSELF as the builder: its own persona,
+        # tools and harness do the work. That's no nesting — the inner runs
+        # carry _in_feedback, so the agent runs as a plain agent in there.
+        me = kwargs.pop('_loop_name', None)
+        builder = me if builder == 'self' and me else builder
+        reviewer = me if reviewer == 'self' and me else reviewer
         known = self.agents.ls()
         for role, name in (('builder', builder), ('reviewer', reviewer)):
             if name not in known:
                 raise ValueError(f"feedback {role} agent not found: {name}")
-            if self.agents.get(name).get('loop'):
+            if name != me and self.agents.get(name).get('loop'):
                 raise ValueError(f"feedback {role} can't be another loop agent: {name}")
 
         task = kwargs.get('query') or 'help me with this'
@@ -4597,10 +4608,41 @@ class Mod(Agent):
                        if t in known and not (t in seen or seen.add(t)))
         return (out or None), dropped
 
+    def vibe_bases(self, key=None) -> List[Dict[str, Any]]:
+        """The code-edit bots a vibed agent may be built on: anything that
+        hands the run to a coding CLI (claude-code, codex, the build console)
+        or runs this loop with write access. Loop agents and the drafters
+        (arena=False) are not bots of their own, so they're left out.
+        `allowed` = this caller may build on it: a CLI bot runs on the host's
+        shell, so it takes the same trust a harness run does."""
+        out = []
+        for n in self.agents.ls():
+            try:
+                c = self.agents.get(n)
+            except Exception:
+                continue
+            tools = c.get('tools')
+            if c.get('loop') or c.get('arena') is False:
+                continue
+            if not (c.get('harness') or tools is None
+                    or set(tools) & {'edit', 'write', 'patch'}):
+                continue
+            out.append({'name': n, 'label': c.get('name') or n,
+                        'icon': c.get('icon'), 'harness': c.get('harness'),
+                        'description': c.get('description') or '',
+                        'builtin': bool(c.get('builtin')),
+                        'allowed': (not c.get('harness')
+                                    or self._harness_trusted(c['harness'], key))})
+        # the CLIs first — they're what "a code edit bot" usually means
+        out.sort(key=lambda b: (not b['harness'], not b['builtin'], b['name']))
+        return out
+
     def agent_vibe(self, description: str, name: str = None, model: str = None,
                    provider: str = None, free: bool = False, steps: int = 4,
                    save: bool = False, harness: str = None, key=None,
-                   on_step=None, on_live=None, direct: bool = False) -> dict:
+                   on_step=None, on_live=None, direct: bool = False,
+                   base: str = None, rounds: int = None,
+                   reviewer: str = None) -> dict:
         """Vibecode an agent: a plain description in, a whole agent out.
 
         The vibe-builder agent designs it — name, icon, prompt — with the
@@ -4614,11 +4656,44 @@ class Mod(Agent):
         'buildmod' is the build console, 'claude' is Claude Code) instead of
         this module's loop — same gate as any harness run.
 
+        `base` builds the agent ON a code-edit bot (see vibe_bases): it takes
+        that bot's harness, tools and model, and the bot's own standing
+        instructions ride under the drafted persona. `rounds` >= 2 makes it a
+        feedback loop — the agent itself builds, `reviewer` (default the
+        reviewer agent) critiques between passes, `rounds` builder passes in
+        all (Mod._run_feedback).
+
         `save=False` returns the draft for the editor to review and file
         itself; `save=True` creates the agent under the caller's address
         straight away — the one-click path an MCP client wants.
         """
         self.identity.require_signed_in(key, operation="vibecode an agent")
+        # the wiring is checked before the model run, not after it burns credits
+        base_cfg = None
+        if base:
+            base = str(base).strip().lower()
+            if base not in {b['name'] for b in self.vibe_bases()}:
+                raise ValueError(f"not a code-edit bot to build on: {base} "
+                                 f"(have: {', '.join(b['name'] for b in self.vibe_bases())})")
+            base_cfg = self.agents.get(base)
+            # an agent built on a CLI bot runs on the host's own shell — the
+            # same standing a harness run needs, asked before the draft runs
+            if base_cfg.get('harness') and not self._harness_trusted(base_cfg['harness'], key):
+                raise PermissionError(f"building on {base} hands runs to the "
+                                      f"{base_cfg['harness']} CLI on this host — host only")
+        try:
+            rounds = int(rounds) if rounds not in (None, '') else None
+        except (TypeError, ValueError):
+            raise ValueError(f"rounds must be a number, got {rounds!r}")
+        if rounds is not None:
+            rounds = max(1, min(rounds, self.FEEDBACK_MAX_ROUNDS))
+        looped = bool(rounds and rounds >= 2)
+        reviewer = str(reviewer or 'reviewer').strip().lower()
+        if looped:
+            if reviewer not in self.agents.ls():
+                raise ValueError(f"reviewer agent not found: {reviewer}")
+            if self.agents.get(reviewer).get('loop'):
+                raise ValueError(f"the reviewer can't be a loop agent: {reviewer}")
         # a draft is a model run on somebody's key, so it answers to the same
         # policy a run does: the host, a granted address, or credits on hand
         self.require_allowed(key, 'run')
@@ -4639,6 +4714,17 @@ class Mod(Agent):
                  f"TOOL CATALOG (pick only these exact names):\n{tool_lines}\n\n"
                  f"TOOLBOXES (a name here in \"tools\" takes the bundle):\n"
                  f"{box_lines or '  (none)'}")
+        if base_cfg:
+            query += (f"\n\nBUILT ON: {base} — {base_cfg.get('description') or ''}. "
+                      f"The agent runs as that code-edit bot "
+                      f"({'its own CLI and tools, so `tools` is ignored' if base_cfg.get('harness') else 'with its tools'}); "
+                      f"the prompt you write is the persona layered on top of it. "
+                      f"It edits code on disk, so write the prompt for a coder.")
+        if looped:
+            query += (f"\n\nFEEDBACK LOOP: the agent does the task, a `{reviewer}` agent "
+                      f"reviews the result, and the agent redoes the task with that "
+                      f"review — {rounds} passes. Write the prompt so each pass "
+                      f"builds on the work already on disk and acts on every review point.")
         spec, trace, answer = None, None, ''
         if direct and not harness:
             # `direct` (the scout's path): one tools-off completion first, the
@@ -4683,6 +4769,24 @@ class Mod(Agent):
             'model': str(spec.get('model')).strip() if spec.get('model') else None,
             'name_ideas': [str(n) for n in ideas][:5],
         }
+        if base_cfg:
+            # the bot is the body: its harness, tools and model; its standing
+            # instructions stay in force under the new persona
+            base_goal = (base_cfg.get('goal') or '').strip()
+            draft.update({
+                'base': base,
+                'harness': base_cfg.get('harness'),
+                'tools': None if base_cfg.get('harness') else base_cfg.get('tools'),
+                'model': draft['model'] or base_cfg.get('model'),
+                'goal': f"{draft['goal']}\n\n{base_goal}".strip() if base_goal else draft['goal'],
+            })
+        if looped:
+            # 'self' = whatever this agent ends up named, so a rename or a
+            # clone keeps the loop pointing at itself
+            draft['loop'] = {'builder': 'self', 'reviewer': reviewer}
+            draft['params'] = {'console': 'build', 'runner': 'agent',
+                               'agent': {'rounds': rounds}, 'rounds': rounds}
+            draft['rounds'] = rounds
         out = {"draft": draft, "catalog_via": catalog.get('via'),
                **({"tools_dropped": dropped} if dropped else {})}
         if not save:
@@ -4690,7 +4794,8 @@ class Mod(Agent):
         created = self.agents.create(
             name=draft['name'], description=draft['description'],
             goal=draft['goal'], icon=draft['icon'], tools=draft['tools'],
-            model=draft['model'], key=key)
+            model=draft['model'], harness=draft.get('harness'),
+            params=draft.get('params'), loop=draft.get('loop'), key=key)
         return {**out, "agent": created, "saved": True}
 
     @staticmethod

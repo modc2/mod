@@ -141,18 +141,31 @@ KINDS: Dict[str, Dict[str, Any]] = {
         "inputs": "*",
         "out": ["out"],
         "fan": "gather",
-        "summary": "wait for the branches and merge them",
+        "summary": "wait for the branches and aggregate them",
         "doc": "The other half of a fan-out. It holds the messages arriving "
                "from each branch and emits one: `concat` stitches them in "
                "arrival order under a header per source, `first` takes the one "
                "that arrived first, `longest` the longest, `vote` the answer "
-               "the most branches agreed on. `wait: all` waits for every "
-               "inbound edge that can still deliver — a branch a gate blocked "
-               "cannot, so a join never hangs on one — and `any` fires on the "
-               "first message through.",
+               "the most branches agreed on. Predictions are aggregated as "
+               "numbers: each branch's value is read from data.prediction / "
+               "probability / value, a `{\"prediction\": …}` JSON answer, a "
+               "labelled `probability: 0.7` line or a bare number / percent, "
+               "and `mean`, `median`, `weighted` (per-source weights), "
+               "`logodds` (pooled probabilities), `min` or `max` combine them "
+               "into one number. `auto` aggregates when every branch answered "
+               "with a number and concatenates otherwise. `wait: all` waits "
+               "for every inbound edge that can still deliver — a branch a "
+               "gate blocked cannot, so a join never hangs on one — and `any` "
+               "fires on the first message through.",
         "fields": [
             {"key": "mode", "type": "select", "label": "merge",
-             "options": ["concat", "first", "longest", "vote"], "default": "concat"},
+             "options": ["auto", "mean", "median", "weighted", "logodds",
+                         "min", "max", "vote", "concat", "first", "longest"],
+             "default": "auto",
+             "hint": "numbers: mean · median · weighted · logodds · min · max — "
+                     "text: vote · concat · first · longest — auto picks"},
+            {"key": "weights", "type": "text", "label": "weights",
+             "hint": "for weighted: agent=2, other-agent=1 (unlisted = 1)"},
             {"key": "wait", "type": "select", "label": "wait for",
              "options": ["all", "any"], "default": "all"},
         ],

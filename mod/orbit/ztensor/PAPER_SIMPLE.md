@@ -107,6 +107,29 @@ Together they are modeled to make that subnet 300 to 5 000 times cheaper,
 depending on the chain, while hiding every member as well as today. Longer
 rounds, and picking the group size you actually need, save money for free.
 
+## Getting paid privately (planned)
+
+Right now rewards are points on a scoreboard; no money moves. When real
+payouts arrive, they won't be sent on a public chain where anyone can follow
+the money. They will go out on ztensor's own chain, built from the postquant
+system, where **every wallet is private automatically**. There is nothing to
+switch on.
+
+On that chain the ledger stores sealed envelopes instead of balances. Each
+envelope holds an amount and an owner, but only the owner can open it. Spending
+one proves "I own a sealed envelope worth this much" without saying which one.
+The signatures are post-quantum, so a future quantum computer can't open them
+either.
+
+Your reward goes straight into one of these envelopes. Nobody can connect it
+to your place in the group or follow where you send it next. The scoreboard
+itself stays public: everyone can still see how much each anonymous entry
+earned.
+
+This is the plan, not something you can use today. It needs the same new kind
+of proof that will make the hiding itself quantum-proof, so both arrive
+together.
+
 ## What it does not hide
 
 - **Small groups leak.** With 3 validators, a score could have come from 1 of 3.

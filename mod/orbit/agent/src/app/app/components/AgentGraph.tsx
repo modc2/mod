@@ -232,6 +232,7 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
   const boxRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef(view); viewRef.current = view
   const nodesRef = useRef(nodes); nodesRef.current = nodes
+  const edgesRef = useRef(edges); edgesRef.current = edges
   const flowSeq = useRef(0)
 
   const kinds = proto?.kinds || {}
@@ -344,53 +345,95 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
       const t = e.target as HTMLElement
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); removeSel() }
-      if (e.key === 'Escape') { setSel(null); setPalette(false); setPicker(false) }
+      if (e.key === 'Escape') { setSel(null); setPalette(false); setPicker(false); setQuick(null) }
       if (e.key === 'f') fit()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [sel, removeSel, fit])
 
+  const freshNode = (kind: string, x: number, y: number): GNode => {
+    const data: Record<string, any> = {}
+    kinds[kind]?.fields?.forEach(f => { if (f.default !== undefined) data[f.key] = f.default })
+    if (kind === 'agent' || kind === 'judge') data.agent = kind === 'judge' ? 'reviewer' : agent
+    return { id: nid(kind === 'join' ? 'join' : 'n'), kind, x: Math.round(x), y: Math.round(y), data }
+  }
   const addNode = (kind: string) => {
     setPalette(false)
     const box = boxRef.current, v = viewRef.current
     const cx = box ? (box.clientWidth / 2 - v.x) / v.k - W / 2 : 200
     const cy = box ? (box.clientHeight / 2 - v.y) / v.k - 60 : 200
-    const spec = kinds[kind]
-    const data: Record<string, any> = {}
-    spec?.fields?.forEach(f => { if (f.default !== undefined) data[f.key] = f.default })
-    if (kind === 'agent' || kind === 'judge') data.agent = kind === 'judge' ? 'reviewer' : agent
-    const n: GNode = { id: nid(), kind, x: cx + (seq % 5) * 18, y: cy + (seq % 5) * 18, data }
+    const n = freshNode(kind, cx + (seq % 5) * 18, cy + (seq % 5) * 18)
     setNodes(ns => [...ns, n]); setSel({ node: n.id }); touch()
   }
 
-  // connect from→to on a port. A wire that closes a cycle with nothing to count
-  // its passes gets a Loop node dropped onto it — the server refuses it otherwise.
-  const connect = (from: string, port: string, to: string) => {
-    if (from === to) return
+  // a wire that FEEDS a node (as opposed to an alternative path a gate, router
+  // or judge picks between, or a loop coming round for another pass)
+  const feeds = (es: GEdge[], to: string) => es.filter(e => {
+    const src = nodesRef.current.find(n => n.id === e.from)
+    return e.to === to && !!src && !['loop', 'gate', 'router', 'judge'].includes(src.kind) && !reaches(es, to, e.from)
+  })
+  // would from→to land a second input on a node that runs once per message?
+  const wouldAggregate = (from: string, to: string, es: GEdge[] = edgesRef.current) => {
+    const a = nodesRef.current.find(n => n.id === from), b = nodesRef.current.find(n => n.id === to)
+    if (!a || !b || kinds[b.kind]?.fan === 'gather' || ['loop', 'gate', 'router', 'judge'].includes(a.kind)) return false
+    if (reaches(es, to, from)) return false
+    return feeds(es, to).some(e => e.from !== from)
+  }
+
+  // connect from→to on a port, on top of `base` (the wiring minus whatever
+  // wire is being dragged). Two rules keep what's drawn runnable:
+  //  · a wire that closes a cycle with nothing to count its passes gets a Loop
+  //    node dropped onto it — the server refuses it otherwise;
+  //  · a second input into a node that runs once per message gets a Join in
+  //    front of it, so the branches (predictions, drafts) are aggregated into
+  //    ONE message instead of running the node once per branch.
+  const connect = (from: string, port: string, to: string, base: GEdge[] = edgesRef.current) => {
+    if (from === to) return false
     const target = nodesRef.current.find(n => n.id === to)
-    if (!target || kinds[target.kind]?.inputs === 0) return
-    if (edges.some(e => e.from === from && e.to === to && e.port === port)) return
-    if (reaches(edges, to, from)) {
-      const path = cyclePath(edges, to, from)
-      const counted = path.some(id => nodesRef.current.find(n => n.id === id)?.kind === 'loop')
-        || nodesRef.current.find(n => n.id === from)?.kind === 'loop'
+    const a = nodesRef.current.find(n => n.id === from)
+    if (!a || !target || kinds[target.kind]?.inputs === 0) return false
+    if (base.some(e => e.from === from && e.to === to && e.port === port)) { setEdges(base); touch(); return true }
+    if (reaches(base, to, from)) {
+      const path = cyclePath(base, to, from)
+      const counted = path.some(id => nodesRef.current.find(n => n.id === id)?.kind === 'loop') || a.kind === 'loop'
       if (!counted) {
-        const a = nodesRef.current.find(n => n.id === from)!
         const loop: GNode = { id: nid('loop'), kind: 'loop', x: (a.x + target.x) / 2, y: Math.max(a.y, target.y) + 230,
                               data: { max: 3 } }
         const outNode = nodesRef.current.find(n => n.kind === 'output')
         setNodes(ns => [...ns, loop])
-        setEdges(es => [...es,
+        setEdges([...base,
           { id: nid('e'), from, to: loop.id, port },
           { id: nid('e'), from: loop.id, to, port: 'out' },
           ...(outNode ? [{ id: nid('e'), from: loop.id, to: outNode.id, port: 'done' }] : [])])
         touch(); setSel({ node: loop.id })
         flash(true, 'that wire closes a cycle — a Loop now counts its passes (max 3)')
-        return
+        return true
       }
     }
-    setEdges(es => [...es, { id: nid('e'), from, to, port }]); touch()
+    if (wouldAggregate(from, to, base)) {
+      const fed = feeds(base, to)
+      // already behind an aggregator: the new branch joins that one
+      const agg = fed.map(e => nodesRef.current.find(n => n.id === e.from)).find(n => n && kinds[n.kind]?.fan === 'gather')
+      if (agg) return connect(from, port, agg.id, base)
+      const srcs = [...fed.map(e => nodesRef.current.find(n => n.id === e.from)!), a]
+      const join = freshNode('join', Math.max(...srcs.map(n => n.x)) + W + 50,
+                             srcs.reduce((s, n) => s + n.y, 0) / srcs.length)
+      join.data = { ...join.data, mode: 'auto', wait: 'all' }
+      // the node it feeds moves right to make room, if it has to
+      const room = join.x + W + 50 - target.x
+      setNodes(ns => [...ns.map(n => room > 0 && n.id === to ? { ...n, x: n.x + room } : n), join])
+      const moved = new Set(fed.map(e => e.id))
+      setEdges([...base.map(e => moved.has(e.id) ? { ...e, to: join.id } : e),
+        { id: nid('e'), from, to: join.id, port },
+        { id: nid('e'), from: join.id, to, port: 'out' }])
+      touch(); setSel({ node: join.id })
+      const name = target.kind === 'agent' ? (target.data.agent || 'agent') : (kinds[target.kind]?.label || target.kind).toLowerCase()
+      flash(true, `${fed.length + 1} inputs into ${name} — a Join now aggregates them (numbers → mean; change it in the inspector)`)
+      return true
+    }
+    setEdges([...base, { id: nid('e'), from, to, port }]); touch()
+    return true
   }
 
   // ── save / reset ──
@@ -507,7 +550,15 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
   }
 
   // ── canvas interaction ──
-  const [wire, setWire] = useState<{ from: string; port: string; x: number; y: number } | null>(null)
+  // a wire in the hand. `from` set = its loose end is the TARGET (dragged off
+  // an out port, or the arrow end of an existing wire); only `to` set = its
+  // loose end is the SOURCE (dragged off an in port, or a wire's tail).
+  // `orig` = the existing wire picked up — hidden while it's carried, gone if
+  // it's dropped on empty canvas.
+  type Carry = { from?: string; port?: string; to?: string; orig?: GEdge; x: number; y: number }
+  const [wire, setWire] = useState<Carry | null>(null)
+  // dropped a fresh wire on empty canvas → pick what to make there
+  const [quick, setQuick] = useState<{ x: number; y: number; sx: number; sy: number; from: string; port: string } | null>(null)
   const [hoverTarget, setHoverTarget] = useState<string | null>(null)
   const toWorld = (cx: number, cy: number) => {
     const r = boxRef.current!.getBoundingClientRect(), v = viewRef.current
@@ -555,26 +606,88 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
     }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
-  const onPortDown = (e: React.PointerEvent, n: GNode, port: string) => {
-    e.stopPropagation(); e.preventDefault()
-    const p = toWorld(e.clientX, e.clientY)
-    setWire({ from: n.id, port, ...p })
+  // the node under a world point — generous, so a drop near a card counts
+  const nodeAt = (w: { x: number; y: number }, skip?: string) =>
+    nodesRef.current.find(m => m.id !== skip && w.x >= m.x - 28 && w.x <= m.x + W + 12
+      && w.y >= m.y - 12 && w.y <= m.y + geom(m, kinds[m.kind]).h + 12)
+  const outPortOf = (m: GNode, prefer?: string) => {
+    const ps = outPorts(m, kinds[m.kind])
+    return prefer && ps.includes(prefer) ? prefer : ps[0]
+  }
+
+  // carry a wire until the pointer lets go: drop on a card = wire it there,
+  // drop on nothing = a picked-up wire is removed, a fresh one offers to make
+  // a node right there
+  const carry = (ev0: { clientX: number; clientY: number }, c: Omit<Carry, 'x' | 'y'>) => {
+    setQuick(null); setPalette(false); setPicker(false)
+    setWire({ ...c, ...toWorld(ev0.clientX, ev0.clientY) })
+    const fixed = c.from ?? c.to
     const move = (ev: PointerEvent) => {
       const w = toWorld(ev.clientX, ev.clientY)
-      setWire(c => c ? { ...c, ...w } : c)
-      const hit = nodesRef.current.find(m => m.id !== n.id && w.x >= m.x - 16 && w.x <= m.x + W
-        && w.y >= m.y && w.y <= m.y + geom(m, kinds[m.kind]).h)
-      setHoverTarget(hit?.id || null)
+      setWire(x => x ? { ...x, ...w } : x)
+      const hit = nodeAt(w, fixed)
+      setHoverTarget(hit && (c.from ? kinds[hit.kind]?.inputs !== 0 : outPorts(hit, kinds[hit.kind]).length) ? hit.id : null)
     }
     const up = (ev: PointerEvent) => {
-      const w = toWorld(ev.clientX, ev.clientY)
-      const hit = nodesRef.current.find(m => m.id !== n.id && w.x >= m.x - 16 && w.x <= m.x + W
-        && w.y >= m.y && w.y <= m.y + geom(m, kinds[m.kind]).h)
-      if (hit) connect(n.id, port, hit.id)
-      setWire(null); setHoverTarget(null)
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+      setWire(null); setHoverTarget(null)
+      const w = toWorld(ev.clientX, ev.clientY)
+      const hit = nodeAt(w, fixed)
+      const base = c.orig ? edgesRef.current.filter(e => e.id !== c.orig!.id) : edgesRef.current
+      if (hit && c.from && c.port) {
+        if (c.orig && hit.id === c.orig.to) return              // put back where it was
+        if (!connect(c.from, c.port, hit.id, base) && c.orig) flash(false, 'that node takes no input')
+        return
+      }
+      if (hit && c.to) {
+        if (c.orig && hit.id === c.orig.from) return
+        const port = outPortOf(hit, c.orig?.port)
+        if (!port) { flash(false, 'that node has no output to wire from'); return }
+        connect(hit.id, port, c.to, base)
+        return
+      }
+      if (c.orig) { setEdges(base); touch(); flash(true, 'wire removed'); return }
+      if (c.from && c.port) {
+        const r = boxRef.current!.getBoundingClientRect()
+        setQuick({ ...w, sx: ev.clientX - r.left, sy: ev.clientY - r.top, from: c.from, port: c.port })
+      }
     }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  }
+  const onPortDown = (e: React.PointerEvent, n: GNode, port: string) => {
+    e.stopPropagation(); e.preventDefault()
+    carry(e, { from: n.id, port })
+  }
+  // an in port: grab the last wire into it (to move it elsewhere), or, with
+  // none, draw one backwards to whatever should feed this node
+  const onInDown = (e: React.PointerEvent, n: GNode) => {
+    e.stopPropagation(); e.preventDefault()
+    const last = [...edgesRef.current].reverse().find(x => x.to === n.id)
+    if (last && !e.altKey) carry(e, { from: last.from, port: last.port, orig: last })
+    else carry(e, { to: n.id })
+  }
+  // a wire's body: a click selects it, a drag picks up whichever end is nearer
+  const onWireDown = (ev: React.PointerEvent, w: { e: GEdge; p1: { x: number; y: number }; p2: { x: number; y: number } }) => {
+    ev.stopPropagation()
+    setSel({ edge: w.e.id })
+    const sx = ev.clientX, sy = ev.clientY
+    const at = toWorld(sx, sy)
+    const move = (pe: PointerEvent) => {
+      if (Math.abs(pe.clientX - sx) + Math.abs(pe.clientY - sy) < 5) return
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+      const nearTail = Math.hypot(at.x - w.p1.x, at.y - w.p1.y) < Math.hypot(at.x - w.p2.x, at.y - w.p2.y)
+      setSel(null)
+      carry(pe, nearTail ? { to: w.e.to, orig: w.e } : { from: w.e.from, port: w.e.port, orig: w.e })
+    }
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  }
+  const quickAdd = (kind: string) => {
+    if (!quick) return
+    const n = freshNode(kind, quick.x + 8, quick.y - HEAD / 2)
+    setNodes(ns => [...ns, n])
+    setEdges(es => [...es, { id: nid('e'), from: quick.from, to: n.id, port: quick.port }])
+    setSel({ node: n.id }); setQuick(null); touch()
   }
 
   // ── derived ──
@@ -641,7 +754,7 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
       case 'output': return d.label || 'the answer'
       case 'gate': return (d.rules || []).length ? `${(d.rules || []).length} rule${d.rules.length > 1 ? 's' : ''} · match ${d.mode || 'all'}` : 'open — no rules yet'
       case 'router': return `${(d.routes || []).length} route${(d.routes || []).length === 1 ? '' : 's'} + else`
-      case 'join': return `merge ${d.mode || 'concat'} · wait ${d.wait || 'all'}`
+      case 'join': return `${d.mode === 'auto' || !d.mode ? 'aggregate (auto)' : `aggregate: ${d.mode}`} · wait ${d.wait || 'all'}`
       case 'loop': return `up to ${d.max || 3} passes${(d.until || []).length ? ' · stops early' : ''}`
       case 'tool': return d.tool ? `call ${d.tool}` : 'pick a tool'
       case 'human': return firstLine(d.note, 40) || 'waits for a person'

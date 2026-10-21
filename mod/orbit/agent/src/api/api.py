@@ -266,6 +266,7 @@ class AgentCreateRequest(BaseModel):
     harness: Optional[str] = None   # 'claude' | 'codex' — run on that CLI instead
     interface: Optional[str] = None # the agent's own UI: '/hermes' or an http(s) URL
     params: Optional[Dict[str, Any]] = None  # console params saved with the agent (runner/tool/model/backend)
+    loop: Optional[Dict[str, str]] = None    # feedback loop {builder, reviewer}; 'self' = this agent
     key: Optional[str] = None
 
 class AgentUpdateRequest(BaseModel):
@@ -284,6 +285,8 @@ class AgentUpdateRequest(BaseModel):
     clear_interface: bool = False # explicit: no interface of its own
     params: Optional[Dict[str, Any]] = None  # replace the saved console params
     clear_params: bool = False    # explicit: forget the saved console params
+    loop: Optional[Dict[str, str]] = None  # replace the feedback-loop wiring
+    clear_loop: bool = False      # explicit: no longer a loop
     key: Optional[str] = None
 
 class DefaultAgentRequest(BaseModel):
@@ -491,6 +494,12 @@ class AgentVibeRequest(BaseModel):
     # hand the drafting run to an external agent CLI ('build' = the build
     # console, 'claude' = Claude Code) — host / console-owner only
     harness: Optional[str] = None
+    # build it ON a code-edit bot (GET /agents/vibe/bases): its harness,
+    # tools and model, the drafted persona on top
+    base: Optional[str] = None
+    # >= 2 makes it a feedback loop: it builds, `reviewer` reviews, n passes
+    rounds: Optional[int] = None
+    reviewer: Optional[str] = None
     key: Optional[str] = None
 
 class AgentScoutRequest(BaseModel):
@@ -1667,13 +1676,20 @@ def agent_vibe(req: AgentVibeRequest):
                                  description=req.description, name=req.name,
                                  model=req.model, provider=req.provider,
                                  free=req.free, steps=req.steps, save=req.save,
-                                 harness=req.harness)
+                                 harness=req.harness, base=req.base,
+                                 rounds=req.rounds, reviewer=req.reviewer)
     except PermissionError as e:
         return {"error": str(e), "code": 403}
     except (FileExistsError, ValueError) as e:
         return {"error": str(e)}
     except Exception as e:
         return {"error": str(e)}
+
+@app.get("/agents/vibe/bases")
+def agent_vibe_bases(key: Optional[str] = None):
+    """The code-edit bots a vibed agent can be built on (claude-code, codex,
+    builder, …) — what the editor's BASE picker lists; `allowed` per caller."""
+    return get_mod().forward('vibe_bases', key=key)
 
 def _scout_kwargs(req: AgentScoutRequest) -> dict:
     return dict(key=req.key, theme=req.theme, sources=req.sources,
@@ -1794,7 +1810,7 @@ def create_agent(req: AgentCreateRequest):
             name=req.name, description=req.description, goal=req.goal,
             icon=req.icon, tools=req.tools, model=req.model,
             memory=req.memory, harness=req.harness, interface=req.interface,
-            params=req.params, key=req.key)
+            params=req.params, loop=req.loop, key=req.key)
         if isinstance(result, dict):
             result = {k: v for k, v in result.items() if k != 'cls'}
         return result
@@ -1814,10 +1830,12 @@ def update_agent(name: str, req: AgentUpdateRequest):
         memory = None if req.clear_memory else (req.memory if req.memory is not None else ...)
         interface = None if req.clear_interface else (req.interface if req.interface is not None else ...)
         params = None if req.clear_params else (req.params if req.params is not None else ...)
+        loop = None if req.clear_loop else (req.loop if req.loop is not None else ...)
         result = mod.agents.update(
             name=name, description=req.description, goal=req.goal,
             icon=req.icon, tools=tools, model=model, memory=memory,
-            harness=harness, interface=interface, params=params, key=req.key)
+            harness=harness, interface=interface, params=params, loop=loop,
+            key=req.key)
         return {k: v for k, v in result.items() if k != 'cls'}
     except PermissionError as e:
         return {"error": str(e), "code": 403}

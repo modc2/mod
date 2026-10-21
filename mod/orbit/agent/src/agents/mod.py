@@ -21,6 +21,7 @@ Usage:
     agents.register("myagent", key=k)   # register on-chain
     agents.forward("architect")         # mod protocol entry point
 """
+import re
 import json
 import time
 import secrets
@@ -69,6 +70,9 @@ class Agent:
     # backend settings a console restores when this agent is picked. Free-
     # form JSON (dict); None = nothing saved beyond the fields above.
     params = {params}
+    # set -> a feedback loop: {{"builder": name, "reviewer": name}} take turns
+    # for `rounds` passes (params.rounds). Either may be this agent itself.
+    loop = {loop}
 
     # the integrations this agent requires wired in: its prompt, the model it
     # calls, the toolbox it may reach, and the memory it thinks with
@@ -108,6 +112,30 @@ def _check_params(params):
         raise ValueError(f"params too large ({len(blob)} chars, max {PARAMS_MAX_CHARS})")
     # round-trip through JSON so the written literal is plain data only
     return _json.loads(blob)
+
+
+def _check_loop(loop):
+    """Validate a feedback-loop wiring before it is written into an agent
+    file: {"builder": name, "reviewer": name}, both agent slugs. None/{}
+    clear it. Whether the names exist is checked when the loop runs — the
+    builder is usually the agent being created, which doesn't exist yet."""
+    if not loop:
+        return None
+    if not isinstance(loop, dict):
+        raise ValueError("loop must be an object: {builder, reviewer}")
+    out = {}
+    for role in ("builder", "reviewer"):
+        v = loop.get(role)
+        if v is None:
+            continue
+        v = str(v).strip().lower().replace(" ", "-").replace("_", "-")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9.\-]{0,63}", v):
+            raise ValueError(f"loop {role} is not an agent name: {loop.get(role)!r}")
+        out[role] = v
+    extra = set(loop) - {"builder", "reviewer"}
+    if extra:
+        raise ValueError(f"loop only takes builder and reviewer (got {', '.join(sorted(extra))})")
+    return out or None
 
 
 class Agents:
@@ -258,7 +286,7 @@ class Agents:
                icon: str = ">_", tools: list = None, model: str = None,
                memory: str = None, harness: str = None,
                interface: str = None, params: dict = None,
-               key: str = None) -> Dict[str, Any]:
+               loop: dict = None, key: str = None) -> Dict[str, Any]:
         """Create a new agent locally in agents/ directory.
 
         Signed-in callers only — the agent is filed under the address that
@@ -282,12 +310,16 @@ class Agents:
             params: console params to save with the agent (runner, tool,
                     model, backend settings) — a JSON dict; a console that
                     picks this agent restores them. None = nothing saved.
+            loop: {"builder", "reviewer"} — makes the agent a feedback loop
+                  run for params.rounds passes (see Mod._run_feedback); the
+                  builder may be this agent's own name.
             key: caller auth token — the resolved address becomes the owner
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
         harness = self._check_harness(harness)
         interface = self._check_interface(interface)
         params = _check_params(params)
+        loop = _check_loop(loop)
         self.identity.require_signed_in(key, f"create agent: {name}")
         agent_dir = self._dir / name
         if agent_dir.exists():
@@ -308,6 +340,7 @@ class Agents:
             interface=repr(interface) if interface else "None",
             owner=repr(owner) if owner else "None",
             params=repr(params) if params else "None",
+            loop=repr(loop) if loop else "None",
             goal=goal or f"You are a {label} agent.",
         )
         (agent_dir / "mod.py").write_text(content)
@@ -320,7 +353,8 @@ class Agents:
     def update(self, name: str, description: str = None, goal: str = None,
                icon: str = None, tools: list = ..., model: str = ...,
                memory: str = ..., harness: str = ..., interface: str = ...,
-               params: dict = ..., key: str = None) -> Dict[str, Any]:
+               params: dict = ..., loop: dict = ...,
+               key: str = None) -> Dict[str, Any]:
         """Update an agent in place. The owner or the host may edit it —
         for everyone else built-ins are read-only, so clone them instead.
 
@@ -344,6 +378,7 @@ class Agents:
                          else self._check_interface(interface))
         new_params = (current.get("params") if params is ...
                       else _check_params(params))
+        new_loop = current.get("loop") if loop is ... else _check_loop(loop)
         label = name.replace("-", " ").title()
         content = AGENT_TEMPLATE.format(
             name=name,
@@ -358,6 +393,7 @@ class Agents:
             # an edit never transfers ownership
             owner=repr(self._recorded_owner(name)) if self._recorded_owner(name) else "None",
             params=repr(new_params) if new_params else "None",
+            loop=repr(new_loop) if new_loop else "None",
             goal=goal if goal is not None else (current.get("goal") or f"You are a {label} agent."),
         )
         (agent_dir / "mod.py").write_text(content)
@@ -583,6 +619,7 @@ class Agents:
             harness=data.get("harness"),
             interface=data.get("interface"),
             params=data.get("params") if isinstance(data.get("params"), dict) else None,
+            loop=data.get("loop") if isinstance(data.get("loop"), dict) else None,
             key=key,
         )
 
@@ -681,6 +718,7 @@ class Agents:
                 harness=kwargs.get("harness"),
                 interface=kwargs.get("interface"),
                 params=kwargs.get("params"),
+                loop=kwargs.get("loop"),
                 key=kwargs.get("key"),
             )
         if action == "update":
@@ -695,6 +733,7 @@ class Agents:
                 harness=kwargs.get("harness", ...),
                 interface=kwargs.get("interface", ...),
                 params=kwargs.get("params", ...),
+                loop=kwargs.get("loop", ...),
                 key=kwargs.get("key"),
             )
         if action == "remove":

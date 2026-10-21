@@ -235,6 +235,34 @@ class Graphs:
                 warnings.append(f"'{self._label(n)}' is wired to nothing upstream — it never runs")
             elif nid not in sources and n.get("kind") not in ("output", "human"):
                 warnings.append(f"'{self._label(n)}' produces something nothing reads")
+        # fan-in with nothing to aggregate it: a node that runs once per
+        # message gets one run per branch, and the answers never meet. Back
+        # edges (a loop coming round) are a second chance, not a second input.
+        down: Dict[str, List[str]] = {}
+        for e in edges:
+            down.setdefault(e.get("from"), []).append(e.get("to"))
+
+        def reaches(a, b):
+            seen, stack = set(), [a]
+            while stack:
+                x = stack.pop()
+                if x == b:
+                    return True
+                if x not in seen:
+                    seen.add(x)
+                    stack.extend(down.get(x, []))
+            return False
+
+        for nid, n in nodes.items():
+            if KINDS.get(n.get("kind"), {}).get("fan") == "gather":
+                continue
+            fed = {e.get("from") for e in edges if e.get("to") == nid
+                   and e.get("from") in nodes
+                   and nodes[e["from"]].get("kind") not in ("loop", "gate", "router", "judge")
+                   and not reaches(nid, e.get("from"))}
+            if len(fed) > 1:
+                warnings.append(f"'{self._label(n)}' gets {len(fed)} inputs and runs once "
+                                "per input — put a Join in front to aggregate them")
         for cycle in self._cycles(nodes, edges):
             if not any(nodes[c].get("kind") == "loop" for c in cycle):
                 errors.append("a cycle with no Loop node in it — put one on the "
