@@ -500,6 +500,8 @@ body.lit-up::before {
 .obj-peek { grid-column: 1 / -1; margin-top: 6px; }
 .obj-peek .code { max-height: 240px; overflow: auto; font-size: 13px; line-height: 1.4; }
 .obj-peek .hint { margin: 4px 0; font-size: 13px; color: var(--dim); }
+.obj-peek audio, .obj-peek video { display: block; width: 100%; margin-top: 4px; }
+.obj-peek video { max-height: 200px; }
 .pill {
   font: 600 10.5px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase;
   padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--dim); white-space: nowrap;

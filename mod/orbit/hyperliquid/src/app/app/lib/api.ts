@@ -290,6 +290,19 @@ export const authMe = () => j<{ ok: boolean; address: string }>(`/auth/me`);
 // markets carry "@"/":"/"#" prefixes — callers filter what they need).
 export const fetchMids = () => j<Record<string, string>>(`/mids`);
 
+/** Returns a map from upper-case coin name to { prevDayPx } for 24h-change display. */
+export const fetchMeta = async (): Promise<Map<string, { prevDayPx: number }>> => {
+  const [meta, ctxs] = await j<[{ universe: { name: string }[] }, { prevDayPx: string }[]]>(`/market/meta`);
+  const map = new Map<string, { prevDayPx: number }>();
+  for (let i = 0; i < meta.universe.length; i++) {
+    const ctx = ctxs[i];
+    if (!ctx) continue;
+    const p = parseFloat(ctx.prevDayPx);
+    if (Number.isFinite(p) && p > 0) map.set(meta.universe[i].name.toUpperCase(), { prevDayPx: p });
+  }
+  return map;
+};
+
 // ── traders ──
 // Live progress of the API's current top-traders scan (also ticks while the
 // server-side prewarm loop is refreshing boards). Polled while `scan` runs.

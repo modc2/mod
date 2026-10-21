@@ -802,6 +802,11 @@
     </div>
     <div class="panel home-wrap" id="journey" style="display:none">
       <h2>your first key</h2>
+      <div class="row" id="j-scheme-pick" style="gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <button class="sortchip on" data-scheme="ML-DSA-44" data-family="lattice" data-wallet="pioneer">LATTICE <span class="muted">ML-DSA-44 · 2,420 B</span></button>
+        <button class="sortchip" data-scheme="SLH-DSA-SHAKE-128f" data-family="hash" data-wallet="pioneer-slh">HASH <span class="muted">SLH-DSA · 17,088 B</span></button>
+        <button class="sortchip" data-scheme="ML-DSA-87" data-family="lattice" data-wallet="pioneer-mldsa87">STRONGER LATTICE <span class="muted">ML-DSA-87 · ~4,595 B</span></button>
+      </div>
       <div id="j-steps"></div>
       <div id="j-fin"></div>
     </div>
@@ -2205,6 +2210,12 @@ async function loadHome() {
 $('door-start').onclick = journey;
 $('hero-start').onclick = journey;
 let _jBusy = false;
+document.querySelectorAll('#j-scheme-pick .sortchip').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('#j-scheme-pick .sortchip').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+  };
+});
 async function journey() {
   if (_jBusy) return;
   _jBusy = true;
@@ -2212,7 +2223,11 @@ async function journey() {
   box.style.display = 'block';
   box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
   $('j-steps').innerHTML = ''; $('j-fin').innerHTML = '';
-  const name = 'pioneer', key = 'hello/' + name;
+  const pick = document.querySelector('#j-scheme-pick .sortchip.on');
+  const scheme = pick.dataset.scheme;
+  const schemeFamily = pick.dataset.family;
+  const name = pick.dataset.wallet;
+  const key = 'hello/' + name;
   const step = label => {
     const d = document.createElement('div');
     d.className = 'j-step';
@@ -2231,11 +2246,13 @@ async function journey() {
   try {
     const list = await api('/wallet?action=list');
     let w = (list.wallets || []).find(x => x.name === name);
-    if (!w) w = await api('/wallet', {action: 'create', name});
+    if (!w) w = await api('/wallet', {action: 'create', name, scheme});
+    const familyNote = schemeFamily === 'hash'
+      ? 'a hash-based signature — nothing but SHAKE256 to Grover through'
+      : 'a lattice signature with no elliptic curve to Shor through';
     s.ok(`<span class="mono addr" data-copy="${esc(w.address)}" title="click to copy">` +
-      `${esc(w.address)}</span> — ${esc(w.scheme || 'ML-DSA-44')}, a lattice ` +
-      `signature with no elliptic curve to Shor through. The address itself ` +
-      `commits to the key type.`);
+      `${esc(w.address)}</span> — ${esc(w.scheme || scheme)}, ${familyNote}. ` +
+      `The address itself commits to the key type.`);
 
     s = step('fund it from the treasury');
     await api('/faucet', {wallet: name});
@@ -2254,9 +2271,16 @@ async function journey() {
     const r = await api('/set', {key,
       data: 'my first post-quantum commitment · ' + new Date().toISOString(),
       hours: 24, wallet: name});
+    let witnessNote = '';
+    if (scheme !== 'ML-DSA-44') {
+      const ratio = (r.witness_bytes / 2420).toFixed(1);
+      witnessNote = schemeFamily === 'hash'
+        ? ` — ${r.witness_bytes.toLocaleString()} bytes: ${ratio}× ML-DSA-44; that's the honest price of resting on nothing but hashes`
+        : ` — ${r.witness_bytes.toLocaleString()} bytes: ${ratio}× ML-DSA-44`;
+    }
     s.ok(`${esc(r.status)} in block <a href="#" class="j-blk" data-b="${esc(r.height ?? '')}">` +
       `${r.height ?? '—'}</a> · tx <a href="#" class="j-tx mono" data-h="${esc(r.hash || '')}">` +
-      `${short(r.hash, 18)}</a> · a ${r.witness_bytes}-byte post-quantum witness, ` +
+      `${short(r.hash, 18)}</a> · a ${r.witness_bytes}-byte post-quantum witness${witnessNote}, ` +
       `verified inside its key type's sealed wasm.`);
     box.querySelectorAll('.j-tx').forEach(a => a.onclick = ev => {
       ev.preventDefault(); goInspect(a.dataset.h); });

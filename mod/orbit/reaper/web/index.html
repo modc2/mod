@@ -45,10 +45,16 @@ function render() {
   if (!R.activator) { K.setState(`<span class="pill bad">unreachable</span>`); $("err").innerHTML = `<div class="notice bad">${K.esc(R.error || "activator unreachable")}</div>`; }
   else { $("err").innerHTML = ""; K.setState(K.pill(true, g.underPressure ? "under pressure" : "on", "", g.underPressure ? "warn" : "on")); }
   const usedPct = m.total_mb ? Math.round((m.used_mb / m.total_mb) * 100) : 0;
+  const topItems = m.top || [];
+  const topMaxMb = topItems.length ? Math.max(...topItems.map((t) => t.mem_mb || 0), 1) : 1;
+  const topHtml = topItems.length ? `<div class="top-consumers">${topItems.map((t) => {
+    const pct = Math.round(((t.mem_mb || 0) / topMaxMb) * 100);
+    return `<div class="top-row"><span class="top-name">${K.esc(t.name)}</span><div class="top-bar"><i style="width:${pct}%"></i></div><span class="top-mb">${(t.mem_mb || 0).toFixed(0)}M</span></div>`;
+  }).join("")}</div>` : "";
   $("mem").innerHTML = `<div class="stats"><div class="stat"><b>${(m.available_mb / 1024 || 0).toFixed(1)}G</b><span>free</span></div>
     <div class="stat"><b>${(m.used_mb / 1024 || 0).toFixed(1)}G</b><span>used</span></div><div class="stat"><b>${(m.total_mb / 1024 || 0).toFixed(1)}G</b><span>total</span></div></div>
     <div class="meter" style="margin-top:12px"><i style="width:${usedPct}%;background:${usedPct > 85 ? "var(--red)" : "var(--accent)"}"></i></div>
-    <div class="faint" style="font-size:12px;margin-top:8px">${s.sweep ? `${s.sweep.idleStops ?? 0} idle stops` : ""}${g.pressureStops ? ` · ${g.pressureStops} pressure stops` : ""}${g.minFreeMb ? ` · guard keeps ${g.minFreeMb} MB free` : ""}</div>`;
+    <div class="faint" style="font-size:12px;margin-top:8px">${s.sweep ? `${s.sweep.idleStops ?? 0} idle stops` : ""}${g.pressureStops ? ` · ${g.pressureStops} pressure stops` : ""}${g.minFreeMb ? ` · guard keeps ${g.minFreeMb} MB free` : ""}</div>${topHtml}`;
   $("idle").textContent = s.idleSeconds ? K.dur(s.idleSeconds) : "—";
   $("policy").textContent = s.policy || "";
   if (!seeded && s.guard) { $("minFree").value = g.minFreeMb ?? ""; $("maxRun").value = g.maxRunning ?? 0; seeded = true; }
@@ -65,9 +71,12 @@ function render() {
     const st = x.disabled ? ["disabled", "bad"] : x.running ? ["awake", "on"] : x.slept ? ["asleep", ""] : ["down", ""];
     const ports = [x.apiPort, x.appPort].filter(Boolean).filter((p, i, a) => a.indexOf(p) === i).map((p) => ":" + p).join(" ");
     const btn = (a, label, cls = "") => `<button class="sm ${cls}" data-a="${a}">${label}</button>`;
+    const idleRatio = x.running ? Math.min((x.idleSeconds || 0) / (s.idleSeconds || 60), 1) : 1;
+    const barColor = x.running ? (idleRatio < 0.5 ? "var(--green)" : idleRatio < 0.8 ? "var(--amber)" : "var(--red)") : "var(--line)";
     return `<div class="row" data-m="${K.esc(x.module)}"><span class="pill ${st[1]}">${st[0]}</span>
       <div class="grow"><div class="t">${K.esc(x.module)}${x.pinned ? ` <span class="pill acc" style="padding:3px 7px">pinned</span>` : ""}${x.alwaysOn ? ` <span class="pill acc" style="padding:3px 7px">always on</span>` : ""}</div>
-      <div class="s mono">${ports} · ${x.hits || 0} hits · idle ${K.dur(x.idleSeconds || 0)}</div></div>
+      <div class="s mono">${ports} · ${x.hits || 0} hits · idle ${K.dur(x.idleSeconds || 0)}</div>
+      <div class="idle-bar"><i style="width:${Math.round(idleRatio * 100)}%;background:${barColor}"></i></div></div>
       ${K.isOwner ? `<div class="acts">${x.running ? btn("sleep", "sleep") : btn("wake", "wake")}${x.pinned ? btn("unpin", "unpin") : btn("pin", "pin")}${x.disabled ? btn("enable", "enable") : btn("disable", "disable", "danger")}</div>` : ""}</div>`;
   }).join("") + (vis.length > 40 ? `<button class="sm" id="more" style="align-self:center">${showAll ? "show fewer" : `show all ${vis.length}`}</button>` : "") || `<div class="empty">no modules match</div>`;
 }

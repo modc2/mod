@@ -295,6 +295,7 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
     <a href="#live" data-tab="live">LIVE</a>
     <a href="#code" data-tab="code">CONTRACT</a>
     <a href="#costs" data-tab="costs">COSTS</a>
+    <a href="#forecast" data-tab="forecast">FORECAST</a>
     <a href="#tests" data-tab="tests">TESTS<span class="cnt" id="tcount"></span></a>
     <span class="gap"></span>
     <a href="#all" data-tab="all">ALL CHAINS</a>
@@ -413,6 +414,26 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
         <div><table class="cmp" id="etable"></table><p class="note" id="enote"></p></div>
         <div><h3 style="margin:0">LIMITS AT THIS SIZE</h3><ul class="lims" id="elims"></ul></div>
       </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-forecast">
+    <div class="card" style="margin-top:18px">
+      <h3>FORECAST · $/MONTH AS SUBNET GROWS <span class="sp"></span><span class="pill" id="fc-at">loading</span></h3>
+      <div class="ectl">
+        <label>MINERS START<select id="fmstart"></select></label>
+        <label>MINERS END<select id="fmend"></select></label>
+        <label>VALIDATORS START<select id="fvstart"></select></label>
+        <label>VALIDATORS END<select id="fvend"></select></label>
+        <label>MONTHS<select id="fmonths"></select></label>
+        <label>SHAPE<select id="fshape"></select></label>
+        <label>RING<select id="fring"></select></label>
+      </div>
+      <div class="chart" id="fc-chart" style="margin-top:14px"><div class="empty">select a chain with mainnet pricing</div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3>STRATEGIES · WHAT EACH COSTS AND WHAT IT LINKS</h3>
+      <div id="fc-legend"><div class="empty">–</div></div>
     </div>
   </div>
 
@@ -547,7 +568,7 @@ const econP = get('economics').then(e => (ECON = e)).catch(() => (ECON = {}));
 const usd = v => v == null ? '-' : v >= 100 ? '$' + Math.round(v).toLocaleString() : v >= 1 ? '$' + v.toFixed(2) : v >= .01 ? '$' + v.toFixed(3) : '$' + v.toPrecision(2);
 /* one validator score at the measured ring: the action an epoch is mostly made of */
 const econOf = c => { const e = ((ECON || {}).chains || {})[c]; return e && (e.actions.score || e.actions.submit); };
-econP.then(() => { renderSwitch(); if (TAB === 'costs') renderEcon(); if (TAB === 'all') renderAll(); });
+econP.then(() => { renderSwitch(); if (TAB === 'costs') renderEcon(); if (TAB === 'all') renderAll(); if (TAB === 'forecast') renderForecast(); });
 const avg = a => a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
 const fmtM = v => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
 /* ring-4 verify cost on one chain, as [big, unit, sub] */
@@ -1032,8 +1053,8 @@ async function followRunning() {
 }
 
 /* ---------------- tabs ---------------- */
-const TABS = ['live', 'code', 'costs', 'tests', 'all', 'paper'];
-const SCOPED = ['live', 'code', 'costs', 'tests'];
+const TABS = ['live', 'code', 'costs', 'forecast', 'tests', 'all', 'paper'];
+const SCOPED = ['live', 'code', 'costs', 'forecast', 'tests'];
 let TAB = 'live', paperLoaded = false;
 function route() {
   let [tab, ...rest] = (location.hash.slice(1) || 'live').split('/');
@@ -1046,6 +1067,7 @@ function route() {
   $('scope').style.visibility = SCOPED.includes(t) ? '' : 'hidden';
   if (t === 'code') openCode(rest.join('/'));
   if (t === 'costs') renderCosts();
+  if (t === 'forecast') renderForecast();
   if (t === 'tests') renderTests();
   if (t === 'all') renderAll();
   if (t === 'paper' && !paperLoaded) { paperLoaded = true; loadPaper(); }
@@ -1332,6 +1354,108 @@ function barChart(rows, o) {
     rc.onmouseleave = () => { tip.style.opacity = 0; };
   });
   $('gastable').innerHTML = `<table><tr><th>${o.xlabel ? 'action' : 'ring'}</th><th>${esc(o.unit)}</th></tr>${rows.map(d => `<tr><td>${esc(d.x)}</td><td>${d.v != null ? +d.v.toFixed(3) : 'over limit'}</td></tr>`).join('')}</table>`;
+}
+
+/* ---------------- forecast : cost curves as subnet grows ---------------- */
+const FOPT = {
+  fmstart: [[4,'4'],[8,'8'],[16,'16'],[32,'32'],[64,'64']],
+  fmend:   [[32,'32'],[64,'64'],[128,'128'],[256,'256'],[512,'512']],
+  fvstart: [[3,'3'],[4,'4'],[8,'8'],[16,'16']],
+  fvend:   [[8,'8'],[16,'16'],[32,'32'],[64,'64'],[128,'128']],
+  fmonths: [[3,'3 mo'],[6,'6 mo'],[12,'12 mo'],[24,'24 mo'],[60,'5 yr']],
+  fshape:  [['exp','exponential'],['linear','linear'],['logistic','logistic']],
+  fring:   [[4,'4'],[8,'8'],[16,'16'],[32,'32']],
+};
+const FDEF = {fmstart: 16, fmend: 256, fvstart: 4, fvend: 64, fmonths: 12, fshape: 'exp', fring: 16};
+const FSET = Object.assign({}, FDEF, JSON.parse(localStorage.getItem('ztao.forecast') || '{}'));
+for (const id in FOPT) {
+  $(id).innerHTML = FOPT[id].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $(id).value = FOPT[id].some(([v]) => String(v) === String(FSET[id])) ? FSET[id] : FDEF[id];
+  $(id).onchange = () => { FSET[id] = $(id).value; localStorage.setItem('ztao.forecast', JSON.stringify(FSET)); renderForecast(); };
+}
+const FC_COLORS = {baseline: '#8aa3a6', batch: '#f59e0b', lazy: '#fbbf24', proof: '#a78bfa', committee: '#00ec97', private: '#5eead4'};
+const fc_ylab = v => v === 0 ? '$0' : v >= 10000 ? '$' + Math.round(v / 1000) + 'k' : v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : v >= 100 ? '$' + Math.round(v) : v >= 1 ? '$' + v.toFixed(1) : usd(v);
+let _fcAbort = 0;
+async function renderForecast() {
+  await econP;
+  const c = CHAIN, e = ((ECON || {}).chains || {})[c];
+  if (!e) {
+    $('fc-at').textContent = 'no mainnet data';
+    $('fc-chart').innerHTML = '<div class="empty">no mainnet data · this chain has no priced runs yet</div>';
+    $('fc-legend').innerHTML = '<div class="empty">–</div>';
+    return;
+  }
+  const id = ++_fcAbort;
+  const miners = `${FSET.fmstart},${FSET.fmend}`, validators = `${FSET.fvstart},${FSET.fvend}`;
+  const qs = `?chain=${c}&miners=${miners}&validators=${validators}&months=${FSET.fmonths}&shape=${FSET.fshape}&ring=${FSET.fring}`;
+  let fc;
+  try { fc = await get('forecast', qs); } catch { if (id === _fcAbort) $('fc-chart').innerHTML = '<div class="empty">could not load forecast</div>'; return; }
+  if (id !== _fcAbort) return;
+  const cd = (fc.chains || {})[c];
+  if (!cd || !(cd.rows || []).length) {
+    $('fc-chart').innerHTML = '<div class="empty">no forecast data for this chain</div>';
+    return;
+  }
+  $('fc-at').textContent = `${e.stale ? 'stale · ' : 'live · '}${e.symbol} ${usd(e.usd_price)}`;
+  const STRATS = cd.strategies || Object.keys(FC_COLORS);
+  const rows = cd.rows;
+  const nM = rows.length;
+  const allVals = rows.flatMap(r => STRATS.map(s => r[s] && r[s].month)).filter(v => v != null && v > 0);
+  const maxV = Math.max(...allVals) * 1.12 || 1;
+  const raw4 = maxV / 4, p4 = Math.pow(10, Math.floor(Math.log10(raw4)));
+  const step = [1, 2, 2.5, 5, 10].map(k => k * p4).find(k => k >= raw4) || raw4;
+  const W2 = 660, H2 = 280, ll = 64, rr = 14, tt = 22, bb2 = 36;
+  const xp = i => ll + i * (W2 - ll - rr) / (nM - 1);
+  const yp = v => tt + (H2 - tt - bb2) * (1 - v / maxV);
+  let h = `<svg viewBox="0 0 ${W2} ${H2}" role="img" aria-label="cost forecast">`;
+  for (let v = 0; v <= maxV * 1.01; v += step) {
+    h += `<line x1="${ll}" x2="${W2 - rr}" y1="${yp(v)}" y2="${yp(v)}" stroke="#152126"/>`;
+    h += `<text x="${ll - 6}" y="${yp(v) + 4}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${fc_ylab(v)}</text>`;
+  }
+  for (let i = 0; i < nM; i++) {
+    if (nM <= 13 || i % Math.ceil(nM / 12) === 0)
+      h += `<text x="${xp(i)}" y="${H2 - bb2 + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">mo ${rows[i].month}</text>`;
+  }
+  for (const s of STRATS) {
+    const col = FC_COLORS[s] || '#566d71';
+    const pts = rows.map((r, i) => { const v = r[s] && r[s].month; return v != null ? `${xp(i).toFixed(1)},${yp(v).toFixed(1)}` : null; }).filter(Boolean);
+    if (pts.length > 1) h += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    rows.forEach((r, i) => { const v = r[s] && r[s].month; if (v != null) h += `<circle cx="${xp(i).toFixed(1)}" cy="${yp(v).toFixed(1)}" r="2.2" fill="${col}"/>`; });
+  }
+  const colW = (W2 - ll - rr) / Math.max(nM - 1, 1);
+  rows.forEach((r, i) => {
+    const rx = i === 0 ? ll : xp(i) - colW / 2;
+    const rend = i === nM - 1 ? W2 - rr : xp(i) + colW / 2;
+    h += `<rect x="${rx.toFixed(1)}" y="${tt}" width="${(rend - rx).toFixed(1)}" height="${H2 - tt - bb2}" fill="transparent" data-i="${i}"/>`;
+  });
+  h += `<text x="${ll - 52}" y="${tt - 8}" fill="#566d71" style="font:10px var(--mono)">$/month</text></svg><div class="tip"></div>`;
+  const el2 = $('fc-chart');
+  el2.innerHTML = h;
+  const tip = el2.querySelector('.tip');
+  el2.querySelectorAll('rect[data-i]').forEach(rc => {
+    rc.onmousemove = ev => {
+      const i = +rc.dataset.i, r = rows[i], bb3 = el2.getBoundingClientRect();
+      const lines = STRATS.map(s => { const v = r[s] && r[s].month; return `<span style="color:${FC_COLORS[s]||'#8aa3a6'}">${esc((cd.labels||{})[s]||s)}</span> ${usd(v)}`; }).join('<br>');
+      tip.innerHTML = `<div style="color:var(--dim);margin-bottom:3px;font-weight:700">mo ${r.month} · M=${r.miners} V=${r.validators}</div>${lines}`;
+      tip.style.left = Math.max(0, Math.min(ev.clientX - bb3.left + 12, bb3.width - 220)) + 'px';
+      tip.style.top = (ev.clientY - bb3.top - 34) + 'px'; tip.style.opacity = 1;
+    };
+    rc.onmouseleave = () => { tip.style.opacity = 0; };
+  });
+  const priv = cd.privacy || {}, labels = cd.labels || {}, savings = cd.savings || {};
+  const last = rows[rows.length - 1];
+  const lockSvg = `<svg viewBox="0 0 10 12" width="10" height="12"><rect x="1.5" y="5.5" width="7" height="6" rx="1.5" fill="currentColor"/><path d="M3 5.5V3.8a2 2 0 014 0v1.7" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`;
+  const linkSvg = `<svg viewBox="0 0 12 12" width="12" height="12" fill="none"><path d="M5 7a2.5 2.5 0 003.5.3l1.3-1.3a2.5 2.5 0 00-3.5-3.5l-.7.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M7 5a2.5 2.5 0 00-3.5-.3L2.2 5.8A2.5 2.5 0 005.7 9.3l.7-.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+  let lt = `<table class="cmp"><tr><th></th><th>strategy</th><th>privacy</th><th>$/month at m=${last && last.miners} v=${last && last.validators}</th><th>vs baseline</th></tr>`;
+  for (const s of STRATS) {
+    const p = priv[s] || {}, col = FC_COLORS[s] || '#566d71', kept = p.kept;
+    const v = last && last[s] && last[s].month, sv = savings[s];
+    const privHtml = `<span style="color:${kept ? '#00ec97' : '#f59e0b'};display:inline-flex;align-items:center;gap:4px">${kept ? lockSvg : linkSvg} ${kept ? 'private' : 'links actions'}</span>`;
+    const svgTxt = sv && s !== 'baseline' ? (sv >= 1.5 ? `${sv.toFixed(1)}× cheaper` : pct(1 - 1 / sv) + ' cheaper') : '—';
+    lt += `<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col}"></span></td><td title="${esc(p.note||'')}">${esc(labels[s]||s)}</td><td>${privHtml}</td><td><b>${usd(v)}</b></td><td style="color:var(--dim)">${svgTxt}</td></tr>`;
+  }
+  lt += '</table>';
+  $('fc-legend').innerHTML = lt;
 }
 
 /* ---------------- tests : only this chain ---------------- */

@@ -307,3 +307,43 @@ class ArweaveClient:
             return {"bytes": int(num_bytes), "winston": r.text.strip()}
         except requests.RequestException as e:
             return {"error": str(e), "bytes": num_bytes}
+
+    def query(
+        self,
+        owner: Optional[str] = None,
+        tags: Optional[List[Dict[str, Any]]] = None,
+        first: int = 10,
+        after: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search the permaweb via GraphQL. Returns transaction edges."""
+        conditions = []
+        if owner:
+            conditions.append(f'owners: ["{owner}"]')
+        if tags:
+            tag_parts = []
+            for t in tags:
+                name = t.get("name", "")
+                values = t.get("values", [])
+                vals_str = ", ".join(f'"{v}"' for v in values)
+                tag_parts.append(f'{{name: "{name}", values: [{vals_str}]}}')
+            conditions.append(f'tags: [{", ".join(tag_parts)}]')
+        conditions.append(f"first: {int(first)}")
+        if after:
+            conditions.append(f'after: "{after}"')
+        gql = (
+            "{ transactions("
+            + ", ".join(conditions)
+            + ") { edges { cursor node { id tags { name value } data { size } } } } }"
+        )
+        try:
+            r = requests.post(
+                f"{self.gateway}/graphql",
+                json={"query": gql},
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            )
+            r.raise_for_status()
+            data = r.json()
+            return data.get("data", {}).get("transactions", {}).get("edges", [])
+        except requests.RequestException as e:
+            raise RuntimeError(f"GraphQL query failed: {e}")

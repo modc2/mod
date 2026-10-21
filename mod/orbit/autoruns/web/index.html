@@ -267,10 +267,10 @@ function renderHint() {
 }
 
 async function load() {
-  const r = await K.api("/auto");
+  const [r, allMods] = await Promise.all([K.api("/auto"), K.api("/modules")]);
   if (!r.ok) return;
   runs = (r.data.runs || []).sort((a, b) => b.updated_at - a.updated_at);
-  const mods = [...new Set(runs.map((x) => x.module))].sort();
+  const mods = [...new Set([...runs.map((x) => x.module), ...(allMods.data?.modules || []).map((m) => m.name)])].sort();
   $("mods").innerHTML = mods.map((m) => `<option value="${K.esc(m)}">`).join("");
   render();
 }

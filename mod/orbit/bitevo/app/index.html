@@ -301,11 +301,15 @@ $('#b-sim').onclick=e=>run(e.target,()=>post('/simulate',{n_miners:+$('#s-n').va
 
 $('#b-score').onclick=async e=>{
   const idea=$('#i-idea').value.trim();if(!idea)return;
-  busy(e.target,true);$('#score-out').innerHTML='<p class="muted">Judging…</p>';
+  busy(e.target,true);$('#score-out').innerHTML='<p class="muted">Expanding idea and judging…</p>';
   try{
     const {result:r}=await post('/score',{idea});
     const b=r.breakdown||{};
-    $('#score-out').innerHTML=`<div class="composite">${(r.composite_score??0).toFixed(2)} / 10</div>
+    const p=r.pitch||{};
+    const PITCH_FIELDS=['problem','solution','market','traction','business_model','team','defensibility','ask'];
+    const pitchRows=PITCH_FIELDS.filter(k=>p[k]).map(k=>`<dt>${k.replace('_',' ')}</dt><dd>${esc(p[k])}</dd>`).join('');
+    const pitchCard=p.company_name?`<div class="pitch"><h4>${esc(p.company_name)}</h4>${p.one_liner?`<div class="ol">${esc(p.one_liner)}</div>`:''}<dl>${pitchRows}</dl></div>`:'';
+    $('#score-out').innerHTML=`${pitchCard}<div class="composite">${(r.composite_score??0).toFixed(2)} / 10</div>
       <div class="bars">${Object.entries(b).map(([k,v])=>`
         <div class="bar"><span>${k}</span><div class="tr"><div class="fi" style="width:${Math.min(100,v*10)}%"></div></div><span>${(+v).toFixed(1)}</span></div>`).join('')}</div>
       ${r.feedback?`<div class="fb">${esc(r.feedback)}</div>`:''}`;

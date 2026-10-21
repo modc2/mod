@@ -85,10 +85,15 @@
             "auth": false,
             "docs": "Gateway network info"
         },
+        "/query": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Search the permaweb via GraphQL — filter by owner, tag name/value, limit, and pagination cursor"
+        },
         "/mcp": {
             "method": "POST",
             "auth": false,
-            "docs": "MCP Streamable HTTP (JSON-RPC 2.0): initialize, tools/list, tools/call \u2014 arweave_status, arweave_info, arweave_put, arweave_get, arweave_list, arweave_rm, arweave_tx, arweave_price, arweave_network"
+            "docs": "MCP Streamable HTTP (JSON-RPC 2.0): initialize, tools/list, tools/call \u2014 arweave_status, arweave_info, arweave_put, arweave_get, arweave_list, arweave_rm, arweave_tx, arweave_price, arweave_network, arweave_query"
         },
         "/docs": {
             "method": "GET",
@@ -120,7 +125,8 @@
             "arweave_rm",
             "arweave_tx",
             "arweave_price",
-            "arweave_network"
+            "arweave_network",
+            "arweave_query"
         ],
         "claude": "claude mcp add --transport http arweave http://localhost:50153/mcp"
     }

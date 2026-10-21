@@ -202,20 +202,22 @@ class Mod:
         return c.model_dump()
 
     def score_idea(self, idea: str, challenge: str = None):
-        from core.schemas import Challenge, StartupPitch, MinerResponse
+        from core.schemas import Challenge
+        from neurons.miner import BitevoMiner
         if challenge is None:
-            challenge = "Pitch a startup that could be in the next YC batch."
+            challenge = f"Pitch a YC-quality startup around this idea: {idea}"
         ch = Challenge(id="manual", prompt=challenge)
-        pitch = StartupPitch(
-            company_name="Manual Submission",
-            one_liner=idea[:100] if idea else "",
-            problem=idea, solution=idea, market="", traction="",
-            business_model="", team="", defensibility="", ask="",
-            raw_text=idea,
+        miner = BitevoMiner(
+            backend=self.validator.backend,
+            model=self.validator.model,
+            uid=-1,
+            local=True,
         )
-        resp = MinerResponse(miner_uid=-1, challenge_id="manual", pitch=pitch)
+        resp = miner.forward(ch)
         score = self.validator._score_response(ch, resp)
-        return score.model_dump()
+        result = score.model_dump()
+        result['pitch'] = resp.pitch.model_dump()
+        return result
 
     # ── Evolution (Track II: multivariate future-fitting) ─────────
 

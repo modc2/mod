@@ -301,6 +301,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
   const [oaBusy, setOaBusy] = useState(false)
   const [bench, setBench] = useState({ source: 'humaneval', limit: 10, offset: 0 })
   const [preview, setPreview] = useState<{ tasks?: any[]; count?: number; error?: string } | null>(null)
+  const [, setTick] = useState(0)
 
   const load = useCallback(() => {
     const signal = AbortSignal.timeout(10000)
@@ -344,6 +345,12 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
     const t = setInterval(() => { load(); loadBoards() }, status?.running ? 5000 : 20000)
     return () => clearInterval(t)
   }, [load, loadBoards, status?.running])
+
+  useEffect(() => {
+    if (!status?.running) return
+    const t = setInterval(() => setTick(v => v + 1), 1000)
+    return () => clearInterval(t)
+  }, [!!status?.running])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!picked) { setCard(null); return }
@@ -672,6 +679,58 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
       </div>
     </div>
   )
+
+  // ── live match card ───────────────────────────────────────────────
+  //
+  // Expands the chip in the stat strip into a full broadcast row when a
+  // match is in flight — agent glyph + Elo, task title + one-liner,
+  // elapsed timer, and the best prior score for this exact pairing.
+  const liveRow = live ? board.find(r => r.agent === live.agent) ?? null : null
+  const liveTask = live ? taskByKey[live.task] ?? null : null
+  const liveMatchPairs = live
+    ? matches.filter(m => m.agent === live.agent && m.task === live.task)
+    : []
+  const liveBest = liveMatchPairs.length
+    ? Math.max(...liveMatchPairs.map(m => m.score))
+    : null
+  const liveElapsed = live ? Math.max(0, Math.floor(Date.now() / 1000 - live.started_at)) : 0
+  const liveElapsedStr = liveElapsed < 60
+    ? `${liveElapsed}s`
+    : liveElapsed < 3600
+      ? `${Math.floor(liveElapsed / 60)}m ${liveElapsed % 60}s`
+      : `${Math.floor(liveElapsed / 3600)}h ${Math.floor((liveElapsed % 3600) / 60)}m`
+
+  const liveCard = live ? (
+    <div className="shrink-0 card mx-3 my-2 p-3 flex items-center gap-4 min-w-0">
+      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        {liveRow && <Glyph icon={liveRow.icon} />}
+        <div className="min-w-0">
+          <div className="text-xs text-gray-100 truncate">{live.agent}</div>
+          {liveRow && (
+            <div className="text-[10px] text-gray-500">
+              {liveRow.elo.toFixed(0)} elo · {pct(liveRow.avg_score)} avg
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="min-w-0 flex-[2]">
+        <div className="text-xs text-gray-300 truncate">
+          {liveTask?.title ?? live.task}
+        </div>
+        {liveTask && (
+          <div className="text-[10px] text-gray-500 truncate">{oneLine(liveTask)}</div>
+        )}
+        {liveBest !== null && (
+          <div className="text-[10px] text-emerald-400/70">best {pct(liveBest)}</div>
+        )}
+      </div>
+      <div className="shrink-0 text-right">
+        <div className="text-xs tabular-nums text-gray-300">{liveElapsedStr}</div>
+        <div className="text-[10px] text-gray-600">elapsed</div>
+      </div>
+    </div>
+  ) : null
 
   // ── the podium ────────────────────────────────────────────────────
   //
@@ -2343,6 +2402,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
       <div className="flex-1 min-h-0 flex">
         <div className="flex-1 min-w-0 flex flex-col">
           {statStrip}
+          {liveCard}
           {podium}
           {view === 'agents' ? leaderboard : view === 'models' ? modelBoard
             : view === 'tiers' ? tierBoard

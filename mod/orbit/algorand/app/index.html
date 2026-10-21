@@ -211,7 +211,15 @@ int 1</textarea>
 
 <section id="chain">
   <div class="card"><h3>NETWORK</h3><div id="netstats" class="stats"></div></div>
-  <div class="card"><h3>LATEST BLOCK</h3><div id="blk"></div></div>
+  <div class="card" id="blkcard"><h3>LATEST BLOCK</h3>
+    <div class="row" style="margin-bottom:10px">
+      <button class="ghost" id="blkprev">PREV</button>
+      <input id="blkrnd" style="width:120px" placeholder="round">
+      <button class="go" id="blkgo">GO</button>
+      <button class="ghost" id="blknext">NEXT</button>
+    </div>
+    <div id="blk"></div>
+  </div>
 </section>
 
 <section id="mcp">
@@ -229,6 +237,7 @@ int 1</textarea>
 // Same-origin: app/server.py proxies <base>/_api to the API (api/api.py).
 const API = location.pathname.replace(/\/(index\.html)?$/, '') + '/_api';
 let NET = localStorage.getItem('algo_net') || 'mainnet';
+let _chainRound = null, _chainTimer = null;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const short = a => a && a.length > 20 ? a.slice(0, 6) + '...' + a.slice(-4) : (a || '');
@@ -266,7 +275,7 @@ document.querySelectorAll('#net button').forEach(b => b.onclick = () => setNet(b
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('main section').forEach(s => s.classList.toggle('on', s.id === b.dataset.t));
-  if (b.dataset.t === 'chain') chain();
+  if (b.dataset.t === 'chain') { chain(); startChainTimer(); } else stopChainTimer();
   if (b.dataset.t === 'mcp') mcpTab();
 });
 
@@ -456,13 +465,22 @@ $('d_go').onclick = busy($('d_go'), async () => {
 });
 
 // ── chain + mcp ────────────────────────────────────────────
-async function chain() {
+async function chain(rnd) {
+  const fetchLatest = (rnd == null);
   try {
     const n = await api('/network');
     $('netstats').innerHTML = [['ROUND', fmt(n.round, 0)], ['PROTOCOL', n.last_version.slice(0, 7)], ['MIN FEE', n.min_fee_algo + ' ALGO'],
       ['SUPPLY', big(n.total_supply_algo)], ['ONLINE STAKE', big(n.online_stake_algo)], ['GENESIS', n.genesis_id]]
       .map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${esc(v)}</div></div>`).join('');
-    const b = await api('/block');
+    const b = await api(fetchLatest ? '/block' : '/block?round=' + rnd);
+    $('blkrnd').value = b.round;
+    $('blkprev').disabled = b.round <= 0;
+    if (fetchLatest && _chainRound != null && b.round > _chainRound) {
+      const card = $('blkcard');
+      card.style.borderColor = 'var(--acc)';
+      setTimeout(() => { card.style.borderColor = ''; }, 600);
+    }
+    if (fetchLatest) _chainRound = b.round;
     $('blk').innerHTML = `<div class="stats"><div class="stat"><div class="k">ROUND</div><div class="v">${fmt(b.round, 0)}</div></div>
       <div class="stat"><div class="k">TIME</div><div class="v" style="font-size:13px">${esc(b.time)}</div></div>
       <div class="stat"><div class="k">TXNS</div><div class="v">${b.txn_count}</div></div>
@@ -470,6 +488,17 @@ async function chain() {
       <div class="note">${Object.entries(b.txn_types).map(([k, v]) => `${k}: ${v}`).join(' - ')}</div>`;
   } catch (e) { $('netstats').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
 }
+function startChainTimer() {
+  stopChainTimer();
+  _chainTimer = setInterval(() => { if ($('chain').classList.contains('on')) chain(); }, 4000);
+}
+function stopChainTimer() {
+  if (_chainTimer) { clearInterval(_chainTimer); _chainTimer = null; }
+}
+$('blkprev').onclick = () => { const r = parseInt($('blkrnd').value); if (!isNaN(r) && r > 0) chain(r - 1); };
+$('blknext').onclick = () => chain();
+$('blkgo').onclick = () => { const r = parseInt($('blkrnd').value); if (!isNaN(r)) chain(r); };
+$('blkrnd').onkeydown = e => { if (e.key === 'Enter') $('blkgo').click(); };
 async function mcpTab() {
   const url = location.origin + API + '/mcp';
   $('mcpcfg').textContent = JSON.stringify({mcpServers: {algorand: {type: 'http', url}}}, null, 2);

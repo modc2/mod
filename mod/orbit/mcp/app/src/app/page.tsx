@@ -457,6 +457,83 @@ function AddSheet({
   );
 }
 
+/* ── tools search sheet ──────────────────────────────────────────── */
+
+function ToolsSheet({ onClose }: { onClose: () => void }) {
+  const [tools, setTools] = useState<Tool[]>([]);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  useEffect(() => {
+    api
+      .tools()
+      .then((r) => {
+        setTools(r.tools);
+        setBusy(false);
+      })
+      .catch((e) => {
+        setError(String((e as Error).message || e));
+        setBusy(false);
+      });
+  }, []);
+
+  const shown = q
+    ? tools.filter((t) =>
+        (t.name + " " + (t.description || "")).toLowerCase().includes(q.toLowerCase())
+      )
+    : tools;
+
+  return (
+    <div className="sheet" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="sheet-inner">
+        <h2>Search tools</h2>
+        <p className="muted small" style={{ margin: 0 }}>
+          Every tool callable through this hub — across all connected servers. Names are namespaced as{" "}
+          <code>server__tool</code>.
+        </p>
+        <div className="row" style={{ marginTop: 14 }}>
+          <input
+            autoFocus
+            style={{ flex: 1 }}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="filter by name or description…"
+          />
+          {!busy && (
+            <span className="muted small">
+              {shown.length} / {tools.length}
+            </span>
+          )}
+        </div>
+
+        {error && <div className="note bad" style={{ marginTop: 12 }}>{error}</div>}
+        {busy && <div className="muted small" style={{ marginTop: 12 }}>loading tools…</div>}
+
+        {!busy && !error && (
+          <div className="toollist" style={{ marginTop: 12 }}>
+            {shown.map((t) => (
+              <ToolRow key={t.name} tool={t} />
+            ))}
+            {shown.length === 0 && tools.length > 0 && (
+              <div className="muted small">no tools matched that filter</div>
+            )}
+            {tools.length === 0 && (
+              <div className="muted small">no tools found — are any servers connected and up?</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── the web ──────────────────────────────────────────────────────── */
 
 function WebSheet({ onClose, providers }: { onClose: () => void; providers: WebProvider[] }) {
@@ -1217,6 +1294,7 @@ export default function Page() {
   };
 
   const [hubsOpen, setHubsOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [catalogRegistry, setCatalogRegistry] = useState("all");
 
   const connectListing = (l: Listing) => {
@@ -1275,6 +1353,9 @@ export default function Page() {
           </button>
           <button className="sm" onClick={() => setSearching(true)}>
             search web
+          </button>
+          <button className="sm" onClick={() => setToolsOpen(true)}>
+            search tools
           </button>
           <button className="sm" onClick={() => setHubsOpen(true)}>
             hubs
@@ -1439,6 +1520,7 @@ export default function Page() {
       {searching && (
         <WebSheet onClose={() => setSearching(false)} providers={stats?.web.providers || []} />
       )}
+      {toolsOpen && <ToolsSheet onClose={() => setToolsOpen(false)} />}
     </>
   );
 }

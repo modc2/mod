@@ -458,15 +458,51 @@ async function runVerify() {
   } catch (e) { toast(`that is not JSON: ${e.message}`, true); return; }
   if ($('#vSystem').value) body.system = $('#vSystem').value;
   $('#vOut').innerHTML = '<div class="placeholder"><span class="spin"></span>asking every method that can answer…</div>';
+
+  const headers = { 'content-type': 'application/json' };
+  if (state.token) headers.authorization = `Bearer ${state.token}`;
+  let response;
   try {
-    const result = await api('/verify', { method: 'POST', body });
-    state.lastVerified = { ...body, system: result.system };
-    $('#vPublish').disabled = false;
-    renderVerdicts('#vOut', result);
-  } catch (e) {
-    $('#vOut').innerHTML = '';
-    toast(e.message, true);
-  }
+    response = await fetch(API + '/verify/stream', {
+      method: 'POST', headers, body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      let p; try { p = JSON.parse(text); } catch { p = { detail: text }; }
+      throw new Error(p.detail || p.error || response.statusText);
+    }
+  } catch (e) { $('#vOut').innerHTML = ''; toast(e.message, true); return; }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let cleared = false;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const blocks = buf.split('\n\n');
+      buf = blocks.pop();
+      for (const block of blocks) {
+        const line = block.trim();
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (!cleared) { $('#vOut').innerHTML = ''; cleared = true; }
+        if (data.startsWith('[DONE] ')) {
+          const result = JSON.parse(data.slice(7));
+          state.lastVerified = { ...body, system: result.system };
+          $('#vPublish').disabled = false;
+          $('#vOut').insertAdjacentHTML('afterbegin', summaryBlock(result));
+        } else {
+          const verdict = JSON.parse(data);
+          if (verdict.error) toast(verdict.error, true);
+          else $('#vOut').insertAdjacentHTML('beforeend', verdictRow(verdict));
+        }
+      }
+    }
+  } catch (e) { toast(e.message, true); }
 }
 
 async function runBrowserVerify() {

@@ -28,6 +28,10 @@
       <h2>Failures <span class="sp"></span><span class="faint" id="failN"></span></h2>
       <div id="fails" class="rows"></div>
     </div>
+    <div class="card">
+      <h2>Held <span class="sp"></span><span class="faint" id="heldN"></span></h2>
+      <div id="held" class="rows"></div>
+    </div>
     <div class="card wide">
       <h2>Recent <span class="sp"></span><input id="filter" placeholder="filter…" style="max-width:200px;padding:6px 10px" /></h2>
       <div id="recent" class="rows"></div>
@@ -47,7 +51,8 @@ function row(r) {
 function render() {
   K.setState(K.pill(S.enabled, "on", "off"));
   $("tick").textContent = `every ${K.dur(S.tick_secs)} · ${S.per_tick}/tick · last ${K.ago(S.last_tick)}`;
-  $("stats").innerHTML = [["snapped", S.snapped], ["pending", S.pending], ["failed", S.failed], ["per tick", S.per_tick]]
+  const heldCount = Object.keys(S.held || {}).length;
+  $("stats").innerHTML = [["snapped", S.snapped], ["pending", S.pending], ["failed", S.failed], ["held", heldCount], ["per tick", S.per_tick]]
     .map(([k, v]) => `<div class="stat"><b>${v ?? "—"}</b><span>${k}</span></div>`).join("");
   const f = $("filter").value.trim().toLowerCase();
   const rec = [...(S.recent || [])].reverse();
@@ -55,11 +60,28 @@ function render() {
   const fails = rec.filter((r) => r.error);
   $("failN").textContent = fails.length;
   $("fails").innerHTML = fails.map(row).join("") || `<div class="empty">no failures in the recent window</div>`;
+  const heldEntries = Object.entries(S.held || {});
+  $("heldN").textContent = heldEntries.length;
+  $("held").innerHTML = heldEntries.map(([name, h]) =>
+    `<div class="row"><span class="pill warn">${h.fails}x</span>
+    <div class="grow"><div class="t">${K.esc(name)}</div><div class="s">retry ${K.ago(h.retry_at)}</div></div>
+    <button class="btn sm retry-btn" data-m="${K.esc(name)}" style="padding:6px 9px;font-size:10px">retry now</button></div>`
+  ).join("") || `<div class="empty">no modules in backoff</div>`;
 }
 async function load() { const r = await K.api("/autosnap/status"); if (r.ok) { S = r.data; render(); } }
 
 $("filter").oninput = () => S && render();
-document.body.addEventListener("click", (e) => { const m = e.target.closest(".row[data-m]")?.dataset.m; if (m) $("s_mod").value = m; });
+document.body.addEventListener("click", (e) => { const m = e.target.closest(".row[data-m]")?.dataset.m; if (m && !e.target.closest(".retry-btn")) $("s_mod").value = m; });
+document.body.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".retry-btn");
+  if (!btn) return;
+  const m = btn.dataset.m;
+  $("s_mod").value = m;
+  btn.disabled = true;
+  const d = await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: "manual retry (autosnap app)" }, "snapshot taken");
+  btn.disabled = false;
+  if (d) load();
+});
 $("snapBtn").onclick = async () => {
   const m = $("s_mod").value.trim(); if (!m) return K.toast("pick a module", true);
   $("snapBtn").disabled = true; $("snapOut").innerHTML = `<span class="faint">snapshotting ${K.esc(m)}…</span>`;

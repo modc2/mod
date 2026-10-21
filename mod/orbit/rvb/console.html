@@ -369,6 +369,30 @@ async function showRound(id) {
   $('#round-detail').style.display = 'block';
   const scores = r.scores || [];
   const controlMatches = r.control_matches || [];
+  const atkOrder = r.attacks || [];
+  const defOrder = r.defenses || [];
+  const matchMap = new Map();
+  (r.matches || []).forEach((m, i) => { matchMap.set(m.attack + '__' + m.defense, {verdict: m.verdict || '', idx: i}); });
+  const _abbr = s => s.length > 10 ? s.slice(0, 9) + '…' : s;
+  const _vl = v => ({BLOCKED:'B',DEFLECTED:'D',BREACHED:'B',LEAKED:'L',ERROR:'E'}[v] || '–');
+  let hmHtml = '';
+  if (atkOrder.length && defOrder.length) {
+    let hmRows = '';
+    atkOrder.forEach(a => {
+      let cells = `<th title="${esc(atkName[a]||a)}">${esc(_abbr(atkName[a]||a))}</th>`;
+      defOrder.forEach(d => {
+        const hmEntry = matchMap.get(a + '__' + d);
+        if (hmEntry) {
+          cells += `<td><span class="v ${esc(hmEntry.verdict)} hm-cell" data-midx="${hmEntry.idx}" style="cursor:pointer" title="${esc((atkName[a]||a)+' vs '+(defName[d]||d)+': '+hmEntry.verdict)}">${_vl(hmEntry.verdict)}</span></td>`;
+        } else {
+          cells += `<td><span class="v" title="${esc((atkName[a]||a)+' vs '+(defName[d]||d)+': —')}">&#x2013;</span></td>`;
+        }
+      });
+      hmRows += `<tr>${cells}</tr>`;
+    });
+    const hmHdr = '<tr><th></th>' + defOrder.map(d => `<th title="${esc(defName[d]||d)}">${esc(_abbr(defName[d]||d))}</th>`).join('') + '</tr>';
+    hmHtml = `<h2 style="margin-top:14px">heat map</h2><div style="overflow-x:auto;margin-bottom:14px"><table style="width:auto">${hmHdr}${hmRows}</table></div>`;
+  }
   $('#round-body').innerHTML = `
     <div class="row"><span class="pill">${esc(r.id)}</span>
       <span class="pill">${esc(r.model)}</span>
@@ -390,6 +414,7 @@ async function showRound(id) {
         <td class="muted">${Object.entries(s.first_block).filter(([, n]) => n)
           .map(([k, n]) => k + ':' + n).join(' ')}</td>
         <td class="num">${s.model_calls}</td></tr>`).join('')}</table>` : ''}
+    ${hmHtml}
     <h2 style="margin-top:14px">matches</h2>
     <table><tr><th>attack</th><th>defense</th><th>verdict</th><th>stopped at</th>
       <th>why</th></tr>
@@ -456,6 +481,12 @@ async function showRound(id) {
       tr.after(detail);
     };
   });
+  $('#round-body').querySelectorAll('.hm-cell[data-midx]').forEach(span => {
+    span.onclick = () => {
+      const tr = $('#round-body').querySelector(`tr[data-idx="${span.dataset.midx}"]`);
+      if (tr) tr.scrollIntoView({behavior: 'smooth', block: 'center'});
+    };
+  });
   $('#round-detail').scrollIntoView({behavior: 'smooth'});
 }
 
@@ -495,13 +526,16 @@ $('#r-go').onclick = async () => {
   const el = $(id); if (el) el.addEventListener('change', recomputeCostHint);
 });
 
-async function poll(id, total) {
+async function poll(id, total, lastDone = -1) {
   const r = await api('/rounds?id=' + encodeURIComponent(id)).catch(() => null);
   if (!r) { $('#r-status').textContent = ''; return; }
-  $('#r-status').textContent = `${id} — ${r.done || 0}/${r.total_matches || total} ${r.status}`;
+  const done = r.done || 0;
+  $('#r-status').textContent = `${id} — ${done}/${r.total_matches || total} ${r.status}`;
   await loadRounds();
-  if (r.status === 'running') { setTimeout(() => poll(id, total), 1500); }
-  else { showRound(id); loadBoard(); }
+  if (r.status === 'running') {
+    if (done !== lastDone) { showRound(id); }
+    setTimeout(() => poll(id, total, done), 1500);
+  } else { showRound(id); loadBoard(); }
 }
 
 // ── corpora ────────────────────────────────────────────────────

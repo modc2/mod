@@ -479,6 +479,30 @@ const humanTag = (hum) => {
   return ` <a class="chip" style="text-decoration:none;cursor:pointer" href="https://v2.proofofhumanity.id" target="_blank" rel="noopener"
     title="No on-chain humanity registry vouches for this address yet (checked Proof of Humanity v1/v2 and Coinbase Verified Account). Click to register as a human.">unverified id</a>`;
 };
+const sparkline = (pts, w = 180, h = 52) => {
+  if (!pts || pts.length < 2) return '';
+  const vals = pts.map(p => p.usd);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const range = hi - lo || 1;
+  const pad = 5;
+  const iy = v => pad + ((hi - v) / range) * (h - 2 * pad);
+  const ix = i => (i / (pts.length - 1)) * w;
+  const xy = pts.map((p, i) => [ix(i), iy(p.usd)]);
+  const ptStr = xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const [lx, ly] = xy[xy.length - 1];
+  const firstY = iy(pts[0].usd).toFixed(1);
+  const area = `M${xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' L')} L${w},${h} L0,${h} Z`;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;overflow:visible">`
+    + `<defs><linearGradient id="spkG" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0%" stop-color="rgba(227,194,122,0.15)"/>`
+    + `<stop offset="100%" stop-color="rgba(227,194,122,0)"/>`
+    + `</linearGradient></defs>`
+    + `<line x1="0" y1="${firstY}" x2="${w}" y2="${firstY}" stroke="#e3c27a" stroke-opacity="0.35" stroke-width="1" stroke-dasharray="3 3"/>`
+    + `<path d="${area}" fill="url(#spkG)"/>`
+    + `<polyline points="${ptStr}" fill="none" stroke="#e3c27a" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>`
+    + `<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="3" fill="#e3c27a"/>`
+    + `</svg>`;
+};
 
 /* ── data: the two floors ── */
 async function overviewData(id) {
@@ -500,7 +524,7 @@ const VIEWS = {
     const hum = await humP;
     if (rail.error && !full) throw rail.error;
     const total = full ? full.total_usd : rail.total_usd;
-    let change = '';
+    let change = '', spkPts = null;
     if (full) {
       try {
         const c = await get('/net_curve', { id });
@@ -508,6 +532,7 @@ const VIEWS = {
           const pct = c.change_pct != null ? ` (${c.change_pct > 0 ? '+' : ''}${Number(c.change_pct).toFixed(2)}%)` : '';
           change = `<span class="${c.change_usd >= 0 ? 'up' : 'down'}">${c.change_usd >= 0 ? '+' : ''}${usd(c.change_usd)}${pct}</span> over 24h`;
         }
+        if (c && Array.isArray(c.points) && c.points.length >= 2) spkPts = c.points;
       } catch {}
     }
     const accounts = full
@@ -523,7 +548,7 @@ const VIEWS = {
         <div class="hero-total">${usdBig(total)}</div>
         <div class="sub">${change || (full ? 'tokens + DeFi positions, net of debt' : `native coin + stablecoins on ${rail.chains.length} chains`)}
           · as of ${clock()} · ${full ? 'DeBank' : 'public RPCs, priced by CoinGecko'}</div>
-        <div class="side">${mineLabel()}${humanTag(hum)}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div></div>
+        <div class="side">${mineLabel()}${humanTag(hum)}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div>${spkPts ? `<div style="margin-top:8px;line-height:0">${sparkline(spkPts)}</div>` : ''}</div>
       </div>
       <div class="actions">
         <button class="action" onclick="go('send')"><b>Send</b><span>native or stablecoins</span></button>

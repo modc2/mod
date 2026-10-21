@@ -39,7 +39,8 @@ INSTRUCTIONS = (
     "uploaded to Arweave and returns a real 43-char tx id; without one it is "
     "kept on this box under a local `sha256-...` id (the result says which — "
     "check `backend`). arweave_list/arweave_rm manage the local index only; "
-    "nothing on Arweave can be deleted."
+    "nothing on Arweave can be deleted. "
+    "arweave_query searches the permaweb by owner, tag, or block range via GraphQL."
 )
 
 # Wired by api.api after it constructs the shared client (keeps one index
@@ -144,6 +145,15 @@ def _t_network(args):
     return _client.info()
 
 
+def _t_query(args):
+    owner = str(args.get("owner") or "").strip() or None
+    tags = args.get("tags") or None
+    first = max(1, min(int(args.get("first") or 10), 100))
+    after = str(args.get("after") or "").strip() or None
+    edges = _client.query(owner=owner, tags=tags, first=first, after=after)
+    return {"edges": edges, "count": len(edges)}
+
+
 _TXID = {"type": "string", "description": "Arweave tx id (43 chars) or local sha256-… id"}
 
 TOOLS: Dict[str, Dict[str, Any]] = {
@@ -220,6 +230,36 @@ TOOLS: Dict[str, Dict[str, Any]] = {
         "description": "Gateway /info: network name, height, peers, version.",
         "inputSchema": {"type": "object", "properties": {}},
         "handler": _t_network,
+    },
+    "arweave_query": {
+        "description": (
+            "Search the permaweb via GraphQL — find transactions by owner address, "
+            "tags, or a combination. Returns transaction edges with id, tags, and data size."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string",
+                          "description": "Wallet address to filter by owner"},
+                "tags": {
+                    "type": "array",
+                    "description": "Tag filters, each {name: string, values: [string]}",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "values": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["name", "values"],
+                    },
+                },
+                "first": {"type": "integer",
+                          "description": "Max results to return (default 10, max 100)"},
+                "after": {"type": "string",
+                          "description": "Pagination cursor from a previous query"},
+            },
+        },
+        "handler": _t_query,
     },
 }
 

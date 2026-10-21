@@ -5,6 +5,8 @@ import ThemeToggle from "./ThemeToggle";
 import type { Paper } from "./tex";
 
 type RootInfo = { root: string | null; epoch: number | null; count?: number } | null;
+type ModEntry = { name: string; port?: number | null };
+type ProofResult = { leaf: string; proof: string[]; root: string; record: Record<string, unknown> };
 
 const API = process.env.NEXT_PUBLIC_API_URL || "/api/whitepaper";
 
@@ -16,10 +18,15 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
   const [root, setRoot] = useState<RootInfo>(initialRoot);
   const [online, setOnline] = useState(initialRoot !== null);
   const [refreshing, setRefreshing] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   const [copied, setCopied] = useState(false);
   const [active, setActive] = useState<string>("");
   const [progress, setProgress] = useState(0);
   const [tocOpen, setTocOpen] = useState(false);
+  const [exploreOpen, setExploreOpen] = useState(false);
+  const [mods, setMods] = useState<ModEntry[] | null>(null);
+  const [modsLoading, setModsLoading] = useState(false);
+  const [proofs, setProofs] = useState<Record<string, ProofResult | "loading" | "error">>({});
 
   async function refresh() {
     setRefreshing(true);
@@ -32,6 +39,61 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
     } finally {
       setRefreshing(false);
     }
+  }
+
+  async function rebuild() {
+    setRebuilding(true);
+    try {
+      await fetch(`${API}/tree/merkle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "orbit" }),
+      });
+      await refresh();
+    } finally {
+      setRebuilding(false);
+    }
+  }
+
+  async function fetchMods() {
+    setModsLoading(true);
+    try {
+      const r = await fetch(`${API}/mods?scope=orbit`, { cache: "no-store" });
+      if (r.ok) {
+        const data = await r.json();
+        setMods(data.mods ?? []);
+      }
+    } finally {
+      setModsLoading(false);
+    }
+  }
+
+  async function prove(name: string) {
+    if (!root?.root) {
+      await rebuild();
+    }
+    setProofs((p) => ({ ...p, [name]: "loading" }));
+    try {
+      const r = await fetch(`${API}/tree/proof`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (r.ok) {
+        const data = await r.json() as ProofResult;
+        setProofs((p) => ({ ...p, [name]: data }));
+      } else {
+        setProofs((p) => ({ ...p, [name]: "error" }));
+      }
+    } catch {
+      setProofs((p) => ({ ...p, [name]: "error" }));
+    }
+  }
+
+  function toggleExplore() {
+    const next = !exploreOpen;
+    setExploreOpen(next);
+    if (next && mods === null) fetchMods();
   }
 
   useEffect(() => {
@@ -156,9 +218,14 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
             <div className="registry-head">
               <span className={`dot ${online ? "dot-on" : "dot-off"}`} />
               <span>{online ? "Reference registry · live" : "Reference registry · offline"}</span>
-              <button onClick={refresh} disabled={refreshing} className="btn btn-sm ml-auto">
-                {refreshing ? "…" : "refresh"}
-              </button>
+              <div className="ml-auto flex gap-2">
+                <button onClick={rebuild} disabled={rebuilding || refreshing} className="btn btn-sm">
+                  {rebuilding ? "…" : "rebuild"}
+                </button>
+                <button onClick={refresh} disabled={refreshing || rebuilding} className="btn btn-sm">
+                  {refreshing ? "…" : "refresh"}
+                </button>
+              </div>
             </div>
             <div className="registry-grid">
               <div>
@@ -169,13 +236,86 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
               </div>
               <div>
                 <div className="k">Epoch</div>
-                <div className="v">{root?.epoch ?? "—"}</div>
+                <div className="v">
+                  {root?.epoch
+                    ? new Date(root.epoch * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+                    : "—"}
+                </div>
               </div>
               <div>
                 <div className="k">Records</div>
                 <div className="v">{root?.count ?? "—"}</div>
               </div>
             </div>
+
+            <div className="explore-toggle">
+              <button className="btn btn-sm" onClick={toggleExplore}>
+                {exploreOpen ? "hide" : "explore →"}
+              </button>
+            </div>
+
+            {exploreOpen && (
+              <div className="explore-section">
+                {modsLoading && <p className="explore-hint">Loading modules…</p>}
+                {!modsLoading && mods !== null && mods.length === 0 && (
+                  <p className="explore-hint">No modules found.</p>
+                )}
+                {!modsLoading && mods !== null && mods.length > 0 && (
+                  <div className="mod-list">
+                    {mods.map((m) => {
+                      const prf = proofs[m.name];
+                      const hasProof = prf && prf !== "loading" && prf !== "error";
+                      return (
+                        <div key={m.name} className="mod-row">
+                          <div className="mod-row-info">
+                            <span className="mod-name">{m.name}</span>
+                            {m.port != null && <span className="mod-port">:{m.port}</span>}
+                          </div>
+                          <button
+                            className="btn btn-sm"
+                            disabled={prf === "loading"}
+                            onClick={() => {
+                              if (hasProof) {
+                                setProofs((p) => {
+                                  const next = { ...p };
+                                  delete next[m.name];
+                                  return next;
+                                });
+                              } else {
+                                prove(m.name);
+                              }
+                            }}
+                          >
+                            {prf === "loading" ? "…" : hasProof ? "hide" : "prove"}
+                          </button>
+                          {hasProof && (
+                            <div className="proof-block">
+                              <div className="proof-line">
+                                <span className="proof-label">leaf</span>
+                                {(prf as ProofResult).leaf}
+                              </div>
+                              {(prf as ProofResult).proof.map((s, i) => (
+                                <div key={i} className="proof-line">
+                                  <span className="proof-label">π[{i}]</span>
+                                  {s}
+                                </div>
+                              ))}
+                              <div className="proof-line">
+                                <span className="proof-label">root</span>
+                                {(prf as ProofResult).root}
+                              </div>
+                            </div>
+                          )}
+                          {prf === "error" && (
+                            <span className="explore-hint">proof failed — try rebuild first</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           {paper.abstract && (

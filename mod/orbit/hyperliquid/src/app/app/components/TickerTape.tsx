@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fetchMids } from "../lib/api";
+import { fetchMids, fetchMeta } from "../lib/api";
 
 // Majors pinned to the front so the tape always opens with the coins people
 // recognize; everything else joins in mids order up to CAP entries.
@@ -12,7 +12,7 @@ const CAP = 24;
 // keys aren't tape material.
 const isCore = (k: string) => /^[A-Z0-9]+$/.test(k);
 
-type Tick = { coin: string; px: number; dir: -1 | 0 | 1 };
+type Tick = { coin: string; px: number; dir: -1 | 0 | 1; change24h: number | null };
 
 function fmtPx(px: number): string {
   if (px >= 1000) return px.toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -35,6 +35,20 @@ const Arrow = ({ dir }: { dir: 1 | -1 }) => (
 export default function TickerTape() {
   const [ticks, setTicks] = useState<Tick[]>([]);
   const prev = useRef<Map<string, number>>(new Map());
+  const metaMap = useRef<Map<string, { prevDayPx: number }>>(new Map());
+
+  useEffect(() => {
+    let alive = true;
+    const loadMeta = async () => {
+      try {
+        const m = await fetchMeta();
+        if (alive) metaMap.current = m;
+      } catch { /* decorative — ignore */ }
+    };
+    loadMeta();
+    const id = setInterval(loadMeta, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -51,16 +65,18 @@ export default function TickerTape() {
         const seen = new Set<string>();
         for (const m of MAJORS) {
           const px = byCoin.get(m);
-          if (px != null) { ordered.push({ coin: m, px, dir: 0 }); seen.add(m); }
+          if (px != null) { ordered.push({ coin: m, px, dir: 0, change24h: null }); seen.add(m); }
         }
         for (const [coin, px] of entries) {
           if (ordered.length >= CAP) break;
-          if (!seen.has(coin)) { ordered.push({ coin, px, dir: 0 }); seen.add(coin); }
+          if (!seen.has(coin)) { ordered.push({ coin, px, dir: 0, change24h: null }); seen.add(coin); }
         }
         for (const t of ordered) {
           const was = prev.current.get(t.coin);
           t.dir = was == null || was === t.px ? 0 : t.px > was ? 1 : -1;
           prev.current.set(t.coin, t.px);
+          const meta = metaMap.current.get(t.coin);
+          t.change24h = meta && meta.prevDayPx > 0 ? (t.px - meta.prevDayPx) / meta.prevDayPx * 100 : null;
         }
         setTicks(ordered);
       } catch { /* tape is decorative — never surface errors */ }
@@ -84,6 +100,11 @@ export default function TickerTape() {
         {fmtPx(t.px)}
       </span>
       {t.dir !== 0 && <Arrow dir={t.dir} />}
+      {t.change24h != null && (
+        <span className={`num text-[10px] ${t.change24h >= 0 ? "text-win" : "text-loss"}`}>
+          {t.change24h >= 0 ? "+" : ""}{t.change24h.toFixed(1)}%
+        </span>
+      )}
     </span>
   );
 

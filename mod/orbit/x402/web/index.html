@@ -344,7 +344,7 @@ async function detail(url) {
   $('#drawer').classList.add('open');
   $('#dbody').innerHTML = '<div class="dim">loading</div>';
   try {
-    const s = await get('service', {url});
+    const [s, me] = await Promise.all([get('service', {url}), get('whoami').catch(() => null)]);
     const ex = (((s.raw.extensions || {}).bazaar || {}).info) || {};
     const offers = s.offers.map(o => `<tr><td>${esc(o.network)}</td><td>${esc(o.scheme)}</td>
       <td>${esc(o.asset_name || o.asset.slice(0, 10))}</td><td class="num">${o.price_usd != null ? usd(o.price_usd) : esc(o.amount)}</td>
@@ -365,14 +365,30 @@ async function detail(url) {
       ${ex.input ? `<h3>INPUT EXAMPLE</h3><pre>${esc(JSON.stringify(ex.input, null, 2))}</pre>` : ''}
       ${ex.output ? `<h3>OUTPUT EXAMPLE</h3><pre>${esc(JSON.stringify(ex.output, null, 2).slice(0, 3000))}</pre>` : ''}
       <h3>PROVIDER</h3><button class="quiet" id="byhost">all ${esc(s.host)} services</button>
-      <button class="quiet" id="reprobe">probe it live</button> <span id="pr" class="dim"></span>`;
+      <h3>LIVE QUOTE</h3>${me && me.score >= 20
+        ? `<button class="quiet" id="livequote">Get live quote</button> <span id="lq" class="dim"></span>`
+        : `<span class="dim">sign in with a wallet to get a live quote</span>`}<div id="lqtable"></div>`;
     $('#byhost').onclick = () => { closeDrawer(); Object.assign(st, {tab: 'services', host: s.host, q: '', offset: 0}); tab('services'); };
-    $('#reprobe').onclick = async () => {
-      $('#pr').textContent = 'asking...';
-      try { const p = await post('probe', {url: s.url, method: s.method, pin: false});
-        $('#pr').textContent = p.x402 ? 'answers 402 with payment requirements: live' : `answered ${p.status}${p.error ? ' (' + p.error + ')' : ''}`; }
-      catch (e) { $('#pr').textContent = e.message; }
-    };
+    if (me && me.score >= 20) {
+      $('#livequote').onclick = async () => {
+        const btn = $('#livequote'), lq = $('#lq'), lqt = $('#lqtable');
+        btn.disabled = true; lq.textContent = 'fetching...';
+        try {
+          const r = await post('call', {url: s.url, method: s.method, pay: 'none'});
+          lq.textContent = '';
+          if (r.offers && r.offers.length) {
+            lqt.innerHTML = `<table style="margin-top:6px"><tr><th>network</th><th>scheme</th><th>asset</th><th class="num">price</th><th>pays to</th></tr>` +
+              r.offers.map(o => `<tr><td>${esc(o.network)}</td><td>${esc(o.scheme)}</td>` +
+                `<td>${esc(o.asset_name || (o.asset || '').slice(0, 10))}</td>` +
+                `<td class="num">${o.price_usd != null ? usd(o.price_usd) : esc(String(o.amount))}</td>` +
+                `<td class="dim url">${esc(o.pay_to)}</td></tr>`).join('') + '</table>';
+          } else {
+            lq.textContent = r.payment_required === false ? 'no payment required' : 'no offers returned';
+          }
+        } catch (e) { lq.textContent = e.message; }
+        finally { btn.disabled = false; }
+      };
+    }
   } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
 }
 function closeDrawer() { $('#drawer').classList.remove('open'); }

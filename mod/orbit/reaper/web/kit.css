@@ -94,6 +94,18 @@ button.armed { color: var(--bg); background: var(--amber); border-color: var(--a
 pre.log { margin: 8px 0 0; padding: 10px; border-radius: 10px; background: #050b09; border: 1px solid var(--line);
   font: 11.5px/1.45 var(--mono); color: #b9dcc9; white-space: pre-wrap; word-break: break-word; max-height: 340px; overflow: auto; }
 
+/* idle-countdown bar per module row */
+.idle-bar { height: 3px; border-radius: 99px; background: var(--panel); margin-top: 6px; overflow: hidden; }
+.idle-bar > i { display: block; height: 100%; border-radius: 99px; transition: width .4s; }
+
+/* memory top-consumers list */
+.top-consumers { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+.top-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.top-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+.top-bar { flex: 2; height: 4px; border-radius: 99px; background: var(--panel); overflow: hidden; }
+.top-bar > i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.top-mb { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; }
+
 /* forms */
 .form { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .form .full { grid-column: 1 / -1; }

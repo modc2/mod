@@ -14,6 +14,7 @@
       <h2>Build app <span class="sp"></span><span id="tick" class="faint"></span></h2>
       <div id="stats" class="stats"></div>
       <div id="down" style="margin-top:12px"></div>
+      <div id="last_log"></div>
     </div>
     <div class="card wide">
       <h2>Uptime this session <span class="sp"></span><span class="faint" id="upPct"></span></h2>
@@ -41,7 +42,21 @@ function render(A) {
     .map(([k, v]) => `<div class="stat"><b>${v ?? 0}</b><span>${k}</span></div>`).join("");
   $("down").innerHTML = A.down_since
     ? `<div class="notice bad">dark since ${K.ago(A.down_since)}${A.in_progress ? " · restart in progress" : ""}${A.next_attempt ? ` · next attempt ${K.ago(A.next_attempt)}` : ""}</div>`
-    : `<div class="inline"><span class="muted">${A.last_start ? `last restart ${K.ago(A.last_start)}` : "never needed a restart this run"}</span><span class="sp" style="flex:1"></span><a class="btn sm" style="padding:6px 9px;font-size:10px" href="${K.BUILD_APP}">open build ↗</a></div>`;
+    : `<div class="inline"><span class="muted">${A.last_start ? `last restart ${K.ago(A.last_start.at)}` : "never needed a restart this run"}</span><span class="sp" style="flex:1"></span><a class="btn sm" style="padding:6px 9px;font-size:10px" href="${K.BUILD_APP}">open build ↗</a></div>`;
+  if (A.last_start) {
+    const ls = A.last_start;
+    $("last_log").innerHTML =
+      `<div style="margin-top:12px">` +
+      `<div class="inline" style="gap:8px">` +
+      `<span class="muted" style="font-size:12px">attempt ${ls.attempt ?? "—"}</span>` +
+      K.pill(ls.ok, "✓", "✗", ls.ok ? "" : "bad") +
+      `<span class="muted" style="font-size:12px">${K.ago(ls.at)}</span>` +
+      `</div>` +
+      (ls.output ? `<pre class="log">${K.esc(ls.output)}</pre>` : "") +
+      `</div>`;
+  } else {
+    $("last_log").innerHTML = `<div class="muted" style="font-size:12px;margin-top:10px">no restarts yet</div>`;
+  }
   const pct = hist.length ? Math.round((hist.filter((h) => h.up).length / hist.length) * 100) : null;
   $("upPct").textContent = pct == null ? "" : `${pct}% of ${hist.length} checks`;
   $("strip").innerHTML = hist.slice(-120).map((h) =>

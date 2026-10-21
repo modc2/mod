@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>LOOPS</title>
 <link rel="stylesheet" href="kit.css" />
+<style>
+@keyframes pill-pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+.pill-pulse { animation: pill-pulse 1.4s ease-in-out infinite; }
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -59,7 +63,7 @@ function render() {
     const log = open.has(l.id) ? `<pre class="log">${(l.log || []).slice(-40).map((e) =>
       `[${new Date(e.ts * 1000).toLocaleTimeString()}] #${e.iter} ${e.kind}${e.code != null ? ` exit ${e.code}` : ""}${e.cmd ? ` $ ${K.esc(e.cmd)}` : ""}\n${K.esc((e.out || "").slice(-2000))}`).join("\n\n") || "no events yet"}</pre>` : "";
     return `<div class="row click" data-id="${l.id}" style="flex-wrap:wrap">
-      <span class="pill ${st(l.status)}">${K.esc(l.status)}</span>
+      <span class="pill ${st(l.status)}">${K.esc(l.status)}</span>${l.status === "running" && l.job_id ? `<a class="pill on pill-pulse" href="${K.BUILD_APP}">⟳ agent…</a>` : ""}
       <div class="grow">
         <div class="t">${K.esc(l.name)} <span class="faint mono">· ${K.esc(where)}</span></div>
         <div class="s mono">${l.cmd ? "$ " + K.esc(l.cmd) : ""}${l.goal ? ` → ${K.esc(l.goal)}` : ""}</div>

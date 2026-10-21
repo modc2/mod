@@ -40,7 +40,19 @@ def tc(tmp_path, monkeypatch):
         if url.endswith("/REALTXID_000000000000000000000000000000000"):
             return FakeResp(content=b'{"from":"gateway"}')
         return FakeResp(status=404)
+
+    def fake_post(url, **kw):
+        if url.endswith("/graphql"):
+            return FakeResp(js={
+                "data": {"transactions": {"edges": [
+                    {"cursor": "c1", "node": {"id": "TXABC123", "tags": [{"name": "App-Name", "value": "test"}], "data": {"size": "512"}}},
+                    {"cursor": "c2", "node": {"id": "TXDEF456", "tags": [], "data": {"size": "256"}}},
+                ]}}
+            })
+        return FakeResp(status=404)
+
     monkeypatch.setattr(cl.requests, "get", fake_get)
+    monkeypatch.setattr(cl.requests, "post", fake_post)
     return TestClient(api_mod.app)
 
 
@@ -125,7 +137,7 @@ def test_mcp_initialize_ping_notifications(tc):
 def test_mcp_tools_list_both_paths(tc):
     names = {t["name"] for t in rpc(tc, "tools/list").json()["result"]["tools"]}
     assert names == {"arweave_status", "arweave_info", "arweave_put", "arweave_get", "arweave_list",
-                     "arweave_rm", "arweave_tx", "arweave_price", "arweave_network"}
+                     "arweave_rm", "arweave_tx", "arweave_price", "arweave_network", "arweave_query"}
     for t in rpc(tc, "tools/list", path="/mcp").json()["result"]["tools"]:
         assert t["inputSchema"]["type"] == "object"
 
@@ -172,3 +184,41 @@ def test_blob_path_rejects_traversal(tc):
     assert c._blob_path("sha256-../../etc/passwd") is None
     assert c._blob_path("sha256-" + "a" * 43) is not None
     assert c._blob_path("realTxIdNotLocal") is None
+
+
+# ── Query (GraphQL) ───────────────────────────────────────────────────────────
+
+def test_query_rest_by_owner(tc):
+    r = tc.get("/api/query?owner=wallet123&first=2")
+    assert r.status_code == 200
+    data = r.json()
+    assert "edges" in data
+    assert len(data["edges"]) == 2
+    assert data["edges"][0]["node"]["id"] == "TXABC123"
+
+
+def test_query_rest_by_tag(tc):
+    r = tc.get("/api/query?tag_name=App-Name&tag_value=test")
+    assert r.status_code == 200
+    edges = r.json()["edges"]
+    assert edges[0]["node"]["tags"][0]["name"] == "App-Name"
+
+
+def test_query_rest_no_params(tc):
+    r = tc.get("/api/query")
+    assert r.status_code == 200
+    assert "edges" in r.json()
+
+
+def test_query_mcp_tool(tc):
+    res = tool(tc, "arweave_query", owner="wallet123", first=2)
+    assert res["isError"] is False
+    sc = res["structuredContent"]
+    assert sc["count"] == 2
+    assert sc["edges"][0]["node"]["id"] == "TXABC123"
+
+
+def test_query_mcp_tool_with_tags(tc):
+    res = tool(tc, "arweave_query", tags=[{"name": "App-Name", "values": ["test"]}])
+    assert res["isError"] is False
+    assert res["structuredContent"]["count"] == 2

@@ -434,6 +434,8 @@ function putResult(el, results) {
 
 const gatewayUrl = (cid) => `${(state.lh && state.lh.gateway) || 'https://gateway.lighthouse.storage'}/ipfs/${cid}`;
 const IMAGE = /^(png|jpe?g|gif|webp|avif|svg)$/i;
+const AUDIO = /^(mp3|wav|ogg|flac|aac|m4a|opus|weba)$/i;
+const VIDEO = /^(mp4|webm|mov|avi|mkv|ogv)$/i;
 let shelf = { objects: [], source: 'module' };
 
 function objectCard(o, source) {
@@ -530,11 +532,26 @@ function renderShelf() {
     b.onclick = async () => {
       const panel = b.closest('.obj').querySelector('.obj-peek');
       if (panel.style.display !== 'none') { panel.style.display = 'none'; b.textContent = 'peek'; return; }
+      const cardUrl = b.closest('.obj').querySelector('[data-link]')?.dataset?.link || gatewayUrl(b.dataset.peek);
+      const cardName = b.closest('.obj').querySelector('.title')?.textContent || '';
+      const cardExt = cardName.slice(cardName.lastIndexOf('.') + 1);
+      if (AUDIO.test(cardExt)) {
+        panel.innerHTML = `<audio controls src="${esc(cardUrl)}" style="width:100%;margin-top:4px"></audio>`;
+        panel.style.display = ''; b.textContent = 'peek'; return;
+      }
+      if (VIDEO.test(cardExt)) {
+        panel.innerHTML = `<video controls src="${esc(cardUrl)}" style="width:100%;max-height:200px;margin-top:4px"></video>`;
+        panel.style.display = ''; b.textContent = 'peek'; return;
+      }
       b.textContent = '…';
       try {
         const r = await call('/preview?cid=' + encodeURIComponent(b.dataset.peek));
         if (r.is_text) {
           panel.innerHTML = `<pre class="code">${esc(r.text)}</pre>${r.truncated ? '<p class="hint">truncated at 64 KB</p>' : ''}`;
+        } else if ((r.content_type || '').startsWith('audio/')) {
+          panel.innerHTML = `<audio controls src="${esc(r.gateway)}" style="width:100%;margin-top:4px"></audio>`;
+        } else if ((r.content_type || '').startsWith('video/')) {
+          panel.innerHTML = `<video controls src="${esc(r.gateway)}" style="width:100%;max-height:200px;margin-top:4px"></video>`;
         } else {
           panel.innerHTML = `<p class="hint">${esc(r.content_type || 'binary')} · ${bytes(r.bytes ?? 0)}</p>`;
         }

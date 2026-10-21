@@ -31,8 +31,8 @@ contradiction is worth surfacing even when it comes from a stranger.
     disputed     they disagree — the interesting case, and the reason for all this
 """
 import time
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, Generator, List, Optional
 
 from . import systems
 from .methods import evm, native, node, snarkjs, solidity
@@ -155,6 +155,26 @@ def verify(system: str, proof: Dict[str, Any], vkey: Optional[Dict[str, Any]] = 
             lambda name: run_method(name, system, proof, vkey, public_signals, by=by),
             wanted))
     return {'system': system, 'verdicts': verdicts, **consensus(verdicts, quorum)}
+
+
+def verify_stream(system: str, proof: Dict[str, Any], vkey: Optional[Dict[str, Any]] = None,
+                  public_signals: Optional[List[Any]] = None,
+                  method_names: Optional[List[str]] = None,
+                  quorum: int = QUORUM, by: str = '') -> Generator[Dict[str, Any], None, None]:
+    """Like verify(), but yields each verdict the instant its future resolves."""
+    system = systems.resolve(system)
+    wanted = [m for m in (method_names or methods_for(system)) if m in AUTHORITATIVE]
+    if not wanted:
+        raise VerifyError(
+            f'no method on this box can verify {system} — '
+            f'{systems.get(system)["methods"]} can, in principle')
+    with ThreadPoolExecutor(max_workers=len(wanted)) as pool:
+        futures = {
+            pool.submit(run_method, name, system, proof, vkey, public_signals, by=by): name
+            for name in wanted
+        }
+        for future in as_completed(futures):
+            yield future.result()
 
 
 def consensus(verdicts: List[Dict[str, Any]], quorum: int = QUORUM) -> Dict[str, Any]:

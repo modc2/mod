@@ -1,6 +1,6 @@
 {
   "netuid": 0,
-  "block": 276,
+  "block": 292,
   "neurons": {
     "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": {
       "uid": 0,
@@ -27,8 +27,8 @@
   "incentive": {
     "0": 1.0
   },
-  "epochs": 276,
-  "updated": 1792566016,
+  "epochs": 292,
+  "updated": 1792578227,
   "name": "neartensor",
   "consensus": "yuma",
   "tasks": [

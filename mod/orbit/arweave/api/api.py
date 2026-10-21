@@ -162,6 +162,24 @@ def network():
     return client.info()
 
 
+@api.get("/query")
+def query(
+    owner: Optional[str] = None,
+    tag_name: Optional[str] = None,
+    tag_value: Optional[str] = None,
+    first: int = 10,
+    after: Optional[str] = None,
+):
+    tags = None
+    if tag_name:
+        tags = [{"name": tag_name, "values": [tag_value] if tag_value else []}]
+    try:
+        edges = client.query(owner=owner, tags=tags, first=first, after=after)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    return {"edges": edges}
+
+
 # MCP rides the same router so it lands at /api/mcp and bare /mcp alike.
 api.include_router(arweave_mcp.router)
 

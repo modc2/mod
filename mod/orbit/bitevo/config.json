@@ -100,7 +100,7 @@
             "docs": "Re-verify every ring signature of an epoch (query ?epoch=N)"
         }
     },
-    "schema": "QmU6o1GD7e697WXhLXYZmUkCfHjMDBHfLyYVRjiQibEMw8",
+    "schema": "QmWrUZt6EGPoofJaWQFjBWRu4mUoYe9tRKFxMtNdc3GYgJ",
     "gateway_port": 51461,
     "protocol": {
         "name": "zuma",

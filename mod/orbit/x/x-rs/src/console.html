@@ -527,9 +527,39 @@ ROUTES.post = async (seg, q) => {
   try {
     const p = await api('/posts/' + encodeURIComponent(id));
     out.replaceChildren(postCard(p.data, p.includes, { source: p.source }));
-    rail(el('div', { class: 'card', style: 'margin:0 0 12px' }, el('h2', { text: 'raw' }),
+    const rawCard = el('div', { class: 'card', style: 'margin:0 0 12px' }, el('h2', { text: 'raw' }),
       p.source ? el('div', { class: 'hint', style: 'margin-bottom:8px', text: p.source }) : null,
-      el('pre', { text: JSON.stringify(p, null, 2) })));
+      el('pre', { text: JSON.stringify(p, null, 2) }));
+    rail(rawCard);
+
+    if (S.auth.reads) {
+      const repliesSection = el('div', { class: 'card', style: 'margin-top:12px' },
+        el('h2', { text: 'Thread replies' }),
+        el('div', { class: 'load', text: 'loading replies…' }));
+      out.append(repliesSection);
+      api('/search?q=' + encodeURIComponent('conversation_id:' + id + ' -is:retweet') +
+          '&sort_order=recency&max_results=25')
+        .then(res => {
+          if (res.data) res.data = res.data.filter(t => t.id !== (p.data && p.data.id));
+          const count = (res.data || []).length;
+          if (!count) { repliesSection.remove(); return; }
+          repliesSection.querySelector('h2').textContent = 'Thread replies (' + count + ')';
+          repliesSection.querySelector('.load').replaceWith(renderList(res, 'posts'));
+          const liked = res.data.reduce((best, t) =>
+            ((t.public_metrics || {}).like_count || 0) > (((best || {}).public_metrics || {}).like_count || 0)
+              ? t : best, null);
+          rail(
+            el('div', { class: 'card', style: 'margin:0 0 12px' }, el('h2', { text: 'thread' }),
+              el('div', { class: 'kv' },
+                el('span', { class: 'k', text: 'replies' }),
+                el('span', { class: 'v', text: count })),
+              liked ? el('div', { class: 'kv' },
+                el('span', { class: 'k', text: 'most liked' }),
+                el('span', { class: 'v', text: ((liked.public_metrics || {}).like_count || 0) + ' ♥' })) : null),
+            rawCard);
+        })
+        .catch(() => repliesSection.remove());
+    }
   } catch (e) {
     out.replaceChildren(errBox(e));
   }

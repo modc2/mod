@@ -89,6 +89,26 @@
   </div>
 
   <div class="card">
+    <h2 style="margin-top:0">Search</h2>
+    <div class="row">
+      <input id="q-owner" type="text" placeholder="owner wallet address (optional)" />
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="q-tag-name" type="text" placeholder="tag name (optional)" style="flex:1;min-width:120px" />
+      <input id="q-tag-value" type="text" placeholder="tag value" style="flex:1;min-width:120px" />
+      <input id="q-first" type="number" placeholder="limit" min="1" max="100" value="10" style="width:70px;flex:none" />
+      <button onclick="queryTxs()">Search</button>
+    </div>
+    <div id="q-results" hidden style="margin-top:10px">
+      <table id="q-table">
+        <thead><tr><th>tx id</th><th>tags</th><th>data size</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <pre id="q-error" hidden></pre>
+  </div>
+
+  <div class="card">
     <h2 style="margin-top:0">Network</h2>
     <div class="row">
       <button onclick="netInfo()">Gateway info</button>
@@ -230,6 +250,48 @@ async function refresh() {
 async function rm(txid) {
   await fetch(`${API}/rm/${txid}`, {method:'DELETE'});
   refresh();
+}
+
+async function queryTxs() {
+  const owner = document.getElementById('q-owner').value.trim();
+  const tagName = document.getElementById('q-tag-name').value.trim();
+  const tagValue = document.getElementById('q-tag-value').value.trim();
+  const first = parseInt(document.getElementById('q-first').value, 10) || 10;
+  const params = new URLSearchParams();
+  if (owner) params.set('owner', owner);
+  if (tagName) params.set('tag_name', tagName);
+  if (tagValue) params.set('tag_value', tagValue);
+  params.set('first', first);
+  document.getElementById('q-error').hidden = true;
+  document.getElementById('q-results').hidden = true;
+  try {
+    const data = await jget('/query?' + params);
+    const edges = data.edges || [];
+    const tbody = document.querySelector('#q-table tbody');
+    tbody.innerHTML = '';
+    for (const edge of edges) {
+      const node = edge.node || {};
+      const id = node.id || '';
+      const tags = (node.tags || []).map(t => `${t.name}=${t.value}`).join(', ');
+      const size = node.data?.size ?? '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><a class="txid" href="#" onclick="document.getElementById('txid').value='${id}';getTx();return false">${id}</a></td>
+        <td style="font-size:11px;color:#7a8896">${tags}</td>
+        <td>${size}</td>`;
+      tbody.appendChild(tr);
+    }
+    if (!edges.length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="3" style="color:#7a8896">no results</td>';
+      tbody.appendChild(tr);
+    }
+    document.getElementById('q-results').hidden = false;
+  } catch (e) {
+    const el = document.getElementById('q-error');
+    el.hidden = false;
+    el.textContent = String(e);
+  }
 }
 
 statusCheck();

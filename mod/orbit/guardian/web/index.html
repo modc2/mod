@@ -21,6 +21,10 @@
       </div>
       <div class="inline" style="justify-content:flex-end;margin-top:10px"><button id="gSave" class="sm">save</button></div>
     </div>
+    <div class="card wide" id="pendingCard">
+      <h2>Pending inbox</h2>
+      <div id="pendingInbox" class="rows"><div class="empty">nothing pending across your modules</div></div>
+    </div>
     <div class="card">
       <h2>Modules with their own rules</h2>
       <div id="mods" class="rows"></div>
@@ -85,7 +89,23 @@ async function openMod(name) {
   renderMod(g.data, u.ok ? u.data : null);
 }
 
-async function load() { const r = await K.api("/guardian"); if (r.ok) { G = r.data; renderGlobal(); } }
+async function renderPendingInbox() {
+  const keys = Object.keys(G.modules || {});
+  const el = $("pendingInbox");
+  if (!keys.length) { el.innerHTML = '<div class="empty">nothing pending across your modules</div>'; return; }
+  const results = await Promise.all(keys.map(n => K.api(`/modules/${encodeURIComponent(n)}/updates`)));
+  const all = [];
+  keys.forEach((n, i) => { if (results[i].ok) (results[i].data.updates || []).filter(u => u.status === "pending").forEach(u => all.push({...u, _mod: n})); });
+  all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  el.innerHTML = all.map(u => `<div class="row" data-u="${K.esc(u.id)}" data-mod="${K.esc(u._mod)}">
+    <span class="pill acc">${K.esc(u._mod)}</span>
+    <div class="grow" style="min-width:0"><div class="t" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${K.esc(u.title || u.prompt || u.id)}</div>
+    <div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}${u.screen?.verdict ? " · guardian: " + K.esc(u.screen.verdict) : ""}</div></div>
+    ${K.isOwner ? `<div class="acts"><button class="sm" data-a="approve">approve</button><button class="sm danger" data-a="reject">reject</button></div>` : ""}</div>`).join("")
+    || `<div class="empty">nothing pending across your modules</div>`;
+}
+
+async function load() { const r = await K.api("/guardian"); if (r.ok) { G = r.data; renderGlobal(); renderPendingInbox(); } }
 
 $("enBtn").onclick = async (e) => {
   const go = async () => { await K.act("/guardian", { enabled: !G.enabled }, G.enabled ? "guardian off" : "guardian on"); load(); };
@@ -98,6 +118,13 @@ $("mods").onclick = (e) => { const n = e.target.closest(".row")?.dataset.m; if (
 $("mod").addEventListener("click", async (e) => {
   const a = e.target.dataset.a, id = e.target.closest(".row")?.dataset.u; if (!a || !id) return;
   if (await K.ask(a === "approve" ? "Run this held update exactly as filed, on the requester's account?" : "Refuse this update?", a, a === "reject")) { await K.act(`/updates/${id}/${a}`, {}, a + "d"); openMod(cur); }
+});
+$("pendingInbox").addEventListener("click", async (e) => {
+  const a = e.target.dataset.a, row = e.target.closest(".row"), id = row?.dataset.u;
+  if (!a || !id) return;
+  if (await K.ask(a === "approve" ? "Run this held update exactly as filed?" : "Refuse this update?", a, a === "reject")) {
+    await K.act(`/updates/${id}/${a}`, {}, a + "d"); load();
+  }
 });
 const q = new URLSearchParams(location.search);
 

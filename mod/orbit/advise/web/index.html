@@ -316,6 +316,20 @@
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
   @keyframes pop { from { transform: scale(.92); opacity: 0; } }
 
+  /* ── card detail expansion ──────────────────────────────── */
+  .detail-toggle { display: inline-flex; align-items: center; background: none; border: 0; color: var(--faint); cursor: pointer; padding: 2px 4px; border-radius: 5px; }
+  .detail-toggle:hover { color: var(--dim); background: var(--s3); }
+  .detail-toggle svg.i { width: 13px; height: 13px; transition: transform .2s; }
+  .detail-toggle.open svg.i { transform: rotate(90deg); }
+  .detail-body { padding: 12px 0 2px; border-top: 1px solid var(--line); margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .detail-field { display: flex; flex-direction: column; gap: 4px; }
+  .detail-field > label { font: 600 11px/1 var(--sans); color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
+  .detail-field > p { margin: 0; font-size: 13px; color: var(--ink2); white-space: pre-wrap; }
+  .detail-anchors { display: flex; flex-direction: column; gap: 4px; }
+  .detail-anchor { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 7px; background: rgba(124,156,255,.07); border: 1px solid rgba(124,156,255,.22); font: 500 12px/1 var(--mono); color: var(--accent); cursor: pointer; width: fit-content; text-align: left; }
+  .detail-anchor:hover { background: rgba(124,156,255,.15); }
+  .diff-block { margin: 0; padding: 10px 12px; border-radius: 9px; background: #080a11; border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--ink2); white-space: pre; overflow-x: auto; max-height: 240px; overflow-y: auto; }
+
   /* ── modal + toast + burst ─────────────────────────────── */
   .scrim { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(5,6,10,.65); backdrop-filter: blur(6px); animation: fade .15s; }
   @keyframes fade { from { opacity: 0; } }
@@ -527,6 +541,7 @@ let ANCHORS = [];
 let CUR_FILE = null;
 let KIND = 'feature', SEV = 'medium', QSTATUS = 'pending';
 let TREE = '', LIMIT = 60, LOWER = 'todo', FILEQ = '';
+const EXPANDED = {};
 
 const KINDS = { feature: '#7c9cff', bug: '#ff6b7d', security: '#ff7ad9', performance: '#f5c35b',
   ux: '#4fd8f0', docs: '#a8b4ff', test: '#4ade9a', cleanup: '#9aa0b8' };
@@ -1024,6 +1039,7 @@ function card(r, owner, i) {
          <button class="btn no" onclick="decide(this,'${esc(r.id)}','reject')">Reject</button>
          <span class="note" style="padding:0" id="msg-${esc(r.id)}"></span>
        </div>` : '';
+  const rid = esc(r.id);
   return `<div class="card" style="--sev:${SEVS[r.severity] || 'var(--accent)'};animation-delay:${Math.min(i, 12) * 35}ms">
     <div class="top"><h3>${esc(r.title)}</h3><span class="status ${esc(r.status)}">${esc(r.status)}</span></div>
     ${r.summary ? `<p class="sum">${esc(r.summary)}</p>` : '<div style="height:10px"></div>'}
@@ -1037,7 +1053,9 @@ function card(r, owner, i) {
       ${r.relayed ? '<span class="tag" style="--c:var(--ok);color:var(--ok)"><i></i>in build\'s idea queue</span>' : ''}
     </div>
     <div class="byline">${who} · ${ago(r.created_at)} <span class="grow"></span>
-      <a href="${API}/rec?id=${encodeURIComponent(r.id)}" target="_blank">${esc(r.id)}</a></div>
+      <a href="${API}/rec?id=${encodeURIComponent(r.id)}" target="_blank">${esc(r.id)}</a>
+      <button class="detail-toggle" id="tog-${rid}" onclick="expandCard('${rid}',this)" title="Read more">${icon('chev')}</button></div>
+    <div class="detail-body hidden" id="det-${rid}"></div>
     ${acts}</div>`;
 }
 
@@ -1091,6 +1109,55 @@ async function decide(btn, id, action) {
     msg.innerHTML = `<span class="ok">${esc(out.status)}</span>`;
     setTimeout(() => { loadInbox(); loadStats(); }, 900);
   } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; toast(e.message, 'err'); }
+}
+
+function navigateToAnchor(btn) {
+  const mod = btn.dataset.module;
+  const path = btn.dataset.path;
+  const line = btn.dataset.line ? +btn.dataset.line : undefined;
+  show('scan');
+  loadBrief(mod).then(() => openFile(path, line));
+}
+
+async function expandCard(id, btn) {
+  const body = document.getElementById('det-' + id);
+  if (!body) return;
+  const opening = body.classList.contains('hidden');
+  body.classList.toggle('hidden', !opening);
+  btn.classList.toggle('open', opening);
+  if (!opening) return;
+  if (EXPANDED[id]) { renderExpanded(id); return; }
+  body.innerHTML = '<div class="note">Loading…</div>';
+  try {
+    EXPANDED[id] = await call('rec', { id });
+    renderExpanded(id);
+  } catch (e) {
+    body.innerHTML = `<div class="note" style="color:var(--no)">${esc(e.message)}</div>`;
+  }
+}
+
+function renderExpanded(id) {
+  const body = document.getElementById('det-' + id);
+  if (!body) return;
+  const rec = EXPANDED[id];
+  const field = (label, val) => val
+    ? `<div class="detail-field"><label>${label}</label><p>${esc(val)}</p></div>`
+    : '';
+  const anchorLinks = (rec.anchors || []).length
+    ? `<div class="detail-field"><label>Anchors</label><div class="detail-anchors">${
+        (rec.anchors || []).map(a =>
+          `<button class="detail-anchor" data-module="${esc(rec.module)}" data-path="${esc(a.path)}" data-line="${a.line || ''}" onclick="navigateToAnchor(this)">${esc(a.path)}${a.line ? ':' + a.line : ''}${a.note ? ' — ' + esc(a.note) : ''}</button>`
+        ).join('')}</div></div>`
+    : '';
+  const patch = rec.patch
+    ? `<div class="detail-field"><label>Patch</label><pre class="diff-block">${esc(rec.patch)}</pre></div>`
+    : '';
+  body.innerHTML = [
+    field('Rationale', rec.rationale),
+    field('Change', rec.change),
+    anchorLinks,
+    patch,
+  ].filter(Boolean).join('') || '<div class="note">No additional detail.</div>';
 }
 
 paintWho();

@@ -37,7 +37,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 SRC = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SRC.parent))
@@ -194,6 +194,44 @@ def verify_now(payload: Dict[str, Any] = Body(...)):
                              quorum=int(payload.get('quorum') or verify.QUORUM))
     except (KeyError, verify.VerifyError) as e:
         raise HTTPException(400, str(e))
+
+
+@app.post('/verify/stream')
+def verify_stream(payload: Dict[str, Any] = Body(...)):
+    """Like /verify, but streams each verdict via SSE as it completes.
+
+    Emits `data: <verdict_json>\\n\\n` for each method the moment it finishes,
+    then `data: [DONE] <consensus_json>\\n\\n` once all methods are done.
+    """
+    proof = payload.get('proof')
+    if not isinstance(proof, dict):
+        raise HTTPException(400, 'send {"proof": {...}} — the proof object itself')
+    statement = (payload.get('statement') or payload.get('vkey')
+                 or payload.get('verification_key') or {})
+    signals = (payload.get('public_signals') or payload.get('publicSignals') or [])
+    try:
+        system = (systems.resolve(payload['system']) if payload.get('system')
+                  else systems.sniff({'proof': proof, 'vkey': statement}))
+    except (KeyError, verify.VerifyError) as e:
+        raise HTTPException(400, str(e))
+    quorum = int(payload.get('quorum') or verify.QUORUM)
+    method_names = payload.get('methods')
+
+    def generate():
+        verdicts = []
+        try:
+            for verdict in verify.verify_stream(system, proof, statement, signals,
+                                                method_names=method_names, quorum=quorum):
+                verdicts.append(verdict)
+                yield f'data: {json.dumps(verdict)}\n\n'
+        except verify.VerifyError as e:
+            yield f'data: {json.dumps({"error": str(e)})}\n\n'
+            return
+        done = {'system': system, 'verdicts': verdicts,
+                **verify.consensus(verdicts, quorum)}
+        yield f'data: [DONE] {json.dumps(done)}\n\n'
+
+    return StreamingResponse(generate(), media_type='text/event-stream')
 
 
 @app.post('/prove')
