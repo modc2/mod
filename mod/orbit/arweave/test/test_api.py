@@ -222,3 +222,60 @@ def test_query_mcp_tool_with_tags(tc):
     res = tool(tc, "arweave_query", tags=[{"name": "App-Name", "values": ["test"]}])
     assert res["isError"] is False
     assert res["structuredContent"]["count"] == 2
+
+
+# ── Arweave-backend URL field ─────────────────────────────────────────────────
+
+@pytest.fixture()
+def tc_arweave(tmp_path, monkeypatch):
+    """Fixture with a fake wallet so the arweave (not local) backend is used."""
+    import types
+
+    wallet_file = tmp_path / "wallet.json"
+    wallet_file.write_text('{"kty":"RSA"}')
+
+    monkeypatch.delenv("ARWEAVE_WALLET", raising=False)
+    import arlocal.client as cl
+    monkeypatch.setattr(cl, "WALLET_PATH", wallet_file)
+
+    fake_txid = "FAKEARWEAVETXID000000000000000000000000000"
+
+    class _FakeTx:
+        id = fake_txid
+        def add_tag(self, *a): pass
+        def sign(self): pass
+        def send(self): pass
+
+    class _FakeWallet:
+        def __init__(self, path): pass
+
+    fake_arweave = types.ModuleType("arweave")
+    fake_arweave.Wallet = _FakeWallet
+    fake_arweave.Transaction = lambda wallet, data: _FakeTx()
+    monkeypatch.setitem(sys.modules, "arweave", fake_arweave)
+
+    import api as api_mod
+    import mcp_server
+    client = cl.ArweaveClient(store_path=str(tmp_path / "store"), wallet_path=str(wallet_file))
+    monkeypatch.setattr(api_mod, "client", client)
+    mcp_server.bind(client, api_mod.load_config)
+
+    from fastapi.testclient import TestClient
+    return TestClient(api_mod.app)
+
+
+def test_put_arweave_backend_includes_url(tc_arweave):
+    r = tc_arweave.post("/api/put", json={"data": "hello arweave", "name": "hello.txt"}).json()
+    assert r["backend"] == "arweave"
+    txid = r["txid"]
+    assert "url" in r
+    assert f"arweave.net/{txid}" in r["url"]
+
+
+def test_list_arweave_backend_includes_url(tc_arweave):
+    r = tc_arweave.post("/api/put", json={"data": "stored", "name": "s.txt"}).json()
+    txid = r["txid"]
+    items = tc_arweave.get("/api/list").json()["items"]
+    assert items[0]["txid"] == txid
+    assert items[0]["url"] is not None
+    assert f"arweave.net/{txid}" in items[0]["url"]

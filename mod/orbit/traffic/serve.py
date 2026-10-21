@@ -33,6 +33,7 @@ def fns():
         "series": lambda range="24h", top=8, apps=None, **k: C.series(STORE, range, int(top), apps),
         "sparks": lambda range="24h", **k: C.app_series(STORE, range),
         "countries": lambda range="24h", **k: C.countries(STORE, range),
+        "heatmap": lambda range="30d", **k: C.heatmap(STORE, range),
         "info": lambda **k: {"name": "traffic", "log": C.LOG, "db": STORE.dir,
                              "live_window": C.LIVE_WINDOW, "ranges": list(C.RANGES)},
     }

@@ -472,7 +472,37 @@ ROUTES.search = async (seg, q) => {
   results.replaceChildren(el('div', { class: 'load', text: 'searching…' }));
   try {
     const p = new URLSearchParams({ q: query, sort_order: sort.value, max_results: count.value });
-    results.replaceChildren(renderList(await api('/search?' + p), 'posts'));
+    const res = await api('/search?' + p);
+    results.replaceChildren(renderList(res, 'posts'));
+
+    let nextToken = res.meta?.next_token;
+    const moreBtn = el('button', { class: 'btn', style: 'display:block;margin:12px auto', text: 'Load more' });
+    const loadMore = async () => {
+      if (!nextToken) return;
+      moreBtn.disabled = true;
+      moreBtn.textContent = 'loading…';
+      try {
+        const mp = new URLSearchParams({ q: query, sort_order: sort.value, max_results: count.value, next_token: nextToken });
+        const more = await api('/search?' + mp);
+        moreBtn.remove();
+        const frag = document.createDocumentFragment();
+        for (const row of (more.data || [])) frag.append(postCard(row, more.includes));
+        results.append(frag);
+        nextToken = more.meta?.next_token;
+        if (nextToken) {
+          moreBtn.disabled = false;
+          moreBtn.textContent = 'Load more';
+          results.append(moreBtn);
+        }
+      } catch (e) {
+        moreBtn.disabled = false;
+        moreBtn.textContent = 'Load more';
+        results.append(errBox(e));
+      }
+    };
+    moreBtn.onclick = loadMore;
+    if (nextToken) results.append(moreBtn);
+
     volumeRail(query);
   } catch (e) {
     results.replaceChildren(errBox(e));
@@ -647,7 +677,43 @@ ROUTES.user = async (seg, q) => {
   };
   const [path, kind] = PATHS[tab] || PATHS.posts;
   try {
-    list.replaceWith(renderList(await api(path), kind));
+    const res = await api(path);
+    const container = el('div');
+    container.append(renderList(res, kind));
+
+    let nextToken = res.meta?.next_token || res.meta?.pagination_token;
+    const moreBtn = el('button', { class: 'btn', style: 'display:block;margin:12px auto', text: 'Load more' });
+    const loadMore = async () => {
+      if (!nextToken) return;
+      moreBtn.disabled = true;
+      moreBtn.textContent = 'loading…';
+      try {
+        const sep = path.includes('?') ? '&' : '?';
+        const more = await api(path + sep + 'pagination_token=' + encodeURIComponent(nextToken));
+        moreBtn.remove();
+        const frag = document.createDocumentFragment();
+        if (kind === 'posts') {
+          for (const row of (more.data || [])) frag.append(postCard(row, more.includes));
+        } else {
+          for (const row of (more.data || [])) frag.append(userRow(row));
+        }
+        container.append(frag);
+        nextToken = more.meta?.next_token || more.meta?.pagination_token;
+        if (nextToken) {
+          moreBtn.disabled = false;
+          moreBtn.textContent = 'Load more';
+          container.append(moreBtn);
+        }
+      } catch (e) {
+        moreBtn.disabled = false;
+        moreBtn.textContent = 'Load more';
+        container.append(errBox(e));
+      }
+    };
+    moreBtn.onclick = loadMore;
+    if (nextToken) container.append(moreBtn);
+
+    list.replaceWith(container);
   } catch (e) {
     list.replaceWith(errBox(e));
   }

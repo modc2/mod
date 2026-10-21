@@ -94,6 +94,7 @@ class IncentiveMechanism:
                 "last_score": round(history[-1], 4) if history else 0.0,
                 "num_epochs": len(history),
                 "trend": round(history[-1] - history[-2], 4) if len(history) >= 2 else 0.0,
+                "history": [round(x, 2) for x in history[-20:]],
             })
         return entries
 

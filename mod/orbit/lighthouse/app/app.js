@@ -411,7 +411,9 @@ function keptCard(r) {
       <button class="primary" data-copy-link="${esc(url)}">copy link</button>
       <button data-copy-cid="${esc(r.cid)}">copy CID</button>
       <a href="${esc(url)}" target="_blank" rel="noreferrer"><button>open</button></a>
+      <button data-peek-kept="${esc(r.cid)}" data-peek-url="${esc(url)}" data-peek-name="${esc(r.key || '')}">peek</button>
     </div>
+    <div class="kept-peek" style="display:none"></div>
     <details class="kept-more"><summary>details</summary>${rows.map(([k, v]) =>
     `<div class="line"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`).join('')}</details>
   </div>`;
@@ -423,6 +425,47 @@ function putResult(el, results) {
   el.innerHTML = list.map(keptCard).join('');
   el.querySelectorAll('[data-copy-link]').forEach((b) => { b.onclick = () => copyTo(b, b.dataset.copyLink, 'link copied'); });
   el.querySelectorAll('[data-copy-cid]').forEach((b) => { b.onclick = () => copyTo(b, b.dataset.copyCid); });
+  el.querySelectorAll('[data-peek-kept]').forEach((b) => {
+    b.onclick = async () => {
+      const panel = b.closest('.kept').querySelector('.kept-peek');
+      if (panel.style.display !== 'none') { panel.style.display = 'none'; b.textContent = 'peek'; return; }
+      const cardUrl = b.dataset.peekUrl || gatewayUrl(b.dataset.peekKept);
+      const cardName = b.dataset.peekName || '';
+      const cardExt = cardName.slice(cardName.lastIndexOf('.') + 1);
+      if (AUDIO.test(cardExt)) {
+        panel.innerHTML = `<audio controls src="${esc(cardUrl)}" style="width:100%;margin-top:4px"></audio>`;
+        panel.style.display = ''; b.textContent = 'peek'; return;
+      }
+      if (VIDEO.test(cardExt)) {
+        panel.innerHTML = `<video controls src="${esc(cardUrl)}" style="width:100%;max-height:200px;margin-top:4px"></video>`;
+        panel.style.display = ''; b.textContent = 'peek'; return;
+      }
+      if (IMAGE.test(cardExt)) {
+        panel.innerHTML = `<img src="${esc(cardUrl)}" alt="" style="width:100%;max-height:320px;object-fit:contain;margin-top:4px">`;
+        panel.style.display = ''; b.textContent = 'peek'; return;
+      }
+      b.textContent = '…';
+      try {
+        const r = await call('/preview?cid=' + encodeURIComponent(b.dataset.peekKept));
+        if (r.is_text) {
+          panel.innerHTML = `<pre class="code">${esc(r.text)}</pre>${r.truncated ? '<p class="hint">truncated at 64 KB</p>' : ''}`;
+        } else if ((r.content_type || '').startsWith('audio/')) {
+          panel.innerHTML = `<audio controls src="${esc(r.gateway)}" style="width:100%;margin-top:4px"></audio>`;
+        } else if ((r.content_type || '').startsWith('video/')) {
+          panel.innerHTML = `<video controls src="${esc(r.gateway)}" style="width:100%;max-height:200px;margin-top:4px"></video>`;
+        } else if ((r.content_type || '').startsWith('image/')) {
+          panel.innerHTML = `<img src="${esc(r.gateway)}" alt="" style="width:100%;max-height:320px;object-fit:contain;margin-top:4px">`;
+        } else {
+          panel.innerHTML = `<p class="hint">${esc(r.content_type || 'binary')} · ${bytes(r.bytes ?? 0)}</p>`;
+        }
+        panel.style.display = '';
+      } catch (e) {
+        panel.innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`;
+        panel.style.display = '';
+      }
+      b.textContent = 'peek';
+    };
+  });
   // the beam passes over the page: something was just kept forever
   document.body.classList.remove('lit-up');
   void document.body.offsetWidth;
@@ -543,6 +586,10 @@ function renderShelf() {
         panel.innerHTML = `<video controls src="${esc(cardUrl)}" style="width:100%;max-height:200px;margin-top:4px"></video>`;
         panel.style.display = ''; b.textContent = 'peek'; return;
       }
+      if (IMAGE.test(cardExt)) {
+        panel.innerHTML = `<img src="${esc(cardUrl)}" alt="" style="width:100%;max-height:320px;object-fit:contain;margin-top:4px">`;
+        panel.style.display = ''; b.textContent = 'peek'; return;
+      }
       b.textContent = '…';
       try {
         const r = await call('/preview?cid=' + encodeURIComponent(b.dataset.peek));
@@ -552,6 +599,8 @@ function renderShelf() {
           panel.innerHTML = `<audio controls src="${esc(r.gateway)}" style="width:100%;margin-top:4px"></audio>`;
         } else if ((r.content_type || '').startsWith('video/')) {
           panel.innerHTML = `<video controls src="${esc(r.gateway)}" style="width:100%;max-height:200px;margin-top:4px"></video>`;
+        } else if ((r.content_type || '').startsWith('image/')) {
+          panel.innerHTML = `<img src="${esc(r.gateway)}" alt="" style="width:100%;max-height:320px;object-fit:contain;margin-top:4px">`;
         } else {
           panel.innerHTML = `<p class="hint">${esc(r.content_type || 'binary')} · ${bytes(r.bytes ?? 0)}</p>`;
         }

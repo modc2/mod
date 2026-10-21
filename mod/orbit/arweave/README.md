@@ -2,17 +2,18 @@
 
 Store and retrieve data on [Arweave](https://arweave.net) via a Python client, FastAPI server, a minimal web app, and an **MCP server** for agents — all served on a single port (**:50153**).
 
-Reads always work through public Arweave gateways and need no credentials. Uploads that actually land on the permaweb need a wallet JWK; without one, `put` falls back to a **local backend** (bytes kept on this box, `sha256-…` id, never uploaded).
+Reads always work through public Arweave gateways and need no credentials. Uploads need a wallet JWK for signing only — **no AR balance**: `put` signs an ANS-104 data item and hands it to a bundler (ArDrive Turbo, Irys fallback), which subsidizes items under ~100 KiB and posts them to Arweave for free. The returned txid is a real 43-char Arweave id. Generate a wallet with `m arweave/wallet create=1`. Without a wallet (or if every upload path fails), `put` falls back to a **local backend** (bytes kept on this box, `sha256-…` id, never uploaded).
 
 ## Backends
 
 | Backend     | What it does                                       | Required config |
 |-------------|----------------------------------------------------|-----------------|
 | Gateway     | Public reads + tx/price/network info (always works) | `ARWEAVE_GATEWAY` (default `https://arweave.net`; falls back to `arweave.dev`, `g8way.io`) |
-| Wallet      | Real signed uploads via `arweave-python-client`    | `$ARWEAVE_WALLET` or `~/.mod/arweave/wallet.json` (off-tree, never committed) |
+| Bundler     | Free signed uploads <100 KiB via ANS-104 data items (`arlocal/bundle.py`, Turbo → Irys) | wallet JWK at `$ARWEAVE_WALLET` or `~/.mod/arweave/wallet.json` (off-tree, never committed) |
+| Direct L1   | Funded `arweave-python-client` transaction (any size) — tried when the bundlers refuse | same wallet, with an AR balance |
 | Local index | SQLite object index at `~/.arweave-mod/index.db` + blobs at `~/.arweave-mod/blobs/` | —               |
 
-`put` without a wallet returns `{txid: "sha256-…", backend: "local", pinned: false, warning: …}`, writes the bytes to the local blob dir and indexes them, so `put → get → list → rm` round-trips on this box. Nothing is written to Arweave until a wallet is configured; the response `backend` field says which happened.
+`put` without a wallet returns `{txid: "sha256-…", backend: "local", pinned: false, warning: …}`, writes the bytes to the local blob dir and indexes them, so `put → get → list → rm` round-trips on this box. With a wallet it returns `{txid, backend: "arweave", via: "turbo"|"irys", url}`; the response `backend` field always says what happened. Fresh bundled items can take a few minutes to appear at public gateways (`upload.ardrive.io/v1/tx/{txid}/status` shows the bundler's view immediately).
 
 ## Running
 

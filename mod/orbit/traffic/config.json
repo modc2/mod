@@ -35,7 +35,8 @@
         "health",
         "live",
         "series",
-        "sparks"
+        "sparks",
+        "heatmap"
     ],
     "endpoints": {
         "GET /live": "People on each app in the last `window` seconds (default 300) + total across all sites",

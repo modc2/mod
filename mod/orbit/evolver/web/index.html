@@ -18,6 +18,7 @@
         <label class="inline faint" id="lanesBox" style="font-size:12px;gap:6px">lanes<input id="s_lanes" type="number" min="1" max="6" style="width:56px" /></label>
       </div>
       <div id="modeNote" class="muted" style="font-size:12.5px"></div>
+      <div id="idleBar" style="margin-top:8px;display:none"></div>
       <div id="live" style="margin-top:12px"></div>
     </div>
     <div class="card">
@@ -92,6 +93,19 @@ function render() {
     ? lives.map((l, i) => `<div class="row"><span class="pill on">live</span><div class="grow"><div class="t">${K.esc(l.module)}</div><div class="s">${K.esc(l.title || l.status)} · ${K.ago(l.created_at)}</div></div><a class="pill acc" href="${K.BUILD_APP}?mod=${encodeURIComponent(l.module)}">open ↗</a>${K.isOwner && i === 0 ? `<button class="sm danger" id="stopLive">stop${lives.length > 1 ? " all" : ""}</button>` : ""}</div>`).join("")
     : `<div class="faint" style="font-size:12.5px">no run in flight</div>`;
   if ($("stopLive")) $("stopLive").onclick = async () => { if (await K.ask("Stop the evolver's run(s) in flight? A job already running finishes on its own.", "Stop", true)) { await K.act("/evolver/stop", {}, "stopping"); load(); } };
+  const idleBar = $("idleBar");
+  if (D.mode === "idle" && !lives.length) {
+    const elapsed = D.idle_for || 0;
+    const pct = Math.min(100, (elapsed / D.idle_secs) * 100);
+    const ready = elapsed >= D.idle_secs;
+    const label = ready
+      ? "ready to fire"
+      : `${K.dur(elapsed)} / ${K.dur(D.idle_secs)} — fires in ${K.dur(D.idle_secs - elapsed)}`;
+    idleBar.style.display = "";
+    idleBar.innerHTML = `<div class="meter"><i style="width:${pct}%"></i></div><div class="faint" style="font-size:12px;margin-top:4px">${label}</div>`;
+  } else {
+    idleBar.style.display = "none";
+  }
 
   const w = D.week || {};
   const pw = D.plan_weekly;
@@ -116,11 +130,16 @@ function render() {
   $("focusNote").textContent = (D.focus || []).length ? "rotation = exactly these" : "";
 
   $("schedCap").textContent = `${(D.schedules || []).length}/${D.sched_cap}`;
-  $("scheds").innerHTML = (D.schedules || []).map((s) => `<div class="row" data-id="${s.id}">
+  $("scheds").innerHTML = (D.schedules || []).map((s) => {
+    const every_secs = s.every_mins * 60;
+    const pct = s.paused ? 0 : Math.min(100, Math.max(0, ((every_secs - Math.max(0, s.next_at - Date.now() / 1000)) / every_secs) * 100));
+    return `<div class="row" data-id="${s.id}">
       <span class="pill ${s.paused ? "" : "on"}">${s.paused ? "paused" : "◷"}</span>
       <div class="grow"><div class="t">${K.esc(s.module)} · every ${s.every_mins}m</div>
-      <div class="s">${K.esc(s.prompt || "standing goal")} · ${s.paused ? "paused" : s.next_at ? "next " + K.ago(s.next_at) : "due"}</div></div>
-      ${K.isOwner ? `<div class="acts"><button class="sm" data-a="pause">${s.paused ? "resume" : "pause"}</button><button class="sm danger" data-a="del">✕</button></div>` : ""}</div>`).join("") || `<div class="empty">no timers</div>`;
+      <div class="s">${K.esc(s.prompt || "standing goal")} · ${s.paused ? "paused" : s.next_at ? "next " + K.ago(s.next_at) : "due"}</div>
+      ${s.paused ? "" : `<div class="meter" style="margin-top:5px;height:4px"><i style="width:${pct}%"></i></div>`}</div>
+      ${K.isOwner ? `<div class="acts"><button class="sm" data-a="pause">${s.paused ? "resume" : "pause"}</button><button class="sm danger" data-a="del">✕</button></div>` : ""}</div>`;
+  }).join("") || `<div class="empty">no timers</div>`;
 
   $("taskCap").textContent = `${(D.tasks || []).length}/${D.task_cap}`;
   $("tasks").innerHTML = (D.tasks || []).map((t, i) => `<div class="row" data-id="${t.id}">

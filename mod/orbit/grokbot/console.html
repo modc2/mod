@@ -1012,16 +1012,35 @@ const XAVA = `<span class="ava"><svg viewBox="0 0 8 8" aria-hidden="true">
   <path d="M1 1h2l4 6h-2z" fill="#e8eaf2"/>
   <path d="M5 1h2l-4 6h-2z" fill="#6ee7ff"/></svg></span>`;
 
-function msgHTML(m, live){
+function msgHTML(m, live, idx){
   if (m.role === 'user')
     return `<div class="msg user"><div class="bubble">${esc(m.text)}</div></div>`;
   if (m.role === 'err')
     return `<div class="msg err">${XAVA}<div class="bubble">${esc(m.text)}</div></div>`;
+  if (m.role === 'img')
+    return `<div class="msg assistant">${XAVA}<div class="bubble"><img src="${esc(m.url)}" style="max-width:100%;border-radius:10px;display:block"><div class="muted" style="margin-top:6px;font-size:0.85em">${esc(m.prompt)}</div></div></div>`;
+  const cites = m.cites && m.cites.length ? '<div class="cites">' + m.cites.map(
+    c => `<a href="${esc(c)}" target="_blank" rel="noopener">${esc(c)}</a>`
+  ).join('') + '</div>' : '';
+  let footer = '';
+  if (!live) {
+    let chip = '';
+    if (m.usage) {
+      const u = m.usage;
+      const tot = u.total_tokens || ((u.prompt_tokens || 0) + (u.completion_tokens || 0));
+      const mdl = MODELS.find(x => x.id === m.model);
+      let cs = '';
+      if (mdl && mdl.prompt_usd_m != null && mdl.completion_usd_m != null) {
+        const cost = ((u.prompt_tokens || 0) * mdl.prompt_usd_m +
+                      (u.completion_tokens || 0) * mdl.completion_usd_m) / 1e6;
+        cs = ' \xb7 ~$' + cost.toFixed(4);
+      }
+      chip = `<span class="muted" style="font-size:11px">${tot.toLocaleString()} tok${cs}</span>`;
+    }
+    footer = `<div style="display:flex;align-items:center;gap:6px;margin-top:6px">${chip}<button class="ghost cpymsg" data-idx="${idx !== undefined ? idx : -1}" title="copy" style="padding:2px 5px"><svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>`;
+  }
   return `<div class="msg assistant">${XAVA}<div class="bubble${
-      live ? ' live' : ''}">${md(m.text)}${
-      m.cites && m.cites.length ? '<div class="cites">' + m.cites.map(
-        c => `<a href="${esc(c)}" target="_blank" rel="noopener">${esc(c)}</a>`
-      ).join('') + '</div>' : ''}</div></div>`;
+      live ? ' live' : ''}">${md(m.text)}${cites}${footer}</div></div>`;
 }
 
 const SEEDS = [
@@ -1213,7 +1232,14 @@ function drawThread(){
     return;
   }
   $('#thread').innerHTML = '<div class="col">'
-    + c.msgs.map(m => msgHTML(m)).join('') + '</div>';
+    + c.msgs.map((m, i) => msgHTML(m, false, i)).join('') + '</div>';
+  $('#thread').querySelectorAll('.cpymsg').forEach(btn => {
+    const idx = parseInt(btn.dataset.idx);
+    const cc = convo();
+    const msg = cc && idx >= 0 ? cc.msgs[idx] : null;
+    if (msg) btn.onclick = () => navigator.clipboard.writeText(msg.text)
+      .then(() => toast('copied'), () => toast('copy failed', true));
+  });
   $('#thread').scrollTop = $('#thread').scrollHeight;
 }
 
@@ -1242,7 +1268,7 @@ function drawRuns(){
          : s < 86400 ? Math.floor(s/3600) + 'h' : Math.floor(s/86400) + 'd'; };
   $('#runlist').innerHTML = rows.slice(0, 40).map(r => `
     <div class="run ${esc(r.status)}"><span class="sdot"></span>
-      <span class="what">${esc(r.kind)}${r.bot ? ' · ' + esc(r.bot) : ''}</span>
+      <span class="what">${esc(r.kind)}${r.kind === 'image' ? ' <b>[img]</b>' : ''}${r.bot ? ' · ' + esc(r.bot) : ''}</span>
       <span class="meta">${esc(r.model || '')}${r.search ? ' · search' : ''}</span>
       ${r.prompt ? `<span class="meta">“${esc(r.prompt.slice(0, 60))}${
         r.prompt.length > 60 ? '…' : ''}”</span>` : ''}
@@ -1467,6 +1493,32 @@ async function send(){
   saveConvos(); drawThread();
   setBusy(true);
 
+  // ── /img <prompt> shortcut: image generation ───────────────────────
+  if (/^\/img\s+/i.test(text)) {
+    const prompt = text.replace(/^\/img\s+/i, '');
+    c.msgs.push({role:'assistant', text:''});
+    $('#thread').innerHTML = '<div class="col">'
+      + c.msgs.slice(0, -1).map(m => msgHTML(m)).join('')
+      + msgHTML({role:'assistant', text:''}, true) + '</div>';
+    const imgThread = $('#thread');
+    if (imgThread.scrollHeight - imgThread.scrollTop - imgThread.clientHeight < 160)
+      imgThread.scrollTop = imgThread.scrollHeight;
+    setTimeout(loadRuns, 500);
+    try {
+      const out = await api('/images', {method:'POST', body:{prompt, model:'grok-2-image', n:1}});
+      const url = out.data && out.data[0] && out.data[0].url;
+      if (!url) throw new Error('no image URL returned');
+      c.msgs[c.msgs.length - 1] = {role:'img', url, prompt};
+    } catch(e) {
+      c.msgs.pop();
+      c.msgs.push({role:'err', text: e.message});
+    }
+    setBusy(false);
+    saveConvos(); drawThread(); drawHint(); drawSetup(); loadRuns();
+    promptEl.focus();
+    return;
+  }
+
   const reply = {role:'assistant', text:'', cites:null};
   c.msgs.push(reply);
   // draw the empty assistant row with a live cursor, keep a handle on it
@@ -1488,6 +1540,7 @@ async function send(){
   if ($('#model').value) body.model = $('#model').value;
   if ($('#search').value) body.search = $('#search').value;
   if (BOT) body.bot = BOT;
+  reply.model = body.model || null;
   setTimeout(loadRuns, 500);          // catch the run while it is LIVE
 
   ABORT = new AbortController();
@@ -1525,6 +1578,7 @@ async function send(){
           stick();
         }
         if (o.citations && o.citations.length) reply.cites = o.citations;
+        if (o.usage) reply.usage = o.usage;
       }
     }
     if (!reply.text) reply.text = '(no text)';

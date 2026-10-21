@@ -5,10 +5,12 @@ import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   analyzeTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago,
-  sharpeMeasured, MIN_SHARPE_DAYS,
+  sharpeMeasured, MIN_SHARPE_DAYS, fetchCandles,
 } from "../../lib/api";
+import type { Candle } from "../../lib/api";
 import { buildRoundTrips, fmtDuration } from "../../lib/trips";
 import PnlChart from "../../components/PnlChart";
+import CoinChart from "../../components/CoinChart";
 import BacktestPanel from "../../components/BacktestPanel";
 
 export default function TraderPage() {
@@ -187,6 +189,17 @@ export default function TraderPage() {
             );
           })}
         </Panel>
+      )}
+
+      {/* Price chart for the trader's most-active coin, with buy/sell dots at
+          actual fill prices. Green cluster near lows, red near highs = good
+          timing; the opposite tells you they were chasing. */}
+      {coinBreakdown.length > 0 && (
+        <CoinChartPanel
+          coin={coinBreakdown[0].coin}
+          hours={days * 24}
+          fills={windowFills.filter((f: any) => f.coin === coinBreakdown[0].coin)}
+        />
       )}
 
       {/* "$N on this trader" — server-side replay with its data checks
@@ -412,6 +425,26 @@ function WiderView({ days, s, ext }: { days: number; s: any; ext: any }) {
       <div className="px-4 py-2 text-[10px] text-muted border-t border-border">
         Both columns come from the same cached fills — the wider view costs no extra request.
       </div>
+    </Panel>
+  );
+}
+
+function CoinChartPanel({ coin, hours, fills }: { coin: string; hours: number; fills: any[] }) {
+  const [candles, setCandles] = useState<Candle[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetchCandles(coin, hours)
+      .then((c) => { if (alive) setCandles(c); })
+      .catch(() => { if (alive) setCandles([]); });
+    return () => { alive = false; };
+  }, [coin, hours]);
+
+  if (candles === null) return null;
+
+  return (
+    <Panel title={`${coin} price · fills marked`}>
+      <CoinChart candles={candles} fills={fills} />
     </Panel>
   );
 }

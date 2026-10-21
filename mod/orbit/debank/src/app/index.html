@@ -227,6 +227,7 @@
 </div>
 <div id="toast"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════
    debank — the bank console.
@@ -784,7 +785,11 @@ const VIEWS = {
         { label: 'out', cls: () => 'down', get: (r) => leg(r.sent) ? '−' + leg(r.sent) : '' },
         { label: 'in', cls: () => 'up', get: (r) => leg(r.received) ? '+' + leg(r.received) : '' },
         { label: 'fee', n: true, get: (r) => usd(r.gas_usd, 4) },
-        { label: '', get: (r) => `<span class="pill ${r.status === 'ok' ? 'ok' : 'bad'}">${esc(r.status)}</span>` }],
+        { label: '', get: (r) => {
+          const eb = netOf(r.chain)?.explorer || state.chains.find((x) => x.chain === r.chain)?.explorer;
+          const base = eb && (eb.startsWith('http') ? eb : 'https://' + eb);
+          return `<span class="pill ${r.status === 'ok' ? 'ok' : 'bad'}">${esc(r.status)}</span>${r.hash && base ? ` <a href="${esc(base)}/tx/${r.hash}" target="_blank" rel="noopener">↗</a>` : ''}`;
+        } }],
         d.transactions, 'No transactions.')}
         ${d.oldest_time ? `<div style="margin-top:10px"><button class="btn sm ghost" onclick="olderStatement(${d.oldest_time})">Older</button></div>` : ''}</div>`;
   },
@@ -873,6 +878,7 @@ const VIEWS = {
       <div class="grid2">
         <div class="card">
           <h3>Address</h3>
+          <div id="qrcode" style="width:192px;height:192px;border-radius:12px;overflow:hidden;margin:0 auto 16px"></div>
           <div class="addr-big" id="rAddr">${esc(addr)}</div>
           <div class="row" style="margin-top:14px">
             <button class="btn gold" onclick="copy('${esc(addr)}')">Copy address</button>
@@ -1097,7 +1103,14 @@ async function render() {
   out.innerHTML = `<div class="spin">Reading every chain…</div>`;
   try {
     const html = await VIEWS[state.tab](state.view);
-    if (my === seq) out.innerHTML = html;
+    if (my === seq) {
+      out.innerHTML = html;
+      if (state.tab === 'receive') setTimeout(() => {
+        const el = document.getElementById('qrcode');
+        const addr = state.me || state.view;
+        if (el && addr && typeof QRCode !== 'undefined') new QRCode(el, { text: addr, width: 192, height: 192, colorDark: '#e3c27a', colorLight: '#10151f', correctLevel: QRCode.CorrectLevel.M });
+      }, 0);
+    }
   } catch (e) {
     if (my !== seq) return;
     if (keyErr(e) && needs.includes(state.tab)) { state.keyOk = false; renderChrome(); }

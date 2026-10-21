@@ -1,6 +1,6 @@
 {
     "name": "arweave",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "route": true,
     "description": "Arweave permanent storage \u2014 gateway reads + wallet uploads (local fallback), with REST API, web app and MCP tools on one port.",
     "port": 50153,

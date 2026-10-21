@@ -34,7 +34,7 @@ import SemanticFilterBar from "./SemanticFilterBar";
 const WINDOWS = [1, 3, 7, 14, 30] as const;
 export type CopyTradesView = "all" | "mine" | "missed";
 
-type SortCol = "trades" | "notional" | "copied" | "coverage" | "medianLagSec" | "avgSlipCents" | "myNotional" | "myPnl";
+type SortCol = "trades" | "notional" | "copied" | "coverage" | "medianLagSec" | "avgSlipCents" | "myNotional" | "myPnl" | "theirPnl";
 type SortDir = "asc" | "desc";
 
 function usd(n: number, digits = 2): string {
@@ -306,6 +306,7 @@ export default function CopyTradesPanel({
                     { col: "medianLagSec" as SortCol, label: "LAG", cls: "num w-[12%]" },
                     { col: "avgSlipCents" as SortCol, label: "SLIP", cls: "num w-[10%]" },
                     { col: "myNotional" as SortCol, label: "MY $", cls: "num w-[10%]" },
+                    { col: "theirPnl" as SortCol, label: "THEIR PNL", cls: "num w-[10%]" },
                     { col: "myPnl" as SortCol, label: "MY PNL", cls: "num w-[10%]" },
                   ] as const
                 ).map(({ col, label, cls }) => (
@@ -319,6 +320,7 @@ export default function CopyTradesPanel({
                     </button>
                   </th>
                 ))}
+                <th className="num w-[10%] text-right font-mono text-[9px] tracking-[0.1em]">CAPTURE</th>
               </tr>
             </thead>
             <tbody>
@@ -349,8 +351,26 @@ export default function CopyTradesPanel({
                     {l.avgSlipCents == null ? "—" : `${l.avgSlipCents > 0 ? "+" : ""}${l.avgSlipCents}¢`}
                   </td>
                   <td className="num tabular-nums">{usd(l.myNotional, 0)}</td>
+                  <td className={`num tabular-nums ${l.theirPnl > 0 ? "text-green-400" : l.theirPnl < 0 ? "text-red-400" : "text-pixel-gray"}`}>
+                    {l.theirPnl >= 0 ? "+" : ""}{l.theirPnl.toFixed(2)}
+                  </td>
                   <td className={`num tabular-nums ${l.myPnl > 0 ? "text-green-400" : l.myPnl < 0 ? "text-red-400" : "text-pixel-gray"}`}>
                     {l.myPnl >= 0 ? "+" : ""}{l.myPnl.toFixed(2)}
+                  </td>
+                  <td className="num tabular-nums">
+                    {(() => {
+                      if (l.theirPnl <= 0) return <span className="text-pixel-gray">—</span>;
+                      const pct = l.myPnl / l.theirPnl * 100;
+                      const cls = pct >= 50 ? "text-green-400" : pct >= 20 ? "text-amber-400" : "text-red-400";
+                      return (
+                        <span
+                          className={`${cls} text-[9px] font-mono px-1 py-0.5 rounded border border-current/30`}
+                          title={`You captured ${pct.toFixed(1)}% of this leader's edge on copied trades`}
+                        >
+                          {pct.toFixed(0)}%
+                        </span>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}
@@ -363,7 +383,7 @@ export default function CopyTradesPanel({
                         {shortAddress(addr)}
                       </Link>
                     </td>
-                    <td colSpan={8} className="num text-amber-400/90 text-left font-mono text-[9.5px]">
+                    <td colSpan={10} className="num text-amber-400/90 text-left font-mono text-[9.5px]">
                       &#x29D7; warming — no history cached yet
                     </td>
                   </tr>

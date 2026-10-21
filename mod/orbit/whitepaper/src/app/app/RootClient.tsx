@@ -5,7 +5,7 @@ import ThemeToggle from "./ThemeToggle";
 import type { Paper } from "./tex";
 
 type RootInfo = { root: string | null; epoch: number | null; count?: number } | null;
-type ModEntry = { name: string; port?: number | null };
+type ModEntry = { name: string; port?: number | null; scope?: string };
 type ProofResult = { leaf: string; proof: string[]; root: string; record: Record<string, unknown> };
 
 const API = process.env.NEXT_PUBLIC_API_URL || "/api/whitepaper";
@@ -27,6 +27,8 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
   const [mods, setMods] = useState<ModEntry[] | null>(null);
   const [modsLoading, setModsLoading] = useState(false);
   const [proofs, setProofs] = useState<Record<string, ProofResult | "loading" | "error">>({});
+  const [verifications, setVerifications] = useState<Record<string, "idle" | "loading" | "ok" | "fail">>({});
+  const [scope, setScope] = useState<"orbit" | "core" | "all">("orbit");
 
   async function refresh() {
     setRefreshing(true);
@@ -47,7 +49,7 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
       await fetch(`${API}/tree/merkle`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: "orbit" }),
+        body: JSON.stringify({ scope }),
       });
       await refresh();
     } finally {
@@ -58,7 +60,7 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
   async function fetchMods() {
     setModsLoading(true);
     try {
-      const r = await fetch(`${API}/mods?scope=orbit`, { cache: "no-store" });
+      const r = await fetch(`${API}/mods?scope=${scope}`, { cache: "no-store" });
       if (r.ok) {
         const data = await r.json();
         setMods(data.mods ?? []);
@@ -90,6 +92,25 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
     }
   }
 
+  async function verifyProof(name: string, prf: ProofResult) {
+    setVerifications((v) => ({ ...v, [name]: "loading" }));
+    try {
+      const r = await fetch(`${API}/tree/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leaf: prf.leaf, proof: prf.proof, root: prf.root }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        setVerifications((v) => ({ ...v, [name]: data.ok ? "ok" : "fail" }));
+      } else {
+        setVerifications((v) => ({ ...v, [name]: "fail" }));
+      }
+    } catch {
+      setVerifications((v) => ({ ...v, [name]: "fail" }));
+    }
+  }
+
   function toggleExplore() {
     const next = !exploreOpen;
     setExploreOpen(next);
@@ -100,6 +121,16 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
     const t = setInterval(refresh, 15_000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    setProofs({});
+    setVerifications({});
+    if (exploreOpen) {
+      setMods(null);
+      fetchMods();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
 
   // Reading progress + scrollspy.
   useEffect(() => {
@@ -252,6 +283,15 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
               <button className="btn btn-sm" onClick={toggleExplore}>
                 {exploreOpen ? "hide" : "explore →"}
               </button>
+              {(["orbit", "core", "all"] as const).map((s) => (
+                <button
+                  key={s}
+                  className={`btn btn-sm${scope === s ? " btn-active" : ""}`}
+                  onClick={() => setScope(s)}
+                >
+                  {s}
+                </button>
+              ))}
             </div>
 
             {exploreOpen && (
@@ -270,6 +310,7 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
                           <div className="mod-row-info">
                             <span className="mod-name">{m.name}</span>
                             {m.port != null && <span className="mod-port">:{m.port}</span>}
+                            {scope === "all" && m.scope === "core" && <span className="mod-port">core</span>}
                           </div>
                           <button
                             className="btn btn-sm"
@@ -303,6 +344,21 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
                               <div className="proof-line">
                                 <span className="proof-label">root</span>
                                 {(prf as ProofResult).root}
+                              </div>
+                              <div className="flex items-center gap-2 mt-2">
+                                <button
+                                  className="btn btn-sm"
+                                  disabled={verifications[m.name] === "loading"}
+                                  onClick={() => verifyProof(m.name, prf as ProofResult)}
+                                >
+                                  {verifications[m.name] === "loading" ? "…" : "verify →"}
+                                </button>
+                                {verifications[m.name] === "ok" && (
+                                  <span className="badge badge-live">&#10003; verified</span>
+                                )}
+                                {verifications[m.name] === "fail" && (
+                                  <span className="badge badge-invalid">&#10007; invalid</span>
+                                )}
                               </div>
                             </div>
                           )}

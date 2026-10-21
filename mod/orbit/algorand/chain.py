@@ -391,6 +391,11 @@ class Client:
         rnd = int(rnd) if rnd not in (None, '') else self.status()['last-round']
         b = self.get(f'/v2/blocks/{rnd}').get('block') or {}
         txns = b.get('txns') or []
+        try:
+            txns_idx = self.idx('/v2/transactions', **{'round': rnd, 'limit': 50})
+            transactions = [summarize(t) for t in txns_idx.get('transactions') or []]
+        except Exception:
+            transactions = []
         return {'network': self.network, 'round': rnd, 'timestamp': b.get('ts'),
                 'time': time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(b.get('ts', 0))),
                 'proposer': b.get('prp'), 'fees_collected_algo': algos(b.get('fc')),
@@ -398,7 +403,8 @@ class Client:
                 'txn_count': len(txns),
                 'txn_types': _count(t.get('txn', {}).get('type') for t in txns),
                 'seed': b.get('seed'), 'prev': b.get('prev'),
-                'protocol': b.get('proto')}
+                'protocol': b.get('proto'),
+                'transactions': transactions}
 
     def network_info(self):
         s = self.status()

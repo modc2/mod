@@ -285,6 +285,57 @@ export default function LivePanel() {
         ) : <div className="text-muted text-sm">no session</div>}
       </section>
 
+      {/* ── Per-leader activity ── */}
+      {(status?.config?.traders?.length ?? 0) > 1 && state && (() => {
+        const leaders: { address: string }[] = status!.config.traders;
+        const byLeader: Record<string, any[]> = {};
+        for (const { address: addr } of leaders) byLeader[addr] = [];
+        for (const t of (state.observedTrades ?? [])) {
+          if (byLeader[t.trader] !== undefined) byLeader[t.trader].push(t);
+        }
+        return (
+          <section className="card p-4">
+            <div className="text-xs uppercase tracking-wider text-muted mb-2">Per-leader activity</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="text-muted">
+                  <tr>
+                    <th className="text-left py-1 pr-2">leader</th>
+                    <th className="text-right pr-2">observed</th>
+                    <th className="text-right pr-2">mirrored</th>
+                    <th className="text-right pr-2">failed</th>
+                    <th className="text-right pr-2">volume</th>
+                    <th className="text-right pr-2">last sync</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leaders.map(({ address: addr }) => {
+                    const trades = byLeader[addr] ?? [];
+                    const observed = trades.length;
+                    const mirrored = trades.filter((x: any) => x.mirrored).length;
+                    const failed = trades.filter((x: any) => !x.mirrored).length;
+                    const volume = trades.reduce((s: number, x: any) => s + (x.mirrored ? (x.notional ?? 0) : 0), 0);
+                    const lastSync = state.traderLastSync?.[addr];
+                    return (
+                      <tr key={addr} className={`border-t border-border/40${observed === 0 ? " opacity-40" : ""}`}>
+                        <td className="py-1 pr-2 font-mono">
+                          <a href={`/trader/${addr}`} className="hover:text-accent2">{shortAddr(addr)}</a>
+                        </td>
+                        <td className="pr-2 text-right tabular-nums">{observed}</td>
+                        <td className="pr-2 text-right tabular-nums text-accent2">{mirrored}</td>
+                        <td className="pr-2 text-right tabular-nums text-danger">{failed}</td>
+                        <td className="pr-2 text-right tabular-nums">{fmtUsd(volume)}</td>
+                        <td className="pr-2 text-right text-muted">{lastSync ? ago(lastSync) : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })()}
+
       {/* ── Observed trades ── */}
       {state?.observedTrades?.length ? (
         <section className="card p-4">

@@ -26,6 +26,7 @@
         "audit",
         "backends",
         "whitepaper",
+        "top_pitches",
         "test",
         "serve",
         "kill"
@@ -98,9 +99,13 @@
         "/audit": {
             "method": "GET",
             "docs": "Re-verify every ring signature of an epoch (query ?epoch=N)"
+        },
+        "/top": {
+            "method": "GET",
+            "docs": "Hall of Fame: top pitches by composite score across all archived epochs (query ?limit=N)"
         }
     },
-    "schema": "QmWrUZt6EGPoofJaWQFjBWRu4mUoYe9tRKFxMtNdc3GYgJ",
+    "schema": "Qme3XK8aTDeLrARfCfTky8ZccUkfSxfghYqX9pzqnzFpQs",
     "gateway_port": 51461,
     "protocol": {
         "name": "zuma",

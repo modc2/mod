@@ -34,25 +34,46 @@ const HIST = "appwatch_hist";
 let hist = [];
 try { hist = JSON.parse(localStorage.getItem(HIST) || "[]"); } catch {}
 
+let lastUp = null;
+let lastA = null;
+
+function notifChip() {
+  if (!("Notification" in window)) return "";
+  const on = Notification.permission === "granted";
+  const tip = Notification.permission === "denied" ? "blocked in browser settings" : "click to enable notifications";
+  return ` <span class="pill${on ? "" : " bad"}" style="cursor:pointer" onclick="askNotif()" title="${tip}">🔔 ${on ? "on" : "off"}</span>`;
+}
+
+async function askNotif() {
+  if (!("Notification" in window)) return;
+  await Notification.requestPermission();
+  if (lastA) render(lastA);
+}
+
 function render(A) {
+  lastA = A;
   const up = A.up === true, unknown = A.up == null;
-  K.setState(K.pill(A.enabled, "on", "off") + " " + (unknown ? `<span class="pill">checking</span>` : K.pill(up, "app up", "app down", up ? "" : "bad")));
+  K.setState(K.pill(A.enabled, "on", "off") + " " + (unknown ? `<span class="pill">checking</span>` : K.pill(up, "app up", "app down", up ? "" : "bad")) + notifChip());
   $("tick").textContent = `:${A.port} · every ${K.dur(A.tick_seconds)} · last check ${K.ago(A.last_check)}`;
   $("stats").innerHTML = [["misses", A.misses], ["restarts tried", A.starts], ["recovered", A.recovered], ["attempts", A.attempts ?? "—"]]
     .map(([k, v]) => `<div class="stat"><b>${v ?? 0}</b><span>${k}</span></div>`).join("");
   $("down").innerHTML = A.down_since
     ? `<div class="notice bad">dark since ${K.ago(A.down_since)}${A.in_progress ? " · restart in progress" : ""}${A.next_attempt ? ` · next attempt ${K.ago(A.next_attempt)}` : ""}</div>`
     : `<div class="inline"><span class="muted">${A.last_start ? `last restart ${K.ago(A.last_start.at)}` : "never needed a restart this run"}</span><span class="sp" style="flex:1"></span><a class="btn sm" style="padding:6px 9px;font-size:10px" href="${K.BUILD_APP}">open build ↗</a></div>`;
-  if (A.last_start) {
-    const ls = A.last_start;
-    $("last_log").innerHTML =
-      `<div style="margin-top:12px">` +
-      `<div class="inline" style="gap:8px">` +
-      `<span class="muted" style="font-size:12px">attempt ${ls.attempt ?? "—"}</span>` +
-      K.pill(ls.ok, "✓", "✗", ls.ok ? "" : "bad") +
-      `<span class="muted" style="font-size:12px">${K.ago(ls.at)}</span>` +
-      `</div>` +
-      (ls.output ? `<pre class="log">${K.esc(ls.output)}</pre>` : "") +
+  const hist_rows = A.history && A.history.length ? A.history : (A.last_start ? [A.last_start] : []);
+  if (hist_rows.length) {
+    $("last_log").innerHTML = `<div class="rows" style="margin-top:12px;max-height:340px;overflow:auto">` +
+      hist_rows.slice().reverse().map((e, i) => {
+        const id = "hl" + i;
+        return `<div class="row" style="flex-direction:column;align-items:stretch;gap:0;cursor:${e.output ? "pointer" : "default"}" onclick="var el=document.getElementById('${id}');if(el)el.style.display=el.style.display==='none'?'':'none'">` +
+          `<div class="inline" style="gap:8px">` +
+          `<span class="muted" style="font-size:12px">${K.ago(e.at)}</span>` +
+          K.pill(e.ok, "✓", "✗", e.ok ? "" : "bad") +
+          `<span class="muted" style="font-size:12px">attempt ${e.attempt ?? "—"}</span>` +
+          `</div>` +
+          (e.output ? `<pre class="log" id="${id}" style="display:none">${K.esc(e.output)}</pre>` : "") +
+          `</div>`;
+      }).join("") +
       `</div>`;
   } else {
     $("last_log").innerHTML = `<div class="muted" style="font-size:12px;margin-top:10px">no restarts yet</div>`;
@@ -72,6 +93,14 @@ async function load() {
     hist = hist.slice(-500);
     try { localStorage.setItem(HIST, JSON.stringify(hist)); } catch {}
   }
+  if (lastUp !== null && "Notification" in window && Notification.permission === "granted") {
+    if (lastUp === true && A.up === false) {
+      new Notification("⚠ Build app went dark", { body: "Port :" + A.port + " is down — restart in progress", icon: "/appwatch/favicon.ico" });
+    } else if (lastUp === false && A.up === true) {
+      new Notification("✓ Build app recovered", { body: "Port :" + A.port + " is back up", icon: "/appwatch/favicon.ico" });
+    }
+  }
+  lastUp = A.up;
   render(A);
 }
 

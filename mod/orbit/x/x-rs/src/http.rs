@@ -58,13 +58,13 @@ const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "GET", path: "/users/{handle}", tool: "user",
         summary: "Account profile by @handle or numeric id.", query: &[] },
     RouteDoc { method: "GET", path: "/users/{handle}/timeline", tool: "timeline",
-        summary: "Recent posts from an account.", query: &["max_results", "exclude"] },
+        summary: "Recent posts from an account.", query: &["max_results", "exclude", "pagination_token"] },
     RouteDoc { method: "GET", path: "/users/{handle}/mentions", tool: "mentions",
-        summary: "Posts mentioning an account.", query: &["max_results"] },
+        summary: "Posts mentioning an account.", query: &["max_results", "pagination_token"] },
     RouteDoc { method: "GET", path: "/users/{handle}/followers", tool: "followers",
-        summary: "Accounts following the given account.", query: &["max_results"] },
+        summary: "Accounts following the given account.", query: &["max_results", "pagination_token"] },
     RouteDoc { method: "GET", path: "/users/{handle}/following", tool: "following",
-        summary: "Accounts the given account follows.", query: &["max_results"] },
+        summary: "Accounts the given account follows.", query: &["max_results", "pagination_token"] },
     RouteDoc { method: "POST", path: "/users/{handle}/follow", tool: "follow",
         summary: "Follow an account as the authenticated account.", query: &[] },
     RouteDoc { method: "GET", path: "/me", tool: "me",
@@ -339,7 +339,7 @@ async fn user_timeline(
     Path(handle): Path<String>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
-    user_list("timeline", headers, handle, q, &[("exclude", "exclude")]).await
+    user_list("timeline", headers, handle, q, &[("exclude", "exclude"), ("pagination_token", "pagination_token")]).await
 }
 
 async fn user_mentions(
@@ -347,7 +347,7 @@ async fn user_mentions(
     Path(handle): Path<String>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
-    user_list("mentions", headers, handle, q, &[]).await
+    user_list("mentions", headers, handle, q, &[("pagination_token", "pagination_token")]).await
 }
 
 async fn user_followers(
@@ -355,7 +355,7 @@ async fn user_followers(
     Path(handle): Path<String>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
-    user_list("followers", headers, handle, q, &[]).await
+    user_list("followers", headers, handle, q, &[("pagination_token", "pagination_token")]).await
 }
 
 async fn user_following(
@@ -363,7 +363,7 @@ async fn user_following(
     Path(handle): Path<String>,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
-    user_list("following", headers, handle, q, &[]).await
+    user_list("following", headers, handle, q, &[("pagination_token", "pagination_token")]).await
 }
 
 async fn me(headers: HeaderMap) -> Response {

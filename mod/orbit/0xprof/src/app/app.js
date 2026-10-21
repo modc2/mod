@@ -24,7 +24,7 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const state = {
   token: localStorage.getItem('zkprof_token') || '',
   address: localStorage.getItem('zkprof_address') || '',
-  systems: [], methods: [], proofs: [], sample: null, lastVerified: null,
+  systems: [], methods: [], proofs: [], sample: null, lastVerified: null, openId: null,
 };
 
 // ── plumbing ────────────────────────────────────────────────────────
@@ -90,6 +90,7 @@ const ICON = {
   down: svg('<path d="m6 9 6 6 6-6"/>', 13),
   sign: svg('<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>', 13),
   tab: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>', 13),
+  link: svg('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>', 13),
 };
 const methodIcon = (status) => ICON[status] || ICON.unavailable;
 
@@ -205,11 +206,28 @@ function checkRow(entry) {
 
 function proofCard(proof) {
   const methods = proof.methods || [];
-  const chips = methods.map((m) =>
-    `<span class="mc ${escape(m.status)}" title="${escape(m.method)}: ${escape(m.status)}${m.ms != null ? ` in ${m.ms}ms` : ''}">${methodIcon(m.status)}${escape(m.method)}</span>`).join('');
   const buy = proof.price > 0
     ? `<span class="end"><span class="price">${proof.price} credits</span><button class="accent small" data-act="buy" data-id="${proof.id}">Buy</button></span>`
     : '<span class="end"><span class="free">free</span></span>';
+
+  let verdictSection;
+  if (proof.status === 'disputed') {
+    const validMethods = methods.filter((m) => m.status === 'valid');
+    const invalidMethods = methods.filter((m) => m.status === 'invalid');
+    const chip = (m) => `<span class="mc ${escape(m.status)}" title="${escape(m.method)}: ${escape(m.status)}${m.ms != null ? ` in ${m.ms}ms` : ''}">${methodIcon(m.status)}${escape(m.method)}</span>`;
+    const validChips = validMethods.length ? validMethods.map(chip).join('') : '<span class="hint">none</span>';
+    const invalidChips = invalidMethods.length ? invalidMethods.map(chip).join('') : '<span class="hint">none</span>';
+    verdictSection = `<div class="duel-split">
+      <div class="duel-valid"><div class="duel-label">SAID VALID</div><div class="duel-chips">${validChips}</div></div>
+      <div class="duel-invalid"><div class="duel-label">SAID INVALID</div><div class="duel-chips">${invalidChips}</div></div>
+    </div>
+    <div class="duel-cta">One of these implementations is wrong. Run it in your own tab: <button class="ghost small" data-act="browser" data-id="${proof.id}" title="run the verifier in this tab — the one check that does not trust this server">${ICON.tab}In my browser</button></div>`;
+  } else {
+    const chips = methods.map((m) =>
+      `<span class="mc ${escape(m.status)}" title="${escape(m.method)}: ${escape(m.status)}${m.ms != null ? ` in ${m.ms}ms` : ''}">${methodIcon(m.status)}${escape(m.method)}</span>`).join('');
+    verdictSection = `<div class="verdict-strip" title="${escape(proof.why || '')}">${chips || '<span class="hint">no method has run yet</span>'}</div>`;
+  }
+
   return `<div class="card proof s-${escape(proof.status)}" data-id="${proof.id}">
     <div class="top">
       <span class="tagchip sys">${escape(proof.system)}</span>
@@ -219,12 +237,13 @@ function proofCard(proof) {
     <h4>${escape(proof.title)}</h4>
     ${proof.description ? `<div class="desc">${escape(proof.description)}</div>` : ''}
     <div class="spacer"></div>
-    <div class="verdict-strip" title="${escape(proof.why || '')}">${chips || '<span class="hint">no method has run yet</span>'}</div>
+    ${verdictSection}
     <div class="who-line">${verifierRow(proof) || '<span></span>'}${buy}</div>
     <footer>
       <button class="ghost" data-act="open" data-id="${proof.id}">Details ${ICON.down}</button>
       <button class="ghost" data-act="recheck" data-id="${proof.id}" title="sign a challenge naming this proof, and every method runs again under your address">${ICON.sign}Re-verify</button>
       <button class="ghost" data-act="browser" data-id="${proof.id}" title="run the verifier in this tab — the one check that does not trust this server">${ICON.tab}In my browser</button>
+      <button class="ghost" data-act="link" data-id="${proof.id}" title="copy a link to this proof">${ICON.link}</button>
     </footer>
     <div class="detail" id="detail-${proof.id}"></div>
   </div>`;
@@ -252,6 +271,14 @@ async function loadMarket() {
   state.proofs = proofs;
   $('#proofList').innerHTML = proofs.length ? proofs.map(proofCard).join('')
     : '<div class="empty">no proofs yet — publish one from VERIFY, or make one in PROVE</div>';
+  if (state.openId) {
+    const id = state.openId;
+    state.openId = null;
+    openProof(id).then(() => {
+      const el = document.getElementById(`detail-${id}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }).catch(() => {});
+  }
   const status = await api('/status');
   setCounts(status);
   const counts = status.market.by_status || {};
@@ -309,9 +336,11 @@ async function openProof(id, toggle = false) {
   if (toggle && box.innerHTML) {
     box.innerHTML = '';
     card.classList.remove('open');
+    history.replaceState(null, '', '#market');
     return;
   }
   card.classList.add('open');
+  history.replaceState(null, '', '#market/' + id);
   const proof = await api(`/proofs/${id}`);
   const bytes = proof.locked
     ? `<div class="hint">the proof bytes are gated at ${proof.price} credits — sha256 ${escape(short(proof.proof_hash, 24))}</div>`
@@ -829,12 +858,16 @@ async function fromDialog(door, extra) {
 // ── wiring ──────────────────────────────────────────────────────────
 
 function showTab(name) {
-  $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
-  $$('.tab').forEach((s) => s.classList.toggle('on', s.id === `tab-${name}`));
-  location.hash = name;
-  if (name === 'market') loadMarket().catch((e) => toast(e.message, true));
-  if (name === 'bounties') loadBounties().catch((e) => toast(e.message, true));
-  if (name === 'wallet') loadWallet().catch((e) => toast(e.message, true));
+  const slash = name.indexOf('/');
+  const tab = slash !== -1 ? name.slice(0, slash) : name;
+  const deepId = slash !== -1 ? name.slice(slash + 1) || null : null;
+  $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  $$('.tab').forEach((s) => s.classList.toggle('on', s.id === `tab-${tab}`));
+  location.hash = tab;
+  if (deepId) state.openId = deepId;
+  if (tab === 'market') loadMarket().catch((e) => toast(e.message, true));
+  if (tab === 'bounties') loadBounties().catch((e) => toast(e.message, true));
+  if (tab === 'wallet') loadWallet().catch((e) => toast(e.message, true));
 }
 
 async function boot() {
@@ -941,6 +974,7 @@ async function boot() {
       if (act === 'open') await openProof(id, true);
       if (act === 'recheck') await signedRecheck(id);
       if (act === 'browser') await browserCheck(id);
+      if (act === 'link') { navigator.clipboard.writeText(location.origin + location.pathname + '#market/' + id); toast('link copied'); }
       if (act === 'buy') { const receipt = await api(`/proofs/${id}/buy`, { method: 'POST' }); toast(`bought for ${receipt.charged} credits`); await loadMarket(); await openProof(id); }
       if (act === 'refund') { const receipt = await api(`/proofs/${id}/refund`, { method: 'POST' }); toast(`refunded ${receipt.refunded}`); await loadWallet(); }
       if (act === 'cancel') { await api(`/bounties/${id}/cancel`, { method: 'POST' }); toast('cancelled, escrow returned'); await loadBounties(); }

@@ -73,6 +73,8 @@
   .live .track { width: 120px; }
   .live .track i { height: 10px; }
   .more { display: block; margin: 12px auto 0; }
+  .live-elapsed { font: 12px var(--mono); color: var(--accent); }
+  .run-elapsed { color: var(--dim); }
 
   @media (max-width: 640px) {
     .start { grid-template-columns: 1fr 1fr; }
@@ -135,6 +137,7 @@
 const $ = (id) => document.getElementById(id);
 let runs = [];
 let limit = 40;
+let elapsedTimer = null;
 let show = "all";
 let steps = 3;
 let mode = "play";
@@ -189,7 +192,12 @@ function run(r) {
   const isOpen = open.has(r.id);
   const body = !isOpen ? "" : `<div class="steps">${h.map((s) => {
     const [w, k] = outOf(s);
-    const took = s.ended_at && s.started_at ? ` · ${K.dur(s.ended_at - s.started_at)}` : "";
+    const isActive = isLive(r) && !s.outcome;
+    const took = s.ended_at && s.started_at
+      ? ` · ${K.dur(s.ended_at - s.started_at)}`
+      : isActive && s.started_at
+        ? ` · <span class="live-elapsed" data-start="${s.started_at}"></span>`
+        : "";
     return `<div class="st"><span class="k">${s.step}</span>
       <div><div class="t">${K.esc(s.title || "(no idea yet)")}</div>
       <div class="s">${s.cid ? `snapshot <span class="mono">${K.esc(s.cid.slice(0, 12))}</span>` : ""}${took}</div></div>
@@ -197,10 +205,14 @@ function run(r) {
   }).join("") || `<div class="empty">no steps yet</div>`}
     <div class="foot"><span>${K.esc(r.note || "")}</span><span class="sp"></span>
       ${canStop ? `<button class="danger" data-a="stop">stop</button>` : ""}
+      ${!isLive(r) ? `<button class="btn" data-a="rerun">rerun ▶</button>` : ""}
       <a class="btn" href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">open ${K.esc(r.module)} ↗</a></div></div>`;
+  const runElapsed = isLive(r) && r.started_at
+    ? ` · <span class="live-elapsed run-elapsed" data-start="${r.started_at}"></span>`
+    : "";
   return `<div class="run${isOpen ? " open" : ""}" data-id="${r.id}">
     <div class="top">${track(r)}
-      <div><div class="t"><span class="mod">${K.esc(r.module)}</span>${K.esc(title)}</div><div class="s">${meta}</div></div>
+      <div><div class="t"><span class="mod">${K.esc(r.module)}</span>${K.esc(title)}</div><div class="s">${meta}${runElapsed}</div></div>
       <div class="right"><span class="usd">${usd(r.usd)}</span><span class="tag ${kind}">${K.esc(word)}</span></div></div>
     ${body}</div>`;
 }
@@ -243,6 +255,13 @@ function renderStats() {
   ].map(([b, l, s, hot]) => `<div class="stat${hot ? " hot" : ""}"><span>${l}</span><b>${b}</b><small>${s}</small></div>`).join("");
 }
 
+function tickElapsed() {
+  const now = Math.floor(Date.now() / 1000);
+  document.querySelectorAll(".live-elapsed[data-start]").forEach((el) => {
+    el.textContent = K.dur(now - +el.dataset.start);
+  });
+}
+
 function render() {
   const f = $("filter").value.trim().toLowerCase();
   const vis = runs.filter((r) => !f || r.module.toLowerCase().includes(f));
@@ -257,6 +276,13 @@ function render() {
   $("done").innerHTML = grouped(done.slice(0, limit)) || `<div class="empty">${f || show !== "all" ? "no runs match" : "no finished runs yet"}</div>`;
   $("moreBtn").hidden = done.length <= limit;
   $("moreBtn").textContent = `show more (${done.length - limit} left)`;
+  if (live.length > 0) {
+    tickElapsed();
+    if (!elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
+  } else if (elapsedTimer) {
+    clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
 }
 
 function renderHint() {
@@ -281,6 +307,20 @@ document.body.addEventListener("click", async (e) => {
   const id = el.dataset.id;
   if (e.target.closest("[data-a=stop]")) {
     if (await K.ask("Stop this run? It stops between phases; a job already in flight finishes.", "Stop", true)) { await K.act(`/auto/${id}/stop`, {}, "stopping"); load(); }
+    return;
+  }
+  if (e.target.closest("[data-a=rerun]")) {
+    const r = runs.find((x) => x.id === id);
+    if (!r) return;
+    $("a_mod").value = r.module;
+    $("a_goal").value = r.goal || "";
+    $("a_model").value = r.model || "";
+    steps = r.steps;
+    mode = (r.play ?? true) ? "play" : "ideas";
+    $("a_mode").querySelectorAll("button").forEach((x) => x.classList.toggle("sel", x.dataset.v === mode));
+    renderHint();
+    document.querySelector(".card.wide").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("startBtn").focus();
     return;
   }
   if (e.target.closest(".steps") && !e.target.closest(".foot")) return;

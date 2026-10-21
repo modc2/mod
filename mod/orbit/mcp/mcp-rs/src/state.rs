@@ -4,9 +4,21 @@
 
 use crate::store::{self, PeerHub, Probe, ServerEntry};
 use crate::{fleet, upstream};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// One tool invocation recorded in the ring buffer.
+#[derive(Clone, serde::Serialize)]
+pub struct CallEntry {
+    pub ts: u64,
+    pub tool: String,
+    pub server: String,
+    pub ok: bool,
+    pub latency_ms: u64,
+    pub error: String,
+}
 
 pub struct AppState {
     pub user: RwLock<Vec<ServerEntry>>,
@@ -20,6 +32,10 @@ pub struct AppState {
     /// Other hubs known by URL (hubs.json) and the last probe of every hub.
     pub peers: RwLock<Vec<PeerHub>>,
     pub hubs_cache: RwLock<Option<(u64, Vec<crate::hubs::Hub>)>>,
+    /// Ring buffer of the last 200 tool calls through the hub.
+    pub call_log: RwLock<VecDeque<CallEntry>>,
+    /// Monotonically increasing count of all tool calls ever dispatched.
+    pub call_total: AtomicU64,
 }
 
 impl AppState {
@@ -35,7 +51,18 @@ impl AppState {
             swept_at: RwLock::new(0),
             peers: RwLock::new(store::load_hubs()),
             hubs_cache: RwLock::new(None),
+            call_log: RwLock::new(VecDeque::with_capacity(200)),
+            call_total: AtomicU64::new(0),
         })
+    }
+
+    pub async fn record_call(&self, entry: CallEntry) {
+        self.call_total.fetch_add(1, Ordering::Relaxed);
+        let mut log = self.call_log.write().await;
+        log.push_back(entry);
+        if log.len() > 200 {
+            log.pop_front();
+        }
     }
 
     pub async fn persist(&self) {

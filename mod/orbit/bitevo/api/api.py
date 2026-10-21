@@ -167,6 +167,14 @@ async def datasets():
     return {"result": get_bitevo().datasets()}
 
 
+@app.get("/top")
+async def top_pitches(limit: int = Query(10)):
+    try:
+        return {"result": get_bitevo().top_pitches(limit=limit)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/backends")
 async def backends():
     return {"result": get_bitevo().backends()}

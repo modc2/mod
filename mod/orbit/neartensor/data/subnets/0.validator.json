@@ -1,7 +1,7 @@
 {
   "scores": {
     "0": 0.6636021740216,
-    "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": 0.5618857995968323
+    "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": 0.6528053564160794
   },
   "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
   "last_epoch": {
@@ -12,80 +12,65 @@
     "results": {
       "0": {
         "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
-        "epoch_score": 0.752,
-        "ema_score": 0.5619,
+        "epoch_score": 0.4961,
+        "ema_score": 0.6528,
         "samples": [
           {
-            "score": 0.8105453790907564,
-            "task": "block_header",
-            "elapsed": 3.295,
+            "score": 0.0,
+            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
+          },
+          {
+            "score": 1.0,
+            "task": "gas_price",
+            "elapsed": 0.668,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.801974424354901,
-            "task": "gas_price",
-            "elapsed": 3.43,
+            "score": null,
+            "error": "unverifiable: all NEAR RPCs failed: 429 Client Error: Too Many Requests for url: https://rpc.testnet.near.org/"
+          },
+          {
+            "score": 0.0,
+            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
+          },
+          {
+            "score": 0.0,
+            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
+          },
+          {
+            "score": 0.9766666666666666,
+            "task": "account_state",
+            "elapsed": 0.686,
             "signature_ok": true,
             "correct": true
           },
           {
             "score": 1.0,
-            "task": "account_state",
-            "elapsed": 0.538,
-            "signature_ok": true,
-            "correct": true
-          },
-          {
-            "score": 0.6894653428524896,
             "task": "block_header",
-            "elapsed": 3.363,
+            "elapsed": 0.561,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.6786389416338608,
-            "task": "gas_price",
-            "elapsed": 3.548,
-            "signature_ok": true,
-            "correct": true
-          },
-          {
-            "score": 0.5633875795863215,
-            "task": "account_state",
-            "elapsed": 3.522,
-            "signature_ok": true,
-            "correct": true
-          },
-          {
-            "score": 0.8599999999999999,
-            "task": "block_header",
-            "elapsed": 0.348,
-            "signature_ok": true,
-            "correct": true
-          },
-          {
-            "score": 0.611754040457331,
-            "task": "gas_price",
-            "elapsed": 6.498,
-            "signature_ok": true,
-            "correct": true
+            "score": null,
+            "error": "unverifiable: all NEAR RPCs failed: 429 Client Error: Too Many Requests for url: https://rpc.testnet.near.org/"
           }
         ]
       }
     },
-    "at": 1792578214,
+    "at": 1792596695,
     "weights": {
       "0": 1.0
     },
     "set_weights": {
       "ok": true,
-      "epoch": 292,
+      "epoch": 298,
       "consensus": "yuma",
       "incentive": {
         "0": 1.0
       }
     }
   },
-  "updated": 1792578227
+  "updated": 1792596696
 }

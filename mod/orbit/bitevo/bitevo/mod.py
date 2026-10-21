@@ -55,7 +55,7 @@ class Mod:
         'status', 'add_miner', 'challenge', 'score_idea',
         'evolve', 'forecast', 'population', 'datasets',
         'zuma', 'audit',
-        'backends', 'whitepaper', 'test', 'serve', 'kill',
+        'backends', 'whitepaper', 'top_pitches', 'test', 'serve', 'kill',
     ]
 
     def __init__(self, backend='claude', model=None, local=True,
@@ -280,6 +280,52 @@ class Mod:
 
     def backends(self):
         return self.SUPPORTED_BACKENDS
+
+    def top_pitches(self, limit: int = 10):
+        import glob as _glob
+        epoch_dir = os.path.expanduser(os.path.join(self.storage_path, 'epochs'))
+        files = sorted(_glob.glob(os.path.join(epoch_dir, 'epoch_*.json')))
+        entries = []
+        for fpath in files:
+            try:
+                with open(fpath) as f:
+                    data = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+            epoch_num = data.get('epoch', 0)
+            challenge = data.get('challenge', {})
+            challenge_type = challenge.get('type', '')
+            responses = data.get('responses', [])
+            scores = data.get('scores', [])
+            score_by_tag = {}
+            score_by_uid = {}
+            for s in scores:
+                key = (s.get('challenge_id', ''), s.get('tag', ''))
+                score_by_tag[key] = s
+                uid_key = (s.get('challenge_id', ''), s.get('miner_uid', -1))
+                score_by_uid[uid_key] = s
+            for resp in responses:
+                cid = resp.get('challenge_id', '')
+                tag = resp.get('tag', '')
+                uid = resp.get('miner_uid', -1)
+                s = score_by_tag.get((cid, tag)) or score_by_uid.get((cid, uid))
+                if s is None:
+                    continue
+                pitch = resp.get('pitch', {})
+                entries.append({
+                    'epoch': epoch_num,
+                    'challenge_type': challenge_type,
+                    'company_name': pitch.get('company_name', ''),
+                    'one_liner': pitch.get('one_liner', ''),
+                    'composite_score': s.get('composite_score', 0.0),
+                    'breakdown': s.get('breakdown', {}),
+                    'feedback': s.get('feedback', ''),
+                })
+        entries.sort(key=lambda x: x['composite_score'], reverse=True)
+        entries = entries[:int(limit)]
+        for i, e in enumerate(entries, 1):
+            e['rank'] = i
+        return entries
 
     def whitepaper(self):
         wp = self.module_dir / 'WHITEPAPER.md'

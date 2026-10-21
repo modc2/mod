@@ -566,6 +566,9 @@ export default function Home() {
   // step traces per task id — only fetched for OPENED running rows, refreshed
   // on each registry poll, so watching a run means seeing each edit land
   const [taskTraces, setTaskTraces] = useState<Record<string, TraceStep[]>>({})
+  const [toasts, setToasts] = useState<{ id: string; query: string; status: 'done' | 'error'; summary?: string }[]>([])
+  const seenRunning = useRef<Set<string>>(new Set())
+  const seenTerminal = useRef<Set<string>>(new Set())
 
   const providerModels = providers.find(p => p.key === provider)?.models || []
 
@@ -1668,6 +1671,21 @@ export default function Home() {
     })
     return () => { dead = true }
   }, [serverTasks, expandedServerTasks])
+
+  useEffect(() => {
+    serverTasks.forEach(t => {
+      if (t.status === 'running') {
+        seenRunning.current.add(t.id)
+      } else if ((t.status === 'done' || t.status === 'error') && !seenTerminal.current.has(t.id)) {
+        seenTerminal.current.add(t.id)
+        if (seenRunning.current.has(t.id)) {
+          const toast = { id: t.id, query: t.query, status: t.status as 'done' | 'error', summary: t.summary ?? undefined }
+          setToasts(prev => [...prev.slice(-3), toast])
+          setTimeout(() => setToasts(prev => prev.filter(x => x.id !== t.id)), 5000)
+        }
+      }
+    })
+  }, [serverTasks])
 
   // Dismissing a finished run. The row goes immediately rather than waiting
   // for the next poll — a list you can't clear is a list you stop reading.
@@ -4929,6 +4947,29 @@ export default function Home() {
               </span>
             </>
           )}
+        </div>
+      )}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-20 right-4 z-[90] flex flex-col gap-1.5 w-72 pointer-events-none">
+          {toasts.map(t => (
+            <div key={t.id}
+              onClick={() => { openHub('tasks'); setToasts(prev => prev.filter(x => x.id !== t.id)) }}
+              className={`msg-in flex items-start gap-2.5 px-3 py-2.5 rounded-lg border shadow-lg cursor-pointer pointer-events-auto ${
+                t.status === 'done'
+                  ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-100'
+                  : 'bg-red-500/10 border-red-500/25 text-red-100'
+              }`}>
+              <span className="text-base shrink-0 mt-px">{t.status === 'done' ? '✓' : '✗'}</span>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium truncate">{t.query}</div>
+                {t.summary && <div className="text-[10px] opacity-60 mt-0.5 line-clamp-1">{t.summary}</div>}
+              </div>
+              <button
+                onClick={e => { e.stopPropagation(); setToasts(prev => prev.filter(x => x.id !== t.id)) }}
+                className="text-[10px] opacity-40 hover:opacity-100 shrink-0 w-4 h-4 flex items-center justify-center"
+              >✕</button>
+            </div>
+          ))}
         </div>
       )}
     </>

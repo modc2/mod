@@ -5,7 +5,9 @@ import {
   api,
   getToken,
   setToken,
+  ActivityLog,
   ApiKey,
+  CallEntry,
   Candidate,
   Hub,
   HubsView,
@@ -54,19 +56,133 @@ function Copy({ text }: { text: string }) {
 
 /* ── tool runner ──────────────────────────────────────────────────── */
 
+type PropSchema = { type?: string; description?: string };
+
+function SchemaForm({
+  properties,
+  required,
+  values,
+  onChange,
+}: {
+  properties: Record<string, PropSchema>;
+  required: string[];
+  values: Record<string, unknown>;
+  onChange: (key: string, val: unknown) => void;
+}) {
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      {Object.entries(properties).map(([key, prop]) => {
+        const isRequired = required.includes(key);
+        const type = prop.type || "string";
+        const label = (
+          <span className="small">
+            {isRequired && <span style={{ color: "var(--bad-ink)" }}>* </span>}
+            <span className="mono">{key}</span>
+            {prop.description && <span className="muted"> — {prop.description}</span>}
+          </span>
+        );
+
+        if (type === "boolean") {
+          return (
+            <label key={key} className="row" style={{ gap: 6, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={!!values[key]}
+                onChange={(e) => onChange(key, e.target.checked)}
+              />
+              {label}
+            </label>
+          );
+        }
+
+        if (type === "number" || type === "integer") {
+          return (
+            <label key={key} className="col" style={{ gap: 2 }}>
+              {label}
+              <input
+                type="number"
+                value={values[key] == null ? "" : String(values[key])}
+                onChange={(e) => {
+                  if (e.target.value === "") { onChange(key, undefined); return; }
+                  onChange(key, type === "integer" ? parseInt(e.target.value, 10) : parseFloat(e.target.value));
+                }}
+              />
+            </label>
+          );
+        }
+
+        if (type === "array" || type === "object") {
+          const seed = type === "array" ? "[]" : "{}";
+          return (
+            <label key={key} className="col" style={{ gap: 2 }}>
+              {label}
+              <textarea
+                style={{ minHeight: 40, fontFamily: "monospace", fontSize: 12 }}
+                value={typeof values[key] === "string" ? (values[key] as string) : seed}
+                onChange={(e) => onChange(key, e.target.value)}
+              />
+            </label>
+          );
+        }
+
+        return (
+          <label key={key} className="col" style={{ gap: 2 }}>
+            {label}
+            <input
+              type="text"
+              value={values[key] == null ? "" : String(values[key])}
+              onChange={(e) => onChange(key, e.target.value)}
+            />
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 function ToolRow({ tool }: { tool: Tool }) {
   const [open, setOpen] = useState(false);
+  const [raw, setRaw] = useState(false);
   const [args, setArgs] = useState("{}");
+  const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const [out, setOut] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const schemaProps = tool.inputSchema?.properties as Record<string, PropSchema> | undefined;
+  const schemaRequired = (tool.inputSchema?.required as string[] | undefined) || [];
+  const hasSchema = !!schemaProps && Object.keys(schemaProps).length > 0;
+
+  const buildFromForm = (): { ok: true; val: Record<string, unknown> } | { ok: false; err: string } => {
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(formValues)) {
+      if (v === undefined) continue;
+      const t = schemaProps?.[k]?.type;
+      if ((t === "array" || t === "object") && typeof v === "string") {
+        try {
+          obj[k] = JSON.parse(v);
+        } catch {
+          return { ok: false, err: `field "${k}" must be valid JSON` };
+        }
+      } else {
+        obj[k] = v;
+      }
+    }
+    return { ok: true, val: obj };
+  };
+
   const run = async () => {
     let parsed: unknown;
-    try {
-      parsed = JSON.parse(args || "{}");
-    } catch {
-      setOut("args must be valid JSON");
-      return;
+    if (hasSchema && !raw) {
+      const r = buildFromForm();
+      if (!r.ok) { setOut(r.err); return; }
+      parsed = r.val;
+    } else {
+      try {
+        parsed = JSON.parse(args || "{}");
+      } catch {
+        setOut("args must be valid JSON");
+        return;
+      }
     }
     setBusy(true);
     setOut(null);
@@ -78,6 +194,12 @@ function ToolRow({ tool }: { tool: Tool }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const switchToRaw = () => {
+    const r = buildFromForm();
+    setArgs(r.ok ? JSON.stringify(r.val, null, 2) : "{}");
+    setRaw(true);
   };
 
   return (
@@ -93,22 +215,49 @@ function ToolRow({ tool }: { tool: Tool }) {
       {tool.description && <div className="d">{tool.description}</div>}
       {open && (
         <div className="col" style={{ marginTop: 8 }}>
-          {tool.inputSchema && (
-            <pre className="code" style={{ maxHeight: 180 }}>
-              {JSON.stringify(tool.inputSchema, null, 2)}
-            </pre>
+          {hasSchema && !raw ? (
+            <>
+              <SchemaForm
+                properties={schemaProps!}
+                required={schemaRequired}
+                values={formValues}
+                onChange={(k, v) => setFormValues((prev) => ({ ...prev, [k]: v }))}
+              />
+              <div className="row" style={{ marginTop: 6 }}>
+                <button className="sm ghost" style={{ fontSize: 11 }} onClick={switchToRaw}>
+                  raw JSON
+                </button>
+                <div style={{ flex: 1 }} />
+                <button className="primary sm" disabled={busy} onClick={run}>
+                  {busy ? "running…" : "run"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {tool.inputSchema && !hasSchema && (
+                <pre className="code" style={{ maxHeight: 180 }}>
+                  {JSON.stringify(tool.inputSchema, null, 2)}
+                </pre>
+              )}
+              <div className="row">
+                <textarea
+                  style={{ flex: 1, minHeight: 56 }}
+                  value={args}
+                  onChange={(e) => setArgs(e.target.value)}
+                  placeholder='{"arg": "value"}'
+                />
+                <button className="primary sm" disabled={busy} onClick={run}>
+                  {busy ? "running…" : "run"}
+                </button>
+              </div>
+              {hasSchema && (
+                <button className="sm ghost" style={{ alignSelf: "flex-start", fontSize: 11, marginTop: 4 }} onClick={() => setRaw(false)}>
+                  form
+                </button>
+              )}
+            </>
           )}
-          <div className="row">
-            <textarea
-              style={{ flex: 1, minHeight: 56 }}
-              value={args}
-              onChange={(e) => setArgs(e.target.value)}
-              placeholder='{"arg": "value"}'
-            />
-            <button className="primary sm" disabled={busy} onClick={run}>
-              {busy ? "running…" : "run"}
-            </button>
-          </div>
           {out !== null && (
             <pre className="code" style={{ maxHeight: 280 }}>
               {out}
@@ -527,6 +676,82 @@ function ToolsSheet({ onClose }: { onClose: () => void }) {
             {tools.length === 0 && (
               <div className="muted small">no tools found — are any servers connected and up?</div>
             )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── activity feed ────────────────────────────────────────────────── */
+
+function ActivitySheet({ onClose }: { onClose: () => void }) {
+  const [log, setLog] = useState<ActivityLog | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const refresh = useCallback(async () => {
+    try {
+      setLog(await api.activity());
+      setError("");
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const t = setInterval(refresh, 10000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
+  return (
+    <div className="sheet" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="sheet-inner">
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <h2>Call activity</h2>
+          {log && <span className="muted small">{log.total.toLocaleString()} total calls</span>}
+        </div>
+        <p className="muted small" style={{ margin: "4px 0 0" }}>
+          Every tool call through this hub — most recent first. Updates every 10 s.
+        </p>
+
+        {error && <div className="note bad" style={{ marginTop: 12 }}>{error}</div>}
+        {!log && !error && <div className="muted small" style={{ marginTop: 12 }}>loading…</div>}
+
+        {log && (
+          <div className="toollist" style={{ marginTop: 12 }}>
+            {log.recent.length === 0 && (
+              <div className="muted small">no calls recorded yet — make a tool call to see it here</div>
+            )}
+            {log.recent.map((e: CallEntry, i: number) => {
+              const sep = e.tool.indexOf("__");
+              const srv = sep > -1 ? e.tool.slice(0, sep) : "hub";
+              const tname = sep > -1 ? e.tool.slice(sep + 2) : e.tool;
+              return (
+                <div key={i} className="tool" title={e.error || undefined}>
+                  <div className="row" style={{ gap: 8, flexWrap: "nowrap", alignItems: "center" }}>
+                    <span className="muted small mono" style={{ minWidth: 52, flexShrink: 0 }}>{ago(e.ts)}</span>
+                    <span className="mono small" style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span className="muted">{srv}</span>
+                      {sep > -1 && <span className="muted">__</span>}
+                      {tname}
+                    </span>
+                    <span style={{ color: e.ok ? "var(--good)" : "var(--bad)", flexShrink: 0, fontWeight: 600 }}>
+                      {e.ok ? "✓" : "✗"}
+                    </span>
+                    <span className="muted small" style={{ minWidth: 48, textAlign: "right", flexShrink: 0 }}>
+                      {e.latency_ms}ms
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -1225,6 +1450,10 @@ export default function Page() {
       .catch((e) => setLoadError(String((e as Error).message || e)));
     api.stats().then(setStats).catch(() => {});
     api.me().then((r) => setMe(r.me)).catch(() => setMe(null));
+    api.activity().then((r) => {
+      setActivityTotal(r.total);
+      setActivityBaseline((prev) => (prev !== null ? prev : r.total));
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1295,6 +1524,9 @@ export default function Page() {
 
   const [hubsOpen, setHubsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityBaseline, setActivityBaseline] = useState<number | null>(null);
+  const [activityTotal, setActivityTotal] = useState(0);
   const [catalogRegistry, setCatalogRegistry] = useState("all");
 
   const connectListing = (l: Listing) => {
@@ -1356,6 +1588,9 @@ export default function Page() {
           </button>
           <button className="sm" onClick={() => setToolsOpen(true)}>
             search tools
+          </button>
+          <button className="sm" onClick={() => setActivityOpen(true)}>
+            activity{activityTotal > activityBaseline! && activityBaseline !== null ? ` · ${activityTotal - activityBaseline!}` : ""}
           </button>
           <button className="sm" onClick={() => setHubsOpen(true)}>
             hubs
@@ -1521,6 +1756,7 @@ export default function Page() {
         <WebSheet onClose={() => setSearching(false)} providers={stats?.web.providers || []} />
       )}
       {toolsOpen && <ToolsSheet onClose={() => setToolsOpen(false)} />}
+      {activityOpen && <ActivitySheet onClose={() => setActivityOpen(false)} />}
     </>
   );
 }

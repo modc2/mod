@@ -60,14 +60,39 @@ function render() {
   if (!loops.length) { list.innerHTML = `<div class="empty">No loops yet. Hit + new loop, pick a mod, and an agent keeps improving it.</div>`; return; }
   list.innerHTML = loops.map((l) => {
     const where = l.module ? `mod ${l.module}` : l.cwd;
-    const log = open.has(l.id) ? `<pre class="log">${(l.log || []).slice(-40).map((e) =>
-      `[${new Date(e.ts * 1000).toLocaleTimeString()}] #${e.iter} ${e.kind}${e.code != null ? ` exit ${e.code}` : ""}${e.cmd ? ` $ ${K.esc(e.cmd)}` : ""}\n${K.esc((e.out || "").slice(-2000))}`).join("\n\n") || "no events yet"}</pre>` : "";
+    const iterMap = {};
+    for (const e of (l.log || [])) {
+      const k = e.iter ?? 0;
+      if (!iterMap[k]) iterMap[k] = { hasCmd: false, passed: false, hasAgent: false };
+      if (e.kind === "cmd") { iterMap[k].hasCmd = true; iterMap[k].passed = e.code === 0; }
+      if (e.kind === "agent") iterMap[k].hasAgent = true;
+    }
+    const log = (() => {
+      if (!open.has(l.id)) return "";
+      const evs = (l.log || []).slice(-200);
+      if (!evs.length) return `<div style="padding:6px 2px;font-size:12px;color:var(--faint)">no events yet</div>`;
+      const groups = {};
+      for (const e of evs) { const k = e.iter ?? 0; (groups[k] = groups[k] || []).push(e); }
+      return Object.keys(groups).sort((a, b) => +a - +b).map((iter) => {
+        const g = groups[iter];
+        const cmdEv = g.find((e) => e.kind === "cmd");
+        const agentEv = g.find((e) => e.kind === "agent");
+        const ts = g[0]?.ts;
+        const badge = cmdEv ? (cmdEv.code === 0 ? `<span style="color:#5fd3b8;font-weight:700">✓</span>` : `<span style="color:#e55;font-weight:700">✗</span>`) : "";
+        const time = ts ? new Date(ts * 1000).toLocaleTimeString() : "";
+        const cmdOut = cmdEv?.out ? `<pre class="log" style="margin:4px 0 0">${K.esc(cmdEv.out.slice(-2000))}</pre>` : "";
+        const agentOut = agentEv?.out ? `<pre class="log" style="margin:4px 0 0">${K.esc(agentEv.out.slice(-2000))}</pre>` : "";
+        const iterCost = agentEv?.cost_usd ? ` · $${parseFloat(agentEv.cost_usd).toFixed(2)}` : "";
+        return `<details><summary style="cursor:pointer;font-size:12px;padding:3px 0">#${iter} / ${l.max_iters} ${badge} <span class="faint">${time}${iterCost}</span></summary>${cmdOut}${agentOut}</details>`;
+      }).join("");
+    })();
     return `<div class="row click" data-id="${l.id}" style="flex-wrap:wrap">
       <span class="pill ${st(l.status)}">${K.esc(l.status)}</span>${l.status === "running" && l.job_id ? `<a class="pill on pill-pulse" href="${K.BUILD_APP}">⟳ agent…</a>` : ""}
       <div class="grow">
         <div class="t">${K.esc(l.name)} <span class="faint mono">· ${K.esc(where)}</span></div>
         <div class="s mono">${l.cmd ? "$ " + K.esc(l.cmd) : ""}${l.goal ? ` → ${K.esc(l.goal)}` : ""}</div>
-        <div class="s">iter ${l.iter}/${l.max_iters} · every ${K.dur(l.every_secs)}${l.until_pass ? " · until pass" : ""}${l.status === "running" && l.next_at ? ` · next ${K.ago(l.next_at)}` : ""}${l.note ? ` · ${K.esc(l.note)}` : ""} · updated ${K.ago(l.updated_at)}</div>
+        <div class="s">iter ${l.iter}/${l.max_iters} · every ${K.dur(l.every_secs)}${l.until_pass ? " · until pass" : ""}${l.status === "running" && l.next_at ? ` · next ${K.ago(l.next_at)}` : ""}${l.note ? ` · ${K.esc(l.note)}` : ""}${(() => { const t = (l.log || []).filter(e => e.kind === "agent" && e.cost_usd).reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); return t > 0 ? ` · $${t.toFixed(2)} total` : ""; })()} · updated ${K.ago(l.updated_at)}</div>
+        <div class="meter" style="margin-top:6px;display:flex;gap:2px">${Array.from({length: l.max_iters}, (_, i) => { const it = iterMap[i + 1]; const c = !it ? "var(--line)" : it.hasCmd ? (it.passed ? "var(--green)" : "var(--red)") : "var(--accent)"; return `<span style="flex:1;height:100%;background:${c};border-radius:3px"></span>`; }).join("")}</div>
       </div>
       <div class="acts">
         ${l.status === "running" ? `<button class="sm" data-a="stop">stop</button>` : `<button class="sm" data-a="start">start</button>`}

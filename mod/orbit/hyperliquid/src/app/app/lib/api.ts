@@ -884,6 +884,11 @@ export const depositStatus = (txHash: string, fromChainId: number, toChainId?: n
   j<DepositStatus>(`/deposit/status?tx_hash=${encodeURIComponent(txHash)}&from_chain_id=${fromChainId}` +
     (toChainId ? `&to_chain_id=${toChainId}` : ""));
 
+// ── candles ──
+export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number };
+export const fetchCandles = (coin: string, hours = 168, interval = "1h") =>
+  j<Candle[]>(`/candles/${encodeURIComponent(coin)}?interval=${interval}&hours=${hours}`);
+
 export const userState = (addr: string) => j<any>(`/user/${addr}/state`);
 /** Spot balances: `{ balances: [{ coin, total, hold, entryNtl }] }`. */
 export const userSpot = (addr: string) => j<any>(`/user/${addr}/spot`);

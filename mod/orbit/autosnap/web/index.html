@@ -13,6 +13,7 @@
     <div class="card wide">
       <h2>Loop <span class="sp"></span><span id="tick" class="faint"></span></h2>
       <div id="stats" class="stats"></div>
+      <div class="meter" style="margin-top:8px"><i id="tickBar"></i></div>
       <div class="faint" style="margin-top:10px;font-size:12.5px">The switch is the <span class="mono">BUILD_AUTOSNAP</span> env on build's API on purpose — a loop that mints provenance shouldn't flip off from a tab.</div>
     </div>
     <div class="card">
@@ -23,6 +24,10 @@
       </div>
       <div class="inline" style="justify-content:flex-end;margin-top:10px"><button id="snapBtn" class="primary">snapshot</button></div>
       <div id="snapOut" style="margin-top:10px"></div>
+    </div>
+    <div class="card wide">
+      <h2>Queue <span class="sp"></span><span class="faint" id="queueN"></span></h2>
+      <div id="queue" class="rows"></div>
     </div>
     <div class="card">
       <h2>Failures <span class="sp"></span><span class="faint" id="failN"></span></h2>
@@ -41,7 +46,7 @@
 <script src="kit.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-let S = null;
+let S = null, tickTimer = null;
 const cidShort = (c) => (c ? (c.length > 16 ? c.slice(0, 10) + "…" + c.slice(-4) : c) : "");
 
 function row(r) {
@@ -50,7 +55,16 @@ function row(r) {
 }
 function render() {
   K.setState(K.pill(S.enabled, "on", "off"));
-  $("tick").textContent = `every ${K.dur(S.tick_secs)} · ${S.per_tick}/tick · last ${K.ago(S.last_tick)}`;
+  if (tickTimer) clearInterval(tickTimer);
+  function updateTick() {
+    const elapsed = Math.floor(Date.now() / 1000) - S.last_tick;
+    $("tickBar").style.width = Math.min(100, elapsed / S.tick_secs * 100) + '%';
+    let text = `every ${K.dur(S.tick_secs)} · ${S.per_tick}/tick · next in ${Math.max(0, S.tick_secs - elapsed)}s`;
+    if (S.pending > 0) text += ` · ~${K.dur(Math.ceil(S.pending / S.per_tick) * S.tick_secs)} to drain`;
+    $("tick").textContent = text;
+  }
+  updateTick();
+  tickTimer = setInterval(updateTick, 1000);
   const heldCount = Object.keys(S.held || {}).length;
   $("stats").innerHTML = [["snapped", S.snapped], ["pending", S.pending], ["failed", S.failed], ["held", heldCount], ["per tick", S.per_tick]]
     .map(([k, v]) => `<div class="stat"><b>${v ?? "—"}</b><span>${k}</span></div>`).join("");
@@ -60,6 +74,13 @@ function render() {
   const fails = rec.filter((r) => r.error);
   $("failN").textContent = fails.length;
   $("fails").innerHTML = fails.map(row).join("") || `<div class="empty">no failures in the recent window</div>`;
+  const queueList = S.pending_queue || [];
+  $("queueN").textContent = queueList.length;
+  $("queue").innerHTML = queueList.map((m) =>
+    `<div class="row" style="cursor:pointer" data-qm="${K.esc(m)}"><span class="pill on">next</span>
+    <div class="grow"><div class="t">${K.esc(m)}</div></div>
+    <button class="btn sm snap-btn" data-m="${K.esc(m)}" style="padding:6px 9px;font-size:10px">snap</button></div>`
+  ).join("") || `<div class="empty">queue empty — all modules registered</div>`;
   const heldEntries = Object.entries(S.held || {});
   $("heldN").textContent = heldEntries.length;
   $("held").innerHTML = heldEntries.map(([name, h]) =>
@@ -79,6 +100,20 @@ document.body.addEventListener("click", async (e) => {
   $("s_mod").value = m;
   btn.disabled = true;
   const d = await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: "manual retry (autosnap app)" }, "snapshot taken");
+  btn.disabled = false;
+  if (d) load();
+});
+document.body.addEventListener("click", (e) => {
+  const row = e.target.closest("[data-qm]");
+  if (row && !e.target.closest(".snap-btn")) $("s_mod").value = row.dataset.qm;
+});
+document.body.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".snap-btn");
+  if (!btn) return;
+  const m = btn.dataset.m;
+  $("s_mod").value = m;
+  btn.disabled = true;
+  const d = await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: "snapshot taken" }, "snapshot taken");
   btn.disabled = false;
   if (d) load();
 });

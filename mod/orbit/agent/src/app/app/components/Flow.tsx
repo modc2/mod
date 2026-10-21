@@ -126,6 +126,7 @@ export default function Flow({
   const [result, setResult] = useState<any>(null)
   const [log, setLog] = useState<string[]>([])
   const [showRun, setShowRun] = useState(true)
+  const [pulses, setPulses] = useState<{ id: string; d: string; colour: string }[]>([])
   const abortRef = useRef<AbortController | null>(null)
 
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -133,6 +134,8 @@ export default function Flow({
   useEffect(() => { viewRef.current = viewport }, [viewport])
   const nodesRef = useRef(nodes)
   useEffect(() => { nodesRef.current = nodes }, [nodes])
+  const edgesRef = useRef(edges)
+  useEffect(() => { edgesRef.current = edges }, [edges])
   // measured node heights — ports hang off the bottom edge, and a node's
   // height is whatever its fields came out as, so the wires read the DOM
   // rather than a table of guesses that drifts the first time a field grows
@@ -424,7 +427,7 @@ export default function Flow({
 
   const run = async () => {
     if (running) return stop()
-    setStates({}); setResult(null); setLog([]); setShowRun(true)
+    setStates({}); setResult(null); setLog([]); setPulses([]); setShowRun(true)
     setRunning(true)
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -472,6 +475,23 @@ export default function Flow({
                                            text: ev.out, ms: ev.ms } }))
       setLog(l => [...l.slice(-200), `  ${ev.ok === false ? '✕' : '✓'} ${ev.name} · ${
         (ev.ports || []).join('/')} · ${ev.ms}ms`])
+      if (ev.ok !== false) {
+        const fromNode = nodesRef.current.find(n => n.id === ev.node)
+        if (fromNode) {
+          const activePorts: string[] = ev.ports || []
+          edgesRef.current
+            .filter(e => e.from === ev.node && activePorts.includes(e.port))
+            .forEach(e => {
+              const toNode = nodesRef.current.find(n => n.id === e.to)
+              if (!toNode) return
+              const colour = PORT_WIRE[e.port] || 'rgb(var(--a-400))'
+              const d = path(portOut(fromNode, e.port), portIn(toNode))
+              const pid = nid()
+              setPulses(ps => [...ps, { id: pid, d, colour }])
+              setTimeout(() => setPulses(ps => ps.filter(p => p.id !== pid)), 650)
+            })
+        }
+      }
     } else if (ev.type === 'parked') {
       setStates(s => ({ ...s, [ev.node]: { status: 'parked' } }))
     } else if (ev.type === 'step') {
@@ -933,6 +953,11 @@ export default function Flow({
                   style={{ stroke: wireOf(specOf(from), connecting.port) }} strokeWidth={1.8}
                   strokeDasharray="5 4" fill="none" opacity={0.85} />
               })()}
+              {pulses.map(p => (
+                <circle key={p.id} r={5} fill={p.colour} style={{ filter: `drop-shadow(0 0 8px ${p.colour})` }}>
+                  <animateMotion dur="0.65s" path={p.d} fill="remove" />
+                </circle>
+              ))}
             </g>
           </svg>
 

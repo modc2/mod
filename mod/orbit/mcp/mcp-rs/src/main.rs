@@ -127,6 +127,7 @@ async fn main() {
         .route("/hubs/:id/connect", post(connect_hub))
         .route("/client_config", get(client_config))
         .route("/stats", get(stats))
+        .route("/activity", get(activity))
         .route("/refresh", post(refresh_all))
         .route("/discover", post(discover))
         .route("/auth/me", get(auth_me))
@@ -366,6 +367,18 @@ async fn stats(State(st): State<App>) -> Json<Value> {
         },
         "auth": auth::config_json(),
     }))
+}
+
+async fn activity(State(st): State<App>) -> Json<Value> {
+    let total = st.call_total.load(std::sync::atomic::Ordering::Relaxed);
+    let log = st.call_log.read().await;
+    let recent: Vec<Value> = log
+        .iter()
+        .rev()
+        .take(100)
+        .map(|e| serde_json::to_value(e).unwrap_or_default())
+        .collect();
+    Json(json!({ "total": total, "recent": recent }))
 }
 
 // ── the web ──────────────────────────────────────────────────────────

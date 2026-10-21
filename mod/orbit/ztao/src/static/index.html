@@ -428,6 +428,7 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
         <label>MONTHS<select id="fmonths"></select></label>
         <label>SHAPE<select id="fshape"></select></label>
         <label>RING<select id="fring"></select></label>
+        <label>EPOCH HRS<select id="fephours"></select></label>
       </div>
       <div class="chart" id="fc-chart" style="margin-top:14px"><div class="empty">select a chain with mainnet pricing</div></div>
     </div>
@@ -653,7 +654,15 @@ function drawSet(role, keys) {
   const s = SETS[role]; s.nodes.innerHTML = '';
   S[role] = keys;
   s.count.textContent = keys.length || '0';
-  s.sub.textContent = keys.length ? `ring of ${Math.min(keys.length, CH[CHAIN].cap)} · any one of these` : 'no members';
+  if (keys.length) {
+    const ring = Math.min(keys.length, CH[CHAIN].cap);
+    const bits = ring > 0 ? Math.log2(ring) : 0;
+    s.sub.textContent = `ring of ${ring} · ${bits.toFixed(1)} bits`;
+    s.sub.setAttribute('fill', bits >= 3 ? 'var(--teal2)' : bits >= 1 ? 'var(--amber)' : 'var(--red)');
+  } else {
+    s.sub.textContent = 'no members';
+    s.sub.setAttribute('fill', 'var(--mute)');
+  }
   keys.forEach((k, i) => {
     const a = -Math.PI / 2 + i * 2 * Math.PI / keys.length;
     const x = s.cx + s.r * Math.cos(a), y = s.cy + s.r * Math.sin(a);
@@ -893,7 +902,20 @@ function renderParams(b) {
     ['registration', b.open ? 'open' : 'owner only'],
     ['miners', (b.miners || []).length], ['validators', (b.validators || []).length],
   ] : [['status', b.devnet_up === false ? `${CH[CHAIN].local} down. Run an epoch to boot it` : 'not deployed. Run an epoch']];
-  $('params').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span title="${v}">${v}</span>`).join('');
+  let html = rows.map(([k, v]) => `<span>${k}</span><span title="${v}">${v}</span>`).join('');
+  if (b.deployed && b.contract) {
+    const cap = CH[CHAIN].cap;
+    const minRing = b.min_ring || 3;
+    const bitsOf = n => n > 0 ? Math.log2(Math.min(n, cap)) : 0;
+    const colorOf = bits => bits >= 3 ? 'var(--teal2)' : bits >= 1 ? 'var(--amber)' : 'var(--red)';
+    const suffix = (n, ring) => n < minRing ? ` <span style="color:var(--red)">reverts</span>` : ring < 8 ? ` <span style="color:var(--amber)">aim 8+</span>` : '';
+    const mn = (b.miners || []).length, vn = (b.validators || []).length;
+    const mBits = bitsOf(mn), vBits = bitsOf(vn);
+    const mRing = Math.min(mn, cap), vRing = Math.min(vn, cap);
+    html += `<span>miner anon</span><span style="color:${colorOf(mBits)}">${mBits.toFixed(1)} bits${suffix(mn, mRing)}</span>`;
+    html += `<span>validator anon</span><span style="color:${colorOf(vBits)}">${vBits.toFixed(1)} bits${suffix(vn, vRing)}</span>`;
+  }
+  $('params').innerHTML = html;
 }
 async function refresh() {
   let b;
@@ -1365,8 +1387,9 @@ const FOPT = {
   fmonths: [[3,'3 mo'],[6,'6 mo'],[12,'12 mo'],[24,'24 mo'],[60,'5 yr']],
   fshape:  [['exp','exponential'],['linear','linear'],['logistic','logistic']],
   fring:   [[4,'4'],[8,'8'],[16,'16'],[32,'32']],
+  fephours:[[1,'1 hr'],[4,'4 hr'],[12,'12 hr'],[24,'1 day']],
 };
-const FDEF = {fmstart: 16, fmend: 256, fvstart: 4, fvend: 64, fmonths: 12, fshape: 'exp', fring: 16};
+const FDEF = {fmstart: 16, fmend: 256, fvstart: 4, fvend: 64, fmonths: 12, fshape: 'exp', fring: 16, fephours: 1};
 const FSET = Object.assign({}, FDEF, JSON.parse(localStorage.getItem('ztao.forecast') || '{}'));
 for (const id in FOPT) {
   $(id).innerHTML = FOPT[id].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
@@ -1387,7 +1410,7 @@ async function renderForecast() {
   }
   const id = ++_fcAbort;
   const miners = `${FSET.fmstart},${FSET.fmend}`, validators = `${FSET.fvstart},${FSET.fvend}`;
-  const qs = `?chain=${c}&miners=${miners}&validators=${validators}&months=${FSET.fmonths}&shape=${FSET.fshape}&ring=${FSET.fring}`;
+  const qs = `?chain=${c}&miners=${miners}&validators=${validators}&months=${FSET.fmonths}&shape=${FSET.fshape}&ring=${FSET.fring}&epoch_hours=${FSET.fephours}`;
   let fc;
   try { fc = await get('forecast', qs); } catch { if (id === _fcAbort) $('fc-chart').innerHTML = '<div class="empty">could not load forecast</div>'; return; }
   if (id !== _fcAbort) return;
@@ -1432,10 +1455,26 @@ async function renderForecast() {
   const el2 = $('fc-chart');
   el2.innerHTML = h;
   const tip = el2.querySelector('.tip');
+  const dominant = parts => {
+    if (!parts) return null;
+    const entries = Object.entries(parts).filter(([, v]) => v > 0);
+    if (!entries.length) return null;
+    const [dk, dv] = entries.reduce((a, b) => b[1] > a[1] ? b : a);
+    const tot = entries.reduce((s, [, v]) => s + v, 0);
+    return tot > 0 ? `${dk} ${Math.round(100 * dv / tot)}%` : null;
+  };
   el2.querySelectorAll('rect[data-i]').forEach(rc => {
     rc.onmousemove = ev => {
       const i = +rc.dataset.i, r = rows[i], bb3 = el2.getBoundingClientRect();
-      const lines = STRATS.map(s => { const v = r[s] && r[s].month; return `<span style="color:${FC_COLORS[s]||'#8aa3a6'}">${esc((cd.labels||{})[s]||s)}</span> ${usd(v)}`; }).join('<br>');
+      const lines = STRATS.map(s => {
+        const sd = r[s];
+        const v = sd && sd.month;
+        const pm = sd && sd.per_miner ? ` · m ${usd(sd.per_miner)}` : '';
+        const pv = sd && sd.per_validator ? ` · v ${usd(sd.per_validator)}` : '';
+        const dom = dominant(sd && sd.parts);
+        const domTxt = dom ? ` <span style="color:var(--mute)">${dom}</span>` : '';
+        return `<span style="color:${FC_COLORS[s]||'#8aa3a6'}">${esc((cd.labels||{})[s]||s)}</span> ${usd(v)}${pm}${pv}${domTxt}`;
+      }).join('<br>');
       tip.innerHTML = `<div style="color:var(--dim);margin-bottom:3px;font-weight:700">mo ${r.month} · M=${r.miners} V=${r.validators}</div>${lines}`;
       tip.style.left = Math.max(0, Math.min(ev.clientX - bb3.left + 12, bb3.width - 220)) + 'px';
       tip.style.top = (ev.clientY - bb3.top - 34) + 'px'; tip.style.opacity = 1;

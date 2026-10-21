@@ -127,6 +127,16 @@ def get(txid: str, raw: bool = False):
         raise HTTPException(404, str(e))
     if raw:
         return Response(content=content, media_type="application/octet-stream")
+    # Use stored content type if available (covers all file-picker uploads)
+    stored_ct = client._get_stored_content_type(txid)
+    if stored_ct:
+        if stored_ct == "application/json":
+            try:
+                return JSONResponse(json.loads(content.decode()))
+            except Exception:
+                pass
+        return Response(content=content, media_type=stored_ct)
+    # Fall through to guess logic for Arweave-native txids not in the local index
     try:
         text = content.decode()
     except UnicodeDecodeError:

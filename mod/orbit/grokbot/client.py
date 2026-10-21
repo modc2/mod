@@ -442,6 +442,7 @@ class Client:
                                          else mode}
         if stream:
             body['stream'] = True
+            body['stream_options'] = {'include_usage': True}
         body.update({k: v for k, v in opts.items() if v is not None})
         return body
 

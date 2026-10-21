@@ -290,6 +290,7 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
                     let mut params = q(vec![
                         ("max_results", u(args, "max_results", 10).clamp(5, 100).to_string()),
                         ("exclude", s(args, "exclude").unwrap_or("").into()),
+                        ("pagination_token", s(args, "pagination_token").unwrap_or("").into()),
                     ]);
                     params.extend(q(read_fields()));
                     x::get(&format!("/2/users/{id}/tweets"), &params, &creds, Auth::App).await
@@ -305,10 +306,10 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
             match id {
                 Err(e) => Err(e),
                 Ok(id) => {
-                    let mut params = q(vec![(
-                        "max_results",
-                        u(args, "max_results", 10).clamp(5, 100).to_string(),
-                    )]);
+                    let mut params = q(vec![
+                        ("max_results", u(args, "max_results", 10).clamp(5, 100).to_string()),
+                        ("pagination_token", s(args, "pagination_token").unwrap_or("").into()),
+                    ]);
                     params.extend(q(read_fields()));
                     x::get(&format!("/2/users/{id}/mentions"), &params, &creds, Auth::User).await
                 }
@@ -323,6 +324,7 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
                     let params = q(vec![
                         ("max_results", u(args, "max_results", 20).clamp(1, 1000).to_string()),
                         ("user.fields", USER_FIELDS.into()),
+                        ("pagination_token", s(args, "pagination_token").unwrap_or("").into()),
                     ]);
                     x::get(&format!("/2/users/{id}/{name}"), &params, &creds, Auth::App).await
                 }

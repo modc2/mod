@@ -218,6 +218,24 @@ pub async fn register_server(state: &Arc<AppState>, body: &Value) -> Result<Valu
 /// verbatim (already MCP-shaped), or a hub-native result. `may_write` is the
 /// registry-edit privilege, which hub_connect needs on top of the call gate.
 pub async fn call_tool(state: &Arc<AppState>, name: &str, args: &Value, may_write: bool) -> Result<Value, String> {
+    let t0 = std::time::Instant::now();
+    let result = call_tool_inner(state, name, args, may_write).await;
+    let elapsed = t0.elapsed().as_millis() as u64;
+    let server = name.split_once("__").map(|(s, _)| s.to_string()).unwrap_or_else(|| "hub".to_string());
+    state
+        .record_call(crate::state::CallEntry {
+            ts: crate::store::now(),
+            tool: name.to_string(),
+            server,
+            ok: result.is_ok(),
+            latency_ms: elapsed,
+            error: result.as_ref().err().cloned().unwrap_or_default(),
+        })
+        .await;
+    result
+}
+
+async fn call_tool_inner(state: &Arc<AppState>, name: &str, args: &Value, may_write: bool) -> Result<Value, String> {
     match name {
         "hub_servers" => {
             let rows = server_rows(state).await;

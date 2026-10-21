@@ -258,9 +258,13 @@ def series(store, range="24h", top=8, apps=None, now=None):
         if 0 <= b < len(buckets):
             total[b] = users
     lv = {r["app"]: r["users"] for r in live(store, now=now)["apps"]}
+    prev_smin = smin - (span // 60)
+    prev_rows = store.q("SELECT app, COUNT(DISTINCT vid) FROM seen WHERE minute >= ? AND minute < ? GROUP BY app",
+                        (prev_smin, smin))
+    prev_users = {a: u for a, u in prev_rows}
     return {"range": rng, "step": step, "buckets": buckets, "total": total,
             "series": [{"app": a, "values": out[a]} for a in names],
-            "table": [{"app": a, "users": u, "hits": h, "live": lv.get(a, 0)}
+            "table": [{"app": a, "users": u, "hits": h, "live": lv.get(a, 0), "prev": prev_users.get(a, 0)}
                       for a, u, h in ranked],
             "first": (store.q("SELECT MIN(minute) FROM seen")[0][0] or 0) * 60}
 
@@ -290,3 +294,20 @@ def countries(store, range="24h", now=None):
         "WHERE s.minute >= ? AND v.country != '' GROUP BY v.country ORDER BY 2 DESC LIMIT 25",
         (smin,))
     return {"range": range, "countries": [{"code": c, "users": u} for c, u in rows]}
+
+
+def heatmap(store, range="30d", now=None):
+    """Distinct users by hour-of-day × day-of-week over the range."""
+    span, _ = RANGES.get(range, RANGES["30d"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT CAST(strftime('%w', datetime(minute*60,'unixepoch')) AS INTEGER) AS dow, "
+        "CAST(strftime('%H', datetime(minute*60,'unixepoch')) AS INTEGER) AS hr, "
+        "COUNT(DISTINCT vid) FROM seen WHERE minute >= ? GROUP BY dow, hr",
+        (smin,))
+    grid = [[0] * 24 for _ in builtins.range(7)]
+    for dow, hr, u in rows:
+        grid[dow][hr] = u
+    return {"range": range, "grid": grid,
+            "days": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]}

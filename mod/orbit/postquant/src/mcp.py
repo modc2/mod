@@ -260,6 +260,7 @@ def _t_head(a):
         wasm_ok = bool(_wvm.status()['engine']['ok'])
     except Exception:  # noqa: BLE001
         wasm_ok = False
+    recent = [b['header'] for b in n.read_blocks_tail(10)]
     return {**h, 'burned': _money(h['burned']), 'supply': _money(h['supply']),
             'base_fee': _money(h['base_fee']),
             'scheme': K.SCHEME, 'hash': h['hash'],
@@ -269,7 +270,8 @@ def _t_head(a):
                                     if ALGOS.allowed(n)) +
                           ' — per account, chosen at key creation (pq_algos)',
             'state_target_bytes': S.STATE_TARGET_BYTES,
-            'pending': len(n.mempool)}
+            'pending': len(n.mempool),
+            'recent_fees': [b['base_fee'] for b in recent]}
 
 
 def _t_get(a):

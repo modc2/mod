@@ -176,6 +176,20 @@ export type ApiKey = {
   calls: number;
 };
 
+export type CallEntry = {
+  ts: number;
+  tool: string;
+  server: string;
+  ok: boolean;
+  latency_ms: number;
+  error: string;
+};
+
+export type ActivityLog = {
+  total: number;
+  recent: CallEntry[];
+};
+
 const TOKEN_KEY = "mcp:token";
 /// The identity issuer's session key. Same origin, so signing in at /build
 /// signs you in here — the hub validates that token without minting its own.
@@ -288,6 +302,7 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
 
+  activity: () => req<ActivityLog>("/activity"),
   me: () => req<{ me: Me; auth: AuthConfig }>("/auth/me"),
   keys: () => req<{ keys: ApiKey[] }>("/keys"),
   createKey: (name: string) =>

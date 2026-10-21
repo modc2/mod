@@ -197,6 +197,7 @@ export function buildCopyTrades(input: BuildInput, opts: BuildOptions = {}): {
         asset: t.asset,
         leader: address,
         leaderLabel: name,
+        pnl: (t as PolymarketTrade & { pnl?: number }).pnl ?? null,
         copied: false,
         copiedAt: null,
         mirrorId: null,
@@ -313,6 +314,7 @@ export interface LeaderScore {
   notional: number;
   myNotional: number;
   myPnl: number;
+  theirPnl: number;
   medianLagSec: number | null;
   avgSlipCents: number | null;
 }
@@ -323,7 +325,7 @@ export function scoreLeaders(rows: CopyTradeRow[]): LeaderScore[] {
     let e = by.get(address);
     if (!e) {
       e = { address, label: name, trades: 0, copied: 0, coverage: 0, notional: 0,
-        myNotional: 0, myPnl: 0, medianLagSec: null, avgSlipCents: null, lags: [], slips: [] };
+        myNotional: 0, myPnl: 0, theirPnl: 0, medianLagSec: null, avgSlipCents: null, lags: [], slips: [] };
       by.set(address, e);
     }
     return e;
@@ -334,6 +336,7 @@ export function scoreLeaders(rows: CopyTradeRow[]): LeaderScore[] {
     if (r.kind === "leader") {
       e.trades += 1;
       e.notional += r.notional;
+      e.theirPnl += r.pnl ?? 0;
       if (r.copied) e.copied += 1;
     } else {
       e.myNotional += r.notional;

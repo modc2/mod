@@ -106,6 +106,7 @@ class ArweaveClient:
                 row["metadata"] = json.loads(row["metadata"] or "{}")
             except Exception:
                 row["metadata"] = {}
+            row["url"] = f"{self.gateway}/{row['txid']}" if row.get("backend") == "arweave" else None
             out.append(row)
         return out
 
@@ -186,15 +187,27 @@ class ArweaveClient:
                            "(set ARWEAVE_WALLET or ~/.mod/arweave/wallet.json to upload).",
             }
 
+        tags = [("Content-Type", content_type)]
+        if name:
+            tags.append(("File-Name", name))
+
+        # Free path first: sign an ANS-104 data item and hand it to a bundler
+        # (Turbo/Irys subsidize items under ~100 KiB — no AR balance needed).
+        bundler_err: Optional[str] = None
+        try:
+            from . import bundle
+            res = bundle.upload(payload, self.wallet_path, tags=tags)
+            txid = res["txid"]
+            self._index(txid, name, len(payload), "arweave",
+                        {"pinned": True, "via": res["bundler"], "content_type": content_type})
+            return {"txid": txid, "size": len(payload), "backend": "arweave",
+                    "via": res["bundler"], "name": name, "url": f"{self.gateway}/{txid}"}
+        except Exception as e:
+            bundler_err = str(e)
+
+        # Funded fallback: a direct L1 transaction (needs AR in the wallet).
         try:
             import arweave  # type: ignore
-        except ImportError:
-            return {
-                "error": "arweave-python-client not installed; pip install arweave-python-client",
-                "backend": "arweave",
-            }
-
-        try:
             wallet = arweave.Wallet(str(Path(self.wallet_path).expanduser()))
             tx = arweave.Transaction(wallet, data=payload)
             tx.add_tag("Content-Type", content_type)
@@ -203,11 +216,37 @@ class ArweaveClient:
             tx.sign()
             tx.send()
         except Exception as e:
-            return {"error": f"arweave upload failed: {e}", "backend": "arweave"}
+            # Nothing reached Arweave — keep the bytes locally so they survive.
+            digest = hashlib.sha256(payload).hexdigest()
+            txid = f"sha256-{digest[:43]}"
+            blob = self._blob_path(txid)
+            if blob is not None:
+                blob.write_bytes(payload)
+            self._index(txid, name, len(payload), "local",
+                        {"pinned": False, "content_type": content_type})
+            return {
+                "txid": txid, "size": len(payload), "backend": "local",
+                "name": name, "pinned": False,
+                "warning": f"arweave upload failed, kept locally — bundler: {bundler_err}; direct tx: {e}",
+            }
 
         txid = tx.id
         self._index(txid, name, len(payload), "arweave", {"pinned": True})
-        return {"txid": txid, "size": len(payload), "backend": "arweave", "name": name}
+        return {"txid": txid, "size": len(payload), "backend": "arweave", "name": name,
+                "url": f"{self.gateway}/{txid}"}
+
+    def _get_stored_content_type(self, txid: str) -> Optional[str]:
+        """Return the content_type stored in the local index for txid, or None."""
+        with sqlite3.connect(str(self.db_path)) as conn:
+            row = conn.execute(
+                "SELECT metadata FROM objects WHERE txid = ?", (txid,)
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            return json.loads(row[0] or "{}").get("content_type") or None
+        except Exception:
+            return None
 
     # ─── get / retrieve ─────────────────────────────────────────────────────
 
@@ -272,6 +311,13 @@ class ArweaveClient:
             "wallet_configured": bool(self.wallet_path and Path(self.wallet_path).expanduser().is_file()),
             "store_dir": str(self.store_dir),
         }
+        if out["wallet_configured"]:
+            try:
+                from . import bundle
+                out["wallet_address"] = bundle.address(self.wallet_path)
+                out["uploader"] = f"bundler (turbo/irys, free <{bundle.FREE_LIMIT // 1024} KiB)"
+            except Exception as e:
+                out["wallet_error"] = str(e)
         try:
             r = requests.get(f"{self.gateway}/info", timeout=10)
             r.raise_for_status()

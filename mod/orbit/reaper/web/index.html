@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>REAPER</title>
 <link rel="stylesheet" href="kit.css" />
+<style>.row[data-heavy]{background:rgba(255,160,0,0.07)}</style>
 </head>
 <body>
 <div class="wrap">
@@ -39,6 +40,20 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let R = null, view = "all", seeded = false, showAll = false;
+let liveTimer = null, liveState = null;
+
+function tickBars() {
+  if (!liveState) return;
+  const elapsed = (Date.now() - liveState.loadedAt) / 1000;
+  const timeout = liveState.idleTimeout || 60;
+  document.querySelectorAll('#mods .row[data-m]').forEach(row => {
+    const mod = liveState.mods.get(row.dataset.m);
+    if (!mod || !mod.running || mod.pinned || mod.alwaysOn) return;
+    const ratio = Math.min((mod.idleSeconds + elapsed) / timeout, 1);
+    const bar = row.querySelector('.idle-bar i');
+    if (bar) { bar.style.width = Math.round(ratio * 100) + '%'; bar.style.background = ratio < 0.5 ? 'var(--green)' : ratio < 0.8 ? 'var(--amber)' : 'var(--red)'; }
+  });
+}
 
 function render() {
   const s = R.state || {}, m = R.memory || {}, g = s.guard || {};
@@ -60,6 +75,7 @@ function render() {
   if (!seeded && s.guard) { $("minFree").value = g.minFreeMb ?? ""; $("maxRun").value = g.maxRunning ?? 0; seeded = true; }
   for (const id of ["minus", "plus", "guardSave"]) $(id).disabled = !K.isOwner || !R.activator;
 
+  const memMap = Object.fromEntries((R.memory?.top||[]).map(t=>[t.name, t.mem_mb]));
   const mods = s.modules || [];
   const awake = mods.filter((x) => x.running).length;
   $("counts").textContent = `${awake} awake · ${mods.length - awake} asleep · ${mods.filter((x) => x.pinned).length} pinned`;
@@ -73,15 +89,25 @@ function render() {
     const btn = (a, label, cls = "") => `<button class="sm ${cls}" data-a="${a}">${label}</button>`;
     const idleRatio = x.running ? Math.min((x.idleSeconds || 0) / (s.idleSeconds || 60), 1) : 1;
     const barColor = x.running ? (idleRatio < 0.5 ? "var(--green)" : idleRatio < 0.8 ? "var(--amber)" : "var(--red)") : "var(--line)";
-    return `<div class="row" data-m="${K.esc(x.module)}"><span class="pill ${st[1]}">${st[0]}</span>
+    const memMb = memMap[x.module];
+    return `<div class="row" data-m="${K.esc(x.module)}"${memMb > 1000 ? ' data-heavy' : ''}><span class="pill ${st[1]}">${st[0]}</span>
       <div class="grow"><div class="t">${K.esc(x.module)}${x.pinned ? ` <span class="pill acc" style="padding:3px 7px">pinned</span>` : ""}${x.alwaysOn ? ` <span class="pill acc" style="padding:3px 7px">always on</span>` : ""}</div>
-      <div class="s mono">${ports} · ${x.hits || 0} hits · idle ${K.dur(x.idleSeconds || 0)}</div>
+      <div class="s mono">${ports} · ${x.hits || 0} hits · idle ${K.dur(x.idleSeconds || 0)}${memMb ? ` · ${memMb.toFixed(0)}M` : ''}</div>
       <div class="idle-bar"><i style="width:${Math.round(idleRatio * 100)}%;background:${barColor}"></i></div></div>
       ${K.isOwner ? `<div class="acts">${x.running ? btn("sleep", "sleep") : btn("wake", "wake")}${x.pinned ? btn("unpin", "unpin") : btn("pin", "pin")}${x.disabled ? btn("enable", "enable") : btn("disable", "disable", "danger")}</div>` : ""}</div>`;
   }).join("") + (vis.length > 40 ? `<button class="sm" id="more" style="align-self:center">${showAll ? "show fewer" : `show all ${vis.length}`}</button>` : "") || `<div class="empty">no modules match</div>`;
 }
 
-async function load() { const r = await K.api("/reaper"); if (r.ok) { R = r.data; render(); } else K.setState(`<span class="pill bad">build unreachable</span>`); }
+async function load() {
+  const r = await K.api("/reaper");
+  if (r.ok) {
+    R = r.data; render();
+    const s = R.state || {};
+    liveState = { loadedAt: Date.now(), idleTimeout: s.idleSeconds || 60, mods: new Map((s.modules || []).map(x => [x.module, { idleSeconds: x.idleSeconds || 0, running: x.running, pinned: x.pinned, alwaysOn: x.alwaysOn }])) };
+    if (liveTimer) clearInterval(liveTimer);
+    liveTimer = setInterval(tickBars, 1000);
+  } else K.setState(`<span class="pill bad">build unreachable</span>`);
+}
 const setIdle = async (d) => { const cur = R?.state?.idleSeconds || 60; await K.act("/reaper/config", { idle_seconds: Math.max(60, cur + d) }, "idle timeout set"); load(); };
 $("minus").onclick = () => setIdle(-60);
 $("plus").onclick = () => setIdle(60);

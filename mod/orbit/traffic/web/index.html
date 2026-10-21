@@ -65,6 +65,9 @@ td.app a:hover { color: var(--accent); }
 :where(html[data-ui="phone"]) .hero b { font-size: 36px; }
 .ctry-chart { margin-top: 10px; }
 .ctry-chart svg { display: block; width: 100%; overflow: visible; }
+.hm-wrap { margin-top: 10px; position: relative; }
+.hm-wrap svg { display: block; }
+.hm-tip { position: absolute; pointer-events: none; background: #1f1f1d; border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; font-size: 12px; color: var(--text-secondary); display: none; z-index: 2; white-space: nowrap; }
 </style>
 </head>
 <body class="viz-root">
@@ -90,11 +93,17 @@ td.app a:hover { color: var(--accent); }
     <div class="ctry-chart" id="countries-chart"></div>
   </section>
 
+  <section class="card" id="heatmap-card" style="display:none">
+    <h2>When people visit</h2>
+    <div class="sub" id="heatmap-sub">Hour of day × day of week — distinct people</div>
+    <div class="hm-wrap" id="heatmap-wrap"><div class="hm-tip" id="hm-tip"></div></div>
+  </section>
+
   <section class="card">
     <h2>All apps</h2>
     <div class="sub">"Now" = anyone who loaded or used the app in the last 5 minutes. Click a row to add it to the chart.</div>
     <table>
-      <thead><tr><th>App</th><th class="n">Now</th><th class="n" id="hdrUsers">People</th><th class="n">Requests</th><th>Trend</th></tr></thead>
+      <thead><tr><th>App</th><th class="n">Now</th><th class="n" id="hdrUsers">People</th><th class="n">±</th><th class="n">Requests</th><th>Trend</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="note" id="note"></div>
@@ -211,13 +220,24 @@ function render() {
     : `Top ${d.series.length} apps by people in the last ${state.range}. Hover for exact numbers.`;
   drawChart();
   const rows = document.getElementById('rows');
-  rows.innerHTML = d.table.length ? d.table.map(t => `<tr class="row" data-app="${esc(t.app)}">
+  rows.innerHTML = d.table.length ? d.table.map(t => {
+    const prev = t.prev || 0;
+    const pct = prev > 0 ? Math.round((t.users - prev) / prev * 100) : (t.users > 0 ? null : 0);
+    let badge;
+    if (pct === null) badge = `<span style="color:var(--accent);font-size:11px">new</span>`;
+    else if (pct === 0 && t.users === 0) badge = `<span style="color:var(--text-muted);font-size:11px">—</span>`;
+    else if (pct > 0) badge = `<span style="color:#1baf7a;font-size:11px">+${pct}%</span>`;
+    else if (pct < 0) badge = `<span style="color:#d95926;font-size:11px">−${Math.abs(pct)}%</span>`;
+    else badge = `<span style="color:var(--text-muted);font-size:11px">—</span>`;
+    return `<tr class="row" data-app="${esc(t.app)}">
       <td class="app"><span class="nm"><i style="background:${onChart.has(t.app) ? cssColor(t.app) : 'transparent'};border:1px solid ${onChart.has(t.app) ? 'transparent' : '#55544e'}"></i>${esc(t.app)} <a href="/${encodeURIComponent(t.app)}/" target="_blank" rel="noopener" title="open">open</a></span></td>
       <td class="n ${t.live ? 'livepos' : 'live0'}">${t.live}</td>
       <td class="n">${t.users}</td>
+      <td class="n">${badge}</td>
       <td class="n">${t.hits.toLocaleString()}</td>
-      <td>${spark(state.sparks[t.app])}</td></tr>`).join('')
-    : `<tr><td colspan="5" class="empty">No visits recorded in this range yet</td></tr>`;
+      <td>${spark(state.sparks[t.app])}</td></tr>`;
+  }).join('')
+    : `<tr><td colspan="6" class="empty">No visits recorded in this range yet</td></tr>`;
   rows.querySelectorAll('tr.row').forEach(tr => tr.onclick = ev => {
     if (ev.target.tagName === 'A') return;
     const a = tr.dataset.app;
@@ -263,18 +283,86 @@ function renderCountries(data) {
   el.innerHTML = svg;
 }
 
+function renderHeatmap(data) {
+  const card = document.getElementById('heatmap-card');
+  const wrap = document.getElementById('heatmap-wrap');
+  const tipEl = document.getElementById('hm-tip');
+  if (!data || !data.grid) { card.style.display = 'none'; return; }
+  const anyNonZero = data.grid.some(row => row.some(v => v > 0));
+  if (!anyNonZero) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('heatmap-sub').textContent =
+    'Hour of day × day of week — distinct people (' + data.range + ')';
+
+  const days = data.days; // Sun..Sat
+  const hours = 24;
+  const cellW = 26, cellH = 22, labelW = 32, labelH = 18, padR = 4;
+  const W = labelW + hours * cellW + padR;
+  const H = labelH + days.length * cellH;
+  const maxVal = Math.max(1, ...data.grid.flatMap(r => r));
+  const colTicks = [0, 6, 12, 18, 24];
+
+  let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;max-width:100%">`;
+
+  // Hour labels
+  colTicks.forEach(h => {
+    const x = labelW + h * cellW;
+    svg += `<text x="${x}" y="${labelH - 4}" text-anchor="middle" fill="var(--text-muted)" font-size="10" font-family="ui-monospace,monospace,sans-serif">${h}</text>`;
+  });
+
+  // Cells + day labels
+  days.forEach((day, di) => {
+    const y = labelH + di * cellH;
+    svg += `<text x="${labelW - 4}" y="${y + cellH / 2 + 4}" text-anchor="end" fill="var(--text-muted)" font-size="10" font-family="ui-sans-serif,system-ui,sans-serif">${esc(day)}</text>`;
+    for (let h = 0; h < hours; h++) {
+      const val = data.grid[di][h];
+      const op = val === 0 ? 0 : 0.08 + 0.92 * val / maxVal;
+      const x = labelW + h * cellW;
+      svg += `<rect x="${x + 1}" y="${y + 1}" width="${cellW - 2}" height="${cellH - 2}" rx="2"`
+           + ` fill="var(--accent)" opacity="${op.toFixed(3)}"`
+           + ` data-day="${esc(day)}" data-hr="${h}" data-val="${val}"`
+           + ` style="cursor:${val > 0 ? 'default' : 'default'}" />`;
+    }
+  });
+
+  svg += '</svg>';
+  // replace svg but keep the tip overlay
+  wrap.querySelector('svg') && wrap.querySelector('svg').remove();
+  const tmp = document.createElement('div');
+  tmp.innerHTML = svg;
+  wrap.insertBefore(tmp.firstChild, tipEl);
+
+  wrap.querySelector('svg').addEventListener('mousemove', ev => {
+    const rect = ev.target;
+    if (rect.tagName !== 'rect') { tipEl.style.display = 'none'; return; }
+    const day = rect.dataset.day, hr = rect.dataset.hr, val = rect.dataset.val;
+    const hrN = parseInt(hr, 10);
+    const hrLabel = `${hrN}:00–${hrN + 1}:00`;
+    tipEl.textContent = `${day} ${hrLabel}: ${val} ${val === '1' ? 'person' : 'people'}`;
+    const svgEl = wrap.querySelector('svg');
+    const sr = svgEl.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    const cx = ev.clientX - wr.left, cy = ev.clientY - wr.top;
+    tipEl.style.display = 'block';
+    tipEl.style.left = (cx + 10) + 'px';
+    tipEl.style.top = (cy - 28) + 'px';
+  });
+  wrap.querySelector('svg').addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
+}
+
 async function load() {
   try {
     const q = { range: state.range, top: SLOTS };
     if (state.pinned) q.apps = state.pinned.join(',');
-    const [s, sp, lv, ct] = await Promise.all([
+    const [s, sp, lv, ct, hm] = await Promise.all([
       API('series', q), API('sparks', { range: state.range }), API('live'),
-      API('countries', { range: state.range })
+      API('countries', { range: state.range }), API('heatmap', { range: state.range })
     ]);
     state.data = s; state.sparks = sp;
     document.getElementById('total').textContent = lv.total;
     render();
     renderCountries(ct);
+    renderHeatmap(hm);
   } catch (e) {
     document.getElementById('chartsub').textContent = 'Could not reach the traffic API: ' + e;
   }

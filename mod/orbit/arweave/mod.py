@@ -173,6 +173,21 @@ class Mod:
         s["running"] = self._is_running()
         return s
 
+    def wallet(self, create: bool = False) -> Dict[str, Any]:
+        """Show the upload wallet (address, path); `create=1` generates one if missing."""
+        import sys
+        sys.path.insert(0, str(self.module_dir))
+        from arlocal import bundle
+        from arlocal.client import WALLET_PATH
+        path = Path(os.environ.get("ARWEAVE_WALLET") or WALLET_PATH).expanduser()
+        if not path.is_file():
+            if not create:
+                return {"configured": False, "path": str(path),
+                        "hint": "m arweave/wallet create=1 to generate (free bundler uploads <100KiB)"}
+            bundle.generate_jwk(path)
+        return {"configured": True, "path": str(path), "address": bundle.address(path),
+                "uploads": "bundler (turbo/irys) free <100KiB; fund with AR for larger files"}
+
     def mcp(self) -> Dict[str, Any]:
         """MCP endpoint info: URLs, the one-line client registration, and the live tool roster."""
         cfg = self.config.get("mcp") or {}

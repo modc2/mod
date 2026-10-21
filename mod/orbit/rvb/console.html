@@ -324,6 +324,15 @@ async function populateRoundSelects() {
     };
     fill($('#r-attacks'), attacks);
     fill($('#r-defenses'), defenses);
+    const cfg = window._rerunConfig;
+    if (cfg) {
+      delete window._rerunConfig;
+      const atkIds = new Set(cfg.attacks || []);
+      const defIds = new Set(cfg.defenses || []);
+      [...$('#r-attacks').options].forEach(o => o.selected = atkIds.has(o.value));
+      [...$('#r-defenses').options].forEach(o => o.selected = defIds.has(o.value));
+      if (cfg.model) $('#r-model').value = cfg.model;
+    }
     recomputeCostHint();
   } catch (_) {}
 }
@@ -400,7 +409,8 @@ async function showRound(id) {
       <span class="pill">${r.done}/${r.total_matches}</span>
       <span class="pill">${esc(r.status)}</span>
       ${r.started ? `<span class="pill muted">${new Date(r.started * 1000).toLocaleString()}</span>` : ''}
-      ${r.status === 'done' && r.finished && r.started ? `<span class="pill muted">${Math.round(r.finished - r.started)}s</span>` : ''}</div>
+      ${r.status === 'done' && r.finished && r.started ? `<span class="pill muted">${Math.round(r.finished - r.started)}s</span>` : ''}
+      ${r.status === 'done' ? '<button id="rerun-btn" class="go" style="margin-left:4px">RERUN</button>' : ''}</div>
     ${scores.length ? `<table>
       <tr><th>defense</th><th class="num">safety</th><th class="num">refusal</th>
           <th class="num">over-refusal</th><th class="num">breach</th>
@@ -434,6 +444,12 @@ async function showRound(id) {
         <td>${m.over_refusal ? '<span style="color:var(--warn)">yes</span>' : '—'}</td>
         <td class="muted">${esc(m.blocked_at || 'model')}</td></tr>`).join('')}
     </table>` : ''}`;
+  if (r.status === 'done') {
+    $('#rerun-btn').onclick = () => {
+      window._rerunConfig = {attacks: r.attacks, defenses: r.defenses, model: r.model};
+      document.querySelector('nav button[data-tab="rounds"]').click();
+    };
+  }
   const matches = r.matches || [];
   $('#round-body').querySelectorAll('tr[data-idx]').forEach(tr => {
     tr.onclick = () => {

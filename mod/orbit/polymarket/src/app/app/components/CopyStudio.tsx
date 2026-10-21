@@ -58,6 +58,11 @@ const PAGE_SIZE = 40;
     drawn from frequent traders only, not thinned after the fact. */
 const MIN_PER_DAY_KEY = "poly:copyStudio:minPerDay:v1";
 
+/** The front door opens SIMPLE: search, six columns, one green button. MORE
+    opens every dial (sorts, filters, score weights, agent bundles, splits) —
+    the full studio, unchanged. Remembered per device. */
+const SIMPLE_KEY = "poly:copyStudio:simple:v1";
+
 const TONE: Record<Verdict, string> = {
   up: "text-green-400",
   down: "text-red-400",
@@ -98,6 +103,16 @@ export default function CopyStudio() {
   const { legs, days, bankroll } = studio;
   const { auth } = useAuth();
   const eoa = getOwnerAddress() ?? auth.address ?? null;
+
+  // ── Simple vs. full studio ──
+  const [simple, setSimple] = useState(true);
+  useEffect(() => {
+    try { if (localStorage.getItem(SIMPLE_KEY) === "0") setSimple(false); } catch {}
+  }, []);
+  const toggleSimple = () => setSimple((v) => {
+    try { localStorage.setItem(SIMPLE_KEY, v ? "0" : "1"); } catch {}
+    return !v;
+  });
 
   // ── Board ──
   const [sort, setSort] = useState<string>("steady");
@@ -351,12 +366,12 @@ export default function CopyStudio() {
       </div>
 
       {/* ── The BUNDLER agent's proposals; LOAD replaces the allocation ── */}
-      <BundlerPanel
+      {!simple && <BundlerPanel
         onLoad={(ls) => update((s) => ({
           ...s,
           legs: ls.reduce<StudioLeg[]>((acc, l) => addLeg(acc, { address: l.address, usd: l.usd, label: l.label ?? null }), []),
         }))}
-      />
+      />}
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_460px]">
         {/* ── Left: the board ── */}
@@ -368,6 +383,15 @@ export default function CopyStudio() {
               placeholder="find a trader (name or 0x…)"
               className="pixel-input flex-1 min-w-[140px] text-[11px]"
             />
+            <button
+              type="button"
+              onClick={toggleSimple}
+              className={`pixel-btn btn-xs ${simple ? "" : "border-pixel-green text-pixel-green"}`}
+              title="Sorting, filters, market topics, score weights, agent bundles — the full studio"
+            >
+              {simple ? "MORE ▾" : "LESS ▴"}
+            </button>
+            {!simple && <>
             <input
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
@@ -419,9 +443,10 @@ export default function CopyStudio() {
             >
               HOW IT&apos;S SCORED
             </button>
+            </>}
           </div>
 
-          {showScore && (
+          {!simple && showScore && (
             <div className="p-2 border-b border-pixel-border space-y-1.5 font-mono">
               <p className="text-[10px] text-pixel-gray leading-[1.5]">
                 STEADY (0–100) ranks traders by how consistent copying them would have been over the last {days}D at
@@ -462,10 +487,12 @@ export default function CopyStudio() {
                   <th className="px-2 py-1.5 w-8" />
                   <th className="px-2 py-1.5">TRADER</th>
                   <SortTh k="usd" sort={sort} asc={asc} onPick={pickSort}>PROFIT {days}D</SortTh>
+                  {!simple && <>
                   <SortTh k="volume" sort={sort} asc={asc} onPick={pickSort}>VOLUME</SortTh>
                   <th className="px-2 py-1.5 text-right" title={`Average trades per day over the ${days}D window`}>TRADES/D</th>
                   <th className="px-2 py-1.5 text-right">WIN</th>
                   <th className="px-2 py-1.5 text-right">LAST</th>
+                  </>}
                   <th className="px-2 py-1.5">CURVE</th>
                   <SortTh k="pct" sort={sort} asc={asc} onPick={pickSort} title="% return if you had copied them — click to sort">IF COPIED</SortTh>
                   <SortTh k="steady" sort={sort} asc={asc} onPick={pickSort} title="0–100: how consistent copying them would have been. HOW IT'S SCORED shows the mix. Click to sort.">STEADY</SortTh>
@@ -505,6 +532,7 @@ export default function CopyStudio() {
                         {pinned === a && <span className="ml-1 text-[9px] text-pixel-green">PINNED</span>}
                       </td>
                       <td className={`px-2 py-1 text-right ${toneOf(t.pnl)}`}>{fmtUsd(t.pnl, true)}</td>
+                      {!simple && <>
                       <td className="px-2 py-1 text-right text-pixel-gray-light">{formatVolume(t.volume)}</td>
                       <td className="px-2 py-1 text-right text-pixel-gray-light" title={`${t.recentTrades} trades in ${days}D · ${t.trades24h ?? 0} in the last 24h`}>
                         {fmtPerDay(t.recentTrades / Math.max(1, days))}
@@ -515,6 +543,7 @@ export default function CopyStudio() {
                       <td className="px-2 py-1 text-right text-pixel-gray">
                         {t.lastTradeTs ? timeAgo(t.lastTradeTs * 1000) : "—"}
                       </td>
+                      </>}
                       <td className="px-2 py-1">
                         {t.pnlCurve && t.pnlCurve.length > 1 ? <Sparkline data={t.pnlCurve} width={70} height={18} /> : null}
                       </td>

@@ -246,6 +246,33 @@ const st = {tab: 'services', q: '', network: '', max_price: '', sort: 'popular',
             meaning: localStorage.getItem('x402.meaning') !== '0', mq: ''};
 const PAGE = 50;
 
+function stateToHash() {
+  const p = new URLSearchParams();
+  if (st.q) p.set('q', st.q);
+  if (st.network) p.set('network', st.network);
+  if (st.max_price) p.set('max_price', st.max_price);
+  if (st.sort && st.sort !== 'popular') p.set('sort', st.sort);
+  if (st.host) p.set('host', st.host);
+  if (st.mq) p.set('mq', st.mq);
+  const qs = p.toString();
+  history.replaceState(null, '', '#' + st.tab + (qs ? '?' + qs : ''));
+}
+function hashToState() {
+  const h = window.location.hash.slice(1);
+  if (!h) return;
+  const qi = h.indexOf('?');
+  const t = qi >= 0 ? h.slice(0, qi) : h;
+  if (t && VIEWS[t]) st.tab = t;
+  const qs = qi >= 0 ? new URLSearchParams(h.slice(qi + 1)) : new URLSearchParams();
+  st.q = qs.get('q') || '';
+  st.network = qs.get('network') || '';
+  st.max_price = qs.get('max_price') || '';
+  st.sort = qs.get('sort') || 'popular';
+  st.host = qs.get('host') || '';
+  st.mq = qs.get('mq') || '';
+  st.offset = 0;
+}
+
 async function loadStats() {
   try {
     const i = await get('info'), x = i.index;
@@ -367,7 +394,12 @@ async function detail(url) {
       <h3>PROVIDER</h3><button class="quiet" id="byhost">all ${esc(s.host)} services</button>
       <h3>LIVE QUOTE</h3>${me && me.score >= 20
         ? `<button class="quiet" id="livequote">Get live quote</button> <span id="lq" class="dim"></span>`
-        : `<span class="dim">sign in with a wallet to get a live quote</span>`}<div id="lqtable"></div>`;
+        : `<span class="dim">sign in with a wallet to get a live quote</span>`}<div id="lqtable"></div>
+      <h3>SIGN &amp; PAY</h3>${me && me.score >= 20 && window.ethereum
+        ? `<div id="sppanel"><button class="quiet" id="spquote">Get Quote</button> <span id="spst" class="dim"></span><div id="spres"></div></div>`
+        : me && me.score >= 20
+          ? `<span class="dim">install MetaMask to pay from this browser</span>`
+          : ''}`;
     $('#byhost').onclick = () => { closeDrawer(); Object.assign(st, {tab: 'services', host: s.host, q: '', offset: 0}); tab('services'); };
     if (me && me.score >= 20) {
       $('#livequote').onclick = async () => {
@@ -387,6 +419,42 @@ async function detail(url) {
           }
         } catch (e) { lq.textContent = e.message; }
         finally { btn.disabled = false; }
+      };
+    }
+    if (me && me.score >= 20 && window.ethereum) {
+      let spQid = null, spSig = null, spTyped = null;
+      const spAddr = PP && PP.session() ? PP.session().address : null;
+      $('#spquote').onclick = async () => {
+        const btn = $('#spquote'), spst = $('#spst'), spres = $('#spres');
+        btn.disabled = true; spst.textContent = 'fetching quote...';
+        try {
+          const q = await post('quote', {url: s.url, method: s.method});
+          spst.textContent = '';
+          if (!q.quote_id) { spst.textContent = q.note || 'no payment required'; btn.disabled = false; return; }
+          spQid = q.quote_id; spTyped = q.typed_data;
+          const chosen = q.offers && q.chosen != null ? q.offers[q.chosen] : null;
+          const priceStr = q.price_usd != null ? usd(q.price_usd) : (chosen ? esc(String(chosen.amount)) : '?');
+          spres.innerHTML = `<div style="margin:8px 0 6px;font-size:13px">
+            ${chosen ? `<span class="chip ok">${esc(chosen.network)}</span> ${esc(chosen.asset_name || (chosen.asset||'').slice(0,10))} ${priceStr}` : priceStr}
+            <span class="dim" style="margin-left:8px">expires in ${Math.round((q.expires_in||600)/60)}m</span>
+          </div><button class="quiet" id="spsign">Sign with MetaMask</button>`;
+          $('#spsign').onclick = async () => {
+            const signBtn = $('#spsign'); signBtn.disabled = true;
+            try {
+              spSig = await window.ethereum.request({method: 'eth_signTypedData_v4', params: [spAddr, JSON.stringify(spTyped)]});
+              spres.innerHTML += `<div class="dim" style="margin:6px 0;font-size:12px">signed · ${esc(spSig.slice(0,18))}…</div><button id="spcall">Submit &amp; Call</button>`;
+              $('#spcall').onclick = async () => {
+                const callBtn = $('#spcall'); callBtn.disabled = true;
+                try {
+                  const r = await post('call', {quote_id: spQid, signature: spSig});
+                  const body = r.json != null ? JSON.stringify(r.json, null, 2).slice(0,2000) : (r.text||'').slice(0,2000);
+                  const rcpt = r.receipt ? `<div style="margin-top:8px"><span class="dim">receipt:</span> <code>${esc(JSON.stringify(r.receipt).slice(0,200))}</code></div>` : '';
+                  spres.innerHTML += `<div style="margin-top:8px"><span class="chip ${r.status < 300 ? 'ok' : 'bad'}">HTTP ${r.status}</span></div>${body ? `<pre style="margin-top:6px;max-height:200px">${esc(body)}</pre>` : ''}${rcpt}`;
+                } catch (e) { callBtn.disabled = false; spres.innerHTML += `<div style="margin-top:6px;color:var(--bad);font-size:12px">${esc(e.message)}</div>`; }
+              };
+            } catch (e) { signBtn.disabled = false; spres.innerHTML += `<div style="color:var(--bad);font-size:12px;margin-top:4px">${esc(e.message)}</div>`; }
+          };
+        } catch (e) { spst.textContent = e.message; btn.disabled = false; }
       };
     }
   } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
@@ -578,9 +646,12 @@ function tab(t) {
 async function render() {
   status('');
   try { await VIEWS[st.tab](); } catch (e) { status(e.message, true); }
+  stateToHash();
 }
 document.querySelectorAll('#tabs a').forEach(a => a.onclick = () => { st.q = ''; tab(a.dataset.t); });
 
+window.addEventListener('hashchange', () => { hashToState(); render(); });
+hashToState();
 if (PP) { PP.onChange(who); PP.ready().then(who); } else who();
 loadStats().then(render);
 setInterval(loadStats, 30000);

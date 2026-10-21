@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>GUARDIAN</title>
 <link rel="stylesheet" href="kit.css" />
+<style>
+.upd-detail{display:none;padding:8px 12px 10px;border-top:1px solid var(--border,#2a2a2a);font-size:12px;line-height:1.5}
+.row[data-open]+.upd-detail{display:block}
+.upd-label{font-size:11px;color:var(--muted,#888);text-transform:uppercase;letter-spacing:.06em;margin:6px 0 3px}
+.upd-detail pre{margin:0;white-space:pre-wrap;word-break:break-word;background:var(--surface2,#111);padding:7px 9px;border-radius:4px;font-size:11.5px;max-height:220px;overflow-y:auto}
+.chev{font-size:10px;padding:0 6px;cursor:pointer;flex-shrink:0;align-self:center;opacity:.5}
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -13,6 +20,7 @@
     <div class="card">
       <h2>Console-wide</h2>
       <div class="inline" style="margin-bottom:12px"><button id="enBtn">…</button></div>
+      <div class="stats" id="statRow" style="margin-bottom:12px"></div>
       <div id="what" class="muted" style="font-size:12.5px"></div>
       <div class="form" style="margin-top:12px">
         <label class="f">screening model<input id="g_model" /></label>
@@ -41,6 +49,13 @@
 const $ = (id) => document.getElementById(id);
 let G = null, seeded = false, cur = null;
 
+function updDetailHtml(u) {
+  const body = u.prompt || u.body || u.description || "";
+  const reason = u.screen?.reasoning || u.screen?.reason || u.screen?.detail || "";
+  const showFallback = !body && !reason && u.screen;
+  return `<div class="upd-detail">${body ? `<pre>${K.esc(body)}</pre>` : ""}${reason ? `<div class="upd-label">guardian reasoning</div><pre>${K.esc(reason)}</pre>` : ""}${showFallback ? `<div class="upd-label">screen data</div><pre>${K.esc(JSON.stringify(u.screen, null, 2))}</pre>` : ""}</div>`;
+}
+
 function renderGlobal() {
   K.setState(K.pill(G.enabled, "on", "off", G.enabled ? "" : "warn"));
   const b = $("enBtn");
@@ -48,6 +63,11 @@ function renderGlobal() {
   b.className = G.enabled ? "danger" : "primary";
   b.disabled = !K.isOwner;
   $("what").textContent = G.what || "";
+  const _mv = Object.values(G.modules || {}), _mk = Object.keys(G.modules || {}).length;
+  const _tile = (v, label) => `<div class="stat"><b>${K.esc(String(v))}</b><span>${K.esc(label)}</span></div>`;
+  $("statRow").innerHTML = G.screened != null
+    ? _tile(G.screened ?? 0, "screened") + _tile(G.passed ?? 0, "passed") + _tile(G.held ?? 0, "held") + _tile(G.blocked ?? 0, "blocked") + (G.last_run ? `<div class="stat"><b style="font-size:13px">${K.ago(G.last_run)}</b><span>last run</span></div>` : "")
+    : _tile(_mk, "modules") + _tile(_mv.filter(m => m.auto_play).length, "auto") + `<div class="stat" id="pendingStat"><b>—</b><span>pending</span></div>`;
   if (!seeded) { $("g_model").value = G.model; $("g_timeout").value = G.timeout_ms; $("g_comments").checked = !!G.screen_comments; seeded = true; }
   $("gSave").disabled = !K.isOwner;
   const mods = Object.entries(G.modules || {});
@@ -72,7 +92,8 @@ function renderMod(m, upd) {
     <h2 style="margin-top:16px">Held updates <span class="sp"></span><span class="faint">${upd?.pending ?? 0} pending</span></h2>
     <div class="rows">${ups.map((u) => `<div class="row" data-u="${K.esc(u.id)}"><span class="pill ${u.status === "pending" ? "warn" : ""}">${K.esc(u.status || "")}</span>
       <div class="grow"><div class="t">${K.esc(u.title || u.prompt || u.id)}</div><div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}${u.screen?.verdict ? " · guardian: " + K.esc(u.screen.verdict) : ""}</div></div>
-      ${u.status === "pending" && K.isOwner ? `<div class="acts"><button class="sm" data-a="approve">approve</button><button class="sm danger" data-a="reject">reject</button></div>` : ""}</div>`).join("") || `<div class="empty">nothing held</div>`}</div>`;
+      <span class="chev">▶</span>
+      ${u.status === "pending" && K.isOwner ? `<div class="acts"><button class="sm" data-a="approve">approve</button><button class="sm danger" data-a="reject">reject</button></div>` : ""}</div>${updDetailHtml(u)}`).join("") || `<div class="empty">nothing held</div>`}</div>`;
   $("mSave").onclick = async () => {
     const body = { rules: $("m_rules").value };
     for (const c of $("mod").querySelectorAll("input[data-k]")) body[c.dataset.k] = c.checked;
@@ -97,11 +118,13 @@ async function renderPendingInbox() {
   const all = [];
   keys.forEach((n, i) => { if (results[i].ok) (results[i].data.updates || []).filter(u => u.status === "pending").forEach(u => all.push({...u, _mod: n})); });
   all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const ps = $("pendingStat"); if (ps) ps.querySelector("b").textContent = String(all.length);
   el.innerHTML = all.map(u => `<div class="row" data-u="${K.esc(u.id)}" data-mod="${K.esc(u._mod)}">
     <span class="pill acc">${K.esc(u._mod)}</span>
     <div class="grow" style="min-width:0"><div class="t" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${K.esc(u.title || u.prompt || u.id)}</div>
     <div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}${u.screen?.verdict ? " · guardian: " + K.esc(u.screen.verdict) : ""}</div></div>
-    ${K.isOwner ? `<div class="acts"><button class="sm" data-a="approve">approve</button><button class="sm danger" data-a="reject">reject</button></div>` : ""}</div>`).join("")
+    <span class="chev">▶</span>
+    ${K.isOwner ? `<div class="acts"><button class="sm" data-a="approve">approve</button><button class="sm danger" data-a="reject">reject</button></div>` : ""}</div>${updDetailHtml(u)}`).join("")
     || `<div class="empty">nothing pending across your modules</div>`;
 }
 
@@ -116,11 +139,23 @@ $("modLoad").onclick = () => { const n = $("modIn").value.trim(); if (n) openMod
 $("modIn").onkeydown = (e) => { if (e.key === "Enter") $("modLoad").click(); };
 $("mods").onclick = (e) => { const n = e.target.closest(".row")?.dataset.m; if (n) { $("modIn").value = n; openMod(n); } };
 $("mod").addEventListener("click", async (e) => {
-  const a = e.target.dataset.a, id = e.target.closest(".row")?.dataset.u; if (!a || !id) return;
+  const row = e.target.closest(".row[data-u]");
+  if (row && !e.target.closest(".acts")) {
+    row.toggleAttribute("data-open");
+    const chev = row.querySelector(".chev"); if (chev) chev.textContent = row.hasAttribute("data-open") ? "▼" : "▶";
+    return;
+  }
+  const a = e.target.dataset.a, id = row?.dataset.u; if (!a || !id) return;
   if (await K.ask(a === "approve" ? "Run this held update exactly as filed, on the requester's account?" : "Refuse this update?", a, a === "reject")) { await K.act(`/updates/${id}/${a}`, {}, a + "d"); openMod(cur); }
 });
 $("pendingInbox").addEventListener("click", async (e) => {
-  const a = e.target.dataset.a, row = e.target.closest(".row"), id = row?.dataset.u;
+  const row = e.target.closest(".row[data-u]");
+  if (row && !e.target.closest(".acts")) {
+    row.toggleAttribute("data-open");
+    const chev = row.querySelector(".chev"); if (chev) chev.textContent = row.hasAttribute("data-open") ? "▼" : "▶";
+    return;
+  }
+  const a = e.target.dataset.a, id = row?.dataset.u;
   if (!a || !id) return;
   if (await K.ask(a === "approve" ? "Run this held update exactly as filed?" : "Refuse this update?", a, a === "reject")) {
     await K.act(`/updates/${id}/${a}`, {}, a + "d"); load();

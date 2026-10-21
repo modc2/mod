@@ -329,6 +329,11 @@
   .detail-anchor { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 7px; background: rgba(124,156,255,.07); border: 1px solid rgba(124,156,255,.22); font: 500 12px/1 var(--mono); color: var(--accent); cursor: pointer; width: fit-content; text-align: left; }
   .detail-anchor:hover { background: rgba(124,156,255,.15); }
   .diff-block { margin: 0; padding: 10px 12px; border-radius: 9px; background: #080a11; border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--ink2); white-space: pre; overflow-x: auto; max-height: 240px; overflow-y: auto; }
+  .cmt-row { display: flex; flex-direction: column; gap: 2px; padding: 7px 10px; border-radius: 8px; background: var(--s2); border: 1px solid var(--line); }
+  .cmt-meta { font: 500 11px/1.2 var(--sans); color: var(--faint); }
+  .cmt-body { margin: 0; font-size: 13px; color: var(--ink2); white-space: pre-wrap; }
+  .cmt-none { margin: 0; font-size: 13px; color: var(--faint); font-style: italic; }
+  .cmt-add { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 
   /* ── modal + toast + burst ─────────────────────────────── */
   .scrim { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(5,6,10,.65); backdrop-filter: blur(6px); animation: fade .15s; }
@@ -394,6 +399,7 @@
     <button id="tab-scan" class="on" onclick="show('scan')">Suggest</button>
     <button id="tab-queue" onclick="show('queue')">Queue <span class="n" id="n-queue">0</span></button>
     <button id="tab-inbox" onclick="show('inbox')">Inbox <span class="n" id="n-inbox">–</span></button>
+    <button id="tab-outbox" onclick="show('outbox')">Outbox <span class="n" id="n-outbox">–</span></button>
   </nav>
   <div class="grow"></div>
   <button id="who" class="btn wallet" onclick="connect()"><span class="dot"></span><span id="who-t">Connect wallet</span></button>
@@ -527,6 +533,14 @@
       <button class="btn ghost" onclick="loadInbox()"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button></div>
     <div id="inbox" class="cards"></div>
   </section>
+
+  <!-- OUTBOX -------------------------------------------------------- -->
+  <section id="view-outbox" class="hidden">
+    <div class="pagehead"><div><h1>Outbox</h1><p id="outbox-note">Suggestions you have filed, and what happened to them.</p></div>
+      <div class="grow"></div>
+      <button class="btn ghost" onclick="loadOutbox()"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button></div>
+    <div id="outbox" class="cards"></div>
+  </section>
 </main>
 
 <div class="toasts" id="toasts"></div>
@@ -640,13 +654,14 @@ function countTo(el, to) {
 }
 
 function show(view) {
-  for (const v of ['scan', 'queue', 'inbox']) {
+  for (const v of ['scan', 'queue', 'inbox', 'outbox']) {
     $('view-' + v).classList.toggle('hidden', v !== view);
     $('tab-' + v).classList.toggle('on', v === view);
   }
   $('main').classList.toggle('wide', view === 'scan' && !!BRIEF);
   if (view === 'queue') loadQueue();
   if (view === 'inbox') loadInbox();
+  if (view === 'outbox') loadOutbox();
   window.scrollTo(0, 0);
 }
 
@@ -666,7 +681,7 @@ async function connect() {
     if (!out) return;
     TOKEN = ''; ADDRESS = '';
     sessionStorage.removeItem('advise.token'); sessionStorage.removeItem('advise.address');
-    paintWho(); peekInbox(); return;
+    paintWho(); peekInbox(); peekOutbox(); return;
   }
   if (!window.ethereum) {
     await ask({ title: 'No browser wallet found', body: 'Reading and sending suggestions work without one. Approving needs the wallet that owns the module.', cancel: '', ok: 'Got it' });
@@ -687,7 +702,7 @@ async function connect() {
     sessionStorage.setItem('advise.address', ADDRESS);
     paintWho();
     toast('Signed in as ' + short(ADDRESS), 'ok');
-    peekInbox();
+    peekInbox(); peekOutbox();
   } catch (e) { toast('Sign-in cancelled: ' + e.message, 'err'); }
 }
 
@@ -718,6 +733,18 @@ async function peekInbox() {
   try {
     const c = (await call('inbox', { status: 'pending' })).count;
     n.textContent = c; n.classList.toggle('hot', c > 0);
+  } catch (e) { n.textContent = '–'; }
+}
+
+async function peekOutbox() {
+  const n = $('n-outbox');
+  n.classList.remove('hot');
+  if (!TOKEN) { n.textContent = '–'; return; }
+  try {
+    const out = await call('outbox');
+    const pending = (out.recommendations || []).filter(r => r.status === 'pending').length;
+    n.textContent = pending;
+    n.classList.toggle('hot', pending > 0);
   } catch (e) { n.textContent = '–'; }
 }
 
@@ -1017,7 +1044,7 @@ async function fileRec() {
     msg.innerHTML = `<span class="ok">Sent</span> as <code>${esc(out.filed)}</code> — waiting on ${esc(out.awaiting ? short(out.awaiting) : 'the owner')}`;
     for (const id of ['title', 'summary', 'rationale', 'change', 'patch']) $(id).value = '';
     ANCHORS = []; renderAnchors(); if (CUR_FILE) paintCode(); score();
-    loadStats();
+    loadStats(); peekOutbox();
   } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; toast(e.message, 'err'); }
 }
 
@@ -1050,6 +1077,7 @@ function card(r, owner, i) {
       ${r.anchors ? `<span class="tag">${r.anchors} line${r.anchors === 1 ? '' : 's'}</span>` : ''}
       ${r.has_patch ? '<span class="tag">patch</span>' : ''}
       ${r.confidence != null ? `<span class="tag">${Math.round(r.confidence * 100)}% sure</span>` : ''}
+      ${r.comments ? `<span class="tag">${r.comments} comment${r.comments === 1 ? '' : 's'}</span>` : ''}
       ${r.relayed ? '<span class="tag" style="--c:var(--ok);color:var(--ok)"><i></i>in build\'s idea queue</span>' : ''}
     </div>
     <div class="byline">${who} · ${ago(r.created_at)} <span class="grow"></span>
@@ -1093,6 +1121,56 @@ async function loadInbox() {
       ? out.recommendations.map((r, i) => card(r, true, i)).join('')
       : '<div class="empty"><b>Inbox zero.</b> Nothing is waiting on you.</div>';
   } catch (e) { el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
+}
+
+async function loadOutbox() {
+  const el = $('outbox');
+  if (!TOKEN) {
+    $('outbox-note').textContent = 'Suggestions you have filed, and what happened to them.';
+    el.innerHTML = `<div class="empty">Connect the wallet you used to file suggestions to track them here.<br><br>
+      <button class="btn primary" onclick="connect()">Connect wallet</button></div>`;
+    return;
+  }
+  el.innerHTML = '<div class="skeleton"></div>';
+  try {
+    const out = await call('outbox');
+    const recs = out.recommendations || [];
+    const c = { pending: 0, approved: 0, rejected: 0, withdrawn: 0 };
+    for (const r of recs) if (r.status in c) c[r.status]++;
+    $('outbox-note').textContent = recs.length
+      ? `${recs.length} filed · ${c.approved} approved · ${c.rejected} rejected${c.pending ? ` · ${c.pending} pending` : ''}`
+      : 'Suggestions you have filed, and what happened to them.';
+    el.innerHTML = recs.length
+      ? recs.map((r, i) => cardOutbox(r, i)).join('')
+      : '<div class="empty"><b>Nothing filed yet.</b> <a href="#" onclick="home();return false">Pick a module</a> and suggest a change.</div>';
+    const n = $('n-outbox');
+    n.textContent = c.pending;
+    n.classList.toggle('hot', c.pending > 0);
+  } catch (e) { el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
+}
+
+function cardOutbox(r, i) {
+  const base = card(r, false, i);
+  if (r.status !== 'pending') return base;
+  const rid = esc(r.id);
+  const withdrawActs = `<div class="acts"><button class="btn no" onclick="withdrawRec('${rid}',this)">Withdraw</button><span id="msg-ob-${rid}"></span></div>`;
+  return base.slice(0, base.lastIndexOf('</div>')) + withdrawActs + '</div>';
+}
+
+async function withdrawRec(id) {
+  const go = await ask({ title: 'Withdraw this suggestion?', body: 'It will be removed from the queue. You can file a new one at any time.', ok: 'Withdraw', tone: 'no' });
+  if (!go) return;
+  const msg = document.getElementById('msg-ob-' + id);
+  if (msg) msg.textContent = 'Withdrawing…';
+  try {
+    await call('withdraw', { id }, 'POST');
+    toast('Suggestion withdrawn', 'ok');
+    loadOutbox();
+    loadStats();
+  } catch (e) {
+    if (msg) msg.innerHTML = `<span class="err">${esc(e.message)}</span>`;
+    toast(e.message, 'err');
+  }
 }
 
 async function decide(btn, id, action) {
@@ -1152,12 +1230,37 @@ function renderExpanded(id) {
   const patch = rec.patch
     ? `<div class="detail-field"><label>Patch</label><pre class="diff-block">${esc(rec.patch)}</pre></div>`
     : '';
+  const rid = esc(id);
+  const cmtRows = (rec.comments || []).map(c =>
+    `<div class="cmt-row"><span class="cmt-meta">${esc(c.author)} · ${ago(c.timestamp)}</span><p class="cmt-body">${esc(c.body)}</p></div>`
+  ).join('');
+  const comments = `<div class="detail-field"><label>Comments</label>
+    ${cmtRows || '<p class="cmt-none">No comments yet.</p>'}
+    <div class="cmt-add">
+      <textarea id="cmt-${rid}" placeholder="Add a comment…" rows="2"></textarea>
+      <button class="btn" onclick="addComment('${rid}')">Add comment</button>
+    </div></div>`;
   body.innerHTML = [
     field('Rationale', rec.rationale),
     field('Change', rec.change),
     anchorLinks,
     patch,
+    comments,
   ].filter(Boolean).join('') || '<div class="note">No additional detail.</div>';
+}
+
+async function addComment(id) {
+  const ta = document.getElementById('cmt-' + id);
+  if (!ta) return;
+  const body = ta.value.trim();
+  if (!body) return;
+  try {
+    await call('comment', { id, body }, 'POST');
+    ta.value = '';
+    EXPANDED[id] = await call('rec', { id });
+    renderExpanded(id);
+    toast('Comment added', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 paintWho();
@@ -1168,6 +1271,7 @@ score();
 loadModules();
 loadStats();
 peekInbox();
+peekOutbox();
 const preset = new URLSearchParams(location.search).get('module');
 if (preset) loadBrief(preset);
 </script>
