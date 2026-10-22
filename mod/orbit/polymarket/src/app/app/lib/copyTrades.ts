@@ -317,15 +317,19 @@ export interface LeaderScore {
   theirPnl: number;
   medianLagSec: number | null;
   avgSlipCents: number | null;
+  /** wins / (wins + losses) across my attributed fills for this leader.
+      Null when fewer than 5 resolved fills — too noisy to show. */
+  winRate: number | null;
 }
 
 export function scoreLeaders(rows: CopyTradeRow[]): LeaderScore[] {
-  const by = new Map<string, LeaderScore & { lags: number[]; slips: number[] }>();
+  const by = new Map<string, LeaderScore & { lags: number[]; slips: number[]; wins: number; losses: number }>();
   const get = (address: string, name: string) => {
     let e = by.get(address);
     if (!e) {
       e = { address, label: name, trades: 0, copied: 0, coverage: 0, notional: 0,
-        myNotional: 0, myPnl: 0, theirPnl: 0, medianLagSec: null, avgSlipCents: null, lags: [], slips: [] };
+        myNotional: 0, myPnl: 0, theirPnl: 0, medianLagSec: null, avgSlipCents: null,
+        winRate: null, lags: [], slips: [], wins: 0, losses: 0 };
       by.set(address, e);
     }
     return e;
@@ -343,16 +347,21 @@ export function scoreLeaders(rows: CopyTradeRow[]): LeaderScore[] {
       e.myPnl += r.pnl ?? 0;
       if (r.lagSec != null) e.lags.push(r.lagSec);
       if (r.slipCents != null) e.slips.push(r.slipCents);
+      if (r.pnl != null) {
+        if (r.pnl > 0) e.wins += 1;
+        else if (r.pnl < 0) e.losses += 1;
+      }
     }
   }
   return Array.from(by.values())
-    .map(({ lags, slips, ...e }) => ({
+    .map(({ lags, slips, wins, losses, ...e }) => ({
       ...e,
       coverage: e.trades ? e.copied / e.trades : 0,
       medianLagSec: median(lags),
       avgSlipCents: slips.length
         ? Math.round((slips.reduce((s, x) => s + x, 0) / slips.length) * 10) / 10
         : null,
+      winRate: (wins + losses) >= 5 ? wins / (wins + losses) : null,
     }))
     .sort((a, b) => b.trades - a.trades);
 }

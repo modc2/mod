@@ -36,6 +36,7 @@
         "header": "Authorization: Bearer <contents of ~/.mod/rvb/server.secret>",
         "gated": [
             "POST /fight",
+            "POST /game",
             "POST /round",
             "POST /ping",
             "POST /attacks",
@@ -58,7 +59,9 @@
         "rvb_targets",
         "rvb_models",
         "rvb_agents",
-        "rvb_delete"
+        "rvb_delete",
+        "rvb_game",
+        "rvb_games"
     ],
     "endpoints": {
         "info": "GET /",
@@ -70,6 +73,8 @@
         "fight": "POST /fight {attack, defense, model, judge} \u2014 one exchange, every stage and the verdict",
         "round": "POST /round {attacks, defenses, model, judge, parallel, controls, background} \u2014 the tournament",
         "rounds": "GET /rounds?limit=&status= | GET /rounds?id= \u2014 one round in full, live while it runs",
+        "game": "POST /game {red, blue, model, turns, per_turn, judge, parallel, controls} \u2014 start an agent vs agent game (background)",
+        "games": "GET /games?limit=&status= | GET /games?id= \u2014 game history, live while it runs",
         "board": "GET /board?rounds=8 \u2014 standings, blue and red",
         "targets": "GET /targets \u2014 which backends can run right now",
         "ping": "POST /ping {model} \u2014 prove a target is reachable",
@@ -96,6 +101,8 @@
         "targets",
         "ping",
         "controls",
+        "game",
+        "games",
         "serve",
         "mcp",
         "readme",
@@ -121,5 +128,5 @@
     "services": [
         "rvb-api"
     ],
-    "schema": "QmXKpJZoJXDyzfb7qvCLwWrXeAw95idfrMeNxzG8EE7bco"
+    "schema": "Qmc5qJUt7mcuE5AHurmskcbyMfz8GU2C2LtNqGpMPwCKgm"
 }

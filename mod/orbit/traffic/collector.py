@@ -262,9 +262,16 @@ def series(store, range="24h", top=8, apps=None, now=None):
     prev_rows = store.q("SELECT app, COUNT(DISTINCT vid) FROM seen WHERE minute >= ? AND minute < ? GROUP BY app",
                         (prev_smin, smin))
     prev_users = {a: u for a, u in prev_rows}
-    return {"range": rng, "step": step, "buckets": buckets, "total": total,
+    new_rows = store.q(
+        "SELECT s.app, COUNT(DISTINCT s.vid) FROM seen s JOIN visitor v ON s.vid=v.vid "
+        "WHERE s.minute >= ? AND v.first >= ? GROUP BY s.app",
+        (smin, smin * 60))
+    new_users = {a: u for a, u in new_rows}
+    range_unique = store.q("SELECT COUNT(DISTINCT vid) FROM seen WHERE minute >= ?", (smin,))[0][0] or 0
+    return {"range": rng, "step": step, "buckets": buckets, "total": total, "range_unique": range_unique,
             "series": [{"app": a, "values": out[a]} for a in names],
-            "table": [{"app": a, "users": u, "hits": h, "live": lv.get(a, 0), "prev": prev_users.get(a, 0)}
+            "table": [{"app": a, "users": u, "hits": h, "live": lv.get(a, 0), "prev": prev_users.get(a, 0),
+                       "new": new_users.get(a, 0)}
                       for a, u, h in ranked],
             "first": (store.q("SELECT MIN(minute) FROM seen")[0][0] or 0) * 60}
 
@@ -284,28 +291,172 @@ def app_series(store, range="24h", now=None):
     return out
 
 
-def countries(store, range="24h", now=None):
-    """Distinct users by country over the range, top 25."""
+def countries(store, range="24h", app=None, now=None):
+    """Distinct users by country over the range, top 25. Pass app to filter to one app."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    if app:
+        rows = store.q(
+            "SELECT v.country, COUNT(DISTINCT s.vid) FROM seen s JOIN visitor v ON s.vid=v.vid "
+            "WHERE s.minute >= ? AND s.app = ? AND v.country != '' GROUP BY v.country ORDER BY 2 DESC LIMIT 25",
+            (smin, app))
+    else:
+        rows = store.q(
+            "SELECT v.country, COUNT(DISTINCT s.vid) FROM seen s JOIN visitor v ON s.vid=v.vid "
+            "WHERE s.minute >= ? AND v.country != '' GROUP BY v.country ORDER BY 2 DESC LIMIT 25",
+            (smin,))
+    return {"range": range, "countries": [{"code": c, "users": u} for c, u in rows]}
+
+
+def affinities(store, app, range="24h", now=None):
+    """Apps whose users overlap most with app over the range, top 6."""
     span, _ = RANGES.get(range, RANGES["24h"])
     now = int(now or time.time())
     smin = (now - span) // 60
     rows = store.q(
-        "SELECT v.country, COUNT(DISTINCT s.vid) FROM seen s JOIN visitor v ON s.vid=v.vid "
-        "WHERE s.minute >= ? AND v.country != '' GROUP BY v.country ORDER BY 2 DESC LIMIT 25",
+        "SELECT s2.app, COUNT(DISTINCT s2.vid) FROM seen s1 "
+        "JOIN seen s2 ON s1.vid = s2.vid "
+        "WHERE s1.minute >= ? AND s1.app = ? AND s2.app != ? "
+        "GROUP BY s2.app ORDER BY 2 DESC LIMIT 6",
+        (smin, app, app))
+    return {"app": app, "range": range, "affinities": [{"app": a, "users": u} for a, u in rows]}
+
+
+def funnel(store, range="24h", now=None):
+    """How many visitors used exactly 1, 2, or 3+ apps over the range."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT app_count, COUNT(*) FROM ("
+        "  SELECT vid, COUNT(DISTINCT app) AS app_count FROM seen WHERE minute >= ? GROUP BY vid"
+        ") GROUP BY app_count ORDER BY app_count",
         (smin,))
-    return {"range": range, "countries": [{"code": c, "users": u} for c, u in rows]}
+    steps = [{"apps": c, "visitors": n} for c, n in rows]
+    return {"range": range, "steps": steps}
 
 
-def heatmap(store, range="30d", now=None):
+def pairs(store, range="24h", limit=10, now=None):
+    """Top app pairs co-visited by the same person over the range."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT s1.app, s2.app, COUNT(DISTINCT s1.vid) FROM seen s1 "
+        "JOIN seen s2 ON s1.vid = s2.vid "
+        "WHERE s1.minute >= ? AND s2.minute >= ? AND s1.app < s2.app "
+        "GROUP BY s1.app, s2.app ORDER BY 3 DESC LIMIT ?",
+        (smin, smin, limit))
+    return {"range": range, "pairs": [{"apps": [a, b], "users": u} for a, b, u in rows]}
+
+
+def cohorts(store, range="24h", now=None):
+    """Per-bucket new vs returning visitors over the range."""
+    rng = range if range in RANGES else "24h"
+    span, step = RANGES[rng]
+    now = int(now or time.time())
+    end = (now // step + 1) * step
+    start = end - span
+    smin, per = start // 60, step // 60
+    n = span // step
+    buckets = [start + i * step for i in builtins.range(n)]
+    total = [0] * n
+    for b, users in store.q(
+            "SELECT (minute - ?) / ? AS b, COUNT(DISTINCT vid) FROM seen "
+            "WHERE minute >= ? GROUP BY b", (smin, per, smin)):
+        if 0 <= b < n:
+            total[b] = users
+    new = [0] * n
+    for b, users in store.q(
+            "SELECT (s.minute - ?) / ? AS b, COUNT(DISTINCT s.vid) FROM seen s "
+            "JOIN visitor v ON s.vid=v.vid "
+            "WHERE s.minute >= ? AND v.first >= ? GROUP BY b", (smin, per, smin, smin * 60)):
+        if 0 <= b < n:
+            new[b] = users
+    returning = [max(0, total[i] - new[i]) for i in builtins.range(n)]
+    return {"range": rng, "step": step, "buckets": buckets, "new": new, "returning": returning}
+
+
+def vintage(store, app, range="24h", now=None):
+    """Visitor vintage: new today / recent (1-7d) / veteran (7+d)."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    midnight_utc = (now // 86400) * 86400
+    seven_days_ago = now - 7 * 86400
+    if app:
+        row = store.q(
+            "SELECT COUNT(DISTINCT CASE WHEN v.first >= ? THEN s.vid END), "
+            "COUNT(DISTINCT CASE WHEN v.first >= ? AND v.first < ? THEN s.vid END), "
+            "COUNT(DISTINCT CASE WHEN v.first < ? THEN s.vid END) "
+            "FROM seen s JOIN visitor v ON s.vid=v.vid "
+            "WHERE s.minute >= ? AND s.app = ?",
+            (midnight_utc, seven_days_ago, midnight_utc, seven_days_ago, smin, app))
+    else:
+        row = store.q(
+            "SELECT COUNT(DISTINCT CASE WHEN v.first >= ? THEN s.vid END), "
+            "COUNT(DISTINCT CASE WHEN v.first >= ? AND v.first < ? THEN s.vid END), "
+            "COUNT(DISTINCT CASE WHEN v.first < ? THEN s.vid END) "
+            "FROM seen s JOIN visitor v ON s.vid=v.vid "
+            "WHERE s.minute >= ?",
+            (midnight_utc, seven_days_ago, midnight_utc, seven_days_ago, smin))
+    new_today, recent, veteran = row[0] if row else (0, 0, 0)
+    return {"app": app, "range": range,
+            "new": new_today or 0, "recent": recent or 0, "veteran": veteran or 0}
+
+
+def landing_apps(store, range="24h", limit=10, now=None):
+    """First app each new visitor lands on, for visitors whose first request fell in the range."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT s.app, COUNT(DISTINCT s.vid) FROM seen s JOIN visitor v ON s.vid=v.vid "
+        "WHERE s.minute >= ? AND s.minute = (v.first/60) "
+        "GROUP BY s.app ORDER BY 2 DESC LIMIT ?",
+        (smin, limit))
+    return {"range": range, "apps": [{"app": a, "users": u} for a, u in rows]}
+
+
+def paths(store, range="24h", limit=10, now=None):
+    """Top ordered app navigation sequences visitors take over the range."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT vid, app, MIN(minute) FROM seen WHERE minute >= ? "
+        "GROUP BY vid, app ORDER BY vid, MIN(minute)",
+        (smin,))
+    visitor_apps = {}
+    for vid, app, _ in rows:
+        visitor_apps.setdefault(vid, []).append(app)
+    path_counts = {}
+    for apps_seq in visitor_apps.values():
+        if len(apps_seq) >= 2:
+            key = tuple(apps_seq)
+            path_counts[key] = path_counts.get(key, 0) + 1
+    top = sorted(path_counts.items(), key=lambda x: -x[1])[:limit]
+    return {"range": range, "paths": [{"apps": list(p), "visitors": n} for p, n in top]}
+
+
+def heatmap(store, range="30d", app=None, now=None):
     """Distinct users by hour-of-day × day-of-week over the range."""
     span, _ = RANGES.get(range, RANGES["30d"])
     now = int(now or time.time())
     smin = (now - span) // 60
-    rows = store.q(
-        "SELECT CAST(strftime('%w', datetime(minute*60,'unixepoch')) AS INTEGER) AS dow, "
-        "CAST(strftime('%H', datetime(minute*60,'unixepoch')) AS INTEGER) AS hr, "
-        "COUNT(DISTINCT vid) FROM seen WHERE minute >= ? GROUP BY dow, hr",
-        (smin,))
+    if app:
+        rows = store.q(
+            "SELECT CAST(strftime('%w', datetime(minute*60,'unixepoch')) AS INTEGER) AS dow, "
+            "CAST(strftime('%H', datetime(minute*60,'unixepoch')) AS INTEGER) AS hr, "
+            "COUNT(DISTINCT vid) FROM seen WHERE minute >= ? AND app = ? GROUP BY dow, hr",
+            (smin, app))
+    else:
+        rows = store.q(
+            "SELECT CAST(strftime('%w', datetime(minute*60,'unixepoch')) AS INTEGER) AS dow, "
+            "CAST(strftime('%H', datetime(minute*60,'unixepoch')) AS INTEGER) AS hr, "
+            "COUNT(DISTINCT vid) FROM seen WHERE minute >= ? GROUP BY dow, hr",
+            (smin,))
     grid = [[0] * 24 for _ in builtins.range(7)]
     for dow, hr, u in rows:
         grid[dow][hr] = u

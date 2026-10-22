@@ -87,7 +87,8 @@ GET_FNS = {
     'forecast': lambda q: MOD.forecast(
         _q(q, 'chain'), _q(q, 'miners', '16,256'), _q(q, 'validators', '4,64'),
         min(int(_q(q, 'months', 12)), 120), _q(q, 'shape', 'exp'),
-        _q(q, 'ring', 16), _q(q, 'epoch_hours', 1), _q(q, 'k')),
+        _q(q, 'ring', 16), _q(q, 'epoch_hours', 1), _q(q, 'k'),
+        float(_q(q, 'f', 0.25))),
     'experiment': lambda q: MOD.experiment(
         _q(q, 'chain', 'near'), ','.join(str(_q(q, 'hours', '1,2,4,6,12,24')).split(',')[:8]),
         _q(q, 'ring', 16), _q(q, 'strategy', 'baseline'), _q(q, 'share', 0.1),

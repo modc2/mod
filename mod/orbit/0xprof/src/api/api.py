@@ -397,6 +397,56 @@ def one_proof(proof_id: str, authorization: Optional[str] = Header(None)):
     return record
 
 
+@app.get('/proofs/{proof_id}/badge.svg')
+def proof_badge(proof_id: str):
+    """Shields.io-style SVG badge showing the proof's current status.
+
+    Read-only, no auth, public. Embed in a README as:
+        [![verified by 0xprof](…/badge.svg)](…#market/{id})
+    """
+    try:
+        record = proofs.get(proof_id)
+    except proofs.ProofError as e:
+        raise HTTPException(404, str(e))
+
+    STATUS_COLORS = {
+        'verified':   '#34d399',
+        'invalid':    '#f87171',
+        'disputed':   '#fbbf24',
+        'claimed':    '#38bdf8',
+        'unverified': '#6a7184',
+    }
+    status = record.get('status', 'unverified')
+    color = STATUS_COLORS.get(status, '#6a7184')
+    title_raw = (record.get('title') or proof_id)[:22]
+    # truncate with ellipsis if needed
+    title_label = (title_raw + '…') if len(record.get('title') or '') > 22 else title_raw
+
+    char_w = 6.5
+    pad = 12
+    left_text = f'0xprof · {title_label}'
+    right_text = status
+    lw = max(int(len(left_text) * char_w + pad), 80)
+    rw = max(int(len(right_text) * char_w + pad), 52)
+    total = lw + rw
+    ly = 14   # text baseline
+    lx = lw // 2
+    rx = lw + rw // 2
+
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{total}" height="20">'
+        f'<rect width="{lw}" height="20" fill="#1c202b"/>'
+        f'<rect x="{lw}" width="{rw}" height="20" fill="{color}"/>'
+        f'<text x="{lx}" y="{ly}" fill="#fff" font-family="Verdana,Arial,sans-serif"'
+        f' font-size="11" text-anchor="middle">{left_text}</text>'
+        f'<text x="{rx}" y="{ly}" fill="#fff" font-family="Verdana,Arial,sans-serif"'
+        f' font-size="11" font-weight="bold" text-anchor="middle">{right_text}</text>'
+        f'</svg>'
+    )
+    return Response(content=svg, media_type='image/svg+xml',
+                    headers={'Cache-Control': 'max-age=300'})
+
+
 @app.post('/proofs/{proof_id}/verify/challenge')
 def reverify_challenge(proof_id: str, payload: Dict[str, Any] = Body(...)):
     """The message to sign before the methods will run again on this proof."""

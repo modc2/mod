@@ -39,6 +39,8 @@ def tc(tmp_path, monkeypatch):
             return FakeResp(js={"id": url.rsplit("/", 1)[1], "data_size": "7"})
         if url.endswith("/REALTXID_000000000000000000000000000000000"):
             return FakeResp(content=b'{"from":"gateway"}')
+        if "/wallet/" in url and url.endswith("/balance"):
+            return FakeResp(text="1000000000000")  # 1 AR in winston
         return FakeResp(status=404)
 
     def fake_post(url, **kw):
@@ -105,6 +107,17 @@ def test_put_multipart_and_raw_body(tc):
     assert tc.get(f"/api/get/{r2['txid']}").text == "plain text"
 
 
+def test_put_multipart_with_tags(tc):
+    tags_json = json.dumps([{"name": "App-Name", "value": "test-app"}])
+    r = tc.post("/api/put", data={"tags": tags_json}, files={"file": ("t.bin", b"tagged data")}).json()
+    assert r["backend"] == "local"
+    txid = r["txid"]
+    items = tc.get("/api/list").json()["items"]
+    txitem = next(i for i in items if i["txid"] == txid)
+    stored_tags = (txitem.get("metadata") or {}).get("tags", [])
+    assert any(t[0] == "App-Name" and t[1] == "test-app" for t in stored_tags)
+
+
 def test_gateway_reads(tc):
     assert tc.get("/api/get/REALTXID_000000000000000000000000000000000").json() == {"from": "gateway"}
     assert tc.get("/api/price/1024").json() == {"bytes": 1024, "winston": "1024000"}
@@ -137,7 +150,8 @@ def test_mcp_initialize_ping_notifications(tc):
 def test_mcp_tools_list_both_paths(tc):
     names = {t["name"] for t in rpc(tc, "tools/list").json()["result"]["tools"]}
     assert names == {"arweave_status", "arweave_info", "arweave_put", "arweave_get", "arweave_list",
-                     "arweave_rm", "arweave_tx", "arweave_price", "arweave_network", "arweave_query"}
+                     "arweave_rm", "arweave_tx", "arweave_tx_status", "arweave_price", "arweave_network",
+                     "arweave_query", "arweave_archive"}
     for t in rpc(tc, "tools/list", path="/mcp").json()["result"]["tools"]:
         assert t["inputSchema"]["type"] == "object"
 
@@ -279,3 +293,187 @@ def test_list_arweave_backend_includes_url(tc_arweave):
     assert items[0]["txid"] == txid
     assert items[0]["url"] is not None
     assert f"arweave.net/{txid}" in items[0]["url"]
+
+
+# ── Wallet balance ────────────────────────────────────────────────────────────
+
+def test_wallet_balance_no_wallet(tc):
+    r = tc.get("/api/wallet/balance")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["address"] is None
+    assert j["ar"] is None
+
+
+# ── tx confirm status ─────────────────────────────────────────────────────────
+
+CONFIRMED_TX = "CONFIRMEDTXID00000000000000000000000000000"
+PENDING_TX   = "PENDINGTXIDDD00000000000000000000000000000"
+MISSING_TX   = "MISSINGTXIDDD00000000000000000000000000000"
+
+
+@pytest.fixture()
+def tc_confirm(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARWEAVE_WALLET", raising=False)
+    import arlocal.client as cl
+    monkeypatch.setattr(cl, "WALLET_PATH", tmp_path / "nope.json")
+    import api as api_mod
+    import mcp_server
+    client = cl.ArweaveClient(store_path=str(tmp_path / "store_confirm"))
+    monkeypatch.setattr(api_mod, "client", client)
+    mcp_server.bind(client, api_mod.load_config)
+
+    class FakeResp:
+        def __init__(self, status=200, js=None):
+            self.status_code = status
+            self.ok = status < 400
+            self._js = js or {}
+        def json(self): return self._js
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise cl.requests.exceptions.HTTPError(response=self)
+
+    def fake_get(url, **kw):
+        if "/tx/" in url and url.endswith("/status"):
+            txid = url.split("/tx/")[1][:-len("/status")]
+            if txid == CONFIRMED_TX:
+                return FakeResp(200, {"block_height": 1200, "number_of_confirmations": 50})
+            if txid == PENDING_TX:
+                return FakeResp(202)
+            return FakeResp(404)
+        return FakeResp(404)
+
+    monkeypatch.setattr(cl.requests, "get", fake_get)
+    return TestClient(api_mod.app)
+
+
+def test_tx_confirm_endpoint(tc_confirm):
+    # local sha256- id returns immediately without a network call
+    local_id = "sha256-" + "a" * 43
+    r = tc_confirm.get(f"/api/tx/{local_id}/confirm")
+    assert r.status_code == 200
+    assert r.json()["status"] == "local"
+
+    # confirmed: gateway returns block_height + number_of_confirmations
+    r = tc_confirm.get(f"/api/tx/{CONFIRMED_TX}/confirm")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["status"] == "confirmed"
+    assert j["confirmations"] == 50
+    assert j["block_height"] == 1200
+
+    # pending: gateway returns 202
+    r = tc_confirm.get(f"/api/tx/{PENDING_TX}/confirm")
+    assert r.status_code == 200
+    assert r.json()["status"] == "pending"
+
+    # not_found: gateway returns 404
+    r = tc_confirm.get(f"/api/tx/{MISSING_TX}/confirm")
+    assert r.status_code == 200
+    assert r.json()["status"] == "not_found"
+
+
+# ── Turbo bundler_accepted status ─────────────────────────────────────────────
+
+TURBO_TX = "TURBOTXIDDD000000000000000000000000000000"
+
+
+@pytest.fixture()
+def tc_turbo_confirm(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARWEAVE_WALLET", raising=False)
+    import arlocal.client as cl
+    monkeypatch.setattr(cl, "WALLET_PATH", tmp_path / "nope.json")
+    import api as api_mod
+    import mcp_server
+    client = cl.ArweaveClient(store_path=str(tmp_path / "store_turbo"))
+    monkeypatch.setattr(api_mod, "client", client)
+    mcp_server.bind(client, api_mod.load_config)
+
+    # Simulate a Turbo-uploaded txid in the local index
+    client._index(TURBO_TX, "file.json", 64, "arweave",
+                  {"pinned": True, "via": "turbo", "content_type": "application/json"})
+
+    class FakeResp:
+        def __init__(self, status=200, js=None):
+            self.status_code = status
+            self.ok = status < 400
+            self._js = js or {}
+        def json(self): return self._js
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise cl.requests.exceptions.HTTPError(response=self)
+
+    def fake_get(url, **kw):
+        # Turbo status endpoint
+        if "upload.ardrive.io" in url and "/tx/" in url and url.endswith("/status"):
+            txid = url.split("/tx/")[1][:-len("/status")]
+            if txid == TURBO_TX:
+                return FakeResp(200, {"status": "FINALIZED", "id": txid})
+            return FakeResp(404)
+        # Chain gateway: hasn't seen the Turbo txid yet
+        if "/tx/" in url and url.endswith("/status"):
+            return FakeResp(404)
+        return FakeResp(404)
+
+    monkeypatch.setattr(cl.requests, "get", fake_get)
+    return TestClient(api_mod.app)
+
+
+def test_tx_confirm_turbo_bundler_accepted(tc_turbo_confirm):
+    r = tc_turbo_confirm.get(f"/api/tx/{TURBO_TX}/confirm")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["status"] == "bundler_accepted"
+    assert j["bundler"] == "turbo"
+
+
+# ── push_local endpoint ───────────────────────────────────────────────────────
+
+def test_push_local_to_arweave(tc_arweave):
+    """Seeding a local item then pushing it should return arweave backend and remove the local entry."""
+    import api as api_mod
+    client = api_mod.client
+
+    # Seed a local item directly (simulates a prior no-wallet upload)
+    local_txid = "sha256-" + "b" * 43
+    blob_path = client.blob_dir / ("b" * 43)
+    blob_path.write_bytes(b'{"pushed": true}')
+    client._index(local_txid, "pushed.json", 16, "local",
+                  {"content_type": "application/json", "tags": []})
+
+    # Confirm it shows as local
+    items = tc_arweave.get("/api/list").json()["items"]
+    assert any(i["txid"] == local_txid and i["backend"] == "local" for i in items)
+
+    # Push to Arweave
+    r = tc_arweave.post(f"/api/push/{local_txid}").json()
+    assert r["backend"] == "arweave"
+    assert "txid" in r
+
+    # Old local entry must be gone
+    items = tc_arweave.get("/api/list").json()["items"]
+    assert not any(i["txid"] == local_txid for i in items)
+
+
+def test_push_local_errors(tc):
+    """Non-local txid → 400; sha256- with no wallet → 400; unknown blob → 400."""
+    # Not a local-backend id
+    r = tc.post("/api/push/" + "A" * 43)
+    assert r.status_code == 400
+
+    # sha256- id but no wallet configured → 400
+    r = tc.post("/api/push/sha256-" + "a" * 43)
+    assert r.status_code == 400
+
+
+def test_push_local_missing_blob(tc_arweave):
+    """sha256- id in index but blob deleted → 404."""
+    import api as api_mod
+    client = api_mod.client
+
+    ghost_txid = "sha256-" + "c" * 43
+    # Index entry exists but no blob on disk
+    client._index(ghost_txid, "ghost.txt", 0, "local", {"content_type": "text/plain"})
+
+    r = tc_arweave.post(f"/api/push/{ghost_txid}")
+    assert r.status_code == 404

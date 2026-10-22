@@ -450,6 +450,56 @@ def _t_mirror(a, ctx):
     return result
 
 
+def _t_archive_url(a, ctx):
+    import requests as req
+    from urllib.parse import urlparse
+    url = a.get('url')
+    if not url:
+        raise Refused('`url` is required')
+    lh = ctx.paying_key()
+    try:
+        head = req.head(url, timeout=10, allow_redirects=True)
+        size = int(head.headers.get('Content-Length', 0))
+    except Exception as e:
+        raise Refused(f'could not HEAD {url}: {e}')
+    c = ctx.charge(size, a.get('payment'))
+    if ctx.anonymous and not ctx.key and c.mode == 'free':
+        try:
+            lh.anon_check(size)
+        except PermissionError as e:
+            raise Refused(str(e))
+    parsed = urlparse(url)
+    filename = Path(parsed.path).name or 'archive.html'
+    name = a.get('key') or filename or 'archive.html'
+    tmpdir = Path(tempfile.mkdtemp(prefix='lighthouse-mcp-url-'))
+    local = tmpdir / Path(str(name)).name
+    try:
+        try:
+            resp = req.get(url, timeout=60, stream=True)
+            resp.raise_for_status()
+        except Exception as e:
+            raise Refused(f'fetch failed: {e}')
+        with open(local, 'wb') as f:
+            for chunk in resp.iter_content(1 << 16):
+                if chunk:
+                    f.write(chunk)
+        result = lh.put(path=str(local), owner=ctx.address(), key=str(name))
+        result['payment'], _ = c.settle(result.get('cid', ''))
+    finally:
+        try:
+            local.unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            tmpdir.rmdir()
+        except OSError:
+            pass
+    result['source_url'] = url
+    if a.get('register', True):
+        result['store'] = _register(result, ctx, a.get('public'), a.get('pool'))
+    return result
+
+
 def _t_set_key(a, ctx):
     ctx.filesystem('this tool')
     out = CORE.Mod().set_key(a['api_key'])
@@ -530,6 +580,30 @@ TOOLS = {
         'auth': 'optional',
         'key_arg': 'api_key',
         'handler': _t_put,
+    },
+    'lighthouse_archive_url': {
+        'description': 'Fetch a URL and store it forever on Lighthouse (IPFS + '
+                       'Filecoin). The server HEADs the URL for the size estimate, '
+                       'fetches the content, uploads it, and registers the CID in '
+                       'the store. Returns the CID, gateway url, source_url and a '
+                       '`store` block. Paid with x402 like lighthouse_put: call '
+                       'without `payment` to get the price, sign one `accept` and '
+                       'call again. Free over stdio, for the owner, or with your '
+                       'own `api_key`.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'url': _str('the URL to archive (must be publicly reachable)'),
+            'key': _str('name to store it under (defaults to the URL path\'s last '
+                        'segment, or archive.html)'),
+            'register': _bool('register the CID in the store module (default true)'),
+            'public': _PUBLIC,
+            'pool': _POOL,
+            'api_key': _KEY,
+            'payment': _PAYMENT,
+        }, 'required': ['url']},
+        'annotations': _WRITE,
+        'auth': 'optional',
+        'key_arg': 'api_key',
+        'handler': _t_archive_url,
     },
     'lighthouse_preview': {
         'description': 'Peek at a CID through the gateway without downloading it: '

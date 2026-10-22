@@ -21,7 +21,9 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, FastAPI, File, HTTPException, Request, UploadFile
+import requests as _requests
+
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +32,8 @@ MODULE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MODULE_DIR))
 
 from arlocal import ArweaveClient  # noqa: E402
+from arlocal import bundle as ar_bundle  # noqa: E402
+from arlocal.client import WALLET_PATH  # noqa: E402
 import mcp_server as arweave_mcp  # noqa: E402  (api/mcp_server.py; not pip `mcp`, see import-shadowing note)
 
 
@@ -99,11 +103,24 @@ def status():
 
 
 @api.post("/put")
-async def put(request: Request, file: Optional[UploadFile] = File(None)):
-    """Accepts JSON body `{data, name?}` OR a multipart upload field `file`."""
+async def put(request: Request, file: Optional[UploadFile] = File(None), tags: Optional[str] = Form(None)):
+    """Accepts JSON body `{data, name?, tags?}` OR a multipart upload field `file`."""
     if file is not None:
         payload = await file.read()
-        return client._upload_bytes(payload, file.filename or "upload.bin")
+        extra_tags = None
+        if tags:
+            try:
+                raw_tags = json.loads(tags)
+                pairs = [
+                    (t["name"], t["value"])
+                    for t in raw_tags
+                    if isinstance(t, dict) and t.get("name") and t.get("value") is not None
+                ]
+                if pairs:
+                    extra_tags = pairs
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass
+        return client._upload_bytes(payload, file.filename or "upload.bin", extra_tags=extra_tags)
 
     body: Any
     try:
@@ -114,9 +131,40 @@ async def put(request: Request, file: Optional[UploadFile] = File(None)):
             raise HTTPException(400, "empty body")
         return client._upload_bytes(raw, "upload.bin")
 
+    extra_tags = None
+    if isinstance(body, dict):
+        raw_tags = body.get("tags") or []
+        pairs = [
+            (t["name"], t["value"])
+            for t in raw_tags
+            if isinstance(t, dict) and t.get("name") and t.get("value") is not None
+        ]
+        if pairs:
+            extra_tags = pairs
+
     if isinstance(body, dict) and "data" in body:
-        return client.put(body["data"], name=body.get("name"))
-    return client.put(body)
+        return client.put(body["data"], name=body.get("name"), extra_tags=extra_tags)
+    return client.put(body, extra_tags=extra_tags)
+
+
+@api.post("/archive")
+async def archive(request: Request):
+    """Fetch a URL and store its content on Arweave, auto-tagging Source-URL and App-Name."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "body must be JSON {url: string}")
+    url = str(body.get("url") or "").strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        raise HTTPException(400, "url must start with http:// or https://")
+    try:
+        r = _requests.get(url, timeout=20, allow_redirects=True)
+        r.raise_for_status()
+    except _requests.RequestException as e:
+        raise HTTPException(502, f"fetch failed: {e}")
+    content_type = r.headers.get("content-type", "application/octet-stream").split(";")[0].strip()
+    extra_tags = [("Source-URL", url), ("App-Name", "mod-arweave")]
+    return client._upload_bytes(r.content, url, content_type, extra_tags=extra_tags)
 
 
 @api.get("/get/{txid}")
@@ -162,6 +210,11 @@ def tx(txid: str):
     return client.tx(txid)
 
 
+@api.get("/tx/{txid}/confirm")
+def tx_confirm(txid: str):
+    return client.tx_confirm_status(txid)
+
+
 @api.get("/price/{num_bytes}")
 def price(num_bytes: int):
     return client.price(num_bytes)
@@ -188,6 +241,284 @@ def query(
     except Exception as e:
         raise HTTPException(400, str(e))
     return {"edges": edges}
+
+
+@api.get("/view/{txid}", response_class=HTMLResponse)
+def view_tx(txid: str):
+    """Self-contained inline viewer for a stored item."""
+    txid_js = json.dumps(txid)
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>arweave viewer</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; padding: 24px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #0b0d10; color: #d8dee4; max-width: 960px; margin-inline: auto; }}
+  h1 {{ font-size: 18px; margin: 0 0 4px; letter-spacing: 0.5px; }}
+  h2 {{ font-size: 13px; margin: 24px 0 8px; color: #7a8896; text-transform: uppercase; letter-spacing: 1px; }}
+  .sub {{ color: #7a8896; font-size: 12px; margin-bottom: 16px; }}
+  .card {{ background: #14181d; border: 1px solid #20262d; border-radius: 8px; padding: 14px; margin-bottom: 12px; }}
+  pre {{ background: #0b0d10; border: 1px solid #20262d; border-radius: 6px; padding: 10px; overflow: auto; max-height: 500px; font-size: 12px; margin: 0; white-space: pre-wrap; word-break: break-word; }}
+  .txid {{ color: #c0a8ff; word-break: break-all; }}
+  .pill {{ display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; background: #1c2030; color: #c0a8ff; }}
+  .pill.warn {{ background: #2a1f12; color: #f5a142; }}
+  .pill.bad  {{ background: #2a1418; color: #ff6b6b; }}
+  button {{ background: #5d3aa8; color: white; border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 13px; }}
+  button:hover {{ background: #7150c8; }}
+  button.ghost {{ background: transparent; color: #7a8896; border: 1px solid #20262d; }}
+  button.ghost:hover {{ color: #d8dee4; border-color: #2c343d; }}
+  a {{ color: #c0a8ff; text-decoration: none; }}
+  a:hover {{ text-decoration: underline; }}
+  .row {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }}
+  .meta-grid {{ display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 12px; align-items: start; }}
+  .meta-key {{ color: #7a8896; padding-top: 2px; }}
+  .tag-pills {{ display: flex; flex-wrap: wrap; gap: 3px; }}
+</style>
+</head>
+<body>
+  <h1>arweave viewer</h1>
+  <div class="sub txid" id="txid-display"></div>
+
+  <div class="row" style="margin-bottom:16px">
+    <div id="permalink-area"></div>
+    <a href="../" style="font-size:12px;color:#7a8896">← back</a>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Content</h2>
+    <div id="content-loading" style="color:#7a8896;font-size:12px">loading…</div>
+    <div id="content-area" hidden></div>
+  </div>
+
+  <div class="card" id="meta-card" hidden>
+    <h2 style="margin-top:0">Transaction</h2>
+    <div class="meta-grid" id="meta-grid"></div>
+  </div>
+
+<script>
+const TXID = {txid_js};
+const API = (location.pathname.replace(/\\/view\\/.*$/, '') || '') + '/api';
+const isLocal = TXID.startsWith('sha256-');
+
+document.getElementById('txid-display').textContent = TXID;
+document.title = 'arweave · ' + TXID.slice(0, 12) + '…';
+
+function esc(s) {{
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}}
+
+async function init() {{
+  const permalinkArea = document.getElementById('permalink-area');
+  if (isLocal) {{
+    permalinkArea.innerHTML = '<span class="pill warn">local only · not on Arweave</span>';
+  }} else {{
+    const url = 'https://arweave.net/' + TXID;
+    permalinkArea.innerHTML =
+      '<button class="ghost" id="copy-btn" style="font-size:12px;padding:4px 10px" onclick="copyPermalink()">Copy permalink</button> ' +
+      '<a href="' + esc(url) + '" target="_blank" class="pill" style="font-size:11px">' + esc(url) + '</a>';
+  }}
+
+  const [contentP, txP, confirmP] = await Promise.allSettled([
+    fetch(API + '/get/' + TXID),
+    fetch(API + '/tx/' + TXID).then(r => r.json()).catch(() => null),
+    fetch(API + '/tx/' + TXID + '/confirm').then(r => r.json()).catch(() => null),
+  ]);
+
+  if (contentP.status === 'fulfilled') {{
+    await renderContent(contentP.value);
+  }} else {{
+    document.getElementById('content-loading').textContent = 'error: ' + String(contentP.reason);
+  }}
+
+  const txData = txP.status === 'fulfilled' ? txP.value : null;
+  const confirmData = confirmP.status === 'fulfilled' ? confirmP.value : null;
+  renderMeta(txData, confirmData);
+}}
+
+async function renderContent(res) {{
+  const loadEl = document.getElementById('content-loading');
+  const areaEl = document.getElementById('content-area');
+  const ct = (res.headers.get('content-type') || '').split(';')[0].trim();
+  try {{
+    if (!res.ok) {{
+      const msg = await res.text().catch(() => res.status);
+      loadEl.textContent = 'error ' + res.status + ': ' + msg;
+      return;
+    }}
+    loadEl.hidden = true;
+    areaEl.hidden = false;
+    if (ct.startsWith('image/')) {{
+      const blob = await res.blob();
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(blob);
+      img.style.cssText = 'max-width:100%;max-height:500px;display:block;border-radius:4px';
+      areaEl.appendChild(img);
+    }} else if (ct === 'application/json') {{
+      const json = await res.json();
+      const pre = document.createElement('pre');
+      pre.textContent = JSON.stringify(json, null, 2);
+      areaEl.appendChild(pre);
+    }} else if (ct === 'text/html') {{
+      const text = await res.text();
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('sandbox', 'allow-same-origin allow-popups');
+      iframe.srcdoc = text;
+      iframe.style.cssText = 'width:100%;height:420px;border:1px solid #20262d;border-radius:6px;background:#fff;display:block;margin-top:6px';
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'ghost';
+      toggleBtn.style.cssText = 'font-size:11px;padding:2px 8px';
+      toggleBtn.textContent = 'show source';
+      let srcPre = null;
+      toggleBtn.onclick = function() {{
+        if (!srcPre) {{ srcPre = document.createElement('pre'); srcPre.textContent = text; }}
+        const showingSrc = !iframe.hidden;
+        iframe.hidden = showingSrc;
+        srcPre.hidden = !showingSrc;
+        if (!areaEl.contains(srcPre)) areaEl.appendChild(srcPre);
+        toggleBtn.textContent = showingSrc ? 'show preview' : 'show source';
+      }};
+      areaEl.appendChild(toggleBtn);
+      areaEl.appendChild(iframe);
+    }} else if (ct.startsWith('text/')) {{
+      const text = await res.text();
+      const pre = document.createElement('pre');
+      pre.textContent = text;
+      areaEl.appendChild(pre);
+    }} else {{
+      const buf = await res.arrayBuffer();
+      const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+      const hashHex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+      const div = document.createElement('div');
+      div.style.cssText = 'color:#7a8896;font-size:12px';
+      div.innerHTML = buf.byteLength.toLocaleString() + ' bytes · SHA-256: <span class="txid">' + esc(hashHex) + '</span>';
+      areaEl.appendChild(div);
+    }}
+  }} catch(e) {{
+    loadEl.hidden = false;
+    loadEl.textContent = 'error: ' + String(e);
+    areaEl.hidden = true;
+  }}
+}}
+
+function confBadge(confirm) {{
+  if (!confirm) return '';
+  const s = confirm.status;
+  if (s === 'confirmed')
+    return '<span class="pill" style="background:#0f2010;color:#6abf6a">✓ ' + esc(confirm.confirmations) + ' confs</span>';
+  if (s === 'bundler_accepted')
+    return '<span class="pill" style="background:#0f1a10;color:#7abf5a">✓ turbo (pending chain)</span>';
+  if (s === 'pending')
+    return '<span class="pill warn">⏳ pending</span>';
+  if (s === 'local')
+    return '<span class="pill warn">local only</span>';
+  return '<span class="pill bad">' + esc(s || 'unknown') + '</span>';
+}}
+
+function renderMeta(tx, confirm) {{
+  const card = document.getElementById('meta-card');
+  const grid = document.getElementById('meta-grid');
+  const rows = [];
+
+  const badge = confBadge(confirm);
+  if (badge) rows.push(['status', badge]);
+
+  if (confirm && confirm.block_height)
+    rows.push(['block', String(confirm.block_height)]);
+
+  const dataSize = tx && !tx.error && (tx.data_size || (tx.data && tx.data.size));
+  if (dataSize) rows.push(['size', Number(dataSize).toLocaleString() + ' bytes']);
+
+  if (tx && !tx.error && tx.owner) {{
+    const o = String(tx.owner);
+    const short = o.slice(0, 10) + '…' + o.slice(-6);
+    rows.push(['owner',
+      '<span style="cursor:pointer;font-size:11px" title="' + esc(o) + '" onclick="navigator.clipboard.writeText(' + JSON.stringify(o) + ')">' + esc(short) + '</span>']);
+  }}
+
+  const tags = tx && !tx.error && Array.isArray(tx.tags) && tx.tags.length ? tx.tags : null;
+  if (tags) {{
+    const pills = tags.map(t =>
+      '<span class="pill" title="' + esc(t.name) + '=' + esc(t.value) + '" style="margin:1px 2px">' +
+      esc(t.name) + '<span style="color:#7a8896">=</span>' + esc(t.value) + '</span>'
+    ).join('');
+    rows.push(['tags', '<div class="tag-pills">' + pills + '</div>']);
+  }}
+
+  if (rows.length) {{
+    grid.innerHTML = rows.map(([k, v]) => '<span class="meta-key">' + k + '</span><span>' + v + '</span>').join('');
+    card.hidden = false;
+  }}
+}}
+
+async function copyPermalink() {{
+  const url = 'https://arweave.net/' + TXID;
+  try {{
+    await navigator.clipboard.writeText(url);
+    const btn = document.getElementById('copy-btn');
+    if (btn) {{ btn.textContent = 'copied!'; setTimeout(() => {{ btn.textContent = 'Copy permalink'; }}, 1500); }}
+  }} catch(e) {{}}
+}}
+
+init();
+</script>
+</body>
+</html>"""
+    return HTMLResponse(html)
+
+
+@api.post("/push/{txid}")
+def push_local(txid: str):
+    """Push a locally-stored item to Arweave once a wallet is configured."""
+    try:
+        return client.push_local(txid)
+    except (ValueError, KeyError) as e:
+        raise HTTPException(400, str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@api.post("/wallet/generate")
+def wallet_generate():
+    wp = WALLET_PATH.expanduser()
+    if wp.is_file():
+        try:
+            addr = ar_bundle.address(wp)
+            return {"address": addr, "path": str(wp), "created": False}
+        except Exception as e:
+            raise HTTPException(500, str(e))
+    try:
+        ar_bundle.generate_jwk(wp)
+        client.wallet_path = str(wp)
+        addr = ar_bundle.address(wp)
+        return {"address": addr, "path": str(wp), "created": True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@api.get("/wallet/address")
+def wallet_address():
+    if not client.wallet_path or not Path(client.wallet_path).expanduser().is_file():
+        return {"address": None}
+    try:
+        return {"address": ar_bundle.address(client.wallet_path)}
+    except Exception as e:
+        return {"address": None, "error": str(e)}
+
+
+@api.get("/wallet/balance")
+def wallet_balance():
+    if not client.wallet_path or not Path(client.wallet_path).expanduser().is_file():
+        return {"address": None, "ar": None}
+    try:
+        address = ar_bundle.address(client.wallet_path)
+    except Exception as e:
+        return {"address": None, "ar": None, "error": str(e)}
+    return client.balance(address)
 
 
 # MCP rides the same router so it lands at /api/mcp and bare /mcp alike.

@@ -5,6 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>EVOLVER</title>
 <link rel="stylesheet" href="kit.css" />
+<style>
+.od-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.od-lane { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--panel2); }
+.od-badge { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+.od-lane .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
+.od-lane .s { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; }
+.od-acts { display: flex; gap: 6px; align-items: center; }
+@keyframes od-pulse {
+  0%, 100% { border-color: var(--line); box-shadow: none; }
+  50% { border-color: #5ee08a; box-shadow: 0 0 8px #5ee08a55; }
+}
+@keyframes od-think {
+  0%, 100% { border-color: var(--line); box-shadow: none; }
+  50% { border-color: #e0a05e; box-shadow: 0 0 8px #e0a05e55; }
+}
+.od-lane.is-building { animation: od-pulse 2s ease-in-out infinite; }
+.od-lane.is-ideating { animation: od-think 3.5s ease-in-out infinite; }
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -16,8 +34,10 @@
         <button id="enableBtn" class="primary">turn on</button>
         <div class="seg" id="modeSeg"><button data-m="idle">idle</button><button data-m="meta">meta</button><button data-m="overdrive">overdrive</button></div>
         <label class="inline faint" id="lanesBox" style="font-size:12px;gap:6px">lanes<input id="s_lanes" type="number" min="1" max="6" style="width:56px" /></label>
+        <button id="runNowBtn" class="sm">run now</button>
       </div>
       <div id="modeNote" class="muted" style="font-size:12.5px"></div>
+      <div id="vibeGoalBox" style="display:none"></div>
       <div id="idleBar" style="margin-top:8px;display:none"></div>
       <div id="live" style="margin-top:12px"></div>
     </div>
@@ -36,8 +56,9 @@
       </div>
     </div>
     <div class="card wide">
-      <h2>Focus <span class="sp"></span><span class="faint" id="focusNote"></span></h2>
+      <h2>Focus <span class="sp"></span><button id="followBtn" class="sm">follow on</button> <span class="faint" id="focusNote"></span></h2>
       <div class="chips" id="focus"></div>
+      <div id="followChips"></div>
       <div class="inline" style="margin-top:10px"><input id="focusIn" placeholder="add a module to focus on…" style="max-width:300px" /><button id="focusAdd" class="sm">add</button></div>
     </div>
     <div class="card">
@@ -60,15 +81,56 @@
       <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="q_add" class="sm">+ queue</button></div>
     </div>
     <div class="card wide">
-      <h2>Recent runs</h2>
+      <h2 id="recentHdr">Recent runs<span id="recentDots" style="margin-left:8px;vertical-align:middle"></span></h2>
       <div id="recent" class="rows"></div>
     </div>
   </div>
 </div>
 <script src="kit.js"></script>
 <script>
-let D = null, formSeeded = false;
+let D = null, formSeeded = false, focusFilter = null;
 const $ = (id) => document.getElementById(id);
+
+function budgetSparkline(history, guardPct, resetStart, nowSec) {
+  if (!history || !history.length) return '';
+  const rows = history.filter(r => r.ts > resetStart);
+  if (!rows.length) return '';
+  const W = 200, H = 36, pad = 2;
+  const t0 = rows[0].ts, t1 = Math.max(nowSec, rows[rows.length - 1].ts + 1);
+  const sx = t => pad + ((t - t0) / (t1 - t0)) * (W - 2 * pad);
+  const sy = p => H - pad - (p / 100) * (H - 2 * pad);
+  const pts = rows.map(r => [sx(r.ts), sy(r.percent)]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  const last = pts[pts.length - 1], first = pts[0];
+  const area = line + ` L${last[0].toFixed(1)},${(H - pad).toFixed(1)} L${first[0].toFixed(1)},${(H - pad).toFixed(1)} Z`;
+  const gy = sy(guardPct).toFixed(1);
+  const circles = rows.map((r, i) => `<circle cx="${pts[i][0].toFixed(1)}" cy="${pts[i][1].toFixed(1)}" r="3" fill="transparent" stroke="none" pointer-events="all"><title>${K.ago(r.ts * 1000)} · ${Math.round(r.percent)}%</title></circle>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="display:block;margin-top:8px;overflow:visible">
+    <path d="${area}" fill="#5ee08a22" stroke="none"/>
+    <path d="${line}" fill="none" stroke="#5ee08a" stroke-width="1.5"/>
+    <line x1="${pad}" y1="${gy}" x2="${W - pad}" y2="${gy}" stroke="#e0a05e" stroke-width="1" stroke-dasharray="4 3"/>
+    ${circles}
+  </svg>`;
+}
+
+function runsHeatmap(rows, weekStart, nowSec) {
+  const W = 200, H = 36, labelH = 14, pad = 2;
+  const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const buckets = Array.from({length: 7}, (_, i) => {
+    const s = weekStart + i * 86400, e = s + 86400;
+    const dr = rows.filter(r => r.ts >= s && r.ts < e);
+    return { total: dr.length, played: dr.filter(r => r.outcome === 'played').length, label: dayLabels[new Date(s * 1000).getUTCDay()] };
+  });
+  const maxC = Math.max(1, ...buckets.map(b => b.total));
+  const bW = (W - 2 * pad) / 7;
+  const barsHtml = buckets.map((b, i) => {
+    const fill = b.total === 0 ? 'var(--line)' : b.played === b.total ? '#5ee08a' : b.played === 0 ? '#e05e5e' : '#e0a05e';
+    const bH = b.total === 0 ? 2 : Math.max(3, (b.total / maxC) * (H - 2 * pad));
+    const x = pad + i * bW, y = H - pad - bH;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bW - 2).toFixed(1)}" height="${bH.toFixed(1)}" fill="${fill}" rx="2"><title>${b.total} runs · ${b.played} played</title></rect><text x="${(x + (bW - 2) / 2).toFixed(1)}" y="${(H + labelH - 3).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--dim)">${b.label}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H + labelH}" width="100%" height="${H + labelH}" style="display:block;margin-top:8px">${barsHtml}</svg>`;
+}
 
 function render() {
   if (!D) return;
@@ -87,11 +149,32 @@ function render() {
     : D.mode === "meta"
     ? "META: keeps looping while you work — still one run at a time."
     : `IDLE: runs only after ${K.dur(D.idle_secs)} with no writes in the console (quiet for ${K.dur(D.idle_for || 0)} now).`;
+  const vgBox = $("vibeGoalBox");
+  if (od) {
+    const briefText = D.goal ? D.goal : D.vibe_goal;
+    vgBox.style.display = "";
+    vgBox.innerHTML = `<div class="notice" style="margin-top:8px;font-size:12.5px;font-style:italic"><span class="faint">active brief · </span>"${K.esc(briefText)}"</div>`;
+  } else {
+    vgBox.style.display = "none";
+  }
   $("skip").textContent = D.last_skip ? `last tick: ${D.last_skip} · ${K.ago(D.last_tick)}` : "";
   const lives = D.lives || (D.live ? [D.live] : []);
-  $("live").innerHTML = lives.length
-    ? lives.map((l, i) => `<div class="row"><span class="pill on">live</span><div class="grow"><div class="t">${K.esc(l.module)}</div><div class="s">${K.esc(l.title || l.status)} · ${K.ago(l.created_at)}</div></div><a class="pill acc" href="${K.BUILD_APP}?mod=${encodeURIComponent(l.module)}">open ↗</a>${K.isOwner && i === 0 ? `<button class="sm danger" id="stopLive">stop${lives.length > 1 ? " all" : ""}</button>` : ""}</div>`).join("")
-    : `<div class="faint" style="font-size:12.5px">no run in flight</div>`;
+  $("runNowBtn").disabled = !K.isOwner || !!lives.length;
+  const secsToTick = Math.max(0, D.last_tick + (D.tick_secs || 60) - Math.round(Date.now() / 1000));
+  if (od) {
+    const tiles = Array.from({length: D.lanes || 3}, (_, i) => {
+      const l = lives[i];
+      if (l) {
+        return `<div class="od-lane ${l.title ? 'is-building' : 'is-ideating'}"><div class="od-badge">✦${i + 1}</div><div class="t">${K.esc(l.module)}</div><div class="s">${l.title ? `<span class="pill on">building</span> ${K.esc(l.title)}` : `<span class="pill warn">ideating</span>`} · ${K.ago(l.created_at)}</div><div class="od-acts"><a class="pill acc" href="${K.BUILD_APP}?mod=${encodeURIComponent(l.module)}">open ↗</a>${K.isOwner && i === 0 ? `<button class="sm danger" id="stopLive">stop all</button>` : ""}</div></div>`;
+      }
+      return `<div class="od-lane" style="opacity:.35;border-style:dashed"><div class="od-badge" style="color:var(--dim)">✦${i + 1}</div><div class="t">empty</div><div class="s">${D.enabled ? `fills in ~${secsToTick}s` : 'standby'}</div></div>`;
+    });
+    $("live").innerHTML = `<div class="od-grid">${tiles.join("")}</div>`;
+  } else {
+    $("live").innerHTML = lives.length
+      ? lives.map((l, i) => `<div class="row"><span class="pill on">live</span><div class="grow"><div class="t">${K.esc(l.module)}</div><div class="s">${l.title ? `<span class="pill on">building</span> ${K.esc(l.title)}` : `<span class="pill warn">ideating</span>`} · ${K.ago(l.created_at)}</div></div><a class="pill acc" href="${K.BUILD_APP}?mod=${encodeURIComponent(l.module)}">open ↗</a>${K.isOwner && i === 0 ? `<button class="sm danger" id="stopLive">stop${lives.length > 1 ? " all" : ""}</button>` : ""}</div>`).join("")
+      : `<div class="faint" style="font-size:12.5px">no run in flight</div>`;
+  }
   if ($("stopLive")) $("stopLive").onclick = async () => { if (await K.ask("Stop the evolver's run(s) in flight? A job already running finishes on its own.", "Stop", true)) { await K.act("/evolver/stop", {}, "stopping"); load(); } };
   const idleBar = $("idleBar");
   if (D.mode === "idle" && !lives.length) {
@@ -110,6 +193,18 @@ function render() {
   const w = D.week || {};
   const pw = D.plan_weekly;
   const pct = pw ? Math.round(pw.percent ?? 0) : null;
+  const weekStart = (w.resets_at || 0) - 7 * 24 * 3600;
+  const weekRows = (D.recent || []).filter(r => r.ts >= weekStart);
+  const modMap = {};
+  for (const r of weekRows) {
+    if (!modMap[r.module]) modMap[r.module] = { count: 0, cost: 0 };
+    modMap[r.module].count++;
+    if (r.cost_usd) modMap[r.module].cost += r.cost_usd;
+  }
+  const topMods = Object.entries(modMap).sort((a, b) => b[1].count - a[1].count).slice(0, 5);
+  const topModsHtml = topMods.length
+    ? `<div class="faint" style="margin-top:6px;font-size:12px">${topMods.map(([m, s]) => `${K.esc(m)} ×${s.count}${s.cost > 0 ? ' $' + s.cost.toFixed(2) : ''}`).join(' · ')}</div>`
+    : '';
   $("budget").innerHTML = `
     <div class="stats">
       <div class="stat"><b>${w.used ?? 0}/${w.cap ?? "—"}</b><span>runs this week</span></div>
@@ -118,26 +213,40 @@ function render() {
     </div>
     <div style="margin-top:12px" class="muted">${D.budget === "plan" ? "Binding ceiling: the subscription's weekly window" : "Binding ceiling: the run cap"} · stands down at ${D.plan_guard_pct}%</div>
     <div class="meter" style="margin-top:8px"><i style="width:${Math.min(100, D.budget === "plan" && pct != null ? pct : ((w.used || 0) / (w.cap || 1)) * 100)}%"></i></div>
-    <div class="faint" style="margin-top:6px;font-size:12px">${w.resets_at ? `resets ${K.ago(w.resets_at)}` : ""}${pw && pw.resets_at ? ` · plan resets ${K.ago(pw.resets_at)}` : ""}</div>`;
+    <div class="faint" style="margin-top:6px;font-size:12px">${w.resets_at ? `resets ${K.ago(w.resets_at)}` : ""}${pw && pw.resets_at ? ` · plan resets ${K.ago(pw.resets_at)}` : ""}</div>
+    ${topModsHtml}
+    ${runsHeatmap(weekRows, weekStart, Date.now() / 1000)}
+    ${budgetSparkline(D.plan_weekly_history, D.plan_guard_pct, (w.resets_at || 0) - 7 * 24 * 3600, Date.now() / 1000)}`;
 
   if (!formSeeded) {
     $("s_model").value = D.model || ""; $("s_cap").value = w.cap ?? 70; $("s_idle").value = D.idle_secs;
     $("s_guard").value = D.plan_guard_pct; $("s_goal").value = D.goal || ""; formSeeded = true;
   }
   $("focus").innerHTML = (D.focus || []).length
-    ? D.focus.map((m) => `<span class="chip">${K.esc(m)}${K.isOwner ? `<button data-f="${K.esc(m)}" title="remove">✕</button>` : ""}</span>`).join("")
+    ? D.focus.map((m) => `<span class="chip" data-ff="${K.esc(m)}">${K.esc(m)}${K.isOwner ? `<button data-f="${K.esc(m)}" title="remove">✕</button>` : ""}</span>`).join("")
     : `<span class="faint">all mods — the ${D.pool_size} most recently updated</span>`;
-  $("focusNote").textContent = (D.focus || []).length ? "rotation = exactly these" : "";
+  const hasPinned = (D.focus || []).length > 0;
+  const hasWorking = D.follow && (D.working || []).length > 0;
+  $("focusNote").textContent = hasPinned && hasWorking ? "pinned + auto-follow" : hasPinned ? "rotation = exactly these" : hasWorking ? "auto-follow only" : "";
+  const followBtn = $("followBtn");
+  followBtn.textContent = D.follow ? "follow off" : "follow on";
+  followBtn.disabled = !K.isOwner;
+  $("followChips").innerHTML = hasWorking
+    ? `<div class="chips" style="margin-top:6px;opacity:.65"><span class="faint" style="font-size:11px">auto ·</span>${(D.working || []).map((m) => `<span class="chip">${K.esc(m)}</span>`).join("")}</div>`
+    : "";
 
   $("schedCap").textContent = `${(D.schedules || []).length}/${D.sched_cap}`;
   $("scheds").innerHTML = (D.schedules || []).map((s) => {
     const every_secs = s.every_mins * 60;
     const pct = s.paused ? 0 : Math.min(100, Math.max(0, ((every_secs - Math.max(0, s.next_at - Date.now() / 1000)) / every_secs) * 100));
+    const last = (D.recent || []).find(r => r.sched === s.id);
+    const lastKind = last ? (last.outcome === "played" ? "on" : last.status === "failed" ? "bad" : last.status === "running" ? "warn" : "") : "";
+    const lastLine = last ? `<div class="s" style="margin-top:3px">last · <span class="pill ${lastKind}">${K.esc(last.outcome || last.status)}</span> · ${K.ago(last.ts)}${last.cost_usd > 0 ? ' · $' + last.cost_usd.toFixed(2) : ''}</div>` : "";
     return `<div class="row" data-id="${s.id}">
       <span class="pill ${s.paused ? "" : "on"}">${s.paused ? "paused" : "◷"}</span>
       <div class="grow"><div class="t">${K.esc(s.module)} · every ${s.every_mins}m</div>
       <div class="s">${K.esc(s.prompt || "standing goal")} · ${s.paused ? "paused" : s.next_at ? "next " + K.ago(s.next_at) : "due"}</div>
-      ${s.paused ? "" : `<div class="meter" style="margin-top:5px;height:4px"><i style="width:${pct}%"></i></div>`}</div>
+      ${s.paused ? "" : `<div class="meter" style="margin-top:5px;height:4px"><i style="width:${pct}%"></i></div>`}${lastLine}</div>
       ${K.isOwner ? `<div class="acts"><button class="sm" data-a="pause">${s.paused ? "resume" : "pause"}</button><button class="sm danger" data-a="del">✕</button></div>` : ""}</div>`;
   }).join("") || `<div class="empty">no timers</div>`;
 
@@ -146,13 +255,25 @@ function render() {
       <span class="pill">${i + 1}</span><div class="grow"><div class="t">${K.esc(t.prompt)}</div><div class="s">${K.esc(t.module || "loop picks")} · queued ${K.ago(t.created_at)}</div></div>
       ${K.isOwner ? `<div class="acts"><button class="sm danger" data-a="del">✕</button></div>` : ""}</div>`).join("") || `<div class="empty">queue empty</div>`;
 
-  $("recent").innerHTML = (D.recent || []).slice(0, 20).map((r) => {
+  const recentHdr = $("recentHdr");
+  if (focusFilter) {
+    recentHdr.innerHTML = `Recent runs · ${K.esc(focusFilter)} <button id="clearFilter" class="sm" style="vertical-align:middle">×</button><span id="recentDots" style="margin-left:8px;vertical-align:middle"></span>`;
+    $("clearFilter").onclick = () => { focusFilter = null; render(); };
+  } else {
+    recentHdr.innerHTML = `Recent runs<span id="recentDots" style="margin-left:8px;vertical-align:middle"></span>`;
+  }
+  const filteredRecent = (D.recent || []).filter(r => !focusFilter || r.module === focusFilter);
+  $("recent").innerHTML = filteredRecent.slice(0, 20).map((r) => {
     const mark = r.sched ? "◷ " : r.task ? "⚑ " : "";
     const kind = r.outcome === "played" ? "on" : r.status === "failed" ? "bad" : r.status === "running" ? "warn" : "";
     return `<div class="row click" onclick="location.href='${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}'"><span class="pill ${kind}">${K.esc(r.outcome || r.status)}</span><div class="grow">
       <div class="t">${mark}${K.esc(r.module)} — ${K.esc(r.title || r.task || "")}</div>
-      <div class="s mono">${K.ago(r.ts)} · <a href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">${K.esc(r.run_id)}</a></div></div></div>`;
+      <div class="s mono">${K.ago(r.ts)}${r.cost_usd > 0 ? ' · $' + r.cost_usd.toFixed(2) : ''} · <a href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">${K.esc(r.run_id)}</a></div></div></div>`;
   }).join("") || `<div class="empty">no runs yet</div>`;
+  $("recentDots").innerHTML = filteredRecent.slice(0, 30).map(r => {
+    const c = r.outcome === "played" ? "#5ee08a" : r.status === "failed" ? "#e05e5e" : "#555";
+    return `<span title="${K.esc(r.module + ' · ' + (r.outcome || r.status) + ' · ' + K.ago(r.ts))}" style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c};margin:0 1px;cursor:default"></span>`;
+  }).join("");
   for (const id of ["saveBtn", "focusAdd", "t_add", "q_add"]) $(id).disabled = !K.isOwner;
 }
 
@@ -166,9 +287,13 @@ $("saveBtn").onclick = () => post({
   model: $("s_model").value.trim(), weekly_cap: +$("s_cap").value, idle_secs: +$("s_idle").value,
   plan_guard_pct: +$("s_guard").value, goal: $("s_goal").value.trim(),
 }, "saved");
+$("followBtn").onclick = () => post({ follow: !D.follow }, D.follow ? "follow off" : "follow on");
 $("focusAdd").onclick = () => { const m = $("focusIn").value.trim(); if (!m) return; $("focusIn").value = ""; post({ focus: [...new Set([...(D.focus || []), m])] }, "focus updated"); };
 $("focusIn").onkeydown = (e) => { if (e.key === "Enter") $("focusAdd").click(); };
-$("focus").onclick = (e) => { const m = e.target.dataset.f; if (m) post({ focus: D.focus.filter((x) => x !== m) }, "focus updated"); };
+$("focus").onclick = (e) => {
+  const m = e.target.dataset.f; if (m) { post({ focus: D.focus.filter((x) => x !== m) }, "focus updated"); return; }
+  const ff = e.target.closest(".chip")?.dataset.ff; if (ff) { focusFilter = ff; render(); }
+};
 $("t_add").onclick = async () => {
   if (await K.act("/evolver/schedules", { module: $("t_mod").value.trim(), every_mins: +$("t_every").value, prompt: $("t_prompt").value.trim() }, "timer added")) { $("t_mod").value = $("t_prompt").value = ""; }
   load();
@@ -184,6 +309,7 @@ $("q_add").onclick = async () => {
   if (await K.act("/evolver/tasks", { module: $("q_mod").value.trim(), prompt: $("q_prompt").value.trim() }, "queued")) { $("q_mod").value = $("q_prompt").value = ""; }
   load();
 };
+$("runNowBtn").onclick = async () => { await K.act("/evolver/run", {}, "firing…"); load(); };
 $("q_prompt").onkeydown = (e) => { if (e.key === "Enter") $("q_add").click(); };
 $("tasks").onclick = async (e) => {
   const id = e.target.closest(".row")?.dataset.id;

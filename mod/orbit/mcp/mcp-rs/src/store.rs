@@ -1,7 +1,9 @@
 //! Persistent hub state under ~/.mod/mcp (off-tree, never committed):
-//!   hub.json    — user-registered servers + disabled fleet ids
-//!   probes.json — last probe result per server id (survives restarts)
-//!   reviews.json — last security review per server id (and per url, pre-add)
+//!   hub.json      — user-registered servers + disabled fleet ids
+//!   probes.json   — last probe result per server id (survives restarts)
+//!   reviews.json  — last security review per server id (and per url, pre-add)
+//!   stats.json    — per-server call counts and last-call timestamps
+//!   activity.json — ring buffer of the last 200 tool calls
 //!   server.secret — if present, mutating routes require it as a Bearer token
 
 use serde::{Deserialize, Serialize};
@@ -78,6 +80,18 @@ pub struct ServerEntry {
 impl ServerEntry {
     pub fn is_stdio(&self) -> bool {
         self.transport == "stdio"
+    }
+
+    /// True when the server runs on this box — a stdio process this host
+    /// starts, or an HTTP endpoint on a loopback address.
+    pub fn is_local(&self) -> bool {
+        if self.is_stdio() {
+            return true;
+        }
+        let rest = self.url.split("://").nth(1).unwrap_or(&self.url);
+        let host = rest.split('/').next().unwrap_or("");
+        let name = host.split(':').next().unwrap_or("");
+        matches!(name, "localhost" | "0.0.0.0") || name.starts_with("127.") || host.starts_with("[::1]")
     }
 
     /// What to show as "where this server is" — a URL, or the command line.
@@ -246,6 +260,57 @@ pub fn load_reviews() -> HashMap<String, Review> {
 
 pub fn save_reviews(r: &HashMap<String, Review>) {
     write_json(&hub_dir().join("reviews.json"), r);
+}
+
+/// One tool invocation recorded in the ring buffer.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct CallEntry {
+    pub ts: u64,
+    pub tool: String,
+    pub server: String,
+    pub ok: bool,
+    pub latency_ms: u64,
+    pub error: String,
+}
+
+/// Per-server call statistics.
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct ServerStat {
+    pub calls: u64,
+    pub last_ts: u64,
+}
+
+pub fn load_stats() -> HashMap<String, ServerStat> {
+    read_json(&hub_dir().join("stats.json"))
+}
+
+pub fn save_stats(s: &HashMap<String, ServerStat>) {
+    write_json(&hub_dir().join("stats.json"), s);
+}
+
+pub fn load_call_log() -> Vec<CallEntry> {
+    read_json(&hub_dir().join("activity.json"))
+}
+
+pub fn save_call_log(log: &Vec<CallEntry>) {
+    write_json(&hub_dir().join("activity.json"), log);
+}
+
+/// One entry in the rolling probe history — whether the server was up at that moment.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UptimeDot {
+    pub ts: u64,
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+}
+
+pub fn load_probe_history() -> HashMap<String, Vec<UptimeDot>> {
+    read_json(&hub_dir().join("probe_history.json"))
+}
+
+pub fn save_probe_history(h: &HashMap<String, Vec<UptimeDot>>) {
+    write_json(&hub_dir().join("probe_history.json"), h);
 }
 
 /// Key a review by endpoint so a review run before registration can be adopted

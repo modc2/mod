@@ -89,10 +89,15 @@ class BitevoValidator:
 
     # ── Epoch ─────────────────────────────────────────────────────
 
-    def epoch(self, challenge: Challenge = None, **kwargs) -> EpochResult:
+    def epoch(self, challenge: Challenge = None, progress_callback=None, **kwargs) -> EpochResult:
         t0 = time.time()
         self.epochs += 1
 
+        def _cb(msg):
+            if progress_callback:
+                progress_callback(msg)
+
+        _cb("generating challenge…")
         if challenge is None:
             challenge = self.challenge_gen.generate(epoch=self.epochs)
         print(f"[epoch {self.epochs}] challenge: {challenge.prompt[:80]}...")
@@ -104,7 +109,9 @@ class BitevoValidator:
                 f'zuma: {len(ring)} registered miner(s), need at least '
                 f'{self.zuma.min_ring} for an anonymous ring — add miners first')
 
+        _cb(f"querying miners ({len(ring)} registered)…")
         raw = self._query_miners(challenge)
+        _cb("verifying zuma submissions…")
         responses, rejected = [], []
         for resp in raw:
             try:
@@ -116,6 +123,7 @@ class BitevoValidator:
                 print(f"  submission rejected: {e}")
         print(f"[epoch {self.epochs}] {len(responses)} anonymous submissions accepted")
 
+        _cb("scoring responses…")
         scores = []
         for resp in responses:
             try:
@@ -132,6 +140,7 @@ class BitevoValidator:
             except Exception as e:
                 print(f"  tag {resp.tag[:12]}… scoring failed: {e}")
 
+        _cb("computing weights…")
         # weights are per TAG: the validator never learns which miner it scored
         tags = [s.tag for s in scores]
         weights = dict(zip(tags, zp_normalize([s.composite_score for s in scores])))
@@ -179,6 +188,7 @@ class BitevoValidator:
         self.incentive.save(self._incentive_path)
         self.epoch_time = time.time()
 
+        _cb(f"done (epoch {self.epochs})")
         print(f"[epoch {self.epochs}] done in {time.time() - t0:.1f}s | weights: {weights}")
         return result
 

@@ -276,6 +276,18 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
 @media (max-width:860px){.hero,.grid,.how,.code,.src.two,.tgrid{grid-template-columns:1fr}.actions{justify-content:flex-start}
   .ctile .ok,.banner .gl{display:none}.ctile{padding:10px 12px!important}
   .hero h2{font-size:25px}.tree{position:static}.stats{grid-template-columns:1fr 1fr}.banner .meta{margin-left:0;justify-content:flex-start}}
+/* receipt */
+#receipt{margin-top:14px}
+.rcpt th{font:700 10px var(--mono);letter-spacing:1.2px;color:var(--mute)}
+.rcpt td{padding:7px 6px}
+.rcpt-total td{color:var(--acc2);font-weight:700;border-top:1px solid var(--line2)}
+.receipt-cc{margin-top:10px;display:grid;grid-template-columns:4.5em 1fr 3.5em;gap:3px 6px;align-items:center}
+.cc-lbl{font:11px var(--mono);color:var(--dim);white-space:nowrap}
+.cc-lbl.cc-act{color:var(--acc2);font-weight:700}
+.cc-bar-wrap{background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;height:7px}
+.cc-bar{height:100%;border-radius:3px}
+.cc-amt{font:11px var(--mono);color:var(--dim);text-align:right;white-space:nowrap}
+.cc-amt.cc-act{color:var(--acc2);font-weight:700}
 </style>
 </head>
 <body>
@@ -318,6 +330,11 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
       <div class="facts" id="facts"></div>
     </div>
     <div class="actions">
+      <div class="ectl">
+        <label>MINERS<select id="lmin"><option>3</option><option selected>4</option><option>8</option><option>16</option></select></label>
+        <label>VALIDATORS<select id="lvals"><option>3</option><option selected>4</option><option>8</option></select></label>
+      </div>
+      <div id="run-cost" style="font:12px var(--mono);color:var(--dim);margin:4px 0 2px;min-height:16px"></div>
       <button id="replay" title="replay the last recorded epoch">Replay last epoch</button>
       <button class="go" id="run">Run an anonymous epoch</button>
     </div>
@@ -344,6 +361,8 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
       <div class="log" id="log"><div class="empty">waiting for a run</div></div>
     </div>
   </div>
+
+  <div id="receipt"></div>
 
   <div class="how">
     <div class="card"><div class="n">01 · MINER</div><h4>submit</h4>
@@ -376,6 +395,17 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
       <h3>SUBNET ON-CHAIN</h3>
       <div class="kv" id="params"><span>status</span><span>loading</span></div>
     </div>
+  </div>
+  <div class="card" id="yuma-sandbox" style="margin-top:18px">
+    <h3>YUMA SANDBOX <span class="sp"></span><span class="pill" id="yuma-state">live</span></h3>
+    <div class="ectl" style="align-items:flex-start;margin-bottom:10px">
+      <label>SCORES<small style="display:block;color:var(--dim);font:11px var(--sans);margin:2px 0 4px">tag: s1 s2 … per line</small>
+        <textarea id="yuma-input" rows="4" style="font:12px var(--mono);background:var(--panel2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:8px 10px;resize:vertical;width:260px;outline:none"></textarea>
+      </label>
+      <label>VALIDATORS<select id="yuma-v"><option>2</option><option selected>4</option><option>8</option><option>16</option></select></label>
+      <label>EMISSION<select id="yuma-e"><option>100</option><option selected>1000</option><option>10000</option></select></label>
+    </div>
+    <div id="yuma-result"></div>
   </div>
   </div>
 
@@ -415,6 +445,7 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
         <div><h3 style="margin:0">LIMITS AT THIS SIZE</h3><ul class="lims" id="elims"></ul></div>
       </div>
     </div>
+    <div class="card" id="privcard"></div>
   </div>
 
   <div class="pane" id="pane-forecast">
@@ -429,6 +460,7 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
         <label>SHAPE<select id="fshape"></select></label>
         <label>RING<select id="fring"></select></label>
         <label>EPOCH HRS<select id="fephours"></select></label>
+        <label>COALITION<select id="fcoalition"></select></label>
       </div>
       <div class="chart" id="fc-chart" style="margin-top:14px"><div class="empty">select a chain with mainnet pricing</div></div>
     </div>
@@ -436,6 +468,7 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
       <h3>STRATEGIES · WHAT EACH COSTS AND WHAT IT LINKS</h3>
       <div id="fc-legend"><div class="empty">–</div></div>
     </div>
+    <div id="fc-risk"></div>
   </div>
 
   <div class="pane" id="pane-tests">
@@ -444,10 +477,16 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
 
   <div class="pane" id="pane-all">
     <div class="allc" id="allcards"></div>
+    <div class="card" style="margin-top:18px" id="allchart"></div>
+    <div class="card" style="margin-top:18px" id="allforecast"></div>
     <div class="card" style="margin-top:18px"><h3>SAME PROTOCOL · FOUR VERIFIERS</h3><div id="alltable" style="overflow-x:auto"></div></div>
   </div>
 
   <div class="pane" id="pane-paper">
+    <div style="margin-bottom:12px;display:flex;gap:6px">
+      <span class="pill open" id="btn-technical" style="cursor:pointer" onclick="setPaperKind('technical')">TECHNICAL</span>
+      <span class="pill" id="btn-simple" style="cursor:pointer" onclick="setPaperKind('simple')">PLAIN ENGLISH</span>
+    </div>
     <article class="paper" id="paper"><div class="empty">loading the paper</div></article>
   </div>
 
@@ -569,7 +608,7 @@ const econP = get('economics').then(e => (ECON = e)).catch(() => (ECON = {}));
 const usd = v => v == null ? '-' : v >= 100 ? '$' + Math.round(v).toLocaleString() : v >= 1 ? '$' + v.toFixed(2) : v >= .01 ? '$' + v.toFixed(3) : '$' + v.toPrecision(2);
 /* one validator score at the measured ring: the action an epoch is mostly made of */
 const econOf = c => { const e = ((ECON || {}).chains || {})[c]; return e && (e.actions.score || e.actions.submit); };
-econP.then(() => { renderSwitch(); if (TAB === 'costs') renderEcon(); if (TAB === 'all') renderAll(); if (TAB === 'forecast') renderForecast(); });
+econP.then(() => { renderSwitch(); updateRunCost(); if (TAB === 'costs') renderEcon(); if (TAB === 'all') renderAll(); if (TAB === 'forecast') renderForecast(); });
 const avg = a => a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
 const fmtM = v => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
 /* ring-4 verify cost on one chain, as [big, unit, sub] */
@@ -888,6 +927,80 @@ function renderFacts(sim) {
     `<span class="fact ${ok ? 'red' : ''}">double claim <b>${ok ? 'rejected' : 'ACCEPTED'}</b></span>`,
   ].join('');
 }
+function renderReceipt(sim) {
+  const box = $('receipt');
+  if (!box) return;
+  if (!sim || !(sim.events || []).length) { box.innerHTML = ''; return; }
+  const chain = sim.chain || CHAIN;
+  const ce = ((ECON || {}).chains || {})[chain];
+  const groups = {};
+  for (const e of sim.events) {
+    if (e.kind !== 'submit' && e.kind !== 'score' && e.kind !== 'claim') continue;
+    (groups[e.kind] = groups[e.kind] || []).push(e);
+  }
+  const actionUSD = (x, kind, ring) => {
+    if (!x || !x.actions || !x.actions[kind]) return null;
+    const K = x.actions[kind], base = x.ring || 4;
+    const a = atRing(x.by_ring || [], ring, 'usd'), b = atRing(x.by_ring || [], base, 'usd');
+    return K.usd * (a && b ? a / b : ring / base);
+  };
+  let totalUSD = 0, hasUSD = false;
+  const rows = [];
+  for (const kind of ['submit', 'score', 'claim']) {
+    const evs = groups[kind]; if (!evs || !evs.length) continue;
+    const count = evs.length, ring = evs[0].ring || (ce ? ce.ring || 4 : 4);
+    const perAct = actionUSD(ce, kind, ring);
+    const kindTotal = perAct != null ? perAct * count : null;
+    if (kindTotal != null) { totalUSD += kindTotal; hasUSD = true; }
+    let fallback = null;
+    if (kindTotal == null) {
+      if (evs[0].tgas != null) fallback = evs.reduce((s, e) => s + (e.tgas || 0), 0).toFixed(1) + ' Tgas';
+      else if (evs[0].cu != null) fallback = fmtM(evs.reduce((s, e) => s + (e.cu || 0), 0)) + ' CU';
+      else if (evs[0].gas != null) fallback = fmtM(evs.reduce((s, e) => s + (e.gas || 0), 0)) + ' gas';
+    }
+    rows.push({kind, count, ring, total: kindTotal, fallback});
+  }
+  if (!rows.length) { box.innerHTML = ''; return; }
+  let crossLine = '';
+  if (hasUSD) {
+    const CC = {starknet:'#ff875b', near:'#00ec97', eth:'#8ea2ff', solana:'#b57cff'};
+    const ORDER4 = ['starknet', 'near', 'eth', 'solana'];
+    const entries = [{c: chain, total: totalUSD, act: true}];
+    for (const c of ORDER4) {
+      if (c === chain) continue;
+      const xe = ((ECON || {}).chains || {})[c]; if (!xe || !xe.actions) continue;
+      let ct = 0, ok = true;
+      for (const {kind, count, ring} of rows) {
+        const v = actionUSD(xe, kind, ring); if (v == null) { ok = false; break; } ct += v * count;
+      }
+      if (ok) entries.push({c, total: ct, act: false});
+    }
+    if (entries.length > 1) {
+      const maxT = Math.max(...entries.map(e => e.total));
+      const bars = entries.map(({c, total, act}) => {
+        const pct = maxT > 0 ? (total / maxT * 100).toFixed(1) : 0;
+        const col = CC[c] || '#aaa';
+        const name = (CH[c] || {}).name || c;
+        const aCls = act ? ' cc-act' : '';
+        const bStyle = act
+          ? `background:${col};box-shadow:0 0 5px ${col}88`
+          : `background:${col};opacity:.65`;
+        return `<span class="cc-lbl${aCls}">${name}</span>` +
+          `<span class="cc-bar-wrap"><span class="cc-bar" style="width:${pct}%;${bStyle}"></span></span>` +
+          `<span class="cc-amt${aCls}">${usd(total)}</span>`;
+      }).join('');
+      crossLine = `<div class="receipt-cc">${bars}</div>`;
+    }
+  }
+  const trRow = ({kind, count, ring, total, fallback}) =>
+    `<tr><td>${kind} ×${count} <span style="color:var(--mute)">ring ${ring}</span></td>` +
+    `<td>${total != null ? usd(total / count) : '-'}</td><td><b>${total != null ? usd(total) : fallback || '-'}</b></td></tr>`;
+  box.innerHTML = `<div class="card"><h3>EPOCH COST RECEIPT <span class="sp"></span><span class="pill">mainnet estimate</span></h3>` +
+    `<table class="rcpt"><tr><th>action</th><th>per action</th><th>total</th></tr>` +
+    rows.map(trRow).join('') +
+    (hasUSD ? `<tr class="rcpt-total"><td colspan="2">TOTAL</td><td><b>${usd(totalUSD)}</b></td></tr>` : '') +
+    `</table>${crossLine}</div>`;
+}
 function preloadLog(sim) {
   if (!sim || !sim.events || logN) return;
   const box = $('log'); box.innerHTML = `<div class="sep">LAST RUN · ${ago(Date.now() / 1000 - sim.at).toUpperCase()}</div>`;
@@ -952,9 +1065,10 @@ function setBusy(on, label) {
   busy = on; $('run').disabled = on; $('replay').disabled = on;
   $('logstate').textContent = label || (on ? 'live' : 'idle');
   $('logstate').className = 'pill' + (on ? ' open' : '');
+  if (on) $('receipt').innerHTML = '';
 }
 async function run() {
-  const r = await post('simulate', {miners: 4, validators: 4, chain: CHAIN});
+  const r = await post('simulate', {miners: +$('lmin').value, validators: +$('lvals').value, chain: CHAIN});
   if (r.cooldown) return toast(`cooling down: ${r.cooldown}s. Try the replay meanwhile`);
   if (!r.started && !r.running) return toast(r.error || 'could not start');
   setBusy(true, 'live · on-chain');
@@ -977,7 +1091,7 @@ async function run() {
   }
   await pump;
   clearInterval(timer); btn.classList.remove('running'); btn.textContent = 'Run an anonymous epoch';
-  setBusy(false); refresh(); get('last_sim', `?chain=${CHAIN}`).then(renderFacts);
+  setBusy(false); refresh(); get('last_sim', `?chain=${CHAIN}`).then(sim => { renderFacts(sim); renderReceipt(sim); yumaPopulate(sim); });
 }
 async function replay() {
   const r = await get('last_sim', `?chain=${CHAIN}`);
@@ -986,10 +1100,44 @@ async function replay() {
   logN = 0; $('log').innerHTML = '';
   for (const e of r.events) await playEvent(e, false);
   setBusy(false);
+  renderReceipt(r);
   setTimeout(refresh, 2500);
 }
 $('run').onclick = run;
 $('replay').onclick = replay;
+function updateRunCost() {
+  const el = $('run-cost');
+  if (!el) return;
+  const M = +$('lmin').value, V = +$('lvals').value;
+  const chains = (ECON || {}).chains || {};
+  const e = chains[CHAIN];
+  if (!e || !e.actions) { el.textContent = ''; return; }
+  function epochCost(chain, m, v) {
+    const ce = chains[chain];
+    if (!ce || !ce.actions) return null;
+    const K = ce.actions;
+    const base = ce.ring || 4;
+    const cap = n => Math.max(1, Math.min(n, ce.max_ring));
+    const ringM = cap(m), ringV = cap(v);
+    const scaleUsd = n => { const a = atRing(ce.by_ring, n, 'usd'), b = atRing(ce.by_ring, base, 'usd'); return a && b ? a / b : n / base; };
+    const rowUsd = (k, n) => K[k] ? K[k].usd * (n ? scaleUsd(n) : 1) : 0;
+    const sub = rowUsd('submit', ringM), sco = rowUsd('score', ringV), clm = rowUsd('claim', ringM);
+    return sub * m + sco * m * v + clm * m;
+  }
+  const cost = epochCost(CHAIN, M, V);
+  if (cost == null) { el.textContent = ''; return; }
+  let txt = `~${usd(cost)} / epoch on ${CH[CHAIN].name}`;
+  const others = ORDER.filter(c => c !== CHAIN);
+  let cheapestChain = null, cheapestCost = cost;
+  for (const c of others) {
+    const oc = epochCost(c, M, V);
+    if (oc != null && oc < cheapestCost) { cheapestCost = oc; cheapestChain = c; }
+  }
+  if (cheapestChain) txt += ` · cheapest on ${CH[cheapestChain].name}`;
+  el.textContent = txt;
+}
+$('lmin').onchange = updateRunCost;
+$('lvals').onchange = updateRunCost;
 $('addrchip').onclick = () => {
   if (lastBoard && lastBoard.contract) { navigator.clipboard && navigator.clipboard.writeText(lastBoard.contract); toast('contract address copied'); }
 };
@@ -1051,9 +1199,10 @@ function setChain(c, user) {
   if (!busy) {
     initStage(); logN = 0; $('log').innerHTML = '<div class="empty">waiting for a run</div>';
     $('tally').innerHTML = '<div class="empty">loading</div>'; $('facts').innerHTML = '';
-    $('addr').textContent = 'loading';
-    refresh(); get('last_sim', `?chain=${c}`).then(sim => { renderFacts(sim); preloadLog(sim); }).catch(() => {});
+    $('addr').textContent = 'loading'; $('receipt').innerHTML = '';
+    refresh(); get('last_sim', `?chain=${c}`).then(sim => { renderFacts(sim); preloadLog(sim); renderReceipt(sim); yumaPopulate(sim); }).catch(() => {});
   }
+  updateRunCost();
   route();
 }
 Promise.all([cmpP, testsP]).then(() => { renderBanner(); if (TAB === 'costs') renderCosts(); if (TAB === 'tests') renderTests(); if (TAB === 'all') renderAll(); });
@@ -1282,7 +1431,7 @@ async function renderEcon() {
   const hrs = +$('eep').value, M = +$('emin').value, V = +$('evals').value, R = +$('ering').value;
   if (!e) {
     $('econat').textContent = 'no mainnet data';
-    $('estats').innerHTML = ''; $('etable').innerHTML = ''; $('elims').innerHTML = '';
+    $('estats').innerHTML = ''; $('etable').innerHTML = ''; $('elims').innerHTML = ''; $('privcard').innerHTML = '';
     $('enote').textContent = CH[c].generic ? 'This adapter does not report mainnet fees yet (mainnet() / fee() in its adapter.py).' : 'Mainnet RPC or price feed unreachable.';
     return;
   }
@@ -1337,6 +1486,24 @@ async function renderEcon() {
   if (M > 0 && R && (R > M || R > V)) lim('warn', `<b>Ring ${R} is larger than a set</b>: rings are capped at the set size (${ringM} miners, ${ringV} validators).`);
   lim(V >= 3 && M >= 3 ? 'ok' : 'bad', `<b>Anonymity is the ring</b>: a score hides among ${ringV} validators, a submit among ${ringM} miners. Bigger rings cost ${usd(sco && sco.usd / ringV)} more per member per score.`);
   $('elims').innerHTML = L.join('');
+  // privacy price tag
+  const privRings = e.by_ring.filter(d => d.usd != null).slice().sort((a, b) => a.ring - b.ring);
+  if (privRings.length >= 2) {
+    const lb2 = n => Math.log(n) / Math.LN2;
+    let trows = '';
+    for (let i = 0; i < privRings.length; i++) {
+      const d = privRings[i], prev = privRings[i - 1];
+      const marginal = i > 0 ? usd((d.usd - prev.usd) / (lb2(d.ring) - lb2(prev.ring))) : '&mdash;';
+      trows += `<tr><td>${d.ring}</td><td>${lb2(d.ring).toFixed(1)}</td><td>${usd(d.usd)}</td><td>${marginal}</td></tr>`;
+    }
+    const f = privRings[0], l2 = privRings[privRings.length - 1];
+    const avgPerBit = (l2.usd - f.usd) / (lb2(l2.ring) - lb2(f.ring));
+    const q = privRings[1];
+    const noteTxt = `On ${esc(CH[c].name)}, at today’s gas, each additional bit of anonymity costs about ${usd(avgPerBit)} — hiding among ${q.ring} members costs ${usd(q.usd - f.usd)} more per action than hiding among ${f.ring}.`;
+    $('privcard').innerHTML = `<h3>PRIVACY PRICE TAG \xb7 $/BIT OF ANONYMITY</h3><table class="cmp"><tr><th>ring</th><th>bits</th><th>$/action</th><th>$/added bit</th></tr>${trows}</table><p class="note">${noteTxt}</p>`;
+  } else {
+    $('privcard').innerHTML = '';
+  }
 }
 function barChart(rows, o) {
   const W = 560, H = 280, l = 50, r = 16, t = 22, b = 38, n = Math.max(1, rows.length);
@@ -1388,8 +1555,9 @@ const FOPT = {
   fshape:  [['exp','exponential'],['linear','linear'],['logistic','logistic']],
   fring:   [[4,'4'],[8,'8'],[16,'16'],[32,'32']],
   fephours:[[1,'1 hr'],[4,'4 hr'],[12,'12 hr'],[24,'1 day']],
+  fcoalition:[[0.1,'10%'],[0.2,'20%'],[0.25,'25%'],[0.33,'33%'],[0.4,'40%'],[0.5,'50%']],
 };
-const FDEF = {fmstart: 16, fmend: 256, fvstart: 4, fvend: 64, fmonths: 12, fshape: 'exp', fring: 16, fephours: 1};
+const FDEF = {fmstart: 16, fmend: 256, fvstart: 4, fvend: 64, fmonths: 12, fshape: 'exp', fring: 16, fephours: 1, fcoalition: 0.25};
 const FSET = Object.assign({}, FDEF, JSON.parse(localStorage.getItem('ztao.forecast') || '{}'));
 for (const id in FOPT) {
   $(id).innerHTML = FOPT[id].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
@@ -1399,7 +1567,26 @@ for (const id in FOPT) {
 const FC_COLORS = {baseline: '#8aa3a6', batch: '#f59e0b', lazy: '#fbbf24', proof: '#a78bfa', committee: '#00ec97', private: '#5eead4'};
 const fc_ylab = v => v === 0 ? '$0' : v >= 10000 ? '$' + Math.round(v / 1000) + 'k' : v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : v >= 100 ? '$' + Math.round(v) : v >= 1 ? '$' + v.toFixed(1) : usd(v);
 let _fcAbort = 0;
+let activeFcStrat = null;
+let _fc2AllChains = null;
+let _fcAllStrat = 'baseline';
+function _focusFc(s, strats) {
+  activeFcStrat = activeFcStrat === s ? null : s;
+  for (const st of strats) {
+    const line = document.getElementById(`fc-l-${st}`);
+    const dots = document.getElementById(`fc-d-${st}`);
+    const rows = document.querySelectorAll(`#fc-legend tr[data-s="${st}"]`);
+    if (!line) continue;
+    const active = activeFcStrat === null || st === activeFcStrat;
+    line.setAttribute('opacity', active ? '0.9' : '0.1');
+    line.setAttribute('stroke-width', activeFcStrat && st === activeFcStrat ? '3' : '2');
+    if (dots) dots.setAttribute('opacity', active ? '1' : '0.08');
+    rows.forEach(r => { r.style.opacity = active ? '1' : '0.35'; });
+  }
+}
 async function renderForecast() {
+  activeFcStrat = null;
+  const _riskEl = $('fc-risk'); if (_riskEl) _riskEl.innerHTML = '';
   await econP;
   const c = CHAIN, e = ((ECON || {}).chains || {})[c];
   if (!e) {
@@ -1410,7 +1597,7 @@ async function renderForecast() {
   }
   const id = ++_fcAbort;
   const miners = `${FSET.fmstart},${FSET.fmend}`, validators = `${FSET.fvstart},${FSET.fvend}`;
-  const qs = `?chain=${c}&miners=${miners}&validators=${validators}&months=${FSET.fmonths}&shape=${FSET.fshape}&ring=${FSET.fring}&epoch_hours=${FSET.fephours}`;
+  const qs = `?chain=${c}&miners=${miners}&validators=${validators}&months=${FSET.fmonths}&shape=${FSET.fshape}&ring=${FSET.fring}&epoch_hours=${FSET.fephours}&f=${FSET.fcoalition}`;
   let fc;
   try { fc = await get('forecast', qs); } catch { if (id === _fcAbort) $('fc-chart').innerHTML = '<div class="empty">could not load forecast</div>'; return; }
   if (id !== _fcAbort) return;
@@ -1427,9 +1614,11 @@ async function renderForecast() {
   const maxV = Math.max(...allVals) * 1.12 || 1;
   const raw4 = maxV / 4, p4 = Math.pow(10, Math.floor(Math.log10(raw4)));
   const step = [1, 2, 2.5, 5, 10].map(k => k * p4).find(k => k >= raw4) || raw4;
-  const W2 = 660, H2 = 280, ll = 64, rr = 14, tt = 22, bb2 = 36;
+  const W2 = 660, H2 = 280, ll = 64, rr = 50, tt = 22, bb2 = 36;
   const xp = i => ll + i * (W2 - ll - rr) / (nM - 1);
   const yp = v => tt + (H2 - tt - bb2) * (1 - v / maxV);
+  const maxBits = Math.max(1, Math.log2(parseInt(FSET.fring) || 4));
+  const ypB = v => tt + (H2 - tt - bb2) * (1 - v / maxBits);
   let h = `<svg viewBox="0 0 ${W2} ${H2}" role="img" aria-label="cost forecast">`;
   for (let v = 0; v <= maxV * 1.01; v += step) {
     h += `<line x1="${ll}" x2="${W2 - rr}" y1="${yp(v)}" y2="${yp(v)}" stroke="#152126"/>`;
@@ -1439,19 +1628,35 @@ async function renderForecast() {
     if (nM <= 13 || i % Math.ceil(nM / 12) === 0)
       h += `<text x="${xp(i)}" y="${H2 - bb2 + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">mo ${rows[i].month}</text>`;
   }
+  for (let b = 0; b <= Math.ceil(maxBits); b++) {
+    h += `<text x="${W2 - rr + 6}" y="${(ypB(b) + 4).toFixed(1)}" text-anchor="start" fill="var(--teal)" style="font:10px var(--mono)">${b}</text>`;
+  }
   for (const s of STRATS) {
     const col = FC_COLORS[s] || '#566d71';
     const pts = rows.map((r, i) => { const v = r[s] && r[s].month; return v != null ? `${xp(i).toFixed(1)},${yp(v).toFixed(1)}` : null; }).filter(Boolean);
-    if (pts.length > 1) h += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    if (pts.length > 1) h += `<polyline id="fc-l-${s}" points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    h += `<g id="fc-d-${s}">`;
     rows.forEach((r, i) => { const v = r[s] && r[s].month; if (v != null) h += `<circle cx="${xp(i).toFixed(1)}" cy="${yp(v).toFixed(1)}" r="2.2" fill="${col}"/>`; });
+    h += `</g>`;
   }
+  const fullRingIdx = rows.findIndex(r => r.ring >= parseInt(FSET.fring));
+  if (fullRingIdx > 0) {
+    const fx = xp(fullRingIdx).toFixed(1);
+    const fring = rows[fullRingIdx].ring;
+    const fbits = Math.log2(fring).toFixed(1);
+    h += `<line x1="${fx}" x2="${fx}" y1="${tt}" y2="${H2 - bb2}" stroke="var(--teal)" stroke-opacity="0.45" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    h += `<text transform="translate(${(xp(fullRingIdx) - 4).toFixed(1)},${(tt + 4).toFixed(1)}) rotate(-90)" text-anchor="end" fill="var(--teal)" style="font:9px var(--mono)" opacity="0.8">ring ${fring} · ${fbits} bits</text>`;
+  }
+  const bPts = rows.map((r, i) => `${xp(i).toFixed(1)},${ypB(Math.log2(Math.max(r.ring, 1))).toFixed(1)}`);
+  if (bPts.length > 1) h += `<polyline points="${bPts.join(' ')}" fill="none" stroke="var(--teal)" stroke-width="1.5" stroke-dasharray="5 3" stroke-linejoin="round" opacity="0.7"/>`;
   const colW = (W2 - ll - rr) / Math.max(nM - 1, 1);
   rows.forEach((r, i) => {
     const rx = i === 0 ? ll : xp(i) - colW / 2;
     const rend = i === nM - 1 ? W2 - rr : xp(i) + colW / 2;
     h += `<rect x="${rx.toFixed(1)}" y="${tt}" width="${(rend - rx).toFixed(1)}" height="${H2 - tt - bb2}" fill="transparent" data-i="${i}"/>`;
   });
-  h += `<text x="${ll - 52}" y="${tt - 8}" fill="#566d71" style="font:10px var(--mono)">$/month</text></svg><div class="tip"></div>`;
+  h += `<text x="${ll - 52}" y="${tt - 8}" fill="#566d71" style="font:10px var(--mono)">$/month</text>`;
+  h += `<text x="${W2 - rr + 6}" y="${tt - 8}" text-anchor="start" fill="var(--teal)" style="font:10px var(--mono)">bits</text></svg><div class="tip"></div>`;
   const el2 = $('fc-chart');
   el2.innerHTML = h;
   const tip = el2.querySelector('.tip');
@@ -1475,7 +1680,9 @@ async function renderForecast() {
         const domTxt = dom ? ` <span style="color:var(--mute)">${dom}</span>` : '';
         return `<span style="color:${FC_COLORS[s]||'#8aa3a6'}">${esc((cd.labels||{})[s]||s)}</span> ${usd(v)}${pm}${pv}${domTxt}`;
       }).join('<br>');
-      tip.innerHTML = `<div style="color:var(--dim);margin-bottom:3px;font-weight:700">mo ${r.month} · M=${r.miners} V=${r.validators}</div>${lines}`;
+      const rbits = Math.log2(Math.max(r.ring, 1));
+      const rbitCol = rbits >= 3 ? 'var(--teal2)' : rbits >= 1 ? 'var(--amber)' : 'var(--red)';
+      tip.innerHTML = `<div style="color:var(--dim);margin-bottom:3px;font-weight:700">mo ${r.month} · M=${r.miners} V=${r.validators} · ring ${r.ring} · <span style="color:${rbitCol}">${rbits.toFixed(1)} bits</span></div>${lines}`;
       tip.style.left = Math.max(0, Math.min(ev.clientX - bb3.left + 12, bb3.width - 220)) + 'px';
       tip.style.top = (ev.clientY - bb3.top - 34) + 'px'; tip.style.opacity = 1;
     };
@@ -1485,16 +1692,60 @@ async function renderForecast() {
   const last = rows[rows.length - 1];
   const lockSvg = `<svg viewBox="0 0 10 12" width="10" height="12"><rect x="1.5" y="5.5" width="7" height="6" rx="1.5" fill="currentColor"/><path d="M3 5.5V3.8a2 2 0 014 0v1.7" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`;
   const linkSvg = `<svg viewBox="0 0 12 12" width="12" height="12" fill="none"><path d="M5 7a2.5 2.5 0 003.5.3l1.3-1.3a2.5 2.5 0 00-3.5-3.5l-.7.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M7 5a2.5 2.5 0 00-3.5-.3L2.2 5.8A2.5 2.5 0 005.7 9.3l.7-.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
-  let lt = `<table class="cmp"><tr><th></th><th>strategy</th><th>privacy</th><th>$/month at m=${last && last.miners} v=${last && last.validators}</th><th>vs baseline</th></tr>`;
+  const _secRisk = (cap, sta) => {
+    const pct2 = v => (100 * v).toFixed(1) + '%';
+    const mag = Math.max(cap, sta);
+    const color = mag < 0.01 ? '#00ec97' : mag < 0.10 ? '#f59e0b' : '#ef4444';
+    return `<span style="color:${color};font-variant-numeric:tabular-nums">cap ${pct2(cap)} · starve ${pct2(sta)}</span>`;
+  };
+  let lt = `<table class="cmp"><tr><th></th><th>strategy</th><th>privacy</th><th>$/month at m=${last && last.miners} v=${last && last.validators}</th><th>vs baseline</th><th>security risk</th></tr>`;
   for (const s of STRATS) {
     const p = priv[s] || {}, col = FC_COLORS[s] || '#566d71', kept = p.kept;
     const v = last && last[s] && last[s].month, sv = savings[s];
     const privHtml = `<span style="color:${kept ? '#00ec97' : '#f59e0b'};display:inline-flex;align-items:center;gap:4px">${kept ? lockSvg : linkSvg} ${kept ? 'private' : 'links actions'}</span>`;
     const svgTxt = sv && s !== 'baseline' ? (sv >= 1.5 ? `${sv.toFixed(1)}× cheaper` : pct(1 - 1 / sv) + ' cheaper') : '—';
-    lt += `<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col}"></span></td><td title="${esc(p.note||'')}">${esc(labels[s]||s)}</td><td>${privHtml}</td><td><b>${usd(v)}</b></td><td style="color:var(--dim)">${svgTxt}</td></tr>`;
+    const riskHtml = (s === 'committee' || s === 'private') && cd.capture != null && cd.starve != null
+      ? _secRisk(cd.capture, cd.starve)
+      : `<span style="color:var(--mute)">—</span>`;
+    lt += `<tr data-s="${s}" style="cursor:pointer"><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col}"></span></td><td title="${esc(p.note||'')}">${esc(labels[s]||s)}</td><td>${privHtml}</td><td><b>${usd(v)}</b></td><td style="color:var(--dim)">${svgTxt}</td><td>${riskHtml}</td></tr>`;
   }
   lt += '</table>';
   $('fc-legend').innerHTML = lt;
+  const _rEl = $('fc-risk');
+  if (_rEl && rows.length > 0 && rows[0].capture != null) {
+    const _Hr = 240, _bR = 36;
+    const _xr = i => ll + i * (W2 - ll - rr) / (nM - 1);
+    const _yr = v => tt + (_Hr - tt - _bR) * (1 - v);
+    const _commitSz = cd.committee || 32;
+    const _sortIdx = rows.findIndex(r => r.validators > _commitSz);
+    const _coali = Math.round(parseFloat(FSET.fcoalition) * 100);
+    let _rh = `<svg viewBox="0 0 ${W2} ${_Hr}" role="img" aria-label="committee risk over time">`;
+    for (const _p of [0, 0.25, 0.5, 0.75, 1]) {
+      _rh += `<line x1="${ll}" x2="${W2 - rr}" y1="${_yr(_p).toFixed(1)}" y2="${_yr(_p).toFixed(1)}" stroke="#152126"/>`;
+      _rh += `<text x="${ll - 6}" y="${(_yr(_p) + 4).toFixed(1)}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${Math.round(_p * 100)}%</text>`;
+    }
+    for (let _i = 0; _i < nM; _i++) {
+      if (nM <= 13 || _i % Math.ceil(nM / 12) === 0)
+        _rh += `<text x="${_xr(_i).toFixed(1)}" y="${_Hr - _bR + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">mo ${rows[_i].month}</text>`;
+    }
+    if (_sortIdx > 0) {
+      const _sx = _xr(_sortIdx).toFixed(1);
+      _rh += `<line x1="${_sx}" x2="${_sx}" y1="${tt}" y2="${_Hr - _bR}" stroke="var(--teal)" stroke-opacity="0.6" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+      _rh += `<text transform="translate(${(_xr(_sortIdx) - 4).toFixed(1)},${(tt + 4).toFixed(1)}) rotate(-90)" text-anchor="end" fill="var(--teal)" style="font:9px var(--mono)" opacity="0.8">sortition active</text>`;
+    }
+    const _capPts = rows.map((r, _i) => r.capture != null ? `${_xr(_i).toFixed(1)},${_yr(r.capture).toFixed(1)}` : null).filter(Boolean);
+    if (_capPts.length > 1) _rh += `<polyline points="${_capPts.join(' ')}" fill="none" stroke="var(--nr)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    const _staPts = rows.map((r, _i) => r.starve != null ? `${_xr(_i).toFixed(1)},${_yr(r.starve).toFixed(1)}` : null).filter(Boolean);
+    if (_staPts.length > 1) _rh += `<polyline points="${_staPts.join(' ')}" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    _rh += `<text x="${ll + 8}" y="${tt + 14}" fill="var(--nr)" style="font:10px var(--mono)">&#9646; capture</text>`;
+    _rh += `<text x="${ll + 72}" y="${tt + 14}" fill="var(--amber)" style="font:10px var(--mono)">&#9646; starve</text>`;
+    _rh += `<text x="${ll - 52}" y="${tt - 8}" fill="#566d71" style="font:10px var(--mono)">risk %</text>`;
+    _rh += '</svg>';
+    _rEl.innerHTML = `<div class="card" style="margin-top:14px"><h3>COMMITTEE RISK OVER TIME · COALITION ${_coali}%</h3>${_rh}</div>`;
+  }
+  document.querySelectorAll('#fc-legend tr[data-s]').forEach(row => {
+    row.onclick = () => _focusFc(row.dataset.s, STRATS);
+  });
 }
 
 /* ---------------- tests : only this chain ---------------- */
@@ -1514,9 +1765,80 @@ async function renderTests() {
     <div class="tgrid">${x.tests.map(([st, n]) => `<div class="trow"><span class="${st === 'PASS' ? 'ok2' : 'bad2'}">${st}</span><span>${esc(n.replace(/^test_/, '').replace(/_/g, ' '))}</span></div>`).join('')}</div>`;
 }
 
+function _renderFcAllChart(strat) {
+  const fc2 = _fc2AllChains;
+  const felF = $('allforecast');
+  if (!fc2) { felF.innerHTML = ''; return; }
+  const chainsF = Object.entries((fc2.chains) || {})
+    .filter(([, cd]) => Array.isArray(cd.rows) && cd.rows.some(r => r[strat] && r[strat].month != null));
+  if (!chainsF.length) { felF.innerHTML = ''; return; }
+  const anyLabels = (chainsF[0][1].labels) || {};
+  const stratLabel = anyLabels[strat] || strat.toUpperCase();
+  const selOpts = Object.keys(FC_COLORS).map(s => {
+    const lbl = anyLabels[s] || s.toUpperCase();
+    return `<option value="${s}"${s === strat ? ' selected' : ''}>${lbl}</option>`;
+  }).join('');
+  const selHtml = `<select id="allfc-strat" style="margin-left:10px;background:var(--panel2);color:var(--dim);border:1px solid var(--border);padding:2px 6px;font:11px var(--mono);border-radius:3px">${selOpts}</select>`;
+  const FCW = 560, FCH = 240, fcl = 64, fcr = 16, fct = 22, fcb = 38;
+  const allFVals = chainsF.flatMap(([, cd]) => cd.rows.map(r => r[strat] && r[strat].month).filter(v => v != null && v > 0));
+  const maxFV = Math.max(...allFVals) * 1.12 || 1;
+  const rawF = maxFV / 4, pF = Math.pow(10, Math.floor(Math.log10(rawF)));
+  const stepF = [1, 2, 2.5, 5, 10].map(k => k * pF).find(k => k >= rawF) || rawF;
+  const allRows0 = chainsF[0][1].rows;
+  const nMF = allRows0.length;
+  const xpF = i => fcl + i * (FCW - fcl - fcr) / Math.max(nMF - 1, 1);
+  const ypF = v => fct + (FCH - fct - fcb) * (1 - v / maxFV);
+  let fh = `<svg viewBox="0 0 ${FCW} ${FCH}" role="img" aria-label="${esc(stratLabel)} monthly cost forecast all chains">`;
+  for (let v = 0; v <= maxFV * 1.01; v += stepF) {
+    fh += `<line x1="${fcl}" x2="${FCW - fcr}" y1="${ypF(v)}" y2="${ypF(v)}" stroke="#152126"/>`;
+    fh += `<text x="${fcl - 6}" y="${ypF(v) + 4}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${fc_ylab(v)}</text>`;
+  }
+  for (let i = 0; i < nMF; i++) {
+    if (nMF <= 13 || i % Math.ceil(nMF / 12) === 0)
+      fh += `<text x="${xpF(i).toFixed(1)}" y="${FCH - fcb + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">mo ${allRows0[i].month}</text>`;
+  }
+  for (const [ch, cd] of chainsF) {
+    const col = CHAIN_COLORS[ch] || '#566d71';
+    const pts = cd.rows.map((r, i) => { const v = r[strat] && r[strat].month; return v != null ? `${xpF(i).toFixed(1)},${ypF(v).toFixed(1)}` : null; }).filter(Boolean);
+    if (pts.length > 1) fh += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    cd.rows.forEach((r, i) => { const v = r[strat] && r[strat].month; if (v != null) fh += `<circle cx="${xpF(i).toFixed(1)}" cy="${ypF(v).toFixed(1)}" r="2.2" fill="${col}"/>`; });
+  }
+  const colWF = (FCW - fcl - fcr) / Math.max(nMF - 1, 1);
+  chainsF[0][1].rows.forEach((r, i) => {
+    const rx = i === 0 ? fcl : xpF(i) - colWF / 2;
+    const rend = i === nMF - 1 ? FCW - fcr : xpF(i) + colWF / 2;
+    fh += `<rect x="${rx.toFixed(1)}" y="${fct}" width="${(rend - rx).toFixed(1)}" height="${FCH - fct - fcb}" fill="transparent" data-fi="${i}"/>`;
+  });
+  fh += `<text x="${fcl - 52}" y="${fct - 8}" fill="#566d71" style="font:10px var(--mono)">$/month</text></svg><div class="tip"></div>`;
+  const legF = chainsF.map(([ch]) => {
+    const col = CHAIN_COLORS[ch] || '#566d71';
+    return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px"><span style="display:inline-block;width:18px;height:3px;background:${col};border-radius:2px"></span><span style="color:var(--dim)">${esc(CH[ch].name)}</span></span>`;
+  }).join('');
+  const stratCol = FC_COLORS[strat] || 'var(--dim)';
+  felF.innerHTML = `<h3 style="display:flex;align-items:center"><span style="color:${stratCol}">${esc(stratLabel)}</span>&nbsp;MONTHLY COST · AS SUBNET GROWS${selHtml}</h3><div style="overflow-x:auto">${fh}</div><div style="display:flex;flex-wrap:wrap;margin-top:10px;font:12px var(--mono)">${legF}</div>`;
+  const selEl = felF.querySelector('#allfc-strat');
+  if (selEl) selEl.onchange = () => { _fcAllStrat = selEl.value; _renderFcAllChart(_fcAllStrat); };
+  const tipF = felF.querySelector('.tip');
+  felF.querySelectorAll('rect[data-fi]').forEach(rc => {
+    rc.onmousemove = ev => {
+      const i = +rc.dataset.fi, bb4 = felF.getBoundingClientRect();
+      const anyRow = chainsF[0][1].rows[i];
+      const lines = chainsF.map(([ch, cd]) => {
+        const v = cd.rows[i] && cd.rows[i][strat] && cd.rows[i][strat].month;
+        const col = CHAIN_COLORS[ch] || '#566d71';
+        return `<span style="color:${col}">${esc(CH[ch].name)}</span> ${usd(v)}`;
+      }).join('<br>');
+      tipF.innerHTML = `<div style="color:var(--dim);margin-bottom:3px;font-weight:700">mo ${anyRow.month} · M=${anyRow.miners} V=${anyRow.validators}</div>${lines}`;
+      tipF.style.left = Math.max(0, Math.min(ev.clientX - bb4.left + 12, bb4.width - 220)) + 'px';
+      tipF.style.top = (ev.clientY - bb4.top - 34) + 'px'; tipF.style.opacity = 1;
+    };
+    rc.onmouseleave = () => { tipF.style.opacity = 0; };
+  });
+}
+
 /* ---------------- all chains : the one cross-chain view ---------------- */
 async function renderAll() {
-  await Promise.all([cmpP, testsP]);
+  await Promise.all([cmpP, testsP, econP]);
   $('allcards').innerHTML = ORDER.map(c => {
     const v = verifyCost(c), x = (CMP || {})[c] || {};
     return `<div class="acard" data-chain="${c}"><div class="top"><span class="gl">${GLYPH[c]}</span><b>${CH[c].name.toUpperCase()}</b></div>
@@ -1526,6 +1848,60 @@ async function renderAll() {
       <span>language</span><span>${esc(CH[c].lang)}</span></div></div>`;
   }).join('');
   document.querySelectorAll('.acard').forEach(a => a.onclick = () => { location.hash = 'live'; setChain(a.dataset.chain, true); });
+  /* ---- cost-by-ring-size chart ---- */
+  const CHAIN_COLORS = {starknet: 'var(--sn)', near: 'var(--nr)', eth: 'var(--eth)', solana: 'var(--sol)'};
+  const chainsWithData = ORDER.filter(ch => {
+    const ce = ((ECON || {}).chains || {})[ch];
+    return ce && Array.isArray(ce.by_ring) && ce.by_ring.some(d => d.usd != null);
+  });
+  if (chainsWithData.length > 0) {
+    const CW = 560, CH2 = 240, cl = 64, cr = 16, ct = 22, cb = 38;
+    const allUSD = chainsWithData.flatMap(ch => ((ECON || {}).chains || {})[ch].by_ring.filter(d => d.usd != null).map(d => d.usd));
+    const maxUSD = Math.max(...allUSD) * 1.12 || 1;
+    const rawS = maxUSD / 4, pS = Math.pow(10, Math.floor(Math.log10(rawS)));
+    const stepS = [1, 2, 2.5, 5, 10].map(k => k * pS).find(k => k >= rawS) || rawS;
+    const allRingNums = chainsWithData.flatMap(ch => ((ECON || {}).chains || {})[ch].by_ring.filter(d => d.usd != null).map(d => d.ring));
+    const allMaxRings = chainsWithData.map(ch => ((ECON || {}).chains || {})[ch].max_ring || Math.max(...allRingNums));
+    const minRing = Math.min(...allRingNums, 2);
+    const globalMaxRing = Math.max(...allMaxRings, ...allRingNums, 4);
+    const xring = ring => cl + (ring - minRing) / Math.max(globalMaxRing - minRing, 1) * (CW - cl - cr);
+    const yusd = v => ct + (CH2 - ct - cb) * (1 - v / maxUSD);
+    let h = `<svg viewBox="0 0 ${CW} ${CH2}" role="img" aria-label="mainnet cost per action all chains">`;
+    for (let v = 0; v <= maxUSD * 1.01; v += stepS) {
+      h += `<line x1="${cl}" x2="${CW - cr}" y1="${yusd(v)}" y2="${yusd(v)}" stroke="#152126"/>`;
+      h += `<text x="${cl - 6}" y="${yusd(v) + 4}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${usd(v)}</text>`;
+    }
+    const ringTicks = [];
+    for (let rt = 2; rt <= globalMaxRing; rt *= 2) ringTicks.push(rt);
+    if (!ringTicks.includes(globalMaxRing)) ringTicks.push(globalMaxRing);
+    ringTicks.forEach(rt => {
+      h += `<text x="${xring(rt).toFixed(1)}" y="${CH2 - cb + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">${rt}</text>`;
+    });
+    for (const ch of chainsWithData) {
+      const ce = ((ECON || {}).chains || {})[ch], col = CHAIN_COLORS[ch] || '#566d71';
+      const sorted = ce.by_ring.filter(d => d.usd != null).slice().sort((a, b2) => a.ring - b2.ring);
+      const pts = sorted.map(d => `${xring(d.ring).toFixed(1)},${yusd(d.usd).toFixed(1)}`);
+      if (pts.length > 1) h += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+      else if (pts.length === 1) { const [px, py] = pts[0].split(','); h += `<circle cx="${px}" cy="${py}" r="3" fill="${col}" opacity="0.9"/>`; }
+      if (ce.max_ring) h += `<line x1="${xring(ce.max_ring).toFixed(1)}" x2="${xring(ce.max_ring).toFixed(1)}" y1="${ct}" y2="${CH2 - cb}" stroke="${col}" stroke-dasharray="4 3" stroke-width="1" opacity="0.5"/>`;
+    }
+    h += `<text x="${cl - 52}" y="${ct - 8}" fill="#566d71" style="font:10px var(--mono)">$/action</text>`;
+    h += `<text x="${cl + (CW - cl - cr) / 2}" y="${CH2 - 6}" text-anchor="middle" fill="#566d71" style="font:10px var(--mono);letter-spacing:1.2px">RING SIZE (MEMBERS)</text>`;
+    h += '</svg>';
+    const leg = chainsWithData.map(ch => {
+      const ce = ((ECON || {}).chains || {})[ch], col = CHAIN_COLORS[ch] || '#566d71';
+      return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px"><span style="display:inline-block;width:18px;height:3px;background:${col};border-radius:2px"></span><span style="color:var(--dim)">${esc(CH[ch].name)}</span><span style="color:var(--mute);font-size:10px">max ring ${ce.max_ring}</span></span>`;
+    }).join('');
+    $('allchart').innerHTML = `<h3>MAINNET COST PER ACTION · ALL CHAINS</h3><div style="overflow-x:auto">${h}</div><div style="display:flex;flex-wrap:wrap;margin-top:10px;font:12px var(--mono)">${leg}</div>`;
+  } else {
+    $('allchart').innerHTML = '';
+  }
+  /* ---- growth forecast chart (strategy-switchable, all chains) ---- */
+  try {
+    const fc2 = await get('forecast', '?miners=16,256&validators=4,64&months=12&epoch_hours=1');
+    _fc2AllChains = fc2;
+    _renderFcAllChart(_fcAllStrat);
+  } catch { $('allforecast').innerHTML = ''; }
   const key = {contract: ['contract', 'program']};
   const rowsK = ['contract', 'curve math', 'Poseidon', 'subnet felt', 'recipient', 'max ring', 'hash to point', 'tests', 'local chain'];
   const val = (c, k) => { const ks = key[k] || [k]; const r = CH[c].how.find(([kk]) => ks.includes(kk)); return r ? r[1] : '-'; };
@@ -1555,16 +1931,110 @@ function md(src) {
       while (i < lines.length && (/^(- |\d+\. )/.test(lines[i]) || (/^ {2,}\S/.test(lines[i]) && items.length))) {
         if (/^ {2,}\S/.test(lines[i])) items[items.length - 1] += ' ' + lines[i].trim(); else items.push(lines[i].replace(/^(- |\d+\. )/, '')); i++; }
       h += `<${ol ? 'ol' : 'ul'}>${items.map(x => `<li>${inline(x)}</li>`).join('')}</${ol ? 'ol' : 'ul'}>`; continue; }
+    if (ln.startsWith(':::')) { const cap = ln.match(/\|(.+)$/); h += cap ? `<p class="note"><em>${inline(cap[1].trim())}</em></p>` : ''; i++; continue; }
     if (!ln.trim()) { i++; continue; }
-    const buf = []; while (i < lines.length && lines[i].trim() && !/^(#|```|\||- |\d+\. )/.test(lines[i])) buf.push(lines[i++]);
+    const buf = []; while (i < lines.length && lines[i].trim() && !/^(#|```|\||- |\d+\. |:::)/.test(lines[i])) buf.push(lines[i++]);
     h += `<p>${inline(buf.join(' '))}</p>`;
   }
   return h;
 }
+let paperKind = 'technical';
+function setPaperKind(kind) {
+  paperKind = kind;
+  $('btn-technical').className = 'pill' + (kind === 'technical' ? ' open' : '');
+  $('btn-simple').className = 'pill' + (kind === 'simple' ? ' open' : '');
+  loadPaper();
+}
 async function loadPaper() {
-  const t = await get('whitepaper');
+  const t = await get('whitepaper', `?kind=${paperKind}`);
   $('paper').innerHTML = t ? md(t) : '<div class="empty">no WHITEPAPER.md</div>';
 }
+/* ---------------- yuma sandbox ---------------- */
+function scoreSpark(rawScores, consensus) {
+  if (!rawScores.length) return '';
+  const W = 180, H = 32, pad = 2;
+  const bw = Math.max(2, Math.floor((W - pad) / rawScores.length) - 1);
+  const clipY = H - Math.round((consensus / 100) * H);
+  let bars = '';
+  rawScores.forEach((s, i) => {
+    const bh = Math.max(1, Math.round((s / 100) * H));
+    const x = pad + i * (bw + 1);
+    const y = H - bh;
+    const fill = s > consensus ? 'var(--amber)' : 'var(--teal)';
+    bars += `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="${fill}" rx="1"/>`;
+  });
+  const clipLine = `<line x1="0" x2="${W}" y1="${clipY}" y2="${clipY}" stroke="var(--teal2)" stroke-width="1" stroke-dasharray="3 2" opacity="0.8"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="display:block;overflow:visible">${bars}${clipLine}</svg>`;
+}
+let yumaTimer = null;
+function yumaPopulate(sim) {
+  if (!sim || !sim.events) return;
+  const byTag = {};
+  for (const e of sim.events) {
+    if (e.kind !== 'score') continue;
+    const key = short(e.tag);
+    (byTag[key] = byTag[key] || []).push(e.score);
+  }
+  if (!Object.keys(byTag).length) return;
+  $('yuma-input').value = Object.entries(byTag).map(([t, ss]) => `${t}: ${ss.join(' ')}`).join('\n');
+  yumaRun();
+}
+async function yumaRun() {
+  const raw = ($('yuma-input').value || '').trim();
+  if (!raw) { $('yuma-result').innerHTML = ''; return; }
+  const scores = {};
+  for (const line of raw.split('\n')) {
+    const m = line.match(/^\s*(\S+)\s*:\s*(.+)/);
+    if (!m) continue;
+    const ns = m[2].trim().split(/\s+/).map(Number).filter(n => !isNaN(n) && n >= 0 && n <= 100);
+    if (ns.length) scores[m[1]] = ns;
+  }
+  if (!Object.keys(scores).length) { $('yuma-result').innerHTML = ''; return; }
+  $('yuma-state').textContent = '…';
+  const r = await post('yuma', {scores, validators: +$('yuma-v').value, emission: +$('yuma-e').value}).catch(() => null);
+  if (!r || r.error) { $('yuma-state').textContent = 'error'; return; }
+  $('yuma-state').textContent = 'live';
+  const tags = r.tags || {};
+  let h = '<table><tr><th>tag</th><th>scores</th><th>C</th><th>R</th><th>share</th><th>clipped</th></tr>';
+  for (const [tag, d] of Object.entries(tags)) {
+    const rawScores = scores[tag] || [];
+    const scoreList = scoreSpark(rawScores, d.consensus);
+    const clipStyle = d.clipped ? 'color:var(--amber)' : 'color:var(--mute)';
+    h += `<tr><td class="tag">${esc(tag)}</td><td style="vertical-align:middle;padding:2px 4px">${scoreList}</td>` +
+      `<td><b>${d.consensus}</b></td><td>${d.rank}</td><td>${d.share}</td>` +
+      `<td style="${clipStyle}">${d.clipped}</td></tr>`;
+  }
+  h += '</table>';
+  const BAR_W = 220;
+  h += '<div style="margin-top:14px;display:flex;flex-direction:column;gap:5px">';
+  for (const [tag, d] of Object.entries(tags)) {
+    const base = d.raw || 1;
+    const tealW = Math.round((d.rank / base) * BAR_W);
+    const amberW = Math.round((d.clipped / base) * BAR_W);
+    const label = esc(tag.length > 12 ? tag.slice(0, 11) + '…' : tag);
+    h += `<div style="display:flex;align-items:center;gap:8px;font:11px var(--mono)">` +
+      `<span style="color:var(--dim);width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</span>` +
+      `<div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--panel2);width:${BAR_W}px">` +
+      `<div style="width:${tealW}px;background:var(--teal)" title="rank ${d.rank}"></div>` +
+      (amberW ? `<div style="width:${amberW}px;background:var(--amber)" title="clipped ${d.clipped}"></div>` : '') +
+      `</div>` +
+      `<span style="color:var(--mute)">C=${d.consensus} · ${d.share}</span>` +
+      `</div>`;
+  }
+  h += '</div>';
+  const sumClipped = Object.values(tags).reduce((a, d) => a + d.clipped, 0);
+  const sumRaw = Object.values(tags).reduce((a, d) => a + d.raw, 0);
+  const clipMsg = sumClipped
+    ? `${sumClipped} pts clipped (${Math.round(100 * sumClipped / (sumRaw || 1))}% waste)`
+    : 'no clipping';
+  h += `<div style="margin-top:8px;font:11px var(--mono);color:var(--dim)">` +
+    `need ${r.need} of ${r.validators} validators · ${r.rank_total} pts emitted · ${clipMsg}</div>`;
+  $('yuma-result').innerHTML = h;
+}
+$('yuma-input').addEventListener('input', () => { clearTimeout(yumaTimer); yumaTimer = setTimeout(yumaRun, 300); });
+$('yuma-v').addEventListener('change', yumaRun);
+$('yuma-e').addEventListener('change', yumaRun);
+
 initStage();
 setChain(CHAIN);
 get('networks').then(list => {

@@ -27,6 +27,7 @@
         "backends",
         "whitepaper",
         "top_pitches",
+        "list_epochs",
         "test",
         "serve",
         "kill"
@@ -103,9 +104,13 @@
         "/top": {
             "method": "GET",
             "docs": "Hall of Fame: top pitches by composite score across all archived epochs (query ?limit=N)"
+        },
+        "/epochs/list": {
+            "method": "GET",
+            "docs": "List all archived epochs with lightweight summaries (epoch, type, challenge, miners, top score)"
         }
     },
-    "schema": "Qme3XK8aTDeLrARfCfTky8ZccUkfSxfghYqX9pzqnzFpQs",
+    "schema": "QmVPVcKYdZmcLz7MJWXydMqxwmFu8Ji858S6AYiKG1DAp5",
     "gateway_port": 51461,
     "protocol": {
         "name": "zuma",

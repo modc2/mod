@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   getToken,
@@ -9,11 +9,13 @@ import {
   ApiKey,
   CallEntry,
   Candidate,
+  Finding,
   Hub,
   HubsView,
   Listing,
   Me,
   PageText,
+  Review,
   SearchResult,
   Server,
   Stats,
@@ -27,6 +29,13 @@ const SOURCE_HINT: Record<string, string> = {
   sweep: "a mod caught serving MCP by the port scan, without declaring it",
   user: "registered by hand or connected from a public directory",
 };
+
+/// Badge text for a server: anything running on this box reads "local", the
+/// tooltip keeps how it was found (declared, swept, or user-registered).
+function sourceLabel(s: { source: string; local?: boolean }): { text: string; hint: string } {
+  const hint = SOURCE_HINT[s.source] || "";
+  return s.local ? { text: "local", hint: hint ? `local — ${hint}` : "runs on this host" } : { text: s.source, hint };
+}
 
 function ago(unix: number): string {
   if (!unix) return "never";
@@ -269,6 +278,143 @@ function ToolRow({ tool }: { tool: Tool }) {
   );
 }
 
+/* ── security review section ──────────────────────────────────────── */
+
+function riskColor(risk: string): string {
+  if (risk === "low") return "var(--good)";
+  if (risk === "medium") return "#f59e0b";
+  if (risk === "high" || risk === "critical") return "var(--bad)";
+  return "var(--ink-mute)";
+}
+
+function SecuritySection({ serverId, probeToolCount }: { serverId: string; probeToolCount: number }) {
+  const [review, setReview] = useState<Review | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.getReview(serverId).then(setReview).catch(() => {});
+  }, [serverId]);
+
+  const runReview = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      setReview(await api.review(serverId));
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stale = review != null && review.tool_count !== probeToolCount;
+
+  return (
+    <section>
+      <h4>Security</h4>
+      {review ? (
+        <div>
+          <div className="row" style={{ alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ color: riskColor(review.risk), fontWeight: 700 }}>●</span>
+            <span style={{ fontWeight: 600, textTransform: "uppercase", fontSize: 12, color: riskColor(review.risk) }}>
+              {review.risk}
+            </span>
+            <span className="badge">{review.verdict}</span>
+            <span className="muted small" style={{ flex: 1 }}>{review.summary}</span>
+          </div>
+          {stale && (
+            <div className="note warn small" style={{ marginTop: 6 }}>
+              tool count changed since this review — re-run to refresh
+            </div>
+          )}
+          {review.findings.length > 0 && (
+            <div className="col" style={{ marginTop: 8, gap: 4 }}>
+              {review.findings.map((f: Finding, i: number) => (
+                <div key={i} className="tool">
+                  <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                    <span style={{ color: riskColor(f.severity), fontWeight: 600, textTransform: "uppercase", fontSize: 11, minWidth: 52 }}>
+                      {f.severity}
+                    </span>
+                    <span>{f.title}</span>
+                    {f.tool && <span className="mono small muted">{f.tool}</span>}
+                  </div>
+                  {f.detail && <div className="d muted small" style={{ marginTop: 2 }}>{f.detail}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="muted small">No review yet.</div>
+      )}
+      {error && <div className="note bad small" style={{ marginTop: 6 }}>{error}</div>}
+      <div style={{ marginTop: 8 }}>
+        <button className="sm" disabled={busy} onClick={runReview}>
+          {busy ? "reviewing…" : review ? "re-run review" : "run review"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/* ── per-server recent calls ──────────────────────────────────────── */
+
+function RecentCallsSection({ serverId }: { serverId: string }) {
+  const [entries, setEntries] = useState<CallEntry[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    api.activityForServer(serverId)
+      .then((r) => setEntries(r.recent.slice(0, 20)))
+      .catch(() => {});
+  }, [serverId]);
+
+  useEffect(() => {
+    const stop = api.streamActivity((entry) => {
+      if (entry.server !== serverId) return;
+      setEntries((prev) => [entry, ...prev].slice(0, 20));
+    });
+    return stop;
+  }, [serverId]);
+
+  return (
+    <section>
+      <h4 style={{ cursor: "pointer", userSelect: "none" }} onClick={() => setOpen(!open)}>
+        calls {open ? "▾" : "▸"} {entries.length}
+      </h4>
+      {open && (
+        <div className="toollist">
+          {entries.length === 0 ? (
+            <div className="muted small">no calls recorded yet</div>
+          ) : (
+            entries.map((e, i) => {
+              const sep = e.tool.indexOf("__");
+              const tname = sep > -1 ? e.tool.slice(sep + 2) : e.tool;
+              return (
+                <div key={i} className="tool" title={e.error || undefined}>
+                  <div className="row" style={{ gap: 8, flexWrap: "nowrap", alignItems: "center" }}>
+                    <span className="muted small mono" style={{ minWidth: 52, flexShrink: 0 }}>{ago(e.ts)}</span>
+                    <span className="mono small" style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {tname}
+                    </span>
+                    <span style={{ color: e.ok ? "var(--good)" : "var(--bad)", flexShrink: 0, fontWeight: 600 }}>
+                      {e.ok ? "✓" : "✗"}
+                    </span>
+                    <span className="muted small" style={{ minWidth: 48, textAlign: "right", flexShrink: 0 }}>
+                      {e.latency_ms}ms
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /* ── server detail panel ──────────────────────────────────────────── */
 
 function ServerPanel({
@@ -284,6 +430,10 @@ function ServerPanel({
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(server.name);
+  const [editNote, setEditNote] = useState(server.note);
+  const [editHeaders, setEditHeaders] = useState("");
   const p = server.probe;
 
   useEffect(() => {
@@ -312,6 +462,30 @@ function ServerPanel({
     }
   };
 
+  const saveEdit = async () => {
+    let parsedHeaders: Record<string, string> | null = {};
+    if (editHeaders.trim()) {
+      try {
+        const o = JSON.parse(editHeaders);
+        parsedHeaders = typeof o === "object" && o ? (o as Record<string, string>) : null;
+      } catch {
+        parsedHeaders = null;
+      }
+    }
+    if (parsedHeaders === null) {
+      setError("headers must be a JSON object");
+      return;
+    }
+    await act("save", () =>
+      api.updateServer(server.id, {
+        name: editName.trim() || undefined,
+        note: editNote,
+        headers: parsedHeaders!,
+      })
+    );
+    setEditing(false);
+  };
+
   const shown = filter
     ? tools.filter((t) => (t.name + " " + (t.description || "")).toLowerCase().includes(filter.toLowerCase()))
     : tools;
@@ -324,36 +498,85 @@ function ServerPanel({
           <h2>
             <span style={{ color: p.ok ? "var(--good)" : "var(--bad)" }}>●</span> {server.name}
           </h2>
-          <span className={`badge ${server.source === "fleet" ? "" : "plain"}`} style={{ ["--hue" as string]: server.source === "fleet" ? "var(--src-fleet)" : "var(--accent)" }}>
-            {server.source}
+          <span
+            className={`badge ${server.local || server.source === "fleet" ? "" : "plain"}`}
+            style={{ ["--hue" as string]: server.local || server.source === "fleet" ? "var(--src-fleet)" : "var(--accent)" }}
+            title={sourceLabel(server).hint}
+          >
+            {sourceLabel(server).text}
           </span>
           <div className="spacer" />
+          {server.source === "user" && !editing && (
+            <button
+              className="sm ghost"
+              onClick={() => {
+                setEditName(server.name);
+                setEditNote(server.note);
+                setEditHeaders(server.auth_headers.length ? "" : "");
+                setEditing(true);
+              }}
+            >
+              edit
+            </button>
+          )}
           <button className="sm ghost" onClick={onClose}>
             esc
           </button>
         </div>
-        {server.note && <p className="muted small">{server.note}</p>}
+        {!editing && server.note && <p className="muted small">{server.note}</p>}
 
         <section>
           <h4>Server</h4>
-          <dl className="kv">
-            <dt>endpoint</dt>
-            <dd className="mono small">{server.url}</dd>
-            <dt>status</dt>
-            <dd>{p.ok ? `up · ${p.toolCount} tools · ${p.latency_ms}ms` : `down — ${p.error || "unprobed"}`}</dd>
-            <dt>server info</dt>
-            <dd className="mono small">
-              {p.serverInfo?.name || "?"} {p.serverInfo?.version || ""} · MCP {p.protocolVersion || "?"}
-            </dd>
-            <dt>checked</dt>
-            <dd>{ago(p.checked_at)}</dd>
-            {server.auth_headers.length > 0 && (
-              <>
-                <dt>auth headers</dt>
-                <dd className="mono small">{server.auth_headers.join(", ")}</dd>
-              </>
-            )}
-          </dl>
+          {editing ? (
+            <div className="col" style={{ gap: 8 }}>
+              <label className="col" style={{ gap: 2 }}>
+                <span className="small">display name</span>
+                <input value={editName} onChange={(e) => setEditName(e.target.value)} />
+              </label>
+              <label className="col" style={{ gap: 2 }}>
+                <span className="small">note</span>
+                <input value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="what this server is for" />
+              </label>
+              <label className="col" style={{ gap: 2 }}>
+                <span className="small">
+                  headers <span className="muted">JSON — sent on every request (e.g. Authorization)</span>
+                </span>
+                <textarea
+                  value={editHeaders}
+                  onChange={(e) => setEditHeaders(e.target.value)}
+                  placeholder='{"Authorization": "Bearer …"}'
+                  style={{ minHeight: 52, fontFamily: "monospace", fontSize: 12 }}
+                />
+              </label>
+              <div className="row" style={{ gap: 6 }}>
+                <button className="primary sm" disabled={busy === "save"} onClick={saveEdit}>
+                  {busy === "save" ? "saving…" : "save"}
+                </button>
+                <button className="sm ghost" onClick={() => setEditing(false)}>
+                  cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <dl className="kv">
+              <dt>endpoint</dt>
+              <dd className="mono small">{server.url}</dd>
+              <dt>status</dt>
+              <dd>{p.ok ? `up · ${p.toolCount} tools · ${p.latency_ms}ms` : `down — ${p.error || "unprobed"}`}</dd>
+              <dt>server info</dt>
+              <dd className="mono small">
+                {p.serverInfo?.name || "?"} {p.serverInfo?.version || ""} · MCP {p.protocolVersion || "?"}
+              </dd>
+              <dt>checked</dt>
+              <dd>{ago(p.checked_at)}</dd>
+              {server.auth_headers.length > 0 && (
+                <>
+                  <dt>auth headers</dt>
+                  <dd className="mono small">{server.auth_headers.join(", ")}</dd>
+                </>
+              )}
+            </dl>
+          )}
         </section>
 
         <section className="row">
@@ -376,6 +599,10 @@ function ServerPanel({
           </button>
         </section>
         {error && <div className="note bad" style={{ marginTop: 10 }}>{error}</div>}
+
+        <SecuritySection serverId={server.id} probeToolCount={p.toolCount} />
+
+        <RecentCallsSection serverId={server.id} />
 
         <section>
           <h4>
@@ -413,7 +640,11 @@ function AddSheet({
   onAdded: () => void;
   seed?: Listing | null;
 }) {
+  const [transport, setTransport] = useState<"url" | "stdio">("url");
   const [url, setUrl] = useState(seed?.url || "");
+  const [command, setCommand] = useState("");
+  const [stdioArgs, setStdioArgs] = useState("");
+  const [envJson, setEnvJson] = useState("");
   const [id, setId] = useState(seed?.id || "");
   const [name, setName] = useState(seed?.name || "");
   const [note, setNote] = useState(seed?.description || "");
@@ -422,6 +653,7 @@ function AddSheet({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<string>("");
+  const [probeTools, setProbeTools] = useState<Tool[]>([]);
   const [paste, setPaste] = useState("");
   const [found, setFound] = useState<Candidate[] | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -467,19 +699,44 @@ function AddSheet({
     }
   };
 
+  const parseEnv = (): Record<string, string> | null => {
+    if (!envJson.trim()) return {};
+    try {
+      const o = JSON.parse(envJson);
+      return typeof o === "object" && o ? (o as Record<string, string>) : null;
+    } catch {
+      return null;
+    }
+  };
+
   const doProbe = async () => {
-    const h = parseHeaders();
-    if (h === null) return setError("headers must be a JSON object");
     setBusy("probe");
     setError("");
     setPreview("");
+    setProbeTools([]);
     try {
-      const r = await api.probe(url.trim(), h);
-      setPreview(
-        r.probe.ok
-          ? `✓ ${r.probe.serverInfo?.name || "server"} — ${r.probe.toolCount} tools, ${r.probe.latency_ms}ms`
-          : `✗ ${r.probe.error}`
-      );
+      if (transport === "stdio") {
+        const env = parseEnv();
+        if (env === null) return setError("env must be a JSON object");
+        const args = stdioArgs.trim() ? stdioArgs.trim().split(/\s+/) : [];
+        const r = await api.probe({ command: command.trim(), args, env });
+        setPreview(
+          r.probe.ok
+            ? `✓ ${r.probe.serverInfo?.name || "server"} — ${r.probe.toolCount} tools, ${r.probe.latency_ms}ms`
+            : `✗ ${r.probe.error}`
+        );
+        if (r.probe.ok) setProbeTools(r.tools || []);
+      } else {
+        const h = parseHeaders();
+        if (h === null) return setError("headers must be a JSON object");
+        const r = await api.probe({ url: url.trim(), headers: h });
+        setPreview(
+          r.probe.ok
+            ? `✓ ${r.probe.serverInfo?.name || "server"} — ${r.probe.toolCount} tools, ${r.probe.latency_ms}ms`
+            : `✗ ${r.probe.error}`
+        );
+        if (r.probe.ok) setProbeTools(r.tools || []);
+      }
     } catch (e) {
       setError(String((e as Error).message || e));
     } finally {
@@ -488,20 +745,34 @@ function AddSheet({
   };
 
   const doAdd = async () => {
-    const h = parseHeaders();
-    if (h === null) return setError("headers must be a JSON object");
     setToken(token.trim());
     setBusy("add");
     setError("");
     try {
-      await api.addServer({
-        url: url.trim(),
-        id: id.trim() || undefined,
-        name: name.trim() || undefined,
-        note: note.trim() || undefined,
-        headers: h,
-        pay: seed?.pay || undefined,
-      });
+      if (transport === "stdio") {
+        const env = parseEnv();
+        if (env === null) return setError("env must be a JSON object");
+        const args = stdioArgs.trim() ? stdioArgs.trim().split(/\s+/) : [];
+        await api.addServer({
+          command: command.trim(),
+          args,
+          env,
+          id: id.trim() || undefined,
+          name: name.trim() || undefined,
+          note: note.trim() || undefined,
+        });
+      } else {
+        const h = parseHeaders();
+        if (h === null) return setError("headers must be a JSON object");
+        await api.addServer({
+          url: url.trim(),
+          id: id.trim() || undefined,
+          name: name.trim() || undefined,
+          note: note.trim() || undefined,
+          headers: h,
+          pay: seed?.pay || undefined,
+        });
+      }
       onAdded();
       onClose();
     } catch (e) {
@@ -511,12 +782,14 @@ function AddSheet({
     }
   };
 
+  const canSubmit = transport === "stdio" ? !!command.trim() : !!url.trim();
+
   return (
     <div className="sheet" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="sheet-inner">
         <h2>Add an MCP server</h2>
         <p className="muted small" style={{ margin: 0 }}>
-          Any Streamable HTTP endpoint. It's probed first — a server that won't shake hands isn't registered.
+          Any Streamable HTTP endpoint or stdio command. It's probed first — a server that won't shake hands isn't registered.
         </p>
 
         <div className="col" style={{ marginTop: 12 }}>
@@ -555,11 +828,67 @@ function AddSheet({
           ))}
         </div>
 
+        <div className="row" style={{ gap: 6, marginTop: 8 }}>
+          <button
+            className={`sm${transport === "url" ? " primary" : " ghost"}`}
+            onClick={() => setTransport("url")}
+          >
+            URL endpoint
+          </button>
+          <button
+            className={`sm${transport === "stdio" ? " primary" : " ghost"}`}
+            onClick={() => setTransport("stdio")}
+          >
+            stdio command
+          </button>
+        </div>
+
         <div className="form">
-          <label className="field wide">
-            endpoint url
-            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://host/mcp" />
-          </label>
+          {transport === "url" ? (
+            <>
+              <label className="field wide">
+                endpoint url
+                <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://host/mcp" />
+              </label>
+              <label className="field wide">
+                headers <span className="hint">JSON, sent on every upstream request (e.g. Authorization)</span>
+                <textarea
+                  value={headers}
+                  onChange={(e) => setHeaders(e.target.value)}
+                  placeholder='{"Authorization": "Bearer …"}'
+                  style={{ minHeight: 52 }}
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <label className="field wide">
+                command <span className="hint">executable to launch, e.g. npx</span>
+                <input
+                  value={command}
+                  onChange={(e) => setCommand(e.target.value)}
+                  placeholder="npx"
+                />
+              </label>
+              <label className="field wide">
+                args <span className="hint">space-separated arguments</span>
+                <input
+                  value={stdioArgs}
+                  onChange={(e) => setStdioArgs(e.target.value)}
+                  placeholder="-y @modelcontextprotocol/server-filesystem /path"
+                />
+              </label>
+              <label className="field wide">
+                env <span className="hint">optional JSON object of environment variables</span>
+                <textarea
+                  value={envJson}
+                  onChange={(e) => setEnvJson(e.target.value)}
+                  placeholder='{"API_KEY": "…"}'
+                  style={{ minHeight: 52 }}
+                />
+              </label>
+            </>
+          )}
           <label className="field">
             id <span className="hint">tool prefix; defaults to hostname</span>
             <input value={id} onChange={(e) => setId(e.target.value)} placeholder="myserver" />
@@ -567,15 +896,6 @@ function AddSheet({
           <label className="field">
             display name
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Server" />
-          </label>
-          <label className="field wide">
-            headers <span className="hint">JSON, sent on every upstream request (e.g. Authorization)</span>
-            <textarea
-              value={headers}
-              onChange={(e) => setHeaders(e.target.value)}
-              placeholder='{"Authorization": "Bearer …"}'
-              style={{ minHeight: 52 }}
-            />
           </label>
           <label className="field wide">
             note
@@ -592,12 +912,22 @@ function AddSheet({
           </label>
         </div>
         {preview && <div className={`note ${preview.startsWith("✓") ? "good" : "warn"}`} style={{ marginTop: 12 }}>{preview}</div>}
+        {probeTools.length > 0 && (
+          <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
+            {probeTools.slice(0, 8).map((t) => (
+              <span key={t.name} className="mono" style={{ fontSize: 11, padding: "1px 5px", background: "var(--bg2, #f0f0f0)", borderRadius: 3 }}>{t.name}</span>
+            ))}
+            {probeTools.length > 8 && (
+              <span style={{ fontSize: 11, opacity: 0.6 }}>… and {probeTools.length - 8} more</span>
+            )}
+          </div>
+        )}
         {error && <div className="note bad" style={{ marginTop: 12 }}>{error}</div>}
         <div className="row" style={{ marginTop: 14, justifyContent: "flex-end" }}>
-          <button disabled={!url.trim() || !!busy} onClick={doProbe}>
+          <button disabled={!canSubmit || !!busy} onClick={doProbe}>
             {busy === "probe" ? "probing…" : "probe"}
           </button>
-          <button className="primary" disabled={!url.trim() || !!busy} onClick={doAdd}>
+          <button className="primary" disabled={!canSubmit || !!busy} onClick={doAdd}>
             {busy === "add" ? "adding…" : "add to hub"}
           </button>
         </div>
@@ -608,9 +938,9 @@ function AddSheet({
 
 /* ── tools search sheet ──────────────────────────────────────────── */
 
-function ToolsSheet({ onClose }: { onClose: () => void }) {
+function ToolsSheet({ onClose, initialQ }: { onClose: () => void; initialQ?: string }) {
   const [tools, setTools] = useState<Tool[]>([]);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQ || "");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
 
@@ -706,8 +1036,14 @@ function ActivitySheet({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 10000);
-    return () => clearInterval(t);
+    const stop = api.streamActivity((entry) => {
+      setLog((prev) =>
+        prev
+          ? { total: prev.total + 1, recent: [entry, ...prev.recent].slice(0, 100) }
+          : null
+      );
+    });
+    return stop;
   }, [refresh]);
 
   return (
@@ -718,7 +1054,7 @@ function ActivitySheet({ onClose }: { onClose: () => void }) {
           {log && <span className="muted small">{log.total.toLocaleString()} total calls</span>}
         </div>
         <p className="muted small" style={{ margin: "4px 0 0" }}>
-          Every tool call through this hub — most recent first. Updates every 10 s.
+          Every tool call through this hub — most recent first. Updates in real time.
         </p>
 
         {error && <div className="note bad" style={{ marginTop: 12 }}>{error}</div>}
@@ -1305,12 +1641,17 @@ function HubsSheet({
 
 /* ── connecting a client ──────────────────────────────────────────── */
 
+const CLIENT_TABS = ["claude", "cursor", "vscode", "json", "export"] as const;
+type ClientTab = (typeof CLIENT_TABS)[number];
+
 function ConnectCard({ url, me }: { url: string; me: Me | null }) {
   const [keys, setKeys] = useState<ApiKey[] | null>(null);
   const [minted, setMinted] = useState<string>("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [client, setClient] = useState<ClientTab>("json");
+  const [configData, setConfigData] = useState<Record<string, unknown> | null>(null);
 
   const load = useCallback(() => {
     if (!me?.is_owner) return;
@@ -1321,6 +1662,17 @@ function ConnectCard({ url, me }: { url: string; me: Me | null }) {
   }, [me?.is_owner]);
 
   useEffect(load, [load]);
+
+  useEffect(() => {
+    if (client === "export") {
+      api.export().then(setConfigData).catch(() => {});
+    } else {
+      api
+        .clientConfig(client)
+        .then((r) => setConfigData(r.config as Record<string, unknown>))
+        .catch(() => {});
+    }
+  }, [client]);
 
   const mint = async () => {
     setBusy(true);
@@ -1337,32 +1689,40 @@ function ConnectCard({ url, me }: { url: string; me: Me | null }) {
     }
   };
 
-  const header = minted ? ` --header "Authorization: Bearer ${minted}"` : "";
-  const cli = `claude mcp add hub --transport http ${url}${header}`;
-  const json = JSON.stringify(
-    {
-      mcpServers: {
-        hub: {
-          transport: "http",
-          url,
-          ...(minted ? { headers: { Authorization: `Bearer ${minted}` } } : {}),
-        },
-      },
-    },
-    null,
-    2
-  );
+  const configText = (() => {
+    if (!configData) return "";
+    if (client === "export") return JSON.stringify(configData, null, 2);
+    if (client === "claude") {
+      const cmd = (configData as { command?: string }).command ?? "";
+      return minted ? `${cmd} --header "Authorization: Bearer ${minted}"` : cmd;
+    }
+    if (minted && configData.mcpServers) {
+      const cfg = JSON.parse(JSON.stringify(configData)) as {
+        mcpServers: { hub: Record<string, unknown> };
+      };
+      cfg.mcpServers.hub.headers = { Authorization: `Bearer ${minted}` };
+      return JSON.stringify(cfg, null, 2);
+    }
+    return JSON.stringify(configData, null, 2);
+  })();
 
   return (
     <div className="note" style={{ marginTop: 14 }}>
       <strong>Point any MCP client at the hub</strong>
-      <div className="row" style={{ marginTop: 8 }}>
-        <pre className="code" style={{ flex: 1 }}>{cli}</pre>
-        <Copy text={cli} />
+      <div className="row" style={{ marginTop: 8, gap: 4 }}>
+        {CLIENT_TABS.map((c) => (
+          <button
+            key={c}
+            className={`sm${client === c ? " primary" : " ghost"}`}
+            onClick={() => setClient(c)}
+          >
+            {c}
+          </button>
+        ))}
       </div>
       <div className="row" style={{ marginTop: 8 }}>
-        <pre className="code" style={{ flex: 1 }}>{json}</pre>
-        <Copy text={json} />
+        <pre className="code" style={{ flex: 1 }}>{configText}</pre>
+        <Copy text={configText} />
       </div>
       <p className="muted small">
         Calls from this host need no credential. Through the public gateway they do — mint a key below and the
@@ -1421,6 +1781,185 @@ function ConnectCard({ url, me }: { url: string; me: Me | null }) {
   );
 }
 
+/* ── command palette ──────────────────────────────────────────────── */
+
+function CmdPalette({
+  servers,
+  toolsCache,
+  onClose,
+  onSelectServer,
+  onSearchTools,
+  onAdd,
+  onBrowse,
+  onHubs,
+  onActivity,
+  onSearchWeb,
+}: {
+  servers: Server[];
+  toolsCache: React.MutableRefObject<Tool[] | null>;
+  onClose: () => void;
+  onSelectServer: (id: string) => void;
+  onSearchTools: (q: string) => void;
+  onAdd: () => void;
+  onBrowse: () => void;
+  onHubs: () => void;
+  onActivity: () => void;
+  onSearchWeb: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [tools, setTools] = useState<Tool[]>(() => toolsCache.current || []);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    if (!toolsCache.current) {
+      api.tools().then((r) => {
+        toolsCache.current = r.tools;
+        setTools(r.tools);
+      }).catch(() => {});
+    }
+  }, [toolsCache]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const lq = q.toLowerCase();
+
+  const filteredServers = (q
+    ? servers.filter((s) =>
+        s.name.toLowerCase().includes(lq) ||
+        s.id.toLowerCase().includes(lq) ||
+        s.url.toLowerCase().includes(lq)
+      )
+    : servers
+  ).slice(0, 6);
+
+  const filteredTools = (q
+    ? tools.filter((t) =>
+        t.name.toLowerCase().includes(lq) ||
+        (t.description || "").toLowerCase().includes(lq)
+      )
+    : tools
+  ).slice(0, 8);
+
+  const STATIC = [
+    { label: "add server",   fn: () => { onAdd();       onClose(); } },
+    { label: "find servers", fn: () => { onBrowse();    onClose(); } },
+    { label: "hubs",         fn: () => { onHubs();      onClose(); } },
+    { label: "activity",     fn: () => { onActivity();  onClose(); } },
+    { label: "search web",   fn: () => { onSearchWeb(); onClose(); } },
+  ];
+
+  const filteredStatic = q ? STATIC.filter((c) => c.label.includes(lq)) : STATIC;
+
+  const rowStyle: React.CSSProperties = {
+    width: "100%", textAlign: "left", border: "none", borderRadius: 0,
+    borderBottom: "1px solid var(--line-soft)", background: "transparent",
+    padding: "9px 14px", display: "flex", gap: 10, alignItems: "center",
+    cursor: "pointer",
+  };
+  const sectionLabel: React.CSSProperties = {
+    padding: "8px 14px 2px", fontSize: 11, color: "var(--ink-faint)",
+    fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em",
+    userSelect: "none",
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 100, display: "flex",
+        alignItems: "flex-start", justifyContent: "center", paddingTop: "15vh",
+        background: "color-mix(in srgb, var(--bg) 50%, transparent)",
+        backdropFilter: "blur(4px)",
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{
+        background: "var(--surface-2)", border: "1px solid var(--line-strong)",
+        borderRadius: "var(--radius)", boxShadow: "var(--shadow-2)",
+        width: "min(540px, 90vw)", overflow: "hidden", maxHeight: "70vh",
+        display: "flex", flexDirection: "column",
+      }}>
+        <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--line-soft)" }}>
+          <input
+            ref={inputRef}
+            style={{
+              width: "100%", background: "transparent", border: "none",
+              borderRadius: 0, padding: 0, fontSize: 15, outline: "none",
+            }}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="search servers, tools, commands…"
+          />
+        </div>
+
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {filteredServers.length > 0 && (
+            <div>
+              <div style={sectionLabel}>Servers</div>
+              {filteredServers.map((s) => (
+                <button key={s.id} style={rowStyle} onClick={() => { onSelectServer(s.id); onClose(); }}>
+                  <span style={{ color: s.probe.ok ? "var(--good)" : "var(--bad)", fontSize: 10 }}>●</span>
+                  <span style={{ flex: 1 }}>{s.name}</span>
+                  <span className="mono" style={{ fontSize: 11, color: "var(--ink-mute)" }}>{s.id}</span>
+                  <span className="badge plain" style={{ fontSize: 10 }}>{s.probe.toolCount} tools</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {filteredTools.length > 0 && (
+            <div>
+              <div style={sectionLabel}>Tools</div>
+              {filteredTools.map((t) => {
+                const sep = t.name.indexOf("__");
+                const srv = sep > -1 ? t.name.slice(0, sep) : null;
+                const tname = sep > -1 ? t.name.slice(sep + 2) : t.name;
+                return (
+                  <button key={t.name} style={rowStyle} onClick={() => { onSearchTools(t.name); onClose(); }}>
+                    <span className="mono" style={{ flex: 1, fontSize: 13 }}>{tname}</span>
+                    {srv && <span className="mono" style={{ fontSize: 11, color: "var(--ink-mute)" }}>{srv}</span>}
+                    {t.description && (
+                      <span style={{ fontSize: 12, color: "var(--ink-mute)", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {t.description}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {filteredStatic.length > 0 && (
+            <div>
+              <div style={sectionLabel}>Actions</div>
+              {filteredStatic.map((c) => (
+                <button key={c.label} style={rowStyle} onClick={c.fn}>
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {filteredServers.length === 0 && filteredTools.length === 0 && filteredStatic.length === 0 && q && (
+            <div className="muted small" style={{ padding: 14, textAlign: "center" }}>
+              no results for &ldquo;{q}&rdquo;
+            </div>
+          )}
+        </div>
+
+        <div style={{
+          padding: "5px 14px", borderTop: "1px solid var(--line-soft)",
+          fontSize: 11, color: "var(--ink-faint)", display: "flex", gap: 14,
+        }}>
+          <span>&#8984;K toggle</span>
+          <span>esc close</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── page ─────────────────────────────────────────────────────────── */
 
 export default function Page() {
@@ -1439,6 +1978,8 @@ export default function Page() {
   const [sweepNote, setSweepNote] = useState("");
   const [paying, setPaying] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [gridFilter, setGridFilter] = useState("");
+  const [gridSort, setGridSort] = useState("name");
 
   const load = useCallback(() => {
     api
@@ -1464,6 +2005,13 @@ export default function Page() {
 
   useEffect(() => {
     api.clientConfig("json").then((r) => setEndpoint(r.url)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const stop = api.streamActivity(() => {
+      setActivityTotal((prev) => prev + 1);
+    });
+    return stop;
   }, []);
 
   const refreshAll = async () => {
@@ -1524,7 +2072,21 @@ export default function Page() {
 
   const [hubsOpen, setHubsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [toolsInitQ, setToolsInitQ] = useState<string | undefined>();
   const [activityOpen, setActivityOpen] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const cmdToolsCache = useRef<Tool[] | null>(null);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
   const [activityBaseline, setActivityBaseline] = useState<number | null>(null);
   const [activityTotal, setActivityTotal] = useState(0);
   const [catalogRegistry, setCatalogRegistry] = useState("all");
@@ -1561,6 +2123,25 @@ export default function Page() {
   };
 
   const selected = useMemo(() => servers?.find((s) => s.id === sel) || null, [servers, sel]);
+
+  const shown = useMemo(() => {
+    if (!servers) return null;
+    let list = servers;
+    if (gridFilter) {
+      const q = gridFilter.toLowerCase();
+      list = list.filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q) || s.url.toLowerCase().includes(q));
+    }
+    list = [...list].sort((a, b) => {
+      switch (gridSort) {
+        case "calls":    return (b.calls ?? 0) - (a.calls ?? 0);
+        case "tools":    return (b.probe.toolCount ?? 0) - (a.probe.toolCount ?? 0);
+        case "latency":  return (a.probe.ok ? (a.probe.latency_ms ?? Infinity) : Infinity) - (b.probe.ok ? (b.probe.latency_ms ?? Infinity) : Infinity);
+        case "status":   return (b.probe.ok ? 1 : 0) - (a.probe.ok ? 1 : 0);
+        default:         return a.name.localeCompare(b.name);
+      }
+    });
+    return list;
+  }, [servers, gridFilter, gridSort]);
 
   return (
     <>
@@ -1692,9 +2273,27 @@ export default function Page() {
           </div>
         )}
 
+        {servers !== null && servers.length > 6 && (
+          <div className="searchbar" style={{ marginTop: 8 }}>
+            <input
+              type="search"
+              placeholder="filter by name, id, or URL…"
+              value={gridFilter}
+              onChange={(e) => setGridFilter(e.target.value)}
+            />
+            <select value={gridSort} onChange={(e) => setGridSort(e.target.value)}>
+              <option value="name">sort: name</option>
+              <option value="calls">sort: calls</option>
+              <option value="tools">sort: tools</option>
+              <option value="latency">sort: latency</option>
+              <option value="status">sort: status</option>
+            </select>
+          </div>
+        )}
+
         <div className="grid">
           {servers === null && [0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="skel" />)}
-          {servers?.map((s) => (
+          {shown?.map((s) => (
             <div key={s.id} className="card" style={{ opacity: s.enabled ? 1 : 0.45 }} onClick={() => setSel(s.id)}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <h3>
@@ -1703,9 +2302,10 @@ export default function Page() {
                 </h3>
                 <span
                   className="badge"
-                  style={{ ["--hue" as string]: s.source === "fleet" ? "var(--src-fleet)" : "var(--accent)" }}
+                  style={{ ["--hue" as string]: s.local || s.source === "fleet" ? "var(--src-fleet)" : "var(--accent)" }}
+                  title={sourceLabel(s).hint}
                 >
-                  {s.source}
+                  {sourceLabel(s).text}
                 </span>
               </div>
               <p className="desc">{s.note || s.url}</p>
@@ -1719,8 +2319,39 @@ export default function Page() {
                 ) : (
                   <span style={{ color: "var(--bad-ink)" }}>{s.probe.error?.slice(0, 60) || "unprobed"}</span>
                 )}
+                {(s.calls ?? 0) > 0 && (
+                  <>
+                    <span>{s.calls!.toLocaleString()} calls</span>
+                    {s.last_call && <span>last {ago(s.last_call)}</span>}
+                  </>
+                )}
+                {s.review_risk && (
+                  <span style={{ color: riskColor(s.review_risk), fontWeight: 600, textTransform: "uppercase", fontSize: 11 }}>
+                    {s.review_risk}
+                  </span>
+                )}
                 {s.pay && <span className="tag" title="a 402 from this server is paid through the x402 module">x402</span>}
                 {!s.enabled && <span className="tag">disabled</span>}
+                {s.uptime && s.uptime.length > 0 && (
+                  <span style={{ display: "flex", alignItems: "flex-end", gap: 1, marginLeft: 2 }} title={`${s.uptime.filter(d => d.ok).length}/${s.uptime.length} checks up`}>
+                    {(() => {
+                      const maxLat = Math.max(...s.uptime!.filter(d => d.latency_ms != null).map(d => d.latency_ms as number), 1);
+                      return s.uptime!.map((dot, i) => {
+                        const h = dot.ok && dot.latency_ms != null
+                          ? Math.max(3, Math.min(14, Math.round((dot.latency_ms / maxLat) * 14)))
+                          : 3;
+                        const bg = !dot.ok
+                          ? "var(--line-strong)"
+                          : dot.latency_ms == null || dot.latency_ms < 300
+                          ? "var(--good)"
+                          : dot.latency_ms < 1500
+                          ? "var(--warn)"
+                          : "var(--bad)";
+                        return <span key={i} style={{ display: "inline-block", width: 4, height: h, borderRadius: 1, background: bg, opacity: 0.8 }} />;
+                      });
+                    })()}
+                  </span>
+                )}
               </div>
             </div>
           ))}
@@ -1755,8 +2386,27 @@ export default function Page() {
       {searching && (
         <WebSheet onClose={() => setSearching(false)} providers={stats?.web.providers || []} />
       )}
-      {toolsOpen && <ToolsSheet onClose={() => setToolsOpen(false)} />}
+      {toolsOpen && (
+        <ToolsSheet
+          initialQ={toolsInitQ}
+          onClose={() => { setToolsOpen(false); setToolsInitQ(undefined); }}
+        />
+      )}
       {activityOpen && <ActivitySheet onClose={() => setActivityOpen(false)} />}
+      {cmdOpen && servers !== null && (
+        <CmdPalette
+          servers={servers}
+          toolsCache={cmdToolsCache}
+          onClose={() => setCmdOpen(false)}
+          onSelectServer={(id) => setSel(id)}
+          onSearchTools={(q) => { setToolsInitQ(q); setToolsOpen(true); }}
+          onAdd={() => { setSeed(null); setAdding(true); }}
+          onBrowse={() => { setCatalogRegistry("all"); setBrowsing(true); }}
+          onHubs={() => setHubsOpen(true)}
+          onActivity={() => setActivityOpen(true)}
+          onSearchWeb={() => setSearching(true)}
+        />
+      )}
     </>
   );
 }

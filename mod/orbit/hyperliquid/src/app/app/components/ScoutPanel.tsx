@@ -160,7 +160,7 @@ function Row({ p, i, k, cap }: { p: ScoutPick; i: number; k: number; cap: string
           `\nbacktest: ${p.green_windows}/${p.trusted_windows} trusted windows green — ${v.hint}`}>
         {pp == null ? "—" : `${pp}%`}
       </span>
-      <Link href={`/follows/new?leader=${p.address}`} className="btn-ghost !py-0.5 !px-2 text-[10px] justify-self-end">copy</Link>
+      <Link href={`/live?traders=${p.address}`} className="btn-ghost !py-0.5 !px-2 text-[10px] justify-self-end">copy</Link>
     </div>
     {big && <div className="px-4 pb-3"><Curve p={p} k={k} big /></div>}
     </div>

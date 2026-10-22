@@ -36,14 +36,22 @@
         "live",
         "series",
         "sparks",
-        "heatmap"
+        "heatmap",
+        "cohorts",
+        "pairs",
+        "funnel",
+        "paths"
     ],
     "endpoints": {
         "GET /live": "People on each app in the last `window` seconds (default 300) + total across all sites",
         "GET /series": "Users per bucket per app over a range (range=1h|6h|24h|7d|30d, top=8, apps=a,b) + full app table",
         "GET /sparks": "Every app's per-bucket users for the range (table sparklines)",
         "GET /health": "Liveness + log lines read",
-        "GET /info": "What this is, which log it reads"
+        "GET /info": "What this is, which log it reads",
+        "GET /cohorts": "Per-bucket new vs returning visitors over the range (range=1h|6h|24h|7d|30d)",
+        "GET /pairs": "Top app pairs co-visited by the same person over the range",
+        "GET /funnel": "How many distinct visitors used 1, 2, 3+ apps over the range",
+        "GET /paths": "Top ordered app navigation sequences (e.g. build → traffic → hyperliquid) taken by visitors over the range"
     },
     "schema": "QmSKF7dtnwAuJUJqmY8SwHqHTZ7kp55arcFfo1Mpw44LSu"
 }

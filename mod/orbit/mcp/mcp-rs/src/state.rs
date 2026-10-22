@@ -2,23 +2,12 @@
 //! User entries shadow a fleet entry with the same id; the disabled set hides
 //! any server from aggregation without deleting it.
 
-use crate::store::{self, PeerHub, Probe, ServerEntry};
+use crate::store::{self, CallEntry, PeerHub, Probe, ServerEntry, ServerStat, UptimeDot};
 use crate::{fleet, upstream};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-/// One tool invocation recorded in the ring buffer.
-#[derive(Clone, serde::Serialize)]
-pub struct CallEntry {
-    pub ts: u64,
-    pub tool: String,
-    pub server: String,
-    pub ok: bool,
-    pub latency_ms: u64,
-    pub error: String,
-}
 
 pub struct AppState {
     pub user: RwLock<Vec<ServerEntry>>,
@@ -27,6 +16,8 @@ pub struct AppState {
     /// Mods caught serving MCP by the live sweep rather than by declaration.
     pub swept: RwLock<HashMap<String, ServerEntry>>,
     pub probes: RwLock<HashMap<String, Probe>>,
+    /// Rolling history of the last 24 probe results per server.
+    pub probe_history: RwLock<HashMap<String, VecDeque<UptimeDot>>>,
     pub started_at: u64,
     pub swept_at: RwLock<u64>,
     /// Other hubs known by URL (hubs.json) and the last probe of every hub.
@@ -36,28 +27,52 @@ pub struct AppState {
     pub call_log: RwLock<VecDeque<CallEntry>>,
     /// Monotonically increasing count of all tool calls ever dispatched.
     pub call_total: AtomicU64,
+    /// Broadcast channel for real-time SSE activity streaming.
+    pub activity_tx: tokio::sync::broadcast::Sender<CallEntry>,
+    /// Per-server call counts and last-call timestamps (in-memory only).
+    pub server_stats: RwLock<HashMap<String, ServerStat>>,
 }
 
 impl AppState {
     pub fn load() -> Arc<Self> {
         let hub = store::load_hub();
+        let (activity_tx, _) = tokio::sync::broadcast::channel(256);
         Arc::new(Self {
             user: RwLock::new(hub.servers),
             disabled: RwLock::new(hub.disabled),
             fleet: RwLock::new(fleet::discover()),
             swept: RwLock::new(hub.swept.into_iter().map(|s| (s.id.clone(), s)).collect()),
             probes: RwLock::new(store::load_probes()),
+            probe_history: RwLock::new(
+                store::load_probe_history()
+                    .into_iter()
+                    .map(|(k, v)| (k, v.into_iter().collect()))
+                    .collect(),
+            ),
             started_at: store::now(),
             swept_at: RwLock::new(0),
             peers: RwLock::new(store::load_hubs()),
             hubs_cache: RwLock::new(None),
-            call_log: RwLock::new(VecDeque::with_capacity(200)),
-            call_total: AtomicU64::new(0),
+            call_log: RwLock::new(store::load_call_log().into_iter().collect()),
+            call_total: AtomicU64::new({
+                let s = store::load_stats();
+                let n: u64 = s.values().map(|v| v.calls).sum();
+                n
+            }),
+            activity_tx,
+            server_stats: RwLock::new(store::load_stats()),
         })
     }
 
     pub async fn record_call(&self, entry: CallEntry) {
         self.call_total.fetch_add(1, Ordering::Relaxed);
+        let _ = self.activity_tx.send(entry.clone());
+        {
+            let mut stats = self.server_stats.write().await;
+            let stat = stats.entry(entry.server.clone()).or_default();
+            stat.calls += 1;
+            stat.last_ts = entry.ts;
+        }
         let mut log = self.call_log.write().await;
         log.push_back(entry);
         if log.len() > 200 {
@@ -109,6 +124,14 @@ impl AppState {
     }
 
     pub async fn set_probe(&self, id: &str, probe: Probe) {
+        {
+            let mut hist = self.probe_history.write().await;
+            let deque = hist.entry(id.to_string()).or_default();
+            deque.push_back(UptimeDot { ts: probe.checked_at, ok: probe.ok, latency_ms: if probe.ok { Some(probe.latency_ms) } else { None } });
+            if deque.len() > 24 {
+                deque.pop_front();
+            }
+        }
         let snapshot = {
             let mut probes = self.probes.write().await;
             probes.insert(id.to_string(), probe);
@@ -214,7 +237,13 @@ impl AppState {
         let results = futures_util::future::join_all(jobs).await;
         let snapshot = {
             let mut probes = self.probes.write().await;
+            let mut hist = self.probe_history.write().await;
             for (id, p) in results {
+                let deque = hist.entry(id.clone()).or_default();
+                deque.push_back(UptimeDot { ts: p.checked_at, ok: p.ok, latency_ms: if p.ok { Some(p.latency_ms) } else { None } });
+                if deque.len() > 24 {
+                    deque.pop_front();
+                }
                 probes.insert(id, p);
             }
             probes.clone()

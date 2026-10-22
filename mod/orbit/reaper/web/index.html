@@ -5,12 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>REAPER</title>
 <link rel="stylesheet" href="kit.css" />
-<style>.row[data-heavy]{background:rgba(255,160,0,0.07)}</style>
+<style>.row[data-heavy]{background:rgba(255,160,0,0.07)}
+.notice.warn{border-color:color-mix(in srgb,var(--amber) 50%,transparent);color:var(--amber)}
+.row[data-pressure="1"]{border-left:3px solid var(--amber)}
+.spark{display:inline-flex;gap:2px;align-items:flex-end;height:12px;margin-top:5px;margin-bottom:2px}
+.spark i{width:4px;height:100%;border-radius:2px;background:var(--line)}
+.spark i.on{background:var(--green)}
+.hm-grid{display:flex;flex-direction:column;gap:2px}
+.hm-row{display:flex;align-items:center;gap:6px}
+.hm-name{font-size:10px;color:var(--faint);width:90px;text-align:right;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace}
+.hm-cells{display:flex;gap:1px;align-items:center}
+.hm-cell{display:inline-block;width:8px;height:8px;border-radius:1px;background:var(--line);opacity:.3}
+.hm-cell.on{background:var(--green);opacity:1}
+#guard-preview{font-size:12px;margin-top:8px;color:var(--faint)}</style>
 </head>
 <body>
 <div class="wrap">
   <div id="hdr"></div>
   <div id="err"></div>
+  <div id="pressure"></div>
   <div class="grid">
     <div class="card">
       <h2>Memory</h2>
@@ -20,18 +33,29 @@
       <h2>Idle timeout</h2>
       <div class="inline"><button id="minus" class="sm">− 60s</button><b id="idle" style="font-size:22px;min-width:90px;text-align:center">—</b><button id="plus" class="sm">+ 60s</button></div>
       <div id="policy" class="faint" style="font-size:12px;margin-top:10px"></div>
+      <div id="next-sleep" style="font-size:12px;margin-top:6px;display:none"></div>
       <div class="form" style="margin-top:12px">
         <label class="f">keep this much RAM free (MB)<input id="minFree" type="number" min="0" step="500" /></label>
         <label class="f">max running (0 = no cap)<input id="maxRun" type="number" min="0" /></label>
       </div>
+      <div id="guard-preview"></div>
       <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="guardSave" class="sm">save guard</button></div>
     </div>
+    <div class="card wide" id="feed-card">
+      <h2>Recent events <span class="faint" style="font-size:12px;font-weight:normal" id="feed-hint">watching…</span> <button class="sm" id="clearFeed">clear</button> <button class="sm" id="notifyBtn">notify off</button></h2>
+      <div id="feed" class="rows"></div>
+    </div>
     <div class="card wide">
-      <h2>Modules <span class="sp"></span><span id="counts" class="faint"></span></h2>
+      <h2>Fleet activity</h2>
+      <div id="heatmap"></div>
+    </div>
+    <div class="card wide">
+      <h2>Modules <span class="sp"></span><span id="counts" class="faint"></span><span id="fleet-spark" style="vertical-align:middle"></span><span id="sorter" style="font-size:12px;font-weight:normal;display:inline-flex;gap:4px;margin-left:10px"><button class="sm sel" data-s="status">Status</button><button class="sm" data-s="ram">RAM↓</button><button class="sm" data-s="cpu">CPU↓</button><button class="sm" data-s="hits">Hits↓</button><button class="sm" data-s="name">Name↑</button></span><button id="sleepAll" class="sm danger" style="display:none;font-size:12px;font-weight:normal;margin-left:10px">sleep all</button><button id="wakeAll" class="sm" style="display:none;font-size:12px;font-weight:normal;margin-left:6px">wake all</button></h2>
       <div class="inline" style="margin-bottom:10px">
         <input id="q" placeholder="search…" style="max-width:240px" />
         <div class="seg" id="seg"><button data-v="all" class="sel">all</button><button data-v="awake">awake</button><button data-v="asleep">asleep</button><button data-v="pinned">pinned</button><button data-v="disabled">disabled</button></div>
       </div>
+      <div id="batch-bar" class="inline" style="display:none;margin-bottom:10px;padding:8px 10px;border:1px solid var(--line2);border-radius:10px;background:var(--panel2)"></div>
       <div id="mods" class="rows"></div>
     </div>
   </div>
@@ -39,20 +63,43 @@
 <script src="kit.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-let R = null, view = "all", seeded = false, showAll = false;
+let R = null, view = "all", seeded = false, showAll = false, sortBy = "status";
+let selectedMods = new Set();
 let liveTimer = null, liveState = null;
+let provMap = {};
+let prevStates = new Map(), events = [];
+try { events = JSON.parse(localStorage.getItem('reaper_events') || '[]').slice(0, 30); } catch {}
+let notifyEnabled = localStorage.getItem('reaper_notify') === '1';
+let histMap = new Map();
+let fleetHistory = [];
+let ramHistory = [];
 
 function tickBars() {
   if (!liveState) return;
   const elapsed = (Date.now() - liveState.loadedAt) / 1000;
   const timeout = liveState.idleTimeout || 60;
+  let bestName = null, bestRatio = -1, bestIdle = 0;
   document.querySelectorAll('#mods .row[data-m]').forEach(row => {
     const mod = liveState.mods.get(row.dataset.m);
     if (!mod || !mod.running || mod.pinned || mod.alwaysOn) return;
     const ratio = Math.min((mod.idleSeconds + elapsed) / timeout, 1);
     const bar = row.querySelector('.idle-bar i');
     if (bar) { bar.style.width = Math.round(ratio * 100) + '%'; bar.style.background = ratio < 0.5 ? 'var(--green)' : ratio < 0.8 ? 'var(--amber)' : 'var(--red)'; }
+    if (ratio > bestRatio) { bestRatio = ratio; bestName = row.dataset.m; bestIdle = mod.idleSeconds; }
   });
+  const ns = $("next-sleep");
+  if (!ns) return;
+  if (!bestName) { ns.style.display = 'none'; return; }
+  ns.style.display = '';
+  const rawRatio = (bestIdle + elapsed) / timeout;
+  if (rawRatio >= 1) {
+    ns.textContent = `Next: ${bestName} — due now`;
+    ns.style.color = 'var(--red)';
+  } else {
+    const rem = Math.round(timeout - (bestIdle + elapsed));
+    ns.textContent = `Next: ${bestName} in ~${rem}s`;
+    ns.style.color = rem < 10 ? 'var(--red)' : rem < 30 ? 'var(--amber)' : 'var(--faint)';
+  }
 }
 
 function render() {
@@ -66,62 +113,311 @@ function render() {
     const pct = Math.round(((t.mem_mb || 0) / topMaxMb) * 100);
     return `<div class="top-row"><span class="top-name">${K.esc(t.name)}</span><div class="top-bar"><i style="width:${pct}%"></i></div><span class="top-mb">${(t.mem_mb || 0).toFixed(0)}M</span></div>`;
   }).join("")}</div>` : "";
+  const memMap = Object.fromEntries((R.memory?.top||[]).map(t=>[t.name, t.mem_mb]));
+  const reclaimCandidates = (s.modules || []).filter(x => x.running && !x.pinned && !x.alwaysOn).map(x => ({ module: x.module, mb: provMap[x.module]?.mem_mb ?? memMap[x.module] ?? 0 })).filter(x => x.mb > 0).sort((a, b) => b.mb - a.mb).slice(0, 5);
+  const reclaimMb = Math.round(reclaimCandidates.reduce((acc, x) => acc + x.mb, 0));
+  $("pressure").innerHTML = g.underPressure ? `<div class="notice warn">RAM PRESSURE · ${reclaimMb}MB available — ${K.esc(reclaimCandidates.map(x=>x.module).join(', '))}</div>` : "";
+  const reclaimBtn = K.isOwner && reclaimMb > 100 ? `<button class="sm${usedPct > 85 ? ' danger' : ''}" data-reclaim="1" style="margin-top:10px">reclaim ~${reclaimMb}MB</button>` : '';
   $("mem").innerHTML = `<div class="stats"><div class="stat"><b>${(m.available_mb / 1024 || 0).toFixed(1)}G</b><span>free</span></div>
     <div class="stat"><b>${(m.used_mb / 1024 || 0).toFixed(1)}G</b><span>used</span></div><div class="stat"><b>${(m.total_mb / 1024 || 0).toFixed(1)}G</b><span>total</span></div></div>
     <div class="meter" style="margin-top:12px"><i style="width:${usedPct}%;background:${usedPct > 85 ? "var(--red)" : "var(--accent)"}"></i></div>
-    <div class="faint" style="font-size:12px;margin-top:8px">${s.sweep ? `${s.sweep.idleStops ?? 0} idle stops` : ""}${g.pressureStops ? ` · ${g.pressureStops} pressure stops` : ""}${g.minFreeMb ? ` · guard keeps ${g.minFreeMb} MB free` : ""}</div>${topHtml}`;
+    <div class="faint" style="font-size:12px;margin-top:8px">${s.sweep ? `${s.sweep.idleStops ?? 0} idle stops` : ""}${g.pressureStops ? ` · ${g.pressureStops} pressure stops` : ""}${g.minFreeMb ? ` · guard keeps ${g.minFreeMb} MB free` : ""}</div>${topHtml}${reclaimBtn}`;
+  if (ramHistory.length >= 2) {
+    const W = 80, H = 20, n = ramHistory.length;
+    const latest = ramHistory[n - 1];
+    const maxVal = Math.max(...ramHistory, 1);
+    const threshold = g.minFreeMb > 0 ? g.minFreeMb : (m.total_mb || 0) * 0.2;
+    const sparkColor = latest < threshold ? 'var(--red)' : latest < threshold * 1.2 ? 'var(--amber)' : 'var(--green)';
+    const pt = (v, i) => `${(i / (n - 1) * W).toFixed(1)},${(H - v / maxVal * H).toFixed(1)}`;
+    const pts = ramHistory.map((v, i) => pt(v, i)).join(' ');
+    const threshLine = g.minFreeMb > 0 ? (() => {
+      const ty = Math.max(0, Math.min(H, H - g.minFreeMb / maxVal * H)).toFixed(1);
+      return `<line x1="0" y1="${ty}" x2="${W}" y2="${ty}" stroke="${sparkColor}" stroke-width="1" stroke-dasharray="2,2" opacity="0.7"/>`;
+    })() : '';
+    $("mem").insertAdjacentHTML('beforeend', `<div style="margin-top:8px;display:flex;align-items:center;gap:6px"><svg width="${W}" height="${H}" style="overflow:visible"><polygon points="${pts} ${W},${H} 0,${H}" fill="color-mix(in srgb, ${sparkColor} 8%, transparent)" stroke="none"/><polyline points="${pts}" fill="none" stroke="${sparkColor}" stroke-width="1.5" stroke-linejoin="round"/>${threshLine}</svg><span style="font-size:10px;color:var(--faint)">~${n * 10}s trend</span></div>`);
+  }
   $("idle").textContent = s.idleSeconds ? K.dur(s.idleSeconds) : "—";
   $("policy").textContent = s.policy || "";
   if (!seeded && s.guard) { $("minFree").value = g.minFreeMb ?? ""; $("maxRun").value = g.maxRunning ?? 0; seeded = true; }
   for (const id of ["minus", "plus", "guardSave"]) $(id).disabled = !K.isOwner || !R.activator;
-
-  const memMap = Object.fromEntries((R.memory?.top||[]).map(t=>[t.name, t.mem_mb]));
   const mods = s.modules || [];
   const awake = mods.filter((x) => x.running).length;
   $("counts").textContent = `${awake} awake · ${mods.length - awake} asleep · ${mods.filter((x) => x.pinned).length} pinned`;
+  const sparkEl = $("fleet-spark");
+  if (sparkEl) {
+    if (fleetHistory.length >= 3) {
+      const W = 80, H = 18, n = fleetHistory.length;
+      const maxT = Math.max(...fleetHistory.map(p => p.total), 1);
+      const pt = (p, i) => `${(i / (n - 1) * W).toFixed(1)},${(H - p.awake / maxT * H).toFixed(1)}`;
+      const linePts = fleetHistory.map(pt).join(' ');
+      sparkEl.innerHTML = `<svg width="${W}" height="${H}" style="overflow:visible;margin-left:8px;vertical-align:middle"><polygon points="${linePts} ${W},${H} 0,${H}" fill="color-mix(in srgb, var(--green) 8%, transparent)" stroke="none"/><polyline points="${linePts}" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+    } else {
+      sparkEl.innerHTML = '';
+    }
+  }
+  const sleepTargets = mods.filter(x => x.running && !x.pinned && !x.alwaysOn);
+  $("sleepAll").style.display = (K.isOwner && sleepTargets.length > 0) ? "" : "none";
+  const wakeTargets = mods.filter(x => !x.running && !x.disabled);
+  $("wakeAll").style.display = (K.isOwner && wakeTargets.length > 0) ? "" : "none";
   const q = $("q").value.trim().toLowerCase();
   const vis = mods.filter((x) => (!q || x.module.toLowerCase().includes(q)) && (view === "all" || (view === "awake" && x.running) ||
     (view === "asleep" && !x.running) || (view === "pinned" && x.pinned) || (view === "disabled" && x.disabled)))
-    .sort((a, b) => (b.running - a.running) || (b.hits || 0) - (a.hits || 0));
+    .sort((a, b) => {
+      if (sortBy === 'ram') return (provMap[b.module]?.mem_mb || 0) - (provMap[a.module]?.mem_mb || 0);
+      if (sortBy === 'cpu') return (provMap[b.module]?.cpu_pct || 0) - (provMap[a.module]?.cpu_pct || 0);
+      if (sortBy === 'hits') return (b.hits || 0) - (a.hits || 0);
+      if (sortBy === 'name') return a.module.localeCompare(b.module);
+      return (b.running - a.running) || (b.hits || 0) - (a.hits || 0);
+    });
+  const nb = $("notifyBtn"); if (nb) nb.textContent = notifyEnabled ? 'notify on' : 'notify off';
+  const pressureSet = new Set(reclaimCandidates.map(x => x.module));
   $("mods").innerHTML = vis.slice(0, showAll ? 999 : 40).map((x) => {
     const st = x.disabled ? ["disabled", "bad"] : x.running ? ["awake", "on"] : x.slept ? ["asleep", ""] : ["down", ""];
     const ports = [x.apiPort, x.appPort].filter(Boolean).filter((p, i, a) => a.indexOf(p) === i).map((p) => ":" + p).join(" ");
     const btn = (a, label, cls = "") => `<button class="sm ${cls}" data-a="${a}">${label}</button>`;
     const idleRatio = x.running ? Math.min((x.idleSeconds || 0) / (s.idleSeconds || 60), 1) : 1;
     const barColor = x.running ? (idleRatio < 0.5 ? "var(--green)" : idleRatio < 0.8 ? "var(--amber)" : "var(--red)") : "var(--line)";
-    const memMb = memMap[x.module];
-    return `<div class="row" data-m="${K.esc(x.module)}"${memMb > 1000 ? ' data-heavy' : ''}><span class="pill ${st[1]}">${st[0]}</span>
-      <div class="grow"><div class="t">${K.esc(x.module)}${x.pinned ? ` <span class="pill acc" style="padding:3px 7px">pinned</span>` : ""}${x.alwaysOn ? ` <span class="pill acc" style="padding:3px 7px">always on</span>` : ""}</div>
-      <div class="s mono">${ports} · ${x.hits || 0} hits · idle ${K.dur(x.idleSeconds || 0)}${memMb ? ` · ${memMb.toFixed(0)}M` : ''}</div>
-      <div class="idle-bar"><i style="width:${Math.round(idleRatio * 100)}%;background:${barColor}"></i></div></div>
+    const prov = provMap[x.module] || {};
+    const memMb = prov.mem_mb != null ? prov.mem_mb : memMap[x.module];
+    const cpuPct = prov.cpu_pct || 0;
+    const cpuColor = cpuPct > 70 ? 'var(--red)' : cpuPct > 30 ? 'var(--amber)' : '';
+    const cpuStr = cpuPct > 0 ? ` · <span${cpuColor ? ` style="color:${cpuColor}"` : ''}>${cpuPct.toFixed(1)}%</span>` : '';
+    const lastUp = !x.running ? (prov.last_up || null) : null;
+    const idlePart = lastUp ? `last up ${K.ago(lastUp)}` : `idle ${K.dur(x.idleSeconds || 0)}`;
+    const hist = histMap.get(x.module) || [];
+    const spark = hist.length > 1
+      ? `<div class="spark">${hist.map(r => `<i class="${r ? 'on' : ''}"></i>`).join('')}</div>`
+      : '';
+    return `<div class="row" data-m="${K.esc(x.module)}"${memMb > 1000 ? ' data-heavy' : ''}${pressureSet.has(x.module) ? ' data-pressure="1"' : ''}>${K.isOwner ? `<label class="chk" style="flex:none;margin-right:2px"><input type="checkbox" data-chk="${K.esc(x.module)}"${selectedMods.has(x.module) ? ' checked' : ''}></label>` : ''}<span class="pill ${st[1]}">${st[0]}</span>
+      <div class="grow"><div class="t"><a href="/${K.esc(x.module)}/" target="_blank" rel="noopener" style="color:inherit;border-bottom:1px dotted var(--faint)">${K.esc(x.module)}</a>${x.pinned ? ` <span class="pill acc" style="padding:3px 7px">pinned</span>` : ""}${x.alwaysOn ? ` <span class="pill acc" style="padding:3px 7px">always on</span>` : ""}</div>
+      <div class="s mono">${ports} · ${x.hits || 0} hits · ${idlePart}${cpuStr}${memMb ? ` · ${memMb.toFixed(0)}M` : ''}</div>
+      ${spark}<div class="idle-bar"><i style="width:${Math.round(idleRatio * 100)}%;background:${barColor}"></i></div></div>
       ${K.isOwner ? `<div class="acts">${x.running ? btn("sleep", "sleep") : btn("wake", "wake")}${x.pinned ? btn("unpin", "unpin") : btn("pin", "pin")}${x.disabled ? btn("enable", "enable") : btn("disable", "disable", "danger")}</div>` : ""}</div>`;
   }).join("") + (vis.length > 40 ? `<button class="sm" id="more" style="align-self:center">${showAll ? "show fewer" : `show all ${vis.length}`}</button>` : "") || `<div class="empty">no modules match</div>`;
+  const bb = $("batch-bar");
+  if (bb) {
+    if (selectedMods.size > 0) {
+      bb.style.display = '';
+      bb.innerHTML = `<span class="faint mono" style="font-size:12px;flex:1">${selectedMods.size} selected</span><button class="sm" id="batchSleep">sleep</button><button class="sm" id="batchWake">wake</button><button class="sm" id="batchPin">pin</button><button class="sm" id="batchUnpin">unpin</button><button class="sm danger" id="batchClear">×</button>`;
+    } else {
+      bb.style.display = 'none';
+    }
+  }
+}
+
+function renderHeatmap() {
+  const el = $("heatmap");
+  if (!el) return;
+  if (histMap.size < 3) {
+    el.innerHTML = '<div class="faint" style="font-size:12px">collecting…</div>';
+    return;
+  }
+  const entries = [...histMap.entries()]
+    .map(([mod, hist]) => ({ mod, hist, freq: hist.length ? hist.filter(Boolean).length / hist.length : 0 }))
+    .sort((a, b) => b.freq - a.freq)
+    .slice(0, 50);
+  const maxCols = Math.max(...entries.map(e => e.hist.length));
+  let html = '<div class="hm-grid">';
+  for (const { mod, hist } of entries) {
+    const name = mod.length > 14 ? mod.slice(0, 13) + '…' : mod;
+    const pad = maxCols - hist.length;
+    let cells = '';
+    for (let i = 0; i < pad; i++) cells += '<i class="hm-cell"></i>';
+    for (const on of hist) cells += `<i class="hm-cell${on ? ' on' : ''}"></i>`;
+    html += `<div class="hm-row" data-m="${K.esc(mod)}" style="cursor:pointer"><span class="hm-name" title="${K.esc(mod)}">${K.esc(name)}</span><div class="hm-cells">${cells}</div></div>`;
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function renderFeed() {
+  const feed = $("feed"), hint = $("feed-hint");
+  if (!feed) return;
+  if (events.length === 0) {
+    feed.innerHTML = '<div class="empty">No events yet — watching the fleet…</div>';
+    return;
+  }
+  if (hint) hint.textContent = '';
+  feed.innerHTML = events.map(ev =>
+    `<div class="row"><span class="pill ${ev.dir === 'awake' ? 'on' : ''}">${ev.dir}</span><div class="grow"><div class="t">${K.esc(ev.module)}</div><div class="s mono">${K.ago(ev.ts)}${ev.memMb ? ' · was ' + ev.memMb.toFixed(0) + 'M' : ''}</div></div></div>`
+  ).join('');
 }
 
 async function load() {
-  const r = await K.api("/reaper");
+  const [r, prov] = await Promise.all([K.api("/reaper"), K.api("/providers")]);
+  if (prov.ok) provMap = Object.fromEntries((prov.data.providers || []).map(p => [p.module, p]));
   if (r.ok) {
-    R = r.data; render();
+    R = r.data;
+    ramHistory.push(R.memory?.available_mb || 0);
+    if (ramHistory.length > 20) ramHistory.shift();
+    render();
     const s = R.state || {};
     liveState = { loadedAt: Date.now(), idleTimeout: s.idleSeconds || 60, mods: new Map((s.modules || []).map(x => [x.module, { idleSeconds: x.idleSeconds || 0, running: x.running, pinned: x.pinned, alwaysOn: x.alwaysOn }])) };
     if (liveTimer) clearInterval(liveTimer);
     liveTimer = setInterval(tickBars, 1000);
+    const mods = s.modules || [];
+    if (prevStates.size > 0) {
+      const memMap = Object.fromEntries((R.memory?.top||[]).map(t => [t.name, t.mem_mb]));
+      for (const x of mods) {
+        const prev = prevStates.get(x.module);
+        if (prev !== undefined && prev !== x.running) {
+          const pm = provMap[x.module] || {};
+          const memMb = pm.mem_mb != null ? pm.mem_mb : (memMap[x.module] || null);
+          events.unshift({ ts: Date.now(), module: x.module, dir: x.running ? 'awake' : 'asleep', memMb });
+          if (events.length > 30) events.length = 30;
+          try { localStorage.setItem('reaper_events', JSON.stringify(events)); } catch {}
+          if (notifyEnabled && 'Notification' in window && Notification.permission === 'granted') {
+            const memStr = memMb ? ` · ${memMb.toFixed(0)}M` : '';
+            new Notification('Reaper', { body: `${x.module} ${x.running ? 'woke up' : 'slept'}${memStr}`, silent: true });
+          }
+        }
+      }
+    }
+    prevStates = new Map(mods.map(x => [x.module, x.running]));
+    fleetHistory.push({ awake: mods.filter(x => x.running).length, total: mods.length });
+    if (fleetHistory.length > 20) fleetHistory.shift();
+    for (const x of mods) {
+      if (!histMap.has(x.module)) histMap.set(x.module, []);
+      const h = histMap.get(x.module);
+      h.push(x.running);
+      if (h.length > 20) h.shift();
+    }
+    renderHeatmap();
+    renderFeed();
   } else K.setState(`<span class="pill bad">build unreachable</span>`);
 }
+function updateGuardPreview() {
+  const el = $("guard-preview");
+  if (!el) return;
+  if (!R) { el.innerHTML = ''; return; }
+  const enteredMinFree = +($("minFree").value) || 0;
+  const enteredMaxRun = +($("maxRun").value) || 0;
+  const s = R.state || {};
+  const mods = s.modules || [];
+  const memMap = Object.fromEntries((R.memory?.top||[]).map(t=>[t.name, t.mem_mb]));
+  const available_mb = R.memory?.available_mb || 0;
+  const wouldSleep = new Set();
+  if (enteredMinFree > 0 && available_mb < enteredMinFree) {
+    let freed = 0;
+    const candidates = mods.filter(x => x.running && !x.pinned && !x.alwaysOn)
+      .map(x => ({ module: x.module, mb: provMap[x.module]?.mem_mb ?? memMap[x.module] ?? 0 }))
+      .sort((a, b) => b.mb - a.mb);
+    for (const c of candidates) {
+      if (available_mb + freed >= enteredMinFree) break;
+      wouldSleep.add(c.module);
+      freed += c.mb;
+    }
+  }
+  if (enteredMaxRun > 0) {
+    const awake = mods.filter(x => x.running && !wouldSleep.has(x.module));
+    if (awake.length > enteredMaxRun) {
+      const excess = awake.length - enteredMaxRun;
+      const byIdle = awake.filter(x => !x.pinned && !x.alwaysOn).sort((a, b) => (b.idleSeconds || 0) - (a.idleSeconds || 0));
+      for (let i = 0; i < excess && i < byIdle.length; i++) wouldSleep.add(byIdle[i].module);
+    }
+  }
+  if (wouldSleep.size === 0) {
+    if (enteredMinFree > 0) {
+      el.innerHTML = `<span style="color:var(--green)">guard satisfied (${Math.round(available_mb)}MB free &gt; ${enteredMinFree}MB threshold)</span>`;
+    } else {
+      el.innerHTML = '';
+    }
+    return;
+  }
+  const items = [...wouldSleep].map(mod => ({ module: mod, mb: provMap[mod]?.mem_mb ?? memMap[mod] ?? 0 }));
+  const totalFreed = Math.round(items.reduce((acc, x) => acc + x.mb, 0));
+  const list = items.slice(0, 5).map(x => `${K.esc(x.module)}${x.mb > 0 ? ` (${Math.round(x.mb)}M)` : ''}`).join(', ');
+  const more = items.length > 5 ? ` +${items.length - 5} more` : '';
+  el.innerHTML = `<span style="color:var(--amber)">would sleep: ${list}${more} · ~${totalFreed}MB freed</span>`;
+}
+
 const setIdle = async (d) => { const cur = R?.state?.idleSeconds || 60; await K.act("/reaper/config", { idle_seconds: Math.max(60, cur + d) }, "idle timeout set"); load(); };
 $("minus").onclick = () => setIdle(-60);
 $("plus").onclick = () => setIdle(60);
 $("guardSave").onclick = async () => { await K.act("/reaper/config", { min_free_mb: +$("minFree").value, max_running: +$("maxRun").value }, "guard saved"); load(); };
+$("minFree").oninput = updateGuardPreview;
+$("maxRun").oninput = updateGuardPreview;
 $("q").oninput = () => R && render();
 $("seg").onclick = (e) => { const v = e.target.dataset.v; if (!v) return; view = v; for (const b of $("seg").children) b.classList.toggle("sel", b.dataset.v === v); render(); };
+$("sorter").onclick = (e) => { const s = e.target.dataset.s; if (!s) return; sortBy = s; for (const b of $("sorter").children) b.classList.toggle("sel", b.dataset.s === s); render(); };
 $("mods").onclick = async (e) => {
   if (e.target.id === "more") { showAll = !showAll; return render(); }
+  if (e.target.dataset.chk !== undefined) { const mod = e.target.dataset.chk; if (selectedMods.has(mod)) selectedMods.delete(mod); else selectedMods.add(mod); return render(); }
   const a = e.target.dataset.a, m = e.target.closest(".row")?.dataset.m; if (!a || !m) return;
   if (a === "disable" && !(await K.ask(`Disable ${m}? It stays down until you enable it — first-byte wake won't start it.`, "Disable", true))) return;
   e.target.disabled = true;
   await K.act("/reaper/control", { module: m, action: a }, `${m}: ${a}`);
   load();
 };
+
+$("batch-bar").onclick = async (e) => {
+  const id = e.target.id;
+  if (id === "batchClear") { selectedMods.clear(); return render(); }
+  const actionMap = { batchSleep: "sleep", batchWake: "wake", batchPin: "pin", batchUnpin: "unpin" };
+  const action = actionMap[id];
+  if (!action) return;
+  await Promise.all([...selectedMods].map(mod => K.act("/reaper/control", { module: mod, action }, "")));
+  selectedMods.clear(); load();
+};
+
+$("clearFeed").onclick = () => { events = []; localStorage.removeItem('reaper_events'); renderFeed(); K.toast("events cleared"); };
+$("notifyBtn").onclick = async () => {
+  if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
+  notifyEnabled = !notifyEnabled;
+  localStorage.setItem('reaper_notify', notifyEnabled ? '1' : '');
+  const nb = $("notifyBtn"); if (nb) nb.textContent = notifyEnabled ? 'notify on' : 'notify off';
+};
+
+$("sleepAll").onclick = async () => {
+  const targets = (R?.state?.modules || []).filter(x => x.running && !x.pinned && !x.alwaysOn);
+  if (!targets.length) return;
+  const totalMb = targets.reduce((s, x) => s + (provMap[x.module]?.mem_mb || 0), 0);
+  const ramStr = totalMb >= 1024 ? (totalMb / 1024).toFixed(1) + 'GB' : Math.round(totalMb) + 'MB';
+  if (!(await K.ask(`Sleep ${targets.length} awake modules (~${ramStr} freed)?`, "Sleep all", true))) return;
+  await Promise.all(targets.map(x => K.act("/reaper/control", { module: x.module, action: "sleep" })));
+  load();
+};
+
+$("wakeAll").onclick = async () => {
+  const targets = (R?.state?.modules || []).filter(x => !x.running && !x.disabled);
+  if (!targets.length) return;
+  if (!(await K.ask(`Wake ${targets.length} sleeping modules? This will consume additional RAM.`, "Wake all", false))) return;
+  await Promise.all(targets.map(x => K.act("/reaper/control", { module: x.module, action: "wake" })));
+  load();
+};
+
+$("mem").onclick = async (e) => {
+  if (!e.target.dataset.reclaim) return;
+  const mods = R?.state?.modules || [];
+  const mm = Object.fromEntries((R?.memory?.top || []).map(t => [t.name, t.mem_mb]));
+  const candidates = mods.filter(x => x.running && !x.pinned && !x.alwaysOn).map(x => ({ module: x.module, mb: provMap[x.module]?.mem_mb ?? mm[x.module] ?? 0 })).filter(x => x.mb > 0).sort((a, b) => b.mb - a.mb).slice(0, 5);
+  if (!candidates.length) return;
+  const totalMb = Math.round(candidates.reduce((acc, x) => acc + x.mb, 0));
+  const ramStr = totalMb >= 1024 ? (totalMb / 1024).toFixed(1) + 'GB' : totalMb + 'MB';
+  const list = candidates.map(x => `${x.module} (${Math.round(x.mb)}MB)`).join(', ');
+  if (!(await K.ask(`Sleep ${candidates.length} awake modules (~${ramStr} freed)?\n${list}`, "Sleep", true))) return;
+  for (const x of candidates) await K.act("/reaper/control", { module: x.module, action: "sleep" });
+  load();
+};
+
+$("heatmap").addEventListener("click", (e) => {
+  const mod = e.target.closest("[data-m]")?.dataset.m;
+  if (!mod) return;
+  const modsEl = $("mods");
+  let row = modsEl?.querySelector(`.row[data-m="${CSS.escape(mod)}"]`);
+  if (!row) {
+    view = "all";
+    const seg = $("seg");
+    if (seg) for (const b of seg.children) b.classList.toggle("sel", b.dataset.v === "all");
+    render();
+    row = modsEl?.querySelector(`.row[data-m="${CSS.escape(mod)}"]`);
+  }
+  if (!row) return;
+  row.scrollIntoView({ behavior: "smooth", block: "center" });
+  row.style.transition = "box-shadow 0.6s ease";
+  row.style.boxShadow = "0 0 0 2px var(--accent)";
+  setTimeout(() => { row.style.boxShadow = ""; }, 600);
+});
 
 K.init({ glyph: "☾", title: "Reaper", accent: "#ef7a62", sub: "The fleet's scale-to-zero activator: sleeps idle modules and holds their ports, so the first byte wakes them again." })
   .then(() => K.poll(load, 10000));

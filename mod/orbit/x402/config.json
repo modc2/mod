@@ -32,6 +32,7 @@
         "hosts",
         "networks",
         "stats",
+        "tags",
         "sources",
         "partners",
         "facilitators",
@@ -67,6 +68,7 @@
         "hosts",
         "networks",
         "stats",
+        "tags",
         "sources",
         "partners",
         "facilitators",
@@ -90,7 +92,7 @@
         "tools",
         "ask"
     ],
-    "schema": "QmT6r3Bnua5UexwoqD6THKtX1Dmd7mhsTZfq6o4V6oYESB",
+    "schema": "QmP3Z9Z2eJFZnwXnkq4JeDFB645ckK7HJgp9oVQAc5LLnC",
     "mcp": {
         "url": "http://localhost:51110/x402/mcp",
         "transport": "http",

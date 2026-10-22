@@ -34,7 +34,7 @@ import SemanticFilterBar from "./SemanticFilterBar";
 const WINDOWS = [1, 3, 7, 14, 30] as const;
 export type CopyTradesView = "all" | "mine" | "missed";
 
-type SortCol = "trades" | "notional" | "copied" | "coverage" | "medianLagSec" | "avgSlipCents" | "myNotional" | "myPnl" | "theirPnl";
+type SortCol = "trades" | "notional" | "copied" | "coverage" | "medianLagSec" | "avgSlipCents" | "myNotional" | "myPnl" | "theirPnl" | "winRate";
 type SortDir = "asc" | "desc";
 
 function usd(n: number, digits = 2): string {
@@ -308,6 +308,7 @@ export default function CopyTradesPanel({
                     { col: "myNotional" as SortCol, label: "MY $", cls: "num w-[10%]" },
                     { col: "theirPnl" as SortCol, label: "THEIR PNL", cls: "num w-[10%]" },
                     { col: "myPnl" as SortCol, label: "MY PNL", cls: "num w-[10%]" },
+                    { col: "winRate" as SortCol, label: "WIN%", cls: "num w-[8%]" },
                   ] as const
                 ).map(({ col, label, cls }) => (
                   <th key={col} className={cls}>
@@ -358,6 +359,20 @@ export default function CopyTradesPanel({
                     {l.myPnl >= 0 ? "+" : ""}{l.myPnl.toFixed(2)}
                   </td>
                   <td className="num tabular-nums">
+                    {l.winRate == null ? (
+                      <span className="text-pixel-gray">—</span>
+                    ) : (
+                      <span
+                        className={`text-[9px] font-mono px-1 py-0.5 rounded border border-current/30 ${
+                          l.winRate >= 0.6 ? "text-green-400" : l.winRate >= 0.4 ? "text-amber-400" : "text-red-400"
+                        }`}
+                        title={`${Math.round(l.winRate * 100)}% of attributed fills to this leader were profitable`}
+                      >
+                        {Math.round(l.winRate * 100)}%
+                      </span>
+                    )}
+                  </td>
+                  <td className="num tabular-nums">
                     {(() => {
                       if (l.theirPnl <= 0) return <span className="text-pixel-gray">—</span>;
                       const pct = l.myPnl / l.theirPnl * 100;
@@ -383,7 +398,7 @@ export default function CopyTradesPanel({
                         {shortAddress(addr)}
                       </Link>
                     </td>
-                    <td colSpan={10} className="num text-amber-400/90 text-left font-mono text-[9.5px]">
+                    <td colSpan={11} className="num text-amber-400/90 text-left font-mono text-[9.5px]">
                       &#x29D7; warming — no history cached yet
                     </td>
                   </tr>
@@ -421,6 +436,16 @@ function Row({ row, now, compact }: { row: CopyTradeRow; now: number; compact: b
       >
         {row.side}
       </span>
+      {row.outcome ? (
+        <span
+          className={`shrink-0 text-[9px] font-mono px-1 py-0.5 rounded border border-current/30 ${
+            row.outcome.toLowerCase() === "no" ? "text-amber-400/70" : "text-green-400/70"
+          }`}
+          title={`${row.outcome.toUpperCase()} outcome token`}
+        >
+          {row.outcome.toUpperCase()}
+        </span>
+      ) : null}
       <span className="min-w-0 flex-1 truncate text-[10.5px] font-mono" title={row.market}>
         {row.market || "—"}
       </span>
@@ -460,6 +485,20 @@ function Row({ row, now, compact }: { row: CopyTradeRow; now: number; compact: b
         >
           {missed ? "⊘ MISSED" : "✓ COPIED"}
         </span>
+      )}
+      {(mine || missed) && row.pnl != null ? (
+        <span
+          className={`shrink-0 text-[9.5px] font-mono tabular-nums w-[52px] text-right ${
+            mine
+              ? row.pnl >= 0 ? "text-green-400" : "text-red-400"
+              : "text-zinc-400"
+          }`}
+          title={mine ? "P&L on this fill" : "P&L the leader made (you missed it)"}
+        >
+          {row.pnl >= 0 ? "+" : "−"}{usd(Math.abs(row.pnl))}
+        </span>
+      ) : (
+        <span className="shrink-0 w-[52px]" />
       )}
       {!compact && (
         <span className="shrink-0 w-[74px] text-right text-[9.5px] font-mono text-pixel-gray truncate" title={row.leader ?? undefined}>

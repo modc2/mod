@@ -171,9 +171,14 @@ class H(BaseHTTPRequestHandler):
     def do_DELETE(self):
         if not self.authorized():
             return
-        if re.match(r"^/2/tweets/\d+$", self.path):
+        p = self.path.split("?")[0]
+        if re.match(r"^/2/tweets/\d+$", p):
             return self.send({"data": {"deleted": True}})
-        self.send({"detail": "mock: no route " + self.path}, 404)
+        m = re.match(r"^/2/users/(\d+)/(likes|retweets)/(\d+)$", p)
+        if m:
+            key = {"likes": "liked", "retweets": "retweeted"}[m.group(2)]
+            return self.send({"data": {key: False}})
+        self.send({"detail": "mock: no route " + p}, 404)
 
 
 if __name__ == "__main__":

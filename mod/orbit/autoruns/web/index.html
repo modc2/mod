@@ -11,6 +11,8 @@
   .stat b { font-size: 22px; }
   .stat small { display: block; color: var(--dim); font-size: 11.5px; margin-top: 2px; }
   .stat.hot b { color: var(--accent); }
+  .spark { display: flex; gap: 2px; align-items: flex-end; height: 24px; margin-top: 6px; }
+  .spark i { flex: 1; border-radius: 2px; min-height: 2px; }
 
   .start { display: grid; gap: 10px; grid-template-columns: minmax(0, 1.4fr) auto auto minmax(0, 1fr); align-items: end; }
   .start .goal { grid-column: 1 / -1; }
@@ -29,6 +31,11 @@
   .bar .seg button { padding: 0 11px; font-size: 10px !important; }
   .bar input { max-width: 200px; padding: 7px 10px; }
   .card h2 .n { color: var(--faint); letter-spacing: .1em; }
+
+  .mod-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .mod-chip { font: 600 11px var(--sans); padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel2); cursor: pointer; color: var(--dim); }
+  .mod-chip:hover { background: var(--panel3, #0e1a16); }
+  .mod-chip.active { border-color: var(--accent); }
 
   .day { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--faint); margin: 14px 2px 2px; display: flex; gap: 10px; }
   .day:first-child { margin-top: 0; }
@@ -52,6 +59,13 @@
   .track i.now { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .35; } }
 
+  .run.fresh { animation: land-glow 3s ease-out forwards; }
+  @keyframes land-glow {
+    0%   { border-color: var(--accent); box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 45%, transparent); }
+    60%  { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+    100% { border-color: var(--line); }
+  }
+
   .tag { font: 700 9.5px/1 var(--sans); letter-spacing: .14em; text-transform: uppercase; padding: 5px 8px; border-radius: 6px;
     border: 1px solid var(--line2); color: var(--dim); white-space: nowrap; }
   .tag.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
@@ -69,12 +83,31 @@
   .foot .sp { flex: 1; }
   .foot .btn, .foot button { padding: 6px 10px; font-size: 10px !important; border-radius: 8px; }
 
+  .timeline { display: flex; gap: 2px; align-items: stretch; height: 7px; margin-bottom: 8px; overflow: visible; position: relative; }
+  .tl-seg { flex-grow: 1; min-width: 6px; border-radius: 3px; background: var(--line); position: relative; cursor: default; }
+  .tl-seg.ok { background: var(--green); }
+  .tl-seg.miss { background: var(--red); }
+  .tl-seg.meh { background: var(--amber); }
+  .tl-seg.now { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  .tl-seg[title]:hover::after { content: attr(title); position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%); white-space: nowrap; font: 11px var(--sans); background: var(--panel3, #0e1a16); color: var(--text); border: 1px solid var(--line2); padding: 3px 8px; border-radius: 5px; z-index: 10; pointer-events: none; }
+  .tl-end { font: 11px var(--mono); color: var(--faint); padding-left: 6px; white-space: nowrap; flex-shrink: 0; align-self: center; }
+
   .live .run { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
   .live .track { width: 120px; }
   .live .track i { height: 10px; }
   .more { display: block; margin: 12px auto 0; }
   .live-elapsed { font: 12px var(--mono); color: var(--accent); }
   .run-elapsed { color: var(--dim); }
+
+  .ev { display: flex; gap: 10px; align-items: center; padding: 7px 0; font-size: 13px; }
+  .ev + .ev { border-top: 1px solid var(--line); }
+  .ev.live { border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 8px; padding: 5px 0; }
+  .ev .mod { color: var(--accent); font-weight: 700; white-space: nowrap; }
+  .ev.live .mod { animation: pulse 1.2s ease-in-out infinite; }
+  .ev .etitle { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+  .ev .when { font: 12px var(--mono); color: var(--faint); white-space: nowrap; }
+
+  #mod_stats { font-size: 12px; color: var(--dim); margin-top: 3px; }
 
   @media (max-width: 640px) {
     .start { grid-template-columns: 1fr 1fr; }
@@ -98,7 +131,7 @@
     <div class="card wide">
       <h2>Start a run</h2>
       <div class="start">
-        <label class="f modf">module<input id="a_mod" list="mods" placeholder="which mod?" autocomplete="off" /></label>
+        <label class="f modf">module<input id="a_mod" list="mods" placeholder="which mod?" autocomplete="off" /><div id="mod_stats"></div></label>
         <label class="f">steps
           <span class="stepper"><button data-d="-1" aria-label="fewer">−</button><b id="a_steps">3</b><button data-d="1" aria-label="more">+</button></span>
         </label>
@@ -106,7 +139,8 @@
           <span class="seg" id="a_mode"><button class="sel" data-v="play">build it</button><button data-v="ideas">ideas only</button></span>
         </label>
         <label class="f">model<input id="a_model" placeholder="default" /></label>
-        <label class="f goal">goal · optional<input id="a_goal" placeholder="e.g. polish the mobile layout — leave empty and the agent picks" /></label>
+        <label class="f goal">goal · optional<input id="a_goal" placeholder="e.g. polish the mobile layout — leave empty and the agent picks" />
+        <div class="mod-chips" id="goal_chips"></div></label>
       </div>
       <datalist id="mods"></datalist>
       <div class="startbar">
@@ -115,9 +149,19 @@
       </div>
     </div>
 
+    <div class="card wide">
+      <h2>By module <span class="n" id="lbN"></span></h2>
+      <div id="leaderboard" class="rows"></div>
+    </div>
+
     <div class="card wide live">
       <h2>Running now <span class="n" id="liveN"></span></h2>
       <div id="live" class="rows"></div>
+    </div>
+
+    <div class="card wide">
+      <h2>Recent events</h2>
+      <div id="events" class="rows"></div>
     </div>
 
     <div class="card wide">
@@ -141,7 +185,10 @@ let elapsedTimer = null;
 let show = "all";
 let steps = 3;
 let mode = "play";
+let modAvgCostPerStep = null;
 const open = new Set();
+const justCompleted = new Set();
+const prevLive = new Set();
 const isLive = (r) => r.status === "running" || r.status === "stopping";
 const landed = (o) => o === "played" || o === "filed";
 
@@ -168,6 +215,10 @@ function verdict(r) {
   return [`${ok}/${h.length} landed`, "meh"];
 }
 
+function notify(module, word) {
+  if (Notification.permission === "granted") new Notification("Auto run · " + module, { body: word });
+}
+
 function track(r) {
   const h = r.history || [];
   const n = Math.max(r.steps || 0, h.length);
@@ -180,17 +231,45 @@ function track(r) {
   return `<span class="track">${out}</span>`;
 }
 
+function timeline(r) {
+  const h = r.history || [];
+  const n = Math.max(r.steps || 0, h.length);
+  if (!n) return "";
+  const durs = h.map((s) => s.ended_at && s.started_at ? s.ended_at - s.started_at : null).filter(Boolean);
+  const median = durs.length ? [...durs].sort((a, b) => a - b)[Math.floor(durs.length / 2)] : 120;
+  let segs = "";
+  for (let i = 0; i < n; i++) {
+    const s = h[i];
+    if (!s) { segs += `<span class="tl-seg" style="flex-grow:${median}"></span>`; continue; }
+    const dur = s.ended_at && s.started_at ? s.ended_at - s.started_at : null;
+    const isActive = isLive(r) && !s.outcome;
+    const [, k] = outOf(s);
+    const tip = K.esc((s.title || "(no idea yet)") + (dur ? " \xB7 " + K.dur(dur) : isActive ? " \xB7 running…" : ""));
+    if (isActive && s.started_at) {
+      segs += `<span class="tl-seg now" style="flex-grow:${median}" data-start="${s.started_at}" data-baseline="${median}" title="${tip}"></span>`;
+    } else {
+      segs += `<span class="tl-seg ${k}" style="flex-grow:${dur || median}" title="${tip}"></span>`;
+    }
+  }
+  const lastEnd = h.reduce((m, s) => s.ended_at ? Math.max(m, s.ended_at) : m, 0);
+  const rightEl = isLive(r) && r.started_at
+    ? `<span class="tl-end live-elapsed" data-start="${r.started_at}"></span>`
+    : (lastEnd && r.started_at ? `<span class="tl-end">${K.dur(lastEnd - r.started_at)}</span>` : "");
+  return `<div class="timeline">${segs}${rightEl}</div>`;
+}
+
 function run(r) {
   const h = r.history || [];
   const [word, kind] = verdict(r);
   const cur = h[h.length - 1];
-  const title = (isLive(r) && cur ? cur.title || `${PHASE[cur.phase] || cur.phase}…` : h.find((s) => s.title)?.title) || r.goal || r.note || "free pick";
+  const landedTitles = h.filter((s) => landed(s.outcome) && s.title).map((s) => s.title);
+  const title = (isLive(r) && cur ? cur.title || `${PHASE[cur.phase] || cur.phase}…` : (!isLive(r) && landedTitles.length > 0 ? landedTitles.join(" · ") : h.find((s) => s.title)?.title)) || r.goal || r.note || "free pick";
   const mine = K.address && r.started_by && r.started_by.toLowerCase() === K.address.toLowerCase();
   const canStop = isLive(r) && r.status !== "stopping" && (K.isOwner || mine);
   const who = r.source === "evolver" ? "evolver" : r.started_by ? K.short(r.started_by) : "host";
   const meta = [r.goal ? `goal: ${r.goal}` : "", model(r.model), who, K.ago(r.updated_at)].filter(Boolean).map(K.esc).join(" · ");
   const isOpen = open.has(r.id);
-  const body = !isOpen ? "" : `<div class="steps">${h.map((s) => {
+  const body = !isOpen ? "" : `<div class="steps">${timeline(r)}${h.map((s) => {
     const [w, k] = outOf(s);
     const isActive = isLive(r) && !s.outcome;
     const took = s.ended_at && s.started_at
@@ -206,11 +285,12 @@ function run(r) {
     <div class="foot"><span>${K.esc(r.note || "")}</span><span class="sp"></span>
       ${canStop ? `<button class="danger" data-a="stop">stop</button>` : ""}
       ${!isLive(r) ? `<button class="btn" data-a="rerun">rerun ▶</button>` : ""}
+      <button class="btn" data-a="copylink">copy link</button>
       <a class="btn" href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">open ${K.esc(r.module)} ↗</a></div></div>`;
   const runElapsed = isLive(r) && r.started_at
     ? ` · <span class="live-elapsed run-elapsed" data-start="${r.started_at}"></span>`
     : "";
-  return `<div class="run${isOpen ? " open" : ""}" data-id="${r.id}">
+  return `<div class="run${isOpen ? " open" : ""}${justCompleted.has(r.id) ? " fresh" : ""}" data-id="${r.id}">
     <div class="top">${track(r)}
       <div><div class="t"><span class="mod">${K.esc(r.module)}</span>${K.esc(title)}</div><div class="s">${meta}${runElapsed}</div></div>
       <div class="right"><span class="usd">${usd(r.usd)}</span><span class="tag ${kind}">${K.esc(word)}</span></div></div>
@@ -239,6 +319,31 @@ function grouped(list) {
   return out;
 }
 
+function renderEvents() {
+  const liveEvts = runs
+    .filter(r => isLive(r))
+    .map(r => {
+      const cur = (r.history || []).slice().reverse().find(s => !s.outcome);
+      if (!cur) return null;
+      return {...cur, module: r.module};
+    })
+    .filter(Boolean);
+  const evts = runs
+    .flatMap(r => (r.history || []).filter(s => s.outcome && s.ended_at).map(s => ({...s, module: r.module})))
+    .sort((a, b) => b.ended_at - a.ended_at)
+    .slice(0, 10);
+  const el = $("events");
+  if (!liveEvts.length && !evts.length) { el.innerHTML = '<div class="empty">no completed steps yet</div>'; return; }
+  const liveHtml = liveEvts.map(s =>
+    `<div class="ev live"><span class="mod">${K.esc(s.module)}</span><span class="etitle">${K.esc(s.title || "implementing…")}</span><span class="live-elapsed" data-start="${s.started_at || ""}"></span><span class="tag now">running</span></div>`
+  ).join("");
+  const doneHtml = evts.map(s => {
+    const [word, kind] = outOf(s);
+    return `<div class="ev"><span class="mod">${K.esc(s.module)}</span><span class="etitle">${K.esc(s.title || "(no idea yet)")}</span><span class="tag ${kind}">${K.esc(word)}</span><span class="when">${K.ago(s.ended_at)}</span></div>`;
+  }).join("");
+  el.innerHTML = liveHtml + doneHtml;
+}
+
 function renderStats() {
   const now = Date.now() / 1000;
   const day = runs.filter((r) => now - r.updated_at < 86400);
@@ -247,12 +352,28 @@ function renderStats() {
   const rate = (l) => (l.length ? Math.round((100 * l.filter((s) => landed(s.outcome)).length) / l.length) : 0);
   const spent = (l) => l.reduce((a, r) => a + (+r.usd || 0), 0);
   const live = runs.filter(isLive).length;
+  const spark = (() => {
+    const bars = [];
+    for (let i = 6; i >= 0; i--) {
+      const d2 = new Date(Date.now() - i * 86400000);
+      const ds = d2.toDateString();
+      const dayRuns = runs.filter((r) => new Date(r.updated_at * 1000).toDateString() === ds);
+      const steps = stepsOf(dayRuns);
+      const r2 = rate(steps);
+      const hasData = steps.length > 0;
+      const bg = !hasData ? "var(--line)" : r2 >= 50 ? "var(--green)" : "var(--amber)";
+      const h = hasData ? Math.max(2, Math.round((r2 / 100) * 24)) : 2;
+      const label = d2.toLocaleDateString(undefined, { weekday: "short" }) + ": " + (hasData ? r2 + "%" : "no data");
+      bars.push(`<i style="height:${h}px;background:${bg}" title="${label}"></i>`);
+    }
+    return `<div class="spark">${bars.join("")}</div>`;
+  })();
   $("stats").innerHTML = [
-    [live, "running now", live ? "agents at work" : "idle", live > 0],
-    [day.length, "runs · 24h", `${runs.length} all time`],
-    [`${rate(d)}%`, "landed · 24h", `${rate(all)}% all time`],
-    [`$${spent(day).toFixed(0)}`, "spent · 24h", `$${spent(runs).toFixed(0)} all time`],
-  ].map(([b, l, s, hot]) => `<div class="stat${hot ? " hot" : ""}"><span>${l}</span><b>${b}</b><small>${s}</small></div>`).join("");
+    [live, "running now", live ? "agents at work" : "idle", live > 0, ""],
+    [day.length, "runs · 24h", `${runs.length} all time`, false, ""],
+    [`${rate(d)}%`, "landed · 24h", `${rate(all)}% all time`, false, spark],
+    [`$${spent(day).toFixed(0)}`, "spent · 24h", `$${spent(runs).toFixed(0)} all time`, false, ""],
+  ].map(([b, l, s, hot, extra]) => `<div class="stat${hot ? " hot" : ""}"><span>${l}</span><b>${b}</b><small>${s}</small>${extra}</div>`).join("");
 }
 
 function tickElapsed() {
@@ -260,6 +381,68 @@ function tickElapsed() {
   document.querySelectorAll(".live-elapsed[data-start]").forEach((el) => {
     el.textContent = K.dur(now - +el.dataset.start);
   });
+  document.querySelectorAll(".tl-seg.now[data-start]").forEach((seg) => {
+    const elapsed = now - +seg.dataset.start;
+    const baseline = +(seg.dataset.baseline) || 120;
+    seg.style.flexGrow = Math.max(baseline, elapsed);
+  });
+}
+
+function modSparkline(modRuns) {
+  const stepsOf = (l) => l.flatMap(r => r.history || []).filter(s => s.outcome);
+  const rate = (l) => l.length ? Math.round(100 * l.filter(s => landed(s.outcome)).length / l.length) : 0;
+  const bars = [];
+  for (let i = 4; i >= 0; i--) {
+    const d2 = new Date(Date.now() - i * 86400000);
+    const ds = d2.toDateString();
+    const dayRuns = modRuns.filter(r => new Date(r.updated_at * 1000).toDateString() === ds);
+    const steps = stepsOf(dayRuns);
+    const hasData = steps.length > 0;
+    const r2 = rate(steps);
+    const bg = !hasData ? "var(--line)" : r2 >= 50 ? "var(--green)" : "var(--amber)";
+    const h = hasData ? Math.max(2, Math.round(r2 / 100 * 24)) : 2;
+    bars.push(`<i style="height:${h}px;background:${bg}"></i>`);
+  }
+  return `<div class="spark" style="margin-top:0;width:40px;flex-shrink:0">${bars.join("")}</div>`;
+}
+
+function renderLeaderboard() {
+  const map = {};
+  for (const r of runs) {
+    if (!map[r.module]) map[r.module] = { runs: 0, completed: 0, landedN: 0, usd: 0 };
+    const m = map[r.module];
+    m.runs++;
+    m.usd += +r.usd || 0;
+    for (const s of (r.history || [])) {
+      if (!s.outcome) continue;
+      m.completed++;
+      if (landed(s.outcome)) m.landedN++;
+    }
+  }
+  const rows = Object.entries(map)
+    .filter(([, m]) => m.completed > 0)
+    .map(([mod, m]) => ({ mod, runs: m.runs, rate: Math.round(100 * m.landedN / m.completed), usd: m.usd }))
+    .sort((a, b) => b.rate - a.rate || b.runs - a.runs);
+  $("lbN").textContent = rows.length ? `· ${rows.length}` : "";
+  const el = $("leaderboard");
+  if (!rows.length) { el.innerHTML = '<div class="empty">no completed steps yet</div>'; return; }
+  const liveModules = new Set(runs.filter(isLive).map(rv => rv.module));
+  el.innerHTML = rows.map(r => {
+    const kind = r.rate >= 60 ? "ok" : r.rate >= 30 ? "meh" : "miss";
+    const cost = r.usd ? `<span class="when">${usd(r.usd)}</span>` : "";
+    const modRuns = runs.filter(rv => rv.module === r.mod);
+    const recentCompleted = modRuns.slice(0, 3).flatMap(rv => (rv.history||[]).filter(s => s.outcome));
+    const recentRate = recentCompleted.length >= 3 ? Math.round(100 * recentCompleted.filter(s => landed(s.outcome)).length / recentCompleted.length) : null;
+    const diff = (r.runs >= 3 && recentRate !== null) ? recentRate - r.rate : null;
+    const trendEl = diff !== null && diff >= 15
+      ? `<span class="trend" style="color:#22c55e;font-size:.85em;margin-left:2px" title="recent ${recentRate}% vs overall ${r.rate}%">↑</span>`
+      : diff !== null && diff <= -15
+      ? `<span class="trend" style="color:#ef4444;font-size:.85em;margin-left:2px" title="recent ${recentRate}% vs overall ${r.rate}%">↓</span>`
+      : '';
+    const spark = modSparkline(modRuns);
+    const hasLive = liveModules.has(r.mod);
+    return `<div class="ev${hasLive ? " live" : ""}"><span class="mod" style="cursor:pointer" data-lb-mod="${K.esc(r.mod)}">${K.esc(r.mod)}</span>${trendEl}${spark}<span style="flex:1"></span><span class="tag ${kind}">${r.rate}%</span><span class="when">${r.runs} run${r.runs !== 1 ? "s" : ""}</span>${cost}<button class="btn" style="padding:4px 8px;font-size:10px" data-lb-run="${K.esc(r.mod)}" title="run ${K.esc(r.mod)} now">▶</button></div>`;
+  }).join("");
 }
 
 function render() {
@@ -270,8 +453,14 @@ function render() {
   if (show !== "all") done = done.filter((r) => verdict(r)[1] === show || (show === "miss" && verdict(r)[1] === "meh"));
   K.setState(K.pill(live.length > 0, `${live.length} running`, "quiet"));
   renderStats();
+  renderEvents();
+  renderLeaderboard();
   $("liveN").textContent = live.length ? `· ${live.length}` : "";
   $("doneN").textContent = done.length ? `· ${done.length}` : "";
+  for (const id of justCompleted) {
+    const r = runs.find((x) => x.id === id);
+    if (r) { const [, k] = verdict(r); if (k === "ok" || k === "meh") open.add(id); }
+  }
   $("live").innerHTML = live.map(run).join("") || `<div class="empty">Nothing running. Start one above, or let the evolver pick.</div>`;
   $("done").innerHTML = grouped(done.slice(0, limit)) || `<div class="empty">${f || show !== "all" ? "no runs match" : "no finished runs yet"}</div>`;
   $("moreBtn").hidden = done.length <= limit;
@@ -287,18 +476,78 @@ function render() {
 
 function renderHint() {
   $("a_steps").textContent = steps;
+  const costEst = (modAvgCostPerStep && modAvgCostPerStep > 0) ? ` · ~$${(modAvgCostPerStep * steps).toFixed(2)} est.` : "";
   $("hint").textContent = mode === "play"
-    ? `${steps} step${steps > 1 ? "s" : ""}: each one, an agent writes an idea and a second builds it. Pre-approves ${steps} build${steps > 1 ? "s" : ""} on your account.`
-    : `${steps} idea${steps > 1 ? "s" : ""} filed under your name — nothing gets built.`;
+    ? `${steps} step${steps > 1 ? "s" : ""}: each one, an agent writes an idea and a second builds it. Pre-approves ${steps} build${steps > 1 ? "s" : ""} on your account.${costEst}`
+    : `${steps} idea${steps > 1 ? "s" : ""} filed under your name — nothing gets built.${costEst}`;
+}
+
+const DEFAULT_CHIPS = ["polish the UI", "fix a bug", "improve error handling", "write tests", "improve performance", "add mobile support"];
+
+function renderGoalChips(mod) {
+  const el = $("goal_chips");
+  if (!el) return;
+  const activeText = $("a_goal").value.trim();
+  let chips = DEFAULT_CHIPS;
+  if (mod) {
+    const modRuns = runs.filter(r => r.module === mod && !isLive(r));
+    const runsWithLanded = modRuns.filter(r => (r.history || []).some(s => landed(s.outcome)));
+    const seen = new Set();
+    const goals = [];
+    for (const r of runsWithLanded) {
+      const g = (r.goal || "").trim();
+      if (g && !seen.has(g)) { seen.add(g); goals.push(g); }
+    }
+    const titles = [];
+    for (const r of runsWithLanded) {
+      for (const s of (r.history || [])) {
+        if (landed(s.outcome) && s.title) {
+          const t = s.title.trim();
+          if (t && !seen.has(t)) { seen.add(t); titles.push(t); }
+        }
+      }
+    }
+    const combined = [...goals, ...titles].slice(0, 6);
+    if (combined.length >= 2) chips = combined;
+  }
+  el.innerHTML = chips.map(c => `<span class="mod-chip${c === activeText ? " active" : ""}">${K.esc(c)}</span>`).join("");
+}
+
+function updateModStats() {
+  const mod = $("a_mod").value.trim();
+  const el = $("mod_stats");
+  if (!el) return;
+  renderGoalChips(mod);
+  if (!mod) { modAvgCostPerStep = null; renderHint(); el.textContent = ""; return; }
+  const modRuns = runs.filter(r => r.module === mod && !isLive(r));
+  if (!modRuns.length) { modAvgCostPerStep = null; renderHint(); el.textContent = "no history — first run"; return; }
+  const allSteps = modRuns.flatMap(r => r.history || []).filter(s => s.outcome);
+  const landedCount = allSteps.filter(s => landed(s.outcome)).length;
+  const landedPct = allSteps.length ? Math.round(100 * landedCount / allSteps.length) : 0;
+  const totalUsd = modRuns.reduce((a, r) => a + (+r.usd || 0), 0);
+  modAvgCostPerStep = allSteps.length ? totalUsd / allSteps.length : null;
+  renderHint();
+  el.textContent = `${modRuns.length} run${modRuns.length !== 1 ? "s" : ""} · ${landedPct}% landed · $${totalUsd.toFixed(2)} total`;
 }
 
 async function load() {
   const [r, allMods] = await Promise.all([K.api("/auto"), K.api("/modules")]);
   if (!r.ok) return;
-  runs = (r.data.runs || []).sort((a, b) => b.updated_at - a.updated_at);
+  const fresh = (r.data.runs || []).sort((a, b) => b.updated_at - a.updated_at);
+  prevLive.forEach((id) => { const x = fresh.find((f) => f.id === id); if (x && !isLive(x)) { notify(x.module, verdict(x)[0]); justCompleted.add(id); } });
+  runs = fresh;
+  prevLive.clear(); runs.filter(isLive).forEach((x) => prevLive.add(x.id));
   const mods = [...new Set([...runs.map((x) => x.module), ...(allMods.data?.modules || []).map((m) => m.name)])].sort();
   $("mods").innerHTML = mods.map((m) => `<option value="${K.esc(m)}">`).join("");
   render();
+  if (justCompleted.size === 1) {
+    const id = [...justCompleted][0];
+    requestAnimationFrame(() => {
+      document.querySelector(`.run[data-id="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+  justCompleted.clear();
+  updateModStats();
 }
 
 document.body.addEventListener("click", async (e) => {
@@ -323,8 +572,18 @@ document.body.addEventListener("click", async (e) => {
     $("startBtn").focus();
     return;
   }
+  if (e.target.closest("[data-a=copylink]")) {
+    const r = runs.find((x) => x.id === id);
+    const url = location.origin + location.pathname + "?run=" + id + (r ? "&mod=" + encodeURIComponent(r.module) : "");
+    navigator.clipboard.writeText(url);
+    K.toast("link copied");
+    return;
+  }
   if (e.target.closest(".steps") && !e.target.closest(".foot")) return;
   open.has(id) ? open.delete(id) : open.add(id);
+  const qs = new URLSearchParams(location.search);
+  if (open.has(id)) { qs.set("run", id); } else { qs.delete("run"); }
+  history.replaceState(null, "", location.pathname + (qs.toString() ? "?" + qs.toString() : ""));
   render();
 });
 document.querySelector(".stepper").onclick = (e) => {
@@ -344,6 +603,7 @@ seg("show", (v) => { show = v; limit = 40; render(); });
 $("filter").oninput = () => { limit = 40; render(); };
 $("moreBtn").onclick = () => { limit += 40; render(); };
 $("startBtn").onclick = async (e) => {
+  if (Notification.permission === "default") Notification.requestPermission();
   const mod = $("a_mod").value.trim();
   if (!mod) { $("a_mod").focus(); return K.toast("pick a module", true); }
   const body = { steps, goal: $("a_goal").value.trim(), play: mode === "play" };
@@ -351,11 +611,54 @@ $("startBtn").onclick = async (e) => {
   const go = async () => { if (await K.act(`/modules/${encodeURIComponent(mod)}/auto`, body, "run started")) load(); };
   body.play ? K.armed(e.target, `sure? ${steps} build${steps > 1 ? "s" : ""}`, go) : go();
 };
+document.body.addEventListener("click", e => {
+  const runMod = e.target.closest("[data-lb-run]")?.dataset.lbRun;
+  if (runMod) {
+    const body = { steps, goal: $("a_goal").value.trim(), play: mode === "play" };
+    if ($("a_model").value.trim()) body.model = $("a_model").value.trim();
+    const go = async () => { if (await K.act(`/modules/${encodeURIComponent(runMod)}/auto`, body, `run started · ${runMod}`)) load(); };
+    body.play ? K.armed(e.target, `sure? ${steps} build${steps > 1 ? "s" : ""}`, go) : go();
+    return;
+  }
+  const mod = e.target.closest("[data-lb-mod]")?.dataset.lbMod;
+  if (!mod) return;
+  $("filter").value = mod;
+  $("a_mod").value = mod;
+  const recentLanded = runs
+    .filter(r => r.module === mod && !isLive(r))
+    .flatMap(r => (r.history || []).filter(s => landed(s.outcome) && s.title).map(s => ({ title: s.title, ended_at: s.ended_at || 0 })))
+    .sort((a, b) => b.ended_at - a.ended_at)[0];
+  if (recentLanded) $("a_goal").value = recentLanded.title;
+  limit = 40;
+  render();
+  updateModStats();
+  document.querySelector(".card.wide")?.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+$("a_mod").oninput = () => updateModStats();
 $("a_mod").onkeydown = $("a_goal").onkeydown = (e) => { if (e.key === "Enter") $("startBtn").click(); };
+$("goal_chips").onclick = (e) => {
+  const chip = e.target.closest(".mod-chip"); if (!chip) return;
+  $("a_goal").value = chip.textContent;
+  $("goal_chips").querySelectorAll(".mod-chip").forEach((c) => c.classList.toggle("active", c === chip));
+};
+$("a_goal").oninput = () => $("goal_chips").querySelectorAll(".mod-chip").forEach((c) => c.classList.remove("active"));
 
 const q = new URLSearchParams(location.search);
 if (q.get("mod")) { $("a_mod").value = q.get("mod"); $("filter").value = q.get("mod"); }
 renderHint();
+renderGoalChips($("a_mod").value.trim());
+
+let _deepLinked = false;
+const _origLoad = load;
+load = async function () {
+  await _origLoad();
+  if (!_deepLinked && q.get("run")) {
+    _deepLinked = true;
+    const rid = q.get("run");
+    if (!open.has(rid)) { open.add(rid); render(); }
+    document.querySelector(`.run[data-id="${rid}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+};
 
 K.init({ glyph: "▶", title: "Auto runs", accent: "#63d4a8", sub: "Point agents at a mod and walk away: one proposes an idea, another builds it, N times." })
   .then(() => { $("startBtn").disabled = !K.token; K.poll(load, 5000); });

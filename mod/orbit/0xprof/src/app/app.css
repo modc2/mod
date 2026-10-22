@@ -273,6 +273,19 @@ label code { font-size: 11px; }
 .hint { color: var(--faint); font-size: 12.5px; line-height: 1.6; }
 .hint b { color: var(--dim); font-weight: 600; }
 
+/* ── bounty context strip ────────────────────────────────────── */
+.bounty-ctx {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; margin: 0 0 18px;
+  background: rgba(139, 124, 255, .08);
+  border: 1px solid rgba(139, 124, 255, .28);
+  border-radius: var(--r-sm);
+  font-size: 14px; color: var(--ink);
+}
+.bounty-ctx span { flex: 1; line-height: 1.5; }
+.bounty-ctx b { color: var(--accent); }
+.bounty-ctx button { flex-shrink: 0; font-size: 16px; line-height: 1; padding: 2px 7px; }
+
 /* ── verify: three drop zones and an action bar ─────────────── */
 
 .drop {
@@ -305,8 +318,23 @@ label code { font-size: 11px; }
   box-shadow: 0 0 0 4px rgba(56, 225, 198, .08); }
 .actionbar { margin: 14px 0 0; padding: 10px; border: 1px solid var(--line);
   background: var(--surface-1); border-radius: 14px; }
+.method-preview {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 10px 14px; border-top: 1px solid var(--line);
+  color: var(--faint); font-size: 12px;
+}
+.method-preview:empty { display: none; }
+.mg.unavail { opacity: .3; }
 .placeholder { border: 1px dashed var(--line-2); border-radius: var(--r); padding: 28px 20px;
   text-align: center; color: var(--faint); font-size: 13.5px; }
+
+.artifact-panel { background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r); overflow: hidden; margin: 10px 0; }
+.ap-head { display: flex; align-items: center; gap: 8px; padding: 11px 12px 11px 14px;
+  border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.ap-head .fname { font: 600 12.5px var(--mono); color: var(--ink); flex: 1; }
+.ap-head button { flex: none; }
+.artifact-panel pre { border: 0; border-radius: 0; margin: 0; max-height: 260px; }
 
 /* ── cards ──────────────────────────────────────────────────── */
 
@@ -434,17 +462,14 @@ label code { font-size: 11px; }
 
 /* ── verdicts: one row per method, never merged ─────────────── */
 
+.inline-race { background: var(--surface-2); border: 1px solid var(--line-2); padding: 14px; border-radius: 12px; margin-top: 12px; display: grid; gap: 6px; }
+
 .verdicts { display: grid; gap: 6px; margin-top: 18px; }
 .verdict {
-  display: grid; grid-template-columns: 28px 130px 80px 1fr auto; gap: 12px;
+  display: grid; grid-template-columns: 36px 130px 80px 1fr auto; gap: 12px;
   align-items: center; padding: 10px 14px 10px 10px;
   background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px;
 }
-.verdict .ic { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
-  background: var(--surface-3); color: var(--faint); }
-.verdict.valid .ic { background: var(--valid-bg); color: var(--valid); }
-.verdict.invalid .ic { background: var(--invalid-bg); color: var(--invalid); }
-.verdict.error .ic { background: var(--error-bg); color: var(--error); }
 .verdict .m { font: 600 13px var(--sans); color: var(--ink); min-width: 0; }
 .verdict .m .t { display: block; font-weight: 400; margin-top: 1px; font-size: 11px; }
 .verdict .s { font: 600 10.5px var(--sans); letter-spacing: .07em; text-transform: uppercase;
@@ -457,6 +482,16 @@ label code { font-size: 11px; }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .verdict .d:hover { -webkit-line-clamp: unset; }
 .verdict .t { color: var(--faint); font: 11.5px var(--mono); white-space: nowrap; }
+.verdict > .t { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 80px; }
+.timing-bar { width: var(--timing-w, 0%); height: 3px; border-radius: 2px;
+  background: var(--accent-2); opacity: .28; transition: width 0.4s ease-out; }
+.verdict.valid .mg { box-shadow: 0 0 0 2px var(--valid-line); }
+.verdict.invalid .mg { box-shadow: 0 0 0 2px var(--invalid-line); }
+.verdict.error .mg { box-shadow: 0 0 0 2px var(--error-line); }
+.verdict.pending { opacity: 0.4; }
+.verdict.pending .mg { opacity: 0.4; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.7; } }
+.has-new { box-shadow: 0 0 0 2px var(--accent-2); animation: pulse 2s ease-in-out infinite; }
 
 .summary {
   padding: 16px 18px; border: 1px solid var(--line-2); border-radius: 14px;
@@ -652,7 +687,7 @@ details summary:hover { color: var(--ink); }
   main { padding: 18px 14px 60px; }
   .hero-board { display: none; }
   .hero h2 { font-size: 28px; }
-  .verdict { grid-template-columns: 28px 1fr auto; }
+  .verdict { grid-template-columns: 36px 1fr auto; }
   .verdict .d { grid-column: 1 / -1; }
   .check-entry { grid-template-columns: auto 1fr; }
   .cards { grid-template-columns: 1fr; }

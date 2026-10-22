@@ -50,10 +50,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 if __package__ in (None, ''):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from rvb import arena, builtins as bimod, corpus, defense as defmod
-    from rvb import mcp as mcpsrv, models, store
+    from rvb import game as gamemod, mcp as mcpsrv, models, store
 else:
     from . import arena, builtins as bimod, corpus, defense as defmod
-    from . import mcp as mcpsrv, models, store
+    from . import game as gamemod, mcp as mcpsrv, models, store
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = os.environ.get('RVB_BASE_PATH', '/rvb')
@@ -61,7 +61,7 @@ PORT = int(os.environ.get('RVB_PORT', 50820))
 
 # Spending a model call or editing the corpus needs the bearer, when one is
 # set. Reading a score never does — a scoreboard nobody can read is not one.
-WRITE_ROUTES = {'/fight', '/round', '/ping', '/attacks', '/defenses'}
+WRITE_ROUTES = {'/fight', '/game', '/round', '/ping', '/attacks', '/defenses'}
 
 
 class ApiError(Exception):
@@ -92,6 +92,9 @@ def info():
             'POST /round': '{attacks, defenses, model, judge, parallel, controls, '
                            'background} — the tournament',
             'GET /rounds': 'history (?limit=, ?status=) or ?id= for one in full',
+            'POST /game': '{red, blue, model, turns, per_turn, judge, parallel, '
+                          'controls} — start an agent vs agent game (background)',
+            'GET /games': 'game history (?limit=, ?status=) or ?id= for one in full',
             'GET /board': '?rounds=8 — standings, blue and red',
             'GET /targets': 'which model backends can run right now',
             'GET /models': 'Venice model catalogue — choices for a venice: target',
@@ -201,6 +204,25 @@ def route(method, path, query, body):
 
     if path == '/tools' and method == 'GET':
         return {'tools': mcpsrv.tool_list(), 'count': len(mcpsrv.TOOLS)}
+
+    if path == '/games' and method == 'GET':
+        if arg('id'):
+            return store.get('game', arg('id'))
+        return {'games': gamemod.listing(limit=int(arg('limit', 20)),
+                                         status=arg('status'))}
+
+    if path == '/game' and method == 'POST':
+        return gamemod.spawn(
+            _need(b.get('red'), 'red'), _need(b.get('blue'), 'blue'),
+            model=b.get('model') or models.DEFAULT,
+            turns=int(b.get('turns') or 3),
+            per_turn=int(b.get('per_turn') or 3),
+            judge_kind=b.get('judge') or 'model',
+            parallel=int(b.get('parallel') or 6),
+            controls=_flag(b.get('controls', True)),
+            timeout=int(b['timeout']) if b.get('timeout') else None,
+            agent_timeout=int(b['agent_timeout']) if b.get('agent_timeout') else None,
+            name=b.get('name'))
 
     raise ApiError(f'no route {method} {path} — GET / lists them', 404)
 

@@ -61,11 +61,15 @@ function Stat({ label, value, sub, lit, title, tone }: {
   );
 }
 
-const fmtDay = (n: number) =>
+export const fmtDay = (n: number) =>
   `${n >= 0 ? "+" : "-"}$${Math.abs(n) >= 100 ? Math.round(Math.abs(n)).toLocaleString("en-US") : Math.abs(n).toFixed(2)}`;
 
-/** Expected $/day: per $1k copied first, the trader's own $/day beside it. */
-function ExpectedBand({ t, days, enrichNote }: { t: TopTrader; days: number; enrichNote: string }) {
+/** Expected $/day: scaled to copied capital, with the trader's own $/day beside it. */
+function ExpectedBand({ t, days, enrichNote, k }: { t: TopTrader; days: number; enrichNote: string; k?: number }) {
+  const scale = k ?? 1;
+  const capUsd = scale * 1000;
+  const capLabel = capUsd === 1000 ? "per $1k copied"
+    : `per $${capUsd >= 1000 && capUsd % 1000 === 0 ? `${capUsd / 1000}k` : capUsd.toLocaleString("en-US")} copied`;
   const e = t.expected;
   const why = e
     ? `Expected profit per day, over the ${days}d window:\n` +
@@ -81,7 +85,7 @@ function ExpectedBand({ t, days, enrichNote }: { t: TopTrader; days: number; enr
       (e.thin ? `\nUnder ${MIN_CLOSES} closes — anecdote, not evidence.` : "") +
       "\nA forecast from history, not a promise."
     : enrichNote;
-  const head = e?.per_1k ?? null;
+  const head = e?.per_1k != null ? e.per_1k * scale : null;
   const tone = head == null ? "text-dim" : head > 0 ? "text-win" : "text-loss";
   return (
     <div title={why}
@@ -90,7 +94,7 @@ function ExpectedBand({ t, days, enrichNote }: { t: TopTrader; days: number; enr
         <div className="eyebrow !text-[9px]">expected / day</div>
         <div className={`num mt-1 text-[15px] leading-none ${tone} ${e?.thin ? "opacity-60" : ""}`}>
           {head != null ? fmtDay(head) : "—"}
-          <span className="ml-1 text-[10px] text-dim">{head != null ? "per $1k copied" : e ? "dust basis" : "not measured"}</span>
+          <span className="ml-1 text-[10px] text-dim">{head != null ? capLabel : e ? "dust basis" : "not measured"}</span>
         </div>
       </div>
       {e && (
@@ -107,7 +111,7 @@ function ExpectedBand({ t, days, enrichNote }: { t: TopTrader; days: number; enr
 }
 
 export default function TraderCard({
-  t, rank, days, curve, picked, onPick, statKey, enrichNote,
+  t, rank, days, curve, picked, onPick, statKey, enrichNote, followed, inLiveEngine, watched, onWatch, capital,
 }: {
   t: TopTrader;
   rank: number;
@@ -120,6 +124,15 @@ export default function TraderCard({
   statKey: CardStat;
   /** Why an unmeasured row has no win rate, in the board's own words. */
   enrichNote: string;
+  /** True when the signed-in user is already copying this wallet. */
+  followed?: boolean;
+  /** True when this trader is in the user's running live engine. */
+  inLiveEngine?: boolean;
+  /** True when this wallet is on the user's local watchlist. */
+  watched?: boolean;
+  onWatch?: () => void;
+  /** How much capital the user plans to copy — scales expected $/day. Defaults to $1k. */
+  capital?: number;
 }) {
   const measured = t.win_rate >= 0;
   const win = defensibleWin(t);
@@ -274,7 +287,7 @@ export default function TraderCard({
           window's pace (pnl ÷ days) re-priced at the win rate the sample can
           defend, so a lucky streak is haircut and a long record isn't. Per
           $1k copied is the headline — it's what a copy of this book earns. */}
-      <ExpectedBand t={t} days={days} enrichNote={enrichNote} />
+      <ExpectedBand t={t} days={days} enrichNote={enrichNote} k={capital != null ? capital / 1000 : undefined} />
 
       {/* ── proof ── */}
       <div className="mt-3 grid grid-cols-3 gap-1">
@@ -344,8 +357,23 @@ export default function TraderCard({
 
       {/* ── act ── */}
       <div className="mt-4 pt-3 border-t border-white/[0.05] flex items-center gap-2">
-        <Link href={`/follows/new?leader=${t.address}`} className="btn-ghost flex-1"
-          title="Copy this wallet — same destination as the board's copy button">copy</Link>
+        {onWatch && (
+          <button
+            className={`btn !px-2.5 ${watched ? "!border-accent/40 !text-accent" : ""}`}
+            title={watched ? "remove from watchlist" : "add to watchlist"}
+            onClick={onWatch}>
+            {watched ? "★" : "☆"}
+          </button>
+        )}
+        {followed
+          ? <Link href="/follows" className="btn-ghost flex-1 text-accent2"
+              title="You're already copying this wallet">following ✓</Link>
+          : <Link href={`/follows/new?leader=${t.address}`} className="btn-ghost flex-1"
+              title="Copy this wallet — same destination as the board's copy button">copy</Link>}
+        {inLiveEngine && (
+          <Link href="/live" className="btn-ghost text-accent"
+            title="Running in the live engine">live ✓</Link>
+        )}
         <Link href={`/trader/${t.address}?days=${wDays}`} className="btn flex-1"
           title="Fills, round trips and the full curve">details →</Link>
       </div>

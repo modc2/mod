@@ -254,7 +254,7 @@
         "LIGHTHOUSE_FACILITATOR": "x402 facilitator base URL (default https://facilitator.payai.network)"
     },
     "credentials": "~/.mod/lighthouse/credentials.json (api_key + source: wallet|pasted, address) + owner.json (off-chain, never committed)",
-    "schema": "QmXQ63gZRoKZmCfkv6jYryEULnPNyrLgY2zzyWyzx1DmZY",
+    "schema": "QmeyoyMhhFgYb7mY3t8BqPEKcjabuhBo1W4pnJxwsnEGiF",
     "pay": {
         "protocol": "x402 v1, scheme exact (EIP-3009 USDC transferWithAuthorization)",
         "price_usd": 0.001,

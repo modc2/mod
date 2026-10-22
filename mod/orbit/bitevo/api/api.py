@@ -1,3 +1,5 @@
+import asyncio
+import concurrent.futures
 import sys
 import time
 import traceback
@@ -28,6 +30,7 @@ app.add_middleware(
 )
 
 _bitevo: Optional[Bitevo] = None
+_progress: dict = {"step": "idle", "epoch": 0, "lines": []}
 
 
 def get_bitevo() -> Bitevo:
@@ -45,6 +48,7 @@ class SimulateRequest(BaseModel):
 
 class EpochRequest(BaseModel):
     challenge_type: Optional[str] = None
+    challenge: Optional[dict] = None
 
 
 class AddMinerRequest(BaseModel):
@@ -81,14 +85,32 @@ async def status():
 
 @app.post("/simulate")
 async def simulate(req: SimulateRequest):
-    try:
-        result = get_bitevo().simulate(
+    global _progress
+    _progress = {"step": "running", "epoch": 0, "lines": []}
+
+    def _cb(msg: str):
+        _progress["lines"].append(msg)
+        _progress["step"] = msg
+
+    def _run():
+        return get_bitevo().simulate(
             n_miners=req.n_miners,
             backends=req.backends,
             epochs=req.epochs,
+            progress_callback=_cb,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            result = await loop.run_in_executor(pool, _run)
+        _progress["step"] = "idle"
         return {"result": result}
+    except ValueError as e:
+        _progress["step"] = "idle"
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        _progress["step"] = "idle"
         raise HTTPException(status_code=500, detail=f"{e}\n{traceback.format_exc()}")
 
 
@@ -105,14 +127,38 @@ async def audit(epoch: Optional[int] = Query(None)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/progress")
+async def progress():
+    return _progress
+
+
 @app.post("/epoch")
 async def epoch(req: EpochRequest):
+    global _progress
+    _progress = {"step": "running", "epoch": 0, "lines": []}
+
+    def _cb(msg: str):
+        _progress["lines"].append(msg)
+        _progress["step"] = msg
+
+    def _run():
+        return get_bitevo().epoch(
+            challenge_type=req.challenge_type,
+            challenge=req.challenge,
+            progress_callback=_cb,
+        )
+
     try:
-        result = get_bitevo().epoch(challenge_type=req.challenge_type)
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            result = await loop.run_in_executor(pool, _run)
+        _progress["step"] = "idle"
         return {"result": result}
     except ValueError as e:
+        _progress["step"] = "idle"
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        _progress["step"] = "idle"
         raise HTTPException(status_code=500, detail=f"{e}\n{traceback.format_exc()}")
 
 
@@ -138,14 +184,32 @@ async def add_miner(req: AddMinerRequest):
 
 @app.post("/evolve")
 async def evolve(req: EvolveRequest):
-    try:
-        result = get_bitevo().evolve(
+    global _progress
+    _progress = {"step": "running", "epoch": 0, "lines": []}
+
+    def _cb(msg: str):
+        _progress["lines"].append(msg)
+        _progress["step"] = msg
+
+    def _run():
+        return get_bitevo().evolve(
             generations=req.generations, population=req.population,
             dataset=req.dataset, horizon=req.horizon, max_lag=req.max_lag,
             seed=req.seed, fresh=req.fresh, csv=req.csv,
+            progress_callback=_cb,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            result = await loop.run_in_executor(pool, _run)
+        _progress["step"] = "idle"
         return {"result": result}
+    except ValueError as e:
+        _progress["step"] = "idle"
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        _progress["step"] = "idle"
         raise HTTPException(status_code=500, detail=f"{e}\n{traceback.format_exc()}")
 
 
@@ -153,6 +217,14 @@ async def evolve(req: EvolveRequest):
 async def forecast(horizon: Optional[int] = Query(None), tail: int = Query(60)):
     try:
         return {"result": get_bitevo().forecast(horizon=horizon, tail=tail)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{e}\n{traceback.format_exc()}")
+
+
+@app.get("/forecast/ensemble")
+async def forecast_ensemble(top_n: int = Query(10), tail: int = Query(60)):
+    try:
+        return {"result": get_bitevo().ensemble_forecast(top_n=top_n, tail=tail)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{e}\n{traceback.format_exc()}")
 
@@ -171,6 +243,25 @@ async def datasets():
 async def top_pitches(limit: int = Query(10)):
     try:
         return {"result": get_bitevo().top_pitches(limit=limit)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/genome")
+async def genome_influences(top_k: int = Query(10)):
+    try:
+        engine = get_bitevo()._get_engine()
+        if engine is None:
+            return {"error": "no evolved population yet — run evolve first"}
+        return {"result": engine.top_influences(top_k=top_k)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/epochs/list")
+async def list_epochs():
+    try:
+        return {"result": get_bitevo().list_epochs()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -196,8 +287,23 @@ async def challenge(type: Optional[str] = Query(None)):
 
 @app.post("/score")
 async def score_idea(req: ScoreIdeaRequest):
+    global _progress
+    _progress = {"step": "running", "epoch": 0, "lines": []}
+
+    def _cb(msg: str):
+        _progress["lines"].append(msg)
+        _progress["step"] = msg
+
+    def _run():
+        return get_bitevo().score_idea(idea=req.idea, challenge=req.challenge,
+                                       progress_callback=_cb)
+
     try:
-        result = get_bitevo().score_idea(idea=req.idea, challenge=req.challenge)
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            result = await loop.run_in_executor(pool, _run)
+        _progress["step"] = "idle"
         return {"result": result}
     except Exception as e:
+        _progress["step"] = "idle"
         raise HTTPException(status_code=500, detail=f"{e}\n{traceback.format_exc()}")

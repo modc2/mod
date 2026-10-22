@@ -174,7 +174,8 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   const [redeeming, setRedeeming] = useState(false);
   const [redeemStatus, setRedeemStatus] = useState<string | null>(null);
   // Positions hidden because they're unrealizable (no bid, not redeemable).
-  const [hiddenInfo, setHiddenInfo] = useState<{ count: number; value: number }>({ count: 0, value: 0 });
+  const [hiddenInfo, setHiddenInfo] = useState<{ count: number; value: number; positions: PositionLite[] }>({ count: 0, value: 0, positions: [] });
+  const [darkExpanded, setDarkExpanded] = useState(false);
   // Trading (deposit) wallet — the address whose fills draw the chart markers.
   const [tradingWallet, setTradingWallet] = useState<string | null>(null);
   // My executed fills (deposit-wallet trades) → BUY/SELL dots on the curve.
@@ -349,7 +350,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     // populated breakdown.
     if (listOk && (rawCount > 0 || (valueTotal != null && valueTotal < 0.01))) {
       setPositions(nextPositions);
-      setHiddenInfo({ count: hidden.length, value: hidden.reduce((s, p) => s + p.value, 0) });
+      setHiddenInfo({ count: hidden.length, value: hidden.reduce((s, p) => s + p.value, 0), positions: hidden });
     }
 
     // 3) Snapshot for the time-series view — only when BOTH readings are real,
@@ -715,14 +716,27 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         </span>
       }
       footer={<>
-      {/* Unrealizable positions are hidden, not silently dropped — say so. */}
+      {/* Unrealizable positions are hidden, not silently dropped — expandable list. */}
       {hiddenInfo.count > 0 && (
-        <div
-          className="text-[10px] text-pixel-muted"
-          title="These tokens have no bid on the order book and the market hasn't resolved, so they can't be sold or redeemed right now. They're excluded from the Positions value and P&L so the numbers reflect what you can actually cash out."
-        >
-          {hiddenInfo.count} unsellable position{hiddenInfo.count === 1 ? "" : "s"} hidden
-          (no market bid · ~{fmtUsd(hiddenInfo.value)} mark-to-market, not counted)
+        <div className="text-[10px] font-mono text-pixel-muted">
+          <button
+            className="cursor-pointer hover:text-pixel-primary transition-colors"
+            title="These markets have no open order book — capital is locked until the market resolves. It is excluded from totals so your net worth is not overstated."
+            onClick={() => setDarkExpanded((v) => !v)}
+          >
+            {darkExpanded ? "▾" : "▸"} {hiddenInfo.count} dark position{hiddenInfo.count === 1 ? "" : "s"} · ~{fmtUsd(hiddenInfo.value)}
+          </button>
+          {darkExpanded && (
+            <div className="mt-1 pl-2 flex flex-col gap-[2px]">
+              {hiddenInfo.positions.map((p, i) => (
+                <div key={i} className="flex items-center gap-2 whitespace-nowrap overflow-hidden">
+                  <span className="truncate max-w-[180px]" title={p.market}>{p.market}</span>
+                  <span className="shrink-0 px-1 rounded border border-pixel-muted/40 text-[9px] uppercase">{p.outcome}</span>
+                  <span className="shrink-0 text-pixel-muted">{p.size.toFixed(0)} sh · ~{fmtUsd(p.value)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

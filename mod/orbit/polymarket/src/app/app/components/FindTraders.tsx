@@ -48,6 +48,7 @@ const SORTS = [
   { key: "pnl", label: "P&L" },
   { key: "sharpe", label: "SHARPE" },
   { key: "winRate", label: "WIN %" },
+  { key: "resolveRate", label: "RESOLVE" },
   { key: "trades", label: "TRADES" },
   { key: "volume", label: "VOLUME" },
   { key: "last", label: "RECENT" },
@@ -765,7 +766,7 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                         </div>
                       )}
 
-                      <div className={`grid ${score !== null ? "grid-cols-7" : "grid-cols-6"} gap-1`}>
+                      <div className={`grid ${score !== null ? "grid-cols-8" : "grid-cols-7"} gap-1`}>
                         <Stat
                           label="ROI"
                           active={ran.sort === "roi"}
@@ -837,6 +838,13 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                           active={ran.sort === "sharpe"}
                           value={t.sharpe ? t.sharpe.toFixed(2) : "—"}
                           title="Mean / stdev of per-trade returns"
+                        />
+                        <Stat
+                          label="EXIT"
+                          active={ran.sort === "exitEntry"}
+                          value={t.exitEntry <= 0 ? "—" : t.exitEntry.toFixed(2)}
+                          valueClass={t.exitEntry <= 0 ? "text-pixel-gray" : t.exitEntry >= 1.0 ? "text-pixel-green" : "text-pixel-gray"}
+                          title="Average exit÷entry price ratio — above 1.0 means they sold higher than they bought"
                         />
                         <Stat
                           label="VOL"

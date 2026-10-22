@@ -21,10 +21,10 @@ import sys
 if __package__ in (None, ''):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from rvb import arena, builtins, corpus, defense as defmod
-    from rvb import judge as judgemod, models, store
+    from rvb import game as gamemod, judge as judgemod, models, store
 else:
     from . import arena, builtins, corpus, defense as defmod
-    from . import judge as judgemod, models, store
+    from . import game as gamemod, judge as judgemod, models, store
 
 SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
 DEFAULT_PROTOCOL_VERSION = '2025-03-26'
@@ -34,7 +34,7 @@ MAX_OUT = int(os.environ.get('RVB_MAX_RESULT_CHARS', 40000))
 # Writing a round runs the target model, which spends CLI/API calls; those are
 # the gated tools.
 WRITE_TOOLS = {'rvb_round', 'rvb_fight', 'rvb_attack', 'rvb_defend',
-               'rvb_delete'}
+               'rvb_delete', 'rvb_game'}
 
 INSTRUCTIONS = (
     'Red-vs-blue jailbreak game with a real scoreboard. Red team writes attacks '
@@ -217,6 +217,27 @@ def t_delete(a):
     return store.delete(kind, a['id'])
 
 
+def t_game(a):
+    return gamemod.spawn(
+        a['red'], a['blue'],
+        model=a.get('model'),
+        turns=int(a.get('turns') or 3),
+        per_turn=int(a.get('per_turn') or 3),
+        judge_kind=a.get('judge') or 'model',
+        parallel=int(a.get('parallel') or 6),
+        controls=a.get('controls', True),
+        timeout=int(a['timeout']) if a.get('timeout') else None,
+        agent_timeout=int(a['agent_timeout']) if a.get('agent_timeout') else None,
+        name=a.get('name'))
+
+
+def t_games(a):
+    if a.get('id'):
+        return store.get('game', a['id'])
+    return {'games': gamemod.listing(limit=int(a.get('limit') or 20),
+                                     status=a.get('status'))}
+
+
 def _resolve(spec, kind):
     if not spec:
         if kind == 'defense':
@@ -389,6 +410,35 @@ TOOLS = {
             'kind': _str('attack (default) or defense')},
             'required': ['id']},
         'handler': t_delete,
+    },
+    'rvb_game': {
+        'description': 'Start a game: a blue agent vs a red agent, turn by turn. '
+                       'Blue defends (composes a pipeline each turn), red picks '
+                       'attacks from the corpus. Returns id + poll url immediately; '
+                       'poll rvb_games with that id to watch it run.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'red': _str('Red-team agent — agent:<provider>/<agent_type>'),
+            'blue': _str('Blue-team agent — agent:<provider>/<agent_type>'),
+            'model': _str('Target model (default claude:haiku)'),
+            'turns': _num('Number of turns (default 3, max 10)'),
+            'per_turn': _num('Attacks red picks per turn (default 3, max 10)'),
+            'judge': _str('model (default) or heuristic'),
+            'parallel': _num('Matches in flight per turn (default 6)'),
+            'controls': _bool('Run benign control set (default true)'),
+            'timeout': _num('Per-model-call timeout in seconds'),
+            'agent_timeout': _num('Per-agent-move timeout in seconds (default 240)'),
+            'name': _str('A name for the game (else timestamped)')},
+            'required': ['red', 'blue']},
+        'handler': t_game,
+    },
+    'rvb_games': {
+        'description': 'Game history, or one game in full (id=). A game record is '
+                       'written as it runs, so this also follows one in flight.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': _str('A game id — returns it in full with every turn'),
+            'status': _str('running | done | error'),
+            'limit': _num('How many (default 20)')}},
+        'handler': t_games,
     },
 }
 

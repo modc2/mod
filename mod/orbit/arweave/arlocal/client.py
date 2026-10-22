@@ -121,6 +121,41 @@ class ArweaveClient:
             blob.unlink()
         return {"txid": txid, "removed": cur.rowcount > 0}
 
+    def push_local(self, txid: str) -> Dict[str, Any]:
+        """Push a locally-stored item to Arweave once a wallet is configured.
+
+        Reads the blob, recovers content_type and tags from the local index,
+        uploads via _upload_bytes(), removes the old local entry on success,
+        and returns the new arweave-backend result.
+        """
+        if not txid.startswith("sha256-"):
+            raise ValueError(f"{txid!r} is not a local-backend id (must start with sha256-)")
+        if not self.wallet_path or not Path(self.wallet_path).expanduser().is_file():
+            raise ValueError("no Arweave wallet configured — configure one before pushing")
+        blob = self._blob_path(txid)
+        if blob is None or not blob.is_file():
+            raise FileNotFoundError(f"no local blob found for {txid}")
+        with sqlite3.connect(str(self.db_path)) as conn:
+            row = conn.execute(
+                "SELECT name, metadata FROM objects WHERE txid = ? AND backend = 'local'",
+                (txid,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"{txid} not found in local index")
+        name = row[0] or "upload.bin"
+        try:
+            meta = json.loads(row[1] or "{}") or {}
+        except Exception:
+            meta = {}
+        content_type = meta.get("content_type") or "application/octet-stream"
+        raw_tags = meta.get("tags") or []
+        extra_tags = [tuple(t) for t in raw_tags] if raw_tags else None
+        payload = blob.read_bytes()
+        result = self._upload_bytes(payload, name, content_type, extra_tags=extra_tags)
+        if result.get("backend") == "arweave":
+            self.rm(txid)
+        return result
+
     def _blob_path(self, txid: str) -> Optional[Path]:
         # Only local placeholder ids (sha256-<43 hex>) have blobs; the id is
         # validated so a crafted txid can never escape blob_dir.
@@ -138,6 +173,7 @@ class ArweaveClient:
         data: Union[bytes, str, dict, list],
         name: Optional[str] = None,
         content_type: Optional[str] = None,
+        extra_tags: Optional[List[tuple]] = None,
     ) -> Dict[str, Any]:
         """Store arbitrary data on Arweave. Returns {txid, size, backend}."""
         if isinstance(data, (dict, list)):
@@ -155,7 +191,7 @@ class ArweaveClient:
         else:
             raise TypeError(f"unsupported data type: {type(data).__name__}")
 
-        return self._upload_bytes(payload, name, content_type)
+        return self._upload_bytes(payload, name, content_type, extra_tags=extra_tags)
 
     def put_file(self, path: str) -> Dict[str, Any]:
         """Store a file on Arweave. Returns {txid, size, backend}."""
@@ -167,8 +203,10 @@ class ArweaveClient:
         return self._upload_bytes(payload, p.name, "application/octet-stream")
 
     def _upload_bytes(
-        self, payload: bytes, name: str, content_type: str = "application/octet-stream"
+        self, payload: bytes, name: str, content_type: str = "application/octet-stream",
+        extra_tags: Optional[List[tuple]] = None,
     ) -> Dict[str, Any]:
+        _extra = [list(t) for t in (extra_tags or [])]
         if not self.wallet_path or not Path(self.wallet_path).expanduser().is_file():
             digest = hashlib.sha256(payload).hexdigest()
             txid = f"sha256-{digest[:43]}"
@@ -176,7 +214,7 @@ class ArweaveClient:
             if blob is not None:
                 blob.write_bytes(payload)
             self._index(txid, name, len(payload), "local",
-                        {"pinned": False, "content_type": content_type})
+                        {"pinned": False, "content_type": content_type, "tags": _extra})
             return {
                 "txid": txid,
                 "size": len(payload),
@@ -190,6 +228,8 @@ class ArweaveClient:
         tags = [("Content-Type", content_type)]
         if name:
             tags.append(("File-Name", name))
+        if extra_tags:
+            tags.extend(extra_tags)
 
         # Free path first: sign an ANS-104 data item and hand it to a bundler
         # (Turbo/Irys subsidize items under ~100 KiB — no AR balance needed).
@@ -199,7 +239,8 @@ class ArweaveClient:
             res = bundle.upload(payload, self.wallet_path, tags=tags)
             txid = res["txid"]
             self._index(txid, name, len(payload), "arweave",
-                        {"pinned": True, "via": res["bundler"], "content_type": content_type})
+                        {"pinned": True, "via": res["bundler"], "content_type": content_type,
+                         "tags": _extra})
             return {"txid": txid, "size": len(payload), "backend": "arweave",
                     "via": res["bundler"], "name": name, "url": f"{self.gateway}/{txid}"}
         except Exception as e:
@@ -213,6 +254,8 @@ class ArweaveClient:
             tx.add_tag("Content-Type", content_type)
             if name:
                 tx.add_tag("File-Name", name)
+            for tag_name, tag_value in (extra_tags or []):
+                tx.add_tag(tag_name, tag_value)
             tx.sign()
             tx.send()
         except Exception as e:
@@ -223,7 +266,7 @@ class ArweaveClient:
             if blob is not None:
                 blob.write_bytes(payload)
             self._index(txid, name, len(payload), "local",
-                        {"pinned": False, "content_type": content_type})
+                        {"pinned": False, "content_type": content_type, "tags": _extra})
             return {
                 "txid": txid, "size": len(payload), "backend": "local",
                 "name": name, "pinned": False,
@@ -231,9 +274,22 @@ class ArweaveClient:
             }
 
         txid = tx.id
-        self._index(txid, name, len(payload), "arweave", {"pinned": True})
+        self._index(txid, name, len(payload), "arweave", {"pinned": True, "tags": _extra})
         return {"txid": txid, "size": len(payload), "backend": "arweave", "name": name,
                 "url": f"{self.gateway}/{txid}"}
+
+    def _get_metadata(self, txid: str) -> Dict[str, Any]:
+        """Return the full metadata dict stored in the local index for txid, or {}."""
+        with sqlite3.connect(str(self.db_path)) as conn:
+            row = conn.execute(
+                "SELECT metadata FROM objects WHERE txid = ?", (txid,)
+            ).fetchone()
+        if row is None:
+            return {}
+        try:
+            return json.loads(row[0] or "{}") or {}
+        except Exception:
+            return {}
 
     def _get_stored_content_type(self, txid: str) -> Optional[str]:
         """Return the content_type stored in the local index for txid, or None."""
@@ -305,6 +361,48 @@ class ArweaveClient:
         except requests.RequestException as e:
             return {"error": str(e), "txid": txid}
 
+    def tx_confirm_status(self, txid: str) -> Dict[str, Any]:
+        """Confirmation status for a txid.
+
+        Returns one of:
+          {status: "local"}                                        — sha256-… local id, never on-chain
+          {status: "bundler_accepted", bundler: "turbo"}           — accepted by Turbo, not yet on chain
+          {status: "pending"}                                      — broadcast, not yet mined (202)
+          {status: "not_found"}                                    — unknown tx id (404)
+          {status: "confirmed", confirmations: N, block_height: H} — mined and confirmed
+        """
+        if txid.startswith("sha256-"):
+            return {"status": "local"}
+        # For Turbo-uploaded items, check the bundler's own status before hitting
+        # the chain gateway — the chain won't know the txid until the bundle is settled.
+        meta = self._get_metadata(txid)
+        if meta.get("via") == "turbo":
+            try:
+                turbo_url = f"https://upload.ardrive.io/v1/tx/{txid}/status"
+                tr = requests.get(turbo_url, timeout=15)
+                if tr.ok:
+                    td = tr.json()
+                    if isinstance(td, dict) and td.get("status") == "FINALIZED":
+                        return {"status": "bundler_accepted", "bundler": "turbo"}
+            except requests.RequestException:
+                pass
+        url = f"{self.gateway}/tx/{txid}/status"
+        try:
+            r = requests.get(url, timeout=15)
+            if r.status_code == 202:
+                return {"status": "pending"}
+            if r.status_code == 404:
+                return {"status": "not_found"}
+            r.raise_for_status()
+            data = r.json()
+            return {
+                "status": "confirmed",
+                "confirmations": data.get("number_of_confirmations"),
+                "block_height": data.get("block_height"),
+            }
+        except requests.RequestException as e:
+            return {"status": "error", "error": str(e)}
+
     def status(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
             "gateway": self.gateway,
@@ -350,9 +448,20 @@ class ArweaveClient:
         try:
             r = requests.get(f"{self.gateway}/price/{int(num_bytes)}", timeout=10)
             r.raise_for_status()
-            return {"bytes": int(num_bytes), "winston": r.text.strip()}
+            winston_str = r.text.strip()
+            return {"bytes": int(num_bytes), "winston": winston_str, "ar": int(winston_str) / 1e12}
         except requests.RequestException as e:
             return {"error": str(e), "bytes": num_bytes}
+
+    def balance(self, address: str) -> Dict[str, Any]:
+        """AR balance for a wallet address. Returns {address, winston, ar} or {error}."""
+        try:
+            r = requests.get(f"{self.gateway}/wallet/{address}/balance", timeout=10)
+            r.raise_for_status()
+            winston = int(r.text.strip())
+            return {"address": address, "winston": winston, "ar": winston / 1e12}
+        except requests.RequestException as e:
+            return {"error": str(e)}
 
     def query(
         self,

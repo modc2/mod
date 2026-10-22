@@ -5,13 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>APPWATCH</title>
 <link rel="stylesheet" href="kit.css" />
+<style>
+@keyframes aw-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.aw-live{animation:aw-pulse 2s ease-in-out infinite}
+</style>
 </head>
 <body>
 <div class="wrap">
   <div id="hdr"></div>
   <div class="grid">
     <div class="card wide">
-      <h2>Build app <span class="sp"></span><span id="tick" class="faint"></span></h2>
+      <h2>Build app <span class="sp"></span><span id="tick" class="faint"></span><span id="live_dot" style="display:none;margin-left:8px;font-size:12px;vertical-align:middle"></span></h2>
       <div id="stats" class="stats"></div>
       <div id="down" style="margin-top:12px"></div>
       <div id="last_log"></div>
@@ -19,7 +23,33 @@
     <div class="card wide">
       <h2>Uptime this session <span class="sp"></span><span class="faint" id="upPct"></span></h2>
       <div id="strip" style="display:flex;gap:2px;height:34px;align-items:stretch"></div>
+      <div id="strip_chips" style="display:flex;gap:4px;margin-top:6px">
+        <button class="strip-chip" data-n="120" onclick="setStripN(120)" style="background:none;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;color:inherit;font-weight:600">10m</button>
+        <button class="strip-chip" data-n="240" onclick="setStripN(240)" style="background:none;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;color:inherit;opacity:0.45">20m</button>
+        <button class="strip-chip" data-n="500" onclick="setStripN(500)" style="background:none;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;color:inherit;opacity:0.45">all</button>
+      </div>
+      <div style="display:flex;gap:4px;margin-top:6px">
+        <button id="embed_chip" class="strip-chip" onclick="toggleEmbed()" style="background:none;border:none;cursor:pointer;font-size:11px;padding:2px 6px;border-radius:3px;color:inherit;opacity:0.45">embed</button>
+      </div>
+      <div id="embed_panel" style="display:none;margin-top:8px">
+        <img src="/appwatch/badge.svg" alt="appwatch status" style="display:block;margin-bottom:8px;height:20px">
+        <div style="display:flex;gap:6px;align-items:center">
+          <pre class="log" style="flex:1;margin:0;font-size:11px">![appwatch status](/appwatch/badge.svg)</pre>
+          <button class="btn sm" onclick="copyEmbed()" style="font-size:10px;padding:4px 7px;white-space:nowrap">copy</button>
+        </div>
+      </div>
       <div class="faint" style="margin-top:8px;font-size:12px">One bar per check this page saw (newest right). Kept in this browser only.</div>
+    </div>
+    <div class="card wide">
+      <h2>Latency trend <span class="sp"></span><span class="faint" id="latencyWin"></span></h2>
+      <div id="latency_chart"></div>
+      <div class="faint" style="margin-top:8px;font-size:12px">Response latency over time (ms, capped at 500). Red bands = outage periods.</div>
+    </div>
+    <div class="card wide" id="incidents_card"></div>
+    <div class="card wide" id="daily_card">
+      <h2>7-day uptime</h2>
+      <div id="daily_chart"></div>
+      <div class="faint" style="margin-top:8px;font-size:12px">Uptime by calendar day (UTC). Green ≥99.9%, amber ≥99%, red below.</div>
     </div>
     <div class="card wide">
       <h2>How it works</h2>
@@ -32,10 +62,36 @@
 const $ = (id) => document.getElementById(id);
 const HIST = "appwatch_hist";
 let hist = [];
+let stripN = 120;
 try { hist = JSON.parse(localStorage.getItem(HIST) || "[]"); } catch {}
 
 let lastUp = null;
 let lastA = null;
+let upSince = null;
+let streakTimer = null;
+
+function computeIncidents(hist, tickSec) {
+  const tolerance = (tickSec || 15) * 2;
+  const incidents = [];
+  let cur = null;
+  for (const h of hist) {
+    if (h.up === false) {
+      if (!cur) {
+        cur = { start: h.t, _last: h.t };
+      } else if (h.t - cur._last > tolerance) {
+        incidents.push({ start: cur.start, end: cur._last, duration: cur._last - cur.start });
+        cur = { start: h.t, _last: h.t };
+      } else {
+        cur._last = h.t;
+      }
+    } else if (cur) {
+      incidents.push({ start: cur.start, end: h.t, duration: h.t - cur.start });
+      cur = null;
+    }
+  }
+  if (cur) incidents.push({ start: cur.start, end: null, duration: Math.floor(Date.now() / 1000) - cur.start });
+  return incidents;
+}
 
 function notifChip() {
   if (!("Notification" in window)) return "";
@@ -50,13 +106,139 @@ async function askNotif() {
   if (lastA) render(lastA);
 }
 
+const SND_KEY = "appwatch_sound";
+function soundOn() { return localStorage.getItem(SND_KEY) === "true"; }
+function soundChip() {
+  const on = soundOn();
+  return ` <span class="pill${on ? "" : " bad"}" style="cursor:pointer" onclick="toggleSound()" title="click to toggle audio alerts">snd: ${on ? "on" : "off"}</span>`;
+}
+function toggleSound() { localStorage.setItem(SND_KEY, soundOn() ? "false" : "true"); if (lastA) render(lastA); }
+function _playTone(ctx, freq, type, dur, t0) {
+  const osc = ctx.createOscillator(), g = ctx.createGain();
+  osc.connect(g); g.connect(ctx.destination);
+  osc.type = type; osc.frequency.value = freq;
+  g.gain.setValueAtTime(0.15, t0); g.gain.linearRampToValueAtTime(0, t0 + dur);
+  osc.start(t0); osc.stop(t0 + dur);
+}
+function playAlert(down) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    if (down) { _playTone(ctx, 440, "sawtooth", 0.12, now); _playTone(ctx, 280, "sawtooth", 0.12, now + 0.13); }
+    else       { _playTone(ctx, 330, "sine",     0.10, now); _playTone(ctx, 660, "sine",     0.10, now + 0.11); }
+  } catch {}
+}
+
+function updateTabStatus(up, unknown) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 32; canvas.height = 32;
+  const ctx = canvas.getContext("2d");
+  ctx.beginPath();
+  ctx.arc(16, 16, 14, 0, Math.PI * 2);
+  ctx.fillStyle = unknown ? "#888" : (up ? "#5ee08a" : "#dc3c3c");
+  ctx.fill();
+  const last_ms = hist.filter(h => h.ms != null).at(-1)?.ms;
+  if (up && last_ms != null) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 9px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(last_ms > 999 ? "999+" : last_ms + "ms", 16, 16);
+  }
+  let link = document.querySelector("link[rel=icon]") || Object.assign(document.createElement("link"), {rel: "icon"});
+  link.href = canvas.toDataURL("image/png");
+  document.head.appendChild(link);
+  if (up) document.title = "✓ Appwatch · " + (last_ms != null ? last_ms + "ms" : "up");
+  else if (unknown) document.title = "Appwatch · checking";
+  else document.title = "✗ Appwatch · DOWN";
+}
+
+function setStripN(n) { stripN = n; renderStrip(); renderLatency(); }
+function renderStrip() {
+  const win = hist.slice(-stripN);
+  const pct = win.length ? Math.round((win.filter((h) => h.up).length / win.length) * 100) : null;
+  $("upPct").textContent = pct == null ? "" : `${pct}% of ${win.length} checks`;
+  $("strip").innerHTML = win.map((h) => {
+    let bg;
+    if (h.up === false) bg = "var(--red)";
+    else if (h.up == null) bg = "var(--line2)";
+    else if (h.ms == null || h.ms < 150) bg = "var(--green)";
+    else if (h.ms < 500) bg = "#b8e896";
+    else bg = "#e8c45e";
+    const tip = `${new Date(h.t * 1000).toLocaleTimeString()} ${h.up ? "up" : "down"}${h.ms != null ? " · " + h.ms + "ms" : ""}`;
+    return `<i title="${tip}" style="flex:1;border-radius:2px;background:${bg};opacity:${h.up ? .75 : 1}"></i>`;
+  }).join("");
+  document.querySelectorAll(".strip-chip").forEach(el => {
+    const active = Number(el.dataset.n) === stripN;
+    el.style.opacity = active ? "1" : "0.45";
+    el.style.fontWeight = active ? "600" : "400";
+  });
+}
+
 function render(A) {
   lastA = A;
   const up = A.up === true, unknown = A.up == null;
-  K.setState(K.pill(A.enabled, "on", "off") + " " + (unknown ? `<span class="pill">checking</span>` : K.pill(up, "app up", "app down", up ? "" : "bad")) + notifChip());
+  updateTabStatus(up, unknown);
+  K.setState(K.pill(A.enabled, "on", "off") + " " + (unknown ? `<span class="pill">checking</span>` : K.pill(up, "app up", "app down", up ? "" : "bad")) + notifChip() + soundChip());
   $("tick").textContent = `:${A.port} · every ${K.dur(A.tick_seconds)} · last check ${K.ago(A.last_check)}`;
+  const incidents = computeIncidents(hist, A.tick_seconds);
+  const totalDown = incidents.reduce((s, i) => s + i.duration, 0);
+  const resolved = incidents.filter(i => i.end !== null);
+  const mttr = resolved.length ? Math.round(resolved.reduce((s, i) => s + i.duration, 0) / resolved.length) : null;
+  const msVals = hist.filter(h => h.ms != null).map(h => h.ms).sort((a, b) => a - b);
+  const p95 = msVals.length >= 20 ? msVals[Math.floor(msVals.length * 0.95)] : null;
   $("stats").innerHTML = [["misses", A.misses], ["restarts tried", A.starts], ["recovered", A.recovered], ["attempts", A.attempts ?? "—"]]
-    .map(([k, v]) => `<div class="stat"><b>${v ?? 0}</b><span>${k}</span></div>`).join("");
+    .map(([k, v]) => `<div class="stat"><b>${v ?? 0}</b><span>${k}</span></div>`).join("")
+    + `<div class="stat"><b id="streak">—</b><span id="streak_lbl">uptime</span></div>`
+    + `<div class="stat"><b>${incidents.length}</b><span>incidents</span></div>`
+    + `<div class="stat"><b>${totalDown ? K.dur(totalDown) : "—"}</b><span>total down</span></div>`
+    + `<div class="stat"><b>${mttr !== null ? K.dur(mttr) : "—"}</b><span>avg recovery</span></div>`
+    + `<div class="stat"><b>${p95 !== null ? p95 + "ms" : "—"}</b><span>p95 latency</span></div>`;
+  const incCard = $("incidents_card");
+  if (incCard) {
+    let ih = `<h2>Incidents this session</h2>`;
+    if (!incidents.length) {
+      ih += `<div class="empty">no outages recorded this session</div>`;
+    } else {
+      ih += `<div class="rows">` +
+        [...incidents].reverse().map(inc => {
+          const ongoing = inc.end === null;
+          return `<div class="row"><div class="inline" style="gap:8px">` +
+            `<span class="pill${ongoing ? " bad" : ""}">${ongoing ? "ongoing" : "resolved"}</span>` +
+            `<span class="muted" style="font-size:12px">${new Date(inc.start * 1000).toLocaleString()}</span>` +
+            `<span class="muted" style="font-size:12px">${K.dur(inc.duration)}</span>` +
+            (ongoing ? "" : `<span class="muted" style="font-size:12px">recovered ${K.ago(inc.end)}</span>`) +
+            `</div></div>`;
+        }).join("") +
+        `</div>`;
+    }
+    incCard.innerHTML = ih;
+  }
+  if (streakTimer) { clearInterval(streakTimer); streakTimer = null; }
+  if (A.up === true) {
+    if (A.last_start?.at && A.last_start?.ok === true) {
+      upSince = A.last_start.at;
+    } else if (hist.length) {
+      upSince = hist[0].t;
+    } else {
+      upSince = Math.floor(Date.now() / 1000);
+    }
+    const tick = () => { const el = $("streak"); if (el) el.textContent = K.dur(Math.floor(Date.now() / 1000) - upSince); };
+    tick();
+    streakTimer = setInterval(tick, 1000);
+    const lbl = $("streak_lbl"); if (lbl) { lbl.textContent = "uptime"; lbl.style.color = ""; }
+  } else {
+    if (A.down_since) {
+      upSince = A.down_since;
+      const tick = () => { const el = $("streak"); if (el) el.textContent = K.dur(Math.floor(Date.now() / 1000) - upSince); };
+      tick();
+      streakTimer = setInterval(tick, 1000);
+      const lbl = $("streak_lbl"); if (lbl) { lbl.textContent = "outage"; lbl.style.color = "var(--red)"; }
+    } else {
+      upSince = null;
+      const lbl = $("streak_lbl"); if (lbl) { lbl.textContent = "uptime"; lbl.style.color = ""; }
+    }
+  }
   $("down").innerHTML = A.down_since
     ? `<div class="notice bad">dark since ${K.ago(A.down_since)}${A.in_progress ? " · restart in progress" : ""}${A.next_attempt ? ` · next attempt ${K.ago(A.next_attempt)}` : ""}</div>`
     : `<div class="inline"><span class="muted">${A.last_start ? `last restart ${K.ago(A.last_start.at)}` : "never needed a restart this run"}</span><span class="sp" style="flex:1"></span><a class="btn sm" style="padding:6px 9px;font-size:10px" href="${K.BUILD_APP}">open build ↗</a></div>`;
@@ -78,18 +260,254 @@ function render(A) {
   } else {
     $("last_log").innerHTML = `<div class="muted" style="font-size:12px;margin-top:10px">no restarts yet</div>`;
   }
-  const pct = hist.length ? Math.round((hist.filter((h) => h.up).length / hist.length) * 100) : null;
-  $("upPct").textContent = pct == null ? "" : `${pct}% of ${hist.length} checks`;
-  $("strip").innerHTML = hist.slice(-120).map((h) =>
-    `<i title="${new Date(h.t * 1000).toLocaleTimeString()} ${h.up ? "up" : "down"}" style="flex:1;border-radius:2px;background:${h.up ? "var(--green)" : h.up === false ? "var(--red)" : "var(--line2)"};opacity:${h.up ? .75 : 1}"></i>`).join("");
+  renderStrip();
+  renderLatency();
+}
+
+function renderLatency() {
+  const el = $("latency_chart");
+  if (!el) return;
+  const W = 600, H = 110, PT = 8, PR = 52, PB = 18, PL = 6;
+  const cw = W - PL - PR, ch = H - PT - PB;
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("width", "100%");
+  svg.style.display = "block";
+  const win = hist.slice(-stripN);
+  const windowStart = win.length ? win[0].t : 0;
+  const winLabel = $("latencyWin");
+  if (winLabel) winLabel.textContent = stripN === 120 ? "last 10m" : stripN === 240 ? "last 20m" : "all";
+  const pts = hist.filter(h => h.ms != null && h.t >= windowStart);
+  if (pts.length < 2) {
+    const msg = document.createElementNS(ns, "text");
+    msg.setAttribute("x", W / 2); msg.setAttribute("y", H / 2 + 4);
+    msg.setAttribute("text-anchor", "middle"); msg.setAttribute("font-size", "11");
+    msg.setAttribute("fill", "#888");
+    msg.textContent = "waiting for latency data…";
+    svg.appendChild(msg);
+    el.innerHTML = ""; el.appendChild(svg);
+    return;
+  }
+  const tMin = pts[0].t, tMax = pts[pts.length - 1].t;
+  const tRange = Math.max(tMax - tMin, 1);
+  const xOf = t => PL + ((t - tMin) / tRange) * cw;
+  const yOf = ms => PT + (1 - Math.min(ms, 500) / 500) * ch;
+  for (const h of hist) {
+    if (h.up === false && h.t >= windowStart && h.t >= tMin && h.t <= tMax) {
+      const bx = xOf(h.t), bw = Math.max(2, cw / 300);
+      const band = document.createElementNS(ns, "rect");
+      band.setAttribute("x", (bx - bw / 2).toFixed(1)); band.setAttribute("y", PT);
+      band.setAttribute("width", bw.toFixed(1)); band.setAttribute("height", ch);
+      band.setAttribute("fill", "rgba(220,60,60,0.28)");
+      svg.appendChild(band);
+    }
+  }
+  let d = "";
+  for (let i = 0; i < pts.length; i++) {
+    const x = xOf(pts[i].t).toFixed(1), y = yOf(pts[i].ms).toFixed(1);
+    d += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
+  }
+  const xN = (PL + cw).toFixed(1), xF = String(PL), yB = PT + ch;
+  const area = document.createElementNS(ns, "path");
+  area.setAttribute("d", `${d} L${xN},${yB} L${xF},${yB} Z`);
+  area.setAttribute("fill", "rgba(94,224,138,0.20)");
+  area.setAttribute("stroke", "none");
+  svg.appendChild(area);
+  const line = document.createElementNS(ns, "path");
+  line.setAttribute("d", d);
+  line.setAttribute("fill", "none");
+  line.setAttribute("stroke", "#5ee08a");
+  line.setAttribute("stroke-width", "1.5");
+  line.setAttribute("stroke-linejoin", "round");
+  svg.appendChild(line);
+  const sma = pts.map((p, i) => {
+    const window = pts.slice(Math.max(0, i - 4), i + 1);
+    return { ...p, ms: Math.round(window.reduce((s, q) => s + q.ms, 0) / window.length) };
+  });
+  let ds = "";
+  for (let i = 0; i < sma.length; i++) {
+    const x = xOf(sma[i].t).toFixed(1), y = yOf(sma[i].ms).toFixed(1);
+    ds += i === 0 ? `M${x},${y}` : ` L${x},${y}`;
+  }
+  const smaLine = document.createElementNS(ns, "path");
+  smaLine.setAttribute("d", ds);
+  smaLine.setAttribute("fill", "none");
+  smaLine.setAttribute("stroke", "#e8c45e");
+  smaLine.setAttribute("stroke-width", "1");
+  smaLine.setAttribute("stroke-linejoin", "round");
+  smaLine.setAttribute("opacity", "0.7");
+  svg.appendChild(smaLine);
+  const last = pts[pts.length - 1];
+  const lx = xOf(last.t), ly = yOf(last.ms);
+  const dot = document.createElementNS(ns, "circle");
+  dot.setAttribute("cx", lx.toFixed(1)); dot.setAttribute("cy", ly.toFixed(1));
+  dot.setAttribute("r", "3"); dot.setAttribute("fill", "#5ee08a");
+  svg.appendChild(dot);
+  const lbl = document.createElementNS(ns, "text");
+  lbl.setAttribute("x", (lx - 6).toFixed(1));
+  lbl.setAttribute("y", Math.min(PT + ch - 2, Math.max(PT + 10, ly + 4)).toFixed(1));
+  lbl.setAttribute("fill", "#5ee08a"); lbl.setAttribute("font-size", "11");
+  lbl.setAttribute("font-family", "monospace"); lbl.setAttribute("text-anchor", "end");
+  lbl.textContent = last.ms + "ms";
+  svg.appendChild(lbl);
+  for (const [ms, txt] of [[500, "500ms"], [0, "0"]]) {
+    const tl = document.createElementNS(ns, "text");
+    tl.setAttribute("x", W - PR + 4);
+    tl.setAttribute("y", (yOf(ms) + (ms === 0 ? -2 : 4)).toFixed(1));
+    tl.setAttribute("fill", "#888"); tl.setAttribute("font-size", "9");
+    tl.textContent = txt;
+    svg.appendChild(tl);
+  }
+  const xhair = document.createElementNS(ns, "line");
+  xhair.setAttribute("x1", "0"); xhair.setAttribute("y1", PT);
+  xhair.setAttribute("x2", "0"); xhair.setAttribute("y2", PT + ch);
+  xhair.setAttribute("stroke", "var(--line2)");
+  xhair.setAttribute("stroke-width", "1");
+  xhair.setAttribute("stroke-dasharray", "3,3");
+  xhair.style.display = "none";
+  svg.appendChild(xhair);
+  const xdot = document.createElementNS(ns, "circle");
+  xdot.setAttribute("r", "4");
+  xdot.setAttribute("fill", "var(--accent)");
+  xdot.style.display = "none";
+  svg.appendChild(xdot);
+  const xtip = document.createElementNS(ns, "text");
+  xtip.setAttribute("font-size", "11");
+  xtip.setAttribute("font-family", "monospace");
+  xtip.setAttribute("fill", "var(--green)");
+  xtip.setAttribute("text-anchor", "end");
+  xtip.style.display = "none";
+  svg.appendChild(xtip);
+  for (let i = 0; i < 4; i++) {
+    const t = tMin + tRange * (i / 3);
+    const tx = xOf(t);
+    const tickLine = document.createElementNS(ns, "line");
+    tickLine.setAttribute("x1", tx.toFixed(1)); tickLine.setAttribute("x2", tx.toFixed(1));
+    tickLine.setAttribute("y1", PT); tickLine.setAttribute("y2", PT + ch);
+    tickLine.setAttribute("stroke", "#888"); tickLine.setAttribute("stroke-width", "1");
+    tickLine.setAttribute("stroke-dasharray", "2,3"); tickLine.setAttribute("opacity", "0.18");
+    svg.appendChild(tickLine);
+    const lx = i === 0 ? Math.max(tx, PL) : (i === 3 ? Math.min(tx, PL + cw) : tx);
+    const tlbl = document.createElementNS(ns, "text");
+    tlbl.setAttribute("x", lx.toFixed(1));
+    tlbl.setAttribute("y", PT + ch + PB - 3);
+    tlbl.setAttribute("text-anchor", "middle");
+    tlbl.setAttribute("font-size", "9");
+    tlbl.setAttribute("fill", "#888");
+    tlbl.textContent = new Date(t * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    svg.appendChild(tlbl);
+  }
+  const overlay = document.createElementNS(ns, "rect");
+  overlay.setAttribute("x", PL); overlay.setAttribute("y", PT);
+  overlay.setAttribute("width", cw); overlay.setAttribute("height", ch);
+  overlay.setAttribute("fill", "none");
+  overlay.setAttribute("pointer-events", "all");
+  overlay.addEventListener("mousemove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const scale = W / rect.width;
+    const cursorX = (e.clientX - rect.left) * scale;
+    let nearest = pts[0], minDist = Infinity;
+    for (const pt of pts) {
+      const dist = Math.abs(xOf(pt.t) - cursorX);
+      if (dist < minDist) { minDist = dist; nearest = pt; }
+    }
+    const nx = xOf(nearest.t), ny = yOf(nearest.ms);
+    xhair.setAttribute("x1", nx.toFixed(1)); xhair.setAttribute("x2", nx.toFixed(1));
+    xdot.setAttribute("cx", nx.toFixed(1)); xdot.setAttribute("cy", ny.toFixed(1));
+    xtip.textContent = `${new Date(nearest.t * 1000).toLocaleTimeString()} · ${nearest.ms}ms`;
+    xtip.setAttribute("x", Math.min(nx, PL + cw - 2).toFixed(1));
+    xtip.setAttribute("y", Math.max(PT + 10, ny - 6).toFixed(1));
+    xhair.style.display = ""; xdot.style.display = ""; xtip.style.display = "";
+  });
+  overlay.addEventListener("mouseleave", () => {
+    xhair.style.display = "none"; xdot.style.display = "none"; xtip.style.display = "none";
+  });
+  svg.appendChild(overlay);
+  el.innerHTML = ""; el.appendChild(svg);
+}
+
+function renderDaily(days) {
+  const el = $("daily_chart");
+  if (!el) return;
+  if (days.length < 2) {
+    el.innerHTML = '<div class="faint" style="font-size:12px;padding:8px 0">waiting for multi-day data…</div>';
+    return;
+  }
+  const ns = "http://www.w3.org/2000/svg";
+  const W = 600, H = 110, PB = 20, PT = 8, PL = 8, PR = 8;
+  const cw = W - PL - PR, ch = H - PT - PB;
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("width", "100%");
+  svg.style.display = "block";
+  const n = days.length;
+  const gap = 6;
+  const barW = Math.floor((cw - gap * (n - 1)) / n);
+  const tooltip = document.createElement("div");
+  tooltip.style.cssText = "position:absolute;background:rgba(30,30,30,0.92);color:#eee;font-size:11px;font-family:monospace;padding:4px 8px;border-radius:4px;pointer-events:none;display:none;white-space:nowrap;z-index:10";
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:relative;overflow:visible";
+  for (let i = 0; i < n; i++) {
+    const d = days[i];
+    const x = PL + i * (barW + gap);
+    let fill;
+    if (d.uptime_pct >= 99.9) fill = "#5ee08a";
+    else if (d.uptime_pct >= 99) fill = "#e8c45e";
+    else fill = "#dc3c3c";
+    const bar = document.createElementNS(ns, "rect");
+    bar.setAttribute("x", x); bar.setAttribute("y", PT);
+    bar.setAttribute("width", barW); bar.setAttribute("height", ch);
+    bar.setAttribute("fill", fill); bar.setAttribute("rx", "2");
+    bar.setAttribute("opacity", "0.82");
+    svg.appendChild(bar);
+    const pctLbl = document.createElementNS(ns, "text");
+    pctLbl.setAttribute("x", x + barW / 2); pctLbl.setAttribute("y", PT + 14);
+    pctLbl.setAttribute("text-anchor", "middle"); pctLbl.setAttribute("font-size", "9");
+    pctLbl.setAttribute("fill", "#fff"); pctLbl.setAttribute("font-weight", "600");
+    pctLbl.textContent = d.uptime_pct + "%";
+    svg.appendChild(pctLbl);
+    const dateLbl = document.createElementNS(ns, "text");
+    dateLbl.setAttribute("x", x + barW / 2); dateLbl.setAttribute("y", H - 3);
+    dateLbl.setAttribute("text-anchor", "middle"); dateLbl.setAttribute("font-size", "9");
+    dateLbl.setAttribute("fill", "#888");
+    dateLbl.textContent = d.date;
+    svg.appendChild(dateLbl);
+    const overlay = document.createElementNS(ns, "rect");
+    overlay.setAttribute("x", x); overlay.setAttribute("y", PT);
+    overlay.setAttribute("width", barW); overlay.setAttribute("height", ch + PB);
+    overlay.setAttribute("fill", "none"); overlay.setAttribute("pointer-events", "all");
+    const tipText = `${d.uptime_pct}%  avg ${d.avg_ms != null ? d.avg_ms + "ms" : "—"}  p95 ${d.p95_ms != null ? d.p95_ms + "ms" : "—"}`;
+    overlay.addEventListener("mouseover", () => { tooltip.textContent = tipText; tooltip.style.display = ""; });
+    overlay.addEventListener("mousemove", (e) => {
+      const rect = wrap.getBoundingClientRect();
+      tooltip.style.left = (e.clientX - rect.left + 10) + "px";
+      tooltip.style.top = (e.clientY - rect.top - 28) + "px";
+    });
+    overlay.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+    svg.appendChild(overlay);
+  }
+  wrap.appendChild(svg);
+  wrap.appendChild(tooltip);
+  el.innerHTML = "";
+  el.appendChild(wrap);
+}
+
+async function loadDaily() {
+  try {
+    const r = await K.api("/appwatch/daily");
+    if (r.ok && Array.isArray(r.data)) renderDaily(r.data);
+  } catch {}
 }
 
 async function load() {
+  const t0 = performance.now();
   const r = await K.api("/appwatch/status");
+  const ms = Math.round(performance.now() - t0);
   if (!r.ok) { K.setState(`<span class="pill bad">build unreachable</span>`); return; }
   const A = r.data;
   if (!hist.length || hist[hist.length - 1].c !== A.last_check) {
-    hist.push({ t: Math.floor(Date.now() / 1000), c: A.last_check, up: A.up });
+    hist.push({ t: Math.floor(Date.now() / 1000), c: A.last_check, up: A.up, ms: A.up ? ms : null });
     hist = hist.slice(-500);
     try { localStorage.setItem(HIST, JSON.stringify(hist)); } catch {}
   }
@@ -100,12 +518,83 @@ async function load() {
       new Notification("✓ Build app recovered", { body: "Port :" + A.port + " is back up", icon: "/appwatch/favicon.ico" });
     }
   }
+  if (lastUp !== null && soundOn()) {
+    if (lastUp === true && A.up === false) playAlert(true);
+    else if (lastUp === false && A.up === true) playAlert(false);
+  }
   lastUp = A.up;
   render(A);
 }
 
+function toggleEmbed() {
+  const panel = document.getElementById('embed_panel');
+  const chip = document.getElementById('embed_chip');
+  const shown = panel.style.display !== 'none';
+  panel.style.display = shown ? 'none' : '';
+  chip.style.opacity = shown ? '0.45' : '1';
+  chip.style.fontWeight = shown ? '400' : '600';
+}
+function copyEmbed() {
+  navigator.clipboard.writeText('![appwatch status](/appwatch/badge.svg)').catch(() => {});
+}
+
+function startSSE() {
+  const dot = $('live_dot');
+  const es = new EventSource('/appwatch/stream');
+  es.onmessage = function(e) {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.entry) {
+        const en = data.entry;
+        if (!hist.length || hist[hist.length - 1].c !== en.c) {
+          hist.push(en);
+          hist = hist.slice(-500);
+          try { localStorage.setItem(HIST, JSON.stringify(hist)); } catch {}
+        }
+      }
+      const A = data.status;
+      if (A) {
+        if (lastUp !== null && "Notification" in window && Notification.permission === "granted") {
+          if (lastUp === true && A.up === false) new Notification("⚠ Build app went dark", { body: "Port :" + A.port + " is down — restart in progress", icon: "/appwatch/favicon.ico" });
+          else if (lastUp === false && A.up === true) new Notification("✓ Build app recovered", { body: "Port :" + A.port + " is back up", icon: "/appwatch/favicon.ico" });
+        }
+        if (lastUp !== null && soundOn()) {
+          if (lastUp === true && A.up === false) playAlert(true);
+          else if (lastUp === false && A.up === true) playAlert(false);
+        }
+        lastUp = A.up;
+        render(A);
+      }
+    } catch {}
+    if (dot) { dot.style.display = ""; dot.style.color = "#5ee08a"; dot.className = "aw-live"; dot.textContent = "● live"; }
+  };
+  es.onerror = function() {
+    if (dot) { dot.style.display = ""; dot.style.color = "#888"; dot.className = ""; dot.textContent = "○ reconnecting"; }
+  };
+}
+
 K.init({ glyph: "♥", title: "Appwatch", accent: "#5ee08a", sub: "Keeps the build console's app up — notices when its port goes dark and starts it again." })
-  .then(() => K.poll(load, 5000));
+  .then(async () => {
+    try {
+      const r = await K.api("/appwatch/history");
+      if (r.ok && Array.isArray(r.data) && r.data.length) {
+        const existingC = new Set(hist.map(h => h.c));
+        for (const e of r.data) {
+          if (!existingC.has(e.c)) { hist.push(e); existingC.add(e.c); }
+        }
+        hist.sort((a, b) => a.t - b.t);
+        hist = hist.slice(-500);
+        try { localStorage.setItem(HIST, JSON.stringify(hist)); } catch {}
+      }
+    } catch {}
+    await loadDaily();
+    if (typeof EventSource !== "undefined") {
+      load();
+      startSSE();
+    } else {
+      K.poll(load, 5000);
+    }
+  });
 </script>
 </body>
 </html>

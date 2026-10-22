@@ -433,3 +433,55 @@ def test_publish_and_copy_routes_need_a_signature():
                        ('/bots/copy', {'ref': f'{ADDR}/x'})):
         with pytest.raises(identity.AuthError):
             api.route('POST', path, '', body, None, None)
+
+
+# ── share routes ──────────────────────────────────────────────────────
+
+def test_share_round_trip(monkeypatch, sandbox):
+    import api
+    monkeypatch.setenv('GROKBOT_OPEN', '1')
+    msgs = [
+        {'role': 'user', 'text': 'hello'},
+        {'role': 'assistant', 'text': 'hi there',
+         'usage': {'total_tokens': 5}, 'model': 'grok-4-fast'},
+    ]
+    out = api.route('POST', '/share', '',
+                    {'title': 'Test convo', 'msgs': msgs}, None, None)
+    assert 'id' in out
+    assert len(out['id']) == 32  # os.urandom(16).hex() = 32 hex chars
+
+    # GET is unauthenticated — token=None, no GROKBOT_OPEN needed for read
+    got = api.route('GET', '/share/' + out['id'], '', {}, None, None)
+    assert got['title'] == 'Test convo'
+    assert len(got['msgs']) == 2
+    assert 'usage' not in got['msgs'][1]           # usage stripped
+    assert got['msgs'][1]['model'] == 'grok-4-fast'  # non-sensitive fields kept
+
+    path = os.path.join(str(sandbox), 'shares', out['id'] + '.json')
+    assert os.path.exists(path)
+    assert os.stat(path).st_mode & 0o777 == 0o644
+
+
+def test_share_requires_sign_in():
+    import api
+    import identity
+    with pytest.raises(identity.AuthError):
+        api.route('POST', '/share', '', {'msgs': []}, None, None)
+
+
+def test_share_unknown_id_is_404():
+    import api
+    from client import GrokError
+    with pytest.raises(GrokError) as e:
+        api.route('GET', '/share/deadbeef0000000000000000deadbeef', '', {}, None, None)
+    assert e.value.status == 404
+
+
+def test_share_image_dataurl_is_stripped(monkeypatch, sandbox):
+    import api
+    monkeypatch.setenv('GROKBOT_OPEN', '1')
+    msgs = [{'role': 'user', 'text': 'look',
+             'image': 'data:image/png;base64,abc123'}]
+    out = api.route('POST', '/share', '', {'msgs': msgs}, None, None)
+    got = api.route('GET', '/share/' + out['id'], '', {}, None, None)
+    assert 'image' not in got['msgs'][0]

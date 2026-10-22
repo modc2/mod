@@ -24,7 +24,8 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const state = {
   token: localStorage.getItem('zkprof_token') || '',
   address: localStorage.getItem('zkprof_address') || '',
-  systems: [], methods: [], proofs: [], sample: null, lastVerified: null, openId: null,
+  systems: [], methods: [], proofs: [], sample: null, lastVerified: null, lastResult: null, openId: null,
+  activeTag: '', lastCounts: 0,
 };
 
 // ── plumbing ────────────────────────────────────────────────────────
@@ -79,6 +80,17 @@ const parse = (text, fallback) => {
   return JSON.parse(trimmed);
 };
 
+function sniffSystem(proof, statement) {
+  if (statement.protocol) return statement.protocol;
+  if (proof.protocol) return proof.protocol;
+  if (proof.pi_a) return 'groth16';
+  if (proof.leaf && proof.path) return 'merkle';
+  if (proof.A && proof.B && proof.H) return 'dleq';
+  if (proof.C && proof.r) return 'pedersen';
+  if (proof.commitment && proof.response) return 'schnorr';
+  return null;
+}
+
 // Line icons, drawn inline — the host has no emoji font and the page loads
 // nothing it does not have to.
 const svg = (d, size = 14, w = 2.2) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
@@ -99,6 +111,21 @@ const methodIcon = (status) => ICON[status] || ICON.unavailable;
 const METHOD_GLYPH = { native: 'py', snarkjs: 'js', node: 'big', evm: '0x06',
                        solidity: 'sol', browser: 'you', attest: 'sig' };
 const glyphFor = (method) => `<span class="mg ${escape(method)}">${escape(METHOD_GLYPH[method] || method.slice(0, 3))}</span>`;
+
+function renderMethodPreview(system) {
+  const preview = $('#vMethodPreview');
+  if (!preview) return;
+  const sysInfo = (state.systems || []).find((s) => s.system === system);
+  if (!sysInfo) { preview.innerHTML = ''; return; }
+  const sysMethods = sysInfo.available_here || sysInfo.methods || [];
+  if (!sysMethods.length) { preview.innerHTML = ''; return; }
+  const methodAvail = {};
+  (state.methods || []).forEach((m) => { methodAvail[m.method] = m.available; });
+  preview.innerHTML = sysMethods.map((m) => {
+    const avail = methodAvail[m] !== false;
+    return `<span class="mg ${escape(m)}${avail ? '' : ' unavail'}" title="${escape(m)}">${escape(METHOD_GLYPH[m] || m.slice(0, 3))}</span>`;
+  }).join('');
+}
 
 // A dot per address, its colour derived from the address itself — the same
 // person is the same colour on every card.
@@ -121,12 +148,33 @@ function verdictRow(verdict) {
     : Object.entries(detail).filter(([k]) => k !== 'ms')
       .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`)
       .join('  ');
-  return `<div class="verdict ${verdict.status}">
-    <span class="ic">${methodIcon(verdict.status)}</span>
+  return `<div class="verdict ${verdict.status}" data-method="${escape(verdict.method)}" data-ms="${verdict.ms || 0}">
+    ${glyphFor(verdict.method)}
     <span class="m">${escape(verdict.method)}${verdict.by ? `<span class="t mono">${escape(short(verdict.by, 12))}</span>` : ''}</span>
     <span class="s">${escape(verdict.status)}</span>
     <span class="d" title="${escape(words)}">${escape(words)}</span>
-    <span class="t">${verdict.ms != null ? `${verdict.ms}ms` : ''}</span>
+    <span class="t">${verdict.ms != null ? `${verdict.ms}ms<span class="timing-bar"></span>` : ''}</span>
+  </div>`;
+}
+
+function applyTimingBars(container) {
+  if (!container) return;
+  const rows = $$('.verdict[data-ms]', container);
+  if (!rows.length) return;
+  const max = Math.max(...rows.map((r) => Number(r.dataset.ms) || 0));
+  if (!max) return;
+  rows.forEach((r) => {
+    r.style.setProperty('--timing-w', `${Math.round((Number(r.dataset.ms) / max) * 100)}%`);
+  });
+}
+
+function pendingLane(method) {
+  return `<div class="verdict pending" data-method="${escape(method)}">
+    ${glyphFor(method)}
+    <span class="m">${escape(method)}</span>
+    <span class="s"></span>
+    <span class="d" title=""></span>
+    <span class="t"></span>
   </div>`;
 }
 
@@ -146,6 +194,7 @@ function summaryBlock(result) {
 function renderVerdicts(target, result) {
   const rows = (result.verdicts || []).map(verdictRow).join('');
   $(target).innerHTML = summaryBlock(result) + rows;
+  applyTimingBars($(target));
 }
 
 // ── who checked it ──────────────────────────────────────────────────
@@ -236,6 +285,7 @@ function proofCard(proof) {
     </div>
     <h4>${escape(proof.title)}</h4>
     ${proof.description ? `<div class="desc">${escape(proof.description)}</div>` : ''}
+    ${(proof.tags || []).length ? `<div class="tags">${proof.tags.map((t) => `<span class="tagchip" data-act="tag" data-tag="${escape(t)}">${escape(t)}</span>`).join('')}</div>` : ''}
     <div class="spacer"></div>
     ${verdictSection}
     <div class="who-line">${verifierRow(proof) || '<span></span>'}${buy}</div>
@@ -243,7 +293,10 @@ function proofCard(proof) {
       <button class="ghost" data-act="open" data-id="${proof.id}">Details ${ICON.down}</button>
       <button class="ghost" data-act="recheck" data-id="${proof.id}" title="sign a challenge naming this proof, and every method runs again under your address">${ICON.sign}Re-verify</button>
       <button class="ghost" data-act="browser" data-id="${proof.id}" title="run the verifier in this tab — the one check that does not trust this server">${ICON.tab}In my browser</button>
+      ${(!proof.price || proof.public_proof) ? `<button class="ghost" data-act="run-live" data-id="${proof.id}" title="stream the five-verifier race live on this card">Run it live</button>` : ''}
+      ${proof.created ? `<span class="hint">${ago(proof.created)}</span>` : ''}
       <button class="ghost" data-act="link" data-id="${proof.id}" title="copy a link to this proof">${ICON.link}</button>
+      <button class="ghost" data-act="badge" data-id="${proof.id}" title="copy badge markdown for your README">${ICON.link}Badge</button>
     </footer>
     <div class="detail" id="detail-${proof.id}"></div>
   </div>`;
@@ -264,12 +317,24 @@ async function loadMarket() {
   if ($('#fSystem').value) params.set('system', $('#fSystem').value);
   if ($('#fStatus').value) params.set('status', $('#fStatus').value);
   if ($('#fSale').checked) params.set('for_sale', 'true');
+  if (state.activeTag) params.set('tag', state.activeTag);
+  const tagEl = $('#activeTag');
+  if (tagEl) tagEl.innerHTML = state.activeTag
+    ? `<span class="tagchip" style="cursor:default">${escape(state.activeTag)}<span data-act="cleartag" style="margin-left:4px;cursor:pointer" title="clear tag filter">×</span></span>`
+    : '';
   if (!state.proofs.length && !$('#proofList').children.length) {
     $('#proofList').innerHTML = '<div class="skel"></div>'.repeat(3);
   }
   const { proofs } = await api(`/proofs?${params}`);
-  state.proofs = proofs;
-  $('#proofList').innerHTML = proofs.length ? proofs.map(proofCard).join('')
+  const sortKey = $('#fSort').value;
+  const sorted = [...proofs];
+  if (sortKey === 'oldest')       sorted.sort((a, b) => (a.created || 0) - (b.created || 0));
+  else if (sortKey === 'checked') sorted.sort((a, b) => (b.verifier_count || 0) - (a.verifier_count || 0));
+  else if (sortKey === 'price-lo') sorted.sort((a, b) => (a.price || 0) - (b.price || 0));
+  else if (sortKey === 'price-hi') sorted.sort((a, b) => (b.price || 0) - (a.price || 0));
+  else sorted.sort((a, b) => (b.created || b.updated || 0) - (a.created || a.updated || 0));
+  state.proofs = sorted;
+  $('#proofList').innerHTML = sorted.length ? sorted.map(proofCard).join('')
     : '<div class="empty">no proofs yet — publish one from VERIFY, or make one in PROVE</div>';
   if (state.openId) {
     const id = state.openId;
@@ -281,6 +346,9 @@ async function loadMarket() {
   }
   const status = await api('/status');
   setCounts(status);
+  state.lastCounts = (status.market.checks ?? 0) + (status.market.proofs ?? 0);
+  $('#refresh').classList.remove('has-new');
+  $('#refresh').title = 'Refresh';
   const counts = status.market.by_status || {};
   // The stats read off /status, which counts the whole market — so when a
   // filter is on, say how many of that total the list below is showing.
@@ -342,23 +410,51 @@ async function openProof(id, toggle = false) {
   card.classList.add('open');
   history.replaceState(null, '', '#market/' + id);
   const proof = await api(`/proofs/${id}`);
+  const statementObj = { public_signals: proof.public_signals, statement: proof.statement };
+  const artifacts = { ‘verification_key.json’: statementObj };
+  if (!proof.locked) artifacts[‘proof.json’] = proof.proof;
   const bytes = proof.locked
     ? `<div class="hint">the proof bytes are gated at ${proof.price} credits — sha256 ${escape(short(proof.proof_hash, 24))}</div>`
-    : `<pre>${escape(JSON.stringify(proof.proof, null, 1).slice(0, 4000))}</pre>`;
+    : artifactPanel(‘proof.json’, proof.proof);
   const checks = (proof.checks || []).slice().reverse();
   box.innerHTML = `
-    <div class="verdicts">${(proof.verdicts || []).map(verdictRow).join('')}</div>
+    <div class="verdicts">${(proof.verdicts || []).map(verdictRow).join(‘’)}</div>
     <h4>who made those methods run</h4>
-    <div class="checklog">${checks.length ? checks.map(checkRow).join('')
-      : '<div class="hint">nothing but the publish — nobody has re-checked this yet</div>'}</div>
+    <div class="checklog">${checks.length ? checks.map(checkRow).join(‘’)
+      : ‘<div class="hint">nothing but the publish — nobody has re-checked this yet</div>’}</div>`;
+  applyTimingBars(box);
+  box.insertAdjacentHTML(‘beforeend’, `
     <div class="hint">a signed row is a personal_sign over a message naming this
       proof: the address is recoverable from it without asking this box anything,
       which is the point. An unsigned row is this box’s own run at publish time.</div>
     <h4>statement (always public)</h4>
-    <pre>${escape(JSON.stringify({ public_signals: proof.public_signals, statement: proof.statement }, null, 1).slice(0, 3000))}</pre>
+    ${artifactPanel(‘verification_key.json’, statementObj)}
     <h4>proof</h4>${bytes}
-    ${proof.cid ? `<div class="hint">pinned as ${escape(proof.cid)}</div>` : ''}
-    ${(proof.refundable_to || []).length ? `<div class="hint contested">${proof.refundable_to.length} purchase(s) can be refunded — this stopped verifying after it was sold</div>` : ''}`;
+    ${proof.cid ? `<div class="hint">pinned as ${escape(proof.cid)}</div>` : ‘’}
+    ${(proof.refundable_to || []).length ? `<div class="hint contested">${proof.refundable_to.length} purchase(s) can be refunded — this stopped verifying after it was sold</div>` : ‘’}`);
+  box.addEventListener(‘click’, (e) => {
+    const btn = e.target.closest(‘[data-dl-name],[data-cp-name]’);
+    if (!btn) return;
+    const val = artifacts[btn.dataset.dlName || btn.dataset.cpName];
+    if (!val) return;
+    if (btn.dataset.dlName) downloadAs(btn.dataset.dlName, val);
+    if (btn.dataset.cpName) navigator.clipboard?.writeText(JSON.stringify(val, null, 1))
+      .then(() => toast(`${btn.dataset.cpName} copied`))
+      .catch(() => toast(‘copy failed’, true));
+  });
+  if (!proof.locked) {
+    box.insertAdjacentHTML('beforeend',
+      '<div class="actionbar"><button class="ghost small js-verify-fresh">Verify it fresh →</button></div>');
+    box.querySelector('.js-verify-fresh').onclick = () => {
+      $('#vProof').value = JSON.stringify(proof.proof, null, 1);
+      $('#vKey').value = JSON.stringify(proof.statement, null, 1);
+      $('#vPublic').value = JSON.stringify(proof.public_signals || [], null, 1);
+      $('#vSystem').value = proof.system;
+      ['vProof', 'vKey', 'vPublic'].forEach((id) => state.footFor?.($(`#${id}`)));
+      showTab('verify');
+      runVerify();
+    };
+  }
 }
 
 // ── re-verifying, which costs a signature ───────────────────────────
@@ -474,6 +570,70 @@ async function browserCheck(id) {
   } catch (e) { toast(e.message, true); }
 }
 
+async function inlineRace(id) {
+  const card = document.querySelector(`.card.proof[data-id="${CSS.escape(id)}"]`);
+  if (!card) return;
+  const existing = card.querySelector('.inline-race');
+  if (existing) { existing.remove(); return; }
+  const panel = document.createElement('div');
+  panel.className = 'inline-race';
+  card.appendChild(panel);
+
+  let proof;
+  try {
+    proof = await api(`/proofs/${id}`);
+  } catch (e) { toast(e.message, true); panel.remove(); return; }
+
+  const authMethods = (state.methods || []).filter((m) => m.authoritative);
+  panel.innerHTML = authMethods.length
+    ? authMethods.map((m) => pendingLane(m.method)).join('')
+    : '<div class="placeholder"><span class="spin"></span>asking every method…</div>';
+
+  const body = { proof: proof.proof, statement: proof.statement,
+                 public_signals: proof.public_signals, system: proof.system };
+  const headers = { 'content-type': 'application/json' };
+  if (state.token) headers.authorization = `Bearer ${state.token}`;
+  let response;
+  try {
+    response = await fetch(API + '/verify/stream', { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!response.ok) {
+      const t = await response.text();
+      let p; try { p = JSON.parse(t); } catch { p = { detail: t }; }
+      throw new Error(p.detail || p.error || response.statusText);
+    }
+  } catch (e) { toast(e.message, true); panel.remove(); return; }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const blocks = buf.split('\n\n');
+      buf = blocks.pop();
+      for (const block of blocks) {
+        const line = block.trim();
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data.startsWith('[DONE] ')) {
+          const result = JSON.parse(data.slice(7));
+          panel.insertAdjacentHTML('afterbegin', summaryBlock(result));
+          applyTimingBars(panel);
+        } else {
+          const verdict = JSON.parse(data);
+          if (!verdict.error) {
+            const existing = panel.querySelector(`.verdict[data-method="${CSS.escape(verdict.method)}"]`);
+            if (existing) existing.outerHTML = verdictRow(verdict);
+            else panel.insertAdjacentHTML('beforeend', verdictRow(verdict));
+          }
+        }
+      }
+    }
+  } catch (e) { toast(e.message, true); }
+}
+
 // ── verify tab ──────────────────────────────────────────────────────
 
 async function runVerify() {
@@ -486,7 +646,25 @@ async function runVerify() {
     };
   } catch (e) { toast(`that is not JSON: ${e.message}`, true); return; }
   if ($('#vSystem').value) body.system = $('#vSystem').value;
-  $('#vOut').innerHTML = '<div class="placeholder"><span class="spin"></span>asking every method that can answer…</div>';
+  const authMethods = (state.methods || []).filter(m => m.authoritative);
+  if (authMethods.length) {
+    $('#vOut').innerHTML = authMethods.map(m => pendingLane(m.method)).join('');
+  } else {
+    $('#vOut').innerHTML = '<div class="placeholder"><span class="spin"></span>asking every method that can answer…</div>';
+  }
+
+  const verifyStart = performance.now();
+  const timers = new Map();
+  for (const m of authMethods) {
+    const methodName = m.method;
+    timers.set(methodName, setInterval(() => {
+      const lane = $('#vOut').querySelector(`.verdict[data-method="${CSS.escape(methodName)}"]`);
+      if (lane) {
+        const tSpan = lane.querySelector('.t');
+        if (tSpan) tSpan.textContent = Math.round(performance.now() - verifyStart) + 'ms';
+      }
+    }, 100));
+  }
 
   const headers = { 'content-type': 'application/json' };
   if (state.token) headers.authorization = `Bearer ${state.token}`;
@@ -500,12 +678,14 @@ async function runVerify() {
       let p; try { p = JSON.parse(text); } catch { p = { detail: text }; }
       throw new Error(p.detail || p.error || response.statusText);
     }
-  } catch (e) { $('#vOut').innerHTML = ''; toast(e.message, true); return; }
+  } catch (e) {
+    timers.forEach((id) => clearInterval(id)); timers.clear();
+    $('#vOut').innerHTML = ''; toast(e.message, true); return;
+  }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
-  let cleared = false;
 
   try {
     while (true) {
@@ -518,20 +698,36 @@ async function runVerify() {
         const line = block.trim();
         if (!line.startsWith('data: ')) continue;
         const data = line.slice(6);
-        if (!cleared) { $('#vOut').innerHTML = ''; cleared = true; }
         if (data.startsWith('[DONE] ')) {
+          timers.forEach((id) => clearInterval(id)); timers.clear();
           const result = JSON.parse(data.slice(7));
+          if (result.system) $('#vSystem').value = result.system;
           state.lastVerified = { ...body, system: result.system };
+          state.lastResult = result;
           $('#vPublish').disabled = false;
+          $('#vPublish').textContent = state.bounty ? 'Publish and claim bounty' : 'Publish to the market';
+          $('#vDownload').disabled = false;
           $('#vOut').insertAdjacentHTML('afterbegin', summaryBlock(result));
+          applyTimingBars($('#vOut'));
         } else {
           const verdict = JSON.parse(data);
           if (verdict.error) toast(verdict.error, true);
-          else $('#vOut').insertAdjacentHTML('beforeend', verdictRow(verdict));
+          else {
+            if (timers.has(verdict.method)) {
+              clearInterval(timers.get(verdict.method));
+              timers.delete(verdict.method);
+            }
+            const existing = $('#vOut').querySelector(`.verdict[data-method="${verdict.method}"]`);
+            if (existing) existing.outerHTML = verdictRow(verdict);
+            else $('#vOut').insertAdjacentHTML('beforeend', verdictRow(verdict));
+          }
         }
       }
     }
-  } catch (e) { toast(e.message, true); }
+  } catch (e) {
+    timers.forEach((id) => clearInterval(id)); timers.clear();
+    toast(e.message, true);
+  }
 }
 
 async function runBrowserVerify() {
@@ -552,16 +748,42 @@ async function runBrowserVerify() {
 }
 
 async function loadSample() {
-  const sample = await api('/sample');
+  const system = $('#vSystem').value;
+  const SIGMA_DEFAULTS = {
+    schnorr:  { system: 'schnorr', secret: '424242', context: '0xprof demo' },
+    merkle:   { system: 'merkle', leaves: ['alice', 'bob', 'carol', 'dave'], index: 2 },
+    dleq:     { system: 'dleq', secret: '31337', context: '0xprof demo' },
+    pedersen: { system: 'pedersen', value: '1000', context: '0xprof demo' },
+  };
+  const SIGMA_TOASTS = {
+    schnorr:  'schnorr sample loaded — I hold this key',
+    merkle:   'merkle sample loaded — this leaf is in that tree',
+    dleq:     'dleq sample loaded — same log, two bases',
+    pedersen: 'pedersen sample loaded — value hidden in a commitment',
+  };
+  const sample = SIGMA_DEFAULTS[system]
+    ? await api('/prove', { method: 'POST', body: SIGMA_DEFAULTS[system] })
+    : await api('/sample' + (system ? `?system=${encodeURIComponent(system)}` : ''));
   $('#vProof').value = JSON.stringify(sample.proof, null, 1);
   $('#vKey').value = JSON.stringify(sample.statement, null, 1);
   $('#vPublic').value = JSON.stringify(sample.public_signals);
   $('#vSystem').value = sample.system;
   ['vProof', 'vKey', 'vPublic'].forEach((id) => state.footFor?.($(`#${id}`)));
-  toast(`${sample.system} sample loaded — ${sample.about}`);
+  toast(SIGMA_TOASTS[system] || `${sample.system} sample loaded — ${sample.about}`);
 }
 
 // ── prove tab ───────────────────────────────────────────────────────
+
+function downloadAs(name, value) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 1)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function artifactPanel(filename, obj) {
+  return `<div class="artifact-panel"><div class="ap-head"><span class="fname">${escape(filename)}</span><button class="ghost small" data-dl-name="${escape(filename)}">Download</button><button class="ghost small" data-cp-name="${escape(filename)}">Copy</button></div><pre>${escape(JSON.stringify(obj, null, 1))}</pre></div>`;
+}
 
 // One card per system the box can prove without a trusted setup. The shapes
 // differ enough that a generic form would be worse than four honest ones.
@@ -581,13 +803,30 @@ async function prove(system) {
     const made = await api('/prove', { method: 'POST', body });
     state.lastVerified = { system: made.system, proof: made.proof,
                            statement: made.statement, public_signals: made.public_signals };
+    const artifacts = {
+      'verification_key.json': made.statement,
+      'proof.json': made.proof,
+      'public.json': made.public_signals || [],
+    };
     $('#pOut').innerHTML = `
       ${summaryBlock(made.verification)}
       ${(made.verification.verdicts || []).map(verdictRow).join('')}
-      <h4>statement</h4><pre>${escape(JSON.stringify(made.statement, null, 1))}</pre>
-      <h4>proof</h4><pre>${escape(JSON.stringify(made.proof, null, 1))}</pre>
+      ${artifactPanel('verification_key.json', made.statement)}
+      ${artifactPanel('proof.json', made.proof)}
+      ${artifactPanel('public.json', made.public_signals || [])}
       <div class="row"><button id="proveSend">Send this to Verify</button>
       <button class="ghost" id="provePublish">Publish it</button></div>`;
+    applyTimingBars($('#pOut'));
+    $('#pOut').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-dl-name],[data-cp-name]');
+      if (!btn) return;
+      const val = artifacts[btn.dataset.dlName || btn.dataset.cpName];
+      if (!val) return;
+      if (btn.dataset.dlName) downloadAs(btn.dataset.dlName, val);
+      if (btn.dataset.cpName) navigator.clipboard?.writeText(JSON.stringify(val, null, 1))
+        .then(() => toast(`${btn.dataset.cpName} copied`))
+        .catch(() => toast('copy failed', true));
+    });
     $('#proveSend').onclick = () => {
       $('#vProof').value = JSON.stringify(made.proof, null, 1);
       $('#vKey').value = JSON.stringify(made.statement, null, 1);
@@ -646,7 +885,7 @@ function bountyCard(bounty) {
     </div>
     <footer>
       ${open && staked && !mine ? `<button data-act="join" data-id="${bounty.id}">Put in ${bounty.stake} for a token</button>` : ''}
-      ${open && (!staked || mine) ? `<button data-act="submit" data-id="${bounty.id}">Submit a proof</button>` : ''}
+      ${open && (!staked || mine) ? `<button data-act="submit" data-id="${bounty.id}" data-system="${escape(bounty.system)}">Submit a proof</button>` : ''}
       ${due ? `<button data-act="settle" data-id="${bounty.id}">Settle the round</button>` : ''}
       ${open && bounty.poster === state.address ? `<button class="ghost" data-act="cancel" data-id="${bounty.id}">Cancel</button>` : ''}
     </footer>
@@ -658,6 +897,23 @@ async function loadBounties() {
   $('#bountyList').innerHTML = bounties.length ? bounties.map(bountyCard).join('')
     : '<div class="empty">no bounties — post one and the escrow makes it real</div>';
   setCounts(await api('/status'));
+}
+
+function showBountyCtx(system) {
+  const existing = $('#bountyCtx');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'bountyCtx';
+  div.className = 'bounty-ctx';
+  div.innerHTML = `<span>You are submitting a proof for <b>${escape(system)}</b> — verify it below, then hit Publish to claim the reward.</span>`
+    + `<button class="ghost small" id="bountyCtxCancel" aria-label="Cancel bounty submission">×</button>`;
+  $('#tab-verify .grid3').insertAdjacentElement('beforebegin', div);
+  $('#bountyCtxCancel').onclick = () => {
+    state.bounty = null;
+    state.bountySystem = null;
+    div.remove();
+    $('#vPublish').textContent = 'Publish to the market';
+  };
 }
 
 function parseRules(text) {
@@ -873,6 +1129,11 @@ function showTab(name) {
 async function boot() {
   $$('#tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
   $$('button[data-go]').forEach((b) => { b.onclick = () => showTab(b.dataset.go); });
+  $('#heroDemo').onclick = async () => {
+    showTab('verify');
+    await loadSample();
+    await runVerify();
+  };
   // A session that predates the two doors says which address, not which door.
   // Work it out once rather than guessing later, when the answer decides which
   // key signs a re-verification.
@@ -889,7 +1150,17 @@ async function boot() {
   const info = await api('/');
   state.methods = (await api('/methods')).methods;
   state.systems = (await api('/systems')).systems;
-  api('/status').then(setCounts).catch(() => {});
+  api('/status').then((s) => { setCounts(s); state.lastCounts = (s.market.checks ?? 0) + (s.market.proofs ?? 0); }).catch(() => {});
+  setInterval(() => {
+    api('/status').then((s) => {
+      const total = (s.market.checks ?? 0) + (s.market.proofs ?? 0);
+      if (total > state.lastCounts) {
+        const diff = total - state.lastCounts;
+        $('#refresh').classList.add('has-new');
+        $('#refresh').title = `${diff} new check${diff === 1 ? '' : 's'} · click to refresh`;
+      }
+    }).catch(() => {});
+  }, 60000);
 
   const authoritative = state.methods.filter((m) => m.authoritative);
   $('#methodPips').innerHTML = authoritative.map((m) =>
@@ -967,20 +1238,24 @@ async function boot() {
     <p>Same origin, at <code>${escape(API)}</code> — ${info.endpoints.map((e) => `<code>${escape(e)}</code>`).join(' ')}</p>`;
 
   document.body.addEventListener('click', async (event) => {
-    const button = event.target.closest('button[data-act]');
+    const button = event.target.closest('[data-act]');
     if (!button) return;
     const { act, id } = button.dataset;
     try {
       if (act === 'open') await openProof(id, true);
       if (act === 'recheck') await signedRecheck(id);
       if (act === 'browser') await browserCheck(id);
+      if (act === 'run-live') await inlineRace(id);
       if (act === 'link') { navigator.clipboard.writeText(location.origin + location.pathname + '#market/' + id); toast('link copied'); }
+      if (act === 'badge') { navigator.clipboard.writeText(`[![verified by 0xprof](${API}/proofs/${id}/badge.svg)](${location.origin + location.pathname}#market/${id})`); toast('badge markdown copied — paste it in your README'); }
       if (act === 'buy') { const receipt = await api(`/proofs/${id}/buy`, { method: 'POST' }); toast(`bought for ${receipt.charged} credits`); await loadMarket(); await openProof(id); }
       if (act === 'refund') { const receipt = await api(`/proofs/${id}/refund`, { method: 'POST' }); toast(`refunded ${receipt.refunded}`); await loadWallet(); }
       if (act === 'cancel') { await api(`/bounties/${id}/cancel`, { method: 'POST' }); toast('cancelled, escrow returned'); await loadBounties(); }
       if (act === 'join') { const seat = await api(`/bounties/${id}/join`, { method: 'POST' }); toast(`token #${seat.token.seq} — ${seat.token.stake} credit(s) locked until the reset`); await loadBounties(); }
       if (act === 'settle') { const settled = await api(`/bounties/${id}/settle`, { method: 'POST' }); toast(settled.winner ? `settled — won by ${short(settled.winner, 12)}` : 'unwon — tokens returned, round reset'); await loadBounties(); }
-      if (act === 'submit') { state.bounty = id; showTab('verify'); toast('paste the proof, hit verify, then publish — submissions go to /bounties/' + id + '/submit'); }
+      if (act === 'submit') { state.bounty = id; state.bountySystem = button.dataset.system || ''; showBountyCtx(state.bountySystem); showTab('verify'); }
+      if (act === 'tag') { state.activeTag = button.dataset.tag; showTab('market'); }
+      if (act === 'cleartag') { state.activeTag = ''; await loadMarket(); }
     } catch (e) { toast(e.message, true); }
   });
 
@@ -988,13 +1263,26 @@ async function boot() {
     const foot = $(`.drop-foot[data-for="${area.id}"]`);
     if (!foot) return;
     const text = area.value.trim();
-    if (!text) { foot.className = 'drop-foot'; foot.textContent = 'paste, or drop a file here'; return; }
+    if (!text) {
+      foot.className = 'drop-foot'; foot.textContent = 'paste, or drop a file here';
+      if (area.id === 'vProof' || area.id === 'vKey') $('#vMethodPreview').innerHTML = '';
+      return;
+    }
     try {
       const value = JSON.parse(text);
       const what = Array.isArray(value) ? `${value.length} item array`
         : `${Object.keys(value).length} keys${value.protocol ? ` · ${value.protocol}` : ''}`;
       foot.className = 'drop-foot ok';
       foot.textContent = `valid JSON · ${what} · ${(new Blob([text]).size / 1024).toFixed(1)} KB`;
+      if (area.id === 'vProof' || area.id === 'vKey') {
+        try {
+          const proof = JSON.parse($('#vProof').value);
+          const statement = JSON.parse($('#vKey').value);
+          const system = sniffSystem(proof, statement);
+          if (system) { $('#vSystem').value = system; renderMethodPreview(system); }
+          else { $('#vMethodPreview').innerHTML = ''; }
+        } catch { $('#vMethodPreview').innerHTML = ''; }
+      }
     } catch { foot.className = 'drop-foot bad'; foot.textContent = 'not valid JSON yet'; }
   };
   state.footFor = footFor;
@@ -1020,9 +1308,21 @@ async function boot() {
   $('#vSample').onclick = () => loadSample().catch((e) => toast(e.message, true));
   $('#vSampleLink').onclick = (e) => { e.preventDefault(); loadSample().catch((err) => toast(err.message, true)); };
   $('#vPublish').onclick = () => $('#publishDlg').showModal();
+  $('#vDownload').onclick = () => {
+    if (!state.lastVerified || !state.lastResult) return;
+    downloadAs('verified_bundle.json', {
+      system: state.lastVerified.system,
+      proof: state.lastVerified.proof,
+      statement: state.lastVerified.statement,
+      public_signals: state.lastVerified.public_signals,
+      verdicts: state.lastResult.verdicts,
+      status: state.lastResult.status,
+      why: state.lastResult.why,
+    });
+  };
   $('#refresh').onclick = () => loadMarket();
   $('#q').onkeydown = (e) => { if (e.key === 'Enter') loadMarket(); };
-  [$('#fSystem'), $('#fStatus'), $('#fSale')].forEach((el) => { el.onchange = loadMarket; });
+  [$('#fSystem'), $('#fStatus'), $('#fSale'), $('#fSort')].forEach((el) => { el.onchange = loadMarket; });
   $$('button[data-prove]').forEach((b) => { b.onclick = () => prove(b.dataset.prove); });
   $('#publishOpen').onclick = () => {
     if (!state.lastVerified) { toast('verify something first — publish takes what is in VERIFY', true); showTab('verify'); return; }
@@ -1054,6 +1354,8 @@ async function boot() {
             : 'bounty won — reward released')
           : `not accepted: ${answer.submission.why}`);
         state.bounty = null;
+        state.bountySystem = null;
+        const bc = $('#bountyCtx'); if (bc) bc.remove();
       }
       showTab('market');
     } catch (e) { toast(e.message, true); }

@@ -37,6 +37,7 @@ API_DIR = DIR / "src" / "api"
 STATE_DIR = Path.home() / ".mod" / "whitepaper"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 TREE_FILE = STATE_DIR / "tree.json"
+HISTORY_FILE = STATE_DIR / "tree_history.jsonl"
 PID_FILE = STATE_DIR / "serve.pids"
 
 
@@ -148,7 +149,7 @@ class Mod:
         }
 
     # ── Merkle tree reference impl ──────────────────────────────
-    def tree_build(self, records: list[dict]) -> dict:
+    def tree_build(self, records: list[dict], scope: str = "orbit") -> dict:
         """Build a Merkle tree over module records. Returns root + manifest path."""
         leaves = [_leaf(r) for r in records]
         root, layers = _build_tree(leaves)
@@ -160,6 +161,9 @@ class Mod:
             "layers": [[node.hex() for node in layer] for layer in layers],
         }
         TREE_FILE.write_text(json.dumps(manifest))
+        entry = {"epoch": manifest["epoch"], "root": manifest["root"], "count": manifest["count"], "scope": scope}
+        with HISTORY_FILE.open("a") as f:
+            f.write(json.dumps(entry) + "\n")
         return {"root": manifest["root"], "count": manifest["count"], "epoch": manifest["epoch"]}
 
     def tree_root(self) -> dict:
@@ -237,7 +241,21 @@ class Mod:
 
     def merkle(self, scope: str = "orbit") -> dict:
         """Build the Merkle tree from the live orbit (and optionally core) ecosystem."""
-        return self.tree_build(self._merkle_records(scope))
+        return self.tree_build(self._merkle_records(scope), scope=scope)
+
+    def tree_history(self, limit: int = 50) -> list[dict]:
+        """Return the last `limit` tree builds, newest first."""
+        if not HISTORY_FILE.exists():
+            return []
+        entries = []
+        for line in HISTORY_FILE.read_text().splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    entries.append(json.loads(line))
+                except Exception:
+                    pass
+        return list(reversed(entries[-limit:]))
 
     def list_mods(self, scope: str = "orbit") -> list[dict]:
         return [

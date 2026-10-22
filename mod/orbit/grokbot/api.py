@@ -85,6 +85,8 @@ def info():
             'POST /images': '{prompt, model, n}',
             'POST /raw': '{path, method, body, params} — any xAI route',
             'GET /stats': 'accounts and bots on this deployment (owner only)',
+            'POST /share': 'save a read-only conversation permalink — returns {id, url}',
+            'GET /share/<id>': 'fetch a shared conversation by id — no sign-in required',
             'GET /tools': 'the MCP tool registry',
             'POST /mcp': 'MCP JSON-RPC 2.0',
             f'GET {BASE}': 'browser console — wallet sign-in, key, bots, chat',
@@ -189,6 +191,38 @@ def route(method, path, query, body, token, key):
         return Client(key=key, address=signed()).raw(
             _need(b.get('path'), 'path'), method=b.get('method') or 'GET',
             body=b.get('body'), params=b.get('params'))
+    if path == '/share' and method == 'POST':
+        address = signed()
+        shares_dir = os.path.join(C.STATE, 'shares')
+        os.makedirs(shares_dir, exist_ok=True)
+        title = str(b.get('title') or 'Conversation')[:200]
+        raw_msgs = b.get('msgs') if isinstance(b.get('msgs'), list) else []
+        msgs = []
+        for m in raw_msgs:
+            if not isinstance(m, dict):
+                continue
+            cleaned = {k: v for k, v in m.items() if k not in ('usage', 'key')}
+            img = cleaned.get('image', '')
+            if isinstance(img, str) and img.startswith('data:'):
+                cleaned.pop('image', None)
+            msgs.append(cleaned)
+        share_id = os.urandom(16).hex()
+        share_path = os.path.join(shares_dir, share_id + '.json')
+        data = json.dumps({'title': title, 'msgs': msgs}, indent=2)
+        fd = os.open(share_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        with os.fdopen(fd, 'w') as f:
+            f.write(data)
+        return {'id': share_id, 'url': '/share/' + share_id}
+    if path.startswith('/share/') and method == 'GET':
+        share_id = path[len('/share/'):]
+        if not share_id or not all(ch in '0123456789abcdef' for ch in share_id):
+            raise GrokError('share not found', status=404)
+        share_path = os.path.join(C.STATE, 'shares', share_id + '.json')
+        try:
+            with open(share_path) as f:
+                return json.load(f)
+        except FileNotFoundError:
+            raise GrokError('share not found', status=404)
     if path == '/stats':
         identity.require_owner(token)
         return stats()

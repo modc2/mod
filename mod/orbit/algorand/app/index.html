@@ -47,8 +47,12 @@ a{color:var(--acc)}
 .note{font-size:12px;color:var(--dim);margin-top:8px}
 .mainnet-only{display:none}body.mainnet .mainnet-only{display:inline-flex}
 label.ck{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--warn)}
+.cp-btn{cursor:pointer;color:var(--dim);margin-left:3px;font-size:11px;opacity:.6;user-select:none}.cp-btn:hover{color:var(--acc);opacity:1}
 .toast{position:fixed;right:18px;bottom:18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;max-width:420px;display:none;font-size:13px}
 .toast.on{display:block}
+@keyframes fadein{from{background:rgba(46,230,198,.12)}to{background:transparent}}
+.new-row{animation:fadein 2s ease forwards}
+.tl-cm{color:var(--dim)}.tl-kw{color:var(--acc)}.tl-lb{color:var(--warn);font-weight:700}.tl-pr{color:#c792ea}.tl-mt{color:var(--ok)}.tl-li{color:#f78c6c}
 </style>
 </head>
 <body>
@@ -80,7 +84,7 @@ label.ck{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var
       <input class="wide" id="q" placeholder="address, name.algo, asset id, app id, or transaction id">
       <button class="go" id="qgo">GO</button>
     </div>
-    <div class="note">Numbers are tried as an asset first, then as an app. Try <span class="link" data-ex="algo.algo">algo.algo</span>, <span class="link" data-ex="31566704">31566704</span> (USDC), <span class="link" data-ex="1002541853">1002541853</span>.</div>
+    <div class="note">Numbers are tried as an asset first, then as an app, then as a block. Try <span class="link" data-ex="algo.algo">algo.algo</span>, <span class="link" data-ex="31566704">31566704</span> (USDC), <span class="link" data-ex="1002541853">1002541853</span>.</div>
   </div>
   <div id="qout"></div>
 </section>
@@ -108,6 +112,7 @@ label.ck{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var
     </div>
     <div class="note">Simulate runs the call on algod with no key and no fee: you see the logs, the decoded return and the state changes before anything is signed.</div>
   </div>
+  <div id="appinfo"></div>
   <div id="appout"></div>
 </section>
 
@@ -195,6 +200,7 @@ int 1
 return
 create:
 int 1</textarea>
+    <div id="teal_live" class="note" style="min-height:18px"></div>
     <div class="row" style="margin-top:8px">
       <input id="d_gi" placeholder="global ints" value="1" style="width:110px">
       <input id="d_gb" placeholder="global bytes" value="0" style="width:120px">
@@ -205,6 +211,14 @@ int 1</textarea>
       <label class="ck mainnet-only"><input type="checkbox" id="d_confirm"> mainnet</label>
     </div>
     <div class="note">State schema is fixed at creation. The sample counter only accepts plain calls (no update or delete). Call it from APPS with no method and no args; set the method to <span class="mono">inc()uint64</span> only if your program checks the selector.</div>
+  </div>
+  <div class="card">
+    <h3>UPDATE EXISTING APP</h3>
+    <div class="row">
+      <input id="d_upid" placeholder="app id" style="width:160px">
+      <button class="go" id="d_update">UPDATE</button>
+    </div>
+    <div class="note">Uses the TEAL above and the mainnet checkbox. State schema cannot change after creation — update only replaces the programs.</div>
   </div>
   <div id="dout"></div>
 </section>
@@ -219,6 +233,12 @@ int 1</textarea>
       <button class="ghost" id="blknext">NEXT</button>
     </div>
     <div id="blk"></div>
+  </div>
+  <div class="card" id="feedcard"><h3>LIVE FEED</h3>
+    <div style="overflow-y:auto;max-height:400px">
+      <table><tr><th>ROUND</th><th>TYPE</th><th>SENDER</th><th>WHAT</th><th>TX</th></tr>
+      <tbody id="feedtbl"><tr><td colspan=5 class="dim">waiting for next block...</td></tr></tbody></table>
+    </div>
   </div>
 </section>
 
@@ -237,7 +257,9 @@ int 1</textarea>
 // Same-origin: app/server.py proxies <base>/_api to the API (api/api.py).
 const API = location.pathname.replace(/\/(index\.html)?$/, '') + '/_api';
 let NET = localStorage.getItem('algo_net') || 'mainnet';
-let _chainRound = null, _chainTimer = null;
+let _chainRound = null, _chainTimer = null, _tealTimer = null;
+let _feedTxns = [];
+let _histAddr = null, _histKind = null;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const short = a => a && a.length > 20 ? a.slice(0, 6) + '...' + a.slice(-4) : (a || '');
@@ -277,6 +299,7 @@ document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('main section').forEach(s => s.classList.toggle('on', s.id === b.dataset.t));
   if (b.dataset.t === 'chain') { chain(); startChainTimer(); } else stopChainTimer();
   if (b.dataset.t === 'mcp') mcpTab();
+  history.replaceState(null, '', '#' + b.dataset.t);
 });
 
 async function head() {
@@ -293,14 +316,16 @@ function kind(q) {
 }
 async function lookup(q) {
   q = (q ?? $('q').value).trim(); if (!q) return;
-  $('q').value = q; const out = $('qout'); out.innerHTML = '<div class="card dim">looking up...</div>';
+  $('q').value = q; history.replaceState(null, '', '#explore/' + encodeURIComponent(q));
+  const out = $('qout'); out.innerHTML = '<div class="card dim">looking up...</div>';
   const k = kind(q);
   try {
     if (k === 'account') return out.innerHTML = renderAccount(await api('/account?address=' + encodeURIComponent(q)));
     if (k === 'tx') return out.innerHTML = renderTx(await api('/tx?txid=' + q));
     if (k === 'number') {
-      try { return out.innerHTML = renderAsset(await api('/asset?asset=' + q)); }
-      catch (e) { return out.innerHTML = renderApp(await api('/app?app_id=' + q + '&program=true')); }
+      try { return out.innerHTML = renderAsset(await api('/asset?asset=' + q)); } catch (_) {}
+      try { return out.innerHTML = renderApp(await api('/app?app_id=' + q + '&program=true')); } catch (_) {}
+      return out.innerHTML = renderBlockExplore(await api('/block?round=' + q));
     }
     const r = await api('/assets?q=' + encodeURIComponent(q));
     out.innerHTML = renderAssetList(r);
@@ -308,8 +333,12 @@ async function lookup(q) {
 }
 $('qgo').onclick = () => lookup();
 $('q').onkeydown = e => { if (e.key === 'Enter') lookup(); };
-document.addEventListener('click', e => { const ex = e.target.dataset && e.target.dataset.ex; if (ex) { document.querySelector('[data-t=explore]').click(); lookup(ex); } });
-const go = v => `<span class="link mono" data-ex="${esc(v)}">${esc(short(String(v)))}</span>`;
+document.addEventListener('click', e => {
+  const cp = e.target.dataset && e.target.dataset.cp;
+  if (cp) { e.stopPropagation(); navigator.clipboard.writeText(cp).then(() => toast('copied')); return; }
+  const ex = e.target.dataset && e.target.dataset.ex; if (ex) { document.querySelector('[data-t=explore]').click(); lookup(ex); }
+});
+const go = v => `<span class="link mono" data-ex="${esc(v)}">${esc(short(String(v)))}</span><span class="cp-btn" data-cp="${esc(v)}" title="copy">⎘</span>`;
 
 function renderAccount(a) {
   const assets = a.assets.length ? `<table><tr><th>ASSET</th><th>UNIT</th><th>BALANCE</th></tr>${a.assets.map(x =>
@@ -326,14 +355,82 @@ function renderAccount(a) {
     ${a.rekeyed_to ? `<div class="note warn">rekeyed: signs with ${go(a.rekeyed_to)}</div>` : ''}
     <div class="note">apps opted in: ${a.apps_opted_in.map(go).join(' ') || 'none'} - apps created: ${a.apps_created.map(go).join(' ') || 'none'} - assets created: ${a.assets_created.map(go).join(' ') || 'none'}</div>
   </div><div class="card"><h3>ASSETS (${a.assets.length})</h3>${assets}</div>
-  <div class="card"><h3>RECENT</h3><div id="hist" class="dim">loading...</div></div>` + (setTimeout(() => history(a.address), 0), '');
+  <div class="card"><h3>RECENT</h3>
+    <div class="row" style="gap:4px;margin-bottom:8px"><button class="go hfbtn" data-k="" onclick="setHistFilter(null)">ALL</button><button class="ghost hfbtn" data-k="pay" onclick="setHistFilter('pay')">PAY</button><button class="ghost hfbtn" data-k="axfer" onclick="setHistFilter('axfer')">ASA</button><button class="ghost hfbtn" data-k="appl" onclick="setHistFilter('appl')">APP</button></div>
+    <div id="hist" class="dim">loading...</div></div>` + (setTimeout(() => loadHistory(a.address, null, null), 0), '');
 }
-async function history(addr) {
+function setHistFilter(kind) {
+  document.querySelectorAll('.hfbtn').forEach(b => {
+    const active = b.dataset.k === (kind || '');
+    b.className = (active ? 'go' : 'ghost') + ' hfbtn';
+  });
+  loadHistory(_histAddr, kind, null);
+}
+async function loadHistory(addr, kind, nextToken) {
+  _histAddr = addr; _histKind = kind;
+  const el = $('hist');
+  if (!nextToken) el.innerHTML = '<span class="dim">loading...</span>';
+  const lm = $('hist_more');
+  if (lm) lm.remove();
   try {
-    const h = await api('/history?limit=20&address=' + addr);
-    $('hist').innerHTML = `<table><tr><th>TIME</th><th>TYPE</th><th>WHAT</th><th>TX</th></tr>${h.transactions.map(t =>
-      `<tr><td class="dim">${esc(t.time || t.round)}</td><td>${esc(t.type)}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('')}</table>`;
-  } catch (e) { $('hist').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+    let url = '/history?limit=20&address=' + encodeURIComponent(addr);
+    if (kind) url += '&kind=' + kind;
+    if (nextToken) url += '&next_token=' + encodeURIComponent(nextToken);
+    const h = await api(url);
+    const rows = h.transactions.map(t =>
+      `<tr><td class="dim">${esc(t.time || t.round)}</td><td>${esc(t.type)}${t.group ? ' <span class="chip" style="font-size:10px;padding:1px 5px;vertical-align:middle" title="atomic group">G</span>' : ''}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('');
+    if (!nextToken) {
+      el.innerHTML = `<table><tr><th>TIME</th><th>TYPE</th><th>WHAT</th><th>TX</th></tr>${rows}</table>`;
+    } else {
+      const tbl = el.querySelector('table');
+      if (tbl) tbl.insertAdjacentHTML('beforeend', rows);
+    }
+    if (h.next) {
+      const btn = document.createElement('button');
+      btn.className = 'ghost'; btn.id = 'hist_more'; btn.style.marginTop = '8px';
+      btn.textContent = 'LOAD MORE ↓';
+      btn.onclick = () => loadHistory(_histAddr, _histKind, h.next);
+      el.appendChild(btn);
+    }
+  } catch (e) {
+    if (!nextToken) el.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    else toast(esc(e.message), true);
+  }
+}
+function summarizeRaw(t) {
+  const kind = t['tx-type'];
+  const out = { id: t.id, type: kind, round: t['confirmed-round'], sender: t.sender };
+  if (kind === 'pay') {
+    const p = t['payment-transaction'] || {};
+    out.receiver = p.receiver; out.amount_algo = (p.amount || 0) / 1e6;
+  } else if (kind === 'axfer') {
+    const x = t['asset-transfer-transaction'] || {};
+    out.receiver = x.receiver; out.asset_id = x['asset-id']; out.amount = x.amount;
+    out.opt_in = x.receiver === t.sender && !x.amount;
+  } else if (kind === 'appl') {
+    const x = t['application-transaction'] || {};
+    out.app_id = x['application-id'] || t['created-application-index'];
+    out.on_complete = x['on-completion'];
+  } else if (kind === 'acfg') {
+    const x = t['asset-config-transaction'] || {};
+    out.asset_id = x['asset-id'] || t['created-asset-index'];
+  }
+  return out;
+}
+async function loadGroup(groupId, txId) {
+  const container = document.getElementById('grpcont_' + txId);
+  const chip = document.getElementById('grpchip_' + txId);
+  if (!container) return;
+  container.innerHTML = '<span class="dim">loading group...</span>';
+  try {
+    const r = await api('/rpc?path=/v2/transactions&group-id=' + encodeURIComponent(groupId) + '&indexer=true');
+    const txns = r.transactions || [];
+    if (chip) chip.textContent = 'GROUP (' + txns.length + ')';
+    if (!txns.length) { container.innerHTML = '<span class="dim">no group data</span>'; return; }
+    container.innerHTML = `<table><tr><th>TYPE</th><th>WHAT</th><th>TX</th></tr>${
+      txns.map(raw => { const s = summarizeRaw(raw); return `<tr><td>${esc(s.type || '-')}</td><td>${txWhat(s)}</td><td>${go(s.id)}</td></tr>`; }).join('')
+    }</table>`;
+  } catch (e) { container.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
 }
 function txWhat(t) {
   const dir = t.direction === 'in' ? 'from ' + go(t.sender) : 'to ' + go(t.receiver || '');
@@ -383,12 +480,32 @@ function renderTx(t) {
     <div class="stat"><div class="k">SENDER</div><div class="v mono">${t.sender ? go(t.sender) : '-'}</div></div>
     <div class="stat"><div class="k">ROUND</div><div class="v">${rnd}</div></div>`;
   }
-  return `<div class="card"><h3>TRANSACTION <span class="${t.confirmed ? 'ok' : 'warn'}">${t.confirmed ? 'confirmed' : 'pending'}</span></h3>
+  return `<div class="card"><h3>TRANSACTION <span class="${t.confirmed ? 'ok' : 'warn'}">${t.confirmed ? 'confirmed' : 'pending'}</span>${t.group ? ` <span id="grpchip_${esc(t.id)}" class="chip link" style="font-size:11px;padding:2px 8px;cursor:pointer;vertical-align:middle" onclick="loadGroup(${JSON.stringify(t.group)},${JSON.stringify(t.id)})">GROUP</span>` : ''}</h3>
     <div class="stats">${body}</div>
     ${t.note ? `<div class="note">NOTE: ${esc(t.note)}</div>` : ''}
     ${(t.logs || []).length ? `<div class="note">logs:</div><pre>${esc((t.logs || []).join('\n'))}</pre>` : ''}
+    ${t.group ? `<div id="grpcont_${esc(t.id)}" style="margin-top:8px"></div>` : ''}
     <div class="note" style="margin-top:8px"><span class="link" onclick="var p=this.closest('.card').querySelector('pre.raw');var v=p.style.display==='none';p.style.display=v?'block':'none';this.textContent=v?'hide raw ▸':'show raw ▾'">show raw &#9662;</span></div>
-    <pre class="raw" style="display:none;margin-top:8px">${esc(JSON.stringify(t.raw || t, null, 2))}</pre></div>`;
+    <pre class="raw" style="display:none;margin-top:8px">${esc(JSON.stringify(t.raw || t, null, 2))}</pre></div>
+${(t.inner_txns && t.inner_txns.length) ? `<div class="card"><h3>INNER TRANSACTIONS (${t.inner_txns.length})</h3>
+<div style="overflow-y:auto;max-height:320px"><table><tr><th>TYPE</th><th>WHAT</th><th>TX</th></tr>
+${t.inner_txns.map(i => `<tr><td>${esc(i.type||'-')}</td><td>${txWhat(i)}</td><td>${i.id ? go(i.id) : '<span class="dim">-</span>'}</td></tr>`).join('')}
+</table></div></div>` : ''}`;
+}
+function renderBlockExplore(b) {
+  const txns = b.transactions && b.transactions.length
+    ? `<div style="overflow-y:auto;max-height:320px;margin-top:8px"><table><tr><th>TYPE</th><th>SENDER</th><th>WHAT</th><th>TX</th></tr>${b.transactions.map(t => `<tr><td>${esc(t.type || '-')}${t.group ? ' <span class="chip" style="font-size:10px;padding:1px 5px;vertical-align:middle" title="atomic group">G</span>' : ''}</td><td>${go(t.sender || '')}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('')}</table></div>`
+    : `<div class="note dim" style="margin-top:8px">transactions not yet indexed</div>`;
+  return `<div class="card"><h3>BLOCK <span class="link" onclick="goRound(${b.round})">${fmt(b.round, 0)}</span></h3>
+    <div class="stats">
+      <div class="stat"><div class="k">ROUND</div><div class="v">${fmt(b.round, 0)}</div></div>
+      <div class="stat"><div class="k">TIME</div><div class="v" style="font-size:13px">${esc(b.time)}</div></div>
+      <div class="stat"><div class="k">TXNS</div><div class="v">${b.txn_count}</div></div>
+      <div class="stat"><div class="k">PROPOSER</div><div class="v mono">${b.proposer ? go(b.proposer) : '-'}</div></div>
+    </div>
+    ${Object.keys(b.txn_types || {}).length ? `<div class="note">${Object.entries(b.txn_types).map(([k, v]) => `${k}: ${v}`).join(' - ')}</div>` : ''}
+    ${txns}
+  </div>`;
 }
 function renderAsset(a) {
   return `<div class="card"><h3>ASSET ${a.asset_id}</h3><div class="stats">
@@ -399,11 +516,65 @@ function renderAsset(a) {
     <table style="margin-top:10px">${['creator', 'manager', 'reserve', 'freeze', 'clawback'].map(r =>
       `<tr><th>${r.toUpperCase()}</th><td>${a[r] ? go(a[r]) : '<span class="dim">none (locked)</span>'}</td></tr>`).join('')}
     ${a.url ? `<tr><th>URL</th><td>${esc(a.url)}</td></tr>` : ''}</table>
-    ${a.explorer ? `<div class="note"><a href="${a.explorer}" target="_blank">explorer</a></div>` : ''}</div>`;
+    ${a.explorer ? `<div class="note"><a href="${a.explorer}" target="_blank">explorer</a></div>` : ''}</div>
+  <div class="card"><h3>TOP HOLDERS</h3><div id="holders_${a.asset_id}" class="dim">loading...</div></div>` + (setTimeout(() => loadHolders(a.asset_id), 0), '');
+}
+async function loadHolders(asset_id) {
+  const el = $('holders_' + asset_id);
+  if (!el) return;
+  try {
+    const h = await api('/asset_holders?asset=' + asset_id);
+    if (!h.holders || !h.holders.length) { el.innerHTML = '<span class="dim">no data</span>'; return; }
+    el.innerHTML = `<table><tr><th>#</th><th>ADDRESS</th><th>BALANCE</th></tr>${h.holders.map((hh, i) =>
+      `<tr><td class="dim">${i + 1}</td><td>${go(hh.address)}</td><td>${fmt(hh.balance)}${hh.frozen ? ' <span class="warn">frozen</span>' : ''}</td></tr>`).join('')}</table>`;
+  } catch (e) { el.innerHTML = `<span class="dim">${esc(e.message)}</span>`; }
 }
 function renderAssetList(r) {
   return `<div class="card"><h3>ASSETS MATCHING "${esc(r.query)}"</h3><table><tr><th>ID</th><th>NAME</th><th>UNIT</th><th>DEC</th></tr>${r.assets.map(a =>
     `<tr><td>${go(a.asset_id)}</td><td>${esc(a.name)}</td><td>${esc(a.unit)}</td><td>${a.decimals}</td></tr>`).join('') || '<tr><td colspan=4 class="dim">nothing</td></tr>'}</table></div>`;
+}
+const TEAL_OPS = new Set(['int','byte','addr','txn','gtxn','itxn','itxna','global','load','store','dup','pop','concat','substring','substring3','len','itob','btoi','assert','err','return','log','bz','bnz','b','callsub','retsub','app_global_get','app_global_put','app_global_del','app_local_get','app_local_put','app_local_del','app_opted_in','balance','min_balance','asset_holding_get','asset_params_get','acct_params_get','cover','uncover','swap','dig','select','setbit','getbit','setbyte','getbyte','extract','extract3','extract_uint16','extract_uint32','extract_uint64','replace2','replace3','ed25519verify','ed25519verify_bare','ecdsa_verify','ecdsa_pk_recover','ecdsa_pk_decompress','vrf_verify','sha256','keccak256','sha512_256','sha3_256','not','and','or','+','-','*','/','%','<','>','<=','>=','==','!=','!','|','&','^','~','shl','shr','exp','divmodw','addw','mulw','expw','divw','bsqrt','widemath','prefix','suffix','contains','box_create','box_del','box_extract','box_get','box_len','box_put','box_replace','box_resize','box_splice','abi_call','proto','switch','match','frame_dig','frame_bury','pop_top']);
+function highlightTeal(src) {
+  if (!src) return '';
+  return src.split('\n').map(line => {
+    const he = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const trimmed = line.trimStart();
+    if (/^#pragma\s/.test(trimmed)) return `<span class="tl-pr">${he(line)}</span>`;
+    if (/^\/\/\s*method\s+"/.test(trimmed)) return `<span class="tl-mt">${he(line)}</span>`;
+    const commentIdx = line.indexOf('//');
+    if (commentIdx === 0) return `<span class="tl-cm">${he(line)}</span>`;
+    if (/^[A-Za-z_][\w$]*:\s*$/.test(trimmed)) return `<span class="tl-lb">${he(line)}</span>`;
+    const parts = trimmed.split(/\s+/);
+    const op = parts[0];
+    if (TEAL_OPS.has(op)) {
+      const indent = line.slice(0, line.length - trimmed.length);
+      const rest = parts.slice(1);
+      let highlighted = `${he(indent)}<span class="tl-kw">${he(op)}</span>`;
+      if (rest.length) {
+        const arg = rest[0];
+        const isLit = /^-?\d+$/.test(arg) || /^0x[0-9a-fA-F]+$/.test(arg);
+        const argSpan = isLit ? `<span class="tl-li">${he(arg)}</span>` : he(arg);
+        const tailParts = rest.slice(1);
+        let tail = tailParts.length ? ' ' + tailParts.join(' ') : '';
+        const tailCommentIdx = tail.indexOf('//');
+        if (tailCommentIdx !== -1) {
+          const before = tail.slice(0, tailCommentIdx);
+          const comment = tail.slice(tailCommentIdx);
+          tail = he(before) + `<span class="tl-cm">${he(comment)}</span>`;
+        } else {
+          tail = he(tail);
+        }
+        highlighted += ' ' + argSpan + tail;
+      }
+      return highlighted;
+    }
+    if (commentIdx > 0) {
+      const code = he(line.slice(0, commentIdx));
+      const comment = `<span class="tl-cm">${he(line.slice(commentIdx))}</span>`;
+      return code + comment;
+    }
+    return he(line);
+  }).join('\n');
 }
 function renderApp(a) {
   const gs = Object.entries(a.global_state);
@@ -416,10 +587,94 @@ function renderApp(a) {
     ${a.explorer ? `<a href="${a.explorer}" target="_blank">explorer</a>` : ''}</div></div>
     <div class="card"><h3>GLOBAL STATE (${gs.length})</h3><table>${gs.map(([k, v]) =>
       `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(v) ? go(v) : esc(v)}</td></tr>`).join('') || '<tr><td class="dim">empty</td></tr>'}</table></div>
-    ${a.boxes.length ? `<div class="card"><h3>BOXES</h3>${a.boxes.map(b => `<span class="chip mono">${esc(b)}</span>`).join(' ')}</div>` : ''}
-    <div class="card"><h3>APPROVAL PROGRAM</h3><pre>${esc(a.approval_teal || '')}</pre></div>`;
+    ${a.boxes.length ? `<div class="card"><h3>BOXES</h3>${a.boxes.map(b => `<span class="chip mono" style="cursor:pointer" onclick="loadBox(${a.app_id}, ${JSON.stringify(b).replace(/"/g, '&quot;')})">${esc(b)}</span>`).join(' ')}</div><div id="boxout_${a.app_id}"></div>` : ''}
+    <div class="card"><h3>LOCAL STATE</h3><div class="row" style="gap:8px;margin-bottom:6px"><input id="ls_addr_${a.app_id}" class="mono" style="flex:1" placeholder="address or .algo name"><button class="ghost" onclick="loadLocalState(${a.app_id})">GO</button></div><div id="lsout_${a.app_id}"></div></div>
+    <div class="card"><h3>APPROVAL PROGRAM</h3><pre>${highlightTeal(a.approval_teal || '')}</pre></div>`;
 }
-function openApp(id) { $('app_id').value = id; document.querySelector('[data-t=apps]').click(); }
+async function loadBox(appId, name) {
+  const out = $('boxout_' + appId);
+  if (!out) return;
+  out.innerHTML = '<div class="card dim">loading…</div>';
+  try {
+    const r = await api('/box?app_id=' + appId + '&name=' + encodeURIComponent(name));
+    const val = r.text ? esc(r.text) : r.uint64 != null ? fmt(r.uint64, 0) : `<span class="mono">${esc(r.hex)}</span>`;
+    out.innerHTML = `<div class="card"><h3>BOX <span class="mono">${esc(name)}</span></h3><div class="stats">
+      <div class="stat"><div class="k">VALUE</div><div class="v">${val}</div></div>
+      ${r.uint64 != null ? `<div class="stat"><div class="k">UINT64</div><div class="v">${fmt(r.uint64, 0)}</div></div>` : ''}
+      <div class="stat"><div class="k">HEX</div><div class="v mono" style="font-size:12px;word-break:break-all">${esc(r.hex)}</div></div>
+    </div></div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="card"><span class="bad">${esc(e.message)}</span></div>`;
+  }
+}
+async function loadLocalState(appId) {
+  const input = $('ls_addr_' + appId);
+  const address = input ? input.value.trim() : '';
+  if (!address) return;
+  const out = $('lsout_' + appId);
+  if (!out) return;
+  out.innerHTML = '<div class="dim">loading…</div>';
+  try {
+    const r = await api('/local_state?app_id=' + appId + '&address=' + encodeURIComponent(address));
+    if (!r.opted_in) { out.innerHTML = '<div class="dim">not opted in</div>'; return; }
+    const entries = Object.entries(r.state);
+    out.innerHTML = `<table>${entries.map(([k, v]) =>
+      `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(String(v)) ? go(v) : esc(v)}</td></tr>`).join('') || '<tr><td class="dim">empty</td></tr>'}</table>`;
+  } catch (e) {
+    out.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+  }
+}
+function openApp(id) { $('app_id').value = id; document.querySelector('[data-t=apps]').click(); history.replaceState(null, '', '#apps/' + id); }
+
+// ── apps preview ───────────────────────────────────────────
+let _appPreviewTimer = null;
+$('app_id').oninput = () => {
+  clearTimeout(_appPreviewTimer);
+  const val = $('app_id').value.trim();
+  if (!val || !/^\d+$/.test(val)) { $('appinfo').innerHTML = ''; return; }
+  const id = parseInt(val, 10);
+  if (!id) { $('appinfo').innerHTML = ''; return; }
+  _appPreviewTimer = setTimeout(async () => {
+    $('appinfo').innerHTML = '<div class="card dim">loading app info…</div>';
+    try {
+      const a = await api('/app?app_id=' + id + '&program=true');
+      $('appinfo').innerHTML = renderAppPreview(a);
+    } catch (e) {
+      $('appinfo').innerHTML = `<div class="card"><span class="bad">${esc(e.message)}</span></div>`;
+    }
+  }, 800);
+};
+function renderAppPreview(a) {
+  const gs = Object.entries(a.global_state).slice(0, 8);
+  const gsFull = Object.keys(a.global_state).length;
+  const methods = [];
+  if (a.approval_teal) {
+    const seen = new Set();
+    for (const re of [/\/\/ method "([^"]+)"/g, /^method "([^"]+)"/gm]) {
+      let m; re.lastIndex = 0;
+      while ((m = re.exec(a.approval_teal)) !== null) {
+        if (!seen.has(m[1])) { seen.add(m[1]); methods.push(m[1]); }
+      }
+    }
+  }
+  return `<div class="card">
+    <h3>APP ${a.app_id} <span class="dim" style="font-weight:400;letter-spacing:0;font-size:11px">context</span></h3>
+    <div class="stats">
+      <div class="stat"><div class="k">CREATOR</div><div class="v mono">${go(a.creator)}</div></div>
+      <div class="stat"><div class="k">APP ACCOUNT</div><div class="v mono">${go(a.address)}</div></div>
+      <div class="stat"><div class="k">BALANCE</div><div class="v">${fmt(a.balance_algo)} ALGO</div></div>
+      <div class="stat"><div class="k">APPROVAL</div><div class="v">${a.approval_bytes} B</div></div>
+    </div>
+    ${gs.length ? `<div style="margin-top:10px"><table>${gs.map(([k, v]) =>
+      `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(String(v)) ? go(v) : esc(v)}</td></tr>`).join('')}${gsFull > 8 ? `<tr><td colspan="2" class="dim">…${gsFull - 8} more</td></tr>` : ''}</table></div>` : ''}
+    ${methods.length ? `<div style="margin-top:10px"><div class="k" style="margin-bottom:6px">METHODS</div><div style="display:flex;flex-wrap:wrap;gap:6px">${methods.map(sig =>
+      `<span class="chip mono" style="cursor:pointer" onclick="$('app_method').value=${JSON.stringify(sig)};$('app_method').scrollIntoView({behavior:'smooth',block:'nearest'})">${esc(sig)}</span>`).join('')}</div></div>` : ''}
+    <div class="row" style="margin-top:10px;gap:12px">
+      <span class="link" onclick="$('appout').scrollIntoView({behavior:'smooth'})">CALL THIS APP ↓</span>
+      ${a.explorer ? `<a href="${a.explorer}" target="_blank">explorer</a>` : ''}
+    </div>
+  </div>`;
+}
 
 // ── apps ───────────────────────────────────────────────────
 function appBody() {
@@ -437,10 +692,15 @@ function renderCall(r, signed) {
     ${r.app_budget_consumed != null ? `<div class="stat"><div class="k">BUDGET</div><div class="v">${r.app_budget_consumed}</div></div>` : ''}
     ${signed ? `<div class="stat"><div class="k">TX</div><div class="v">${txLink(r)}</div></div>` : ''}</div>
     ${(r.logs || []).length ? `<div class="note">logs:</div><pre>${esc((r.logs || []).join('\n'))}</pre>` : ''}
-    ${r.global_delta ? `<div class="note">state changes:</div><pre>${esc(JSON.stringify(r.global_delta, null, 2))}</pre>` : ''}</div>`;
+    ${r.global_delta && Object.keys(r.global_delta).length ? `<div class="note">state changes:</div><table>${Object.entries(r.global_delta).map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(String(v)) ? go(String(v)) : esc(String(v))}</td></tr>`).join('')}</table>` : ''}
+${(r.inner_txns && r.inner_txns.length) ? `<div class="card"><h3>INNER TRANSACTIONS (${r.inner_txns.length})</h3>
+<div style="overflow-y:auto;max-height:260px"><table><tr><th>TYPE</th><th>WHAT</th></tr>
+${r.inner_txns.map(i => `<tr><td>${esc(i.type||'-')}</td><td>${txWhat(i)}</td></tr>`).join('')}
+</table></div></div>` : ''}</div>`;
 }
 $('simgo').onclick = busy($('simgo'), async () => {
   const b = appBody(); b.network = NET;
+  if ($('app_pay').value) b.pay_algo = +$('app_pay').value;
   $('appout').innerHTML = renderCall(await api('/simulate', b), false);
 });
 $('callgo').onclick = busy($('callgo'), async () => {
@@ -492,7 +752,21 @@ $('m_go').onclick = busy($('m_go'), async () => {
 });
 
 // ── deploy ─────────────────────────────────────────────────
+$('teal').oninput = () => {
+  clearTimeout(_tealTimer);
+  const src = $('teal').value.trim();
+  if (!src) { $('teal_live').innerHTML = ''; return; }
+  _tealTimer = setTimeout(async () => {
+    try {
+      const r = await api('/compile', {source: src, network: wnet()});
+      $('teal_live').innerHTML = `<span class="ok">✓ ${r.bytes} bytes — hash <span class="mono">${esc(r.hash.slice(0,12))}…</span></span>`;
+    } catch (e) {
+      $('teal_live').innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+    }
+  }, 600);
+};
 $('d_compile').onclick = busy($('d_compile'), async () => {
+  $('teal_live').innerHTML = '';
   const r = await api('/compile', {source: $('teal').value, network: wnet()});
   $('dout').innerHTML = `<div class="card"><h3>COMPILED <span class="ok">OK</span></h3><div class="note">${r.bytes} bytes - hash <span class="mono">${esc(r.hash)}</span></div><pre>${esc(r.b64)}</pre></div>`;
 });
@@ -502,8 +776,27 @@ $('d_go').onclick = busy($('d_go'), async () => {
   $('dout').innerHTML = `<div class="card"><h3>DEPLOYED</h3>app ${go(r.app_id)} - account <span class="mono">${esc(r.app_address)}</span> - ${txLink(r)}
     <div class="row" style="margin-top:10px"><button class="ghost" onclick="openApp(${r.app_id})">CALL IT</button></div></div>`;
 });
+$('d_update').onclick = busy($('d_update'), async () => {
+  const app_id = +$('d_upid').value;
+  if (!app_id) throw new Error('app id required');
+  const r = await api('/app_update', {app_id, approval: $('teal').value,
+    network: wnet(), confirm: $('d_confirm').checked}, true);
+  $('dout').innerHTML = `<div class="card"><h3>UPDATED</h3>app ${go(app_id)} - ${txLink(r)}
+    <div class="row" style="margin-top:10px"><button class="ghost" onclick="openApp(${app_id})">CALL IT</button></div></div>`;
+});
 
 // ── chain + mcp ────────────────────────────────────────────
+function renderFeed(newCount) {
+  const el = $('feedtbl');
+  if (!el) return;
+  if (!_feedTxns.length) {
+    el.innerHTML = '<tr><td colspan=5 class="dim">waiting for next block...</td></tr>';
+    return;
+  }
+  el.innerHTML = _feedTxns.map((t, i) =>
+    `<tr${i < (newCount || 0) ? ' class="new-row"' : ''}><td class="dim mono">${fmt(t._round, 0)}</td><td>${esc(t.type||'-')}</td><td>${go(t.sender||'')}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`
+  ).join('');
+}
 async function chain(rnd) {
   const fetchLatest = (rnd == null);
   try {
@@ -518,6 +811,11 @@ async function chain(rnd) {
       const card = $('blkcard');
       card.style.borderColor = 'var(--acc)';
       setTimeout(() => { card.style.borderColor = ''; }, 600);
+      const newTxns = (b.transactions || []).map(t => ({...t, _round: b.round}));
+      if (newTxns.length) {
+        _feedTxns = [...newTxns, ..._feedTxns].slice(0, 60);
+        renderFeed(newTxns.length);
+      }
     }
     if (fetchLatest) _chainRound = b.round;
     $('blk').innerHTML = `<div class="stats"><div class="stat"><div class="k">ROUND</div><div class="v">${fmt(b.round, 0)}</div></div>
@@ -526,7 +824,7 @@ async function chain(rnd) {
       <div class="stat"><div class="k">PROPOSER</div><div class="v mono">${b.proposer ? go(b.proposer) : '-'}</div></div></div>
       <div class="note">${Object.entries(b.txn_types).map(([k, v]) => `${k}: ${v}`).join(' - ')}</div>
       ${b.transactions && b.transactions.length
-        ? `<div style="overflow-y:auto;max-height:320px;margin-top:8px"><table><tr><th>TYPE</th><th>SENDER</th><th>WHAT</th><th>TX</th></tr>${b.transactions.map(t => `<tr><td>${esc(t.type || '-')}</td><td>${go(t.sender || '')}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('')}</table></div>`
+        ? `<div style="overflow-y:auto;max-height:320px;margin-top:8px"><table><tr><th>TYPE</th><th>SENDER</th><th>WHAT</th><th>TX</th></tr>${b.transactions.map(t => `<tr><td>${esc(t.type || '-')}${t.group ? ' <span class="chip" style="font-size:10px;padding:1px 5px;vertical-align:middle" title="atomic group">G</span>' : ''}</td><td>${go(t.sender || '')}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('')}</table></div>`
         : `<div class="note dim" style="margin-top:8px">transactions not yet indexed</div>`}`;
   } catch (e) { $('netstats').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
 }
@@ -549,6 +847,23 @@ async function mcpTab() {
 }
 
 setNet(NET);
+(function() {
+  const hash = location.hash.slice(1);
+  if (!hash) return;
+  const parts = hash.split('/');
+  const tab = parts[0];
+  const val = parts[1] ? decodeURIComponent(parts[1]) : null;
+  const tabBtn = document.querySelector('[data-t=' + tab + ']');
+  if (!tabBtn) return;
+  tabBtn.click();
+  if (tab === 'explore' && val) {
+    lookup(val);
+  } else if (tab === 'apps' && val) {
+    history.replaceState(null, '', '#apps/' + parts[1]);
+    $('app_id').value = val;
+    $('app_id').dispatchEvent(new Event('input'));
+  }
+})();
 </script>
 </body>
 </html>

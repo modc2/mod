@@ -53,6 +53,7 @@ export interface TopTrader {
       yet (never treat that as "brand new"). */
   firstTradeTs?: number;
   pnlCurve?: number[];   // ~12-point cumulative PnL over the window
+  qc?: { flags: string[]; coverage: number; topShare: number; flashShare: number; basisCoverage: number; cluster: number } | null;
 }
 
 /** Days of track record behind a trader, or `null` when unresolved.
@@ -1073,6 +1074,7 @@ export async function fetchTopTradersStream(
           trades24h: Number(t.trades24h || 0),
           lastTradeTs: typeof t.lastTradeTs === "number" ? t.lastTradeTs : undefined,
           pnlCurve: Array.isArray(t.pnlCurve) ? (t.pnlCurve as number[]) : undefined,
+          qc: t.qc != null && typeof t.qc === "object" ? (t.qc as TopTrader["qc"]) : undefined,
         }));
         if (evt.type === "partial") {
           onPartial?.(mapped);
@@ -1124,6 +1126,7 @@ export async function fetchTopTraders(
     trades24h: Number(t.trades24h || 0),
     lastTradeTs: typeof t.lastTradeTs === "number" ? t.lastTradeTs : undefined,
     pnlCurve: Array.isArray(t.pnlCurve) ? (t.pnlCurve as number[]) : undefined,
+    qc: t.qc != null && typeof t.qc === "object" ? (t.qc as TopTrader["qc"]) : undefined,
   }));
 }
 

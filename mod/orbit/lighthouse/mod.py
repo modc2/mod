@@ -267,7 +267,7 @@ class Mod:
             return {'error': f'unknown action: {action}'}
         return fn(**kw)
 
-    def put(self, path: str, owner: str = None, key: str = None, **kw) -> dict:
+    def put(self, path: str, owner: str = None, key: str = None, meta: dict = None, **kw) -> dict:
         """Upload a file to Lighthouse (perpetual IPFS/Filecoin pin). Returns the CID."""
         p = Path(os.path.expanduser(path))
         if not p.exists():
@@ -288,7 +288,7 @@ class Mod:
                     if not cid:
                         last = f'{url} -> no CID in response: {r.text[:200]}'
                         continue
-                    self._record(cid, obj_key, str(p), int(data.get('Size') or size), owner)
+                    self._record(cid, obj_key, str(p), int(data.get('Size') or size), owner, meta)
                     return {'cid': cid, 'key': obj_key, 'size': size,
                             'backend': 'lighthouse', 'owner': owner,
                             'url': f'{self.gateway}/ipfs/{cid}'}

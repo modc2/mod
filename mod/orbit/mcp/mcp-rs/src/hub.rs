@@ -17,7 +17,7 @@ fn native_tools() -> Vec<Value> {
     vec![
         json!({
             "name": "hub_servers",
-            "description": "List every MCP server aggregated by this hub: id, url, source (fleet|user), status and tool count.",
+            "description": "List every MCP server aggregated by this hub: id, url, source (fleet|user), local (true = runs on this host), status and tool count.",
             "inputSchema": { "type": "object", "properties": {} }
         }),
         json!({
@@ -129,19 +129,36 @@ pub async fn aggregated_tools(state: &Arc<AppState>) -> Vec<Value> {
 async fn server_rows(state: &Arc<AppState>) -> Vec<Value> {
     let disabled = state.disabled.read().await.clone();
     let probes = state.probes.read().await.clone();
+    let probe_history = state.probe_history.read().await.clone();
+    let reviews = crate::store::load_reviews();
+    let stats = state.server_stats.read().await.clone();
     state
         .all_servers()
         .await
         .into_iter()
         .map(|s| {
             let p = probes.get(&s.id).cloned().unwrap_or_default();
+            let review_risk = reviews.get(&s.id).map(|r| json!(r.risk)).unwrap_or(Value::Null);
+            let (calls, last_call) = stats
+                .get(&s.id)
+                .map(|st| (st.calls, st.last_ts))
+                .unwrap_or((0, 0));
+            let uptime: Vec<Value> = probe_history
+                .get(&s.id)
+                .map(|d| d.iter().map(|dot| json!({"ok": dot.ok, "latency_ms": dot.latency_ms})).collect())
+                .unwrap_or_default();
             json!({
                 "id": s.id, "name": s.name, "url": s.url, "source": s.source,
+                "local": s.is_local(),
                 "note": s.note, "added_at": s.added_at, "pay": s.pay,
                 "needs_payment": !p.ok && p.error.contains("402"),
                 "enabled": !disabled.contains(&s.id),
                 "auth_headers": s.headers.keys().collect::<Vec<_>>(),
                 "probe": probe_json(&p),
+                "review_risk": review_risk,
+                "calls": calls,
+                "last_call": if last_call > 0 { json!(last_call) } else { Value::Null },
+                "uptime": uptime,
             })
         })
         .collect()
@@ -166,21 +183,47 @@ pub async fn servers_view(state: &Arc<AppState>) -> Vec<Value> {
 
 /// Register a server from a request body — shared by POST /servers and the
 /// hub_connect tool. Probes first; the caller has already been gated.
+/// Accepts either `{url}` (HTTP/S endpoint) or `{command, args?, env?}` (stdio).
 pub async fn register_server(state: &Arc<AppState>, body: &Value) -> Result<Value, String> {
-    let url = body.get("url").and_then(|v| v.as_str()).ok_or("`url` is required")?.trim().to_string();
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("`url` must be http(s)".into());
-    }
-    let fallback_id = url
-        .split("//")
-        .nth(1)
-        .unwrap_or("server")
-        .split(['/', ':'])
-        .next()
-        .unwrap_or("server");
-    let id = crate::store::clean_id(body.get("id").and_then(|v| v.as_str()).unwrap_or(fallback_id));
+    let command = body.get("command").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let is_stdio = !command.is_empty();
+
+    let (url, fallback_id) = if is_stdio {
+        // Derive a short id from the last path component of the executable name.
+        let exe = command.split_whitespace().next().unwrap_or("stdio");
+        let exe_base = exe.rsplit(['/', '\\']).next().unwrap_or(exe);
+        // Strip common wrappers: npx → the package name is in args, not exe.
+        let fid = exe_base.trim_end_matches(".exe").to_string();
+        (String::new(), fid)
+    } else {
+        let url = body.get("url").and_then(|v| v.as_str()).ok_or("`url` or `command` is required")?.trim().to_string();
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err("`url` must be http(s)".into());
+        }
+        let fid = url
+            .split("//")
+            .nth(1)
+            .unwrap_or("server")
+            .split(['/', ':'])
+            .next()
+            .unwrap_or("server")
+            .to_string();
+        (url, fid)
+    };
+
+    let id = crate::store::clean_id(body.get("id").and_then(|v| v.as_str()).unwrap_or(&fallback_id));
     let custom_headers: std::collections::HashMap<String, String> = body
         .get("headers")
+        .and_then(|h| h.as_object())
+        .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+        .unwrap_or_default();
+    let args: Vec<String> = body
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let env: std::collections::HashMap<String, String> = body
+        .get("env")
         .and_then(|h| h.as_object())
         .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
         .unwrap_or_default();
@@ -194,6 +237,10 @@ pub async fn register_server(state: &Arc<AppState>, body: &Value) -> Result<Valu
         added_at: crate::store::now(),
         origin: body.get("origin").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         pay: body.get("pay").and_then(|v| v.as_str()).filter(|p| *p == "x402").unwrap_or("").to_string(),
+        transport: if is_stdio { "stdio".into() } else { String::new() },
+        command,
+        args,
+        env,
         ..Default::default()
     };
     let probe = upstream::probe(&entry).await;
@@ -211,6 +258,12 @@ pub async fn register_server(state: &Arc<AppState>, body: &Value) -> Result<Valu
     state.disabled.write().await.remove(&id);
     state.persist().await;
     state.set_probe(&id, probe.clone()).await;
+    {
+        let review = crate::review::analyze(&probe, &entry);
+        let mut reviews = crate::store::load_reviews();
+        reviews.insert(id.clone(), review);
+        crate::store::save_reviews(&reviews);
+    }
     Ok(json!({ "added": entry, "probe": probe_json(&probe) }))
 }
 
@@ -223,7 +276,7 @@ pub async fn call_tool(state: &Arc<AppState>, name: &str, args: &Value, may_writ
     let elapsed = t0.elapsed().as_millis() as u64;
     let server = name.split_once("__").map(|(s, _)| s.to_string()).unwrap_or_else(|| "hub".to_string());
     state
-        .record_call(crate::state::CallEntry {
+        .record_call(crate::store::CallEntry {
             ts: crate::store::now(),
             tool: name.to_string(),
             server,

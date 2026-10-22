@@ -310,6 +310,15 @@
        color:#000;background:var(--dc,var(--mag));box-shadow:3px 3px 0 #000}
   .door:hover .cta::after{content:' ▶';animation:blink .6s steps(1) infinite}
   .home-wrap{max-width:1040px;margin:0 auto 22px}
+  .qa-bar{display:flex;height:22px;width:100%;gap:2px;margin:14px 0 8px;overflow:hidden}
+  .qa-seg{height:100%;min-width:3px;display:flex;align-items:center;justify-content:center;
+       font:9px/1 var(--px);color:#000;overflow:hidden;white-space:nowrap;transition:flex .4s}
+  .qa-seg.safe{background:var(--ac)} .qa-seg.unsafe{background:var(--bad)}
+  .qa-row{display:flex;gap:8px;align-items:center;padding:5px 0;
+       border-bottom:1px dashed #22163d;font-size:14px;flex-wrap:wrap}
+  .qa-row:last-child{border-bottom:0}
+  .qa-row .qn{min-width:200px;font:14px/1.2 var(--vt);color:var(--cy)}
+  .qa-row .qc{color:var(--dim);font-size:13px}
   .j-step{display:flex;gap:12px;align-items:baseline;padding:8px 0;
        border-bottom:1px dashed #22163d;font-size:14px;animation:fadeup .25s steps(3)}
   .j-step:last-child{border-bottom:0}
@@ -502,6 +511,10 @@
   .mc-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
   .mc-pills .pill{font-size:14px}
   tr.mc-vrow td{padding:0 9px 10px}
+  .mc-spark{display:block;width:100%;height:30px;margin:8px 0}
+  .mc-spark polyline{filter:drop-shadow(0 0 3px var(--mag))}
+  .mc-replay-ctrl{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+  tr.mc-replay-on td{background:rgba(0,240,255,.12)!important;outline:1px solid rgba(0,240,255,.3)}
   /* ── the whitepaper: pixel heads, readable body ── */
   .paper{max-width:860px;margin:0 auto;font:17px/1.75 var(--sans);padding:30px 36px 60px}
   .paper .wp-title{font:clamp(26px,5vw,44px)/1.1 var(--px);letter-spacing:.02em;margin:18px 0 14px;
@@ -698,6 +711,43 @@
   .partchip:hover{background:var(--cy);color:#000}
   .partop{font:600 11px var(--ui);color:var(--hz);margin:0 6px 6px 0;display:inline-block}
 
+  /* ════════════ VS COMPARISON ARENA ════════════ */
+  #mk-vs{display:none;margin:0 0 18px;background:linear-gradient(180deg,#120831,#090518);
+    border:2px solid var(--cy);box-shadow:0 0 24px rgba(0,240,255,.18);animation:fadeup .2s steps(3) both}
+  #mk-vs.show{display:block}
+  .vs-arena{display:grid;grid-template-columns:1fr 44px 1fr;align-items:stretch}
+  .vs-side{padding:14px 14px 10px;display:flex;flex-direction:column;gap:8px}
+  .vs-side svg{width:110px;height:110px;flex:none;image-rendering:pixelated;
+    background:#07040f;border:3px solid var(--cy);padding:6px;box-shadow:5px 5px 0 #000}
+  .vs-mid{display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:6px;background:rgba(0,240,255,.04);border-left:1px solid #22163d;border-right:1px solid #22163d}
+  .vs-mid-lbl{font:clamp(18px,3vw,28px)/1 var(--vt);color:var(--cy);text-shadow:0 0 14px var(--cy)}
+  .vs-mid-x{font:600 11px var(--ui);color:var(--dim);cursor:pointer;padding:4px 8px;border:1px solid #333}
+  .vs-mid-x:hover{color:#fff;border-color:var(--bad)}
+  .vs-slot-empty{border:3px dashed rgba(0,240,255,.3);padding:14px;text-align:center;
+    font:600 12px var(--ui);color:var(--dim);min-height:140px;display:flex;align-items:center;
+    justify-content:center;flex-direction:column;gap:6px}
+  .vs-name{font:700 14px/1.4 var(--ui);color:#fff;word-break:break-all}
+  .vs-winner{border-top:2px solid #22163d;margin-top:4px}
+  .vs-winner-hdr{display:grid;grid-template-columns:1fr 1fr 1fr;
+    background:rgba(0,240,255,.07);border-bottom:1px solid #22163d}
+  .vs-winner-hdr > span{padding:5px 10px;font:600 10.5px var(--ui);color:var(--cy);letter-spacing:.05em}
+  .vs-winner-hdr > span:first-child{text-align:left}
+  .vs-winner-hdr > span:last-child{text-align:right}
+  .vs-winner-row{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid #0e0824}
+  .vs-winner-row > span{padding:6px 10px;font:600 11px/1.3 var(--ui)}
+  .vs-winner-row .lbl{color:var(--dim);font-size:10.5px;letter-spacing:.04em}
+  .vs-winner-row .good{color:var(--ac);background:rgba(57,255,20,.06);text-align:left}
+  .vs-winner-row .bad{color:var(--bad);background:rgba(255,56,96,.04);text-align:right}
+  .vs-winner-row .draw{color:var(--cy);text-align:left}
+  .vs-winner-row .draw2{color:var(--cy);text-align:right}
+  .vs-winner-row .muted{color:var(--dim)}
+  .card.vs-sel{outline:3px solid var(--cy);outline-offset:2px;
+    box-shadow:0 -3px 0 0 var(--cy),0 3px 0 0 var(--cy),-3px 0 0 0 var(--cy),3px 0 0 0 var(--cy),
+               10px 11px 0 0 #000,0 0 28px rgba(0,240,255,.4)}
+  #mk-vs-btn.on{border-color:var(--cy);color:#001418;background:var(--cy);
+    text-shadow:none;box-shadow:3px 3px 0 #000,0 0 14px rgba(0,240,255,.4)}
+
   /* ════════════ PRIMS: the periodic table ════════════ */
   .ptable{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(118px,1fr))}
   .el{position:relative;cursor:pointer;aspect-ratio:1/1.08;padding:8px;display:flex;flex-direction:column;
@@ -812,10 +862,21 @@
       <div id="j-steps"></div>
       <div id="j-fin"></div>
     </div>
+    <div class="panel home-wrap" id="pq-audit">
+      <h2>quantum readiness <span class="tag">&#9679; LIVE</span></h2>
+      <div id="qa-badge"><span class="muted loadline">loading</span></div>
+      <div class="qa-bar" id="qa-bar"></div>
+      <div id="qa-schemes"></div>
+      <p class="note" id="qa-note" style="margin-top:10px"></p>
+    </div>
     <div class="panel home-wrap">
       <h2>the chain, live <span class="tag">&#9679; LIVE</span></h2>
       <div class="stats" id="home-stats"><span class="loadline">loading</span></div>
       <p class="note" id="home-root" style="margin-top:12px"></p>
+    </div>
+    <div class="panel home-wrap">
+      <h2>recent transactions <span class="tag">&#9679; LIVE</span></h2>
+      <div id="home-feed"><span class="muted loadline">loading</span></div>
     </div>
   </section>
 
@@ -994,6 +1055,7 @@
           <button class="sortchip" data-s="safe">SAFEST</button>
           <button class="sortchip" data-s="cheap">CHEAPEST</button>
           <button class="sortchip" data-s="deep">DEEPEST</button>
+          <button class="sortchip" id="mk-vs-btn" data-s="vs">⚔ VS</button>
         </div>
         <span class="sep" style="flex:1"></span>
         <div class="ctl" id="mk-kinds">
@@ -1003,6 +1065,7 @@
         </div>
         <input type="text" id="mk-q" placeholder="search name, family, author…" autocomplete="off">
       </div>
+      <div id="mk-vs"></div>
       <div id="mk-cards" class="cards"><span class="loadline">dealing cards</span></div>
     </div>
   </section>
@@ -1324,6 +1387,20 @@ mod Counter {
 
   <!-- MACHINES: off-chain state machines + customizable proof systems ------- -->
   <section id="machines">
+    <div class="doors" style="margin-bottom:22px">
+      <div class="door" onclick="mcJourney()" style="--dc:var(--cy)">
+        <span class="lv">LVL 4</span>
+        <div class="dg">&#9632;&#9632;&#9632;&#9632;</div><b>STATE MACHINE IN 60 SECONDS</b>
+        <p>Deploy a counter machine, set REPLAY policy, prove three transitions, and watch
+          the live counter sparkline — one click, every step real.</p>
+        <span class="cta">BEGIN</span>
+      </div>
+    </div>
+    <div class="panel home-wrap" id="mc-journey" style="display:none">
+      <h2>your first state machine</h2>
+      <div id="mc-j-steps"></div>
+      <div id="mc-j-fin"></div>
+    </div>
     <div class="panel">
       <h2>off-chain state machines <span class="tag">PQR1 RECEIPTS</span></h2>
       <p class="note">A <b>machine</b> is a state transition anchored at <code>contract/&lt;name&gt;</code>. Each
@@ -1386,6 +1463,43 @@ mod Counter {
     <!-- STEP 3 — submit a transition -->
     <div class="panel">
       <h2><span class="mc-step">3</span> submit a transition</h2>
+      <!-- quick controls: counter / ledger — shown when machine name matches -->
+      <div id="mc-quick-ui" hidden style="margin-bottom:10px">
+        <div id="mc-quick-counter" hidden class="row" style="gap:6px;flex-wrap:wrap;align-items:center">
+          <label>quick</label>
+          <button class="sm" id="mc-qinc">INC</button>
+          <button class="sm" id="mc-qdec">DEC</button>
+          <input type="number" id="mc-qadd-n" value="1" min="0" style="width:60px">
+          <button class="sm" id="mc-qadd">ADD N</button>
+        </div>
+        <div id="mc-quick-ledger" hidden>
+          <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
+            <label>mint</label>
+            <input type="text" id="mc-led-mint-addr" placeholder="aa…aa (32-byte hex)" style="min-width:160px">
+            <input type="number" id="mc-led-mint-amt" value="100" min="1" style="width:72px">
+            <button class="sm" id="mc-qmint">MINT</button>
+          </div>
+          <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
+            <label>transfer</label>
+            <input type="text" id="mc-led-xfr-from" placeholder="from (32-byte hex)" style="min-width:160px">
+            <input type="text" id="mc-led-xfr-to" placeholder="to (32-byte hex)" style="min-width:160px">
+            <input type="number" id="mc-led-xfr-amt" value="10" min="1" style="width:72px">
+            <button class="sm" id="mc-qxfr">TRANSFER</button>
+          </div>
+          <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center">
+            <label>burn</label>
+            <input type="text" id="mc-led-burn-addr" placeholder="from (32-byte hex)" style="min-width:160px">
+            <input type="number" id="mc-led-burn-amt" value="10" min="1" style="width:72px">
+            <button class="sm" id="mc-qburn">BURN</button>
+          </div>
+        </div>
+        <div id="mc-quick-ladder" hidden class="row" style="gap:6px;flex-wrap:wrap;align-items:center">
+          <label>quick</label>
+          <input type="text" id="mc-quick-ladder-label" placeholder="step label, e.g. first" style="min-width:160px">
+          <button class="sm" id="mc-quick-ladder-btn">MINE STEP</button>
+          <span class="muted" style="font-size:.8em">uses pow-ladder verifier · ~65k SHAKE256 hashes per step</span>
+        </div>
+      </div>
       <div class="row">
         <label>input hex</label><input type="text" id="mc-input" value="00" style="min-width:220px">
         <button class="sm" id="mc-solve">SOLVE</button>
@@ -1413,6 +1527,15 @@ mod Counter {
       </div>
       <div id="mc-submit-out" class="muted" style="margin-top:8px">—</div>
     </div>
+
+    <!-- current state live display -->
+    <div class="panel">
+      <h2>current state <span class="tag">&#9679; LIVE</span></h2>
+      <div id="mc-live-state"><span class="muted">pick a machine above</span></div>
+    </div>
+
+    <!-- state evolution chart -->
+    <div class="panel" id="mc-history-chart"><span class="muted">pick a machine above</span></div>
 
     <!-- receipts timeline -->
     <div class="panel">
@@ -2070,6 +2193,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   clearInterval(_chainTimer); _chainTimer = null;
   if (b.dataset.tab === 'chain') _chainTimer = setInterval(loadChain, 5000);
   if (b.dataset.tab === 'home') _chainTimer = setInterval(loadHome, 5000);
+  if (b.dataset.tab === 'machines') _chainTimer = setInterval(mcAutoRefresh, 5000);
   closeCard();
   drawSubnav(b.dataset.parent || b.dataset.tab, b.dataset.tab);
   ({home: loadHome, chain: loadChain, store: loadKeys, market: loadMarket,
@@ -2205,7 +2329,75 @@ async function loadHome() {
       esc(h.state_root) + '" title="click to copy">' + short(h.state_root, 26) +
       '</span> · a new block every few seconds · VERIFY replays all ' +
       h.height + ' of them from genesis';
+    loadQuantumAudit(h);
+    loadHomeFeed();
   } catch (e) { out('home-stats', esc(e.message), 'err'); }
+}
+
+async function loadHomeFeed() {
+  try {
+    const r = await api('/history');
+    const items = (r.history || []).slice(0, 8);
+    if (!items.length) {
+      out('home-feed', '<span class="muted">no transactions yet.</span>');
+      return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    out('home-feed',
+      items.map(item => {
+        const kt = esc(short(item.key || item.to || item.from || '', 16));
+        const fee = item.receipt?.fee != null ? esc(pq(item.receipt.fee)) + ' PQ' : '';
+        const age = item.timestamp ? ago(now - item.timestamp) : '';
+        return `<div class="row" style="gap:8px;padding:3px 0;cursor:pointer" onclick="goInspect(${JSON.stringify(item.hash || '')})">` +
+          `<span class="pill">${esc(item.kind)}</span>` +
+          `<span class="mono muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${kt}</span>` +
+          `<span class="amt" style="white-space:nowrap">${fee}</span>` +
+          `<span class="muted" style="white-space:nowrap">${age}</span>` +
+          `</div>`;
+      }).join('')
+    );
+  } catch (_) { /* degrade silently — main chain stats still show */ }
+}
+
+async function loadQuantumAudit(head) {
+  try {
+    const r = await api('/algos');
+    const algos = r.algorithms || [];
+    const total = algos.reduce((s, a) => s + (a.accounts_on_chain || 0), 0);
+    if (total === 0) {
+      $('qa-badge').innerHTML = '<span class="muted">0 accounts — forge a wallet to start building the readiness score.</span>';
+      $('qa-bar').innerHTML = '';
+      $('qa-schemes').innerHTML = '';
+      $('qa-note').textContent = '';
+      return;
+    }
+    const safe = algos.filter(a => a.quantum_safe).reduce((s, a) => s + (a.accounts_on_chain || 0), 0);
+    const pct = Math.round(safe / total * 100);
+    const badgeCls = pct === 100 ? 'good' : pct >= 60 ? '' : 'bad';
+    $('qa-badge').innerHTML = `<span class="pill ${badgeCls}" style="font-size:16px;padding:6px 18px;letter-spacing:.04em">${pct}% QUANTUM-SAFE</span>`;
+    // stacked bar — one segment per scheme that has accounts
+    $('qa-bar').innerHTML = algos
+      .filter(a => (a.accounts_on_chain || 0) > 0)
+      .map(a => {
+        const w = (a.accounts_on_chain / total * 100).toFixed(2);
+        const sc = a.quantum_safe ? 'safe' : 'unsafe';
+        return `<div class="qa-seg ${sc}" style="flex:${w}" title="${esc(a.name)} · ${a.accounts_on_chain} accounts">${esc(a.name)}</div>`;
+      }).join('');
+    // per-scheme breakdown (accepted schemes only)
+    const accepted = algos.filter(a => a.accepted);
+    $('qa-schemes').innerHTML = accepted.length
+      ? '<div>' + accepted.map(a =>
+          `<div class="qa-row"><span class="qn">${esc(a.name)}</span>` +
+          scoreBadge(a.pq_score) +
+          `<span class="qc">${a.sig_bytes != null ? a.sig_bytes + 'b sig' : ''}</span>` +
+          `<span class="qc">${a.accounts_on_chain} acct</span></div>`
+        ).join('') + '</div>'
+      : '';
+    const txCount = head && head.height != null ? head.height : null;
+    $('qa-note').textContent = txCount != null
+      ? `${txCount} blocks processed — every witness checked inside its key type's sealed wasm`
+      : '';
+  } catch (_) { /* degrade silently — home still shows chain stats */ }
 }
 
 // ── the journey: a real wallet, real PQ, a real key, a real proof ──
@@ -2302,16 +2494,40 @@ async function journey() {
       `pay rent, and the proof fits in a pocket. Your key is live in the ` +
       `<a href="#" id="j-store">STORE</a> for the next 24 hours — fund it to ` +
       `keep it, sell it, or let it expire and someone sweeps the bond. ` +
-      `Or just <a href="#" id="j-ask">ask the chain</a> what to do next.`;
+      `Or just <a href="#" id="j-ask">ask the chain</a> what to do next. ` +
+      `<a href="#" id="j-share" class="pill" style="margin-left:6px">COPY PROOF LINK</a>`;
     $('j-store').onclick = ev => { ev.preventDefault(); go('store');
       $('get-key').value = key; $('get-btn').click(); };
     $('j-ask').onclick = ev => { ev.preventDefault(); orbAsk(); };
+    $('j-share').onclick = ev => {
+      ev.preventDefault();
+      navigator.clipboard.writeText(location.origin + location.pathname + '#prove/' + encodeURIComponent(key))
+        .then(() => toast('proof link copied'))
+        .catch(() => toast('copy failed', 'bad'));
+    };
     loadHome();
   } catch (e) { s.fail(e); }
   _jBusy = false;
 }
 
 // ── the palette ──
+function detectDataQueries(raw) {
+  const hits = [];
+  if (/^\d{1,7}$/.test(raw))
+    hits.push([`block ${raw}`, 'jump to chain inspector', () => goBlock(+raw)]);
+  if (/^[0-9a-f]{64}$/i.test(raw))
+    hits.push(['inspect tx/block hash', raw.slice(0, 12) + '…', () => goInspect(raw)]);
+  if (/^pq[0-9a-f]{40}$/i.test(raw))
+    hits.push([`account ${raw.slice(0, 10)}…`, 'open in wallet', () => {
+      go('wallet');
+      setTimeout(() => { $('acct-q').value = raw; $('acct-btn').click(); }, 100);
+    }]);
+  if (raw.includes('/') && !raw.includes(' ') && !raw.startsWith('/'))
+    hits.push([`look up key '${raw}'`, 'open in store', () => {
+      go('store'); $('get-key').value = raw; $('get-btn').click();
+    }]);
+  return hits;
+}
 const PAL = [
   ['Home', 'the front door', () => go('home')],
   ['Chain', 'blocks, mempool, verify', () => go('chain')],
@@ -2340,14 +2556,15 @@ const PAL = [
 ];
 let palSel = 0, palItems = [];
 function palRender() {
-  const q = $('pal-q').value.trim().toLowerCase();
-  palItems = PAL.filter(([t, h]) =>
-    !q || t.toLowerCase().includes(q) || h.toLowerCase().includes(q));
+  const raw = $('pal-q').value.trim(); const q = raw.toLowerCase();
+  const detected = raw ? detectDataQueries(raw) : [];
+  palItems = [...detected, ...PAL.filter(([t, h]) =>
+    !q || t.toLowerCase().includes(q) || h.toLowerCase().includes(q))];
   const rows = palItems.map(([t, h], i) =>
     `<div class="pal-it${i === palSel ? ' sel' : ''}" data-i="${i}">` +
     `<span class="k">▸</span><span>${esc(t)}</span><span class="h">${esc(h)}</span></div>`);
-  if (q) rows.push(`<div class="pal-it${palSel === palItems.length ? ' sel' : ''}" data-i="ask">` +
-    `<span class="k">▧</span><span>ask the chain: "${esc($('pal-q').value.trim())}"</span>` +
+  if (raw) rows.push(`<div class="pal-it${palSel === palItems.length ? ' sel' : ''}" data-i="ask">` +
+    `<span class="k">▧</span><span>ask the chain: "${esc(raw)}"</span>` +
     `<span class="h">the agent answers</span></div>`);
   $('pal-list').innerHTML = rows.join('');
   $('pal-list').querySelectorAll('.pal-it').forEach(el => el.onclick = () => palRun(el.dataset.i));
@@ -2923,6 +3140,26 @@ function ktOpSync() {
 }
 const ktJoin = () => ({all: '+ AND +', any: '/ OR /', threshold: '· ' + ktK + ' OF ' + ktSel.length + ' ·'})[$('kt-op').value];
 const ktNode = name => dagData && dagData.nodes.find(x => x.name === name);
+const _FIPS_FAMS = new Set(['ML-DSA', 'SLH-DSA']);
+function ktLiveScore(parts, op, k) {
+  const gb = p => qbitsOf(p.quantum, p.quantum_safe);
+  const byQ = parts.slice().sort((a, b) => gb(a) - gb(b));
+  let effQ, wallFams;
+  if (op === 'all') {
+    const qsp = parts.filter(p => p.quantum_safe);
+    effQ = qsp.length ? Math.min(...qsp.map(gb)) : 0;
+    wallFams = [...new Set(qsp.map(p => p.family).filter(Boolean))];
+  } else {
+    const kth = byQ[Math.min(op === 'any' ? 1 : k, byQ.length) - 1];
+    effQ = gb(kth);
+    wallFams = kth.quantum_safe && kth.family ? [kth.family] : [];
+  }
+  const s = 60 * Math.min(effQ, 128) / 128;
+  const wallBonus = Math.min(30, 15 * Math.max(0, wallFams.length - 1));
+  const fipsBonus = wallFams.some(f => _FIPS_FAMS.has(f)) ? 10 : 0;
+  const score = Math.max(0, Math.min(100, Math.round(s + wallBonus + fipsBonus)));
+  return {score, safe: effQ >= 100, verdict: effQ >= 100 ? 'SAFE' : 'NOT SAFE', reasons: []};
+}
 function ktStats() {
   const ps = ktSel.map(ktNode).filter(Boolean), op = $('kt-op').value;
   if (ps.length < 2) { out('kt-stats', ''); return; }
@@ -2931,8 +3168,21 @@ function ktStats() {
                            : sizes.reduce((a, b) => a + b, 0);
   const weak = ps.filter(p => !p.quantum_safe).length;
   const qs = op === 'all' ? weak < ps.length : op === 'any' ? weak === 0 : weak < ktK;
-  out('kt-stats', `<div><b>SIGNATURE</b><span>${op === 'all' ? '' : '≤ '}${fmtB(sig)}B</span></div>` +
-    `<div><b>QUANTUM</b><span class="${qs ? 'good' : 'warn'}">${qs ? 'SAFE' : 'SHOR-BREAKABLE'}</span></div>`);
+  const n = ps.length;
+  const verdict = op === 'all'
+    ? `quantum forger must clear ALL ${n} walls — any single quantum-safe part stops them`
+    : op === 'any'
+    ? `weakest link — safe only if every part is`
+    : `attacker targets the ${ktK} weakest — safe if the ${ktK}-th weakest part is quantum-safe`;
+  const partsHtml = ps.map(p =>
+    `<div style="margin-bottom:6px"><div class="muted" style="font-size:10px;letter-spacing:.05em;margin-bottom:2px">${esc(p.name)}</div>` +
+    `${secBars(p)}</div>`).join('');
+  const live = ktLiveScore(ps, op, ktK);
+  out('kt-stats',
+    `<div><b>SIGNATURE</b><span>${op === 'all' ? '' : '≤ '}${fmtB(sig)}B</span></div>` +
+    partsHtml +
+    `<div class="${qs ? 'good' : 'warn'}" style="font-size:11px;margin-top:4px;line-height:1.4">${verdict}</div>` +
+    `<div style="margin-top:6px;display:flex;align-items:center;gap:8px">${scoreBadge(live)}<span class="muted" style="font-size:11px">estimated PQ score</span></div>`);
 }
 $('kt-seg').querySelectorAll('button').forEach(b => b.onclick = () => { $('kt-op').value = b.dataset.op; ktOpSync(); });
 function ktPicked() {
@@ -3154,10 +3404,18 @@ function drawCards() {
   const items = mk.items;
   out('mk-cards', items.length ? items.map(cardHtml).join('')
     : '<span class="muted">no cards match. forge one in the BUILDER.</span>', 'cards');
-  document.querySelectorAll('#mk-cards .card').forEach(c => c.onclick = () => openCard(c.dataset.n));
+  document.querySelectorAll('#mk-cards .card').forEach(c => {
+    const n = c.dataset.n;
+    if (vsMode) {
+      if (n === vsA || n === vsB) c.classList.add('vs-sel');
+      c.onclick = () => vsAddCard(n);
+    } else {
+      c.onclick = () => openCard(n);
+    }
+  });
 }
-document.querySelectorAll('#mk-sorts button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('#mk-sorts button').forEach(x => x.classList.toggle('on', x === b));
+document.querySelectorAll('#mk-sorts button:not(#mk-vs-btn)').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#mk-sorts button:not(#mk-vs-btn)').forEach(x => x.classList.toggle('on', x === b));
   mk.sort = b.dataset.s; loadKeymarket();
 });
 document.querySelectorAll('#mk-kinds button').forEach(b => b.onclick = () => {
@@ -3166,6 +3424,101 @@ document.querySelectorAll('#mk-kinds button').forEach(b => b.onclick = () => {
 });
 $('mk-q').oninput = () => { clearTimeout(mkTimer);
   mkTimer = setTimeout(() => { mk.q = $('mk-q').value.trim(); loadKeymarket(); }, 250); };
+
+// ── VS COMPARISON ARENA ──
+let vsMode = false, vsA = null, vsB = null;
+function vsToggle() {
+  vsMode = !vsMode;
+  $('mk-vs-btn').classList.toggle('on', vsMode);
+  if (!vsMode) { vsA = null; vsB = null; $('mk-vs').classList.remove('show'); $('mk-vs').innerHTML = ''; }
+  drawCards();
+}
+$('mk-vs-btn').onclick = vsToggle;
+
+function vsAddCard(name) {
+  if (vsA === name) { vsA = null; vsRender(); drawCards(); return; }
+  if (vsB === name) { vsB = null; vsRender(); drawCards(); return; }
+  if (!vsA) { vsA = name; }
+  else if (!vsB) { vsB = name; }
+  else { vsA = vsB; vsB = name; }
+  vsRender(); drawCards();
+}
+
+function vsRender() {
+  const el = $('mk-vs');
+  if (!vsA && !vsB) { el.classList.remove('show'); el.innerHTML = ''; return; }
+  el.classList.add('show');
+  const mkSide = (name, clearFn) => {
+    if (!name) return `<div class="vs-side"><div class="vs-slot-empty"><span>click a card<br>to add here</span></div></div>`;
+    const it = mk.items.find(x => x.name === name) ||
+               (mkCache && mkCache.find(x => x.name === name));
+    if (!it) return `<div class="vs-side"><div class="vs-slot-empty"><span class="muted">${esc(name)}</span></div></div>`;
+    const rar = rarityOf(it), rc = RAR[rar];
+    return `<div class="vs-side">
+      <div class="row" style="gap:6px;align-items:center">
+        <span class="kchip k-${esc(it.kind)}">${esc((it.kind || '').toUpperCase())}</span>
+        <span class="rar" style="--rc:${rc}">${rar.toUpperCase()}</span>
+        <button class="sm" style="margin-left:auto;font-size:10px" onclick="${clearFn}">✕</button>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div style="--rc:${rc}">${sprite(it.name, rc, it.kind === 'private')}</div>
+        <div class="vs-name">${esc(it.name)}</div>
+      </div>
+      ${secBars(it)}
+      <div style="display:flex;gap:8px;align-items:center">${scoreBadge(it.pq_score)}<span class="muted" style="font-size:10.5px">PQ score</span></div>
+      <div style="font:600 12px/1.6 var(--ui);color:var(--dim)">
+        <span style="color:#fff">${fmtB(it.witness_bytes)}</span>B witness &nbsp;
+        ${it.witness_gas_nq != null ? `<span style="color:#fff">${fmtN(it.witness_gas_nq)}</span> nq gas &nbsp;` : ''}
+        <span style="color:#fff">${fmtN(it.uses)}</span> accounts
+      </div>
+    </div>`;
+  };
+  let winnerHtml = '';
+  if (vsA && vsB) {
+    const a = mk.items.find(x => x.name === vsA) || (mkCache && mkCache.find(x => x.name === vsA));
+    const b = mk.items.find(x => x.name === vsB) || (mkCache && mkCache.find(x => x.name === vsB));
+    if (a && b) {
+      const row = (label, aVal, bVal, aWins, bWins, aTxt, bTxt) => {
+        const ac = aWins && !bWins ? 'good' : (!aWins && bWins ? 'bad' : 'draw');
+        const bc = bWins && !aWins ? 'good' : (!bWins && aWins ? 'bad' : 'draw2');
+        return `<div class="vs-winner-row">
+          <span class="${ac}">${aTxt}</span>
+          <span class="lbl" style="text-align:center">${label}</span>
+          <span class="${bc}" style="text-align:right">${bTxt}</span>
+        </div>`;
+      };
+      const aqb = qbitsOf(a.quantum, a.quantum_safe), bqb = qbitsOf(b.quantum, b.quantum_safe);
+      const aqSafe = a.quantum_safe, bqSafe = b.quantum_safe;
+      let qRow;
+      if (aqSafe && bqSafe) {
+        const aqStr = aqb != null ? aqb + ' qbits' : 'SAFE';
+        const bqStr = bqb != null ? bqb + ' qbits' : 'SAFE';
+        qRow = `<div class="vs-winner-row">
+          <span class="draw">${aqStr}</span>
+          <span class="lbl" style="text-align:center">QUANTUM SAFETY</span>
+          <span class="draw2" style="text-align:right">${bqStr}</span>
+        </div>`;
+      } else {
+        qRow = row('QUANTUM SAFETY', aqb, bqb, aqSafe, bqSafe,
+          aqSafe ? (aqb != null ? aqb + ' qbits' : 'SAFE') : 'BROKEN',
+          bqSafe ? (bqb != null ? bqb + ' qbits' : 'SAFE') : 'BROKEN');
+      }
+      const acb = a.classical_bits, bcb = b.classical_bits;
+      const clRow = row('CLASSICAL STRENGTH', acb, bcb, acb > bcb, acb < bcb,
+        acb != null ? '2^' + acb : '?', bcb != null ? '2^' + bcb : '?');
+      const awb = a.witness_bytes, bwb = b.witness_bytes;
+      const sigRow = row('SIGNATURE COST', awb, bwb, awb < bwb, awb > bwb,
+        fmtB(awb) + 'B', fmtB(bwb) + 'B');
+      winnerHtml = `<div class="vs-winner">
+        <div class="vs-winner-hdr">
+          <span>${esc(vsA)}</span><span style="text-align:center">WINNER</span><span style="text-align:right">${esc(vsB)}</span>
+        </div>
+        ${qRow}${clRow}${sigRow}
+      </div>`;
+    }
+  }
+  el.innerHTML = `<div class="vs-arena">${mkSide(vsA, "vsA=null;vsRender();drawCards()")}<div class="vs-mid"><span class="vs-mid-lbl">VS</span><button class="vs-mid-x" onclick="vsA=null;vsB=null;vsRender();drawCards()">CLEAR</button></div>${mkSide(vsB, "vsB=null;vsRender();drawCards()")}</div>${winnerHtml}`;
+}
 
 // the card drawer
 async function findItem(name) {
@@ -3713,7 +4066,7 @@ $('w-quote').onclick = async () => {
     const a = writeArgs();
     const p = new URLSearchParams();
     Object.entries(a).forEach(([k, v]) => v !== undefined && p.set(k, v));
-    const q = await api('/quote?' + p);
+    const [q, alr] = await Promise.all([api('/quote?' + p), api('/algos').catch(() => null)]);
     $('w-cost').textContent = 'total ' + pq(q.total) + ' PQ';
     out('w-out', `<div class="kv">` +
       `<b>write gas</b><span>${q.gas_total} gas = <span class="amt">${esc(pq(q.write_cost))}</span> PQ ` +
@@ -3730,6 +4083,50 @@ $('w-quote').onclick = async () => {
       (q.affordable && q.total && q.affordable.nq < q.total.nq ?
         `<b class="warn">insufficient</b><span class="warn">need ${esc(pq(q.total))} PQ, hold ${esc(pq(q.affordable))} PQ</span>` : '') +
       `</div><p class="note" style="margin-top:8px">bond: ${esc(q.rent.bounty_is)}</p>`);
+    // COMPARE SCHEMES fold — show projected total per scheme so the witness-gas
+    // difference is concrete at the moment the user is about to spend PQ.
+    const wb = (q.witness.sig_bytes || 0) + (q.witness.pk_bytes || 0);
+    if (wb > 0 && alr && (alr.algorithms || []).length > 1) {
+      const gasRate = q.gas.witness / wb;
+      const curWitnessNq = q.gas.witness * q.base_fee.nq;
+      const algos = alr.algorithms;
+      const maxSig = Math.max(...algos.map(s => s.sig_bytes || 0));
+      const curScheme = (q.witness.scheme || '').toLowerCase();
+      const rows = algos.map(s => {
+        const wNq = (s.sig_bytes || 0) * gasRate * q.base_fee.nq;
+        const totNq = q.total.nq + Math.round(wNq - curWitnessNq);
+        const barPct = maxSig > 0 ? Math.round((s.sig_bytes || 0) / maxSig * 100) : 0;
+        const isCur = s.name.toLowerCase() === curScheme;
+        const totStr = (totNq / 1e9).toFixed(6);
+        const qs = s.quantum_safe
+          ? `<span class="good" style="font-size:11px">PQ-SAFE</span>`
+          : `<span class="warn" style="font-size:11px">CLASSICAL</span>`;
+        const ref = s.accepted === false
+          ? ` <span class="bad" style="font-size:11px">REFUSED</span>` : '';
+        return `<tr style="${isCur ? 'background:rgba(255,43,214,.1);' : ''}">` +
+          `<td style="padding:3px 8px 3px 0">${isCur ? '<b>' : ''}${esc(s.name)}${isCur ? '</b>' : ''}</td>` +
+          `<td style="padding:3px 8px;text-align:right;white-space:nowrap">${fmtN(s.sig_bytes)}B</td>` +
+          `<td style="padding:3px 8px;min-width:60px"><div style="height:5px;background:rgba(255,255,255,.08);border-radius:3px">` +
+          `<div style="height:5px;width:${barPct}%;background:${s.quantum_safe ? 'var(--cy)' : 'var(--warn)'};border-radius:3px"></div></div></td>` +
+          `<td style="padding:3px 0 3px 8px;text-align:right;font-variant-numeric:tabular-nums" class="amt">${totStr}</td>` +
+          `<td style="padding:3px 0 3px 8px">${qs}${ref}</td>` +
+          `</tr>`;
+      }).join('');
+      const fold = document.createElement('details');
+      fold.style.cssText = 'margin-top:12px';
+      fold.innerHTML =
+        `<summary style="cursor:pointer;color:var(--dim);letter-spacing:.06em;font-size:12px;padding:4px 0;user-select:none">COMPARE SCHEMES</summary>` +
+        `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:6px">` +
+        `<thead><tr style="color:var(--dim);font-size:11px">` +
+        `<th style="text-align:left;padding:2px 8px 2px 0;font-weight:400">scheme</th>` +
+        `<th style="text-align:right;padding:2px 8px;font-weight:400">sig bytes</th>` +
+        `<th style="padding:2px 8px;font-weight:400"></th>` +
+        `<th style="text-align:right;padding:2px 0 2px 8px;font-weight:400">proj total PQ</th>` +
+        `<th style="padding:2px 0 2px 8px;font-weight:400"></th>` +
+        `</tr></thead>` +
+        `<tbody>${rows}</tbody></table>`;
+      $('w-out').appendChild(fold);
+    }
   } catch (e) { err('w-out', e); }
 };
 $('w-set').onclick = async () => {
@@ -4185,6 +4582,90 @@ async function loadMachines(){
   }
 }
 
+// ── guided journey: state machine in 60 seconds ──
+let _mcJBusy = false;
+async function mcJourney() {
+  if (_mcJBusy) return;
+  _mcJBusy = true;
+  const box = $('mc-journey');
+  box.style.display = 'block';
+  box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  $('mc-j-steps').innerHTML = ''; $('mc-j-fin').innerHTML = '';
+  const step = label => {
+    const d = document.createElement('div');
+    d.className = 'j-step';
+    d.innerHTML = `<span class="g run">◆</span><b>${esc(label)}</b>` +
+      `<span class="d muted">working…</span>`;
+    $('mc-j-steps').appendChild(d);
+    const g = d.querySelector('.g'), dd = d.querySelector('.d');
+    return {
+      ok(html) { g.textContent = '✔'; g.className = 'g good'; dd.className = 'd'; dd.innerHTML = html; },
+      fail(e)  { g.textContent = '✘'; g.className = 'g bad'; dd.className = 'd bad'; dd.textContent = e.message || e; }
+    };
+  };
+  let s = step('get a wallet');
+  let wallet;
+  try {
+    const list = await api('/wallet?action=list');
+    let w = (list.wallets || []).find(x => x.name === 'pioneer');
+    if (!w) {
+      w = await api('/wallet', {action: 'create', name: 'pioneer', scheme: 'ML-DSA-44'});
+      await api('/faucet', {wallet: 'pioneer'});
+    }
+    wallet = 'pioneer';
+    s.ok(`<span class="mono addr" data-copy="${esc(w.address)}" title="click to copy">${esc(w.address)}</span>`);
+  } catch(e) { s.fail(e); _mcJBusy = false; return; }
+
+  s = step('deploy counter machine');
+  let cid;
+  try {
+    const existing = await cPost({action: 'list'});
+    const machines = (existing.machines || []);
+    if (!machines.find(m => m.name === 'demo-counter')) {
+      const r = await cPost({action: 'deploy', example: 'counter', name: 'demo-counter', wallet, days: '30'});
+      cid = r.cid;
+    } else {
+      cid = (machines.find(m => m.name === 'demo-counter') || {}).cid || '';
+    }
+    s.ok(cid ? `<span class="mono addr" data-copy="${esc(cid)}" title="click to copy">${esc(cid.slice(0,16))}…</span>` : 'already exists');
+  } catch(e) { s.fail(e); _mcJBusy = false; return; }
+
+  s = step('set REPLAY policy');
+  try {
+    await cPost({action: 'set_policy', name: 'demo-counter', system: 'replay', wallet, days: '30'});
+    s.ok(mcSysChip('replay') + ' — anyone can re-run the wasm and compare');
+  } catch(e) { s.fail(e); _mcJBusy = false; return; }
+
+  s = step('prove 3 transitions');
+  try {
+    const receipts = [];
+    for (let i = 0; i < 3; i++) {
+      const solved = await cPost({action: 'solve', name: 'demo-counter', input: '00'});
+      const submitted = await cPost({action: 'submit', name: 'demo-counter', input: '00',
+        state_out_b64: solved.state_out_b64, wallet, anchor: true, days: '30'});
+      const rcid = submitted.cid || submitted.receipt_cid || '';
+      const state = compactDecodeState(solved.state_out_hex || '');
+      receipts.push(`<span class="muted">#${i+1}</span> ` +
+        (rcid ? `<span class="mono">${esc(rcid.slice(0,16))}</span> ` : '') +
+        (state != null ? `→ ${state}` : ''));
+    }
+    s.ok(receipts.join(' &nbsp; '));
+  } catch(e) { s.fail(e); _mcJBusy = false; return; }
+
+  s = step('reveal the live machine');
+  try {
+    await loadMachines();
+    mcSelect('demo-counter');
+    s.ok('demo-counter is live — history and sparkline loaded below');
+  } catch(e) { s.fail(e); _mcJBusy = false; return; }
+
+  $('mc-j-fin').className = 'j-fin';
+  $('mc-j-fin').innerHTML = `The machine lives at <code>contract/demo-counter</code>. ` +
+    `Each transition carries a post-quantum receipt anyone can replay — ` +
+    `no trusted server.`;
+  _mcJBusy = false;
+}
+
 function mcDrawExamples(r){
   const exs = ['counter','ledger','ladder'];
   $('mc-ex-pick').innerHTML = exs.map(e => `<option value="${e}">${e}</option>`).join('');
@@ -4260,9 +4741,25 @@ function mcSelect(name){
   $('mc-sel-name').textContent = MC.machine || '—';
   $('mc-solve-box').hidden = true;
   mcDrawMachines(MC.data || {});
+  // show quick controls when machine name contains 'counter', 'ledger', or 'ladder'
+  const nm = MC.machine.toLowerCase();
+  const isCounter = nm.includes('counter');
+  const isLedger = nm.includes('ledger');
+  const isLadder = nm.includes('ladder');
+  $('mc-quick-ui').hidden = !isCounter && !isLedger && !isLadder;
+  $('mc-quick-counter').hidden = !isCounter;
+  $('mc-quick-ledger').hidden = !isLedger;
+  $('mc-quick-ladder').hidden = !isLadder;
+  if (isLadder) {
+    $('mc-input').value = Array.from(new TextEncoder().encode('step')).map(b => b.toString(16).padStart(2, '0')).join('');
+    $('mc-days').value = '30';
+    $('mc-state-out').textContent = 'current hash — click MINE STEP to prove one step of work.';
+    $('mc-solve-box').hidden = false;
+  }
   // load its policy
   mcLoadPolicy();
   mcLoadReceipts();
+  mcLoadState();
 }
 
 async function mcLoadPolicy(){
@@ -4402,11 +4899,69 @@ $('mc-submit').onclick = async () => {
       ${r.reverted ? '<span class="pill bad">reverted</span>' : '<span class="pill good">ok</span>'}
       ${mcSysChip(pr.system || MC.system)}
       · receipt <span class="mono addr" data-copy="${esc(r.receipt || '')}">${esc((r.receipt||'').slice(0,16))}…</span></p>
-      <p class="mono" style="word-break:break-all">state: ${esc(r.state_out_hex || '(empty)')}</p>
+      <div style="margin:4px 0">${decodeState(r.state_out_hex, MC.machine)}</div>
       <p class="muted">signed by ${esc(short(r.signed_by, 14))}${pr.proof_sha3 ? ' · proof ' + esc(pr.proof_sha3.slice(0,12)) + '…' : ''}</p>`);
     MC.solved = null; MC.atts = []; mcRenderAtts();
     mcLoadReceipts();
+    mcLoadState();
   } catch(e){ err('mc-submit-out', e); }
+};
+
+/* quick controls: counter / ledger */
+function leHex(v, n){
+  const a = [];
+  let rem = v;
+  for (let i = 0; i < n; i++){ a.push(rem & 0xff); rem = Math.floor(rem / 256); }
+  return a.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function mcQuickRun(input){
+  if (!MC.machine) return err('mc-submit-out', new Error('pick a machine first'));
+  $('mc-input').value = input;
+  out('mc-submit-out', '<span class="loadline">solving</span>');
+  try {
+    const r = await cPost({action: 'solve', name: MC.machine, input});
+    MC.solved = r;
+    $('mc-solve-box').hidden = false;
+    $('mc-state-out').textContent = r.state_out_hex || r.state_out_b64 || '(empty)';
+    $('mc-proof').textContent = r.proof_hex || r.proof_b64 || (r.note || '—');
+    out('mc-submit-out', '<span class="loadline">signing + anchoring</span>');
+    const r2 = await cPost({action: 'submit', ...mcTransitionBody(),
+      wallet: $('mc-wallet').value, anchor: true, days: $('mc-days').value || '30'});
+    const pr = r2.proof || {};
+    out('mc-submit-out', `<p><b>submitted #${esc(String(r2.n))}</b>
+      ${r2.reverted ? '<span class="pill bad">reverted</span>' : '<span class="pill good">ok</span>'}
+      ${mcSysChip(pr.system || MC.system)}
+      · receipt <span class="mono addr" data-copy="${esc(r2.receipt || '')}">${esc((r2.receipt||'').slice(0,16))}…</span></p>
+      <div style="margin:4px 0">${decodeState(r2.state_out_hex, MC.machine)}</div>
+      <p class="muted">signed by ${esc(short(r2.signed_by, 14))}${pr.proof_sha3 ? ' · proof ' + esc(pr.proof_sha3.slice(0,12)) + '…' : ''}</p>`);
+    MC.solved = null; MC.atts = []; mcRenderAtts();
+    mcLoadReceipts();
+    mcLoadState();
+  } catch(e){ err('mc-submit-out', e); }
+}
+$('mc-qinc').onclick = () => mcQuickRun('00');
+$('mc-qdec').onclick = () => mcQuickRun('01');
+$('mc-qadd').onclick = () => { const n = parseInt($('mc-qadd-n').value, 10) || 0; mcQuickRun('02' + leHex(n, 8)); };
+$('mc-qmint').onclick = () => {
+  const addr = $('mc-led-mint-addr').value.trim().replace(/[^0-9a-fA-F]/g, '').padEnd(64, '0').slice(0, 64);
+  const amt = parseInt($('mc-led-mint-amt').value, 10) || 0;
+  mcQuickRun('00' + addr + leHex(amt, 8));
+};
+$('mc-qxfr').onclick = () => {
+  const from = $('mc-led-xfr-from').value.trim().replace(/[^0-9a-fA-F]/g, '').padEnd(64, '0').slice(0, 64);
+  const to = $('mc-led-xfr-to').value.trim().replace(/[^0-9a-fA-F]/g, '').padEnd(64, '0').slice(0, 64);
+  const amt = parseInt($('mc-led-xfr-amt').value, 10) || 0;
+  mcQuickRun('01' + from + to + leHex(amt, 8));
+};
+$('mc-qburn').onclick = () => {
+  const addr = $('mc-led-burn-addr').value.trim().replace(/[^0-9a-fA-F]/g, '').padEnd(64, '0').slice(0, 64);
+  const amt = parseInt($('mc-led-burn-amt').value, 10) || 0;
+  mcQuickRun('02' + addr + leHex(amt, 8));
+};
+$('mc-quick-ladder-btn').onclick = async () => {
+  const label = $('mc-quick-ladder-label').value.trim() || 'step';
+  const inputHex = Array.from(new TextEncoder().encode(label)).map(b => b.toString(16).padStart(2, '0')).join('');
+  await mcQuickRun(inputHex);
 };
 
 /* quorum attestations */
@@ -4429,6 +4984,220 @@ function mcRenderAtts(){
     : '<span class="muted">no attestations yet</span>');
 }
 
+/* decode state hex for display — pure helper, shared by panel + submit output */
+function decodeInput(hex, machineName){
+  if (!hex) return '<span class="muted">—</span>';
+  const nm = (machineName || '').toLowerCase();
+  const b = hex.toLowerCase();
+  const op = b.slice(0, 2);
+  if (nm.includes('counter')){
+    if (op === '00') return 'INC';
+    if (op === '01') return 'DEC';
+    if (op === '02' && b.length >= 18){
+      const n = parseInt(b.slice(2, 18).match(/../g).reverse().join(''), 16);
+      return `ADD ${n.toLocaleString()}`;
+    }
+    if (op === '03') return 'RESET';
+  } else if (nm.includes('ledger')){
+    if (op === '00' && b.length >= 82){
+      const addr = b.slice(2, 66);
+      const amt = parseInt(b.slice(66, 82).match(/../g).reverse().join(''), 16);
+      return `MINT ${addr.slice(0,6)}…×${amt.toLocaleString()}`;
+    }
+    if (op === '01' && b.length >= 146){
+      const from = b.slice(2, 66), to = b.slice(66, 130);
+      const amt = parseInt(b.slice(130, 146).match(/../g).reverse().join(''), 16);
+      return `XFER ${from.slice(0,6)}…→${to.slice(0,6)}…×${amt.toLocaleString()}`;
+    }
+    if (op === '02' && b.length >= 82){
+      const addr = b.slice(2, 66);
+      const amt = parseInt(b.slice(66, 82).match(/../g).reverse().join(''), 16);
+      return `BURN ${addr.slice(0,6)}…×${amt.toLocaleString()}`;
+    }
+  } else if (nm.includes('ladder')){
+    try {
+      const bytes = new Uint8Array(hex.match(/../g).map(h => parseInt(h, 16)));
+      return esc(new TextDecoder('utf-8', {fatal: true}).decode(bytes).slice(0, 24));
+    } catch(_){ return `${hex.length / 2}B`; }
+  }
+  return `<span class="mono">${esc(hex.slice(0,20))}${hex.length>20?'…':''}</span>`;
+}
+
+function mcRenderHistoryChart(rows){
+  const el = $('mc-history-chart');
+  if (!el) return;
+  if (!rows || !rows.length){
+    el.innerHTML = '<h2>state history</h2><span class="muted">no receipts</span>';
+    return;
+  }
+  const nm = (MC.machine || '').toLowerCase();
+  const chron = rows.slice().reverse();
+  if (nm.includes('counter') && chron.every(r => r.state_out_hex && r.state_out_hex.length === 16)){
+    const vals = chron.map(r => parseInt(r.state_out_hex.match(/../g).reverse().join(''), 16));
+    const minV = Math.min(...vals), maxV = Math.max(...vals);
+    const W = 320, H = 30, PAD = 4;
+    const sx = i => PAD + (vals.length < 2 ? (W - 2*PAD)/2 : i * (W - 2*PAD) / (vals.length - 1));
+    const sy = v => H - PAD - (maxV === minV ? (H - 2*PAD)/2 : (v - minV) / (maxV - minV) * (H - 2*PAD));
+    const pts = vals.map((v, i) => `${sx(i)},${sy(v)}`).join(' ');
+    el.innerHTML = `<h2>state history <span class="tag">counter</span></h2>
+      <svg class="mc-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <line x1="${PAD}" y1="${sy(minV)}" x2="${W-PAD}" y2="${sy(minV)}" stroke="var(--line2)" stroke-width="1" stroke-dasharray="3 3"/>
+        ${maxV !== minV ? `<line x1="${PAD}" y1="${sy(maxV)}" x2="${W-PAD}" y2="${sy(maxV)}" stroke="var(--line2)" stroke-width="1" stroke-dasharray="3 3"/>` : ''}
+        <polyline points="${pts}" fill="none" stroke="var(--mag)" stroke-width="2"/>
+        ${vals.map((v, i) => `<circle cx="${sx(i)}" cy="${sy(v)}" r="2.5" fill="var(--mag)"><title>#${chron[i].n}: ${v.toLocaleString()}</title></circle>`).join('')}
+        <text x="${PAD+1}" y="${H-1}" fill="var(--dim)" font-size="7">${minV.toLocaleString()}</text>
+        ${maxV !== minV ? `<text x="${PAD+1}" y="${sy(maxV)+8}" fill="var(--dim)" font-size="7">${maxV.toLocaleString()}</text>` : ''}
+      </svg>`;
+    return;
+  }
+  if (nm.includes('ledger') && chron.every(r => r.state_out_hex && r.state_out_hex.length >= 80 && r.state_out_hex.length % 80 === 0)){
+    const palette = ['--cy','--ac','--or','--mag','--hz'];
+    const orderSeen = [];
+    const balMap = new Map();
+    chron.forEach((r, ti) => {
+      const hex = r.state_out_hex;
+      const presentIds = new Set();
+      for (let i = 0; i < hex.length; i += 80){
+        const id = hex.slice(i, i + 64);
+        const bal = parseInt(hex.slice(i + 64, i + 80).match(/../g).reverse().join(''), 16);
+        presentIds.add(id);
+        if (!balMap.has(id)){ orderSeen.push(id); balMap.set(id, new Array(ti).fill(0)); }
+        balMap.get(id).push(bal);
+      }
+      balMap.forEach((arr, id) => { if (!presentIds.has(id)) arr.push(0); });
+    });
+    const N = orderSeen.length, M = chron.length;
+    const W = 320, H = 60, PAD = 4;
+    let allVals = [];
+    balMap.forEach(arr => { allVals = allVals.concat(arr); });
+    const minV = Math.min(...allVals, 0), maxV = Math.max(...allVals, 1);
+    const sx = i => PAD + (M < 2 ? (W - 2*PAD)/2 : i * (W - 2*PAD) / (M - 1));
+    const sy = v => H - PAD - (maxV === minV ? (H - 2*PAD)/2 : (v - minV) / (maxV - minV) * (H - 2*PAD));
+    const lines = orderSeen.map((id, ai) => {
+      const cv = palette[ai % palette.length];
+      const clr = `var(${cv})`;
+      const vals = balMap.get(id);
+      const pts = vals.map((v, i) => `${sx(i).toFixed(1)},${sy(v).toFixed(1)}`).join(' ');
+      const lx = sx(vals.length - 1), ly = sy(vals[vals.length - 1]);
+      const tx = Math.min(lx + 2, W - 36);
+      const circles = vals.map((v, i) =>
+        `<circle cx="${sx(i).toFixed(1)}" cy="${sy(v).toFixed(1)}" r="2.5" fill="${clr}"><title>${id}: ${v.toLocaleString()}</title></circle>`
+      ).join('');
+      return `<polyline points="${pts}" fill="none" stroke="${clr}" stroke-width="2" style="filter:drop-shadow(0 0 3px ${clr})"/>${circles}<text x="${tx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" fill="${clr}" font-size="7">${id.slice(0,6)}…</text>`;
+    }).join('');
+    const chips = orderSeen.map((id, ai) => {
+      const cv = palette[ai % palette.length];
+      const clr = `var(${cv})`;
+      return `<span style="display:inline-block;padding:2px 7px;border:1px solid ${clr};background:color-mix(in srgb,${clr} 15%,transparent);color:${clr};font-size:10px;font-family:var(--vt)">${id.slice(0,6)}…</span>`;
+    }).join('');
+    el.innerHTML = `<h2>state history <span class="tag">ledger · ${N} acct${N !== 1 ? 's' : ''} · ${M} transition${M !== 1 ? 's' : ''}</span></h2>
+      <svg class="mc-spark" viewBox="0 0 ${W} ${H}" style="height:${H}px" preserveAspectRatio="none">${lines}</svg>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${chips}</div>`;
+    return;
+  }
+  if (nm.includes('ladder') && chron.every(r => r.state_out_hex && r.state_out_hex.length === 64)){
+    const bits = chron.map(r => {
+      const h = r.state_out_hex.toLowerCase();
+      if (/^0+$/.test(h)) return 0;
+      let b = 0;
+      for (let i = 0; i < h.length; i++){
+        const nibble = parseInt(h[i], 16);
+        if (nibble === 0){ b += 4; }
+        else { b += (nibble >= 8 ? 0 : nibble >= 4 ? 1 : nibble >= 2 ? 2 : 3); break; }
+      }
+      return b;
+    });
+    const M = bits.length;
+    const maxB = Math.max(...bits, 1);
+    const W = 320, H = 60, PAD = 4, THRESHOLD = 16;
+    const slot = (W - 2 * PAD) / M;
+    const barW = Math.max(1, slot - 1);
+    const barH = v => (H - 2 * PAD) * (v / maxB);
+    const threshY = (H - PAD - (H - 2 * PAD) * (THRESHOLD / maxB)).toFixed(1);
+    const bars = bits.map((v, i) => {
+      const x = (PAD + i * slot).toFixed(1);
+      const bh = barH(v).toFixed(1);
+      const y = (H - PAD - barH(v)).toFixed(1);
+      const lbl = M <= 16 ? `<text x="${(parseFloat(x) + barW / 2).toFixed(1)}" y="${(parseFloat(y) - 2).toFixed(1)}" fill="var(--ac)" font-size="7" text-anchor="middle">${v}</text>` : '';
+      return `<rect x="${x}" y="${y}" width="${barW.toFixed(1)}" height="${bh}" fill="var(--ac)" style="filter:drop-shadow(0 0 3px var(--ac))" opacity="0.85"><title>step ${chron[i].n}: ${v} bits</title></rect>${lbl}`;
+    }).join('');
+    const last = bits[M - 1];
+    el.innerHTML = `<h2>state history <span class="tag">ladder · ${M} step${M !== 1 ? 's' : ''}</span></h2>
+      <svg class="mc-spark" viewBox="0 0 ${W} ${H}" style="height:${H}px" preserveAspectRatio="none">
+        <line x1="${PAD}" y1="${threshY}" x2="${W - PAD}" y2="${threshY}" stroke="var(--ac)" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+        ${bars}
+      </svg>
+      <span class="pill ${last >= THRESHOLD ? 'good' : 'muted'}">step ${chron[M - 1].n}: ${last} bits</span>`;
+    return;
+  }
+  el.innerHTML = `<h2>state history</h2>
+    <span class="pill">${chron.length} transition${chron.length !== 1 ? 's' : ''}</span>`;
+}
+
+function decodeState(hex, name){
+  if (!hex) return `<span class="muted">(empty)</span>`;
+  const len = hex.length;
+  if (len === 16){
+    const val = parseInt(hex.match(/../g).reverse().join(''), 16);
+    return `<div style="margin:6px 0"><span class="muted" style="font-size:.8em">Counter</span><br>
+      <b style="font-size:2em;letter-spacing:.04em;color:var(--hi,#b9aaff)">${val.toLocaleString()}</b></div>`;
+  }
+  if (len >= 80 && len % 80 === 0){
+    const rows = [];
+    for (let i = 0; i < len; i += 80){
+      const idHex = hex.slice(i, i + 64);
+      const balHex = hex.slice(i + 64, i + 80);
+      const bal = parseInt(balHex.match(/../g).reverse().join(''), 16);
+      rows.push(`<tr class="mc-acct-row" data-id="${idHex}" title="click to fill from · dbl-click to fill to" style="cursor:pointer"><td class="mono" title="${idHex}">${idHex.slice(0,8)}…</td><td>${bal.toLocaleString()}</td></tr>`);
+    }
+    return `<table><tr><th>id</th><th>balance</th></tr>${rows.join('')}</table>`;
+  }
+  if (len === 64 && /^[0-9a-f]+$/i.test(hex)){
+    const h = hex.toLowerCase();
+    if (/^0+$/.test(h)) return `<span class="muted">genesis (zero hash)</span>`;
+    let bits = 0;
+    for (let i = 0; i < h.length; i++){
+      const nibble = parseInt(h[i], 16);
+      if (nibble === 0){ bits += 4; }
+      else { bits += (nibble >= 8 ? 0 : nibble >= 4 ? 1 : nibble >= 2 ? 2 : 3); break; }
+    }
+    return `<span class="mono">${esc(h.slice(0,8))}…${esc(h.slice(-8))}</span> <span class="pill ${bits >= 16 ? 'good' : 'muted'}">${bits} leading zero bits</span>`;
+  }
+  const bytes = len / 2;
+  return `<span class="muted">${bytes} bytes</span> <span class="mono">${esc(hex.slice(0,24))}…</span>`;
+}
+
+function compactDecodeState(hex){
+  if (!hex) return null;
+  const len = hex.length;
+  if (len === 16){
+    const val = parseInt(hex.match(/../g).reverse().join(''), 16);
+    return `<b style="color:var(--hi)">${val.toLocaleString()}</b>`;
+  }
+  if (len >= 80 && len % 80 === 0) return `${len / 80} acct`;
+  return `${Math.floor(len / 2)}b`;
+}
+
+function mcAutoRefresh(){ if (MC.machine){ mcLoadState(); mcLoadReceipts(); } }
+
+/* current state live panel */
+async function mcLoadState(){
+  if (!MC.machine){ out('mc-live-state', '<span class="muted">pick a machine above</span>'); return; }
+  out('mc-live-state', '<span class="loadline">loading</span>');
+  try {
+    const r = await cPost({action: 'state', name: MC.machine});
+    if (r.state_hex == null){
+      out('mc-live-state', `<span class="muted">${esc(r.note || 'no state yet')}</span>`); return;
+    }
+    out('mc-live-state', decodeState(r.state_hex, MC.machine) +
+      (r.n != null ? `<div class="muted" style="margin-top:4px;font-size:.8em">transition #${esc(String(r.n))}</div>` : ''));
+    $('mc-live-state').querySelectorAll('.mc-acct-row').forEach(tr => {
+      tr.onclick = () => { $('mc-led-xfr-from').value = tr.dataset.id; $('mc-quick-ledger').scrollIntoView({behavior:'smooth',block:'nearest'}); };
+      tr.ondblclick = e => { e.preventDefault(); $('mc-led-xfr-to').value = tr.dataset.id; };
+    });
+  } catch(e){ err('mc-live-state', e); }
+}
+
 /* receipts timeline */
 async function mcLoadReceipts(){
   if (!MC.machine){ out('mc-receipts', '<span class="muted">pick a machine above</span>'); return; }
@@ -4436,18 +5205,82 @@ async function mcLoadReceipts(){
   try {
     const r = await cPost({action: 'receipts', name: MC.machine});
     const rows = r.receipts || [];
-    if (!rows.length){ out('mc-receipts', '<span class="muted">no receipts yet — submit a transition</span>'); return; }
-    out('mc-receipts', '<table><tr><th>#</th><th>proof</th><th>input</th><th>result</th><th>state out</th><th>receipt</th><th></th></tr>' +
-      rows.map(x => `<tr>
-        <td>${esc(String(x.n))}</td>
-        <td>${mcSysChip(x.proof || 'replay')}</td>
-        <td class="mono">${esc((x.input || '').slice(0,20))}${(x.input||'').length>20?'…':''}</td>
-        <td>${x.reverted ? '<span class="pill bad">reverted</span>' : '<span class="pill good">ok</span>'}</td>
-        <td class="mono addr" data-copy="${esc(x.state_out || '')}">${esc((x.state_out||'').slice(0,12))}…</td>
-        <td class="mono addr" data-copy="${esc(x.receipt || '')}">${esc((x.receipt||'').slice(0,12))}…</td>
-        <td><button class="sm" data-verify="${esc(String(x.n))}">VERIFY</button></td></tr>
-        <tr class="mc-vrow" data-vrow="${esc(String(x.n))}" hidden><td colspan="7"></td></tr>`).join('') + '</table>');
+    if (!rows.length){ out('mc-receipts', '<span class="muted">no receipts yet — submit a transition</span>'); mcRenderHistoryChart([]); return; }
+    out('mc-receipts', '<table><tr><th>#</th><th>proof</th><th>input</th><th>result</th><th>state</th><th>receipt</th><th>age</th><th></th></tr>' +
+      rows.map(x => {
+        const compact = compactDecodeState(x.state_out_hex);
+        const stateCell = compact != null
+          ? `<td>${compact}</td>`
+          : `<td class="mono addr" data-copy="${esc(x.state_out || '')}">${esc((x.state_out||'').slice(0,12))}…</td>`;
+        const age = x.ts ? ago(Math.floor(Date.now()/1000) - x.ts) : '—';
+        return `<tr>
+          <td>${esc(String(x.n))}</td>
+          <td>${mcSysChip(x.proof || 'replay')}</td>
+          <td class="mono">${decodeInput(x.input, MC.machine)}</td>
+          <td>${x.reverted ? '<span class="pill bad">reverted</span>' : '<span class="pill good">ok</span>'}</td>
+          ${stateCell}
+          <td class="mono addr" data-copy="${esc(x.receipt || '')}">${esc((x.receipt||'').slice(0,12))}…</td>
+          <td>${age}</td>
+          <td><button class="sm" data-verify="${esc(String(x.n))}">VERIFY</button></td></tr>
+          <tr class="mc-vrow" data-vrow="${esc(String(x.n))}" hidden><td colspan="8"></td></tr>`;
+      }).join('') + '</table>');
     $('mc-receipts').querySelectorAll('[data-verify]').forEach(b => b.onclick = () => mcVerifyRow(b.dataset.verify));
+    mcRenderHistoryChart(rows);
+    if (rows.length > 1) {
+      const ctrl = document.createElement('div');
+      ctrl.className = 'mc-replay-ctrl';
+      let _spd = 700, _playing = false;
+      const chron = rows.slice().reverse();
+      const stepSpan = document.createElement('span');
+      stepSpan.className = 'muted';
+      stepSpan.style.cssText = 'font-size:11px';
+      stepSpan.textContent = `1 / ${chron.length}`;
+      const btn = document.createElement('button');
+      btn.className = 'sm';
+      btn.textContent = '▶ REPLAY';
+      const sChips = [['SLOW',1500],['NORMAL',700],['FAST',300]].map(([lbl,ms]) => {
+        const c = document.createElement('button');
+        c.className = 'sm' + (ms === 700 ? ' on' : '');
+        c.textContent = lbl;
+        c.onclick = () => { _spd = ms; sChips.forEach(x => x.classList.remove('on')); c.classList.add('on'); };
+        return c;
+      });
+      btn.onclick = async () => {
+        if (_playing) { _playing = false; return; }
+        _playing = true;
+        btn.textContent = '■ STOP';
+        const machineName = MC.machine;
+        const receiptsEl = $('mc-receipts');
+        for (let i = 0; i < chron.length; i++) {
+          if (!_playing || MC.machine !== machineName) break;
+          stepSpan.textContent = `${i+1} / ${chron.length}`;
+          mcRenderHistoryChart(chron.slice(0, i+1).reverse());
+          $('mc-history-chart').appendChild(ctrl);
+          out('mc-live-state', decodeState(chron[i].state_out_hex, MC.machine) +
+            `<div style="font-size:10px;color:var(--dim);margin-top:4px">step ${i+1} / ${chron.length}</div>`);
+          if (receiptsEl) {
+            receiptsEl.querySelectorAll('tr.mc-replay-on').forEach(r => r.classList.remove('mc-replay-on'));
+            const vrow = receiptsEl.querySelector(`[data-vrow="${chron[i].n}"]`);
+            if (vrow && vrow.previousElementSibling) {
+              vrow.previousElementSibling.classList.add('mc-replay-on');
+              vrow.previousElementSibling.scrollIntoView({block:'nearest'});
+            }
+          }
+          await new Promise(res => setTimeout(res, _spd));
+        }
+        _playing = false;
+        if (MC.machine !== machineName) return;
+        mcRenderHistoryChart(rows);
+        $('mc-history-chart').appendChild(ctrl);
+        stepSpan.textContent = `${chron.length} / ${chron.length}`;
+        if (receiptsEl) receiptsEl.querySelectorAll('tr.mc-replay-on').forEach(r => r.classList.remove('mc-replay-on'));
+        btn.textContent = '↩ AGAIN';
+      };
+      ctrl.appendChild(btn);
+      ctrl.appendChild(stepSpan);
+      sChips.forEach(c => ctrl.appendChild(c));
+      $('mc-history-chart').appendChild(ctrl);
+    }
   } catch(e){ err('mc-receipts', e); }
 }
 async function mcVerifyRow(n){
@@ -4469,6 +5302,21 @@ async function mcVerifyRow(n){
   } catch(e){ cell.innerHTML = `<span class="err">${esc(e.message || e)}</span>`; }
 }
 
+// ── URL fragment deep-link routing ──
+(function() {
+  const h = location.hash.slice(1);
+  if (!h) return;
+  if (h.startsWith('prove/')) {
+    const key = decodeURIComponent(h.slice(6));
+    setTimeout(() => { go('store'); $('get-key').value = key; $('prove-btn').click(); }, 100);
+  } else if (h.startsWith('pqv1:')) {
+    setTimeout(() => { go('vault'); $('v-link').value = h; $('v-open').click(); }, 100);
+  } else if (h.startsWith('inspect/')) {
+    setTimeout(() => goInspect(h.slice(8)), 100);
+  } else if (h.startsWith('block/')) {
+    setTimeout(() => goBlock(+h.slice(6)), 100);
+  }
+})();
 </script>
 </body>
 </html>

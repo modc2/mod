@@ -513,6 +513,8 @@ body.lit-up::before {
 .pill.loc { color: var(--glow); border-color: color-mix(in srgb, var(--glow) 45%, transparent); }
 .pill.free { color: var(--teal); border-color: color-mix(in srgb, var(--teal) 45%, transparent); }
 
+.shelf-stat { font-size: 12px; color: var(--dim); margin-left: 8px; vertical-align: middle; }
+
 /* ── mcp ─────────────────────────────────────────────────────── */
 
 .badges { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -575,6 +577,24 @@ body.lit-up::before {
 .toast.on { transform: translate(-50%, 0); opacity: 1; }
 .toast.bad { border-color: var(--bad); color: var(--bad); }
 
+/* ── earnings ────────────────────────────────────────────────── */
+
+#card-earnings { flex-direction: column; }
+.earn-acts { margin-top: 14px; }
+.earn-scroll { margin-top: 12px; overflow-x: auto; }
+.earn-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.earn-table th {
+  color: var(--dim); font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .08em; text-align: left; padding: 0 12px 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.earn-table td {
+  padding: 7px 12px 7px 0; border-bottom: 1px solid var(--line);
+  color: var(--ink); vertical-align: middle;
+}
+.earn-table tr:last-child td { border-bottom: 0; }
+.earn-table code { font-size: 15px; }
+
 /* ── sheet (in-page dialog) ──────────────────────────────────── */
 
 .sheet[hidden] { display: none; }
@@ -591,6 +611,13 @@ body.lit-up::before {
 .owner .owner-only { display: flex; }
 
 .cursor::after { content: "\2026"; color: var(--beam); animation: blink 1s ease-in-out infinite; margin-left: 2px; }
+
+.lh-lightbox {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(0,0,0,.85); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  display: grid; place-items: center;
+  cursor: zoom-out; animation: rise .2s ease-out;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

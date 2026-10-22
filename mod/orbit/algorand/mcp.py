@@ -140,20 +140,21 @@ TOOLS = {
         {'app_id': {'type': 'integer'}, 'method': {'type': 'string'},
          'args': LIST, 'sender': WHO, 'accounts': LIST, 'apps': LIST,
          'assets': LIST, 'boxes': LIST, 'on_complete': {'type': 'string'},
-         'network': NET}, ['app_id'],
+         'pay_algo': {'type': 'number'}, 'network': NET}, ['app_id'],
         _w(wallet.simulate_call, 'app_id', 'method', 'args', 'sender', 'accounts',
-           'apps', 'assets', 'boxes', 'on_complete', 'network')),
+           'apps', 'assets', 'boxes', 'on_complete', 'pay_algo', 'network')),
     'algo_tx': _t(
         'One transaction by id — indexed history, or the pending pool.',
         {'txid': {'type': 'string'}, 'network': NET}, ['txid'],
         lambda a: _c(a).tx(a['txid'])),
     'algo_history': _t(
         'Recent transactions of an account; kind= pay|axfer|appl|acfg|keyreg, '
-        'asset= filters to one ASA.',
+        'asset= filters to one ASA; next_token= pages forward.',
         {'address': WHO, 'limit': {'type': 'integer'}, 'kind': {'type': 'string'},
-         'asset': {'type': 'integer'}, 'network': NET}, ['address'],
+         'asset': {'type': 'integer'}, 'next_token': {'type': 'string'}, 'network': NET},
+        ['address'],
         lambda a: _c(a).history(a['address'], a.get('limit') or 25,
-                                a.get('kind'), a.get('asset'))),
+                                a.get('kind'), a.get('asset'), a.get('next_token'))),
     'algo_block': _t(
         'A block (latest when round is omitted): proposer, payouts, txn mix.',
         {'round': {'type': 'integer'}, 'network': NET}, [],
@@ -166,6 +167,11 @@ TOOLS = {
     'algo_compile': _t(
         'Compile TEAL source to bytecode (+ its logic-sig address).',
         {'source': {'type': 'string'}, 'network': NET}, ['source'], _compile),
+    'algo_asset_holders': _t(
+        'Top holders of an ASA by balance (up to 20 by default).',
+        {'asset': {'type': 'string'}, 'limit': {'type': 'integer'}, 'network': NET},
+        ['asset'],
+        lambda a: _c(a).asset_holders(a['asset'], a.get('limit') or 20)),
     'algo_rpc': _t(
         'Raw GET on algod (default) or the indexer (indexer=true), any /v2 path.',
         {'path': {'type': 'string'}, 'params': {'type': 'object'},

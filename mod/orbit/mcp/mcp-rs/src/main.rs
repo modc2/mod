@@ -9,6 +9,7 @@ mod hub;
 mod hubs;
 mod intake;
 mod keys;
+mod review;
 mod state;
 mod stdio;
 mod store;
@@ -18,7 +19,9 @@ mod x402;
 
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
+use std::convert::Infallible;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde_json::{json, Value};
@@ -81,6 +84,27 @@ async fn main() {
         });
     }
 
+    // Persist call stats, activity log, and probe history to disk so they survive restarts.
+    {
+        let st = app_state.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                store::save_stats(&st.server_stats.read().await.clone());
+                let log: Vec<store::CallEntry> = st.call_log.read().await.iter().cloned().collect();
+                store::save_call_log(&log);
+                let hist: HashMap<String, Vec<store::UptimeDot>> = st
+                    .probe_history
+                    .read()
+                    .await
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+                    .collect();
+                store::save_probe_history(&hist);
+            }
+        });
+    }
+
     // The other hubs — peers, the index, the directories — are asked what
     // they hold on their own clock, so GET /hubs answers from a warm view.
     {
@@ -108,8 +132,9 @@ async fn main() {
         .route("/", get(info))
         .route("/health", get(health))
         .route("/servers", get(servers).post(add_server))
-        .route("/servers/:id", delete(remove_server).get(one_server))
+        .route("/servers/:id", delete(remove_server).get(one_server).patch(patch_server))
         .route("/servers/:id/refresh", post(refresh_server))
+        .route("/servers/:id/review", get(get_review).post(run_review))
         .route("/servers/:id/toggle", post(toggle_server))
         .route("/probe", post(adhoc_probe))
         .route("/intake", post(parse_intake))
@@ -126,8 +151,10 @@ async fn main() {
         .route("/hubs/:id", get(one_hub).delete(remove_hub))
         .route("/hubs/:id/connect", post(connect_hub))
         .route("/client_config", get(client_config))
+        .route("/export", get(export_servers))
         .route("/stats", get(stats))
         .route("/activity", get(activity))
+        .route("/activity/stream", get(activity_stream))
         .route("/refresh", post(refresh_all))
         .route("/discover", post(discover))
         .route("/auth/me", get(auth_me))
@@ -369,16 +396,40 @@ async fn stats(State(st): State<App>) -> Json<Value> {
     }))
 }
 
-async fn activity(State(st): State<App>) -> Json<Value> {
+async fn activity(
+    State(st): State<App>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Json<Value> {
     let total = st.call_total.load(std::sync::atomic::Ordering::Relaxed);
     let log = st.call_log.read().await;
+    let server_filter = q.get("server").map(|s| s.as_str());
     let recent: Vec<Value> = log
         .iter()
         .rev()
+        .filter(|e| server_filter.map(|s| e.server == s).unwrap_or(true))
         .take(100)
         .map(|e| serde_json::to_value(e).unwrap_or_default())
         .collect();
     Json(json!({ "total": total, "recent": recent }))
+}
+
+async fn activity_stream(
+    State(st): State<App>,
+) -> Sse<impl futures_util::stream::Stream<Item = Result<Event, Infallible>>> {
+    let rx = st.activity_tx.subscribe();
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(entry) => {
+                    let data = serde_json::to_string(&entry).unwrap_or_default();
+                    break Some((Ok(Event::default().data(data)), rx));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break None,
+            }
+        }
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 // ── the web ──────────────────────────────────────────────────────────
@@ -642,6 +693,81 @@ async fn remove_server(
     Ok(Json(json!({ "removed": id, "was_user": was_user })))
 }
 
+/// Update name, note, headers, and/or env on a user-registered server without
+/// deleting and re-adding it. Fleet servers cannot be patched here — their
+/// metadata lives in the mod's config.json.
+async fn patch_server(
+    State(st): State<App>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    authorized(&headers)?;
+    {
+        let mut user = st.user.write().await;
+        let entry = user
+            .iter_mut()
+            .find(|s| s.id == id)
+            .ok_or_else(|| err(StatusCode::NOT_FOUND, format!("no user-registered server `{id}` — only user-added servers can be patched")))?;
+        if let Some(name) = body.get("name").and_then(|v| v.as_str()) {
+            entry.name = name.chars().take(200).collect();
+        }
+        if let Some(note) = body.get("note").and_then(|v| v.as_str()) {
+            entry.note = note.chars().take(300).collect();
+        }
+        if let Some(h) = body.get("headers").and_then(|v| v.as_object()) {
+            entry.headers = h
+                .iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect();
+        }
+        if let Some(e) = body.get("env").and_then(|v| v.as_object()) {
+            entry.env = e
+                .iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect();
+        }
+    }
+    st.persist().await;
+    let rows = hub::servers_view(&st).await;
+    match rows.into_iter().find(|r| r.get("id").and_then(|i| i.as_str()) == Some(&id)) {
+        Some(row) => Ok(Json(json!({ "updated": row }))),
+        None => Err(err(StatusCode::INTERNAL_SERVER_ERROR, "patched but row not found in view")),
+    }
+}
+
+/// Return the cached security review for a server, if one has been run.
+async fn get_review(
+    State(st): State<App>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if st.get(&id).await.is_none() {
+        return Err(err(StatusCode::NOT_FOUND, format!("no server `{id}`")));
+    }
+    let reviews = store::load_reviews();
+    match reviews.get(&id) {
+        Some(rev) => Ok(Json(serde_json::to_value(rev).unwrap_or_default())),
+        None => Err(err(StatusCode::NOT_FOUND, "no review yet — POST to run one")),
+    }
+}
+
+/// Run a static security review against the current probe and cache the result.
+async fn run_review(
+    State(st): State<App>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let server = st
+        .get(&id)
+        .await
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, format!("no server `{id}`")))?;
+    let probe = st.probes.read().await.get(&id).cloned().unwrap_or_default();
+    let rev = review::analyze(&probe, &server);
+    let mut reviews = store::load_reviews();
+    reviews.insert(id.clone(), rev.clone());
+    store::save_reviews(&reviews);
+    Ok(Json(serde_json::to_value(&rev).unwrap_or_default()))
+}
+
 async fn toggle_server(
     State(st): State<App>,
     headers: HeaderMap,
@@ -728,10 +854,8 @@ async fn adhoc_probe(
     State(_st): State<App>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let url = body
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "`url` is required"))?;
+    let command = body.get("command").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let is_stdio = !command.is_empty();
     let headers: HashMap<String, String> = body
         .get("headers")
         .and_then(|h| h.as_object())
@@ -741,6 +865,34 @@ async fn adhoc_probe(
                 .collect()
         })
         .unwrap_or_default();
+    if is_stdio {
+        let args: Vec<String> = body
+            .get("args")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let env: HashMap<String, String> = body
+            .get("env")
+            .and_then(|h| h.as_object())
+            .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+            .unwrap_or_default();
+        let entry = store::ServerEntry {
+            id: "adhoc".into(),
+            name: "adhoc".into(),
+            source: "probe".into(),
+            transport: "stdio".into(),
+            command: command.clone(),
+            args,
+            env,
+            ..Default::default()
+        };
+        let probe = upstream::probe(&entry).await;
+        return Ok(Json(json!({ "command": command, "probe": hub::probe_json(&probe), "tools": probe.tools })));
+    }
+    let url = body
+        .get("url")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "`url` or `command` is required"))?;
     let entry = store::ServerEntry {
         id: "adhoc".into(),
         name: "adhoc".into(),
@@ -776,6 +928,28 @@ async fn rest_call(
         // proxies between here and the console.
         Err(e) => Err(err(StatusCode::UNPROCESSABLE_ENTITY, e)),
     }
+}
+
+/// JSON snapshot of every user-registered server, re-importable via POST /intake
+/// or the AddSheet paste box. Header values are omitted (they're secrets) but
+/// key names are kept so the importer knows which headers to fill in.
+/// Fleet-discovered servers are excluded — they re-appear automatically on the
+/// destination hub.
+async fn export_servers(State(st): State<App>) -> Json<Value> {
+    let user = st.user.read().await;
+    let mut mcp_servers = serde_json::Map::new();
+    for s in user.iter() {
+        let mut entry = serde_json::Map::new();
+        entry.insert("url".into(), json!(s.url));
+        entry.insert("type".into(), json!("http"));
+        if !s.headers.is_empty() {
+            let keys: serde_json::Map<String, Value> =
+                s.headers.keys().map(|k| (k.clone(), json!(""))).collect();
+            entry.insert("headers".into(), Value::Object(keys));
+        }
+        mcp_servers.insert(s.id.clone(), Value::Object(entry));
+    }
+    Json(json!({ "mcpServers": Value::Object(mcp_servers) }))
 }
 
 // ── the hub's own MCP endpoint ───────────────────────────────────────

@@ -187,6 +187,20 @@
   .h2 { font-size: 20px; font-weight: 700; margin: 0 0 4px; letter-spacing: -.01em; }
   .lead { color: var(--dim); margin: 0 0 18px; font-size: 13.5px; }
 
+  /* ── address book ── */
+  .book-hdr { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); padding: 12px 10px 4px; }
+  .book-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; cursor: pointer; }
+  .book-row:hover { background: var(--panel2); }
+  .book-row .bic { width: 24px; height: 24px; border-radius: 7px; background: var(--panel3); display: grid; place-items: center;
+                   font-weight: 700; font-size: 10px; color: var(--gold); flex: none; }
+  .book-row .bt { flex: 1; min-width: 0; }
+  .book-row .bt b { display: block; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .book-row .bt span { font-size: 11px; color: var(--dim); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .book-row .bdel { opacity: 0; font-size: 16px; color: var(--mute); background: none; border: 0; cursor: pointer; padding: 0 2px; line-height: 1; flex: none; }
+  .book-row:hover .bdel, .book-row .bdel:focus { opacity: 1; }
+  .book-row .bdel:hover { color: var(--coral); }
+  @media (hover: none) { .book-row .bdel { opacity: 1; } }
+
   @media (max-width: 760px) {
     #app { grid-template-columns: 1fr; }
     aside { position: static; height: auto; flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 12px; }
@@ -198,6 +212,25 @@
     .hero .side { position: static; text-align: left; margin-top: 12px; }
     .hero-total { font-size: 34px; }
   }
+  .ask-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(9,12,18,.82); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ask-card {
+    background: var(--panel); border: 1px solid var(--line2);
+    border-radius: var(--radius); padding: 28px 28px 22px; max-width: 400px; width: 90%;
+    box-shadow: 0 12px 48px rgba(0,0,0,.6);
+  }
+  .ask-card h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
+  .ask-card p  { margin: 0 0 18px; font-size: 14px; color: var(--dim); line-height: 1.5; }
+  .ask-card input.f { width: 100%; box-sizing: border-box; margin-bottom: 18px; }
+  .ask-btns { display: flex; gap: 10px; justify-content: flex-end; }
+  .ask-btns button { padding: 8px 18px; border-radius: 8px; font: inherit; cursor: pointer; font-size: 14px; }
+  .ask-btns .ask-cancel { background: var(--panel2); color: var(--dim); border: 1px solid var(--line2); }
+  .ask-btns .ask-cancel:hover { color: var(--ink); }
+  .ask-btns .ask-confirm { background: transparent; color: var(--coral); border: 1px solid var(--coral); font-weight: 600; }
+  .ask-btns .ask-confirm:hover { background: rgba(240,106,94,.12); }
 </style>
 </head>
 <body>
@@ -211,6 +244,7 @@
     <div class="rail-foot">
       <div class="wallet-card" id="walletCard"></div>
       <div class="keyline" id="keyline"></div>
+      <div id="bookBlock"></div>
     </div>
   </aside>
   <main>
@@ -243,7 +277,7 @@ const BASE = location.pathname.replace(/\/+$/, '') || '';
 const API = (BASE.endsWith('/debank') ? BASE : '/debank') + '/_api';
 const $ = (id) => document.getElementById(id);
 const out = $('out');
-const LS = { key: 'debank.key', view: 'debank.view', connected: 'debank.connected', tab: 'debank.tab' };
+const LS = { key: 'debank.key', view: 'debank.view', connected: 'debank.connected', tab: 'debank.tab', book: 'debank.book' };
 const read = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
 const write = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
 
@@ -256,12 +290,16 @@ const state = {
   networks: [], chains: [],
   cache: {},                           // per-view fetch cache, cleared on refresh
   sendPrefill: {},
+  chartOpen: false, chartPeriod: 'All',
+  scanAllPermissions: false,
+  stmtSearch: '',
 };
 
 const NAV = [
   ['sect', 'Bank'],
   ['overview', 'Overview'], ['accounts', 'Accounts'], ['assets', 'Assets'],
   ['savings', 'Savings'],
+  ['watchlist', 'Watchlist'],
   ['positions', 'Positions', 'key'], ['statement', 'Statement', 'key'],
   ['permissions', 'Permissions', 'key'], ['vault', 'Vault', 'key'],
   ['sect', 'Move money'],
@@ -282,6 +320,7 @@ const num = (n, max = 6) => n == null || isNaN(n) ? '—' :
   Number(n).toLocaleString('en-US', { maximumFractionDigits: Math.abs(n) >= 1000 ? 2 : max });
 const when = (t) => t ? new Date(t * 1000).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 const esc = (s) => String(s == null ? '' : s).replace(/[<&>"]/g, (c) => ({ '<': '&lt;', '&': '&amp;', '>': '&gt;', '"': '&quot;' }[c]));
+const pct24h = (n) => n == null ? '' : '<span class="' + (n >= 0 ? 'up' : 'down') + '" style="font-size:12px">' + (n >= 0 ? '+' : '') + (n * 100).toFixed(2) + '%</span>';
 const short = (a) => a && a.length > 14 ? a.slice(0, 6) + '…' + a.slice(-4) : (a || '—');
 const isAddr = (a) => /^0x[0-9a-fA-F]{40}$/.test(a || '');
 const same = (a, b) => a && b && a.toLowerCase() === b.toLowerCase();
@@ -392,6 +431,28 @@ async function waitReceipt(hash, tries = 60) {
   return null;
 }
 
+/* ── URL hash deep-linking ── */
+const ADDR_TABS = new Set(['overview','accounts','assets','savings','positions','statement','permissions','vault']);
+function syncHash() {
+  const h = ADDR_TABS.has(state.tab) && state.view ? state.tab + '/' + state.view : state.tab;
+  location.replace('#' + h);
+}
+function parseHash() {
+  const raw = location.hash.slice(1);
+  if (!raw) return;
+  const [tab, addr] = raw.split('/');
+  if (!NAV.some(([k]) => k === tab)) return;
+  state.tab = tab;
+  write(LS.tab, tab);
+  if (addr && isAddr(addr)) {
+    state.view = addr.toLowerCase();
+    write(LS.view, state.view);
+    $('addr').value = state.view;
+    state.cache = {};
+  }
+}
+window.addEventListener('hashchange', () => { parseHash(); render(); renderChrome(); });
+
 /* ── view / navigation ── */
 function setView(addr, announce = true) {
   state.view = addr ? addr.toLowerCase() : '';
@@ -400,8 +461,9 @@ function setView(addr, announce = true) {
   state.cache = {};
   if (announce) render();
   renderChrome();
+  syncHash();
 }
-function go(tab) { state.tab = tab; write(LS.tab, tab); render(); renderChrome(); }
+function go(tab) { state.tab = tab; write(LS.tab, tab); render(); renderChrome(); syncHash(); }
 $('nav').innerHTML = NAV.map(([k, label, needs]) => k === 'sect'
   ? `<div class="sect">${label}</div>`
   : `<button data-t="${k}">${label}${needs ? '<span class="k">key</span>' : ''}</button>`).join('');
@@ -414,6 +476,47 @@ $('addr').onkeydown = (e) => {
 };
 $('mine').onclick = () => { setView(state.me); go('overview'); };
 $('connectTop').onclick = () => (state.me ? disconnect() : connect());
+
+function ask(title, msg) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ask-overlay';
+    overlay.innerHTML = `<div class="ask-card"><h3>${esc(title)}</h3><p>${esc(msg)}</p><div class="ask-btns"><button class="ask-cancel">Cancel</button><button class="ask-confirm">Confirm</button></div></div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('.ask-cancel').onclick  = () => { overlay.remove(); resolve(false); };
+    overlay.querySelector('.ask-confirm').onclick = () => { overlay.remove(); resolve(true); };
+  });
+}
+function prompt2(msg, defaultVal) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'ask-overlay';
+    overlay.innerHTML = `<div class="ask-card"><h3>${esc(msg)}</h3><input class="f" type="text" value="${esc(defaultVal || '')}"><div class="ask-btns"><button class="ask-cancel">Cancel</button><button class="ask-confirm">Save</button></div></div>`;
+    document.body.appendChild(overlay);
+    const inp = overlay.querySelector('input');
+    inp.focus(); inp.select();
+    inp.onkeydown = e => { if (e.key === 'Enter') { overlay.remove(); resolve(inp.value || null); } if (e.key === 'Escape') { overlay.remove(); resolve(null); } };
+    overlay.querySelector('.ask-cancel').onclick  = () => { overlay.remove(); resolve(null); };
+    overlay.querySelector('.ask-confirm').onclick = () => { overlay.remove(); resolve(inp.value || null); };
+  });
+}
+function bookRead() { try { return JSON.parse(read(LS.book) || '[]'); } catch { return []; } }
+function bookWrite(arr) { write(LS.book, arr.length ? JSON.stringify(arr) : ''); }
+async function saveAddr() {
+  if (!state.view) return;
+  const ex = bookRead().find(e => e.addr === state.view);
+  const label = await prompt2('Label for this address:', ex ? ex.label : short(state.view));
+  if (!label || !label.trim()) return;
+  const book = bookRead().filter(e => e.addr !== state.view);
+  book.unshift({ addr: state.view, label: label.trim(), ts: Date.now() });
+  bookWrite(book.slice(0, 8));
+  toast(`Saved as "${label.trim()}"`);
+  renderChrome();
+}
+function removeBook(addr) {
+  bookWrite(bookRead().filter(e => e.addr !== addr));
+  toast('Removed'); renderChrome();
+}
 
 function renderChrome() {
   for (const b of $('nav').querySelectorAll('button')) b.classList.toggle('on', b.dataset.t === state.tab);
@@ -432,11 +535,28 @@ function renderChrome() {
   $('keyline').innerHTML = state.key
     ? `<b>DeBank key</b> · in this browser${state.keyOk === false ? ' · <span class="bad">rejected</span>' : state.keyOk ? ' · <span class="up">works</span>' : ''}`
     : state.keyOk ? `<b>DeBank key</b> · on the server` : `<b>No DeBank key</b> · rail balances only`;
+  const book = bookRead();
+  const bb = $('bookBlock');
+  if (bb) bb.innerHTML = book.length ? `<div class="book-hdr">Saved</div>` + book.map(e =>
+    `<div class="book-row" onclick="setView('${esc(e.addr)}');go('overview')">
+      <div class="bic">${esc((e.label || '?').charAt(0).toUpperCase())}</div>
+      <div class="bt"><b>${esc(e.label)}</b><span>${short(e.addr)}</span></div>
+      <button class="bdel" onclick="event.stopPropagation();removeBook('${esc(e.addr)}')" title="Remove">×</button>
+    </div>`).join('') : '';
 }
 
 /* ── pieces ── */
 const stats = (items) => `<div class="stats">${items.filter(Boolean).map(([l, v, c = '']) =>
   `<div class="stat"><b class="${c}">${v}</b><span>${l}</span></div>`).join('')}</div>`;
+function stmtMatch(r, q) {
+  if (!q) return true;
+  const lq = q.toLowerCase();
+  const syms = [...(r.sent || []), ...(r.received || [])].map((x) => (x.symbol || '').toLowerCase());
+  return (r.type || '').toLowerCase().includes(lq) ||
+    (r.project || '').toLowerCase().includes(lq) ||
+    (r.action || '').toLowerCase().includes(lq) ||
+    syms.some((s) => s.includes(lq));
+}
 function table(cols, rows, emptyMsg = 'Nothing here.') {
   if (!rows || !rows.length) return `<div class="faint" style="padding:14px 0">${emptyMsg}</div>`;
   return `<table><thead><tr>${cols.map((c) => `<th class="${c.n ? 'n' : ''}">${c.label}</th>`).join('')}</tr></thead>
@@ -480,7 +600,73 @@ const humanTag = (hum) => {
   return ` <a class="chip" style="text-decoration:none;cursor:pointer" href="https://v2.proofofhumanity.id" target="_blank" rel="noopener"
     title="No on-chain humanity registry vouches for this address yet (checked Proof of Humanity v1/v2 and Coinbase Verified Account). Click to register as a human.">unverified id</a>`;
 };
-const sparkline = (pts, w = 180, h = 52) => {
+let _spkTip = null;
+let _donutTip = null;
+function spkMove(e, rect) {
+  const svg = rect.closest('svg');
+  let pts;
+  try { pts = JSON.parse(svg.dataset.pts); } catch { return; }
+  if (!pts || pts.length < 2) return;
+  const w = parseFloat(svg.getAttribute('width'));
+  const h = parseFloat(svg.getAttribute('height'));
+  const padT = parseFloat(svg.dataset.padT || 5);
+  const padB = parseFloat(svg.dataset.padB || 5);
+  const vals = pts.map(p => p.u);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const range = hi - lo || 1;
+  const svgRect = svg.getBoundingClientRect();
+  const frac = Math.max(0, Math.min(1, (e.clientX - svgRect.left) / svgRect.width));
+  const idx = Math.round(frac * (pts.length - 1));
+  const p = pts[idx];
+  const cx = (idx / (pts.length - 1)) * w;
+  const cy = padT + ((hi - p.u) / range) * (h - padT - padB);
+  const cursor = svg.querySelector('.spk-cursor');
+  const dot = svg.querySelector('.spk-dot');
+  if (cursor) { cursor.setAttribute('x1', cx); cursor.setAttribute('x2', cx); cursor.setAttribute('visibility', 'visible'); }
+  if (dot) { dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('visibility', 'visible'); }
+  const hero = svg.closest('.hero, .card');
+  if (!hero) return;
+  if (!_spkTip) {
+    _spkTip = document.createElement('div');
+    _spkTip.id = 'spkTip';
+    _spkTip.style.cssText = 'position:absolute;background:var(--panel3);border:1px solid var(--line2);border-radius:8px;padding:6px 10px;font-size:12px;pointer-events:none;z-index:10;display:none;line-height:1.5;white-space:nowrap';
+  }
+  if (!hero.contains(_spkTip)) {
+    if (getComputedStyle(hero).position === 'static') hero.style.position = 'relative';
+    hero.appendChild(_spkTip);
+  }
+  const d = new Date(p.t * 1000);
+  const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  _spkTip.innerHTML = `<div style="color:var(--dim)">${mon} ${d.getDate()}, ${d.getFullYear()}</div><div style="font-weight:600">$${Math.round(p.u).toLocaleString()}</div>`;
+  const heroRect = hero.getBoundingClientRect();
+  let tx = e.clientX - heroRect.left - _spkTip.offsetWidth / 2;
+  const ty = e.clientY - heroRect.top + 14;
+  tx = Math.max(4, Math.min(heroRect.width - _spkTip.offsetWidth - 4, tx));
+  _spkTip.style.left = tx + 'px';
+  _spkTip.style.top = ty + 'px';
+  _spkTip.style.display = 'block';
+}
+function spkOut() {
+  if (_spkTip) _spkTip.style.display = 'none';
+  document.querySelectorAll('.spk-cursor,.spk-dot').forEach(el => el.setAttribute('visibility', 'hidden'));
+}
+function donutMove(e, el) {
+  if (!_donutTip) {
+    _donutTip = document.createElement('div');
+    _donutTip.style.cssText = 'position:absolute;background:var(--panel3);border:1px solid var(--line2);border-radius:8px;padding:6px 10px;font-size:12px;pointer-events:none;z-index:10;display:none;line-height:1.5;white-space:nowrap';
+  }
+  const card = el.closest('.card');
+  if (!card.contains(_donutTip)) { card.style.position = 'relative'; card.appendChild(_donutTip); }
+  _donutTip.innerHTML = `<div style="color:var(--dim)">${esc(el.dataset.name)}</div><div style="font-weight:600">${el.dataset.usd}</div><div style="color:var(--mute)">${el.dataset.pct}%</div>`;
+  _donutTip.style.display = 'block';
+  const rect = card.getBoundingClientRect();
+  let tx = e.clientX - rect.left - _donutTip.offsetWidth / 2;
+  tx = Math.max(4, Math.min(rect.width - _donutTip.offsetWidth - 4, tx));
+  _donutTip.style.left = tx + 'px';
+  _donutTip.style.top = (e.clientY - rect.top + 14) + 'px';
+}
+function donutOut() { if (_donutTip) _donutTip.style.display = 'none'; }
+const sparkline = (pts, w = 240, h = 80) => {
   if (!pts || pts.length < 2) return '';
   const vals = pts.map(p => p.usd);
   const lo = Math.min(...vals), hi = Math.max(...vals);
@@ -493,7 +679,8 @@ const sparkline = (pts, w = 180, h = 52) => {
   const [lx, ly] = xy[xy.length - 1];
   const firstY = iy(pts[0].usd).toFixed(1);
   const area = `M${xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' L')} L${w},${h} L0,${h} Z`;
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;overflow:visible">`
+  const dataPts = JSON.stringify(pts.map(p => ({ t: p.time, u: p.usd }))).replace(/'/g, '&#39;');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;overflow:visible" data-pts='${dataPts}'>`
     + `<defs><linearGradient id="spkG" x1="0" y1="0" x2="0" y2="1">`
     + `<stop offset="0%" stop-color="rgba(227,194,122,0.15)"/>`
     + `<stop offset="100%" stop-color="rgba(227,194,122,0)"/>`
@@ -502,7 +689,126 @@ const sparkline = (pts, w = 180, h = 52) => {
     + `<path d="${area}" fill="url(#spkG)"/>`
     + `<polyline points="${ptStr}" fill="none" stroke="#e3c27a" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>`
     + `<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="3" fill="#e3c27a"/>`
+    + `<line class="spk-cursor" x1="0" y1="${pad}" x2="0" y2="${h - pad}" stroke="#e3c27a" stroke-width="1" stroke-dasharray="3 2" visibility="hidden"/>`
+    + `<circle class="spk-dot" cx="0" cy="0" r="3.5" fill="#e3c27a" stroke="#141b2a" stroke-width="1.5" visibility="hidden"/>`
+    + `<rect x="0" y="0" width="${w}" height="${h}" fill="transparent" onmousemove="spkMove(event,this)" onmouseleave="spkOut()"/>`
     + `</svg>`;
+};
+
+const bigChart = (pts) => {
+  if (!pts || pts.length < 2) return '';
+  const W = 700, H = 220, padT = 8, padB = 28;
+  const vals = pts.map(p => p.usd);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const range = hi - lo || 1;
+  const iy = v => padT + ((hi - v) / range) * (H - padT - padB);
+  const ix = i => (i / (pts.length - 1)) * W;
+  const xy = pts.map((p, i) => [ix(i), iy(p.usd)]);
+  const ptStr = xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const [lx, ly] = xy[xy.length - 1];
+  const area = `M${xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' L')} L${W},${H - padB} L0,${H - padB} Z`;
+  const dataPts = JSON.stringify(pts.map(p => ({ t: p.time, u: p.usd }))).replace(/'/g, '&#39;');
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let gridLines = '', yLabels = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = lo + range * i / 4;
+    const y = iy(v);
+    const label = v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(0)}k` : `$${Math.round(v)}`;
+    gridLines += `<line x1="0" y1="${y.toFixed(1)}" x2="${W}" y2="${y.toFixed(1)}" stroke="#1e2735" stroke-width="1" stroke-dasharray="4 3"/>`;
+    yLabels += `<rect x="3" y="${(y - 8).toFixed(1)}" width="${label.length * 6 + 4}" height="13" fill="rgba(9,12,18,0.72)" rx="2"/>`;
+    yLabels += `<text x="5" y="${(y + 3).toFixed(1)}" fill="#5d687a" font-size="9" font-family="ui-monospace,Consolas,monospace">${esc(label)}</text>`;
+  }
+  let xLabels = '';
+  for (let i = 0; i < 5; i++) {
+    const idx = Math.round(i * (pts.length - 1) / 4);
+    const x = ix(idx);
+    const d = new Date(pts[idx].time * 1000);
+    const label = `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+    const anchor = i === 0 ? 'start' : i === 4 ? 'end' : 'middle';
+    xLabels += `<text x="${x.toFixed(1)}" y="${H - 8}" fill="#5d687a" font-size="10" font-family="Inter,system-ui,sans-serif" text-anchor="${anchor}">${label}</text>`;
+  }
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;overflow:visible;width:100%;height:auto" data-pts='${dataPts}' data-pad-t="${padT}" data-pad-b="${padB}">`
+    + `<defs><linearGradient id="bigG" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0%" stop-color="rgba(227,194,122,0.18)"/>`
+    + `<stop offset="100%" stop-color="rgba(227,194,122,0)"/>`
+    + `</linearGradient></defs>`
+    + gridLines
+    + `<path d="${area}" fill="url(#bigG)"/>`
+    + `<polyline points="${ptStr}" fill="none" stroke="#e3c27a" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`
+    + `<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="3.5" fill="#e3c27a"/>`
+    + yLabels + xLabels
+    + `<line class="spk-cursor" x1="0" y1="${padT}" x2="0" y2="${H - padB}" stroke="#e3c27a" stroke-width="1" stroke-dasharray="3 2" visibility="hidden"/>`
+    + `<circle class="spk-dot" cx="0" cy="0" r="4" fill="#e3c27a" stroke="#141b2a" stroke-width="1.5" visibility="hidden"/>`
+    + `<rect x="0" y="0" width="${W}" height="${H - padB}" fill="transparent" onmousemove="spkMove(event,this)" onmouseleave="spkOut()"/>`
+    + `</svg>`;
+};
+
+const simChart = (amount, apy) => {
+  const W = 700, H = 180, padT = 8, padB = 28;
+  const pts = [0];
+  for (let d = 7; d <= 365; d += 7) pts.push(d);
+  if (pts[pts.length - 1] !== 365) pts.push(365);
+  const vFund = (d) => amount * Math.pow(1 + apy / 100, d / 365);
+  const lo = amount, hi = vFund(365);
+  const range = hi - lo || 1;
+  const iy = (v) => padT + ((hi - v) / range) * (H - padT - padB);
+  const ix = (d) => (d / 365) * W;
+  const fundPts = pts.map((d) => [ix(d), iy(vFund(d))]);
+  const idlePts = [[0, iy(lo)], [W, iy(lo)]];
+  const fundStr = fundPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const idleStr = idlePts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  let gridLines = '', yLabels = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = lo + range * i / 4;
+    const y = iy(v);
+    const label = v >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? '$' + (v / 1e3).toFixed(0) + 'k' : '$' + Math.round(v);
+    gridLines += `<line x1="0" y1="${y.toFixed(1)}" x2="${W}" y2="${y.toFixed(1)}" stroke="#1e2735" stroke-width="1" stroke-dasharray="4 3"/>`;
+    yLabels += `<rect x="3" y="${(y - 8).toFixed(1)}" width="${label.length * 6 + 4}" height="13" fill="rgba(9,12,18,0.72)" rx="2"/>`;
+    yLabels += `<text x="5" y="${(y + 3).toFixed(1)}" fill="#5d687a" font-size="9" font-family="ui-monospace,Consolas,monospace">${esc(label)}</text>`;
+  }
+  let xLabels = '';
+  [[0, 'now', 'start'], [90, '3mo', 'middle'], [180, '6mo', 'middle'], [270, '9mo', 'middle'], [365, '1yr', 'end']].forEach(([d, lbl, anchor]) => {
+    xLabels += `<text x="${ix(d).toFixed(1)}" y="${H - 8}" fill="#5d687a" font-size="10" font-family="Inter,system-ui,sans-serif" text-anchor="${anchor}">${lbl}</text>`;
+  });
+  const areaPath = 'M' + fundPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' L')
+    + ` L${W},${H - padB} L0,${H - padB} Z`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;overflow:visible;width:100%;height:auto">`
+    + `<defs><linearGradient id="simG" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0%" stop-color="rgba(227,194,122,0.15)"/>`
+    + `<stop offset="100%" stop-color="rgba(227,194,122,0)"/>`
+    + `</linearGradient></defs>`
+    + gridLines
+    + `<path d="${areaPath}" fill="url(#simG)"/>`
+    + `<polyline points="${idleStr}" fill="none" stroke="#3a4557" stroke-width="1.5" stroke-dasharray="5 3"/>`
+    + `<polyline points="${fundStr}" fill="none" stroke="#e3c27a" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`
+    + yLabels + xLabels + '</svg>';
+};
+
+const DONUT_PALETTE = ['#e3c27a', '#4fd1a1', '#6aa5ff', '#e8b04a', '#f06a5e'];
+const donut = (slices, size = 130) => {
+  const active = slices.filter(s => s.usd > 0);
+  if (active.length < 2) return '';
+  const total = active.reduce((s, a) => s + a.usd, 0);
+  if (!total) return '';
+  const cx = size / 2, cy = size / 2, ro = size * 0.45, ri = size * 0.29;
+  const tau = 2 * Math.PI;
+  const f = n => n.toFixed(2);
+  let paths = '', start = -Math.PI / 2;
+  active.forEach((a, i) => {
+    const sweep = (a.usd / total) * tau;
+    const end = start + sweep;
+    const large = sweep > Math.PI ? 1 : 0;
+    const ox1 = cx + ro * Math.cos(start), oy1 = cy + ro * Math.sin(start);
+    const ox2 = cx + ro * Math.cos(end),   oy2 = cy + ro * Math.sin(end);
+    const ix1 = cx + ri * Math.cos(end),   iy1 = cy + ri * Math.sin(end);
+    const ix2 = cx + ri * Math.cos(start), iy2 = cy + ri * Math.sin(start);
+    const color = i < DONUT_PALETTE.length ? DONUT_PALETTE[i] : `hsl(${(i * 47) % 360},55%,55%)`;
+    const pct = ((a.usd / total) * 100).toFixed(1);
+    paths += `<path d="M${f(ox1)},${f(oy1)} A${f(ro)},${f(ro)} 0 ${large},1 ${f(ox2)},${f(oy2)} L${f(ix1)},${f(iy1)} A${f(ri)},${f(ri)} 0 ${large},0 ${f(ix2)},${f(iy2)} Z" fill="${color}" stroke="#090c12" stroke-width="1.5" data-name="${esc(a.name || a.chain || '?')}" data-usd="${esc(usd(a.usd))}" data-pct="${pct}" onmouseenter="this.setAttribute('fill-opacity','0.72')" onmouseleave="this.setAttribute('fill-opacity','1');donutOut()" onmousemove="donutMove(event,this)"/>`;
+    start = end;
+  });
+  const t = total >= 1e9 ? `$${(total/1e9).toFixed(1)}B` : total >= 1e6 ? `$${(total/1e6).toFixed(1)}M` : total >= 1e3 ? `$${(total/1e3).toFixed(1)}K` : usd(total, 0);
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">${paths}<text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="#eef2f8" font-size="11" font-weight="700" font-family="Inter,system-ui,sans-serif">${esc(t)}</text></svg>`;
 };
 
 /* ── data: the two floors ── */
@@ -529,11 +835,24 @@ const VIEWS = {
     if (full) {
       try {
         const c = await get('/net_curve', { id });
-        if (c && c.change_usd != null) {
-          const pct = c.change_pct != null ? ` (${c.change_pct > 0 ? '+' : ''}${Number(c.change_pct).toFixed(2)}%)` : '';
-          change = `<span class="${c.change_usd >= 0 ? 'up' : 'down'}">${c.change_usd >= 0 ? '+' : ''}${usd(c.change_usd)}${pct}</span> over 24h`;
-        }
         if (c && Array.isArray(c.points) && c.points.length >= 2) spkPts = c.points;
+        if (spkPts) {
+          const perfFrom = (pts, secsBack) => {
+            const last = pts[pts.length - 1];
+            const target = last.time - secsBack;
+            const ref = pts.reduce((b, p) => Math.abs(p.time - target) < Math.abs(b.time - target) ? p : b, pts[0]);
+            const delta = last.usd - ref.usd;
+            return { delta, pct: ref.usd ? delta / ref.usd * 100 : 0 };
+          };
+          const periods = [{label:'24h', s:86400}, {label:'7d', s:604800}, {label:'30d', s:2592000}];
+          const chips = periods.map(({label, s}) => {
+            if (spkPts[0].time > spkPts[spkPts.length-1].time - s * 0.8) return '';
+            const {delta, pct} = perfFrom(spkPts, s);
+            const cls = delta >= 0 ? 'up' : 'down';
+            return `<span class="${cls}">${delta >= 0 ? '+' : ''}${usd(delta)} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</span> <span class="faint">${label}</span>`;
+          }).filter(Boolean).join(' &nbsp;·&nbsp; ');
+          change = chips || '';
+        }
       } catch {}
     }
     const accounts = full
@@ -543,14 +862,30 @@ const VIEWS = {
     let assets = [];
     if (full) { try { assets = (await get('/tokens', { id, limit: 8 })).tokens; } catch {} }
     else assets = rail.tokens.filter((t) => t.amount > 0).slice(0, 8);
+    let chartPanel = '';
+    if (spkPts && state.chartOpen) {
+      const secsMap = { '7D': 604800, '30D': 2592000, '90D': 7776000 };
+      const period = state.chartPeriod || 'All';
+      const s = secsMap[period];
+      let pPts = spkPts;
+      if (s) { const cutoff = spkPts[spkPts.length - 1].time - s; const sl = spkPts.filter(p => p.time >= cutoff); if (sl.length >= 2) pPts = sl; }
+      const periodBtns = ['7D', '30D', '90D', 'All'].map(p =>
+        `<button class="btn sm ghost" style="padding:0 8px;height:24px;font-size:11px${p === period ? ';color:var(--gold);border-color:rgba(227,194,122,.4)' : ''}" onclick="state.chartPeriod='${p}';render()">${p}</button>`
+      ).join('');
+      chartPanel = `<div class="card" style="margin-bottom:18px;position:relative">
+        <h3>Net worth <span class="r" style="display:flex;align-items:center;gap:4px">${periodBtns}<button class="btn sm ghost" style="padding:0 7px;height:24px;font-size:14px;margin-left:2px" onclick="state.chartOpen=false;render()">×</button></span></h3>
+        ${bigChart(pPts)}
+      </div>`;
+    }
     return `
       <div class="hero">
         <div class="lbl">Total balance</div>
         <div class="hero-total">${usdBig(total)}</div>
         <div class="sub">${change || (full ? 'tokens + DeFi positions, net of debt' : `native coin + stablecoins on ${rail.chains.length} chains`)}
           · as of ${clock()} · ${full ? 'DeBank' : 'public RPCs, priced by CoinGecko'}</div>
-        <div class="side">${mineLabel()}${humanTag(hum)}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div>${spkPts ? `<div style="margin-top:8px;line-height:0">${sparkline(spkPts)}</div>` : ''}</div>
+        <div class="side">${mineLabel()}${humanTag(hum)}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div><div style="margin-top:6px"><button class="btn sm ghost" style="font-size:11.5px;height:26px;padding:0 9px" onclick="saveAddr()">★ Save</button></div>${spkPts ? `<div style="margin-top:8px;line-height:0;position:relative">${sparkline(spkPts)}<button style="position:absolute;top:2px;right:2px;background:rgba(9,12,18,0.6);border:1px solid var(--line2);color:var(--dim);font-size:10px;border-radius:5px;width:18px;height:18px;display:grid;place-items:center;cursor:pointer;padding:0" onclick="state.chartOpen=!state.chartOpen;render()" title="${state.chartOpen ? 'Close chart' : 'Expand chart'}">↗</button></div>` : ''}</div>
       </div>
+      ${chartPanel}
       <div class="actions">
         <button class="action" onclick="go('send')"><b>Send</b><span>native or stablecoins</span></button>
         <button class="action" onclick="go('receive')"><b>Receive</b><span>show your address</span></button>
@@ -563,6 +898,7 @@ const VIEWS = {
         Add a DeBank key in <a href="#" onclick="go('settings');return false">Settings</a> for every token, DeFi positions, NFTs, a statement and permissions.</div>` : ''}
       <div class="grid2">
         <div class="card"><h3>Accounts <span class="r">${accounts.length} chains</span></h3>
+          ${donut(accounts)}
           ${accounts.length ? accounts.map((a) => `
             <div class="acct">
               <div class="ic">${esc((a.chain || '?').slice(0, 3).toUpperCase())}</div>
@@ -629,6 +965,7 @@ const VIEWS = {
             { label: 'chain', get: (r) => esc(chainName(r.chain)) },
             { label: 'amount', n: true, get: (r) => num(r.amount) },
             { label: 'price', n: true, get: (r) => usd(r.price, r.price < 1 ? 4 : 2) },
+            { label: '24h', n: true, get: (r) => pct24h(r.price_24h_change) },
             { label: 'value', n: true, get: (r) => `<b>${usd(r.usd)}</b>` }], d.tokens)}</div>`;
       } catch (e) { if (!keyErr(e)) throw e; state.keyOk = false; }
     }
@@ -698,6 +1035,29 @@ const VIEWS = {
         </div></div>`;
     })() : '';
 
+    const sim = state.savSim;
+    const simPanel = sim ? (() => {
+      const amt = parseFloat(sim.amount) || 1000;
+      const v = (d) => amt * Math.pow(1 + sim.apy / 100, d / 365);
+      const bar = [30, 90, 180, 365].map((d) =>
+        `<div style="text-align:center"><div class="num" style="font-weight:700">${usd(v(d))}</div>
+          <div class="faint" style="font-size:11px">+${usd(v(d) - amt)}</div>
+          <div class="mut" style="font-size:11px">${d}d</div></div>`).join('');
+      return `<div class="card" style="margin-bottom:16px;border-color:var(--gold2)">
+        <h3>Projection — ${esc(sim.name)} <span class="r"><span class="up">${pct(sim.apy)}</span>&nbsp;apy
+          <button class="btn sm ghost" style="margin-left:8px" onclick="state.savSim=null;render()">Close</button></span></h3>
+        <div style="margin-bottom:12px"><label class="f" style="display:inline-block;margin-right:8px">Amount (USD)</label>
+          <input class="f num" id="simAmt" inputmode="decimal" style="max-width:160px;display:inline-block" value="${esc(String(sim.amount))}"
+            onchange="const n=parseFloat(this.value);if(n>0&&state.savSim){state.savSim.amount=n;render()}"></div>
+        ${simChart(amt, sim.apy)}
+        <div style="margin-top:6px;font-size:11.5px;margin-bottom:12px">
+          <span style="color:#3a4557;margin-right:4px">╌╌</span>idle (0%)&nbsp;&nbsp;&nbsp;
+          <span style="color:#e3c27a;margin-right:4px">──</span>${esc(sim.name)} (${pct(sim.apy)})
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">${bar}</div>
+      </div>`;
+    })() : '';
+
     return `
       <div class="hero">
         <div class="lbl">Savings</div>
@@ -719,6 +1079,7 @@ const VIEWS = {
         placed)}</div>` : ''}
       ${!placed.length && !sav.idle.usd ? `<div class="note">No stablecoins found on the bank rail for this address.
         Receive USDC, USDT or DAI first — then this page can put them to work.</div>` : ''}
+      ${simPanel}
       <div class="h2" style="margin-top:6px">Index funds</div>
       <p class="lead">Curated baskets of yield venues — one asset, one chain, a few signatures. Projected ROI is the 30-day mean
       APY per sleeve, weighted; liquidity locked is read from each protocol's contract right now. Not a promise, and not FDIC anything.</p>
@@ -740,7 +1101,10 @@ const VIEWS = {
             </div>`).join('')}
           <div class="row" style="margin-top:12px;justify-content:space-between">
             <span class="faint" style="font-size:12px">${fmtM(f.liquidity_locked_usd)} locked across sleeves · ${exitChip(f.exit)}</span>
-            <button class="btn sm gold" onclick="planFund('${f.id}', ${idleOf(f.asset, f.chain) || 1000})">Place savings</button>
+            <div class="row" style="gap:6px">
+              <button class="btn sm ghost" onclick="simFund('${esc(f.name)}', ${f.projected_apy}, ${idleOf(f.asset, f.chain) || 1000})">Simulate</button>
+              <button class="btn sm gold" onclick="planFund('${f.id}', ${idleOf(f.asset, f.chain) || 1000})">Place savings</button>
+            </div>
           </div>
         </div>`).join('')}
       </div>
@@ -752,7 +1116,7 @@ const VIEWS = {
         { label: '30d', n: true, get: (v) => pct(v.apy_30d) },
         { label: 'liquidity locked', n: true, get: (v) => fmtM(v.liquidity.locked_usd) },
         { label: 'exit', get: (v) => exitChip(v.exit) },
-        { label: '', get: (v) => `<button class="btn sm ghost" onclick="planFund('venue:${v.venue}', ${1000})">Place</button>` }],
+        { label: '', get: (v) => `<button class="btn sm ghost" onclick="simFund('${esc(v.name)}', ${v.apy_30d ?? v.apy}, 1000)">Simulate</button> <button class="btn sm ghost" onclick="planFund('venue:${v.venue}', 1000)">Place</button>` }],
         fx.venues)}</div>
       <div class="faint" style="margin-top:12px;font-size:11.5px">APY source: ${esc((fx.venues[0] || {}).apy_source || 'DefiLlama')}.
         Yield moves, contracts can fail, stablecoins can depeg — this is DeFi, not a deposit guarantee.</div>`;
@@ -760,50 +1124,136 @@ const VIEWS = {
 
   async positions(id) {
     if (!hasKey()) return `<div class="h2">Positions</div><p class="lead">DeFi — supplied, staked, borrowed.</p>${keyCard('DeFi positions')}`;
-    const d = await get('/protocols', { id, chain: state.chainFilter || '' });
+    const d = await get('/protocols', { id, chain: state.chainFilter || '', detail: 'true' });
+    const minH = (r) => Math.min(...(r.positions || []).filter((p) => p.health_rate != null).map((p) => p.health_rate).concat([Infinity]));
+    const atRisk = (d.protocols || []).filter((r) => minH(r) < 1.2).map((r) => r.name || r.protocol);
+    const fmtTokens = (toks, cls, label) => (toks || []).length
+      ? `<span class="${esc(cls)}">${(toks).map((t) => `${num(t.amount, 4)} ${esc(t.symbol)} ${usd(t.usd)}`).join(', ')} ${esc(label)}</span>`
+      : '';
+    const posDetail = (r) => (r.positions || []).map((p) => {
+      const s = fmtTokens(p.assets, 'up', 'supplied');
+      const b = fmtTokens(p.debt, 'warn', 'borrowed');
+      return (s || b) ? `<div class="faint" style="font-size:11px">${[s, b].filter(Boolean).join(' · ')}</div>` : '';
+    }).join('');
     return `<div class="h2">Positions</div><p class="lead">Open DeFi positions, net of what is borrowed against them. ${mineLabel()}</p>
       ${stats([['net in DeFi', usd(d.total_usd)], ['borrowed', usd(d.total_borrowed_usd), d.total_borrowed_usd ? 'warn' : ''], ['protocols', d.shown]])}
+      ${atRisk.length ? `<div class="note err"><b>Health rate below 1.2 on ${esc(atRisk.join(', '))}</b> — repay debt or add collateral to avoid liquidation.</div>` : ''}
       <div class="card"><h3>Protocols <span class="r">${filterRow('positions')}</span></h3>${table([
-        { label: 'protocol', get: (r) => `<b>${esc(r.name || r.protocol)}</b>` },
+        { label: 'protocol', get: (r) => `<b>${esc(r.name || r.protocol)}</b>${posDetail(r)}` },
         { label: 'chain', get: (r) => esc(chainName(r.chain)) },
         { label: 'type', get: (r) => `<span class="faint">${esc((r.positions || []).map((p) => p.type).filter(Boolean).join(', ') || '—')}</span>` },
         { label: 'supplied', n: true, get: (r) => usd(r.supplied_usd) },
         { label: 'borrowed', n: true, cls: (r) => r.borrowed_usd ? 'warn' : '', get: (r) => usd(r.borrowed_usd) },
-        { label: 'net', n: true, get: (r) => `<b>${usd(r.usd)}</b>` }], d.protocols, 'No open positions.')}</div>`;
+        { label: 'net', n: true, get: (r) => `<b>${usd(r.usd)}</b>` },
+        { label: 'health', n: true, get: (r) => { const h = minH(r); return h === Infinity ? '' : `<span class="pill ${h < 1.0 ? 'bad' : h < 1.5 ? 'warn' : 'ok'}">⚡ ${h.toFixed(2)}</span>`; } }],
+        d.protocols, 'No open positions.')}</div>`;
   },
 
   async statement(id) {
     if (!hasKey()) return `<div class="h2">Statement</div><p class="lead">Decoded transaction history.</p>${keyCard('Statements')}`;
     const d = await get('/history', { id, chain: state.chainFilter || '' });
     const leg = (l) => (l || []).map((x) => `${num(x.amount, 4)} ${esc(x.symbol || '')}`).join(', ');
+    const typeCounts = {};
+    (d.transactions || []).forEach((r) => { typeCounts[r.type || ''] = (typeCounts[r.type || ''] || 0) + 1; });
+    const q = state.stmtSearch || '';
+    const visible = (d.transactions || []).filter((r) => stmtMatch(r, q));
+    const subLabel = q ? ` <span class="chip" style="font-size:11px">${visible.length} of ${(d.transactions || []).length} shown</span>` : '';
+    const typeChips = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).map(([t, n]) => {
+      const active = q === t;
+      const onclick = `state.stmtSearch=${active ? "''" : "'" + t.replace(/'/g, "\\'") + "'"};render()`;
+      return `<button class="chip${active ? ' gold' : ''}" style="cursor:pointer;background:none;border:1px solid ${active ? 'rgba(227,194,122,.4)' : 'var(--line2)'};" onclick="${esc(onclick)}">${esc(t)} <span class="faint">${n}</span></button>`;
+    }).join(' ');
     return `<div class="h2">Statement</div><p class="lead">What moved, through what, at what cost. ${mineLabel()}</p>
       ${stats([['transactions', d.count], ['oldest shown', d.oldest_time ? when(d.oldest_time) : '—']])}
-      <div class="card"><h3>Recent activity <span class="r">${filterRow('statement')}</span></h3>${table([
+      ${typeChips ? `<div class="row" style="margin-bottom:12px;flex-wrap:wrap;gap:6px">${typeChips}</div>` : ''}
+      <div class="card"><h3>Recent activity${subLabel} <span class="r"><input class="sm" style="height:32px;border-radius:8px;padding:0 10px;font-size:12.5px;background:var(--panel2);border:1px solid var(--line2);color:var(--ink);outline:0;width:140px" placeholder="search…" value="${esc(q)}" oninput="state.stmtSearch=this.value;render()">&nbsp;${filterRow('statement')} <button class="btn sm ghost" onclick="downloadStmtCSV()">↓ CSV</button></span></h3>${table([
         { label: 'when', get: (r) => `<span class="mut">${when(r.time)}</span>` },
         { label: 'type', get: (r) => `<b>${esc(r.type)}</b><div class="faint" style="font-size:11.5px">${esc(r.project || r.action || '')}</div>` },
         { label: 'chain', get: (r) => esc(chainName(r.chain)) },
         { label: 'out', cls: () => 'down', get: (r) => leg(r.sent) ? '−' + leg(r.sent) : '' },
         { label: 'in', cls: () => 'up', get: (r) => leg(r.received) ? '+' + leg(r.received) : '' },
+        { label: 'with', get: (r) => { const cp = (r.sent?.[0]?.counterparty) || (r.received?.[0]?.counterparty); return isAddr(cp) ? `<a href="#" class="faint mono" style="font-size:11px" onclick="setView('${esc(cp)}');go('overview');return false">${short(cp)}</a>` : ''; } },
         { label: 'fee', n: true, get: (r) => usd(r.gas_usd, 4) },
         { label: '', get: (r) => {
           const eb = netOf(r.chain)?.explorer || state.chains.find((x) => x.chain === r.chain)?.explorer;
           const base = eb && (eb.startsWith('http') ? eb : 'https://' + eb);
           return `<span class="pill ${r.status === 'ok' ? 'ok' : 'bad'}">${esc(r.status)}</span>${r.hash && base ? ` <a href="${esc(base)}/tx/${r.hash}" target="_blank" rel="noopener">↗</a>` : ''}`;
         } }],
-        d.transactions, 'No transactions.')}
+        visible, 'No transactions.')}
         ${d.oldest_time ? `<div style="margin-top:10px"><button class="btn sm ghost" onclick="olderStatement(${d.oldest_time})">Older</button></div>` : ''}</div>`;
   },
 
   async permissions(id) {
     if (!hasKey()) return `<div class="h2">Permissions</div><p class="lead">Standing approvals — who can move this money without asking.</p>${keyCard('Approvals')}`;
+    const scanAll = state.scanAllPermissions;
+    const scanBtn = `<button class="btn sm${scanAll ? ' gold' : ' ghost'}" onclick="state.scanAllPermissions=!state.scanAllPermissions;state.cache={};render()">${scanAll ? '◉ All chains' : '○ Scan all chains'}</button>`;
+
+    if (scanAll) {
+      let portfolio = null;
+      try { portfolio = await get('/portfolio', { id }); } catch (e) { /* fall through */ }
+      const chains = (portfolio?.chains || []).filter((c) => c.chain);
+      if (!chains.length) return `<div class="h2">Permissions</div><p class="lead">Standing approvals across every chain. ${mineLabel()}</p>
+        <div class="note">No chains with value found — DeBank has no portfolio data for this address.</div>
+        <div class="row" style="margin-top:12px">${scanBtn}</div>`;
+
+      const [results, nftResults] = await Promise.all([
+        Promise.allSettled(chains.map((c) => get('/approvals', { id, chain: c.chain }))),
+        Promise.allSettled(chains.map((c) => get('/nft_approvals', { id, chain: c.chain })))
+      ]);
+      const all = [];
+      let totalExposure = 0, unlimitedCount = 0, chainsScanned = 0;
+      results.forEach((r, i) => {
+        if (r.status !== 'fulfilled') return;
+        chainsScanned++;
+        const d = r.value;
+        totalExposure += d.total_exposure_usd || 0;
+        unlimitedCount += d.unlimited_count || 0;
+        (d.approvals || []).forEach((a) => all.push({ ...a, _chain: chains[i].chain }));
+      });
+      all.sort((a, b) => (b.exposure_usd || 0) - (a.exposure_usd || 0));
+      const allNft = [];
+      let nftSetApprovalCount = 0;
+      nftResults.forEach((r, i) => {
+        if (r.status !== 'fulfilled') return;
+        const nd = r.value;
+        nftSetApprovalCount += nd.set_approval_for_all_count || 0;
+        (nd.nft_approvals || []).forEach((a) => allNft.push({ ...a, _chain: chains[i].chain }));
+      });
+      const mine = same(state.me, id);
+      return `<div class="h2">Permissions</div><p class="lead">Every standing approval across all ${chainsScanned} chain${chainsScanned !== 1 ? 's' : ''} with value. ${mineLabel()}</p>
+        ${stats([['at risk', usd(totalExposure), totalExposure ? 'bad' : ''], ['unlimited', unlimitedCount, unlimitedCount ? 'warn' : ''], ['chains scanned', chainsScanned]])}
+        ${mine ? '' : `<div class="note">Connect the wallet that owns this address to revoke from here.</div>`}
+        <div class="card"><h3>Approvals — all chains <span class="r">${scanBtn}</span></h3>${table([
+          { label: 'chain', get: (r) => `<span class="pill">${esc(chainName(r._chain))}</span>` },
+          { label: 'token', get: (r) => `<b>${esc(r.token || '?')}</b>` },
+          { label: 'spender', get: (r) => `${esc(r.spender_name || 'unknown contract')}<div class="faint mono" style="font-size:11px">${short(r.spender)}</div>` },
+          { label: 'allowance', get: (r) => r.unlimited ? '<span class="pill warn">unlimited</span>' : '<span class="pill">capped</span>' },
+          { label: 'balance', n: true, get: (r) => usd(r.balance_usd) },
+          { label: 'could take', n: true, cls: (r) => r.exposure_usd ? 'bad' : '', get: (r) => `<b>${usd(r.exposure_usd)}</b>` },
+          { label: 'granted', get: (r) => `<span class="mut">${when(r.last_approved)}</span>` },
+          { label: '', get: (r) => (mine && netOf(r._chain)) ? `<button class="btn sm danger" onclick="revoke('${esc(r._chain)}','${esc(r.token_id)}','${esc(r.spender)}','${esc(r.token)}')">Revoke</button>` : '' }],
+          all, 'No standing approvals found across any chain.')}</div>
+        <div class="card" style="margin-top:14px"><h3>NFT Approvals — all chains ${nftSetApprovalCount ? `<span class="pill warn">${nftSetApprovalCount} setApprovalForAll</span>` : ''}</h3>${table([
+          { label: 'chain', get: (r) => `<span class="pill">${esc(chainName(r._chain))}</span>` },
+          { label: 'collection', get: (r) => `<b>${esc(r.collection || '?')}</b><div class="faint mono" style="font-size:11px">${short(r.contract)}</div>` },
+          { label: 'spender', get: (r) => `${esc(r.spender_name || 'unknown contract')}<div class="faint mono" style="font-size:11px">${short(r.spender)}</div>` },
+          { label: 'type', get: (r) => r.is_set_approval_for_all ? '<span class="pill warn">setApprovalForAll</span>' : `<span class="pill">token #${esc(String(r.token_id || '?'))}</span>` },
+          { label: 'granted', get: (r) => `<span class="mut">${when(r.last_approved)}</span>` },
+          { label: '', get: (r) => (mine && netOf(r._chain) && r.is_set_approval_for_all) ? `<button class="btn sm danger" onclick="revokeNft('${esc(r._chain)}','${esc(r.contract)}','${esc(r.spender)}','${esc(r.collection || '')}')">Revoke</button>` : '' }],
+          allNft, 'No NFT approvals found across any chain.')}</div>`;
+    }
+
     const chain = state.chainFilter || state.networks[0]?.chain || 'eth';
     state.chainFilter = chain;
-    const d = await get('/approvals', { id, chain });
+    const [d, nftd] = await Promise.all([
+      get('/approvals', { id, chain }),
+      get('/nft_approvals', { id, chain }).catch(() => ({ nft_approvals: [], count: 0, set_approval_for_all_count: 0 }))
+    ]);
     const mine = same(state.me, id) && !!netOf(chain);
     return `<div class="h2">Permissions</div><p class="lead">Every contract still allowed to spend this address's tokens on ${esc(chainName(chain))}, ranked by what it could take today. ${mineLabel()}</p>
       ${stats([['at risk', usd(d.total_exposure_usd), d.total_exposure_usd ? 'bad' : ''], ['unlimited', d.unlimited_count, d.unlimited_count ? 'warn' : ''], ['approvals', d.shown]])}
       ${mine ? '' : `<div class="note">Connect the wallet that owns this address to revoke from here.</div>`}
-      <div class="card"><h3>Approvals <span class="r">${filterRow('permissions', true)}</span></h3>${table([
+      <div class="card"><h3>Approvals <span class="r">${filterRow('permissions', true)} ${scanBtn}</span></h3>${table([
         { label: 'token', get: (r) => `<b>${esc(r.token || '?')}</b>` },
         { label: 'spender', get: (r) => `${esc(r.spender_name || 'unknown contract')}<div class="faint mono" style="font-size:11px">${short(r.spender)}</div>` },
         { label: 'allowance', get: (r) => r.unlimited ? '<span class="pill warn">unlimited</span>' : '<span class="pill">capped</span>' },
@@ -811,20 +1261,42 @@ const VIEWS = {
         { label: 'could take', n: true, cls: (r) => r.exposure_usd ? 'bad' : '', get: (r) => `<b>${usd(r.exposure_usd)}</b>` },
         { label: 'granted', get: (r) => `<span class="mut">${when(r.last_approved)}</span>` },
         { label: '', get: (r) => mine ? `<button class="btn sm danger" onclick="revoke('${chain}','${esc(r.token_id)}','${esc(r.spender)}','${esc(r.token)}')">Revoke</button>` : '' }],
-        d.approvals, 'No standing approvals on this chain.')}</div>`;
+        d.approvals, 'No standing approvals on this chain.')}</div>
+      <div class="card" style="margin-top:14px"><h3>NFT Approvals</h3>${table([
+        { label: 'collection', get: (r) => `<b>${esc(r.collection || '?')}</b><div class="faint mono" style="font-size:11px">${short(r.contract)}</div>` },
+        { label: 'spender', get: (r) => `${esc(r.spender_name || 'unknown contract')}<div class="faint mono" style="font-size:11px">${short(r.spender)}</div>` },
+        { label: 'type', get: (r) => r.is_set_approval_for_all ? '<span class="pill warn">setApprovalForAll</span>' : `<span class="pill">token #${esc(String(r.token_id || '?'))}</span>` },
+        { label: 'granted', get: (r) => `<span class="mut">${when(r.last_approved)}</span>` },
+        { label: '', get: (r) => (mine && r.is_set_approval_for_all) ? `<button class="btn sm danger" onclick="revokeNft('${esc(chain)}','${esc(r.contract)}','${esc(r.spender)}','${esc(r.collection || '')}')">Revoke</button>` : '' }],
+        nftd.nft_approvals, 'No NFT approvals on this chain.')}</div>`;
   },
 
   async vault(id) {
     if (!hasKey()) return `<div class="h2">Vault</div><p class="lead">NFTs at floor.</p>${keyCard('NFTs')}`;
     const d = await get('/nfts', { id, chain: state.chainFilter || '' });
+    const nftCards = d.nfts.length ? d.nfts.map((r) => {
+      const label = esc(r.collection || '?');
+      const fallback = label.charAt(0).toUpperCase();
+      const imgHtml = r.image
+        ? `<img src="${esc(r.image)}" alt="" loading="lazy"
+               style="width:100%;height:160px;object-fit:cover;border-radius:10px;display:block;margin-bottom:10px"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">`
+        : '';
+      return `<div class="card" style="padding:12px">
+        ${imgHtml}
+        <div class="ic" style="width:100%;height:${r.image ? '0' : '160px'};border-radius:10px;margin-bottom:10px;font-size:28px;${r.image ? 'display:none' : ''}">${fallback}</div>
+        <div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px">${label}</div>
+        <div style="font-size:13.5px;font-weight:600;margin-bottom:6px">${esc(r.name || ('#' + (r.token_id || '?')))}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="pill">${esc(chainName(r.chain))}</span>
+          ${r.usd ? `<span style="font-size:13px;font-weight:600">${usd(r.usd)}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('') : `<p class="mut" style="margin:0">Nothing in the vault.</p>`;
     return `<div class="h2">Vault</div><p class="lead">NFTs, valued at floor where DeBank has one. ${mineLabel()}</p>
       ${stats([['floor value', usd(d.total_usd)], ['items', d.count]])}
-      <div class="card"><h3>Items <span class="r">${filterRow('vault')}</span></h3>${table([
-        { label: 'collection', get: (r) => `<b>${esc(r.collection || '?')}</b>` },
-        { label: 'item', get: (r) => esc(r.name || r.token_id || '') },
-        { label: 'chain', get: (r) => esc(chainName(r.chain)) },
-        { label: 'qty', n: true, get: (r) => num(r.amount) },
-        { label: 'floor', n: true, get: (r) => usd(r.usd) }], d.nfts, 'Nothing in the vault.')}</div>`;
+      <div class="card"><h3>Items <span class="r">${filterRow('vault')}</span></h3>
+      <div class="grid3" style="margin-top:12px">${nftCards}</div></div>`;
   },
 
   async send() {
@@ -837,9 +1309,19 @@ const VIEWS = {
     const n = netOf(chain);
     const assets = [{ symbol: n.native, native: true, decimals: 18 }, ...n.tokens];
     const asset = p.asset && assets.find((a) => a.symbol === p.asset) ? p.asset : assets[0].symbol;
-    let bal = null;
-    try { bal = (await get('/balances', { id: state.me, chains: chain })).chains[0]; } catch {}
+    let bal = null, gas = null;
+    [bal, gas] = await Promise.all([
+      get('/balances', { id: state.me, chains: chain }).then((r) => r.chains[0]).catch(() => null),
+      get('/gas', { chain }).catch(() => null),
+    ]);
     const balOf = (sym) => bal ? (bal.tokens.find((t) => t.symbol === sym) || {}).amount : null;
+    const nativePrice = bal?.tokens?.find((t) => t.native)?.price ?? 0;
+    const normalGas = gas?.levels?.find((l) => l.level === 'normal');
+    const gasUnits = (asset === n.native) ? 21000 : 65000;
+    const feeUsd = normalGas ? normalGas.price_gwei * gasUnits / 1e9 * nativePrice : null;
+    const feeLabel = feeUsd != null
+      ? `<span>~${usd(feeUsd)}</span> <span class="faint">· ${num(normalGas.price_gwei, 0)} gwei normal</span>`
+      : `<span class="mut">paid in ${esc(n.native)}, set by your wallet</span>`;
     return `<div class="h2">Send</div><p class="lead">From ${short(state.me)} · signed in your wallet.</p>
       <div class="grid2">
         <div class="card">
@@ -863,7 +1345,7 @@ const VIEWS = {
               <span>Network</span><div>${esc(n.name)} <span class="faint">(chain ${n.chain_id})</span></div>
               <span>Wallet on</span><div>${state.chainId === n.chain_id ? '<span class="up">this network</span>' : `<span class="warn">${esc(netOfId(state.chainId)?.name || 'chain ' + state.chainId)} — will switch</span>`}</div>
               <span>Asset</span><div>${esc(asset)} ${assets.find((a) => a.symbol === asset)?.native ? '<span class="pill">native</span>' : '<span class="pill">erc-20</span>'}</div>
-              <span>Fee</span><div class="mut">paid in ${esc(n.native)}, set by your wallet</div>
+              <span>Fee</span><div>${feeLabel}</div>
             </div></div>
           <div id="sendStatus"></div>
           <div class="note">Only send to an address on the <b>same network</b>. Transfers are final; there is no bank to call.</div>
@@ -932,6 +1414,68 @@ const VIEWS = {
       </div>`;
   },
 
+  async watchlist() {
+    const book = bookRead();
+    if (!book.length) {
+      return `<div class="empty">
+        <h2>Watchlist</h2>
+        <p>Save addresses with ★ to build your watchlist.</p>
+      </div>`;
+    }
+    const results = await Promise.allSettled(book.map(e => get('/balances', { id: e.addr })));
+    let curves = book.map(() => null);
+    if (hasKey()) {
+      const cr = await Promise.allSettled(book.map(e => get('/net_curve', { id: e.addr }).catch(() => null)));
+      cr.forEach((r, i) => { if (r.status === 'fulfilled') curves[i] = r.value; });
+    }
+    const cards = book.map((e, i) => {
+      const r = results[i];
+      const bal = r.status === 'fulfilled' ? r.value : null;
+      const curve = curves[i];
+      const pts = curve?.points?.length >= 2 ? curve.points : null;
+      const total = bal?.total_usd ?? 0;
+      const chainCount = bal?.chains?.length ?? 0;
+      let perfChip = '';
+      let spkHtml = '';
+      if (pts) {
+        const last = pts[pts.length - 1];
+        const target = last.time - 604800;
+        const ref = pts.reduce((b, p) => Math.abs(p.time - target) < Math.abs(b.time - target) ? p : b, pts[0]);
+        const delta = last.usd - ref.usd;
+        const pct = ref.usd ? delta / ref.usd * 100 : 0;
+        const cls = delta >= 0 ? 'up' : 'down';
+        perfChip = `<span class="${cls}" style="font-size:11.5px">${delta >= 0 ? '+' : ''}${pct.toFixed(1)}% 7d</span>`;
+        spkHtml = sparkline(pts, 160, 44);
+      }
+      const allocationBar = bal?.chains?.length && total > 0
+        ? `<div style="display:flex;gap:2px;height:3px;margin-top:10px;border-radius:2px;overflow:hidden">${
+            bal.chains.slice(0, 5).map((c, ci) =>
+              `<div style="flex:${c.usd / total};min-width:2px;background:${DONUT_PALETTE[ci % DONUT_PALETTE.length]};height:100%;border-radius:1px"></div>`
+            ).join('')
+          }</div>` : '';
+      return `<div class="card" style="cursor:pointer;transition:border-color .15s" onclick="setView('${esc(e.addr)}');go('overview')"
+        onmouseenter="this.style.borderColor='var(--gold)'" onmouseleave="this.style.borderColor=''">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div style="min-width:0">
+            <div style="font-size:13.5px;font-weight:600;margin-bottom:2px">${esc(e.label)}</div>
+            <div class="mono faint" style="font-size:11.5px">${short(e.addr)}</div>
+          </div>
+          <div style="text-align:right;flex:none">
+            <div style="font-size:18px;font-weight:700" class="num">${usd(total, 0)}</div>
+            <div class="faint" style="font-size:11.5px">${chainCount} chain${chainCount !== 1 ? 's' : ''}</div>
+          </div>
+        </div>
+        ${r.status !== 'fulfilled' ? `<div class="faint" style="font-size:12px;margin-top:8px">Could not load balance</div>` : ''}
+        ${pts ? `<div style="margin:10px 0 4px;line-height:0">${spkHtml}</div>` : ''}
+        ${perfChip ? `<div style="margin-top:${pts ? '2px' : '8px'}">${perfChip}</div>` : ''}
+        ${allocationBar}
+      </div>`;
+    }).join('');
+    return `<div class="h2">Watchlist</div>
+      <p class="lead">${book.length} saved address${book.length !== 1 ? 'es' : ''}. Click any card to focus on that account.</p>
+      <div class="grid3">${cards}</div>`;
+  },
+
   async api() {
     const d = await get('/tools');
     const info = await get('/');
@@ -964,6 +1508,29 @@ async function olderStatement(t) {
     if (cur) { cur.transactions = cur.transactions.concat(d.transactions); cur.count = cur.transactions.length; cur.oldest_time = d.oldest_time; }
     render();
   } catch (e) { toast(e.message, true); }
+}
+function downloadStmtCSV() {
+  const id = state.view;
+  const k = `/history?${new URLSearchParams({ id, ...(state.chainFilter ? { chain: state.chainFilter } : {}) })}`;
+  const d = state.cache[k];
+  if (!d) { toast('Load the statement first', true); return; }
+  const legStr = (l) => (l || []).map((x) => `${x.amount != null ? x.amount : ''} ${x.symbol || ''}`.trim()).join(' + ');
+  const csvEsc = (v) => { const s = String(v == null ? '' : v); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const rows = [['Date', 'Type', 'Protocol', 'Chain', 'Sent', 'Received', 'Counterparty', 'Fee USD', 'Status', 'TX Hash']];
+  (d.transactions || []).forEach((r) => {
+    const cp = r.sent?.[0]?.counterparty || r.received?.[0]?.counterparty || '';
+    rows.push([
+      r.time ? new Date(r.time * 1000).toISOString() : '',
+      r.type || '', r.project || r.action || '',
+      chainName(r.chain), legStr(r.sent), legStr(r.received),
+      cp, r.gas_usd != null ? r.gas_usd : '', r.status || '', r.hash || ''
+    ]);
+  });
+  const csv = rows.map((row) => row.map(csvEsc).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `debank-statement-${id}.csv`;
+  a.click();
 }
 
 /* ── money actions ── */
@@ -1005,7 +1572,7 @@ async function doSend(chain, asset) {
 async function revoke(chain, token, spender, symbol) {
   if (!state.me) return toast('Connect the owning wallet first', true);
   if (!isAddr(token)) return toast(`${symbol} is not an ERC-20 contract — revoke it in the wallet itself`, true);
-  if (!confirm(`Revoke ${symbol} allowance for ${short(spender)} on ${chainName(chain)}?\n\nThis sends approve(spender, 0) from your wallet and costs gas.`)) return;
+  if (!await ask(`Revoke ${symbol} allowance`, `Revoke ${symbol} for ${short(spender)} on ${chainName(chain)}? This sends approve(spender, 0) from your wallet and costs gas.`)) return;
   try {
     const n = await switchChain(chain);
     const hash = await sendTx({ from: state.me, to: token, data: '0x095ea7b3' + pad(spender) + pad('0') });
@@ -1016,10 +1583,29 @@ async function revoke(chain, token, spender, symbol) {
     else toast(`Still pending: ${n.explorer}/tx/${hash}`);
   } catch (e) { toast(e.message || 'The wallet refused', true); }
 }
+async function revokeNft(chain, contract, spender, name) {
+  if (!state.me) return toast('Connect the owning wallet first', true);
+  if (!isAddr(contract)) return toast(`${name || contract} is not a contract address`, true);
+  if (!await ask(`Revoke NFT access`, `Revoke all NFT access for ${short(spender)} on ${name || 'collection'} (${chainName(chain)})? This sends setApprovalForAll(operator, false) from your wallet and costs gas.`)) return;
+  try {
+    const n = await switchChain(chain);
+    const hash = await sendTx({ from: state.me, to: contract, data: '0xa22cb465' + pad(spender) + pad('0') });
+    toast(`Revoke submitted: ${short(hash)}`);
+    const r = await waitReceipt(hash);
+    if (r?.status === '0x1') { toast(`Revoked NFT access for ${short(spender)}`); state.cache = {}; render(); }
+    else if (r) toast('The revoke reverted on chain', true);
+    else toast(`Still pending: ${n.explorer}/tx/${hash}`);
+  } catch (e) { toast(e.message || 'The wallet refused', true); }
+}
 /* ── savings actions ── */
 function planFund(fund, amount) {
   const amt = parseFloat(amount);
   state.savPlan = { fund, amount: amt > 0 ? Math.round(amt * 100) / 100 : 1000, data: null };
+  if (state.tab !== 'savings') go('savings'); else render();
+}
+function simFund(name, apy, amount) {
+  const amt = parseFloat(amount);
+  state.savSim = { name, apy, amount: amt > 0 ? Math.round(amt * 100) / 100 : 1000 };
   if (state.tab !== 'savings') go('savings'); else render();
 }
 async function placeLegs() {
@@ -1056,7 +1642,7 @@ async function placeLegs() {
 }
 async function withdrawVenue(venue, name) {
   if (!state.me) return toast('Connect the owning wallet first', true);
-  if (!confirm(`Withdraw everything from ${name} back to your wallet?\n\nThis signs one transaction and costs gas.`)) return;
+  if (!await ask(`Withdraw from ${name}`, `Withdraw everything from ${name} back to your wallet? This signs one transaction and costs gas.`)) return;
   try {
     const d = await get('/savings/exit', { id: state.me, venue }, { cache: false });
     await switchChain(d.chain);
@@ -1087,7 +1673,7 @@ async function saveKey() {
 async function storeKeyOnServer() {
   const k = $('kIn').value.trim();
   if (!k) return toast('Paste a key first', true);
-  if (!confirm('Store this key on the server at ~/.mod/debank/key.json so the shell and MCP tools use it too?')) return;
+  if (!await ask('Store key on server', 'Store this key at ~/.mod/debank/key.json so the shell and MCP tools use it too?')) return;
   try { const r = await post('/set_key', { key: k, persist: true }); toast(`Stored at ${r.stored}`); state.keyOk = true; renderChrome(); }
   catch (e) { toast(e.message, true); }
 }
@@ -1123,6 +1709,7 @@ async function render() {
   try { state.networks = (await get('/networks')).networks; } catch {}
   get('/chains').then((d) => { state.chains = d.chains; }).catch(() => {});
   if (!state.key) get('/health').then((h) => { if (h.key) state.keyOk = true; renderChrome(); }).catch(() => {});
+  parseHash();
   if (state.view) $('addr').value = state.view;
   if (read(LS.connected) && eth()) await connect(true);
   render();

@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>advise — suggest a fix, the owner decides</title>
 <style>
+  @property --p { syntax: '<number>'; inherits: false; initial-value: 0; }
+  @property --rc { syntax: '<color>'; inherits: false; initial-value: #565c74; }
   :root {
     --bg: #0a0c12; --s1: #10131c; --s2: #151926; --s3: #1b2030;
     --line: rgba(255,255,255,.07); --line2: rgba(255,255,255,.13);
@@ -132,6 +134,13 @@
   .sechead { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; flex-wrap: wrap; }
   .sechead h2 { margin: 0; font: 650 18px/1.2 var(--sans); letter-spacing: -.01em; }
   .sechead .sub { color: var(--dim); font-size: 13px; }
+  #recent-feed { margin: 26px 0; }
+  .rf-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--r); cursor: pointer; transition: background .12s; }
+  .rf-row:hover { background: var(--s1); }
+  .rf-mod { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font: 700 11px/1 var(--sans); color: #fff; flex-shrink: 0; text-transform: uppercase; }
+  .rf-title { flex: 1; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rf-sev { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .rf-ts { font-size: 11.5px; color: var(--dim); white-space: nowrap; flex-shrink: 0; }
   .seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--s1); border: 1px solid var(--line); }
   .seg button { border: 0; background: none; color: var(--dim); padding: 6px 12px; border-radius: 7px; font: 500 12px/1 var(--sans); cursor: pointer; text-transform: capitalize; }
   .seg button:hover { color: var(--ink); }
@@ -261,6 +270,8 @@
   details.more-f summary svg.i { width: 14px; height: 14px; transition: transform .15s; }
   details.more-f[open] summary svg.i { transform: rotate(90deg); }
   details.more-f summary:hover { color: var(--ink); }
+  @keyframes preview-pulse { 0%,100% { opacity:1; } 50% { opacity:.45; } }
+  .preview-pulse { animation: preview-pulse 1.6s ease-in-out infinite; }
 
   .signal { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; }
   .ring { --p: 0; --rc: var(--faint); width: 54px; height: 54px; flex: none; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--rc) calc(var(--p) * 1%), var(--s3) 0); transition: --p .4s; }
@@ -291,6 +302,8 @@
     animation: rise .35s cubic-bezier(.2,.9,.3,1) both;
   }
   .card:hover { border-color: var(--line2); background: var(--s2); }
+  .card.focused { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(124,156,255,.2); outline: none; }
+  kbd { display: inline-block; background: var(--s3); border: 1px solid var(--line2); border-radius: 5px; padding: 1px 6px; font: 11px/1.6 var(--mono); color: var(--ink2); }
   .card::before { content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--sev, var(--accent)); }
   .card .top { display: flex; gap: 12px; align-items: flex-start; }
   .card h3 { margin: 0; font: 600 15.5px/1.35 var(--sans); flex: 1; }
@@ -328,7 +341,26 @@
   .detail-anchors { display: flex; flex-direction: column; gap: 4px; }
   .detail-anchor { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 7px; background: rgba(124,156,255,.07); border: 1px solid rgba(124,156,255,.22); font: 500 12px/1 var(--mono); color: var(--accent); cursor: pointer; width: fit-content; text-align: left; }
   .detail-anchor:hover { background: rgba(124,156,255,.15); }
+  .detail-anchor-row { display: flex; flex-direction: column; gap: 4px; }
+  .peek-block { background: #080a11; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; font: 12px/1.6 var(--mono); }
+  .peek-block .ln { display: flex; }
+  .peek-block .ln .no { flex: 0 0 46px; text-align: right; padding-right: 10px; color: #3e4459; user-select: none; }
+  .peek-block .ln.pin { background: rgba(124,156,255,.12); box-shadow: inset 3px 0 0 var(--accent); }
+  .peek-block .ln.pin .no { color: var(--accent); font-weight: 700; }
+  .peek-block .ln code { white-space: pre; padding-right: 16px; color: #cfd4e4; }
+  .peek-goto { display: inline-block; margin-top: 4px; font-size: 11px; color: var(--dim); text-decoration: none; cursor: pointer; }
+  .peek-goto:hover { color: var(--accent); }
+  .detail-decision { padding: 8px 12px; border-radius: 8px; border-left: 3px solid; display: flex; flex-direction: column; gap: 3px; }
+  .detail-decision > label { font: 600 11px/1 var(--sans); text-transform: uppercase; letter-spacing: .05em; }
+  .detail-decision > p { margin: 0; font-size: 13px; white-space: pre-wrap; }
+  .detail-decision > small { font-size: 11px; opacity: .7; }
+  .detail-decision.approved { border-left-color: var(--ok); background: rgba(74,222,154,.07); color: var(--ok); }
+  .detail-decision.rejected { border-left-color: var(--no); background: rgba(255,107,125,.07); color: var(--no); }
   .diff-block { margin: 0; padding: 10px 12px; border-radius: 9px; background: #080a11; border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--ink2); white-space: pre; overflow-x: auto; max-height: 240px; overflow-y: auto; }
+  .d-add { color: #4ade80; }
+  .d-rm  { color: #f87171; }
+  .d-hunk { color: var(--accent); }
+  .d-hdr { color: var(--faint); }
   .cmt-row { display: flex; flex-direction: column; gap: 2px; padding: 7px 10px; border-radius: 8px; background: var(--s2); border: 1px solid var(--line); }
   .cmt-meta { font: 500 11px/1.2 var(--sans); color: var(--faint); }
   .cmt-body { margin: 0; font-size: 13px; color: var(--ink2); white-space: pre-wrap; }
@@ -373,7 +405,10 @@
     .owner { text-align: left; }
   }
   @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
+  code .hljs { background: transparent; }
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <body>
 
@@ -427,6 +462,9 @@
         </div>
       </div>
 
+      <div id="recent-feed"></div>
+      <div id="leaderboard"></div>
+
       <div class="how">
         <div><div class="k">1</div><b>Read</b><span>Browse the module's files. Secrets are always hidden.</span></div>
         <div><div class="k">2</div><b>Point</b><span>Click line numbers to mark exactly where the problem is.</span></div>
@@ -466,6 +504,7 @@
             <div class="field">
               <label for="title">What should change?</label>
               <input id="title" maxlength="200" placeholder="e.g. Cache the module list between requests" oninput="score()">
+              <div id="dup-warn" class="hidden"></div>
             </div>
             <div class="field">
               <label>Type</label>
@@ -498,6 +537,10 @@
             <details class="more-f"><summary><svg class="i"><use href="#i-chev"/></svg>Attach a patch (optional)</summary>
               <textarea id="patch" class="code-in" style="margin-top:8px" placeholder="unified diff — shown to the owner, never applied" oninput="score()"></textarea>
             </details>
+            <details class="more-f" id="owner-preview-panel">
+              <summary><svg class="i"><use href="#i-chev"/></svg><span id="preview-label">Preview how the owner sees this</span></summary>
+              <pre id="owner-preview" class="diff-block" style="margin-top:8px;min-height:60px"></pre>
+            </details>
           </div>
           <div class="foot">
             <div class="signal">
@@ -518,6 +561,7 @@
     <div class="pagehead"><div><h1>Queue</h1><p>Every suggestion filed on this host, and what happened to it.</p></div></div>
     <div class="toolbar">
       <div class="seg" id="q-status"></div>
+      <div id="q-sev" class="pills"></div>
       <div class="searchbox"><svg class="i"><use href="#i-search"/></svg>
         <input id="q-module" placeholder="Filter by module" onkeydown="if(event.key==='Enter')loadQueue()"></div>
       <div class="grow"></div>
@@ -531,6 +575,7 @@
     <div class="pagehead"><div><h1>Inbox</h1><p id="inbox-note">Suggestions waiting on modules you own.</p></div>
       <div class="grow"></div>
       <button class="btn ghost" onclick="loadInbox()"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button></div>
+    <div id="inbox-keys" class="hidden" style="display:flex;gap:10px;align-items:center;padding:8px 0 12px;color:var(--dim);font-size:12px;flex-wrap:wrap"><kbd>j/k</kbd> navigate <kbd>e</kbd> expand <kbd>a</kbd> approve <kbd>r</kbd> reject <kbd>esc</kbd> blur</div>
     <div id="inbox" class="cards"></div>
   </section>
 
@@ -555,17 +600,32 @@ let ANCHORS = [];
 let CUR_FILE = null;
 let KIND = 'feature', SEV = 'medium', QSTATUS = 'pending';
 let TREE = '', LIMIT = 60, LOWER = 'todo', FILEQ = '';
+let QRECS = [], QSEV = '';
 const EXPANDED = {};
+let INBOX_FOCUS = -1;
+let _inboxKeyHandler = null;
 
 const KINDS = { feature: '#7c9cff', bug: '#ff6b7d', security: '#ff7ad9', performance: '#f5c35b',
   ux: '#4fd8f0', docs: '#a8b4ff', test: '#4ade9a', cleanup: '#9aa0b8' };
 const SEVS = { low: '#4ade9a', medium: '#f5c35b', high: '#ff9a5a', critical: '#ff6b7d' };
 const LANG = ['#7c9cff', '#b38cff', '#4fd8f0', '#f5c35b', '#4ade9a', '#ff9a5a', '#ff7ad9', '#9aa0b8'];
 const AV = ['#7c9cff', '#b38cff', '#4fd8f0', '#f5c35b', '#4ade9a', '#ff9a5a', '#ff7ad9', '#a8b4ff'];
+const EXT_LANG = {py:'python',rs:'rust',ts:'typescript',tsx:'typescript',js:'javascript',jsx:'javascript',go:'go',sh:'bash',bash:'bash',html:'xml',htm:'xml',json:'json',css:'css',toml:'toml',yaml:'yaml',yml:'yaml',md:'markdown',c:'c',cpp:'cpp',h:'c',java:'java',rb:'ruby',php:'php',swift:'swift',kt:'kotlin',sql:'sql'};
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g,
     c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderDiff(text) {
+  return String(text == null ? '' : text).split('\n').map(line => {
+    const e = esc(line);
+    if (line.startsWith('+++') || line.startsWith('---')) return `<span class="d-hdr">${e}</span>`;
+    if (line.startsWith('+')) return `<span class="d-add">${e}</span>`;
+    if (line.startsWith('-')) return `<span class="d-rm">${e}</span>`;
+    if (line.startsWith('@@')) return `<span class="d-hunk">${e}</span>`;
+    return `<span>${e}</span>`;
+  }).join('\n');
 }
 const $ = id => document.getElementById(id);
 const kb = n => n > 1024 * 1024 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B';
@@ -659,6 +719,7 @@ function show(view) {
     $('tab-' + v).classList.toggle('on', v === view);
   }
   $('main').classList.toggle('wide', view === 'scan' && !!BRIEF);
+  if (view !== 'inbox') cleanupInboxNav();
   if (view === 'queue') loadQueue();
   if (view === 'inbox') loadInbox();
   if (view === 'outbox') loadOutbox();
@@ -667,6 +728,7 @@ function show(view) {
 
 function home() {
   BRIEF = null; CUR_FILE = null;
+  localStorage.removeItem('advise.draft');
   $('work').classList.add('hidden');
   $('landing').classList.remove('hidden');
   history.replaceState(null, '', location.pathname);
@@ -723,7 +785,59 @@ async function loadStats() {
     countTo($('s-approved'), c.approved);
     countTo($('s-rejected'), c.rejected);
     $('n-queue').textContent = c.pending;
+    renderRecentFeed(out.recommendations.slice(0, 5));
+    renderLeaderboard(out.recommendations);
   } catch (e) { /* stats are decoration */ }
+}
+
+function renderRecentFeed(recs) {
+  const el = $('recent-feed');
+  if (!el) return;
+  if (!recs || !recs.length) {
+    el.innerHTML = '<div class="empty">Nothing filed yet — read a module and be the first.</div>';
+    return;
+  }
+  const rows = recs.map(r => {
+    const bg = avColor(r.module);
+    const initial = esc(String(r.module).replace(/^[^a-z0-9]+/i, '').charAt(0) || '?').toUpperCase();
+    const kindColor = KINDS[r.kind] || 'var(--dim)';
+    const sevColor = SEVS[r.severity] || 'var(--dim)';
+    return `<div class="rf-row" onclick="location.search='?rec='+encodeURIComponent('${esc(r.id)}')">
+      <div class="rf-mod" style="background:${bg}">${initial}</div>
+      <span class="rf-title">${esc(r.title)}</span>
+      <span class="tag cap" style="--c:${kindColor}"><i></i>${esc(r.kind)}</span>
+      <i class="rf-sev" style="background:${sevColor}"></i>
+      <span class="rf-ts">${ago(r.created_at)}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="sechead"><h2>Recent suggestions</h2><span class="sub">across all modules</span><div class="grow"></div><a href="#" onclick="show('queue');return false">View all →</a></div>${rows}`;
+}
+
+function renderLeaderboard(recs) {
+  const el = $('leaderboard');
+  if (!el) return;
+  const approved = (recs || []).filter(r => r.author_signed === true && r.status === 'approved');
+  if (!approved.length) { el.innerHTML = ''; return; }
+  const byAuthor = {};
+  for (const r of approved) {
+    if (!byAuthor[r.author]) byAuthor[r.author] = { count: 0, modules: new Set() };
+    byAuthor[r.author].count++;
+    if (r.module) byAuthor[r.author].modules.add(r.module);
+  }
+  const top = Object.entries(byAuthor)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 5);
+  const rows = top.map(([author, d]) => {
+    const bg = avColor(author);
+    const initial = esc(String(author).replace(/^[^a-z0-9]+/i, '').charAt(0) || '?').toUpperCase();
+    const mods = d.modules.size;
+    return `<div class="rf-row">
+      <div class="rf-mod" style="background:${bg}">${initial}</div>
+      <span class="rf-title">${esc(short(author))}</span>
+      <span class="rf-ts">${d.count} approved · ${mods} module${mods !== 1 ? 's' : ''}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<div class="sechead"><h2>Top contributors</h2><span class="sub">by approved suggestions</span><div class="grow"></div><a href="#" onclick="show('queue');QSTATUS='approved';paintQStatus();loadQueue();return false">View approved →</a></div>${rows}`;
 }
 
 async function peekInbox() {
@@ -788,12 +902,14 @@ function filterMods() {
     return;
   }
   const hit = matches();
+  hit.sort((a, b) => (b.open_recs || 0) - (a.open_recs || 0));
   $('mod-count').textContent = hit.length === MODS.length ? `${MODS.length} open to read` : `${hit.length} of ${MODS.length}`;
   g.innerHTML = hit.slice(0, LIMIT).map(m => {
     const d = m.description && m.description !== m.module && m.description !== m.title ? m.description : '';
+    const badge = m.open_recs > 0 ? `<span class="tag" style="--c:var(--warn);color:var(--warn)"><i></i>${m.open_recs} pending</span>` : '';
     return `<button class="mod" data-m="${esc(m.module)}" onclick="pick(this.dataset.m)">${avatar(m.module)}
       <div class="t"><b>${esc(m.module)}${m.tree === 'core' ? '<small>core</small>' : ''}</b>
-      <span>${esc(d || 'No description yet')}</span></div></button>`;
+      <span>${esc(d || 'No description yet')}</span>${badge}</div></button>`;
   }).join('')
     || `<div class="empty">Nothing matches. Press <b>Open</b> to try “${esc($('module').value.trim())}” anyway.</div>`;
   $('more').classList.toggle('hidden', hit.length <= LIMIT);
@@ -838,7 +954,7 @@ async function loadBrief(module, focus = '') {
         || (b.stats.biggest || []).find(f => !/\.md$/.test(f.path));
       if (first) openFile(first.path);
     } else paintFiles();
-    renderAnchors(); score();
+    renderAnchors(); score(); restoreDraft();
   } catch (e) {
     $('wshead').innerHTML = '';
     $('files').innerHTML = '';
@@ -879,16 +995,48 @@ function paintFiles() {
   const q = FILEQ.toLowerCase();
   const files = (b.tree.files || []).filter(f => !q || f.path.toLowerCase().includes(q));
   const cur = CUR_FILE && CUR_FILE.path;
+  const fileSugCounts = {};
+  for (const r of (b.open_recommendations || [])) {
+    for (const p of (r.anchor_paths || [])) {
+      fileSugCounts[p] = (fileSugCounts[p] || 0) + 1;
+    }
+  }
   const list = files.map(f => {
     const i = f.path.lastIndexOf('/');
     const nm = i >= 0 ? `<i>${esc(f.path.slice(0, i + 1))}</i>${esc(f.path.slice(i + 1))}` : esc(f.path);
+    const n = fileSugCounts[f.path];
+    const badge = n ? `<span title="${n} suggestion${n === 1 ? '' : 's'} point here" style="font-size:10px;padding:1px 5px;border-radius:99px;background:rgba(245,195,91,.15);color:var(--warn);border:1px solid rgba(245,195,91,.3)">${n}</span>` : '';
     return `<button class="f ${f.readable ? '' : 'off'} ${f.path === cur ? 'sel' : ''}" data-p="${esc(f.path)}" title="${esc(f.path)}"
-      ${f.readable ? `onclick="openFile(this.dataset.p)"` : 'disabled'}>${icon('file')}<span class="nm">${nm}</span><small>${kb(f.bytes)}</small></button>`;
+      ${f.readable ? `onclick="openFile(this.dataset.p)"` : 'disabled'}>${icon('file')}<span class="nm">${nm}</span>${badge}<small>${kb(f.bytes)}</small></button>`;
   }).join('') || '<div class="note">No files match.</div>';
   const had = document.activeElement && document.activeElement.id === 'file-q';
   $('files').innerHTML = `<div class="find searchbox">${icon('search')}<input id="file-q" placeholder="Find a file" value="${esc(FILEQ)}"
       oninput="FILEQ=this.value;paintFiles()"></div>${list}`;
   if (had) { const el = $('file-q'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+}
+
+function prefillTodo(path, line, text) {
+  if (!ANCHORS.find(a => a.path === path && a.line === line)) {
+    ANCHORS.push({ module: BRIEF && BRIEF.module, path, line, note: (text || '').trim().slice(0, 60) });
+  }
+  const u = (text || '').toUpperCase();
+  KIND = (u.includes('FIXME') || u.includes('HACK')) ? 'bug' : 'cleanup';
+  paintChips();
+  openFile(path, line);
+  renderAnchors(); score();
+  const panel = document.getElementById('form-panel');
+  if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  setTimeout(() => { const t = document.getElementById('title'); if (t) t.focus(); }, 300);
+}
+
+function pinHit(path, line, text) {
+  if (!ANCHORS.find(a => a.path === path && a.line === line)) {
+    ANCHORS.push({ module: BRIEF && BRIEF.module, path, line, note: (text || '').trim().slice(0, 60) });
+  }
+  openFile(path, line);
+  renderAnchors(); score();
+  const panel = document.getElementById('form-panel');
+  if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function renderLower() {
@@ -905,11 +1053,13 @@ function renderLower() {
   $('lower-tabs').innerHTML = tabs.map(([k, t, n]) =>
     `<button class="${k === LOWER ? 'on' : ''}" onclick="LOWER='${k}';renderLower()">${t}${n !== '' ? ` <span class="n">${n}</span>` : ''}</button>`).join('');
   const hits = list => list.slice(0, 120).map(h =>
-    `<button class="hit" data-p="${esc(h.path)}" data-l="${h.line}" onclick="openFile(this.dataset.p, +this.dataset.l)"><em>${esc(h.path)}:${h.line}</em><span>${esc(h.text)}</span></button>`).join('');
+    `<div class="hit" data-p="${esc(h.path)}" data-l="${h.line}" data-t="${esc(h.text)}" onclick="openFile(this.dataset.p,+this.dataset.l)"><em>${esc(h.path)}:${h.line}</em><span>${esc(h.text)}</span><button class="btn ghost" style="font-size:11px;padding:3px 8px;flex:none" onclick="event.stopPropagation();pinHit(this.parentNode.dataset.p,+this.parentNode.dataset.l,this.parentNode.dataset.t)">Pin →</button></div>`).join('');
   let body = '';
-  if (LOWER === 'todo') body = hits(todos) || '<div class="note">No TODO or FIXME notes in this module.</div>';
+  if (LOWER === 'todo') body = todos.slice(0, 120).map(h =>
+    `<div class="hit" data-p="${esc(h.path)}" data-l="${h.line}" data-t="${esc(h.text)}" onclick="openFile(this.dataset.p,+this.dataset.l)"><em>${esc(h.path)}:${h.line}</em><span>${esc(h.text)}</span><button class="btn ghost" style="font-size:11px;padding:3px 8px;flex:none" onclick="event.stopPropagation();prefillTodo(this.parentNode.dataset.p,+this.parentNode.dataset.l,this.parentNode.dataset.t)">Suggest fix →</button></div>`
+  ).join('') || '<div class="note">No TODO or FIXME notes in this module.</div>';
   if (LOWER === 'filed') body = open.map(r =>
-    `<div class="hit static" title="${esc(r.title)}"><span class="status ${esc(r.status)}">${esc(r.status)}</span><span style="font-family:var(--sans)">${esc(r.title)}</span></div>`).join('')
+    `<div class="hit" onclick="showRecModal('${esc(r.id)}')" title="${esc(r.title)}"><span class="status ${esc(r.status)}">${esc(r.status)}</span>${r.kind ? `<span class="tag cap" style="--c:${KINDS[r.kind] || 'var(--dim)'}"><i></i>${esc(r.kind)}</span>` : ''}<span style="font-family:var(--sans);flex:1">${esc(r.title)}</span>${r.author ? `<span style="font-family:var(--mono);font-size:11px;color:var(--dim);flex:none">${esc(r.author.length > 20 ? short(r.author) : r.author)}</span>` : ''}</div>`).join('')
     || '<div class="note">Nothing suggested yet — you would be first.</div>';
   if (LOWER === 'grep') body = `<div style="padding:6px"><div class="searchbox">${icon('search')}
       <input id="focus" placeholder="Search this module's code and press Enter" value="${esc(b.focus ? b.focus.query : '')}"
@@ -944,13 +1094,14 @@ function paintCode() {
   const f = CUR_FILE, code = $('code');
   const pinned = new Set(ANCHORS.filter(a => a.path === f.path).map(a => a.line));
   const lines = f.content.split('\n');
-  const isCm = t => /^\s*(#|\/\/|\/\*|\*|--|<!--)/.test(t);
+  const ext = (f.path.split('.').pop() || '').toLowerCase();
+  const lang = EXT_LANG[ext] || '';
   code.innerHTML = `<div class="boxhead"><span class="path">${esc(f.path)}</span>
       <span class="sub">${f.total_lines} lines${f.truncated ? ' · truncated' : ''}</span><span class="grow"></span>
       <span class="sub">click a line number to point at it</span></div>`
     + lines.map((t, i) => {
       const n = f.start + i;
-      return `<div class="ln ${pinned.has(n) ? 'pin' : ''}" data-n="${n}"><span class="no" onclick="togglePin(${n})">${n}</span><code>${isCm(t) ? `<span class="cm">${esc(t)}</span>` : esc(t)}</code></div>`;
+      return `<div class="ln ${pinned.has(n) ? 'pin' : ''}" data-n="${n}"><span class="no" onclick="togglePin(${n})">${n}</span><code>${lang ? hljs.highlight(t, {language: lang}).value : esc(t)}</code></div>`;
     }).join('');
 }
 
@@ -993,6 +1144,76 @@ function paintChips() {
     `<button class="pill ${k === KIND ? 'on' : ''}" style="--c:${c}" onclick="KIND='${k}';paintChips()"><i></i>${k}</button>`).join('');
   $('severity').innerHTML = Object.entries(SEVS).map(([k, c]) =>
     `<button class="${k === SEV ? 'on' : ''}" style="--c:${c}" onclick="SEV='${k}';paintChips()">${k}</button>`).join('');
+  renderOwnerPreview();
+}
+
+function renderOwnerPreview() {
+  const el = $('owner-preview');
+  if (!el) return;
+  const v = id => $(id).value.trim();
+  const who = ADDRESS ? ADDRESS : 'anon:unknown (no account)';
+  const lines = [
+    'Recommended by ' + who + ' — advise (pending)',
+    KIND + ' · severity ' + SEV,
+    ''
+  ];
+  const summary = v('summary');
+  if (summary) { lines.push(summary, ''); }
+  const rationale = v('rationale');
+  if (rationale) { lines.push('WHY', rationale, ''); }
+  const change = v('change');
+  if (change) { lines.push('PROPOSED CHANGE', change, ''); }
+  if (ANCHORS.length) {
+    lines.push('WHERE');
+    for (const a of ANCHORS) {
+      const where = a.path + (a.line ? ':' + a.line : '');
+      lines.push('  - ' + where + (a.note ? ' — ' + a.note : ''));
+    }
+    lines.push('');
+  }
+  const patch = v('patch');
+  if (patch) { lines.push('PATCH (proposed, not applied)', '```diff', patch, '```', ''); }
+  el.textContent = lines.join('\n').trimEnd();
+  const panel = $('owner-preview-panel');
+  const lbl = $('preview-label');
+  const hasContent = !!(v('summary') || v('rationale') || v('change') || ANCHORS.length || patch);
+  if (hasContent && !panel.open) {
+    lbl.classList.add('preview-pulse');
+    lbl.textContent = 'Preview ready →';
+  } else {
+    lbl.classList.remove('preview-pulse');
+    lbl.textContent = 'Preview how the owner sees this';
+  }
+}
+
+function saveDraft() {
+  if (!BRIEF) return;
+  const v = id => $(id) ? $(id).value : '';
+  const hasContent = v('title') || v('summary') || v('rationale') || v('change') || v('patch') || ANCHORS.length;
+  if (!hasContent) { localStorage.removeItem('advise.draft'); return; }
+  localStorage.setItem('advise.draft', JSON.stringify({
+    module: BRIEF.module,
+    title: v('title'), summary: v('summary'), rationale: v('rationale'),
+    change: v('change'), patch: v('patch'),
+    kind: KIND, sev: SEV, anchors: ANCHORS,
+    ts: Date.now(),
+  }));
+}
+
+function restoreDraft() {
+  if (!BRIEF) return;
+  let d;
+  try { d = JSON.parse(localStorage.getItem('advise.draft') || 'null'); } catch (_) { return; }
+  if (!d || d.module !== BRIEF.module) return;
+  if (Date.now() - d.ts > 7 * 24 * 60 * 60 * 1000) { localStorage.removeItem('advise.draft'); return; }
+  for (const id of ['title', 'summary', 'rationale', 'change', 'patch']) {
+    const el = $(id); if (el && d[id] != null) el.value = d[id];
+  }
+  if (d.kind) KIND = d.kind;
+  if (d.sev) SEV = d.sev;
+  if (Array.isArray(d.anchors)) ANCHORS = d.anchors;
+  paintChips(); renderAnchors(); paintCode(); score();
+  toast('Draft restored', 'ok');
 }
 
 function score() {
@@ -1016,7 +1237,33 @@ function score() {
   const todo = checks.find(([, ok]) => !ok);
   $('next').textContent = todo ? 'Next: ' + todo[3] : 'Ready to send.';
   $('checks').innerHTML = checks.map(([t, ok]) => `<li class="${ok ? 'done' : ''}">${t}</li>`).join('');
+  renderOwnerPreview();
+  saveDraft();
+  checkDuplicates();
   return s;
+}
+
+function checkDuplicates() {
+  const warn = $('dup-warn');
+  if (!warn) return;
+  const tokens = t => t.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length >= 4);
+  const cur = new Set(tokens($('title').value));
+  if (!cur.size) { warn.className = 'hidden'; return; }
+  const recs = (BRIEF && BRIEF.open_recommendations) || [];
+  for (const r of recs) {
+    const rt = new Set(tokens(r.title || ''));
+    let shared = 0;
+    for (const w of cur) if (rt.has(w)) shared++;
+    const union = new Set([...cur, ...rt]).size;
+    const jaccard = union ? shared / union : 0;
+    if (shared >= 3 || jaccard >= 0.45) {
+      warn.className = '';
+      warn.style.cssText = 'color:var(--warn);font-size:12px;margin-top:5px;display:flex;gap:6px;align-items:center';
+      warn.innerHTML = `Looks similar to an existing suggestion: ‘${esc(r.title)}’ — <a href="?rec=${encodeURIComponent(r.id)}" style="color:var(--warn)">${esc(r.id)}</a>`;
+      return;
+    }
+  }
+  warn.className = 'hidden';
 }
 
 async function fileRec() {
@@ -1044,6 +1291,7 @@ async function fileRec() {
     msg.innerHTML = `<span class="ok">Sent</span> as <code>${esc(out.filed)}</code> — waiting on ${esc(out.awaiting ? short(out.awaiting) : 'the owner')}`;
     for (const id of ['title', 'summary', 'rationale', 'change', 'patch']) $(id).value = '';
     ANCHORS = []; renderAnchors(); if (CUR_FILE) paintCode(); score();
+    localStorage.removeItem('advise.draft');
     loadStats(); peekOutbox();
   } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; toast(e.message, 'err'); }
 }
@@ -1081,7 +1329,7 @@ function card(r, owner, i) {
       ${r.relayed ? '<span class="tag" style="--c:var(--ok);color:var(--ok)"><i></i>in build\'s idea queue</span>' : ''}
     </div>
     <div class="byline">${who} · ${ago(r.created_at)} <span class="grow"></span>
-      <a href="${API}/rec?id=${encodeURIComponent(r.id)}" target="_blank">${esc(r.id)}</a>
+      <a href="?rec=${encodeURIComponent(r.id)}">${esc(r.id)}</a>
       <button class="detail-toggle" id="tog-${rid}" onclick="expandCard('${rid}',this)" title="Read more">${icon('chev')}</button></div>
     <div class="detail-body hidden" id="det-${rid}"></div>
     ${acts}</div>`;
@@ -1098,10 +1346,29 @@ async function loadQueue() {
   el.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>';
   try {
     const out = await call('recs', { status: QSTATUS, module: $('q-module').value.trim(), limit: 100 });
-    el.innerHTML = out.count
-      ? out.recommendations.map((r, i) => card(r, false, i)).join('')
-      : `<div class="empty">Nothing here yet. <a href="#" onclick="home();return false">Read a module</a> and <b>be the first</b>.</div>`;
-  } catch (e) { el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
+    QRECS = out.recommendations || [];
+    paintQSev();
+    renderQueue(QRECS);
+  } catch (e) { el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; QRECS = []; }
+}
+
+function renderQueue(recs) {
+  const el = $('queue');
+  const filtered = QSEV ? recs.filter(r => r.severity === QSEV) : recs;
+  el.innerHTML = filtered.length
+    ? filtered.map((r, i) => card(r, false, i)).join('')
+    : `<div class="empty">Nothing here yet. <a href="#" onclick="home();return false">Read a module</a> and <b>be the first</b>.</div>`;
+}
+
+function paintQSev() {
+  const el = $('q-sev');
+  if (!el) return;
+  const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const r of QRECS) if (r.severity in counts) counts[r.severity]++;
+  el.innerHTML = Object.entries(SEVS).reverse().map(([k, c]) => {
+    const n = counts[k] || 0;
+    return `<button class="pill ${k === QSEV ? 'on' : ''}" style="--c:${c}" onclick="QSEV=(QSEV==='${k}'?'':'${k}');paintQSev();renderQueue(QRECS)"><i></i>${n} ${k}</button>`;
+  }).join('');
 }
 
 async function loadInbox() {
@@ -1120,7 +1387,65 @@ async function loadInbox() {
     el.innerHTML = out.count
       ? out.recommendations.map((r, i) => card(r, true, i)).join('')
       : '<div class="empty"><b>Inbox zero.</b> Nothing is waiting on you.</div>';
+    if (out.count) setupInboxNav();
   } catch (e) { el.innerHTML = `<div class="empty err">${esc(e.message)}</div>`; }
+}
+
+function cleanupInboxNav() {
+  if (_inboxKeyHandler) {
+    document.removeEventListener('keydown', _inboxKeyHandler);
+    _inboxKeyHandler = null;
+  }
+  document.querySelectorAll('#inbox .card.focused').forEach(c => c.classList.remove('focused'));
+  const keysEl = $('inbox-keys');
+  if (keysEl) keysEl.classList.add('hidden');
+  INBOX_FOCUS = -1;
+}
+
+function setupInboxNav() {
+  cleanupInboxNav();
+  const cards = [...document.querySelectorAll('#inbox .card')];
+  if (!cards.length) return;
+  $('inbox-keys').classList.remove('hidden');
+  INBOX_FOCUS = 0;
+  cards[0].classList.add('focused');
+  cards[0].scrollIntoView({ block: 'nearest' });
+  _inboxKeyHandler = e => {
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    const all = [...document.querySelectorAll('#inbox .card')];
+    if (!all.length) return;
+    if (e.key === 'j' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      all[INBOX_FOCUS]?.classList.remove('focused');
+      INBOX_FOCUS = Math.min(INBOX_FOCUS + 1, all.length - 1);
+      all[INBOX_FOCUS].classList.add('focused');
+      all[INBOX_FOCUS].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'k' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      all[INBOX_FOCUS]?.classList.remove('focused');
+      INBOX_FOCUS = Math.max(INBOX_FOCUS - 1, 0);
+      all[INBOX_FOCUS].classList.add('focused');
+      all[INBOX_FOCUS].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'e' || e.key === 'Enter') {
+      const focused = all[INBOX_FOCUS];
+      if (!focused) return;
+      const tog = focused.querySelector('.detail-toggle');
+      if (tog) { const id = tog.id.replace(/^tog-/, ''); expandCard(id, tog); }
+    } else if (e.key === 'a') {
+      const focused = all[INBOX_FOCUS];
+      if (!focused) return;
+      const btn = focused.querySelector('.btn.yes');
+      if (btn) btn.click();
+    } else if (e.key === 'r') {
+      const focused = all[INBOX_FOCUS];
+      if (!focused) return;
+      const btn = focused.querySelector('.btn.no');
+      if (btn) btn.click();
+    } else if (e.key === 'Escape') {
+      cleanupInboxNav();
+    }
+  };
+  document.addEventListener('keydown', _inboxKeyHandler);
 }
 
 async function loadOutbox() {
@@ -1197,6 +1522,58 @@ function navigateToAnchor(btn) {
   loadBrief(mod).then(() => openFile(path, line));
 }
 
+const PEEK_CACHE = {};
+
+async function peekAnchor(btn, recId, anchorIdx) {
+  const mod = btn.dataset.module;
+  const path = btn.dataset.path;
+  const line = btn.dataset.line ? +btn.dataset.line : 0;
+  const peekId = `peek-${recId}-${anchorIdx}`;
+  const gotoId = `peek-goto-${recId}-${anchorIdx}`;
+  const existing = document.getElementById(peekId);
+  if (existing) {
+    existing.classList.toggle('hidden');
+    const existingGoto = document.getElementById(gotoId);
+    if (existingGoto) existingGoto.classList.toggle('hidden');
+    return;
+  }
+
+  const cacheKey = mod + ':' + path;
+  const start = Math.max(1, line - 6);
+  let fileData = PEEK_CACHE[cacheKey + ':' + start];
+  if (!fileData) {
+    try {
+      fileData = await call('file', { module: mod, path, start, lines: 12 });
+      PEEK_CACHE[cacheKey + ':' + start] = fileData;
+    } catch (e) { toast('Could not load file: ' + e.message, 'err'); return; }
+  }
+
+  const ext = (path.split('.').pop() || '').toLowerCase();
+  const lang = EXT_LANG[ext] || '';
+  const lines = fileData.content.split('\n');
+  const html = lines.map((t, i) => {
+    const n = fileData.start + i;
+    const pinned = line && n === line;
+    const code = lang ? hljs.highlight(t, { language: lang }).value : esc(t);
+    return `<div class="ln${pinned ? ' pin' : ''}" data-n="${n}"><span class="no">${n}</span><code>${code}</code></div>`;
+  }).join('');
+
+  const peek = document.createElement('div');
+  peek.id = peekId;
+  peek.className = 'peek-block';
+  peek.innerHTML = html;
+
+  const gotoLink = document.createElement('a');
+  gotoLink.id = gotoId;
+  gotoLink.className = 'peek-goto';
+  gotoLink.textContent = 'go to file →';
+  gotoLink.onclick = () => { show('scan'); loadBrief(mod).then(() => openFile(path, line || undefined)); };
+
+  const wrap = btn.closest('.detail-anchor-row') || btn.parentNode;
+  wrap.appendChild(peek);
+  wrap.appendChild(gotoLink);
+}
+
 async function expandCard(id, btn) {
   const body = document.getElementById('det-' + id);
   if (!body) return;
@@ -1221,16 +1598,26 @@ function renderExpanded(id) {
   const field = (label, val) => val
     ? `<div class="detail-field"><label>${label}</label><p>${esc(val)}</p></div>`
     : '';
+  const rid = esc(id);
   const anchorLinks = (rec.anchors || []).length
     ? `<div class="detail-field"><label>Anchors</label><div class="detail-anchors">${
-        (rec.anchors || []).map(a =>
-          `<button class="detail-anchor" data-module="${esc(rec.module)}" data-path="${esc(a.path)}" data-line="${a.line || ''}" onclick="navigateToAnchor(this)">${esc(a.path)}${a.line ? ':' + a.line : ''}${a.note ? ' — ' + esc(a.note) : ''}</button>`
+        (rec.anchors || []).map((a, idx) =>
+          `<div class="detail-anchor-row"><button class="detail-anchor" data-module="${esc(rec.module)}" data-path="${esc(a.path)}" data-line="${a.line || ''}" onclick="peekAnchor(this,'${rid}',${idx})">${esc(a.path)}${a.line ? ':' + a.line : ''}${a.note ? ' — ' + esc(a.note) : ''}</button></div>`
         ).join('')}</div></div>`
     : '';
   const patch = rec.patch
-    ? `<div class="detail-field"><label>Patch</label><pre class="diff-block">${esc(rec.patch)}</pre></div>`
+    ? `<div class="detail-field"><label>Patch</label><pre class="diff-block">${renderDiff(rec.patch)}</pre></div>`
     : '';
-  const rid = esc(id);
+  const relayLink = rec.relay && rec.relay.ok && rec.relay.url
+    ? `<div class="detail-field"><label>Build suggestion</label><a class="btn" href="${esc(rec.relay.url)}" target="_blank">Play in build →</a></div>`
+    : '';
+  const decisionNote = rec.note && rec.status !== 'pending'
+    ? `<div class="detail-decision ${esc(rec.status)}">
+        <label>Owner's note</label>
+        <p>${esc(rec.note)}</p>
+        <small>${rec.decided_by ? esc(short(rec.decided_by)) + ' · ' : ''}${rec.decided_at ? ago(rec.decided_at) : ''}</small>
+      </div>`
+    : '';
   const cmtRows = (rec.comments || []).map(c =>
     `<div class="cmt-row"><span class="cmt-meta">${esc(c.author)} · ${ago(c.timestamp)}</span><p class="cmt-body">${esc(c.body)}</p></div>`
   ).join('');
@@ -1241,12 +1628,75 @@ function renderExpanded(id) {
       <button class="btn" onclick="addComment('${rid}')">Add comment</button>
     </div></div>`;
   body.innerHTML = [
+    decisionNote,
+    relayLink,
     field('Rationale', rec.rationale),
     field('Change', rec.change),
     anchorLinks,
     patch,
     comments,
   ].filter(Boolean).join('') || '<div class="note">No additional detail.</div>';
+}
+
+async function showRecModal(id) {
+  const scrim = document.createElement('div');
+  scrim.className = 'scrim';
+  const close = () => { scrim.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  scrim.addEventListener('click', e => { if (e.target === scrim || e.target.closest('[data-close]')) close(); });
+  document.addEventListener('keydown', onKey);
+  scrim.innerHTML = `<div class="modal" style="max-width:660px;width:min(660px,92vw);overflow-y:auto;max-height:85vh">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">
+      <h3 id="rec-modal-title" style="margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Loading…</h3>
+      <button class="btn ghost" style="flex:none;font-size:18px;line-height:1;padding:2px 8px" data-close="1">×</button>
+    </div>
+    <div id="rec-modal-body" class="detail-body"><div class="note">Loading…</div></div>
+  </div>`;
+  document.body.appendChild(scrim);
+  try {
+    if (!EXPANDED[id]) EXPANDED[id] = await call('rec', { id });
+    const rec = EXPANDED[id];
+    const titleEl = scrim.querySelector('#rec-modal-title');
+    if (titleEl) titleEl.textContent = rec.title || id;
+    const body = scrim.querySelector('#rec-modal-body');
+    if (!body) return;
+    const rid = esc(id);
+    const field = (label, val) => val
+      ? `<div class="detail-field"><label>${label}</label><p>${esc(val)}</p></div>` : '';
+    const anchorLinks = (rec.anchors || []).length
+      ? `<div class="detail-field"><label>Anchors</label><div class="detail-anchors">${
+          (rec.anchors || []).map((a, idx) =>
+            `<div class="detail-anchor-row"><button class="detail-anchor" data-module="${esc(rec.module)}" data-path="${esc(a.path)}" data-line="${a.line || ''}" onclick="peekAnchor(this,'${rid}',${idx})">${esc(a.path)}${a.line ? ':' + a.line : ''}${a.note ? ' — ' + esc(a.note) : ''}</button></div>`
+          ).join('')}</div></div>` : '';
+    const patch = rec.patch
+      ? `<div class="detail-field"><label>Patch</label><pre class="diff-block">${renderDiff(rec.patch)}</pre></div>` : '';
+    const relayLink = rec.relay && rec.relay.ok && rec.relay.url
+      ? `<div class="detail-field"><label>Build suggestion</label><a class="btn" href="${esc(rec.relay.url)}" target="_blank">Play in build →</a></div>` : '';
+    const decisionNote = rec.note && rec.status !== 'pending'
+      ? `<div class="detail-decision ${esc(rec.status)}">
+          <label>Owner's note</label>
+          <p>${esc(rec.note)}</p>
+          <small>${rec.decided_by ? esc(short(rec.decided_by)) + ' · ' : ''}${rec.decided_at ? ago(rec.decided_at) : ''}</small>
+        </div>` : '';
+    const cmtRows = (rec.comments || []).map(c =>
+      `<div class="cmt-row"><span class="cmt-meta">${esc(c.author)} · ${ago(c.timestamp)}</span><p class="cmt-body">${esc(c.body)}</p></div>`
+    ).join('');
+    const comments = `<div class="detail-field"><label>Comments</label>
+      ${cmtRows || '<p class="cmt-none">No comments yet.</p>'}
+      <div class="cmt-add">
+        <textarea id="cmt-${rid}" placeholder="Add a comment…" rows="2"></textarea>
+        <button class="btn" onclick="addComment('${rid}')">Add comment</button>
+      </div></div>`;
+    body.innerHTML = [
+      decisionNote, relayLink,
+      field('Rationale', rec.rationale),
+      field('Change', rec.change),
+      anchorLinks, patch, comments,
+    ].filter(Boolean).join('') || '<div class="note">No additional detail.</div>';
+  } catch (e) {
+    const body = scrim.querySelector('#rec-modal-body');
+    if (body) body.innerHTML = `<div class="note" style="color:var(--no)">${esc(e.message)}</div>`;
+  }
 }
 
 async function addComment(id) {
@@ -1274,6 +1724,29 @@ peekInbox();
 peekOutbox();
 const preset = new URLSearchParams(location.search).get('module');
 if (preset) loadBrief(preset);
+const recPreset = new URLSearchParams(location.search).get('rec');
+if (recPreset) {
+  (async () => {
+    try {
+      const rec = await call('rec', { id: recPreset });
+      $('q-module').value = rec.module;
+      QSTATUS = rec.status;
+      paintQStatus();
+      for (const v of ['scan', 'queue', 'inbox', 'outbox']) {
+        $('view-' + v).classList.toggle('hidden', v !== 'queue');
+        $('tab-' + v).classList.toggle('on', v === 'queue');
+      }
+      $('main').classList.toggle('wide', false);
+      window.scrollTo(0, 0);
+      await loadQueue();
+      const tog = document.getElementById('tog-' + recPreset);
+      if (tog) {
+        expandCard(recPreset, tog);
+        tog.closest('.card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    } catch (e) { /* silently ignore invalid deep-link */ }
+  })();
+}
 </script>
 </body>
 </html>

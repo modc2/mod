@@ -24,7 +24,7 @@
         font:800 15px/1 var(--mono);letter-spacing:-.02em;box-shadow:0 6px 24px -6px rgba(250,204,21,.5)}
   h1{font-size:22px;font-weight:750;letter-spacing:-.01em;line-height:1.1}
   header .sub{color:var(--dim);font-size:13px;margin-top:2px}
-  #who{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+  #who{position:relative;margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
   #who .addr{font:12px var(--mono);color:var(--text);background:var(--panel);border:1px solid var(--line);
              border-radius:999px;padding:5px 11px}
   #who .tier{color:var(--accent)}
@@ -63,6 +63,7 @@
   button:disabled{opacity:.45;cursor:default}
   button.quiet{background:var(--panel);color:var(--dim);border:1px solid var(--line);font-weight:500}
   button.quiet:hover{color:var(--text);border-color:var(--line2)}
+  button.quiet.on{background:var(--accent);color:#1a1300;border-color:transparent}
   table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
   td,th{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
   tr:last-child td{border-bottom:none}
@@ -162,9 +163,30 @@
   #agent form{display:flex;gap:8px;margin-top:12px}
   #agent form input{flex:1}
   h3.cat{color:var(--faint);margin:22px 0 10px;font-size:11px;font-weight:600;letter-spacing:.08em}
+  .star{position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;font-size:14px;
+        color:var(--faint);padding:0;line-height:1;z-index:1}
+  .star.on{color:var(--accent)}
+  .cmp-tog{position:absolute;top:8px;left:8px;background:none;border:none;cursor:pointer;font-size:13px;
+           color:var(--faint);padding:0;line-height:1;z-index:1}
+  .cmp-tog.on{color:var(--accent)}
+  #cmpbar{position:fixed;bottom:0;left:0;right:0;z-index:15;background:var(--panel);
+          border-top:1px solid var(--line);padding:12px 24px;display:none;align-items:center;
+          gap:12px;box-shadow:0 -8px 24px -8px rgba(0,0,0,.5)}
+  .pill.on{background:var(--accent);color:#1a1300;border-color:transparent;font-weight:700}
+  .pill.starred.on{background:var(--accent);color:#1a1300;border-color:transparent;font-weight:700}
+  #netbar{display:none;margin:0 0 14px;border-radius:8px;overflow:hidden;height:28px;background:var(--panel);border:1px solid var(--line)}
+  .nb-seg{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;overflow:hidden;padding:0 8px;gap:4px;cursor:pointer;transition:filter .12s;white-space:nowrap;min-width:0}
+  .nb-seg:hover{filter:brightness(1.4)}
+  .nb-reset{flex:none!important;border-left:1px solid var(--line);padding:0 12px;background:var(--panel);color:var(--faint)}
+  .nb-active{box-shadow:inset 0 0 0 2px var(--accent)}
   @media (max-width:640px){body{padding:18px 14px 50px}.stat{padding:12px 14px}.stat b{font-size:18px}
     .pill.ask{margin-left:0}.bar select{flex:1}
     .tile{aspect-ratio:auto;min-height:190px}}
+  #acct{display:none;position:absolute;top:calc(100% + 6px);right:0;width:300px;max-width:95vw;
+        background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;
+        z-index:20;box-shadow:0 16px 40px -8px rgba(0,0,0,.8);font-size:13px;line-height:1.5;
+        overflow:auto;max-height:90vh}
+  #acct.open{display:block}
 </style>
 </head>
 <body>
@@ -174,6 +196,7 @@
   <div id="who"></div>
 </header>
 <div class="stats" id="stats"></div>
+<div id="netbar"></div>
 <nav id="tabs">
   <a data-t="services" class="on">Services</a>
   <a data-t="mcp">MCP servers</a>
@@ -189,7 +212,8 @@
   <form id="af2"><input name="q" placeholder="what do you need? e.g. cheap token risk check on base" autocomplete="off"><button>ask</button></form>
 </section>
 <div id="view"></div>
-<aside id="drawer"><button class="quiet x" id="close">close</button><div id="dbody"></div></aside>
+<aside id="drawer"><button class="quiet x" id="close">close</button><button class="quiet" id="drawercopy" style="position:absolute;top:18px;right:136px;display:none" title="Copy link to this service">copy link</button><button class="quiet" id="drawerstar" style="position:absolute;top:18px;right:76px;display:none">☆ Save</button><div id="dbody"></div></aside>
+<div id="cmpbar"></div>
 
 <script src="/passport/passport.js"></script>
 <script>
@@ -212,19 +236,107 @@ async function who() {
   const box = $('#who');
   const s = PP && PP.session();
   if (!PP) { box.innerHTML = '<span class="dim">sign-in unavailable</span>'; return; }
-  let me = null;
+  me = null;
   try { me = await get('whoami'); } catch {}
-  const badge = me ? `<span class="tier" title="trust ${me.score}/100">${esc(me.tier)} · ${me.score}</span>` : '';
+  const badge = me ? `<span class="tier" title="click for score breakdown" style="cursor:pointer">${esc(me.tier)} · ${me.score}</span>` : '';
   if (s) {
     box.innerHTML = `${badge}<span class="addr" title="${esc(s.address)}">${esc(s.address.slice(0, 6) + '…' + s.address.slice(-4))}</span>
-      <button class="quiet" id="signout">sign out</button>`;
-    $('#signout').onclick = () => PP.signOut();
+      <button class="quiet" id="signout">sign out</button><div id="acct"></div>`;
+    $('#signout').onclick = e => { e.stopPropagation(); PP.signOut(); };
   } else {
-    box.innerHTML = `${badge}<button id="signin">sign in</button>`;
-    $('#signin').onclick = async () => {
-      try { await PP.signIn('x402'); } catch (e) { status('sign in: ' + e.message, true); }
+    box.innerHTML = `${badge}<button id="signin">sign in</button><div id="acct"></div>`;
+    $('#signin').onclick = async e => {
+      e.stopPropagation();
+      try { await PP.signIn('x402'); } catch (err) { status('sign in: ' + err.message, true); }
     };
   }
+  if (me) box.onclick = e => { if (!e.target.closest('#acct') && e.target.tagName !== 'BUTTON') toggleAcct(); };
+}
+
+async function toggleAcct() {
+  const panel = $('#acct');
+  if (!panel) return;
+  if (panel.classList.contains('open')) { closeAcct(); return; }
+  panel.classList.add('open');
+  let data = me;
+  try { data = await get('whoami', {limit: 20}); me = data; } catch {}
+  if (!data) { panel.innerHTML = '<div class="dim" style="padding:4px">unavailable</div>'; return; }
+  renderAcct(panel, data);
+}
+
+function closeAcct() {
+  const p = $('#acct');
+  if (p) p.className = '';
+}
+
+function renderAcct(panel, data) {
+  const score = data.score || 0;
+  const pct = Math.min(100, score);
+  const tierColor = score >= 70 ? 'var(--ok)' : score >= 40 ? 'var(--accent)' : score >= 20 ? 'var(--put)' : 'var(--faint)';
+
+  const meterHtml = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <span style="font-weight:700">${esc(data.tier || '')}</span>
+    <span style="font:700 22px/1 var(--mono);color:${tierColor}">${score}</span>
+  </div>
+  <div style="background:var(--line);border-radius:4px;height:6px;overflow:hidden;margin-bottom:12px">
+    <div style="width:${pct}%;height:100%;background:${tierColor};border-radius:4px"></div>
+  </div>`;
+
+  const PARTS = [['base','base'],['tenure','tenure'],['activity','active days'],['settled','paid calls'],['throttled','throttled'],['denied','denied']];
+  const parts = data.parts || {};
+  const partsRows = PARTS.map(([k, label]) => {
+    const v = parts[k] ?? 0;
+    const signed = v > 0 ? '+' + v : String(v);
+    const col = v > 0 ? 'var(--ok)' : v < 0 ? 'var(--bad)' : 'inherit';
+    return `<tr><td style="padding:3px 0;color:var(--dim)">${label}</td><td style="padding:3px 0 3px 12px;text-align:right;font-family:var(--mono);color:${col}">${signed}</td></tr>`;
+  }).join('');
+  const breakdownHtml = `<table style="width:100%;font-size:12px;border:none">${partsRows}</table>`;
+
+  const nt = data.next_tier;
+  const ntHtml = nt && nt.need > 0 ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+    <div style="font-size:11px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px">Next: ${esc(nt.tier || '')}</div>
+    <div style="background:var(--line);border-radius:4px;height:4px;overflow:hidden">
+      <div style="width:${Math.max(2, Math.min(98, pct / (pct + nt.need) * 100)).toFixed(0)}%;height:100%;background:var(--accent);border-radius:4px"></div>
+    </div>
+    <div style="font-size:11px;color:var(--dim);margin-top:3px">${nt.need} pts to go</div>
+  </div>` : '';
+
+  const h = data.house || {};
+  const houseHtml = h.daily_usd != null ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+    <div style="font-size:11px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px">House budget</div>
+    <div style="font-size:12px">${h.enabled ? '<span class="chip ok">active</span>' : '<span class="chip bad">off</span>'}${h.why ? ' ' + esc(h.why) : ''} &nbsp;<span style="font-family:var(--mono)">${usd(h.spent_today)}</span> / ${usd(h.daily_usd)}</div>
+  </div>` : '';
+
+  const howHtml = data.how_to_rise ? `<div style="margin-top:10px;padding:8px;background:var(--panel2);border-radius:8px;font-size:12px;color:var(--dim)">${esc(data.how_to_rise)}</div>` : '';
+
+  const recent = (data.recent || []).slice(0, 10);
+  let recentHtml = '';
+  if (recent.length) {
+    const rows = recent.map(r => {
+      const tool = (r.tool || '').replace('x402_', '');
+      const outcome = String(r.outcome || r.status || '');
+      const chipCls = /^(ok|settled)$/.test(outcome) ? 'ok' : /error|throttl|deny|denied/.test(outcome) ? 'bad' : '';
+      const chipStyle = /quote/.test(outcome) ? 'color:var(--accent);border-color:rgba(250,204,21,.25)' : '';
+      let host = ''; try { host = new URL(r.url || '').hostname; } catch {}
+      const usdStr = r.usd > 0 ? `<span style="font-family:var(--mono);color:var(--ok);margin-left:4px">${usd(r.usd)}</span>` : '';
+      const ts = ago(r.ts || r.time || r.created_at);
+      return `<tr class="row" ${r.url ? `data-rurl="${esc(r.url)}"` : ''}>
+        <td style="padding:4px 6px 4px 0"><span class="chip ${chipCls}" style="${chipStyle}">${esc(tool)}</span></td>
+        <td style="padding:4px 3px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim)">${esc(host)}</td>
+        <td style="padding:4px 3px;white-space:nowrap">${usdStr}</td>
+        <td style="padding:4px 0 4px 3px;white-space:nowrap;font-size:11px;color:var(--faint)">${ts}</td>
+      </tr>`;
+    }).join('');
+    recentHtml = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+      <div style="font-size:11px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">Recent</div>
+      <table style="width:100%;border:none;font-size:12px">${rows}</table>
+    </div>`;
+  }
+
+  panel.innerHTML = meterHtml + breakdownHtml + ntHtml + houseHtml + howHtml + recentHtml;
+  panel.querySelectorAll('tr[data-rurl]').forEach(tr => {
+    tr.onclick = e => { e.stopPropagation(); closeAcct(); detail(tr.dataset.rurl); };
+  });
 }
 
 async function get(fn, args = {}) {
@@ -242,8 +354,11 @@ async function post(fn, body = {}) {
 }
 function status(msg, err) { const s = $('#status'); s.textContent = msg || ''; s.className = err ? 'err' : ''; }
 
+let me = null;  // module-level cache of whoami response
+
 const st = {tab: 'services', q: '', network: '', max_price: '', sort: 'popular', offset: 0, host: '',
-            meaning: localStorage.getItem('x402.meaning') !== '0', mq: ''};
+            meaning: localStorage.getItem('x402.meaning') !== '0', mq: '', starred: false, tag: '',
+            compare: new Map(), cmpCalls: 100, open: null};
 const PAGE = 50;
 
 function stateToHash() {
@@ -254,6 +369,7 @@ function stateToHash() {
   if (st.sort && st.sort !== 'popular') p.set('sort', st.sort);
   if (st.host) p.set('host', st.host);
   if (st.mq) p.set('mq', st.mq);
+  if (st.open) p.set('open', st.open);
   const qs = p.toString();
   history.replaceState(null, '', '#' + st.tab + (qs ? '?' + qs : ''));
 }
@@ -270,6 +386,7 @@ function hashToState() {
   st.sort = qs.get('sort') || 'popular';
   st.host = qs.get('host') || '';
   st.mq = qs.get('mq') || '';
+  st.open = qs.get('open') || null;
   st.offset = 0;
 }
 
@@ -284,11 +401,66 @@ async function loadStats() {
     ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
     const nets = Object.keys(x.networks).slice(0, 30);
     window.NETS = nets.map(n => [n, x.networks[n]]);
+    renderNetBar();
     if (!x.services) status('Index is empty. The server crawls on start; check back in a few minutes.');
   } catch (e) { status(e.message, true); }
 }
 
+function renderNetBar() {
+  const nb = document.getElementById('netbar');
+  if (!nb) return;
+  const nets = (window.NETS || []).slice(0, 8);
+  const total = nets.reduce((s, [, c]) => s + c, 0);
+  if (!nets.length || !total) { nb.style.display = 'none'; return; }
+  nb.style.display = '';
+  const COLORS = ['#facc15','#34d399','#60a5fa','#f87171','#a78bfa','#fb923c','#38bdf8','#4ade80'];
+  const segs = nets.map(([n, c], i) => {
+    const col = COLORS[i % COLORS.length];
+    const active = st.network === n;
+    return `<div class="nb-seg${active ? ' nb-active' : ''}" title="${esc(n)}: ${c.toLocaleString()} services" data-net="${esc(n)}"
+      style="flex:${c / total};background:${col}1a;${i > 0 ? 'border-left:1px solid var(--line)' : ''}">
+      <span style="color:${col};overflow:hidden;text-overflow:ellipsis">${esc(n)}</span>
+      <span style="opacity:.55">${big(c)}</span>
+    </div>`;
+  }).join('');
+  const allActive = !st.network;
+  nb.innerHTML = segs +
+    `<div class="nb-seg nb-reset${allActive ? ' nb-active' : ''}" title="show all networks" data-net="">all</div>`;
+  nb.querySelectorAll('.nb-seg').forEach(seg => {
+    seg.onclick = () => { st.network = seg.dataset.net; tab('services'); };
+  });
+}
+
+async function loadTags() {
+  try { window.TAGS = await get('tags'); } catch {}
+}
+
+function getStarred() {
+  try { return JSON.parse(localStorage.getItem('x402.starred') || '[]'); } catch { return []; }
+}
+function isStarred(url) { return getStarred().some(s => s.url === url); }
+function toggleStar(url, svc) {
+  let list = getStarred();
+  const i = list.findIndex(s => s.url === url);
+  if (i >= 0) { list.splice(i, 1); }
+  else {
+    list.push({url, name: svc.name || '', host: svc.host || '', price_usd: svc.price_usd ?? null,
+               description: svc.description || '', method: svc.method || '',
+               networks: svc.networks || [], calls_30d: svc.calls_30d || 0});
+    if (list.length > 50) list.splice(0, list.length - 50);
+  }
+  localStorage.setItem('x402.starred', JSON.stringify(list));
+}
+function updateStarPill() {
+  const sp = $('#starpill');
+  if (!sp) return;
+  const n = getStarred().length;
+  if (!n) { sp.remove(); return; }
+  sp.textContent = '★ Starred (' + n + ')';
+}
+
 function bar() {
+  const starred = getStarred();
   const nets = (window.NETS || []).map(([n, c]) =>
     `<option value="${esc(n)}" ${st.network === n ? 'selected' : ''}>${esc(n)} (${big(c)})</option>`).join('');
   return `<form class="bar" id="f">
@@ -301,45 +473,144 @@ function bar() {
     <span class="seg" title="words: exact text match · meaning: what the service does"><a data-m="0" class="${st.meaning ? '' : 'on'}">words</a><a data-m="1" class="${st.meaning ? 'on' : ''}">meaning</a></span>
     ${st.host ? `<button type="button" class="quiet" id="clearhost">host: ${esc(st.host)} &times;</button>` : ''}
   </form>
-  <div class="chips">${QUICK.map(q => `<span class="pill qk">${esc(q)}</span>`).join('')}
+  <div class="chips">${starred.length ? `<span class="pill starred${st.starred ? ' on' : ''}" id="starpill">★ Starred (${starred.length})</span>` : ''}${QUICK.map(q => `<span class="pill qk">${esc(q)}</span>`).join('')}
     <span class="pill ask" id="askbtn">Ask the agent &rarr;</span></div>`;
 }
 const SEARCH_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
 const mcls = m => String(m || '').toLowerCase().replace(/[^a-z]/g, '');
 const QUICK = ['token price', 'web scraping', 'image generation', 'llm inference', 'wallet risk', 'weather'];
 
+function tagRow() {
+  const tags = window.TAGS;
+  if (!tags || !tags.length) return '';
+  const pills = tags.slice(0, 8).map(({tag, count}) =>
+    `<span class="pill${st.tag === tag ? ' on' : ''}" data-tag="${esc(tag)}">${esc(tag)} <span style="opacity:.5">${big(count)}</span></span>`
+  ).join('');
+  return `<div class="chips" id="tagrow">${pills}</div>`;
+}
+
 function tile(s, extra = '') {
   const nets = s.networks || [];
-  return `<div class="tile" data-url="${esc(s.url)}" title="${esc(s.url)}">
+  const netPrice = {};
+  for (const o of (s.offers || [])) {
+    if (o.network && o.price_usd != null) {
+      if (netPrice[o.network] == null || o.price_usd < netPrice[o.network])
+        netPrice[o.network] = o.price_usd;
+    }
+  }
+  const snap = esc(JSON.stringify({url: s.url, name: s.name || '', host: s.host || '',
+    price_usd: s.price_usd ?? null, description: s.description || '', method: s.method || '',
+    networks: nets, calls_30d: s.calls_30d || 0, payers_30d: s.payers_30d || 0,
+    sources: s.sources || []}));
+  const activePrice = st.network && netPrice[st.network] != null ? netPrice[st.network] : s.price_usd;
+  const chipLabel = n => {
+    const p = netPrice[n];
+    if (p == null) return esc(n);
+    return esc(n) + ' $' + (p >= 1 ? p.toFixed(2) : +p.toPrecision(3));
+  };
+  return `<div class="tile" data-url="${esc(s.url)}" data-snap="${snap}" title="${esc(s.url)}">
+    <button class="star${isStarred(s.url) ? ' on' : ''}" data-star="${esc(s.url)}" title="save">★</button>
+    <button class="cmp-tog${st.compare.has(s.url) ? ' on' : ''}" data-cmp="${esc(s.url)}" title="add to compare">⊞</button>
     <div class="hd">${s.icon ? `<img class="ic" src="${esc(s.icon)}" loading="lazy" onerror="this.remove()">` : ''}
-      <span class="host">${esc(s.host || '')}</span><span class="price">${usd(s.price_usd)}</span></div>
+      <span class="host">${esc(s.host || '')}</span><span class="price">${usd(activePrice)}</span></div>
     <div class="nm"><span class="m ${mcls(s.method)}">${esc(s.method)}</span>${esc(s.name || pathOf(s.url))}</div>
     <div class="ds">${esc(s.description)}</div>
     ${extra}
-    <div class="ft">${nets.slice(0, 2).map(n => `<span class="chip" title="${esc(n)}">${esc(n)}</span>`).join('')}${nets.length > 2 ? `+${nets.length - 2}` : ''}
+    <div class="ft">${nets.slice(0, 2).map(n => `<span class="chip" title="${esc(n)}">${chipLabel(n)}</span>`).join('')}${nets.length > 2 ? `+${nets.length - 2}` : ''}
       <span class="calls">${s.calls_30d ? big(s.calls_30d) + ' calls' : ''}</span></div></div>`;
 }
 const pathOf = u => { try { return new URL(u).pathname; } catch { return u; } };
 function wireTiles(root) {
   root.querySelectorAll('.tile[data-url]').forEach(el => el.onclick = () => detail(el.dataset.url));
+  root.querySelectorAll('.star[data-star]').forEach(btn => btn.onclick = e => {
+    e.stopPropagation();
+    const url = btn.dataset.star;
+    let svc = {url};
+    try { svc = JSON.parse(btn.closest('.tile').dataset.snap || '{}'); } catch {}
+    toggleStar(url, svc);
+    btn.classList.toggle('on', isStarred(url));
+    updateStarPill();
+    if (st.starred) {
+      btn.closest('.tile').remove();
+      if (!getStarred().length) { st.starred = false; render(); }
+    }
+  });
+  root.querySelectorAll('.cmp-tog[data-cmp]').forEach(btn => btn.onclick = e => {
+    e.stopPropagation();
+    const url = btn.dataset.cmp;
+    if (st.compare.has(url)) {
+      st.compare.delete(url);
+      btn.classList.remove('on');
+    } else if (st.compare.size < 3) {
+      let svc = {url};
+      try { svc = JSON.parse(btn.closest('.tile').dataset.snap || '{}'); } catch {}
+      st.compare.set(url, svc);
+      btn.classList.add('on');
+    }
+    renderCompareBar();
+  });
 }
 
 async function services() {
+  if (st.starred) {
+    const list = getStarred();
+    if (!list.length) { st.starred = false; }
+    else {
+      $('#view').innerHTML = bar() + `<div class="tiles">${list.map(s => tile(s)).join('')}</div>`;
+      wireBar();
+      wireTiles($('#view'));
+      document.querySelectorAll('.qk').forEach(c => c.onclick = () => { Object.assign(st, {q: c.textContent, offset: 0, meaning: true, starred: false}); render(); });
+      $('#askbtn').onclick = () => openAgent(st.q);
+      const sp = $('#starpill'); if (sp) sp.onclick = () => { st.starred = false; render(); };
+      return;
+    }
+  }
+  const showShelf = !st.q && !st.host && !st.network && !st.max_price && !st.starred;
+  const shelfP = showShelf ? get('services', {sort: 'new', limit: 8}).catch(() => null) : Promise.resolve(null);
   const sem = st.meaning && st.q && !st.host;
   const r = sem
     ? await get('find', {q: st.q, network: st.network, max_price: st.max_price, k: 100})
         .then(f => { semNote(f); return {items: f.items.map(x => ({...x, sources: []})), total: f.items.length, offset: 0, limit: 100, sem: true}; })
     : await get('services', {q: st.q, network: st.network, max_price: st.max_price,
                              sort: st.sort, host: st.host, limit: PAGE, offset: st.offset});
+  const cutoff = Date.now() / 1000 - 7 * 86400;
+  const shelfR = await shelfP;
+  const newItems = shelfR ? (shelfR.items || []).filter(s => s.first_seen > cutoff) : [];
+  const shelfHtml = newItems.length >= 2
+    ? `<div id="new-shelf"><div style="font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin:16px 0 8px">NEW THIS WEEK (${newItems.length})</div><div style="display:flex;overflow-x:auto;gap:10px;padding-bottom:8px">${newItems.map(s => `<div style="flex:none;width:210px">${tile(s, '<span class="chip ok">NEW</span>')}</div>`).join('')}</div></div>`
+    : '';
   const tiles = r.items.map(s => tile(s, r.sem && s.why && s.why.length
       ? `<div>${s.why.slice(0, 2).map(w => `<span class="chip ok">${esc(w)}</span>`).join('')}</div>` : '')).join('');
-  $('#view').innerHTML = bar() + (r.items.length ? `<div class="tiles">${tiles}</div>
+  const probeHtml = localStorage.getItem('x402.probedismiss') ? '' :
+    `<form class="bar" id="probef"><input name="url" style="font-family:var(--mono);font-size:12px;flex:1" placeholder="https://api.example/endpoint — test if it's x402" autocomplete="off"><button>Test</button><button type="button" class="quiet" id="probedismiss" title="dismiss">&times;</button></form>`;
+  $('#view').innerHTML = bar() + probeHtml + shelfHtml + tagRow() + (r.items.length ? `<div class="tiles">${tiles}</div>
       ${r.sem ? '' : pager(r)}` : `<div class="empty">nothing matches${st.q ? ` &middot; <a class="pill ask" id="askempty">ask the agent to look for "${esc(st.q)}"</a>` : ''}</div>`);
   wireBar();
   wireTiles($('#view'));
+  const pf = $('#probef');
+  if (pf) {
+    $('#probedismiss').onclick = () => { localStorage.setItem('x402.probedismiss', '1'); pf.remove(); };
+    pf.onsubmit = async e => {
+      e.preventDefault();
+      const url = pf.url.value.trim();
+      if (!url) return;
+      try {
+        const r = await post('probe', {url});
+        if (r.x402) { detail(r.service.url); status('x402 confirmed — ' + r.service.name, false); }
+        else { status('Not x402 — answered HTTP ' + r.status, true); }
+      } catch (err) { status(err.message, true); }
+    };
+  }
+  document.querySelectorAll('#tagrow [data-tag]').forEach(p => p.onclick = () => {
+    const t = p.dataset.tag;
+    if (st.tag === t) { Object.assign(st, {q: '', tag: '', offset: 0}); }
+    else { Object.assign(st, {q: t, tag: t, offset: 0, meaning: false}); }
+    render();
+  });
   document.querySelectorAll('.qk').forEach(c => c.onclick = () => { Object.assign(st, {q: c.textContent, offset: 0, meaning: true}); render(); });
   $('#askbtn').onclick = () => openAgent(st.q);
   const ae = $('#askempty'); if (ae) ae.onclick = () => openAgent(st.q, true);
+  const sp = $('#starpill'); if (sp) sp.onclick = () => { st.starred = true; render(); };
 }
 
 function pager(r) {
@@ -354,7 +625,9 @@ function wireBar() {
   const f = $('#f');
   let t;
   const apply = () => { const d = new FormData(f);
-    Object.assign(st, {q: d.get('q'), network: d.get('network'), max_price: d.get('max_price'), sort: d.get('sort'), offset: 0}); render(); };
+    const newQ = d.get('q') || '';
+    if (newQ !== st.tag) st.tag = '';
+    Object.assign(st, {q: newQ, network: d.get('network'), max_price: d.get('max_price'), sort: d.get('sort'), offset: 0, starred: false}); render(); };
   f.onsubmit = e => { e.preventDefault(); apply(); };
   f.q.oninput = () => { clearTimeout(t); t = setTimeout(apply, 300); };
   f.querySelectorAll('select').forEach(s => s.onchange = apply);
@@ -368,10 +641,29 @@ function wireBar() {
 }
 
 async function detail(url) {
+  st.open = url; stateToHash();
   $('#drawer').classList.add('open');
   $('#dbody').innerHTML = '<div class="dim">loading</div>';
   try {
     const [s, me] = await Promise.all([get('service', {url}), get('whoami').catch(() => null)]);
+    const dc = $('#drawercopy');
+    if (dc) {
+      dc.style.display = '';
+      dc.onclick = () => { navigator.clipboard.writeText(window.location.href).then(() => { const t = dc.textContent; dc.textContent = 'copied!'; setTimeout(() => { dc.textContent = t; }, 1500); }).catch(() => {}); };
+    }
+    const ds = $('#drawerstar');
+    if (ds) {
+      ds.dataset.url = url;
+      ds.style.display = '';
+      const refreshDs = () => { const on = isStarred(url); ds.textContent = on ? '★ Saved' : '☆ Save'; };
+      refreshDs();
+      ds.onclick = () => {
+        toggleStar(url, s);
+        refreshDs();
+        document.querySelectorAll('.star[data-star]').forEach(b => { if (b.dataset.star === url) b.classList.toggle('on', isStarred(url)); });
+        updateStarPill();
+      };
+    }
     const ex = (((s.raw.extensions || {}).bazaar || {}).info) || {};
     const offers = s.offers.map(o => `<tr><td>${esc(o.network)}</td><td>${esc(o.scheme)}</td>
       <td>${esc(o.asset_name || o.asset.slice(0, 10))}</td><td class="num">${o.price_usd != null ? usd(o.price_usd) : esc(o.amount)}</td>
@@ -387,10 +679,11 @@ async function detail(url) {
       <div class="dim">${big(s.calls_30d)} paid calls · ${big(s.payers_30d)} payers in 30d · x402 v${s.x402_version} · first seen ${ago(s.first_seen)}${s.pinned ? ' · <span class="chip ok">probed</span>' : ''}</div>
       <h3>LISTED BY</h3><div>${s.sources.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</div>
       <h3>TRY IT</h3>
-      <pre>curl -i ${s.method !== 'GET' ? '-X ' + esc(s.method) + ' ' : ''}'${esc(s.url)}'
-# answers 402 with its price; pay with any x402 client and retry</pre>
-      ${ex.input ? `<h3>INPUT EXAMPLE</h3><pre>${esc(JSON.stringify(ex.input, null, 2))}</pre>` : ''}
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div class="seg" id="tc-tabs"><a class="on" data-tab="curl">curl</a><a data-tab="js">JavaScript</a><a data-tab="py">Python</a><a data-tab="node">via node</a></div><button class="quiet" id="tc-copy" style="font-size:11px;padding:4px 10px">copy</button></div>
+      <pre id="tc-code" style="overflow-x:auto"></pre>
       ${ex.output ? `<h3>OUTPUT EXAMPLE</h3><pre>${esc(JSON.stringify(ex.output, null, 2).slice(0, 3000))}</pre>` : ''}
+      <h3>REQUEST BODY <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span> <a id="rbreset" href="#" style="font-weight:600;letter-spacing:0;text-transform:none;margin-left:8px">reset</a></h3>
+      <textarea id="reqbody" rows="6" style="width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;font:12px/1.5 var(--mono);color:var(--text);resize:vertical;outline:none;box-sizing:border-box">${esc(ex.input ? JSON.stringify(ex.input, null, 2) : '')}</textarea>
       <h3>PROVIDER</h3><button class="quiet" id="byhost">all ${esc(s.host)} services</button>
       <h3>LIVE QUOTE</h3>${me && me.score >= 20
         ? `<button class="quiet" id="livequote">Get live quote</button> <span id="lq" class="dim"></span>`
@@ -399,14 +692,63 @@ async function detail(url) {
         ? `<div id="sppanel"><button class="quiet" id="spquote">Get Quote</button> <span id="spst" class="dim"></span><div id="spres"></div></div>`
         : me && me.score >= 20
           ? `<span class="dim">install MetaMask to pay from this browser</span>`
-          : ''}`;
+          : ''}
+      ${me && me.score >= 40 && me.house
+        ? me.house.enabled
+          ? `<div style="margin-top:8px"><button class="quiet" id="hpbtn">Pay with house budget (${usd(Math.max(0, me.house.daily_usd - me.house.spent_today))} left today)</button><div id="hpres"></div></div>`
+          : `<div style="margin-top:6px" class="dim">${esc(me.house.why || 'house budget not available')}</div>`
+        : ''}
+      <div id="similar" style="margin-top:24px"></div>`;
+    const rbOrig = ex.input ? JSON.stringify(ex.input, null, 2) : '';
+    $('#rbreset').onclick = e => { e.preventDefault(); $('#reqbody').value = rbOrig; };
+    const _m = s.method, _u = s.url;
+    const buildSnippets = bodyJson => {
+      const curlSnip = `curl -i${_m !== 'GET' ? ' -X ' + _m : ''} '${_u}'${bodyJson ? ` \\\n  -H 'Content-Type: application/json' \\\n  -d '${bodyJson}'` : ''}\n# answers 402 with its price; pay with any x402 client and retry`;
+      const fetchOpts = _m !== 'GET' || bodyJson ? `, {\n  method: '${_m}',${bodyJson ? `\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify(${bodyJson}),` : ''}\n}` : '';
+      const jsSnip = `// npm install x402-fetch\nimport { withPaymentInterceptor } from 'x402-fetch';\n\nconst fetch402 = withPaymentInterceptor(fetch, { privateKey: '<YOUR_KEY>' });\nconst res = await fetch402('${_u}'${fetchOpts});\nconsole.log(await res.json());`;
+      const pySnip = `import requests\n\n# Step 1: probe (expect 402)\nr = requests.${_m.toLowerCase()}('${_u}'${bodyJson ? `, json=${bodyJson}` : ''})\n# r.status_code == 402 -> r.json() shows payment options\n\n# Step 2: pay and call\n# pip install x402-python\nfrom x402 import Client\nclient = Client(private_key='<YOUR_KEY>')\ndata = client.call('${_u}', method='${_m}'${bodyJson ? `, json=${bodyJson}` : ''})\nprint(data)`;
+      const nodeSess = PP && PP.session();
+      const nodeOrigin = nodeSess ? window.location.origin : '<NODE_ORIGIN>';
+      const nodeToken = nodeSess ? nodeSess.token : '<YOUR_SESSION_TOKEN>';
+      const nodePayloadParts = [`"url":"${_u}","method":"${_m}","pay":"none"`];
+      if (bodyJson) nodePayloadParts.push(`"body":${bodyJson}`);
+      const nodePayload = '{' + nodePayloadParts.join(',') + '}';
+      const houseComment = me && me.score >= 40 && me.house && me.house.enabled
+        ? `\n# or swap "pay":"none" for "pay":"house" to draw from your house budget` : '';
+      const nodeSnip = `curl -X POST '${nodeOrigin}/x402/api/call' \\\n  -H 'Authorization: Bearer ${nodeToken}' \\\n  -H 'Content-Type: application/json' \\\n  -d '${nodePayload}'${houseComment}\n# no x402 SDK needed — this node proxies the call and handles payment`;
+      return { curl: curlSnip, js: jsSnip, py: pySnip, node: nodeSnip };
+    };
+    const _inpOne = ex.input ? JSON.stringify(ex.input) : null;
+    let tcSnippets = buildSnippets(_inpOne);
+    let tcTab = 'curl';
+    const tcPre = $('#tc-code'), tcCopy = $('#tc-copy');
+    tcPre.textContent = tcSnippets.curl;
+    $('#tc-tabs').querySelectorAll('a').forEach(a => a.onclick = () => {
+      tcTab = a.dataset.tab;
+      $('#tc-tabs').querySelectorAll('a').forEach(x => x.classList.toggle('on', x === a));
+      tcPre.textContent = tcSnippets[tcTab];
+    });
+    tcCopy.onclick = async () => {
+      try { await navigator.clipboard.writeText(tcSnippets[tcTab]); tcCopy.textContent = 'copied'; }
+      catch { tcCopy.textContent = 'select it'; }
+      setTimeout(() => tcCopy.textContent = 'copy', 1500);
+    };
+    $('#reqbody').oninput = () => {
+      const val = $('#reqbody').value.trim();
+      let bodyJson = null;
+      try { if (val) bodyJson = JSON.stringify(JSON.parse(val)); } catch { bodyJson = val || null; }
+      tcSnippets = buildSnippets(bodyJson);
+      tcPre.textContent = tcSnippets[tcTab];
+    };
     $('#byhost').onclick = () => { closeDrawer(); Object.assign(st, {tab: 'services', host: s.host, q: '', offset: 0}); tab('services'); };
     if (me && me.score >= 20) {
       $('#livequote').onclick = async () => {
         const btn = $('#livequote'), lq = $('#lq'), lqt = $('#lqtable');
         btn.disabled = true; lq.textContent = 'fetching...';
+        const rbVal = $('#reqbody').value.trim();
+        let reqBody; if (rbVal) { try { reqBody = JSON.parse(rbVal); } catch { reqBody = rbVal; } }
         try {
-          const r = await post('call', {url: s.url, method: s.method, pay: 'none'});
+          const r = await post('call', {url: s.url, method: s.method, pay: 'none', body: reqBody});
           lq.textContent = '';
           if (r.offers && r.offers.length) {
             lqt.innerHTML = `<table style="margin-top:6px"><tr><th>network</th><th>scheme</th><th>asset</th><th class="num">price</th><th>pays to</th></tr>` +
@@ -427,8 +769,10 @@ async function detail(url) {
       $('#spquote').onclick = async () => {
         const btn = $('#spquote'), spst = $('#spst'), spres = $('#spres');
         btn.disabled = true; spst.textContent = 'fetching quote...';
+        const rbVal = $('#reqbody').value.trim();
+        let reqBody; if (rbVal) { try { reqBody = JSON.parse(rbVal); } catch { reqBody = rbVal; } }
         try {
-          const q = await post('quote', {url: s.url, method: s.method});
+          const q = await post('quote', {url: s.url, method: s.method, body: reqBody});
           spst.textContent = '';
           if (!q.quote_id) { spst.textContent = q.note || 'no payment required'; btn.disabled = false; return; }
           spQid = q.quote_id; spTyped = q.typed_data;
@@ -457,11 +801,38 @@ async function detail(url) {
         } catch (e) { spst.textContent = e.message; btn.disabled = false; }
       };
     }
+    if (me && me.score >= 40 && me.house && me.house.enabled) {
+      const hpbtn = $('#hpbtn');
+      if (hpbtn) hpbtn.onclick = async () => {
+        hpbtn.disabled = true;
+        const hpres = $('#hpres');
+        const rbVal = $('#reqbody').value.trim();
+        let reqBody; if (rbVal) { try { reqBody = JSON.parse(rbVal); } catch { reqBody = rbVal; } }
+        try {
+          const r = await post('call', {url: s.url, method: s.method, pay: 'house', body: reqBody});
+          const body = r.json != null ? JSON.stringify(r.json, null, 2).slice(0, 2000) : (r.text || '').slice(0, 2000);
+          const rcpt = r.receipt ? `<div style="margin-top:8px"><span class="dim">receipt:</span> <code>${esc(JSON.stringify(r.receipt).slice(0, 200))}</code></div>` : '';
+          hpres.innerHTML = `<div style="margin-top:8px"><span class="chip ${r.status < 300 ? 'ok' : 'bad'}">HTTP ${r.status}</span></div>${body ? `<pre style="margin-top:6px;max-height:200px">${esc(body)}</pre>` : ''}${rcpt}`;
+        } catch (e) { hpbtn.disabled = false; hpres.innerHTML = `<div style="margin-top:6px;color:var(--bad);font-size:12px">${esc(e.message)}</div>`; }
+      };
+    }
+    get('find', {q: (s.name || '') + (s.description ? ' ' + s.description : ''), k: 6}).then(r => {
+      const sim = $('#similar');
+      if (!sim) return;
+      const items = (r.services || r.items || []).filter(x => x.url !== url).slice(0, 3);
+      if (items.length < 2) return;
+      sim.innerHTML = `<h3>SIMILAR SERVICES</h3><div class="tiles" style="display:flex;flex-wrap:wrap;gap:10px">${items.map(x => tile(x)).join('')}</div>`;
+      wireTiles(sim);
+    }).catch(() => {});
   } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
 }
-function closeDrawer() { $('#drawer').classList.remove('open'); }
+function closeDrawer() { st.open = null; stateToHash(); $('#drawer').classList.remove('open'); const ds = $('#drawerstar'); if (ds) ds.style.display = 'none'; const dc = $('#drawercopy'); if (dc) dc.style.display = 'none'; }
 $('#close').onclick = closeDrawer;
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); closeAcct(); } });
+document.addEventListener('click', e => {
+  const w = $('#who');
+  if ($('#acct') && $('#acct').classList.contains('open') && w && !w.contains(e.target)) closeAcct();
+});
 
 async function hosts() {
   const r = await get('hosts', {q: st.q, limit: 200});
@@ -627,17 +998,103 @@ async function mcpResults() {
     <div class="tools">${g.tools.slice(0, 4).map((t, ti) => `<div class="tool" data-g="${gi}" data-t="${ti}">
       <span class="m ${mcls(t.method)}">${esc(t.method)}</span>${esc(t.description || t.url).slice(0, 160)} <span class="dim">${usd(t.price_usd)}</span></div>`).join('')}
       ${g.tools.length > 4 ? `<div class="dim" style="padding-top:6px">+${g.tools.length - 4} more matching tools</div>` : ''}</div>
-    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <code>${esc(g.connect.claude)}</code><button class="quiet cp" data-g="${gi}">copy</button></div>
+    <div class="conn" data-g="${gi}" data-mode="cli" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="quiet mode-btn on" data-m="cli">CLI</button><button class="quiet mode-btn" data-m="json">JSON config</button>
+      <code class="conn-code">${esc(g.connect.claude)}</code><button class="quiet cp">copy</button></div>
   </div>`).join('');
   box.querySelectorAll('.tool').forEach(el => el.onclick = () => detail(r.items[+el.dataset.g].tools[+el.dataset.t].url));
+  box.querySelectorAll('.mode-btn').forEach(b => b.onclick = () => {
+    const conn = b.closest('.conn');
+    const gi = +conn.dataset.g;
+    const m = b.dataset.m;
+    conn.dataset.mode = m;
+    conn.querySelectorAll('.mode-btn').forEach(x => x.classList.toggle('on', x.dataset.m === m));
+    conn.querySelector('.conn-code').textContent = m === 'cli' ? r.items[gi].connect.claude : JSON.stringify(r.items[gi].connect.json, null, 2);
+  });
   box.querySelectorAll('.cp').forEach(b => b.onclick = async () => {
-    try { await navigator.clipboard.writeText(r.items[+b.dataset.g].connect.claude); b.textContent = 'copied'; }
+    const conn = b.closest('.conn');
+    const gi = +conn.dataset.g;
+    const m = conn.dataset.mode;
+    const text = m === 'cli' ? r.items[gi].connect.claude : JSON.stringify(r.items[gi].connect.json, null, 2);
+    try { await navigator.clipboard.writeText(text); b.textContent = 'copied!'; }
     catch { b.textContent = 'select it'; }
     setTimeout(() => b.textContent = 'copy', 1500); });
 }
 
-const VIEWS = {services, mcp, hosts, sources, partners};
+function renderCompare() {
+  const svcs = [...st.compare.values()];
+  if (!svcs.length) { tab('services'); return; }
+  const minPrice = Math.min(...svcs.map(s => s.price_usd != null ? s.price_usd : Infinity));
+  const minMo = Math.min(...svcs.map(s => s.price_usd != null ? s.price_usd * st.cmpCalls * 30 : Infinity));
+  const ROWS = [
+    ['Price', svcs.map(s => s.price_usd != null
+      ? `<span style="font:700 13px var(--mono);${s.price_usd === minPrice ? 'color:var(--ok)' : ''}">${usd(s.price_usd)}</span>`
+      : '<span class="dim">?</span>')],
+    ['Monthly cost', svcs.map(s => { const m = s.price_usd != null ? s.price_usd * st.cmpCalls * 30 : null; return m != null ? `<span style="font:700 13px var(--mono);${m === minMo ? 'color:var(--ok)' : ''}">${usd(m)}</span>` : '<span class="dim">?</span>'; })],
+    ['Annual cost', svcs.map(s => { const a = s.price_usd != null ? s.price_usd * st.cmpCalls * 365 : null; return a != null ? `<span style="font:700 13px var(--mono)">${usd(a)}</span>` : '<span class="dim">?</span>'; })],
+    ['Networks', svcs.map(s => (s.networks || []).map(n => `<span class="chip">${esc(n)}</span>`).join('') || '<span class="dim">—</span>')],
+    ['Method', svcs.map(s => `<span class="m ${mcls(s.method || '')}">${esc(s.method || '?')}</span>`)],
+    ['30d calls', svcs.map(s => `<span style="font-family:var(--mono)">${big(s.calls_30d || 0)}</span>`)],
+    ['30d payers', svcs.map(s => `<span style="font-family:var(--mono)">${big(s.payers_30d || 0)}</span>`)],
+    ['Sources', svcs.map(s => { const n = (s.sources || []).length; return n ? `<span style="font-family:var(--mono)">${n}</span>` : '<span class="dim">—</span>'; })],
+    ['Description', svcs.map(s => `<div style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;color:var(--dim);line-height:1.5">${esc(s.description || '')}</div>`)],
+    ['', svcs.map((s, i) => `<a class="pill" data-copen="${i}" style="cursor:pointer;display:inline-block">→ Open</a>`)],
+  ];
+  const colW = Math.floor(80 / svcs.length);
+  $('#view').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
+      <span style="font-size:17px;font-weight:700">Comparing ${svcs.length} service${svcs.length !== 1 ? 's' : ''}</span>
+      <span style="flex:1"></span>
+      <button class="quiet" id="cmpback">← Back</button>
+      <button class="quiet" id="cmpclear2">Clear ×</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px">
+      <span style="color:var(--dim)">Estimate for</span>
+      <input type="number" id="cmpcalls" value="${st.cmpCalls}" min="1" style="width:80px;padding:3px 6px;background:var(--input);border:1px solid var(--line);border-radius:4px;color:var(--fg);font-size:13px;font-family:var(--mono)" oninput="st.cmpCalls = +this.value || 1; renderCompare()">
+      <span style="color:var(--dim)">calls/day</span>
+    </div>
+    <div style="overflow-x:auto">
+    <table style="width:100%;table-layout:fixed;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)">
+      <colgroup><col style="width:110px">${svcs.map(() => `<col style="width:${colW}%">`).join('')}</colgroup>
+      <thead><tr style="background:var(--panel2)">
+        <th></th>
+        ${svcs.map(s => `<th>
+          <div style="font-weight:700;font-size:14px;margin-bottom:2px;word-break:break-word">${esc(s.name || s.host)}</div>
+          <div class="dim" style="font-family:var(--mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.host)}</div>
+        </th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${ROWS.map(([label, cells]) => `<tr>
+          <td style="color:var(--faint);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap">${esc(label)}</td>
+          ${cells.map(c => `<td>${c}</td>`).join('')}
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>`;
+  $('#cmpback').onclick = () => tab('services');
+  $('#cmpclear2').onclick = () => { st.compare.clear(); renderCompareBar(); tab('services'); };
+  $('#view').querySelectorAll('[data-copen]').forEach(a => a.onclick = () => detail(svcs[+a.dataset.copen].url));
+}
+
+function renderCompareBar() {
+  const bar = document.getElementById('cmpbar');
+  if (!bar) return;
+  if (!st.compare.size) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  const names = [...st.compare.values()].map(s => esc(s.name || s.host || s.url)).join(' · ');
+  bar.innerHTML = `<span style="font-weight:700">Compare (${st.compare.size})</span>
+    <span class="dim" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${names}</span>
+    <button class="quiet" id="cmpclear">× Clear</button>
+    <button id="cmpgo">Compare →</button>`;
+  document.getElementById('cmpclear').onclick = () => {
+    st.compare.clear();
+    document.querySelectorAll('.cmp-tog.on').forEach(b => b.classList.remove('on'));
+    renderCompareBar();
+  };
+  document.getElementById('cmpgo').onclick = () => tab('compare');
+}
+
+const VIEWS = {services, mcp, hosts, sources, partners, compare: renderCompare};
 function tab(t) {
   st.tab = t;
   document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.t === t));
@@ -647,13 +1104,14 @@ async function render() {
   status('');
   try { await VIEWS[st.tab](); } catch (e) { status(e.message, true); }
   stateToHash();
+  renderCompareBar();
 }
 document.querySelectorAll('#tabs a').forEach(a => a.onclick = () => { st.q = ''; tab(a.dataset.t); });
 
-window.addEventListener('hashchange', () => { hashToState(); render(); });
+window.addEventListener('hashchange', () => { hashToState(); render().then(() => { if (st.open) detail(st.open); }); });
 hashToState();
 if (PP) { PP.onChange(who); PP.ready().then(who); } else who();
-loadStats().then(render);
+Promise.all([loadStats(), loadTags()]).then(() => render().then(() => { if (st.open) detail(st.open); }));
 setInterval(loadStats, 30000);
 </script>
 </body>

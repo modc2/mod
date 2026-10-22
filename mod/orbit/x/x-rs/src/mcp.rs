@@ -178,9 +178,76 @@ pub fn tool_list() -> Value {
             }
         },
         {
+            "name": "unfollow",
+            "description": "Unfollow an account as the authenticated account.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "username": { "type": "string", "description": "@handle or numeric user id" } },
+                "required": ["username"]
+            }
+        },
+        {
             "name": "auth_status",
             "description": "Which credential rails are configured (never returns the secrets themselves).",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "home_feed",
+            "description": "Reverse-chronological home timeline for the authenticated account. Needs user-context credentials (OAuth 1.0a).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "max_results": { "type": "integer", "default": 50, "description": "5–100" },
+                    "next_token": { "type": "string", "description": "Pagination token from a prior call" }
+                }
+            }
+        },
+        {
+            "name": "bookmarks",
+            "description": "List the authenticated account's bookmarked posts. Needs user-context credentials (OAuth 1.0a).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "max_results": { "type": "integer", "default": 50, "description": "1–500" },
+                    "pagination_token": { "type": "string", "description": "Pagination token from a prior call" }
+                }
+            }
+        },
+        {
+            "name": "bookmark",
+            "description": "Bookmark a post as the authenticated account.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "unbookmark",
+            "description": "Remove a bookmark as the authenticated account.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "unlike",
+            "description": "Remove a like from a post as the authenticated account.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "unrepost",
+            "description": "Remove a repost (undo retweet) as the authenticated account.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }
         }
     ])
 }
@@ -217,8 +284,9 @@ fn post_id(raw: &str) -> Result<String, String> {
 fn read_fields() -> Vec<(&'static str, String)> {
     vec![
         ("tweet.fields", TWEET_FIELDS.into()),
-        ("expansions", "author_id".into()),
+        ("expansions", "author_id,attachments.media_keys,referenced_tweets.id,referenced_tweets.id.author_id".into()),
         ("user.fields", USER_FIELDS.into()),
+        ("media.fields", "url,preview_image_url,type,width,height,alt_text".into()),
     ]
 }
 
@@ -273,7 +341,11 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
                 .or_else(|| s(args, "id"))
                 .ok_or("user requires `username`")?;
             let who = x::handle(who).map_err(|e| e.to_string())?;
-            let params = q(vec![("user.fields", USER_FIELDS.into())]);
+            let params = q(vec![
+                ("user.fields", format!("{},pinned_tweet_id", USER_FIELDS)),
+                ("expansions", "pinned_tweet_id".to_string()),
+                ("tweet.fields", TWEET_FIELDS.to_string()),
+            ]);
             let path = if who.chars().all(|c| c.is_ascii_digit()) {
                 format!("/2/users/{who}")
             } else {
@@ -333,6 +405,20 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
 
         "me" => x::get("/2/users/me", &q(vec![("user.fields", USER_FIELDS.into())]), &creds, Auth::User).await,
 
+        "home_feed" => {
+            match x::me_id(&creds).await {
+                Err(e) => Err(e),
+                Ok(id) => {
+                    let mut params = q(vec![
+                        ("max_results", u(args, "max_results", 50).clamp(5, 100).to_string()),
+                        ("next_token", s(args, "next_token").unwrap_or("").into()),
+                    ]);
+                    params.extend(q(read_fields()));
+                    x::get(&format!("/2/users/{id}/timelines/reverse_chronological"), &params, &creds, Auth::User).await
+                }
+            }
+        }
+
         "post" => {
             let text = s(args, "text").ok_or("post requires `text`")?;
             let mut body = json!({ "text": text });
@@ -384,6 +470,16 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
                         &creds,
                     )
                     .await
+                }
+            }
+        }
+
+        "unfollow" => {
+            let who = s(args, "username").ok_or("unfollow requires `username`")?;
+            match (x::me_id(&creds).await, x::user_id(who, &creds).await) {
+                (Err(e), _) | (_, Err(e)) => Err(e),
+                (Ok(me), Ok(target)) => {
+                    x::delete(&format!("/2/users/{me}/following/{target}"), &creds).await
                 }
             }
         }
@@ -477,6 +573,55 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
             out["cost"] = actual;
             out["fetched"] = json!(true);
             Ok(out)
+        }
+
+        "bookmarks" => {
+            match x::me_id(&creds).await {
+                Err(e) => Err(e),
+                Ok(id) => {
+                    let mut params = q(vec![
+                        ("max_results", u(args, "max_results", 50).clamp(1, 500).to_string()),
+                        ("pagination_token", s(args, "pagination_token").unwrap_or("").into()),
+                    ]);
+                    params.extend(q(read_fields()));
+                    x::get(&format!("/2/users/{id}/bookmarks"), &params, &creds, Auth::User).await
+                }
+            }
+        }
+
+        "bookmark" => {
+            let id = post_id(s(args, "id").ok_or("bookmark requires `id`")?)?;
+            match x::me_id(&creds).await {
+                Err(e) => Err(e),
+                Ok(me) => {
+                    x::post(&format!("/2/users/{me}/bookmarks"), &json!({ "tweet_id": id }), &creds).await
+                }
+            }
+        }
+
+        "unbookmark" => {
+            let id = post_id(s(args, "id").ok_or("unbookmark requires `id`")?)?;
+            match x::me_id(&creds).await {
+                Err(e) => Err(e),
+                Ok(me) => {
+                    x::delete(&format!("/2/users/{me}/bookmarks/{id}"), &creds).await
+                }
+            }
+        }
+
+        "unlike" | "unrepost" => {
+            let id = post_id(s(args, "id").ok_or("requires `id`")?)?;
+            match x::me_id(&creds).await {
+                Err(e) => Err(e),
+                Ok(me) => {
+                    let path = if name == "unlike" {
+                        format!("/2/users/{me}/likes/{id}")
+                    } else {
+                        format!("/2/users/{me}/retweets/{id}")
+                    };
+                    x::delete(&path, &creds).await
+                }
+            }
         }
 
         other => return Err(format!("unknown tool: {other}")),

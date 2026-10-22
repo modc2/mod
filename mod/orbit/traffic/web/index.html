@@ -33,6 +33,8 @@ h1 { margin: 0; font-size: 13px; letter-spacing: .12em; text-transform: uppercas
 .ranges { display: flex; gap: 4px; background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; padding: 3px; }
 .ranges button { all: unset; cursor: pointer; padding: 5px 11px; border-radius: 6px; color: var(--text-secondary); font-size: 12px; font-weight: 600; letter-spacing: .04em; }
 .ranges button[aria-pressed="true"] { background: #2a2a27; color: var(--text-primary); }
+.copy-link { all: unset; cursor: pointer; padding: 5px 11px; border-radius: 6px; background: var(--surface-1); border: 1px solid var(--line); color: var(--text-secondary); font-size: 12px; font-weight: 600; letter-spacing: .04em; }
+.copy-link:hover { color: var(--text-primary); }
 .card { margin-top: 18px; background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px; padding: 16px 16px 10px; }
 .card h2 { margin: 0 0 2px; font-size: 15px; font-weight: 600; }
 .card .sub { color: var(--text-muted); font-size: 12px; }
@@ -65,9 +67,23 @@ td.app a:hover { color: var(--accent); }
 :where(html[data-ui="phone"]) .hero b { font-size: 36px; }
 .ctry-chart { margin-top: 10px; }
 .ctry-chart svg { display: block; width: 100%; overflow: visible; }
+.expand-btn { all: unset; display: inline-block; cursor: pointer; color: var(--text-muted); font-size: 11px; padding: 1px 4px; margin-left: 6px; border-radius: 3px; }
+.expand-btn:hover { color: var(--accent); }
+tr.detail > td { background: #111110; padding: 8px 12px 10px; border-bottom: 1px solid var(--line); }
+.detail-ctry { max-width: 460px; }
 .hm-wrap { margin-top: 10px; position: relative; }
 .hm-wrap svg { display: block; }
 .hm-tip { position: absolute; pointer-events: none; background: #1f1f1d; border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; font-size: 12px; color: var(--text-secondary); display: none; z-index: 2; white-space: nowrap; }
+.mv-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+.mv-col-hdr { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
+.mv-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.mv-row i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.mv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text-secondary); }
+.lb-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.lb-name { width: 120px; min-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text-secondary); flex: none; }
+.lb-track { flex: 1; height: 8px; background: var(--grid); border-radius: 4px; overflow: hidden; }
+.lb-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; min-width: 4px; }
+.lb-count { width: 40px; text-align: right; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; flex: none; }
 </style>
 </head>
 <body class="viz-root">
@@ -75,16 +91,34 @@ td.app a:hover { color: var(--accent); }
   <header>
     <div>
       <h1>Traffic &middot; every app on modc2.com</h1>
-      <div class="hero"><b id="total">-</b><span><span class="dot"></span>people using the sites right now</span></div>
+      <div class="hero"><b id="total">-</b><svg id="hero-spark" width="90" height="28" style="align-self:center;flex-shrink:0" aria-hidden="true"></svg><span id="hero-arrow" style="font-size:16px;align-self:center"></span><span><span class="dot"></span>people using the sites right now</span><span id="range-unique-stat" style="color:var(--text-secondary);font-size:13px;margin-left:4px"></span></div>
     </div>
-    <div class="ranges" id="ranges" role="group" aria-label="Time range"></div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="ranges" id="ranges" role="group" aria-label="Time range"></div>
+      <button class="copy-link" id="copy-link-btn" title="Copy shareable link">⧉</button>
+    </div>
   </header>
+
+  <section class="card" id="live-bars-card" style="display:none">
+    <h2><span class="dot"></span>Active right now</h2>
+    <div id="live-bars-body"></div>
+  </section>
 
   <section class="card">
     <h2>Users over time, per app</h2>
     <div class="sub" id="chartsub">Distinct people per time bucket</div>
     <div class="legend" id="legend"></div>
     <div class="chart" id="chart"><svg id="svg" height="300"></svg><div class="tip" id="tip"></div></div>
+  </section>
+
+  <section class="card" id="cohorts-card" style="display:none">
+    <h2>New vs returning</h2>
+    <div class="sub" id="cohorts-sub">First-time vs returning visitors per bucket</div>
+    <div class="chart"><svg id="cohorts-svg" height="180"></svg></div>
+    <div style="display:flex;gap:14px;margin-top:8px">
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary)"><i style="width:14px;height:3px;border-radius:2px;background:#1baf7a;display:inline-block"></i>New</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary)"><i style="width:14px;height:3px;border-radius:2px;background:var(--accent);opacity:0.5;display:inline-block"></i>Returning</span>
+    </div>
   </section>
 
   <section class="card" id="countries-card" style="display:none">
@@ -99,11 +133,39 @@ td.app a:hover { color: var(--accent); }
     <div class="hm-wrap" id="heatmap-wrap"><div class="hm-tip" id="hm-tip"></div></div>
   </section>
 
+  <section class="card" id="movers-card" style="display:none">
+    <h2>Top movers</h2>
+    <div id="movers-body"></div>
+  </section>
+
+  <section class="card" id="funnel-card" style="display:none">
+    <h2>Ecosystem reach</h2>
+    <div id="funnel-body"></div>
+  </section>
+
+  <section class="card" id="pairs-card" style="display:none">
+    <h2>Often used together</h2>
+    <div class="sub" id="pairs-sub">Apps most commonly visited by the same person</div>
+    <div id="pairs-body"></div>
+  </section>
+
+  <section class="card" id="paths-card" style="display:none">
+    <h2>How visitors navigate</h2>
+    <div class="sub" id="paths-sub">Top ordered sequences of apps visited by the same person</div>
+    <div id="paths-body"></div>
+  </section>
+
+  <section class="card" id="entry-card" style="display:none">
+    <h2>Where visitors start</h2>
+    <div class="sub">First app a new visitor lands on, over the selected range</div>
+    <div id="entry-body"></div>
+  </section>
+
   <section class="card">
     <h2>All apps</h2>
     <div class="sub">"Now" = anyone who loaded or used the app in the last 5 minutes. Click a row to add it to the chart.</div>
     <table>
-      <thead><tr><th>App</th><th class="n">Now</th><th class="n" id="hdrUsers">People</th><th class="n">±</th><th class="n">Requests</th><th>Trend</th></tr></thead>
+      <thead><tr><th>App</th><th class="n" id="hdrLive" style="cursor:pointer">Now</th><th class="n" id="hdrUsers" style="cursor:pointer">People</th><th class="n" id="hdrDelta" style="cursor:pointer">±</th><th class="n" id="hdrHits" style="cursor:pointer">Requests</th><th>Trend</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="note" id="note"></div>
@@ -115,7 +177,14 @@ const BASE = location.pathname.replace(/\/+$/, '') ;
 const API = (fn, q) => fetch(`${BASE}/api/${fn}${q ? '?' + new URLSearchParams(q) : ''}`, { cache: 'no-store' }).then(r => r.json());
 const RANGES = ['1h', '6h', '24h', '7d', '30d'];
 const SLOTS = 8;
-const state = { range: localStorage.getItem('traffic.range') || '24h', pinned: JSON.parse(localStorage.getItem('traffic.pinned') || 'null'), hidden: new Set(), data: null, sparks: {} };
+const state = { range: localStorage.getItem('traffic.range') || '24h', pinned: JSON.parse(localStorage.getItem('traffic.pinned') || 'null'), hidden: new Set(), data: null, sparks: {}, expanded: new Set(), ctryData: {}, sort: { col: 'users', dir: -1 } };
+
+// URL params take priority over localStorage
+(function() {
+  const p = new URLSearchParams(location.search);
+  if (p.has('range') && RANGES.includes(p.get('range'))) state.range = p.get('range');
+  if (p.has('apps')) { const a = p.get('apps').split(',').filter(Boolean); if (a.length) state.pinned = a; }
+})();
 
 // Color follows the app, not its rank: an app keeps its slot while it stays on the chart.
 let colorOf = JSON.parse(localStorage.getItem('traffic.colors') || '{}');
@@ -128,10 +197,16 @@ function assignColors(apps) {
 }
 const cssColor = a => colorOf[a] ? `var(--s${colorOf[a]})` : 'var(--spark)';
 
+function syncUrl() {
+  const p = { range: state.range };
+  if (state.pinned) p.apps = state.pinned.join(',');
+  history.replaceState(null, '', location.pathname + '?' + new URLSearchParams(p));
+}
+
 const rangesEl = document.getElementById('ranges');
 RANGES.forEach(r => {
   const b = document.createElement('button'); b.textContent = r.toUpperCase(); b.dataset.r = r;
-  b.onclick = () => { state.range = r; localStorage.setItem('traffic.range', r); load(); };
+  b.onclick = () => { state.range = r; localStorage.setItem('traffic.range', r); state.expanded.clear(); state.ctryData = {}; state.vinData = {}; syncUrl(); load(); };
   rangesEl.appendChild(b);
 });
 
@@ -145,6 +220,29 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 
 function niceMax(v) { if (v <= 4) return 4; const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p; return v; }
 
+function drawHeroSpark() {
+  const svgEl = document.getElementById('hero-spark');
+  const arrowEl = document.getElementById('hero-arrow');
+  if (!svgEl || !state.data || !state.data.total) return;
+  const vals = state.data.total.slice(-20);
+  if (!vals.length) { svgEl.innerHTML = ''; if (arrowEl) arrowEl.textContent = ''; return; }
+  const W = 90, H = 28;
+  const max = niceMax(Math.max(1, ...vals));
+  const n = vals.length;
+  const px = i => n <= 1 ? W / 2 : i * W / (n - 1);
+  const py = v => H - 2 - (H - 4) * v / max;
+  const linePts = vals.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
+  const areaPts = [`${px(0).toFixed(1)},${H}`, ...vals.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`), `${px(n - 1).toFixed(1)},${H}`].join(' ');
+  svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svgEl.innerHTML = `<polygon points="${areaPts}" fill="var(--s1)" opacity="0.15" /><polyline points="${linePts}" fill="none" stroke="var(--s1)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />`;
+  if (arrowEl) {
+    const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+    const latest = vals[vals.length - 1];
+    arrowEl.textContent = latest > mean ? '▲' : '▼';
+    arrowEl.style.color = latest > mean ? '#1baf7a' : '#d95926';
+  }
+}
+
 function drawChart() {
   const d = state.data, svg = document.getElementById('svg'), tip = document.getElementById('tip');
   const W = svg.clientWidth || 900, H = 300, L = 36, R = 92, T = 10, B = 26;
@@ -152,7 +250,9 @@ function drawChart() {
   const shown = d.series.filter(s => !state.hidden.has(s.app));
   const n = d.buckets.length;
   if (!d.series.length) { svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#8a897f" font-size="13">No visits recorded in this range yet</text>`; return; }
-  const max = niceMax(Math.max(1, ...shown.flatMap(s => s.values)));
+  const liveMap = {};
+  if (state.liveApps) state.liveApps.forEach(a => { liveMap[a.app] = a.users; });
+  const max = niceMax(Math.max(1, ...shown.flatMap(s => s.values), ...shown.map(s => liveMap[s.app] || 0)));
   const x = i => L + (n <= 1 ? 0 : i * (W - L - R) / (n - 1));
   const y = v => T + (H - T - B) * (1 - v / max);
   let g = '<g class="axis">';
@@ -172,12 +272,21 @@ function drawChart() {
     const pts = s.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
     lines += `<polyline points="${pts}" fill="none" stroke="${cssColor(s.app)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />`;
   });
+  const nowX = W - R;
+  const nowMarker = `<line x1="${nowX}" x2="${nowX}" y1="${T}" y2="${H - B}" stroke="#55544e" stroke-width="1" stroke-dasharray="3,3" opacity="0.5" /><text x="${nowX}" y="${T + 10}" text-anchor="middle" fill="var(--text-muted)" font-size="10" opacity="0.7">now</text>`;
+  let liveDots = '';
+  shown.forEach(s => {
+    const liveCount = liveMap[s.app] || 0;
+    if (liveCount > 0) {
+      liveDots += `<circle cx="${nowX + 6}" cy="${y(liveCount).toFixed(1)}" r="5" fill="${cssColor(s.app)}" opacity="0.85"><animate attributeName="r" values="4;7;4" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.85;0.3;0.85" dur="2s" repeatCount="indefinite"/></circle>`;
+    }
+  });
   // Direct labels at the line ends for the top 4, nudged apart so they never collide.
   const ends = shown.slice(0, 4).map(s => ({ app: s.app, v: s.values[n - 1], y: y(s.values[n - 1]) })).sort((a, b) => a.y - b.y);
   for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 14) ends[i].y = ends[i - 1].y + 14;
   let labels = '';
   ends.forEach(e => { labels += `<text x="${W - R + 8}" y="${e.y + 4}" fill="#c3c2b7" font-size="11">${esc(e.app)} ${e.v}</text>`; });
-  svg.innerHTML = g + lines + labels + `<line id="xh" y1="${T}" y2="${H - B}" stroke="#55544e" stroke-width="1" style="display:none" /><g id="dots"></g><rect id="hit" x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent" />`;
+  svg.innerHTML = g + lines + nowMarker + liveDots + labels + `<line id="xh" y1="${T}" y2="${H - B}" stroke="#55544e" stroke-width="1" style="display:none" /><g id="dots"></g><rect id="hit" x="${L}" y="0" width="${W - L - R}" height="${H}" fill="transparent" />`;
 
   const hit = svg.querySelector('#hit'), xh = svg.querySelector('#xh'), dots = svg.querySelector('#dots');
   hit.onmousemove = ev => {
@@ -186,9 +295,15 @@ function drawChart() {
     xh.setAttribute('x1', x(i)); xh.setAttribute('x2', x(i)); xh.style.display = '';
     dots.innerHTML = shown.map(s => `<circle cx="${x(i)}" cy="${y(s.values[i])}" r="4" fill="${cssColor(s.app)}" stroke="#141413" stroke-width="2" />`).join('');
     const rows = shown.map(s => ({ app: s.app, v: s.values[i] })).sort((a, b) => b.v - a.v);
+    const liveRowsHtml = (i === n - 1)
+      ? rows.filter(o => (liveMap[o.app] || 0) > 0)
+          .map(o => `<div class="r"><span><i style="background:${cssColor(o.app)}"></i>${esc(o.app)}</span><b>live: ${liveMap[o.app]}</b></div>`)
+          .join('')
+      : '';
     tip.innerHTML = `<div class="t">${fmtTime(d.buckets[i], 60)}${d.step > 60 ? ' &middot; ' + (d.step / 60 >= 60 ? d.step / 3600 + 'h' : d.step / 60 + 'm') + ' bucket' : ''}</div>`
       + `<div class="r"><span>all sites</span><b>${d.total[i]}</b></div>`
-      + rows.map(o => `<div class="r"><span><i style="background:${cssColor(o.app)}"></i>${esc(o.app)}</span><b>${o.v}</b></div>`).join('');
+      + rows.map(o => `<div class="r"><span><i style="background:${cssColor(o.app)}"></i>${esc(o.app)}</span><b>${o.v}</b></div>`).join('')
+      + liveRowsHtml;
     tip.style.display = 'block';
     const cx = x(i) * r.width / W, tw = tip.offsetWidth;
     tip.style.left = (cx + 14 + tw > r.width ? cx - tw - 14 : cx + 14) + 'px';
@@ -207,7 +322,19 @@ function spark(vals) {
 function render() {
   const d = state.data;
   [...rangesEl.children].forEach(b => b.setAttribute('aria-pressed', b.dataset.r === state.range));
-  document.getElementById('hdrUsers').textContent = 'People (' + state.range + ')';
+  [
+    { id: 'hdrLive', col: 'live', label: 'Now' },
+    { id: 'hdrUsers', col: 'users', label: 'People / New (' + state.range + ')' },
+    { id: 'hdrDelta', col: 'delta', label: '±' },
+    { id: 'hdrHits', col: 'hits', label: 'Requests' },
+  ].forEach(h => {
+    const el = document.getElementById(h.id);
+    if (!el) return;
+    const ind = state.sort.col === h.col ? ' <span style="color:var(--text-secondary)">' + (state.sort.dir === -1 ? '▼' : '▲') + '</span>' : '';
+    el.innerHTML = h.label + ind;
+  });
+  const ruEl = document.getElementById('range-unique-stat');
+  if (ruEl) ruEl.textContent = (d.range_unique != null ? d.range_unique.toLocaleString() + ' unique this ' + state.range : '');
   const onChart = new Set(d.series.map(s => s.app));
   assignColors(d.series.map(s => s.app));
   document.getElementById('legend').innerHTML = d.series.map(s =>
@@ -219,8 +346,45 @@ function render() {
     ? 'Showing the apps you picked. Click a row again to remove it.'
     : `Top ${d.series.length} apps by people in the last ${state.range}. Hover for exact numbers.`;
   drawChart();
+  drawHeroSpark();
+
+  // Top movers card
+  const moversCard = document.getElementById('movers-card');
+  const withDelta = d.table
+    .filter(t => t.prev > 0)
+    .map(t => ({ app: t.app, users: t.users, delta: (t.users - t.prev) / t.prev }));
+  const gainers = withDelta.filter(t => t.users > 0 && t.delta > 0)
+    .sort((a, b) => b.delta - a.delta).slice(0, 3);
+  const losers = withDelta.filter(t => t.delta < 0)
+    .sort((a, b) => a.delta - b.delta).slice(0, 3);
+  if (gainers.length === 0 && losers.length === 0) {
+    moversCard.style.display = 'none';
+  } else {
+    moversCard.style.display = '';
+    const fmtPct = (delta, pos) => {
+      const pct = Math.round(Math.abs(delta) * 100);
+      return pos
+        ? `<span style="color:#1baf7a;font-size:12px;font-weight:600">+${pct}%</span>`
+        : `<span style="color:#d95926;font-size:12px;font-weight:600">−${pct}%</span>`;
+    };
+    const buildCol = (items, pos) => items.length
+      ? items.map(t => `<div class="mv-row"><i style="background:${cssColor(t.app)}"></i><span class="mv-name">${esc(t.app)}</span>${fmtPct(t.delta, pos)}</div>`).join('')
+      : `<div style="color:var(--text-muted);font-size:12px;padding:3px 0">—</div>`;
+    document.getElementById('movers-body').innerHTML =
+      `<div class="mv-cols">` +
+      `<div><div class="mv-col-hdr" style="color:#1baf7a">Gaining</div>${buildCol(gainers, true)}</div>` +
+      `<div><div class="mv-col-hdr" style="color:#d95926">Losing</div>${buildCol(losers, false)}</div>` +
+      `</div>`;
+  }
+
+  const sortedTable = [...d.table].sort((a, b) => {
+    const col = state.sort.col;
+    const av = col === 'live' ? a.live : col === 'delta' ? (a.users - (a.prev || 0)) : col === 'hits' ? a.hits : a.users;
+    const bv = col === 'live' ? b.live : col === 'delta' ? (b.users - (b.prev || 0)) : col === 'hits' ? b.hits : b.users;
+    return (av - bv) * state.sort.dir;
+  });
   const rows = document.getElementById('rows');
-  rows.innerHTML = d.table.length ? d.table.map(t => {
+  rows.innerHTML = sortedTable.length ? sortedTable.map(t => {
     const prev = t.prev || 0;
     const pct = prev > 0 ? Math.round((t.users - prev) / prev * 100) : (t.users > 0 ? null : 0);
     let badge;
@@ -230,22 +394,142 @@ function render() {
     else if (pct < 0) badge = `<span style="color:#d95926;font-size:11px">−${Math.abs(pct)}%</span>`;
     else badge = `<span style="color:var(--text-muted);font-size:11px">—</span>`;
     return `<tr class="row" data-app="${esc(t.app)}">
-      <td class="app"><span class="nm"><i style="background:${onChart.has(t.app) ? cssColor(t.app) : 'transparent'};border:1px solid ${onChart.has(t.app) ? 'transparent' : '#55544e'}"></i>${esc(t.app)} <a href="/${encodeURIComponent(t.app)}/" target="_blank" rel="noopener" title="open">open</a></span></td>
+      <td class="app"><span class="nm"><i style="background:${onChart.has(t.app) ? cssColor(t.app) : 'transparent'};border:1px solid ${onChart.has(t.app) ? 'transparent' : '#55544e'}"></i>${esc(t.app)} <a href="/${encodeURIComponent(t.app)}/" target="_blank" rel="noopener" title="open">open</a></span><button class="expand-btn" title="Country breakdown">${state.expanded.has(t.app) ? '▾' : '▸'}</button></td>
       <td class="n ${t.live ? 'livepos' : 'live0'}">${t.live}</td>
-      <td class="n">${t.users}</td>
+      <td class="n">${t.users}${t.new > 0 ? ' <span style="color:var(--text-muted);font-size:11px">(' + t.new + ' new)</span>' : ''}</td>
       <td class="n">${badge}</td>
       <td class="n">${t.hits.toLocaleString()}</td>
       <td>${spark(state.sparks[t.app])}</td></tr>`;
   }).join('')
     : `<tr><td colspan="6" class="empty">No visits recorded in this range yet</td></tr>`;
   rows.querySelectorAll('tr.row').forEach(tr => tr.onclick = ev => {
-    if (ev.target.tagName === 'A') return;
+    if (ev.target.tagName === 'A' || ev.target.classList.contains('expand-btn')) return;
     const a = tr.dataset.app;
     let p = state.pinned || d.series.map(s => s.app);
     p = p.includes(a) ? p.filter(x => x !== a) : [...p, a].slice(-SLOTS);
     state.pinned = p.length ? p : null;
     localStorage.setItem('traffic.pinned', JSON.stringify(state.pinned));
+    syncUrl();
     load();
+  });
+  function buildAffinitiesHtml(data) {
+    if (!data || !data.affinities || !data.affinities.length) return '';
+    const items = data.affinities.map(a =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px"><i style="width:8px;height:8px;border-radius:50%;background:${cssColor(a.app)};display:inline-block;flex-shrink:0"></i><span style="color:var(--text-secondary)">${esc(a.app)}</span><span style="color:var(--text-muted);font-size:11px">${a.users}</span></span>`
+    ).join('');
+    return `<div style="margin-top:8px;font-size:12px"><span style="color:var(--text-muted);margin-right:6px">also used by</span>${items}</div>`;
+  }
+  function buildVintageHtml(data) {
+    if (!data) return '';
+    const total = (data.new || 0) + (data.recent || 0) + (data.veteran || 0);
+    if (!total) return '';
+    return `<div style="margin-top:8px">` +
+      `<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;max-width:320px">` +
+      (data.new ? `<div style="flex:${data.new};background:#3987e5"></div>` : '') +
+      (data.recent ? `<div style="flex:${data.recent};background:#c98500"></div>` : '') +
+      (data.veteran ? `<div style="flex:${data.veteran};background:#1baf7a"></div>` : '') +
+      `</div>` +
+      `<div style="font-size:11px;color:var(--text-muted);margin-top:3px">` +
+      `<span style="color:#3987e5">${data.new} new</span> · ` +
+      `<span style="color:#c98500">${data.recent} recent</span> · ` +
+      `<span style="color:#1baf7a">${data.veteran} veteran${data.veteran !== 1 ? 's' : ''}</span>` +
+      `</div></div>`;
+  }
+  function insertDetailRow(tr, app) {
+    const detail = document.createElement('tr');
+    detail.className = 'detail'; detail.dataset.app = app;
+    const cached = state.ctryData[app];
+    const cachedAff = state.affData && state.affData[app];
+    const cachedVin = state.vinData && state.vinData[app];
+    detail.innerHTML = `<td colspan="6"><div class="detail-ctry">${cached && cached.countries && cached.countries.length ? buildCountriesSvg(cached) : '<span style="color:var(--text-muted);font-size:12px">Loading…</span>'}</div><div class="detail-aff">${cachedAff ? buildAffinitiesHtml(cachedAff) : ''}</div><div class="detail-vin">${cachedVin ? buildVintageHtml(cachedVin) : ''}</div><div class="detail-hm"></div></td>`;
+    tr.insertAdjacentElement('afterend', detail);
+
+    function renderMiniHeatmap(hm) {
+      const inner = detail.querySelector('.detail-hm');
+      if (!inner || !detail.isConnected || !hm || !hm.grid) return;
+      if (!hm.grid.some(row => row.some(v => v > 0))) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'hm-wrap';
+      const caption = document.createElement('div');
+      caption.style.cssText = 'font-size:11px;color:var(--text-muted);margin-bottom:3px';
+      caption.textContent = 'peak hours';
+      wrap.appendChild(caption);
+      const hmTip = document.createElement('div');
+      hmTip.className = 'hm-tip';
+      const tmp = document.createElement('div');
+      tmp.innerHTML = buildHeatmapSvg(hm, 16, 14, false);
+      const svgEl = tmp.firstChild;
+      wrap.appendChild(svgEl);
+      wrap.appendChild(hmTip);
+      svgEl.addEventListener('mousemove', ev => {
+        const r = ev.target;
+        if (r.tagName !== 'rect') { hmTip.style.display = 'none'; return; }
+        const hrN = parseInt(r.dataset.hr, 10);
+        hmTip.textContent = `${r.dataset.day} ${hrN}:00–${hrN + 1}:00: ${r.dataset.val} ${r.dataset.val === '1' ? 'person' : 'people'}`;
+        const wr = wrap.getBoundingClientRect();
+        hmTip.style.display = 'block';
+        hmTip.style.left = (ev.clientX - wr.left + 10) + 'px';
+        hmTip.style.top = (ev.clientY - wr.top - 28) + 'px';
+      });
+      svgEl.addEventListener('mouseleave', () => { hmTip.style.display = 'none'; });
+      inner.appendChild(wrap);
+    }
+
+    const fetches = [];
+    if (!cached) {
+      fetches.push(API('countries', { range: state.range, app }).then(ct => {
+        state.ctryData[app] = ct;
+        const inner = detail.querySelector('.detail-ctry');
+        if (inner && detail.isConnected) inner.innerHTML = ct.countries && ct.countries.length ? buildCountriesSvg(ct) : '<span style="color:var(--text-muted);font-size:12px">No country data for this app in this range</span>';
+      }).catch(() => {
+        const inner = detail.querySelector('.detail-ctry');
+        if (inner && detail.isConnected) inner.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Error loading country data</span>';
+      }));
+    }
+    if (!cachedAff) {
+      if (!state.affData) state.affData = {};
+      fetches.push(API('affinities', { range: state.range, app }).then(af => {
+        state.affData[app] = af;
+        const inner = detail.querySelector('.detail-aff');
+        if (inner && detail.isConnected) inner.innerHTML = buildAffinitiesHtml(af);
+      }).catch(() => {}));
+    }
+    const cachedHm = state.hmData && state.hmData[app];
+    if (cachedHm) {
+      renderMiniHeatmap(cachedHm);
+    } else {
+      if (!state.hmData) state.hmData = {};
+      fetches.push(API('heatmap', { range: state.range, app }).then(hm => {
+        state.hmData[app] = hm;
+        renderMiniHeatmap(hm);
+      }).catch(() => {}));
+    }
+    if (!cachedVin) {
+      if (!state.vinData) state.vinData = {};
+      fetches.push(API('vintage', { range: state.range, app }).then(vn => {
+        state.vinData[app] = vn;
+        const inner = detail.querySelector('.detail-vin');
+        if (inner && detail.isConnected) inner.innerHTML = buildVintageHtml(vn);
+      }).catch(() => {}));
+    }
+  }
+  rows.querySelectorAll('.expand-btn').forEach(btn => {
+    const tr = btn.closest('tr');
+    const app = tr.dataset.app;
+    btn.onclick = ev => {
+      ev.stopPropagation();
+      if (state.expanded.has(app)) {
+        state.expanded.delete(app);
+        btn.textContent = '▸';
+        const detail = tr.nextElementSibling;
+        if (detail && detail.classList.contains('detail') && detail.dataset.app === app) detail.remove();
+      } else {
+        state.expanded.add(app);
+        btn.textContent = '▾';
+        insertDetailRow(tr, app);
+      }
+    };
+    if (state.expanded.has(app)) insertDetailRow(tr, app);
   });
   const since = d.first ? new Date(d.first * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null;
   document.getElementById('note').textContent = (since ? `Counting since ${since}. ` : '') +
@@ -253,19 +537,12 @@ function render() {
     (state.pinned ? 'Reset the chart to the top apps: ' : '');
   if (state.pinned) {
     const b = document.createElement('a'); b.href = '#'; b.textContent = 'show top apps'; b.style.color = 'var(--accent)';
-    b.onclick = e => { e.preventDefault(); state.pinned = null; localStorage.removeItem('traffic.pinned'); load(); };
+    b.onclick = e => { e.preventDefault(); state.pinned = null; localStorage.removeItem('traffic.pinned'); syncUrl(); load(); };
     document.getElementById('note').appendChild(b);
   }
 }
 
-function renderCountries(data) {
-  const card = document.getElementById('countries-card');
-  const el = document.getElementById('countries-chart');
-  if (!data || !data.countries || !data.countries.length) {
-    card.style.display = 'none';
-    return;
-  }
-  card.style.display = '';
+function buildCountriesSvg(data) {
   const rows = data.countries;
   const max = rows[0].users;
   const rowH = 20, padV = 6, labelW = 26, countW = 38, gap = 8, W = 500;
@@ -280,7 +557,66 @@ function renderCountries(data) {
     svg += `<text x="${labelW + bw + gap}" y="${y + 14}" fill="var(--text-secondary)" font-size="11">${r.users}</text>`;
   });
   svg += '</svg>';
-  el.innerHTML = svg;
+  return svg;
+}
+
+function renderLiveBars(lv) {
+  const card = document.getElementById('live-bars-card');
+  if (!lv || !lv.total) { card.style.display = 'none'; return; }
+  const apps = (lv.apps || []).filter(a => a.users > 0).sort((a, b) => b.users - a.users);
+  if (!apps.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const max = apps[0].users;
+  document.getElementById('live-bars-body').innerHTML = apps.map(a => {
+    const pct = Math.round(a.users / max * 100);
+    return `<div class="lb-row"><span class="lb-name">${esc(a.app)}</span><div class="lb-track"><div class="lb-fill" style="width:${pct}%;background:${cssColor(a.app)}"></div></div><span class="lb-count">${a.users}</span></div>`;
+  }).join('');
+}
+
+function renderCountries(data) {
+  const card = document.getElementById('countries-card');
+  const el = document.getElementById('countries-chart');
+  if (!data || !data.countries || !data.countries.length) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  el.innerHTML = buildCountriesSvg(data);
+}
+
+function buildHeatmapSvg(data, cellW, cellH, showHourLabels, currentDow, currentHr) {
+  if (currentDow === undefined) currentDow = -1;
+  if (currentHr === undefined) currentHr = -1;
+  const hours = 24, labelW = 32, padR = 4;
+  const labelH = showHourLabels ? 18 : 0;
+  const W = labelW + hours * cellW + padR;
+  const H = labelH + data.days.length * cellH;
+  const maxVal = Math.max(1, ...data.grid.flatMap(r => r));
+  let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;max-width:100%">`;
+  if (showHourLabels) {
+    [0, 6, 12, 18, 24].forEach(h => {
+      const x = labelW + h * cellW;
+      svg += `<text x="${x}" y="${labelH - 4}" text-anchor="middle" fill="var(--text-muted)" font-size="10" font-family="ui-monospace,monospace,sans-serif">${h}</text>`;
+    });
+  }
+  data.days.forEach((day, di) => {
+    const y = labelH + di * cellH;
+    svg += `<text x="${labelW - 4}" y="${y + cellH / 2 + 4}" text-anchor="end" fill="var(--text-muted)" font-size="10" font-family="ui-sans-serif,system-ui,sans-serif">${esc(day)}</text>`;
+    for (let h = 0; h < hours; h++) {
+      const val = data.grid[di][h];
+      const op = val === 0 ? 0 : 0.08 + 0.92 * val / maxVal;
+      const x = labelW + h * cellW;
+      svg += `<rect x="${x + 1}" y="${y + 1}" width="${cellW - 2}" height="${cellH - 2}" rx="2"`
+           + ` fill="var(--accent)" opacity="${op.toFixed(3)}"`
+           + ` data-day="${esc(day)}" data-hr="${h}" data-val="${val}" />`;
+      if (di === currentDow && h === currentHr) {
+        svg += `<rect x="${x + 1}" y="${y + 1}" width="${cellW - 2}" height="${cellH - 2}" rx="2"`
+             + ` fill="none" stroke="var(--accent)" stroke-width="1.5" pointer-events="none" />`;
+      }
+    }
+  });
+  svg += '</svg>';
+  return svg;
 }
 
 function renderHeatmap(data) {
@@ -294,42 +630,10 @@ function renderHeatmap(data) {
   document.getElementById('heatmap-sub').textContent =
     'Hour of day × day of week — distinct people (' + data.range + ')';
 
-  const days = data.days; // Sun..Sat
-  const hours = 24;
-  const cellW = 26, cellH = 22, labelW = 32, labelH = 18, padR = 4;
-  const W = labelW + hours * cellW + padR;
-  const H = labelH + days.length * cellH;
-  const maxVal = Math.max(1, ...data.grid.flatMap(r => r));
-  const colTicks = [0, 6, 12, 18, 24];
-
-  let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;max-width:100%">`;
-
-  // Hour labels
-  colTicks.forEach(h => {
-    const x = labelW + h * cellW;
-    svg += `<text x="${x}" y="${labelH - 4}" text-anchor="middle" fill="var(--text-muted)" font-size="10" font-family="ui-monospace,monospace,sans-serif">${h}</text>`;
-  });
-
-  // Cells + day labels
-  days.forEach((day, di) => {
-    const y = labelH + di * cellH;
-    svg += `<text x="${labelW - 4}" y="${y + cellH / 2 + 4}" text-anchor="end" fill="var(--text-muted)" font-size="10" font-family="ui-sans-serif,system-ui,sans-serif">${esc(day)}</text>`;
-    for (let h = 0; h < hours; h++) {
-      const val = data.grid[di][h];
-      const op = val === 0 ? 0 : 0.08 + 0.92 * val / maxVal;
-      const x = labelW + h * cellW;
-      svg += `<rect x="${x + 1}" y="${y + 1}" width="${cellW - 2}" height="${cellH - 2}" rx="2"`
-           + ` fill="var(--accent)" opacity="${op.toFixed(3)}"`
-           + ` data-day="${esc(day)}" data-hr="${h}" data-val="${val}"`
-           + ` style="cursor:${val > 0 ? 'default' : 'default'}" />`;
-    }
-  });
-
-  svg += '</svg>';
   // replace svg but keep the tip overlay
   wrap.querySelector('svg') && wrap.querySelector('svg').remove();
   const tmp = document.createElement('div');
-  tmp.innerHTML = svg;
+  tmp.innerHTML = buildHeatmapSvg(data, 26, 22, true);
   wrap.insertBefore(tmp.firstChild, tipEl);
 
   wrap.querySelector('svg').addEventListener('mousemove', ev => {
@@ -350,23 +654,173 @@ function renderHeatmap(data) {
   wrap.querySelector('svg').addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
 }
 
+function renderCohorts(data) {
+  const card = document.getElementById('cohorts-card');
+  if (!data || !data.buckets) { card.style.display = 'none'; return; }
+  const allZero = data.new.every(v => v === 0) && data.returning.every(v => v === 0);
+  if (allZero) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const svg = document.getElementById('cohorts-svg');
+  const W = svg.clientWidth || 900, H = 180, L = 36, R = 10, T = 10, B = 26;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  const n = data.buckets.length;
+  const totals = data.new.map((v, i) => v + data.returning[i]);
+  const max = niceMax(Math.max(1, ...totals));
+  const x = i => L + (n <= 1 ? 0 : i * (W - L - R) / (n - 1));
+  const y = v => T + (H - T - B) * (1 - v / max);
+  const bottom = H - B;
+  // Returning layer: top traces returning[i], closes along bottom
+  const retPts = [
+    ...data.returning.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`),
+    `${x(n - 1).toFixed(1)},${bottom}`,
+    `${x(0).toFixed(1)},${bottom}`,
+  ].join(' ');
+  // New layer: top traces totals[i], bottom traces returning[i] in reverse
+  const newPts = [
+    ...totals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`),
+    ...[...data.returning].reverse().map((v, i) => `${x(n - 1 - i).toFixed(1)},${y(v).toFixed(1)}`),
+  ].join(' ');
+  let g = '<g class="axis">';
+  for (let k = 0; k <= 3; k++) {
+    const v = max * k / 3, yy = y(v);
+    g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="${k ? '#222220' : '#3a3a36'}" />`;
+    g += `<text x="${L - 8}" y="${yy + 4}" text-anchor="end">${Number.isInteger(v) ? v : v.toFixed(1)}</text>`;
+  }
+  const ticks = Math.min(6, n);
+  for (let k = 0; k < ticks; k++) {
+    const i = Math.round(k * (n - 1) / Math.max(1, ticks - 1));
+    g += `<text x="${x(i)}" y="${H - 6}" text-anchor="${k === 0 ? 'start' : k === ticks - 1 ? 'end' : 'middle'}">${fmtTime(data.buckets[i], data.step)}</text>`;
+  }
+  g += '</g>';
+  svg.innerHTML = g
+    + `<polygon points="${retPts}" fill="var(--accent)" opacity="0.35" />`
+    + `<polygon points="${newPts}" fill="#1baf7a" opacity="0.75" />`;
+}
+
+function renderPairs(data) {
+  const card = document.getElementById('pairs-card');
+  if (!data || !data.pairs || data.pairs.length < 2) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('pairs-sub').textContent =
+    'Apps most commonly visited by the same person · ' + data.range;
+  const max = data.pairs[0].users;
+  document.getElementById('pairs-body').innerHTML = data.pairs.map(p => {
+    const [a, b] = p.apps;
+    const pct = Math.round(p.users / max * 100);
+    return `<div class="lb-row">` +
+      `<span class="lb-name">` +
+      `<i style="width:8px;height:8px;border-radius:50%;background:${cssColor(a)};display:inline-block;vertical-align:1px;margin-right:3px;flex-shrink:0"></i>${esc(a)}` +
+      ` <span style="color:var(--text-muted)">×</span> ` +
+      `<i style="width:8px;height:8px;border-radius:50%;background:${cssColor(b)};display:inline-block;vertical-align:1px;margin-right:3px;flex-shrink:0"></i>${esc(b)}` +
+      `</span>` +
+      `<div class="lb-track"><div class="lb-fill" style="width:${pct}%;background:var(--spark)"></div></div>` +
+      `<span class="lb-count">${p.users}</span>` +
+      `</div>`;
+  }).join('');
+}
+
+function renderFunnel(data) {
+  const card = document.getElementById('funnel-card');
+  if (!data || !data.steps || !data.steps.length) { card.style.display = 'none'; return; }
+  const total = data.steps.reduce((s, r) => s + r.visitors, 0);
+  const one = data.steps.filter(r => r.apps === 1).reduce((s, r) => s + r.visitors, 0);
+  const two = data.steps.filter(r => r.apps === 2).reduce((s, r) => s + r.visitors, 0);
+  const three = data.steps.filter(r => r.apps >= 3).reduce((s, r) => s + r.visitors, 0);
+  if (two === 0 && three === 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const max = Math.max(1, one, two, three);
+  const row = (label, count) => {
+    const pct = Math.round(count / max * 100);
+    const share = total > 0 ? Math.round(count / total * 100) : 0;
+    return `<div class="lb-row"><span class="lb-name">${label}</span><div class="lb-track"><div class="lb-fill" style="width:${pct}%;background:var(--accent)"></div></div><span class="lb-count">${count} <span style="color:var(--text-muted);font-size:11px">${share}%</span></span></div>`;
+  };
+  document.getElementById('funnel-body').innerHTML =
+    row('1 app', one) + row('2 apps', two) + row('3+ apps', three);
+}
+
+function renderEntryApps(data) {
+  const card = document.getElementById('entry-card');
+  if (!data || !data.apps || data.apps.length < 2) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const max = data.apps[0].users;
+  document.getElementById('entry-body').innerHTML = data.apps.map(a => {
+    const pct = Math.round(a.users / max * 100);
+    return `<div class="lb-row"><span class="lb-name">${esc(a.app)}</span><div class="lb-track"><div class="lb-fill" style="width:${pct}%;background:${cssColor(a.app)}"></div></div><span class="lb-count">${a.users}</span></div>`;
+  }).join('');
+}
+
+function renderPaths(data) {
+  const card = document.getElementById('paths-card');
+  const qualified = data && data.paths ? data.paths.filter(p => p.apps.length >= 2) : [];
+  if (qualified.length < 2) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('paths-sub').textContent =
+    'Top ordered app navigation sequences · ' + data.range;
+  const max = qualified[0].visitors;
+  document.getElementById('paths-body').innerHTML = qualified.map(p => {
+    const pct = Math.round(p.visitors / max * 100);
+    const pathHtml = p.apps.map((a, i) =>
+      (i > 0 ? '<span style="color:var(--text-muted);font-size:11px;margin:0 2px">→</span>' : '') +
+      `<i style="width:8px;height:8px;border-radius:50%;background:${cssColor(a)};display:inline-block;vertical-align:1px;margin-right:2px;flex-shrink:0"></i>${esc(a)}`
+    ).join('');
+    return `<div class="lb-row">` +
+      `<span class="lb-name" style="width:220px">${pathHtml}</span>` +
+      `<div class="lb-track"><div class="lb-fill" style="width:${pct}%;background:var(--spark)"></div></div>` +
+      `<span class="lb-count">${p.visitors}</span>` +
+      `</div>`;
+  }).join('');
+}
+
 async function load() {
   try {
     const q = { range: state.range, top: SLOTS };
     if (state.pinned) q.apps = state.pinned.join(',');
-    const [s, sp, lv, ct, hm] = await Promise.all([
+    const [s, sp, lv, ct, hm, co, pr, ea, fn, pt] = await Promise.all([
       API('series', q), API('sparks', { range: state.range }), API('live'),
-      API('countries', { range: state.range }), API('heatmap', { range: state.range })
+      API('countries', { range: state.range }), API('heatmap', { range: state.range }),
+      API('cohorts', { range: state.range }), API('pairs', { range: state.range }),
+      API('landing_apps', { range: state.range }), API('funnel', { range: state.range }),
+      API('paths', { range: state.range })
     ]);
-    state.data = s; state.sparks = sp;
+    state.data = s; state.sparks = sp; state.liveApps = lv.apps || [];
     document.getElementById('total').textContent = lv.total;
     render();
+    renderLiveBars(lv);
     renderCountries(ct);
     renderHeatmap(hm);
+    renderCohorts(co);
+    renderFunnel(fn);
+    renderPairs(pr);
+    renderPaths(pt);
+    renderEntryApps(ea);
   } catch (e) {
     document.getElementById('chartsub').textContent = 'Could not reach the traffic API: ' + e;
   }
 }
+const copyLinkBtn = document.getElementById('copy-link-btn');
+copyLinkBtn.onclick = () => {
+  navigator.clipboard.writeText(location.href).then(() => {
+    const orig = copyLinkBtn.textContent;
+    copyLinkBtn.textContent = 'Copied';
+    setTimeout(() => { copyLinkBtn.textContent = orig; }, 1500);
+  }).catch(() => {});
+};
+
+[
+  { id: 'hdrLive', col: 'live' },
+  { id: 'hdrUsers', col: 'users' },
+  { id: 'hdrDelta', col: 'delta' },
+  { id: 'hdrHits', col: 'hits' },
+].forEach(({ id, col }) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.onclick = () => {
+    if (state.sort.col === col) state.sort.dir = -state.sort.dir;
+    else state.sort = { col, dir: -1 };
+    if (state.data) render();
+  };
+});
+syncUrl();
 load();
 setInterval(load, 15000);
 addEventListener('resize', () => state.data && drawChart());

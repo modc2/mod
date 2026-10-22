@@ -35,10 +35,12 @@ Run:
     uvicorn api.api:app --host 0.0.0.0 --port 50680
     python3 api/api.py --port 50680
 """
+import html as _html
 import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -309,6 +311,61 @@ def preview(cid: str, max_bytes: int = Query(default=65536, ge=1, le=1 << 20)):
 
 # ── x402 ─────────────────────────────────────────────────────────────
 
+def _extract_html_title(url: str) -> str:
+    """Fetch the first 4096 bytes of an HTML URL and return the page title."""
+    try:
+        snippet = b''
+        r = requests.get(url, headers={'Range': 'bytes=0-4095'}, timeout=10,
+                         allow_redirects=True, stream=True)
+        if r.status_code == 206:
+            snippet = r.content
+        else:
+            # Server ignored Range; read just enough bytes from the stream
+            for chunk in r.iter_content(chunk_size=4096):
+                snippet += chunk
+                if len(snippet) >= 4096:
+                    break
+        text = snippet.decode('utf-8', errors='replace')
+        m = re.search(r'<title[^>]*>(.*?)</title>', text, re.I | re.S)
+        if not m:
+            return ''
+        return _html.unescape(m.group(1).strip())
+    except Exception:
+        return ''
+
+
+@app.get('/fetch/info')
+def fetch_info(url: str = Query(...)):
+    """Pre-flight HEAD on a URL: returns content_type, size, and accessibility.
+
+    Used by the console to show a preview card before the user archives a URL,
+    and to get the byte count so x402 payment can be signed for the right amount.
+    """
+    try:
+        head = requests.head(url, timeout=10, allow_redirects=True)
+        content_type = head.headers.get('Content-Type', '').split(';')[0].strip()
+        size = int(head.headers.get('Content-Length', 0) or 0)
+        title = ''
+        if content_type == 'text/html' or content_type.startswith('text/html'):
+            title = _extract_html_title(url)
+        return {
+            'url': url,
+            'content_type': content_type,
+            'size': size,
+            'accessible': head.status_code < 400,
+            'title': title,
+        }
+    except requests.RequestException as e:
+        return {
+            'url': url,
+            'content_type': '',
+            'size': 0,
+            'accessible': False,
+            'title': '',
+            'error': str(e),
+        }
+
+
 @app.get('/price')
 def price(request: Request, size: int = Query(default=0, ge=0),
           authorization: Optional[str] = Header(default=None),
@@ -541,6 +598,73 @@ def put_text(request: Request, body: Optional[TextBody] = Body(default=None),
     return paid(result, c)
 
 
+class UrlBody(BaseModel):
+    url: Optional[str] = None
+    key: Optional[str] = None
+    register: bool = True
+    public: bool = False
+    pool: Optional[str] = None
+
+
+@app.post('/put/url')
+def put_url(request: Request, body: Optional[UrlBody] = Body(default=None),
+            authorization: Optional[str] = Header(default=None),
+            x_lh_key: Optional[str] = Header(default=None)):
+    """Fetch a URL, store it to Lighthouse, and register the CID in the store.
+
+    HEAD first for Content-Length (used as the x402 charge estimate), then GET
+    into a tempdir, then lh.put — same outcome as /put for a file upload."""
+    if body is None or body.url is None:
+        nothing_sent(request, authorization, x_lh_key, '/put/url', '{"url": "https://..."}')
+    address = caller_or_anon(authorization)
+    lh = lighthouse(x_lh_key)
+    if not lh.api_key:
+        raise no_key_error(lh)
+    try:
+        head = requests.head(body.url, timeout=10, allow_redirects=True)
+        size = int(head.headers.get('Content-Length', 0))
+    except requests.RequestException as e:
+        raise HTTPException(502, f'could not reach {body.url}: {e}')
+    c = charge(request, authorization, x_lh_key, size, resource_url(request, '/put/url'))
+    from urllib.parse import urlparse
+    parsed = urlparse(body.url)
+    filename = Path(parsed.path).name or 'archive.html'
+    name = body.key or filename or 'archive.html'
+    tmpdir = Path(tempfile.mkdtemp(prefix='lighthouse-url-'))
+    local = tmpdir / Path(name).name
+    try:
+        try:
+            resp = requests.get(body.url, timeout=60, stream=True)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            raise HTTPException(502, f'fetch failed: {e}')
+        with open(local, 'wb') as f:
+            for chunk in resp.iter_content(1 << 16):
+                if chunk:
+                    f.write(chunk)
+        actual_size = local.stat().st_size
+        if c.mode == 'free':
+            anon_guard(lh, address, x_lh_key, actual_size)
+        try:
+            result = lh.put(str(local), owner=address, key=name, meta={'source_url': body.url})
+        except Exception as e:
+            raise HTTPException(502, f'lighthouse upload failed (not charged): {e}')
+    finally:
+        try:
+            local.unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            tmpdir.rmdir()
+        except OSError:
+            pass
+    result['source_url'] = body.url
+    if body.register:
+        result['store'] = _register_after_put(result, identity.strip(authorization),
+                                              body.public, body.pool)
+    return paid(result, c)
+
+
 # ── this module's index ──────────────────────────────────────────────
 
 @app.get('/list')
@@ -556,6 +680,14 @@ def list_objects(limit: int = Query(default=100, ge=1, le=1000),
     gateway = lighthouse().gateway.rstrip('/')
     for row in rows:
         row['url'] = f"{gateway}/ipfs/{row['cid']}"
+        meta_raw = row.get('meta')
+        if meta_raw:
+            try:
+                meta_obj = json.loads(meta_raw)
+                if isinstance(meta_obj, dict) and 'source_url' in meta_obj:
+                    row['source_url'] = meta_obj['source_url']
+            except (json.JSONDecodeError, TypeError):
+                pass
     return {'owner': address, 'scope': scope, 'count': len(rows), 'objects': rows}
 
 

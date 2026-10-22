@@ -295,6 +295,8 @@ def project(u, miners=(16, 256), validators=(4, 64), months=12, shape='exp',
                        'per_miner': miner, 'per_validator': val,
                        'blockspace': share,
                        'parts': {k: v for k, v in e.items() if k != 'total'}}
+        row['capture'] = capture(V, C, f)
+        row['starve'] = starve(V, C, f)
         rows.append(row)
     last = rows[-1]
     base = last['baseline']['month']

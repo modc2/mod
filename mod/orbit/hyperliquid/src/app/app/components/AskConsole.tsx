@@ -93,9 +93,11 @@ function ToolChip({ t, compact }: { t: Extract<Turn, { kind: "tool" }>; compact?
 export default function AskConsole({
   compact = false,
   mode = "desk",
+  examples: examplesProp,
 }: {
   compact?: boolean;
   mode?: "desk" | "chat" | "strats";
+  examples?: string[];
 }) {
   const chat = mode === "chat";
   const strats = mode === "strats";
@@ -227,7 +229,7 @@ export default function AskConsole({
         {turns.length === 0 && (
           <div className="space-y-2">
             <div className="text-xs text-dim uppercase tracking-wider">try</div>
-            {(chat ? CHAT_EXAMPLES : strats ? STRAT_EXAMPLES : EXAMPLES).map((e) => (
+            {(examplesProp ?? (chat ? CHAT_EXAMPLES : strats ? STRAT_EXAMPLES : EXAMPLES)).map((e) => (
               <button key={e} className={`block text-left text-muted hover:text-accent transition-colors ${compact ? "text-xs leading-snug" : "text-sm"}`}
                 onClick={() => setQ(e)}>
                 → {e}

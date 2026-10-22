@@ -23,6 +23,7 @@ import type {
 } from "../lib/hubBacktest";
 import type { SavedIndex } from "../lib/types";
 import { settlementConfidence } from "../lib/backtest";
+import { sentimentFilterActive } from "../lib/marketSentiment";
 
 export function timeAgo(ts?: number): string {
   if (!ts) return "never";
@@ -49,6 +50,8 @@ export function countdown(ts?: number): string {
 /// dimension. Mirrors the semantics documented on TradeFilters in types.ts.
 /// Takes just the two filter fields so default-strat templates (which are
 /// Partial<SavedIndex> recipes) can render the same chips as saved strats.
+const LEAN_CHIP: Record<string, string> = { bullish: "WITH CROWD", bearish: "VS CROWD", flat: "QUIET MKTS" };
+
 export function filterChips(idx: Pick<SavedIndex, "marketQuery" | "tradeFilters" | "filter" | "copySells">): string[] {
   const chips: string[] = [];
   if (idx.marketQuery?.trim()) chips.push(`"${idx.marketQuery.trim()}"`);
@@ -73,6 +76,15 @@ export function filterChips(idx: Pick<SavedIndex, "marketQuery" | "tradeFilters"
   // The trader gate reads as a chip too — "top 5 by score" is as much a part
   // of what this strat trades as "BUYS ONLY".
   if (idx.filter) chips.push(describeTraderFilter(idx.filter).toUpperCase());
+  // Sentiment gate — which direction the crowd was moving when the leader traded.
+  if (sentimentFilterActive(idx.tradeFilters?.sentiment)) {
+    const leans = idx.tradeFilters?.sentiment?.lean ?? [];
+    if (leans.length > 0 && leans.length < 4) {
+      chips.push(leans.map((l) => LEAN_CHIP[l] ?? l.toUpperCase()).join("/"));
+    } else {
+      chips.push("SENTIMENT");
+    }
+  }
   return chips;
 }
 

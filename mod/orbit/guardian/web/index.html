@@ -11,6 +11,18 @@
 .upd-label{font-size:11px;color:var(--muted,#888);text-transform:uppercase;letter-spacing:.06em;margin:6px 0 3px}
 .upd-detail pre{margin:0;white-space:pre-wrap;word-break:break-word;background:var(--surface2,#111);padding:7px 9px;border-radius:4px;font-size:11.5px;max-height:220px;overflow-y:auto}
 .chev{font-size:10px;padding:0 6px;cursor:pointer;flex-shrink:0;align-self:center;opacity:.5}
+.triage-box{background:var(--surface,#1a1a1a);border:1px solid var(--border,#2a2a2a);border-radius:8px;width:min(640px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden}
+.triage-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 16px 8px;border-bottom:1px solid var(--border,#2a2a2a);flex-wrap:wrap}
+#triageProgressBar{flex:0 0 100%;height:3px;background:var(--surface2,#111);border-radius:2px;overflow:hidden;margin-top:6px}
+#triageProgressFill{height:100%;width:0;background:var(--accent,#c8e65a);transition:width 0.2s}
+.triage-body{padding:14px 16px;overflow-y:auto;flex:1}
+.triage-body pre{margin:0;white-space:pre-wrap;word-break:break-word;background:var(--surface2,#111);padding:7px 9px;border-radius:4px;font-size:11.5px;max-height:220px;overflow-y:auto}
+.triage-acts{display:flex;gap:10px;padding:12px 16px;border-top:1px solid var(--border,#2a2a2a)}
+.triage-acts button{flex:1;padding:10px;font-size:14px}
+.triage-hint{text-align:center;padding:6px 16px 12px;font-size:11px;color:var(--muted,#888)}
+.rec{box-shadow:0 0 0 2px currentColor;opacity:.7}
+@keyframes new-glow{0%{background:rgba(200,230,90,.18);box-shadow:0 0 0 2px rgba(200,230,90,.35)}100%{background:transparent;box-shadow:none}}
+.is-new{animation:new-glow 2.2s ease-out forwards}
 </style>
 </head>
 <body>
@@ -21,6 +33,7 @@
       <h2>Console-wide</h2>
       <div class="inline" style="margin-bottom:12px"><button id="enBtn">…</button></div>
       <div class="stats" id="statRow" style="margin-bottom:12px"></div>
+      <div id="recentActivity"></div>
       <div id="what" class="muted" style="font-size:12.5px"></div>
       <div class="form" style="margin-top:12px">
         <label class="f">screening model<input id="g_model" /></label>
@@ -28,9 +41,17 @@
         <label class="chk full"><input id="g_comments" type="checkbox" /> also screen replies / comments</label>
       </div>
       <div class="inline" style="justify-content:flex-end;margin-top:10px"><button id="gSave" class="sm">save</button></div>
+      <hr style="border:0;border-top:1px solid var(--border,#2a2a2a);margin:16px 0 12px">
+      <div class="upd-label" style="margin-bottom:8px">Try it — preview screening</div>
+      <label class="f"><textarea id="tryPrompt" placeholder="paste an idea to preview screening…" style="min-height:72px"></textarea></label>
+      <div class="inline" style="gap:8px;margin-top:6px">
+        <input id="tryMod" placeholder="module (optional)" style="flex:1;min-width:0" />
+        <button id="tryBtn" class="sm">Screen</button>
+      </div>
+      <div id="tryResult" style="margin-top:8px"></div>
     </div>
     <div class="card wide" id="pendingCard">
-      <h2>Pending inbox</h2>
+      <h2>Pending inbox <span id="pendingChips"></span><button id="triageBtn" class="sm primary" style="display:none">Review all</button></h2>
       <div id="pendingInbox" class="rows"><div class="empty">nothing pending across your modules</div></div>
     </div>
     <div class="card">
@@ -44,16 +65,51 @@
     </div>
   </div>
 </div>
+<div class="veil" id="triageVeil" style="display:none">
+  <div class="triage-box">
+    <div class="triage-hdr">
+      <span id="triageCounter" style="font-size:13px;color:var(--muted,#888)"></span>
+      <button class="sm" id="triageClose">close</button>
+      <div id="triageProgressBar"><div id="triageProgressFill"></div></div>
+    </div>
+    <div class="triage-body" id="triageBody"></div>
+    <div class="triage-acts">
+      <button class="danger" id="triageReject">REJECT (R)</button>
+      <button class="primary" id="triageApprove">APPROVE (A)</button>
+      <button id="triageSkip">Skip (S)</button>
+    </div>
+    <div class="triage-hint">A / → approve &nbsp;·&nbsp; R / ← reject &nbsp;·&nbsp; S skip &nbsp;·&nbsp; Esc closes</div>
+  </div>
+</div>
 <script src="kit.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-let G = null, seeded = false, cur = null;
+let G = null, seeded = false, cur = null, pendingAll = [], resolvedAll = [], prevPendingIds = new Set(), verdictFilter = null;
+function vcS(v) {
+  return (v === "safe" || v === "passed") ? "on"
+       : (v === "flagged" || v === "doubt") ? "warn"
+       : (v === "blocked" || v === "rejected") ? "bad"
+       : v ? "acc" : "";
+}
+function screenTagsHtml(u, cap) {
+  if (!u.screen) return "";
+  const cats = (cap != null ? (u.screen.categories || []).slice(0, cap) : (u.screen.categories || [])).map(c => `<span class="pill" style="opacity:.55;font-size:10px">${K.esc(c)}</span>`).join("");
+  const by = u.screen.by;
+  const byTag = by === "agent" ? `<span class="faint" style="font-size:10px">AI</span>`
+              : by === "rules" ? `<span class="faint" style="font-size:10px">keyword</span>`
+              : by === "unscreened" ? `<span style="color:#f97316;font-size:10px">unscreened</span>` : "";
+  return (cats || byTag) ? `<span style="display:inline-flex;align-items:center;gap:4px;flex-shrink:0">${cats}${byTag}</span>` : "";
+}
 
 function updDetailHtml(u) {
   const body = u.prompt || u.body || u.description || "";
   const reason = u.screen?.reasoning || u.screen?.reason || u.screen?.detail || "";
   const showFallback = !body && !reason && u.screen;
-  return `<div class="upd-detail">${body ? `<pre>${K.esc(body)}</pre>` : ""}${reason ? `<div class="upd-label">guardian reasoning</div><pre>${K.esc(reason)}</pre>` : ""}${showFallback ? `<div class="upd-label">screen data</div><pre>${K.esc(JSON.stringify(u.screen, null, 2))}</pre>` : ""}</div>`;
+  const byLabel = u.screen?.by === "agent" ? "AI" : u.screen?.by === "rules" ? "keyword" : u.screen?.by === "unscreened" ? "unscreened" : "";
+  const byStyle = u.screen?.by === "unscreened" ? "color:#f97316" : "";
+  const fullCats = (u.screen?.categories || []).map(c => `<span class="pill" style="opacity:.55;font-size:10px">${K.esc(c)}</span>`).join("");
+  const screenMeta = (byLabel || fullCats) ? `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:6px"><span class="faint" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em">screened by</span>${byLabel ? `<span class="pill" style="font-size:10px;${byStyle}">${K.esc(byLabel)}</span>` : ""}${fullCats}</div>` : "";
+  return `<div class="upd-detail">${body ? `<pre>${K.esc(body)}</pre>` : ""}${screenMeta}${reason ? `<div class="upd-label">guardian reasoning</div><pre>${K.esc(reason)}</pre>` : ""}${showFallback ? `<div class="upd-label">screen data</div><pre>${K.esc(JSON.stringify(u.screen, null, 2))}</pre>` : ""}</div>`;
 }
 
 function renderGlobal() {
@@ -89,17 +145,44 @@ function renderMod(m, upd) {
     </div>
     <label class="f" style="margin-top:12px">house rules — what is out of scope here, in your words<textarea id="m_rules">${K.esc(m.rules || "")}</textarea></label>
     <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="mSave" class="primary sm">save ${K.esc(m.module)}</button></div>
-    <h2 style="margin-top:16px">Held updates <span class="sp"></span><span class="faint">${upd?.pending ?? 0} pending</span></h2>
+    <hr style="border:0;border-top:1px solid var(--border,#2a2a2a);margin:14px 0 10px">
+    <div class="upd-label" style="margin-bottom:6px">Test these rules</div>
+    <label class="f"><textarea id="mTryPrompt" placeholder="paste a sample prompt to see how these rules screen it…" style="min-height:64px"></textarea></label>
+    <div class="inline" style="justify-content:flex-end;margin-top:6px"><button id="mTryBtn" class="sm">Screen</button></div>
+    <div id="mTryResult" style="margin-top:8px"></div>
+    <h2 style="margin-top:16px">Held updates <span class="sp"></span><span class="faint">${upd?.pending ?? 0} pending</span>${K.isOwner && (upd?.pending ?? 0) > 0 ? `<button id="mTriageBtn" class="sm primary">Review ${upd.pending}</button>` : ""}</h2>
     <div class="rows">${ups.map((u) => `<div class="row" data-u="${K.esc(u.id)}"><span class="pill ${u.status === "pending" ? "warn" : ""}">${K.esc(u.status || "")}</span>
-      <div class="grow"><div class="t">${K.esc(u.title || u.prompt || u.id)}</div><div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}${u.screen?.verdict ? " · guardian: " + K.esc(u.screen.verdict) : ""}</div></div>
+      <div class="grow"><div style="display:flex;align-items:center;gap:4px"><div class="t" style="min-width:0;flex:1">${K.esc(u.title || u.prompt || u.id)}</div>${u.screen?.verdict ? `<span class="pill ${vcS(u.screen.verdict)}" style="flex-shrink:0">${K.esc(u.screen.verdict)}</span>` : ""}${screenTagsHtml(u, 3)}</div><div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}</div></div>
       <span class="chev">▶</span>
       ${u.status === "pending" && K.isOwner ? `<div class="acts"><button class="sm" data-a="approve">approve</button><button class="sm danger" data-a="reject">reject</button></div>` : ""}</div>${updDetailHtml(u)}`).join("") || `<div class="empty">nothing held</div>`}</div>`;
+  if ($("mTriageBtn")) $("mTriageBtn").onclick = () => { const q = ups.filter(u => u.status === "pending").map(u => ({...u, _mod: m.module})); triageOpen(q); };
   $("mSave").onclick = async () => {
     const body = { rules: $("m_rules").value };
     for (const c of $("mod").querySelectorAll("input[data-k]")) body[c.dataset.k] = c.checked;
     const go = async () => { if (await K.act(`/modules/${encodeURIComponent(m.module)}/guardian`, body, "saved")) { openMod(m.module); load(); } };
     if (body.auto_play && !m.auto_play) { if (await K.ask("AUTO mode lets the guardian play strangers' ideas on your account when it judges them safe. Turn it on?", "Turn on")) go(); }
     else go();
+  };
+  $("mTryBtn").onclick = async () => {
+    const prompt = $("mTryPrompt").value.trim();
+    if (!prompt) return;
+    const btn = $("mTryBtn");
+    btn.disabled = true; btn.textContent = "Screening…";
+    $("mTryResult").innerHTML = "";
+    const r = await K.api("/guardian/screen", { method: "POST", body: { prompt, module: m.module } });
+    btn.disabled = false; btn.textContent = "Screen";
+    if (!r.ok) { $("mTryResult").innerHTML = `<div class="notice bad">${K.esc(r.data?.error || "screen failed")}</div>`; return; }
+    const v = r.data?.verdict || r.data?.screen?.verdict || "";
+    const reason = r.data?.reasoning || r.data?.reason || r.data?.screen?.reasoning || "";
+    const by = r.data?.by || r.data?.screen?.by || "";
+    const cats = r.data?.categories || r.data?.screen?.categories || [];
+    const byHtml = by === "agent" ? `<span class="pill on">AI</span>` : by === "rules" ? `<span class="pill warn">KEYWORD</span>` : by === "unscreened" ? `<span class="pill" style="color:#f97316">UNSCREENED</span>` : "";
+    const catsHtml = cats.map(c => `<span class="pill" style="opacity:.7;font-size:10px">${K.esc(c)}</span>`).join("");
+    const meterWidth = (v === "safe" || v === "passed") ? "100%" : (v === "flagged" || v === "doubt") ? "50%" : (v === "blocked" || v === "rejected") ? "15%" : "0%";
+    const meterColor = (v === "safe" || v === "passed") ? "var(--green)" : (v === "flagged" || v === "doubt") ? "var(--amber)" : (v === "blocked" || v === "rejected") ? "var(--red)" : "var(--accent)";
+    const meterHtml = v ? `<div class="meter" style="margin:6px 0"><i style="width:${meterWidth};background:${meterColor}"></i></div>` : "";
+    const headerRow = (v || by || cats.length) ? `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:4px">${v ? `<span class="pill ${vcS(v)}">${K.esc(v)}</span>` : ""}${byHtml}${catsHtml}</div>` : "";
+    $("mTryResult").innerHTML = headerRow + meterHtml + (reason ? `<div class="upd-label">guardian reasoning</div><pre>${K.esc(reason)}</pre>` : "") + (!v && !reason ? `<div class="notice bad">no verdict in response</div>` : "");
   };
 }
 
@@ -110,22 +193,113 @@ async function openMod(name) {
   renderMod(g.data, u.ok ? u.data : null);
 }
 
-async function renderPendingInbox() {
-  const keys = Object.keys(G.modules || {});
-  const el = $("pendingInbox");
-  if (!keys.length) { el.innerHTML = '<div class="empty">nothing pending across your modules</div>'; return; }
-  const results = await Promise.all(keys.map(n => K.api(`/modules/${encodeURIComponent(n)}/updates`)));
-  const all = [];
-  keys.forEach((n, i) => { if (results[i].ok) (results[i].data.updates || []).filter(u => u.status === "pending").forEach(u => all.push({...u, _mod: n})); });
-  all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+function renderRecentActivity(recent, showAll) {
+  const el = $("recentActivity");
+  if (!el) return;
+  if (!recent.length) { el.innerHTML = ""; return; }
+  const CAP = 15;
+  const items = (!showAll && recent.length > CAP) ? recent.slice(0, CAP) : recent;
+  const hasMore = !showAll && recent.length > CAP;
+  const vc = s => (s === "approved" || s === "played") ? "on" : (s === "rejected" || s === "blocked") ? "bad" : "warn";
+  el.innerHTML = `<div class="upd-label" style="margin-top:4px;margin-bottom:6px">Decision history (${recent.length})</div>` +
+    items.map(u => `<div class="row" data-u="${K.esc(u.id)}" style="padding:5px 8px;gap:7px">
+      <span class="chev">▶</span>
+      <span class="pill acc" style="flex-shrink:0">${K.esc(u._mod)}</span>
+      <div class="grow" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${K.esc((u.title || u.prompt || u.id || "").slice(0, 70))}</div>
+      <span class="pill ${vc(u.status)}" style="flex-shrink:0">${K.esc(u.status || "")}</span>
+      <span class="faint" style="font-size:11px;flex-shrink:0">${K.ago(u.created_at)}</span>
+    </div>${updDetailHtml(u)}`).join("") +
+    (hasMore ? `<button class="sm" id="recentShowMore" style="margin-top:6px;width:100%">show ${recent.length - CAP} more</button>` : "");
+}
+
+function repaintPending() {
+  const all = pendingAll;
+  const bk = {safe:0, flagged:0, blocked:0};
+  all.forEach(u => { const v = u.screen?.verdict||""; if (v==="safe"||v==="passed") bk.safe++; else if (v==="flagged"||v==="doubt") bk.flagged++; else if (v==="blocked"||v==="rejected") bk.blocked++; });
+  if (verdictFilter === "on" && !bk.safe) verdictFilter = null;
+  else if (verdictFilter === "warn" && !bk.flagged) verdictFilter = null;
+  else if (verdictFilter === "bad" && !bk.blocked) verdictFilter = null;
+  const displayed = verdictFilter ? all.filter(u => vcS(u.screen?.verdict || "") === verdictFilter) : all;
   const ps = $("pendingStat"); if (ps) ps.querySelector("b").textContent = String(all.length);
-  el.innerHTML = all.map(u => `<div class="row" data-u="${K.esc(u.id)}" data-mod="${K.esc(u._mod)}">
+  const fSafe = verdictFilter === "on", fFlagged = verdictFilter === "warn", fBlocked = verdictFilter === "bad";
+  const chipsHtml = (bk.safe ? `<span class="pill on${fSafe?" rec":""}" style="cursor:pointer" data-vf="on">${bk.safe} safe</span>${K.isOwner ? '<button class="sm" id="approveAllSafe">✓ approve all</button>' : ""}` : "") + (bk.flagged ? `<span class="pill warn${fFlagged?" rec":""}" style="cursor:pointer" data-vf="warn">${bk.flagged} flagged</span>` : "") + (bk.blocked ? `<span class="pill bad${fBlocked?" rec":""}" style="cursor:pointer" data-vf="bad">${bk.blocked} blocked</span>${K.isOwner ? '<button class="sm danger" id="rejectAllBlocked">✗ reject all</button>' : ""}` : "");
+  const pendingChipsEl = $("pendingChips");
+  if (pendingChipsEl) {
+    pendingChipsEl.innerHTML = chipsHtml;
+    pendingChipsEl.querySelectorAll("[data-vf]").forEach(chip => {
+      chip.onclick = (e) => { e.stopPropagation(); verdictFilter = verdictFilter === chip.dataset.vf ? null : chip.dataset.vf; repaintPending(); };
+    });
+    const aBtn = $("approveAllSafe");
+    if (aBtn) aBtn.onclick = async () => {
+      const items = pendingAll.filter(u => { const v = u.screen?.verdict || ""; return v === "safe" || v === "passed"; });
+      if (!items.length) return;
+      if (!await K.ask(`Guardian cleared ${items.length} items as safe — approve all?`, "Approve all")) return;
+      await Promise.all(items.map(u => K.act('/updates/' + u.id + '/approve', {}, null)));
+      K.toast(`approved ${items.length} items`);
+      load();
+    };
+    const rBtn = $("rejectAllBlocked");
+    if (rBtn) rBtn.onclick = async () => {
+      const items = pendingAll.filter(u => { const v = u.screen?.verdict || ""; return v === "blocked" || v === "rejected"; });
+      if (!items.length) return;
+      if (!await K.ask(`Reject all ${items.length} blocked items?`, "Reject all", true)) return;
+      await Promise.all(items.map(u => K.act('/updates/' + u.id + '/reject', {}, null)));
+      K.toast(`rejected ${items.length} items`);
+      load();
+    };
+  }
+  const triageLabel = verdictFilter === "on" ? "safe" : verdictFilter === "warn" ? "flagged" : verdictFilter === "bad" ? "blocked" : null;
+  const tb = $("triageBtn"); if (tb) { tb.style.display = (displayed.length && K.isOwner) ? "" : "none"; tb.textContent = triageLabel ? `Review ${triageLabel} (${displayed.length})` : `Review all (${all.length})`; }
+  $("pendingInbox").innerHTML = displayed.map(u => `<div class="row" data-u="${K.esc(u.id)}" data-mod="${K.esc(u._mod)}">
     <span class="pill acc">${K.esc(u._mod)}</span>
-    <div class="grow" style="min-width:0"><div class="t" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${K.esc(u.title || u.prompt || u.id)}</div>
-    <div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}${u.screen?.verdict ? " · guardian: " + K.esc(u.screen.verdict) : ""}</div></div>
+    <div class="grow" style="min-width:0"><div style="display:flex;align-items:center;gap:4px"><div class="t" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${K.esc(u.title || u.prompt || u.id)}</div>${u.screen?.verdict ? `<span class="pill ${vcS(u.screen.verdict)}" style="flex-shrink:0">${K.esc(u.screen.verdict)}</span>` : ""}${screenTagsHtml(u, 3)}</div>
+    <div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}</div></div>
     <span class="chev">▶</span>
     ${K.isOwner ? `<div class="acts"><button class="sm" data-a="approve">approve</button><button class="sm danger" data-a="reject">reject</button></div>` : ""}</div>${updDetailHtml(u)}`).join("")
     || `<div class="empty">nothing pending across your modules</div>`;
+}
+
+async function renderPendingInbox() {
+  const keys = Object.keys(G.modules || {});
+  const el = $("pendingInbox");
+  if (!keys.length) { el.innerHTML = '<div class="empty">nothing pending across your modules</div>'; renderRecentActivity([]); return; }
+  const results = await Promise.all(keys.map(n => K.api(`/modules/${encodeURIComponent(n)}/updates`)));
+  const all = [], resolved = [];
+  keys.forEach((n, i) => {
+    if (results[i].ok) (results[i].data.updates || []).forEach(u => {
+      if (u.status === "pending") all.push({...u, _mod: n});
+      else resolved.push({...u, _mod: n});
+    });
+  });
+  all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  resolved.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  resolvedAll = resolved; renderRecentActivity(resolved);
+  const prevIds = prevPendingIds;
+  pendingAll = all;
+  const curIds = new Set(all.map(u => u.id));
+  document.title = all.length > 0 ? `(${all.length}) GUARDIAN` : "GUARDIAN";
+  repaintPending();
+  if (prevIds.size > 0) {
+    all.forEach(u => {
+      if (!prevIds.has(u.id)) {
+        const row = el.querySelector(`[data-u="${CSS.escape(u.id)}"]`);
+        if (row) row.classList.add("is-new");
+      }
+    });
+  }
+  prevPendingIds = curIds;
+  $("mods").querySelectorAll(".pending-badge").forEach(b => b.remove());
+  const pendingByMod = {};
+  all.forEach(u => { pendingByMod[u._mod] = (pendingByMod[u._mod] || 0) + 1; });
+  Object.entries(pendingByMod).forEach(([mod, cnt]) => {
+    const row = $("mods").querySelector(`[data-m="${CSS.escape(mod)}"]`);
+    if (!row) return;
+    const badge = document.createElement("span");
+    badge.className = "pill warn pending-badge";
+    badge.style.marginLeft = "auto";
+    badge.textContent = String(cnt);
+    row.appendChild(badge);
+  });
 }
 
 async function load() { const r = await K.api("/guardian"); if (r.ok) { G = r.data; renderGlobal(); renderPendingInbox(); } }
@@ -135,6 +309,46 @@ $("enBtn").onclick = async (e) => {
   G.enabled ? K.armed(e.target, "sure? unscreened", go) : go();
 };
 $("gSave").onclick = async () => { await K.act("/guardian", { model: $("g_model").value.trim(), timeout_ms: +$("g_timeout").value, screen_comments: $("g_comments").checked }, "saved"); load(); };
+$("tryBtn").onclick = async () => {
+  const prompt = $("tryPrompt").value.trim();
+  if (!prompt) return;
+  const mod = $("tryMod").value.trim() || undefined;
+  const btn = $("tryBtn");
+  btn.disabled = true; btn.textContent = "Screening…";
+  $("tryResult").innerHTML = "";
+  const body = { prompt };
+  if (mod) body.module = mod;
+  const r = await K.api("/guardian/screen", { method: "POST", body });
+  btn.disabled = false; btn.textContent = "Screen";
+  if (!r.ok) {
+    $("tryResult").innerHTML = `<div class="notice bad">${K.esc(r.data?.error || "screen failed")}</div>`;
+    return;
+  }
+  const v = r.data?.verdict || r.data?.screen?.verdict || "";
+  const reason = r.data?.reasoning || r.data?.reason || r.data?.screen?.reasoning || "";
+  const by = r.data?.by || r.data?.screen?.by || "";
+  const cats = r.data?.categories || r.data?.screen?.categories || [];
+  const byHtml = by === "agent" ? `<span class="pill on">AI</span>`
+               : by === "rules" ? `<span class="pill warn">KEYWORD</span>`
+               : by === "unscreened" ? `<span class="pill" style="color:#f97316">UNSCREENED</span>` : "";
+  const catsHtml = cats.map(c => `<span class="pill" style="opacity:.7;font-size:10px">${K.esc(c)}</span>`).join("");
+  const meterWidth = (v === "safe" || v === "passed") ? "100%"
+                   : (v === "flagged" || v === "doubt") ? "50%"
+                   : (v === "blocked" || v === "rejected") ? "15%" : "0%";
+  const meterColor = (v === "safe" || v === "passed") ? "var(--green)"
+                   : (v === "flagged" || v === "doubt") ? "var(--amber)"
+                   : (v === "blocked" || v === "rejected") ? "var(--red)" : "var(--accent)";
+  const meterHtml = v ? `<div class="meter" style="margin:6px 0"><i style="width:${meterWidth};background:${meterColor}"></i></div>` : "";
+  const headerRow = (v || by || cats.length) ? `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:4px">${v ? `<span class="pill ${vcS(v)}">${K.esc(v)}</span>` : ""}${byHtml}${catsHtml}</div>` : "";
+  $("tryResult").innerHTML =
+    headerRow +
+    meterHtml +
+    (reason ? `<div class="upd-label">guardian reasoning</div><pre>${K.esc(reason)}</pre>` : "") +
+    (!v && !reason ? `<div class="notice bad">no verdict in response</div>` : "");
+};
+$("tryPrompt").addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); $("tryBtn").click(); }
+});
 $("modLoad").onclick = () => { const n = $("modIn").value.trim(); if (n) openMod(n); };
 $("modIn").onkeydown = (e) => { if (e.key === "Enter") $("modLoad").click(); };
 $("mods").onclick = (e) => { const n = e.target.closest(".row")?.dataset.m; if (n) { $("modIn").value = n; openMod(n); } };
@@ -147,6 +361,13 @@ $("mod").addEventListener("click", async (e) => {
   }
   const a = e.target.dataset.a, id = row?.dataset.u; if (!a || !id) return;
   if (await K.ask(a === "approve" ? "Run this held update exactly as filed, on the requester's account?" : "Refuse this update?", a, a === "reject")) { await K.act(`/updates/${id}/${a}`, {}, a + "d"); openMod(cur); }
+});
+$("recentActivity").addEventListener("click", (e) => {
+  if (e.target.id === "recentShowMore") { renderRecentActivity(resolvedAll, true); return; }
+  const row = e.target.closest(".row[data-u]");
+  if (!row) return;
+  row.toggleAttribute("data-open");
+  const chev = row.querySelector(".chev"); if (chev) chev.textContent = row.hasAttribute("data-open") ? "▼" : "▶";
 });
 $("pendingInbox").addEventListener("click", async (e) => {
   const row = e.target.closest(".row[data-u]");
@@ -161,6 +382,89 @@ $("pendingInbox").addEventListener("click", async (e) => {
     await K.act(`/updates/${id}/${a}`, {}, a + "d"); load();
   }
 });
+let triageIdx = 0, triageQueue = [], triageSkipped = new Set(), triageApproved = 0, triageRejected = 0, triageSkippedN = 0;
+
+function triageShow() {
+  const u = triageQueue[triageIdx];
+  if (!u) return;
+  const body = u.prompt || u.body || u.description || "";
+  const reason = u.screen?.reasoning || u.screen?.reason || u.screen?.detail || "";
+  const verdict = u.screen?.verdict || "";
+  const vc = verdict === "safe" || verdict === "passed" ? "on"
+           : verdict === "blocked" || verdict === "rejected" ? "bad"
+           : verdict === "flagged" || verdict === "doubt" ? "warn"
+           : verdict ? "acc" : "";
+  $("triageCounter").textContent = `${triageIdx + 1} of ${triageQueue.length}`;
+  const fill = $("triageProgressFill");
+  if (fill) fill.style.width = Math.round(triageIdx / triageQueue.length * 100) + "%";
+  $("triageBody").innerHTML =
+    `<div style="margin-bottom:10px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><span class="pill acc">${K.esc(u._mod)}</span>` +
+    (vc ? `<span class="pill ${vc}">GUARDIAN: ${K.esc(verdict.toUpperCase())}</span>` : "") +
+    screenTagsHtml(u, 3) +
+    `</div>` +
+    `<div style="margin-bottom:6px;font-size:12px;color:var(--muted,#888)">${K.short(u.requester||u.user_address||u.by||"unknown")} · ${K.ago(u.created_at)}</div>` +
+    `<div class="t" style="font-size:15px;margin-bottom:10px">${K.esc(u.title || u.prompt || u.id)}</div>` +
+    (body ? `<div class="upd-label">prompt</div><pre>${K.esc(body)}</pre>` : "") +
+    (reason ? `<div class="upd-label">guardian reasoning</div><pre>${K.esc(reason)}</pre>` : "");
+  $("triageApprove").classList.remove("rec");
+  $("triageReject").classList.remove("rec");
+  if (verdict === "safe" || verdict === "passed") $("triageApprove").classList.add("rec");
+  else if (verdict === "flagged" || verdict === "doubt" || verdict === "blocked" || verdict === "rejected") $("triageReject").classList.add("rec");
+}
+
+function triageSkip() {
+  const u = triageQueue[triageIdx];
+  if (!u) return;
+  triageSkippedN++;
+  triageSkipped.add(u.id);
+  triageQueue.splice(triageIdx, 1);
+  triageQueue.push(u);
+  const next = triageQueue[triageIdx];
+  if (!next || triageSkipped.has(next.id)) { triageClose(); return; }
+  triageShow();
+}
+
+function triageOpen(customQueue) {
+  triageQueue = customQueue ? customQueue.slice() : (verdictFilter ? pendingAll.filter(u => vcS(u.screen?.verdict || "") === verdictFilter) : pendingAll).slice();
+  triageIdx = 0;
+  triageSkipped = new Set();
+  triageApproved = 0; triageRejected = 0; triageSkippedN = 0;
+  if (!triageQueue.length) return;
+  $("triageVeil").style.display = "";
+  triageShow();
+}
+
+function triageClose() {
+  $("triageVeil").style.display = "none";
+  triageQueue = [];
+  if (triageApproved || triageRejected || triageSkippedN) K.toast("Session done · " + [triageApproved && triageApproved + " approved", triageRejected && triageRejected + " rejected", triageSkippedN && triageSkippedN + " skipped"].filter(Boolean).join(" · "));
+  load();
+}
+
+async function triageAct(action) {
+  const u = triageQueue[triageIdx];
+  if (!u) return;
+  if (action === "approve") triageApproved++; else if (action === "reject") triageRejected++;
+  await K.act(`/updates/${u.id}/${action}`, {}, action + "d");
+  triageIdx++;
+  if (triageIdx >= triageQueue.length) { triageClose(); return; }
+  triageShow();
+}
+
+$("triageBtn").onclick = () => triageOpen();
+$("triageApprove").onclick = () => triageAct("approve");
+$("triageReject").onclick = () => triageAct("reject");
+$("triageSkip").onclick = () => triageSkip();
+$("triageClose").onclick = () => triageClose();
+
+document.addEventListener("keydown", (e) => {
+  if ($("triageVeil").style.display === "none") return;
+  if (e.key === "Escape") { triageClose(); }
+  else if (e.key === "a" || e.key === "A" || e.key === "ArrowRight") { e.preventDefault(); triageAct("approve"); }
+  else if (e.key === "r" || e.key === "R" || e.key === "ArrowLeft") { e.preventDefault(); triageAct("reject"); }
+  else if (e.key === "s" || e.key === "S") { e.preventDefault(); triageSkip(); }
+});
+
 const q = new URLSearchParams(location.search);
 
 K.init({ glyph: "◈", title: "Guardian", accent: "#c8e65a", sub: "A tool-less agent that reads every suggestion before it enters a module's queue — allows, flags or blocks — and in AUTO mode plays the safe ones." })

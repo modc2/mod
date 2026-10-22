@@ -8,6 +8,7 @@
 <style>
 @keyframes pill-pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
 .pill-pulse { animation: pill-pulse 1.4s ease-in-out infinite; }
+.chip.sel { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -15,12 +16,23 @@
   <div id="hdr"></div>
   <div class="grid">
     <div class="card wide">
-      <h2>Loop agents <span class="sp"></span><span id="caps" class="faint"></span><button id="newBtn" class="primary sm">+ new loop</button></h2>
+      <h2>Loop agents <span class="sp"></span><span id="caps" class="faint"></span><button id="fleetBtn" class="sm">⊞ fleet</button><button id="tlBtn" class="sm">◷ timeline</button><button id="newBtn" class="primary sm">+ new loop</button></h2>
+      <div id="stats" style="margin-bottom:12px"></div>
+      <div id="fleet" style="display:none;margin-bottom:8px"></div>
+      <div id="timeline" style="display:none;margin-bottom:8px"></div>
       <div id="form" class="card" style="display:none;margin-bottom:12px;background:var(--panel2)">
         <div class="form">
           <label class="f">mod to improve<select id="f_module"><option value="">loading mods…</option></select></label>
           <label class="f">name (optional)<input id="f_name" placeholder="auto" /></label>
           <label class="f full">goal for the agent<textarea id="f_goal"></textarea></label>
+          <div class="chips full" id="goal_chips">
+            <span class="chip sel" data-goal="Improve this module: read it, find the most valuable bug fix or improvement, make it, and keep its tests passing. Small, safe steps. Say what you changed." style="cursor:pointer">Improve</span>
+            <span class="chip" data-goal="Find the most impactful real bug in this module and fix it. Don't refactor — just the bug. Verify it is fixed." style="cursor:pointer">Fix bugs</span>
+            <span class="chip" data-goal="Find the most important untested paths and add passing tests. Run them; fix any failures." style="cursor:pointer">Add tests</span>
+            <span class="chip" data-goal="Find the most important undocumented functions and write clear inline docs. Do not change logic." style="cursor:pointer">Add docs</span>
+            <span class="chip" data-goal="Find the slowest operation and make it measurably faster. Note the before/after." style="cursor:pointer">Perf</span>
+            <span class="chip" data-goal="Fix lint warnings, dead imports, and formatting issues without changing logic." style="cursor:pointer">Lint</span>
+          </div>
           <label class="f full">command to check each round (optional, bash, runs in the mod)<textarea id="f_cmd" placeholder="e.g. pytest -x -q  — empty = the agent just keeps improving"></textarea></label>
         </div>
         <details style="margin-top:10px"><summary class="faint" style="cursor:pointer;font-size:12px">more options</summary>
@@ -30,6 +42,7 @@
             <label class="f">every (seconds)<input id="f_every" type="number" min="10" value="60" /></label>
             <label class="f">max iterations<input id="f_max" type="number" min="1" max="500" value="5" /></label>
             <label class="chk full"><input id="f_until" type="checkbox" /> stop as soon as the command exits 0</label>
+            <label class="f">max spend ($)<input id="f_budget" type="number" min="0" step="0.01" placeholder="no limit" /></label>
           </div>
         </details>
         <div class="inline" style="margin-top:12px;justify-content:flex-end">
@@ -44,21 +57,160 @@
 <script src="kit.js"></script>
 <script>
 const open = new Set();
+const watchedByUser = new Set();
 let last = null;
+let clockOff = 0;
+let cdTimer = null;
+let editingId = null;
+let prevStatuses = {};
+let statusFilter = "all";
+let timelineOpen = localStorage.getItem('loops_timeline_open') === '1';
+let fleetOpen = localStorage.getItem('loops_fleet_open') === '1';
+let allMods = [];
+
+async function maybeRequestNotifPerm() {
+  if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+  await Notification.requestPermission();
+}
 
 const st = (s) => s === "running" ? "on" : s === "error" ? "bad" : s === "done" ? "acc" : "";
+
+function fmtCd(secs) {
+  if (secs <= 0) return "⟳ now";
+  const m = Math.floor(secs / 60), s = Math.floor(secs % 60);
+  return `⟳ ${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function tickCd() {
+  const now = Date.now() / 1000 + clockOff;
+  document.querySelectorAll(".cd[data-ts]").forEach(el => {
+    el.textContent = fmtCd(+el.dataset.ts - now);
+  });
+}
+
+function renderTimeline() {
+  const container = document.getElementById('timeline');
+  if (!container) return;
+  const btn = document.getElementById('tlBtn');
+  if (btn) { btn.style.borderColor = timelineOpen ? 'var(--accent)' : ''; btn.style.color = timelineOpen ? 'var(--accent)' : ''; }
+  container.style.display = timelineOpen ? '' : 'none';
+  if (!timelineOpen || !last) return;
+  const loops = (last.loops || []);
+  if (!loops.length) { container.innerHTML = '<div style="padding:4px 0;font-size:11px;color:var(--faint)">no loops yet</div>'; return; }
+
+  const now = Date.now() / 1000 + clockOff;
+  const W_SECS = 8 * 3600;
+  const startTs = now - W_SECS;
+  const ROW_H = 16;
+  const R = 3;
+
+  const labelCol = loops.map(l => {
+    const label = (l.name || l.module || l.id || '').slice(0, 16);
+    return `<div style="height:${ROW_H}px;display:flex;align-items:center;justify-content:flex-end;padding-right:5px;font-size:9px;color:var(--faint);font-family:monospace;overflow:hidden;white-space:nowrap">${K.esc(label)}</div>`;
+  }).join('');
+
+  const timeRows = loops.map(l => {
+    const iterData = {};
+    for (const e of (l.log || [])) {
+      if (!e.ts) continue;
+      const k = e.iter ?? 0;
+      if (!iterData[k]) iterData[k] = { ts: e.ts, hasCmd: false, passed: false, cost: 0 };
+      if (e.kind === 'cmd') { iterData[k].hasCmd = true; iterData[k].passed = e.code === 0; }
+      if (e.kind === 'agent' && e.cost_usd) { const c = parseFloat(e.cost_usd); if (!isNaN(c)) iterData[k].cost += c; }
+    }
+    const dots = Object.entries(iterData).filter(([, d]) => d.ts >= startTs && d.ts <= now).map(([iter, d]) => {
+      const pct = ((d.ts - startTs) / W_SECS * 100).toFixed(2);
+      const color = d.hasCmd ? (d.passed ? 'var(--green)' : 'var(--red)') : 'var(--accent)';
+      const status = d.hasCmd ? (d.passed ? 'pass' : 'fail') : 'agent';
+      const costStr = d.cost > 0 ? ` · $${d.cost.toFixed(3)}` : '';
+      const title = K.esc(`${l.name || l.module || l.id || ''} #${iter} ${status}${costStr}`);
+      return `<span title="${title}" style="position:absolute;top:${Math.floor(ROW_H / 2 - R)}px;left:${pct}%;width:${R * 2}px;height:${R * 2}px;border-radius:50%;background:${color};opacity:.85;transform:translateX(-${R}px)"></span>`;
+    }).join('');
+    return `<div style="height:${ROW_H}px;position:relative;border-top:.5px solid var(--line)">${dots}</div>`;
+  }).join('');
+
+  container.innerHTML = `<div style="display:flex"><div style="width:120px;flex-shrink:0">${labelCol}</div><div style="flex:1;position:relative">${timeRows}<div style="position:absolute;top:0;right:0;bottom:0;width:1px;background:var(--faint);opacity:.4"></div></div></div>`;
+}
+
+function renderFleet() {
+  const container = document.getElementById('fleet');
+  if (!container) return;
+  const btn = document.getElementById('fleetBtn');
+  if (btn) { btn.style.borderColor = fleetOpen ? 'var(--accent)' : ''; btn.style.color = fleetOpen ? 'var(--accent)' : ''; }
+  container.style.display = fleetOpen ? '' : 'none';
+  if (!fleetOpen) return;
+  if (!allMods.length) { container.innerHTML = '<div style="padding:4px 0;font-size:11px;color:var(--faint)">loading modules…</div>'; return; }
+  const loops = (last?.loops || []);
+  const chips = allMods.slice().sort((a, b) => a.name.localeCompare(b.name)).map(m => {
+    const mLoops = loops.filter(l => l.module === m.name);
+    let color, extra = '';
+    if (!mLoops.length) {
+      color = 'var(--faint)'; extra = 'opacity:.5;';
+    } else if (mLoops.some(l => l.status === 'running')) {
+      color = 'var(--accent)';
+    } else {
+      const everPassed = mLoops.some(l => (l.log || []).some(e => e.kind === 'cmd' && e.code === 0));
+      color = everPassed ? 'var(--green)' : 'var(--red)';
+    }
+    const lastTs = mLoops.reduce((mx, l) => Math.max(mx, l.updated_at || 0), 0);
+    const totalSpend = mLoops.reduce((sum, l) => sum + (l.log || []).filter(e => e.kind === 'agent' && e.cost_usd).reduce((s, e) => s + parseFloat(e.cost_usd), 0), 0);
+    const allCmds = mLoops.flatMap(l => (l.log || []).filter(e => e.kind === 'cmd'));
+    const passRate = allCmds.length ? Math.round(allCmds.filter(e => e.code === 0).length / allCmds.length * 100) + '%' : '—';
+    const lastStr = lastTs ? new Date(lastTs * 1000).toLocaleString() : 'never';
+    const tip = K.esc(`${m.name} · last run: ${lastStr} · spend: $${totalSpend.toFixed(2)} · pass rate: ${passRate}`);
+    return `<span class="chip" title="${tip}" data-fleet-mod="${K.esc(m.name)}" style="cursor:pointer;border-color:${color};color:${color};${extra}">${K.esc(m.name)}</span>`;
+  }).join('');
+  container.innerHTML = `<div class="chips" style="flex-wrap:wrap;gap:4px">${chips}</div>`;
+}
 
 function render() {
   const d = last;
   const list = document.getElementById("list");
   if (!d) return;
-  if (d.error) { list.innerHTML = `<div class="notice bad">${K.esc(d.error)}</div>`; return; }
+  if (d.error) { list.innerHTML = `<div class="notice bad">${K.esc(d.error)}</div>`; renderTimeline(); renderFleet(); return; }
+  renderTimeline();
+  renderFleet();
   const loops = d.loops || [];
   const running = loops.filter((l) => l.status === "running").length;
   K.setState(K.pill(running > 0, `${running} running`, "idle"));
   document.getElementById("caps").textContent = `${loops.length}/${d.cap} loops · ${running}/${d.running_cap} running · min ${d.min_every_secs}s`;
+  const statusCounts = { running: 0, done: 0, error: 0, stopped: 0 };
+  for (const l of loops) if (statusCounts[l.status] !== undefined) statusCounts[l.status]++;
+  let fleetSpend = 0, totalCmds = 0, passCmds = 0, totalIters = 0;
+  for (const l of loops) {
+    totalIters += l.iter || 0;
+    for (const e of (l.log || [])) {
+      if (e.kind === 'agent' && e.cost_usd) { const c = parseFloat(e.cost_usd); if (!isNaN(c)) fleetSpend += c; }
+      if (e.kind === 'cmd') { totalCmds++; if (e.code === 0) passCmds++; }
+    }
+  }
+  const passRateStr = totalCmds > 0 ? Math.round(passCmds / totalCmds * 100) + '%' : '—';
+  const chipsHtml = [
+    ["all", loops.length + " all"],
+    ["running", statusCounts.running + " running"],
+    ["done", statusCounts.done + " done"],
+    ["error", statusCounts.error + " error"],
+    ["stopped", statusCounts.stopped + " stopped"],
+  ].map(([sf, lbl]) => `<span class="chip${statusFilter === sf ? " sel" : ""}" data-sf="${sf}" style="cursor:pointer">${lbl}</span>`).join("");
+  document.getElementById("stats").innerHTML = loops.length
+    ? `<div class="stats"><div class="stat"><b>$${fleetSpend.toFixed(2)}</b><span>fleet spend</span></div><div class="stat"><b>${passRateStr}</b><span>pass rate</span></div><div class="stat"><b>${totalIters}</b><span>iterations run</span></div></div><div class="chips" style="margin-top:8px">${chipsHtml}</div>`
+    : "";
   if (!loops.length) { list.innerHTML = `<div class="empty">No loops yet. Hit + new loop, pick a mod, and an agent keeps improving it.</div>`; return; }
-  list.innerHTML = loops.map((l) => {
+  const visible = statusFilter === "all" ? loops : loops.filter(l => l.status === statusFilter);
+  if (!visible.length) { list.innerHTML = `<div class="empty">No loops match this filter.</div>`; return; }
+  const steerVals = {}, openDetails = {};
+  document.querySelectorAll('#list .row[data-id]').forEach(row => {
+    const id = row.dataset.id;
+    const inp = row.querySelector(`#steer_${id}`);
+    if (inp?.value) steerVals[id] = inp.value;
+    const iters = new Set();
+    row.querySelectorAll('details[open] summary').forEach(s => {
+      const m = s.textContent.match(/^#(\d+)/);
+      if (m) iters.add(m[1]);
+    });
+    if (iters.size) openDetails[id] = iters;
+  });
+  list.innerHTML = visible.map((l) => {
     const where = l.module ? `mod ${l.module}` : l.cwd;
     const iterMap = {};
     for (const e of (l.log || [])) {
@@ -70,10 +222,13 @@ function render() {
     const log = (() => {
       if (!open.has(l.id)) return "";
       const evs = (l.log || []).slice(-200);
-      if (!evs.length) return `<div style="padding:6px 2px;font-size:12px;color:var(--faint)">no events yet</div>`;
+      const steerRow = l.status === "running" && l.job_id ? `<div class="inline" style="margin-top:8px;gap:6px"><input id="steer_${l.id}" placeholder="Steer the agent — inject a note at its next tool boundary…" style="flex:1;font-size:12px" /><button data-a="steer" data-job="${K.esc(l.job_id)}" style="white-space:nowrap">↷ steer</button></div>` : "";
+      if (!evs.length) return `<div style="padding:6px 2px;font-size:12px;color:var(--faint)">no events yet</div>` + steerRow;
       const groups = {};
       for (const e of evs) { const k = e.iter ?? 0; (groups[k] = groups[k] || []).push(e); }
-      return Object.keys(groups).sort((a, b) => +a - +b).map((iter) => {
+      const sortedIters = Object.keys(groups).sort((a, b) => +a - +b);
+      const lastIter = sortedIters[sortedIters.length - 1];
+      return sortedIters.map((iter) => {
         const g = groups[iter];
         const cmdEv = g.find((e) => e.kind === "cmd");
         const agentEv = g.find((e) => e.kind === "agent");
@@ -83,39 +238,133 @@ function render() {
         const cmdOut = cmdEv?.out ? `<pre class="log" style="margin:4px 0 0">${K.esc(cmdEv.out.slice(-2000))}</pre>` : "";
         const agentOut = agentEv?.out ? `<pre class="log" style="margin:4px 0 0">${K.esc(agentEv.out.slice(-2000))}</pre>` : "";
         const iterCost = agentEv?.cost_usd ? ` · $${parseFloat(agentEv.cost_usd).toFixed(2)}` : "";
-        return `<details><summary style="cursor:pointer;font-size:12px;padding:3px 0">#${iter} / ${l.max_iters} ${badge} <span class="faint">${time}${iterCost}</span></summary>${cmdOut}${agentOut}</details>`;
-      }).join("");
+        return `<details${!openDetails[l.id] && iter === lastIter ? " open" : ""}><summary style="cursor:pointer;font-size:12px;padding:3px 0">#${iter} / ${l.max_iters} ${badge} <span class="faint">${time}${iterCost}</span></summary>${cmdOut}${agentOut}</details>`;
+      }).join("") + steerRow;
     })();
-    return `<div class="row click" data-id="${l.id}" style="flex-wrap:wrap">
+    return `<div class="row click" data-id="${l.id}" style="flex-wrap:wrap${l.status==='running' ? ';border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 15%,transparent)' : ''}">
       <span class="pill ${st(l.status)}">${K.esc(l.status)}</span>${l.status === "running" && l.job_id ? `<a class="pill on pill-pulse" href="${K.BUILD_APP}">⟳ agent…</a>` : ""}
       <div class="grow">
         <div class="t">${K.esc(l.name)} <span class="faint mono">· ${K.esc(where)}</span></div>
         <div class="s mono">${l.cmd ? "$ " + K.esc(l.cmd) : ""}${l.goal ? ` → ${K.esc(l.goal)}` : ""}</div>
-        <div class="s">iter ${l.iter}/${l.max_iters} · every ${K.dur(l.every_secs)}${l.until_pass ? " · until pass" : ""}${l.status === "running" && l.next_at ? ` · next ${K.ago(l.next_at)}` : ""}${l.note ? ` · ${K.esc(l.note)}` : ""}${(() => { const t = (l.log || []).filter(e => e.kind === "agent" && e.cost_usd).reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); return t > 0 ? ` · $${t.toFixed(2)} total` : ""; })()} · updated ${K.ago(l.updated_at)}</div>
+        <div class="s">iter ${l.iter}/${l.max_iters} · every ${K.dur(l.every_secs)}${l.until_pass ? " · until pass" : ""}${l.budget_usd != null ? ` · cap $${parseFloat(l.budget_usd).toFixed(2)}` : ""}${l.status === "running" && l.next_at ? ` · next <span class="cd" data-ts="${l.next_at}">${fmtCd(l.next_at - (Date.now() / 1000 + clockOff))}</span>` : ""}${l.note ? ` · ${K.esc(l.note)}` : ""}${(() => { const t = (l.log || []).filter(e => e.kind === "agent" && e.cost_usd).reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); return t > 0 ? ` · $${t.toFixed(2)} total` : ""; })()} · updated ${K.ago(l.updated_at)}</div>
+        ${(() => { if (!l.iter) return ""; const log = l.log || []; const cmdEvs = log.filter(e => e.kind === "cmd"); const passedCnt = cmdEvs.filter(e => e.code === 0).length; const passRate = cmdEvs.length ? `${passedCnt}/${cmdEvs.length} passed` : null; const agentEvs = log.filter(e => e.kind === "agent" && e.cost_usd); const totalCost = agentEvs.reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); const avgCost = agentEvs.length ? `$${(totalCost / agentEvs.length).toFixed(2)} avg/iter` : null; let trendHtml = ""; if (l.iter >= 2 && cmdEvs.length >= 2) { const half = Math.floor(l.iter / 2); const firstHalf = cmdEvs.filter(e => e.iter <= half); const secondHalf = cmdEvs.filter(e => e.iter > half); if (firstHalf.length && secondHalf.length) { const r1 = firstHalf.filter(e => e.code === 0).length / firstHalf.length; const r2 = secondHalf.filter(e => e.code === 0).length / secondHalf.length; if (r2 > r1) trendHtml = `<span style="color:var(--green)">↑ improving</span>`; else if (r2 < r1) trendHtml = `<span style="color:var(--red)">↓ regressing</span>`; } } const parts = [passRate, avgCost, trendHtml].filter(Boolean); if (!parts.length) return ""; return `<div class="s faint">${parts.join(" · ")}</div>`; })()}
+        ${(() => { const agentEvs = (l.log || []).filter(e => e.kind === "agent" && e.out); if (!agentEvs.length) return ""; const lines = agentEvs[agentEvs.length - 1].out.split("\n"); const q = lines.filter(ln => { const t = ln.trim(); return t.length > 0 && t.length < 110 && !/^[-=]{3,}$/.test(t); }); if (!q.length) return ""; return `<div class="s faint" style="font-style:italic">"${K.esc(q[q.length - 1].trim())}"</div>`; })()}
         <div class="meter" style="margin-top:6px;display:flex;gap:2px">${Array.from({length: l.max_iters}, (_, i) => { const it = iterMap[i + 1]; const c = !it ? "var(--line)" : it.hasCmd ? (it.passed ? "var(--green)" : "var(--red)") : "var(--accent)"; return `<span style="flex:1;height:100%;background:${c};border-radius:3px"></span>`; }).join("")}</div>
       </div>
       <div class="acts">
         ${l.status === "running" ? `<button class="sm" data-a="stop">stop</button>` : `<button class="sm" data-a="start">start</button>`}
+        ${l.status === "running" && l.next_at > 0 ? `<button class="sm" data-a="nudge" title="fire now">⚡</button>` : ""}
+        ${l.status !== "running" && l.iter > 0 ? `<button class="sm" data-a="continue">${l.iter >= l.max_iters ? "▶ +5 iters" : "▶ continue"}</button>` : ""}
+        ${l.status !== "running" ? `<button class="sm" data-a="edit">edit</button>` : ""}
+        <button class="sm" data-a="clone">clone</button>
         <button class="sm danger" data-a="del">delete</button>
       </div>
       <div style="flex-basis:100%">${log}</div>
     </div>`;
   }).join("");
+  for (const [id, val] of Object.entries(steerVals)) {
+    const inp = document.getElementById(`steer_${id}`);
+    if (inp) inp.value = val;
+  }
+  for (const [id, iters] of Object.entries(openDetails)) {
+    document.querySelector(`#list .row[data-id="${id}"]`)?.querySelectorAll('details').forEach(d => {
+      const m = d.querySelector('summary')?.textContent.match(/^#(\d+)/);
+      if (m && iters.has(m[1])) d.open = true;
+    });
+  }
 }
 
 async function load() {
   if (!K.token) { last = { error: "Loops are owner-only (their log is raw host terminal output). Sign in to build as the owner." }; return render(); }
+  prevStatuses = {};
+  for (const l of (last?.loops || [])) prevStatuses[l.id] = l.status;
   const r = await K.api("/loops");
   last = r.ok ? r.data : { error: r.data?.error || `failed (${r.status})` };
+  clockOff = (last.now || 0) - Date.now() / 1000;
+  for (const l of (last.loops || [])) {
+    if (l.status === "running" && !watchedByUser.has(l.id)) open.add(l.id);
+  }
   render();
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    for (const l of (last.loops || [])) {
+      const prev = prevStatuses[l.id];
+      if (prev !== "running") continue;
+      if (l.status === "done" || l.status === "stopped" || l.status === "error") {
+        const cost = (l.log || []).filter(e => e.kind === "agent" && e.cost_usd).reduce((s, e) => s + parseFloat(e.cost_usd), 0);
+        const title = `⟳ loops: ${l.name}`;
+        if (l.status === "error") {
+          new Notification(title, { body: `Error after ${l.iter}/${l.max_iters} iters · $${cost.toFixed(2)}` });
+        } else {
+          new Notification(title, { body: `Done after ${l.iter}/${l.max_iters} iters · $${cost.toFixed(2)}` });
+        }
+      }
+    }
+  }
+  if (!cdTimer) cdTimer = setInterval(tickCd, 1000);
 }
+
+document.getElementById("stats").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-sf]");
+  if (!chip) return;
+  const sf = chip.dataset.sf;
+  statusFilter = (statusFilter === sf && sf !== "all") ? "all" : sf;
+  render();
+});
 
 document.getElementById("list").addEventListener("click", async (e) => {
   const row = e.target.closest(".row"); if (!row) return;
   const id = row.dataset.id, a = e.target.closest("button")?.dataset.a;
-  if (!a) { open.has(id) ? open.delete(id) : open.add(id); return render(); }
-  if (a === "start") await K.act(`/loops/${id}/start`, {}, "started");
+  if (!a) { if (open.has(id)) { open.delete(id); watchedByUser.add(id); } else open.add(id); return render(); }
+  if (a === "edit") {
+    const l = (last?.loops || []).find(x => x.id === id);
+    if (!l) return;
+    editingId = id;
+    openForm(l.module);
+    document.getElementById("f_name").value = l.name || "";
+    document.getElementById("f_goal").value = l.goal || "";
+    document.getElementById("f_cmd").value = l.cmd || "";
+    document.getElementById("f_every").value = l.every_secs || 60;
+    document.getElementById("f_max").value = l.max_iters || 5;
+    document.getElementById("f_model").value = l.model || "";
+    document.getElementById("f_until").checked = !!l.until_pass;
+    document.getElementById("f_budget").value = l.budget_usd != null ? l.budget_usd : "";
+    document.querySelector("#form details").open = true;
+    createBtn.textContent = "save changes";
+    return;
+  }
+  if (a === "clone") {
+    const l = (last?.loops || []).find(x => x.id === id);
+    if (!l) return;
+    openForm(l.module);
+    document.getElementById("f_goal").value = l.goal || "";
+    document.getElementById("f_cmd").value = l.cmd || "";
+    document.getElementById("f_every").value = l.every_secs || 60;
+    document.getElementById("f_max").value = l.max_iters || 5;
+    document.getElementById("f_until").checked = !!l.until_pass;
+    document.getElementById("f_name").value = l.name ? l.name + " copy" : "";
+    document.querySelector("#form details").open = true;
+    return;
+  }
+  if (a === "steer") {
+    const jobId = e.target.closest("[data-job]")?.dataset.job;
+    if (!jobId) return;
+    const inp = document.getElementById("steer_" + id);
+    const message = inp?.value?.trim();
+    if (!message) return K.toast("enter a note to inject", true);
+    const r = await K.api(`/jobs/${jobId}/message`, { method: "POST", body: { message } });
+    if (r.ok) { inp.value = ""; K.toast("injected"); }
+    else K.toast(r.data?.error || "inject failed", true);
+    return;
+  }
+  if (a === "start") { await maybeRequestNotifPerm(); await K.act(`/loops/${id}/start`, {}, "started"); }
+  if (a === "continue") {
+    await maybeRequestNotifPerm();
+    const contL = (last?.loops || []).find(x => x.id === id);
+    if (contL && contL.iter >= contL.max_iters) await K.act(`/loops/${id}`, { max_iters: contL.max_iters + 5 }, "extended", "PATCH");
+    await K.act(`/loops/${id}/start`, { resume: true }, "continued");
+  }
   if (a === "stop") await K.act(`/loops/${id}/stop`, {}, "stopped");
+  if (a === "nudge") await K.act(`/loops/${id}/nudge`, {}, "fired");
   if (a === "del" && await K.ask("Delete this loop and its log?", "Delete", true)) await K.act(`/loops/${id}`, undefined, "deleted", "DELETE");
   load();
 });
@@ -124,35 +373,73 @@ const form = document.getElementById("form");
 const DEFAULT_GOAL = "Improve this module: read it, find the most valuable bug fix or improvement, make it, and keep its tests passing. Small, safe steps. Say what you changed.";
 const goalEl = document.getElementById("f_goal");
 goalEl.value = DEFAULT_GOAL;
+function resetGoal() {
+  goalEl.value = DEFAULT_GOAL;
+  document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.toggle("sel", c.dataset.goal === DEFAULT_GOAL));
+}
+document.getElementById("goal_chips").addEventListener("click", e => {
+  const chip = e.target.closest(".chip[data-goal]");
+  if (!chip) return;
+  goalEl.value = chip.dataset.goal;
+  document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.remove("sel"));
+  chip.classList.add("sel");
+});
+goalEl.addEventListener("input", () => {
+  document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.remove("sel"));
+});
 const modEl = document.getElementById("f_module");
 const createBtn = document.getElementById("createBtn");
 const syncBtn = () => { createBtn.textContent = modEl.value ? `improve ${modEl.value}` : "create + start"; };
 modEl.onchange = syncBtn;
 K.api("/modules").then((r) => {
   const mods = (r.data?.modules || []).filter((m) => m.name && !m.name.includes("/") && ["orbit", "core"].includes(m.category));
+  allMods = mods;
   const by = {};
   for (const m of mods) (by[m.category] = by[m.category] || []).push(m);
   modEl.innerHTML = `<option value="">pick a mod…</option>` + Object.keys(by).map((t) =>
     `<optgroup label="${K.esc(t)}">${by[t].sort((x, y) => x.name.localeCompare(y.name)).map((m) => `<option value="${K.esc(m.name)}">${K.esc(m.name)}</option>`).join("")}</optgroup>`).join("");
   if (modEl.dataset.want) modEl.value = modEl.dataset.want;
   syncBtn();
+  if (last) renderFleet();
 }).catch(() => { modEl.innerHTML = `<option value="">mod list unavailable</option>`; });
 function openForm(mod) { form.style.display = ""; if (mod) { modEl.dataset.want = mod; modEl.value = mod; syncBtn(); } }
+document.getElementById("fleetBtn").onclick = () => { fleetOpen = !fleetOpen; localStorage.setItem('loops_fleet_open', fleetOpen ? '1' : '0'); renderFleet(); };
+document.getElementById("fleet").addEventListener("click", e => { const chip = e.target.closest("[data-fleet-mod]"); if (!chip) return; openForm(chip.dataset.fleetMod); });
+document.getElementById("tlBtn").onclick = () => { timelineOpen = !timelineOpen; localStorage.setItem('loops_timeline_open', timelineOpen ? '1' : '0'); renderTimeline(); };
 document.getElementById("newBtn").onclick = () => { form.style.display === "none" ? openForm() : (form.style.display = "none"); };
-document.getElementById("cancelBtn").onclick = () => { form.style.display = "none"; };
+document.getElementById("cancelBtn").onclick = () => { form.style.display = "none"; editingId = null; syncBtn(); };
 createBtn.onclick = async () => {
+  await maybeRequestNotifPerm();
   const v = (id) => document.getElementById(id).value.trim();
+  if (editingId) {
+    const body = {
+      name: v("f_name"), goal: v("f_goal"), cmd: v("f_cmd"), model: v("f_model"),
+      every_secs: +v("f_every") || 60, max_iters: +v("f_max") || 5, until_pass: document.getElementById("f_until").checked,
+      budget_usd: parseFloat(v("f_budget")) || null,
+    };
+    const made = await K.act(`/loops/${editingId}`, body, "loop updated", "PATCH");
+    if (!made) return;
+    const savedId = editingId;
+    editingId = null;
+    form.style.display = "none";
+    resetGoal();
+    syncBtn();
+    await K.act(`/loops/${savedId}/start`, {}, "started");
+    load();
+    return;
+  }
   if (!v("f_module") && !v("f_cwd")) return K.toast("pick a mod first", true);
   const body = {
     name: v("f_name"), module: v("f_module"), cwd: v("f_cwd"), cmd: v("f_cmd"), goal: v("f_goal"), model: v("f_model"),
     every_secs: +v("f_every") || 60, max_iters: +v("f_max") || 5, until_pass: document.getElementById("f_until").checked,
+    budget_usd: parseFloat(v("f_budget")) || null,
   };
   const made = await K.act("/loops", body, "loop created");
   if (!made) return;
   const id = made.id || made.loop?.id;
   if (id && made.loop?.status !== "running" && made.status !== "running") await K.act(`/loops/${id}/start`, {}, "started");
   form.style.display = "none";
-  goalEl.value = DEFAULT_GOAL;
+  resetGoal();
   load();
 };
 
@@ -161,8 +448,13 @@ const q = new URLSearchParams(location.search);
 for (const k of ["cmd", "cwd", "goal", "name"]) if (q.get(k)) { document.getElementById("f_" + k).value = q.get(k); form.style.display = ""; }
 if (q.get("module")) openForm(q.get("module"));
 
+async function tick() {
+  await load();
+  const delay = (last?.loops||[]).some(l=>l.status==="running") ? 1800 : 4500;
+  setTimeout(tick, delay);
+}
 K.init({ glyph: "⟳", title: "Loops", accent: "#5fd3b8", sub: "Run a command in a module, hand its output to an agent, wait, repeat — until it passes, the agent says LOOP_DONE, or you stop it." })
-  .then(() => K.poll(load, 4000));
+  .then(() => tick());
 </script>
 </body>
 </html>

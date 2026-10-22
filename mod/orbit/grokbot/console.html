@@ -189,6 +189,8 @@
   .msg.user{justify-content:flex-end}
   .msg.user .bubble{white-space:pre-wrap;background:var(--raised);border:1px solid var(--line);
         padding:10px 16px;border-radius:18px;max-width:78%}
+  .msg.user .edit-msg{opacity:0;transition:opacity .15s}
+  .msg.user:hover .edit-msg{opacity:1}
   .msg.assistant .bubble h2{margin:10px 0 4px;font-size:1.1em;font-weight:600}
   .msg.assistant .bubble h3{margin:8px 0 4px;font-size:1.05em;font-weight:600}
   .msg.assistant .bubble h4{margin:6px 0 4px;font-size:1em;font-weight:600}
@@ -213,9 +215,24 @@
   .bubble code{font:12.5px var(--mono);background:#0a0c13;
         border:1px solid var(--line);border-radius:5px;padding:1px 5px}
   .bubble pre code{border:none;padding:0;background:none}
-  .cites{margin-top:10px;font-size:12px;color:var(--faint);
-        display:flex;flex-direction:column;gap:3px}
-  .cites a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bubble table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}
+  .bubble th,.bubble td{border:1px solid var(--line);padding:6px 10px;text-align:left}
+  .bubble thead tr{background:var(--raised);color:var(--hot);font-family:var(--mono);font-size:11px;letter-spacing:.1em}
+  .bubble tbody tr:nth-child(even){background:rgba(110,231,255,.04)}
+  .cites{margin-top:10px;display:flex;flex-flow:row wrap;gap:5px}
+  .cites a{font-size:11px;color:var(--faint);background:var(--raised);
+        border:1px solid var(--line);border-radius:999px;padding:2px 8px;
+        white-space:nowrap;text-decoration:none;transition:border-color .15s,color .15s}
+  .cites a:hover{color:var(--hot);border-color:var(--hot);box-shadow:0 0 6px rgba(110,231,255,.25)}
+  .think-block{border:1px solid var(--faint);border-radius:10px;margin-bottom:8px;overflow:hidden;font-size:13px}
+  .think-block summary{cursor:pointer;padding:6px 12px;color:var(--faint);list-style:none;
+        user-select:none;display:flex;align-items:center;gap:6px}
+  .think-block summary::-webkit-details-marker{display:none}
+  .think-block summary::before{content:'▶';font-size:10px;transition:transform .2s;flex:none}
+  details.think-block[open] summary::before{transform:rotate(90deg)}
+  .think-len{font:11px var(--mono);margin-left:auto;opacity:.7}
+  .think-body{padding:8px 12px 10px;color:var(--faint);font:12px/1.6 var(--mono);
+        white-space:pre-wrap;border-top:1px solid var(--faint);max-height:340px;overflow-y:auto}
 
   /* the empty-thread hero */
   #hero{display:flex;flex-direction:column;align-items:center;gap:14px;
@@ -251,6 +268,15 @@
   #send.stop:hover{color:var(--bad);box-shadow:0 0 14px rgba(255,107,107,.35)}
   .compfoot{max-width:780px;margin:6px auto 0;text-align:center;
         color:var(--faint);font-size:11px}
+  #img-strip{display:none;align-items:flex-start;gap:8px;padding:6px 0 2px}
+  .img-thumb{position:relative;display:inline-flex;flex:none}
+  .img-thumb img{width:56px;height:56px;object-fit:cover;border-radius:8px;
+        border:1px solid var(--line);display:block}
+  .img-rm{position:absolute;top:-5px;right:-5px;width:16px;height:16px;padding:0;
+        border-radius:50%;background:var(--raised);border:1px solid var(--line);
+        color:var(--dim);font-size:11px;line-height:1;
+        display:flex;align-items:center;justify-content:center}
+  .img-rm:hover{color:var(--bad)!important;border-color:var(--bad)!important}
 
   /* ── modals: settings (key + bots) and the activity drawer ──────── */
   .veil{position:fixed;inset:0;z-index:7;display:none;background:rgba(5,6,10,.6);
@@ -423,6 +449,9 @@
   .recipe pre .c{color:var(--faint)}
   .recipe .cp{position:absolute;top:6px;right:6px;font:10px var(--mono);
         letter-spacing:.14em;padding:3px 8px;background:rgba(21,24,36,.9)}
+  .preblock{position:relative}
+  .precp{position:absolute;top:6px;right:6px;font:10px var(--mono);
+        letter-spacing:.14em;padding:3px 8px;background:rgba(21,24,36,.9)}
   .tabs{display:flex;gap:6px;margin:4px 0 10px;flex-wrap:wrap}
   #setupbtn{border:1px solid rgba(110,231,255,.3);border-radius:999px;
         padding:5px 12px 5px 8px;font:11px var(--mono);letter-spacing:.16em;color:var(--hot)}
@@ -455,6 +484,72 @@
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation:none!important;transition:none!important}}
 
+  /* ── Ctrl+K command palette ──────────────────────────────────────── */
+  #kpick{position:fixed;inset:0;z-index:8;display:none;background:rgba(5,6,10,.6);
+        backdrop-filter:blur(3px)}
+  #kpick.on{display:block}
+  #kpickbox{position:absolute;top:20%;left:50%;transform:translateX(-50%);
+        width:min(620px,calc(100vw - 32px));
+        background:linear-gradient(180deg,rgba(17,20,31,.97),rgba(11,13,21,.97));
+        border:1px solid rgba(110,231,255,.18);border-radius:14px;overflow:hidden;
+        box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(167,139,250,.08),
+          0 0 60px rgba(110,231,255,.06);
+        animation:pop .22s cubic-bezier(.2,.8,.2,1)}
+  #kpickinput{width:100%;border:none;border-bottom:1px solid var(--line);
+        border-radius:0;background:transparent;padding:16px 18px;font-size:15px;
+        color:var(--ink);box-shadow:none}
+  #kpickinput:focus{outline:none;border-color:var(--hot);
+        box-shadow:inset 0 -1px 0 rgba(110,231,255,.25)}
+  #kpicklist{max-height:380px;overflow-y:auto;padding:6px 0}
+  .kpgroup{padding:6px 14px 2px;font:11px var(--mono);letter-spacing:.18em;
+        color:var(--faint);text-transform:uppercase}
+  .kprow{display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer}
+  .kprow:hover,.kprow.sel{background:rgba(110,231,255,.09)}
+  .kpicon{flex:none;width:26px;height:26px;border-radius:8px;display:grid;
+        place-items:center;color:var(--hot);background:rgba(110,231,255,.08);
+        border:1px solid rgba(110,231,255,.2)}
+  .kpname{color:var(--ink);font-size:13px;flex:1;overflow:hidden;
+        text-overflow:ellipsis;white-space:nowrap}
+  .kpname.mono{font-family:var(--mono);font-weight:700;color:var(--hot)}
+  .kpsub{color:var(--dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;
+        white-space:nowrap;max-width:38%}
+
+  /* slash-command picker */
+  #slashpick{display:none;position:absolute;bottom:calc(100% + 8px);left:0;right:0;
+        background:var(--raised);border:1px solid var(--line);border-radius:14px;
+        overflow:hidden;z-index:5}
+  #slashpick.on{display:block;animation:sp-slide .15s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes sp-slide{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  .spcmd{display:flex;align-items:baseline;gap:10px;padding:10px 16px;cursor:pointer;
+        border-bottom:1px solid var(--line);font-size:13px}
+  .spcmd:last-child{border-bottom:none}
+  .spcmd:hover{background:rgba(110,231,255,.09);color:var(--hot)}
+  .spcmd .n{font:700 13px var(--mono);color:var(--hot);white-space:nowrap}
+  .spcmd .d{color:var(--dim);font-size:12px}
+  .spcmd:hover .d{color:var(--ink)}
+
+  /* ── bot context strip ──────────────────────────────────────────── */
+  #botbanner{display:none;align-items:center;gap:10px;padding:6px 14px;
+        border-bottom:1px solid var(--line);border-left:3px solid var(--hot);
+        background:rgba(21,24,36,.7);flex:none;font-size:12px;
+        font-family:var(--mono);backdrop-filter:blur(4px)}
+  #botbanner.on{display:flex}
+  #botbanner .bname{color:var(--hot);font-weight:700;letter-spacing:.1em;
+        text-shadow:0 0 10px rgba(110,231,255,.45);padding:3px 9px;
+        border:1px solid rgba(110,231,255,.35);border-radius:999px;
+        background:rgba(110,231,255,.07);white-space:nowrap}
+  #botbanner .bmeta{color:var(--faint);white-space:nowrap}
+  #botbanner .btog{border:none;background:none;padding:0 2px;color:var(--faint);
+        cursor:pointer;font-size:11px;flex:none;line-height:1}
+  #botbanner .btog:hover{color:var(--hot)}
+  #botbanner .bsys{flex:1;color:var(--dim);overflow:hidden;min-width:0;
+        display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+        white-space:pre-wrap;word-break:break-word}
+  #botbanner .bsys.open{display:block}
+  #botbanner .bclose{border:none;background:none;padding:2px 6px;color:var(--faint);
+        cursor:pointer;font-size:15px;flex:none;margin-left:4px;line-height:1}
+  #botbanner .bclose:hover{color:var(--bad)}
+
   @media (max-width:760px){
     #hero .seeds{grid-template-columns:1fr}
     #setupbtn .lbl{display:none} #setupbtn{padding:5px}
@@ -463,6 +558,17 @@
              box-shadow:20px 0 60px rgba(0,0,0,.5)}
     .msg.user .bubble{max-width:92%}
   }
+
+  /* debate side borders */
+  .msg.assistant.side-a .bubble{border-left:3px solid var(--hot);padding-left:10px}
+  .msg.assistant.side-b .bubble{border-left:3px solid var(--vio);padding-left:10px}
+  /* debate popover */
+  .debatewrap{position:relative}
+  #debatepop{display:none;position:absolute;top:calc(100% + 8px);right:0;z-index:5;
+        background:var(--raised);border:1px solid var(--line);border-radius:12px;
+        padding:14px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  #debatepop.on{display:block;animation:pop .18s cubic-bezier(.2,.8,.2,1)}
+  #debatepop .dlabel{font-size:12px;color:var(--dim);white-space:nowrap;min-width:48px}
 </style>
 </head>
 <body>
@@ -486,6 +592,7 @@
       New chat
     </button>
     <div class="sidelabel">Chats</div>
+    <input id="convsearch" placeholder="search chats…" oninput="drawConvos()" onkeydown="if(event.key==='Escape'){this.value='';drawConvos();}" style="display:none;width:calc(100% - 20px);margin:0 10px 6px;padding:4px 6px;font-size:12px;background:var(--bg2,#111);color:inherit;border:1px solid var(--line,#333);border-radius:4px;outline:none;box-sizing:border-box">
     <div id="convos"></div>
     <div class="sidelabel">Grokbots
       <button class="plus" id="newbot" title="make a grokbot">+</button>
@@ -506,16 +613,55 @@
       </button>
       <select id="model" title="model"></select>
       <select id="botpick" title="bot"></select>
+      <div class="debatewrap">
+        <button id="debatebtn" class="ghost small" title="debate: pit two bots against each other">DEBATE</button>
+        <div id="debatepop">
+          <div class="row" style="margin-bottom:6px">
+            <span class="dlabel">A:</span>
+            <select id="debatea" style="width:auto;flex:1"></select>
+          </div>
+          <div class="row" style="margin-bottom:6px">
+            <span class="dlabel">B:</span>
+            <select id="debateb" style="width:auto;flex:1"></select>
+          </div>
+          <div class="row" style="margin-bottom:10px">
+            <span class="dlabel">Rounds:</span>
+            <input id="debaterounds" type="number" min="1" max="10" value="3" style="width:56px;flex:none">
+          </div>
+          <div class="row" style="margin:0;gap:6px">
+            <button class="go small" id="debatestart">START</button>
+            <button class="small" id="debateclear">CLEAR</button>
+          </div>
+        </div>
+      </div>
       <select id="search" title="live search">
         <option value="">no search</option>
         <option value="auto">search: auto</option>
         <option value="on">search: on</option>
+      </select>
+      <select id="toptemp" title="temperature">
+        <option value="">(default)</option>
+        <option value="0">0 — precise</option>
+        <option value="0.3">0.3</option>
+        <option value="0.7">0.7 — balanced</option>
+        <option value="1.0">1.0</option>
+        <option value="1.5">1.5 — creative</option>
+      </select>
+      <select id="topthink" title="reasoning effort">
+        <option value="">thinking: off</option>
+        <option value="high">thinking: high</option>
       </select>
       <span class="grow"></span>
       <button class="ghost" id="setupbtn" title="setup guide"></button>
       <button class="ghost" id="openactivity" title="your run ledger">
         <svg class="icon" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
         <span id="livecount"></span>
+      </button>
+      <button class="ghost" id="dlbtn" title="download conversation as Markdown" style="display:none">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 15V4M9 12l3 3 3-3M5 17v2h14v-2"/></svg>
+      </button>
+      <button class="ghost" id="sharebtn" title="share conversation — copy link" style="display:none">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
       </button>
       <button class="ghost" id="opensettings" title="key and bots">
         <svg class="icon" viewBox="0 0 24 24">
@@ -525,12 +671,15 @@
       </button>
     </div>
 
+    <div id="botbanner"></div>
     <div id="thread"></div>
 
     <div id="composer">
       <div class="compwrap">
+        <div id="slashpick"></div>
         <textarea id="prompt" rows="1"
           placeholder="Ask Grok anything…"></textarea>
+        <div id="img-strip"></div>
         <button id="send" title="send — enter">
           <svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
         </button>
@@ -575,6 +724,16 @@
             <option value="">search: off</option>
             <option value="auto">search: auto</option>
             <option value="on">search: on</option>
+          </select>
+        </div>
+        <div class="row">
+          <select id="btemp">
+            <option value="">(default)</option>
+            <option value="0">0 — precise</option>
+            <option value="0.3">0.3</option>
+            <option value="0.7">0.7 — balanced</option>
+            <option value="1.0">1.0</option>
+            <option value="1.5">1.5 — creative</option>
           </select>
         </div>
         <div class="row"><input id="bdesc" placeholder="one line — what it is for (shown when published)"></div>
@@ -642,6 +801,14 @@
   </div>
 </div>
 
+<!-- Ctrl+K / Cmd+K command palette -->
+<div id="kpick">
+  <div id="kpickbox">
+    <input id="kpickinput" placeholder="Jump to a chat, bot or command…" autocomplete="off" spellcheck="false">
+    <div id="kpicklist"></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -657,6 +824,8 @@ let CONVOS = [], ACTIVE = null;          // the sidebar — [{id,title,msgs,ts}]
 let ABORT = null;                        // AbortController while streaming
 let RUNS = [], RCOUNTS = {all:0, live:0, done:0, error:0}, RFILTER = 'all';
 let runTimer = null;
+let pendingImage = null;
+let DEBATE = null;                       // {botA, botB, rounds} while debate mode is on
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
@@ -782,15 +951,55 @@ function ensureConvo(){
 }
 
 function drawConvos(){
-  $('#convos').innerHTML = CONVOS.map(c => `
+  const si = $('#convsearch');
+  if (si) si.style.display = CONVOS.length >= 5 ? '' : 'none';
+  const term = si ? si.value.trim().toLowerCase() : '';
+  const visible = term
+    ? CONVOS.filter(c => {
+        const title = (c.title || '').toLowerCase();
+        const body = (c.msgs || []).map(m => m.text || '').join(' ').toLowerCase();
+        return title.includes(term) || body.includes(term);
+      })
+    : CONVOS;
+  $('#convos').innerHTML = visible.map(c => `
     <div class="convo ${c.id === ACTIVE ? 'on' : ''}" data-id="${c.id}">
       <span class="t">${esc(c.title || 'New chat')}</span>
       <button class="x" data-del="${c.id}" title="delete">×</button>
     </div>`).join('') ||
     '<div class="muted" style="padding:4px 10px">nothing yet — your chats stay '
     + 'in this browser, per address</div>';
+  $('#convos').querySelectorAll('.t').forEach(el => el.ondblclick = e => {
+    e.stopPropagation();
+    const convoEl = el.closest('.convo');
+    const id = convoEl.dataset.id;
+    const c = CONVOS.find(x => x.id === id);
+    if (!c) return;
+    const inp = document.createElement('input');
+    inp.className = 'rename-inp';
+    inp.value = c.title || '';
+    inp.style.cssText = 'width:100%;box-sizing:border-box;font:inherit;background:#1e1e2e;color:inherit;border:1px solid #6ee7ff;border-radius:3px;padding:0 4px;';
+    el.replaceWith(inp);
+    inp.focus();
+    inp.select();
+    const commit = () => {
+      const val = inp.value.trim();
+      if (val) {
+        c.title = val;
+        saveConvos();
+      }
+      drawConvos();
+    };
+    inp.onkeydown = ev => {
+      if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+      else if (ev.key === 'Escape') { drawConvos(); }
+      else ev.stopPropagation();
+    };
+    inp.onclick = ev => ev.stopPropagation();
+    inp.onblur = commit;
+  });
   $('#convos').querySelectorAll('.convo').forEach(el => el.onclick = e => {
     if (e.target.dataset.del) return;
+    if (e.target.classList.contains('rename-inp')) return;
     ACTIVE = el.dataset.id; drawConvos(); drawThread();
   });
   $('#convos').querySelectorAll('.x').forEach(el => el.onclick = () => {
@@ -863,7 +1072,8 @@ function drawBots(){
       <div class="bot ${BOT === b.name ? 'on' : ''}">
         <span><b>${esc(b.name)}</b>
           <span class="why">${esc((b.model || 'default'))}${
-            b.search ? ' · search ' + esc(b.search) : ''}</span></span>
+            b.search ? ' · search ' + esc(b.search) : ''}${
+            b.temperature != null ? ' · temp ' + b.temperature : ''}</span></span>
         <span>
           <button class="small use" data-bot="${esc(b.name)}">${
             BOT === b.name ? 'ON' : 'USE'}</button>
@@ -882,6 +1092,7 @@ function drawBots(){
       const b = BOTS.find(x => x.name === el.dataset.bot); if (!b) return;
       $('#bname').value = b.name; $('#bsystem').value = b.system || '';
       $('#bmodel').value = b.model || ''; $('#bsearch').value = b.search || '';
+      $('#btemp').value = b.temperature != null ? String(b.temperature) : '';
       $('#bdesc').value = b.description || ''; $('#bpublic').checked = !!b.public;
       $('#bname').focus();
     });
@@ -903,6 +1114,8 @@ function drawBots(){
   }
   drawBotPick();
   drawSideBots();
+  drawBotBanner();
+  drawDebatePick();
 }
 
 // the sidebar roster — every grokbot on your account, one click to arm it
@@ -943,6 +1156,32 @@ function drawBotPick(){
   $('#botpick').value = BOT || '';
 }
 
+function drawBotBanner(){
+  const el = $('#botbanner');
+  if (!BOT){ el.className = ''; el.innerHTML = ''; return; }
+  const b = BOTS.find(x => x.name === BOT)
+    || PUBLIC.find(x => !x.mine && x.ref === BOT)
+    || PUBLIC.find(x => x.mine && x.name === BOT);
+  if (!b){ el.className = ''; el.innerHTML = ''; return; }
+  const meta = [];
+  if (b.model) meta.push(esc(b.model));
+  if (b.search) meta.push('search: ' + esc(b.search));
+  const sys = b.system || '';
+  el.className = 'on';
+  el.innerHTML = '<span class="bname">' + esc(BOT.includes('/') ? refLabel(BOT) : b.name) + '</span>'
+    + (meta.length ? '<span class="bmeta">' + meta.join(' \xb7 ') + '</span>' : '')
+    + (sys ? '<button class="btog" title="toggle system prompt">▸</button>'
+           + '<span class="bsys">' + esc(sys) + '</span>' : '')
+    + '<button class="bclose" title="deactivate bot">\xd7</button>';
+  el.querySelector('.bclose').onclick = () => { BOT = null; drawBots(); drawHint(); };
+  const tog = el.querySelector('.btog');
+  if (tog) tog.onclick = () => {
+    const s = el.querySelector('.bsys');
+    const open = s.classList.toggle('open');
+    tog.textContent = open ? '▾' : '▸';
+  };
+}
+
 function drawModels(){
   const opts = ['<option value="">model: default</option>'].concat(
     MODELS.map(m => `<option value="${esc(m.id)}">${esc(m.id)}${
@@ -953,8 +1192,22 @@ function drawModels(){
   $('#bmodel').innerHTML = opts.join('');
 }
 
+function drawDebatePick(){
+  const a = $('#debatea'), b = $('#debateb');
+  if (!a || !b) return;
+  const opts = ['<option value="">no bot</option>'].concat(
+    BOTS.map(bt => `<option value="${esc(bt.name)}">${esc(bt.name)}</option>`)
+  ).join('');
+  a.innerHTML = opts; b.innerHTML = opts;
+  if (DEBATE){ a.value = DEBATE.botA || ''; b.value = DEBATE.botB || '';
+               $('#debaterounds').value = DEBATE.rounds; }
+  $('#debatebtn').className = DEBATE ? 'small go' : 'ghost small';
+}
+
 function drawHint(){
   const bits = [];
+  if (DEBATE) bits.push('DEBATE: ' + (DEBATE.botA || 'plain') + ' vs '
+    + (DEBATE.botB || 'plain') + ', ' + DEBATE.rounds + ' round' + (DEBATE.rounds > 1 ? 's' : ''));
   if (BOT) bits.push('bot: ' + refLabel(BOT));
   if (!YOU || !YOU.signed_in) bits.push('connect a wallet in the sidebar to chat');
   else if (!YOU.key || !YOU.key.key)
@@ -966,11 +1219,17 @@ function drawHint(){
 // Markdown pass over text: fenced code, inline code, bold, italic,
 // headers, bullet/ordered lists, and [text](url) links.
 function md(s){
+  // extract raw code text before escaping (for clipboard)
+  const rawCodes = [];
+  s.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, _l, code) => { rawCodes.push(code.replace(/\n$/,'')); });
   let out = esc(s);
   // extract fenced code blocks so their content is untouched
   const saved = [];
+  let rawIdx = 0;
   out = out.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, _l, code) => {
-    saved.push('<pre><code>' + code.replace(/\n$/,'') + '</code></pre>');
+    const raw = rawCodes[rawIdx++] || '';
+    const attr = raw.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    saved.push(`<div class="preblock"><pre><code>${code.replace(/\n$/,'')}</code></pre><button class="precp" data-code="${attr}">COPY</button></div>`);
     return '\x00B' + (saved.length-1) + '\x00';
   });
   // process line by line for block-level elements
@@ -992,6 +1251,21 @@ function md(s){
       while(i<lines.length && /^\d+\. /.test(lines[i])){its+='<li>'+lines[i].replace(/^\d+\. /,'')+'</li>';i++;}
       parts.push('<ol>'+its+'</ol>');continue;
     }
+    if(/^\|/.test(ln)){
+      const hdrCells = ln.split('|').slice(1,-1).map(c=>c.trim());
+      let j = i+1;
+      // skip separator row (e.g. |---|---|)
+      if(j < lines.length && /^\|[-:\s|]+\|/.test(lines[j])) j++;
+      let thead = '<thead><tr>'+hdrCells.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead>';
+      let tbody = '';
+      while(j < lines.length && /^\|/.test(lines[j])){
+        const cells = lines[j].split('|').slice(1,-1).map(c=>c.trim());
+        tbody += '<tr>'+cells.map(c=>'<td>'+c+'</td>').join('')+'</tr>';
+        j++;
+      }
+      parts.push('<table>'+thead+'<tbody>'+tbody+'</tbody></table>');
+      i = j; continue;
+    }
     // code block placeholder — no <br>
     if(ln.indexOf('\x00B')!==-1){parts.push(ln);i++;continue;}
     parts.push(ln+'<br>');i++;
@@ -1012,15 +1286,21 @@ const XAVA = `<span class="ava"><svg viewBox="0 0 8 8" aria-hidden="true">
   <path d="M1 1h2l4 6h-2z" fill="#e8eaf2"/>
   <path d="M5 1h2l-4 6h-2z" fill="#6ee7ff"/></svg></span>`;
 
-function msgHTML(m, live, idx){
-  if (m.role === 'user')
-    return `<div class="msg user"><div class="bubble">${esc(m.text)}</div></div>`;
+function msgHTML(m, live, idx, total){
+  if (m.role === 'user'){
+    const imgHtml = m.image ? `<img src="${m.image}" style="max-width:200px;max-height:160px;object-fit:contain;border-radius:8px;display:block;margin-bottom:6px">` : '';
+    const editBtn = idx !== undefined
+      ? `<div style="display:flex;justify-content:flex-end;margin-top:6px;white-space:normal"><button class="ghost edit-msg" data-idx="${idx}" title="edit" style="padding:2px 5px"><svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg></button></div>`
+      : '';
+    return `<div class="msg user"><div class="bubble"><span class="utext">${imgHtml}${esc(m.text)}</span>${editBtn}</div></div>`;
+  }
   if (m.role === 'err')
     return `<div class="msg err">${XAVA}<div class="bubble">${esc(m.text)}</div></div>`;
   if (m.role === 'img')
     return `<div class="msg assistant">${XAVA}<div class="bubble"><img src="${esc(m.url)}" style="max-width:100%;border-radius:10px;display:block"><div class="muted" style="margin-top:6px;font-size:0.85em">${esc(m.prompt)}</div></div></div>`;
   const cites = m.cites && m.cites.length ? '<div class="cites">' + m.cites.map(
-    c => `<a href="${esc(c)}" target="_blank" rel="noopener">${esc(c)}</a>`
+    c => { let label; try { label = new URL(c).hostname; } catch(_){ label = c; }
+           return `<a href="${esc(c)}" target="_blank" rel="noopener">${esc(label)}</a>`; }
   ).join('') + '</div>' : '';
   let footer = '';
   if (!live) {
@@ -1037,10 +1317,17 @@ function msgHTML(m, live, idx){
       }
       chip = `<span class="muted" style="font-size:11px">${tot.toLocaleString()} tok${cs}</span>`;
     }
-    footer = `<div style="display:flex;align-items:center;gap:6px;margin-top:6px">${chip}<button class="ghost cpymsg" data-idx="${idx !== undefined ? idx : -1}" title="copy" style="padding:2px 5px"><svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>`;
+    const regenBtn = (idx === total - 1)
+      ? '<button class="ghost regen" title="regenerate" style="padding:2px 5px"><svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>'
+      : '';
+    footer = `<div style="display:flex;align-items:center;gap:6px;margin-top:6px">${chip}<button class="ghost cpymsg" data-idx="${idx !== undefined ? idx : -1}" title="copy" style="padding:2px 5px"><svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>${regenBtn}</div>`;
   }
-  return `<div class="msg assistant">${XAVA}<div class="bubble${
-      live ? ' live' : ''}">${md(m.text)}${cites}${footer}</div></div>`;
+  const thinkHtml = m.thinking
+    ? `<details class="think-block"><summary>Thinking <span class="think-len">${m.thinking.length} chars</span></summary><div class="think-body">${esc(m.thinking)}</div></details>`
+    : '';
+  const dside = m.debateSide ? ' side-' + m.debateSide : '';
+  return `<div class="msg assistant${dside}">${XAVA}<div class="bubble${
+      live ? ' live' : ''}">${thinkHtml}${md(m.text)}${cites}${footer}</div></div>`;
 }
 
 const SEEDS = [
@@ -1205,6 +1492,11 @@ function drawRecipes(){
 function drawThread(){
   const c = convo();
   drawConvos();
+  const dlbtn = $('#dlbtn');
+  if (dlbtn) dlbtn.style.display = (c && c.msgs.length) ? '' : 'none';
+  const sharebtn = $('#sharebtn');
+  if (sharebtn) sharebtn.style.display = (c && c.msgs.length && !c.readOnly) ? '' : 'none';
+  $('#composer').style.display = (c && c.readOnly) ? 'none' : '';
   if (!c || !c.msgs.length){
     const signed = !!(YOU && YOU.signed_in);
     $('#thread').innerHTML = `
@@ -1232,13 +1524,73 @@ function drawThread(){
     return;
   }
   $('#thread').innerHTML = '<div class="col">'
-    + c.msgs.map((m, i) => msgHTML(m, false, i)).join('') + '</div>';
+    + c.msgs.map((m, i) => msgHTML(m, false, i, c.msgs.length)).join('') + '</div>';
   $('#thread').querySelectorAll('.cpymsg').forEach(btn => {
     const idx = parseInt(btn.dataset.idx);
     const cc = convo();
     const msg = cc && idx >= 0 ? cc.msgs[idx] : null;
     if (msg) btn.onclick = () => navigator.clipboard.writeText(msg.text)
       .then(() => toast('copied'), () => toast('copy failed', true));
+  });
+  $('#thread').querySelectorAll('.precp').forEach(btn => {
+    btn.onclick = () => navigator.clipboard.writeText(btn.dataset.code)
+      .then(() => { btn.textContent = 'COPIED'; setTimeout(() => btn.textContent = 'COPY', 1500); },
+            () => toast('copy blocked', true));
+  });
+  $('#thread').querySelectorAll('.regen').forEach(btn => { btn.onclick = regenerate; });
+  $('#thread').querySelectorAll('.edit-msg').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.dataset.idx);
+      const c = convo();
+      if (!c || idx < 0) return;
+      const m = c.msgs[idx];
+      if (!m || m.role !== 'user') return;
+      const bubble = btn.closest('.bubble');
+      if (bubble.querySelector('.inline-edit')) return;
+      const utextEl = bubble.querySelector('.utext');
+      const ta = document.createElement('textarea');
+      ta.value = m.text;
+      ta.style.cssText = 'width:100%;min-height:60px;resize:vertical;box-sizing:border-box;display:block;margin-bottom:6px';
+      const sendRow = document.createElement('div');
+      sendRow.className = 'inline-edit';
+      sendRow.style.cssText = 'display:flex;justify-content:flex-end;gap:6px;white-space:normal';
+      sendRow.innerHTML = '<button class="ghost" style="padding:2px 8px;font-size:12px">CANCEL</button>'
+                        + '<button class="ghost" style="padding:2px 8px;font-size:12px">SEND</button>'
+                        + '<button class="ghost" style="padding:2px 8px;font-size:12px;color:var(--hot)">BRANCH</button>';
+      utextEl.style.display = 'none';
+      bubble.insertBefore(ta, utextEl);
+      bubble.insertBefore(sendRow, utextEl);
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+      const cancel = () => { ta.remove(); sendRow.remove(); utextEl.style.display = ''; };
+      sendRow.querySelector('button:first-child').onclick = cancel;
+      ta.addEventListener('keydown', e => { if (e.key === 'Escape') cancel(); });
+      sendRow.querySelector('button:nth-child(2)').onclick = () => {
+        const text = ta.value.trim();
+        if (!text) return;
+        const cc = convo();
+        if (!cc) return;
+        cc.msgs = cc.msgs.slice(0, idx);
+        promptEl.value = text;
+        saveConvos();
+        grow();
+        send();
+      };
+      sendRow.querySelector('button:last-child').onclick = () => {
+        const text = ta.value.trim();
+        if (!text) return;
+        const cc = convo();
+        if (!cc) return;
+        const newId = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+        const branch = {id: newId, title: (cc.title || 'Chat') + ' ↳', msgs: cc.msgs.slice(0, idx), ts: Date.now()};
+        CONVOS.unshift(branch);
+        ACTIVE = newId;
+        promptEl.value = text;
+        saveConvos();
+        grow();
+        send();
+      };
+    };
   });
   $('#thread').scrollTop = $('#thread').scrollHeight;
 }
@@ -1360,6 +1712,7 @@ function drawPublic(){
         <span class="acts">
           <button class="small pchat" data-run="${esc(run)}">${
             BOT === run ? 'ON' : 'CHAT'}</button>
+          <button class="small plink" data-ref="${esc(b.ref)}">LINK</button>
           ${signed && !b.mine ? `<button class="small pcopy" data-ref="${
             esc(b.ref)}">COPY</button>` : ''}
         </span></div>
@@ -1377,6 +1730,11 @@ function drawPublic(){
     try { const got = await api('/bots/copy', {method:'POST', body:{ref: el.dataset.ref}});
           toast('copied as ' + got.name); loadBots(); }
     catch(e){ toast(e.message, true); }
+  });
+  wrap.querySelectorAll('.plink').forEach(el => el.onclick = () => {
+    const url = location.origin + location.pathname + '?bot=' + encodeURIComponent(el.dataset.ref);
+    navigator.clipboard.writeText(url)
+      .then(() => toast('link copied'), () => toast('copy failed', true));
   });
 }
 
@@ -1409,11 +1767,13 @@ $('#savebot').onclick = async () => {
   const body = {name: $('#bname').value.trim(), system: $('#bsystem').value,
                 model: $('#bmodel').value || null,
                 search: $('#bsearch').value || null,
+                temperature: parseFloat($('#btemp').value) || null,
                 description: $('#bdesc').value.trim() || null,
                 public: $('#bpublic').checked};
   if (!body.name) return toast('a bot needs a name', true);
   try { await api('/bots', {method:'POST', body});
         $('#bname').value = ''; $('#bsystem').value = '';
+        $('#btemp').value = '';
         $('#bdesc').value = ''; $('#bpublic').checked = false;
         toast((body.public ? 'published ' : 'saved ') + body.name);
         loadBots(); loadPublic(); }
@@ -1422,6 +1782,35 @@ $('#savebot').onclick = async () => {
 
 $('#botpick').onchange = () => { BOT = $('#botpick').value || null;
                                  drawBots(); drawHint(); };
+
+$('#debatebtn').onclick = e => {
+  e.stopPropagation();
+  const pop = $('#debatepop');
+  const on = pop.classList.toggle('on');
+  if (on) drawDebatePick();
+};
+document.addEventListener('click', e => {
+  const wrap = document.querySelector('.debatewrap');
+  if (wrap && !wrap.contains(e.target)) $('#debatepop').classList.remove('on');
+});
+$('#debatestart').onclick = () => {
+  const botA = $('#debatea').value;
+  const botB = $('#debateb').value;
+  const rounds = Math.max(1, parseInt($('#debaterounds').value) || 3);
+  if (!botA && !botB) return toast('pick at least one bot for the debate', true);
+  DEBATE = {botA, botB, rounds};
+  $('#debatepop').classList.remove('on');
+  $('#debatebtn').className = 'small go';
+  toast('debate: ' + (botA || 'plain') + ' vs ' + (botB || 'plain') + ', ' + rounds + ' round' + (rounds > 1 ? 's' : ''));
+  drawHint();
+};
+$('#debateclear').onclick = () => {
+  DEBATE = null;
+  $('#debatepop').classList.remove('on');
+  $('#debatebtn').className = 'ghost small';
+  toast('debate mode off');
+  drawHint();
+};
 $('#newchat').onclick = newChat;
 
 // modals
@@ -1439,6 +1828,52 @@ $('#exploreopen').onclick = () => { openVeil('explore'); loadPublic();
 $('#pubq').oninput = drawPublic;
 $('#setupbtn').onclick = () => { drawSetup(); drawRecipes(); openVeil('guide'); };
 $('#openactivity').onclick = () => { openVeil('activity'); loadRuns(); };
+
+function downloadMd(){
+  const c = convo();
+  if (!c || !c.msgs.length) return;
+  const date = new Date().toISOString().slice(0, 10);
+  const title = c.title || 'Conversation';
+  let out = `# ${title}\n\n${date}\n\n`;
+  for (const m of c.msgs) {
+    if (m.role === 'user') {
+      if (m.image) out += `![image](${m.image})\n\n`;
+      out += `**You:** ${m.text}\n\n`;
+    } else if (m.role === 'assistant') {
+      out += `**Grok:** ${m.text}\n\n`;
+      if (m.cites && m.cites.length)
+        out += `---\n**Sources**\n\n` + m.cites.map(u => `- ${u}`).join('\n') + '\n\n';
+    } else if (m.role === 'err') {
+      out += `> Error: ${m.text}\n\n`;
+    } else if (m.role === 'img') {
+      out += `![${m.prompt || 'image'}](${m.url})\n\n`;
+    }
+  }
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'conversation';
+  const blob = new Blob([out], {type: 'text/markdown'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = slug + '.md'; a.click();
+  URL.revokeObjectURL(url);
+}
+$('#dlbtn').onclick = downloadMd;
+
+async function shareConvo(){
+  const c = convo();
+  if (!c || !c.msgs.length) return;
+  if (!YOU || !YOU.signed_in) return toast('connect a wallet to share', true);
+  try {
+    const out = await api('/share', {method:'POST', body:{
+      title: c.title || 'Conversation',
+      msgs: c.msgs,
+    }});
+    const url = location.origin + location.pathname + '?share=' + out.id;
+    await navigator.clipboard.writeText(url);
+    toast('link copied');
+  } catch(e){ toast(e.message, true); }
+}
+$('#sharebtn').onclick = shareConvo;
+
 document.querySelectorAll('[data-close]').forEach(el =>
   el.onclick = () => closeVeil(el.dataset.close));
 document.querySelectorAll('.veil').forEach(el =>
@@ -1463,9 +1898,36 @@ function grow(){
   promptEl.style.height = 'auto';
   promptEl.style.height = Math.min(promptEl.scrollHeight, 200) + 'px';
 }
-promptEl.addEventListener('input', grow);
+const SLASH_CMDS = [
+  {prefix:'/img ', label:'/img <prompt>', desc:'generate an image with Grok Aurora'},
+  {prefix:'/clear', label:'/clear', desc:'wipe context — start fresh in this conversation'},
+];
+const slashEl = document.getElementById('slashpick');
+
+function updateSlashPick(){
+  const v = promptEl.value;
+  if (!v.startsWith('/')){ slashEl.classList.remove('on'); return; }
+  const q = v.toLowerCase();
+  const hits = SLASH_CMDS.filter(c => c.label.toLowerCase().startsWith(q));
+  if (!hits.length){ slashEl.classList.remove('on'); return; }
+  slashEl.innerHTML = hits.map(c =>
+    `<div class="spcmd" data-prefix="${c.prefix}"><span class="n">${c.label}</span><span class="d"> — ${c.desc}</span></div>`
+  ).join('');
+  slashEl.classList.add('on');
+  slashEl.querySelectorAll('.spcmd').forEach(row => {
+    row.addEventListener('click', () => {
+      promptEl.value = row.dataset.prefix;
+      slashEl.classList.remove('on');
+      promptEl.focus();
+      grow();
+    });
+  });
+}
+
+promptEl.addEventListener('input', () => { grow(); updateSlashPick(); });
 promptEl.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+  if (e.key === 'Escape'){ slashEl.classList.remove('on'); return; }
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); slashEl.classList.remove('on'); send(); }
 });
 $('#send').onclick = () => { if (BUSY && ABORT){ ABORT.abort(); } else send(); };
 
@@ -1479,19 +1941,231 @@ function setBusy(on){
     : '<svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
 }
 
+function regenerate(){
+  const c = convo();
+  if (!c) return;
+  const lastUserIdx = c.msgs.reduceRight((acc, m, i) => acc < 0 && m.role === 'user' ? i : acc, -1);
+  if (lastUserIdx < 0) return;
+  const text = c.msgs[lastUserIdx].text;
+  c.msgs = c.msgs.slice(0, lastUserIdx);
+  saveConvos();
+  promptEl.value = text;
+  grow();
+  send();
+}
+
+// ── image attachment ───────────────────────────────────────────────
+function drawImageStrip(){
+  const strip = document.getElementById('img-strip');
+  if (!pendingImage){ strip.style.display = 'none'; strip.innerHTML = ''; return; }
+  strip.style.display = 'flex';
+  strip.innerHTML = `<span class="img-thumb"><img src="${pendingImage}" alt="attachment"><button class="img-rm" title="remove">×</button></span>`;
+  strip.querySelector('.img-rm').onclick = () => { pendingImage = null; drawImageStrip(); };
+}
+
+function ensureVisionModel(){
+  const modelId = $('#model').value;
+  const cur = MODELS.find(x => x.id === modelId);
+  const hasVision = cur && Array.isArray(cur.input_modalities) && cur.input_modalities.includes('image');
+  if (!hasVision){
+    const v = MODELS.find(x => Array.isArray(x.input_modalities) && x.input_modalities.includes('image'));
+    if (v){ $('#model').value = v.id; toast('switched to ' + v.id + ' for image'); }
+  }
+}
+
+function attachImage(file){
+  if (!file || !file.type.startsWith('image/')) return;
+  if (file.size > 4 * 1024 * 1024) return toast('image too large — max 4 MB', true);
+  const reader = new FileReader();
+  reader.onload = e => { pendingImage = e.target.result; drawImageStrip(); ensureVisionModel(); };
+  reader.readAsDataURL(file);
+}
+
+document.addEventListener('paste', e => {
+  const files = e.clipboardData && e.clipboardData.files;
+  if (!files || !files.length) return;
+  const img = Array.from(files).find(f => f.type.startsWith('image/'));
+  if (!img) return;
+  e.preventDefault();
+  attachImage(img);
+});
+
+const appEl = document.querySelector('.app');
+appEl.addEventListener('dragover', e => {
+  if (Array.from(e.dataTransfer.items || []).some(i => i.type.startsWith('image/')))
+    e.preventDefault();
+});
+appEl.addEventListener('drop', e => {
+  const files = e.dataTransfer && e.dataTransfer.files;
+  if (!files || !files.length) return;
+  const img = Array.from(files).find(f => f.type.startsWith('image/'));
+  if (!img) return;
+  e.preventDefault();
+  attachImage(img);
+});
+
+// ── debate helpers ─────────────────────────────────────────────────
+// Stream one turn into conversation c, tagged with debateSide ('a'|'b').
+// Returns true if the user hit stop, false on normal completion.
+async function streamTurn(c, bot, debateSide) {
+  const reply = {role:'assistant', text:'', cites:null};
+  if (debateSide) reply.debateSide = debateSide;
+  c.msgs.push(reply);
+
+  const sideClass = debateSide ? ' side-' + debateSide : '';
+  $('#thread').innerHTML = '<div class="col">'
+    + c.msgs.slice(0, -1).map(m => msgHTML(m)).join('')
+    + `<div class="msg assistant${sideClass}">${XAVA}<div class="bubble live"></div></div>`
+    + '</div>';
+  const liveEl = $('#thread').querySelector('.bubble.live');
+  const stick = () => {
+    const t = $('#thread');
+    if (t.scrollHeight - t.scrollTop - t.clientHeight < 160) t.scrollTop = t.scrollHeight;
+  };
+  stick();
+
+  const body = {stream:true,
+    messages: c.msgs.filter(m => m.role !== 'err' && m !== reply)
+      .map(m => ({role: m.role === 'user' ? 'user' : 'assistant',
+                  content: m.image
+                    ? [{type:'image_url', image_url:{url:m.image}},{type:'text', text:m.text}]
+                    : m.text}))};
+  if ($('#model').value) body.model = $('#model').value;
+  if ($('#search').value) body.search = $('#search').value;
+  if ($('#toptemp').value) body.temperature = parseFloat($('#toptemp').value);
+  if ($('#topthink').value) body.reasoning_effort = $('#topthink').value;
+  if (bot) body.bot = bot;
+  reply.model = body.model || null;
+
+  ABORT = new AbortController();
+  let aborted = false;
+  try {
+    const headers = {'content-type':'application/json'};
+    if (TOKEN) headers['authorization'] = 'Bearer ' + TOKEN;
+    const r = await fetch(API + '/chat', {method:'POST', headers,
+      body: JSON.stringify(body), signal: ABORT.signal});
+    const ctype = r.headers.get('content-type') || '';
+    if (!r.ok || !ctype.includes('event-stream')){
+      const t = await r.text();
+      let d; try { d = JSON.parse(t); } catch(e){ d = {error: t}; }
+      throw new Error(d.error || ('HTTP ' + r.status));
+    }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;){
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream:true});
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0){
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        let o; try { o = JSON.parse(payload); } catch(e){ continue; }
+        if (o.error) throw new Error(typeof o.error === 'string'
+          ? o.error : (o.error.message || JSON.stringify(o.error)));
+        const delta = o.choices && o.choices[0] && o.choices[0].delta;
+        if (delta && delta.reasoning_content){
+          reply.thinking = (reply.thinking || '') + delta.reasoning_content;
+          let tel = liveEl.querySelector('.think-block');
+          if (!tel){
+            tel = document.createElement('details');
+            tel.className = 'think-block'; tel.open = true;
+            tel.innerHTML = '<summary>Thinking <span class="think-len">0 chars</span></summary><div class="think-body"></div>';
+            liveEl.insertBefore(tel, liveEl.firstChild);
+          }
+          tel.querySelector('.think-len').textContent = reply.thinking.length + ' chars';
+          tel.querySelector('.think-body').textContent = reply.thinking;
+          stick();
+        }
+        if (delta && delta.content){
+          reply.text += delta.content;
+          const thinkFrag = reply.thinking
+            ? `<details class="think-block"><summary>Thinking <span class="think-len">${reply.thinking.length} chars</span></summary><div class="think-body">${esc(reply.thinking)}</div></details>`
+            : '';
+          liveEl.innerHTML = thinkFrag + md(reply.text);
+          stick();
+        }
+        if (o.citations && o.citations.length) reply.cites = o.citations;
+        if (o.usage) reply.usage = o.usage;
+      }
+    }
+    if (!reply.text) reply.text = '(no text)';
+  } catch(e){
+    if (e.name === 'AbortError'){
+      if (!reply.text) c.msgs.pop();
+      aborted = true;
+    } else {
+      c.msgs.pop();
+      c.msgs.push({role:'err', text: e.message});
+    }
+  }
+  ABORT = null;
+  return aborted;
+}
+
+async function runDebate(promptText) {
+  if (BUSY) return;
+  if (!YOU || !YOU.signed_in)
+    return toast('connect a wallet in the sidebar first', true);
+  if (!DEBATE) return;
+  const {botA, botB, rounds} = DEBATE;
+  const c = ensureConvo();
+  if (!c.title) c.title = (promptText || 'debate').slice(0, 48);
+  c.msgs.push({role:'user', text: promptText});
+  promptEl.value = ''; grow();
+  saveConvos();
+  setBusy(true);
+  setTimeout(loadRuns, 500);
+
+  for (let round = 0; round < rounds; round++) {
+    const sides = [['a', botA], ['b', botB]];
+    for (let si = 0; si < sides.length; si++) {
+      const [side, bot] = sides[si];
+      const stopped = await streamTurn(c, bot || null, side);
+      saveConvos();
+      if (stopped) {
+        setBusy(false);
+        drawThread(); drawHint(); drawSetup(); loadRuns();
+        promptEl.focus();
+        return;
+      }
+    }
+  }
+
+  setBusy(false);
+  saveConvos(); drawThread(); drawHint(); drawSetup(); loadRuns();
+  promptEl.focus();
+}
+
 // ── send: streams tokens into the thread as they arrive ───────────
 async function send(){
   if (BUSY) return;
   if (!YOU || !YOU.signed_in)
     return toast('connect a wallet in the sidebar first', true);
   const text = promptEl.value.trim();
-  if (!text) return;
+  const img = pendingImage;
+  if (!text && !img) return;
+  if (DEBATE && text){ if (img){ pendingImage = null; drawImageStrip(); }
+                        return runDebate(text); }
   const c = ensureConvo();
-  if (!c.title) c.title = text.slice(0, 48);
-  c.msgs.push({role:'user', text});
+  if (!c.title) c.title = (text || 'image').slice(0, 48);
+  c.msgs.push({role:'user', text, ...(img ? {image:img} : {})});
   promptEl.value = ''; grow();
+  if (img){ pendingImage = null; drawImageStrip(); }
   saveConvos(); drawThread();
   setBusy(true);
+
+  // ── /clear shortcut: wipe conversation messages ──────────────────
+  if (/^\/clear$/i.test(text)) {
+    c.msgs = [];
+    setBusy(false);
+    saveConvos(); drawThread(); drawHint(); drawSetup();
+    promptEl.focus();
+    return;
+  }
 
   // ── /img <prompt> shortcut: image generation ───────────────────────
   if (/^\/img\s+/i.test(text)) {
@@ -1536,9 +2210,13 @@ async function send(){
   const body = {stream:true,
     messages: c.msgs.filter(m => m.role !== 'err' && m !== reply)
       .map(m => ({role: m.role === 'user' ? 'user' : 'assistant',
-                  content: m.text}))};
+                  content: m.image
+                    ? [{type:'image_url', image_url:{url:m.image}},{type:'text', text:m.text}]
+                    : m.text}))};
   if ($('#model').value) body.model = $('#model').value;
   if ($('#search').value) body.search = $('#search').value;
+  if ($('#toptemp').value) body.temperature = parseFloat($('#toptemp').value);
+  if ($('#topthink').value) body.reasoning_effort = $('#topthink').value;
   if (BOT) body.bot = BOT;
   reply.model = body.model || null;
   setTimeout(loadRuns, 500);          // catch the run while it is LIVE
@@ -1572,9 +2250,26 @@ async function send(){
         if (o.error) throw new Error(typeof o.error === 'string'
           ? o.error : (o.error.message || JSON.stringify(o.error)));
         const delta = o.choices && o.choices[0] && o.choices[0].delta;
+        if (delta && delta.reasoning_content){
+          reply.thinking = (reply.thinking || '') + delta.reasoning_content;
+          let tel = liveEl.querySelector('.think-block');
+          if (!tel){
+            tel = document.createElement('details');
+            tel.className = 'think-block';
+            tel.open = true;
+            tel.innerHTML = '<summary>Thinking <span class="think-len">0 chars</span></summary><div class="think-body"></div>';
+            liveEl.insertBefore(tel, liveEl.firstChild);
+          }
+          tel.querySelector('.think-len').textContent = reply.thinking.length + ' chars';
+          tel.querySelector('.think-body').textContent = reply.thinking;
+          stick();
+        }
         if (delta && delta.content){
           reply.text += delta.content;
-          liveEl.innerHTML = md(reply.text);
+          const thinkFrag = reply.thinking
+            ? `<details class="think-block"><summary>Thinking <span class="think-len">${reply.thinking.length} chars</span></summary><div class="think-body">${esc(reply.thinking)}</div></details>`
+            : '';
+          liveEl.innerHTML = thinkFrag + md(reply.text);
           stick();
         }
         if (o.citations && o.citations.length) reply.cites = o.citations;
@@ -1593,11 +2288,208 @@ async function send(){
   ABORT = null;
   setBusy(false);
   saveConvos(); drawThread(); drawHint(); drawSetup(); loadRuns();
+  // auto-title: after the first exchange, ask grok for a short title in the background
+  (async () => {
+    try {
+      const msgs = c.msgs.filter(m => m.role === 'user' || m.role === 'assistant');
+      if (msgs.length !== 2 || msgs[0].role !== 'user' || msgs[1].role !== 'assistant') return;
+      const firstUserText = msgs[0].text;
+      const firstReplyText = msgs[1].text;
+      const hdrs = {'content-type': 'application/json'};
+      if (TOKEN) hdrs['authorization'] = 'Bearer ' + TOKEN;
+      const r = await fetch(API + '/chat', {method: 'POST', headers: hdrs,
+        body: JSON.stringify({
+          model: 'grok-4-fast',
+          max_tokens: 20,
+          messages: [{role: 'user', content:
+            'In 4-6 words, title this conversation — output only the title, no quotes:\n\nUser: '
+            + firstUserText + '\n\nAssistant: ' + firstReplyText.slice(0, 300)}]
+        })});
+      if (!r.ok) return;
+      const got = await r.json();
+      if (!got.text) return;
+      c.title = got.text.trim().slice(0, 60);
+      saveConvos(); drawConvos();
+    } catch(e){}
+  })();
   promptEl.focus();
 }
 
+// ── Ctrl+K / Cmd+K command palette ────────────────────────────────
+(function(){
+  const kpEl   = document.getElementById('kpick');
+  const kpIn   = document.getElementById('kpickinput');
+  const kpList = document.getElementById('kpicklist');
+  let kpRows = [], kpSel = -1;
+
+  const CHAT_ICON = `<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+  const BOT_ICON  = `<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="9" fill="none"/></svg>`;
+  const CMD_ICON  = `<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M5 12h14M12 5l7 7-7 7"/></svg>`;
+
+  function openKPick(){
+    kpEl.classList.add('on');
+    kpIn.value = ''; kpSel = -1;
+    renderKPick();
+    setTimeout(() => kpIn.focus(), 30);
+  }
+
+  function closeKPick(){ kpEl.classList.remove('on'); }
+
+  function renderKPick(){
+    const q = kpIn.value.trim().toLowerCase();
+    kpRows = [];
+    let html = '';
+
+    const chatHits = CONVOS.filter(c => {
+      if (!q) return true;
+      const title = (c.title || '').toLowerCase();
+      const body  = (c.msgs || []).slice(0, 4).map(m => m.text || '').join(' ').toLowerCase();
+      return title.includes(q) || body.includes(q);
+    }).slice(0, 7);
+    if (chatHits.length){
+      html += '<div class="kpgroup">Chats</div>';
+      chatHits.forEach(c => {
+        const first = (c.msgs || []).find(m => m.role === 'user');
+        const sub   = first ? (first.text || '').slice(0, 80) : '';
+        const idx   = kpRows.length;
+        kpRows.push({type:'chat', id:c.id});
+        html += `<div class="kprow" data-idx="${idx}">
+          <span class="kpicon">${CHAT_ICON}</span>
+          <span class="kpname">${esc(c.title || 'New chat')}</span>
+          <span class="kpsub">${esc(sub)}</span></div>`;
+      });
+    }
+
+    const botHits = BOTS.filter(b => {
+      if (!q) return true;
+      return (b.name || '').toLowerCase().includes(q) ||
+             (b.system || '').toLowerCase().includes(q);
+    }).slice(0, 7);
+    if (botHits.length){
+      html += '<div class="kpgroup">Bots</div>';
+      botHits.forEach(b => {
+        const idx = kpRows.length;
+        kpRows.push({type:'bot', name:b.name});
+        html += `<div class="kprow" data-idx="${idx}">
+          <span class="kpicon">${BOT_ICON}</span>
+          <span class="kpname">${esc(b.name)}</span>
+          <span class="kpsub">${esc((b.system || '').slice(0, 80))}</span></div>`;
+      });
+    }
+
+    const cmdHits = SLASH_CMDS.filter(c => {
+      if (!q) return true;
+      return c.label.toLowerCase().includes(q) || c.desc.toLowerCase().includes(q);
+    });
+    if (cmdHits.length){
+      html += '<div class="kpgroup">Commands</div>';
+      cmdHits.forEach(c => {
+        const idx = kpRows.length;
+        kpRows.push({type:'cmd', prefix:c.prefix});
+        html += `<div class="kprow" data-idx="${idx}">
+          <span class="kpicon">${CMD_ICON}</span>
+          <span class="kpname mono">${esc(c.label)}</span>
+          <span class="kpsub">${esc(c.desc)}</span></div>`;
+      });
+    }
+
+    if (!html) html = '<div class="kpgroup" style="padding:14px 14px 10px">nothing found</div>';
+    kpList.innerHTML = html;
+    kpSel = -1;
+
+    kpList.querySelectorAll('.kprow').forEach(row => {
+      row.addEventListener('mousedown', e => {
+        e.preventDefault();
+        activateKPick(parseInt(row.dataset.idx));
+      });
+      row.addEventListener('mousemove', () => {
+        const i = parseInt(row.dataset.idx);
+        if (kpSel !== i){ kpSel = i; highlightKPick(); }
+      });
+    });
+  }
+
+  function highlightKPick(){
+    kpList.querySelectorAll('.kprow').forEach(row => {
+      row.classList.toggle('sel', parseInt(row.dataset.idx) === kpSel);
+    });
+    const sel = kpList.querySelector('.kprow.sel');
+    if (sel) sel.scrollIntoView({block:'nearest'});
+  }
+
+  function activateKPick(idx){
+    const item = kpRows[idx];
+    if (!item) return;
+    closeKPick();
+    if (item.type === 'chat'){
+      ACTIVE = item.id; drawConvos(); drawThread();
+    } else if (item.type === 'bot'){
+      BOT = item.name; drawBots(); drawHint();
+      toast('chatting as ' + item.name);
+    } else if (item.type === 'cmd'){
+      promptEl.value = item.prefix; grow(); promptEl.focus();
+    }
+  }
+
+  kpIn.addEventListener('input', () => { kpSel = -1; renderKPick(); });
+  kpIn.addEventListener('keydown', e => {
+    const n = kpRows.length;
+    if (e.key === 'ArrowDown'){
+      e.preventDefault();
+      kpSel = Math.min(kpSel + 1, n - 1); highlightKPick();
+    } else if (e.key === 'ArrowUp'){
+      e.preventDefault();
+      kpSel = Math.max(kpSel - 1, 0); highlightKPick();
+    } else if (e.key === 'Enter'){
+      e.preventDefault();
+      if (kpSel >= 0) activateKPick(kpSel);
+      else if (n === 1) activateKPick(0);
+    } else if (e.key === 'Escape'){
+      closeKPick();
+    }
+  });
+
+  kpEl.addEventListener('mousedown', e => {
+    if (e.target === kpEl) closeKPick();
+  });
+
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k'){
+      e.preventDefault();
+      if (kpEl.classList.contains('on')) closeKPick();
+      else openKPick();
+    }
+  });
+})();
+
 drawThread();
-refresh();
+refresh().then(() => {
+  const shareId = new URLSearchParams(location.search).get('share');
+  if (shareId) {
+    fetch(API + '/share/' + encodeURIComponent(shareId))
+      .then(r => r.ok ? r.json() : Promise.reject(new Error('share not found')))
+      .then(data => {
+        const c = {id: 'share-' + shareId, title: data.title || 'Shared conversation',
+                   msgs: data.msgs || [], ts: Date.now(), readOnly: true};
+        CONVOS.unshift(c);
+        ACTIVE = c.id;
+        drawConvos(); drawThread();
+        toast('shared conversation loaded');
+      })
+      .catch(e => toast(e.message, true));
+    return;
+  }
+  const p = new URLSearchParams(location.search).get('bot');
+  if (!p) return;
+  const found = PUBLIC.find(b => b.ref === p);
+  if (found) {
+    BOT = found.mine ? found.name : found.ref;
+    drawBots(); drawHint();
+    toast('chatting as ' + refLabel(BOT));
+  } else {
+    toast('bot not found', true);
+  }
+});
 </script>
 </body>
 </html>

@@ -106,6 +106,10 @@ def _t_approvals(a):
                        limit=a.get('limit', 100))
 
 
+def _t_nft_approvals(a):
+    return _client(a).nft_approvals(a['id'], a.get('chain'))
+
+
 def _t_net_curve(a):
     return _client(a).net_curve(a['id'], chain=a.get('chain'))
 
@@ -270,6 +274,20 @@ TOOLS = {
             'limit': _num('rows to return (default 100)'),
         }, 'required': ['id', 'chain']},
         'handler': _t_approvals,
+    },
+    'debank_nft_approvals': {
+        'description': 'NFT approvals for an address — every setApprovalForAll and '
+                       'per-token grant still active, normalized from the DeBank NFT '
+                       'authorization list. is_set_approval_for_all=true flags the '
+                       'dangerous grants: they give the spender blanket permission to '
+                       'move every NFT in the collection (the kind old marketplaces '
+                       'leave behind). Per chain by design; run it on the chains that '
+                       'hold NFTs. Revoke with setApprovalForAll(operator, false) on '
+                       'the NFT contract — selector 0xa22cb465.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': _ID, 'chain': _CHAIN,
+        }, 'required': ['id', 'chain']},
+        'handler': _t_nft_approvals,
     },
     'debank_history': {
         'description': 'Recent transactions, decoded: what was sent, what came back, '

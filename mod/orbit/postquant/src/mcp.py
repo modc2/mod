@@ -2362,9 +2362,15 @@ def _contract_exec(a, action, st):
                 chain.append({'receipt': cid, 'missing': True})
                 break
             o = r['over']
+            try:
+                raw = st.get(o['state_out'])
+                state_out_hex = raw.hex()
+            except Exception:
+                state_out_hex = None
             chain.append({'receipt': cid, 'n': o['n'], 'input': o['input'],
                           'ret': o['ret'], 'reverted': o['reverted'],
                           'state_in': o['state_in'], 'state_out': o['state_out'],
+                          'state_out_hex': state_out_hex,
                           'code': o['code'], 'by': r['by'], 'ts': o['ts'],
                           'proof': (o.get('proof') or {}).get('system',
                                                               'replay')})

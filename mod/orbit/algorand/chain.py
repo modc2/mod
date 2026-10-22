@@ -379,10 +379,23 @@ class Client:
         except AlgoError:
             raise AlgoError(f'no transaction {txid} on {self.network}', status=404)
 
-    def history(self, who, limit=25, kind=None, asset=None):
+    def asset_holders(self, asset_id, limit=20):
+        aid = self.asset_id(asset_id)
+        r = self.idx(f'/v2/assets/{aid}/balances', limit=int(limit),
+                     **{'currency-greater-than': 0})
+        p = self.asset_params(aid)
+        dec = p.get('decimals') or 0
+        return {'network': self.network, 'asset_id': aid,
+                'holders': [{'address': h['address'], 'amount': h['amount'],
+                              'balance': h['amount'] / 10 ** dec,
+                              'frozen': h.get('is-frozen', False)}
+                             for h in r.get('balances') or []],
+                'next': r.get('next-token')}
+
+    def history(self, who, limit=25, kind=None, asset=None, next_token=None):
         addr = self.resolve(who)
         r = self.idx(f'/v2/accounts/{addr}/transactions', limit=int(limit),
-                     **{'tx-type': kind, 'asset-id': asset})
+                     **{'tx-type': kind, 'asset-id': asset, 'next-token': next_token})
         return {'network': self.network, 'address': addr,
                 'transactions': [summarize(t, addr) for t in r.get('transactions') or []],
                 'next': r.get('next-token')}
@@ -504,6 +517,9 @@ def summarize(t, me=None):
     if t.get('note'):
         n = codec.unb64(t['note'])
         out['note'] = _printable(n) or '0x' + n[:32].hex()
+    inners = t.get('inner-txns') or []
+    if inners:
+        out['inner_txns'] = [summarize(i) for i in inners]
     return out
 
 

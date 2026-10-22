@@ -186,6 +186,13 @@ def _is_module(path):
 
 def modules(q=None, limit=400):
     """Every module an outsider may scan, with enough to choose one."""
+    import recs as _recs                             # local: recs imports scan
+    all_r = _recs.all_recs()
+    pending_counts = {}
+    for r in all_r:
+        if r.get('status') == 'pending':
+            key = r['module'].lower()
+            pending_counts[key] = pending_counts.get(key, 0) + 1
     hidden = private_names()
     policy = listing_policy()
     out = []
@@ -212,6 +219,7 @@ def modules(q=None, limit=400):
                 'version': cfg.get('version'),
                 'owner': owner_of(name),
                 'port': cfg.get('port'),
+                'open_recs': pending_counts.get(name.lower(), 0),
             })
             if len(out) >= limit:
                 return {'count': len(out), 'modules': out, 'truncated': True}
@@ -405,7 +413,8 @@ def brief(module, focus=None, depth=3):
         'tree': tree(module, depth=depth),
         'open_recommendations': [
             {'id': r['id'], 'title': r['title'], 'status': r['status'],
-             'author': r['author'], 'kind': r.get('kind')}
+             'author': r['author'], 'kind': r.get('kind'),
+             'anchor_paths': [a['path'] for a in (r.get('anchors') or [])]}
             for r in recs.for_module(module)],
         'how_to_file': (
             'POST /advise/api/recommend with {module, title, summary, rationale, '

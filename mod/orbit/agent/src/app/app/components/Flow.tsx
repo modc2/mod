@@ -22,6 +22,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
+import { renderText } from '../lib/renderText'
 import Select from './Select'
 import { useDraftEngines } from './useDraftEngines'
 
@@ -47,7 +48,7 @@ type GraphCard = {
   agents?: string[]; owner?: string | null; mine?: boolean; seed?: boolean; cid?: string
 }
 type AgentInfo = { value: string; label: string; icon: string; description?: string; builtin?: boolean }
-type NodeState = { status: 'running' | 'done' | 'error' | 'parked'; text?: string; ms?: number }
+type NodeState = { status: 'running' | 'done' | 'error' | 'parked'; text?: string; ms?: number; tool?: string; path?: string }
 
 const NODE_W = 236
 const HEADER_H = 42
@@ -72,6 +73,7 @@ const wireOf = (spec: KindSpec | undefined, port: string) =>
 let seq = 0
 const nid = () => `n${Date.now().toString(36)}${(seq++).toString(36)}`
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+const pathTail = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() || p
 
 export default function Flow({
   token, isHost, address, onSignIn, onOpenAgents, initialAgent, initialGraph,
@@ -125,9 +127,12 @@ export default function Flow({
   const [states, setStates] = useState<Record<string, NodeState>>({})
   const [result, setResult] = useState<any>(null)
   const [log, setLog] = useState<string[]>([])
+  const [order, setOrder] = useState<{ id: string; name: string; kind: string }[]>([])
+  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({})
   const [showRun, setShowRun] = useState(true)
   const [pulses, setPulses] = useState<{ id: string; d: string; colour: string }[]>([])
   const abortRef = useRef<AbortController | null>(null)
+  const runningNodeRef = useRef<string | null>(null)
 
   const canvasRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef(viewport)
@@ -427,7 +432,7 @@ export default function Flow({
 
   const run = async () => {
     if (running) return stop()
-    setStates({}); setResult(null); setLog([]); setPulses([]); setShowRun(true)
+    setStates({}); setResult(null); setLog([]); setOrder([]); setExpandedNodes({}); setPulses([]); setShowRun(true)
     setRunning(true)
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -468,9 +473,12 @@ export default function Flow({
 
   const onEvent = (ev: any) => {
     if (ev.type === 'node_start') {
+      runningNodeRef.current = ev.node
       setStates(s => ({ ...s, [ev.node]: { status: 'running' } }))
+      setOrder(o => [...o, { id: ev.node, name: ev.name || ev.kind, kind: ev.kind }])
       setLog(l => [...l.slice(-200), `▸ ${ev.name || ev.kind}`])
     } else if (ev.type === 'node_done') {
+      runningNodeRef.current = null
       setStates(s => ({ ...s, [ev.node]: { status: ev.ok === false ? 'error' : 'done',
                                            text: ev.out, ms: ev.ms } }))
       setLog(l => [...l.slice(-200), `  ${ev.ok === false ? '✕' : '✓'} ${ev.name} · ${
@@ -496,6 +504,10 @@ export default function Flow({
       setStates(s => ({ ...s, [ev.node]: { status: 'parked' } }))
     } else if (ev.type === 'step') {
       const st = ev.step || {}
+      const nodeId = ev.node || runningNodeRef.current
+      if (nodeId) {
+        setStates(s => ({ ...s, [nodeId]: { ...s[nodeId], tool: st.tool, path: st.path } }))
+      }
       setLog(l => [...l.slice(-200), `    ${st.tool || 'step'}${st.error ? ' · err' : ''}`])
     } else if (ev.type === 'done') {
       setResult(ev.result)
@@ -1015,10 +1027,15 @@ export default function Flow({
                     {st?.text && (
                       <div className="text-[10px] text-gray-500 leading-snug line-clamp-3 border-t border-white/[0.06] pt-1.5"
                         title={st.text}>
-                        {st.text}
+                        {renderText(st.text)}
                       </div>
                     )}
                   </div>
+                  {st?.status === 'running' && st?.tool && (
+                    <div className="shimmer-text text-[9px] font-mono text-sky-300/80 px-2.5 pb-1.5 truncate">
+                      {st.tool}{st.path ? ` · ${pathTail(st.path)}` : ''}…
+                    </div>
+                  )}
 
                   {/* output ports — one row each, named, with the dot on the edge */}
                   {!!ports.length && (
@@ -1106,13 +1123,13 @@ export default function Flow({
                       {(result?.outputs || []).map((o: any, i: number) => (
                         <div key={i} className="mb-2">
                           <div className="text-[9px] text-violet-300/80">{o.label}{o.agent ? ` · ${o.agent}` : ''}</div>
-                          <div className="text-[11px] text-gray-300 whitespace-pre-wrap">{o.text}</div>
+                          <div className="text-[11px] text-gray-300">{renderText(o.text)}</div>
                         </div>
                       ))}
                       {(result?.parked || []).map((p: any, i: number) => (
                         <div key={`p${i}`} className="mb-2 rounded border border-amber-400/25 bg-amber-400/[0.05] p-1.5">
                           <div className="text-[9px] text-amber-300">✋ waiting on you{p.note ? ` — ${p.note}` : ''}</div>
-                          <div className="text-[11px] text-gray-300 whitespace-pre-wrap line-clamp-6">{p.text}</div>
+                          <div className="text-[11px] text-gray-300 line-clamp-6">{renderText(p.text)}</div>
                         </div>
                       ))}
                       {result && !result.outputs?.length && !result.parked?.length && (
@@ -1121,11 +1138,37 @@ export default function Flow({
                     </>
                   )}
                 </div>
-                <div className="min-w-0 overflow-y-auto rounded-md border border-white/[0.06] bg-white/[0.02] p-2 font-mono">
-                  <div className="text-[9px] uppercase tracking-wider text-gray-600 mb-1 font-sans">
+                <div className="min-w-0 overflow-y-auto rounded-md border border-white/[0.06] bg-white/[0.02] p-2">
+                  <div className="text-[9px] uppercase tracking-wider text-gray-600 mb-1">
                     trail{result?.nodes_run ? ` · ${result.nodes_run} nodes · ${result.ms}ms` : ''}
                   </div>
-                  {log.map((l, i) => <div key={i} className="text-[10px] text-gray-500 whitespace-pre">{l}</div>)}
+                  {order.length > 0 ? order.map((entry, i) => {
+                    const st = states[entry.id]
+                    const icon = proto?.kinds[entry.kind]?.icon
+                    const hasText = !!st?.text
+                    const expanded = expandedNodes[entry.id]
+                    return (
+                      <div key={`${entry.id}-${i}`} className="mb-1">
+                        <div
+                          className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[10px] ${hasText ? 'cursor-pointer hover:bg-white/[0.04]' : ''}`}
+                          onClick={() => hasText && setExpandedNodes(e => ({ ...e, [entry.id]: !e[entry.id] }))}
+                        >
+                          {icon && <span className="text-gray-500 shrink-0">{icon}</span>}
+                          <span className="text-gray-300 truncate flex-1">{entry.name}</span>
+                          {st?.status === 'running' && <span className="text-gray-600 text-[9px]">…</span>}
+                          {st?.status === 'done' && <span className="text-emerald-400 text-[9px]">✓{st.ms != null ? ` ${st.ms}ms` : ''}</span>}
+                          {st?.status === 'error' && <span className="text-red-400 text-[9px]">✕</span>}
+                          {st?.status === 'parked' && <span className="text-amber-400 text-[9px]">parked</span>}
+                          {hasText && <span className="text-gray-600 text-[9px]">{expanded ? '▲' : '▼'}</span>}
+                        </div>
+                        {expanded && hasText && (
+                          <div className="ml-4 mt-0.5 rounded border border-white/[0.06] bg-white/[0.02] p-1.5 text-[10px] text-gray-400">
+                            {renderText(st!.text!)}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  }) : log.map((l, i) => <div key={i} className="text-[10px] text-gray-500 whitespace-pre font-mono">{l}</div>)}
                 </div>
               </div>
             )}

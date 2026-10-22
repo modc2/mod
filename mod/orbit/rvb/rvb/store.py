@@ -25,11 +25,12 @@ import uuid
 DIR = os.environ.get('RVB_DIR', os.path.expanduser('~/.mod/rvb'))
 ATTACKS = os.path.join(DIR, 'attacks')
 DEFENSES = os.path.join(DIR, 'defenses')
+GAMES = os.path.join(DIR, 'games')
 ROUNDS = os.path.join(DIR, 'rounds')
 KEEP = int(os.environ.get('RVB_KEEP_ROUNDS', 300))
 ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
 
-KINDS = {'attack': ATTACKS, 'defense': DEFENSES, 'round': ROUNDS}
+KINDS = {'attack': ATTACKS, 'defense': DEFENSES, 'game': GAMES, 'round': ROUNDS}
 
 
 class StoreError(Exception):

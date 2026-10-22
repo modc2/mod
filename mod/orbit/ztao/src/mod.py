@@ -336,7 +336,7 @@ class Mod:
         return out
 
     def forecast(self, chain=None, miners='16,256', validators='4,64',
-                 months=12, shape='exp', ring=16, epoch_hours=1, k=None):
+                 months=12, shape='exp', ring=16, epoch_hours=1, k=None, f=0.25):
         """Cost over time as the subnet grows: miners/validators = 'start,end'
         over `months` (shape exp | linear | logistic), every epoch priced at
         today's mainnet gas for today's contract (baseline) and for each
@@ -371,7 +371,8 @@ class Mod:
             out['chains'][a.chain] = {
                 'symbol': a.symbol, 'proof_estimated': pc is not None,
                 **fc.project(u, M, V, int(months), shape, int(ring),
-                             float(epoch_hours), int(k) if k else None)}
+                             float(epoch_hours), int(k) if k else None,
+                             f=float(f))}
         return out
 
     def experiment(self, chain='near', hours='1,2,4,6,12,24', ring=16,

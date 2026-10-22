@@ -23,7 +23,7 @@ const UNRESERVED: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'~');
 
 pub const TWEET_FIELDS: &str =
-    "created_at,public_metrics,author_id,conversation_id,lang,referenced_tweets,entities";
+    "created_at,public_metrics,author_id,conversation_id,lang,referenced_tweets,entities,attachments";
 pub const USER_FIELDS: &str =
     "created_at,description,public_metrics,verified,profile_image_url,location,url";
 

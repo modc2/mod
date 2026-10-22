@@ -55,6 +55,10 @@ const ROUTES: &[RouteDoc] = &[
         summary: "Like a post as the authenticated account.", query: &[] },
     RouteDoc { method: "POST", path: "/posts/{id}/repost", tool: "repost",
         summary: "Repost a post as the authenticated account.", query: &[] },
+    RouteDoc { method: "DELETE", path: "/posts/{id}/like", tool: "unlike",
+        summary: "Remove a like from a post as the authenticated account.", query: &[] },
+    RouteDoc { method: "DELETE", path: "/posts/{id}/repost", tool: "unrepost",
+        summary: "Remove a repost as the authenticated account.", query: &[] },
     RouteDoc { method: "GET", path: "/users/{handle}", tool: "user",
         summary: "Account profile by @handle or numeric id.", query: &[] },
     RouteDoc { method: "GET", path: "/users/{handle}/timeline", tool: "timeline",
@@ -67,6 +71,8 @@ const ROUTES: &[RouteDoc] = &[
         summary: "Accounts the given account follows.", query: &["max_results", "pagination_token"] },
     RouteDoc { method: "POST", path: "/users/{handle}/follow", tool: "follow",
         summary: "Follow an account as the authenticated account.", query: &[] },
+    RouteDoc { method: "DELETE", path: "/users/{handle}/follow", tool: "unfollow",
+        summary: "Unfollow an account as the authenticated account.", query: &[] },
     RouteDoc { method: "GET", path: "/me", tool: "me",
         summary: "The authenticated account (needs user-context credentials).", query: &[] },
     RouteDoc { method: "GET", path: "/mentions", tool: "mentions",
@@ -75,13 +81,23 @@ const ROUTES: &[RouteDoc] = &[
         summary: "Which credential rails are configured (never the secrets).", query: &[] },
     RouteDoc { method: "POST", path: "/forward", tool: "*",
         summary: "Generic adapter: {action, ...args} → any MCP tool.", query: &[] },
+    RouteDoc { method: "GET", path: "/home", tool: "home_feed",
+        summary: "Reverse-chronological home timeline for the authenticated account (needs user-context OAuth 1.0a credentials).",
+        query: &["max_results", "next_token"] },
+    RouteDoc { method: "GET", path: "/bookmarks", tool: "bookmarks",
+        summary: "List the authenticated account's bookmarked posts (needs user-context OAuth 1.0a credentials).",
+        query: &["max_results", "pagination_token"] },
+    RouteDoc { method: "POST", path: "/posts/{id}/bookmark", tool: "bookmark",
+        summary: "Bookmark a post as the authenticated account.", query: &[] },
+    RouteDoc { method: "DELETE", path: "/posts/{id}/bookmark", tool: "unbookmark",
+        summary: "Remove a bookmark as the authenticated account.", query: &[] },
 ];
 
 /// Tools that act as the account. With keys configured these spend the
 /// owner's identity, so they only run for a caller on this machine that is not
 /// a web page from some other origin (the port binds 0.0.0.0, CORS is open for
 /// reads, and a browser will happily POST to localhost on a site's behalf).
-pub const WRITE_TOOLS: &[&str] = &["post", "delete_post", "like", "repost", "follow"];
+pub const WRITE_TOOLS: &[&str] = &["post", "delete_post", "like", "repost", "unlike", "unrepost", "follow", "unfollow", "bookmark", "unbookmark"];
 
 /// `None` when the caller may act as the account, else the 403 to send.
 /// `X_ALLOW_REMOTE_WRITES=1` lifts the loopback rule (not the origin rule) for
@@ -305,6 +321,28 @@ async fn repost_post(
     via_tool("repost", json!({ "id": id }), header_key(&headers)).await
 }
 
+async fn unlike_post(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Some(denied) = write_gate(&peer, &headers) {
+        return denied;
+    }
+    via_tool("unlike", json!({ "id": id }), header_key(&headers)).await
+}
+
+async fn unrepost_post(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Some(denied) = write_gate(&peer, &headers) {
+        return denied;
+    }
+    via_tool("unrepost", json!({ "id": id }), header_key(&headers)).await
+}
+
 async fn get_user(headers: HeaderMap, Path(handle): Path<String>) -> Response {
     via_tool("user", json!({ "username": handle }), header_key(&headers)).await
 }
@@ -318,6 +356,17 @@ async fn follow_user(
         return denied;
     }
     via_tool("follow", json!({ "username": handle }), header_key(&headers)).await
+}
+
+async fn unfollow_user(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(handle): Path<String>,
+) -> Response {
+    if let Some(denied) = write_gate(&peer, &headers) {
+        return denied;
+    }
+    via_tool("unfollow", json!({ "username": handle }), header_key(&headers)).await
 }
 
 /// One handler for the three per-account list routes — they differ only in the
@@ -366,12 +415,42 @@ async fn user_following(
     user_list("following", headers, handle, q, &[("pagination_token", "pagination_token")]).await
 }
 
+async fn get_bookmarks(headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+    via_tool("bookmarks", list_args(&q, &[("pagination_token", "pagination_token")]), header_key(&headers)).await
+}
+
+async fn bookmark_post(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Some(denied) = write_gate(&peer, &headers) {
+        return denied;
+    }
+    via_tool("bookmark", json!({ "id": id }), header_key(&headers)).await
+}
+
+async fn unbookmark_post(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    if let Some(denied) = write_gate(&peer, &headers) {
+        return denied;
+    }
+    via_tool("unbookmark", json!({ "id": id }), header_key(&headers)).await
+}
+
 async fn me(headers: HeaderMap) -> Response {
     via_tool("me", json!({}), header_key(&headers)).await
 }
 
 async fn my_mentions(headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     via_tool("mentions", list_args(&q, &[]), header_key(&headers)).await
+}
+
+async fn home_feed(headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
+    via_tool("home_feed", list_args(&q, &[("next_token", "next_token")]), header_key(&headers)).await
 }
 
 async fn auth_status(headers: HeaderMap) -> Response {
@@ -593,16 +672,19 @@ pub async fn serve(port: u16) {
         .route("/summarize", get(summarize))
         .route("/posts", post(create_post))
         .route("/posts/:id", get(get_post).delete(delete_post))
-        .route("/posts/:id/like", post(like_post))
-        .route("/posts/:id/repost", post(repost_post))
+        .route("/posts/:id/like", post(like_post).delete(unlike_post))
+        .route("/posts/:id/repost", post(repost_post).delete(unrepost_post))
         .route("/users/:handle", get(get_user))
         .route("/users/:handle/timeline", get(user_timeline))
         .route("/users/:handle/mentions", get(user_mentions))
         .route("/users/:handle/followers", get(user_followers))
         .route("/users/:handle/following", get(user_following))
-        .route("/users/:handle/follow", post(follow_user))
+        .route("/users/:handle/follow", post(follow_user).delete(unfollow_user))
         .route("/me", get(me))
         .route("/mentions", get(my_mentions))
+        .route("/home", get(home_feed))
+        .route("/bookmarks", get(get_bookmarks))
+        .route("/posts/:id/bookmark", post(bookmark_post).delete(unbookmark_post))
         .route("/auth", get(auth_status))
         .route("/auth/keys", post(set_keys))
         .route("/forward", post(forward))

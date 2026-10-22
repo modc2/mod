@@ -17,6 +17,8 @@ export type Server = {
   name: string;
   url: string;
   source: "fleet" | "user" | string;
+  /// True when the server runs on this box (loopback URL or stdio process).
+  local?: boolean;
   note: string;
   enabled: boolean;
   added_at: number;
@@ -25,6 +27,10 @@ export type Server = {
   pay?: string;
   needs_payment?: boolean;
   probe: Probe;
+  review_risk?: string | null;
+  calls?: number;
+  last_call?: number | null;
+  uptime?: { ok: boolean; latency_ms: number | null }[];
 };
 
 export type X402Status = {
@@ -190,6 +196,28 @@ export type ActivityLog = {
   recent: CallEntry[];
 };
 
+export type Finding = {
+  severity: string;
+  title: string;
+  detail?: string;
+  tool?: string;
+  source: string;
+};
+
+export type Review = {
+  url: string;
+  risk: string;
+  verdict: string;
+  summary: string;
+  findings: Finding[];
+  capabilities: string[];
+  tools_hash: string;
+  tool_count: number;
+  agent: string;
+  agent_error?: string;
+  checked_at: number;
+};
+
 const TOKEN_KEY = "mcp:token";
 /// The identity issuer's session key. Same origin, so signing in at /build
 /// signs you in here — the hub validates that token without minting its own.
@@ -234,7 +262,10 @@ export const api = {
   tools: (server?: string) =>
     req<{ count: number; tools: Tool[] }>(`/tools${server ? `?server=${server}` : ""}`),
   addServer: (body: {
-    url: string;
+    url?: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
     id?: string;
     name?: string;
     note?: string;
@@ -243,6 +274,8 @@ export const api = {
     force?: boolean;
   }) => req<{ added: Server; probe: Probe }>("/servers", { method: "POST", body: JSON.stringify(body) }),
   removeServer: (id: string) => req<{ removed: string }>(`/servers/${id}`, { method: "DELETE" }),
+  updateServer: (id: string, body: { name?: string; note?: string; headers?: Record<string, string>; env?: Record<string, string> }) =>
+    req<{ updated: Server }>(`/servers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   toggle: (id: string, enabled: boolean) =>
     req<{ id: string; enabled: boolean }>(`/servers/${id}/toggle`, {
       method: "POST",
@@ -253,10 +286,10 @@ export const api = {
       method: "POST",
       body: "{}",
     }),
-  probe: (url: string, headers?: Record<string, string>) =>
+  probe: (opts: { url?: string; command?: string; args?: string[]; env?: Record<string, string>; headers?: Record<string, string> }) =>
     req<{ probe: Probe; tools: Tool[] }>("/probe", {
       method: "POST",
-      body: JSON.stringify({ url, headers: headers || {} }),
+      body: JSON.stringify(opts),
     }),
   call: (tool: string, args: unknown) =>
     req<{ tool: string; result: unknown }>("/call", {
@@ -265,6 +298,7 @@ export const api = {
     }),
   clientConfig: (client: string) =>
     req<{ url: string; config: unknown }>(`/client_config?client=${client}`),
+  export: () => req<Record<string, unknown>>("/export"),
 
   /// Knock on every fleet port and adopt whatever speaks MCP.
   discover: () => req<{ swept: number; servers: string[] }>("/discover", { method: "POST", body: "{}" }),
@@ -303,6 +337,17 @@ export const api = {
     }),
 
   activity: () => req<ActivityLog>("/activity"),
+  activityForServer: (id: string) => req<ActivityLog>(`/activity?server=${encodeURIComponent(id)}`),
+  streamActivity(cb: (e: CallEntry) => void): () => void {
+    const es = new EventSource(`${BASE}/activity/stream`);
+    es.onmessage = (ev) => {
+      try { cb(JSON.parse(ev.data) as CallEntry); } catch {}
+    };
+    return () => es.close();
+  },
+  review: (id: string) =>
+    req<Review>(`/servers/${id}/review`, { method: "POST", body: "{}" }),
+  getReview: (id: string) => req<Review>(`/servers/${id}/review`),
   me: () => req<{ me: Me; auth: AuthConfig }>("/auth/me"),
   keys: () => req<{ keys: ApiKey[] }>("/keys"),
   createKey: (name: string) =>

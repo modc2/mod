@@ -19,7 +19,7 @@ import secrets
 import time
 
 import codec
-from chain import AlgoError, Client, MICRO, algos
+from chain import AlgoError, Client, MICRO, algos, summarize
 
 HOME = os.path.expanduser(os.environ.get('ALGORAND_HOME', '~/.mod/algorand'))
 KEYS = os.path.join(HOME, 'keys.json')
@@ -390,6 +390,37 @@ def app_update(app_id, approval=None, clear=None, approval_b64=None, clear_b64=N
     return out
 
 
+def _decode_delta(delta):
+    """Simulation state-delta (action-keyed) → {key: value} dict.
+    action=1 uint, action=2 bytes, action=3 deleted."""
+    out = {}
+    for e in delta or []:
+        kb = codec.unb64(e.get('key') or '')
+        try:
+            key = kb.decode('utf-8')
+            if not key or not all(32 <= ord(c) < 127 for c in key):
+                key = '0x' + kb.hex()
+        except (UnicodeDecodeError, ValueError):
+            key = '0x' + kb.hex()
+        v = e.get('value') or {}
+        action = v.get('action', 0)
+        if action == 3:
+            out[key] = '(deleted)'
+        elif action == 1:
+            out[key] = v.get('uint', 0)
+        else:
+            vb = codec.unb64(v.get('bytes') or '')
+            if len(vb) == 32:
+                out[key] = codec.encode_address(vb)
+            else:
+                try:
+                    s = vb.decode('utf-8')
+                    out[key] = s if s and all(32 <= ord(c) < 127 for c in s) else ('0x' + vb.hex() if vb else '')
+                except UnicodeDecodeError:
+                    out[key] = '0x' + vb.hex() if vb else ''
+    return out
+
+
 def _abi_return(logs, ret_type):
     if not logs or not ret_type or ret_type == 'void':
         return None
@@ -404,16 +435,22 @@ def _abi_return(logs, ret_type):
 
 def simulate_call(app_id, method=None, args=None, sender=None, accounts=None,
                   apps=None, assets=None, boxes=None, on_complete='noop',
-                  network=None):
+                  pay_algo=None, network=None):
     """Call an app with no key and no fee: algod simulates it, the logs and
     the ARC-4 return come back. Algorand's answer to a view call."""
     c = Client(network)
     who = c.resolve(sender) if sender else _sim_sender(c)
     t, ret = appl_txn(c, who, app_id, on_complete, args, method, accounts,
                       apps, assets, boxes)
-    sim = c.simulate([t])
+    if pay_algo:
+        txns = [pay_txn(c, who, codec.app_address(app_id), pay_algo), t]
+        app_idx = 1
+    else:
+        txns = [t]
+        app_idx = 0
+    sim = c.simulate(txns)
     grp = (sim.get('txn-groups') or [{}])[0]
-    res = (grp.get('txn-results') or [{}])[0].get('txn-result') or {}
+    res = (grp.get('txn-results') or [{}])[app_idx].get('txn-result') or {}
     logs = res.get('logs') or []
     return {'network': c.network, 'app_id': int(app_id), 'sender': who,
             'method': method, 'ok': not grp.get('failure-message'),
@@ -421,7 +458,8 @@ def simulate_call(app_id, method=None, args=None, sender=None, accounts=None,
             'return': _abi_return(logs, ret),
             'logs': [_log(x) for x in logs],
             'app_budget_consumed': grp.get('app-budget-consumed'),
-            'global_delta': res.get('global-state-delta'),
+            'global_delta': _decode_delta(res.get('global-state-delta')),
+            'inner_txns': [summarize(i) for i in (res.get('inner-txns') or [])],
             'round': sim.get('last-round')}
 
 

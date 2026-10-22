@@ -237,6 +237,11 @@ pub fn digest(posts: &[Value], users: &[Value]) -> Value {
             })
         })
         .collect();
+    let top_post_cards: Vec<Value> = ranked.iter().take(5).map(|p| (*p).clone()).collect();
+    let top_post_users: Vec<Value> = top_post_cards
+        .iter()
+        .filter_map(|p| p["author_id"].as_str().and_then(|id| by_id.get(id)).map(|u| (*u).clone()))
+        .collect();
 
     let n = posts.len() as u64;
     let mut day_rows: Vec<_> = days.into_iter().collect();
@@ -275,6 +280,8 @@ pub fn digest(posts: &[Value], users: &[Value]) -> Value {
         "span": { "from": oldest, "to": newest },
         "totals": { "likes": likes, "reposts": reposts, "replies": replies, "avg_likes": if n > 0 { likes as f64 / n as f64 } else { 0.0 } },
         "top_posts": top_posts,
+        "top_post_cards": top_post_cards,
+        "top_post_users": top_post_users,
         "topics": top_words,
         "hashtags": top_tags,
         "mentions": top(mentions, 8),

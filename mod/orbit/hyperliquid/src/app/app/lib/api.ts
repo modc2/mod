@@ -889,12 +889,20 @@ export type Candle = { t: number; o: number; h: number; l: number; c: number; v:
 export const fetchCandles = (coin: string, hours = 168, interval = "1h") =>
   j<Candle[]>(`/candles/${encodeURIComponent(coin)}?interval=${interval}&hours=${hours}`);
 
+export const fetchOrderbook = (coin: string) => j<any>(`/orderbook/${encodeURIComponent(coin)}`);
+
 export const userState = (addr: string) => j<any>(`/user/${addr}/state`);
 /** Spot balances: `{ balances: [{ coin, total, hold, entryNtl }] }`. */
 export const userSpot = (addr: string) => j<any>(`/user/${addr}/spot`);
 export type LedgerUpdate = { time: number; hash: string; delta: { type: string; usdc?: string; amount?: string; [k: string]: any } };
 /** Non-funding balance changes (deposits, withdrawals, sends, vault flows), last 90d. */
 export const userLedger = (addr: string) => j<LedgerUpdate[]>(`/user/${addr}/ledger`);
+
+/** Portfolio history (HL `portfolio` info call) — the same payload PnlChart consumes. */
+export const userPnl = (addr: string) => j<any>(`/user/${encodeURIComponent(addr)}/pnl`);
+
+/** Funding payments received/paid on perpetual positions. */
+export const userFunding = (addr: string) => j<any[]>(`/user/${encodeURIComponent(addr)}/funding`);
 
 // ── trade actions ──
 export const trade = (b: {

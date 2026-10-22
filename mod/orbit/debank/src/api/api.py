@@ -144,6 +144,8 @@ def route(method, path, query, body, key):
         return c.approvals(_need(arg('id'), 'id'), chain=arg('chain'),
                            min_usd=_n(arg('min_usd'), 0.0),
                            limit=int(_n(arg('limit'), 100)))
+    if path == '/nft_approvals':
+        return c.nft_approvals(_need(arg('id'), 'id'), arg('chain'))
     if path == '/history':
         return c.history(_need(arg('id'), 'id'), chain=arg('chain'),
                          start_time=arg('start_time'),

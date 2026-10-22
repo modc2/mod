@@ -293,7 +293,7 @@ class EvolutionEngine:
         k = min(k, len(self.population))
         return max(self.rng.sample(self.population, k), key=lambda g: g.fitness)
 
-    def run(self, generations: int = 25) -> Dict:
+    def run(self, generations: int = 25, progress_callback=None) -> Dict:
         t0 = time.time()
         for _ in range(int(generations)):
             for g in self.population:
@@ -307,6 +307,11 @@ class EvolutionEngine:
                 "best": round(fits[0], 5),
                 "mean": round(sum(fits) / len(fits), 5),
             })
+            if progress_callback is not None:
+                h = self.history[-1]
+                progress_callback(
+                    f"gen {h['gen']}/{generations} · best RMSE {round(-h['best'], 3)} · mean {round(-h['mean'], 3)}"
+                )
             elites = self.population[:2]
             for e in elites:
                 e.age += 1
@@ -375,6 +380,71 @@ class EvolutionEngine:
             "horizon": h, "dataset": self.dataset,
             "variables": out,
         }
+
+    def ensemble_forecast(self, top_n: int = 10, horizon: Optional[int] = None, tail: int = 60) -> Dict:
+        """Weighted-ensemble forecast from the top-N genomes.
+        Returns per-variable history, weighted-average forecast, and per-step lo/hi spread band."""
+        h = int(horizon or self.horizon)
+        V = len(self.names)
+        ranked = sorted(self.population, key=lambda g: g.fitness if g.fitness is not None else -1e9, reverse=True)[:top_n]
+        for g in ranked:
+            if g.fitness is None:
+                g.fitness = self._evaluate(g)
+        ranked = sorted(ranked, key=lambda g: g.fitness if g.fitness is not None else -1e9, reverse=True)
+        ws = self.weights(top=top_n)
+
+        genome_rollouts = []  # list of (weight, per-var z-predictions)
+        for g in ranked:
+            w = ws.get(g.id, 0.0)
+            if w == 0.0:
+                continue
+            L = g.lag
+            window = [list(z[-L:]) for z in self.z]
+            preds = [[] for _ in range(V)]
+            for _ in range(h):
+                p = g.predict(window)
+                for j in range(V):
+                    preds[j].append(p[j])
+                    window[j] = window[j][1:] + [p[j]]
+            genome_rollouts.append((w, preds))
+
+        if not genome_rollouts:
+            return self.forecast(horizon=h, tail=tail)
+
+        total_w = sum(w for w, _ in genome_rollouts)
+        out = {}
+        for j, k in enumerate(self.names):
+            hist = [round(x, 5) for x in self.series[k][-tail:]]
+            avg_fc, lo_fc, hi_fc = [], [], []
+            for step in range(h):
+                z_vals = [preds[j][step] for _, preds in genome_rollouts]
+                z_avg = sum(w * preds[j][step] for w, preds in genome_rollouts) / total_w
+                avg_fc.append(round(z_avg * self.sd[k] + self.mu[k], 5))
+                lo_fc.append(round(min(z_vals) * self.sd[k] + self.mu[k], 5))
+                hi_fc.append(round(max(z_vals) * self.sd[k] + self.mu[k], 5))
+            out[k] = {"history": hist, "forecast": avg_fc, "band_lo": lo_fc, "band_hi": hi_fc}
+
+        return {
+            "top_n": len(genome_rollouts),
+            "horizon": h,
+            "dataset": self.dataset,
+            "variables": out,
+        }
+
+    def top_influences(self, top_k: int = 10) -> List[Dict]:
+        """Top linear weights from the best genome sorted by |weight|."""
+        if not self.population:
+            return []
+        best = max(self.population, key=lambda g: g.fitness if g.fitness is not None else -1e9)
+        V, L = len(self.names), best.lag
+        triples = []
+        for i in range(V):
+            for j in range(V):
+                for l in range(L):
+                    w = best.w_lin[i][j * L + l]
+                    triples.append({"to": self.names[i], "from": self.names[j], "lag": l + 1, "weight": round(w, 4)})
+        triples.sort(key=lambda x: abs(x["weight"]), reverse=True)
+        return triples[:int(top_k)]
 
     def status(self) -> Dict:
         best = self.history[-1]["best"] if self.history else None

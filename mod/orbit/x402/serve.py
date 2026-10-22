@@ -51,7 +51,7 @@ import x402agent as agent        # noqa: E402 — the finder (claude over /mcp)
 mcp.SYNC, mcp.MOD = MOD.sync, MOD
 
 READ_FNS = ('info', 'health', 'readme', 'services', 'service', 'hosts',
-            'networks', 'stats', 'sources', 'partners', 'facilitators',
+            'networks', 'stats', 'tags', 'sources', 'partners', 'facilitators',
             'find', 'mcp_servers', 'users', 'trust', 'whoami', 'tools')
 # Writes are POST. Probing fetches a stranger's URL from this box, and sync /
 # add_source spend its bandwidth — so they are local-only unless the owner

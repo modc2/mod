@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback, Fragment } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { CodeBlock, renderText as renderTextLib } from './lib/renderText'
 import { API_URL } from './config'
 import Library from './components/Library'
 import type { LibItem } from './components/Library'
@@ -40,7 +41,7 @@ type Message = { role: 'user' | 'agent' | 'system'; text: string; agent?: string
 // uid/cid/synced tie a conversation to the server-side store: uid is the
 // stable cross-device id, cid the localfs pin, synced whether the server copy
 // is current. Anonymous sessions only ever live in localStorage.
-type TaskEntry = { id: number; query: string; status: 'running' | 'done' | 'error'; stepCount?: number; messages: Message[]; agent_type?: string; startedAt?: number; finishedAt?: number; uid?: string; cid?: string; synced?: boolean }
+type TaskEntry = { id: number; query: string; name?: string; status: 'running' | 'done' | 'error'; stepCount?: number; messages: Message[]; agent_type?: string; startedAt?: number; finishedAt?: number; uid?: string; cid?: string; synced?: boolean }
 
 const genUid = () => `c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 
@@ -62,8 +63,15 @@ const draftView = (draft: string) => {
     }
     t = t.slice(0, i)
   }
+  // Capture in-progress <think> content before stripping — close tag may not have arrived yet
+  let thinking: string | null = null
+  const thinkMatch = /<think>([\s\S]*)/i.exec(t)
+  if (thinkMatch && !t.toLowerCase().includes('</think>')) {
+    const thinkContent = thinkMatch[1].trim()
+    if (thinkContent) thinking = thinkContent
+  }
   const prose = t.replace(/<\/?think>/gi, '').replace(/<\|[^|]{0,40}\|>/g, '').trimStart()
-  return { prose, composing }
+  return { prose, composing, thinking }
 }
 
 // ── what a call cost, in words a person reads ──
@@ -325,6 +333,7 @@ type TraceStep = { tool?: string | null; path?: string | null }
 
 // the tail of a path is the part a human recognizes at a glance
 const pathTail = (p: string) => p.split('/').filter(Boolean).slice(-2).join('/')
+const WRITE_TOOLS = new Set(['edit', 'write', 'patch'])
 
 const highlightTerm = (text: string, term: string) => {
   const t = term.trim().toLowerCase()
@@ -365,24 +374,6 @@ type KeyBalance = {
   balances?: Record<string, number>; error?: string
 }
 
-function CodeBlock({ lang, code }: { lang: string; code: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <span className="code-block block relative group">
-      {lang && <span className="code-lang block">{lang}</span>}
-      <button
-        onClick={() => {
-          navigator.clipboard?.writeText(code).catch(() => {})
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1500)
-        }}
-        className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition"
-        title="Copy"
-      >{copied ? '✓' : '⧉'}</button>
-      {code}
-    </span>
-  )
-}
 
 export default function Home() {
   // top-level view: three places, not five. CHAT is the console you talk to an
@@ -402,6 +393,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<TaskEntry[]>([])
   const [selectedTask, setSelectedTask] = useState<number | null>(null)
+  const [renamingChatId, setRenamingChatId] = useState<number | null>(null)
+  const [renamingChatValue, setRenamingChatValue] = useState('')
   const [activeTab, setActiveTab] = useState<Tab>('output')
   const [toolPane, setToolPane] = useState<ToolPane>('trace')
   // {total, custom} from /tools — feeds the header's tool count
@@ -410,6 +403,8 @@ export default function Home() {
   // appears inline in the transcript and again in the trace, and opening one
   // shouldn't open the other
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({})
+  const [expandedFilesChanged, setExpandedFilesChanged] = useState<Record<string, boolean>>({})
+  const [expandedFileDiffs, setExpandedFileDiffs] = useState<Record<string, boolean>>({})
   const [expandedResults, setExpandedResults] = useState<Record<string, boolean>>({})
   const [copiedBlock, setCopiedBlock] = useState<string | null>(null)
   const toggleResult = (k: string) => setExpandedResults(r => ({ ...r, [k]: !r[k] }))
@@ -437,6 +432,9 @@ export default function Home() {
   const historyBufRef = useRef('')
   // 1s ticker so the elapsed-time display updates while a task runs
   const [, setClockTick] = useState(0)
+  // inline follow-up composer at thread bottom
+  const [followUpQuery, setFollowUpQuery] = useState('')
+  const followUpRef = useRef<HTMLTextAreaElement>(null)
 
   // agent state
   const [agentType, setAgentType] = useState<string>('default')
@@ -620,6 +618,7 @@ export default function Home() {
   const [sidebarSide, setSidebarSide] = useState<SidebarSide>('left')
   const [railPane, setRailPane] = useState<RailPane>('chats')
   const [chatSearch, setChatSearch] = useState('')
+  const [pinnedChatUids, setPinnedChatUids] = useState<Set<string>>(new Set())
 
   // the market rail — the library, docked opposite the chats rail
   const [marketOpen, setMarketOpen] = useState(true)
@@ -717,6 +716,8 @@ export default function Home() {
       const pp = localStorage.getItem('agent_prompt_pos')
       if (pp) setPromptPos(clampPromptPos(JSON.parse(pp), pwv))
       if (localStorage.getItem('agent_prompt_float') === '1' && pp) setPromptFloat(true)
+      const pinned = localStorage.getItem('agent_pinned')
+      if (pinned) { try { setPinnedChatUids(new Set(JSON.parse(pinned))) } catch {} }
       if (window.matchMedia('(max-width: 767px)').matches) {
         // phones: both rails start as drawers so the console has the screen,
         // and the chat dock starts as a strip — a 430px dock IS the screen
@@ -1993,9 +1994,11 @@ export default function Home() {
     abortRef.current?.abort()
   }
 
-  const run = async () => {
-    const shots = attachments
-    if ((!query.trim() && shots.length === 0) || loading) return
+  const run = async (opts?: { intoTaskId?: number; q?: string }) => {
+    const isFollowUp = opts?.intoTaskId != null
+    const shots = isFollowUp ? [] : attachments
+    const rawQuery = opts?.q !== undefined ? opts.q : query
+    if ((!rawQuery.trim() && shots.length === 0) || loading) return
     // A harness agent hands the run to a CLI this caller can't start yet —
     // ask for the sign-in here, in the app, and continue with the identity
     // it produces. Declined = nothing sent, the composer keeps the prompt.
@@ -2005,22 +2008,28 @@ export default function Home() {
       if (!a) return
       runAuth = a
     }
-    const q = query.trim() || 'look at the attached image(s)'
-    setQuery('')
-    setAttachments([])
-    setAttachErr(null)
+    const q = rawQuery.trim() || 'look at the attached image(s)'
+    if (!isFollowUp) {
+      setQuery('')
+      setAttachments([])
+      setAttachErr(null)
+    }
     setLoading(true)
 
-    const id = ++taskId.current
+    const id = isFollowUp ? opts!.intoTaskId! : ++taskId.current
     const agentLabel = promptSel ? `¶ ${promptSel.name}` : (currentAgentDef?.label || agentType)
     const userMsg: Message = {
       role: 'user', text: q, agent: agentLabel,
       ...(shots.length ? { images: shots.map(a => a.url), thumbs: shots.map(a => a.thumb) } : {}),
     }
-    const task: TaskEntry = { id, uid: genUid(), query: q, status: 'running', messages: [userMsg], agent_type: agentType, startedAt: Date.now() }
-    setTasks(t => [task, ...t])
-    setSelectedTask(id)
-    setActiveTab('output')
+    if (isFollowUp) {
+      setTasks(t => t.map(tk => tk.id === id ? { ...tk, status: 'running', messages: [...tk.messages, userMsg] } : tk))
+    } else {
+      const task: TaskEntry = { id, uid: genUid(), query: q, status: 'running', messages: [userMsg], agent_type: agentType, startedAt: Date.now() }
+      setTasks(t => [task, ...t])
+      setSelectedTask(id)
+      setActiveTab('output')
+    }
 
     // the run's price as it is spent: each model call lands here the moment it
     // resolves, so the footer counts up instead of appearing at the end. Held
@@ -2031,6 +2040,24 @@ export default function Home() {
         ? (typeof patch === 'function' ? patch(tk) : { ...tk, ...patch })
         : tk))
     }
+    const autoTitle = (text: string): string | null => {
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+      const headingMatch = lines.slice(0, 5).find(l => /^#{1,3}\s+/.test(l))
+      if (headingMatch) {
+        const heading = headingMatch.replace(/^#{1,3}\s+/, '')
+        if (heading.length <= 80) return heading
+      }
+      const stripped = (l: string) => l.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').replace(/`+/g, '').trim()
+      for (const raw of lines.slice(0, 5)) {
+        const line = stripped(raw)
+        if (/^[#>|]/.test(line)) continue
+        const words = line.split(/\s+/).filter(Boolean)
+        if (words.length >= 4 && words.length <= 12) {
+          return line.length > 60 ? line.slice(0, 60) + '…' : line
+        }
+      }
+      return null
+    }
     const finishSingle = (allSteps: any[], apiError?: string, usage?: Usage) => {
       const fin = finalizeSteps(allSteps, apiError)
       const agentMsg: Message = { role: fin.hasError ? 'system' : 'agent', text: fin.displayText,
@@ -2038,12 +2065,14 @@ export default function Home() {
                                   // the server's final tally wins over the one
                                   // assembled live — it is the one that was billed
                                   ...(usage?.calls || liveUsage ? { usage: usage || liveUsage! } : {}) }
+      const derivedName = !fin.hasError ? autoTitle(fin.displayText) : null
       patchTask(tk => ({
         ...tk,
         status: fin.hasError ? 'error' : 'done',
         stepCount: fin.visibleSteps.length,
         messages: [...tk.messages.filter(msg => !msg.live), agentMsg],
         finishedAt: Date.now(),
+        ...(derivedName && !tk.name ? { name: derivedName } : {}),
       }))
     }
 
@@ -2079,6 +2108,16 @@ export default function Home() {
         // prefer the freshly-fetched body — the persisted copy may be clipped
         const bodyText = libPrompts.find(p => p.id === promptSel.id)?.body || promptSel.body
         if (bodyText) body.prompt = bodyText
+      }
+      if (isFollowUp) {
+        const existingTask = tasks.find(tk => tk.id === id)
+        if (existingTask) {
+          const prior = existingTask.messages
+            .filter(m => !m.live && (m.role === 'user' || m.role === 'agent') && m.text)
+            .map(m => `${m.role === 'user' ? 'User' : 'Agent'}: ${m.text}`)
+            .join('\n\n')
+          if (prior) body.prompt = prior
+        }
       }
       // the conversation this run belongs to — the memory module keys the
       // remembered exchange off it (and off the signed-in address, if any)
@@ -2230,7 +2269,11 @@ export default function Home() {
     fetchBalance()
     fetchCredits()
     fetchServerTasks()
-    inputRef.current?.focus()
+    if (isFollowUp) {
+      followUpRef.current?.focus()
+    } else {
+      inputRef.current?.focus()
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2269,6 +2312,11 @@ export default function Home() {
     setTasks(t => t.map(tk => tk.id === selectedTask ? { ...tk, status: 'done' } : tk))
   }
 
+  const renameChatTitle = (id: number, value: string) => {
+    setTasks(ts => ts.map(t => t.id === id ? { ...t, name: value.trim() || undefined } : t))
+    setRenamingChatId(null)
+  }
+
   // remove a conversation locally AND from the server-side store
   const deleteConversation = (task: TaskEntry) => {
     setTasks(t => t.filter(tk => tk.id !== task.id))
@@ -2289,12 +2337,8 @@ export default function Home() {
 
   const continueTask = () => {
     if (!currentTask || currentTask.status === 'running') return
-    // extract the last agent message output as context
-    const agentMsgs = currentTask.messages.filter(m => m.role === 'agent')
-    const lastOutput = agentMsgs.length > 0 ? agentMsgs[agentMsgs.length - 1].text : ''
-    const prefix = `Continue from previous task "${currentTask.query}":\n\nPrevious output:\n${lastOutput}\n\nNext step: `
-    setQuery(prefix)
-    inputRef.current?.focus()
+    scrollToBottom()
+    setTimeout(() => followUpRef.current?.focus(), 40)
   }
 
   const toggleStep = (key: string) => {
@@ -2359,194 +2403,35 @@ export default function Home() {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
   }
 
-  // markdown-lite: render ``` fences, `inline code`, **bold**, *italic*, ## headings, bullet lists
-  const renderText = (text: string) => {
-    const hasAny = text.includes('`') || text.includes('\n> ') || text.startsWith('> ') || /\*\*|\*[^*]|\[.+\]\(https?:\/\/|^[*\-] |^#{1,3} |^\d+\. /m.test(text) || /^\|/m.test(text) || /^-{3,}$/m.test(text)
-    if (!hasAny) return text
-
-    // inline pass: **bold**, *italic*, `code` within a single string
-    const renderInline = (s: string, kb: string) => {
-      const out: React.ReactNode[] = []
-      const parts = s.split('`')
-      const hasUnpaired = parts.length % 2 === 0
-      parts.forEach((b, j) => {
-        if (j % 2 === 1) {
-          if (hasUnpaired && j === parts.length - 1) { out.push('`' + b); return }
-          out.push(<code key={`${kb}-ic${j}`} className="inline-code">{b}</code>); return
-        }
-        const re = /\*\*(.+?)\*\*|\*(\S[^*\n]*?\S|\S)\*|\[([^\]]+)\]\((https?:\/\/(?:[^\s()]+|\([^\s()]*\))+)\)/g
-        let last = 0, n = 0, m: RegExpExecArray | null
-        while ((m = re.exec(b)) !== null) {
-          if (m.index > last) out.push(b.slice(last, m.index))
-          if (m[1] !== undefined)
-            out.push(<strong key={`${kb}-b${n++}`}>{m[1]}</strong>)
-          else if (m[2] !== undefined)
-            out.push(<em key={`${kb}-e${n++}`}>{m[2]}</em>)
-          else
-            out.push(<a key={`${kb}-a${n++}`} href={m[4]} target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200">{m[3]}</a>)
-          last = m.index + m[0].length
-        }
-        if (last < b.length) out.push(b.slice(last))
-      })
-      return out
-    }
-
-    // per-segment renderer: headings, bullet lists, then inline
-    const renderSeg = (seg: string, si: number) => {
-      const hasBlock = /^#{1,3} |^[*\-] |^\d+\. |^> |^\||^---/m.test(seg)
-      if (!hasBlock) return <Fragment key={si}>{renderInline(seg, `${si}`)}</Fragment>
-
-      const lines = seg.split('\n')
-      const nodes: React.ReactNode[] = []
-      let listBuf: React.ReactNode[][] = []
-      let olistBuf: React.ReactNode[][] = []
-      let quoteBuf: React.ReactNode[][] = []
-      let k = 0
-
-      const flushList = () => {
-        if (!listBuf.length) return
-        nodes.push(
-          <ul key={`${si}-ul${k++}`} style={{ listStyle: 'none', padding: '0 0 0 0.5rem', margin: '0.125rem 0' }}>
-            {listBuf.map((item, li) => (
-              <li key={li} style={{ display: 'flex', gap: '0.375rem', lineHeight: '1.5' }}>
-                <span style={{ color: 'rgb(75 85 99)', flexShrink: 0 }}>–</span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        )
-        listBuf = []
-      }
-
-      const flushOList = () => {
-        if (!olistBuf.length) return
-        nodes.push(
-          <ol key={`${si}-ol${k++}`} style={{ listStyle: 'none', padding: '0 0 0 0.5rem', margin: '0.125rem 0' }}>
-            {olistBuf.map((item, li) => (
-              <li key={li} style={{ display: 'flex', gap: '0.375rem', lineHeight: '1.5' }}>
-                <span style={{ color: 'rgb(75 85 99)', flexShrink: 0 }}>{li + 1}.</span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ol>
-        )
-        olistBuf = []
-      }
-
-      const flushQuote = () => {
-        if (!quoteBuf.length) return
-        nodes.push(
-          <blockquote key={`${si}-bq${k++}`} style={{ borderLeft: '2px solid rgb(75 85 99)', paddingLeft: '0.625rem', margin: '0.25rem 0', color: 'rgb(156 163 175)' }}>
-            {quoteBuf.map((item, qi) => (
-              <div key={qi}>{item}</div>
-            ))}
-          </blockquote>
-        )
-        quoteBuf = []
-      }
-
-      let tableBuf: string[] = []
-
-      const flushTable = () => {
-        if (!tableBuf.length) return
-        const rows = tableBuf.map(line => line.split('|').slice(1, -1).map(c => c.trim()))
-        const sepIdx = rows.findIndex(cells => cells.length > 0 && cells.every(c => /^[\s\-:]+$/.test(c)))
-        const headerRows = sepIdx >= 0 ? rows.slice(0, sepIdx) : []
-        const bodyRows = sepIdx >= 0 ? rows.slice(sepIdx + 1) : rows
-        nodes.push(
-          <div key={`${si}-tbl${k++}`} style={{ overflowX: 'auto', margin: '0.25rem 0' }}>
-            <table style={{ borderCollapse: 'collapse', fontSize: '0.75rem', width: '100%' }}>
-              {headerRows.length > 0 && (
-                <thead>
-                  {headerRows.map((cells, ri) => (
-                    <tr key={ri}>
-                      {cells.map((cell, ci) => (
-                        <th key={ci} style={{ padding: '0.2rem 0.5rem', border: '1px solid rgba(255,255,255,0.08)', color: 'rgb(209 213 219)', fontWeight: 500, textAlign: 'left' }}>
-                          {renderInline(cell, `${si}-th${ri}-${ci}`)}
-                        </th>
-                      ))}
-                    </tr>
-                  ))}
-                </thead>
-              )}
-              <tbody>
-                {bodyRows.map((cells, ri) => (
-                  <tr key={ri}>
-                    {cells.map((cell, ci) => (
-                      <td key={ci} style={{ padding: '0.2rem 0.5rem', border: '1px solid rgba(255,255,255,0.08)', color: 'rgb(156 163 175)' }}>
-                        {renderInline(cell, `${si}-td${ri}-${ci}`)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
-        tableBuf = []
-      }
-
-      lines.forEach((line, li) => {
-        if (line.startsWith('### ')) {
-          flushList(); flushOList(); flushQuote(); flushTable()
-          nodes.push(<h3 key={`${si}-h3${k++}`} style={{ fontSize: '0.65rem', fontWeight: 600, color: 'rgb(107 114 128)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.375rem 0 0.125rem' }}>{renderInline(line.slice(4), `${si}-h3${li}`)}</h3>)
-        } else if (line.startsWith('## ')) {
-          flushList(); flushOList(); flushQuote(); flushTable()
-          nodes.push(<h2 key={`${si}-h2${k++}`} style={{ fontSize: '0.7rem', fontWeight: 600, color: 'rgb(156 163 175)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.5rem 0 0.125rem' }}>{renderInline(line.slice(3), `${si}-h2${li}`)}</h2>)
-        } else if (line.startsWith('# ')) {
-          flushList(); flushOList(); flushQuote(); flushTable()
-          nodes.push(<h1 key={`${si}-h1${k++}`} style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgb(209 213 219)', margin: '0.5rem 0 0.125rem' }}>{renderInline(line.slice(2), `${si}-h1${li}`)}</h1>)
-        } else if (/^[*\-] /.test(line)) {
-          flushOList(); flushQuote(); flushTable()
-          listBuf.push(renderInline(line.slice(2), `${si}-li${li}`))
-        } else if (/^\d+\. /.test(line)) {
-          flushList(); flushQuote(); flushTable()
-          olistBuf.push(renderInline(line.replace(/^\d+\. /, ''), `${si}-oli${li}`))
-        } else if (line.startsWith('> ')) {
-          flushList(); flushOList(); flushTable()
-          quoteBuf.push(renderInline(line.slice(2), `${si}-bq${li}`))
-        } else if (/^\s*\|/.test(line)) {
-          flushList(); flushOList(); flushQuote()
-          tableBuf.push(line)
-        } else if (/^-{3,}$/.test(line)) {
-          flushList(); flushOList(); flushQuote(); flushTable()
-          nodes.push(<hr key={`${si}-hr${k++}`} style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.07)', margin: '0.5rem 0' }} />)
-        } else {
-          flushList(); flushOList(); flushQuote(); flushTable()
-          nodes.push(<Fragment key={`${si}-t${k++}`}>{renderInline(line, `${si}-ln${li}`)}{li < lines.length - 1 ? '\n' : ''}</Fragment>)
-        }
-      })
-      flushList(); flushOList(); flushQuote(); flushTable()
-      return <Fragment key={si}>{nodes}</Fragment>
-    }
-
-    const segs = text.split('```')
-    return segs.map((seg, i) => {
-      if (i % 2 === 1) {
-        if (i === segs.length - 1 && segs.length % 2 === 0) return renderSeg(seg, i)
-        const nl = seg.indexOf('\n')
-        const lang = nl > -1 ? seg.slice(0, nl).trim() : ''
-        const code = (nl > -1 ? seg.slice(nl + 1) : seg).replace(/\n$/, '')
-        return <CodeBlock key={i} lang={lang} code={code} />
-      }
-      return renderSeg(seg, i)
-    })
-  }
+  const renderText = renderTextLib
 
   // animated "agent is working" row with live elapsed time
-  const workingIndicator = (t: TaskEntry) => (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2.5 msg-in">
-      <div className="flex items-center gap-2.5">
-        <span className="flex items-center gap-1">
-          <span className="dot w-1.5 h-1.5 bg-emerald-400 rounded-full" />
-          <span className="dot w-1.5 h-1.5 bg-emerald-400 rounded-full" />
-          <span className="dot w-1.5 h-1.5 bg-emerald-400 rounded-full" />
-        </span>
-        <span className="shimmer-text text-sm font-medium">Working</span>
-        <span className="text-xs text-gray-600 ml-auto font-mono">{taskTime(t)}</span>
+  const workingIndicator = (t: TaskEntry) => {
+    const liveMsg = t.messages.slice().reverse().find(m => m.live)
+    const running = liveMsg?.running
+    const fallback = !running ? liveMsg?.steps?.at(-1) : null
+    const active = running ?? fallback
+    const toolName = active?.tool || null
+    const label = toolName ? liveToolLabel(active?.params) : null
+    return (
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2.5 msg-in">
+        <div className="flex items-center gap-2.5">
+          <span className="flex items-center gap-1">
+            <span className="dot w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+            <span className="dot w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+            <span className="dot w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+          </span>
+          <span className="shimmer-text text-sm font-medium">Working</span>
+          {toolName && (
+            <span className="text-xs text-gray-400 font-mono truncate max-w-[40ch]">
+              {toolName}{label ? ` · ${label}` : ''}
+            </span>
+          )}
+          <span className="text-xs text-gray-600 ml-auto font-mono">{taskTime(t)}</span>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   // every tool call the run made, in order — the TOOLS tab reads this
   const getSteps = (task: TaskEntry | undefined) =>
@@ -2555,6 +2440,12 @@ export default function Home() {
   const shortPath = (p: string) => {
     const parts = p.split('/')
     return parts.length > 3 ? '.../' + parts.slice(-3).join('/') : p
+  }
+
+  const liveToolLabel = (params: any): string => {
+    if (!params) return ''
+    const raw = params.file_path || params.path || params.command || params.query || ''
+    return raw ? shortPath(String(raw)) : ''
   }
 
   // where the weights are, for the `browser` provider — a run can't start
@@ -3759,7 +3650,7 @@ export default function Home() {
           Stop
         </button>
       ) : (
-        <button onClick={run} disabled={(!query.trim() && attachments.length === 0) || apiStatus === 'down'}
+        <button onClick={() => run()} disabled={(!query.trim() && attachments.length === 0) || apiStatus === 'down'}
           className="text-sm lit-btn disabled:bg-white/5 disabled:text-gray-600 disabled:shadow-none rounded-lg px-4 py-2 transition font-semibold shrink-0 mb-0.5"
           title={apiStatus === 'down' ? `API offline at ${API_URL}` : ''}>
           Run
@@ -3871,6 +3762,21 @@ export default function Home() {
     )
   }
 
+  const msgChangedFiles = (msg: Message): { path: string; steps: any[] }[] => {
+    if (!msg.steps?.length) return []
+    const seen = new Map<string, any[]>()
+    const order: string[] = []
+    for (const s of msg.steps) {
+      if (!WRITE_TOOLS.has(s.tool)) continue
+      const p = s.params?.file_path || s.params?.path
+      if (!p) continue
+      const pk = String(p)
+      if (!seen.has(pk)) { seen.set(pk, []); order.push(pk) }
+      seen.get(pk)!.push(s)
+    }
+    return order.map(p => ({ path: p, steps: seen.get(p)! }))
+  }
+
   const stepRow = (step: any, key: string, n?: number) => {
     const target = stepTarget(step)
     const open = !!expandedSteps[key]
@@ -3894,11 +3800,34 @@ export default function Home() {
               const pk = key + '-params'
               const exp = !!expandedResults[pk]
               const isThink = step.tool === 'think' && step.params?.thought
+              const isEdit = (step.tool === 'edit' || step.tool === 'patch') && step.params?.old_string != null && step.params?.new_string != null
+              const isWrite = step.tool === 'write' && step.params?.content != null
               return (
                 <div className="relative group">
                   {isThink ? (
                     <div className={`text-gray-500 text-[11px] leading-relaxed border-l border-white/[0.06] pl-2 overflow-hidden${exp ? '' : ' max-h-40'}`}>
                       {renderText(String(step.params.thought))}
+                    </div>
+                  ) : isEdit ? (
+                    <div className={`text-[11px] leading-relaxed border-l border-white/[0.06] pl-2 overflow-hidden font-mono${exp ? '' : ' max-h-40'}`}>
+                      {step.params.file_path && <div className="text-gray-600 mb-0.5">{String(step.params.file_path)}</div>}
+                      <pre className="overflow-x-auto">
+                        {String(step.params.old_string).split('\n').map((line: string, i: number) => (
+                          <div key={`o${i}`} className="text-red-400/80 whitespace-pre">{'− '}{line}</div>
+                        ))}
+                        {String(step.params.new_string).split('\n').map((line: string, i: number) => (
+                          <div key={`n${i}`} className="text-emerald-400/80 whitespace-pre">{'+ '}{line}</div>
+                        ))}
+                      </pre>
+                    </div>
+                  ) : isWrite ? (
+                    <div className={`text-[11px] leading-relaxed border-l border-white/[0.06] pl-2 overflow-hidden font-mono${exp ? '' : ' max-h-40'}`}>
+                      {step.params.file_path && <div className="text-gray-600 mb-0.5">{String(step.params.file_path)}</div>}
+                      <pre className="overflow-x-auto">
+                        {String(step.params.content).split('\n').map((line: string, i: number) => (
+                          <div key={i} className="text-emerald-400/80 whitespace-pre">{'+ '}{line}</div>
+                        ))}
+                      </pre>
                     </div>
                   ) : (
                   <pre className={`text-gray-500 overflow-x-auto text-[11px] leading-relaxed border-l border-white/[0.06] pl-2${exp ? '' : ' max-h-40'}`}>
@@ -3995,10 +3924,31 @@ export default function Home() {
         if (visibleSteps.length === 0) return (
           <p className="text-sm text-gray-600 text-center mt-8">No steps match "{traceFilter}"</p>
         )
+        const stepColor = (step: any) => {
+          if (step.error) return 'bg-red-500/80'
+          if (WRITE_TOOLS.has(step.tool)) return 'bg-emerald-500'
+          if (step.tool === 'think') return 'bg-amber-400/60'
+          if (step.tool === 'bash' || step.tool === 'sh') return 'bg-orange-400/60'
+          if (['read', 'glob', 'grep'].includes(step.tool)) return 'bg-sky-400/60'
+          if (step.tool && (step.tool.includes('search') || step.tool.includes('web'))) return 'bg-violet-400/60'
+          return 'bg-white/20'
+        }
         return (
-          <div className="space-y-0.5">
-            {visibleSteps.map(({ step, i }: { step: any, i: number }) => stepRow(step, `trace-${i}`, i + 1))}
-          </div>
+          <>
+            <div className="h-1.5 flex rounded overflow-hidden mb-3">
+              {steps.map((step: any, i: number) => (
+                <button key={i} className={`flex-1 ${stepColor(step)}`}
+                  title={`#${i + 1} ${step.tool || ''}`}
+                  onClick={() => toggleStep(`trace-${i}`)} />
+              ))}
+              {currentTask.status === 'running' && (
+                <div className="flex-1 bg-emerald-500 animate-pulse" />
+              )}
+            </div>
+            <div className="space-y-0.5">
+              {visibleSteps.map(({ step, i }: { step: any, i: number }) => stepRow(step, `trace-${i}`, i + 1))}
+            </div>
+          </>
         )
       })()}
     </div>
@@ -4297,7 +4247,14 @@ export default function Home() {
                             </div>
                           )}
                           {!d.prose && d.composing == null && !msg.text && !msg.steps?.length && (
-                            <span className="text-gray-600 shimmer-text">thinking…</span>
+                            d.thinking ? (
+                              <div className="border-l border-white/[0.06] pl-2 text-[11px] text-gray-500 italic">
+                                {d.thinking.slice(0, 250)}
+                                <span className="not-italic animate-pulse">▋</span>
+                              </div>
+                            ) : (
+                              <span className="text-gray-600 shimmer-text">thinking…</span>
+                            )
                           )}
                         </>
                       )
@@ -4344,6 +4301,71 @@ export default function Home() {
                     )}
                   </div>
                 )}
+                {/* files the agent touched — only shown when the run is done
+                    and at least one write-type step ran, so a pure Q&A answer
+                    doesn't grow a useless footer */}
+                {!msg.live && (() => {
+                  const files = msgChangedFiles(msg)
+                  if (!files.length) return null
+                  const key = `fc${i}`
+                  const open = !!expandedFilesChanged[key]
+                  return (
+                    <div className="flex flex-col pt-1.5 mt-1.5 border-t border-white/[0.05] text-[10px] text-gray-600">
+                      <button
+                        className="flex items-center gap-1 hover:text-emerald-300 transition w-fit"
+                        onClick={() => setExpandedFilesChanged(s => ({ ...s, [key]: !s[key] }))}
+                      >
+                        <span>✎ {files.length} file{files.length === 1 ? '' : 's'} changed</span>
+                        <span className="text-gray-700">{open ? '▼' : '▶'}</span>
+                      </button>
+                      {open && (
+                        <div className="flex flex-col gap-1 mt-1">
+                          {files.map(({ path: p, steps: fsteps }, k) => {
+                            const dk = `fd${i}-${k}`
+                            const dopen = !!expandedFileDiffs[dk]
+                            return (
+                              <div key={k} className="flex flex-col">
+                                <button
+                                  title={p}
+                                  className="font-mono px-1 py-px rounded bg-white/[0.04] border border-white/[0.08] text-gray-500 hover:text-emerald-300 hover:border-emerald-500/20 transition w-fit text-left"
+                                  onClick={() => setExpandedFileDiffs(s => ({ ...s, [dk]: !s[dk] }))}
+                                >
+                                  {dopen ? '▼ ' : '▶ '}{pathTail(p)}
+                                </button>
+                                {dopen && (
+                                  <div className="mt-0.5 border-l border-white/[0.06] pl-2 overflow-x-auto font-mono text-[10px]">
+                                    <div className="text-gray-600 mb-0.5">{p}</div>
+                                    {fsteps.map((s: any, si: number) => {
+                                      const isEdit = (s.tool === 'edit' || s.tool === 'patch') && s.params?.old_string != null && s.params?.new_string != null
+                                      const isWrite = s.tool === 'write' && s.params?.content != null
+                                      return (
+                                        <pre key={si} className="overflow-x-auto">
+                                          {isEdit && (
+                                            <>
+                                              {String(s.params.old_string).split('\n').map((line: string, li: number) => (
+                                                <div key={`o${li}`} className="text-red-400/80 whitespace-pre">{'− '}{line}</div>
+                                              ))}
+                                              {String(s.params.new_string).split('\n').map((line: string, li: number) => (
+                                                <div key={`n${li}`} className="text-emerald-400/80 whitespace-pre">{'+ '}{line}</div>
+                                              ))}
+                                            </>
+                                          )}
+                                          {isWrite && String(s.params.content).split('\n').map((line: string, li: number) => (
+                                            <div key={li} className="text-emerald-400/80 whitespace-pre">{'+ '}{line}</div>
+                                          ))}
+                                        </pre>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
                 {/* what this call to the agent cost on the provider key. Every
                     run has a price whether or not anyone is billed for it, and
                     a price you only learn from the treasury is a price you
@@ -4361,6 +4383,40 @@ export default function Home() {
                 className="text-[11px] px-3 py-1 rounded border border-red-500/20 text-red-400/80 hover:bg-red-500/10 transition"
               >
                 ↺ retry with same prompt
+              </button>
+            </div>
+          )}
+          {currentTask.status !== 'running' && (
+            <div className="mt-3 pt-3 border-t border-white/[0.06] flex gap-2 items-end">
+              <textarea
+                ref={followUpRef}
+                value={followUpQuery}
+                onChange={e => setFollowUpQuery(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    if (!followUpQuery.trim() || loading) return
+                    const fq = followUpQuery
+                    setFollowUpQuery('')
+                    run({ intoTaskId: currentTask.id, q: fq })
+                  }
+                }}
+                placeholder="Follow up…"
+                rows={1}
+                disabled={loading}
+                className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-[14px] resize-none outline-none placeholder:text-gray-600 text-gray-300 focus:border-emerald-500/40 transition min-w-0 overflow-y-auto"
+              />
+              <button
+                onClick={() => {
+                  if (!followUpQuery.trim() || loading) return
+                  const fq = followUpQuery
+                  setFollowUpQuery('')
+                  run({ intoTaskId: currentTask.id, q: fq })
+                }}
+                disabled={!followUpQuery.trim() || loading}
+                className="shrink-0 px-3 py-2 text-sm rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-40 disabled:cursor-default transition"
+              >
+                Send
               </button>
             </div>
           )}
@@ -4413,9 +4469,19 @@ export default function Home() {
   }
   const visibleChats = tasks.filter(t => {
     const s = chatSearch.trim().toLowerCase()
-    return !s || t.query.toLowerCase().includes(s) ||
+    return !s || (t.name || '').toLowerCase().includes(s) || t.query.toLowerCase().includes(s) ||
       t.messages.some(m => m.role === 'agent' && !m.live && m.text.toLowerCase().includes(s))
   })
+
+  const togglePin = (t: TaskEntry) => {
+    const key = t.uid || String(t.id)
+    setPinnedChatUids(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      try { localStorage.setItem('agent_pinned', JSON.stringify([...next])) } catch {}
+      return next
+    })
+  }
 
   const chatRow = (t: TaskEntry) => (
     <div
@@ -4437,17 +4503,46 @@ export default function Home() {
             {agentOptions.find(a => a.value === t.agent_type)?.icon}
           </span>
         )}
-        <span className="truncate flex-1 text-[13px] text-gray-300 group-hover:text-gray-200">
-          {(() => {
-            const term = chatSearch.trim().toLowerCase()
-            if (!term || !t.query.toLowerCase().includes(term)) return t.query
-            const idx = t.query.toLowerCase().indexOf(term)
-            const before = t.query.slice(0, idx)
-            const match = t.query.slice(idx, idx + term.length)
-            const after = t.query.slice(idx + term.length)
-            return <>{before}<span className="bg-yellow-400/20 text-yellow-200">{match}</span>{after}</>
-          })()}
-        </span>
+        {renamingChatId === t.id ? (
+          <input
+            autoFocus
+            value={renamingChatValue}
+            onChange={e => setRenamingChatValue(e.target.value)}
+            onBlur={() => renameChatTitle(t.id, renamingChatValue)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); renameChatTitle(t.id, renamingChatValue) }
+              if (e.key === 'Escape') setRenamingChatId(null)
+            }}
+            onClick={e => e.stopPropagation()}
+            className="flex-1 min-w-0 text-[13px] bg-white/10 text-gray-100 rounded px-1 outline-none border border-emerald-500/40"
+          />
+        ) : (
+          <span className="truncate flex-1 text-[13px] text-gray-300 group-hover:text-gray-200">
+            {(() => {
+              const term = chatSearch.trim().toLowerCase()
+              const title = t.name ?? t.query
+              const src = t.name ? t.name : t.query
+              if (!term || !src.toLowerCase().includes(term)) return title
+              const idx = src.toLowerCase().indexOf(term)
+              const before = src.slice(0, idx)
+              const match = src.slice(idx, idx + term.length)
+              const after = src.slice(idx + term.length)
+              return <>{before}<span className="bg-yellow-400/20 text-yellow-200">{match}</span>{after}</>
+            })()}
+          </span>
+        )}
+        {(() => { const pinKey = t.uid || String(t.id); const pinned = pinnedChatUids.has(pinKey); return (
+        <button
+          onClick={e => { e.stopPropagation(); togglePin(t) }}
+          title={pinned ? 'Unpin conversation' : 'Pin conversation'}
+          className={`w-4 h-4 flex items-center justify-center rounded shrink-0 text-[10px] ${pinned ? 'opacity-100 text-amber-400' : 'opacity-0 group-hover:opacity-100 text-gray-600 hover:text-amber-400'}`}
+        >{pinned ? '★' : '☆'}</button>
+        )})()}
+        <button
+          onClick={e => { e.stopPropagation(); setRenamingChatValue(t.name ?? t.query); setRenamingChatId(t.id) }}
+          title="Rename conversation"
+          className="w-4 h-4 hidden group-hover:flex items-center justify-center rounded text-gray-600 hover:text-emerald-400 shrink-0 text-[10px]"
+        >✎</button>
         <button
           onClick={e => { e.stopPropagation(); newChat(); setQuery(t.query) }}
           title="Start a new chat with this query"
@@ -4504,6 +4599,16 @@ export default function Home() {
             if (raw) return <div className="mt-0.5 pl-[18px] text-[10px] text-gray-500 truncate">{raw}</div>
           }
         }
+        if (t.status === 'running') {
+          const liveMsg = [...t.messages].reverse().find(m => m.live)
+          const tool = liveMsg?.running?.tool as string | undefined
+          const toolPath = tool ? liveToolLabel(liveMsg?.running?.params) : ''
+          const steps = liveMsg?.steps?.length ?? 0
+          const label = tool
+            ? `${tool}${toolPath ? ` · ${toolPath}` : ''}`
+            : steps > 0 ? `${steps} step${steps !== 1 ? 's' : ''}…` : 'thinking…'
+          return <div className="mt-0.5 pl-[18px] text-[10px] font-mono truncate text-emerald-400/60">{label}</div>
+        }
         const lastAgentMsg = [...t.messages].reverse().find(m => m.role === 'agent' && !m.live && m.text.trim())
         if (!lastAgentMsg) return null
         const lines = lastAgentMsg.text.split('\n').map(l => l.trim()).filter(Boolean)
@@ -4514,6 +4619,15 @@ export default function Home() {
       })()}
       <div className="flex items-center gap-1.5 mt-0.5 pl-[18px] text-[10px] text-gray-600 font-mono">
         <span>{t.stepCount !== undefined ? `${t.stepCount} step${t.stepCount !== 1 ? 's' : ''} · ` : ''}{taskTime(t)}{taskDate(t) ? ` · ${taskDate(t)}` : ''}</span>
+        {(() => {
+          const paths = [...new Set(t.messages.flatMap(m => (m.steps || [])
+            .filter((s: any) => WRITE_TOOLS.has(s.tool))
+            .map((s: any) => s.params?.file_path || s.params?.path)
+            .filter(Boolean)))]
+          return paths.length > 0 ? (
+            <span title={paths.join('\n')} className="text-gray-700">· ✎ {paths.length}</span>
+          ) : null
+        })()}
         {t.cid && (
           <span
             onClick={e => { e.stopPropagation(); try { navigator.clipboard?.writeText(t.cid!) } catch {} }}
@@ -4679,16 +4793,28 @@ export default function Home() {
               </button>
             )}
           </div>
-        ) : (['today', 'yesterday', ...new Set(visibleChats.map(t => chatBucket(t)).filter(b => b !== 'today' && b !== 'yesterday'))]).map(bucket => {
-          const rows = visibleChats.filter(t => chatBucket(t) === bucket)
-          if (rows.length === 0) return null
-          return (
-            <div key={bucket}>
-              <div className="px-2 pt-2 pb-1 text-[9px] text-gray-600 uppercase tracking-wider">{bucket}</div>
-              {rows.map(chatRow)}
-            </div>
-          )
-        })}
+        ) : (() => {
+          const pinnedRows = visibleChats.filter(t => pinnedChatUids.has(t.uid || String(t.id)))
+          const unpinnedChats = visibleChats.filter(t => !pinnedChatUids.has(t.uid || String(t.id)))
+          return (<>
+            {pinnedRows.length > 0 && (
+              <div key="pinned">
+                <div className="px-2 pt-2 pb-1 text-[9px] text-amber-500/80 uppercase tracking-wider">pinned</div>
+                {pinnedRows.map(chatRow)}
+              </div>
+            )}
+            {(['today', 'yesterday', ...new Set(unpinnedChats.map(t => chatBucket(t)).filter(b => b !== 'today' && b !== 'yesterday'))]).map(bucket => {
+              const rows = unpinnedChats.filter(t => chatBucket(t) === bucket)
+              if (rows.length === 0) return null
+              return (
+                <div key={bucket}>
+                  <div className="px-2 pt-2 pb-1 text-[9px] text-gray-600 uppercase tracking-wider">{bucket}</div>
+                  {rows.map(chatRow)}
+                </div>
+              )
+            })}
+          </>)
+        })()}
       </div>
       </>}
 
@@ -4814,11 +4940,11 @@ export default function Home() {
   const defaultAgentDialog = showDefaultPick && agentOptions.length > 0 ? (
     <div className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-sm flex items-center justify-center p-5"
       onClick={dismissDefaultPick}>
-      <div onClick={e => e.stopPropagation()}
-        className="w-full max-w-md max-h-[80vh] flex flex-col bg-surface-2 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-white/[0.06]">
-          <div className="text-sm text-gray-100 font-medium">Pick your default agent</div>
-          <div className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+      <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="default-agent-title"
+        className="w-full max-w-lg max-h-[80vh] flex flex-col bg-surface-2 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-white/[0.06]">
+          <div id="default-agent-title" className="text-base text-gray-100 font-medium">Pick your default agent</div>
+          <div className="text-xs text-gray-400 mt-1.5 leading-relaxed">
             It&apos;s the one every chat starts on — you can still switch per message, and
             change this any time from the agent menu.
             {auth ? ' Kept against your address, so it follows your wallet.' : <>
@@ -4831,7 +4957,7 @@ export default function Home() {
             </>}
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
+        <div className="flex-1 overflow-y-auto min-h-0 p-2 space-y-1">
           {/* a card asking "which of these" leads with the ones the caller can
               actually pick — locked harness rows sink below the runnable ones
               (stable sort, so each group keeps the registry's own order) */}
@@ -4850,9 +4976,9 @@ export default function Home() {
                   ? () => void requireAuth({ kind: 'harness', harness: a.harness!, agentLabel: a.label })
                       .then(got => { if (got) { selectAgent(a.value); setDefaultAgentPick(a.value, got.token) } })
                   : () => { selectAgent(a.value); setDefaultAgentPick(a.value) }}
-                className={`w-full text-left px-2.5 py-2 rounded-md transition border ${
+                className={`w-full text-left px-3 py-2.5 rounded-lg transition border ${
                   locked
-                    ? 'border-transparent opacity-40 hover:opacity-70 hover:bg-white/[0.04]'
+                    ? 'border-transparent opacity-50 hover:opacity-80 hover:bg-white/[0.04]'
                     : a.value === defaultAgent
                     ? 'bg-emerald-500/10 border-emerald-500/25 hover:bg-emerald-500/15'
                     : 'border-transparent hover:bg-white/[0.05]'
@@ -4860,16 +4986,17 @@ export default function Home() {
                 title={locked ? `${a.label} runs on the host's own ${a.harness} CLI — sign in as the host or that console's owner to unlock it` : a.description}>
                 <div className="flex items-center gap-2">
                   <span className="w-5 text-center shrink-0 text-gray-300">{a.icon}</span>
-                  <span className="text-xs text-gray-200 truncate min-w-0">{a.label}</span>
+                  <span className="text-sm text-gray-100 truncate min-w-0">{a.label}</span>
                   {a.value === defaultAgent && (
-                    <span className="text-[9px] px-1 py-0.5 rounded bg-white/[0.06] text-gray-500 shrink-0">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300/90 shrink-0">
                       suggested
                     </span>
                   )}
-                  {locked && <span className="text-[9px] text-gray-600 shrink-0 ml-auto">sign in to run</span>}
+                  {locked && <span className="text-[10px] text-gray-500 shrink-0 ml-auto">sign in to run</span>}
                 </div>
-                {a.description && (
-                  <div className="text-[10px] text-gray-600 mt-0.5 pl-7 line-clamp-2 leading-relaxed">
+                {/* "Agi agent" under "Agi" says nothing — only show a description that adds something */}
+                {a.description && a.description.trim().toLowerCase() !== `${a.label} agent`.toLowerCase() && (
+                  <div className="text-xs text-gray-400 mt-1 pl-7 line-clamp-2 leading-relaxed">
                     {a.description}
                   </div>
                 )}
@@ -4877,16 +5004,16 @@ export default function Home() {
             )
           })}
         </div>
-        <div className="px-3 py-2 border-t border-white/[0.06] flex items-center gap-2">
-          <span className={`text-[10px] truncate min-w-0 ${defaultErr ? 'text-red-400' : 'text-gray-600'}`}>
+        <div className="px-4 py-3 border-t border-white/[0.06] flex items-center gap-2">
+          <span className={`text-xs truncate min-w-0 ${defaultErr ? 'text-red-400' : 'text-gray-500'}`}>
             {defaultErr || 'or build one of your own'}
           </span>
           <button onClick={() => { dismissDefaultPick(); openAgentEditor() }}
-            className="ml-auto shrink-0 text-[10px] px-2 py-1 rounded-md border border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 transition">
+            className="ml-auto shrink-0 text-xs px-3 py-1.5 rounded-md border border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 transition">
             build an agent
           </button>
           <button onClick={dismissDefaultPick}
-            className="shrink-0 text-[10px] px-2 py-1 rounded-md border border-white/10 text-gray-500 hover:text-gray-300 transition">
+            className="shrink-0 text-xs px-3 py-1.5 rounded-md border border-white/10 text-gray-400 hover:text-gray-200 transition">
             not now
           </button>
         </div>

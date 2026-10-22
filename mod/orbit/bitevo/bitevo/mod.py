@@ -53,9 +53,9 @@ class Mod:
     fns = [
         'forward', 'simulate', 'epoch', 'leaderboard', 'results',
         'status', 'add_miner', 'challenge', 'score_idea',
-        'evolve', 'forecast', 'population', 'datasets',
+        'evolve', 'forecast', 'ensemble_forecast', 'population', 'datasets',
         'zuma', 'audit',
-        'backends', 'whitepaper', 'top_pitches', 'test', 'serve', 'kill',
+        'backends', 'whitepaper', 'top_pitches', 'list_epochs', 'test', 'serve', 'kill',
     ]
 
     def __init__(self, backend='claude', model=None, local=True,
@@ -118,7 +118,8 @@ class Mod:
         s = engine.status()
         return {k: s[k] for k in ('dataset', 'variables', 'generation', 'population', 'best_fitness')}
 
-    def simulate(self, n_miners: int = 3, backends=None, epochs: int = 1, tempo: int = 0):
+    def simulate(self, n_miners: int = 3, backends=None, epochs: int = 1, tempo: int = 0,
+                 progress_callback=None):
         from neurons.miner import BitevoMiner
 
         if backends is None:
@@ -135,7 +136,7 @@ class Mod:
 
         results = []
         for _ in range(int(epochs)):
-            result = self.validator.epoch()
+            result = self.validator.epoch(progress_callback=progress_callback)
             results.append(result)
 
         self.validator.tempo = old_tempo
@@ -145,15 +146,17 @@ class Mod:
             'leaderboard': self.validator.leaderboard(),
         }
 
-    def epoch(self, challenge_type=None, **kwargs):
+    def epoch(self, challenge_type=None, challenge=None, **kwargs):
         from core.schemas import Challenge
-        challenge = None
-        if challenge_type:
-            challenge = self.validator.challenge_gen.generate(
+        ch = None
+        if challenge:
+            ch = Challenge(**{**challenge, 'epoch': self.validator.epochs + 1})
+        elif challenge_type:
+            ch = self.validator.challenge_gen.generate(
                 epoch=self.validator.epochs + 1,
                 challenge_type=challenge_type,
             )
-        result = self.validator.epoch(challenge=challenge, **kwargs)
+        result = self.validator.epoch(challenge=ch, **kwargs)
         return result.model_dump() if hasattr(result, 'model_dump') else result
 
     def leaderboard(self):
@@ -201,7 +204,7 @@ class Mod:
         )
         return c.model_dump()
 
-    def score_idea(self, idea: str, challenge: str = None):
+    def score_idea(self, idea: str, challenge: str = None, progress_callback=None):
         from core.schemas import Challenge
         from neurons.miner import BitevoMiner
         if challenge is None:
@@ -213,7 +216,11 @@ class Mod:
             uid=-1,
             local=True,
         )
+        if progress_callback:
+            progress_callback("generating pitch…")
         resp = miner.forward(ch)
+        if progress_callback:
+            progress_callback("scoring…")
         score = self.validator._score_response(ch, resp)
         result = score.model_dump()
         result['pitch'] = resp.pitch.model_dump()
@@ -233,7 +240,7 @@ class Mod:
 
     def evolve(self, generations: int = 25, population: int = 40, dataset: str = 'coupled',
                horizon: int = 10, max_lag: int = 6, seed=None, fresh: bool = False,
-               csv: str = None):
+               csv: str = None, progress_callback=None):
         """Evolve a population of multivariate predictor genomes against the
         held-out future window. Resumes the saved population unless fresh=True
         or the dataset changed. csv=<path> evolves against your own local data."""
@@ -248,7 +255,7 @@ class Mod:
                 seed=int(seed) if seed is not None else None,
             )
             self._engine = engine
-        result = engine.run(int(generations))
+        result = engine.run(int(generations), progress_callback=progress_callback)
         engine.save(self._evo_path)
         return {**result, 'status': engine.status(), 'leaderboard': engine.leaderboard(top=10)}
 
@@ -258,6 +265,17 @@ class Mod:
         if engine is None:
             return {'error': 'no evolved population yet — run evolve first'}
         return engine.forecast(horizon=int(horizon) if horizon else None, tail=int(tail))
+
+    def ensemble_forecast(self, top_n: int = 10, horizon: int = None, tail: int = 60):
+        """Weighted-ensemble forecast from the top-N genomes with lo/hi spread band."""
+        engine = self._get_engine()
+        if engine is None:
+            return {'error': 'no evolved population yet — run evolve first'}
+        return engine.ensemble_forecast(
+            top_n=int(top_n),
+            horizon=int(horizon) if horizon else None,
+            tail=int(tail),
+        )
 
     def population(self, top: int = 20):
         engine = self._get_engine()
@@ -321,11 +339,49 @@ class Mod:
                     'breakdown': s.get('breakdown', {}),
                     'feedback': s.get('feedback', ''),
                 })
+                for field in ['problem', 'solution', 'market', 'traction', 'business_model', 'team', 'defensibility', 'ask']:
+                    entries[-1][field] = pitch.get(field, '')
         entries.sort(key=lambda x: x['composite_score'], reverse=True)
         entries = entries[:int(limit)]
         for i, e in enumerate(entries, 1):
             e['rank'] = i
         return entries
+
+    def list_epochs(self):
+        import glob as _glob
+        epoch_dir = os.path.expanduser(os.path.join(self.storage_path, 'epochs'))
+        files = sorted(_glob.glob(os.path.join(epoch_dir, 'epoch_*.json')))
+        summaries = []
+        for fpath in files:
+            try:
+                with open(fpath) as f:
+                    data = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+            challenge = data.get('challenge', {})
+            scores = data.get('scores', [])
+            top_score = None
+            valid = [s.get('composite_score') for s in scores if s.get('composite_score') is not None]
+            if valid:
+                top_score = max(valid)
+            ts = data.get('timestamp') or data.get('created_at')
+            if ts is None:
+                try:
+                    ts = os.path.getmtime(fpath)
+                except OSError:
+                    pass
+            mean_score = round(sum(valid) / len(valid), 2) if valid else None
+            summaries.append({
+                'epoch': data.get('epoch', 0),
+                'challenge_type': challenge.get('type', ''),
+                'challenge_prompt': (challenge.get('prompt') or '')[:100],
+                'n_responses': len(data.get('responses', [])),
+                'top_score': top_score,
+                'mean_score': mean_score,
+                'timestamp': ts,
+            })
+        summaries.sort(key=lambda x: x['epoch'], reverse=True)
+        return summaries
 
     def whitepaper(self):
         wp = self.module_dir / 'WHITEPAPER.md'

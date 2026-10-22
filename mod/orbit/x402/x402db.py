@@ -311,6 +311,17 @@ def stats():
         }
 
 
+def top_tags(limit=20):
+    """Top tags by service count: [{tag, count}]."""
+    limit = max(1, min(int(limit), 200))
+    with _read:
+        rows = db().execute(
+            "SELECT j.value AS tag, COUNT(*) AS n FROM services s, json_each(s.tags) j"
+            " WHERE j.value != '' GROUP BY j.value ORDER BY n DESC LIMIT ?",
+            (limit,)).fetchall()
+    return [{'tag': r['tag'], 'count': r['n']} for r in rows]
+
+
 # ── sources ───────────────────────────────────────────────────────
 
 def put_source(id, kind, name, base_url, origin, enabled=True):

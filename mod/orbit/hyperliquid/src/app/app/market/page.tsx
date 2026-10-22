@@ -12,7 +12,8 @@ import {
   type ScoreMarket,
 } from "../lib/api";
 import { formatScore } from "../lib/scoreFormula";
-import { DataBar, Freshness, Identicon, Kpi, Medal, PageHead } from "../components/BoardBits";
+import { DataBar, Freshness, Identicon, Kpi, Medal, PageHead, Spark } from "../components/BoardBits";
+import { useCurves } from "../lib/curves";
 
 const DAYS = [1, 7, 30];
 const EQUITY_FLOORS = [0, 10_000, 100_000, 1_000_000];
@@ -45,6 +46,7 @@ export default function MarketPage() {
   }, [days, minEquity]);
 
   const rows = market?.rows ?? [];
+  const curveMap = useCurves(rows.map(r => r.address), days, rows.length > 0);
   const topScore = rows[0]?.score ?? 0;
   const medianWin = useMemo(() => {
     const ws = rows.map((r) => defensibleWin(r)).filter((w): w is number => w != null).sort((a, b) => a - b);
@@ -111,9 +113,10 @@ export default function MarketPage() {
 
       {/* Board */}
       <div className="panel">
-        <div className="grid grid-cols-[2fr_1.4fr_repeat(5,1fr)_0.9fr] gap-2 px-4 py-2 border-b border-border table-head">
+        <div className="grid grid-cols-[2fr_1.4fr_64px_repeat(5,1fr)_0.9fr] gap-2 px-4 py-2 border-b border-border table-head">
           <div className="label !mb-0">trader</div>
           <div className="label !mb-0 text-right">score</div>
+          <div className="label !mb-0">curve</div>
           <div className="label !mb-0 text-right">roi</div>
           <div className="label !mb-0 text-right">win lo</div>
           <div className="label !mb-0 text-right">sharpe</div>
@@ -124,9 +127,9 @@ export default function MarketPage() {
         {err && <div className="px-4 py-3 text-xs text-loss">{err}</div>}
         {loading && rows.length === 0 && !err &&
           [...Array(8)].map((_, i) => (
-            <div key={i} className="grid grid-cols-[2fr_1.4fr_repeat(5,1fr)_0.9fr] gap-2 px-4 py-3 items-center table-row">
+            <div key={i} className="grid grid-cols-[2fr_1.4fr_64px_repeat(5,1fr)_0.9fr] gap-2 px-4 py-3 items-center table-row">
               <div className="skeleton h-4 w-36" />
-              {[...Array(7)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
+              {[...Array(8)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
             </div>
           ))}
         {!err && !loading && rows.length === 0 && (
@@ -140,7 +143,7 @@ export default function MarketPage() {
           const winLo = defensibleWin(t);
           return (
             <div key={t.address}
-              className="group grid grid-cols-[2fr_1.4fr_repeat(5,1fr)_0.9fr] gap-2 px-4 py-2.5 items-center table-row hover:bg-accent/[0.04]">
+              className="group grid grid-cols-[2fr_1.4fr_64px_repeat(5,1fr)_0.9fr] gap-2 px-4 py-2.5 items-center table-row hover:bg-accent/[0.04]">
               <div className="flex items-center gap-2 min-w-0">
                 <Medal rank={i + 1} />
                 <Identicon address={t.address} />
@@ -152,6 +155,17 @@ export default function MarketPage() {
               <div className="text-right">
                 <span className="num font-semibold text-win">{formatScore(t.score)}</span>
                 <DataBar value={t.score} max={topScore} className="mt-1" />
+              </div>
+              <div className="min-w-0">
+                {(() => {
+                  const c = curveMap[t.address.toLowerCase()];
+                  if (!c || !c.available || c.points.length < 2) return null;
+                  return (
+                    <span className={c.pnl >= 0 ? "text-win" : "text-loss"}>
+                      <Spark points={c.points} height={32} />
+                    </span>
+                  );
+                })()}
               </div>
               <div className={`num text-right ${t.roi >= 0 ? "text-win" : "text-loss"}`}>
                 {`${t.roi >= 0 ? "+" : ""}${fmtPct(t.roi, 1)}`}
@@ -166,7 +180,8 @@ export default function MarketPage() {
               </div>
               <div className={`num text-right ${t.pnl >= 0 ? "text-win" : "text-loss"}`}>{fmtUsd(t.pnl)}</div>
               <div className="num text-right text-muted">{fmtUsd(t.account_value)}</div>
-              <div className="flex justify-end opacity-80 group-hover:opacity-100 transition-opacity">
+              <div className="flex justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                <Link href={`/live?traders=${t.address}`} className="btn-ghost text-accent2">live ↦</Link>
                 <Link href={`/trader/${t.address}`} className="btn-ghost">open</Link>
               </div>
             </div>

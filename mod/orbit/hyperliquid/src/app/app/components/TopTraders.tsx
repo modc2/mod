@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchBoard, fetchScanProgress, BoardMeta, ScanProgress, TopTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago, defensibleWin, sharpeMeasured } from "../lib/api";
+import { fetchBoard, fetchScanProgress, listFollows, liveStatus, BoardMeta, ScanProgress, TopTrader, TraderCurve, fmtPnl, fmtUsd, fmtPct, shortAddr, ago, defensibleWin, sharpeMeasured } from "../lib/api";
 import Link from "next/link";
-import { DataBar, Field, Freshness, Identicon, Kpi, Medal, Meter, PageHead, SparkBars, SplitBar, Switch } from "./BoardBits";
+import { DataBar, Field, Freshness, Identicon, Kpi, Medal, Meter, MultiSpark, PageHead, Spark, SparkBars, SplitBar, Switch } from "./BoardBits";
 import TraderCell, { ROW_ATTR, isCoreCoin } from "./TraderCell";
-import TraderCard, { CardStat } from "./TraderCard";
+import TraderCard, { CardStat, fmtDay } from "./TraderCard";
 import ScoutPanel from "./ScoutPanel";
-import { useCurves } from "../lib/curves";
+import { loadCurve, useCurves } from "../lib/curves";
 import {
   JS_FN_TEMPLATE, PY_FN_TEMPLATE, SCORE_PRESETS, SCORE_VAR_HINTS, FORMULA_VARS,
   addSavedRatio, detectScoreLang, formatScore, loadSavedFormula, loadSavedRatios,
@@ -15,8 +15,9 @@ import {
   scoreIsUnknown, suggestRatioName, type SavedRatio,
 } from "../lib/scoreFormula";
 import { useCompiledScore } from "../lib/useScore";
+import { useSession } from "../lib/auth";
 
-type SortKey = "roi" | "pnl" | "volume" | "account_value" | "win_rate" | "trades" | "sharpe" | "score";
+type SortKey = "roi" | "pnl" | "volume" | "account_value" | "win_rate" | "trades" | "sharpe" | "expected" | "score";
 type Rank = "roi" | "pnl" | "volume";
 
 // Two views: GRAPH shows each wallet's PnL curve inline (one glance = shape +
@@ -31,6 +32,7 @@ const SORT_LABELS: { k: SortKey; label: string }[] = [
   { k: "account_value", label: "equity" },
   { k: "win_rate", label: "win rate" },
   { k: "sharpe", label: "sharpe" },
+  { k: "expected", label: "exp/day" },
   { k: "trades", label: "trades" },
 ];
 
@@ -61,6 +63,9 @@ const PAGE: Record<View, number> = { graph: 36, table: 250 };
 // open it again yourself.
 const FILTERS_KEY = "hl.board.filtersOpen.v2";
 const CONTROLS_KEY = "hl.board.controlsOpen";
+const BOARD_CAP_KEY = "hl.board.capital";
+const STEPS = [100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000];
+const fmtCap = (n: number) => `$${n >= 1000 && n % 1000 === 0 ? `${n / 1000}k` : n.toLocaleString("en-US")}`;
 const FLOOR_KEYS = ["roi", "equity", "volume", "sharpe", "win", "trades"] as const;
 
 // Score floors — applied on the client over the full list, so they're instant.
@@ -75,7 +80,7 @@ const hasStats = (t: TopTrader) => t.win_rate >= 0;
 const winScore = (t: TopTrader) => defensibleWin(t) ?? -1;
 // Stat columns are only real on measured rows — an unmeasured 0 must never
 // outrank a measured negative.
-const STAT_KEYS: SortKey[] = ["win_rate", "trades", "sharpe"];
+const STAT_KEYS: SortKey[] = ["win_rate", "trades", "sharpe", "expected"];
 
 // `isCoreCoin` — HIP-3 builder-dex perps ("dex:TICKER") and spot markets
 // ("@123") are not copyable core perps — comes from TraderCell, which is where
@@ -84,10 +89,52 @@ const STAT_KEYS: SortKey[] = ["win_rate", "trades", "sharpe"];
 // Shared column template: trader | roi(+pnl) | equity | volume | win%(+trades) | sharpe | last | copy.
 // With a custom score active a ƒ column slots in right after the trader —
 // it's the ranking, so it reads before the metrics it was computed from.
-const GRID = "grid grid-cols-[minmax(0,2.6fr)_1.15fr_1fr_1fr_1fr_0.9fr_0.9fr_auto] gap-2 px-4";
-const GRID_SCORED = "grid grid-cols-[minmax(0,2.4fr)_0.9fr_1.15fr_1fr_1fr_1fr_0.9fr_0.9fr_auto] gap-2 px-4";
+const GRID = "grid grid-cols-[minmax(0,2.6fr)_1.15fr_1fr_1fr_1fr_0.9fr_0.9fr_0.9fr_auto] gap-2 px-4";
+const GRID_SCORED = "grid grid-cols-[minmax(0,2.4fr)_0.9fr_1.15fr_1fr_1fr_1fr_0.9fr_0.9fr_0.9fr_auto] gap-2 px-4";
+
+function resampleN(vals: number[], n: number): number[] {
+  if (vals.length === 0) return Array(n).fill(0);
+  if (vals.length === 1) return Array(n).fill(vals[0]);
+  return Array.from({ length: n }, (_, i) => {
+    const idx = (i / Math.max(n - 1, 1)) * (vals.length - 1);
+    const lo = Math.floor(idx), hi = Math.min(Math.ceil(idx), vals.length - 1);
+    const t = idx - lo;
+    return vals[lo] * (1 - t) + vals[hi] * t;
+  });
+}
+
+function pearsonR(a: number[], b: number[]): number {
+  const n = 50;
+  const sa = resampleN(a, n), sb = resampleN(b, n);
+  const ma = sa.reduce((s, v) => s + v, 0) / n;
+  const mb = sb.reduce((s, v) => s + v, 0) / n;
+  const num = sa.reduce((s, v, i) => s + (v - ma) * (sb[i] - mb), 0);
+  const da = Math.sqrt(sa.reduce((s, v) => s + (v - ma) ** 2, 0));
+  const db = Math.sqrt(sb.reduce((s, v) => s + (v - mb) ** 2, 0));
+  return da * db < 1e-9 ? 0 : num / (da * db);
+}
 
 export default function TopTraders() {
+  const { me } = useSession();
+  const [followedSet, setFollowedSet] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!me) { setFollowedSet(new Set()); return; }
+    listFollows().then((r) => {
+      setFollowedSet(new Set(r.follows.map((f) => f.leader.toLowerCase())));
+    }).catch(() => {});
+  }, [me]);
+  const [liveEngineSet, setLiveEngineSet] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!me) { setLiveEngineSet(new Set()); return; }
+    liveStatus(me).then((r) => {
+      if (r.state?.status === "running" && Array.isArray(r.config?.traders)) {
+        setLiveEngineSet(new Set(r.config.traders.map((tr: { address: string }) => tr.address.toLowerCase())));
+      } else {
+        setLiveEngineSet(new Set());
+      }
+    }).catch(() => {});
+  }, [me]);
+
   const [days, setDays] = useState(7);
   // The free-form "n days" box — committed on enter/blur, clamped 1–90 (the
   // API's own clamp). Kept as text so half-typed numbers don't refetch.
@@ -102,6 +149,8 @@ export default function TopTraders() {
   const [sortKey, setSortKey] = useState<SortKey>("roi");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [watchedSet, setWatchedSet] = useState<Set<string>>(new Set());
+  const [showWatchlist, setShowWatchlist] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [prog, setProg] = useState<ScanProgress | null>(null);
   // The API walks a cold board in the background rather than holding the
@@ -121,6 +170,9 @@ export default function TopTraders() {
   const [floors, setFloors] = useState<Floors>(NO_FLOORS);
   const [view, setView] = useState<View>("graph");
   const [visible, setVisible] = useState(PAGE.graph);
+  const [hoverCurves, setHoverCurves] = useState<Record<string, TraderCurve>>({});
+  const [capital, setCapital] = useState(1000);
+  const [capText, setCapText] = useState("1000");
   const coinKey = useMemo(() => Array.from(coinFilter).sort().join(","), [coinFilter]);
 
   // ── the custom score ──
@@ -176,6 +228,32 @@ export default function TopTraders() {
     localStorage.setItem(VIEW_KEY, v);
   };
 
+  useEffect(() => {
+    try {
+      const c = Number(localStorage.getItem(BOARD_CAP_KEY));
+      if (c >= 1) { setCapital(c); setCapText(String(c)); }
+    } catch {}
+  }, []);
+  const setBoardCap = (c: number) => {
+    const v = Math.min(10_000_000, Math.max(1, Math.round(c)));
+    setCapital(v); setCapText(String(v));
+    try { localStorage.setItem(BOARD_CAP_KEY, String(v)); } catch {}
+  };
+  const stepCapDown = () => setBoardCap([...STEPS].reverse().find((s) => s < capital) ?? STEPS[0]);
+  const stepCapUp = () => setBoardCap(STEPS.find((s) => s > capital) ?? capital * 2);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("hl.watchlist");
+      if (saved) setWatchedSet(new Set(JSON.parse(saved)));
+    } catch {}
+  }, []);
+  const watchlistSaved = useRef(false);
+  useEffect(() => {
+    if (!watchlistSaved.current) { watchlistSaved.current = true; return; }
+    localStorage.setItem("hl.watchlist", JSON.stringify(Array.from(watchedSet)));
+  }, [watchedSet]);
+
   // While a scan request is in flight, poll the API's live scan progress so
   // the user sees "X of N wallets" instead of an opaque spinner. Cached
   // fast-path responses resolve before the first poll — no flash.
@@ -227,7 +305,7 @@ export default function TopTraders() {
   // Refetch when requirements change.
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [days, rank, enrich, coinKey]);
   // Any change to what's shown restarts paging from the top.
-  useEffect(() => { setVisible(PAGE[view]); }, [days, rank, enrich, coinKey, floors, sortKey, sortDir, view, formula]);
+  useEffect(() => { setVisible(PAGE[view]); }, [days, rank, enrich, coinKey, floors, sortKey, sortDir, view, formula, showWatchlist]);
 
   // Auto-refresh every 60s (matches the API-side cache TTL ceiling).
   useEffect(() => {
@@ -286,6 +364,7 @@ export default function TopTraders() {
     // The API already applied the coin requirement; re-applying it here only
     // keeps a stale board honest while the next scan is in flight.
     return traders.filter((t) => {
+      if (showWatchlist && !watchedSet.has(t.address.toLowerCase())) return false;
       if (coinFilter.size > 0 && !t.coins.some((c) => coinFilter.has(c.toUpperCase()))) return false;
       if (needStats && !hasStats(t)) return false;
       if (f.roi != null && t.roi < f.roi) return false;
@@ -298,7 +377,7 @@ export default function TopTraders() {
       if (f.trades != null && t.trades < f.trades) return false;
       return true;
     });
-  }, [traders, coinFilter, floors]);
+  }, [traders, coinFilter, floors, showWatchlist, watchedSet]);
 
   // A score FUNCTION is a filter too: null/None hides the row. Expressions
   // never hide — their bad values stay visible as "---".
@@ -317,7 +396,8 @@ export default function TopTraders() {
       // Both fill-derived ratios rank on their evidence, not their headline.
       if (sortKey === "win_rate") return winScore(t);
       if (sortKey === "sharpe") return sharpeMeasured(t) ? t.sharpe : -Infinity;
-      return t[sortKey as Exclude<SortKey, "score">] as number;
+      if (sortKey === "expected") return t.expected?.per_1k ?? -Infinity;
+      return t[sortKey as Exclude<SortKey, "score" | "expected">] as number;
     };
     arr.sort((a, b) => {
       const ma = metric(a), mb = metric(b);
@@ -333,6 +413,15 @@ export default function TopTraders() {
     setPicked((p) => {
       const n = new Set(p);
       n.has(a) ? n.delete(a) : n.add(a);
+      return n;
+    });
+  };
+
+  const toggleWatch = (addr: string) => {
+    setWatchedSet((prev) => {
+      const n = new Set(prev);
+      const key = addr.toLowerCase();
+      n.has(key) ? n.delete(key) : n.add(key);
       return n;
     });
   };
@@ -400,6 +489,8 @@ export default function TopTraders() {
 
   const shown = sorted.slice(0, visible);
   const fmtN = (n: number) => n.toLocaleString("en-US");
+  const k = capital / 1000;
+  const cap = fmtCap(capital);
   const coinList = Array.from(coinFilter);
   // How much the folded half of the bar is doing: one count for the button,
   // so a folded filter can never silently shape the board.
@@ -423,6 +514,8 @@ export default function TopTraders() {
   // by wallet+window, so re-sorting a drawn grid re-renders without fetching.
   const shownAddrs = useMemo(() => shown.map((t) => t.address), [shown]);
   const curves = useCurves(shownAddrs, days, view === "graph");
+  const pickedArr = useMemo(() => Array.from(picked), [picked]);
+  const pickedCurves = useCurves(pickedArr, days, picked.size > 0);
 
   // Why a row has no win rate / sharpe / coins — the board's own rule, said in
   // the place the missing number is, rather than left as a bare dash.
@@ -589,14 +682,44 @@ export default function TopTraders() {
                 )}
               </button>
             )}
+            {showWatchlist && (
+              <button
+                className="pill !border-accent/40 !text-accent !bg-accent/10"
+                title="Showing watchlist only — click to clear"
+                onClick={() => setShowWatchlist(false)}>
+                watchlist · {watchedSet.size}
+              </button>
+            )}
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <Switch on={autoRefresh} onChange={setAutoRefresh} label="auto" />
+            <div className="flex items-center gap-1" title="Scale exp/day figures to your copy amount — every figure on the board adjusts">
+              <span className="text-[10px] uppercase tracking-wider text-dim">copy</span>
+              <button className="btn-ghost !py-0.5 !px-2 text-[12px]" onClick={stepCapDown} aria-label="less capital">−</button>
+              <span className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-dim">$</span>
+                <input value={capText} inputMode="numeric" aria-label="capital copied"
+                  onChange={(e) => {
+                    const t = e.target.value.replace(/[^0-9]/g, "");
+                    setCapText(t);
+                    if (Number(t) >= 1) setBoardCap(Number(t));
+                  }}
+                  onBlur={() => setCapText(String(capital))}
+                  className="num w-[84px] pl-5 pr-2 py-1 text-[12px] text-right bg-transparent border border-border rounded-md focus:outline-none focus:border-accent" />
+              </span>
+              <button className="btn-ghost !py-0.5 !px-2 text-[12px]" onClick={stepCapUp} aria-label="more capital">+</button>
+            </div>
             <button
               className={`btn ${seedOpen || seed.trim() ? "!border-accent/40 !text-accent" : ""}`}
               title="Seed the scan with specific wallets"
               onClick={() => setSeedOpen((v) => !v)}>
               seeds{seed.trim() ? " ●" : ""}
+            </button>
+            <button
+              className={`btn ${showWatchlist ? "!border-accent/40 !text-accent" : ""}`}
+              title={showWatchlist ? "Showing watchlist only — click to show all" : `Your watchlist (${watchedSet.size} traders)`}
+              onClick={() => setShowWatchlist((v) => !v)}>
+              watchlist{watchedSet.size > 0 ? ` · ${watchedSet.size}` : ""}
             </button>
             <button className="btn-primary min-w-[6.5rem]" onClick={load} disabled={loading || scanning}>
               {loading || scanning ? (pct != null ? `syncing ${pct}%` : "syncing…") : "scan"}
@@ -856,10 +979,91 @@ export default function TopTraders() {
 
       {/* Selection bar */}
       {picked.size > 0 && (
-        <div className="panel p-3 flex items-center gap-3 !border-accent/30 shadow-glow">
-          <span className="text-xs text-accent2">{picked.size} selected</span>
-          <Link href={indexBuildHref} className="btn-primary">build strat from selection</Link>
-          <button className="btn" onClick={() => setPicked(new Set())}>clear</button>
+        <div className="panel p-3 space-y-2 !border-accent/30 shadow-glow">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs text-accent2">{picked.size} selected</span>
+            <Link href={indexBuildHref} className="btn-primary">build strat from selection</Link>
+            <Link href={`/live?traders=${Array.from(picked).join(",")}`} className="btn">live copy all</Link>
+            <button className="btn" onClick={() => setPicked(new Set())}>clear</button>
+          </div>
+          {picked.size >= 2 && (() => {
+            const series = pickedArr
+              .map((a) => pickedCurves[a.toLowerCase()]?.points ?? [])
+              .filter((pts) => pts.length >= 2);
+            if (series.length < 2) return null;
+            const normVals = series.map((pts) => {
+              const scale = Math.max(...pts.map((p) => Math.abs(p[1])), 1e-9);
+              return pts.map((p) => p[1] / scale);
+            });
+            let chipR = 0, chipLabel = "independent", chipAddrs: string[] | null = null;
+            if (pickedArr.length === 2) {
+              chipR = pearsonR(normVals[0], normVals[1]);
+              chipLabel = Math.abs(chipR) >= 0.4 ? "correlated" : "independent";
+            } else {
+              let maxAbs = -1;
+              for (let i = 0; i < series.length; i++) {
+                for (let j = i + 1; j < series.length; j++) {
+                  const r = pearsonR(normVals[i], normVals[j]);
+                  if (Math.abs(r) > maxAbs) {
+                    maxAbs = Math.abs(r); chipR = r;
+                    chipAddrs = [pickedArr[i], pickedArr[j]];
+                  }
+                }
+              }
+              chipLabel = maxAbs >= 0.4 ? "correlated" : "independent";
+            }
+            return (
+              <>
+                <MultiSpark series={series} height={52} className="rounded overflow-hidden bg-white/[0.02]" />
+                <div className={`flex items-center gap-2 text-[11px] ${Math.abs(chipR) >= 0.4 ? "text-warn" : "text-accent"}`}>
+                  <span className="font-mono">ρ = {chipR.toFixed(2)}</span>
+                  <span className="text-muted">{chipLabel}</span>
+                  {chipAddrs && (
+                    <span className="text-muted font-mono">{shortAddr(chipAddrs[0])} · {shortAddr(chipAddrs[1])}</span>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+          {(() => {
+            const rows = sorted.filter((t) => picked.has(t.address));
+            if (rows.length === 0) return null;
+            return (
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-left text-muted">
+                    <th className="pr-3 font-normal pb-1">trader</th>
+                    <th className="pr-3 font-normal pb-1 text-right">roi</th>
+                    <th className="pr-3 font-normal pb-1 text-right">exp/day</th>
+                    <th className="pr-3 font-normal pb-1 text-right">win%</th>
+                    <th className="font-normal pb-1 text-right">sharpe</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((t) => {
+                    const win = defensibleWin(t);
+                    return (
+                      <tr key={t.address} className="border-t border-white/[0.04]">
+                        <td className="pr-3 py-1 font-mono">{shortAddr(t.address)}</td>
+                        <td className={`pr-3 py-1 text-right num ${(t.roi ?? 0) >= 0 ? "text-win" : "text-loss"}`}>
+                          {t.roi == null ? "—" : `${t.roi >= 0 ? "+" : ""}${fmtPct(t.roi, 1)}`}
+                        </td>
+                        <td className={`pr-3 py-1 text-right num ${t.expected?.per_1k != null ? (t.expected.per_1k > 0 ? "text-win" : "text-loss") : "text-dim"}`}>
+                          {t.expected?.per_1k != null ? fmtDay(t.expected.per_1k * k) : "—"}
+                        </td>
+                        <td className="pr-3 py-1 text-right num">
+                          {win == null ? "—" : fmtPct(win, 1)}
+                        </td>
+                        <td className="py-1 text-right num">
+                          {!hasStats(t) || !sharpeMeasured(t) ? "—" : t.sharpe.toFixed(2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            );
+          })()}
         </div>
       )}
 
@@ -902,6 +1106,11 @@ export default function TopTraders() {
                 onPick={() => togglePick(t.address)}
                 statKey={(sortKey === "score" ? "roi" : sortKey) as CardStat}
                 enrichNote={enrichNote}
+                followed={followedSet.has(t.address.toLowerCase())}
+                inLiveEngine={liveEngineSet.has(t.address.toLowerCase())}
+                watched={watchedSet.has(t.address.toLowerCase())}
+                onWatch={() => toggleWatch(t.address)}
+                capital={capital}
               />
             ))}
           </div>
@@ -931,6 +1140,7 @@ export default function TopTraders() {
             <div>{sortHeader("volume", "volume")}</div>
             <div>{sortHeader("win_rate", "win%", "right", "ranked by the rate each row can defend at its sample size, not the headline percent")}</div>
             <div>{sortHeader("sharpe", "sharpe", "right", "measured rows first")}</div>
+            <div>{sortHeader("expected", "exp/day", "right", `expected profit per day per ${cap} copied — lower of model and backtest`)}</div>
             <div className="eyebrow !tracking-wider text-right">last</div>
             <div />
           </div>
@@ -939,7 +1149,7 @@ export default function TopTraders() {
             [...Array(6)].map((_, i) => (
               <div key={i} className={`${grid} py-3 items-center table-row`}>
                 <div className="skeleton h-4 w-44" />
-                {[...Array(scoreActive ? 8 : 7)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
+                {[...Array(scoreActive ? 9 : 8)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
               </div>
             ))}
           {!err && !loading && !scanning && sorted.length === 0 && (
@@ -959,11 +1169,27 @@ export default function TopTraders() {
             const isPicked = picked.has(t.address);
             return (
             <div key={t.address}
-              className={`group ${grid} py-2.5 items-center table-row hover:bg-accent/[0.04] ${isPicked ? "bg-accent/[0.05]" : ""}`}>
+              className={`group ${grid} py-2.5 items-center table-row hover:bg-accent/[0.04] ${isPicked ? "bg-accent/[0.05]" : ""}`}
+              onMouseEnter={() => {
+                const addr = t.address.toLowerCase();
+                if (hoverCurves[addr]) return;
+                loadCurve(t.address, days).then((c) => {
+                  setHoverCurves((m) => ({ ...m, [addr]: c }));
+                });
+              }}>
               <div className="flex items-center gap-2.5 min-w-0">
                 <Medal rank={rowRank} />
                 <input type="checkbox" className="accent-accent" checked={isPicked}
                   onChange={() => togglePick(t.address)} />
+                <button
+                  className={`text-[13px] leading-none transition-opacity
+                    ${watchedSet.has(t.address.toLowerCase())
+                      ? "text-accent opacity-100"
+                      : "opacity-0 group-hover:opacity-100 text-muted"}`}
+                  title={watchedSet.has(t.address.toLowerCase()) ? "remove from watchlist" : "add to watchlist"}
+                  onClick={(e) => { e.preventDefault(); toggleWatch(t.address); }}>
+                  {watchedSet.has(t.address.toLowerCase()) ? "★" : "☆"}
+                </button>
                 <Link href={`/trader/${t.address}?days=${days}`} title="view trader"
                   className="flex items-center gap-2 font-mono text-[13px] text-ink/90 hover:text-accent transition-colors shrink-0">
                   <Identicon address={t.address} />
@@ -985,6 +1211,9 @@ export default function TopTraders() {
                     </div>
                   );
                 })()}
+                <span className={`ml-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 w-16 ${(t.roi ?? 0) >= 0 ? "text-win" : "text-loss"}`}>
+                  <Spark points={hoverCurves[t.address.toLowerCase()]?.points ?? []} height={24} />
+                </span>
               </div>
               {scoreActive && (() => {
                 const v = scoreFor(t);
@@ -1037,9 +1266,20 @@ export default function TopTraders() {
               >
                 {!hasStats(t) || !sharpeMeasured(t) ? "—" : t.sharpe.toFixed(2)}
               </div>
+              <div
+                className={`num text-right ${t.expected?.per_1k != null ? (t.expected.per_1k > 0 ? "text-win" : "text-loss") : "text-dim"}`}
+                title={t.expected?.per_1k != null ? `expected profit per day per ${cap} copied — lower of model and backtest` : !hasStats(t) ? enrichNote : "—"}
+              >
+                {t.expected?.per_1k != null ? fmtDay(t.expected.per_1k * k) : "—"}
+              </div>
               <div className="text-right text-[11px] text-muted">{t.last_active > 0 ? ago(t.last_active) : "≤24h"}</div>
-              <div className="flex justify-end">
-                <Link href={`/follows/new?leader=${t.address}`} className="btn-ghost">copy</Link>
+              <div className="flex justify-end items-center gap-1">
+                {liveEngineSet.has(t.address.toLowerCase()) && (
+                  <Link href="/live" className="btn-ghost text-accent">live ✓</Link>
+                )}
+                {followedSet.has(t.address.toLowerCase())
+                  ? <Link href="/follows" className="btn-ghost text-accent2">following ✓</Link>
+                  : <Link href={`/follows/new?leader=${t.address}`} className="btn-ghost">copy</Link>}
               </div>
             </div>
             );

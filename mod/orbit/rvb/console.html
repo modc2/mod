@@ -67,18 +67,24 @@
   .err{color:var(--red)}
   .muted{color:var(--dim)}
   .flash{color:var(--warn)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .pulse-dot{animation:pulse 1.2s ease-in-out infinite}
+  .tb{color:var(--blue)} .tr{color:var(--red)}
+  .col-highlight{background:#0d2033!important;outline:1px solid #1e3a5f;}
 </style>
 </head>
 <body>
 <header>
   <div class="mark"><span class="r">R</span><span class="b">VB</span></div>
   <div class="tag" id="sub">jailbreak attacks × defense pipelines, judged on two axes</div>
+  <span id="live-ticker" style="font-size:11.5px;color:var(--dim);letter-spacing:.06em"></span>
   <nav>
     <button data-tab="board" class="on">BOARD</button>
     <button data-tab="rounds">ROUNDS</button>
     <button data-tab="attacks">RED</button>
     <button data-tab="defenses">BLUE</button>
     <button data-tab="fight">FIGHT</button>
+    <button data-tab="game">GAME</button>
     <button data-tab="about">RULES</button>
   </nav>
 </header>
@@ -106,6 +112,12 @@
         <h2 style="color:var(--red)">red — attacks</h2>
         <div id="red-board" class="muted">no completed rounds yet.</div>
       </div>
+    </div>
+    <div class="panel" id="matchup-panel" style="display:none">
+      <h2>matchup matrix — attack × defense breach rate across rounds</h2>
+      <p class="note">rows = attacks, columns = defenses, cells = breach rate.
+        green ≤20% · amber 20–60% · red &gt;60% · grey = never fired.</p>
+      <div id="matchup-board" style="overflow-x:auto"></div>
     </div>
   </section>
 
@@ -233,6 +245,43 @@
     </div>
   </section>
 
+  <!-- GAME -------------------------------------------------------------- -->
+  <section id="game">
+    <div class="panel">
+      <h2>agent vs agent</h2>
+      <p class="note">Blue agent composes a defense pipeline each turn; red agent
+        picks attacks from the corpus. The arena scores every turn with the same
+        honest arithmetic as a round.</p>
+      <div class="row">
+        <label>blue agent</label>
+        <select id="g-blue-agent"><option value="">pick ▾</option></select>
+        <input type="text" id="g-blue" placeholder="agent:provider/type" size="24">
+      </div>
+      <div class="row">
+        <label>red agent</label>
+        <select id="g-red-agent"><option value="">pick ▾</option></select>
+        <input type="text" id="g-red" placeholder="agent:provider/type" size="24">
+      </div>
+      <div class="row">
+        <label>target</label><input type="text" id="g-model" value="claude:haiku" size="20">
+        <label>turns</label><input type="text" class="sm" id="g-turns" value="3">
+        <label>per turn</label><input type="text" class="sm" id="g-per" value="3">
+        <label>judge</label>
+        <select id="g-judge"><option>heuristic</option><option>model</option></select>
+        <button class="go" id="g-go">START GAME</button>
+        <span id="g-status" class="flash"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>history</h2>
+      <div id="game-list" class="muted">—</div>
+    </div>
+    <div class="panel" id="game-detail" style="display:none">
+      <h2>game</h2>
+      <div id="game-body"></div>
+    </div>
+  </section>
+
   <!-- ABOUT ------------------------------------------------------------- -->
   <section id="about">
     <div class="panel"><h2>the rules</h2><div id="about-body" class="muted">—</div></div>
@@ -246,6 +295,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pct = n => (n == null ? '—' : (n * 100).toFixed(0) + '%');
+const updateTicker = html => { $('#live-ticker').innerHTML = html; };
 
 async function api(path, opts) {
   const r = await fetch(API + path, opts);
@@ -262,10 +312,29 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   b.classList.add('on');
   $('#' + b.dataset.tab).classList.add('on');
   ({board: loadBoard, rounds: loadRounds, attacks: loadAttacks,
-    defenses: loadDefenses, fight: loadPickers, about: loadAbout}[b.dataset.tab])();
+    defenses: loadDefenses, fight: loadPickers, game: loadGames,
+    about: loadAbout}[b.dataset.tab])();
 });
 
 // ── board ──────────────────────────────────────────────────────
+function sparkline(points, live) {
+  if (!points || points.length < 2) return '';
+  const n = points.length;
+  const lo = Math.min(...points), hi = Math.max(...points), rng = hi - lo || 1;
+  const W = 80, H = 14, PX = 3, PY = 2;
+  const sx = i => PX + (n > 1 ? i * W / (n - 1) : W / 2);
+  const sy = v => PY + (1 - (v - lo) / rng) * H;
+  const line = points.map((v, i) => `${sx(i)},${sy(v)}`).join(' ');
+  const lx = sx(n - 1), ly = sy(points[n - 1]);
+  const dot = live
+    ? `<circle cx="${lx}" cy="${ly}" r="2.5" fill="var(--blue)" class="pulse-dot"/>`
+    : `<circle cx="${lx}" cy="${ly}" r="2" fill="var(--blue)"/>`;
+  return `<svg viewBox="0 0 ${W + PX * 2} ${H + PY * 2}" `
+    + `style="width:100px;height:18px;vertical-align:middle;display:inline-block">`
+    + `<polyline points="${line}" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-linejoin="round"/>`
+    + dot + `</svg>`;
+}
+
 function barRow(value, colour) {
   const w = Math.max(0, Math.min(1, value || 0)) * 100;
   return `<div class="bar"><i style="width:${w}%;background:${colour}"></i></div>`;
@@ -278,9 +347,9 @@ async function loadBoard() {
   $('#blue-board').innerHTML = (b.blue || []).length ? `<table>
     <tr><th>#</th><th>defense</th><th class="num">safety</th>
         <th class="num">refusal</th><th class="num">over-refusal</th><th class="num">rounds</th></tr>
-    ${b.blue.map(d => `<tr><td>${d.rank}</td><td>${esc(d.name || d.defense)}
+    ${b.blue.map(d => `<tr class="click" data-def-id="${esc(d.defense)}"><td>${d.rank}</td><td>${esc(d.name || d.defense)}
       ${barRow(d.safety_score, 'var(--blue)')}</td>
-      <td class="num">${d.safety_score.toFixed(2)}</td>
+      <td class="num">${d.safety_score.toFixed(2)} ${sparkline(d.history, false)}</td>
       <td class="num">${pct(d.refusal_rate)}</td>
       <td class="num">${pct(d.over_refusal)}</td>
       <td class="num">${d.rounds}</td></tr>`).join('')}</table>`
@@ -290,11 +359,70 @@ async function loadBoard() {
     ${b.red.map(a => `<tr><td>${esc(a.name || a.attack)}
       ${barRow(a.breach_rate, 'var(--red)')}</td>
       <td class="muted">${esc(a.technique || a.category || '')}</td>
-      <td class="num">${pct(a.breach_rate)}</td>
+      <td class="num">${pct(a.breach_rate)} ${sparkline(a.history, false)}</td>
       <td class="num">${a.fired}</td></tr>`).join('')}</table>`
     : '<span class="muted">no completed rounds yet.</span>';
+
+  const mp = b.matchups || [];
+  const mpPanel = $('#matchup-panel');
+  if (!mp.length) {
+    mpPanel.style.display = 'none';
+  } else {
+    mpPanel.style.display = 'block';
+    const atkNames = {}, defNames = {};
+    (b.red || []).forEach(a => { atkNames[a.attack] = a.name || a.attack; });
+    (b.blue || []).forEach(d => { defNames[d.defense] = d.name || d.defense; });
+    mp.forEach(m => {
+      if (!atkNames[m.attack]) atkNames[m.attack] = m.attack;
+      if (!defNames[m.defense]) defNames[m.defense] = m.defense;
+    });
+    const attacks = [...new Set(
+      (b.red || []).map(a => a.attack).concat(mp.map(m => m.attack))
+    )];
+    const defenses = [...new Set(
+      (b.blue || []).map(d => d.defense).concat(mp.map(m => m.defense))
+    )];
+    const mx = {};
+    mp.forEach(m => { mx[m.attack + '__' + m.defense] = m; });
+    const abbr = s => s.length > 14 ? s.slice(0, 13) + '…' : s;
+    const cellBg = r => r <= 0.2 ? '#0d2c1b' : r <= 0.6 ? '#332010' : '#331013';
+    const cellFg = r => r <= 0.2 ? 'var(--good)' : r <= 0.6 ? 'var(--warn)' : 'var(--red)';
+    const hdr = '<tr><th></th>' + defenses.map(d =>
+      `<th data-col-def="${esc(d)}" title="${esc(defNames[d])}">${esc(abbr(defNames[d]))}</th>`).join('') + '</tr>';
+    const rows = attacks.map(a =>
+      '<tr><th style="text-align:left;font-weight:normal" title="' + esc(atkNames[a]) + '">'
+      + esc(abbr(atkNames[a])) + '</th>'
+      + defenses.map(d => {
+          const entry = mx[a + '__' + d];
+          if (!entry) return '<td data-col-def="' + esc(d) + '"><span class="v ERROR" title="never fired">—</span></td>';
+          const bpct = (entry.breach_rate * 100).toFixed(0) + '%';
+          const tip = bpct + ' breach (' + entry.fired + ' fired)';
+          return '<td data-col-def="' + esc(d) + '"><span class="v" style="background:' + cellBg(entry.breach_rate)
+            + ';color:' + cellFg(entry.breach_rate) + ';cursor:pointer" title="' + esc(tip) + '"'
+            + ' data-atk="' + esc(a) + '" data-def="' + esc(d) + '">'
+            + esc(bpct) + '</span></td>';
+        }).join('')
+      + '</tr>'
+    ).join('');
+    $('#matchup-board').innerHTML = '<table style="width:auto">' + hdr + rows + '</table>';
+    $('#matchup-board').addEventListener('click', e => {
+      const span = e.target.closest('span[data-atk]');
+      if (!span) return;
+      window._pendingFightPair = {attack: span.dataset.atk, defense: span.dataset.def};
+      document.querySelector('nav button[data-tab="fight"]').click();
+    }, {once: false});
+  }
 }
 $('#board-refresh').onclick = loadBoard;
+$('#blue-board').addEventListener('click', e => {
+  const row = e.target.closest('tr[data-def-id]');
+  if (!row) return;
+  const did = row.dataset.defId;
+  document.querySelectorAll('.col-highlight').forEach(el => el.classList.remove('col-highlight'));
+  document.querySelectorAll(`[data-col-def="${CSS.escape(did)}"]`).forEach(el => el.classList.add('col-highlight'));
+  const mp = $('#matchup-panel');
+  if (mp && mp.style.display !== 'none') mp.scrollIntoView({behavior:'smooth',block:'start'});
+});
 
 // ── rounds ─────────────────────────────────────────────────────
 async function recomputeCostHint() {
@@ -358,6 +486,11 @@ async function loadRounds() {
     : '<span class="muted">no rounds yet.</span>';
   document.querySelectorAll('#round-list tr.click').forEach(
     tr => tr.onclick = () => showRound(tr.dataset.id));
+  if (window._pendingRound) {
+    const id = window._pendingRound;
+    delete window._pendingRound;
+    showRound(id);
+  }
 }
 
 async function showRound(id) {
@@ -549,12 +682,26 @@ async function poll(id, total, lastDone = -1) {
   $('#r-status').textContent = `${id} — ${done}/${r.total_matches || total} ${r.status}`;
   await loadRounds();
   if (r.status === 'running') {
+    updateTicker(`▶ ROUND ${id.slice(-6)} ${done}/${r.total_matches || total} <span class="pulse-dot">●</span>`);
     if (done !== lastDone) { showRound(id); }
     setTimeout(() => poll(id, total, done), 1500);
-  } else { showRound(id); loadBoard(); }
+  } else {
+    const lb = (r.leaderboard || [])[0];
+    const winner = lb || r.winner;
+    if (winner) {
+      const name = winner.name || winner.defense || '—';
+      const score = winner.safety_score != null ? winner.safety_score.toFixed(2) : '—';
+      updateTicker(`leader: ${esc(name)} · ${score}`);
+      setTimeout(() => updateTicker(''), 8000);
+    } else {
+      updateTicker('');
+    }
+    showRound(id); loadBoard();
+  }
 }
 
 // ── corpora ────────────────────────────────────────────────────
+let _attackMap = {};
 let _pendingAttackDel = null;
 let _pendingDefenseDel = null;
 document.addEventListener('click', e => {
@@ -570,15 +717,34 @@ document.addEventListener('click', e => {
   }
 });
 async function loadAttacks() {
-  const {attacks} = await api('/attacks');
+  const [{attacks}, board] = await Promise.all([api('/attacks'), api('/board?rounds=8')]);
+  const breachMap = {};
+  (board.red || []).forEach(a => { breachMap[a.attack] = a.breach_rate; });
+  const cellBg = r => r <= 0.2 ? '#0d2c1b' : r <= 0.6 ? '#332010' : '#331013';
+  const cellFg = r => r <= 0.2 ? 'var(--good)' : r <= 0.6 ? 'var(--warn)' : 'var(--red)';
+  const defNameFromBoard = {};
+  (board.blue || []).forEach(d => { defNameFromBoard[d.defense] = d.name || d.defense; });
+  const matchupByAtk = {};
+  (board.matchups || []).forEach(m => {
+    if (!matchupByAtk[m.attack]) matchupByAtk[m.attack] = [];
+    matchupByAtk[m.attack].push({defName: defNameFromBoard[m.defense] || m.defense, breach_rate: m.breach_rate, fired: m.fired});
+  });
+  Object.values(matchupByAtk).forEach(arr => arr.sort((a, b) => b.breach_rate - a.breach_rate));
   $('#attack-list').innerHTML = attacks.length ? `<table>
     <tr><th>id</th><th>name</th><th>category</th><th>technique</th>
-        <th>goal</th><th></th></tr>
-    ${attacks.map((a, i) => `<tr class="click" data-idx="${i}"><td>${esc(a.id)}</td><td>${esc(a.name)}</td>
+        <th>goal</th><th class="num">breach</th><th></th></tr>
+    ${attacks.map((a, i) => {
+      const br = breachMap[a.id];
+      const brCell = br == null
+        ? '<td class="num"><span class="muted">—</span></td>'
+        : `<td class="num"><span style="background:${cellBg(br)};color:${cellFg(br)};padding:1px 5px;border-radius:3px">${pct(br)}</span></td>`;
+      return `<tr class="click" data-idx="${i}"><td>${esc(a.id)}</td><td>${esc(a.name)}</td>
       <td class="muted">${esc(a.category)}</td>
       <td class="muted">${esc(a.technique || '')}</td>
       <td class="muted">${esc((a.goal || '').slice(0, 70))}</td>
-      <td><button data-del="${esc(a.id)}">×</button></td></tr>`).join('')}</table>`
+      ${brCell}
+      <td><button data-del="${esc(a.id)}">×</button></td></tr>`;
+    }).join('')}</table>`
     : '<span class="muted">empty.</span>';
   document.querySelectorAll('#attack-list button[data-del]').forEach(b => {
     b.onmouseleave = () => {
@@ -607,12 +773,21 @@ async function loadAttacks() {
       const detail = document.createElement('tr');
       detail.className = 'attack-detail';
       const td = document.createElement('td');
-      td.colSpan = 6;
+      td.colSpan = 7;
       td.style.padding = '8px 12px';
       const prompt = a.prompt || (Array.isArray(a.turns) ? a.turns.map(t => t.content || t).join('\n---\n') : '');
       const markers = (a.markers || []).join(', ');
+      const vsRows = matchupByAtk[a.id] || [];
+      const vsTable = vsRows.length
+        ? `<div class="muted" style="margin-top:8px;margin-bottom:2px">vs defenses:</div>` +
+          `<table style="width:auto"><tr><th>defense</th><th class="num">breach</th><th class="num">fired</th></tr>` +
+          vsRows.map(r => `<tr><td>${esc(r.defName)}</td>` +
+            `<td class="num"><span style="background:${cellBg(r.breach_rate)};color:${cellFg(r.breach_rate)};padding:1px 5px;border-radius:3px">${pct(r.breach_rate)}</span></td>` +
+            `<td class="num">${r.fired}</td></tr>`).join('') +
+          `</table>` : '';
       td.innerHTML = `<pre style="margin-top:0">${esc(prompt)}</pre>` +
-        (markers ? `<div class="muted" style="margin-top:4px">markers: ${esc(markers)}</div>` : '');
+        (markers ? `<div class="muted" style="margin-top:4px">markers: ${esc(markers)}</div>` : '') +
+        vsTable;
       tr.after(detail);
     };
   });
@@ -647,7 +822,17 @@ function rules(text) {
 }
 
 async function loadDefenses() {
-  const {defenses} = await api('/defenses');
+  const [{defenses}, board] = await Promise.all([api('/defenses'), api('/board?rounds=8')]);
+  const defCellBg = r => r <= 0.2 ? '#0d2c1b' : r <= 0.6 ? '#332010' : '#331013';
+  const defCellFg = r => r <= 0.2 ? 'var(--good)' : r <= 0.6 ? 'var(--warn)' : 'var(--red)';
+  const atkNameFromBoard = {};
+  (board.red || []).forEach(a => { atkNameFromBoard[a.attack] = a.name || a.attack; });
+  const matchupByDef = {};
+  (board.matchups || []).forEach(m => {
+    if (!matchupByDef[m.defense]) matchupByDef[m.defense] = [];
+    matchupByDef[m.defense].push({atkName: atkNameFromBoard[m.attack] || m.attack, breach_rate: m.breach_rate, fired: m.fired});
+  });
+  Object.values(matchupByDef).forEach(arr => arr.sort((a, b) => b.breach_rate - a.breach_rate));
   $('#defense-list').innerHTML = `<table>
     <tr><th>id</th><th>name</th><th class="num">in</th><th class="num">out</th>
         <th>self-check</th><th>prompt</th><th></th></tr>
@@ -690,11 +875,20 @@ async function loadDefenses() {
       td.style.padding = '8px 12px';
       const inRules = (d.input_rules || []);
       const outRules = (d.output_rules || []);
+      const failRows = matchupByDef[d.id] || [];
+      const failTable = failRows.length
+        ? `<div class="muted" style="margin-top:8px;margin-bottom:2px">still gets through:</div>` +
+          `<table style="width:auto"><tr><th>attack</th><th class="num">breach</th><th class="num">fired</th></tr>` +
+          failRows.map(r => `<tr><td>${esc(r.atkName)}</td>` +
+            `<td class="num"><span style="background:${defCellBg(r.breach_rate)};color:${defCellFg(r.breach_rate)};padding:1px 5px;border-radius:3px">${pct(r.breach_rate)}</span></td>` +
+            `<td class="num">${r.fired}</td></tr>`).join('') +
+          `</table>` : '';
       td.innerHTML =
         (d.system_prompt ? `<pre style="margin-top:0">${esc(d.system_prompt)}</pre>` : '') +
         (inRules.length ? `<div class="muted" style="margin-top:4px"><b>input rules:</b></div><pre>${esc(inRules.join('\n'))}</pre>` : '') +
         (outRules.length ? `<div class="muted"><b>output rules:</b></div><pre>${esc(outRules.join('\n'))}</pre>` : '') +
-        (d.max_input_chars ? `<div class="muted">max input chars: ${esc(String(d.max_input_chars))}</div>` : '');
+        (d.max_input_chars ? `<div class="muted">max input chars: ${esc(String(d.max_input_chars))}</div>` : '') +
+        failTable;
       detail.appendChild(td);
       tr.after(detail);
     };
@@ -743,6 +937,13 @@ async function loadPickers() {
   $('#f-defense').addEventListener('change', updateCostHint);
   $('#f-custom-def').addEventListener('input', updateCostHint);
   updateCostHint();
+  if (window._pendingFightPair) {
+    const pair = window._pendingFightPair;
+    delete window._pendingFightPair;
+    $('#f-attack').value = pair.attack;
+    $('#f-defense').value = pair.defense;
+    updateCostHint();
+  }
 }
 
 $('#f-go').onclick = async () => {
@@ -812,6 +1013,271 @@ $('#f-go').onclick = async () => {
   }
 };
 
+// ── game ───────────────────────────────────────────────────────
+async function loadGames() {
+  const data = await api('/games?limit=20').catch(() => ({games: []}));
+  const games = data.games || [];
+  $('#game-list').innerHTML = games.length ? `<table>
+    <tr><th>game</th><th>blue</th><th>red</th><th>model</th>
+        <th class="num">turns</th><th class="num">blue pts</th>
+        <th class="num">red pts</th><th>winner</th></tr>
+    ${games.map(g => `<tr class="click" data-gid="${esc(g.id)}">
+      <td>${esc(g.id)}</td>
+      <td class="muted">${esc(g.blue || '')}</td>
+      <td class="muted">${esc(g.red || '')}</td>
+      <td class="muted">${esc(g.model || '')}</td>
+      <td class="num">${g.turns || 0}/${g.turns_planned || '?'}</td>
+      <td class="num" style="color:var(--blue)">${g.totals ? g.totals.blue.toFixed(2) : '—'}</td>
+      <td class="num" style="color:var(--red)">${g.totals ? g.totals.red.toFixed(2) : '—'}</td>
+      <td>${g.winner
+          ? `<b style="color:${g.winner === 'blue' ? 'var(--blue)'
+              : g.winner === 'red' ? 'var(--red)' : 'var(--dim)'}">${esc(g.winner)}</b>`
+          : `<span class="flash">${esc(g.status || '')}</span>`}</td>
+    </tr>`).join('')}
+  </table>` : '<span class="muted">no games yet.</span>';
+  document.querySelectorAll('#game-list tr[data-gid]').forEach(
+    tr => tr.onclick = () => fetchAndShowGame(tr.dataset.gid));
+}
+
+function gameChart(g, turns) {
+  if (turns.length < 2) return '';
+  let cb = 0, cr = 0;
+  const pts = turns.map(t => { cb += t.blue_points||0; cr += t.red_points||0; return {b:cb, r:cr}; });
+  const n = pts.length, flat = pts.flatMap(p => [p.b, p.r, 0]);
+  const lo = Math.min(...flat), hi = Math.max(...flat), rng = hi - lo || 1;
+  const W = 480, H = 60, PX = 10, PY = 8;
+  const sx = i => PX + (n > 1 ? i * W / (n - 1) : W / 2);
+  const sy = v => PY + (1 - (v - lo) / rng) * H;
+  const y0 = sy(0), live = g.status === 'running';
+  const bA = esc((g.blue || '').slice(0, 12)), rA = esc((g.red || '').slice(0, 12));
+  const dots = pts.map((p, i) => {
+    const l = i === n - 1 && live;
+    return `<circle cx="${sx(i)}" cy="${sy(p.b)}" r="${l?3:2}" fill="var(--blue)"${l?' class="pulse-dot"':''}/>`
+         + `<circle cx="${sx(i)}" cy="${sy(p.r)}" r="${l?3:2}" fill="var(--red)"${l?' class="pulse-dot"':''}/>`;
+  }).join('');
+  const bLine = pts.map((p, i) => `${sx(i)},${sy(p.b)}`).join(' ');
+  const rLine = pts.map((p, i) => `${sx(i)},${sy(p.r)}`).join(' ');
+  return `<div style="margin:6px 0 10px">`
+    + `<div style="font-size:11px;color:var(--dim);margin-bottom:4px">`
+    + `<span style="color:var(--blue)">${bA}</span> vs <span style="color:var(--red)">${rA}</span>`
+    + (live ? ' <span class="flash" style="font-size:10px">● live</span>' : '')
+    + `</div>`
+    + `<svg viewBox="0 0 500 76" style="width:100%;max-width:500px;display:block">`
+    + `<line x1="${PX}" y1="${y0}" x2="${PX+W}" y2="${y0}" stroke="var(--line)" stroke-width="1"/>`
+    + `<polyline points="${bLine}" fill="none" stroke="var(--blue)" stroke-width="1.5" stroke-linejoin="round"/>`
+    + `<polyline points="${rLine}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-linejoin="round"/>`
+    + dots
+    + `</svg></div>`;
+}
+
+async function fetchAndShowGame(id) {
+  const [g, atkData] = await Promise.all([
+    api('/games?id=' + encodeURIComponent(id)),
+    api('/attacks').catch(() => ({attacks: []})),
+  ]);
+  _attackMap = Object.fromEntries((atkData.attacks || []).map(a => [a.id, a]));
+  showGame(g);
+  if (g.status === 'running') pollGame(id, (g.turns || []).length);
+}
+
+function attackEffectivenessPanel(turns, live) {
+  const counts = {};
+  for (const t of turns) {
+    for (const v of (t.verdicts || [])) {
+      if (!v.attack) continue;
+      if (!counts[v.attack]) counts[v.attack] = {fired: 0, breached: 0};
+      counts[v.attack].fired++;
+      if (v.red_win) counts[v.attack].breached++;
+    }
+  }
+  const rows = Object.entries(counts)
+    .map(([id, c]) => ({name: (_attackMap[id] && _attackMap[id].name) || id, fired: c.fired, breached: c.breached, rate: c.breached / c.fired}))
+    .sort((a, b) => b.rate - a.rate || b.fired - a.fired);
+  if (!rows.length) return '';
+  const liveTag = live ? ' <span class="pulse-dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--blue);vertical-align:middle"></span> live' : '';
+  return `<div style="margin-top:16px">
+    <div class="muted" style="margin-bottom:6px;font-size:11px">attack effectiveness${liveTag}</div>
+    <table>
+      <tr><th>attack</th><th class="num">fired</th><th class="num">breach</th><th class="num">rate</th></tr>
+      ${rows.map(r => {
+        const color = r.rate >= 0.5 ? 'var(--red)' : r.rate > 0 ? 'var(--dim)' : 'var(--blue)';
+        return `<tr><td>${esc(r.name)}</td><td class="num">${r.fired}</td><td class="num">${r.breached}</td>`
+          + `<td class="num" style="color:${color}">${pct(r.rate)}</td></tr>`;
+      }).join('')}
+    </table>
+  </div>`;
+}
+
+function showGame(g) {
+  $('#game-detail').style.display = 'block';
+  const turns = g.turns || [];
+  $('#game-body').innerHTML = `
+    <div class="row">
+      <span class="pill">${esc(g.id)}</span>
+      <span class="pill" style="color:var(--blue)">blue: ${esc(g.blue || '')}</span>
+      <span class="pill" style="color:var(--red)">red: ${esc(g.red || '')}</span>
+      <span class="pill">${esc(g.model || '')}</span>
+      <span class="pill">${esc(g.status || '')}</span>
+      ${g.winner ? `<b style="color:${g.winner === 'blue' ? 'var(--blue)'
+          : g.winner === 'red' ? 'var(--red)' : 'var(--dim)'}">winner: ${esc(g.winner)}</b>` : ''}
+      ${g.status === 'done' ? '<button id="replay-game-btn" class="go" style="margin-left:4px">REPLAY GAME</button><button id="round-red-picks-btn" class="go" style="margin-left:4px">→ ROUND WITH RED\'S PICKS</button>' : ''}
+    </div>
+    ${g.totals ? `<div class="row">
+      <span class="pill" style="color:var(--blue)">blue total: ${g.totals.blue.toFixed(2)}</span>
+      <span class="pill" style="color:var(--red)">red total: ${g.totals.red.toFixed(2)}</span>
+    </div>` : ''}
+    ${gameChart(g, turns)}
+    ${turns.length ? `<table>
+      <tr><th>turn</th><th>winner</th><th class="num">blue pts</th>
+          <th class="num">red pts</th><th>defense</th>
+          <th class="num">refusal</th><th class="num">breach</th></tr>
+      ${turns.map(t => `<tr class="click" data-tidx="${t.turn - 1}">
+        <td>${t.turn}</td>
+        <td><b style="color:${t.winner === 'blue' ? 'var(--blue)'
+            : t.winner === 'red' ? 'var(--red)' : 'var(--dim)'}">${esc(t.winner)}</b></td>
+        <td class="num" style="color:var(--blue)">${(t.blue_points || 0).toFixed(2)}</td>
+        <td class="num" style="color:var(--red)">${(t.red_points || 0).toFixed(2)}</td>
+        <td class="muted">${esc(t.blue && t.blue.defense_name || '')}</td>
+        <td class="num">${t.score ? pct(t.score.refusal_rate) : '—'}</td>
+        <td class="num">${t.score ? pct(t.score.breach_rate) : '—'}</td>
+      </tr>`).join('')}
+    </table>` : '<span class="muted">no turns yet.</span>'}
+    ${turns.length ? attackEffectivenessPanel(turns, g.status === 'running') : ''}`;
+  $('#game-body').querySelectorAll('tr[data-tidx]').forEach(tr => {
+    tr.onclick = () => {
+      const t = turns[Number(tr.dataset.tidx)];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('turn-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'turn-detail';
+      const td = document.createElement('td');
+      td.colSpan = 7;
+      td.style.padding = '8px 12px';
+      const picks = (t.red && t.red.picks) || [];
+      const verdicts = t.verdicts || [];
+      const bp = t.blue && t.blue.parsed;
+      const blueMoveHtml =
+        (t.blue && t.blue.fallback
+          ? `<div class="err" style="margin-top:4px">⚠ blue fell back to: ${esc(t.blue.fallback)}</div>` : '') +
+        (bp && bp.use !== undefined
+          ? `<div class="muted" style="margin-top:4px">blue played stored defense: ${esc(bp.use)}</div>` : '') +
+        (bp && bp.system_prompt !== undefined
+          ? `<pre style="margin:4px 0;white-space:pre-wrap">${esc(bp.system_prompt)}</pre>` +
+            `<div class="muted">in: ${(bp.input_rules || []).length} rules / out: ${(bp.output_rules || []).length} rules / self_check: ${bp.self_check ? 'yes' : 'no'}</div>`
+          : '') +
+        ((t.blue && t.blue.ms != null) || (t.red && t.red.ms != null)
+          ? `<div style="margin-top:4px"><span class="muted">blue: ${t.blue && t.blue.ms != null ? t.blue.ms + 'ms' : '—'} · red: ${t.red && t.red.ms != null ? t.red.ms + 'ms' : '—'}</span></div>` : '') +
+        (t.red && t.red.fallback
+          ? `<div class="err" style="margin-top:4px">⚠ red fell back to: ${esc(t.red.fallback)}</div>` : '');
+      td.innerHTML =
+        `<div class="muted">red picks: ${esc(picks.map(p => (_attackMap[p] && _attackMap[p].name) || p).join(', ') || '—')}</div>` +
+        (t.blue && t.blue.error
+          ? `<div class="err">blue error: ${esc(t.blue.error)}</div>` : '') +
+        (t.red && t.red.error
+          ? `<div class="err">red error: ${esc(t.red.error)}</div>` : '') +
+        (blueMoveHtml ? `<div style="margin-top:6px">${blueMoveHtml}</div>` : '') +
+        (verdicts.length
+          ? `<table style="margin-top:8px">
+              <tr><th>attack</th><th>verdict</th><th>red win</th><th>blocked at</th></tr>
+              ${verdicts.map(v =>
+                `<tr><td>${esc((_attackMap[v.attack] && _attackMap[v.attack].name) || v.attack || '')}</td>
+                  <td><span class="v ${esc(v.verdict || '')}">${esc(v.verdict || '')}</span></td>
+                  <td>${v.red_win
+                    ? '<span style="color:var(--red)">yes</span>' : '—'}</td>
+                  <td class="muted">${esc(v.blocked_at || 'model')}</td></tr>`
+              ).join('')}</table>` : '') +
+        (t.round
+          ? `<div style="margin-top:8px"><button class="view-round-btn" data-round="${esc(t.round)}">→ VIEW ROUND</button></div>`
+          : '') +
+        (bp && bp.system_prompt !== undefined && !t.blue.fallback && t.winner === 'blue'
+          ? `<div style="margin-top:8px"><button class="save-def-btn">→ SAVE DEFENSE</button></div>`
+          : '');
+      td.querySelectorAll('.view-round-btn').forEach(btn => {
+        btn.onclick = () => {
+          window._pendingRound = btn.dataset.round;
+          document.querySelector('nav button[data-tab="rounds"]').click();
+        };
+      });
+      td.querySelectorAll('.save-def-btn').forEach(btn => {
+        btn.onclick = () => {
+          document.querySelector('nav button[data-tab="defenses"]').click();
+          $('#d-name').value = t.blue.defense_name || ('game-' + g.id + '-t' + t.turn);
+          $('#d-sys').value = bp.system_prompt;
+          $('#d-in').value = JSON.stringify(bp.input_rules || []);
+          $('#d-out').value = JSON.stringify(bp.output_rules || []);
+          $('#d-self').checked = !!bp.self_check;
+        };
+      });
+      detail.appendChild(td);
+      tr.after(detail);
+    };
+  });
+  if (g.status === 'done') {
+    $('#replay-game-btn').onclick = () => {
+      document.querySelector('nav button[data-tab="game"]').click();
+      $('#g-blue').value = g.blue;
+      $('#g-red').value = g.red;
+      $('#g-model').value = g.model || '';
+      $('#g-turns').value = g.turns_planned || 3;
+      $('#g-per').value = g.per_turn || 3;
+      $('#g-judge').value = g.judge || 'heuristic';
+    };
+    $('#round-red-picks-btn').onclick = () => {
+      const picks = [...new Set((g.turns || []).flatMap(t => (t.red && t.red.picks) || []))];
+      window._rerunConfig = {attacks: picks, model: g.model};
+      document.querySelector('nav button[data-tab="rounds"]').click();
+    };
+  }
+  $('#game-detail').scrollIntoView({behavior: 'smooth'});
+}
+
+$('#g-go').onclick = async () => {
+  const btn = $('#g-go'); btn.disabled = true;
+  $('#g-status').textContent = 'starting…';
+  try {
+    const started = await post('/game', {
+      blue: $('#g-blue').value.trim(),
+      red: $('#g-red').value.trim(),
+      model: $('#g-model').value.trim(),
+      turns: Number($('#g-turns').value) || 3,
+      per_turn: Number($('#g-per').value) || 3,
+      judge: $('#g-judge').value,
+    });
+    pollGame(started.id);
+  } catch (e) {
+    $('#g-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  } finally { btn.disabled = false; }
+};
+
+async function pollGame(id, lastTurns = -1) {
+  window._pollingGameId = id;
+  const g = await api('/games?id=' + encodeURIComponent(id)).catch(() => null);
+  if (!g || window._pollingGameId !== id) { if (!g) $('#g-status').textContent = ''; return; }
+  const turns = (g.turns || []).length;
+  $('#g-status').textContent =
+    `${id} — turn ${turns}/${g.turns_planned || '?'} ${g.status}`;
+  await loadGames();
+  if (window._pollingGameId !== id) return;
+  if (g.status === 'running') {
+    const bt = g.totals ? g.totals.blue.toFixed(2) : '—';
+    const rt = g.totals ? g.totals.red.toFixed(2) : '—';
+    updateTicker(`▶ <b class="tb">BLUE</b> ${bt} · <b class="tr">RED</b> ${rt} — t${turns}/${g.turns_planned || '?'} <span class="pulse-dot">●</span>`);
+    if (turns !== lastTurns) { showGame(g); }
+    setTimeout(() => pollGame(id, turns), 2000);
+  } else {
+    window._pollingGameId = null;
+    if (g.winner) {
+      updateTicker(`<b class="t${esc(g.winner)}">winner: ${esc(g.winner.toUpperCase())}</b>`);
+      setTimeout(() => updateTicker(''), 8000);
+    } else {
+      updateTicker('');
+    }
+    showGame(g);
+  }
+}
+
 // ── about ──────────────────────────────────────────────────────
 async function loadAbout() {
   const [i, ctlsData, atks] = await Promise.all([
@@ -869,7 +1335,19 @@ api('/targets').then(t => {
   $('#cost-hint').textContent = `${t.default} is the default; mock:* is free`;
   // Default the runners to the server's real target, not the offline mock.
   // mock:* stays one keystroke away for anyone testing the harness.
-  if (t.default) { $('#r-model').value = t.default; $('#f-model').value = t.default; }
+  if (t.default) {
+    $('#r-model').value = t.default; $('#f-model').value = t.default;
+    $('#g-model').value = t.default;
+  }
+}).catch(() => {});
+
+api('/rounds?limit=1&status=running').then(d => {
+  const r = (d.rounds || [])[0];
+  if (r && r.status === 'running') poll(r.id, r.total_matches, r.done || 0);
+}).catch(() => {});
+api('/games?limit=1&status=running').then(d => {
+  const g = (d.games || [])[0];
+  if (g && g.status === 'running') fetchAndShowGame(g.id);
 }).catch(() => {});
 
 // ── Venice model picker ────────────────────────────────────────
@@ -903,13 +1381,16 @@ function wireAgent(selId, inputId) {
 }
 wireAgent('#r-agent', '#r-model');
 wireAgent('#f-agent', '#f-model');
+wireAgent('#g-blue-agent', '#g-blue');
+wireAgent('#g-red-agent', '#g-red');
 api('/agents').then(a => {
   const groups = (a.providers || []).filter(p => (p.agents || []).length).map(p =>
     `<optgroup label="${esc(p.provider)}">` + p.agents.map(x =>
       `<option value="${esc('agent:' + p.provider + '/' + x.name)}">${esc(x.label || x.name)}</option>`
     ).join('') + '</optgroup>').join('');
   if (!groups) return;
-  ['#r-agent', '#f-agent'].forEach(id => $(id).insertAdjacentHTML('beforeend', groups));
+  ['#r-agent', '#f-agent', '#g-blue-agent', '#g-red-agent'].forEach(
+    id => $(id).insertAdjacentHTML('beforeend', groups));
 }).catch(() => {});
 
 loadBoard();

@@ -12,6 +12,8 @@ import { buildRoundTrips, fmtDuration } from "../../lib/trips";
 import PnlChart from "../../components/PnlChart";
 import CoinChart from "../../components/CoinChart";
 import BacktestPanel from "../../components/BacktestPanel";
+import AskConsole from "../../components/AskConsole";
+import OrderbookPanel from "../../components/OrderbookPanel";
 
 export default function TraderPage() {
   const { addr } = useParams<{ addr: string }>();
@@ -84,7 +86,7 @@ export default function TraderPage() {
             className="text-[11px] text-muted hover:text-accent2">view on hyperliquid →</a>
         </div>
         <div className="flex gap-2">
-          <Link href={`/follows/new?leader=${addr}`} className="btn-primary">copy this trader</Link>
+          <Link href={`/live?traders=${addr}`} className="btn-primary">start live copy</Link>
         </div>
       </div>
 
@@ -141,6 +143,10 @@ export default function TraderPage() {
           }
         />
       </div>
+
+      <TradeStyle trips={trips} days={days} closes={s.closes} />
+
+      <TraderCopilot addr={addr} />
 
       {/* The longer view, free: the fills call already caches ~31 days, so the
           wider window costs no extra request. It is also the only thing on this
@@ -200,6 +206,12 @@ export default function TraderPage() {
           hours={days * 24}
           fills={windowFills.filter((f: any) => f.coin === coinBreakdown[0].coin)}
         />
+      )}
+
+      {coinBreakdown.length > 0 && (
+        <Panel title={`${coinBreakdown[0].coin} depth · live`}>
+          <OrderbookPanel coin={coinBreakdown[0].coin} />
+        </Panel>
       )}
 
       {/* "$N on this trader" — server-side replay with its data checks
@@ -328,6 +340,45 @@ export default function TraderPage() {
   );
 }
 
+function TraderCopilot({ addr }: { addr: string }) {
+  const [open, setOpen] = useState(false);
+  const [ever, setEver] = useState(false);
+  const lsKey = `hl.trader.${addr}.copilotOpen`;
+  useEffect(() => {
+    if (localStorage.getItem(lsKey) !== "0") { setOpen(true); setEver(true); }
+  }, [lsKey]);
+  const toggle = () => {
+    setOpen((v) => {
+      try { localStorage.setItem(lsKey, v ? "0" : "1"); } catch {}
+      if (!v) setEver(true);
+      return !v;
+    });
+  };
+  const examples = [
+    `analyze ${addr} — is this wallet worth copying?`,
+    `backtest $1,000 on ${addr} for 30 days and tell me the risk`,
+  ];
+  return (
+    <div className="panel">
+      <button className="w-full flex items-center justify-between gap-3 p-3 text-left"
+        onClick={toggle} aria-expanded={open}>
+        <span className="flex items-baseline gap-3 min-w-0">
+          <span className="eyebrow">trader copilot</span>
+          <span className="text-[11px] text-muted truncate">
+            analyze this wallet, backtest copy-trades, check the risk
+          </span>
+        </span>
+        <span className="text-dim text-xs shrink-0">{open ? "fold ▴" : "open ▾"}</span>
+      </button>
+      {ever && (
+        <div className={open ? "px-3 pb-3" : "hidden"}>
+          <AskConsole mode="desk" examples={examples} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * A stat and the evidence under it.
  *
@@ -424,6 +475,88 @@ function WiderView({ days, s, ext }: { days: number; s: any; ext: any }) {
       ))}
       <div className="px-4 py-2 text-[10px] text-muted border-t border-border">
         Both columns come from the same cached fills — the wider view costs no extra request.
+      </div>
+    </Panel>
+  );
+}
+
+function TradeStyle({ trips, days, closes }: { trips: any[]; days: number; closes: number }) {
+  const closed = trips.filter((t) => t.closeTime != null);
+  if (closed.length === 0) return null;
+
+  const MS_5MIN = 5 * 60 * 1000;
+  const MS_4H = 4 * 60 * 60 * 1000;
+  const MS_5D = 5 * 24 * 60 * 60 * 1000;
+
+  const holdTimes = closed.map((t) => t.closeTime - t.openTime);
+  let scalp = 0, intraday = 0, swing = 0, position = 0;
+  for (const ms of holdTimes) {
+    if (ms < MS_5MIN) scalp++;
+    else if (ms < MS_4H) intraday++;
+    else if (ms < MS_5D) swing++;
+    else position++;
+  }
+
+  const total = closed.length;
+  const pct = (n: number) => total > 0 ? (n / total) * 100 : 0;
+
+  const sorted = [...holdTimes].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
+
+  const closesPerDay = days > 0 ? closes / days : 0;
+  let copyText: string;
+  let copyTone: "win" | "warn" | "neutral";
+  if (closesPerDay > 50) {
+    copyText = `${closesPerDay.toFixed(0)} closes/day — high-frequency, live engine may miss rapid position changes`;
+    copyTone = "warn";
+  } else if (closesPerDay < 2) {
+    copyText = `${closesPerDay.toFixed(1)} closes/day — patient swing trader, easy to copy ✓`;
+    copyTone = "win";
+  } else {
+    copyText = `${closesPerDay.toFixed(1)} closes/day — moderate frequency`;
+    copyTone = "neutral";
+  }
+
+  const bars: { label: string; count: number; color: string }[] = [
+    { label: "scalp <5m",    count: scalp,    color: "bg-loss/60" },
+    { label: "intraday <4h", count: intraday, color: "bg-warn/60" },
+    { label: "swing <5d",    count: swing,    color: "bg-accent2/60" },
+    { label: "position 5d+", count: position, color: "bg-win/60" },
+  ].filter((b) => b.count > 0);
+
+  return (
+    <Panel title="trade style">
+      <div className="px-4 py-3 space-y-2">
+        {bars.map((b) => {
+          const barPct = pct(b.count);
+          return (
+            <div key={b.label} className="grid grid-cols-[6.5rem_3rem_1fr] gap-2 items-center">
+              <div className="text-[11px] text-muted">{b.label}</div>
+              <div className="num text-right text-[11px] text-ink/80">{barPct.toFixed(0)}%</div>
+              <div className="h-2.5 rounded-sm overflow-hidden bg-border/30">
+                <div className={`h-full rounded-sm ${b.color}`} style={{ width: `${barPct}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="px-4 py-2 border-t border-border flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <div className="text-[11px] text-muted">
+          median hold{" "}
+          <span className="text-ink num">{fmtDuration(median)}</span>
+          <span className="ml-1 text-muted/60">({total} closed trades)</span>
+        </div>
+        <div
+          className={`text-[11px] ${
+            copyTone === "win" ? "text-win" : copyTone === "warn" ? "text-warn" : "text-muted"
+          }`}
+        >
+          {copyText}
+        </div>
       </div>
     </Panel>
   );

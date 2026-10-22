@@ -168,6 +168,10 @@ class Mod:
     def stats(self):
         return store.stats()
 
+    def tags(self, limit=20):
+        """Top tags by service count: [{tag, count}]."""
+        return store.top_tags(int(limit or 20))
+
     def sources(self):
         """Every source: facilitators (seeded, discovered, added) + status."""
         return store.get_sources()

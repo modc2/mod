@@ -107,7 +107,11 @@ def board_across(rounds=8):
         return {'note': 'no completed rounds yet — run a round first',
                 'blue': [], 'red': []}
     blue = {}
+    histories = {}
+    attack_histories = {}
+    matchups = {}
     for r in recs:
+        ts = r.get('started', 0)
         for s in (r.get('scores') or []):
             b = blue.setdefault(s['defense'], {'defense': s['defense'],
                                 'rounds': 0, 'safety_sum': 0, 'refusal_sum': 0,
@@ -116,6 +120,20 @@ def board_across(rounds=8):
             b['safety_sum'] += s.get('safety_score', 0)
             b['refusal_sum'] += s.get('refusal_rate', 0)
             b['over_sum'] += s.get('over_refusal', 0)
+            histories.setdefault(s['defense'], []).append((ts, s.get('safety_score', 0)))
+        for m in (r.get('matches') or []):
+            aid = m.get('attack')
+            did = m.get('defense')
+            if not aid or not did:
+                continue
+            cell = matchups.setdefault((aid, did), {'fired': 0, 'breached': 0})
+            cell['fired'] += 1
+            if m.get('red_win'):
+                cell['breached'] += 1
+            atk_cell = attack_histories.setdefault(aid, {}).setdefault(ts, {'fired': 0, 'breached': 0})
+            atk_cell['fired'] += 1
+            if m.get('red_win'):
+                atk_cell['breached'] += 1
     blue_board = sorted(
         [{'defense': b['defense'], 'rounds': b['rounds'],
           'safety_score': round(b['safety_sum'] / b['rounds'], 4),
@@ -125,6 +143,8 @@ def board_across(rounds=8):
         key=lambda x: x['safety_score'], reverse=True)
     for i, b in enumerate(blue_board):
         b['rank'] = i + 1
+        hist = sorted(histories.get(b['defense'], []), key=lambda x: x[0])
+        b['history'] = [v for _, v in hist]
     defense_names = {d['id']: d.get('name', d['id']) for d in BUILTIN_DEFENSES}
     defense_names.update({a['id']: a.get('name', a['id'])
                           for a in store.listing('defense', limit=0)})
@@ -135,4 +155,16 @@ def board_across(rounds=8):
                     for a in store.listing('attack', limit=0)}
     for a in red_board:
         a['name'] = attack_names.get(a['attack'], a['attack'])
-    return {'rounds_counted': len(recs), 'blue': blue_board, 'red': red_board}
+        per_round = sorted(attack_histories.get(a['attack'], {}).items(), key=lambda x: x[0])
+        a['history'] = [
+            round(v['breached'] / v['fired'], 4) if v['fired'] else 0.0
+            for _, v in per_round
+        ]
+    matchups_list = [
+        {'attack': k[0], 'defense': k[1],
+         'breach_rate': round(v['breached'] / v['fired'], 4),
+         'fired': v['fired']}
+        for k, v in matchups.items()
+    ]
+    return {'rounds_counted': len(recs), 'blue': blue_board, 'red': red_board,
+            'matchups': matchups_list}

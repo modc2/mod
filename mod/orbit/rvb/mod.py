@@ -54,6 +54,7 @@ import mod as m  # noqa: E402
 
 from rvb import arena, builtins as bimod, corpus  # noqa: E402
 from rvb import defense as defmod  # noqa: E402
+from rvb import game as gamemod  # noqa: E402
 from rvb import judge as judgemod, models, store  # noqa: E402
 
 
@@ -170,6 +171,20 @@ class Mod:
         return defmod.cost(self._load_defense(defense))
 
     # ── the game ─────────────────────────────────────────────────
+
+    def game(self, red, blue, model=None, turns=3, per_turn=3, judge='model',
+             parallel=6, controls=True, timeout=None, agent_timeout=None,
+             name=None):
+        """Start a blue-vs-red agent game; returns the id immediately, runs in background."""
+        return gamemod.spawn(red, blue, model=model, turns=int(turns),
+                             per_turn=int(per_turn), judge_kind=judge,
+                             parallel=int(parallel), controls=self._flag(controls),
+                             timeout=self._num(timeout),
+                             agent_timeout=self._num(agent_timeout), name=name)
+
+    def games(self, limit=20, status=None):
+        """Game history — list of recent games with their scores."""
+        return gamemod.listing(limit=int(limit), status=status)
 
     def fight(self, attack, defense='none', model=None, judge='model',
               timeout=None):

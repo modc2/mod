@@ -88,7 +88,7 @@ Tool failures (missing args, gateway 404s, soft client errors) come back as `isE
 ## Tests
 
 ```sh
-python3 -m pytest test -q        # 10 tests: REST both path shapes, local round-trip, MCP handshake/tools/errors; offline (gateway stubbed)
+python3 -m pytest test -q        # 17 tests: REST both path shapes, local round-trip, MCP handshake/tools/errors, GraphQL query; offline (gateway stubbed)
 ```
 
 ## API

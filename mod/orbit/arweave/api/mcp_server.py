@@ -24,6 +24,8 @@ import inspect
 import json
 from typing import Any, Callable, Dict, Optional
 
+import requests as _requests
+
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
@@ -90,7 +92,10 @@ def _t_put(args):
             data = json.loads(data)
         except json.JSONDecodeError as e:
             raise ValueError(f"data is not valid JSON: {e}")
-    return _client.put(data, name=name)
+    raw_tags = args.get("tags") or []
+    pairs = [(t["name"], t["value"]) for t in raw_tags
+             if isinstance(t, dict) and t.get("name") and t.get("value") is not None]
+    return _client.put(data, name=name, extra_tags=pairs or None)
 
 
 def _t_get(args):
@@ -154,6 +159,28 @@ def _t_query(args):
     return {"edges": edges, "count": len(edges)}
 
 
+def _t_tx_status(args):
+    return _client.tx_confirm_status(_req(args, "txid"))
+
+
+def _t_archive(args):
+    url = str(args.get("url") or "").strip()
+    if not url.startswith("http://") and not url.startswith("https://"):
+        raise ValueError("url must start with http:// or https://")
+    try:
+        r = _requests.get(url, timeout=20, allow_redirects=True)
+        r.raise_for_status()
+    except _requests.RequestException as e:
+        raise ValueError(f"fetch failed: {e}")
+    ct = r.headers.get("content-type", "application/octet-stream").split(";")[0].strip()
+    raw_tags = args.get("tags") or []
+    extra_tags = [("Source-URL", url), ("App-Name", "mod-arweave")] + [
+        (t["name"], t["value"]) for t in raw_tags
+        if isinstance(t, dict) and t.get("name") and t.get("value") is not None
+    ]
+    return _client._upload_bytes(r.content, url, ct, extra_tags=extra_tags)
+
+
 _TXID = {"type": "string", "description": "Arweave tx id (43 chars) or local sha256-… id"}
 
 TOOLS: Dict[str, Dict[str, Any]] = {
@@ -182,6 +209,18 @@ TOOLS: Dict[str, Dict[str, Any]] = {
                 "name": {"type": "string", "description": "optional file name tag"},
                 "as_json": {"type": "boolean",
                             "description": "when data is a string, parse it as JSON first"},
+                "tags": {
+                    "type": "array",
+                    "description": "optional custom Arweave tags, each {name, value}",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "value": {"type": "string"},
+                        },
+                        "required": ["name", "value"],
+                    },
+                },
             },
             "required": ["data"],
         },
@@ -260,6 +299,49 @@ TOOLS: Dict[str, Dict[str, Any]] = {
             },
         },
         "handler": _t_query,
+    },
+    "arweave_tx_status": {
+        "description": (
+            "Check the on-chain confirmation status of a transaction id. "
+            "Returns one of four statuses: "
+            "\"confirmed\" (with confirmations count and block_height when mined), "
+            "\"pending\" (broadcast but not yet mined, gateway returned 202), "
+            "\"not_found\" (unknown tx id, gateway returned 404), or "
+            "\"local\" (sha256-… ids stored only on this box, never sent to Arweave)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"txid": _TXID},
+            "required": ["txid"],
+        },
+        "handler": _t_tx_status,
+    },
+    "arweave_archive": {
+        "description": (
+            "Fetch a URL and store its content permanently on Arweave. "
+            "Auto-tags Source-URL and App-Name=mod-arweave so the page is findable "
+            "via the Query panel. Returns txid, backend, size, and a gateway URL."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL to fetch and archive (http:// or https://)"},
+                "tags": {
+                    "type": "array",
+                    "description": "additional tags beyond the auto-added Source-URL and App-Name",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "value": {"type": "string"},
+                        },
+                        "required": ["name", "value"],
+                    },
+                },
+            },
+            "required": ["url"],
+        },
+        "handler": _t_archive,
     },
 }
 

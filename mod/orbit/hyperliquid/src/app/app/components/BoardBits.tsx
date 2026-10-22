@@ -241,3 +241,50 @@ export function Spark({ points, height = 30, className = "" }: {
     </div>
   );
 }
+
+/** Multi-series normalized PnL overlay for comparing picked traders on a
+ *  shared Y axis regardless of account size. Each series is divided by its own
+ *  max absolute value, so a $50k wallet and a $500 wallet land in the same range. */
+export function MultiSpark({ series, height = 52, className = "" }: {
+  series: [number, number][][]; height?: number; className?: string;
+}) {
+  const live = series.filter((s) => s.length >= 2);
+  if (live.length === 0) return null;
+  const W = 100, PAD = 2;
+
+  const normed = live.map((pts) => {
+    const scale = Math.max(...pts.map((p) => Math.abs(p[1])), 1e-9);
+    return pts.map((p): [number, number] => [p[0], p[1] / scale]);
+  });
+
+  const allTs = normed.flatMap((pts) => [pts[0][0], pts[pts.length - 1][0]]);
+  const t0 = Math.min(...allTs), t1 = Math.max(...allTs);
+  const allVs = normed.flatMap((pts) => pts.map((p) => p[1]));
+  let lo = Math.min(0, ...allVs), hi = Math.max(0, ...allVs);
+  if (hi === lo) { hi += 0.1; lo -= 0.1; }
+  const vpad = (hi - lo) * 0.12;
+  lo -= vpad; hi += vpad;
+
+  const X = (t: number) => ((t - t0) / (t1 - t0 || 1)) * W;
+  const Y = (v: number) => PAD + (1 - (v - lo) / (hi - lo)) * (height - PAD * 2);
+  const zero = Y(0);
+
+  return (
+    <div className={`relative ${className}`} style={{ height }} aria-hidden>
+      <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none"
+        className="block h-full w-full overflow-visible">
+        <line x1={0} x2={W} y1={zero} y2={zero} stroke="var(--chart-zero)" strokeWidth={1}
+          strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+        {normed.map((pts, i) => {
+          const hue = (i * 137) % 360;
+          const d = pts.map((p, j) => `${j ? "L" : "M"}${X(p[0]).toFixed(2)},${Y(p[1]).toFixed(2)}`).join("");
+          return (
+            <path key={i} d={d} fill="none" stroke={`hsl(${hue}, 65%, 58%)`}
+              strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round"
+              vectorEffect="non-scaling-stroke" />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}

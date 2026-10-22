@@ -45,6 +45,9 @@ const SORTS = [
   { key: "usd", label: "PROFIT $", pool: "pnl", local: false },
   { key: "roi", label: "ROI", pool: "roi", local: false },
   { key: "volume", label: "VOLUME", pool: "volume", local: false },
+  { key: "sharpe", label: "SHARPE", pool: "sharpe", local: false },
+  { key: "exitEntry", label: "EXIT/ENTRY", pool: "roi", local: false },
+  { key: "resolveRate", label: "RESOLVE", pool: "resolveRate", local: false },
 ] as const;
 
 /** Hover has to settle before a replay fires — sweeping the mouse down the
@@ -491,10 +494,14 @@ export default function CopyStudio() {
                   <SortTh k="volume" sort={sort} asc={asc} onPick={pickSort}>VOLUME</SortTh>
                   <th className="px-2 py-1.5 text-right" title={`Average trades per day over the ${days}D window`}>TRADES/D</th>
                   <th className="px-2 py-1.5 text-right">WIN</th>
+                  <SortTh k="resolveRate" sort={sort} asc={asc} onPick={pickSort} title="Buy-and-hold hit rate — share of settled positions that rode to $1 resolution. High WIN + low RESOLVE means an early-exit scalper; pair with copySells=true. High RESOLVE = conviction holder; pair with the buy-and-hold strat.">RESOLVE</SortTh>
+                  <SortTh k="sharpe" sort={sort} asc={asc} onPick={pickSort} title="Mean per-trade return ÷ its stdev — consistent edge, not just big wins">SHARPE</SortTh>
+                  <SortTh k="exitEntry" sort={sort} asc={asc} onPick={pickSort} title="Average exit÷entry price ratio — above 1.0 means they sold higher than they bought">EXIT/ENTRY</SortTh>
                   <th className="px-2 py-1.5 text-right">LAST</th>
                   </>}
                   <th className="px-2 py-1.5">CURVE</th>
                   <SortTh k="pct" sort={sort} asc={asc} onPick={pickSort} title="% return if you had copied them — click to sort">IF COPIED</SortTh>
+                  <th className="px-2 py-1.5 text-right" title="Your mirror size ÷ leader notional per fill — below 1.5× is safe, above 3× every fill is capped">RATIO</th>
                   <SortTh k="steady" sort={sort} asc={asc} onPick={pickSort} title="0–100: how consistent copying them would have been. HOW IT'S SCORED shows the mix. Click to sort.">STEADY</SortTh>
                 </tr>
               </thead>
@@ -530,6 +537,13 @@ export default function CopyStudio() {
                       <td className="px-2 py-1 text-pixel-white">
                         {shortAddress(a)}
                         {pinned === a && <span className="ml-1 text-[9px] text-pixel-green">PINNED</span>}
+                        {t.qc && t.qc.flags.length > 0 && (
+                          t.qc.flags.some(f => f === "flash" || f === "cluster")
+                            ? <span className="ml-1 text-[8px] text-red-400 leading-none" title={`QC flags: ${t.qc.flags.join(", ")}`}>●</span>
+                            : t.qc.flags.some(f => f === "one_hit" || f === "no_basis")
+                            ? <span className="ml-1 text-[8px] text-amber-400 leading-none" title={`QC flags: ${t.qc.flags.join(", ")}`}>●</span>
+                            : null
+                        )}
                       </td>
                       <td className={`px-2 py-1 text-right ${toneOf(t.pnl)}`}>{fmtUsd(t.pnl, true)}</td>
                       {!simple && <>
@@ -540,6 +554,29 @@ export default function CopyStudio() {
                       <td className="px-2 py-1 text-right text-pixel-gray-light">
                         {t.winRate >= 0 ? `${Math.round(t.winRate)}%` : "—"}
                       </td>
+                      <td className={`px-2 py-1 text-right ${t.decidedPositions < 10 ? "text-pixel-gray" : "text-pixel-gray-light"}`}>
+                        {t.resolveRate >= 0 ? `${Math.round(t.resolveRate * 100)}%` : "—"}
+                      </td>
+                      <td className={`px-2 py-1 text-right ${
+                        !Number.isFinite(t.sharpe) || t.sharpe <= 0
+                          ? "text-pixel-gray"
+                          : t.sharpe >= 1.0
+                          ? "text-green-400"
+                          : t.sharpe >= 0.3
+                          ? "text-pixel-gray-light"
+                          : "text-amber-400"
+                      }`}>
+                        {Number.isFinite(t.sharpe) && t.sharpe > 0 ? t.sharpe.toFixed(2) : "—"}
+                      </td>
+                      <td className={`px-2 py-1 text-right ${
+                        t.exitEntry <= 0
+                          ? "text-pixel-gray"
+                          : t.exitEntry >= 1.0
+                          ? "text-green-400"
+                          : "text-red-400"
+                      }`}>
+                        {t.exitEntry <= 0 ? "—" : t.exitEntry.toFixed(2)}
+                      </td>
                       <td className="px-2 py-1 text-right text-pixel-gray">
                         {t.lastTradeTs ? timeAgo(t.lastTradeTs * 1000) : "—"}
                       </td>
@@ -549,6 +586,15 @@ export default function CopyStudio() {
                       </td>
                       <td className={`px-2 py-1 text-right ${sim ? (sim.trades > 0 ? toneOf(sim.net) : "text-amber-400") : "text-pixel-gray"}`}>
                         {sim ? (sim.trades > 0 ? fmtPct(sim.pct) : "idle") : "·"}
+                      </td>
+                      <td className={`px-2 py-1 text-right ${
+                        !sim ? "text-pixel-gray"
+                        : sim.trades === 0 ? "text-pixel-gray"
+                        : sim.ratio >= 3 ? "text-red-400"
+                        : sim.ratio >= 1.5 ? "text-amber-400"
+                        : "text-pixel-gray-light"
+                      }`} title="Your mirror size ÷ leader notional per fill — below 1.5× is safe, above 3× every fill is capped">
+                        {sim && sim.trades > 0 && sim.ratio > 0 ? `${sim.ratio.toFixed(1)}×` : sim ? "—" : "·"}
                       </td>
                       <td
                         className={`px-2 py-1 text-right ${sc?.score == null ? "text-pixel-gray" : sc.score >= 60 ? "text-green-400" : sc.score >= 40 ? "text-pixel-gray-light" : "text-red-400"}`}
@@ -636,11 +682,13 @@ export default function CopyStudio() {
                 <p className={`font-mono text-[11.5px] ${TONE[pv.tone]}`}>{pv.text}</p>
                 {preview && preview.trades > 0 && (
                   <>
-                    <div className="grid grid-cols-4 gap-2 font-mono text-[10px]">
+                    <div className="grid grid-cols-6 gap-2 font-mono text-[10px]">
                       <Stat label="MAX DROP" value={`${preview.drawdown.toFixed(1)}%`} />
                       <Stat label="COPIED" value={`${preview.executed}/${preview.observed}`} hint="their buys you would have copied / their buys" />
                       <Stat label="FEES" value={fmtUsd(preview.fees)} />
                       <Stat label="SETTLED" value={`${Math.round(preview.confidence * 100)}%`} hint="share of the result from markets that actually resolved, vs. marked at last price" />
+                      {(() => { const ft = traders.find((t) => t.address.toLowerCase() === focus); const sh = ft?.sharpe ?? 0; return <Stat label="SHARPE" value={Number.isFinite(sh) && sh > 0 ? sh.toFixed(2) : "—"} hint="Mean per-trade return ÷ its stdev — consistent edge, not just big wins" />; })()}
+                      <Stat label="RATIO" value={preview.ratio > 0 ? `${preview.ratio.toFixed(2)}×` : "—"} hint="Your mirror size ÷ leader notional per fill — below 1.5× is safe, above 3× every fill is capped" tone={preview.ratio >= 3 ? "red" : preview.ratio >= 1.5 ? "amber" : "white"} />
                     </div>
                     <div>
                       <EquityChart history={preview.equity} markers={preview.markers} timeControls={false} />
@@ -704,7 +752,7 @@ export default function CopyStudio() {
                   })}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-pixel-border/60">
+                {!simple && <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-pixel-border/60">
                   <span className="font-mono text-[9.5px] text-pixel-gray">SPLIT $</span>
                   <input
                     type="number"
@@ -728,7 +776,7 @@ export default function CopyStudio() {
                   >
                     BY RESULT
                   </button>
-                </div>
+                </div>}
 
                 {run && (
                   <div className="space-y-1.5 pt-1 border-t border-pixel-border/60">
@@ -785,11 +833,12 @@ export default function CopyStudio() {
   );
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Stat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "white" | "amber" | "red" }) {
+  const valueClass = tone === "amber" ? "text-amber-400" : tone === "red" ? "text-red-400" : "text-pixel-white";
   return (
     <div title={hint}>
       <div className="text-[8.5px] tracking-[0.12em] text-pixel-gray">{label}</div>
-      <div className="text-pixel-white">{value}</div>
+      <div className={valueClass}>{value}</div>
     </div>
   );
 }

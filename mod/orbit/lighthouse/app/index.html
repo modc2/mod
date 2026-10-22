@@ -44,6 +44,8 @@
         <div class="tabs" id="put-tabs">
           <button class="tab on" data-pane="pane-file">file</button>
           <button class="tab" data-pane="pane-text">text</button>
+          <button class="tab" data-pane="pane-lookup">look up</button>
+          <button class="tab" data-pane="pane-url">archive</button>
         </div>
 
         <div class="pane on" id="pane-file">
@@ -58,6 +60,19 @@
         <div class="pane" id="pane-text">
           <textarea id="text" rows="6" placeholder="a note, a poem, a manifesto — whatever should outlive you"></textarea>
           <p class="hint tight"><span id="text-count">0 characters</span> · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> sends it</p>
+        </div>
+
+        <div class="pane" id="pane-lookup">
+          <div class="row wrap">
+            <input id="lookup-cid" placeholder="CID or ipfs://…" autocomplete="off" spellcheck="false" style="flex:1">
+            <button id="lookup-peek" class="primary">peek</button>
+          </div>
+          <div id="lookup-out" class="out"></div>
+        </div>
+
+        <div class="pane" id="pane-url">
+          <input type="url" id="url-input" placeholder="https://… — save this page forever" autocomplete="off" spellcheck="false" style="width:100%">
+          <div id="url-preview" class="out"></div>
         </div>
 
         <details class="opts">
@@ -120,11 +135,26 @@
   <section class="block">
     <div class="head-row">
       <h2>the shelf</h2>
+      <span id="shelf-count" class="shelf-stat"></span>
       <div class="tabs" id="list-tabs">
         <button class="tab on" data-src="module">this lighthouse</button>
         <button class="tab" data-src="store">in the store</button>
       </div>
       <input id="shelf-q" class="search" type="search" placeholder="filter by name or CID" autocomplete="off" spellcheck="false">
+      <div class="tabs" id="type-tabs" style="flex-basis:100%">
+        <button class="tab on" data-type="all">All</button>
+        <button class="tab" data-type="image">Images</button>
+        <button class="tab" data-type="video">Video</button>
+        <button class="tab" data-type="audio">Audio</button>
+        <button class="tab" data-type="text">Text</button>
+        <button class="tab" data-type="other">Other</button>
+      </div>
+      <div class="tabs" id="sort-tabs" style="flex-basis:100%">
+        <button class="tab on" data-sort="newest">Newest</button>
+        <button class="tab" data-sort="oldest">Oldest</button>
+        <button class="tab" data-sort="name">Name</button>
+        <button class="tab" data-sort="size">Size</button>
+      </div>
       <button id="refresh" class="ghost">refresh</button>
     </div>
     <div id="objects" class="objects"><p class="hint cursor">loading</p></div>
@@ -172,6 +202,11 @@
         <button id="mirror" class="primary">mirror</button>
       </div>
       <div id="mirror-out" class="out"></div>
+    </div>
+
+    <div class="card owner-only" id="card-earnings">
+      <h3>x402 earnings</h3>
+      <div id="earnings-body"></div>
     </div>
   </section>
 

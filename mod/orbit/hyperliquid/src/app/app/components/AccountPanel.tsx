@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
-  agentStatus, depositChains, userLedger, userSpot, userState, walletConfig,
+  agentStatus, depositChains, userFunding, userLedger, userPnl, userSpot, userState, walletConfig,
   ago, fmtPnl, fmtUsd, shortAddr,
   type DepositChains, type LedgerUpdate, type WalletNetConfig,
 } from "../lib/api";
@@ -16,6 +16,7 @@ import { useWallet } from "../lib/wallet";
 import { useSession } from "../lib/auth";
 import { Identicon } from "./BoardBits";
 import DepositPanel from "./DepositPanel";
+import PnlChart from "./PnlChart";
 
 // ── The account sidebar ───────────────────────────────────────────────────
 // Everything you do *to your own account* lives here, beside whatever page
@@ -123,6 +124,10 @@ export default function AccountPanel({ onNavigate }: { onNavigate: () => void })
   const [ledger, setLedger] = useState<LedgerUpdate[] | null>(null);
   const [book, setBook] = useState<Portfolio | null>(null);
   const [agent, setAgent] = useState<{ agentAddress: string; approved: boolean } | null>(null);
+  const [funding, setFunding] = useState<any[] | null>(null);
+  const [pnlData, setPnlData] = useState<any | null>(null);
+  const [pnlLoading, setPnlLoading] = useState(false);
+  const [pnlDays, setPnlDays] = useState(7);
 
   const [op, setOp] = useState<WalletOp>("deposit");
   const [busy, setBusy] = useState<null | string>(null);
@@ -161,13 +166,14 @@ export default function AccountPanel({ onNavigate }: { onNavigate: () => void })
   useEffect(() => { if (eoa) setWDest((d) => d || eoa); }, [eoa]);
 
   const refresh = useCallback(() => {
-    if (!eoa) { setState(null); setSpot(null); setLedger(null); setAgent(null); return; }
+    if (!eoa) { setState(null); setSpot(null); setLedger(null); setAgent(null); setFunding(null); return; }
     userState(eoa).then(setState).catch(() => setState(null));
     userSpot(eoa).then(setSpot).catch(() => setSpot(null));
     userLedger(eoa).then((l) => setLedger(Array.isArray(l) ? [...l].sort((a, b) => b.time - a.time) : []))
       .catch(() => setLedger(null));
     agentStatus(eoa).then((r) => setAgent({ agentAddress: r.agentAddress, approved: r.approved }))
       .catch(() => setAgent(null));
+    userFunding(eoa).then(setFunding).catch(() => setFunding(null));
   }, [eoa]);
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -177,6 +183,12 @@ export default function AccountPanel({ onNavigate }: { onNavigate: () => void })
     if (!me) { setBook(null); return; }
     portfolio(me).then(setBook).catch(() => setBook(null));
   }, [me]);
+
+  useEffect(() => {
+    if (!eoa) { setPnlData(null); return; }
+    setPnlLoading(true);
+    userPnl(eoa).then(setPnlData).catch(() => setPnlData(null)).finally(() => setPnlLoading(false));
+  }, [eoa]);
 
   if (!eoa) {
     return (
@@ -200,6 +212,8 @@ export default function AccountPanel({ onNavigate }: { onNavigate: () => void })
   const withdrawable = Number(state?.withdrawable ?? 0);
   const positions: any[] = state?.assetPositions ?? [];
   const unrealized = positions.reduce((s, p) => s + Number(p?.position?.unrealizedPnl ?? 0), 0);
+  const net24hFunding = (funding ?? []).filter((f: any) => f.time > Date.now() - 86_400_000)
+    .reduce((s: number, f: any) => s + Number(f.usdc ?? 0), 0);
   const spotRows: any[] = (spot?.balances ?? []).filter((b: any) => Number(b.total) > 0);
   const spotUsdcRow = spotRows.find((b) => b.coin === "USDC");
   const spotUsdc = spotUsdcRow ? Number(spotUsdcRow.total) - Number(spotUsdcRow.hold ?? 0) : 0;
@@ -341,6 +355,34 @@ export default function AccountPanel({ onNavigate }: { onNavigate: () => void })
         <Stat label="Withdrawable" value={fmtUsd(withdrawable)} />
         <Stat label="Spot USDC" value={spot ? fmtUsd(spotUsdc) : "…"} />
         <Stat label="Unrealized" value={fmtPnl(unrealized)} tone={unrealized >= 0 ? "win" : "loss"} />
+        <Stat label="Funding 24h" value={funding ? fmtPnl(net24hFunding) : "…"}
+          tone={net24hFunding > 0 ? "win" : net24hFunding < 0 ? "loss" : undefined} />
+      </div>
+
+      {/* my performance */}
+      <div className="panel overflow-hidden">
+        <div className={`${row} px-3 py-2`}>
+          <span className="eyebrow">My performance</span>
+          <div className="flex gap-1">
+            {[1, 7, 30].map((d) => (
+              <button key={d} onClick={() => setPnlDays(d)}
+                className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider transition-colors ${
+                  pnlDays === d
+                    ? "border-accent/50 bg-accent/10 text-ink"
+                    : "border-white/[0.08] bg-white/[0.03] text-muted hover:text-ink"
+                }`}>
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
+        {pnlLoading ? (
+          <div className="px-3 py-6 text-[11px] text-muted">loading…</div>
+        ) : pnlData ? (
+          <PnlChart portfolio={pnlData} days={pnlDays} />
+        ) : (
+          <div className="px-3 py-4 text-[11px] text-muted">no performance history</div>
+        )}
       </div>
 
       {/* operations */}

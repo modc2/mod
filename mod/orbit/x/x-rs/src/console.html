@@ -35,7 +35,10 @@ nav a.item{display:flex;align-items:center;gap:13px;padding:11px 14px;border-rad
   font-size:15px;font-weight:500}
 nav a.item:hover{background:rgba(255,255,255,.06);text-decoration:none}
 nav a.item.on{background:var(--acc-dim);color:var(--acc);font-weight:700}
-nav a.item .ico{width:20px;text-align:center;font:600 13px var(--mono);opacity:.9}
+nav a.item .ico{width:20px;text-align:center;font:600 13px var(--mono);opacity:.9;position:relative}
+.nav-badge{position:absolute;top:-6px;right:-8px;background:var(--err);color:#fff;
+  font:700 9px var(--mono);border-radius:99px;padding:1px 4px;min-width:14px;text-align:center;
+  line-height:14px;pointer-events:none}
 nav .spacer{flex:1}
 .authpills{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px}
 .pill{font:10px var(--mono);letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);
@@ -78,9 +81,18 @@ aside{padding:14px 12px;position:sticky;top:0;height:100vh;overflow:auto}
 .act.rt:hover{color:var(--rt)}
 .act.on{color:var(--like)}
 .act.rt.on{color:var(--rt)}
+.act.del:hover{color:var(--err)}
+.act.bk:hover{color:var(--acc)}
+.act.bk.on{color:var(--acc)}
 .badge{font:9.5px var(--mono);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--dim);
   text-transform:uppercase;letter-spacing:.06em}
 .badge.syn{color:var(--warn);border-color:rgba(255,212,0,.3)}
+.qcard{border-left:3px solid var(--line);border-radius:4px;padding:8px 10px;margin:8px 0 4px;
+  background:rgba(255,255,255,.03);font-size:13.5px;line-height:1.38}
+.qcard .qwho{display:flex;align-items:baseline;gap:5px;font-size:13px;margin-bottom:3px;flex-wrap:wrap}
+.qcard .qnm{font-weight:700}
+.qcard .qhd{color:var(--dim)}
+.qcard .qtxt{color:rgba(231,233,234,.75);white-space:pre-wrap;word-wrap:break-word}
 
 /* profile */
 .prof{padding:16px;border-bottom:1px solid var(--line)}
@@ -96,6 +108,15 @@ aside{padding:14px 12px;position:sticky;top:0;height:100vh;overflow:auto}
   white-space:nowrap;border-bottom:2px solid transparent}
 .tabs a:hover{background:rgba(255,255,255,.04);text-decoration:none}
 .tabs a.on{color:var(--text);border-bottom-color:var(--acc)}
+.media-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:3px}
+.media-tile{aspect-ratio:1;overflow:hidden;position:relative;cursor:pointer;display:block;text-decoration:none}
+.media-tile img{width:100%;height:100%;object-fit:cover;display:block}
+.media-tile .mt-play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.6);
+  color:#fff;font-size:22px;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;
+  justify-content:center;pointer-events:none}
+.media-tile .mt-ov{position:absolute;inset:0;background:rgba(0,0,0,.45);opacity:0;transition:opacity .15s;
+  display:flex;align-items:flex-end;padding:6px 8px;gap:10px;color:#fff;font-size:12px;font-weight:600}
+.media-tile:hover .mt-ov{opacity:1}
 
 /* bits */
 .row{display:flex;gap:8px;align-items:center}
@@ -143,6 +164,10 @@ code{font:12px var(--mono);background:var(--elev);border-radius:5px;padding:1px 
 .rt-table .m{color:var(--ok);width:52px}
 .rt-table .p{color:var(--text);white-space:nowrap}
 .rt-table .s{color:var(--dim)}
+.kb-on{outline:2px solid var(--acc);outline-offset:-2px;border-radius:0}
+.new-banner{position:sticky;top:0;background:var(--acc);color:#fff;font-weight:700;padding:10px;text-align:center;cursor:pointer;border-radius:8px;margin:8px 16px;z-index:4}
+.ir{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.ir-row{display:flex;gap:8px;align-items:center;margin-top:8px}
 </style>
 </head>
 <body>
@@ -153,10 +178,13 @@ code{font:12px var(--mono);background:var(--elev);border-radius:5px;padding:1px 
     </div>
     <a class="item" data-nav="accounts" href="#/accounts"><span class="ico">AC</span><span class="lbl">Accounts</span></a>
     <a class="item" data-nav="search" href="#/search"><span class="ico">SR</span><span class="lbl">Search</span></a>
+    <a class="item" data-nav="trends" href="#/trends"><span class="ico">TR</span><span class="lbl">Trends</span></a>
     <a class="item" data-nav="summary" href="#/summary"><span class="ico">SU</span><span class="lbl">Summarize</span></a>
     <a class="item" data-nav="post"   href="#/post"><span class="ico">PO</span><span class="lbl">Post</span></a>
     <a class="item" data-nav="user"   href="#/user"><span class="ico">@</span><span class="lbl">Profile</span></a>
     <a class="item" data-nav="mentions" href="#/mentions"><span class="ico">ME</span><span class="lbl">Mentions</span></a>
+    <a class="item" data-nav="home"     href="#/home"><span class="ico">HM</span><span class="lbl">Home</span></a>
+    <a class="item" data-nav="bookmarks" href="#/bookmarks"><span class="ico">BK</span><span class="lbl">Bookmarks</span></a>
     <a class="item" data-nav="compose" href="#/compose"><span class="ico">+</span><span class="lbl">Compose</span></a>
     <a class="item" data-nav="api"    href="#/api"><span class="ico">{}</span><span class="lbl">API &amp; MCP</span></a>
     <a class="item" data-nav="auth"   href="#/auth"><span class="ico">KY</span><span class="lbl">Auth</span></a>
@@ -297,17 +325,62 @@ function postCard(tweet, includes, opts) {
     refs.some(r => r.type === 'quoted') ? el('span', { class: 'badge', text: 'quote' }) : null,
     opts.source ? el('span', { class: 'badge syn', text: 'keyless' }) : null);
 
+  const irWeigh = s => Array.from(s.replace(/https?:\/\/\S+/g, 'x'.repeat(23))).length;
+  const irTa = el('textarea', { rows: 3, placeholder: 'Reply…' });
+  const irCounter = el('span', { class: 'chip' });
+  const irBtn = el('button', { class: 'btn sm', text: 'Reply' });
+  const irTick = () => {
+    const n = irWeigh(irTa.value);
+    irCounter.textContent = n + ' / 280';
+    irCounter.style.color = n > 280 ? 'var(--err)' : n > 260 ? 'var(--warn)' : '';
+    irBtn.disabled = !irTa.value.trim() || n > 280;
+  };
+  const irBox = el('div', { class: 'ir', style: 'display:none' },
+    irTa, el('div', { class: 'ir-row' }, irCounter, el('div', { class: 'grow' }), irBtn));
+  irTa.addEventListener('input', irTick);
+  irBtn.addEventListener('click', async () => {
+    try {
+      await jpost('/posts', { text: irTa.value, reply_to: tweet.id });
+      irBox.style.display = 'none';
+      irTa.value = '';
+      irTick();
+      toast('replied');
+    } catch (err) {
+      if (err.status === 401) { location.hash = '#/compose?reply=' + tweet.id; }
+      else { toast(err.message, true); }
+    }
+  });
+  irTick();
+
   const acts = el('div', { class: 'pmeta' },
-    metric('reply', m.reply_count, '', () => { location.hash = '#/compose?reply=' + tweet.id; }, 'reply to this'),
+    metric('reply', m.reply_count, '', () => {
+      if (S.auth.writes) {
+        const open = irBox.style.display === 'none';
+        irBox.style.display = open ? '' : 'none';
+        if (open) irTa.focus();
+      } else {
+        location.hash = '#/compose?reply=' + tweet.id;
+      }
+    }, 'reply to this'),
     metric('repost', m.retweet_count, 'rt', async e => {
       const b = e.currentTarget;
-      try { await jpost('/posts/' + tweet.id + '/repost'); b.classList.add('on'); toast('reposted'); }
-      catch (err) { toast(err.message, true); }
+      if (b.classList.contains('on')) {
+        try { await fetch('/posts/' + tweet.id + '/repost', { method: 'DELETE' }); b.classList.remove('on'); toast('unreposted'); }
+        catch (err) { toast(err.message, true); }
+      } else {
+        try { await jpost('/posts/' + tweet.id + '/repost'); b.classList.add('on'); toast('reposted'); }
+        catch (err) { toast(err.message, true); }
+      }
     }, 'repost'),
     metric('like', m.like_count, 'like', async e => {
       const b = e.currentTarget;
-      try { await jpost('/posts/' + tweet.id + '/like'); b.classList.add('on'); toast('liked'); }
-      catch (err) { toast(err.message, true); }
+      if (b.classList.contains('on')) {
+        try { await fetch('/posts/' + tweet.id + '/like', { method: 'DELETE' }); b.classList.remove('on'); toast('unliked'); }
+        catch (err) { toast(err.message, true); }
+      } else {
+        try { await jpost('/posts/' + tweet.id + '/like'); b.classList.add('on'); toast('liked'); }
+        catch (err) { toast(err.message, true); }
+      }
     }, 'like'),
     m.quote_count != null ? metric('quotes', m.quote_count, '', null, 'quotes') : null,
     m.impression_count != null ? metric('views', m.impression_count, '', null, 'impressions') : null,
@@ -317,12 +390,108 @@ function postCard(tweet, includes, opts) {
       onclick: () => { if (navigator.clipboard) navigator.clipboard.writeText(tweet.id); toast('id ' + tweet.id + ' copied'); },
     }));
 
+  if (S.me && tweet.author_id === S.me.id) {
+    const delBtn = el('button', { class: 'act del', text: 'del', title: 'delete post' });
+    let delTimer = null;
+    delBtn.addEventListener('click', async () => {
+      if (delBtn.dataset.confirm) {
+        clearTimeout(delTimer);
+        delBtn.dataset.confirm = '';
+        delBtn.textContent = 'del';
+        const art = delBtn.closest('article');
+        try {
+          await fetch('/posts/' + tweet.id, { method: 'DELETE' });
+          if (art) art.remove();
+          toast('deleted');
+        } catch (err) { toast(err.message || 'delete failed', true); }
+      } else {
+        delBtn.dataset.confirm = '1';
+        delBtn.textContent = 'sure?';
+        delTimer = setTimeout(() => { delBtn.dataset.confirm = ''; delBtn.textContent = 'del'; }, 3000);
+      }
+    });
+    acts.appendChild(delBtn);
+  }
+
+  const bkBtn = el('button', { class: 'act bk', text: 'bk', title: 'bookmark / unbookmark' });
+  bkBtn.addEventListener('click', async () => {
+    if (bkBtn.classList.contains('on')) {
+      try {
+        await fetch('/posts/' + tweet.id + '/bookmark', { method: 'DELETE' });
+        bkBtn.classList.remove('on');
+        toast('bookmark removed');
+      } catch (err) { toast(err.message, true); }
+    } else {
+      try {
+        await jpost('/posts/' + tweet.id + '/bookmark');
+        bkBtn.classList.add('on');
+        toast('bookmarked');
+      } catch (err) { toast(err.message, true); }
+    }
+  });
+  acts.appendChild(bkBtn);
+
   const av = el('img', { class: 'av', alt: '' });
   if (a.profile_image_url) av.src = a.profile_image_url.replace('_normal', '_x96');
 
+  const inclTweets = (includes && includes.tweets) || [];
+  const inclUsers  = (includes && includes.users)  || [];
+
+  // Retweets: replace truncated "RT @handle: …" with full original text.
+  const rtRef = refs.find(r => r.type === 'retweeted');
+  const qtRef = refs.find(r => r.type === 'quoted');
+  let displayText = tweet.text;
+  if (rtRef) {
+    const orig = inclTweets.find(t => t.id === rtRef.id);
+    if (orig) displayText = orig.text;
+  }
+
+  // Quote tweets: nested citation card below the outer text.
+  let quotedCard = null;
+  if (qtRef) {
+    const qt = inclTweets.find(t => t.id === qtRef.id);
+    if (qt) {
+      const qa = inclUsers.find(u => u.id === qt.author_id) || {};
+      const qHandle = qa.username ? '@' + qa.username : (qt.author_id ? 'id:' + qt.author_id : '');
+      const qText = (qt.text || '').length > 200 ? qt.text.slice(0, 200) + '…' : (qt.text || '');
+      quotedCard = el('div', { class: 'qcard' },
+        el('div', { class: 'qwho' },
+          qa.name ? el('span', { class: 'qnm', text: qa.name }) : null,
+          qHandle  ? el('span', { class: 'qhd', text: qHandle }) : null),
+        el('div', { class: 'qtxt', text: qText }));
+    }
+  }
+
+  const mediaKeys = tweet.attachments && tweet.attachments.media_keys;
+  const mediaItems = mediaKeys
+    ? mediaKeys.map(k => (includes && includes.media || []).find(m => m.media_key === k)).filter(Boolean)
+    : [];
+  const mediaEl = mediaItems.length
+    ? el('div', { class: 'pmedia' },
+        ...mediaItems.map(m => {
+          if (m.type === 'photo') {
+            return el('img', { class: 'pmimg', src: m.url || '', alt: m.alt_text || '',
+              style: 'max-width:100%;border-radius:10px;margin-top:8px;display:block' });
+          }
+          const wrap = el('div', { class: 'pmthumb',
+            style: 'position:relative;display:inline-block;margin-top:8px' });
+          if (m.preview_image_url) {
+            const img = el('img', { src: m.preview_image_url, alt: m.alt_text || '',
+              style: 'max-width:100%;border-radius:10px;display:block' });
+            const badge = el('div', { class: 'pmbadge', text: '▶',
+              style: 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);' +
+                     'background:rgba(0,0,0,.6);color:#fff;font-size:22px;border-radius:50%;' +
+                     'width:44px;height:44px;display:flex;align-items:center;justify-content:center;pointer-events:none' });
+            wrap.append(img, badge);
+          }
+          return wrap;
+        }))
+    : null;
+
   return el('article', { class: 'post' }, av,
     el('div', { class: 'pmain' }, who,
-      el('div', { class: 'ptext', html: linkify(tweet.text, tweet.entities) }), acts));
+      el('div', { class: 'ptext', html: linkify(displayText, tweet.entities) }),
+      quotedCard, mediaEl, acts, irBox));
 }
 
 function userRow(u) {
@@ -364,6 +533,113 @@ function errBox(e) {
       el('a', { href: '#/auth', class: 'btn sm', text: 'Set up credentials' })));
   }
   return box;
+}
+
+/* ── live poll: new posts banner ─────────────────────────── */
+function startPollNew(query, sortOrder, newestId, container) {
+  let currentNewestId = newestId;
+  let pending = null;
+  const banner = el('div', { class: 'new-banner', style: 'display:none' });
+  container.insertBefore(banner, container.firstChild);
+  banner.addEventListener('click', () => {
+    if (!pending) return;
+    const { tweets, inc } = pending;
+    const frag = document.createDocumentFragment();
+    for (const t of tweets) frag.append(postCard(t, inc));
+    const after = banner.nextSibling;
+    if (after) container.insertBefore(frag, after); else container.append(frag);
+    const maxId = tweets.map(t => BigInt(t.id)).reduce((a, b) => a > b ? a : b);
+    currentNewestId = String(maxId);
+    pending = null;
+    banner.style.display = 'none';
+  });
+  const tick = async () => {
+    try {
+      const p = new URLSearchParams({ q: query, sort_order: 'recency', max_results: 10 });
+      const res = await api('/search?' + p);
+      const newer = (res.data || []).filter(t => {
+        try { return BigInt(t.id) > BigInt(currentNewestId); } catch { return false; }
+      });
+      if (newer.length) {
+        pending = { tweets: newer, inc: res.includes };
+        banner.textContent = newer.length + ' new post' + (newer.length === 1 ? '' : 's') + ' — click to load';
+        banner.style.display = '';
+      }
+    } catch { /* silently fail */ }
+  };
+  const timer = setInterval(tick, 60000);
+  window.addEventListener('hashchange', () => clearInterval(timer), { once: true });
+}
+
+/* ── live poll: new posts banner (home feed) ─────────────── */
+function startPollNewHome(newestId, container) {
+  let currentNewestId = newestId;
+  let pending = null;
+  const banner = el('div', { class: 'new-banner', style: 'display:none' });
+  container.insertBefore(banner, container.firstChild);
+  banner.addEventListener('click', () => {
+    if (!pending) return;
+    const { tweets, inc } = pending;
+    const frag = document.createDocumentFragment();
+    for (const t of tweets) frag.append(postCard(t, inc));
+    const after = banner.nextSibling;
+    if (after) container.insertBefore(frag, after); else container.append(frag);
+    const maxId = tweets.map(t => BigInt(t.id)).reduce((a, b) => a > b ? a : b);
+    currentNewestId = String(maxId);
+    pending = null;
+    banner.style.display = 'none';
+  });
+  const tick = async () => {
+    try {
+      const res = await api('/home?max_results=10');
+      const newer = (res.data || []).filter(t => {
+        try { return BigInt(t.id) > BigInt(currentNewestId); } catch { return false; }
+      });
+      if (newer.length) {
+        pending = { tweets: newer, inc: res.includes };
+        banner.textContent = newer.length + ' new post' + (newer.length === 1 ? '' : 's') + ' — click to load';
+        banner.style.display = '';
+      }
+    } catch { /* silently fail */ }
+  };
+  const timer = setInterval(tick, 60000);
+  window.addEventListener('hashchange', () => clearInterval(timer), { once: true });
+}
+
+/* ── mentions poll: nav badge ────────────────────────────── */
+let _mentionsPollTimer = null;
+function startMentionsPoll(watermark) {
+  if (_mentionsPollTimer) clearInterval(_mentionsPollTimer);
+  let mark = watermark;
+  const icoEl = document.querySelector('[data-nav="mentions"] .ico');
+  let badgeEl = null;
+
+  function setBadge(n) {
+    if (!icoEl) return;
+    if (n <= 0) { if (badgeEl) { badgeEl.remove(); badgeEl = null; } return; }
+    if (!badgeEl) { badgeEl = el('span', { class: 'nav-badge' }); icoEl.append(badgeEl); }
+    badgeEl.textContent = n > 9 ? '9+' : String(n);
+  }
+
+  async function tick() {
+    try {
+      const res = await api('/mentions?max_results=5');
+      const posts = res.data || [];
+      if (!posts.length || !mark) return;
+      let count = 0;
+      try { count = posts.filter(t => BigInt(t.id) > BigInt(mark)).length; } catch {}
+      if (count > 0) setBadge(count);
+    } catch {}
+  }
+
+  _mentionsPollTimer = setInterval(tick, 120_000);
+  window.addEventListener('hashchange', () => {
+    if (location.hash.replace(/^#\/?/, '').split('?')[0] === 'mentions') {
+      clearInterval(_mentionsPollTimer);
+      _mentionsPollTimer = null;
+      setBadge(0);
+    }
+  });
 }
 
 /* ── routing ─────────────────────────────────────────────── */
@@ -412,10 +688,15 @@ ROUTES.summary = async (seg, q) => {
         const list = (title, rows) => rows && rows.length ? el('div', { class: 'row wrap', style: 'margin-top:8px' },
           el('b', { text: title + ' ' }), ...rows.map(r => el('span', { class: 'chip', text: r.term + ' ' + r.count }))) : '';
         kids.push(el('div', { class: 'card' }, list('Topics', d.topics), list('Hashtags', d.hashtags),
-          list('Links', d.domains), list('Mentions', d.mentions)));
-        for (const t of d.top_posts) kids.push(el('div', { class: 'card' },
-          el('a', { href: t.url, target: '_blank', text: '@' + t.author }),
-          el('div', { text: t.text }), el('div', { class: 'sub', text: t.likes + ' likes · ' + t.reposts + ' reposts · ' + t.replies + ' replies' })));
+          list('Links', d.domains), list('Mentions', d.mentions), list('Authors', d.authors), list('Languages', d.languages)));
+        const perDay = d.per_day || [];
+        if (perDay.length > 1) {
+          const maxD = Math.max(1, ...perDay.map(r => r.posts));
+          kids.push(el('div', { class: 'card' },
+            el('b', { text: 'daily activity' }),
+            el('div', { class: 'spark' }, ...perDay.map(r => el('i', { style: 'height:' + Math.max(3, r.posts / maxD * 100) + '%', title: r.day + ' — ' + r.posts + ' posts' })))));
+        }
+        for (const t of (d.top_post_cards || d.top_posts)) kids.push(postCard(t, { users: d.top_post_users || [] }));
       }
       out.replaceChildren(...kids);
     } catch (e) { out.replaceChildren(errBox(e)); }
@@ -434,7 +715,10 @@ const PRESETS = ['from:jack', '#bittensor -is:retweet', 'mcp lang:en -is:retweet
 
 ROUTES.search = async (seg, q) => {
   const query = q.get('q') != null ? q.get('q') : ls.get('q', '');
-  setHead('Search', 'GET /search?q= · last 7 days · full X query syntax');
+  const startTime = q.get('start_time') || '';
+  const endTime = q.get('end_time') || '';
+  const dateLabel = startTime ? ' · filtered · ' + startTime.slice(0, 10) + ' → ' + endTime.slice(0, 10) : '';
+  setHead('Search', 'GET /search?q= · last 7 days · full X query syntax' + dateLabel);
 
   const input = el('input', { placeholder: 'from:jack #ai -is:retweet lang:en', value: query });
   const sort = el('select', { style: 'width:auto' },
@@ -472,8 +756,13 @@ ROUTES.search = async (seg, q) => {
   results.replaceChildren(el('div', { class: 'load', text: 'searching…' }));
   try {
     const p = new URLSearchParams({ q: query, sort_order: sort.value, max_results: count.value });
+    if (startTime) p.set('start_time', startTime);
+    if (endTime) p.set('end_time', endTime);
     const res = await api('/search?' + p);
     results.replaceChildren(renderList(res, 'posts'));
+
+    const newestId = res.meta?.newest_id;
+    if (newestId) startPollNew(query, sort.value, newestId, results);
 
     let nextToken = res.meta?.next_token;
     const moreBtn = el('button', { class: 'btn', style: 'display:block;margin:12px auto', text: 'Load more' });
@@ -483,6 +772,8 @@ ROUTES.search = async (seg, q) => {
       moreBtn.textContent = 'loading…';
       try {
         const mp = new URLSearchParams({ q: query, sort_order: sort.value, max_results: count.value, next_token: nextToken });
+        if (startTime) mp.set('start_time', startTime);
+        if (endTime) mp.set('end_time', endTime);
         const more = await api('/search?' + mp);
         moreBtn.remove();
         const frag = document.createDocumentFragment();
@@ -507,6 +798,88 @@ ROUTES.search = async (seg, q) => {
   } catch (e) {
     results.replaceChildren(errBox(e));
   }
+};
+
+/* ── view: trends ────────────────────────────────────────── */
+ROUTES.trends = async () => {
+  setHead('Trends', 'GET /counts · compare query volumes · 7d');
+
+  const COLORS = ['var(--acc)', 'var(--ok)', 'var(--warn)'];
+  let queries = ['bittensor', 'mcp lang:en'];
+
+  const resultsEl = el('div');
+  const inputsEl = el('div', { style: 'display:flex;flex-direction:column;gap:8px' });
+  const addBtn = el('button', { class: 'chip', text: '+ add query' });
+
+  const rebuild = () => {
+    inputsEl.replaceChildren(
+      ...queries.map((q, i) => {
+        const inp = el('input', {
+          placeholder: 'X query  e.g. from:jack #bittensor -is:retweet',
+          value: q,
+          oninput: e => { queries[i] = e.currentTarget.value; },
+        });
+        const xBtn = queries.length > 1
+          ? el('button', { class: 'chip', text: '×', title: 'remove',
+              style: 'padding:5px 9px',
+              onclick: () => { queries.splice(i, 1); rebuild(); } })
+          : null;
+        return el('div', { class: 'row', style: 'gap:8px' },
+          el('div', { class: 'grow' }, inp), xBtn);
+      })
+    );
+    addBtn.style.display = queries.length >= 3 ? 'none' : '';
+  };
+
+  addBtn.addEventListener('click', () => {
+    if (queries.length < 3) { queries.push(''); rebuild(); }
+  });
+
+  rebuild();
+
+  const compare = async () => {
+    const active = queries.map(q => q.trim()).filter(Boolean);
+    if (!active.length) return;
+    resultsEl.replaceChildren(el('div', { class: 'load', text: 'comparing…' }));
+    try {
+      const results = await Promise.all(active.map(q =>
+        api('/counts?' + new URLSearchParams({ q, granularity: 'day' })).then(r => ({ q, r }))
+      ));
+      const globalMax = Math.max(1, ...results.flatMap(({ r }) =>
+        (r.data || []).map(d => d.tweet_count)));
+
+      resultsEl.replaceChildren(
+        ...results.map(({ q, r }, i) => {
+          const rows = r.data || [];
+          const total = (r.meta || {}).total_tweet_count;
+          const color = COLORS[i];
+          return el('div', { class: 'card' },
+            el('div', { class: 'row wrap', style: 'margin-bottom:6px;gap:8px' },
+              el('span', { style: 'font-weight:700;font-size:14px', text: q }),
+              el('span', { class: 'chip', style: 'color:' + color + ';border-color:' + color,
+                           text: num(total) })),
+            el('div', { class: 'spark' },
+              ...rows.map(row => el('i', {
+                style: 'height:' + Math.max(3, (row.tweet_count / globalMax) * 100) + '%;background:' + color + ';cursor:pointer',
+                title: new Date(row.start).toLocaleDateString() + ' — ' + row.tweet_count,
+                onclick: () => { location.hash = '#/search?q=' + encodeURIComponent(q) + '&start_time=' + encodeURIComponent(row.start) + '&end_time=' + encodeURIComponent(row.end); },
+              }))));
+        })
+      );
+    } catch (e) {
+      resultsEl.replaceChildren(errBox(e));
+    }
+  };
+
+  render(
+    el('div', { class: 'card' },
+      el('h2', { text: 'compare query volumes · 7d' }),
+      inputsEl,
+      el('div', { class: 'row wrap', style: 'margin-top:10px;gap:8px' },
+        addBtn,
+        el('div', { class: 'grow' }),
+        el('button', { class: 'btn', text: 'Compare', onclick: compare }))),
+    resultsEl);
 };
 
 /** The counts endpoint drawn as bars — cheap context for whatever was searched. */
@@ -556,7 +929,15 @@ ROUTES.post = async (seg, q) => {
   out.replaceChildren(el('div', { class: 'load', text: 'fetching…' }));
   try {
     const p = await api('/posts/' + encodeURIComponent(id));
-    out.replaceChildren(postCard(p.data, p.includes, { source: p.source }));
+    const replyRef = (p.data?.referenced_tweets || []).find(r => r.type === 'replied_to');
+    const parentTweet = replyRef && (p.includes?.tweets || []).find(t => t.id === replyRef.id);
+    const contextEl = parentTweet
+      ? el('div', {},
+          el('div', { style: 'padding:4px 16px 0;font:11px var(--mono);color:var(--dim);letter-spacing:.08em;text-transform:uppercase', text: 'replying to' }),
+          postCard(parentTweet, p.includes),
+          el('div', { style: 'margin:0 16px 0 28px;border-left:2px solid var(--acc);height:14px;opacity:.35' }))
+      : null;
+    out.replaceChildren(...[contextEl, postCard(p.data, p.includes, { source: p.source })].filter(Boolean));
     const rawCard = el('div', { class: 'card', style: 'margin:0 0 12px' }, el('h2', { text: 'raw' }),
       p.source ? el('div', { class: 'hint', style: 'margin-bottom:8px', text: p.source }) : null,
       el('pre', { text: JSON.stringify(p, null, 2) }));
@@ -619,9 +1000,10 @@ ROUTES.user = async (seg, q) => {
   const slot = el('div', { class: 'load', text: 'loading @' + handle + '…' });
   render(finder, slot);
 
-  let u;
+  let u, userRes;
   try {
-    u = (await api('/users/' + encodeURIComponent(handle))).data;
+    userRes = await api('/users/' + encodeURIComponent(handle));
+    u = userRes.data;
   } catch (e) {
     // Keep the finder on screen — a failed lookup is the moment you most want
     // to type a different handle.
@@ -639,8 +1021,23 @@ ROUTES.user = async (seg, q) => {
         el('div', { class: 'hd', text: '@' + u.username + '  ·  id ' + u.id })),
       el('button', { class: 'btn', text: 'Follow', onclick: async e => {
         const b = e.currentTarget;
-        try { await jpost('/users/' + u.username + '/follow'); b.textContent = 'Following'; toast('followed @' + u.username); }
-        catch (err) { toast(err.message, true); }
+        b.disabled = true;
+        try {
+          if (b.dataset.state === 'following') {
+            await fetch('/users/' + u.username + '/follow', { method: 'DELETE' });
+            b.dataset.state = '';
+            b.textContent = 'Follow';
+            b.classList.remove('err');
+            toast('unfollowed @' + u.username);
+          } else {
+            await jpost('/users/' + u.username + '/follow');
+            b.dataset.state = 'following';
+            b.textContent = 'Unfollow';
+            b.classList.add('err');
+            toast('followed @' + u.username);
+          }
+        } catch (err) { toast(err.message, true); }
+        finally { b.disabled = false; }
       } })),
     u.description ? el('div', { class: 'bio', html: linkify(u.description) }) : null,
     el('div', { class: 'stats' },
@@ -653,7 +1050,7 @@ ROUTES.user = async (seg, q) => {
       el('a', { href: 'https://x.com/' + u.username, target: '_blank', rel: 'noopener', text: 'x.com' })));
 
   const TABS = [['posts', 'Posts'], ['replies', 'Posts & replies'], ['mentions', 'Mentions'],
-                ['followers', 'Followers'], ['following', 'Following']];
+                ['followers', 'Followers'], ['following', 'Following'], ['media', 'Media']];
   const tabs = el('div', { class: 'tabs' }, ...TABS.map(([id, label]) => el('a', {
     class: tab === id ? 'on' : '', href: '#/user/' + u.username + '?tab=' + id, text: label })));
 
@@ -674,12 +1071,56 @@ ROUTES.user = async (seg, q) => {
     mentions: ['/users/' + u.username + '/mentions?max_results=25', 'posts'],
     followers: ['/users/' + u.username + '/followers?max_results=50', 'accounts'],
     following: ['/users/' + u.username + '/following?max_results=50', 'accounts'],
+    media: ['/users/' + u.username + '/timeline?max_results=100&exclude=retweets,replies', 'media'],
   };
+
+  function mediaTile(post, includes) {
+    const keys = post.attachments?.media_keys || [];
+    const items = keys.map(k => (includes?.media || []).find(m => m.media_key === k)).filter(Boolean);
+    if (!items.length) return null;
+    const m = items[0];
+    const tile = el('a', { class: 'media-tile', href: '#/post/' + post.id });
+    const src = m.type === 'photo' ? m.url : m.preview_image_url;
+    if (!src) return null;
+    tile.append(el('img', { src, alt: m.alt_text || '' }));
+    if (m.type !== 'photo') {
+      tile.append(el('div', { class: 'mt-play', text: '▶' }));
+    }
+    const pm = post.public_metrics || {};
+    tile.append(el('div', { class: 'mt-ov' },
+      el('span', { text: '♥ ' + (pm.like_count || 0) }),
+      el('span', { text: '↩ ' + (pm.reply_count || 0) }),
+      el('span', { text: '↺ ' + (pm.retweet_count || 0) })));
+    return tile;
+  }
+
+  function renderMedia(res) {
+    const posts = (res.data || []).filter(p => p.attachments?.media_keys?.length > 0);
+    if (!posts.length) {
+      return el('div', { class: 'empty' }, el('div', { class: 'big', text: 'Nothing here' }), 'No media posts found.');
+    }
+    const grid = el('div', { class: 'media-grid' });
+    for (const p of posts) {
+      const tile = mediaTile(p, res.includes);
+      if (tile) grid.append(tile);
+    }
+    return grid;
+  }
+
   const [path, kind] = PATHS[tab] || PATHS.posts;
+  const isMedia = kind === 'media';
   try {
     const res = await api(path);
     const container = el('div');
-    container.append(renderList(res, kind));
+    if (tab === 'posts' && u.pinned_tweet_id) {
+      const pinnedTweet = (userRes.includes?.tweets || []).find(t => t.id === u.pinned_tweet_id);
+      if (pinnedTweet) {
+        const card = postCard(pinnedTweet, userRes.includes);
+        card.querySelector('.pwho')?.append(el('span', { class: 'badge', text: 'pinned' }));
+        container.append(card);
+      }
+    }
+    container.append(isMedia ? renderMedia(res) : renderList(res, kind));
 
     let nextToken = res.meta?.next_token || res.meta?.pagination_token;
     const moreBtn = el('button', { class: 'btn', style: 'display:block;margin:12px auto', text: 'Load more' });
@@ -691,13 +1132,24 @@ ROUTES.user = async (seg, q) => {
         const sep = path.includes('?') ? '&' : '?';
         const more = await api(path + sep + 'pagination_token=' + encodeURIComponent(nextToken));
         moreBtn.remove();
-        const frag = document.createDocumentFragment();
-        if (kind === 'posts') {
-          for (const row of (more.data || [])) frag.append(postCard(row, more.includes));
+        if (isMedia) {
+          const posts = (more.data || []).filter(p => p.attachments?.media_keys?.length > 0);
+          const grid = container.querySelector('.media-grid');
+          if (grid) {
+            for (const p of posts) {
+              const tile = mediaTile(p, more.includes);
+              if (tile) grid.append(tile);
+            }
+          }
         } else {
-          for (const row of (more.data || [])) frag.append(userRow(row));
+          const frag = document.createDocumentFragment();
+          if (kind === 'posts') {
+            for (const row of (more.data || [])) frag.append(postCard(row, more.includes));
+          } else {
+            for (const row of (more.data || [])) frag.append(userRow(row));
+          }
+          container.append(frag);
         }
-        container.append(frag);
         nextToken = more.meta?.next_token || more.meta?.pagination_token;
         if (nextToken) {
           moreBtn.disabled = false;
@@ -723,12 +1175,133 @@ ROUTES.user = async (seg, q) => {
 ROUTES.mentions = async () => {
   setHead('Mentions', 'GET /mentions · the authenticated account · needs user context');
   try {
-    render(renderList(await api('/mentions?max_results=50'), 'posts'));
+    const res = await api('/mentions?max_results=50');
+    render(renderList(res, 'posts'));
+    const newest = (res.data && res.data[0] && res.data[0].id) || res.meta?.newest_id;
+    if (newest) ls.set('mention_mark', newest);
+    const badge = document.querySelector('[data-nav="mentions"] .nav-badge');
+    if (badge) badge.remove();
   } catch (e) {
     render(errBox(e), el('div', { class: 'hint', style: 'padding:0 16px' },
       'Mentions read the account you are signed in as, so this rail needs the four OAuth 1.0a keys.'));
   }
 };
+
+/* ── view: home feed ─────────────────────────────────────── */
+ROUTES.home = async (seg, q) => {
+  setHead('Home', 'GET /home · reverse-chronological feed · needs user context');
+
+  const results = el('div', { class: 'load', text: 'loading…' });
+  render(results);
+
+  try {
+    const res = await api('/home?max_results=50');
+    results.replaceWith(renderList(res, 'posts'));
+    const listEl = $('#view');
+
+    const newestId = res.meta?.newest_id || res.data?.[0]?.id;
+    if (newestId) startPollNewHome(newestId, listEl);
+
+    let nextToken = res.meta?.next_token;
+    const moreBtn = el('button', { class: 'btn', style: 'display:block;margin:12px auto', text: 'Load more' });
+    const loadMore = async () => {
+      if (!nextToken) return;
+      moreBtn.disabled = true;
+      moreBtn.textContent = 'loading…';
+      try {
+        const more = await api('/home?' + new URLSearchParams({ max_results: 50, next_token: nextToken }));
+        moreBtn.remove();
+        const frag = document.createDocumentFragment();
+        for (const row of (more.data || [])) frag.append(postCard(row, more.includes));
+        listEl.append(frag);
+        nextToken = more.meta?.next_token;
+        if (nextToken) {
+          moreBtn.disabled = false;
+          moreBtn.textContent = 'Load more';
+          listEl.append(moreBtn);
+        }
+      } catch (e) {
+        moreBtn.disabled = false;
+        moreBtn.textContent = 'Load more';
+        listEl.append(errBox(e));
+      }
+    };
+    moreBtn.onclick = loadMore;
+    if (nextToken) listEl.append(moreBtn);
+  } catch (e) {
+    render(errBox(e), el('div', { class: 'hint', style: 'padding:0 16px' },
+      'The home timeline acts as your account — it needs the four OAuth 1.0a user keys. ',
+      el('a', { href: '#/auth', text: 'Set up credentials' })));
+  }
+};
+
+/* ── view: bookmarks ─────────────────────────────────────── */
+ROUTES.bookmarks = async (seg, q) => {
+  setHead('Bookmarks', 'GET /bookmarks · your saved posts · needs user context');
+
+  const results = el('div', { class: 'load', text: 'loading…' });
+  render(results);
+
+  try {
+    const res = await api('/bookmarks?max_results=50');
+    results.replaceWith(renderList(res, 'posts'));
+    const listEl = $('#view');
+
+    let nextToken = res.meta?.next_token;
+    const moreBtn = el('button', { class: 'btn', style: 'display:block;margin:12px auto', text: 'Load more' });
+    const loadMore = async () => {
+      if (!nextToken) return;
+      moreBtn.disabled = true;
+      moreBtn.textContent = 'loading…';
+      try {
+        const more = await api('/bookmarks?' + new URLSearchParams({ max_results: 50, pagination_token: nextToken }));
+        moreBtn.remove();
+        const frag = document.createDocumentFragment();
+        for (const row of (more.data || [])) frag.append(postCard(row, more.includes));
+        listEl.append(frag);
+        nextToken = more.meta?.next_token;
+        if (nextToken) {
+          moreBtn.disabled = false;
+          moreBtn.textContent = 'Load more';
+          listEl.append(moreBtn);
+        }
+      } catch (e) {
+        moreBtn.disabled = false;
+        moreBtn.textContent = 'Load more';
+        listEl.append(errBox(e));
+      }
+    };
+    moreBtn.onclick = loadMore;
+    if (nextToken) listEl.append(moreBtn);
+  } catch (e) {
+    render(errBox(e), el('div', { class: 'hint', style: 'padding:0 16px' },
+      'Bookmarks read your account — they need the four OAuth 1.0a user keys. ',
+      el('a', { href: '#/auth', text: 'Set up credentials' })));
+  }
+};
+
+/* ── compose live preview ────────────────────────────────── */
+function livePreview(input) {
+  const slot = el('div');
+  let timer;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const raw = input.value.trim();
+    if (!raw) { slot.replaceChildren(); return; }
+    slot.replaceChildren(el('div', { class: 'load', text: 'loading…' }));
+    timer = setTimeout(async () => {
+      const id = raw.split('?')[0].split('/').filter(Boolean).pop();
+      if (!id) { slot.replaceChildren(); return; }
+      try {
+        const p = await api('/posts/' + encodeURIComponent(id));
+        slot.replaceChildren(
+          el('div', { style: 'border-left:3px solid var(--acc);margin-top:8px;padding-left:10px' },
+            postCard(p.data, p.includes)));
+      } catch { slot.replaceChildren(); }
+    }, 600);
+  });
+  return slot;
+}
 
 /* ── view: compose ───────────────────────────────────────── */
 ROUTES.compose = async (seg, q) => {
@@ -737,6 +1310,8 @@ ROUTES.compose = async (seg, q) => {
   const text = el('textarea', { rows: 5, placeholder: "What's happening?" });
   const reply = el('input', { placeholder: 'reply to post id (optional)', value: q.get('reply') || '' });
   const quote = el('input', { placeholder: 'quote post id (optional)', value: q.get('quote') || '' });
+  const replySlot = livePreview(reply);
+  const quoteSlot = livePreview(quote);
   const pollInputs = [0, 1, 2, 3].map(i => el('input', {
     placeholder: 'choice ' + (i + 1) + (i < 2 ? '' : ' (optional)'), style: 'margin-top:6px' }));
   const pollMins = el('input', { type: 'number', value: '1440', style: 'margin-top:6px' });
@@ -797,10 +1372,14 @@ ROUTES.compose = async (seg, q) => {
       } }),
       el('div', { class: 'grow' }), send),
     el('div', { class: 'sec', style: 'margin-top:14px', text: 'in reply to / quoting' }),
-    el('div', { class: 'row' }, reply, quote),
+    el('div', { class: 'row', style: 'align-items:flex-start' },
+      el('div', { class: 'grow' }, reply, replySlot),
+      el('div', { class: 'grow' }, quote, quoteSlot)),
     pollWrap), out);
   tick();
   text.focus();
+  if (reply.value) reply.dispatchEvent(new Event('input'));
+  if (quote.value) quote.dispatchEvent(new Event('input'));
 
   if (S.me) {
     const av = el('img', { class: 'av sm', alt: '' });
@@ -917,14 +1496,26 @@ ROUTES.auth = async () => {
       route();
     } catch (e) { toast(e.message, true); }
   };
-  const clear = async keys => {
-    if (!confirm('Clear ' + keys.join(', ') + ' from ~/.mod/x/credentials.json?')) return;
-    try {
-      await jpost('/auth/keys', Object.fromEntries(keys.map(k => [k, ''])));
-      toast('cleared');
-      await boot();
-      route();
-    } catch (e) { toast(e.message, true); }
+  const clear = async (keys, btn) => {
+    if (btn && btn.dataset.confirm) {
+      clearTimeout(btn._clearTimer);
+      btn.dataset.confirm = '';
+      btn.textContent = btn._origText || 'Clear';
+      try {
+        await jpost('/auth/keys', Object.fromEntries(keys.map(k => [k, ''])));
+        toast('cleared');
+        await boot();
+        route();
+      } catch (e) { toast(e.message, true); }
+    } else if (btn) {
+      btn._origText = btn.textContent;
+      btn.dataset.confirm = '1';
+      btn.textContent = 'sure?';
+      btn._clearTimer = setTimeout(() => {
+        btn.dataset.confirm = '';
+        btn.textContent = btn._origText || 'Clear';
+      }, 3000);
+    }
   };
 
   render(
@@ -946,7 +1537,7 @@ ROUTES.auth = async () => {
       el('div', { class: 'row wrap' },
         el('button', { class: 'btn sm', text: 'Save bearer', onclick: () => save(['bearer_token']) }),
         st.bearer ? el('button', { class: 'btn sm ghost', text: 'Clear',
-          onclick: () => clear(['bearer_token']) }) : null)),
+          onclick: e => clear(['bearer_token'], e.currentTarget) }) : null)),
 
     el('div', { class: 'card' }, el('h2', { text: 'write rail · acts as your account' }),
       el('div', { class: 'hint', style: 'margin-bottom:12px' },
@@ -960,7 +1551,7 @@ ROUTES.auth = async () => {
         el('button', { class: 'btn sm', text: 'Save user context',
           onclick: () => save(['api_key', 'api_secret', 'access_token', 'access_token_secret']) }),
         st.user_context ? el('button', { class: 'btn sm danger', text: 'Clear all four',
-          onclick: () => clear(['api_key', 'api_secret', 'access_token', 'access_token_secret']) }) : null)),
+          onclick: e => clear(['api_key', 'api_secret', 'access_token', 'access_token_secret'], e.currentTarget) }) : null)),
 
     el('div', { class: 'card' }, el('h2', { text: 'where these go' }),
       el('pre', { text: '~/.mod/x/credentials.json   # 0600, off-tree, never committed' }),
@@ -1018,6 +1609,7 @@ ROUTES.accounts = async () => {
       el('div', { class: 'row wrap' },
         el('a', { class: 'btn sm ghost', href: '#/user/' + me.username, text: 'view profile' }),
         el('a', { class: 'btn sm ghost', href: '#/mentions', text: 'my mentions' }),
+        el('a', { class: 'btn sm ghost', href: '#/home', text: 'home feed' }),
         el('a', { class: 'btn sm ghost', href: '#/compose', text: 'compose' })));
   })() : null;
 
@@ -1073,6 +1665,17 @@ async function boot() {
     try { S.me = (await api('/me')).data; } catch (e) {}
   }
 
+  if (S.auth.writes) {
+    try {
+      const mres = await api('/mentions?max_results=5');
+      const newest = (mres.data && mres.data[0] && mres.data[0].id) || mres.meta?.newest_id;
+      const stored = ls.get('mention_mark', null);
+      const watermark = stored || newest;
+      if (!stored && newest) ls.set('mention_mark', newest);
+      startMentionsPoll(watermark);
+    } catch {}
+  }
+
   const pills = [
     el('span', { class: 'pill ' + (S.auth.reads ? 'yes' : 'no'), text: 'reads ' + (S.auth.reads ? 'on' : 'off') }),
     el('span', { class: 'pill ' + (S.auth.writes ? 'yes' : 'no'), text: 'writes ' + (S.auth.writes ? 'on' : 'off') }),
@@ -1083,7 +1686,54 @@ async function boot() {
   $('#pills').replaceChildren(...pills);
 }
 
-window.addEventListener('hashchange', route);
+/* ── keyboard navigation ─────────────────────────────────── */
+let kbFocus = -1;
+function kbSetFocus(i) {
+  const posts = Array.from(document.querySelectorAll('#view .post'));
+  if (kbFocus >= 0 && kbFocus < posts.length) posts[kbFocus].classList.remove('kb-on');
+  kbFocus = i < 0 ? -1 : Math.max(0, Math.min(i, posts.length - 1));
+  if (kbFocus >= 0 && kbFocus < posts.length) {
+    posts[kbFocus].classList.add('kb-on');
+    posts[kbFocus].scrollIntoView({ block: 'nearest' });
+  }
+}
+
+document.addEventListener('keydown', e => {
+  const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+  const posts = Array.from(document.querySelectorAll('#view .post'));
+
+  if (e.key === 'j' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    kbSetFocus(kbFocus < 0 ? 0 : kbFocus + 1);
+  } else if (e.key === 'k' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    kbSetFocus(kbFocus <= 0 ? 0 : kbFocus - 1);
+  } else if (e.key === 'l') {
+    if (kbFocus < 0 || kbFocus >= posts.length) return;
+    const btn = posts[kbFocus].querySelector('.act.like');
+    if (btn) btn.click();
+  } else if (e.key === 'r') {
+    if (kbFocus < 0 || kbFocus >= posts.length) return;
+    const btn = posts[kbFocus].querySelector('.act.rt');
+    if (btn) btn.click();
+  } else if (e.key === 'Enter') {
+    if (kbFocus < 0 || kbFocus >= posts.length) return;
+    const href = posts[kbFocus].querySelector('a.tm') && posts[kbFocus].querySelector('a.tm').getAttribute('href');
+    if (href) location.hash = href;
+  } else if (e.key === '/') {
+    e.preventDefault();
+    const inp = document.querySelector('.body input[type=text], .body input:not([type])');
+    if (inp) inp.focus();
+  } else if (e.key === 'n') {
+    location.hash = '#/compose';
+  } else if (e.key === 'Escape') {
+    kbSetFocus(-1);
+  }
+});
+
+window.addEventListener('hashchange', () => { kbFocus = -1; route(); });
 boot().then(route);
 </script>
 </body>

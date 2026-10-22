@@ -19,6 +19,7 @@ import { useStratStats, fmtUsd } from "../lib/stratStats";
 import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES, DEFAULT_MIN_MINUTES_TO_CLOSE } from "../lib/strats/strat";
 import PortfolioPanel from "./PortfolioPanel";
 import PositionsHistoryPanel from "./PositionsHistoryPanel";
+import { useClobStream } from "../lib/useClobStream";
 
 // A run of consecutive MY-FILLS rows (same market/outcome/side/price) merged
 // into one display row. `size`/`price*size` are the batched totals, `count`
@@ -278,6 +279,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   // ReferenceError on first render (const isn't hoisted).
   const [catchUpStatus, setCatchUpStatus] = useState<string | null>(null);
   const [catchingUp, setCatchingUp] = useState(false);
+  const [catchUpOpen, setCatchUpOpen] = useState(false);
   // Lookback window for CATCH UP, in hours. Persisted to localStorage so
   // it survives page reloads — most users settle on one value (e.g. 6h)
   // and re-typing it every time would be annoying. Clamped [1, 24] in
@@ -462,6 +464,14 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     const t = setInterval(() => void loadFills(), 60_000);
     return () => clearInterval(t);
   }, [tradesView, liveTab, loadFills]);
+
+  // Live mid-prices for fill rows — subscribe to the CLOB WebSocket for every
+  // asset token that appears in my fills so each row can show unrealized P&L.
+  const fillAssetIds = useMemo(
+    () => [...new Set(fills.flatMap((f) => (f.asset ? [f.asset] : [])))],
+    [fills],
+  );
+  const { prices: fillPrices } = useClobStream(fillAssetIds, { pauseWhenHidden: false });
 
   // Tick for countdown
   useEffect(() => {
@@ -1024,6 +1034,19 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                 RESUME
               </button>
             )}
+            {isLive && (
+              <button
+                onClick={() => setCatchUpOpen((v) => !v)}
+                className={`pixel-btn text-[13px] px-1.5 py-0.5 transition-colors ${
+                  catchUpOpen
+                    ? "border-amber-400 text-amber-400 bg-amber-400/10"
+                    : "border-amber-400/60 text-amber-400/80 hover:bg-amber-400/10"
+                }`}
+                title="Replay leader trades from the last N hours that the engine missed"
+              >
+                CATCH UP
+              </button>
+            )}
             {/* Not "GO LIVE" any more. That name belonged to the OTHER axis:
                 it started the engine, and whether it went live was decided
                 elsewhere — so pressing GO LIVE could leave you in a dry run,
@@ -1056,6 +1079,79 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
         <div className="px-3 pb-1.5 -mt-0.5">
           <ModeLegend />
         </div>
+
+        {/* CATCH UP inline form — only visible while the engine is running
+            and the user has toggled it open. */}
+        {isLive && catchUpOpen && (
+          <div className="mx-3 mb-2 px-3 py-2 border border-amber-400/40 bg-amber-400/5 rounded">
+            <div className="text-[11px] text-amber-400/70 font-mono mb-2">
+              Replay leader trades from the last N hours that the engine missed
+            </div>
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-pixel-gray tracking-wider">HOURS</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={24}
+                  step={1}
+                  value={catchUpHours}
+                  onChange={(e) => {
+                    const v = Math.max(1, Math.min(24, parseInt(e.target.value, 10) || 1));
+                    setCatchUpHours(v);
+                  }}
+                  className="w-16 bg-pixel-black border border-pixel-border text-pixel-white font-mono text-[13px] px-1.5 py-0.5 rounded focus:outline-none focus:border-amber-400/60"
+                />
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-pixel-gray tracking-wider">TOP N</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  step={1}
+                  value={catchUpTopN}
+                  onChange={(e) => {
+                    const v = Math.max(1, Math.min(50, parseInt(e.target.value, 10) || 1));
+                    setCatchUpTopN(v);
+                  }}
+                  className="w-16 bg-pixel-black border border-pixel-border text-pixel-white font-mono text-[13px] px-1.5 py-0.5 rounded focus:outline-none focus:border-amber-400/60"
+                />
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-pixel-gray tracking-wider">MIN $</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={catchUpMinNotional ?? ""}
+                  placeholder="auto"
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    setCatchUpMinNotional(raw === "" ? null : Math.max(1, parseFloat(raw) || 1));
+                  }}
+                  className="w-20 bg-pixel-black border border-pixel-border text-pixel-white font-mono text-[13px] px-1.5 py-0.5 rounded focus:outline-none focus:border-amber-400/60 placeholder:text-pixel-gray/50"
+                />
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer pb-0.5">
+                <input
+                  type="checkbox"
+                  checked={catchUpSellWinners}
+                  onChange={(e) => setCatchUpSellWinners(e.target.checked)}
+                  className="accent-amber-400"
+                />
+                <span className="text-[12px] text-pixel-gray font-mono">SELL WINNERS</span>
+              </label>
+              <button
+                onClick={() => { void handleCatchUp(); }}
+                disabled={catchingUp}
+                className="pixel-btn text-[13px] px-2.5 py-0.5 border-amber-400 text-amber-400 hover:bg-amber-400/10 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {catchingUp ? "RUNNING…" : "RUN"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Deposit into / withdraw from the one copied trader. Portals itself.
@@ -1156,15 +1252,30 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                       : age < plannedMs * 3
                         ? "border-amber-400/60 text-amber-400 bg-amber-400/10"
                         : "border-red-400/60 text-red-400 bg-red-400/10";
+                  const stats = engineState?.traderRoiStats?.[t.address.toLowerCase()];
+                  const hasStats = stats && stats.sampleSize >= 3;
+                  const sharpeTone = hasStats
+                    ? stats.sharpe >= 0.3
+                      ? "text-green-400"
+                      : stats.sharpe >= 0
+                        ? "text-amber-400"
+                        : "text-red-400"
+                    : null;
+                  const tooltipExtra = hasStats
+                    ? ` · Sh ${stats.sharpe.toFixed(2)} · ROI ${(stats.roi * 100).toFixed(1)}% · win rate ${(stats.successProb * 100).toFixed(0)}% · ${stats.sampleSize} trades`
+                    : "";
                   return (
                     <span
                       key={t.address}
                       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-mono border ${tone}`}
                       title={`${t.address} · weight ${t.weight}${
                         last ? ` · last synced ${new Date(last).toLocaleTimeString()}` : " · not synced yet"
-                      }`}
+                      }${tooltipExtra}`}
                     >
                       <span>{t.address.slice(0, 6)}…{t.address.slice(-4)}</span>
+                      {hasStats && (
+                        <span className={`${sharpeTone}`}>Sh {stats.sharpe.toFixed(2)}</span>
+                      )}
                       <span className="opacity-70">{age === null ? "—" : formatAgo(age)}</span>
                     </span>
                   );
@@ -2333,6 +2444,24 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                               )}
                             </div>
                             )}
+                            {t.side === "BUY" && t.asset && (() => {
+                              const assetId = t.asset as string;
+                              const mid = fillPrices.get(assetId);
+                              if (mid == null) return null;
+                              const moveCents = (mid - t.price) * 100;
+                              const pnlUsd = (mid - t.price) * t.size * 100;
+                              const pos = pnlUsd >= 0;
+                              return (
+                                <div className="pl-[66px] pr-2 text-[11px] leading-snug font-mono">
+                                  <span
+                                    className={pos ? "text-green-400" : "text-red-400"}
+                                    title={`Live CLOB mid · ${(mid * 100).toFixed(1)}¢ now vs ${(t.price * 100).toFixed(1)}¢ entry`}
+                                  >
+                                    now {Math.round(mid * 100)}¢ ({pos ? "+" : ""}{Math.round(moveCents)}¢ / {pos ? "+" : ""}${pnlUsd.toFixed(2)})
+                                  </span>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })

@@ -46,7 +46,8 @@
           published on its own — agreement makes it verified, disagreement is
           shown, never hidden.</p>
         <div class="row">
-          <button data-go="verify">Verify a proof</button>
+          <button id="heroDemo">Watch it verify</button>
+          <button data-go="verify" class="ghost">Verify a proof</button>
           <button data-go="prove" class="ghost">Make one</button>
           <button data-go="info" class="link">How it works &rarr;</button>
         </div>
@@ -71,6 +72,14 @@
         <option value="invalid">invalid</option>
       </select>
       <label class="check"><input type="checkbox" id="fSale"> For sale only</label>
+      <select id="fSort">
+        <option value="newest">newest</option>
+        <option value="oldest">oldest</option>
+        <option value="checked">most checked</option>
+        <option value="price-lo">price: low→high</option>
+        <option value="price-hi">price: high→low</option>
+      </select>
+      <span id="activeTag"></span>
       <button id="refresh" class="ghost icon" title="Refresh" aria-label="Refresh"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg></button>
       <button id="publishOpen">Publish a proof</button>
     </div>
@@ -110,8 +119,10 @@
       <button id="vBrowser" class="ghost">Verify in this browser</button>
       <button id="vSample" class="ghost">Load a sample</button>
       <span class="grow"></span>
+      <button id="vDownload" class="ghost" disabled>Download bundle</button>
       <button id="vPublish" class="ghost" disabled>Publish to the market</button>
     </div>
+    <div id="vMethodPreview" class="method-preview"></div>
     <div id="vOut" class="verdicts"><div class="placeholder">Run a proof and every verifier that can check it answers here, one row each.</div></div>
   </section>
 

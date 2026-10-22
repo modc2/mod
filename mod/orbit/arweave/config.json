@@ -75,6 +75,11 @@
             "auth": false,
             "docs": "Arweave tx record"
         },
+        "/tx/{txid}/confirm": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Confirmation status for a tx id: confirmed (N confs + block_height), pending, not_found, or local (sha256-\u2026 ids)"
+        },
         "/price/{num_bytes}": {
             "method": "GET",
             "auth": false,
@@ -88,12 +93,27 @@
         "/query": {
             "method": "GET",
             "auth": false,
-            "docs": "Search the permaweb via GraphQL — filter by owner, tag name/value, limit, and pagination cursor"
+            "docs": "Search the permaweb via GraphQL \u2014 filter by owner, tag name/value, limit, and pagination cursor"
+        },
+        "/archive": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Fetch a URL and store its content on Arweave",
+            "input": [
+                {
+                    "name": "url",
+                    "type": "string",
+                    "value": "_required"
+                }
+            ],
+            "output": {
+                "txid": "str"
+            }
         },
         "/mcp": {
             "method": "POST",
             "auth": false,
-            "docs": "MCP Streamable HTTP (JSON-RPC 2.0): initialize, tools/list, tools/call \u2014 arweave_status, arweave_info, arweave_put, arweave_get, arweave_list, arweave_rm, arweave_tx, arweave_price, arweave_network, arweave_query"
+            "docs": "MCP Streamable HTTP (JSON-RPC 2.0): initialize, tools/list, tools/call \u2014 arweave_status, arweave_info, arweave_put, arweave_get, arweave_list, arweave_rm, arweave_tx, arweave_tx_status, arweave_price, arweave_network, arweave_query, arweave_archive"
         },
         "/docs": {
             "method": "GET",
@@ -110,7 +130,7 @@
         "app": "http://localhost:50153",
         "mcp": "http://localhost:50153/mcp"
     },
-    "schema": "QmSqZ8xXAQWbyDotBdNKeTn6o9JQhwxYkFreQh29xFFN88",
+    "schema": "QmcU9nSaDx2s4PMkVKYPK2BTsECuFDbAmkoYHGm1mw6xmR",
     "mcp": {
         "protocol": "mcp/2025-06-18",
         "transport": "http",
@@ -126,7 +146,9 @@
             "arweave_tx",
             "arweave_price",
             "arweave_network",
-            "arweave_query"
+            "arweave_query",
+            "arweave_archive",
+            "arweave_tx_status"
         ],
         "claude": "claude mcp add --transport http arweave http://localhost:50153/mcp"
     }

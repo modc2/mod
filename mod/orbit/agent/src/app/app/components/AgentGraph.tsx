@@ -26,6 +26,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
+import { renderText } from '../lib/renderText'
 
 // ── the protocol, as the server describes it ──
 type Field = { key: string; type: string; label: string; hint?: string; options?: string[];
@@ -224,8 +225,10 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
   // run
   const [query, setQuery] = useState('')
   const [running, setRunning] = useState(false)
+  const [replaying, setReplaying] = useState(false)
   const [live, setLive] = useState<Record<string, Live>>({})
   const [flows, setFlows] = useState<{ id: number; edge: string }[]>([])
+  const [firedEdges, setFiredEdges] = useState<Set<string>>(new Set())
   const [result, setResult] = useState<any>(null)
   const [showResult, setShowResult] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -234,6 +237,8 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
   const nodesRef = useRef(nodes); nodesRef.current = nodes
   const edgesRef = useRef(edges); edgesRef.current = edges
   const flowSeq = useRef(0)
+  const replayLog = useRef<any[]>([])
+  const isReplayingRef = useRef(false)
 
   const kinds = proto?.kinds || {}
   const flash = useCallback((ok: boolean, text: string) => {
@@ -476,6 +481,7 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
     setLive(l => l[id]?.status === 'running' ? { ...l, [id]: { ...l[id], stage, tool } } : l)
 
   const onEvent = (ev: any) => {
+    if (!isReplayingRef.current) replayLog.current.push(ev)
     const kindOf = (id: string) => nodesRef.current.find(n => n.id === id)?.kind
     if (ev.type === 'node_start') {
       setLive(l => ({ ...l, [ev.node]: { status: 'running', stage: 'prompt', steps: 0, tools: 0 } }))
@@ -498,6 +504,7 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
         const id = ++flowSeq.current
         setFlows(f => [...f.slice(-24), { id, edge: e.id }])
         setTimeout(() => setFlows(f => f.filter(x => x.id !== id)), 1300)
+        setFiredEdges(s => new Set([...s, e.id]))
       }
     } else if (ev.type === 'step') {
       const st = ev.step || {}
@@ -522,7 +529,8 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
     if (running) return stop()
     if (!query.trim()) { flash(false, 'say what the agent should do'); return }
     if (!token) { onSignIn?.(); return }
-    setLive({}); setResult(null); setShowResult(false); setRunning(true)
+    replayLog.current = []
+    setLive({}); setFiredEdges(new Set()); setResult(null); setShowResult(false); setRunning(true)
     runningAgents.current = new Set()
     const ctrl = new AbortController(); abortRef.current = ctrl
     try {
@@ -547,6 +555,20 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
     } catch (e: any) {
       if (e?.name !== 'AbortError') flash(false, e?.message || String(e))
     } finally { setRunning(false); abortRef.current = null; runningAgents.current.clear() }
+  }
+
+  const replay = async () => {
+    if (replaying || replayLog.current.length === 0) return
+    isReplayingRef.current = true
+    setReplaying(true)
+    setLive({}); setFiredEdges(new Set()); setResult(null); setShowResult(false)
+    for (const ev of replayLog.current) {
+      const delay = ev.type === 'step' ? 320 : ev.type === 'message' ? 180 : ev.type === 'node_done' ? 120 : 60
+      await new Promise(r => setTimeout(r, delay))
+      onEvent(ev)
+    }
+    isReplayingRef.current = false
+    setReplaying(false)
   }
 
   // ── canvas interaction ──
@@ -790,14 +812,15 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
               const on = sel?.edge === w.e.id
               const hot = flowing.has(w.e.id)
               const done = live[w.e.from]?.status === 'done' && !!live[w.e.to]
+              const fired = firedEdges.has(w.e.id)
               return (
                 <g key={w.e.id}>
                   <path d={w.d} fill="none" stroke="transparent" strokeWidth={14} className="pointer-events-auto cursor-pointer"
                     onPointerDown={ev => onWireDown(ev, w)} />
-                  <path d={w.d} fill="none" stroke={tone(w.color, on ? 0.95 : done ? 0.7 : 0.38)}
-                    strokeWidth={on ? 2.4 : 1.6} strokeLinecap="round"
+                  <path d={w.d} fill="none" stroke={tone(w.color, on ? 0.95 : done ? 0.7 : fired ? 0.88 : 0.38)}
+                    strokeWidth={on ? 2.4 : fired ? 2.2 : 1.6} strokeLinecap="round"
                     className={hot ? 'dag-wire--hot' : ''} style={hot ? { stroke: tone(w.color, 1) } : undefined} />
-                  <circle cx={w.p2.x} cy={w.p2.y} r={on ? 4.5 : 3} fill={tone(w.color, on ? 1 : 0.55)} />
+                  <circle cx={w.p2.x} cy={w.p2.y} r={on ? 4.5 : 3} fill={tone(w.color, on ? 1 : fired ? 1 : 0.55)} />
                   {/* the arrow end is a handle: drag it to another node, or off into nothing */}
                   <circle cx={w.p2.x - 9} cy={w.p2.y} r={8} fill="transparent" className="pointer-events-auto dag-wire-grab"
                     onPointerDown={ev => { ev.stopPropagation(); ev.preventDefault(); carry(ev, { from: w.e.from, port: w.e.port, orig: w.e }) }}>
@@ -976,8 +999,10 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
                 {onChat && <button className="dag-btn" onClick={() => onChat(cur)}>chat with {cur}</button>}
                 <button className="dag-btn" onClick={() => setShowResult(false)}>✕</button>
               </div>
-              <div className="px-3 pb-3 pt-1.5 text-[12px] leading-relaxed text-gray-200 whitespace-pre-wrap max-h-56 overflow-y-auto">
-                {result.error || result.answer || (result.outputs && Object.values(result.outputs).join('\n\n')) || '(no answer)'}
+              <div className="px-3 pb-3 pt-1.5 text-[12px] leading-relaxed text-gray-200 max-h-56 overflow-y-auto">
+                {result.error
+                  ? <span className="whitespace-pre-wrap">{result.error}</span>
+                  : renderText(result.answer || (result.outputs && Object.values(result.outputs as Record<string, string>).join('\n\n')) || '(no answer)')}
               </div>
             </div>
           )}
@@ -987,6 +1012,11 @@ export default function AgentGraph({ agent, token, isHost, address, onSignIn, on
               placeholder={`ask ${cur} — watch it go from request to answer`}
               className="flex-1 min-w-0 bg-transparent outline-none text-[13px] text-gray-100 placeholder:text-gray-600 px-1" />
             {!running && result && !showResult && <button type="button" className="dag-btn" onClick={() => setShowResult(true)}>last answer</button>}
+            {result !== null && !running && replayLog.current.length > 0 && (
+              <button type="button" className="dag-btn" onClick={replay} disabled={replaying}
+                title={replaying ? 'replaying…' : 'replay this run on the canvas'}>
+                {replaying ? '◼' : '▶ replay'}</button>
+            )}
             <button type="submit" className={`dag-btn ${running ? 'dag-btn--stop' : 'dag-btn--primary'}`}>
               {running ? 'stop' : token ? 'run ▸' : 'sign in to run'}</button>
           </form>
@@ -1154,7 +1184,7 @@ function NodeInspector({ node, spec, proto, agents, order, live, canEditAgent, t
       {live?.out && (
         <div>
           <div className="dag-ins-title">last output {live.ms != null && <span className="text-gray-600 normal-case tracking-normal">· {(live.ms / 1000).toFixed(1)}s</span>}</div>
-          <div className="text-[11px] text-gray-300 whitespace-pre-wrap max-h-40 overflow-y-auto rounded-md bg-white/[0.03] border border-white/[0.06] p-2">{live.out}</div>
+          <div className="text-[11px] text-gray-300 max-h-40 overflow-y-auto rounded-md bg-white/[0.03] border border-white/[0.06] p-2">{renderText(live.out)}</div>
         </div>
       )}
 

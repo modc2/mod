@@ -37,6 +37,7 @@
         "debank_tokens",
         "debank_protocols",
         "debank_approvals",
+        "debank_nft_approvals",
         "debank_history",
         "debank_nfts",
         "debank_net_curve",

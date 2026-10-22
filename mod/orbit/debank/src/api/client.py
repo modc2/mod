@@ -214,6 +214,7 @@ def _token_row(t, chain=None):
         'amount': amount,
         'price': price,
         'usd': round(amount * price, 2),
+        'price_24h_change': t.get('price_24h_change'),
         'token_id': t.get('id'),
         'verified': t.get('is_verified'),
     }
@@ -740,7 +741,8 @@ class Client:
                          'contract': n.get('contract_id'),
                          'token_id': n.get('inner_id'),
                          'amount': _f(n.get('amount'), 1),
-                         'usd': round(usd, 2)})
+                         'usd': round(usd, 2),
+                         'image': n.get('thumbnail_url') or n.get('content_url')})
         rows.sort(key=lambda r: r['usd'], reverse=True)
         return {'address': addr, 'chain': cid or 'all', 'count': len(rows),
                 'nfts': rows[:limit],
@@ -836,9 +838,29 @@ class Client:
                 'unlimited_count': sum(1 for r in rows if r['unlimited']), **stats}
 
     def nft_approvals(self, id, chain):
-        """NFT approvals — contract and per-token, as DeBank reports them."""
-        return self.get('/v1/user/nft_authorized_list', id=_addr(id),
-                        chain_id=chain_id(chain))
+        """NFT approvals — setApprovalForAll and per-token, normalized."""
+        addr, cid = _addr(id), chain_id(chain)
+        if not cid:
+            raise DebankError('chain is required — NFT approvals are per chain', status=400)
+        raw = self.get('/v1/user/nft_authorized_list', id=addr, chain_id=cid) or []
+        rows = []
+        for col in raw:
+            for s in col.get('spenders') or []:
+                is_all = s.get('value') is None
+                rows.append({
+                    'collection': col.get('contract_name'),
+                    'contract': col.get('contract_id'),
+                    'spender': s.get('id'),
+                    'spender_name': s.get('protocol', {}).get('name')
+                                   if isinstance(s.get('protocol'), dict) else None,
+                    'is_set_approval_for_all': is_all,
+                    'token_id': None if is_all else s.get('value'),
+                    'last_approved': s.get('last_approve_at'),
+                })
+        return {'address': addr, 'chain': cid, 'nft_approvals': rows,
+                'count': len(rows),
+                'set_approval_for_all_count': sum(1 for r in rows
+                                                   if r['is_set_approval_for_all'])}
 
     # ── the bank rail (keyless) ──
 

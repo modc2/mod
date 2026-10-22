@@ -1,7 +1,7 @@
 {
   "scores": {
     "0": 0.6636021740216,
-    "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": 0.6528053564160794
+    "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": 0.5930440014947284
   },
   "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
   "last_epoch": {
@@ -12,17 +12,13 @@
     "results": {
       "0": {
         "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
-        "epoch_score": 0.4961,
-        "ema_score": 0.6528,
+        "epoch_score": 0.4922,
+        "ema_score": 0.593,
         "samples": [
           {
-            "score": 0.0,
-            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
-          },
-          {
-            "score": 1.0,
-            "task": "gas_price",
-            "elapsed": 0.668,
+            "score": 0.9766666666666666,
+            "task": "block_header",
+            "elapsed": 0.639,
             "signature_ok": true,
             "correct": true
           },
@@ -33,44 +29,48 @@
           {
             "score": 0.0,
             "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
-          },
-          {
-            "score": 0.0,
-            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
-          },
-          {
-            "score": 0.9766666666666666,
-            "task": "account_state",
-            "elapsed": 0.686,
-            "signature_ok": true,
-            "correct": true
           },
           {
             "score": 1.0,
             "task": "block_header",
-            "elapsed": 0.561,
+            "elapsed": 0.383,
             "signature_ok": true,
             "correct": true
           },
           {
+            "score": 0.0,
+            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
+          },
+          {
             "score": null,
             "error": "unverifiable: all NEAR RPCs failed: 429 Client Error: Too Many Requests for url: https://rpc.testnet.near.org/"
+          },
+          {
+            "score": 0.9766666666666666,
+            "task": "block_header",
+            "elapsed": 0.788,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.0,
+            "error": "unreachable: 502 Server Error: Bad Gateway for url: http://127.0.0.1:50184/synapse"
           }
         ]
       }
     },
-    "at": 1792596695,
+    "at": 1792651379,
     "weights": {
       "0": 1.0
     },
     "set_weights": {
       "ok": true,
-      "epoch": 298,
+      "epoch": 330,
       "consensus": "yuma",
       "incentive": {
         "0": 1.0
       }
     }
   },
-  "updated": 1792596696
+  "updated": 1792651380
 }

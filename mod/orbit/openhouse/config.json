@@ -1,4 +1,5 @@
 {
+  "route": true,
     "name": "openhouse",
     "description": "Rent-to-own, on-chain \u2014 the protocol takes 0\u20135% (owner-set, zero allowed, capped in the contract) and 95\u2013100% of every payment stays with the property as renter equity and owner income \u2014 with proof of rent paid, without the tenant: the bank runs a Cairo statement over the private payment, NEAR (WASM) and Ethereum verifiers check the fact, and the chain learns only that this home, this month, was paid \u2014 simulated end to end on this node (simulate: years of rent, bank transfers, quarterly closes), and post-quantum ready: every receipt also carries a hash-based OHX-KECCAK signature (verified on Ethereum and NEAR) and an ML-DSA-65 signature, and each verifier has a one-way switch that shuts the classical door",
     "version": "2.5.0",
