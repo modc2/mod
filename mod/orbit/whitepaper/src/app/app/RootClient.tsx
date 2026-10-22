@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ThemeToggle from "./ThemeToggle";
+import { highlight } from "./tex";
 import type { Paper } from "./tex";
 
 type RootInfo = { root: string | null; epoch: number | null; count?: number } | null;
@@ -139,6 +140,8 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
   const articleRef = useRef<HTMLElement>(null);
   const matchRefs = useRef<HTMLElement[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const registryRef = useRef<HTMLElement>(null);
+  const [registryInView, setRegistryInView] = useState(true);
 
   async function refresh() {
     setRefreshing(true);
@@ -277,6 +280,32 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
     const a = document.createElement("a");
     a.href = url;
     a.download = `${name}-proof.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportAll() {
+    const proofEntries: Record<string, { leaf: string; proof: string[]; root: string; record: Record<string, unknown> }> = {};
+    for (const [name, prf] of Object.entries(proofs)) {
+      if (prf && prf !== "loading" && prf !== "error") {
+        proofEntries[name] = { leaf: prf.leaf, proof: prf.proof, root: prf.root, record: prf.record };
+      }
+    }
+    const verifiedCount = Object.keys(verifications).filter((n) => verifications[n] === "ok").length;
+    const bundle = {
+      root: root?.root ?? null,
+      epoch: root?.epoch ?? null,
+      count: root?.count ?? null,
+      scope,
+      exported: new Date().toISOString(),
+      verifiedCount,
+      proofs: proofEntries,
+    };
+    const filename = `registry-${scope}-${root?.epoch ?? "unknown"}.json`;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -460,6 +489,19 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
   ).length;
   const allProved = filteredMods.length > 0 && unprovedCount === 0;
 
+  // Auto-verify all modules when allProved transitions to true.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!allProved) return;
+    filteredMods.forEach((m) => {
+      const prf = proofs[m.name];
+      if (!prf || prf === "loading" || prf === "error") return;
+      if (verifications[m.name]) return;
+      verifyProof(m.name, prf as ProofResult);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allProved]);
+
   function copyRoot() {
     if (!root?.root) return;
     navigator.clipboard?.writeText(root.root).then(() => {
@@ -483,6 +525,11 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
       `// SPDX-License-Identifier: MIT`,
       `// import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";`,
       ``,
+      `// Off-chain leaf derivation (computed before calling this contract):`,
+      `//   string memory canonical = canonical_json(record); // compact JSON, keys sorted`,
+      `//   bytes32 leaf = keccak256(bytes(canonical));`,
+      `//   canonical_json: sort all keys lexicographically, no whitespace`,
+      ``,
       `// Verify that module "${modName}" is in the registry`,
       `bytes32 root = ${prf.root};`,
       `bytes32 leaf = ${prf.leaf};`,
@@ -496,9 +543,11 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
 
   function buildPythonSnippet(modName: string, prf: ProofResult): string {
     const proofList = prf.proof.map((p) => `    bytes.fromhex("${p.slice(2)}")`).join(",\n");
+    const recordJson = JSON.stringify(prf.record);
     const lines = [
       `# pip install pycryptodome`,
       `from Crypto.Hash import keccak`,
+      `import json`,
       ``,
       `def keccak256(b: bytes) -> bytes:`,
       `    h = keccak.new(digest_bits=256)`,
@@ -514,8 +563,12 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
       `        cur = pair(cur, sib)`,
       `    return cur == root`,
       ``,
-      `# Live values for "${modName}"`,
-      `leaf  = bytes.fromhex("${prf.leaf.slice(2)}")`,
+      `# Derive leaf for "${modName}" from the live record`,
+      `record = json.loads('${recordJson}')`,
+      `canonical = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()`,
+      `leaf = keccak256(canonical)`,
+      `assert leaf.hex() == "${prf.leaf.slice(2)}", "leaf mismatch"`,
+      ``,
       `proof = [`,
       proofList || `    # (no siblings — single-leaf tree)`,
       `]`,
@@ -528,6 +581,7 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
 
   function buildJSSnippet(modName: string, prf: ProofResult): string {
     const proofItems = prf.proof.map((p) => `  "${p}"`).join(",\n");
+    const recordJson = JSON.stringify(prf.record);
     const lines = [
       `// npm install ethers`,
       `import { ethers } from "ethers";`,
@@ -544,8 +598,12 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
       `  return cur.toLowerCase() === root.toLowerCase();`,
       `}`,
       ``,
-      `// Live values for "${modName}"`,
-      `const leaf  = "${prf.leaf}";`,
+      `// Derive leaf for "${modName}" from the live record`,
+      `const record = JSON.parse('${recordJson}');`,
+      `const canonical = JSON.stringify(Object.fromEntries(Object.entries(record).sort(([a],[b]) => a < b ? -1 : 1)));`,
+      `const leaf  = ethers.keccak256(ethers.toUtf8Bytes(canonical));`,
+      `console.assert(leaf === "${prf.leaf}", "leaf mismatch");`,
+      ``,
       `const proof = [`,
       proofItems || `  // (no siblings — single-leaf tree)`,
       `];`,
@@ -558,12 +616,15 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
 
   function buildRustSnippet(modName: string, prf: ProofResult): string {
     const proofItems = prf.proof.map((p) => `        "${p}",`).join("\n");
+    const recordJson = JSON.stringify(prf.record);
     const lines = [
       `// Cargo.toml`,
       `// [dependencies]`,
       `// tiny_keccak = { version = "2", features = ["keccak"] }`,
       `// hex = "0.4"`,
+      `// serde_json = "1"`,
       ``,
+      `use std::collections::BTreeMap;`,
       `use tiny_keccak::{Hasher, Keccak};`,
       ``,
       `fn keccak256(input: &[u8]) -> [u8; 32] {`,
@@ -594,22 +655,28 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
       `    out`,
       `}`,
       ``,
-      `fn verify(leaf: &str, proof: &[&str], root: &str) -> bool {`,
-      `    let mut cur = decode32(leaf);`,
+      `fn verify(leaf: &[u8; 32], proof: &[&str], root: &str) -> bool {`,
+      `    let mut cur = *leaf;`,
       `    for sib in proof {`,
       `        cur = pair(&cur, &decode32(sib));`,
       `    }`,
       `    cur == decode32(root)`,
       `}`,
       ``,
-      `// Live values for "${modName}"`,
+      `// Derive leaf for "${modName}" from the live record`,
       `fn main() {`,
-      `    let leaf  = "${prf.leaf}";`,
+      `    let record_json = r#"${recordJson}"#;`,
+      `    let record: BTreeMap<String, serde_json::Value> =`,
+      `        serde_json::from_str(record_json).unwrap();`,
+      `    let canonical = serde_json::to_string(&record).unwrap();`,
+      `    let leaf = keccak256(canonical.as_bytes());`,
+      `    assert_eq!(hex::encode(leaf), "${prf.leaf.slice(2)}", "leaf mismatch");`,
+      ``,
       `    let proof: &[&str] = &[`,
       proofItems || `        // (no siblings — single-leaf tree)`,
       `    ];`,
       `    let root  = "${prf.root}";`,
-      `    println!("valid: {}", verify(leaf, proof, root));`,
+      `    println!("valid: {}", verify(&leaf, proof, root));`,
       `}`,
     ];
     return lines.join("\n");
@@ -703,6 +770,44 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
     const cur = marks[searchIndex];
     if (cur?.isConnected) cur.scrollIntoView({ block: "center" });
   }, [searchIndex]);
+
+  // Annotate <code> elements in the paper body that exactly match a loaded module name.
+  useEffect(() => {
+    if (!mods || !articleRef.current) return;
+    const modNames = new Set(mods.map((m) => m.name));
+    const handlers: Array<{ el: HTMLElement; fn: () => void }> = [];
+
+    articleRef.current.querySelectorAll<HTMLElement>("code").forEach((el) => {
+      const name = el.textContent?.trim() ?? "";
+      if (!modNames.has(name)) return;
+      el.classList.add("mod-mention");
+      el.title = "prove in registry →";
+      const fn = () => {
+        setExploreOpen(true);
+        setFilter(name);
+        prove(name);
+      };
+      el.addEventListener("click", fn);
+      handlers.push({ el, fn });
+    });
+
+    return () => {
+      handlers.forEach(({ el, fn }) => {
+        el.removeEventListener("click", fn);
+        el.classList.remove("mod-mention");
+        if (el.title === "prove in registry →") el.title = "";
+      });
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mods]);
+
+  useEffect(() => {
+    const el = registryRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([entry]) => setRegistryInView(entry.isIntersecting), { threshold: 0 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   function navigateSearch(delta: number) {
     if (!matchRefs.current.length) return;
@@ -823,7 +928,7 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
             </div>
           </section>
 
-          <section className="registry" aria-label="Live registry">
+          <section className="registry" aria-label="Live registry" ref={registryRef}>
             <div className="registry-head">
               <span className={`dot ${watchMode ? "dot-watch" : online ? "dot-on" : "dot-off"}`} />
               <span>{watchMode ? "Reference registry · watching" : online ? "Reference registry · live" : "Reference registry · offline"}</span>
@@ -951,12 +1056,76 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
                         clear all
                       </button>
                     )}
+                    {allProved && Object.keys(proofs).length > 0 && (
+                      <button
+                        className="btn btn-sm"
+                        onClick={exportAll}
+                      >
+                        ⬇ export registry
+                      </button>
+                    )}
+                    {allProved && (() => {
+                      const verifyingCount = filteredMods.filter((m) => verifications[m.name] === "loading").length;
+                      const verifiedCount = filteredMods.filter((m) => verifications[m.name] === "ok").length;
+                      const failedCount = filteredMods.filter((m) => verifications[m.name] === "fail").length;
+                      const settledCount = verifiedCount + failedCount;
+                      const allSettled = verifyingCount === 0 && settledCount === filteredMods.length;
+                      const sharedRoot = (Object.values(proofs).find((p) => p && p !== "loading" && p !== "error") as ProofResult | undefined)?.root;
+                      if (allSettled && failedCount === 0) {
+                        return (
+                          <div style={{ padding: "6px 0", fontSize: "0.82rem", fontFamily: "monospace", color: "rgb(var(--green))" }}>
+                            ✓ {verifiedCount} modules verified{sharedRoot ? ` · root ${short(sharedRoot)}` : ""}
+                          </div>
+                        );
+                      }
+                      if (allSettled && failedCount > 0) {
+                        return (
+                          <div style={{ padding: "6px 0", fontSize: "0.82rem", fontFamily: "monospace", color: "rgb(var(--amber))" }}>
+                            ⚠ {verifiedCount}/{filteredMods.length} verified — {failedCount} failed
+                          </div>
+                        );
+                      }
+                      return (
+                        <div style={{ padding: "6px 0", fontSize: "0.82rem", color: "rgb(var(--muted))" }}>
+                          verifying…{verifyingCount > 0 ? ` ${verifyingCount} in progress ·` : ""} {verifiedCount} verified{failedCount > 0 ? ` · ${failedCount} failed` : ""}
+                        </div>
+                      );
+                    })()}
+                    {filteredMods.length > 0 && (
+                      <div className="registry-heatmap">
+                        {filteredMods.map((m) => {
+                          const prf = proofs[m.name];
+                          const vrf = verifications[m.name];
+                          let cls = "hm-tile hm-unproven";
+                          if (prf === "loading") cls = "hm-tile hm-loading";
+                          else if (prf === "error") cls = "hm-tile hm-failed";
+                          else if (prf) {
+                            if (vrf === "ok") cls = "hm-tile hm-verified";
+                            else if (vrf === "fail") cls = "hm-tile hm-failed";
+                            else cls = "hm-tile hm-proved";
+                          }
+                          return (
+                            <div
+                              key={m.name}
+                              className={cls}
+                              title={m.name}
+                              onClick={() => {
+                                const el = document.getElementById(`mod-row-${m.name}`);
+                                if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                              }}
+                            >
+                              {m.name}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                     <div className="mod-list">
                     {filteredMods.map((m) => {
                       const prf = proofs[m.name];
                       const hasProof = prf && prf !== "loading" && prf !== "error";
                       return (
-                        <div key={m.name} className="mod-row">
+                        <div key={m.name} id={`mod-row-${m.name}`} className="mod-row">
                           <div className="mod-row-info">
                             <span className="mod-name">{m.name}</span>
                             {m.port != null && <span className="mod-port">:{m.port}</span>}
@@ -1108,7 +1277,7 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
                                     ))}
                                   </div>
                                   <div className="code" data-lang={codeTab[m.name] ?? "solidity"}>
-                                    <pre><code>{activeSnippet(m.name, prf as ProofResult)}</code></pre>
+                                    <pre><code dangerouslySetInnerHTML={{ __html: highlight(activeSnippet(m.name, prf as ProofResult), codeTab[m.name] ?? "solidity") }} /></pre>
                                   </div>
                                   <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "4px" }}>
                                     <button
@@ -1159,6 +1328,18 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
           </footer>
         </article>
       </div>
+
+      {!registryInView && root?.root && (
+        <button
+          className="registry-beacon"
+          onClick={() => registryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          aria-label="Jump to live registry"
+        >
+          <span className={`dot ${watchMode ? "dot-watch" : online ? "dot-on" : "dot-off"}`} />
+          {short(root.root)}
+          {root.count != null && <span>· {root.count}</span>}
+        </button>
+      )}
     </>
   );
 }

@@ -41,8 +41,11 @@ def fns():
         "landing_apps": lambda range="24h", limit=10, **k: C.landing_apps(STORE, range, int(limit)),
         "funnel": lambda range="24h", **k: C.funnel(STORE, range),
         "paths": lambda range="24h", **k: C.paths(STORE, range),
+        "transitions": lambda range="24h", limit=15, **k: C.transitions(STORE, range, int(limit)),
+        "dwell": lambda range="24h", **k: C.dwell(STORE, range),
         "info": lambda **k: {"name": "traffic", "log": C.LOG, "db": STORE.dir,
                              "live_window": C.LIVE_WINDOW, "ranges": list(C.RANGES)},
+        "recent": lambda since=0, **k: {"events": [[ts, app, cc] for ts, app, cc in STORE.recent if ts > int(since)]},
     }
 
 

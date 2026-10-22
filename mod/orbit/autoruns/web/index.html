@@ -95,6 +95,9 @@
   .live .run { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
   .live .track { width: 120px; }
   .live .track i { height: 10px; }
+  .live h2 { display: flex; align-items: center; gap: 8px; }
+  .live h2 .sp { flex: 1; }
+  button.sm { padding: 5px 10px; font-size: 10px !important; border-radius: 8px; }
   .more { display: block; margin: 12px auto 0; }
   .live-elapsed { font: 12px var(--mono); color: var(--accent); }
   .run-elapsed { color: var(--dim); }
@@ -108,6 +111,11 @@
   .ev .when { font: 12px var(--mono); color: var(--faint); white-space: nowrap; }
 
   #mod_stats { font-size: 12px; color: var(--dim); margin-top: 3px; }
+  .mod-chip-tray { display: flex; flex-wrap: wrap; gap: 5px; }
+  .mod-chip-tray:not(:empty) { margin-top: 5px; }
+  .mod-sel-chip { font: 600 11px var(--sans); padding: 3px 6px 3px 9px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); background: color-mix(in srgb, var(--accent) 10%, var(--panel2)); cursor: default; color: var(--accent); display: inline-flex; align-items: center; gap: 4px; }
+  .mod-sel-chip .rm { cursor: pointer; color: color-mix(in srgb, var(--accent) 60%, transparent); font-size: 14px; line-height: 1; }
+  .mod-sel-chip .rm:hover { color: var(--accent); }
 
   @media (max-width: 640px) {
     .start { grid-template-columns: 1fr 1fr; }
@@ -120,6 +128,13 @@
     .seg button { white-space: nowrap; padding: 0 10px; }
     .start .modeseg { grid-column: span 1; }
   }
+  .away-banner { display: flex; align-items: center; gap: 10px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 8px;
+    padding: 7px 10px; margin-bottom: 10px; }
+  .away-banner span { flex: 1; }
+  .away-banner .close { background: none; border: 0; color: var(--faint); font-size: 14px; padding: 0 2px; cursor: pointer; line-height: 1; }
+  .away-banner .close:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -131,18 +146,19 @@
     <div class="card wide">
       <h2>Start a run</h2>
       <div class="start">
-        <label class="f modf">module<input id="a_mod" list="mods" placeholder="which mod?" autocomplete="off" /><div id="mod_stats"></div></label>
+        <label class="f modf">module<input id="a_mod" list="mods" placeholder="add a module…" autocomplete="off" /><div id="mod_chip_tray" class="mod-chip-tray"></div><div id="mod_stats"></div></label>
         <label class="f">steps
           <span class="stepper"><button data-d="-1" aria-label="fewer">−</button><b id="a_steps">3</b><button data-d="1" aria-label="more">+</button></span>
         </label>
         <label class="f">mode
           <span class="seg" id="a_mode"><button class="sel" data-v="play">build it</button><button data-v="ideas">ideas only</button></span>
         </label>
-        <label class="f">model<input id="a_model" placeholder="default" /></label>
+        <label class="f">model<input id="a_model" list="models" placeholder="default" autocomplete="off" /></label>
         <label class="f goal">goal · optional<input id="a_goal" placeholder="e.g. polish the mobile layout — leave empty and the agent picks" />
         <div class="mod-chips" id="goal_chips"></div></label>
       </div>
       <datalist id="mods"></datalist>
+      <datalist id="models"></datalist>
       <div class="startbar">
         <span class="hint" id="hint"></span>
         <button id="startBtn" class="primary">start run</button>
@@ -155,7 +171,7 @@
     </div>
 
     <div class="card wide live">
-      <h2>Running now <span class="n" id="liveN"></span></h2>
+      <h2>Running now <span class="n" id="liveN"></span><span class="sp"></span><button id="stopAllBtn" class="danger sm" hidden>stop all</button></h2>
       <div id="live" class="rows"></div>
     </div>
 
@@ -169,8 +185,9 @@
       <div class="bar">
         <span class="seg" id="show"><button class="sel" data-v="all">all</button><button data-v="ok">landed</button><button data-v="miss">missed</button></span>
         <span class="sp"></span>
-        <input id="filter" placeholder="filter by module…" />
+        <input id="filter" placeholder="search by module, goal, or idea…" />
       </div>
+      <div id="awayBanner" class="away-banner" hidden></div>
       <div id="done" class="rows"></div>
       <button id="moreBtn" class="more" hidden>show more</button>
     </div>
@@ -189,6 +206,11 @@ let modAvgCostPerStep = null;
 const open = new Set();
 const justCompleted = new Set();
 const prevLive = new Set();
+let _sessionShown = false;
+const lastVisit = parseInt(localStorage.getItem('ar_last_visit') || '0', 10);
+let _awayBannerDismissed = false;
+let selectedMods = [];
+let modelRates = {};
 const isLive = (r) => r.status === "running" || r.status === "stopping";
 const landed = (o) => o === "played" || o === "filed";
 
@@ -217,6 +239,46 @@ function verdict(r) {
 
 function notify(module, word) {
   if (Notification.permission === "granted") new Notification("Auto run · " + module, { body: word });
+}
+
+function showSessionSummary(ids) {
+  if (_sessionShown) return;
+  _sessionShown = true;
+  const completedRuns = [...ids].map(id => runs.find(r => r.id === id)).filter(Boolean);
+  let landedN = 0, totalSteps = 0, totalUsd = 0;
+  const mods = new Set();
+  for (const r of completedRuns) {
+    for (const s of (r.history || [])) {
+      if (!s.outcome) continue;
+      totalSteps++;
+      if (landed(s.outcome)) landedN++;
+    }
+    totalUsd += +r.usd || 0;
+    mods.add(r.module);
+  }
+  const kind = totalSteps === 0 ? "meh" : landedN === totalSteps ? "ok" : landedN === 0 ? "miss" : "meh";
+  const v = document.createElement("div");
+  v.className = "veil";
+  v.innerHTML = `<div class="dlg">
+    <p><span class="tag ${kind}">Session complete</span></p>
+    <p>${landedN} of ${totalSteps} step${totalSteps !== 1 ? "s" : ""} landed</p>
+    <p style="font-size:12px;color:var(--dim)">modules: ${K.esc([...mods].join(" · "))}</p>
+    <p style="font-size:12px;color:var(--dim)">${totalUsd > 0 ? "$" + totalUsd.toFixed(2) + " spent" : "no spend recorded"}</p>
+    <div class="inline"><button data-a="results">view results</button><button data-a="new" class="primary">new run</button></div>
+  </div>`;
+  v.addEventListener("click", e => {
+    if (e.target === v) { v.remove(); return; }
+    const a = e.target.closest("button")?.dataset.a;
+    if (!a) return;
+    v.remove();
+    if (a === "results") {
+      $("done")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      document.querySelector(".card.wide")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      $("a_mod")?.focus();
+    }
+  });
+  document.body.appendChild(v);
 }
 
 function track(r) {
@@ -325,21 +387,21 @@ function renderEvents() {
     .map(r => {
       const cur = (r.history || []).slice().reverse().find(s => !s.outcome);
       if (!cur) return null;
-      return {...cur, module: r.module};
+      return {...cur, module: r.module, runId: r.id};
     })
     .filter(Boolean);
   const evts = runs
-    .flatMap(r => (r.history || []).filter(s => s.outcome && s.ended_at).map(s => ({...s, module: r.module})))
+    .flatMap(r => (r.history || []).filter(s => s.outcome && s.ended_at).map(s => ({...s, module: r.module, runId: r.id})))
     .sort((a, b) => b.ended_at - a.ended_at)
     .slice(0, 10);
   const el = $("events");
   if (!liveEvts.length && !evts.length) { el.innerHTML = '<div class="empty">no completed steps yet</div>'; return; }
   const liveHtml = liveEvts.map(s =>
-    `<div class="ev live"><span class="mod">${K.esc(s.module)}</span><span class="etitle">${K.esc(s.title || "implementing…")}</span><span class="live-elapsed" data-start="${s.started_at || ""}"></span><span class="tag now">running</span></div>`
+    `<div class="ev live" data-run-id="${K.esc(s.runId)}" style="cursor:pointer"><span class="mod">${K.esc(s.module)}</span><span class="etitle">${K.esc(s.title || "implementing…")}</span><span class="live-elapsed" data-start="${s.started_at || ""}"></span><span class="tag now">running</span></div>`
   ).join("");
   const doneHtml = evts.map(s => {
     const [word, kind] = outOf(s);
-    return `<div class="ev"><span class="mod">${K.esc(s.module)}</span><span class="etitle">${K.esc(s.title || "(no idea yet)")}</span><span class="tag ${kind}">${K.esc(word)}</span><span class="when">${K.ago(s.ended_at)}</span></div>`;
+    return `<div class="ev" data-run-id="${K.esc(s.runId)}" style="cursor:pointer"><span class="mod">${K.esc(s.module)}</span><span class="etitle">${K.esc(s.title || "(no idea yet)")}</span><span class="tag ${kind}">${K.esc(word)}</span><span class="when">${K.ago(s.ended_at)}</span></div>`;
   }).join("");
   el.innerHTML = liveHtml + doneHtml;
 }
@@ -445,9 +507,29 @@ function renderLeaderboard() {
   }).join("");
 }
 
+function renderAwayBanner() {
+  const el = $('awayBanner');
+  if (!el) return;
+  if (_awayBannerDismissed || !lastVisit || (Math.floor(Date.now() / 1000) - lastVisit) < 300) {
+    el.hidden = true;
+    return;
+  }
+  const away = runs.filter(r => r.updated_at > lastVisit && !isLive(r));
+  if (!away.length) { el.hidden = true; return; }
+  const totalSteps = away.reduce((s, r) => s + (r.history || []).length, 0);
+  const landedSteps = away.reduce((s, r) => s + (r.history || []).filter(h => landed(h.outcome)).length, 0);
+  const totalUsd = away.reduce((s, r) => s + (+r.usd || 0), 0);
+  const costStr = totalUsd > 0 ? ` · ${usd(totalUsd)}` : '';
+  el.hidden = false;
+  el.innerHTML = `<span>While you were away · ${away.length} run${away.length !== 1 ? 's' : ''} · ${landedSteps}/${totalSteps} steps landed${costStr}</span><button class="close" onclick="_awayBannerDismissed=true;document.getElementById('awayBanner').hidden=true">×</button>`;
+}
+
 function render() {
   const f = $("filter").value.trim().toLowerCase();
-  const vis = runs.filter((r) => !f || r.module.toLowerCase().includes(f));
+  const vis = runs.filter((r) => !f
+    || r.module.toLowerCase().includes(f)
+    || (r.goal || "").toLowerCase().includes(f)
+    || (r.history || []).some(s => (s.title || "").toLowerCase().includes(f)));
   const live = vis.filter(isLive);
   let done = vis.filter((r) => !isLive(r));
   if (show !== "all") done = done.filter((r) => verdict(r)[1] === show || (show === "miss" && verdict(r)[1] === "meh"));
@@ -457,12 +539,16 @@ function render() {
   renderLeaderboard();
   $("liveN").textContent = live.length ? `· ${live.length}` : "";
   $("doneN").textContent = done.length ? `· ${done.length}` : "";
+  const stoppable = live.filter(r => r.status !== "stopping" && (K.isOwner || (K.address && r.started_by?.toLowerCase() === K.address?.toLowerCase())));
+  const sab = $("stopAllBtn");
+  if (sab) { sab.hidden = stoppable.length < 2; if (!sab.hidden) sab.textContent = `stop all (${stoppable.length})`; }
   for (const id of justCompleted) {
     const r = runs.find((x) => x.id === id);
     if (r) { const [, k] = verdict(r); if (k === "ok" || k === "meh") open.add(id); }
   }
   $("live").innerHTML = live.map(run).join("") || `<div class="empty">Nothing running. Start one above, or let the evolver pick.</div>`;
   $("done").innerHTML = grouped(done.slice(0, limit)) || `<div class="empty">${f || show !== "all" ? "no runs match" : "no finished runs yet"}</div>`;
+  renderAwayBanner();
   $("moreBtn").hidden = done.length <= limit;
   $("moreBtn").textContent = `show more (${done.length - limit} left)`;
   if (live.length > 0) {
@@ -477,9 +563,12 @@ function render() {
 function renderHint() {
   $("a_steps").textContent = steps;
   const costEst = (modAvgCostPerStep && modAvgCostPerStep > 0) ? ` · ~$${(modAvgCostPerStep * steps).toFixed(2)} est.` : "";
+  const chosenModel = $("a_model").value.trim();
+  const rateEntry = chosenModel ? (modelRates[chosenModel] || modelRates["claude-" + chosenModel]) : null;
+  const rateNote = rateEntry ? ` · ${model(chosenModel)} ~$${((rateEntry.measured_usd_per_min || rateEntry.expected_usd_per_min) || 0).toFixed(2)}/min` : "";
   $("hint").textContent = mode === "play"
-    ? `${steps} step${steps > 1 ? "s" : ""}: each one, an agent writes an idea and a second builds it. Pre-approves ${steps} build${steps > 1 ? "s" : ""} on your account.${costEst}`
-    : `${steps} idea${steps > 1 ? "s" : ""} filed under your name — nothing gets built.${costEst}`;
+    ? `${steps} step${steps > 1 ? "s" : ""}: each one, an agent writes an idea and a second builds it. Pre-approves ${steps} build${steps > 1 ? "s" : ""} on your account.${costEst}${rateNote}`
+    : `${steps} idea${steps > 1 ? "s" : ""} filed under your name — nothing gets built.${costEst}${rateNote}`;
 }
 
 const DEFAULT_CHIPS = ["polish the UI", "fix a bug", "improve error handling", "write tests", "improve performance", "add mobile support"];
@@ -513,11 +602,29 @@ function renderGoalChips(mod) {
   el.innerHTML = chips.map(c => `<span class="mod-chip${c === activeText ? " active" : ""}">${K.esc(c)}</span>`).join("");
 }
 
-function updateModStats() {
-  const mod = $("a_mod").value.trim();
+function renderModChips() {
+  const tray = $("mod_chip_tray");
+  if (!tray) return;
+  tray.innerHTML = selectedMods.map((m, i) =>
+    `<span class="mod-sel-chip" data-chip-mod="${K.esc(m)}">${K.esc(m)}<span class="rm" data-rm="${i}" aria-label="remove">×</span></span>`
+  ).join("");
+  const btn = $("startBtn");
+  if (btn) btn.textContent = selectedMods.length > 1 ? `start ${selectedMods.length} runs` : "start run";
+}
+
+function addModChip(name) {
+  if (!name) return;
+  if (selectedMods.includes(name)) { K.toast(`${name} already in list`, true); return; }
+  selectedMods.push(name);
+  $("a_mod").value = "";
+  $("a_mod").placeholder = selectedMods.length ? "add another…" : "add a module…";
+  renderModChips();
+  _previewMod("");
+}
+
+function _previewMod(mod) {
   const el = $("mod_stats");
   if (!el) return;
-  renderGoalChips(mod);
   if (!mod) { modAvgCostPerStep = null; renderHint(); el.textContent = ""; return; }
   const modRuns = runs.filter(r => r.module === mod && !isLive(r));
   if (!modRuns.length) { modAvgCostPerStep = null; renderHint(); el.textContent = "no history — first run"; return; }
@@ -530,21 +637,39 @@ function updateModStats() {
   el.textContent = `${modRuns.length} run${modRuns.length !== 1 ? "s" : ""} · ${landedPct}% landed · $${totalUsd.toFixed(2)} total`;
 }
 
+function updateModStats() {
+  const mod = $("a_mod").value.trim();
+  renderGoalChips(mod);
+  _previewMod(mod);
+}
+
 async function load() {
-  const [r, allMods] = await Promise.all([K.api("/auto"), K.api("/modules")]);
+  const [r, allMods, rates] = await Promise.all([K.api("/auto"), K.api("/modules"), K.api("/costs/rates")]);
   if (!r.ok) return;
   const fresh = (r.data.runs || []).sort((a, b) => b.updated_at - a.updated_at);
   prevLive.forEach((id) => { const x = fresh.find((f) => f.id === id); if (x && !isLive(x)) { notify(x.module, verdict(x)[0]); justCompleted.add(id); } });
   runs = fresh;
+  localStorage.setItem('ar_last_visit', Math.floor(Date.now() / 1000));
   prevLive.clear(); runs.filter(isLive).forEach((x) => prevLive.add(x.id));
   const mods = [...new Set([...runs.map((x) => x.module), ...(allMods.data?.modules || []).map((m) => m.name)])].sort();
   $("mods").innerHTML = mods.map((m) => `<option value="${K.esc(m)}">`).join("");
+  const ratesList = rates.data?.models || [];
+  modelRates = {};
+  ratesList.forEach((m) => { modelRates[m.model] = m; });
+  $("models").innerHTML = ratesList.map((m) => {
+    const rate = m.measured_usd_per_min || m.expected_usd_per_min;
+    const label = `${model(m.model)} · $${rate ? rate.toFixed(2) : "??"}/min`;
+    return `<option value="${K.esc(m.model)}">${K.esc(label)}</option>`;
+  }).join("");
   render();
   if (justCompleted.size === 1) {
     const id = [...justCompleted][0];
     requestAnimationFrame(() => {
       document.querySelector(`.run[data-id="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
+  }
+  if (justCompleted.size > 0 && runs.filter(isLive).length === 0) {
+    showSessionSummary(justCompleted);
   }
   justCompleted.clear();
   updateModStats();
@@ -602,16 +727,50 @@ seg("a_mode", (v) => { mode = v; renderHint(); });
 seg("show", (v) => { show = v; limit = 40; render(); });
 $("filter").oninput = () => { limit = 40; render(); };
 $("moreBtn").onclick = () => { limit += 40; render(); };
+$("stopAllBtn").onclick = async () => {
+  const stoppable = runs.filter(r => isLive(r) && r.status !== "stopping" && (K.isOwner || (K.address && r.started_by?.toLowerCase() === K.address?.toLowerCase())));
+  if (!stoppable.length) return;
+  if (!await K.ask(`Stop all ${stoppable.length} running run${stoppable.length > 1 ? "s" : ""}? Each stops between phases; jobs already in flight finish.`, "Stop all", true)) return;
+  for (const r of stoppable) await K.act(`/auto/${r.id}/stop`, {}, null);
+  K.toast(`stopping ${stoppable.length} run${stoppable.length > 1 ? "s" : ""}`);
+  load();
+};
 $("startBtn").onclick = async (e) => {
+  _sessionShown = false;
   if (Notification.permission === "default") Notification.requestPermission();
-  const mod = $("a_mod").value.trim();
-  if (!mod) { $("a_mod").focus(); return K.toast("pick a module", true); }
+  const inputMod = $("a_mod").value.trim();
+  const modsToRun = selectedMods.length > 0 ? [...selectedMods] : (inputMod ? [inputMod] : []);
+  if (!modsToRun.length) { $("a_mod").focus(); return K.toast("pick a module", true); }
   const body = { steps, goal: $("a_goal").value.trim(), play: mode === "play" };
   if ($("a_model").value.trim()) body.model = $("a_model").value.trim();
-  const go = async () => { if (await K.act(`/modules/${encodeURIComponent(mod)}/auto`, body, "run started")) load(); };
-  body.play ? K.armed(e.target, `sure? ${steps} build${steps > 1 ? "s" : ""}`, go) : go();
+  const go = async () => {
+    for (const mod of modsToRun) {
+      await K.act(`/modules/${encodeURIComponent(mod)}/auto`, body, modsToRun.length > 1 ? null : "run started");
+    }
+    if (modsToRun.length > 1) K.toast(`${modsToRun.length} runs started`);
+    load();
+  };
+  if (body.play) {
+    const armMsg = modsToRun.length > 1
+      ? `sure? ${steps} build${steps > 1 ? "s" : ""} × ${modsToRun.length} modules`
+      : `sure? ${steps} build${steps > 1 ? "s" : ""}`;
+    K.armed(e.target, armMsg, go);
+  } else {
+    go();
+  }
 };
 document.body.addEventListener("click", e => {
+  const evRunId = e.target.closest("[data-run-id]")?.dataset.runId;
+  if (evRunId) {
+    open.add(evRunId);
+    const r = runs.find(x => x.id === evRunId);
+    if (r && $("filter").value.trim() && !r.module.toLowerCase().includes($("filter").value.trim().toLowerCase())) {
+      $("filter").value = "";
+    }
+    render();
+    document.querySelector(`.run[data-id="${evRunId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
   const runMod = e.target.closest("[data-lb-run]")?.dataset.lbRun;
   if (runMod) {
     const body = { steps, goal: $("a_goal").value.trim(), play: mode === "play" };
@@ -635,13 +794,33 @@ document.body.addEventListener("click", e => {
   document.querySelector(".card.wide")?.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 $("a_mod").oninput = () => updateModStats();
-$("a_mod").onkeydown = $("a_goal").onkeydown = (e) => { if (e.key === "Enter") $("startBtn").click(); };
+$("a_model").oninput = renderHint;
+$("a_mod").onkeydown = (e) => {
+  if (e.key !== "Enter") return;
+  const val = $("a_mod").value.trim();
+  if (val) { e.preventDefault(); addModChip(val); } else { $("startBtn").click(); }
+};
+$("a_goal").onkeydown = (e) => { if (e.key === "Enter") $("startBtn").click(); };
 $("goal_chips").onclick = (e) => {
   const chip = e.target.closest(".mod-chip"); if (!chip) return;
   $("a_goal").value = chip.textContent;
   $("goal_chips").querySelectorAll(".mod-chip").forEach((c) => c.classList.toggle("active", c === chip));
 };
 $("a_goal").oninput = () => $("goal_chips").querySelectorAll(".mod-chip").forEach((c) => c.classList.remove("active"));
+$("mod_chip_tray").addEventListener("click", (e) => {
+  const rm = e.target.closest("[data-rm]");
+  if (!rm) return;
+  selectedMods.splice(+rm.dataset.rm, 1);
+  $("a_mod").placeholder = selectedMods.length ? "add another…" : "add a module…";
+  renderModChips();
+});
+$("mod_chip_tray").addEventListener("mouseover", (e) => {
+  const chip = e.target.closest("[data-chip-mod]");
+  if (chip) _previewMod(chip.dataset.chipMod);
+});
+$("mod_chip_tray").addEventListener("mouseout", (e) => {
+  if (!e.relatedTarget?.closest("[data-chip-mod]")) _previewMod($("a_mod").value.trim());
+});
 
 const q = new URLSearchParams(location.search);
 if (q.get("mod")) { $("a_mod").value = q.get("mod"); $("filter").value = q.get("mod"); }

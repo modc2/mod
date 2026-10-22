@@ -17,11 +17,20 @@
   <div class="grid">
     <div class="card wide">
       <h2>Loop agents <span class="sp"></span><span id="caps" class="faint"></span><button id="fleetBtn" class="sm">⊞ fleet</button><button id="tlBtn" class="sm">◷ timeline</button><button id="newBtn" class="primary sm">+ new loop</button></h2>
-      <div id="stats" style="margin-bottom:12px"></div>
+      <div id="stats" style="margin-bottom:4px"></div>
+      <div id="search_row" style="display:none;margin-bottom:8px;margin-top:4px"><input id="search_input" placeholder="/ filter loops…" style="max-width:240px;font-size:12px" /></div>
       <div id="fleet" style="display:none;margin-bottom:8px"></div>
       <div id="timeline" style="display:none;margin-bottom:8px"></div>
       <div id="form" class="card" style="display:none;margin-bottom:12px;background:var(--panel2)">
         <div class="form">
+          <div class="chips full" id="recipe_chips" style="flex-wrap:wrap;margin-bottom:2px">
+            <span class="faint" style="font-size:11px;align-self:center;margin-right:4px">RECIPES</span>
+            <span class="chip" data-recipe='{"goal":"Fix the failing test shown in the output. Read the test output, find the cause, fix one failure at a time until all tests pass.","cmd":"pytest -x -q","every_secs":120,"max_iters":10,"until_pass":true}' style="cursor:pointer">Test guardian</span>
+            <span class="chip" data-recipe='{"goal":"Improve this module: read it, find the most valuable improvement, implement it, and keep existing tests passing. Small, safe steps. Say what you changed.","every_secs":300,"max_iters":8}' style="cursor:pointer">Continuous improve</span>
+            <span class="chip" data-recipe='{"goal":"Find the most impactful bug in this module and fix it decisively. Do not refactor. Verify the fix.","every_secs":60,"max_iters":3}' style="cursor:pointer">Quick fix</span>
+            <span class="chip" data-recipe='{"goal":"Add clear inline documentation to the most important undocumented functions. Do not change logic.","every_secs":90,"max_iters":4}' style="cursor:pointer">Doc pass</span>
+            <span class="chip" data-recipe='{"goal":"Fix the lint warnings shown in the output. Do not change logic, only fix what the linter flags.","cmd":"ruff check . || true","every_secs":60,"max_iters":3,"until_pass":true}' style="cursor:pointer">Lint sweep</span>
+          </div>
           <label class="f">mod to improve<select id="f_module"><option value="">loading mods…</option></select></label>
           <label class="f">name (optional)<input id="f_name" placeholder="auto" /></label>
           <label class="f full">goal for the agent<textarea id="f_goal"></textarea></label>
@@ -58,12 +67,15 @@
 <script>
 const open = new Set();
 const watchedByUser = new Set();
+const diffState = {};
+const replayState = {};
 let last = null;
 let clockOff = 0;
 let cdTimer = null;
 let editingId = null;
 let prevStatuses = {};
 let statusFilter = "all";
+let textFilter = "";
 let timelineOpen = localStorage.getItem('loops_timeline_open') === '1';
 let fleetOpen = localStorage.getItem('loops_fleet_open') === '1';
 let allMods = [];
@@ -195,8 +207,10 @@ function render() {
   document.getElementById("stats").innerHTML = loops.length
     ? `<div class="stats"><div class="stat"><b>$${fleetSpend.toFixed(2)}</b><span>fleet spend</span></div><div class="stat"><b>${passRateStr}</b><span>pass rate</span></div><div class="stat"><b>${totalIters}</b><span>iterations run</span></div></div><div class="chips" style="margin-top:8px">${chipsHtml}</div>`
     : "";
+  document.getElementById("search_row").style.display = loops.length ? "" : "none";
   if (!loops.length) { list.innerHTML = `<div class="empty">No loops yet. Hit + new loop, pick a mod, and an agent keeps improving it.</div>`; return; }
-  const visible = statusFilter === "all" ? loops : loops.filter(l => l.status === statusFilter);
+  let visible = statusFilter === "all" ? loops : loops.filter(l => l.status === statusFilter);
+  if (textFilter) { visible = visible.filter(l => [l.name, l.module, l.goal, l.cmd].join(" ").toLowerCase().includes(textFilter)); }
   if (!visible.length) { list.innerHTML = `<div class="empty">No loops match this filter.</div>`; return; }
   const steerVals = {}, openDetails = {};
   document.querySelectorAll('#list .row[data-id]').forEach(row => {
@@ -215,9 +229,9 @@ function render() {
     const iterMap = {};
     for (const e of (l.log || [])) {
       const k = e.iter ?? 0;
-      if (!iterMap[k]) iterMap[k] = { hasCmd: false, passed: false, hasAgent: false };
+      if (!iterMap[k]) iterMap[k] = { hasCmd: false, passed: false, hasAgent: false, cost: 0 };
       if (e.kind === "cmd") { iterMap[k].hasCmd = true; iterMap[k].passed = e.code === 0; }
-      if (e.kind === "agent") iterMap[k].hasAgent = true;
+      if (e.kind === "agent") { iterMap[k].hasAgent = true; if (e.cost_usd) iterMap[k].cost += parseFloat(e.cost_usd); }
     }
     const log = (() => {
       if (!open.has(l.id)) return "";
@@ -227,6 +241,23 @@ function render() {
       const groups = {};
       for (const e of evs) { const k = e.iter ?? 0; (groups[k] = groups[k] || []).push(e); }
       const sortedIters = Object.keys(groups).sort((a, b) => +a - +b);
+      if (replayState[l.id] !== undefined && l.status !== "running") {
+        const idx = Math.min(replayState[l.id], sortedIters.length - 1);
+        const iter = sortedIters[idx];
+        const g = groups[iter];
+        const cmdEv = g.find(e => e.kind === "cmd");
+        const agentEv = g.find(e => e.kind === "agent");
+        const ts = g[0]?.ts;
+        const time = ts ? new Date(ts * 1000).toLocaleTimeString() : "";
+        const badgeStr = cmdEv ? (cmdEv.code === 0 ? "pass ✓" : "fail ✗") : "";
+        const costStr = agentEv?.cost_usd ? `$${parseFloat(agentEv.cost_usd).toFixed(2)}` : "";
+        const navMeta = [badgeStr, costStr, time].filter(Boolean).join(" · ");
+        const cmdOut = cmdEv?.out ? `<pre class="log" style="margin:4px 0 0">${K.esc(cmdEv.out.slice(-2000))}</pre>` : "";
+        const agentOut = agentEv?.out ? `<pre class="log" style="margin:4px 0 0">${K.esc(agentEv.out.slice(-2000))}</pre>` : "";
+        const truncNote = +sortedIters[0] > 1 ? `<div class="faint s" style="padding:3px 0">earlier iterations not available</div>` : "";
+        const navBar = `<div class="inline" style="margin-top:6px;gap:6px;align-items:center"><button class="sm" data-a="replay-prev"${idx === 0 ? " disabled" : ""}>◀</button><span class="faint" style="font-size:12px">#${iter} / ${l.iter}${navMeta ? " — " + navMeta : ""}</span><button class="sm" data-a="replay-next"${idx >= sortedIters.length - 1 ? " disabled" : ""}>▶</button><button class="sm" data-a="replay-exit" style="margin-left:4px">✕ exit replay</button></div>`;
+        return truncNote + navBar + cmdOut + agentOut;
+      }
       const lastIter = sortedIters[sortedIters.length - 1];
       return sortedIters.map((iter) => {
         const g = groups[iter];
@@ -249,17 +280,31 @@ function render() {
         <div class="s">iter ${l.iter}/${l.max_iters} · every ${K.dur(l.every_secs)}${l.until_pass ? " · until pass" : ""}${l.budget_usd != null ? ` · cap $${parseFloat(l.budget_usd).toFixed(2)}` : ""}${l.status === "running" && l.next_at ? ` · next <span class="cd" data-ts="${l.next_at}">${fmtCd(l.next_at - (Date.now() / 1000 + clockOff))}</span>` : ""}${l.note ? ` · ${K.esc(l.note)}` : ""}${(() => { const t = (l.log || []).filter(e => e.kind === "agent" && e.cost_usd).reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); return t > 0 ? ` · $${t.toFixed(2)} total` : ""; })()} · updated ${K.ago(l.updated_at)}</div>
         ${(() => { if (!l.iter) return ""; const log = l.log || []; const cmdEvs = log.filter(e => e.kind === "cmd"); const passedCnt = cmdEvs.filter(e => e.code === 0).length; const passRate = cmdEvs.length ? `${passedCnt}/${cmdEvs.length} passed` : null; const agentEvs = log.filter(e => e.kind === "agent" && e.cost_usd); const totalCost = agentEvs.reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); const avgCost = agentEvs.length ? `$${(totalCost / agentEvs.length).toFixed(2)} avg/iter` : null; let trendHtml = ""; if (l.iter >= 2 && cmdEvs.length >= 2) { const half = Math.floor(l.iter / 2); const firstHalf = cmdEvs.filter(e => e.iter <= half); const secondHalf = cmdEvs.filter(e => e.iter > half); if (firstHalf.length && secondHalf.length) { const r1 = firstHalf.filter(e => e.code === 0).length / firstHalf.length; const r2 = secondHalf.filter(e => e.code === 0).length / secondHalf.length; if (r2 > r1) trendHtml = `<span style="color:var(--green)">↑ improving</span>`; else if (r2 < r1) trendHtml = `<span style="color:var(--red)">↓ regressing</span>`; } } const parts = [passRate, avgCost, trendHtml].filter(Boolean); if (!parts.length) return ""; return `<div class="s faint">${parts.join(" · ")}</div>`; })()}
         ${(() => { const agentEvs = (l.log || []).filter(e => e.kind === "agent" && e.out); if (!agentEvs.length) return ""; const lines = agentEvs[agentEvs.length - 1].out.split("\n"); const q = lines.filter(ln => { const t = ln.trim(); return t.length > 0 && t.length < 110 && !/^[-=]{3,}$/.test(t); }); if (!q.length) return ""; return `<div class="s faint" style="font-style:italic">"${K.esc(q[q.length - 1].trim())}"</div>`; })()}
-        <div class="meter" style="margin-top:6px;display:flex;gap:2px">${Array.from({length: l.max_iters}, (_, i) => { const it = iterMap[i + 1]; const c = !it ? "var(--line)" : it.hasCmd ? (it.passed ? "var(--green)" : "var(--red)") : "var(--accent)"; return `<span style="flex:1;height:100%;background:${c};border-radius:3px"></span>`; }).join("")}</div>
+        <div class="meter" style="margin-top:6px;display:flex;gap:2px;align-items:flex-end;height:40px">${(() => { const maxIterCost = Math.max(...Object.values(iterMap).map(v => v.cost), 0.001); return Array.from({length: l.max_iters}, (_, i) => { const it = iterMap[i + 1]; const c = !it ? "var(--line)" : it.hasCmd ? (it.passed ? "var(--green)" : "var(--red)") : "var(--accent)"; const h = Math.max(22, Math.round((it?.cost || 0) / maxIterCost * 100)); return `<span style="flex:1;height:${h}%;background:${c};border-radius:3px"></span>`; }).join(""); })()}</div>
       </div>
       <div class="acts">
         ${l.status === "running" ? `<button class="sm" data-a="stop">stop</button>` : `<button class="sm" data-a="start">start</button>`}
         ${l.status === "running" && l.next_at > 0 ? `<button class="sm" data-a="nudge" title="fire now">⚡</button>` : ""}
         ${l.status !== "running" && l.iter > 0 ? `<button class="sm" data-a="continue">${l.iter >= l.max_iters ? "▶ +5 iters" : "▶ continue"}</button>` : ""}
         ${l.status !== "running" ? `<button class="sm" data-a="edit">edit</button>` : ""}
+        ${l.status !== "running" && (l.log || []).some(e => e.kind === "cmd" && e.code !== 0) ? `<button class="sm" data-a="fixfail">→ fix</button>` : ""}
+        <button class="sm" data-a="copylink" title="copy link">⎘</button>
+        ${l.status !== "running" && l.iter > 1 && open.has(l.id) && replayState[l.id] === undefined ? `<button class="sm" data-a="replay">▶ replay</button>` : ""}
+        ${l.status !== "running" && l.module && open.has(l.id) ? `<button class="sm" data-a="diff">${diffState[l.id] && diffState[l.id] !== 'loading' ? 'hide diff' : '📋 diff'}</button>` : ""}
         <button class="sm" data-a="clone">clone</button>
         <button class="sm danger" data-a="del">delete</button>
       </div>
-      <div style="flex-basis:100%">${log}</div>
+      <div style="flex-basis:100%">${log}${(() => {
+        if (!open.has(l.id) || !l.module) return "";
+        const ds = diffState[l.id];
+        if (!ds) return "";
+        if (ds === 'loading') return `<div class="faint s" style="padding:4px 0">loading diff…</div>`;
+        if (!ds.diff && !ds.commits) return `<div class="faint s" style="padding:4px 0">no file changes recorded.</div>`;
+        let out = '';
+        if (ds.commits && ds.commits.trim()) out += `<div class="s mono" style="margin:6px 0 2px">${ds.commits.trim().split('\n').map(K.esc).join('<br>')}</div>`;
+        if (ds.diff) { const lines = ds.diff.split('\n').map(ln => { const esc = K.esc(ln); if (ln.startsWith('+') && !ln.startsWith('+++')) return `<span style="color:var(--green)">${esc}</span>`; if (ln.startsWith('-') && !ln.startsWith('---')) return `<span style="color:var(--red)">${esc}</span>`; return esc; }); out += `<pre class="log" style="margin:4px 0 0">${lines.join('\n')}</pre>`; }
+        return out;
+      })()}</div>
     </div>`;
   }).join("");
   for (const [id, val] of Object.entries(steerVals)) {
@@ -310,6 +355,26 @@ document.getElementById("stats").addEventListener("click", (e) => {
   statusFilter = (statusFilter === sf && sf !== "all") ? "all" : sf;
   render();
 });
+document.getElementById("search_input").addEventListener("input", (e) => {
+  textFilter = e.target.value.toLowerCase();
+  render();
+});
+document.addEventListener("keydown", (e) => {
+  const tag = document.activeElement?.tagName;
+  if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA") {
+    const si = document.getElementById("search_input");
+    if (!si || si.closest("#search_row")?.style.display === "none") return;
+    e.preventDefault();
+    si.focus();
+  } else if (e.key === "Escape") {
+    const si = document.getElementById("search_input");
+    if (!si || !textFilter) return;
+    textFilter = "";
+    si.value = "";
+    si.blur();
+    render();
+  }
+});
 
 document.getElementById("list").addEventListener("click", async (e) => {
   const row = e.target.closest(".row"); if (!row) return;
@@ -345,6 +410,22 @@ document.getElementById("list").addEventListener("click", async (e) => {
     document.querySelector("#form details").open = true;
     return;
   }
+  if (a === "fixfail") {
+    const l = (last?.loops || []).find(x => x.id === id);
+    if (!l) return;
+    const failedCmds = (l.log || []).filter(e => e.kind === "cmd" && e.code !== 0);
+    if (!failedCmds.length) return;
+    const cmdEv = failedCmds[failedCmds.length - 1];
+    const output = cmdEv.out || "";
+    openForm(l.module);
+    document.getElementById("f_cmd").value = l.cmd || "";
+    document.getElementById("f_goal").value = `The command \`${l.cmd}\` failed (exit ${cmdEv.code}). Last output:\n\n${output.slice(-600)}\n\nFix the underlying issue so the command exits 0.`;
+    document.getElementById("f_every").value = l.every_secs || 60;
+    document.getElementById("f_max").value = l.max_iters || 5;
+    document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.remove("sel"));
+    document.querySelector("#form details").open = true;
+    return;
+  }
   if (a === "steer") {
     const jobId = e.target.closest("[data-job]")?.dataset.job;
     if (!jobId) return;
@@ -354,6 +435,30 @@ document.getElementById("list").addEventListener("click", async (e) => {
     const r = await K.api(`/jobs/${jobId}/message`, { method: "POST", body: { message } });
     if (r.ok) { inp.value = ""; K.toast("injected"); }
     else K.toast(r.data?.error || "inject failed", true);
+    return;
+  }
+  if (a === "replay") {
+    const rl = (last?.loops || []).find(x => x.id === id);
+    if (!rl) return;
+    const evs = (rl.log || []).slice(-200);
+    const grps = {};
+    for (const e of evs) { const k = e.iter ?? 0; (grps[k] = grps[k] || []).push(e); }
+    const iters = Object.keys(grps).sort((a, b) => +a - +b);
+    if (iters.length) { replayState[id] = iters.length - 1; render(); }
+    return;
+  }
+  if (a === "replay-prev" || a === "replay-next" || a === "replay-exit") {
+    if (a === "replay-exit") { delete replayState[id]; render(); return; }
+    const rl = (last?.loops || []).find(x => x.id === id);
+    if (!rl || replayState[id] === undefined) return;
+    const evs = (rl.log || []).slice(-200);
+    const grps = {};
+    for (const e of evs) { const k = e.iter ?? 0; (grps[k] = grps[k] || []).push(e); }
+    const iters = Object.keys(grps).sort((a, b) => +a - +b);
+    const cur = replayState[id];
+    if (a === "replay-prev" && cur > 0) replayState[id] = cur - 1;
+    if (a === "replay-next" && cur < iters.length - 1) replayState[id] = cur + 1;
+    render();
     return;
   }
   if (a === "start") { await maybeRequestNotifPerm(); await K.act(`/loops/${id}/start`, {}, "started"); }
@@ -366,6 +471,28 @@ document.getElementById("list").addEventListener("click", async (e) => {
   if (a === "stop") await K.act(`/loops/${id}/stop`, {}, "stopped");
   if (a === "nudge") await K.act(`/loops/${id}/nudge`, {}, "fired");
   if (a === "del" && await K.ask("Delete this loop and its log?", "Delete", true)) await K.act(`/loops/${id}`, undefined, "deleted", "DELETE");
+  if (a === "copylink") {
+    const cl = (last?.loops || []).find(x => x.id === id);
+    if (!cl) return;
+    const p = new URLSearchParams({ module: cl.module || "", cmd: cl.cmd || "", goal: cl.goal || "", name: cl.name || "", every_secs: cl.every_secs || 60, max_iters: cl.max_iters || 5, until_pass: cl.until_pass ? "1" : "0" });
+    if (cl.budget_usd != null) p.set("budget_usd", cl.budget_usd);
+    navigator.clipboard.writeText(location.origin + location.pathname + "?" + p.toString());
+    K.toast("link copied");
+    return;
+  }
+  if (a === "diff") {
+    const dl = (last?.loops || []).find(x => x.id === id);
+    if (!dl || !dl.module) return;
+    if (diffState[id] === 'loading') return;
+    if (diffState[id] && diffState[id] !== 'loading') { delete diffState[id]; return render(); }
+    diffState[id] = 'loading';
+    render();
+    const since = dl.log?.[0]?.ts || 0;
+    const resp = await fetch(`/api/loops/diff?module=${encodeURIComponent(dl.module)}&since=${encodeURIComponent(since)}`);
+    diffState[id] = resp.ok ? await resp.json() : null;
+    render();
+    return;
+  }
   load();
 });
 
@@ -376,6 +503,7 @@ goalEl.value = DEFAULT_GOAL;
 function resetGoal() {
   goalEl.value = DEFAULT_GOAL;
   document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.toggle("sel", c.dataset.goal === DEFAULT_GOAL));
+  document.querySelectorAll("#recipe_chips .chip").forEach(c => c.classList.remove("sel"));
 }
 document.getElementById("goal_chips").addEventListener("click", e => {
   const chip = e.target.closest(".chip[data-goal]");
@@ -384,8 +512,32 @@ document.getElementById("goal_chips").addEventListener("click", e => {
   document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.remove("sel"));
   chip.classList.add("sel");
 });
+document.getElementById("recipe_chips").addEventListener("click", e => {
+  const chip = e.target.closest(".chip[data-recipe]");
+  if (!chip) return;
+  let recipe;
+  try { recipe = JSON.parse(chip.dataset.recipe); } catch { return; }
+  if (recipe.goal != null) goalEl.value = recipe.goal;
+  document.getElementById("f_cmd").value = recipe.cmd || "";
+  document.getElementById("f_every").value = recipe.every_secs || 60;
+  document.getElementById("f_max").value = recipe.max_iters || 5;
+  document.getElementById("f_until").checked = !!recipe.until_pass;
+  document.querySelector("#form details").open = true;
+  document.querySelectorAll("#recipe_chips .chip").forEach(c => c.classList.remove("sel"));
+  chip.classList.add("sel");
+  document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.remove("sel"));
+});
 goalEl.addEventListener("input", () => {
   document.querySelectorAll("#goal_chips .chip").forEach(c => c.classList.remove("sel"));
+  document.querySelectorAll("#recipe_chips .chip").forEach(c => c.classList.remove("sel"));
+});
+["f_cmd", "f_every", "f_max"].forEach(id => {
+  document.getElementById(id).addEventListener("input", () => {
+    document.querySelectorAll("#recipe_chips .chip").forEach(c => c.classList.remove("sel"));
+  });
+});
+document.getElementById("f_until").addEventListener("change", () => {
+  document.querySelectorAll("#recipe_chips .chip").forEach(c => c.classList.remove("sel"));
 });
 const modEl = document.getElementById("f_module");
 const createBtn = document.getElementById("createBtn");
@@ -447,6 +599,8 @@ createBtn.onclick = async () => {
 const q = new URLSearchParams(location.search);
 for (const k of ["cmd", "cwd", "goal", "name"]) if (q.get(k)) { document.getElementById("f_" + k).value = q.get(k); form.style.display = ""; }
 if (q.get("module")) openForm(q.get("module"));
+for (const [qk, fk] of [["every_secs","f_every"],["max_iters","f_max"],["budget_usd","f_budget"]]) if (q.get(qk)) { document.getElementById(fk).value = q.get(qk); form.style.display = ""; }
+if (q.get("until_pass")) { const up = q.get("until_pass"); document.getElementById("f_until").checked = up === "1" || up === "true"; form.style.display = ""; }
 
 async function tick() {
   await load();

@@ -21,6 +21,12 @@
 .triage-acts button{flex:1;padding:10px;font-size:14px}
 .triage-hint{text-align:center;padding:6px 16px 12px;font-size:11px;color:var(--muted,#888)}
 .rec{box-shadow:0 0 0 2px currentColor;opacity:.7}
+.unconf-list{display:none;padding:8px 12px 10px;border-top:1px solid var(--border,#2a2a2a)}
+.act-chart{display:flex;gap:4px;padding:8px 0 10px;border-bottom:1px solid var(--border,#2a2a2a);margin-bottom:4px}
+.act-bar{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:0}
+.act-bar-lbl{font-size:9px;color:var(--muted,#888);letter-spacing:.02em}
+.act-bar-g{background:var(--green,#22c55e);display:block}
+.act-bar-r{background:var(--red,#ef4444);display:block}
 @keyframes new-glow{0%{background:rgba(200,230,90,.18);box-shadow:0 0 0 2px rgba(200,230,90,.35)}100%{background:transparent;box-shadow:none}}
 .is-new{animation:new-glow 2.2s ease-out forwards}
 </style>
@@ -60,7 +66,7 @@
     </div>
     <div class="card wide">
       <h2>Per module <span class="sp"></span>
-        <input id="modIn" placeholder="module name…" style="max-width:220px;padding:6px 10px" /><button id="modLoad" class="sm">open</button></h2>
+        <input id="modIn" list="modList" placeholder="module name…" style="max-width:220px;padding:6px 10px" /><datalist id="modList"></datalist><button id="modLoad" class="sm">open</button></h2>
       <div id="mod"><div class="empty">Open a module to see and set its guardian: house rules, edit approvals, AUTO mode.</div></div>
     </div>
   </div>
@@ -84,7 +90,16 @@
 <script src="kit.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-let G = null, seeded = false, cur = null, pendingAll = [], resolvedAll = [], prevPendingIds = new Set(), verdictFilter = null;
+let G = null, seeded = false, cur = null, pendingAll = [], resolvedAll = [], prevPendingIds = new Set(), verdictFilter = null, allModules = null, requesterTrack = {};
+function trackBadge(addr) {
+  if (!addr) return "";
+  const t = requesterTrack[addr]; if (!t) return "";
+  const { approved: a, rejected: r } = t;
+  if (!a && !r) return "";
+  if (r > (a + r) / 2) return ` <span class="pill warn" style="font-size:10px;padding:1px 4px">often blocked</span>`;
+  if (!r) return ` <span style="color:var(--green);font-size:10px">✓${a}</span>`;
+  return ` <span style="color:var(--green);font-size:10px">✓${a}</span> <span style="color:var(--red);font-size:10px">✗${r}</span>`;
+}
 function vcS(v) {
   return (v === "safe" || v === "passed") ? "on"
        : (v === "flagged" || v === "doubt") ? "warn"
@@ -109,7 +124,9 @@ function updDetailHtml(u) {
   const byStyle = u.screen?.by === "unscreened" ? "color:#f97316" : "";
   const fullCats = (u.screen?.categories || []).map(c => `<span class="pill" style="opacity:.55;font-size:10px">${K.esc(c)}</span>`).join("");
   const screenMeta = (byLabel || fullCats) ? `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:6px"><span class="faint" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em">screened by</span>${byLabel ? `<span class="pill" style="font-size:10px;${byStyle}">${K.esc(byLabel)}</span>` : ""}${fullCats}</div>` : "";
-  return `<div class="upd-detail">${body ? `<pre>${K.esc(body)}</pre>` : ""}${screenMeta}${reason ? `<div class="upd-label">guardian reasoning</div><pre>${K.esc(reason)}</pre>` : ""}${showFallback ? `<div class="upd-label">screen data</div><pre>${K.esc(JSON.stringify(u.screen, null, 2))}</pre>` : ""}</div>`;
+  const rescreenBtn = u.status === "pending" ? `<div style="margin-top:6px"><button class="sm" data-a="rescreen" data-p="${K.esc(body)}">↻ re-screen</button></div>` : "";
+  const autoRow = u.status === "played" ? `<div style="margin-bottom:6px"><span class="pill" style="background:var(--accent,#7c3aed);color:#fff;font-size:10px;letter-spacing:.04em">AUTO</span> <span class="faint" style="font-size:11px">played by guardian</span></div>` : "";
+  return `<div class="upd-detail">${autoRow}${body ? `<pre>${K.esc(body)}</pre>` : ""}${screenMeta}${reason ? `<div class="upd-label">guardian reasoning</div><pre class="reason-pre">${K.esc(reason)}</pre>` : ""}${showFallback ? `<div class="upd-label">screen data</div><pre>${K.esc(JSON.stringify(u.screen, null, 2))}</pre>` : ""}${rescreenBtn}</div>`;
 }
 
 function renderGlobal() {
@@ -122,7 +139,7 @@ function renderGlobal() {
   const _mv = Object.values(G.modules || {}), _mk = Object.keys(G.modules || {}).length;
   const _tile = (v, label) => `<div class="stat"><b>${K.esc(String(v))}</b><span>${K.esc(label)}</span></div>`;
   $("statRow").innerHTML = G.screened != null
-    ? _tile(G.screened ?? 0, "screened") + _tile(G.passed ?? 0, "passed") + _tile(G.held ?? 0, "held") + _tile(G.blocked ?? 0, "blocked") + (G.last_run ? `<div class="stat"><b style="font-size:13px">${K.ago(G.last_run)}</b><span>last run</span></div>` : "")
+    ? _tile(G.screened ?? 0, "screened") + _tile(G.passed ?? 0, "passed") + _tile(G.held ?? 0, "held") + _tile(G.blocked ?? 0, "blocked") + _tile(G.auto_played ?? 0, "auto played") + (G.last_run ? `<div class="stat"><b style="font-size:13px">${K.ago(G.last_run)}</b><span>last run</span></div>` : "")
     : _tile(_mk, "modules") + _tile(_mv.filter(m => m.auto_play).length, "auto") + `<div class="stat" id="pendingStat"><b>—</b><span>pending</span></div>`;
   if (!seeded) { $("g_model").value = G.model; $("g_timeout").value = G.timeout_ms; $("g_comments").checked = !!G.screen_comments; seeded = true; }
   $("gSave").disabled = !K.isOwner;
@@ -131,6 +148,30 @@ function renderGlobal() {
     <span class="pill ${m.enabled === false ? "" : "on"}">${m.enabled === false ? "off" : "on"}</span>
     <div class="grow"><div class="t">${K.esc(n)}</div><div class="s">${m.auto_play ? "AUTO · " : ""}${m.approve_edits === false ? "edits unheld · " : ""}${K.esc(m.rules || "no house rules")}</div></div></div>`).join("")
     || `<div class="empty">every module uses the defaults</div>`;
+  if (allModules && allModules.length) {
+    const configured = new Set(Object.keys(G.modules || {}));
+    const unconfigured = allModules.filter(n => !configured.has(n));
+    if (unconfigured.length) {
+      const modsEl = $("mods");
+      const foldRow = document.createElement("div");
+      foldRow.className = "row";
+      foldRow.style.cursor = "pointer";
+      foldRow.innerHTML = `<span class="faint" style="font-size:12px;flex:1">${unconfigured.length} modules without guardian</span><span class="chev">▶</span>`;
+      const listDiv = document.createElement("div");
+      listDiv.className = "unconf-list";
+      listDiv.innerHTML = unconfigured.map(n => `<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0;font-size:12px"><span>${K.esc(n)}</span><a class="unconf-cfg" data-m="${K.esc(n)}" href="#" style="color:var(--accent);font-size:11px">configure →</a></div>`).join("");
+      foldRow.onclick = (e) => {
+        const cfg = e.target.closest(".unconf-cfg");
+        if (cfg) { e.preventDefault(); $("modIn").value = cfg.dataset.m; openMod(cfg.dataset.m); return; }
+        foldRow.toggleAttribute("data-unconf-open");
+        const isOpen = foldRow.hasAttribute("data-unconf-open");
+        const chev = foldRow.querySelector(".chev"); if (chev) chev.textContent = isOpen ? "▼" : "▶";
+        listDiv.style.display = isOpen ? "block" : "none";
+      };
+      modsEl.appendChild(foldRow);
+      modsEl.appendChild(listDiv);
+    }
+  }
 }
 
 function renderMod(m, upd) {
@@ -144,6 +185,14 @@ function renderMod(m, upd) {
       ${sw("auto_play", "AUTO mode", "the guardian plays safe foreign ideas itself, on the owner's account; doubt holds")}
     </div>
     <label class="f" style="margin-top:12px">house rules — what is out of scope here, in your words<textarea id="m_rules">${K.esc(m.rules || "")}</textarea></label>
+    <div class="inline" style="flex-wrap:wrap;gap:4px;margin-top:4px" id="mRuleChips">
+      <span class="pill" style="cursor:pointer" data-frag="Code changes only">Code changes only</span>
+      <span class="pill" style="cursor:pointer" data-frag="No new dependencies">No new dependencies</span>
+      <span class="pill" style="cursor:pointer" data-frag="No breaking API changes">No breaking API changes</span>
+      <span class="pill" style="cursor:pointer" data-frag="config.json, README, and deploy scripts are owner-only">Owner files protected</span>
+      <span class="pill" style="cursor:pointer" data-frag="Security changes need rationale">Security changes need rationale</span>
+      <span class="pill" style="cursor:pointer" data-frag="UI changes only">UI changes only</span>
+    </div>
     <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="mSave" class="primary sm">save ${K.esc(m.module)}</button></div>
     <hr style="border:0;border-top:1px solid var(--border,#2a2a2a);margin:14px 0 10px">
     <div class="upd-label" style="margin-bottom:6px">Test these rules</div>
@@ -152,7 +201,7 @@ function renderMod(m, upd) {
     <div id="mTryResult" style="margin-top:8px"></div>
     <h2 style="margin-top:16px">Held updates <span class="sp"></span><span class="faint">${upd?.pending ?? 0} pending</span>${K.isOwner && (upd?.pending ?? 0) > 0 ? `<button id="mTriageBtn" class="sm primary">Review ${upd.pending}</button>` : ""}</h2>
     <div class="rows">${ups.map((u) => `<div class="row" data-u="${K.esc(u.id)}"><span class="pill ${u.status === "pending" ? "warn" : ""}">${K.esc(u.status || "")}</span>
-      <div class="grow"><div style="display:flex;align-items:center;gap:4px"><div class="t" style="min-width:0;flex:1">${K.esc(u.title || u.prompt || u.id)}</div>${u.screen?.verdict ? `<span class="pill ${vcS(u.screen.verdict)}" style="flex-shrink:0">${K.esc(u.screen.verdict)}</span>` : ""}${screenTagsHtml(u, 3)}</div><div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}</div></div>
+      <div class="grow"><div style="display:flex;align-items:center;gap:4px"><div class="t" style="min-width:0;flex:1">${K.esc(u.title || u.prompt || u.id)}</div>${u.screen?.verdict ? `<span class="pill ${vcS(u.screen.verdict)}" style="flex-shrink:0" data-verdict>${K.esc(u.screen.verdict)}</span>` : ""}${screenTagsHtml(u, 3)}</div><div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}</div></div>
       <span class="chev">▶</span>
       ${u.status === "pending" && K.isOwner ? `<div class="acts"><button class="sm" data-a="approve">approve</button><button class="sm danger" data-a="reject">reject</button></div>` : ""}</div>${updDetailHtml(u)}`).join("") || `<div class="empty">nothing held</div>`}</div>`;
   if ($("mTriageBtn")) $("mTriageBtn").onclick = () => { const q = ups.filter(u => u.status === "pending").map(u => ({...u, _mod: m.module})); triageOpen(q); };
@@ -162,6 +211,14 @@ function renderMod(m, upd) {
     const go = async () => { if (await K.act(`/modules/${encodeURIComponent(m.module)}/guardian`, body, "saved")) { openMod(m.module); load(); } };
     if (body.auto_play && !m.auto_play) { if (await K.ask("AUTO mode lets the guardian play strangers' ideas on your account when it judges them safe. Turn it on?", "Turn on")) go(); }
     else go();
+  };
+  $("mRuleChips").onclick = e => {
+    const chip = e.target.closest("[data-frag]");
+    if (!chip) return;
+    const frag = chip.dataset.frag;
+    const ta = $("m_rules");
+    if (ta.value.includes(frag)) return;
+    ta.value = ta.value ? ta.value + "\n" + frag : frag;
   };
   $("mTryBtn").onclick = async () => {
     const prompt = $("mTryPrompt").value.trim();
@@ -193,6 +250,41 @@ async function openMod(name) {
   renderMod(g.data, u.ok ? u.data : null);
 }
 
+function activitySparkline(recent) {
+  if (!recent.length) return '';
+  const now = Date.now(), DAY = 86400000;
+  const days = Array.from({length:7}, (_, i) => {
+    const d = new Date(now - (6-i)*DAY); d.setHours(0,0,0,0);
+    return {ts:d.getTime(), dow:['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()], green:0, red:0};
+  });
+  let inRange = 0;
+  for (const u of recent) {
+    const t = new Date(u.created_at).getTime();
+    if (isNaN(t) || now - t > 8*DAY) continue;
+    const d = new Date(t); d.setHours(0,0,0,0);
+    const idx = days.findIndex(b => b.ts === d.getTime());
+    if (idx < 0) continue;
+    inRange++;
+    const s = u.status || '';
+    if (s === 'approved' || s === 'played') days[idx].green++;
+    else if (s === 'rejected' || s === 'blocked') days[idx].red++;
+  }
+  if (inRange === 0) return '';
+  const maxC = Math.max(1, ...days.map(d => d.green + d.red));
+  const MAX_H = 40, MIN_H = 2;
+  return '<div class="act-chart">' + days.map(d => {
+    const total = d.green + d.red;
+    const bH = total ? Math.max(MIN_H, Math.round(total/maxC*MAX_H)) : 0;
+    const inner = total
+      ? (d.red > 0 ? `<i class="act-bar-r" style="flex:${d.red}"></i>` : '') + (d.green > 0 ? `<i class="act-bar-g" style="flex:${d.green}"></i>` : '')
+      : `<div style="height:2px;background:var(--border,#2a2a2a);border-radius:1px;width:100%"></div>`;
+    const bar = total
+      ? `<div style="height:${bH}px;display:flex;flex-direction:column;overflow:hidden;border-radius:2px;width:100%">${inner}</div>`
+      : inner;
+    return `<div class="act-bar"><div style="height:${MAX_H}px;display:flex;flex-direction:column;justify-content:flex-end;width:100%">${bar}</div><span class="act-bar-lbl">${d.dow}</span></div>`;
+  }).join('') + '</div>';
+}
+
 function renderRecentActivity(recent, showAll) {
   const el = $("recentActivity");
   if (!el) return;
@@ -201,11 +293,13 @@ function renderRecentActivity(recent, showAll) {
   const items = (!showAll && recent.length > CAP) ? recent.slice(0, CAP) : recent;
   const hasMore = !showAll && recent.length > CAP;
   const vc = s => (s === "approved" || s === "played") ? "on" : (s === "rejected" || s === "blocked") ? "bad" : "warn";
-  el.innerHTML = `<div class="upd-label" style="margin-top:4px;margin-bottom:6px">Decision history (${recent.length})</div>` +
+  const autoBadge = `<span class="pill" style="background:var(--accent,#7c3aed);color:#fff;font-size:10px;letter-spacing:.04em;flex-shrink:0">AUTO</span>`;
+  el.innerHTML = activitySparkline(recent) + `<div class="upd-label" style="margin-top:4px;margin-bottom:6px">Decision history (${recent.length})</div>` +
     items.map(u => `<div class="row" data-u="${K.esc(u.id)}" style="padding:5px 8px;gap:7px">
       <span class="chev">▶</span>
       <span class="pill acc" style="flex-shrink:0">${K.esc(u._mod)}</span>
       <div class="grow" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${K.esc((u.title || u.prompt || u.id || "").slice(0, 70))}</div>
+      ${u.status === "played" ? autoBadge : ""}
       <span class="pill ${vc(u.status)}" style="flex-shrink:0">${K.esc(u.status || "")}</span>
       <span class="faint" style="font-size:11px;flex-shrink:0">${K.ago(u.created_at)}</span>
     </div>${updDetailHtml(u)}`).join("") +
@@ -252,8 +346,8 @@ function repaintPending() {
   const tb = $("triageBtn"); if (tb) { tb.style.display = (displayed.length && K.isOwner) ? "" : "none"; tb.textContent = triageLabel ? `Review ${triageLabel} (${displayed.length})` : `Review all (${all.length})`; }
   $("pendingInbox").innerHTML = displayed.map(u => `<div class="row" data-u="${K.esc(u.id)}" data-mod="${K.esc(u._mod)}">
     <span class="pill acc">${K.esc(u._mod)}</span>
-    <div class="grow" style="min-width:0"><div style="display:flex;align-items:center;gap:4px"><div class="t" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${K.esc(u.title || u.prompt || u.id)}</div>${u.screen?.verdict ? `<span class="pill ${vcS(u.screen.verdict)}" style="flex-shrink:0">${K.esc(u.screen.verdict)}</span>` : ""}${screenTagsHtml(u, 3)}</div>
-    <div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))} · ${K.ago(u.created_at)}</div></div>
+    <div class="grow" style="min-width:0"><div style="display:flex;align-items:center;gap:4px"><div class="t" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">${K.esc(u.title || u.prompt || u.id)}</div>${u.screen?.verdict ? `<span class="pill ${vcS(u.screen.verdict)}" style="flex-shrink:0" data-verdict>${K.esc(u.screen.verdict)}</span>` : ""}${screenTagsHtml(u, 3)}</div>
+    <div class="s">${K.esc(K.short(u.requester || u.user_address || u.by || ""))}${trackBadge(u.requester || u.user_address || u.by || "")} · ${K.ago(u.created_at)}</div></div>
     <span class="chev">▶</span>
     ${K.isOwner ? `<div class="acts"><button class="sm" data-a="approve">approve</button><button class="sm danger" data-a="reject">reject</button></div>` : ""}</div>${updDetailHtml(u)}`).join("")
     || `<div class="empty">nothing pending across your modules</div>`;
@@ -274,6 +368,13 @@ async function renderPendingInbox() {
   all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   resolved.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   resolvedAll = resolved; renderRecentActivity(resolved);
+  requesterTrack = {};
+  resolved.forEach(u => {
+    const key = u.requester || u.user_address || u.by || ""; if (!key) return;
+    if (!requesterTrack[key]) requesterTrack[key] = { approved: 0, rejected: 0 };
+    if (u.status === "approved" || u.status === "played") requesterTrack[key].approved++;
+    else if (u.status === "rejected" || u.status === "blocked") requesterTrack[key].rejected++;
+  });
   const prevIds = prevPendingIds;
   pendingAll = all;
   const curIds = new Set(all.map(u => u.id));
@@ -302,7 +403,24 @@ async function renderPendingInbox() {
   });
 }
 
-async function load() { const r = await K.api("/guardian"); if (r.ok) { G = r.data; renderGlobal(); renderPendingInbox(); } }
+async function load() {
+  const r = await K.api("/guardian");
+  if (r.ok) {
+    G = r.data;
+    if (!allModules) {
+      const mr = await K.api("/modules");
+      if (mr.ok) {
+        const raw = mr.data;
+        const list = Array.isArray(raw) ? raw : Array.isArray(raw?.modules) ? raw.modules : [];
+        allModules = list.map(m => (typeof m === "string" ? m : m?.name) || "").filter(Boolean);
+        const dl = $("modList");
+        if (dl) dl.innerHTML = allModules.map(n => `<option value="${K.esc(n)}"></option>`).join("");
+      }
+    }
+    renderGlobal();
+    renderPendingInbox();
+  }
+}
 
 $("enBtn").onclick = async (e) => {
   const go = async () => { await K.act("/guardian", { enabled: !G.enabled }, G.enabled ? "guardian off" : "guardian on"); load(); };
@@ -352,7 +470,29 @@ $("tryPrompt").addEventListener("keydown", (e) => {
 $("modLoad").onclick = () => { const n = $("modIn").value.trim(); if (n) openMod(n); };
 $("modIn").onkeydown = (e) => { if (e.key === "Enter") $("modLoad").click(); };
 $("mods").onclick = (e) => { const n = e.target.closest(".row")?.dataset.m; if (n) { $("modIn").value = n; openMod(n); } };
+function rowFromDetail(t) { const d = t.closest(".upd-detail"); if (!d) return null; const p = d.previousElementSibling; return (p && p.matches(".row[data-u]")) ? p : null; }
+async function rescreenItem(btn, row, modName) {
+  const prompt = btn.dataset.p || "";
+  btn.disabled = true; btn.textContent = "Screening…";
+  const r = await K.api("/guardian/screen", { method: "POST", body: { prompt, module: modName } });
+  btn.disabled = false; btn.textContent = "↻ re-screen";
+  if (!r.ok) return;
+  const nv = r.data?.verdict || r.data?.screen?.verdict || "";
+  const nr = r.data?.reasoning || r.data?.reason || r.data?.screen?.reasoning || "";
+  if (nv) {
+    let pill = row.querySelector("[data-verdict]");
+    if (!pill) { pill = document.createElement("span"); pill.dataset.verdict = ""; pill.style.flexShrink = "0"; const t = row.querySelector(".t"); if (t) t.insertAdjacentElement("afterend", pill); }
+    pill.className = `pill ${vcS(nv)}`; pill.textContent = nv;
+  }
+  const det = btn.closest(".upd-detail");
+  if (det && nr) {
+    let pre = det.querySelector(".reason-pre");
+    if (!pre) { const lbl = document.createElement("div"); lbl.className = "upd-label"; lbl.textContent = "guardian reasoning"; pre = document.createElement("pre"); pre.className = "reason-pre"; det.appendChild(lbl); det.appendChild(pre); }
+    pre.textContent = nr;
+  }
+}
 $("mod").addEventListener("click", async (e) => {
+  if (e.target.dataset.a === "rescreen") { const row = rowFromDetail(e.target); if (row) await rescreenItem(e.target, row, cur); return; }
   const row = e.target.closest(".row[data-u]");
   if (row && !e.target.closest(".acts")) {
     row.toggleAttribute("data-open");
@@ -370,6 +510,7 @@ $("recentActivity").addEventListener("click", (e) => {
   const chev = row.querySelector(".chev"); if (chev) chev.textContent = row.hasAttribute("data-open") ? "▼" : "▶";
 });
 $("pendingInbox").addEventListener("click", async (e) => {
+  if (e.target.dataset.a === "rescreen") { const row = rowFromDetail(e.target); if (row) await rescreenItem(e.target, row, row.dataset.mod); return; }
   const row = e.target.closest(".row[data-u]");
   if (row && !e.target.closest(".acts")) {
     row.toggleAttribute("data-open");
@@ -402,7 +543,7 @@ function triageShow() {
     (vc ? `<span class="pill ${vc}">GUARDIAN: ${K.esc(verdict.toUpperCase())}</span>` : "") +
     screenTagsHtml(u, 3) +
     `</div>` +
-    `<div style="margin-bottom:6px;font-size:12px;color:var(--muted,#888)">${K.short(u.requester||u.user_address||u.by||"unknown")} · ${K.ago(u.created_at)}</div>` +
+    `<div style="margin-bottom:6px;font-size:12px;color:var(--muted,#888)">${K.short(u.requester||u.user_address||u.by||"unknown")}${trackBadge(u.requester||u.user_address||u.by||"")} · ${K.ago(u.created_at)}</div>` +
     `<div class="t" style="font-size:15px;margin-bottom:10px">${K.esc(u.title || u.prompt || u.id)}</div>` +
     (body ? `<div class="upd-label">prompt</div><pre>${K.esc(body)}</pre>` : "") +
     (reason ? `<div class="upd-label">guardian reasoning</div><pre>${K.esc(reason)}</pre>` : "");

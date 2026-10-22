@@ -60,6 +60,7 @@ import { useAuth } from "../context/AuthContext";
 import { DEFAULT_STRATS, orderedTemplates, traderIndexTemplate } from "../lib/defaultStrats";
 import { useStratManager } from "../lib/stratManager";
 import { useStratStats, useStratPnlHistory, fmtUsd, moneyOnStrat, sessionLabel, type StratPnlPoint } from "../lib/stratStats";
+import { getAccessToken } from "../lib/access";
 import { fetchPublicStrats, type PublicStratEntry } from "../lib/stratSync";
 import { FORMULA_EVENT, broadcastFormula, loadSavedFormula } from "../lib/scoreFormula";
 import { isTraderIndex } from "../lib/traderIndex";
@@ -84,6 +85,7 @@ import StratLab from "./StratLab";
 import StratVibe, { focusVibe } from "./StratVibe";
 import UserStratsPanel, { USER_STRATS_CHANGED_EVENT } from "./UserStratsPanel";
 import WindowStrip from "./WindowStrip";
+import { FunnelLine } from "./StratCardFace";
 import { HUB_WINDOWS, useStratWindows } from "../lib/hubBacktest";
 import { computeStratVerdict, type StratVerdict, type VerdictTier } from "../lib/stratVerdict";
 
@@ -220,6 +222,10 @@ export default function StratsTab() {
   // Held by ID, not by object: the list re-reads every couple of seconds and
   // an open chat must follow the strat's edits rather than pin a stale copy.
   const [chatId, setChatId] = useState<string | null>(null);
+  // Expanded 30-day PnL history modal — opened by clicking a sparkline.
+  const [expandedPnlId, setExpandedPnlId] = useState<string | null>(null);
+  const [expandedPnlPoints, setExpandedPnlPoints] = useState<StratPnlPoint[]>([]);
+  const [expandedPnlLoading, setExpandedPnlLoading] = useState(false);
   const [shelfOpen, setShelfOpen] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   // Which strat's publish/unpublish call is in flight (per-row spinner-ish).
@@ -239,6 +245,28 @@ export default function StratsTab() {
   useEffect(() => {
     void refreshGallery();
   }, [refreshGallery]);
+
+  const openPnlHistory = useCallback(async (stratId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedPnlId(stratId);
+    setExpandedPnlPoints([]);
+    setExpandedPnlLoading(true);
+    try {
+      const token = getAccessToken();
+      const res = await fetch("/polymarket/_api/strat-pnl?days=30&full=1", {
+        cache: "no-store",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return;
+      const j = (await res.json()) as { series?: Record<string, Array<[number, number]>> };
+      const pts = (j.series?.[stratId] ?? [])
+        .filter((p): p is [number, number] => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+        .map(([t, pnl]) => ({ t, pnl }));
+      setExpandedPnlPoints(pts);
+    } catch { /* keep empty on error */ } finally {
+      setExpandedPnlLoading(false);
+    }
+  }, []);
 
   const toggleVisibility = useCallback(async (id: string, name: string, pub: boolean) => {
     setStatus(null);
@@ -534,9 +562,13 @@ export default function StratsTab() {
                         </button>
                       )}
                       {curve && curve.length >= 2 && (
-                        <span className="shrink-0" title="Last 7 days of live PnL">
+                        <button
+                          className="shrink-0 opacity-80 hover:opacity-100 transition-opacity"
+                          title="Last 7 days of live PnL — click to expand 30-day history"
+                          onClick={(e) => void openPnlHistory(r.id, e)}
+                        >
                           <Sparkline data={curve.map((p) => p.pnl)} width={64} height={18} />
-                        </span>
+                        </button>
                       )}
                       <span
                         className="shrink-0 text-[12px] font-mono font-semibold tabular-nums text-pixel-white"
@@ -655,6 +687,8 @@ export default function StratsTab() {
             const openPos = money?.openPositions ?? 0;
             const totalPnl = money?.totalPnl ?? 0;
             const traded = openPos > 0 || (money?.fills ?? 0) > 0;
+            const realized = money?.realized ?? 0;
+            const unrealized = money?.unrealized ?? 0;
             const hasBt = idx.lastBacktestAt != null;
             // No manual backtest saved on the strat, but the background
             // worker may have replayed it anyway — headline the widest
@@ -666,6 +700,11 @@ export default function StratsTab() {
                   const bt = ladderRow[d];
                   return bt && bt.trades > 0 ? { d, bt } : null;
                 }).find(Boolean) ?? null
+              : null;
+            // Best ladder window for funnel context — widest window that
+            // actually traded, regardless of whether a manual backtest exists.
+            const bestLadderBt = ladderRow
+              ? [...HUB_WINDOWS].reverse().map((d) => ladderRow[d]).find((bt) => bt && bt.trades > 0) ?? null
               : null;
             // 7-day live PnL curve (server sidecar). Absent until the strat
             // has traded and the sidecar has sampled — the band then hides.
@@ -781,11 +820,15 @@ export default function StratsTab() {
                   )}
                 </div>
 
-                {/* ── 7-day live PnL curve ── */}
+                {/* ── 7-day live PnL curve — click to expand 30d history ── */}
                 {curve7d && (
-                  <div className="mx-3 mb-1.5">
-                    <div className="flex items-baseline justify-between">
-                      <span className="text-[8.5px] font-semibold tracking-[0.18em] text-pixel-gray">7D PNL</span>
+                  <button
+                    className="mx-3 mb-1.5 block w-[calc(100%-1.5rem)] text-left hover:opacity-80 transition-opacity cursor-pointer"
+                    title="Last 7 days of live PnL — click to expand 30-day history"
+                    onClick={(e) => void openPnlHistory(idx.id, e)}
+                  >
+                    <div className="flex items-baseline justify-between pointer-events-none">
+                      <span className="text-[8.5px] font-semibold tracking-[0.18em] text-pixel-gray">7D PNL <span className="opacity-50">↗</span></span>
                       <span className={`text-[9px] font-mono tabular-nums ${
                         curve7d[curve7d.length - 1].pnl - curve7d[0].pnl > 0 ? "text-green-400"
                           : curve7d[curve7d.length - 1].pnl - curve7d[0].pnl < 0 ? "text-red-400" : "text-pixel-gray"
@@ -793,10 +836,10 @@ export default function StratsTab() {
                         {(() => { const d = curve7d[curve7d.length - 1].pnl - curve7d[0].pnl; return `${d >= 0 ? "+" : ""}${fmtUsd(d)}`; })()}
                       </span>
                     </div>
-                    <div className="text-pixel-gray">
+                    <div className="text-pixel-gray pointer-events-none">
                       <Sparkline data={curve7d.map((p) => p.pnl)} height={26} stretch hoverLabel={curveHover(curve7d)} />
                     </div>
-                  </div>
+                  </button>
                 )}
 
                 {/* ── Stats grid: LIVE | BACKTEST ── */}
@@ -850,9 +893,14 @@ export default function StratsTab() {
                           24h {pnl24h >= 0 ? "+" : ""}{fmtUsd(pnl24h)}
                           {roi24h !== null && ` (${roi24h >= 0 ? "+" : ""}${roi24h.toFixed(1)}%)`}
                         </div>
-                        <div className={`text-[9px] font-mono tabular-nums text-pixel-gray`}>
+                        <div className={`text-[9px] font-mono tabular-nums ${totalPnl >= 0 ? "text-green-400/70" : "text-red-400/70"}`}>
                           total {totalPnl >= 0 ? "+" : ""}{fmtUsd(totalPnl)}
                         </div>
+                        {openPos > 0 && (realized !== 0 || unrealized !== 0) && (
+                          <div className="text-[8px] font-mono tabular-nums text-pixel-gray/60 leading-tight">
+                            realized {realized >= 0 ? "+" : ""}{fmtUsd(realized)} · open {unrealized >= 0 ? "+" : ""}{fmtUsd(unrealized)}
+                          </div>
+                        )}
                       </>
                     ) : (
                       onIt <= 0 && (
@@ -911,6 +959,13 @@ export default function StratsTab() {
 
                 {/* ── Backtest ladder: 1D · 3D · 7D · 14D · 30D ── */}
                 <WindowStrip row={ladderRow} loading={ladder.loading} running={ladder.worker?.running} traderCount={idx.traders.length} />
+
+                {/* ── Funnel context: copied N of M entries · top gate reason ── */}
+                {bestLadderBt?.funnel && bestLadderBt.funnel.observed > 0 && (
+                  <div className="px-3 pb-1">
+                    <FunnelLine funnel={bestLadderBt.funnel} originates={!!idx.scoreFn} />
+                  </div>
+                )}
 
                 {/* ── Action strip — mt-auto pins it so cards in a grid row
                     stay equal-height with actions on the bottom edge ── */}
@@ -1171,6 +1226,191 @@ export default function StratsTab() {
         />,
         document.body,
       )}
+
+      {expandedPnlId !== null && createPortal(
+        <div
+          className="fixed inset-0 z-[80] grid place-items-center p-4"
+          onClick={() => setExpandedPnlId(null)}
+        >
+          <div
+            className="relative w-full max-w-[640px] rounded-[var(--radius)] border border-pixel-border bg-pixel-bg/95 backdrop-blur-md p-4 outline-none"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <span className="text-[11px] font-semibold tracking-[0.18em] text-pixel-white">
+                  {indexes.find((i) => i.id === expandedPnlId)?.name ?? expandedPnlId}
+                </span>
+                <span className="ml-2 text-[9px] font-mono text-pixel-gray">30-day live P&amp;L</span>
+              </div>
+              <button
+                onClick={() => setExpandedPnlId(null)}
+                className="text-pixel-gray hover:text-pixel-white transition-colors text-lg leading-none"
+              >
+                ×
+              </button>
+            </div>
+            {expandedPnlLoading ? (
+              <div className="h-48 flex items-center justify-center text-[10px] font-mono text-pixel-gray">
+                loading…
+              </div>
+            ) : expandedPnlPoints.length < 2 ? (
+              <div className="h-48 flex items-center justify-center text-[10px] font-mono text-pixel-gray">
+                No history yet — the sidecar samples every 10 minutes.
+              </div>
+            ) : (
+              <PnlExpandedChart points={expandedPnlPoints} />
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
+  );
+}
+
+// ── Expanded 30-day P&L chart ────────────────────────────────────
+// Self-contained SVG chart for the strat PnL history modal.
+// Shows day ticks on the x-axis, a zero-line, and the PnL curve.
+// Hover: crosshair + date/value tooltip via foreignObject.
+function PnlExpandedChart({ points }: { points: StratPnlPoint[] }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const W = 600, H = 180;
+  const PAD_L = 52, PAD_R = 8, PAD_T = 8, PAD_B = 22;
+  const innerW = W - PAD_L - PAD_R;
+  const innerH = H - PAD_T - PAD_B;
+
+  const tFirst = points[0].t;
+  const tLast = points[points.length - 1].t;
+  const tspan = Math.max(1, tLast - tFirst);
+
+  const vals = points.map((p) => p.pnl);
+  const rawMin = Math.min(...vals);
+  const rawMax = Math.max(...vals);
+  const pad = (rawMax - rawMin) * 0.07 || Math.max(0.5, Math.abs(rawMax) * 0.05);
+  const vmin = rawMin - pad;
+  const vmax = rawMax + pad;
+  const vspan = Math.max(0.01, vmax - vmin);
+
+  const xp = (t: number) => PAD_L + ((t - tFirst) / tspan) * innerW;
+  const yp = (v: number) => PAD_T + innerH - ((v - vmin) / vspan) * innerH;
+
+  // Build the path
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"}${xp(p.t).toFixed(1)},${yp(p.pnl).toFixed(1)}`).join(" ");
+  const last = points[points.length - 1];
+  const color = last.pnl >= 0 ? "var(--up)" : "var(--down)";
+
+  // Y ticks (5 steps)
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => vmin + f * vspan);
+
+  // Day ticks on x-axis — one per day (or every N days if the window is wide)
+  const DAY_MS = 86_400_000;
+  const dayCount = Math.ceil(tspan / DAY_MS);
+  const dayStep = dayCount <= 10 ? 1 : dayCount <= 20 ? 2 : 7;
+  const xTicks: number[] = [];
+  const dayStart = Math.ceil(tFirst / DAY_MS) * DAY_MS;
+  for (let t = dayStart; t <= tLast; t += dayStep * DAY_MS) xTicks.push(t);
+
+  const fmtUsdTick = (v: number) => {
+    const sign = v < 0 ? "-" : v > 0 ? "+" : "";
+    const a = Math.abs(v);
+    return `${sign}$${a >= 1000 ? `${(a / 1000).toFixed(1)}k` : a >= 10 ? a.toFixed(0) : a.toFixed(2)}`;
+  };
+  const fmtDay = (t: number) => {
+    const d = new Date(t);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  };
+
+  // Zero line (only when the data crosses zero)
+  const showZero = vmin < 0 && vmax > 0;
+
+  // Map screen mouse coords → nearest data point using the SVG's own CTM
+  function handleMouseMove(e: React.MouseEvent<SVGRectElement>) {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    const { x: svgX } = pt.matrixTransform(ctm.inverse());
+    let bestIdx = 0, bestDist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const dx = Math.abs(xp(points[i].t) - svgX);
+      if (dx < bestDist) { bestDist = dx; bestIdx = i; }
+    }
+    setHoverIdx(bestIdx);
+  }
+
+  const hp = hoverIdx !== null ? points[hoverIdx] : null;
+  const hx = hp ? xp(hp.t) : 0;
+  const hy = hp ? yp(hp.pnl) : 0;
+  // Flip tooltip to the left when near the right edge
+  const ttX = hp && hx + 8 > W - PAD_R - 106 ? hx - 114 : hx + 8;
+  const fmtTooltip = (p: StratPnlPoint) => {
+    const d = new Date(p.t);
+    const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return `${date} · ${fmtUsdTick(p.pnl)}`;
+  };
+
+  return (
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full block" style={{ height: H }}
+      onMouseLeave={() => setHoverIdx(null)}>
+      {/* Y grid + labels */}
+      {yTicks.map((v, i) => (
+        <g key={`y${i}`}>
+          <line x1={PAD_L} y1={yp(v)} x2={W - PAD_R} y2={yp(v)} stroke="currentColor" strokeOpacity="0.08" strokeWidth="1" />
+          <text x={PAD_L - 4} y={yp(v) + 3.5} fontSize="9" fill="currentColor" fillOpacity="0.55" textAnchor="end">
+            {fmtUsdTick(v)}
+          </text>
+        </g>
+      ))}
+      {/* X day ticks */}
+      {xTicks.map((t, i) => (
+        <g key={`x${i}`}>
+          <line x1={xp(t)} y1={PAD_T} x2={xp(t)} y2={H - PAD_B} stroke="currentColor" strokeOpacity="0.06" strokeWidth="1" />
+          <text x={xp(t)} y={H - 6} fontSize="9" fill="currentColor" fillOpacity="0.55" textAnchor="middle">
+            {fmtDay(t)}
+          </text>
+        </g>
+      ))}
+      {/* Zero line */}
+      {showZero && (
+        <line x1={PAD_L} y1={yp(0)} x2={W - PAD_R} y2={yp(0)}
+          stroke="currentColor" strokeOpacity="0.25" strokeWidth="1" strokeDasharray="3 3" />
+      )}
+      {/* Curve */}
+      <path d={linePath} fill="none" style={{ stroke: color }} strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
+      {/* End dot */}
+      <circle cx={xp(last.t)} cy={yp(last.pnl)} r={3} style={{ fill: color }} />
+      {/* Crosshair + hover dot */}
+      {hp && (
+        <>
+          <line x1={hx} y1={PAD_T} x2={hx} y2={H - PAD_B}
+            stroke="currentColor" strokeOpacity="0.35" strokeWidth="1" strokeDasharray="3 2" />
+          <circle cx={hx} cy={hy} r={3} fill="currentColor" fillOpacity={0.85} />
+          <foreignObject x={ttX} y={PAD_T + 2} width={106} height={20} style={{ overflow: "visible" }}>
+            <div style={{
+              background: "rgba(0,0,0,0.72)",
+              color: "rgba(255,255,255,0.92)",
+              fontSize: "9px",
+              fontFamily: "monospace",
+              padding: "3px 6px",
+              borderRadius: "3px",
+              whiteSpace: "nowrap",
+              pointerEvents: "none",
+              lineHeight: "1.2",
+            }}>
+              {fmtTooltip(hp)}
+            </div>
+          </foreignObject>
+        </>
+      )}
+      {/* Transparent overlay — last so it captures events above all other elements */}
+      <rect x={PAD_L} y={PAD_T} width={innerW} height={innerH}
+        fill="transparent" onMouseMove={handleMouseMove} style={{ cursor: "crosshair" }} />
+    </svg>
   );
 }

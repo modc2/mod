@@ -200,7 +200,7 @@
         border:1px solid var(--line);background:var(--panel);
         display:flex;align-items:center;justify-content:center;margin-top:2px}
   .msg.assistant .ava svg{width:14px;height:14px}
-  .msg.assistant .bubble{flex:1;min-width:0;padding-top:3px}
+  .msg.assistant .bubble{flex:1;min-width:0;padding-top:3px;position:relative}
   .msg.assistant .bubble.live::after{content:'▍';color:var(--hot);
         animation:blink 1s steps(1) infinite}
   @keyframes blink{50%{opacity:0}}
@@ -215,6 +215,10 @@
   .bubble code{font:12.5px var(--mono);background:#0a0c13;
         border:1px solid var(--line);border-radius:5px;padding:1px 5px}
   .bubble pre code{border:none;padding:0;background:none}
+  .bubble pre .kw{color:var(--hot)}
+  .bubble pre .str{color:var(--warn)}
+  .bubble pre .cm{color:var(--faint);font-style:italic}
+  .bubble pre .nb{color:var(--good)}
   .bubble table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}
   .bubble th,.bubble td{border:1px solid var(--line);padding:6px 10px;text-align:left}
   .bubble thead tr{background:var(--raised);color:var(--hot);font-family:var(--mono);font-size:11px;letter-spacing:.1em}
@@ -251,7 +255,7 @@
   #composer{flex:none;padding:8px 20px 14px}
   .compwrap{max-width:780px;margin:0 auto;position:relative;
         background:rgba(21,24,36,.85);border:1px solid var(--line);
-        border-radius:24px;padding:10px 52px 10px 18px;
+        border-radius:24px;padding:10px 94px 10px 18px;
         transition:border-color .15s,box-shadow .15s;backdrop-filter:blur(6px)}
   .compwrap:focus-within{border-color:var(--hot);
         box-shadow:0 0 0 1px rgba(110,231,255,.25),0 0 24px rgba(110,231,255,.10)}
@@ -266,6 +270,14 @@
         box-shadow:0 0 18px rgba(110,231,255,.5)}
   #send.stop{background:var(--raised);color:var(--bad);border-color:var(--bad)}
   #send.stop:hover{color:var(--bad);box-shadow:0 0 14px rgba(255,107,107,.35)}
+  #mic{position:absolute;right:50px;bottom:8px;width:34px;height:34px;padding:0;
+        border-radius:50%;display:flex;align-items:center;justify-content:center;
+        background:var(--raised);border-color:var(--line);color:var(--dim)}
+  #mic:hover:not(:disabled){color:var(--hot)!important;border-color:var(--hot)!important}
+  #mic.active{color:var(--hot);border-color:var(--hot);
+        animation:micpulse 1s ease-in-out infinite}
+  @keyframes micpulse{0%,100%{box-shadow:0 0 0 0 rgba(110,231,255,.45)}
+        50%{box-shadow:0 0 0 7px rgba(110,231,255,0)}}
   .compfoot{max-width:780px;margin:6px auto 0;text-align:center;
         color:var(--faint);font-size:11px}
   #img-strip{display:none;align-items:flex-start;gap:8px;padding:6px 0 2px}
@@ -663,6 +675,9 @@
       <button class="ghost" id="sharebtn" title="share conversation — copy link" style="display:none">
         <svg class="icon" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
       </button>
+      <button class="ghost" id="forkbtn" title="fork — continue this conversation" style="display:none">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M6 3v6M18 3v6M6 9a6 6 0 0 0 6 6m6-6a6 6 0 0 1-6 6m0 0v6"/></svg>
+      </button>
       <button class="ghost" id="opensettings" title="key and bots">
         <svg class="icon" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="3"/>
@@ -680,6 +695,9 @@
         <textarea id="prompt" rows="1"
           placeholder="Ask Grok anything…"></textarea>
         <div id="img-strip"></div>
+        <button id="mic" title="dictate">
+          <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3M9 22h6"/></svg>
+        </button>
         <button id="send" title="send — enter">
           <svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
         </button>
@@ -735,12 +753,25 @@
             <option value="1.0">1.0</option>
             <option value="1.5">1.5 — creative</option>
           </select>
+          <select id="bthink">
+            <option value="">thinking: off</option>
+            <option value="high">thinking: high</option>
+          </select>
         </div>
         <div class="row"><input id="bdesc" placeholder="one line — what it is for (shown when published)"></div>
         <div class="row">
           <label class="muted" style="display:flex;gap:6px;align-items:center;cursor:pointer">
             <input type="checkbox" id="bpublic" style="flex:none;min-width:0"> publish &mdash;
             anyone can see it, chat with it on their own credits, or copy it</label>
+        </div>
+        <div class="row"><button class="small" id="trybotbtn">TRY BOT</button></div>
+        <div id="trybotpanel" style="display:none">
+          <div class="row"><textarea id="tryinput" rows="2" placeholder="type a test message…"></textarea></div>
+          <div class="row">
+            <button class="go small" id="trysend">SEND</button>
+            <button class="small" id="tryclear">CLEAR</button>
+          </div>
+          <div id="tryout" style="display:none;max-height:180px;overflow-y:auto;padding:8px;background:var(--bg2,#111);border-radius:4px;font-size:13px;white-space:pre-wrap;margin-top:4px;word-break:break-word"></div>
         </div>
         <div class="row"><button class="go" id="savebot">SAVE BOT</button></div>
       </div>
@@ -1000,12 +1031,12 @@ function drawConvos(){
   $('#convos').querySelectorAll('.convo').forEach(el => el.onclick = e => {
     if (e.target.dataset.del) return;
     if (e.target.classList.contains('rename-inp')) return;
-    ACTIVE = el.dataset.id; drawConvos(); drawThread();
+    ACTIVE = el.dataset.id; drawConvos(); drawThread(); drawBotBanner();
   });
   $('#convos').querySelectorAll('.x').forEach(el => el.onclick = () => {
     CONVOS = CONVOS.filter(c => c.id !== el.dataset.del);
     if (ACTIVE === el.dataset.del) ACTIVE = CONVOS.length ? CONVOS[0].id : null;
-    saveConvos(); drawConvos(); drawThread();
+    saveConvos(); drawConvos(); drawThread(); drawBotBanner();
   });
 }
 
@@ -1073,7 +1104,8 @@ function drawBots(){
         <span><b>${esc(b.name)}</b>
           <span class="why">${esc((b.model || 'default'))}${
             b.search ? ' · search ' + esc(b.search) : ''}${
-            b.temperature != null ? ' · temp ' + b.temperature : ''}</span></span>
+            b.temperature != null ? ' · temp ' + b.temperature : ''}${
+            b.reasoning_effort ? ' · thinking: ' + esc(b.reasoning_effort) : ''}</span></span>
         <span>
           <button class="small use" data-bot="${esc(b.name)}">${
             BOT === b.name ? 'ON' : 'USE'}</button>
@@ -1093,6 +1125,7 @@ function drawBots(){
       $('#bname').value = b.name; $('#bsystem').value = b.system || '';
       $('#bmodel').value = b.model || ''; $('#bsearch').value = b.search || '';
       $('#btemp').value = b.temperature != null ? String(b.temperature) : '';
+      $('#bthink').value = b.reasoning_effort || '';
       $('#bdesc').value = b.description || ''; $('#bpublic').checked = !!b.public;
       $('#bname').focus();
     });
@@ -1158,7 +1191,26 @@ function drawBotPick(){
 
 function drawBotBanner(){
   const el = $('#botbanner');
-  if (!BOT){ el.className = ''; el.innerHTML = ''; return; }
+  if (!BOT){
+    const c = convo();
+    if (c && c.system){
+      el.className = 'on';
+      el.innerHTML = '<span class="bname">system</span>'
+        + '<button class="btog" title="toggle system prompt">▸</button>'
+        + '<span class="bsys">' + esc(c.system) + '</span>'
+        + '<button class="bclose" title="clear system prompt">\xd7</button>';
+      el.querySelector('.bclose').onclick = () => { delete c.system; saveConvos(); drawBotBanner(); drawHint(); };
+      const tog = el.querySelector('.btog');
+      tog.onclick = () => {
+        const s = el.querySelector('.bsys');
+        const open = s.classList.toggle('open');
+        tog.textContent = open ? '▾' : '▸';
+      };
+    } else {
+      el.className = ''; el.innerHTML = '';
+    }
+    return;
+  }
   const b = BOTS.find(x => x.name === BOT)
     || PUBLIC.find(x => !x.mine && x.ref === BOT)
     || PUBLIC.find(x => x.mine && x.name === BOT);
@@ -1166,6 +1218,7 @@ function drawBotBanner(){
   const meta = [];
   if (b.model) meta.push(esc(b.model));
   if (b.search) meta.push('search: ' + esc(b.search));
+  if (b.reasoning_effort) meta.push('thinking: ' + esc(b.reasoning_effort));
   const sys = b.system || '';
   el.className = 'on';
   el.innerHTML = '<span class="bname">' + esc(BOT.includes('/') ? refLabel(BOT) : b.name) + '</span>'
@@ -1216,6 +1269,51 @@ function drawHint(){
     : 'Grok can make mistakes. Every call spends your own xAI credits.';
 }
 
+// Syntax highlight raw code; returns HTML-escaped text with <span> tags.
+function highlight(raw, lang) {
+  const l = (lang || '').toLowerCase();
+  const e = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const sp = (c, s) => `<span class="${c}">${e(s)}</span>`;
+  const PY = new Set('False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield'.split(' '));
+  const JS = new Set('async await break case catch class const continue debugger default delete do else export extends false finally for from function if import in instanceof let new null of return static super switch this throw true try typeof undefined var void while yield'.split(' '));
+  const TS = new Set([...JS, ...'abstract any declare enum implements interface namespace never readonly type'.split(' ')]);
+  const SH = new Set('if then else elif fi for while do done case esac function in return exit echo source export local'.split(' '));
+  let re, kw;
+  if (l==='python'||l==='py') {
+    kw=PY; re=/(#[^\n]*)|("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(\b\d+\.?\d*j?\b)|(\b[A-Za-z_]\w*\b)/g;
+  } else if (l==='js'||l==='javascript'||l==='jsx') {
+    kw=JS; re=/(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(\b\d+\.?\d*\b)|(\b[A-Za-z_$]\w*\b)/g;
+  } else if (l==='ts'||l==='typescript'||l==='tsx') {
+    kw=TS; re=/(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(\b\d+\.?\d*\b)|(\b[A-Za-z_$]\w*\b)/g;
+  } else if (l==='bash'||l==='sh'||l==='shell'||l==='zsh') {
+    kw=SH; re=/(#[^\n]*)|("(?:[^"\\]|\\.)*"|'[^']*')|(\b\d+\b)|(\b[A-Za-z_]\w*\b)/g;
+  } else if (l==='json') {
+    let out='',p=0,m,jr=/"(?:[^"\\]|\\.)*"|(true|false|null)|(-?\d+\.?\d*(?:[eE][+-]?\d+)?)/g;
+    while((m=jr.exec(raw))!==null){out+=e(raw.slice(p,m.index));p=m.index+m[0].length;out+=m[0][0]==='"'?sp('str',m[0]):sp('nb',m[0]);}
+    return out+e(raw.slice(p));
+  } else if (l==='html'||l==='xml') {
+    let out='',p=0,m,hr=/(<!--[\s\S]*?-->)|(<\/?)([A-Za-z][\w:-]*)|("[^"]*"|'[^']*')/g;
+    while((m=hr.exec(raw))!==null){out+=e(raw.slice(p,m.index));p=m.index+m[0].length;if(m[1])out+=sp('cm',m[1]);else if(m[3])out+=e(m[2])+sp('kw',m[3]);else out+=sp('str',m[0]);}
+    return out+e(raw.slice(p));
+  } else if (l==='css') {
+    let out='',p=0,m,cr=/(\/\*[\s\S]*?\*\/)|("(?:[^"\\]|\\.)*"|'[^']*')|(#[0-9a-fA-F]{3,8}\b)|(\d+\.?\d*(?:px|em|rem|%|vh|vw|s|ms)?\b)|([a-zA-Z-]+(?=\s*[:{]))/g;
+    while((m=cr.exec(raw))!==null){out+=e(raw.slice(p,m.index));p=m.index+m[0].length;if(m[1])out+=sp('cm',m[1]);else if(m[2])out+=sp('str',m[2]);else if(m[3]||m[4])out+=sp('nb',m[0]);else out+=sp('kw',m[0]);}
+    return out+e(raw.slice(p));
+  } else {
+    return e(raw);
+  }
+  // Python / JS / TS / bash: groups → cm:1  str:2  nb:3  id:4
+  let out='', p=0, m;
+  while ((m=re.exec(raw)) !== null) {
+    out += e(raw.slice(p, m.index)); p = m.index + m[0].length;
+    if (m[1]) out += sp('cm', m[0]);
+    else if (m[2]) out += sp('str', m[0]);
+    else if (m[3]) out += sp('nb', m[0]);
+    else if (m[4]) out += kw.has(m[0]) ? sp('kw', m[0]) : e(m[0]);
+  }
+  return out + e(raw.slice(p));
+}
+
 // Markdown pass over text: fenced code, inline code, bold, italic,
 // headers, bullet/ordered lists, and [text](url) links.
 function md(s){
@@ -1229,7 +1327,7 @@ function md(s){
   out = out.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, _l, code) => {
     const raw = rawCodes[rawIdx++] || '';
     const attr = raw.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-    saved.push(`<div class="preblock"><pre><code>${code.replace(/\n$/,'')}</code></pre><button class="precp" data-code="${attr}">COPY</button></div>`);
+    saved.push(`<div class="preblock"><pre><code>${highlight(raw, _l)}</code></pre><button class="precp" data-code="${attr}">COPY</button></div>`);
     return '\x00B' + (saved.length-1) + '\x00';
   });
   // process line by line for block-level elements
@@ -1315,12 +1413,14 @@ function msgHTML(m, live, idx, total){
                       (u.completion_tokens || 0) * mdl.completion_usd_m) / 1e6;
         cs = ' \xb7 ~$' + cost.toFixed(4);
       }
-      chip = `<span class="muted" style="font-size:11px">${tot.toLocaleString()} tok${cs}</span>`;
+      const durStr = m.ms ? Math.round(m.ms / 1000) + 's \xb7 ' : '';
+      chip = `<span class="muted" style="font-size:11px">${durStr}${tot.toLocaleString()} tok${cs}</span>`;
     }
     const regenBtn = (idx === total - 1)
       ? '<button class="ghost regen" title="regenerate" style="padding:2px 5px"><svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>'
       : '';
-    footer = `<div style="display:flex;align-items:center;gap:6px;margin-top:6px">${chip}<button class="ghost cpymsg" data-idx="${idx !== undefined ? idx : -1}" title="copy" style="padding:2px 5px"><svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>${regenBtn}</div>`;
+    const speakBtn = window.speechSynthesis ? `<button class="ghost speakmsg" data-idx="${idx !== undefined ? idx : -1}" title="read aloud" style="padding:2px 5px"><svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>` : '';
+    footer = `<div style="display:flex;align-items:center;gap:6px;margin-top:6px">${chip}<button class="ghost cpymsg" data-idx="${idx !== undefined ? idx : -1}" title="copy" style="padding:2px 5px"><svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>${regenBtn}${speakBtn}</div>`;
   }
   const thinkHtml = m.thinking
     ? `<details class="think-block"><summary>Thinking <span class="think-len">${m.thinking.length} chars</span></summary><div class="think-body">${esc(m.thinking)}</div></details>`
@@ -1496,6 +1596,8 @@ function drawThread(){
   if (dlbtn) dlbtn.style.display = (c && c.msgs.length) ? '' : 'none';
   const sharebtn = $('#sharebtn');
   if (sharebtn) sharebtn.style.display = (c && c.msgs.length && !c.readOnly) ? '' : 'none';
+  const forkbtn = $('#forkbtn');
+  if (forkbtn) forkbtn.style.display = (c && c.msgs.length && c.readOnly) ? '' : 'none';
   $('#composer').style.display = (c && c.readOnly) ? 'none' : '';
   if (!c || !c.msgs.length){
     const signed = !!(YOU && YOU.signed_in);
@@ -1531,6 +1633,13 @@ function drawThread(){
     const msg = cc && idx >= 0 ? cc.msgs[idx] : null;
     if (msg) btn.onclick = () => navigator.clipboard.writeText(msg.text)
       .then(() => toast('copied'), () => toast('copy failed', true));
+  });
+  $('#thread').querySelectorAll('.speakmsg').forEach(btn => {
+    const idx = parseInt(btn.dataset.idx);
+    const cc = convo();
+    const msg = cc && idx >= 0 ? cc.msgs[idx] : null;
+    if (msg && window.speechSynthesis) btn.onclick = () =>
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg.text));
   });
   $('#thread').querySelectorAll('.precp').forEach(btn => {
     btn.onclick = () => navigator.clipboard.writeText(btn.dataset.code)
@@ -1768,16 +1877,58 @@ $('#savebot').onclick = async () => {
                 model: $('#bmodel').value || null,
                 search: $('#bsearch').value || null,
                 temperature: parseFloat($('#btemp').value) || null,
+                reasoning_effort: $('#bthink').value || null,
                 description: $('#bdesc').value.trim() || null,
                 public: $('#bpublic').checked};
   if (!body.name) return toast('a bot needs a name', true);
   try { await api('/bots', {method:'POST', body});
         $('#bname').value = ''; $('#bsystem').value = '';
-        $('#btemp').value = '';
+        $('#btemp').value = ''; $('#bthink').value = '';
         $('#bdesc').value = ''; $('#bpublic').checked = false;
         toast((body.public ? 'published ' : 'saved ') + body.name);
         loadBots(); loadPublic(); }
   catch(e){ toast(e.message, true); }
+};
+
+$('#trybotbtn').onclick = () => {
+  const panel = $('#trybotpanel');
+  const on = panel.style.display === 'none';
+  panel.style.display = on ? '' : 'none';
+  if (on) $('#tryinput').focus();
+};
+
+$('#tryclear').onclick = () => {
+  $('#tryout').style.display = 'none';
+  $('#tryout').textContent = '';
+  $('#tryinput').value = '';
+};
+
+$('#trysend').onclick = async () => {
+  const msg = $('#tryinput').value.trim();
+  if (!msg) return;
+  const out = $('#tryout');
+  out.style.display = '';
+  out.textContent = 'Thinking…';
+  $('#trysend').disabled = true;
+  try {
+    const body = {messages: [{role: 'user', content: msg}], max_tokens: 300};
+    const sys = $('#bsystem').value;
+    if (sys) body.system = sys;
+    const model = $('#bmodel').value;
+    if (model) body.model = model;
+    const search = $('#bsearch').value;
+    if (search) body.search = search;
+    const temp = $('#btemp').value;
+    if (temp) body.temperature = parseFloat(temp);
+    const think = $('#bthink').value;
+    if (think) body.reasoning_effort = think;
+    const data = await api('/chat', {method: 'POST', body});
+    out.textContent = data.text || '(empty response)';
+  } catch(e) {
+    out.textContent = 'Error: ' + e.message;
+  } finally {
+    $('#trysend').disabled = false;
+  }
 };
 
 $('#botpick').onchange = () => { BOT = $('#botpick').value || null;
@@ -1874,6 +2025,18 @@ async function shareConvo(){
 }
 $('#sharebtn').onclick = shareConvo;
 
+$('#forkbtn').onclick = function(){
+  const c = convo();
+  if (!c) return;
+  const newId = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  const fork = {id: newId, title: (c.title || 'Chat') + ' ↳', msgs: c.msgs.map(m => Object.assign({}, m)), ts: Date.now()};
+  CONVOS.unshift(fork);
+  ACTIVE = newId;
+  saveConvos();
+  drawThread();
+  toast('forked — keep going');
+};
+
 document.querySelectorAll('[data-close]').forEach(el =>
   el.onclick = () => closeVeil(el.dataset.close));
 document.querySelectorAll('.veil').forEach(el =>
@@ -1901,6 +2064,7 @@ function grow(){
 const SLASH_CMDS = [
   {prefix:'/img ', label:'/img <prompt>', desc:'generate an image with Grok Aurora'},
   {prefix:'/clear', label:'/clear', desc:'wipe context — start fresh in this conversation'},
+  {prefix:'/system ', label:'/system <text>', desc:'set a per-conversation system prompt (no text = clear)'},
 ];
 const slashEl = document.getElementById('slashpick');
 
@@ -1930,6 +2094,35 @@ promptEl.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); slashEl.classList.remove('on'); send(); }
 });
 $('#send').onclick = () => { if (BUSY && ABORT){ ABORT.abort(); } else send(); };
+
+// ── voice dictation ───────────────────────────────────────────────
+(function(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const micBtn = document.getElementById('mic');
+  if (!SR){ micBtn.style.display = 'none'; return; }
+  let recog = null;
+  function stopMic(){ recog && recog.stop(); }
+  micBtn.addEventListener('click', () => {
+    if (micBtn.classList.contains('active')){ stopMic(); return; }
+    recog = new SR();
+    recog.continuous = true;
+    recog.interimResults = false;
+    recog.onresult = e => {
+      const t = Array.from(e.results).slice(e.resultIndex)
+        .map(r => r[0].transcript).join('');
+      const sep = promptEl.value && !promptEl.value.endsWith(' ') ? ' ' : '';
+      promptEl.value += sep + t;
+      grow();
+    };
+    recog.onend = () => micBtn.classList.remove('active');
+    recog.onerror = () => micBtn.classList.remove('active');
+    micBtn.classList.add('active');
+    recog.start();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && micBtn.classList.contains('active')) stopMic();
+  });
+})();
 
 function setBusy(on){
   BUSY = on;
@@ -2037,6 +2230,7 @@ async function streamTurn(c, bot, debateSide) {
   if (bot) body.bot = bot;
   reply.model = body.model || null;
 
+  const streamStart = Date.now();
   ABORT = new AbortController();
   let aborted = false;
   try {
@@ -2085,7 +2279,10 @@ async function streamTurn(c, bot, debateSide) {
           const thinkFrag = reply.thinking
             ? `<details class="think-block"><summary>Thinking <span class="think-len">${reply.thinking.length} chars</span></summary><div class="think-body">${esc(reply.thinking)}</div></details>`
             : '';
-          liveEl.innerHTML = thinkFrag + md(reply.text);
+          const elapsed = Date.now() - streamStart;
+          const tps = elapsed > 0 ? Math.round(reply.text.length / 4 / (elapsed / 1000)) : 0;
+          const speedChip = `<span style="position:absolute;right:6px;top:6px;font:10px var(--mono)" class="muted">∼${tps} tok/s</span>`;
+          liveEl.innerHTML = thinkFrag + md(reply.text) + speedChip;
           stick();
         }
         if (o.citations && o.citations.length) reply.cites = o.citations;
@@ -2093,6 +2290,7 @@ async function streamTurn(c, bot, debateSide) {
       }
     }
     if (!reply.text) reply.text = '(no text)';
+    reply.ms = Date.now() - streamStart;
   } catch(e){
     if (e.name === 'AbortError'){
       if (!reply.text) c.msgs.pop();
@@ -2167,6 +2365,18 @@ async function send(){
     return;
   }
 
+  // ── /system <text> shortcut: set per-conversation system prompt ───
+  if (/^\/system(\s|$)/i.test(text)) {
+    const sys = text.replace(/^\/system\s*/i, '').trim();
+    c.msgs.pop();
+    if (sys) { c.system = sys; toast('system prompt set'); }
+    else { delete c.system; toast('system prompt cleared'); }
+    setBusy(false);
+    saveConvos(); drawBotBanner(); drawThread(); drawHint();
+    promptEl.focus();
+    return;
+  }
+
   // ── /img <prompt> shortcut: image generation ───────────────────────
   if (/^\/img\s+/i.test(text)) {
     const prompt = text.replace(/^\/img\s+/i, '');
@@ -2218,9 +2428,11 @@ async function send(){
   if ($('#toptemp').value) body.temperature = parseFloat($('#toptemp').value);
   if ($('#topthink').value) body.reasoning_effort = $('#topthink').value;
   if (BOT) body.bot = BOT;
+  if (c.system && !BOT) body.system = c.system;
   reply.model = body.model || null;
   setTimeout(loadRuns, 500);          // catch the run while it is LIVE
 
+  const streamStart = Date.now();
   ABORT = new AbortController();
   try {
     const headers = {'content-type':'application/json'};
@@ -2269,7 +2481,10 @@ async function send(){
           const thinkFrag = reply.thinking
             ? `<details class="think-block"><summary>Thinking <span class="think-len">${reply.thinking.length} chars</span></summary><div class="think-body">${esc(reply.thinking)}</div></details>`
             : '';
-          liveEl.innerHTML = thinkFrag + md(reply.text);
+          const elapsed = Date.now() - streamStart;
+          const tps = elapsed > 0 ? Math.round(reply.text.length / 4 / (elapsed / 1000)) : 0;
+          const speedChip = `<span style="position:absolute;right:6px;top:6px;font:10px var(--mono)" class="muted">∼${tps} tok/s</span>`;
+          liveEl.innerHTML = thinkFrag + md(reply.text) + speedChip;
           stick();
         }
         if (o.citations && o.citations.length) reply.cites = o.citations;
@@ -2277,6 +2492,7 @@ async function send(){
       }
     }
     if (!reply.text) reply.text = '(no text)';
+    reply.ms = Date.now() - streamStart;
   } catch(e){
     if (e.name === 'AbortError'){
       if (!reply.text){ c.msgs.pop(); }        // stopped before a byte

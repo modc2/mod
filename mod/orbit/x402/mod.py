@@ -47,6 +47,7 @@ if HERE not in sys.path:
 import x402db as store                                       # noqa: E402
 import x402src as src                                        # noqa: E402
 import x402sem as sem                                        # noqa: E402
+import x402trust as trust                                    # noqa: E402
 
 DAY = 86400
 
@@ -155,6 +156,7 @@ class Mod:
         s = store.get(url)
         if not s:
             raise ValueError(f'not indexed: {url} — try probe url=…')
+        s['observed'] = trust.observed(url)
         return s
 
     def hosts(self, q=None, limit=100, offset=0):

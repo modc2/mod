@@ -96,7 +96,7 @@ label.ck{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var
       <input id="app_id" placeholder="app id" style="width:160px">
       <input class="wide" id="app_method" placeholder="ARC-4 method, e.g. get(address)uint64 (optional)">
     </div>
-    <div class="row" style="margin-top:8px">
+    <div id="app_args_row" class="row" style="margin-top:8px">
       <input class="wide" id="app_args" placeholder='args: JSON array, or comma-separated. Raw args: int:5, str:hi, addr:..., b64:...'>
     </div>
     <div class="row" style="margin-top:8px">
@@ -109,6 +109,7 @@ label.ck{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var
       <button class="go" id="simgo">SIMULATE (free)</button>
       <button class="ghost" id="callgo">SIGN + CALL</button>
       <label class="ck mainnet-only"><input type="checkbox" id="app_confirm"> sign on mainnet</label>
+      <div id="app_ret_note" class="note" style="margin-top:0;margin-left:8px;display:none"></div>
     </div>
     <div class="note">Simulate runs the call on algod with no key and no fee: you see the logs, the decoded return and the state changes before anything is signed.</div>
   </div>
@@ -139,6 +140,7 @@ label.ck{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var
     </div>
   </div>
   <div id="wout"></div>
+  <div id="wact"></div>
 </section>
 
 <section id="assets">
@@ -484,6 +486,7 @@ function renderTx(t) {
     <div class="stats">${body}</div>
     ${t.note ? `<div class="note">NOTE: ${esc(t.note)}</div>` : ''}
     ${(t.logs || []).length ? `<div class="note">logs:</div><pre>${esc((t.logs || []).join('\n'))}</pre>` : ''}
+    ${t.global_delta && Object.keys(t.global_delta).length ? `<div class="note">state changes:</div><table>${Object.entries(t.global_delta).map(([k,v]) => `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(String(v)) ? go(String(v)) : esc(String(v))}</td></tr>`).join('')}</table>` : ''}
     ${t.group ? `<div id="grpcont_${esc(t.id)}" style="margin-top:8px"></div>` : ''}
     <div class="note" style="margin-top:8px"><span class="link" onclick="var p=this.closest('.card').querySelector('pre.raw');var v=p.style.display==='none';p.style.display=v?'block':'none';this.textContent=v?'hide raw ▸':'show raw ▾'">show raw &#9662;</span></div>
     <pre class="raw" style="display:none;margin-top:8px">${esc(JSON.stringify(t.raw || t, null, 2))}</pre></div>
@@ -589,7 +592,26 @@ function renderApp(a) {
       `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(v) ? go(v) : esc(v)}</td></tr>`).join('') || '<tr><td class="dim">empty</td></tr>'}</table></div>
     ${a.boxes.length ? `<div class="card"><h3>BOXES</h3>${a.boxes.map(b => `<span class="chip mono" style="cursor:pointer" onclick="loadBox(${a.app_id}, ${JSON.stringify(b).replace(/"/g, '&quot;')})">${esc(b)}</span>`).join(' ')}</div><div id="boxout_${a.app_id}"></div>` : ''}
     <div class="card"><h3>LOCAL STATE</h3><div class="row" style="gap:8px;margin-bottom:6px"><input id="ls_addr_${a.app_id}" class="mono" style="flex:1" placeholder="address or .algo name"><button class="ghost" onclick="loadLocalState(${a.app_id})">GO</button></div><div id="lsout_${a.app_id}"></div></div>
-    <div class="card"><h3>APPROVAL PROGRAM</h3><pre>${highlightTeal(a.approval_teal || '')}</pre></div>`;
+    <div class="card"><h3>APPROVAL PROGRAM</h3><pre>${highlightTeal(a.approval_teal || '')}</pre></div>
+    <div class="card"><h3>RECENT CALLS</h3><div id="apphist_${a.app_id}" class="dim">loading…</div></div>` + (setTimeout(() => loadAppHistory(a.app_id), 0), '');
+}
+async function loadAppHistory(appId) {
+  const el = $('apphist_' + appId);
+  if (!el) return;
+  try {
+    const r = await api('/rpc?path=/v2/transactions&application-id=' + appId + '&limit=10&indexer=true');
+    const txns = r.transactions || [];
+    if (!txns.length) { el.innerHTML = '<span class="dim">no activity indexed</span>'; return; }
+    el.innerHTML = `<table><tr><th>TIME</th><th>SENDER</th><th>ON-COMPLETE</th><th>TX</th></tr>${
+      txns.map(raw => {
+        const s = summarizeRaw(raw);
+        const time = raw['round-time'] ? new Date(raw['round-time'] * 1000).toISOString().slice(0, 16).replace('T', ' ') : esc(String(s.round || '-'));
+        return `<tr><td class="dim">${time}</td><td>${go(s.sender)}</td><td>${esc(s.on_complete || '-')}</td><td>${go(s.id)}</td></tr>`;
+      }).join('')
+    }</table>`;
+  } catch (e) {
+    el.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+  }
 }
 async function loadBox(appId, name) {
   const out = $('boxout_' + appId);
@@ -668,7 +690,7 @@ function renderAppPreview(a) {
     ${gs.length ? `<div style="margin-top:10px"><table>${gs.map(([k, v]) =>
       `<tr><td class="mono">${esc(k)}</td><td class="mono">${/^[A-Z2-7]{58}$/.test(String(v)) ? go(v) : esc(v)}</td></tr>`).join('')}${gsFull > 8 ? `<tr><td colspan="2" class="dim">…${gsFull - 8} more</td></tr>` : ''}</table></div>` : ''}
     ${methods.length ? `<div style="margin-top:10px"><div class="k" style="margin-bottom:6px">METHODS</div><div style="display:flex;flex-wrap:wrap;gap:6px">${methods.map(sig =>
-      `<span class="chip mono" style="cursor:pointer" onclick="$('app_method').value=${JSON.stringify(sig)};$('app_method').scrollIntoView({behavior:'smooth',block:'nearest'})">${esc(sig)}</span>`).join('')}</div></div>` : ''}
+      `<span class="chip mono" style="cursor:pointer" onclick="$('app_method').value=${JSON.stringify(sig)};$('app_method').dispatchEvent(new Event('input'));$('app_method').scrollIntoView({behavior:'smooth',block:'nearest'})">${esc(sig)}</span>`).join('')}</div></div>` : ''}
     <div class="row" style="margin-top:10px;gap:12px">
       <span class="link" onclick="$('appout').scrollIntoView({behavior:'smooth'})">CALL THIS APP ↓</span>
       ${a.explorer ? `<a href="${a.explorer}" target="_blank">explorer</a>` : ''}
@@ -677,9 +699,61 @@ function renderAppPreview(a) {
 }
 
 // ── apps ───────────────────────────────────────────────────
+function parseArc4(sig) {
+  const parenOpen = sig.indexOf('(');
+  if (parenOpen === -1) return null;
+  let depth = 0, closeIdx = -1;
+  for (let i = parenOpen; i < sig.length; i++) {
+    if (sig[i] === '(') depth++;
+    else if (sig[i] === ')') { if (--depth === 0) { closeIdx = i; break; } }
+  }
+  if (closeIdx === -1) return null;
+  const ret = sig.slice(closeIdx + 1);
+  if (!ret) return null;
+  const argsStr = sig.slice(parenOpen + 1, closeIdx);
+  const args = [];
+  if (argsStr.trim()) {
+    let d = 0, cur = '';
+    for (const ch of argsStr) {
+      if (ch === '(' || ch === '[') d++;
+      else if (ch === ')' || ch === ']') d--;
+      if (ch === ',' && d === 0) { args.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    if (cur.trim()) args.push(cur.trim());
+  }
+  return { args, ret };
+}
+function collectArgs() {
+  const dynamic = document.querySelectorAll('#app_args_row [data-arg-idx]');
+  if (dynamic.length) return Array.from(dynamic).map(el => el.value.trim()).join(',');
+  return $('app_args').value.trim();
+}
+$('app_method').oninput = () => {
+  const sig = $('app_method').value.trim();
+  const parsed = sig ? parseArc4(sig) : null;
+  const row = $('app_args_row');
+  const note = $('app_ret_note');
+  if (parsed) {
+    if (!parsed.args.length) {
+      row.innerHTML = `<input class="wide" id="app_args" placeholder='no arguments'>`;
+    } else {
+      row.innerHTML = parsed.args.map((type, i) =>
+        `<div style="display:flex;flex-direction:column;flex:1;min-width:100px">` +
+        `<span class="dim" style="font-size:11px;margin-bottom:3px">arg ${i+1} (${esc(type)})</span>` +
+        `<input data-arg-idx="${i}" placeholder="${esc(type)}" style="width:100%">` +
+        `</div>`).join('');
+    }
+    note.textContent = 'returns: ' + parsed.ret;
+    note.style.display = '';
+  } else {
+    row.innerHTML = `<input class="wide" id="app_args" placeholder='args: JSON array, or comma-separated. Raw args: int:5, str:hi, addr:..., b64:...'>`;
+    note.style.display = 'none';
+  }
+};
 function appBody() {
   const b = {app_id: +$('app_id').value, method: $('app_method').value.trim() || undefined,
-    args: $('app_args').value.trim() || undefined, boxes: $('app_boxes').value.trim() || undefined,
+    args: collectArgs() || undefined, boxes: $('app_boxes').value.trim() || undefined,
     accounts: $('app_accounts').value.trim() || undefined, on_complete: $('app_oc').value};
   if (!b.app_id) throw new Error('app id first');
   return b;
@@ -696,7 +770,8 @@ function renderCall(r, signed) {
 ${(r.inner_txns && r.inner_txns.length) ? `<div class="card"><h3>INNER TRANSACTIONS (${r.inner_txns.length})</h3>
 <div style="overflow-y:auto;max-height:260px"><table><tr><th>TYPE</th><th>WHAT</th></tr>
 ${r.inner_txns.map(i => `<tr><td>${esc(i.type||'-')}</td><td>${txWhat(i)}</td></tr>`).join('')}
-</table></div></div>` : ''}</div>`;
+</table></div></div>` : ''}
+${(r.trace && r.trace.length) ? (() => { const tid = 'tr' + Math.random().toString(36).slice(2); return `<div class="card"><h3>TRACE (${r.trace.length} opcodes) <span class="link" onclick="const el=document.getElementById('${tid}');el.style.display=el.style.display==='none'?'block':'none'">toggle</span></h3><div id="${tid}" style="display:none;max-height:300px;overflow-y:auto"><table><tr><th>PC</th><th>PUSHED</th><th>POPPED</th></tr>${r.trace.map(e=>`<tr><td class="mono">${e.pc}</td><td class="mono">${esc((e.push||[]).join(', ') || '-')}</td><td class="mono">${e.pop || 0}</td></tr>`).join('')}</table></div></div>`; })() : ''}</div>`;
 }
 $('simgo').onclick = busy($('simgo'), async () => {
   const b = appBody(); b.network = NET;
@@ -711,6 +786,17 @@ $('callgo').onclick = busy($('callgo'), async () => {
 });
 
 // ── wallet ─────────────────────────────────────────────────
+async function walletHist(addr) {
+  const el = $('wact');
+  if (!addr) { el.innerHTML = ''; return; }
+  try {
+    const h = await api('/history?limit=10&address=' + encodeURIComponent(addr));
+    if (!h.transactions || !h.transactions.length) { el.innerHTML = ''; return; }
+    const rows = h.transactions.map(t =>
+      `<tr${t.direction === 'in' ? ' class="ok"' : ''}><td class="dim">${esc(t.time || t.round)}</td><td>${esc(t.type)}</td><td>${txWhat(t)}</td><td>${go(t.id)}</td></tr>`).join('');
+    el.innerHTML = `<div class="card"><h3>RECENT</h3><table><tr><th>TIME</th><th>TYPE</th><th>WHAT</th><th>TX</th></tr>${rows}</table></div>`;
+  } catch (e) { el.innerHTML = ''; }
+}
 async function wallet() {
   try {
     const w = await api('/wallet?op=status&network=' + wnet());
@@ -718,12 +804,14 @@ async function wallet() {
     $('signer').innerHTML = sel ? `signer <b class="mono">${short(sel)}</b>${w.balance && w.balance.algo != null ? ' - ' + fmt(w.balance.algo) + ' ALGO' : ''}` : 'no key';
     $('wstat').innerHTML = w.accounts.length ? `<table><tr><th>ADDRESS</th><th>LABEL</th><th></th></tr>${w.accounts.map(a =>
       `<tr><td class="mono">${go(a.address)}</td><td>${esc(a.label || '')}</td><td>${a.selected ? '<span class="ok">signing</span>' : `<span class="link" onclick="selectKey('${a.address}')">use</span>`}</td></tr>`).join('')}</table>
-      ${w.balance ? `<div class="note">${esc(w.balance.network || wnet())}: ${w.balance.error ? esc(w.balance.error) : fmt(w.balance.algo) + ' ALGO, ' + fmt(w.balance.spendable_algo) + ' spendable'}</div>` : ''}
-      ${wnet() === 'testnet' ? '<div class="note">Need testnet ALGO? Paste the address into <a href="https://bank.testnet.algorand.network" target="_blank">the testnet dispenser</a>.</div>' : ''}`
+      ${w.balance ? (w.balance.error ? `<div class="note bad">${esc(w.balance.error)}</div>` : `<div class="stats" style="margin-top:10px"><div class="stat"><div class="k">BALANCE</div><div class="v">${fmt(w.balance.algo)} ALGO</div></div><div class="stat"><div class="k">SPENDABLE</div><div class="v">${fmt(w.balance.spendable_algo)}</div></div><div class="stat"><div class="k">MIN BALANCE</div><div class="v">${fmt(w.balance.min_balance_algo)}</div></div>${w.balance.usd != null ? `<div class="stat"><div class="k">USD</div><div class="v">$${fmt(w.balance.usd, 2)}</div></div>` : ''}</div>`) : ''}
+      ${wnet() === 'testnet' && sel ? `<div class="note"><button class="ghost" onclick="fundWallet('${sel}')">FUND</button></div>` : ''}`
       : '<div class="dim">No keys yet. Make one, or import a mnemonic.</div>';
+    walletHist(w.selected || null);
   } catch (e) { $('wstat').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
 }
 async function selectKey(a) { try { await api('/wallet', {op: 'select', address: a}, true); wallet(); } catch (e) { toast(esc(e.message), true); } }
+async function fundWallet(a) { try { const r = await api('/faucet', {address: a}, false); toast('funded — tx ' + short(r.txid || '')); wallet(); } catch (e) { toast(esc(e.message), true); } }
 $('wgen').onclick = busy($('wgen'), async () => { const r = await api('/wallet', {op: 'generate'}, true); toast('new key ' + short(r.address)); wallet(); });
 $('wimp').onclick = busy($('wimp'), async () => { const r = await api('/wallet', {op: 'import', mnemonic: $('wmn').value}, true); $('wmn').value = ''; toast('imported ' + short(r.address)); wallet(); });
 $('token').value = localStorage.getItem('algo_token') || '';

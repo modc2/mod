@@ -209,6 +209,163 @@ class Mod:
         rec = store.decide(self._need(id, 'id'), caller, 'rejected', note=note)
         return {'id': rec['id'], 'status': rec['status'], 'note': rec.get('note')}
 
+    def autoscan(self, module=None, preview=False, token=None, ip=None, ua=None, local=None):
+        """Use Claude to scan a module and return a targeted recommendation.
+
+        When preview=True (the default from the UI), returns the raw AI-generated
+        dict for the caller to review and edit before filing — no signed caller
+        required. When preview=False, files the recommendation immediately and
+        requires a signed caller.
+        """
+        caller = self._caller(token, ip, ua, local)
+        if not preview and not caller['signed']:
+            raise PermissionError(
+                'autoscan requires a signed caller — connect your wallet first'
+            )
+        try:
+            import anthropic as _anthropic
+        except ImportError:
+            return {'error': 'autoscan requires ANTHROPIC_API_KEY'}
+        if not os.environ.get('ANTHROPIC_API_KEY'):
+            return {'error': 'autoscan requires ANTHROPIC_API_KEY'}
+
+        module = self._need(module, 'module')
+        ctx = json.dumps(self.brief(module), indent=2)[:14000]
+
+        system = (
+            'You are a senior software engineer reviewing a module\'s code. '
+            'Analyse the brief and identify ONE specific, non-trivial improvement '
+            'grounded in the actual code — not a guess, not a platitude. '
+            'Return ONLY a JSON object with exactly these fields: '
+            '{"title":"<120 chars>","summary":"1-2 sentences describing problem and fix",'
+            '"rationale":"what you saw in the code that tells you this needs fixing",'
+            '"change":"concrete description of what to change, specific enough for an agent",'
+            '"anchors":[{"path":"relative/path/to/file","line":42,"note":"what is on this line"}],'
+            '"kind":"bug|security|performance|ux|docs|test|cleanup|feature",'
+            '"severity":"low|medium|high|critical","confidence":0.85} '
+            'Anchors must reference real files and real line numbers visible in the module tree. '
+            'No prose, no markdown, no code fences — valid JSON only.'
+        )
+        try:
+            client = _anthropic.Anthropic()
+            msg = client.messages.create(
+                model='claude-haiku-4-5-20251001',
+                max_tokens=1024,
+                system=system,
+                messages=[{'role': 'user',
+                           'content': f'Module brief for `{module}`:\n\n{ctx}'}],
+            )
+            raw = msg.content[0].text.strip()
+            if raw.startswith('```'):
+                raw = '\n'.join(raw.split('\n')[1:]).rstrip('`').strip()
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            return {'error': f'model returned non-JSON: {e}'}
+        except Exception as e:
+            return {'error': f'autoscan failed: {type(e).__name__}: {e}'}
+
+        if preview:
+            return {
+                'title': data.get('title', ''),
+                'summary': data.get('summary', ''),
+                'rationale': data.get('rationale', ''),
+                'change': data.get('change', ''),
+                'anchors': data.get('anchors') or [],
+                'kind': data.get('kind', 'feature'),
+                'severity': data.get('severity', 'medium'),
+                'confidence': data.get('confidence'),
+            }
+
+        rec = store.create(
+            module,
+            data.get('title') or 'Auto-scan suggestion',
+            caller,
+            summary=data.get('summary', ''),
+            rationale=data.get('rationale', ''),
+            change=data.get('change', ''),
+            anchors=data.get('anchors'),
+            kind=data.get('kind', 'feature'),
+            severity=data.get('severity', 'medium'),
+            confidence=data.get('confidence'),
+            agent='advise-autoscan',
+        )
+        return {'filed': rec['id'], 'status': rec['status']}
+
+    def autotriage(self, token=None, ip=None, ua=None, local=None):
+        """Use Claude Haiku to vote approve/reject on each pending inbox rec.
+
+        Owner-signed only. Caps at 8 recs per call. Returns votes without
+        acting on them — the owner still decides.
+        """
+        caller = self._caller(token, ip, ua, local)
+        if not caller['signed']:
+            raise PermissionError(
+                'autotriage requires a signed caller — connect your wallet first'
+            )
+        try:
+            import anthropic as _anthropic
+        except ImportError:
+            return {'error': 'autotriage requires ANTHROPIC_API_KEY'}
+        if not os.environ.get('ANTHROPIC_API_KEY'):
+            return {'error': 'autotriage requires ANTHROPIC_API_KEY'}
+
+        pending = store.inbox(caller['address'], status='pending')
+        rows = pending.get('recommendations', [])[:8]
+        if not rows:
+            return {'votes': {}, 'count': 0}
+
+        brief_cache = {}
+        for row in rows:
+            mod = row['module']
+            if mod not in brief_cache:
+                try:
+                    b = scan.brief(mod)
+                    brief_cache[mod] = json.dumps({
+                        'description': (b.get('config') or {}).get('description', ''),
+                        'todos': len(b.get('stats', {}).get('todos') or []),
+                    })[:1200]
+                except Exception:
+                    brief_cache[mod] = '{}'
+
+        system = (
+            'You are a senior software engineer reviewing a code-change recommendation. '
+            'Read the recommendation and decide APPROVE or REJECT. '
+            'Return valid JSON only: '
+            '{"vote":"approve"|"reject","note":"one sentence","confidence":0.85}'
+        )
+        client = _anthropic.Anthropic()
+        votes = {}
+        for row in rows:
+            rec_id = row['id']
+            try:
+                full_rec = store.get(rec_id)
+                text = store.render(full_rec)[:6000]
+                ctx = brief_cache.get(full_rec['module'], '{}')
+                msg = client.messages.create(
+                    model='claude-haiku-4-5-20251001',
+                    max_tokens=256,
+                    system=system,
+                    messages=[{'role': 'user',
+                               'content': f'Module context:\n{ctx}\n\nRecommendation:\n{text}'}],
+                )
+                raw = msg.content[0].text.strip()
+                if raw.startswith('```'):
+                    raw = '\n'.join(raw.split('\n')[1:]).rstrip('`').strip()
+                data = json.loads(raw)
+                votes[rec_id] = {
+                    'vote': data.get('vote', 'reject'),
+                    'note': str(data.get('note', ''))[:300],
+                    'confidence': float(data.get('confidence', 0.5)),
+                }
+            except json.JSONDecodeError as e:
+                votes[rec_id] = {'vote': 'reject',
+                                 'note': f'model returned non-JSON: {e}', 'confidence': 0.0}
+            except Exception as e:
+                votes[rec_id] = {'vote': 'reject',
+                                 'note': f'error: {type(e).__name__}: {e}', 'confidence': 0.0}
+
+        return {'votes': votes, 'count': len(votes)}
+
     def withdraw(self, id=None, token=None, ip=None, ua=None, local=None):
         """Take back your own recommendation while it is still undecided."""
         caller = self._caller(token, ip, ua, local)
@@ -220,6 +377,17 @@ class Mod:
         caller = self._caller(token, ip, ua, local)
         rec = store.comment(self._need(id, 'id'), self._need(body, 'body'), caller)
         return {'id': rec['id'], 'comments': len(rec['comments'])}
+
+    def update(self, id=None, title=None, summary=None, rationale=None, change=None,
+               anchors=None, patch=None, kind=None, severity=None, module=None,
+               token=None, ip=None, ua=None, local=None):
+        """Refine a pending recommendation in place — author only."""
+        caller = self._caller(token, ip, ua, local)
+        rec = store.update(self._need(id, 'id'), caller,
+                           title=title, summary=summary, rationale=rationale,
+                           change=change, anchors=anchors, patch=patch,
+                           kind=kind, severity=severity)
+        return {'id': rec['id'], 'status': rec['status'], 'updated_at': rec.get('updated_at')}
 
     def relay(self, id=None, token=None, ip=None, ua=None, local=None):
         """Re-send an approved recommendation to build's queue — for when the

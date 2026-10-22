@@ -280,6 +280,21 @@ const out = $('out');
 const LS = { key: 'debank.key', view: 'debank.view', connected: 'debank.connected', tab: 'debank.tab', book: 'debank.book' };
 const read = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
 const write = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
+function snapshotSave(id, usd) {
+  if (!id || usd == null || isNaN(usd)) return;
+  const key = 'debank.snap.' + id;
+  let arr; try { arr = JSON.parse(localStorage.getItem(key) || '[]'); } catch { arr = []; }
+  const now = Math.floor(Date.now() / 1000);
+  const today = new Date().toDateString();
+  arr = arr.filter(e => new Date(e.t * 1000).toDateString() !== today);
+  arr.push({ t: now, usd });
+  arr.sort((a, b) => a.t - b.t);
+  try { localStorage.setItem(key, JSON.stringify(arr.slice(-90))); } catch {}
+}
+function snapshotRead(id) {
+  try { return JSON.parse(localStorage.getItem('debank.snap.' + id) || '[]').sort((a, b) => a.t - b.t); }
+  catch { return []; }
+}
 
 const state = {
   tab: read(LS.tab) || 'overview',
@@ -293,6 +308,7 @@ const state = {
   chartOpen: false, chartPeriod: 'All',
   scanAllPermissions: false,
   stmtSearch: '',
+  stmtBucket: null,
 };
 
 const NAV = [
@@ -549,6 +565,10 @@ function renderChrome() {
 const stats = (items) => `<div class="stats">${items.filter(Boolean).map(([l, v, c = '']) =>
   `<div class="stat"><b class="${c}">${v}</b><span>${l}</span></div>`).join('')}</div>`;
 function stmtMatch(r, q) {
+  if (state.stmtBucket !== null) {
+    const w = Math.floor(r.time / 604800);
+    if (w !== state.stmtBucket) return false;
+  }
   if (!q) return true;
   const lq = q.toLowerCase();
   const syms = [...(r.sent || []), ...(r.received || [])].map((x) => (x.symbol || '').toLowerCase());
@@ -648,7 +668,53 @@ function spkMove(e, rect) {
 }
 function spkOut() {
   if (_spkTip) _spkTip.style.display = 'none';
+  if (_simTip) _simTip.style.display = 'none';
   document.querySelectorAll('.spk-cursor,.spk-dot').forEach(el => el.setAttribute('visibility', 'hidden'));
+}
+let _simTip = null;
+function simMove(e, rect) {
+  const svg = rect.closest('svg');
+  let pts;
+  try { pts = JSON.parse(svg.dataset.pts); } catch { return; }
+  if (!pts || pts.length < 2) return;
+  const W = parseFloat(svg.getAttribute('width'));
+  const H = parseFloat(svg.getAttribute('height'));
+  const padT = parseFloat(svg.dataset.padT || 8);
+  const padB = parseFloat(svg.dataset.padB || 28);
+  const vals = pts.map(p => p.u);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const range = hi - lo || 1;
+  const svgRect = svg.getBoundingClientRect();
+  const frac = Math.max(0, Math.min(1, (e.clientX - svgRect.left) / svgRect.width));
+  const idx = Math.round(frac * (pts.length - 1));
+  const p = pts[idx];
+  const cx = (p.days / 365) * W;
+  const cy = padT + ((hi - p.u) / range) * (H - padT - padB);
+  const cursor = svg.querySelector('.spk-cursor');
+  const dot = svg.querySelector('.spk-dot');
+  if (cursor) { cursor.setAttribute('x1', cx); cursor.setAttribute('x2', cx); cursor.setAttribute('visibility', 'visible'); }
+  if (dot) { dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('visibility', 'visible'); }
+  const card = svg.closest('.hero, .card');
+  if (!card) return;
+  if (!_simTip) {
+    _simTip = document.createElement('div');
+    _simTip.style.cssText = 'position:absolute;background:var(--panel3);border:1px solid var(--line2);border-radius:8px;padding:6px 10px;font-size:12px;pointer-events:none;z-index:10;display:none;line-height:1.5;white-space:nowrap';
+  }
+  if (!card.contains(_simTip)) {
+    if (getComputedStyle(card).position === 'static') card.style.position = 'relative';
+    card.appendChild(_simTip);
+  }
+  const base = pts[0].u;
+  const earned = p.u - base;
+  const fmtUsd = v => '$' + v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  _simTip.innerHTML = `<div style="color:var(--dim)">Day ${p.days}</div><div style="font-weight:600">${fmtUsd(p.u)}</div><div style="color:var(--up)">+${fmtUsd(earned)} earned</div>`;
+  const cardRect = card.getBoundingClientRect();
+  let tx = e.clientX - cardRect.left - _simTip.offsetWidth / 2;
+  const ty = e.clientY - cardRect.top + 14;
+  tx = Math.max(4, Math.min(cardRect.width - _simTip.offsetWidth - 4, tx));
+  _simTip.style.left = tx + 'px';
+  _simTip.style.top = ty + 'px';
+  _simTip.style.display = 'block';
 }
 function donutMove(e, el) {
   if (!_donutTip) {
@@ -743,6 +809,69 @@ const bigChart = (pts) => {
     + `</svg>`;
 };
 
+let _wkTip = null;
+function wkTipShow(e, w, count, gasUsd) {
+  if (!_wkTip) {
+    _wkTip = document.createElement('div');
+    _wkTip.style.cssText = 'position:fixed;background:var(--panel3);border:1px solid var(--line2);border-radius:8px;padding:6px 10px;font-size:12px;pointer-events:none;z-index:99;display:none;line-height:1.5;white-space:nowrap';
+    document.body.appendChild(_wkTip);
+  }
+  const d0 = new Date(w * 604800 * 1000);
+  const d1 = new Date((w + 1) * 604800 * 1000 - 86400000);
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fmt = d => MONTHS[d.getMonth()] + ' ' + d.getDate();
+  _wkTip.innerHTML = '<div style="color:var(--dim)">' + fmt(d0) + ' – ' + fmt(d1) + '</div>'
+    + '<div style="font-weight:600">' + count + ' tx' + (count !== 1 ? 's' : '') + '</div>'
+    + '<div style="color:var(--mute)">$' + (+gasUsd).toFixed(2) + ' gas</div>';
+  _wkTip.style.left = (e.clientX + 12) + 'px';
+  _wkTip.style.top = (e.clientY - 50) + 'px';
+  _wkTip.style.display = 'block';
+}
+function wkTipHide() { if (_wkTip) _wkTip.style.display = 'none'; }
+const weekChart = (txs) => {
+  if (!txs || !txs.length) return '';
+  const bucketMap = {};
+  txs.forEach(r => {
+    const w = Math.floor(r.time / 604800);
+    if (!bucketMap[w]) bucketMap[w] = { w, count: 0, gasUsd: 0 };
+    bucketMap[w].count++;
+    bucketMap[w].gasUsd += r.gas_usd || 0;
+  });
+  let buckets = Object.values(bucketMap).sort((a, b) => a.w - b.w);
+  if (buckets.length > 52) buckets = buckets.slice(buckets.length - 52);
+  const n = buckets.length;
+  if (n < 1) return '';
+  const W = 700, H = 60, padB = 16;
+  const chartH = H - padB;
+  const gap = 2;
+  const barW = Math.max(2, (W - gap * Math.max(n - 1, 0)) / n);
+  const stride = barW + gap;
+  const maxCount = Math.max(...buckets.map(b => b.count));
+  const maxGas = Math.max(...buckets.map(b => b.gasUsd));
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let bars = '', xLabels = '';
+  let prevQ = -1;
+  buckets.forEach((b, i) => {
+    const x = i * stride;
+    const bw = barW.toFixed(1);
+    const countH = maxCount ? (b.count / maxCount) * chartH * 0.9 : 0;
+    const gasH = maxGas ? (b.gasUsd / maxGas) * chartH * 0.35 : 0;
+    const isActive = state.stmtBucket === b.w;
+    bars += '<rect x="' + x.toFixed(1) + '" y="' + (chartH - countH).toFixed(1) + '" width="' + bw + '" height="' + countH.toFixed(1) + '"'
+      + ' fill="' + (isActive ? '#e3c27a' : 'rgba(93,104,122,0.55)') + '" rx="1" style="cursor:pointer"'
+      + ' onclick="state.stmtBucket=' + (isActive ? 'null' : b.w) + ';render()"'
+      + ' onmouseenter="wkTipShow(event,' + b.w + ',' + b.count + ',' + b.gasUsd.toFixed(4) + ')" onmouseleave="wkTipHide()"/>';
+    if (gasH > 0.5) bars += '<rect x="' + x.toFixed(1) + '" y="' + (chartH - gasH).toFixed(1) + '" width="' + bw + '" height="' + gasH.toFixed(1) + '"'
+      + ' fill="rgba(227,194,122,0.2)" rx="1" style="pointer-events:none"/>';
+    const d = new Date(b.w * 604800 * 1000);
+    const q = Math.floor(d.getMonth() / 3) + d.getFullYear() * 4;
+    if (q !== prevQ && x + 40 < W) {
+      xLabels += '<text x="' + x.toFixed(1) + '" y="' + (H - 3) + '" fill="#5d687a" font-size="9" font-family="Inter,system-ui,sans-serif">' + MONTHS[d.getMonth()] + ' ' + d.getFullYear() + '</text>';
+      prevQ = q;
+    }
+  });
+  return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;overflow:visible;width:100%;height:auto">' + bars + xLabels + '</svg>';
+};
 const simChart = (amount, apy) => {
   const W = 700, H = 180, padT = 8, padB = 28;
   const pts = [0];
@@ -772,7 +901,8 @@ const simChart = (amount, apy) => {
   });
   const areaPath = 'M' + fundPts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' L')
     + ` L${W},${H - padB} L0,${H - padB} Z`;
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;overflow:visible;width:100%;height:auto">`
+  const dataPts = JSON.stringify(pts.map(d => ({ days: d, u: vFund(d) }))).replace(/'/g, '&#39;');
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;overflow:visible;width:100%;height:auto" data-pts='${dataPts}' data-pad-t="${padT}" data-pad-b="${padB}">`
     + `<defs><linearGradient id="simG" x1="0" y1="0" x2="0" y2="1">`
     + `<stop offset="0%" stop-color="rgba(227,194,122,0.15)"/>`
     + `<stop offset="100%" stop-color="rgba(227,194,122,0)"/>`
@@ -781,7 +911,11 @@ const simChart = (amount, apy) => {
     + `<path d="${areaPath}" fill="url(#simG)"/>`
     + `<polyline points="${idleStr}" fill="none" stroke="#3a4557" stroke-width="1.5" stroke-dasharray="5 3"/>`
     + `<polyline points="${fundStr}" fill="none" stroke="#e3c27a" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`
-    + yLabels + xLabels + '</svg>';
+    + yLabels + xLabels
+    + `<line class="spk-cursor" x1="0" y1="${padT}" x2="0" y2="${H - padB}" stroke="#e3c27a" stroke-width="1" stroke-dasharray="3 2" visibility="hidden"/>`
+    + `<circle class="spk-dot" cx="0" cy="0" r="4" fill="#e3c27a" stroke="#141b2a" stroke-width="1.5" visibility="hidden"/>`
+    + `<rect x="0" y="0" width="${W}" height="${H - padB}" fill="transparent" onmousemove="simMove(event,this)" onmouseleave="spkOut()"/>`
+    + `</svg>`;
 };
 
 const DONUT_PALETTE = ['#e3c27a', '#4fd1a1', '#6aa5ff', '#e8b04a', '#f06a5e'];
@@ -824,6 +958,13 @@ async function overviewData(id) {
 }
 
 /* ── views ── */
+const perfFrom = (pts, secsBack) => {
+  const last = pts[pts.length - 1];
+  const target = last.time - secsBack;
+  const ref = pts.reduce((b, p) => Math.abs(p.time - target) < Math.abs(b.time - target) ? p : b, pts[0]);
+  const delta = last.usd - ref.usd;
+  return { delta, pct: ref.usd ? delta / ref.usd * 100 : 0 };
+};
 const VIEWS = {
   async overview(id) {
     const humP = get('/humanity', { id }).catch(() => null);
@@ -831,19 +972,13 @@ const VIEWS = {
     const hum = await humP;
     if (rail.error && !full) throw rail.error;
     const total = full ? full.total_usd : rail.total_usd;
+    snapshotSave(id, total);
     let change = '', spkPts = null;
     if (full) {
       try {
         const c = await get('/net_curve', { id });
         if (c && Array.isArray(c.points) && c.points.length >= 2) spkPts = c.points;
         if (spkPts) {
-          const perfFrom = (pts, secsBack) => {
-            const last = pts[pts.length - 1];
-            const target = last.time - secsBack;
-            const ref = pts.reduce((b, p) => Math.abs(p.time - target) < Math.abs(b.time - target) ? p : b, pts[0]);
-            const delta = last.usd - ref.usd;
-            return { delta, pct: ref.usd ? delta / ref.usd * 100 : 0 };
-          };
           const periods = [{label:'24h', s:86400}, {label:'7d', s:604800}, {label:'30d', s:2592000}];
           const chips = periods.map(({label, s}) => {
             if (spkPts[0].time > spkPts[spkPts.length-1].time - s * 0.8) return '';
@@ -855,6 +990,9 @@ const VIEWS = {
         }
       } catch {}
     }
+    const localPts = snapshotRead(id);
+    const localSpk = !spkPts && localPts.length >= 2
+      ? sparkline(localPts.map(p => ({ time: p.t, usd: p.usd })), 160, 44) : '';
     const accounts = full
       ? full.chains.map((c) => ({ chain: c.chain, name: c.name || chainName(c.chain), usd: c.usd, sub: c.native || '' }))
       : rail.chains.map((c) => ({ chain: c.chain, name: c.name, usd: c.usd, sub: `${num(c.native_amount, 4)} ${c.native}` }));
@@ -883,7 +1021,7 @@ const VIEWS = {
         <div class="hero-total">${usdBig(total)}</div>
         <div class="sub">${change || (full ? 'tokens + DeFi positions, net of debt' : `native coin + stablecoins on ${rail.chains.length} chains`)}
           · as of ${clock()} · ${full ? 'DeBank' : 'public RPCs, priced by CoinGecko'}</div>
-        <div class="side">${mineLabel()}${humanTag(hum)}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div><div style="margin-top:6px"><button class="btn sm ghost" style="font-size:11.5px;height:26px;padding:0 9px" onclick="saveAddr()">★ Save</button></div>${spkPts ? `<div style="margin-top:8px;line-height:0;position:relative">${sparkline(spkPts)}<button style="position:absolute;top:2px;right:2px;background:rgba(9,12,18,0.6);border:1px solid var(--line2);color:var(--dim);font-size:10px;border-radius:5px;width:18px;height:18px;display:grid;place-items:center;cursor:pointer;padding:0" onclick="state.chartOpen=!state.chartOpen;render()" title="${state.chartOpen ? 'Close chart' : 'Expand chart'}">↗</button></div>` : ''}</div>
+        <div class="side">${mineLabel()}${humanTag(hum)}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div><div style="margin-top:6px"><button class="btn sm ghost" style="font-size:11.5px;height:26px;padding:0 9px" onclick="saveAddr()">★ Save</button></div>${spkPts ? `<div style="margin-top:8px;line-height:0;position:relative">${sparkline(spkPts)}<button style="position:absolute;top:2px;right:2px;background:rgba(9,12,18,0.6);border:1px solid var(--line2);color:var(--dim);font-size:10px;border-radius:5px;width:18px;height:18px;display:grid;place-items:center;cursor:pointer;padding:0" onclick="state.chartOpen=!state.chartOpen;render()" title="${state.chartOpen ? 'Close chart' : 'Expand chart'}">↗</button></div>` : localSpk ? `<div style="margin-top:8px"><div style="font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin-bottom:3px">local history</div><div style="line-height:0">${localSpk}</div></div>` : ''}</div>
       </div>
       ${chartPanel}
       <div class="actions">
@@ -958,9 +1096,15 @@ const VIEWS = {
       try {
         const chain = state.chainFilter || '';
         const d = await get('/tokens', { id, chain, limit: 200 });
+        const dSlices = d.tokens.slice(0, 5).map(t => ({ name: t.symbol, usd: t.usd }));
+        const dOther = d.tokens.slice(5).reduce((s, t) => s + t.usd, 0);
+        if (dOther > 0) dSlices.push({ name: 'Other', usd: dOther });
+        const dSvg = donut(dSlices, 130);
+        const dTot = dSlices.reduce((s, t) => s + t.usd, 0);
+        const dViz = dSvg ? `<div style="display:flex;align-items:center;gap:20px;margin-bottom:12px">${dSvg}<div style="display:flex;flex-direction:column;gap:5px;justify-content:center">${dSlices.filter(s => s.usd > 0).map((s, i) => `<span style="font-size:12px;display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;flex-shrink:0;background:${i < DONUT_PALETTE.length ? DONUT_PALETTE[i] : 'hsl(' + (i * 47) % 360 + ',55%,55%)'}"></span><span class="faint">${esc(s.name)}</span><span style="margin-left:8px">${dTot ? ((s.usd / dTot) * 100).toFixed(1) : '0.0'}%</span></span>`).join('')}</div></div>` : '';
         return `<div class="h2">Assets</div><p class="lead">Every token DeBank prices, biggest first. ${mineLabel()}</p>
           ${stats([['token value', usd(d.total_usd)], ['shown', `${d.shown} of ${d.total}`], d.hidden_below_min_usd ? ['dust hidden', d.hidden_below_min_usd] : null])}
-          <div class="card"><h3>Holdings <span class="r">${filterRow('assets')}</span></h3>${table([
+          <div class="card"><h3>Holdings <span class="r">${filterRow('assets')}</span></h3>${dViz}${table([
             { label: 'asset', get: (r) => `<b>${esc(r.symbol || '?')}</b> <span class="faint">${esc(r.name || '')}</span>` },
             { label: 'chain', get: (r) => esc(chainName(r.chain)) },
             { label: 'amount', n: true, get: (r) => num(r.amount) },
@@ -971,10 +1115,16 @@ const VIEWS = {
     }
     const d = await get('/balances', { id });
     const rows = d.tokens.filter((t) => t.amount > 0);
+    const rSlices = rows.slice(0, 5).map(t => ({ name: t.symbol, usd: t.usd }));
+    const rOther = rows.slice(5).reduce((s, t) => s + t.usd, 0);
+    if (rOther > 0) rSlices.push({ name: 'Other', usd: rOther });
+    const rSvg = donut(rSlices, 130);
+    const rTot = rSlices.reduce((s, t) => s + t.usd, 0);
+    const rViz = rSvg ? `<div style="display:flex;align-items:center;gap:20px;margin-bottom:12px">${rSvg}<div style="display:flex;flex-direction:column;gap:5px;justify-content:center">${rSlices.filter(s => s.usd > 0).map((s, i) => `<span style="font-size:12px;display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;flex-shrink:0;background:${i < DONUT_PALETTE.length ? DONUT_PALETTE[i] : 'hsl(' + (i * 47) % 360 + ',55%,55%)'}"></span><span class="faint">${esc(s.name)}</span><span style="margin-left:8px">${rTot ? ((s.usd / rTot) * 100).toFixed(1) : '0.0'}%</span></span>`).join('')}</div></div>` : '';
     return `<div class="h2">Assets</div><p class="lead">Native coin and stablecoins on the bank rail. ${mineLabel()}</p>
       ${stats([['rail value', usd(d.total_usd)], ['positions', rows.length], ['coverage', '8 chains']])}
       <div class="note">Only the rail is visible without a DeBank key — every other token, LP and staked balance needs one. <a href="#" onclick="go('settings');return false">Add a key</a>.</div>
-      <div class="card"><h3>Holdings</h3>${table([
+      <div class="card"><h3>Holdings</h3>${rViz}${table([
         { label: 'asset', get: (r) => `<b>${esc(r.symbol)}</b> ${r.native ? '<span class="pill">native</span>' : ''}` },
         { label: 'chain', get: (r) => esc(chainName(r.chain)) },
         { label: 'amount', n: true, get: (r) => num(r.amount) },
@@ -1163,9 +1313,12 @@ const VIEWS = {
       const onclick = `state.stmtSearch=${active ? "''" : "'" + t.replace(/'/g, "\\'") + "'"};render()`;
       return `<button class="chip${active ? ' gold' : ''}" style="cursor:pointer;background:none;border:1px solid ${active ? 'rgba(227,194,122,.4)' : 'var(--line2)'};" onclick="${esc(onclick)}">${esc(t)} <span class="faint">${n}</span></button>`;
     }).join(' ');
+    const wkHtml = weekChart(d.transactions || []);
+    const clearBucket = state.stmtBucket !== null ? `<button class="chip" style="cursor:pointer;background:none;border:1px solid rgba(227,194,122,.4);" onclick="${esc('state.stmtBucket=null;render()')}">× clear week</button>` : '';
     return `<div class="h2">Statement</div><p class="lead">What moved, through what, at what cost. ${mineLabel()}</p>
       ${stats([['transactions', d.count], ['oldest shown', d.oldest_time ? when(d.oldest_time) : '—']])}
-      ${typeChips ? `<div class="row" style="margin-bottom:12px;flex-wrap:wrap;gap:6px">${typeChips}</div>` : ''}
+      ${wkHtml ? `<div style="margin-bottom:14px">${wkHtml}</div>` : ''}
+      ${(typeChips || clearBucket) ? `<div class="row" style="margin-bottom:12px;flex-wrap:wrap;gap:6px">${typeChips}${clearBucket}</div>` : ''}
       <div class="card"><h3>Recent activity${subLabel} <span class="r"><input class="sm" style="height:32px;border-radius:8px;padding:0 10px;font-size:12.5px;background:var(--panel2);border:1px solid var(--line2);color:var(--ink);outline:0;width:140px" placeholder="search…" value="${esc(q)}" oninput="state.stmtSearch=this.value;render()">&nbsp;${filterRow('statement')} <button class="btn sm ghost" onclick="downloadStmtCSV()">↓ CSV</button></span></h3>${table([
         { label: 'when', get: (r) => `<span class="mut">${when(r.time)}</span>` },
         { label: 'type', get: (r) => `<b>${esc(r.type)}</b><div class="faint" style="font-size:11.5px">${esc(r.project || r.action || '')}</div>` },
@@ -1422,12 +1575,50 @@ const VIEWS = {
         <p>Save addresses with ★ to build your watchlist.</p>
       </div>`;
     }
-    const results = await Promise.allSettled(book.map(e => get('/balances', { id: e.addr })));
+    const results = await Promise.allSettled(
+      hasKey()
+        ? book.map(e => get('/portfolio', { id: e.addr }).catch(() => get('/balances', { id: e.addr })))
+        : book.map(e => get('/balances', { id: e.addr }))
+    );
     let curves = book.map(() => null);
     if (hasKey()) {
       const cr = await Promise.allSettled(book.map(e => get('/net_curve', { id: e.addr }).catch(() => null)));
       cr.forEach((r, i) => { if (r.status === 'fulfilled') curves[i] = r.value; });
     }
+    const combinedTotal = results.reduce((s, r) => s + (r.status === 'fulfilled' ? (r.value?.total_usd ?? 0) : 0), 0);
+    const loadedCount = results.filter(r => r.status === 'fulfilled').length;
+    const heroFloor = hasKey() ? '(DeBank)' : '(keyless floor)';
+    const validCurves = curves.filter(c => c?.points?.length >= 2);
+    let combinedChartHtml = '';
+    if (validCurves.length >= 2) {
+      const grid = validCurves[0].points;
+      const combinedPts = grid.map(gp => {
+        const usdSum = validCurves.reduce((s, vc) => {
+          const nearest = vc.points.reduce((b, p) => Math.abs(p.time - gp.time) < Math.abs(b.time - gp.time) ? p : b, vc.points[0]);
+          return s + nearest.usd;
+        }, 0);
+        return { time: gp.time, usd: usdSum };
+      });
+      combinedChartHtml = bigChart(combinedPts);
+    }
+    const heroHtml = loadedCount > 0 ? (combinedChartHtml
+      ? `<div class="card" style="margin-bottom:18px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+            <div>
+              <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:600">Combined net worth</div>
+              <div style="font-size:12px;color:var(--mute);margin-top:3px">${loadedCount} address${loadedCount !== 1 ? 'es' : ''} ${heroFloor}</div>
+            </div>
+            <div class="num" style="font-size:28px;font-weight:700">${usd(combinedTotal, 0)}</div>
+          </div>
+          ${combinedChartHtml}
+        </div>`
+      : `<div class="card" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+          <div>
+            <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:600">Combined net worth</div>
+            <div style="font-size:12px;color:var(--mute);margin-top:3px">${loadedCount} address${loadedCount !== 1 ? 'es' : ''} ${heroFloor}</div>
+          </div>
+          <div class="num" style="font-size:28px;font-weight:700">${usd(combinedTotal, 0)}</div>
+        </div>`) : '';
     const cards = book.map((e, i) => {
       const r = results[i];
       const bal = r.status === 'fulfilled' ? r.value : null;
@@ -1438,13 +1629,14 @@ const VIEWS = {
       let perfChip = '';
       let spkHtml = '';
       if (pts) {
-        const last = pts[pts.length - 1];
-        const target = last.time - 604800;
-        const ref = pts.reduce((b, p) => Math.abs(p.time - target) < Math.abs(b.time - target) ? p : b, pts[0]);
-        const delta = last.usd - ref.usd;
-        const pct = ref.usd ? delta / ref.usd * 100 : 0;
-        const cls = delta >= 0 ? 'up' : 'down';
-        perfChip = `<span class="${cls}" style="font-size:11.5px">${delta >= 0 ? '+' : ''}${pct.toFixed(1)}% 7d</span>`;
+        const periods = [{label:'24h', s:86400}, {label:'7d', s:604800}, {label:'30d', s:2592000}];
+        const chips = periods.map(({label, s}) => {
+          if (pts[0].time > pts[pts.length - 1].time - s * 0.8) return '';
+          const {delta, pct} = perfFrom(pts, s);
+          const cls = delta >= 0 ? 'up' : 'down';
+          return `<span class="${cls}">${delta >= 0 ? '+' : ''}${usd(delta)} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</span> <span class="faint" style="font-size:11px">${label}</span>`;
+        }).filter(Boolean).join(' &nbsp;·&nbsp; ');
+        perfChip = chips;
         spkHtml = sparkline(pts, 160, 44);
       }
       const allocationBar = bal?.chains?.length && total > 0
@@ -1473,7 +1665,7 @@ const VIEWS = {
     }).join('');
     return `<div class="h2">Watchlist</div>
       <p class="lead">${book.length} saved address${book.length !== 1 ? 'es' : ''}. Click any card to focus on that account.</p>
-      <div class="grid3">${cards}</div>`;
+      ${heroHtml}<div class="grid3">${cards}</div>`;
   },
 
   async api() {

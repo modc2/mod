@@ -31,6 +31,8 @@
         "grep",
         "brief",
         "recommend",
+        "autoscan",
+        "autotriage",
         "recs",
         "rec",
         "inbox",
@@ -39,6 +41,7 @@
         "reject",
         "withdraw",
         "comment",
+        "update",
         "relay",
         "serve",
         "mcp",
@@ -55,6 +58,8 @@
         "grep",
         "brief",
         "recommend",
+        "autoscan",
+        "autotriage",
         "recs",
         "rec",
         "inbox",
@@ -63,7 +68,8 @@
         "reject",
         "withdraw",
         "comment",
+        "update",
         "relay"
     ],
-    "schema": "QmdL2BVzc8PWxAMFeqmMHmFPJLkQdoUADa9zyVUotyqwQ8"
+    "schema": "QmWhup6BKfPjXRPJWJW5mhKQRxmy4ikzcVcksMVoxaPgdB"
 }

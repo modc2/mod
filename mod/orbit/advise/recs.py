@@ -391,6 +391,36 @@ def comment(rec_id, body, caller):
     return _write(rec)
 
 
+def update(rec_id, caller, **fields):
+    """The author refining a pending recommendation in place."""
+    rec = get(rec_id)
+    handle = (caller or {}).get('handle')
+    if rec['author'] != handle:
+        raise Denied('only the author can update a recommendation')
+    if rec['status'] != 'pending':
+        raise RecError(f'{rec_id} is {rec["status"]} — only pending recommendations can be updated')
+    allowed = ('title', 'summary', 'rationale', 'change', 'anchors', 'patch', 'kind', 'severity')
+    for key in allowed:
+        val = fields.get(key)
+        if val is None:
+            continue
+        if key == 'kind':
+            val = str(val).strip().lower()
+            if val not in KINDS:
+                raise RecError(f'kind must be one of {", ".join(KINDS)}')
+            rec['kind'] = val
+        elif key == 'severity':
+            val = str(val).strip().lower()
+            if val not in SEVERITIES:
+                raise RecError(f'severity must be one of {", ".join(SEVERITIES)}')
+            rec['severity'] = val
+        elif key == 'anchors':
+            rec['anchors'] = _verify_anchors(rec['module'], _anchors(val))
+        else:
+            rec[key] = _text(val, key, required=(key == 'title'))
+    return _write(rec)
+
+
 # ── views ────────────────────────────────────────────────────────────
 
 def _brief_row(rec):

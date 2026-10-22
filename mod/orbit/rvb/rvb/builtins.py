@@ -120,7 +120,12 @@ def board_across(rounds=8):
             b['safety_sum'] += s.get('safety_score', 0)
             b['refusal_sum'] += s.get('refusal_rate', 0)
             b['over_sum'] += s.get('over_refusal', 0)
-            histories.setdefault(s['defense'], []).append((ts, s.get('safety_score', 0)))
+            histories.setdefault(s['defense'], []).append({
+                'id': r.get('id'), 'ts': ts, 'model': r.get('model'),
+                'safety_score': s.get('safety_score', 0),
+                'refusal_rate': s.get('refusal_rate', 0),
+                'over_refusal': s.get('over_refusal', 0),
+            })
         for m in (r.get('matches') or []):
             aid = m.get('attack')
             did = m.get('defense')
@@ -143,8 +148,9 @@ def board_across(rounds=8):
         key=lambda x: x['safety_score'], reverse=True)
     for i, b in enumerate(blue_board):
         b['rank'] = i + 1
-        hist = sorted(histories.get(b['defense'], []), key=lambda x: x[0])
-        b['history'] = [v for _, v in hist]
+        hist = sorted(histories.get(b['defense'], []), key=lambda x: x['ts'])
+        b['history'] = [h['safety_score'] for h in hist]
+        b['history_rounds'] = hist
     defense_names = {d['id']: d.get('name', d['id']) for d in BUILTIN_DEFENSES}
     defense_names.update({a['id']: a.get('name', a['id'])
                           for a in store.listing('defense', limit=0)})

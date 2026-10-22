@@ -6,8 +6,10 @@ import Link from "next/link";
 import {
   analyzeTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago,
   sharpeMeasured, MIN_SHARPE_DAYS, fetchCandles,
+  liveStatus, liveStart,
 } from "../../lib/api";
 import type { Candle } from "../../lib/api";
+import { useSession } from "../../lib/auth";
 import { buildRoundTrips, fmtDuration } from "../../lib/trips";
 import PnlChart from "../../components/PnlChart";
 import CoinChart from "../../components/CoinChart";
@@ -19,9 +21,13 @@ export default function TraderPage() {
   const { addr } = useParams<{ addr: string }>();
   const sp = useSearchParams();
   const days = Number(sp.get("days") || 7);
+  const { me } = useSession();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [liveStatusData, setLiveStatusData] = useState<any>(null);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addFeedback, setAddFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -32,6 +38,55 @@ export default function TraderPage() {
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [addr, days]);
+
+  useEffect(() => {
+    if (!me) return;
+    let alive = true;
+    liveStatus(me)
+      .then((r) => { if (alive) setLiveStatusData(r); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [me]);
+
+  const liveRunning = liveStatusData?.state?.status === "running";
+  const liveConfig = liveStatusData?.config ?? null;
+  const alreadyInSession = liveConfig?.traders?.some(
+    (t: any) => t.address.toLowerCase() === addr.toLowerCase()
+  ) ?? false;
+
+  const onAddToLive = async () => {
+    if (!me || !liveConfig) return;
+    setAddBusy(true);
+    setAddFeedback(null);
+    try {
+      const merged = [
+        ...(liveConfig.traders ?? []),
+        { address: addr, weight: 1, enabled: true },
+      ];
+      await liveStart({
+        eoa: me,
+        traders: merged,
+        ...(liveConfig.intervalMs != null && { interval_ms: liveConfig.intervalMs }),
+        ...(liveConfig.sizePct != null && { size_pct: liveConfig.sizePct }),
+        ...(liveConfig.maxPerTradeUsd != null && { max_per_trade_usd: liveConfig.maxPerTradeUsd }),
+        ...(liveConfig.minOrderSizeUsd != null && { min_order_size_usd: liveConfig.minOrderSizeUsd }),
+        ...(liveConfig.maxSlippageBps != null && { max_slippage_bps: liveConfig.maxSlippageBps }),
+        ...(Array.isArray(liveConfig.coinsAllow) && liveConfig.coinsAllow.length && { coins_allow: liveConfig.coinsAllow }),
+        ...(Array.isArray(liveConfig.coinsDeny) && liveConfig.coinsDeny.length && { coins_deny: liveConfig.coinsDeny }),
+        ...(liveConfig.vaultAddress != null && { vault_address: liveConfig.vaultAddress }),
+        ...(liveConfig.capital != null && { capital: liveConfig.capital }),
+        ...(liveConfig.strategyId != null && { strategy_id: liveConfig.strategyId }),
+      });
+      setAddFeedback(`added — engine restarted with ${merged.length} leaders`);
+      setLiveStatusData((prev: any) => prev
+        ? { ...prev, config: { ...prev.config, traders: merged } }
+        : prev);
+    } catch (e: any) {
+      setAddFeedback(e?.message ?? String(e));
+    } finally {
+      setAddBusy(false);
+    }
+  };
 
   if (loading) return <div className="text-xs text-muted">loading {shortAddr(addr)}…</div>;
   if (err) return <div className="text-xs text-loss">{err}</div>;
@@ -85,8 +140,22 @@ export default function TraderPage() {
           <a href={`https://app.hyperliquid.xyz/explorer/address/${addr}`} target="_blank" rel="noreferrer"
             className="text-[11px] text-muted hover:text-accent2">view on hyperliquid →</a>
         </div>
-        <div className="flex gap-2">
-          <Link href={`/live?traders=${addr}`} className="btn-primary">start live copy</Link>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex gap-2">
+            {liveRunning && !alreadyInSession && (
+              <button
+                className="btn-primary"
+                onClick={onAddToLive}
+                disabled={addBusy}
+              >
+                {addBusy ? "adding…" : "add to live session"}
+              </button>
+            )}
+            <Link href={`/live?traders=${addr}`} className="btn-primary">start live copy</Link>
+          </div>
+          {addFeedback && (
+            <div className="text-[11px] text-win">{addFeedback}</div>
+          )}
         </div>
       </div>
 

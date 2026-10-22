@@ -149,6 +149,45 @@ export function LoadingFace() {
   );
 }
 
+/// Mini equity-curve sparkline for the hub card — 72×20 px, inline, no
+/// interactivity. Clips to the 5th–95th percentile so a single spike
+/// doesn't flatten everything else into a horizon.
+function CurveSparkline({ curve, up }: { curve: number[]; up: boolean }) {
+  if (curve.length < 2) return null;
+  const W = 72, H = 20;
+  const sorted = [...curve].sort((a, b) => a - b);
+  const lo = sorted[Math.floor(sorted.length * 0.05)];
+  const hi = sorted[Math.min(Math.ceil(sorted.length * 0.95), sorted.length - 1)];
+  const clamped = curve.map((v) => Math.max(lo, Math.min(hi, v)));
+  const min = Math.min(...clamped);
+  const max = Math.max(...clamped);
+  const span = Math.max(max - min, 1e-6);
+  const x = (i: number) => (i / (clamped.length - 1)) * W;
+  const y = (v: number) => H - ((v - min) / span) * H;
+  const baseY = y(clamped[0]);
+  const d = clamped.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const stroke = up ? "rgb(var(--up-rgb))" : "var(--danger)";
+  return (
+    <svg
+      aria-hidden
+      viewBox={`0 0 ${W} ${H}`}
+      width={W}
+      height={H}
+      className="mt-1 block"
+    >
+      <line
+        x1="0" y1={baseY.toFixed(1)} x2={W} y2={baseY.toFixed(1)}
+        stroke="currentColor" strokeWidth="0.5" strokeDasharray="2 1.5"
+        className="text-pixel-gray/25"
+      />
+      <path
+        d={d} fill="none" stroke={stroke} strokeWidth="1.2"
+        strokeLinejoin="round" vectorEffect="non-scaling-stroke" opacity="0.85"
+      />
+    </svg>
+  );
+}
+
 /// The card headline — ONE component for saved strats and recommended ones.
 /// A recommendation has to be judged on the same footing as something you
 /// already own, which means the same markup and the same replay, never a
@@ -254,6 +293,7 @@ export function BacktestBlock({
       ) : (
         <div className="mt-1 text-[12px] font-mono text-pixel-gray">{emptyLabel}</div>
       )}
+      {bt && !bt.note && bt.curve.length >= 2 && <CurveSparkline curve={bt.curve} up={up} />}
       {/* HOW the number was made: hit rate, and whether the wins were spread
           through the window or all in one stretch of it. Two cards with the
           same +$X are different strats when one won 9 of 10 and the other won
@@ -473,7 +513,7 @@ function HoldoutLine({ h, pnl, days }: { h: HoldoutCheck; pnl: number; days: num
 
 /// "12/225 ENTRIES · 213 blocked by time-to-close" — the one line that makes
 /// over-filtering visible instead of leaving a suspiciously quiet card.
-function FunnelLine({ funnel, originates }: {
+export function FunnelLine({ funnel, originates }: {
   funnel: NonNullable<HubBacktest["funnel"]>;
   /** Origination strats have no leader flow — their funnel counts the signals
       the strat raised itself, so "copied" would be the wrong word for them. */

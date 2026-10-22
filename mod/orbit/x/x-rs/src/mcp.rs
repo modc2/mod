@@ -93,7 +93,8 @@ pub fn tool_list() -> Value {
                 "type": "object",
                 "properties": {
                     "username": { "type": "string" },
-                    "max_results": { "type": "integer", "default": 10 }
+                    "max_results": { "type": "integer", "default": 10 },
+                    "pagination_token": { "type": "string", "description": "Pagination token from a prior call" }
                 }
             }
         },

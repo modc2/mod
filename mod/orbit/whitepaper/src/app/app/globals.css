@@ -273,3 +273,33 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 }
 .search-hit { background: rgb(var(--modcyan) / .22); border-radius: 2px; color: inherit; }
 .search-hit.is-current { background: rgb(var(--modcyan) / .55); }
+
+/* ── registry heatmap ───────────────────────────────────────────── */
+.registry-heatmap { display: flex; flex-wrap: wrap; gap: 3px; margin: 0.4rem 0; }
+.hm-tile {
+  font-family: theme("fontFamily.mono"); font-size: 10px;
+  padding: 2px 6px; border-radius: 4px; cursor: pointer; white-space: nowrap;
+  transition: background 0.35s ease, color 0.35s ease;
+}
+.hm-unproven { background: rgb(var(--rule)); color: rgb(var(--muted)); }
+.hm-loading  { background: rgb(var(--rule)); color: rgb(var(--muted)); opacity: 0.6; }
+.hm-proved   { background: rgb(var(--modblue) / .15); color: rgb(var(--modblue)); }
+.hm-verified { background: rgb(var(--green) / .15); color: rgb(var(--green)); }
+.hm-failed   { background: rgb(var(--amber) / .15); color: rgb(var(--amber)); }
+
+/* ── mod-mention code links ─────────────────────────────────────── */
+.mod-mention { cursor: pointer; border-bottom: 1px dotted rgb(var(--modcyan) / 0.55); color: inherit; }
+
+/* ── registry floating beacon ───────────────────────────────────── */
+.registry-beacon {
+  position: fixed; bottom: 1.5rem; right: 1.25rem; z-index: 40;
+  display: flex; align-items: center; gap: .4rem;
+  font-family: theme("fontFamily.mono"); font-size: 11px;
+  padding: 5px 10px; border-radius: 999px;
+  background: rgb(var(--paper) / .92); border: 1px solid rgb(var(--rule));
+  box-shadow: 0 2px 12px rgb(0 0 0 / .12); backdrop-filter: blur(8px);
+  color: rgb(var(--muted)); cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.registry-beacon:hover { border-color: rgb(var(--modcyan) / .6); color: rgb(var(--modcyan)); }
+.mod-mention:hover { border-bottom-color: rgb(var(--modcyan)); color: rgb(var(--modcyan)); }

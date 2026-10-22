@@ -13,6 +13,7 @@ import { approveAgentFlow } from "../lib/hlActions";
 import { useWallet } from "../lib/wallet";
 import { useSession } from "../lib/auth";
 import AuthGate from "./AuthGate";
+import { Spark } from "./BoardBits";
 
 type LiveStatusResp = Awaited<ReturnType<typeof liveStatus>>;
 
@@ -32,6 +33,7 @@ export default function LivePanel() {
   const [cfg, setCfg] = useState<WalletNetConfig | null>(null);
 
   const [traders, setTraders] = useState<LiveTrader[]>([]);
+  const [deletePending, setDeletePending] = useState<number | null>(null);
   const [addrInput, setAddrInput] = useState("");
   const [intervalMs, setIntervalMs] = useState(15000);
   const [sizePct, setSizePct] = useState(10);
@@ -58,6 +60,7 @@ export default function LivePanel() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [accountState, setAccountState] = useState<any>(null);
+  const [equityHistory, setEquityHistory] = useState<[number, number][]>([]);
 
   // Resolve the backend agent address + its on-HL approval state.
   useEffect(() => {
@@ -85,11 +88,19 @@ export default function LivePanel() {
   // Poll account state every 5s while the engine is running.
   const isRunning = status?.state?.status === "running";
   useEffect(() => {
-    if (!eoa || !isRunning) { setAccountState(null); return; }
+    if (!eoa || !isRunning) { setAccountState(null); setEquityHistory([]); return; }
     let live = true;
     const tick = () =>
       userState(eoa)
-        .then((r) => { if (live) setAccountState(r); })
+        .then((r) => {
+          if (!live) return;
+          setAccountState(r);
+          const equity = parseFloat(r?.crossMarginSummary?.accountValue ?? "0");
+          setEquityHistory((prev) => {
+            const next: [number, number][] = [...prev, [Date.now(), equity]];
+            return next.length > 360 ? next.slice(next.length - 360) : next;
+          });
+        })
         .catch(() => {});
     tick();
     const h = setInterval(tick, 5000);
@@ -169,6 +180,28 @@ export default function LivePanel() {
     finally { setBusy(false); }
   };
 
+  const restartWithTraders = async (newTraders: LiveTrader[]) => {
+    if (!me) return;
+    setBusy(true); setErr(null);
+    try {
+      await liveStart({
+        eoa: me,
+        traders: newTraders,
+        interval_ms: intervalMs,
+        size_pct: sizePct,
+        max_per_trade_usd: maxPerTrade,
+        min_order_size_usd: minOrder,
+        max_slippage_bps: slipBps,
+        coins_allow: coinsAllow.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
+        coins_deny: coinsDeny.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
+        vault_address: vault.trim() || undefined,
+      });
+      setTraders(newTraders);
+    } catch (e: any) {
+      setErr(String(e?.message ?? e));
+    } finally { setBusy(false); }
+  };
+
   if (!eoa) {
     return <div className="text-muted text-sm">Connect a wallet to use the live engine.</div>;
   }
@@ -234,27 +267,59 @@ export default function LivePanel() {
             {traders.length > 0 && (
               <div className="space-y-1">
                 {traders.map((t, i) => (
-                  <div key={t.address} className={`flex items-center gap-2 text-xs rounded px-2 py-1 bg-surface/40${running ? " opacity-60" : ""}`}>
+                  <div key={t.address} className="flex items-center gap-2 text-xs rounded px-2 py-1 bg-surface/40">
                     <a href={`/trader/${t.address}`} className="font-mono hover:text-accent2 shrink-0 flex-1">{shortAddr(t.address)}</a>
                     <span className="text-muted shrink-0">wt</span>
                     <input type="number" className="input w-16 text-xs" min={0} max={5} step={0.1}
                       value={t.weight ?? 1}
                       onChange={(e) => setTraders((prev) => prev.map((x, j) => j === i ? { ...x, weight: +e.target.value } : x))}
-                      disabled={running}
+                      disabled={busy}
                     />
                     <label className="flex items-center gap-1 shrink-0 cursor-pointer select-none">
                       <input type="checkbox" checked={t.enabled !== false}
-                        onChange={(e) => setTraders((prev) => prev.map((x, j) => j === i ? { ...x, enabled: e.target.checked } : x))}
-                        disabled={running}
+                        disabled={busy}
+                        onChange={(e) => {
+                          const updated = traders.map((x, j) => j === i ? { ...x, enabled: e.target.checked } : x);
+                          setTraders(updated);
+                          if (running) restartWithTraders(updated);
+                        }}
                       />
                       <span className="text-muted">{t.enabled !== false ? "on" : "off"}</span>
                     </label>
-                    {!running && (
+                    {running ? (
+                      deletePending === i ? (
+                        <>
+                          <span className="text-warn text-[10px] shrink-0">sure?</span>
+                          <button type="button" className="text-danger text-xs shrink-0 leading-none"
+                            disabled={busy}
+                            onClick={() => { const next = traders.filter((_, j) => j !== i); setDeletePending(null); restartWithTraders(next); }}>
+                            yes
+                          </button>
+                          <button type="button" className="text-muted text-xs shrink-0 leading-none"
+                            onClick={() => setDeletePending(null)}>
+                            no
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" className="text-muted hover:text-danger shrink-0 text-base leading-none"
+                          disabled={busy}
+                          onClick={() => setDeletePending(i)}>×</button>
+                      )
+                    ) : (
                       <button type="button" className="text-muted hover:text-danger shrink-0 text-base leading-none"
                         onClick={() => setTraders((prev) => prev.filter((_, j) => j !== i))}>×</button>
                     )}
                   </div>
                 ))}
+                {running && (
+                  <div className="flex justify-end pt-1">
+                    <button type="button" className="btn-secondary text-xs"
+                      disabled={busy}
+                      onClick={() => restartWithTraders(traders)}>
+                      update weights
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -336,6 +401,21 @@ export default function LivePanel() {
               <Stat label="last cycle" value={state.lastCycleAt ? ago(state.lastCycleAt) : "—"} />
               <Stat label="next cycle" value={state.nextCycleAt ? `in ${Math.max(0, Math.round((state.nextCycleAt - Date.now()) / 1000))}s` : "—"} />
             </div>
+            {equityHistory.length >= 2 && (() => {
+              const sessionPnl = equityHistory[equityHistory.length - 1][1] - equityHistory[0][1];
+              const tone = sessionPnl >= 0 ? "text-win" : "text-danger";
+              return (
+                <div className="mt-3 space-y-1">
+                  <Spark points={equityHistory} height={40} className={tone} />
+                  <div className="text-[11px] text-muted">
+                    session pnl:{" "}
+                    <span className={`tabular-nums font-medium ${tone}`}>
+                      {sessionPnl >= 0 ? "+" : ""}{fmtUsd(sessionPnl)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
             {(() => {
               const errors = (state.log ?? []).filter((e: any) => e.type === "ERROR").slice(0, 10);
               if (!errors.length) return null;

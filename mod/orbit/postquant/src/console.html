@@ -515,6 +515,16 @@
   .mc-spark polyline{filter:drop-shadow(0 0 3px var(--mag))}
   .mc-replay-ctrl{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
   tr.mc-replay-on td{background:rgba(0,240,255,.12)!important;outline:1px solid rgba(0,240,255,.3)}
+  /* proof-chain flow diagram */
+  .mc-fchain{display:flex;align-items:center;overflow-x:auto;padding:4px 0 12px;scrollbar-width:thin}
+  .mc-fstep{flex:none;border:2px solid var(--line2);background:linear-gradient(180deg,#140b2e,#0b0619);
+       padding:10px 12px;box-shadow:3px 3px 0 #000;min-width:86px;max-width:130px;text-align:center}
+  .mc-fstep.rev{border-color:var(--bad)}
+  .mc-fstep.cur{border-color:var(--cy);box-shadow:3px 3px 0 #000,0 0 14px color-mix(in srgb,var(--cy) 45%,transparent)}
+  .mc-fstep-n{font:22px/1 var(--vt);color:var(--dim);display:block;margin-bottom:4px}
+  .mc-fstep-in{font:14px/1.2 var(--vt);color:var(--mag);display:block;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mc-fstep-st{font:13px/1.2 var(--vt);color:#b9aaff;display:block}
+  .mc-farrow{flex:none;color:var(--line2);font:18px/1 var(--vt);padding:0 5px;align-self:center}
   /* ── the whitepaper: pixel heads, readable body ── */
   .paper{max-width:860px;margin:0 auto;font:17px/1.75 var(--sans);padding:30px 36px 60px}
   .paper .wp-title{font:clamp(26px,5vw,44px)/1.1 var(--px);letter-spacing:.02em;margin:18px 0 14px;
@@ -851,6 +861,13 @@
           does not even know what to attack.</p>
         <span class="cta">CLOAK</span>
       </div>
+      <div class="door" onclick="go('machines'); setTimeout(mcJourney, 100)" style="--dc:var(--cy)">
+        <span class="lv">LVL 4</span>
+        <div class="dg">&#9632;&#9632;&#9632;&#9632;</div><b>STATE MACHINE IN 60 SECONDS</b>
+        <p>Deploy a counter machine, set REPLAY policy, prove three transitions, and watch
+          the live counter sparkline — one click, every step real.</p>
+        <span class="cta">BEGIN</span>
+      </div>
     </div>
     <div class="panel home-wrap" id="journey" style="display:none">
       <h2>your first key</h2>
@@ -1055,6 +1072,7 @@
           <button class="sortchip" data-s="safe">SAFEST</button>
           <button class="sortchip" data-s="cheap">CHEAPEST</button>
           <button class="sortchip" data-s="deep">DEEPEST</button>
+          <button class="sortchip" id="mk-map-btn">&#9632; MAP</button>
           <button class="sortchip" id="mk-vs-btn" data-s="vs">⚔ VS</button>
         </div>
         <span class="sep" style="flex:1"></span>
@@ -1537,6 +1555,9 @@ mod Counter {
     <!-- state evolution chart -->
     <div class="panel" id="mc-history-chart"><span class="muted">pick a machine above</span></div>
 
+    <!-- proof-chain flow diagram -->
+    <div class="panel" id="mc-chain-flow"><span class="muted">pick a machine above</span></div>
+
     <!-- receipts timeline -->
     <div class="panel">
       <h2>receipts timeline</h2>
@@ -1549,7 +1570,6 @@ mod Counter {
     <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
       <marker id="wp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
         <path d="M0 0 L10 5 L0 10 z" fill="#ece4ff"/></marker></defs></svg>
-    <div id="wp-tip"></div>
     <div class="panel paper human">
       <div class="wp-title"><span class="p">POST</span><span class="q">QUANT</span></div>
       <p class="wp-sub">a key/value market where every byte pays rent</p>
@@ -2197,7 +2217,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   closeCard();
   drawSubnav(b.dataset.parent || b.dataset.tab, b.dataset.tab);
   ({home: loadHome, chain: loadChain, store: loadKeys, market: loadMarket,
-    builder: () => { loadBuilder(); fillWallets(); loadPrivate(); }, keymarket: loadKeymarket,
+    builder: () => { loadBuilder(); fillWallets(); loadPrivate(); }, keymarket: () => { mk.view = 'cards'; $('mk-map-btn').classList.remove('on'); loadKeymarket(); },
     prims: () => { loadPrims(); fillWallets(); },
     wallet: () => { loadWallets(); loadAlgos(); },
     machines: loadMachines,
@@ -2487,7 +2507,7 @@ async function journey() {
       ` — ${p.path.length} hashes take your key to state root ` +
       `<span class="mono" data-copy="${esc(p.root)}" title="click to copy">` +
       `${short(p.root, 18)}</span>. Anything that can hash can check it — no ` +
-      `full node, no trust.`);
+      `full node, no trust.` + renderMerklePath(p));
 
     $('j-fin').className = 'j-fin';
     $('j-fin').innerHTML = `That is the whole chain: you own bytes, the bytes ` +
@@ -2743,6 +2763,54 @@ $('get-btn').onclick = async () => {
     if (k) { $('hist-key').value = k; loadHistory(); }
   } catch (e) { err('get-out', e); }
 };
+function renderMerklePath(p) {
+  const path = p.path || [];
+  if (!path.length) return '<p class="note" style="margin-top:8px">single-leaf tree — leaf equals root.</p>';
+  const n = path.length, W = 500, PX = 10, BH = 34, GAP = 8, CH = 30;
+  const BW = (W - PX * 2 - GAP) / 2;
+  const LX = PX, RX = PX + BW + GAP;
+  const LCX = LX + BW / 2, RCX = RX + BW / 2, CX = W / 2;
+  const RW = 220, RX0 = (W - RW) / 2;
+  const TPAD = 20, STEP0Y = TPAD + BH + CH, rowH = BH + CH;
+  const SVG_H = STEP0Y + n * rowH + 24;
+  const t8 = h => h ? h.slice(0, 8) + '…' : '···';
+  const cMag = 'var(--mag)', cDim = 'var(--dim)', cHz = 'var(--hz)';
+  const ln = (x1, y1, x2, y2, c, d) =>
+    `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ` +
+    `style="stroke:${c};stroke-width:1.5;opacity:.45${d ? ';stroke-dasharray:3,3' : ''}"/>`;
+  const bx = (x, y, w, hash, c, tint) =>
+    `<g>${hash ? `<title>${hash}</title>` : ''}` +
+    `<rect x="${x}" y="${y}" width="${w}" height="${BH}" rx="4" ` +
+    `style="fill:${tint ? 'rgba(255,43,214,.07)' : 'none'};stroke:${c};stroke-width:1.5"/>` +
+    `<text x="${x + w/2}" y="${y + BH/2 + 4}" text-anchor="middle" ` +
+    `style="fill:${c}" font-size="11" font-family="monospace">${esc(t8(hash))}</text></g>`;
+  let s = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" viewBox="0 0 ${W} ${SVG_H}" style="max-width:100%;display:block">`;
+  s += `<text x="${CX}" y="${TPAD - 5}" text-anchor="middle" style="fill:${cHz}" font-size="9" font-family="monospace" letter-spacing="1">ROOT</text>`;
+  s += bx(RX0, TPAD, RW, p.root, cHz, false);
+  for (let ri = 0; ri < n; ri++) {
+    const si = n - 1 - ri;
+    const step = path[si];
+    const y = STEP0Y + ri * rowH;
+    const ourLeft = step.side === 'right';
+    const ox = ourLeft ? LX : RX, sx = ourLeft ? RX : LX;
+    const ocx = ourLeft ? LCX : RCX, scx = ourLeft ? RCX : LCX;
+    if (ri === 0) {
+      s += ln(CX, TPAD + BH, ocx, y, cMag, false);
+      s += ln(CX, TPAD + BH, scx, y, cDim, true);
+    } else {
+      const prevOurLeft = path[n - ri].side === 'right';
+      s += ln(prevOurLeft ? LCX : RCX, STEP0Y + (ri - 1) * rowH + BH, ocx, y, cMag, false);
+    }
+    s += bx(ox, y, BW, si === 0 ? p.leaf : null, cMag, true);
+    s += bx(sx, y, BW, step.hash, cDim, false);
+    if (si === 0) {
+      s += `<text x="${ocx}" y="${y + BH + 14}" text-anchor="middle" ` +
+        `style="fill:${cMag}" font-size="9" font-family="monospace">LEAF</text>`;
+    }
+  }
+  s += '</svg>';
+  return `<div style="margin-top:12px;overflow-x:auto">${s}</div>`;
+}
 $('prove-btn').onclick = async () => {
   try {
     const p = await api('/prove?key=' + encodeURIComponent($('get-key').value.trim()));
@@ -2751,7 +2819,7 @@ $('prove-btn').onclick = async () => {
       `<b>leaf</b><span class="mono">${esc(p.leaf)}</span>` +
       `<b>root</b><span class="mono">${esc(p.root)}</span></div>` +
       `<p class="note" style="margin-top:8px">${esc(p.note)}</p>` +
-      `<pre>${esc(JSON.stringify(p.path, null, 1))}</pre>`);
+      renderMerklePath(p));
   } catch (e) { err('get-out', e); }
 };
 $('check-btn').onclick = async () => {
@@ -2998,7 +3066,7 @@ const brief = o => esc(typeof o === 'object' ? JSON.stringify(o) : String(o));
 
 // ── BUILDER: the key type DAG ──
 let dagData = null, ktSel = [], ktK = 2, ktKManual = false;
-let ktMore = false;
+let ktMore = false, ktBroken = new Set();
 async function loadBuilder() {
   try { dagData = await api('/keytype_dag'); ktRedraw(); ktPicked(); }
   catch (e) { err('kt-out', e); }
@@ -3178,14 +3246,41 @@ function ktStats() {
     `<div style="margin-bottom:6px"><div class="muted" style="font-size:10px;letter-spacing:.05em;margin-bottom:2px">${esc(p.name)}</div>` +
     `${secBars(p)}</div>`).join('');
   const live = ktLiveScore(ps, op, ktK);
+  const families = [...new Set(ps.map(p => p.family).filter(Boolean))];
+  const breakBtns = families.map(f =>
+    `<button onclick="ktBreakToggle(${JSON.stringify(f)})" ` +
+    `style="font-size:10px;padding:2px 6px;cursor:pointer;border:1px solid ${ktBroken.has(f) ? '#c44' : '#555'};` +
+    `background:${ktBroken.has(f) ? '#3a0000' : 'transparent'};color:${ktBroken.has(f) ? '#f88' : '#888'};border-radius:3px">` +
+    `&#9760; BREAK ${esc(f)}</button>`
+  ).join('');
+  const resetBtn = ktBroken.size > 0
+    ? `<button onclick="ktBroken.clear();ktStats()" style="font-size:10px;padding:2px 6px;cursor:pointer;border:1px solid #555;background:transparent;color:#666;border-radius:3px">RESET</button>`
+    : '';
+  const breakRow = families.length > 0
+    ? `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">${breakBtns}${resetBtn}</div>`
+    : '';
+  let attackHtml = '';
+  if (ktBroken.size > 0) {
+    const attackPs = ps.map(p => ktBroken.has(p.family) ? {...p, quantum_safe: false, classical_bits: 0} : p);
+    const attackLive = ktLiveScore(attackPs, op, ktK);
+    attackHtml = `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:4px;border:1px solid #c44;background:#2a0000">` +
+      `<span style="font-size:10px;color:#f88;font-weight:bold;letter-spacing:.04em">UNDER ATTACK</span>${scoreBadge(attackLive)}` +
+      `<span class="muted" style="font-size:11px">residual score</span></div>`;
+  }
   out('kt-stats',
     `<div><b>SIGNATURE</b><span>${op === 'all' ? '' : '≤ '}${fmtB(sig)}B</span></div>` +
     partsHtml +
     `<div class="${qs ? 'good' : 'warn'}" style="font-size:11px;margin-top:4px;line-height:1.4">${verdict}</div>` +
-    `<div style="margin-top:6px;display:flex;align-items:center;gap:8px">${scoreBadge(live)}<span class="muted" style="font-size:11px">estimated PQ score</span></div>`);
+    `<div style="margin-top:6px;display:flex;align-items:center;gap:8px">${scoreBadge(live)}<span class="muted" style="font-size:11px">estimated PQ score</span></div>` +
+    attackHtml + breakRow);
+}
+function ktBreakToggle(fam) {
+  if (ktBroken.has(fam)) ktBroken.delete(fam); else ktBroken.add(fam);
+  ktStats();
 }
 $('kt-seg').querySelectorAll('button').forEach(b => b.onclick = () => { $('kt-op').value = b.dataset.op; ktOpSync(); });
 function ktPicked() {
+  ktBroken.clear();
   out('kt-picked', ktSel.length
     ? ktSel.map((n, i) => { const nd = ktNode(n) || {};
         return (i ? `<div class="kt-join"></div>` : '') +
@@ -3326,7 +3421,7 @@ async function remix(it) {
 }
 
 // ── KEY TYPE MARKET: trading cards ──
-const mk = {sort: 'hot', kind: 'all', q: '', items: [], offline: false};
+const mk = {sort: 'hot', kind: 'all', q: '', items: [], offline: false, view: 'cards'};
 let mkCache = null, mkTimer = null;
 // Until /keymarket answers, deal the cards from the DAG so the floor isn't empty.
 async function dagAsMarket() {
@@ -3401,6 +3496,7 @@ function cardHtml(it, i) {
   </div>`;
 }
 function drawCards() {
+  if (mk.view === 'map') { drawMap(); return; }
   const items = mk.items;
   out('mk-cards', items.length ? items.map(cardHtml).join('')
     : '<span class="muted">no cards match. forge one in the BUILDER.</span>', 'cards');
@@ -3414,10 +3510,81 @@ function drawCards() {
     }
   });
 }
-document.querySelectorAll('#mk-sorts button:not(#mk-vs-btn)').forEach(b => b.onclick = () => {
-  document.querySelectorAll('#mk-sorts button:not(#mk-vs-btn)').forEach(x => x.classList.toggle('on', x === b));
-  mk.sort = b.dataset.s; loadKeymarket();
+function mkMapHover(ev, name) {
+  const it = mk.items.find(x => x.name === name);
+  if (!it) return;
+  const html = `<b>${esc(it.name)}</b><br>` +
+    `family: ${esc(it.family || '—')}<br>` +
+    `witness: ${fmtN(it.witness_bytes)}B<br>` +
+    `security: ${fmtN(it.classical_bits)} bits<br>` +
+    scoreBadge(it.pq_score) + `<br>` +
+    `uses: ${fmtN(it.uses)}<br>` +
+    `<span style="color:var(--dim);font-size:11px">click to open card</span>`;
+  wpTip.show(ev, html);
+}
+function drawMap() {
+  const items = mk.items;
+  const W = 560, H = 320;
+  const PL = 44, PT = 24, PB = 32, PR = 16;
+  const pw = W - PL - PR, ph = H - PT - PB;
+  const LOG2_MIN = 6, LOG2_MAX = 16;
+  const xPos = b => PL + (Math.log2(Math.max(64, Math.min(65536, b || 64))) - LOG2_MIN) / (LOG2_MAX - LOG2_MIN) * pw;
+  const yPos = b => PT + ph - (Math.max(0, Math.min(256, b || 0)) / 256) * ph;
+  const famColor = it => {
+    if (it.kind === 'private') return 'var(--bad)';
+    const f = (it.family || '').toLowerCase();
+    if (f === 'lattice') return 'var(--cy)';
+    if (f === 'hash') return 'var(--ac)';
+    if (f === 'wasm') return 'var(--vi)';
+    return 'var(--mag)';
+  };
+  const xGridVals = [128, 1024, 8192, 65536];
+  const gridLines = xGridVals.map(v => {
+    const x = xPos(v).toFixed(1);
+    const lbl = v < 1024 ? v + 'B' : (v >= 1024 ? (v / 1024) + 'kB' : v + 'B');
+    return `<line x1="${x}" y1="${PT}" x2="${x}" y2="${PT + ph}" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>` +
+           `<text x="${x}" y="${PT + ph + 14}" text-anchor="middle" font-family="VT323" font-size="12" fill="rgba(255,255,255,0.35)">${lbl}</text>`;
+  }).join('');
+  const dots = items.map(it => {
+    const x = xPos(it.witness_bytes || 64).toFixed(1);
+    const y = yPos(it.classical_bits || 0).toFixed(1);
+    const r = Math.max(4, Math.sqrt(it.uses || 1) * 3).toFixed(1);
+    const fill = famColor(it);
+    const opacity = it.accepted === false ? '0.3' : '1';
+    const filterAttr = it.quantum_safe ? ' filter="url(#pq-glow)"' : '';
+    const nameJson = JSON.stringify(it.name);
+    return `<g style="cursor:pointer" onclick="openCard(${nameJson})" onmouseenter="mkMapHover(event,${nameJson})" onmouseleave="wpTip.hide()"${filterAttr} opacity="${opacity}">` +
+           `<circle cx="${x}" cy="${y}" r="${r}" fill="${fill}"/>` +
+           `</g>`;
+  }).join('');
+  const svgHtml = `<svg width="${W}" height="${H}" style="display:block;overflow:visible;max-width:100%">` +
+    `<defs><filter id="pq-glow" x="-60%" y="-60%" width="220%" height="220%">` +
+    `<feGaussianBlur stdDeviation="3" result="blur"/>` +
+    `<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>` +
+    `</filter></defs>` +
+    gridLines +
+    `<line x1="${PL}" y1="${PT + ph}" x2="${W - PR}" y2="${PT + ph}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>` +
+    `<text x="${PL + pw / 2}" y="${H - 2}" text-anchor="middle" font-family="VT323" font-size="13" fill="rgba(255,255,255,0.5)">WITNESS COST →</text>` +
+    `<text x="10" y="${(PT + ph / 2).toFixed(1)}" text-anchor="middle" font-family="VT323" font-size="13" fill="rgba(255,255,255,0.5)" transform="rotate(-90,10,${(PT + ph / 2).toFixed(1)})">SECURITY ↑</text>` +
+    dots +
+    `</svg>`;
+  const legendItems = [['var(--cy)','LATTICE'],['var(--ac)','HASH'],['var(--vi)','WASM'],['var(--mag)','COMPOSITE'],['var(--bad)','PRIVATE']];
+  const legend = `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font:600 10.5px/1 var(--ui);color:var(--dim)">` +
+    legendItems.map(([c, l]) => `<span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:${c};display:inline-block;border-radius:2px"></span>${l}</span>`).join('') +
+    `<span style="display:flex;align-items:center;gap:5px"><span style="color:var(--cy)">&#10022;</span>PQ-SAFE GLOW</span>` +
+    `</div>`;
+  out('mk-cards', svgHtml + legend);
+}
+document.querySelectorAll('#mk-sorts button:not(#mk-vs-btn):not(#mk-map-btn)').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#mk-sorts button:not(#mk-vs-btn):not(#mk-map-btn)').forEach(x => x.classList.toggle('on', x === b));
+  $('mk-map-btn').classList.remove('on');
+  mk.view = 'cards'; mk.sort = b.dataset.s; loadKeymarket();
 });
+$('mk-map-btn').onclick = () => {
+  mk.view = mk.view === 'map' ? 'cards' : 'map';
+  $('mk-map-btn').classList.toggle('on', mk.view === 'map');
+  drawCards();
+};
 document.querySelectorAll('#mk-kinds button').forEach(b => b.onclick = () => {
   document.querySelectorAll('#mk-kinds button').forEach(x => x.classList.toggle('on', x === b));
   mk.kind = b.dataset.k; loadKeymarket();
@@ -3948,6 +4115,40 @@ $('w-refresh').onclick = () => { loadWallets(); loadAlgos(); };
 // ── CONSENSUS: pq_consensus — the engine is a plugin, a switch is a block ──
 let cnEngines = [], cnPick = 'bft';
 const CN_SCHEMES = ['ML-DSA-44', 'ML-DSA-65', 'SLH-DSA-SHAKE-128f'];
+function cnRenderTimeline(epochs, currentHeight) {
+  if (!epochs || epochs.length === 0) return '';
+  const W = 600, BAR_Y = 22, BAR_H = 28, TOTAL_H = 58;
+  const engineColor = e => ({authority:'var(--cy)',roundrobin:'var(--ac)',
+    bft:'var(--hz)',pos:'var(--mag)',pow:'var(--vi)'}[e] || 'var(--dim)');
+  const spans = epochs.map((ep, i) => {
+    const end = i + 1 < epochs.length ? epochs[i + 1].from_height : Math.max(currentHeight, ep.from_height + 1);
+    return Math.max(1, end - ep.from_height);
+  });
+  const totalSpan = spans.reduce((a, b) => a + b, 0);
+  let x = 0;
+  const parts = [];
+  epochs.forEach((ep, i) => {
+    const w = Math.max(1, spans[i] / totalSpan * W);
+    const clr = engineColor(ep.engine);
+    const isLast = i === epochs.length - 1;
+    const glow = isLast ? `filter:drop-shadow(0 0 6px ${clr})` : '';
+    parts.push(`<rect x="${x.toFixed(1)}" y="${BAR_Y}" width="${w.toFixed(1)}" height="${BAR_H}" style="fill:${clr};opacity:.22"/>`);
+    parts.push(`<rect x="${x.toFixed(1)}" y="${BAR_Y}" width="${w.toFixed(1)}" height="${BAR_H}" fill="none" style="stroke:${clr};stroke-width:${isLast ? 1.5 : 0.5};${glow}"/>`);
+    if (i > 0) {
+      parts.push(`<line x1="${x.toFixed(1)}" y1="${BAR_Y - 4}" x2="${x.toFixed(1)}" y2="${BAR_Y + BAR_H + 4}" style="stroke:var(--line2);stroke-width:1"/>`);
+      const lx = Math.min(x + 2, W - 36);
+      parts.push(`<text x="${lx.toFixed(1)}" y="${(BAR_Y - 6).toFixed(1)}" style="fill:var(--dim);font-size:8px;font-family:var(--vt)">${ep.from_height}</text>`);
+    }
+    if (w > 28) {
+      const cx = x + w / 2;
+      const sub = ep.validators.length ? ep.validators.length + 'v' : 'open';
+      parts.push(`<text x="${cx.toFixed(1)}" y="${(BAR_Y + BAR_H / 2 - 3).toFixed(1)}" text-anchor="middle" style="fill:${clr};font-size:10px;font-family:var(--vt)">${esc(ep.engine.toUpperCase())}</text>`);
+      parts.push(`<text x="${cx.toFixed(1)}" y="${(BAR_Y + BAR_H / 2 + 10).toFixed(1)}" text-anchor="middle" style="fill:var(--dim);font-size:8px;font-family:var(--vt)">${esc(sub)}</text>`);
+    }
+    x += w;
+  });
+  return `<svg class="cn-timeline" viewBox="0 0 ${W} ${TOTAL_H}" style="width:100%;height:${TOTAL_H}px;display:block;margin-bottom:10px">${parts.join('')}</svg>`;
+}
 async function loadConsensus() {
   try {
     const [c, e] = await Promise.all([api('/consensus'),
@@ -3980,8 +4181,9 @@ async function loadConsensus() {
     if (!$('cn-schemes').childElementCount)
       $('cn-schemes').innerHTML = CN_SCHEMES.map((x, i) =>
         `<label class="cn-chip"><input type="checkbox" value="${x}"${i < 2 ? ' checked' : ''}>${x}</label>`).join('');
-    const s = await api('/consensus?action=schedule');
-    out('cn-sched', '<table><tr><th>from block</th><th>engine</th><th>validators</th><th>key types</th></tr>' +
+    const [s, hd] = await Promise.all([api('/consensus?action=schedule'), api('/head')]);
+    out('cn-sched', cnRenderTimeline(s.epochs, hd.height) +
+      '<table><tr><th>from block</th><th>engine</th><th>validators</th><th>key types</th></tr>' +
       s.epochs.map(x => `<tr><td class="num">${x.from_height}</td><td>${esc(x.title)}</td>` +
         `<td class="num">${x.validators.length}</td>` +
         `<td class="mono muted">${esc([...new Set(x.validators.map(v => v.scheme))].join(', ') || '—')}</td></tr>`).join('') + '</table>');
@@ -5134,6 +5336,26 @@ function mcRenderHistoryChart(rows){
     <span class="pill">${chron.length} transition${chron.length !== 1 ? 's' : ''}</span>`;
 }
 
+function mcRenderChainFlow(rows){
+  const el = $('mc-chain-flow');
+  if (!el) return;
+  if (!rows || !rows.length){
+    el.innerHTML = '<h2>proof chain</h2><span class="muted">no receipts yet — submit a transition</span>';
+    return;
+  }
+  const chron = rows.slice().reverse();
+  const parts = [];
+  chron.forEach((x, i) => {
+    const isLast = i === chron.length - 1;
+    const cls = 'mc-fstep' + (x.reverted ? ' rev' : isLast ? ' cur' : '');
+    const inp = decodeInput(x.input, MC.machine);
+    const st = compactDecodeState(x.state_out_hex) || `<span class="muted">${Math.floor((x.state_out_hex||'').length/2)}b</span>`;
+    parts.push(`<div class="${cls}"><span class="mc-fstep-n">#${esc(String(x.n))}</span><span class="mc-fstep-in">${inp}</span><span class="mc-fstep-st">${st}</span></div>`);
+    if (!isLast) parts.push('<span class="mc-farrow">→</span>');
+  });
+  el.innerHTML = `<h2>proof chain <span class="tag">${chron.length} step${chron.length !== 1 ? 's' : ''}</span></h2><div class="mc-fchain">${parts.join('')}</div>`;
+}
+
 function decodeState(hex, name){
   if (!hex) return `<span class="muted">(empty)</span>`;
   const len = hex.length;
@@ -5205,7 +5427,7 @@ async function mcLoadReceipts(){
   try {
     const r = await cPost({action: 'receipts', name: MC.machine});
     const rows = r.receipts || [];
-    if (!rows.length){ out('mc-receipts', '<span class="muted">no receipts yet — submit a transition</span>'); mcRenderHistoryChart([]); return; }
+    if (!rows.length){ out('mc-receipts', '<span class="muted">no receipts yet — submit a transition</span>'); mcRenderHistoryChart([]); mcRenderChainFlow([]); return; }
     out('mc-receipts', '<table><tr><th>#</th><th>proof</th><th>input</th><th>result</th><th>state</th><th>receipt</th><th>age</th><th></th></tr>' +
       rows.map(x => {
         const compact = compactDecodeState(x.state_out_hex);
@@ -5226,6 +5448,7 @@ async function mcLoadReceipts(){
       }).join('') + '</table>');
     $('mc-receipts').querySelectorAll('[data-verify]').forEach(b => b.onclick = () => mcVerifyRow(b.dataset.verify));
     mcRenderHistoryChart(rows);
+    mcRenderChainFlow(rows);
     if (rows.length > 1) {
       const ctrl = document.createElement('div');
       ctrl.className = 'mc-replay-ctrl';
@@ -5318,5 +5541,6 @@ async function mcVerifyRow(n){
   }
 })();
 </script>
+<div id="wp-tip"></div>
 </body>
 </html>

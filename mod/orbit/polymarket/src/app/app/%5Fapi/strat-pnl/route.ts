@@ -20,7 +20,8 @@ export async function GET(req: Request) {
   }
   const url = new URL(req.url);
   const days = Math.min(Math.max(Number(url.searchParams.get("days")) || 7, 1), 30);
-  const out = readStratPnlSeries(days);
+  const full = url.searchParams.get("full") === "1";
+  const out = readStratPnlSeries(days, full);
   // An empty file means the sidecar hasn't sampled since deploy — kick one off
   // so the cards fill in on the next poll instead of the next 10-min tick.
   if (Object.keys(out.series).length === 0) void sampleStratPnl();

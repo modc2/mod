@@ -98,6 +98,15 @@ def _w(fn, *keys):
     return run
 
 
+def _faucet(a):
+    addr = a.get('address')
+    if not addr:
+        addr = wallet._load().get('selected')
+    if not addr:
+        raise AlgoError('no address given and no key selected — run algo_wallet first')
+    return Client('testnet').dispense(addr)
+
+
 TOOLS = {
     'algo_account': _t(
         'One account: ALGO balance, min-balance, spendable, USD, ASA holdings, '
@@ -253,6 +262,10 @@ TOOLS = {
         _w(wallet.app_update, 'app_id', 'approval', 'clear', 'approval_b64',
            'clear_b64', 'approval_path', 'clear_path', 'account', 'network',
            'confirm')),
+    'algo_faucet': _t(
+        'Fund an address from the testnet dispenser (testnet only, no fee, no token).',
+        {'address': {**WHO, 'description': 'address to fund (default: selected key)'}},
+        [], _faucet),
 }
 
 WRITE_TOOLS = {'algo_wallet', 'algo_send', 'algo_asset_create', 'algo_asset_optin',

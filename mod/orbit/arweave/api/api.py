@@ -17,6 +17,7 @@ Surfaces (all on one port):
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -163,27 +164,37 @@ async def archive(request: Request):
     except _requests.RequestException as e:
         raise HTTPException(502, f"fetch failed: {e}")
     content_type = r.headers.get("content-type", "application/octet-stream").split(";")[0].strip()
+    content = r.content
+    if content_type == "text/html":
+        html_str = content.decode("utf-8", errors="replace")
+        html_str = re.sub(
+            r'(<head[^>]*>)',
+            lambda m: m.group(1) + f'<base href="{url}">',
+            html_str, count=1, flags=re.IGNORECASE,
+        )
+        content = html_str.encode("utf-8")
     extra_tags = [("Source-URL", url), ("App-Name", "mod-arweave")]
-    return client._upload_bytes(r.content, url, content_type, extra_tags=extra_tags)
+    return client._upload_bytes(content, url, content_type, extra_tags=extra_tags)
 
 
 @api.get("/get/{txid}")
 def get(txid: str, raw: bool = False):
     try:
-        content = client._fetch(txid)
+        content, gateway_ct = client._fetch_with_ct(txid)
     except Exception as e:
         raise HTTPException(404, str(e))
     if raw:
         return Response(content=content, media_type="application/octet-stream")
-    # Use stored content type if available (covers all file-picker uploads)
+    # Prefer the locally-indexed content type; fall back to what the gateway sent.
     stored_ct = client._get_stored_content_type(txid)
-    if stored_ct:
-        if stored_ct == "application/json":
+    effective_ct = stored_ct or gateway_ct
+    if effective_ct:
+        if effective_ct == "application/json":
             try:
                 return JSONResponse(json.loads(content.decode()))
             except Exception:
                 pass
-        return Response(content=content, media_type=stored_ct)
+        return Response(content=content, media_type=effective_ct)
     # Fall through to guess logic for Arweave-native txids not in the local index
     try:
         text = content.decode()
@@ -382,6 +393,28 @@ async function renderContent(res) {{
       }};
       areaEl.appendChild(toggleBtn);
       areaEl.appendChild(iframe);
+    }} else if (ct.startsWith('video/')) {{
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const video = document.createElement('video');
+      video.controls = true;
+      video.src = url;
+      video.style.cssText = 'max-width:100%;border-radius:6px;display:block';
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = TXID;
+      a.textContent = 'Download video';
+      a.className = 'txid';
+      a.style.cssText = 'display:block;margin-top:4px;font-size:12px';
+      areaEl.appendChild(video);
+      areaEl.appendChild(a);
+    }} else if (ct.startsWith('audio/')) {{
+      const blob = await res.blob();
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.src = URL.createObjectURL(blob);
+      audio.style.cssText = 'width:100%';
+      areaEl.appendChild(audio);
     }} else if (ct.startsWith('text/')) {{
       const text = await res.text();
       const pre = document.createElement('pre');
@@ -451,6 +484,43 @@ function renderMeta(tx, confirm) {{
     grid.innerHTML = rows.map(([k, v]) => '<span class="meta-key">' + k + '</span><span>' + v + '</span>').join('');
     card.hidden = false;
   }}
+  if (!isLocal) {{
+    card.hidden = false;
+    let saveArea = document.getElementById('save-area');
+    if (!saveArea) {{
+      saveArea = document.createElement('div');
+      saveArea.id = 'save-area';
+      saveArea.style.marginTop = '12px';
+      card.appendChild(saveArea);
+    }}
+    if (!saveArea.dataset.rendered) {{
+      saveArea.dataset.rendered = '1';
+      const btn = document.createElement('button');
+      btn.className = 'ghost';
+      btn.style.cssText = 'font-size:12px;padding:4px 10px';
+      btn.textContent = 'Save to index';
+      btn.onclick = bookmarkThisTx;
+      saveArea.appendChild(btn);
+    }}
+  }}
+}}
+
+async function bookmarkThisTx() {{
+  const area = document.getElementById('save-area');
+  if (area) area.innerHTML = '<span style="color:#7a8896;font-size:12px">saving…</span>';
+  try {{
+    const r = await fetch(API + '/index/' + TXID, {{method: 'POST'}});
+    const j = await r.json();
+    if (area) {{
+      if (r.ok) {{
+        area.innerHTML = '<span class="pill" style="background:#0f2010;color:#6abf6a">✓ saved' + (j.already_indexed ? ' (already in index)' : '') + '</span>';
+      }} else {{
+        area.innerHTML = '<span class="pill bad">error: ' + esc(j.detail || String(r.status)) + '</span>';
+      }}
+    }}
+  }} catch(e) {{
+    if (area) area.innerHTML = '<span class="pill bad">error: ' + esc(String(e)) + '</span>';
+  }}
 }}
 
 async function copyPermalink() {{
@@ -467,6 +537,19 @@ init();
 </body>
 </html>"""
     return HTMLResponse(html)
+
+
+@api.post("/index/{txid}")
+def bookmark_tx(txid: str):
+    """Bookmark a permaweb txid — fetch its metadata and add it to the local index."""
+    if txid.startswith("sha256-"):
+        raise HTTPException(400, "local ids cannot be bookmarked")
+    try:
+        return client.bookmark(txid)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @api.post("/push/{txid}")

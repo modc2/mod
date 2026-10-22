@@ -94,6 +94,12 @@ button.act:disabled{opacity:.45;cursor:wait}
 .battle-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media(max-width:700px){.battle-cols{grid-template-columns:1fr}}
 .battle-winner{padding:12px 16px;border-radius:10px;font:700 16px var(--mono);text-align:center;margin-bottom:12px;letter-spacing:1px}
+.diff-row{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:6px;margin:4px 0;font:12px var(--mono)}
+.diff-bar{height:8px;border-radius:99px;overflow:hidden}
+.sweep-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+@media(max-width:700px){.sweep-grid{grid-template-columns:1fr}}
+.sweep-card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px}
+.sweep-card.best{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 </style>
 </head>
 <body>
@@ -158,11 +164,20 @@ button.act:disabled{opacity:.45;cursor:wait}
       <label>challenge type</label>
       <select id="score-ctype"><option value="">auto (open prompt)</option><option>open</option><option>vertical</option><option>problem_first</option><option>contrarian</option></select>
       <div id="single-input">
-        <label>your idea</label>
+        <label>your idea (steers the pitch)</label>
         <textarea id="i-idea" placeholder="e.g. Escrowed GPU-hour futures so ML teams can hedge training-cost volatility"></textarea>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="act" id="b-score">JUDGE IT</button>
           <button class="act alt" id="b-battle-toggle">BATTLE</button>
+          <button class="act alt" id="b-sweep-toggle">SWEEP</button>
+        </div>
+      </div>
+      <div id="sweep-input" style="display:none">
+        <label>your idea — scored against all four challenge types in parallel</label>
+        <textarea id="i-sweep-idea" placeholder="e.g. Escrowed GPU-hour futures so ML teams can hedge training-cost volatility"></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="act" id="b-sweep">SWEEP</button>
+          <button class="act alt" id="b-sweep-cancel">CANCEL</button>
         </div>
       </div>
       <div id="battle-input" style="display:none">
@@ -170,12 +185,15 @@ button.act:disabled{opacity:.45;cursor:wait}
           <div><label>IDEA A</label><textarea id="i-idea-a" placeholder="Pitch your first idea…"></textarea></div>
           <div><label>IDEA B</label><textarea id="i-idea-b" placeholder="Pitch your second idea…"></textarea></div>
         </div>
+        <label>challenge type</label>
+        <select id="battle-ctype"><option value="">auto (open prompt)</option><option>open</option><option>vertical</option><option>problem_first</option><option>contrarian</option></select>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="act" id="b-battle">BATTLE</button>
           <button class="act alt" id="b-battle-cancel">CANCEL</button>
         </div>
       </div>
       <div id="score-out"></div>
+      <div id="refine-row" style="display:none"><button class="act alt" id="b-refine" style="margin-top:8px">REFINE →</button></div>
       <div id="judge-history"></div>
     </div>
   </div>
@@ -269,6 +287,11 @@ button.act:disabled{opacity:.45;cursor:wait}
 
 <!-- ── EPOCHS ──────────────────────────────────── -->
 <section id="v-epochs" class="view">
+  <div class="card" style="margin-bottom:14px">
+    <h3>Challenge type performance</h3>
+    <p class="muted">Average top score and mean score per challenge type across all archived epochs.</p>
+    <div class="bars" id="ep-perf-bars"><div class="muted">Loading…</div></div>
+  </div>
   <div class="card" style="margin-bottom:14px">
     <h3>All epochs</h3>
     <div id="ep-list"><div class="muted">Loading…</div></div>
@@ -372,6 +395,7 @@ async function loadBackends(){
 /* actions */
 const out=$('#console-out');
 let _lockedChallenge=null;
+let _lastIdea=null,_lastFeedback=null,_lastScore=null,_lastChallenge=null;
 function busy(btn,on){btn.disabled=on;btn.dataset.t??=btn.textContent;btn.textContent=on?'WORKING…':btn.dataset.t}
 async function run(btn,fn){busy(btn,true);out.textContent='';try{const r=await fn();out.textContent=JSON.stringify(r.result??r,null,2)}catch(e){out.innerHTML=`<span class="err">${esc(e.message)}</span>`}busy(btn,false);refresh()}
 
@@ -498,19 +522,193 @@ $('#b-score').onclick=async e=>{
     radarChart(document.getElementById('score-radar'), b);
     saveJudgeResult(r, total ? pct : null);
     renderJudgeHistory();
-  }catch(err){clearInterval(timer);$('#score-out').innerHTML=`<p class="err">${esc(err.message)}</p>`}
+    _lastIdea=idea;_lastChallenge=challengeObj;_lastFeedback=r.feedback||'';_lastScore=r.composite_score??0;
+    $('#refine-row').style.display=_lastFeedback?'':'none';
+  }catch(err){clearInterval(timer);$('#score-out').innerHTML=`<p class="err">${esc(err.message)}</p>`;$('#refine-row').style.display='none';}
   busy(e.target,false);
 };
 
 $('#b-battle-toggle').onclick=()=>{
   $('#single-input').style.display='none';
+  $('#sweep-input').style.display='none';
   $('#battle-input').style.display='block';
-  $('#score-out').innerHTML='';
+  $('#score-out').innerHTML='';$('#refine-row').style.display='none';
 };
 $('#b-battle-cancel').onclick=()=>{
   $('#single-input').style.display='';
   $('#battle-input').style.display='none';
   $('#score-out').innerHTML='';
+};
+$('#b-sweep-toggle').onclick=()=>{
+  $('#i-sweep-idea').value=$('#i-idea').value;
+  $('#single-input').style.display='none';
+  $('#battle-input').style.display='none';
+  $('#sweep-input').style.display='';
+  $('#score-out').innerHTML='';$('#refine-row').style.display='none';
+};
+$('#b-sweep-cancel').onclick=()=>{
+  $('#single-input').style.display='';
+  $('#sweep-input').style.display='none';
+  $('#score-out').innerHTML='';
+};
+
+$('#b-refine').onclick=async e=>{
+  if(!_lastIdea||!_lastFeedback)return;
+  const prevScore=_lastScore;
+  busy(e.target,true);$('#score-out').textContent='';
+  let seenLines=0;
+  const timer=setInterval(async()=>{
+    try{
+      const prog=await api('/progress');
+      const lines=prog.lines||[];
+      if(lines.length>seenLines){
+        for(let i=seenLines;i<lines.length;i++){
+          const ts=new Date().toLocaleTimeString('en',{hour12:false});
+          $('#score-out').textContent+=`[${ts}] ${lines[i]}\n`;
+        }
+        seenLines=lines.length;
+        $('#score-out').scrollTop=$('#score-out').scrollHeight;
+      }
+    }catch(e){}
+  },800);
+  try{
+    const body={idea:_lastIdea,previous_feedback:_lastFeedback};
+    if(_lastChallenge)body.challenge=_lastChallenge.prompt;
+    const [scoreRes,topRes]=await Promise.allSettled([post('/score',body),api('/top?limit=500')]);
+    clearInterval(timer);
+    if(scoreRes.status==='rejected') throw scoreRes.reason;
+    const {result:r}=scoreRes.value;
+    const b=r.breakdown||{};const p=r.pitch||{};
+    const PITCH_FIELDS=['problem','solution','market','traction','business_model','team','defensibility','ask'];
+    const pitchRows=PITCH_FIELDS.filter(k=>p[k]).map(k=>`<dt>${k.replace('_',' ')}</dt><dd>${esc(p[k])}</dd>`).join('');
+    const pitchCard=p.company_name?`<div class="pitch"><h4>${esc(p.company_name)}</h4>${p.one_liner?`<div class="ol">${esc(p.one_liner)}</div>`:''}<dl>${pitchRows}</dl></div>`:'';
+    const topArr=topRes.status==='fulfilled'?(topRes.value.result||[]):[];
+    const total=topArr.length;
+    const below=topArr.filter(x=>x.composite_score<r.composite_score).length;
+    const pct=total?Math.floor((below/total)*100):0;
+    const pctBadge=total===0
+      ?'<div style="color:var(--dim);font:600 13px var(--mono);margin-top:4px">No archived pitches yet.</div>'
+      :`<div style="color:var(--good);font:600 13px var(--mono);margin-top:4px">Top ${100-pct}% of archived pitches · beats ${below} of ${total}</div>`;
+    const newScore=r.composite_score??0;
+    const delta=newScore-prevScore;
+    const dSign=delta>=0?'+':'';
+    const dColor=delta>=0?'var(--good)':'var(--bad)';
+    const deltaBadge=`<div style="color:${dColor};font:700 14px var(--mono);margin-top:6px">${dSign}${delta.toFixed(1)} (${prevScore.toFixed(1)} → ${newScore.toFixed(1)})</div>`;
+    const challengeCard=_lastChallenge?`<div class="pitch"><h4>challenge · ${esc(_lastChallenge.type||'')}</h4><div class="ol">${esc(_lastChallenge.prompt)}</div></div>`:'';
+    $('#score-out').innerHTML=`${challengeCard}${pitchCard}<div class="composite">${newScore.toFixed(2)} / 10</div>${deltaBadge}${pctBadge}
+      <div id="score-dist"></div>
+      <div id="score-radar"></div>
+      <div class="bars">${Object.entries(b).map(([k,v])=>`
+        <div class="bar"><span>${k}</span><div class="tr"><div class="fi" style="width:${Math.min(100,v*10)}%"></div></div><span>${(+v).toFixed(1)}</span></div>`).join('')}</div>
+      ${r.feedback?`<div class="fb">${esc(r.feedback)}</div>`:''}`;
+    scoreHistChart(document.getElementById('score-dist'),topArr.map(p=>p.composite_score),newScore);
+    radarChart(document.getElementById('score-radar'),b);
+    saveJudgeResult(r,total?pct:null);
+    renderJudgeHistory();
+    _lastFeedback=r.feedback||'';_lastScore=newScore;
+    $('#refine-row').style.display=_lastFeedback?'':'none';
+  }catch(err){clearInterval(timer);$('#score-out').innerHTML=`<p class="err">${esc(err.message)}</p>`;$('#refine-row').style.display='none';}
+  busy(e.target,false);
+};
+
+const SWEEP_TYPES=['open','vertical','problem_first','contrarian'];
+
+function renderOneSweepCard(ctype,r,isBest){
+  if(!r||!r.score)return `<div class="sweep-card" id="sweep-card-${ctype}"><div class="err">failed</div></div>`;
+  const {score}=r;
+  const b=score.breakdown||{},p=score.pitch||{};
+  const nameHtml=p.company_name?`<h4 style="margin:0 0 2px;color:var(--accent2);font-family:var(--mono)">${esc(p.company_name)}</h4>`:'';
+  const olHtml=p.one_liner?`<div class="ol" style="margin-bottom:8px">${esc(p.one_liner)}</div>`:'';
+  const barsHtml=Object.entries(b).map(([k,v])=>
+    `<div class="bar"><span>${k}</span><div class="tr"><div class="fi" style="width:${Math.min(100,v*10)}%"></div></div><span>${(+v).toFixed(1)}</span></div>`
+  ).join('');
+  return `<div class="sweep-card${isBest?' best':''}" id="sweep-card-${ctype}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="pill dec">${esc(ctype)}</span>
+        ${isBest?'<span style="color:var(--accent);font:700 11px var(--mono)">BEST</span>':''}
+      </div>
+      ${nameHtml}${olHtml}
+      <div class="composite">${(score.composite_score??0).toFixed(2)} / 10</div>
+      <div class="bars">${barsHtml}</div>
+      ${score.feedback?`<div class="fb">${esc(score.feedback)}</div>`:''}
+    </div>`;
+}
+
+function renderSweepGrid(results){
+  const valid=results.filter(r=>r&&r.score);
+  const bestScore=valid.length?Math.max(...valid.map(r=>r.score.composite_score??0)):-1;
+  return '<div class="sweep-grid">'+results.map(r=>{
+    if(!r||!r.score)return '<div class="sweep-card"><div class="err">failed</div></div>';
+    const {ctype,score}=r;
+    const b=score.breakdown||{},p=score.pitch||{};
+    const isBest=valid.length>1&&(score.composite_score??0)===bestScore;
+    const nameHtml=p.company_name?`<h4 style="margin:0 0 2px;color:var(--accent2);font-family:var(--mono)">${esc(p.company_name)}</h4>`:'';
+    const olHtml=p.one_liner?`<div class="ol" style="margin-bottom:8px">${esc(p.one_liner)}</div>`:'';
+    const barsHtml=Object.entries(b).map(([k,v])=>
+      `<div class="bar"><span>${k}</span><div class="tr"><div class="fi" style="width:${Math.min(100,v*10)}%"></div></div><span>${(+v).toFixed(1)}</span></div>`
+    ).join('');
+    return `<div class="sweep-card${isBest?' best':''}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="pill dec">${esc(ctype)}</span>
+        ${isBest?'<span style="color:var(--accent);font:700 11px var(--mono)">BEST</span>':''}
+      </div>
+      ${nameHtml}${olHtml}
+      <div class="composite">${(score.composite_score??0).toFixed(2)} / 10</div>
+      <div class="bars">${barsHtml}</div>
+      ${score.feedback?`<div class="fb">${esc(score.feedback)}</div>`:''}
+    </div>`;
+  }).join('')+'</div>';
+}
+
+$('#b-sweep').onclick=e=>{
+  const idea=$('#i-sweep-idea').value.trim();if(!idea)return;
+  busy(e.target,true);
+  $('#score-out').innerHTML='<div class="sweep-grid">'+SWEEP_TYPES.map(ctype=>
+    `<div class="sweep-card" id="sweep-card-${ctype}" style="opacity:0.5">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="pill dec">${esc(ctype)}</span>
+      </div>
+      <div style="color:var(--dim);font:11px var(--mono)">SCORING…</div>
+    </div>`
+  ).join('')+'</div>';
+  const settled=[];
+  let doneCount=0;
+  SWEEP_TYPES.forEach(ctype=>{
+    api('/challenge?type='+encodeURIComponent(ctype))
+      .then(cr=>{
+        const challengeObj=cr.result||null;
+        const body=challengeObj?{idea,challenge:challengeObj.prompt}:{idea};
+        return post('/score',body).then(sr=>({ctype,score:sr.result}));
+      })
+      .then(r=>{
+        settled.push(r);
+        const el=$('#sweep-card-'+ctype);
+        if(el)el.outerHTML=renderOneSweepCard(ctype,r,false);
+        if(r&&r.score)saveJudgeResult(r.score,null);
+      })
+      .catch(()=>{
+        settled.push(null);
+        const el=$('#sweep-card-'+ctype);
+        if(el)el.outerHTML=`<div class="sweep-card" id="sweep-card-${ctype}"><div class="err">failed</div></div>`;
+      })
+      .finally(()=>{
+        doneCount++;
+        if(doneCount===SWEEP_TYPES.length){
+          const valid=settled.filter(r=>r&&r.score);
+          const bestScore=valid.length?Math.max(...valid.map(r=>r.score.composite_score??0)):-1;
+          if(valid.length>1){
+            valid.forEach(r=>{
+              if((r.score.composite_score??0)===bestScore){
+                const el=$('#sweep-card-'+r.ctype);
+                if(el)el.classList.add('best');
+              }
+            });
+          }
+          renderJudgeHistory();
+          busy(e.target,false);
+        }
+      });
+  });
 };
 $('#b-battle').onclick=async e=>{
   const ideaA=$('#i-idea-a').value.trim(),ideaB=$('#i-idea-b').value.trim();
@@ -532,9 +730,17 @@ $('#b-battle').onclick=async e=>{
     }catch(ex){}
   },800);
   try{
+    const btCtype=$('#battle-ctype').value;
+    let btChallenge=null;
+    if(btCtype){
+      const cr=await api('/challenge?type='+encodeURIComponent(btCtype));
+      btChallenge=cr.result||null;
+    }
+    const bodyA=btChallenge?{idea:ideaA,challenge:btChallenge.prompt}:{idea:ideaA};
+    const bodyB=btChallenge?{idea:ideaB,challenge:btChallenge.prompt}:{idea:ideaB};
     const [resA,resB,topRes]=await Promise.allSettled([
-      post('/score',{idea:ideaA}),
-      post('/score',{idea:ideaB}),
+      post('/score',bodyA),
+      post('/score',bodyB),
       api('/top?limit=500')
     ]);
     clearInterval(timer);
@@ -565,8 +771,28 @@ $('#b-battle').onclick=async e=>{
     const tot=topArr.length;
     const pctA=tot?Math.floor(topArr.filter(x=>x.composite_score<sA).length/tot*100):null;
     const pctB=tot?Math.floor(topArr.filter(x=>x.composite_score<sB).length/tot*100):null;
-    $('#score-out').innerHTML=banner
+    const CRIT=['novelty','feasibility','market_size','defensibility','clarity','traction_signal'];
+    const bA=rA.breakdown||{},bB=rB.breakdown||{};
+    const dk=CRIT.filter(k=>k in bA||k in bB);
+    const diffRows=(dk.length?dk:[...new Set([...Object.keys(bA),...Object.keys(bB)])]).map(k=>{
+      const vA=+(bA[k]||0),vB=+(bB[k]||0),d=vA-vB,pct=Math.min(100,Math.abs(d)*10);
+      const bH=d>0
+        ?`<div></div><div style="display:flex"><div style="width:${pct}%;height:8px;background:var(--accent);border-radius:0 99px 99px 0"></div></div>`
+        :d<0
+          ?`<div style="display:flex;justify-content:flex-end"><div style="width:${pct}%;height:8px;background:var(--accent2);border-radius:99px 0 0 99px"></div></div><div></div>`
+          :`<div></div><div></div>`;
+      return `<div class="diff-row"${Math.abs(d)<0.3?' style="opacity:.45"':''}>`
+        +`<span style="text-align:right;color:var(${d>0?'--accent':'--dim'})">${vA.toFixed(1)}</span>`
+        +`<div><div style="text-align:center;font-size:11px;color:var(--dim);margin-bottom:2px">${k.replace(/_/g,' ')}</div>`
+        +`<div class="diff-bar" style="background:var(--panel2);border:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr">${bH}</div></div>`
+        +`<span style="color:var(${d<0?'--accent':'--dim'})">${vB.toFixed(1)}</span>`
+        +'</div>';
+    }).join('');
+    const diffCard=diffRows?'<div class="card" style="margin-top:14px"><h3>What Decided It</h3>'+diffRows+'</div>':'';
+    const btChallengeCard=btChallenge?`<div class="pitch"><h4>challenge · ${esc(btChallenge.type||btCtype)}</h4><div class="ol">${esc(btChallenge.prompt)}</div></div>`:'';
+    $('#score-out').innerHTML=btChallengeCard+banner
       +'<div id="battle-radar"></div>'
+      +diffCard
       +'<div class="battle-cols">'
       +'<div><div style="color:var(--accent2);font:700 11px var(--mono);letter-spacing:1px;margin-bottom:8px">IDEA A</div>'+mkCard(rA,topArr)+'</div>'
       +'<div><div style="color:var(--accent2);font:700 11px var(--mono);letter-spacing:1px;margin-bottom:8px">IDEA B</div>'+mkCard(rB,topArr)+'</div>'
@@ -911,6 +1137,36 @@ async function loadEpochList(){
     });
     tb.appendChild(body);
     el.innerHTML='';el.appendChild(tb);
+
+    /* challenge type performance bars */
+    const perf={};
+    epochs.forEach(e=>{
+      const t=e.challenge_type||'unknown';
+      if(!perf[t])perf[t]={top:[],mean:[],count:0};
+      perf[t].count++;
+      if(e.top_score!=null)perf[t].top.push(+e.top_score);
+      if(e.mean_score!=null)perf[t].mean.push(+e.mean_score);
+    });
+    const scored=Object.entries(perf).filter(([,v])=>v.top.length>0);
+    const pb=$('#ep-perf-bars');
+    if(scored.length<2){
+      pb.innerHTML='<div class="muted">Score more epochs with different challenge types to compare.</div>';
+    }else{
+      const avg=arr=>arr.reduce((a,b)=>a+b,0)/arr.length;
+      pb.innerHTML=scored.map(([type,v])=>{
+        const at=avg(v.top),am=v.mean.length?avg(v.mean):null;
+        const wt=Math.min(100,(at/10)*100).toFixed(1);
+        const wm=am!=null?Math.min(100,(am/10)*100).toFixed(1):null;
+        return `<div style="margin-bottom:10px">
+          <div style="font-size:12px;margin-bottom:4px;display:flex;align-items:center;gap:6px">
+            <span style="font-family:var(--mono);font-weight:700">${esc(type)}</span>
+            <span class="pill">${v.count} epoch${v.count!==1?'s':''}</span>
+          </div>
+          <div class="bar"><span>avg top</span><div class="tr"><div class="fi" style="width:${wt}%"></div></div><span>${at.toFixed(2)}</span></div>
+          ${am!=null?`<div class="bar"><span>avg mean</span><div class="tr"><div class="fi" style="width:${wm}%;opacity:.6"></div></div><span>${am.toFixed(2)}</span></div>`:''}
+        </div>`;
+      }).join('');
+    }
   }catch(err){el.innerHTML=`<div class="err">${esc(err.message)}</div>`}
 }
 

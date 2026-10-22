@@ -45,6 +45,8 @@ type TaskEntry = { id: number; query: string; name?: string; status: 'running' |
 
 const genUid = () => `c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 
+const TEMP_PRESETS = [0.0, 0.3, 0.7, 1.0]
+
 // What of the streaming draft is fit to show. The raw stream is the loop's
 // own output: prose, a thinking model's <think> scratchpad, and the
 // <STEP>{...}</STEP> tool-call JSON. The prose streams as-is; an unfinished
@@ -438,6 +440,7 @@ export default function Home() {
 
   // agent state
   const [agentType, setAgentType] = useState<string>('default')
+  const [showTryWith, setShowTryWith] = useState<boolean>(false)
   // where a run lands when you haven't picked — the server decides per caller
   // (Claude Code for the host, the native loop for guests), see fetchAgents
   const [defaultAgent, setDefaultAgent] = useState<string>('default')
@@ -500,6 +503,9 @@ export default function Home() {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [provider, setProvider] = useState<string>('openrouter')
   const [model, setModel] = useState<string>('')
+  const [temperature, setTemperature] = useState<number>(() => {
+    try { return parseFloat(localStorage.getItem('agent_temperature') || '0') || 0 } catch { return 0 }
+  })
   // per-model cost in USD/1M tokens for the active provider — null until fetched
   const [modelCosts, setModelCosts] = useState<Record<string, { input: number; output: number }> | null>(null)
 
@@ -1688,6 +1694,8 @@ export default function Home() {
     })
   }, [serverTasks])
 
+  useEffect(() => { setShowTryWith(false) }, [selectedTask])
+
   // Dismissing a finished run. The row goes immediately rather than waiting
   // for the next poll — a list you can't clear is a list you stop reading.
   const dismissServerTask = useCallback((id: string) => {
@@ -1994,7 +2002,11 @@ export default function Home() {
     abortRef.current?.abort()
   }
 
-  const run = async (opts?: { intoTaskId?: number; q?: string }) => {
+  const run = async (opts?: { intoTaskId?: number; q?: string; agentTypeOverride?: string }) => {
+    const effectiveAgentType = opts?.agentTypeOverride ?? agentType
+    const effectiveAgentDef = opts?.agentTypeOverride
+      ? agentOptions.find(a => a.value === opts.agentTypeOverride)
+      : currentAgentDef
     const isFollowUp = opts?.intoTaskId != null
     const shots = isFollowUp ? [] : attachments
     const rawQuery = opts?.q !== undefined ? opts.q : query
@@ -2003,8 +2015,8 @@ export default function Home() {
     // ask for the sign-in here, in the app, and continue with the identity
     // it produces. Declined = nothing sent, the composer keeps the prompt.
     let runAuth = auth
-    if (!promptSel && currentAgentDef?.harness && !canRunHarness(currentAgentDef.harness)) {
-      const a = await requireAuth({ kind: 'harness', harness: currentAgentDef.harness, agentLabel: currentAgentDef.label })
+    if (!promptSel && effectiveAgentDef?.harness && !canRunHarness(effectiveAgentDef.harness)) {
+      const a = await requireAuth({ kind: 'harness', harness: effectiveAgentDef.harness, agentLabel: effectiveAgentDef.label })
       if (!a) return
       runAuth = a
     }
@@ -2017,7 +2029,7 @@ export default function Home() {
     setLoading(true)
 
     const id = isFollowUp ? opts!.intoTaskId! : ++taskId.current
-    const agentLabel = promptSel ? `¶ ${promptSel.name}` : (currentAgentDef?.label || agentType)
+    const agentLabel = promptSel ? `¶ ${promptSel.name}` : (effectiveAgentDef?.label || effectiveAgentType)
     const userMsg: Message = {
       role: 'user', text: q, agent: agentLabel,
       ...(shots.length ? { images: shots.map(a => a.url), thumbs: shots.map(a => a.thumb) } : {}),
@@ -2025,7 +2037,7 @@ export default function Home() {
     if (isFollowUp) {
       setTasks(t => t.map(tk => tk.id === id ? { ...tk, status: 'running', messages: [...tk.messages, userMsg] } : tk))
     } else {
-      const task: TaskEntry = { id, uid: genUid(), query: q, status: 'running', messages: [userMsg], agent_type: agentType, startedAt: Date.now() }
+      const task: TaskEntry = { id, uid: genUid(), query: q, status: 'running', messages: [userMsg], agent_type: effectiveAgentType, startedAt: Date.now() }
       setTasks(t => [task, ...t])
       setSelectedTask(id)
       setActiveTab('output')
@@ -2098,7 +2110,7 @@ export default function Home() {
       if (runAuth?.token) body.key = runAuth.token   // signed identity rides along
       // always named: an omitted agent means "server's default", which would
       // turn an explicit pick of the native agent into a Claude Code run
-      if (agentType) body.agent_type = agentType
+      if (effectiveAgentType) body.agent_type = effectiveAgentType
       if (provider) body.provider = provider
       if (model) body.model = model
       // a browser run generates in this tab: the id ties the run's stream to
@@ -2127,6 +2139,7 @@ export default function Home() {
       // guests pick how runs are powered: spend credits on the module's
       // public key, or stay on free models (never charged)
       if (runAuth && !runAuth.isOwner && !spendCredits) body.free = true
+      if (temperature !== 0) body.temperature = temperature
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -2341,6 +2354,23 @@ export default function Home() {
     setTimeout(() => followUpRef.current?.focus(), 40)
   }
 
+  const followUpSuggestions = (task: TaskEntry): string[] => {
+    const msgs = task.messages.filter(m => m.role === 'agent' && !m.live)
+    const lastMsg = msgs[msgs.length - 1]
+    if (!lastMsg?.steps?.length) return []
+    const steps: any[] = lastMsg.steps
+    const changed = msgChangedFiles(lastMsg)
+    if (changed.length > 0) {
+      const tail = changed[0].path.split('/').pop() || changed[0].path
+      return [`write tests for ${tail}`, `review changes in ${tail}`]
+    }
+    const hasBash = steps.some(s => s.tool === 'bash' || s.tool === 'sh')
+    if (hasBash) return ['run the tests and check for failures']
+    const hasRead = steps.some(s => ['read', 'glob', 'grep'].includes(s.tool))
+    if (hasRead) return ['find potential bugs in what you analyzed', 'write a short summary of the architecture']
+    return []
+  }
+
   const toggleStep = (key: string) => {
     setExpandedSteps(s => ({ ...s, [key]: !s[key] }))
   }
@@ -2408,6 +2438,7 @@ export default function Home() {
   // animated "agent is working" row with live elapsed time
   const workingIndicator = (t: TaskEntry) => {
     const liveMsg = t.messages.slice().reverse().find(m => m.live)
+    const liveUsage = liveMsg?.usage
     const running = liveMsg?.running
     const fallback = !running ? liveMsg?.steps?.at(-1) : null
     const active = running ?? fallback
@@ -2427,7 +2458,12 @@ export default function Home() {
               {toolName}{label ? ` · ${label}` : ''}
             </span>
           )}
-          <span className="text-xs text-gray-600 ml-auto font-mono">{taskTime(t)}</span>
+          {(fmtTok(liveUsage?.tokens) || fmtUSD(liveUsage?.cost)) && (
+            <span className="text-xs text-gray-600 font-mono ml-auto">
+              {[fmtTok(liveUsage?.tokens), liveUsage?.priced !== false ? fmtUSD(liveUsage?.cost) : null].filter(Boolean).join(' · ')}
+            </span>
+          )}
+          <span className={`text-xs text-gray-600 font-mono${(fmtTok(liveUsage?.tokens) || fmtUSD(liveUsage?.cost)) ? '' : ' ml-auto'}`}>{taskTime(t)}</span>
         </div>
       </div>
     )
@@ -3903,6 +3939,25 @@ export default function Home() {
     )
   }
 
+  const stepCat = (step: any): string => {
+    if (step.error) return 'error'
+    if (WRITE_TOOLS.has(step.tool)) return 'write'
+    if (step.tool === 'think') return 'think'
+    if (step.tool === 'bash' || step.tool === 'sh') return 'bash'
+    if (['read', 'glob', 'grep'].includes(step.tool)) return 'read'
+    if (step.tool && (step.tool.includes('search') || step.tool.includes('web'))) return 'search'
+    return 'other'
+  }
+  const stepColor = (step: any): string => {
+    if (step.error) return 'bg-red-500/80'
+    if (WRITE_TOOLS.has(step.tool)) return 'bg-emerald-500'
+    if (step.tool === 'think') return 'bg-amber-400/60'
+    if (step.tool === 'bash' || step.tool === 'sh') return 'bg-orange-400/60'
+    if (['read', 'glob', 'grep'].includes(step.tool)) return 'bg-sky-400/60'
+    if (step.tool && (step.tool.includes('search') || step.tool.includes('web'))) return 'bg-violet-400/60'
+    return 'bg-white/20'
+  }
+
   // --- Tool trace — every step the run took, params and result in full ---
   const traceBody = (
     <div className="p-3 max-w-4xl mx-auto w-full">
@@ -3916,25 +3971,44 @@ export default function Home() {
           </p>
         )
         const indexedSteps = steps.map((s: any, i: number) => ({ step: s, i }))
+        const KNOWN_CATS = new Set(['write', 'read', 'bash', 'search', 'think', 'error', 'other'])
         const visibleSteps = traceFilter.trim()
           ? indexedSteps.filter(({ step }: { step: any }) =>
-              step.tool?.toLowerCase().includes(traceFilter.toLowerCase()) ||
-              stepTarget(step).toLowerCase().includes(traceFilter.toLowerCase()))
+              KNOWN_CATS.has(traceFilter)
+                ? stepCat(step) === traceFilter
+                : (step.tool?.toLowerCase().includes(traceFilter.toLowerCase()) ||
+                   stepTarget(step).toLowerCase().includes(traceFilter.toLowerCase())))
           : indexedSteps
         if (visibleSteps.length === 0) return (
           <p className="text-sm text-gray-600 text-center mt-8">No steps match "{traceFilter}"</p>
         )
-        const stepColor = (step: any) => {
-          if (step.error) return 'bg-red-500/80'
-          if (WRITE_TOOLS.has(step.tool)) return 'bg-emerald-500'
-          if (step.tool === 'think') return 'bg-amber-400/60'
-          if (step.tool === 'bash' || step.tool === 'sh') return 'bg-orange-400/60'
-          if (['read', 'glob', 'grep'].includes(step.tool)) return 'bg-sky-400/60'
-          if (step.tool && (step.tool.includes('search') || step.tool.includes('web'))) return 'bg-violet-400/60'
-          return 'bg-white/20'
-        }
+        const catChips: { key: string; label: string; dot: string; border: string }[] = [
+          { key: 'write',  label: 'write',  dot: 'bg-emerald-500',   border: 'border-emerald-500/60' },
+          { key: 'read',   label: 'read',   dot: 'bg-sky-400',       border: 'border-sky-400/60' },
+          { key: 'bash',   label: 'bash',   dot: 'bg-orange-400',    border: 'border-orange-400/60' },
+          { key: 'search', label: 'search', dot: 'bg-violet-400',    border: 'border-violet-400/60' },
+          { key: 'think',  label: 'think',  dot: 'bg-amber-400',     border: 'border-amber-400/60' },
+          { key: 'error',  label: 'error',  dot: 'bg-red-500',       border: 'border-red-500/60' },
+        ]
+        const catCounts = catChips.reduce<Record<string, number>>((acc, { key }) => {
+          acc[key] = steps.filter((s: any) => stepCat(s) === key).length
+          return acc
+        }, {})
         return (
           <>
+            <div className="flex flex-wrap gap-1 mb-2">
+              {catChips.filter(({ key }) => catCounts[key] > 0).map(({ key, label, dot, border }) => (
+                <button key={key}
+                  onClick={() => setTraceFilter(traceFilter === key ? '' : key)}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border transition
+                    ${traceFilter === key
+                      ? `bg-white/10 ${border} text-white`
+                      : 'bg-white/[0.03] border-white/[0.06] text-gray-400 hover:text-gray-200 hover:border-white/20'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+                  {label} <span className="text-gray-500">{catCounts[key]}</span>
+                </button>
+              ))}
+            </div>
             <div className="h-1.5 flex rounded overflow-hidden mb-3">
               {steps.map((step: any, i: number) => (
                 <button key={i} className={`flex-1 ${stepColor(step)}`}
@@ -4121,6 +4195,18 @@ export default function Home() {
                   <span className="ctx-chip__n">{isFree ? 'free' : provider}</span>
                 </button>
               )}
+              <button className="ctx-chip"
+                title="Temperature: how creative vs. deterministic the model is. 0.0 = exact, repeatable answers; 1.0 = varied, exploratory responses. Default 0.0 is best for code edits."
+                onClick={() => {
+                  const idx = TEMP_PRESETS.indexOf(temperature)
+                  const next = TEMP_PRESETS[(idx + 1) % TEMP_PRESETS.length]
+                  setTemperature(next)
+                  try { localStorage.setItem('agent_temperature', String(next)) } catch {}
+                }}>
+                <span className={`ctx-chip__d ${temperature === 0 ? 'bg-sky-400/70' : temperature <= 0.3 ? 'bg-cyan-400/70' : temperature <= 0.7 ? 'bg-amber-300/70' : 'bg-amber-400/70'}`} />
+                {temperature === 0 ? '°0.0' : temperature === 1.0 ? '~1.0' : String(temperature)}
+                <span className="ctx-chip__n">temp</span>
+              </button>
             </div>
 
             {/* four ways in */}
@@ -4386,38 +4472,88 @@ export default function Home() {
               </button>
             </div>
           )}
+          {currentTask.status === 'done' && (() => {
+            const tryWithAgents = personas.filter(p => p.kind === 'agent' && p.id !== currentTask.agent_type)
+            if (!tryWithAgents.length) return null
+            return (
+              <div className="flex flex-col items-center gap-1.5 py-2">
+                <button
+                  onClick={() => setShowTryWith(v => !v)}
+                  className="text-[11px] px-3 py-1 rounded border border-white/10 text-gray-500 hover:text-gray-300 hover:border-white/20 transition"
+                >
+                  ↺ try with…
+                </button>
+                {showTryWith && (
+                  <div className="flex flex-wrap gap-1.5 justify-center">
+                    {tryWithAgents.map(p => (
+                      <button
+                        key={p.id}
+                        className="ctx-chip border-white/10 text-gray-400/80 hover:text-gray-200"
+                        onClick={() => {
+                          const q = currentTask.query
+                          setShowTryWith(false)
+                          setAgentType(p.id)
+                          run({ q, agentTypeOverride: p.id })
+                        }}
+                      >
+                        {p.icon ? <span>{p.icon}</span> : null}
+                        <span className="ctx-chip__n">{p.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
           {currentTask.status !== 'running' && (
-            <div className="mt-3 pt-3 border-t border-white/[0.06] flex gap-2 items-end">
-              <textarea
-                ref={followUpRef}
-                value={followUpQuery}
-                onChange={e => setFollowUpQuery(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault()
+            <div className="mt-3 pt-3 border-t border-white/[0.06]">
+              {followUpQuery === '' && (() => {
+                const suggs = followUpSuggestions(currentTask)
+                if (!suggs.length) return null
+                return (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {suggs.map(s => (
+                      <button
+                        key={s}
+                        className="ctx-chip border-emerald-500/25 text-emerald-300/70 hover:text-emerald-200 hover:border-emerald-500/40"
+                        onClick={() => { setFollowUpQuery(s); setTimeout(() => followUpRef.current?.focus(), 10) }}
+                      >↩ {s}</button>
+                    ))}
+                  </div>
+                )
+              })()}
+              <div className="flex gap-2 items-end">
+                <textarea
+                  ref={followUpRef}
+                  value={followUpQuery}
+                  onChange={e => setFollowUpQuery(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      if (!followUpQuery.trim() || loading) return
+                      const fq = followUpQuery
+                      setFollowUpQuery('')
+                      run({ intoTaskId: currentTask.id, q: fq })
+                    }
+                  }}
+                  placeholder="Follow up…"
+                  rows={1}
+                  disabled={loading}
+                  className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-[14px] resize-none outline-none placeholder:text-gray-600 text-gray-300 focus:border-emerald-500/40 transition min-w-0 overflow-y-auto"
+                />
+                <button
+                  onClick={() => {
                     if (!followUpQuery.trim() || loading) return
                     const fq = followUpQuery
                     setFollowUpQuery('')
                     run({ intoTaskId: currentTask.id, q: fq })
-                  }
-                }}
-                placeholder="Follow up…"
-                rows={1}
-                disabled={loading}
-                className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-[14px] resize-none outline-none placeholder:text-gray-600 text-gray-300 focus:border-emerald-500/40 transition min-w-0 overflow-y-auto"
-              />
-              <button
-                onClick={() => {
-                  if (!followUpQuery.trim() || loading) return
-                  const fq = followUpQuery
-                  setFollowUpQuery('')
-                  run({ intoTaskId: currentTask.id, q: fq })
-                }}
-                disabled={!followUpQuery.trim() || loading}
-                className="shrink-0 px-3 py-2 text-sm rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-40 disabled:cursor-default transition"
-              >
-                Send
-              </button>
+                  }}
+                  disabled={!followUpQuery.trim() || loading}
+                  className="shrink-0 px-3 py-2 text-sm rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-40 disabled:cursor-default transition"
+                >
+                  Send
+                </button>
+              </div>
             </div>
           )}
           <div ref={bottomRef} />
@@ -4565,6 +4701,21 @@ export default function Home() {
                 className="h-7 w-7 object-cover rounded border border-white/10 hover:border-emerald-500/40 cursor-zoom-in transition" />
             ))}
             {shots.length > 4 && <span className="text-[9px] text-gray-600 font-mono">+{shots.length - 4}</span>}
+          </div>
+        )
+      })()}
+      {(() => {
+        if (t.status === 'running') return null
+        const allSteps = t.messages.flatMap((m: any) => m.steps || [])
+        if (allSteps.length < 3) return null
+        const cats: Record<string, number> = {}
+        allSteps.forEach((s: any) => { const c = stepCat(s); cats[c] = (cats[c] || 0) + 1 })
+        const tip = Object.entries(cats).map(([k, n]) => `${n} ${k}`).join(' · ')
+        return (
+          <div className="flex h-1.5 rounded overflow-hidden mt-1 pl-[18px]" title={tip}>
+            {allSteps.map((step: any, i: number) => (
+              <div key={i} className={`flex-1 ${stepColor(step)}`} />
+            ))}
           </div>
         )
       })()}

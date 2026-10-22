@@ -173,12 +173,14 @@ function StatCard({
   tone = "white",
   title,
   fullWidth,
+  subtitle,
 }: {
   label: string;
   value: ReactNode;
   tone?: "white" | "green" | "amber" | "red";
   title?: string;
   fullWidth?: boolean;
+  subtitle?: string;
 }) {
   const valueCls =
     tone === "green" ? "text-green-400" :
@@ -191,7 +193,14 @@ function StatCard({
       className={`rounded-md border border-pixel-border/60 bg-pixel-black/40 px-2.5 py-1.5 flex items-baseline justify-between gap-2 ${fullWidth ? "col-span-2 md:col-span-3" : ""}`}
     >
       <span className="text-[11px] text-pixel-gray tracking-[0.18em] uppercase">{label}</span>
-      <span className={`text-[15px] font-mono ${valueCls}`}>{value}</span>
+      {subtitle ? (
+        <div className="flex flex-col items-end">
+          <span className={`text-[15px] font-mono ${valueCls}`}>{value}</span>
+          <span className="text-[10px] text-pixel-gray">{subtitle}</span>
+        </div>
+      ) : (
+        <span className={`text-[15px] font-mono ${valueCls}`}>{value}</span>
+      )}
     </div>
   );
 }
@@ -1705,6 +1714,20 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                 />
               );
             })()}
+            {(() => {
+              const money = stratMoney[activeStrat?.id ?? ""];
+              const unreal = money?.unrealized ?? 0;
+              const tone: "green" | "red" | "white" = unreal > 0 ? "green" : unreal < 0 ? "red" : "white";
+              return (
+                <StatCard
+                  label="UNREALIZED"
+                  value={`${unreal > 0 ? "+" : ""}${fmtUsd(unreal)}`}
+                  tone={tone}
+                  subtitle="open mark"
+                  title="Mark-to-market gain/loss on all currently-held open positions."
+                />
+              );
+            })()}
             <StatCard
               label="NEXT IN"
               value={formatCountdown(nextIn)}
@@ -1760,6 +1783,114 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                   }
                   fullWidth
                 />
+              );
+            })()}
+            {/* ── COPY QUALITY — coverage / slip / lag ── */}
+            {(() => {
+              // COVERAGE: observed trades that the engine successfully copied
+              // (linked via upstreamTradeId on COPY_BUY/COPY_SELL log entries).
+              const copiedIds = new Set(
+                engineState.log
+                  .filter(
+                    (e) =>
+                      (e.type === "COPY_BUY" || e.type === "COPY_SELL") &&
+                      e.upstreamTradeId,
+                  )
+                  .map((e) => e.upstreamTradeId as string),
+              );
+              const total = engineState.observedTrades.length;
+              const matched = engineState.observedTrades.filter((ot) =>
+                copiedIds.has(ot.id),
+              ).length;
+              const coveragePct =
+                total > 0 ? Math.round((matched / total) * 100) : null;
+              const coverageTone: "green" | "amber" | "white" =
+                coveragePct == null
+                  ? "white"
+                  : coveragePct < 50
+                    ? "amber"
+                    : "green";
+
+              // AVG SLIP + MED LAG: join on-chain fills to observed trades
+              // (same market+side+nearest-ts-within-FILL_MATCH_MS join the
+              // per-row attribution uses, so numbers are consistent).
+              const obsByMkt = new Map<string, ObservedTrade[]>();
+              for (const ot of engineState.observedTrades) {
+                const k = ot.conditionId.toLowerCase();
+                const arr = obsByMkt.get(k);
+                if (arr) arr.push(ot);
+                else obsByMkt.set(k, [ot]);
+              }
+              const slipsCents: number[] = [];
+              const lagsSec: number[] = [];
+              for (const fill of fills) {
+                const arr = obsByMkt.get(fill.conditionId.toLowerCase());
+                if (!arr) continue;
+                let best: ObservedTrade | undefined;
+                let bestDelta = FILL_MATCH_MS;
+                for (const ot of arr) {
+                  if (ot.side !== fill.side) continue;
+                  const d = Math.abs(ot.timestamp - fill.timestamp);
+                  if (d <= bestDelta) {
+                    best = ot;
+                    bestDelta = d;
+                  }
+                }
+                if (!best) continue;
+                lagsSec.push((fill.timestamp - best.timestamp) / 1000);
+                if (fill.side === "BUY") {
+                  slipsCents.push(
+                    Math.round((fill.price - best.price) * 100),
+                  );
+                }
+              }
+
+              const avgSlip =
+                slipsCents.length > 0
+                  ? slipsCents.reduce((s, v) => s + v, 0) / slipsCents.length
+                  : null;
+              const slipTone: "green" | "amber" | "red" | "white" =
+                avgSlip == null
+                  ? "white"
+                  : avgSlip > 3
+                    ? "amber"
+                    : avgSlip <= 0
+                      ? "green"
+                      : "white";
+
+              const sortedLags = [...lagsSec].sort((a, b) => a - b);
+              const medLagSec =
+                sortedLags.length > 0
+                  ? sortedLags[Math.floor(sortedLags.length / 2)]
+                  : null;
+              const lagTone: "green" | "amber" | "white" =
+                medLagSec == null ? "white" : medLagSec > 60 ? "amber" : "green";
+
+              return (
+                <>
+                  <StatCard
+                    label="COVERAGE"
+                    value={coveragePct != null ? `${coveragePct}%` : "—"}
+                    tone={coverageTone}
+                    title={`${matched} of ${total} observed leader trades resulted in a copy fill this session — what fraction of their flow actually landed in your wallet.`}
+                  />
+                  <StatCard
+                    label="AVG SLIP"
+                    value={
+                      avgSlip != null
+                        ? `${avgSlip >= 0 ? "+" : ""}${avgSlip.toFixed(1)}¢`
+                        : "—"
+                    }
+                    tone={slipTone}
+                    title="Mean signed slippage on matched BUY fills this session (cents above the leader's price). Positive = paid more than the leader; negative = got a better fill."
+                  />
+                  <StatCard
+                    label="MED LAG"
+                    value={medLagSec != null ? `${Math.round(medLagSec)}s` : "—"}
+                    tone={lagTone}
+                    title="Median seconds from the leader's fill timestamp to yours across all matched fills this session. High values mean you are copying stale flow."
+                  />
+                </>
               );
             })()}
           </div>

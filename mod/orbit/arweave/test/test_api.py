@@ -11,6 +11,8 @@ MOD = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(MOD))
 sys.path.insert(0, str(MOD / "api"))
 
+IMAGE_TXID = "IMAGETXIDDD000000000000000000000000000000"
+
 
 @pytest.fixture()
 def tc(tmp_path, monkeypatch):
@@ -24,9 +26,10 @@ def tc(tmp_path, monkeypatch):
     mcp_server.bind(client, api_mod.load_config)
 
     class FakeResp:
-        def __init__(self, status=200, content=b"", js=None, text=""):
+        def __init__(self, status=200, content=b"", js=None, text="", headers=None):
             self.status_code, self.content, self._js, self.text = status, content, js, text
             self.ok = status < 400
+            self.headers = headers or {}
         def json(self): return self._js
         def raise_for_status(self): pass
 
@@ -39,6 +42,8 @@ def tc(tmp_path, monkeypatch):
             return FakeResp(js={"id": url.rsplit("/", 1)[1], "data_size": "7"})
         if url.endswith("/REALTXID_000000000000000000000000000000000"):
             return FakeResp(content=b'{"from":"gateway"}')
+        if url.endswith("/" + IMAGE_TXID):
+            return FakeResp(content=b"\x89PNG\r\n\x1a\n", headers={"content-type": "image/png"})
         if "/wallet/" in url and url.endswith("/balance"):
             return FakeResp(text="1000000000000")  # 1 AR in winston
         return FakeResp(status=404)
@@ -477,3 +482,61 @@ def test_push_local_missing_blob(tc_arweave):
 
     r = tc_arweave.post(f"/api/push/{ghost_txid}")
     assert r.status_code == 404
+
+
+# ── Bookmark / index endpoint ─────────────────────────────────────────────────
+
+def test_bookmark_index_endpoint(tc):
+    txid = "REALTXID_000000000000000000000000000000000"
+    r = tc.post(f"/api/index/{txid}")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["txid"] == txid
+    assert j["backend"] == "arweave"
+    assert j.get("already_indexed") is False
+
+    # should appear in list with backend=arweave
+    items = tc.get("/api/list").json()["items"]
+    assert any(i["txid"] == txid and i["backend"] == "arweave" for i in items)
+
+    # second call returns existing row with already_indexed=True
+    r2 = tc.post(f"/api/index/{txid}")
+    assert r2.status_code == 200
+    assert r2.json()["already_indexed"] is True
+
+    # local sha256- id returns 400
+    r3 = tc.post("/api/index/sha256-" + "a" * 43)
+    assert r3.status_code == 400
+
+
+# ── Archive base-href injection ───────────────────────────────────────────────
+
+def test_get_non_indexed_txid_uses_gateway_content_type(tc):
+    """Gateway content-type header is propagated when txid is not in the local index."""
+    r = tc.get(f"/api/get/{IMAGE_TXID}")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/png")
+
+
+def test_archive_html_injects_base_href(tc, monkeypatch):
+    import api as api_mod
+
+    source_url = "https://example.com/page.html"
+    html = b"<html><head><title>Test</title></head><body><img src='logo.png'></body></html>"
+
+    class FakeArchiveResp:
+        status_code = 200
+        ok = True
+        content = html
+        headers = {"content-type": "text/html; charset=utf-8"}
+        def raise_for_status(self): pass
+
+    monkeypatch.setattr(api_mod._requests, "get", lambda url, **kw: FakeArchiveResp())
+
+    r = tc.post("/api/archive", json={"url": source_url})
+    assert r.status_code == 200
+    txid = r.json()["txid"]
+
+    stored = tc.get(f"/api/get/{txid}")
+    assert stored.status_code == 200
+    assert f'<base href="{source_url}">' in stored.text

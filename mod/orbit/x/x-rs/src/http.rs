@@ -76,7 +76,7 @@ const ROUTES: &[RouteDoc] = &[
     RouteDoc { method: "GET", path: "/me", tool: "me",
         summary: "The authenticated account (needs user-context credentials).", query: &[] },
     RouteDoc { method: "GET", path: "/mentions", tool: "mentions",
-        summary: "Posts mentioning the authenticated account.", query: &["max_results"] },
+        summary: "Posts mentioning the authenticated account.", query: &["max_results", "pagination_token"] },
     RouteDoc { method: "GET", path: "/auth", tool: "auth_status",
         summary: "Which credential rails are configured (never the secrets).", query: &[] },
     RouteDoc { method: "POST", path: "/forward", tool: "*",
@@ -446,7 +446,7 @@ async fn me(headers: HeaderMap) -> Response {
 }
 
 async fn my_mentions(headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
-    via_tool("mentions", list_args(&q, &[]), header_key(&headers)).await
+    via_tool("mentions", list_args(&q, &[("pagination_token", "pagination_token")]), header_key(&headers)).await
 }
 
 async fn home_feed(headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {

@@ -117,6 +117,9 @@ aside{padding:14px 12px;position:sticky;top:0;height:100vh;overflow:auto}
 .media-tile .mt-ov{position:absolute;inset:0;background:rgba(0,0,0,.45);opacity:0;transition:opacity .15s;
   display:flex;align-items:flex-end;padding:6px 8px;gap:10px;color:#fff;font-size:12px;font-weight:600}
 .media-tile:hover .mt-ov{opacity:1}
+.lb{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:100;display:flex;align-items:center;
+  justify-content:center;cursor:zoom-out}
+.lb img{max-width:92vw;max-height:92vh;border-radius:10px;object-fit:contain}
 
 /* bits */
 .row{display:flex;gap:8px;align-items:center}
@@ -305,6 +308,16 @@ function metric(icon, n, cls, onclick, title) {
   return b;
 }
 
+function showLightbox(src, alt) {
+  const overlay = el('div', { class: 'lb' });
+  overlay.append(el('img', { src, alt }));
+  document.body.append(overlay);
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  overlay.addEventListener('click', close);
+  document.addEventListener('keydown', onKey);
+}
+
 function postCard(tweet, includes, opts) {
   opts = opts || {};
   const a = authorOf(tweet, includes) || {};
@@ -315,7 +328,7 @@ function postCard(tweet, includes, opts) {
   const refs = tweet.referenced_tweets || [];
 
   const who = el('div', { class: 'pwho' },
-    a.name ? el('span', { class: 'nm', text: a.name }) : null,
+    a.name ? (a.username ? el('a', { class: 'nm', href: '#/user/' + a.username, text: a.name }) : el('span', { class: 'nm', text: a.name })) : null,
     handle ? el('a', { class: 'hd', href: a.username ? '#/user/' + a.username : '#/post/' + tweet.id, text: handle }) : null,
     el('span', { class: 'dot', text: '·' }),
     el('a', { class: 'tm', href: '#/post/' + tweet.id, title: tweet.created_at || '',
@@ -382,7 +395,7 @@ function postCard(tweet, includes, opts) {
         catch (err) { toast(err.message, true); }
       }
     }, 'like'),
-    m.quote_count != null ? metric('quotes', m.quote_count, '', null, 'quotes') : null,
+    m.quote_count != null ? metric('quotes', m.quote_count, '', () => { location.hash = '#/search?q=quote_tweet_id:' + tweet.id; }, 'quotes') : null,
     m.impression_count != null ? metric('views', m.impression_count, '', null, 'impressions') : null,
     el('a', { class: 'act', href: url, target: '_blank', rel: 'noopener', text: 'x.com', title: 'open on x.com' }),
     el('button', {
@@ -431,8 +444,9 @@ function postCard(tweet, includes, opts) {
   });
   acts.appendChild(bkBtn);
 
-  const av = el('img', { class: 'av', alt: '' });
-  if (a.profile_image_url) av.src = a.profile_image_url.replace('_normal', '_x96');
+  const avImg = el('img', { class: 'av', alt: '' });
+  if (a.profile_image_url) avImg.src = a.profile_image_url.replace('_normal', '_x96');
+  const av = a.username ? el('a', { href: '#/user/' + a.username }, avImg) : avImg;
 
   const inclTweets = (includes && includes.tweets) || [];
   const inclUsers  = (includes && includes.users)  || [];
@@ -470,8 +484,10 @@ function postCard(tweet, includes, opts) {
     ? el('div', { class: 'pmedia' },
         ...mediaItems.map(m => {
           if (m.type === 'photo') {
-            return el('img', { class: 'pmimg', src: m.url || '', alt: m.alt_text || '',
-              style: 'max-width:100%;border-radius:10px;margin-top:8px;display:block' });
+            const img = el('img', { class: 'pmimg', src: m.url || '', alt: m.alt_text || '',
+              style: 'max-width:100%;border-radius:10px;margin-top:8px;display:block;cursor:pointer' });
+            img.addEventListener('click', () => showLightbox(m.url || '', m.alt_text || ''));
+            return img;
           }
           const wrap = el('div', { class: 'pmthumb',
             style: 'position:relative;display:inline-block;margin-top:8px' });
@@ -606,6 +622,42 @@ function startPollNewHome(newestId, container) {
   window.addEventListener('hashchange', () => clearInterval(timer), { once: true });
 }
 
+/* ── live poll: new mentions banner ─────────────────────── */
+function startPollNewMentions(newestId, container) {
+  let currentNewestId = newestId;
+  let pending = null;
+  const banner = el('div', { class: 'new-banner', style: 'display:none' });
+  container.insertBefore(banner, container.firstChild);
+  banner.addEventListener('click', () => {
+    if (!pending) return;
+    const { tweets, inc } = pending;
+    const frag = document.createDocumentFragment();
+    for (const t of tweets) frag.append(postCard(t, inc));
+    const after = banner.nextSibling;
+    if (after) container.insertBefore(frag, after); else container.append(frag);
+    const maxId = tweets.map(t => BigInt(t.id)).reduce((a, b) => a > b ? a : b);
+    currentNewestId = String(maxId);
+    ls.set('mention_mark', currentNewestId);
+    pending = null;
+    banner.style.display = 'none';
+  });
+  const tick = async () => {
+    try {
+      const res = await api('/mentions?max_results=10');
+      const newer = (res.data || []).filter(t => {
+        try { return BigInt(t.id) > BigInt(currentNewestId); } catch { return false; }
+      });
+      if (newer.length) {
+        pending = { tweets: newer, inc: res.includes };
+        banner.textContent = newer.length + ' new mention' + (newer.length === 1 ? '' : 's') + ' — click to load';
+        banner.style.display = '';
+      }
+    } catch { /* silently fail */ }
+  };
+  const timer = setInterval(tick, 60000);
+  window.addEventListener('hashchange', () => clearInterval(timer), { once: true });
+}
+
 /* ── mentions poll: nav badge ────────────────────────────── */
 let _mentionsPollTimer = null;
 function startMentionsPoll(watermark) {
@@ -685,8 +737,16 @@ ROUTES.summary = async (seg, q) => {
       if (d.error) kids.push(el('div', { class: 'card', text: d.error }));
       if (d.summary) {
         kids.push(el('div', { class: 'card', style: 'white-space:pre-wrap', text: d.summary }));
+        const chipFor = (title, r) => {
+          if (title === 'Hashtags') return el('a', { class: 'chip', href: '#/search?q=' + encodeURIComponent('#' + r.term), text: '#' + r.term + ' ' + r.count });
+          if (title === 'Mentions') return el('a', { class: 'chip', href: '#/user/' + r.term.slice(1), text: r.term + ' ' + r.count });
+          if (title === 'Authors') return el('a', { class: 'chip', href: '#/user/' + r.term.replace(/^@/, ''), text: r.term + ' ' + r.count });
+          if (title === 'Topics') return el('a', { class: 'chip', href: '#/search?q=' + encodeURIComponent(r.term), text: r.term + ' ' + r.count });
+          if (title === 'Links') return el('a', { class: 'chip', href: 'https://' + r.term, target: '_blank', rel: 'noopener', text: r.term + ' ' + r.count });
+          return el('span', { class: 'chip', text: r.term + ' ' + r.count });
+        };
         const list = (title, rows) => rows && rows.length ? el('div', { class: 'row wrap', style: 'margin-top:8px' },
-          el('b', { text: title + ' ' }), ...rows.map(r => el('span', { class: 'chip', text: r.term + ' ' + r.count }))) : '';
+          el('b', { text: title + ' ' }), ...rows.map(r => chipFor(title, r))) : '';
         kids.push(el('div', { class: 'card' }, list('Topics', d.topics), list('Hashtags', d.hashtags),
           list('Links', d.domains), list('Mentions', d.mentions), list('Authors', d.authors), list('Languages', d.languages)));
         const perDay = d.per_day || [];
@@ -801,11 +861,11 @@ ROUTES.search = async (seg, q) => {
 };
 
 /* ── view: trends ────────────────────────────────────────── */
-ROUTES.trends = async () => {
+ROUTES.trends = async (seg, q) => {
   setHead('Trends', 'GET /counts · compare query volumes · 7d');
 
   const COLORS = ['var(--acc)', 'var(--ok)', 'var(--warn)'];
-  let queries = ['bittensor', 'mcp lang:en'];
+  let queries = [q.get('q') || 'bittensor', 'mcp lang:en'];
 
   const resultsEl = el('div');
   const inputsEl = el('div', { style: 'display:flex;flex-direction:column;gap:8px' });
@@ -893,13 +953,15 @@ async function volumeRail(query) {
     const max = Math.max(1, ...rows.map(r => r.tweet_count));
     box.replaceChildren(el('h2', { text: 'volume · 7d' }),
       el('div', { class: 'spark' }, ...rows.map(r => el('i', {
-        style: 'height:' + Math.max(3, (r.tweet_count / max) * 100) + '%',
+        style: 'height:' + Math.max(3, (r.tweet_count / max) * 100) + '%;cursor:pointer',
         title: new Date(r.start).toLocaleDateString() + ' — ' + r.tweet_count,
+        onclick: () => { location.hash = '#/search?q=' + encodeURIComponent(query) + '&start_time=' + encodeURIComponent(r.start) + '&end_time=' + encodeURIComponent(r.end); },
       }))),
       el('div', { class: 'kv' }, el('span', { class: 'k', text: 'total' }),
         el('span', { class: 'v', text: num((c.meta || {}).total_tweet_count) })),
       el('div', { class: 'kv' }, el('span', { class: 'k', text: 'buckets' }),
-        el('span', { class: 'v', text: rows.length + ' days' })));
+        el('span', { class: 'v', text: rows.length + ' days' })),
+      el('a', { class: 'chip', href: '#/trends?q=' + encodeURIComponent(query), text: '→ Trends' }));
   } catch (e) {
     box.replaceChildren(el('h2', { text: 'volume · 7d' }), el('div', { class: 'hint', text: e.message }));
   }
@@ -1174,13 +1236,49 @@ ROUTES.user = async (seg, q) => {
 /* ── view: mentions ──────────────────────────────────────── */
 ROUTES.mentions = async () => {
   setHead('Mentions', 'GET /mentions · the authenticated account · needs user context');
+
+  const results = el('div', { class: 'load', text: 'loading…' });
+  render(results);
+
   try {
     const res = await api('/mentions?max_results=50');
-    render(renderList(res, 'posts'));
+    results.replaceWith(renderList(res, 'posts'));
+    const listEl = $('#view');
+
     const newest = (res.data && res.data[0] && res.data[0].id) || res.meta?.newest_id;
-    if (newest) ls.set('mention_mark', newest);
+    if (newest) {
+      ls.set('mention_mark', newest);
+      startPollNewMentions(newest, listEl);
+    }
     const badge = document.querySelector('[data-nav="mentions"] .nav-badge');
     if (badge) badge.remove();
+
+    let nextToken = res.meta?.next_token;
+    const moreBtn = el('button', { class: 'btn', style: 'display:block;margin:12px auto', text: 'Load more' });
+    const loadMore = async () => {
+      if (!nextToken) return;
+      moreBtn.disabled = true;
+      moreBtn.textContent = 'loading…';
+      try {
+        const more = await api('/mentions?' + new URLSearchParams({ max_results: 50, pagination_token: nextToken }));
+        moreBtn.remove();
+        const frag = document.createDocumentFragment();
+        for (const row of (more.data || [])) frag.append(postCard(row, more.includes));
+        listEl.append(frag);
+        nextToken = more.meta?.next_token;
+        if (nextToken) {
+          moreBtn.disabled = false;
+          moreBtn.textContent = 'Load more';
+          listEl.append(moreBtn);
+        }
+      } catch (e) {
+        moreBtn.disabled = false;
+        moreBtn.textContent = 'Load more';
+        listEl.append(errBox(e));
+      }
+    };
+    moreBtn.onclick = loadMore;
+    if (nextToken) listEl.append(moreBtn);
   } catch (e) {
     render(errBox(e), el('div', { class: 'hint', style: 'padding:0 16px' },
       'Mentions read the account you are signed in as, so this rail needs the four OAuth 1.0a keys.'));
@@ -1323,39 +1421,104 @@ ROUTES.compose = async (seg, q) => {
   const counter = el('span', { class: 'chip' });
   const weigh = s => Array.from(s.replace(/https?:\/\/\S+/g, 'x'.repeat(23))).length;
   const send = el('button', { class: 'btn', text: 'Post' });
+
+  // Thread: extra segments beyond the first (X allows up to 25 per thread)
+  const MAX_THREAD = 25;
+  const extraSegs = []; // { ta, counter, wrap }
+  const threadWrap = el('div');
+
+  function updateSend() {
+    const n = 1 + extraSegs.length;
+    send.textContent = n > 1 ? 'Post thread (' + n + ')' : 'Post';
+    const all = [text, ...extraSegs.map(s => s.ta)];
+    send.disabled = all.some(t => !t.value.trim() || weigh(t.value) > 280);
+    addBtn.disabled = n >= MAX_THREAD;
+  }
+
   const tick = () => {
     const n = weigh(text.value);
     counter.textContent = n + ' / 280';
     counter.style.color = n > 280 ? 'var(--err)' : n > 260 ? 'var(--warn)' : '';
-    send.disabled = !text.value.trim() || n > 280;
+    updateSend();
   };
   text.addEventListener('input', tick);
+
+  function addSegment() {
+    const ta = el('textarea', { rows: 4, placeholder: "What's happening?" });
+    const cnt = el('span', { class: 'chip' });
+    const tickSeg = () => {
+      const n = weigh(ta.value);
+      cnt.textContent = n + ' / 280';
+      cnt.style.color = n > 280 ? 'var(--err)' : n > 260 ? 'var(--warn)' : '';
+      updateSend();
+    };
+    ta.addEventListener('input', tickSeg);
+    const s = { ta, counter: cnt, wrap: null };
+    const rmBtn = el('button', { class: 'chip', text: '×', onclick: () => {
+      s.wrap.remove();
+      extraSegs.splice(extraSegs.indexOf(s), 1);
+      updateSend();
+    }});
+    const wrap = el('div', { style: 'border-top:1px solid var(--line);margin-top:12px;padding-top:12px' },
+      ta,
+      el('div', { class: 'row wrap', style: 'margin-top:8px' }, cnt, el('div', { class: 'grow' }), rmBtn));
+    s.wrap = wrap;
+    extraSegs.push(s);
+    threadWrap.appendChild(wrap);
+    tickSeg();
+    ta.focus();
+    updateSend();
+  }
+
+  const addBtn = el('button', { class: 'chip', text: '+ add to thread', onclick: addSegment });
 
   const out = el('div');
   send.addEventListener('click', async () => {
     const opts = pollInputs.map(i => i.value.trim()).filter(Boolean);
-    const body = { text: text.value };
-    if (reply.value.trim()) body.reply_to = reply.value.trim();
-    if (quote.value.trim()) body.quote_post_id = quote.value.trim();
-    if (opts.length >= 2) { body.poll_options = opts; body.poll_duration_minutes = +pollMins.value || 1440; }
+    const firstBody = { text: text.value };
+    if (reply.value.trim()) firstBody.reply_to = reply.value.trim();
+    if (quote.value.trim()) firstBody.quote_post_id = quote.value.trim();
+    if (opts.length >= 2) { firstBody.poll_options = opts; firstBody.poll_duration_minutes = +pollMins.value || 1440; }
     send.disabled = true;
-    send.textContent = 'posting…';
+    const total = 1 + extraSegs.length;
+    send.textContent = total > 1 ? 'posting 1/' + total + '…' : 'posting…';
+    const postedIds = [];
+    let r0;
     try {
-      const r = await jpost('/posts', body);
-      const id = (r.data || {}).id;
-      toast('posted' + (id ? ' · ' + id : ''));
-      out.replaceChildren(el('div', { class: 'card' }, el('h2', { text: 'published' }),
-        el('div', { class: 'row wrap' },
-          el('a', { class: 'btn sm ghost', href: '#/post/' + id, text: 'open in app' }),
-          el('a', { class: 'btn sm ghost', target: '_blank', rel: 'noopener',
-                    href: 'https://x.com/i/status/' + id, text: 'open on x.com' })),
-        el('pre', { style: 'margin-top:10px', text: JSON.stringify(r, null, 2) })));
+      r0 = await jpost('/posts', firstBody);
+      postedIds.push((r0.data || {}).id);
+      for (let i = 0; i < extraSegs.length; i++) {
+        send.textContent = 'posting ' + (i + 2) + '/' + total + '…';
+        const ri = await jpost('/posts', { text: extraSegs[i].ta.value, reply_to: postedIds[postedIds.length - 1] });
+        postedIds.push((ri.data || {}).id);
+      }
+      if (total === 1) {
+        const id = postedIds[0];
+        toast('posted' + (id ? ' · ' + id : ''));
+        out.replaceChildren(el('div', { class: 'card' }, el('h2', { text: 'published' }),
+          el('div', { class: 'row wrap' },
+            el('a', { class: 'btn sm ghost', href: '#/post/' + id, text: 'open in app' }),
+            el('a', { class: 'btn sm ghost', target: '_blank', rel: 'noopener',
+                      href: 'https://x.com/i/status/' + id, text: 'open on x.com' })),
+          el('pre', { style: 'margin-top:10px', text: JSON.stringify(r0, null, 2) })));
+      } else {
+        toast('thread posted (' + total + ')');
+        out.replaceChildren(el('div', { class: 'card' }, el('h2', { text: 'thread published' }),
+          ...postedIds.map((id, i) =>
+            el('div', { style: i ? 'margin-top:8px' : '' },
+              el('div', { class: 'hint', style: 'margin-bottom:4px', text: (i + 1) + ' / ' + total }),
+              el('div', { class: 'row wrap' },
+                el('a', { class: 'btn sm ghost', href: '#/post/' + id, text: 'open in app' }),
+                el('a', { class: 'btn sm ghost', target: '_blank', rel: 'noopener',
+                          href: 'https://x.com/i/status/' + id, text: 'open on x.com' }))))));
+      }
       text.value = '';
+      extraSegs.forEach(s => s.wrap.remove());
+      extraSegs.length = 0;
       pollInputs.forEach(i => { i.value = ''; });
     } catch (e) {
       out.replaceChildren(errBox(e));
     }
-    send.textContent = 'Post';
     tick();
   });
 
@@ -1370,7 +1533,9 @@ ROUTES.compose = async (seg, q) => {
         pollWrap.style.display = on ? '' : 'none';
         e.currentTarget.classList.toggle('on', on);
       } }),
+      addBtn,
       el('div', { class: 'grow' }), send),
+    threadWrap,
     el('div', { class: 'sec', style: 'margin-top:14px', text: 'in reply to / quoting' }),
     el('div', { class: 'row', style: 'align-items:flex-start' },
       el('div', { class: 'grow' }, reply, replySlot),
@@ -1650,6 +1815,49 @@ ROUTES.accounts = async () => {
         me[k] ? el('div', { class: 'kv' },
           el('span', { class: 'k', text: k }),
           el('span', { class: 'v', text: String(me[k]) })) : null).filter(Boolean)));
+  }
+
+  // fire-and-append "What's new" section — mentions preview + home feed peek
+  const mentionsSlot = me ? el('div') : null;
+  const homeSlot = st.reads ? el('div') : null;
+  const slots = [mentionsSlot, homeSlot].filter(Boolean);
+  if (slots.length) $('#view').append(...slots);
+
+  if (mentionsSlot) {
+    (async () => {
+      try {
+        const mres = await api('/mentions?max_results=5');
+        if (!mentionsSlot.isConnected) return;
+        const posts = (mres.data || []).slice(0, 3);
+        if (!posts.length) return;
+        const mark = ls.get('mention_mark', null);
+        let unread = 0;
+        if (mark) {
+          try { unread = (mres.data || []).filter(p => BigInt(p.id) > BigInt(mark)).length; } catch {}
+        }
+        const card = el('div', { class: 'card' }, el('h2', { text: 'Mentions' }));
+        if (unread > 0) card.append(
+          el('a', { href: '#/mentions', class: 'btn sm ghost',
+                    style: 'margin-bottom:10px;display:inline-block',
+                    text: unread + ' unread mention' + (unread === 1 ? '' : 's') }));
+        for (const p of posts) card.append(postCard(p, mres.includes));
+        mentionsSlot.replaceWith(card);
+      } catch {}
+    })();
+  }
+
+  if (homeSlot) {
+    (async () => {
+      try {
+        const hres = await api('/home?max_results=5');
+        if (!homeSlot.isConnected) return;
+        const posts = (hres.data || []).slice(0, 3);
+        if (!posts.length) return;
+        const card = el('div', { class: 'card' }, el('h2', { text: 'Home' }));
+        for (const p of posts) card.append(postCard(p, hres.includes));
+        homeSlot.replaceWith(card);
+      } catch {}
+    })();
   }
 };
 

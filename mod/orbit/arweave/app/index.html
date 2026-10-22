@@ -65,6 +65,20 @@
   .q-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #20262d; }
   .q-item:last-child { border-bottom: 0; }
   .q-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grid-view { display: flex; flex-wrap: wrap; gap: 10px; padding: 4px 0; }
+  .gc {
+    width: 140px; border: 1px solid #20262d; border-radius: 8px;
+    overflow: hidden; cursor: pointer; background: #14181d;
+    text-decoration: none; display: block; transition: border-color 0.15s;
+  }
+  .gc:hover { border-color: #5d3aa8; }
+  .gc img { width: 140px; height: 140px; object-fit: cover; display: block; }
+  .gc-body {
+    width: 140px; height: 140px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-size: 11px; color: #7a8896; padding: 8px; text-align: center; gap: 4px;
+  }
+  .gc-label { font-size: 10px; color: #7a8896; padding: 3px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -103,6 +117,7 @@
       <button class="ghost" onclick="getMeta()">Tx info</button>
     </div>
     <pre id="get-result" hidden></pre>
+    <div id="retrieve-save" hidden style="margin-top:6px"></div>
   </div>
 
   <div class="card">
@@ -122,7 +137,7 @@
       <span id="push-all-wrap" style="float:right;margin-right:6px"></span>
     </h2>
     <table id="list">
-      <thead><tr><th>tx id</th><th>name</th><th>size</th><th>backend</th><th>confs</th><th>tags</th><th></th></tr></thead>
+      <thead><tr><th>tx id</th><th>name</th><th>size</th><th>backend</th><th>confs</th><th>tags</th><th>when</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
@@ -137,12 +152,14 @@
       <input id="q-tag-value" type="text" placeholder="tag value" style="flex:1;min-width:120px" />
       <input id="q-first" type="number" placeholder="limit" min="1" max="100" value="10" style="width:70px;flex:none" />
       <button onclick="queryTxs()">Search</button>
+      <button id="search-grid-btn" class="ghost" onclick="toggleSearchGrid()" title="Toggle grid view">⊞</button>
     </div>
     <div id="q-results" hidden style="margin-top:10px">
       <table id="q-table">
-        <thead><tr><th>tx id</th><th>tags</th><th>data size</th></tr></thead>
+        <thead><tr><th>tx id</th><th>tags</th><th>data size</th><th>when</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
+      <div id="q-grid" class="grid-view" hidden></div>
     </div>
     <div id="q-load-more" hidden style="margin-top:8px">
       <button class="ghost" onclick="queryTxs(true)">Load more →</button>
@@ -153,12 +170,14 @@
   <div class="card">
     <h2 style="margin-top:0">Permaweb Feed
       <button class="ghost" style="float:right" onclick="refreshFeed()">refresh</button>
+      <button id="feed-grid-btn" class="ghost" style="float:right;margin-right:6px" onclick="toggleFeedGrid()" title="Toggle grid view">⊞</button>
     </h2>
     <div id="feed-results">
       <table id="feed-table">
-        <thead><tr><th>tx id</th><th>app</th><th>data size</th></tr></thead>
-        <tbody><tr><td colspan="3" style="color:#7a8896">loading…</td></tr></tbody>
+        <thead><tr><th>tx id</th><th>app</th><th>data size</th><th>when</th></tr></thead>
+        <tbody><tr><td colspan="4" style="color:#7a8896">loading…</td></tr></tbody>
       </table>
+      <div id="feed-grid" class="grid-view" hidden></div>
     </div>
     <pre id="feed-error" hidden></pre>
   </div>
@@ -191,6 +210,68 @@ const BASE = API.replace(/\/api$/, '');
 let walletConfigured = false;
 let walletAddress = null;
 let searchCursor = null;
+let searchGrid = false;
+let feedGrid = false;
+
+function isImageTx(node) {
+  const ct = ((node.tags || []).find(t => t.name === 'Content-Type') || {}).value || '';
+  return ct.startsWith('image/');
+}
+
+function makeGridCard(id, node) {
+  const a = document.createElement('a');
+  a.className = 'gc';
+  a.href = `${BASE}/view/${id}`;
+  a.target = '_blank';
+  if (isImageTx(node)) {
+    const img = document.createElement('img');
+    img.src = `https://arweave.net/${id}`;
+    img.loading = 'lazy';
+    img.alt = id.slice(0, 8);
+    img.title = id;
+    a.appendChild(img);
+  } else {
+    const appTag = (node.tags || []).find(t => t.name === 'App-Name');
+    const app = appTag ? appTag.value : '';
+    const size = node.data?.size ?? '';
+    const div = document.createElement('div');
+    div.className = 'gc-body';
+    div.innerHTML = `<span class="txid">${id.slice(0, 8)}…</span>${app ? `<span>${app}</span>` : ''}${size ? `<span>${size}b</span>` : ''}`;
+    a.appendChild(div);
+  }
+  const label = document.createElement('div');
+  label.className = 'gc-label';
+  label.title = id;
+  label.textContent = id.slice(0, 14) + '…';
+  a.appendChild(label);
+  return a;
+}
+
+function toggleSearchGrid() {
+  searchGrid = !searchGrid;
+  document.getElementById('search-grid-btn').textContent = searchGrid ? '☰' : '⊞';
+  document.getElementById('q-table').hidden = searchGrid;
+  document.getElementById('q-grid').hidden = !searchGrid;
+}
+
+function toggleFeedGrid() {
+  feedGrid = !feedGrid;
+  document.getElementById('feed-grid-btn').textContent = feedGrid ? '☰' : '⊞';
+  document.getElementById('feed-table').hidden = feedGrid;
+  document.getElementById('feed-grid').hidden = !feedGrid;
+}
+
+function timeAgo(ms) {
+  const diff = Date.now() - ms;
+  const m = Math.floor(diff / 60000);
+  if (m < 2) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24);
+  if (d < 30) return d + 'd ago';
+  return new Date(ms).toISOString().slice(0, 10);
+}
 
 function show(id, val) {
   const el = document.getElementById(id);
@@ -447,9 +528,38 @@ async function archiveUrl() {
   }
 }
 
+async function bookmarkTx(txid, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(API + '/index/' + txid, {method: 'POST'});
+    if (r.ok) {
+      if (btn) { btn.textContent = '★'; btn.title = 'saved'; btn.style.color = '#6abf6a'; }
+      refresh();
+    } else {
+      if (btn) { btn.disabled = false; btn.title = 'save failed'; }
+    }
+  } catch(e) {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function showSaveButton(txid) {
+  const div = document.getElementById('retrieve-save');
+  if (!txid || txid.startsWith('sha256-')) { div.hidden = true; return; }
+  div.hidden = false;
+  div.innerHTML = '';
+  const btn = document.createElement('button');
+  btn.className = 'ghost';
+  btn.style.cssText = 'font-size:11px;padding:2px 8px';
+  btn.textContent = 'Save to index';
+  btn.onclick = () => bookmarkTx(txid, btn);
+  div.appendChild(btn);
+}
+
 async function getTx() {
   const txid = document.getElementById('txid').value.trim();
   if (!txid) return;
+  showSaveButton(txid);
   const el = document.getElementById('get-result');
   el.hidden = false;
   el.textContent = '';
@@ -464,6 +574,28 @@ async function getTx() {
       el.appendChild(img);
     } else if (ct.includes('application/json')) {
       el.textContent = JSON.stringify(await r.json(), null, 2);
+    } else if (ct.startsWith('video/')) {
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const video = document.createElement('video');
+      video.controls = true;
+      video.src = url;
+      video.style.cssText = 'max-width:100%;border-radius:6px;display:block';
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = txid;
+      a.textContent = 'Download video';
+      a.className = 'txid';
+      a.style.cssText = 'display:block;margin-top:4px;font-size:12px';
+      el.appendChild(video);
+      el.appendChild(a);
+    } else if (ct.startsWith('audio/')) {
+      const blob = await r.blob();
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.src = URL.createObjectURL(blob);
+      audio.style.cssText = 'width:100%';
+      el.appendChild(audio);
     } else if (ct.startsWith('application/octet-stream') || (ct && !ct.startsWith('text/'))) {
       const blob = await r.blob();
       const a = document.createElement('a');
@@ -504,6 +636,7 @@ async function getTx() {
 async function getMeta() {
   const txid = document.getElementById('txid').value.trim();
   if (!txid) return;
+  showSaveButton(txid);
   show('get-result', await jget(`/tx/${txid}`));
 }
 
@@ -542,9 +675,18 @@ async function refresh() {
   tbody.innerHTML = '';
   for (const item of items) {
     const tags = renderTags((item.metadata || {}).tags);
-    const confsCell = item.backend === 'arweave'
-      ? `<button class="ghost" onclick="checkConf('${item.txid}', this)">check</button>`
-      : '';
+    let confsCell = '';
+    let needsAutoCheck = false;
+    if (item.backend === 'arweave') {
+      let cached = null;
+      try { cached = localStorage.getItem('arweave-conf:' + item.txid); } catch {}
+      if (cached) {
+        confsCell = cached;
+      } else {
+        confsCell = '<span class="pill" style="color:#7a8896">checking…</span>';
+        needsAutoCheck = true;
+      }
+    }
     const pushCell = walletConfigured && item.backend === 'local'
       ? `<button class="ghost" onclick="pushToArweave('${item.txid}')">push →</button>`
       : '';
@@ -556,6 +698,7 @@ async function refresh() {
       <td><span class="pill${item.backend === 'local' ? ' warn' : ''}">${item.backend}</span></td>
       <td>${confsCell}</td>
       <td>${tags}</td>
+      <td style="font-size:11px;color:#7a8896">${item.created ? timeAgo(item.created * 1000) : '—'}</td>
       <td>
         ${pushCell}
         <button class="ghost" onclick="document.getElementById('txid').value='${item.txid}';getTx()">get</button>
@@ -563,6 +706,10 @@ async function refresh() {
         <button class="ghost" onclick="rm('${item.txid}')">rm</button>
       </td>`;
     tbody.appendChild(tr);
+    if (needsAutoCheck) {
+      const confTd = tr.querySelectorAll('td')[4];
+      checkConf(item.txid, confTd);
+    }
   }
   const localItems = items.filter(i => i.backend === 'local');
   const pushAllWrap = document.getElementById('push-all-wrap');
@@ -620,22 +767,35 @@ async function queryTxs(append = false) {
     const data = await jget('/query?' + params);
     const edges = data.edges || [];
     const tbody = document.querySelector('#q-table tbody');
-    if (!append) tbody.innerHTML = '';
+    const qGrid = document.getElementById('q-grid');
+    if (!append) { tbody.innerHTML = ''; qGrid.innerHTML = ''; }
     for (const edge of edges) {
       const node = edge.node || {};
       const id = node.id || '';
       const tags = (node.tags || []).map(t => `${t.name}=${t.value}`).join(', ');
       const size = node.data?.size ?? '';
+      const when = node.block?.timestamp ? timeAgo(node.block.timestamp * 1000) : '—';
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><a class="txid" href="${BASE}/view/${id}" target="_blank">${id}</a></td>
         <td style="font-size:11px;color:#7a8896">${tags}</td>
-        <td>${size}</td>`;
+        <td>${size}</td>
+        <td style="font-size:11px;color:#7a8896">${when}</td>
+        <td></td>`;
+      const saveTd = tr.querySelector('td:last-child');
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'ghost';
+      saveBtn.style.cssText = 'padding:2px 6px;font-size:11px';
+      saveBtn.title = 'Save to index';
+      saveBtn.textContent = '☆';
+      saveBtn.onclick = () => bookmarkTx(id, saveBtn);
+      saveTd.appendChild(saveBtn);
       tbody.appendChild(tr);
+      if (id) qGrid.appendChild(makeGridCard(id, node));
     }
     if (!append && !edges.length) {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="3" style="color:#7a8896">no results</td>';
+      tr.innerHTML = '<td colspan="4" style="color:#7a8896">no results</td>';
       tbody.appendChild(tr);
     }
     searchCursor = edges.length ? edges[edges.length - 1].cursor : null;
@@ -704,24 +864,26 @@ async function refreshArchives() {
   }
 }
 
-async function checkConf(txid, btn) {
-  const td = btn.closest('td');
-  btn.disabled = true;
-  btn.textContent = '…';
+const _CONF_DELAYS = [15000, 30000, 60000, 60000, 60000];
+
+async function checkConf(txid, td, attempt = 0) {
   try {
     const r = await jget(`/tx/${txid}/confirm`);
     if (r.status === 'confirmed') {
-      td.innerHTML = `<span class="pill" style="background:#0f2010;color:#6abf6a">✓ ${r.confirmations} confs</span>`;
+      const html = `<span class="pill" style="background:#0f2010;color:#6abf6a">✓ ${r.confirmations} confs</span>`;
+      td.innerHTML = html;
+      try { localStorage.setItem('arweave-conf:' + txid, html); } catch {}
     } else if (r.status === 'bundler_accepted') {
       td.innerHTML = `<span class="pill" style="background:#0f1a10;color:#7abf5a">✓ turbo (pending chain)</span>`;
+      if (attempt < _CONF_DELAYS.length) setTimeout(() => checkConf(txid, td, attempt + 1), _CONF_DELAYS[attempt]);
     } else if (r.status === 'pending') {
       td.innerHTML = `<span class="pill warn">⏳ pending</span>`;
+      if (attempt < _CONF_DELAYS.length) setTimeout(() => checkConf(txid, td, attempt + 1), _CONF_DELAYS[attempt]);
     } else {
       td.innerHTML = `<span class="pill bad">${r.status}</span>`;
     }
-  } catch (e) {
-    btn.disabled = false;
-    btn.textContent = 'check';
+  } catch {
+    if (attempt < _CONF_DELAYS.length) setTimeout(() => checkConf(txid, td, attempt + 1), _CONF_DELAYS[attempt]);
   }
 }
 
@@ -731,23 +893,28 @@ async function refreshFeed() {
     const data = await jget('/query?first=10');
     const edges = data.edges || [];
     const tbody = document.querySelector('#feed-table tbody');
+    const fGrid = document.getElementById('feed-grid');
     tbody.innerHTML = '';
+    fGrid.innerHTML = '';
     for (const edge of edges) {
       const node = edge.node || {};
       const id = node.id || '';
       const appTag = (node.tags || []).find(t => t.name === 'App-Name');
       const app = appTag ? appTag.value : '—';
       const size = node.data?.size ?? '';
+      const when = node.block?.timestamp ? timeAgo(node.block.timestamp * 1000) : '—';
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><a class="txid" href="${BASE}/view/${id}" target="_blank">${id}</a></td>
         <td style="font-size:11px;color:#7a8896">${app}</td>
-        <td>${size}</td>`;
+        <td>${size}</td>
+        <td style="font-size:11px;color:#7a8896">${when}</td>`;
       tbody.appendChild(tr);
+      if (id) fGrid.appendChild(makeGridCard(id, node));
     }
     if (!edges.length) {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="3" style="color:#7a8896">no results</td>';
+      tr.innerHTML = '<td colspan="4" style="color:#7a8896">no results</td>';
       tbody.appendChild(tr);
     }
   } catch (e) {

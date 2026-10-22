@@ -38,7 +38,7 @@ ROUTE_TOOLS = {
     '/simulate': 'algo_simulate', '/tx': 'algo_tx', '/history': 'algo_history',
     '/block': 'algo_block', '/network': 'algo_network', '/price': 'algo_price',
     '/compile': 'algo_compile', '/rpc': 'algo_rpc',
-    '/asset_holders': 'algo_asset_holders',
+    '/asset_holders': 'algo_asset_holders', '/faucet': 'algo_faucet',
     # writes — token-gated over HTTP, testnet by default, mainnet wants confirm
     '/wallet': 'algo_wallet', '/send': 'algo_send',
     '/asset_create': 'algo_asset_create', '/optin': 'algo_asset_optin',

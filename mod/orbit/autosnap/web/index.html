@@ -26,7 +26,7 @@
   <div id="hdr"></div>
   <div class="grid">
     <div class="card wide">
-      <h2>Loop <span class="sp"></span><span id="tick" class="faint"></span><kbd class="cp-kbd">/ to search</kbd></h2>
+      <h2>Loop <span class="sp"></span><span id="tick" class="faint"></span><kbd class="cp-kbd">/ to search</kbd><button id="notifBtn" class="btn sm" style="padding:4px 8px;font-size:11px;margin-left:8px" title="Desktop notifications for new failures">notify ?</button></h2>
       <div id="stats" class="stats"></div>
       <div class="meter" style="margin-top:8px"><i id="tickBar"></i></div>
       <div id="spark" style="margin-top:12px"></div>
@@ -86,6 +86,9 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let S = null, tickTimer = null, seenCids = new Set(), firstLoad = true, focusedMod = null;
+const localHistory = [];
+const localHistoryCids = new Set();
+let boardView = localStorage.getItem('autosnap_board_view') || 'grid';
 const cidShort = (c) => (c ? (c.length > 16 ? c.slice(0, 10) + "…" + c.slice(-4) : c) : "");
 
 function row(r, isNew) {
@@ -122,11 +125,21 @@ function sparkline(recent) {
        + `<div class="faint" style="font-size:11px;margin-top:3px">last 60 min</div>`;
 }
 function fleetBoard(S) {
+  const f = $("filter")?.value.trim().toLowerCase() || "";
   const staleSet = new Set((S.stale_queue || []).map(e => e.name || e));
   const pendingSet = new Set(S.pending_queue || []);
   const heldSet = new Set(Object.keys(S.held || {}));
   const COLORS = { ok: '#4caf7d', stale: '#c9a84c', pending: '#777', held: '#e05252' };
   const LABELS = { ok: 'snapped and current', stale: 'files changed since last snap', pending: 'never snapped yet', held: 'in backoff' };
+  // Activity pass: count snaps per module in the last 60 minutes.
+  const now = Math.floor(Date.now() / 1000);
+  const actCounts = {};
+  for (const r of localHistory) {
+    if (r.error) continue;
+    if ((now - r.ts) / 60 >= 60) continue;
+    actCounts[r.module] = (actCounts[r.module] || 0) + 1;
+  }
+  const maxActs = Math.max(1, ...Object.values(actCounts));
   // Use all_modules if the backend provides it; otherwise derive from available state fields.
   let mods;
   if (Array.isArray(S.all_modules) && S.all_modules.length) {
@@ -142,17 +155,47 @@ function fleetBoard(S) {
     mods = [...map.entries()].map(([name, state]) => ({ name, state }));
   }
   if (!mods.length) return '';
+  const isGrid = boardView !== 'list';
+  const matching = f ? mods.filter(({ name }) => name.toLowerCase().includes(f)).length : mods.length;
+  const countLabel = f ? `${matching} of ${mods.length} modules` : `${mods.length} modules`;
+  const toggleHtml = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">` +
+    `<span class="faint" style="font-size:11.5px">${countLabel}</span>` +
+    `<div style="display:inline-flex;border:1px solid var(--line2);border-radius:5px;overflow:hidden">` +
+    `<button class="fb-toggle" data-view="grid" style="background:${isGrid?'var(--panel2)':'transparent'};border:none;padding:2px 8px;font-size:11px;cursor:pointer;color:${isGrid?'var(--text)':'var(--faint)'};font-family:inherit">GRID</button>` +
+    `<button class="fb-toggle" data-view="list" style="background:${!isGrid?'var(--panel2)':'transparent'};border:none;padding:2px 8px;font-size:11px;cursor:pointer;color:${!isGrid?'var(--text)':'var(--faint)'};font-family:inherit">LIST</button>` +
+    `</div></div>`;
+  if (!isGrid) {
+    const rows = mods.map(({ name, state }) => {
+      // Re-derive from live queues so rows stay accurate on each render.
+      const s = heldSet.has(name) ? 'held' : staleSet.has(name) ? 'stale' : pendingSet.has(name) ? 'pending' : (state || 'ok');
+      const c = COLORS[s] || COLORS.ok;
+      const acts = actCounts[name] || 0;
+      const pillClass = s === 'held' ? 'bad' : s === 'stale' ? 'warn' : s === 'pending' ? '' : 'on';
+      const hidden = f && !name.toLowerCase().includes(f) ? 'display:none;' : '';
+      return `<div class="row" data-m="${K.esc(name)}" style="${hidden}cursor:pointer;padding:4px 8px;gap:8px">` +
+        `<i style="display:inline-block;width:8px;height:8px;border-radius:1px;flex-shrink:0;background:${c}"></i>` +
+        `<div class="grow" style="font-size:13px">${K.esc(name)}</div>` +
+        `<span class="pill ${pillClass}">${s}</span>` +
+        (acts ? `<span class="faint" style="font-size:11px;white-space:nowrap">${acts} snap${acts!==1?'s':''}/hr</span>` : '') +
+        `</div>`;
+    }).join('');
+    return toggleHtml + `<div class="rows">${rows}</div>`;
+  }
   const tiles = mods.map(({ name, state }) => {
     // Re-derive from live queues so tiles stay accurate on each render.
     const s = heldSet.has(name) ? 'held' : staleSet.has(name) ? 'stale' : pendingSet.has(name) ? 'pending' : (state || 'ok');
     const c = COLORS[s] || COLORS.ok;
-    return `<div class="fb-tile" style="background:${c}" title="${K.esc(name)} — ${LABELS[s] || s}" data-m="${K.esc(name)}"></div>`;
+    const acts = actCounts[name] || 0;
+    const sz = 10 + Math.round(acts / maxActs * 14);
+    const tip = `${K.esc(name)} — ${LABELS[s] || s}${acts ? ` · ${acts} snap${acts !== 1 ? 's' : ''} this hour` : ''}`;
+    const dimmed = f && !name.toLowerCase().includes(f);
+    return `<div class="fb-tile" style="background:${c};width:${sz}px;height:${sz}px;opacity:${dimmed ? '0.15' : '1'}" title="${tip}" data-m="${K.esc(name)}"></div>`;
   }).join('');
   const legend = Object.entries(COLORS).map(([s, c]) =>
     `<span style="display:inline-flex;align-items:center;gap:4px"><i class="fb-dot" style="background:${c}"></i>${s}</span>`
   ).join('');
-  return `<div style="display:flex;flex-wrap:wrap;gap:3px">${tiles}</div>` +
-         `<div class="faint" style="font-size:11px;margin-top:5px;display:flex;gap:10px;flex-wrap:wrap">${legend}</div>`;
+  return toggleHtml + `<div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">${tiles}</div>` +
+         `<div class="faint" style="font-size:11px;margin-top:5px;display:flex;gap:10px;flex-wrap:wrap">${legend} · tile size = snaps/hr</div>`;
 }
 function hotModules(recent) {
   const now = Math.floor(Date.now() / 1000);
@@ -188,19 +231,30 @@ function render() {
   const heldCount = Object.keys(S.held || {}).length;
   $("stats").innerHTML = [["snapped", S.snapped], ["pending", S.pending], ["failed", S.failed], ["held", heldCount], ["stale", (S.stale_queue || []).length], ["per tick", S.per_tick], ["coverage", S.total_modules ? `${S.registered}/${S.total_modules}` : "—"]]
     .map(([k, v]) => `<div class="stat"><b>${v ?? "—"}</b><span>${k}</span></div>`).join("");
-  $("spark").innerHTML = sparkline(S.recent);
-  $("hotMods").innerHTML = hotModules(S.recent);
+  $("spark").innerHTML = sparkline(localHistory);
+  $("hotMods").innerHTML = hotModules(localHistory);
   $("fleetBoard").innerHTML = fleetBoard(S);
   const f = $("filter").value.trim().toLowerCase();
   const rec = [...(S.recent || [])].reverse();
+  const newFailures = [];
+  for (const r of rec) {
+    if (!firstLoad && r.cid && !seenCids.has(r.cid) && r.error) newFailures.push(r);
+  }
   $("recent").innerHTML = rec.filter((r) => !f || r.module.toLowerCase().includes(f)).map((r) => {
     const isNew = !firstLoad && r.cid && !seenCids.has(r.cid);
     return row(r, isNew);
   }).join("") || `<div class="empty">nothing yet</div>`;
-  if (firstLoad) firstLoad = false;
+  if (firstLoad) { firstLoad = false; const initMod = new URLSearchParams(location.search).get('mod'); if (initMod) showFocus(initMod); }
   if (!firstLoad && focusedMod && rec.some(r => r.module === focusedMod && r.cid && !seenCids.has(r.cid))) showFocus(focusedMod);
   for (const r of rec) { if (r.cid) seenCids.add(r.cid); }
-  const fails = rec.filter((r) => r.error && (!f || r.module.toLowerCase().includes(f)));
+  if (newFailures.length && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    for (const r of newFailures) {
+      const n = new Notification('autosnap: ' + r.module + ' failed', { body: r.error, icon: '/autosnap/favicon.ico' });
+      n.onclick = () => window.focus();
+    }
+  }
+  const failSrc = S.recent_failures ? [...S.recent_failures].reverse() : rec;
+  const fails = failSrc.filter((r) => r.error && (!f || r.module.toLowerCase().includes(f)));
   $("failN").textContent = fails.length;
   $("fails").innerHTML = fails.map(row).join("") || `<div class="empty">no failures in the recent window</div>`;
   const queueList = S.pending_queue || [];
@@ -251,11 +305,33 @@ function render() {
   const dl = $("mod-list");
   if (dl) dl.innerHTML = [...modNames].map(n => `<option value="${K.esc(n)}"></option>`).join('');
 }
-async function load() { const r = await K.api("/autosnap/status"); if (r.ok) { S = r.data; render(); } }
+async function load() {
+  const r = await K.api("/autosnap/status");
+  if (r.ok) {
+    S = r.data;
+    const nowSec = Math.floor(Date.now() / 1000);
+    for (const e of (S.recent || [])) {
+      const key = e.cid || (e.module + ':' + e.ts);
+      if (!localHistoryCids.has(key)) {
+        localHistoryCids.add(key);
+        localHistory.push(e);
+      }
+    }
+    for (let i = localHistory.length - 1; i >= 0; i--) {
+      if ((nowSec - localHistory[i].ts) / 60 >= 60) {
+        const key = localHistory[i].cid || (localHistory[i].module + ':' + localHistory[i].ts);
+        localHistoryCids.delete(key);
+        localHistory.splice(i, 1);
+      }
+    }
+    render();
+  }
+}
 
 async function showFocus(mod) {
   if (!S) return;
   focusedMod = mod;
+  history.replaceState(null, '', location.pathname + '?mod=' + encodeURIComponent(mod));
   const isHeld = !!(S.held || {})[mod];
   const isStale = (S.stale_queue || []).some(e => (e.name || e) === mod);
   const isPending = (S.pending_queue || []).includes(mod);
@@ -291,6 +367,13 @@ async function showFocus(mod) {
 }
 
 document.body.addEventListener("click", (e) => {
+  const tog = e.target.closest(".fb-toggle[data-view]");
+  if (tog) {
+    boardView = tog.dataset.view;
+    localStorage.setItem('autosnap_board_view', boardView);
+    if (S) $("fleetBoard").innerHTML = fleetBoard(S);
+    return;
+  }
   const tile = e.target.closest(".fb-tile[data-m]");
   if (!tile) return;
   const m = tile.dataset.m;
@@ -374,7 +457,7 @@ $("snapBtn").onclick = async () => {
   load();
 };
 
-$("focusClose").onclick = () => { $("focus").style.display = "none"; focusedMod = null; };
+$("focusClose").onclick = () => { $("focus").style.display = "none"; focusedMod = null; history.replaceState(null, '', location.pathname); };
 $("focusSnap").onclick = async () => {
   const m = $("focusSnap").dataset.m; if (!m) return;
   $("s_mod").value = m;
@@ -382,6 +465,26 @@ $("focusSnap").onclick = async () => {
   const d = await K.act(`/modules/${encodeURIComponent(m)}/snapshot`, { message: "manual snapshot (autosnap app)" }, "snapshot taken");
   $("focusSnap").disabled = !K.token;
   if (d) { load(); showFocus(m); }
+};
+
+// Desktop notifications
+function updateNotifBtn() {
+  const btn = $('notifBtn');
+  if (!btn || typeof Notification === 'undefined') return;
+  const p = Notification.permission;
+  btn.textContent = p === 'granted' ? 'notify: on' : p === 'denied' ? 'notify: off' : 'notify: ?';
+}
+function initNotif() {
+  if (typeof Notification === 'undefined') { const b = $('notifBtn'); if (b) b.style.display = 'none'; return; }
+  updateNotifBtn();
+}
+$('notifBtn').onclick = async () => {
+  if (typeof Notification === 'undefined') return;
+  if (Notification.permission === 'denied') { K.toast('Notifications blocked — allow them in your browser site settings'); return; }
+  const r = await Notification.requestPermission();
+  localStorage.setItem('autosnap_notif', r);
+  updateNotifBtn();
+  if (r === 'granted') K.toast('Desktop notifications enabled for new failures');
 };
 
 // Command palette
@@ -467,7 +570,7 @@ $("cpList").addEventListener("click", (e) => {
 $("cpVeil").addEventListener("click", (e) => { if (e.target === $("cpVeil")) cpClose(); });
 
 K.init({ glyph: "⌬", title: "Autosnap", accent: "#dfeee6", sub: "Snapshots every module that changed into the versions ledger, a few per tick, so nothing is lost between edits." })
-  .then(() => { $("snapBtn").disabled = !K.token; K.poll(load, 10000); });
+  .then(() => { $("snapBtn").disabled = !K.token; initNotif(); K.poll(load, 10000); });
 </script>
 </body>
 </html>

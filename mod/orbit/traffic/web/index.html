@@ -30,6 +30,13 @@ h1 { margin: 0; font-size: 13px; letter-spacing: .12em; text-transform: uppercas
 .hero span { color: var(--text-secondary); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #1baf7a; margin-right: 6px; vertical-align: 1px; animation: pulse 2s infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes globeDotFade { 0% { opacity: 0.85; } 15% { opacity: 1; } 100% { opacity: 0; } }
+.globe-dot { animation: globeDotFade 8s ease-out forwards; }
+.la-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--grid); animation: fadeIn 0.35s ease; }
+.la-row:last-child { border-bottom: none; }
+.la-app { font-size: 13px; font-weight: 600; }
+.la-ts { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .ranges { display: flex; gap: 4px; background: var(--surface-1); border: 1px solid var(--line); border-radius: 8px; padding: 3px; }
 .ranges button { all: unset; cursor: pointer; padding: 5px 11px; border-radius: 6px; color: var(--text-secondary); font-size: 12px; font-weight: 600; letter-spacing: .04em; }
 .ranges button[aria-pressed="true"] { background: #2a2a27; color: var(--text-primary); }
@@ -99,6 +106,20 @@ tr.detail > td { background: #111110; padding: 8px 12px 10px; border-bottom: 1px
     </div>
   </header>
 
+  <section class="card" id="live-globe-card">
+    <h2>Where visitors come from</h2>
+    <div class="sub">Real-time activity by country</div>
+    <div style="margin-top:10px;background:#090908;border-radius:8px;overflow:hidden">
+      <svg id="live-globe-svg" viewBox="0 0 600 300" style="display:block;width:100%;height:auto" aria-hidden="true"></svg>
+    </div>
+  </section>
+
+  <section class="card" id="live-activity-card" style="display:none">
+    <h2><span class="dot"></span>Live activity</h2>
+    <div class="sub">App loads as they happen</div>
+    <div id="live-activity-body"></div>
+  </section>
+
   <section class="card" id="live-bars-card" style="display:none">
     <h2><span class="dot"></span>Active right now</h2>
     <div id="live-bars-body"></div>
@@ -165,7 +186,7 @@ tr.detail > td { background: #111110; padding: 8px 12px 10px; border-bottom: 1px
     <h2>All apps</h2>
     <div class="sub">"Now" = anyone who loaded or used the app in the last 5 minutes. Click a row to add it to the chart.</div>
     <table>
-      <thead><tr><th>App</th><th class="n" id="hdrLive" style="cursor:pointer">Now</th><th class="n" id="hdrUsers" style="cursor:pointer">People</th><th class="n" id="hdrDelta" style="cursor:pointer">±</th><th class="n" id="hdrHits" style="cursor:pointer">Requests</th><th>Trend</th></tr></thead>
+      <thead><tr><th>App</th><th class="n" id="hdrLive" style="cursor:pointer">Now</th><th class="n" id="hdrUsers" style="cursor:pointer">People</th><th class="n" id="hdrDelta" style="cursor:pointer">±</th><th class="n" id="hdrHits" style="cursor:pointer">Requests</th><th class="n">Dwell</th><th>Trend</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
     <div class="note" id="note"></div>
@@ -399,9 +420,10 @@ function render() {
       <td class="n">${t.users}${t.new > 0 ? ' <span style="color:var(--text-muted);font-size:11px">(' + t.new + ' new)</span>' : ''}</td>
       <td class="n">${badge}</td>
       <td class="n">${t.hits.toLocaleString()}</td>
+      <td class="n" style="color:var(--text-muted)">${t.dwell > 1 ? t.dwell + 'm' : '&mdash;'}</td>
       <td>${spark(state.sparks[t.app])}</td></tr>`;
   }).join('')
-    : `<tr><td colspan="6" class="empty">No visits recorded in this range yet</td></tr>`;
+    : `<tr><td colspan="7" class="empty">No visits recorded in this range yet</td></tr>`;
   rows.querySelectorAll('tr.row').forEach(tr => tr.onclick = ev => {
     if (ev.target.tagName === 'A' || ev.target.classList.contains('expand-btn')) return;
     const a = tr.dataset.app;
@@ -441,7 +463,7 @@ function render() {
     const cached = state.ctryData[app];
     const cachedAff = state.affData && state.affData[app];
     const cachedVin = state.vinData && state.vinData[app];
-    detail.innerHTML = `<td colspan="6"><div class="detail-ctry">${cached && cached.countries && cached.countries.length ? buildCountriesSvg(cached) : '<span style="color:var(--text-muted);font-size:12px">Loading…</span>'}</div><div class="detail-aff">${cachedAff ? buildAffinitiesHtml(cachedAff) : ''}</div><div class="detail-vin">${cachedVin ? buildVintageHtml(cachedVin) : ''}</div><div class="detail-hm"></div></td>`;
+    detail.innerHTML = `<td colspan="7"><div class="detail-ctry">${cached && cached.countries && cached.countries.length ? buildCountriesSvg(cached) : '<span style="color:var(--text-muted);font-size:12px">Loading…</span>'}</div><div class="detail-aff">${cachedAff ? buildAffinitiesHtml(cachedAff) : ''}</div><div class="detail-vin">${cachedVin ? buildVintageHtml(cachedVin) : ''}</div><div class="detail-hm"></div></td>`;
     tr.insertAdjacentElement('afterend', detail);
 
     function renderMiniHeatmap(hm) {
@@ -558,6 +580,46 @@ function buildCountriesSvg(data) {
   });
   svg += '</svg>';
   return svg;
+}
+
+// Approximate pixel centroids for ~35 common countries on a 600×300 equirectangular map.
+const CENTROIDS = {
+  US:[138,87], CA:[140,57], MX:[130,112], BR:[208,167], AR:[193,207],
+  GB:[297,60], IE:[287,57], FR:[303,73], ES:[293,83], PT:[287,85],
+  DE:[317,65], NL:[308,63], BE:[307,65], CH:[313,72], AT:[323,72],
+  IT:[320,80], PL:[333,63], SE:[325,50], NO:[313,50], DK:[317,57],
+  FI:[343,48], UA:[352,68], GR:[337,85], TR:[358,85], RU:[467,50],
+  EG:[350,107], NG:[313,135], ZA:[342,200], SA:[375,110], IL:[358,98],
+  IN:[428,117], CN:[475,92], HK:[490,113], TW:[502,110], JP:[530,90],
+  KR:[513,88], SG:[473,148], ID:[500,158], AU:[522,192],
+};
+
+function renderGlobeRange(ct) {
+  const svg = document.getElementById('live-globe-svg');
+  if (!svg) return;
+  const old = document.getElementById('globe-range');
+  if (old) old.remove();
+  if (!ct || !ct.countries || !ct.countries.length) return;
+  const maxUsers = ct.countries[0].users;
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('id', 'globe-range');
+  ct.countries.forEach(function(r) {
+    const pos = CENTROIDS[r.code];
+    if (!pos) return;
+    const radius = (2 + 8 * r.users / maxUsers).toFixed(1);
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('cx', pos[0]);
+    c.setAttribute('cy', pos[1]);
+    c.setAttribute('r', radius);
+    c.setAttribute('fill', 'var(--accent)');
+    c.setAttribute('opacity', '0.45');
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    title.textContent = r.code + ': ' + r.users;
+    c.appendChild(title);
+    g.appendChild(c);
+  });
+  // Insert after land group, beneath live-event dots
+  svg.insertBefore(g, svg.firstChild ? svg.firstChild.nextSibling : null);
 }
 
 function renderLiveBars(lv) {
@@ -703,20 +765,82 @@ function renderPairs(data) {
   card.style.display = '';
   document.getElementById('pairs-sub').textContent =
     'Apps most commonly visited by the same person · ' + data.range;
-  const max = data.pairs[0].users;
-  document.getElementById('pairs-body').innerHTML = data.pairs.map(p => {
+
+  // Collect unique apps (up to 12) from all pairs
+  const appList = [];
+  for (const p of data.pairs) {
+    for (const a of p.apps) {
+      if (!appList.includes(a) && appList.length < 12) appList.push(a);
+    }
+  }
+  const nApps = appList.length;
+  const CX = 170, CY = 170, R = 130, SIZE = 340;
+
+  // Position apps evenly around the circle
+  const pos = {};
+  appList.forEach((app, i) => {
+    const angle = 2 * Math.PI * i / nApps - Math.PI / 2;
+    pos[app] = { x: CX + R * Math.cos(angle), y: CY + R * Math.sin(angle), angle };
+  });
+
+  const maxUsers = Math.max(...data.pairs.map(p => p.users));
+
+  // Render chords and wider invisible hit areas
+  let chordsSvg = '', hitsSvg = '';
+  data.pairs.forEach((p, idx) => {
     const [a, b] = p.apps;
-    const pct = Math.round(p.users / max * 100);
-    return `<div class="lb-row">` +
-      `<span class="lb-name">` +
-      `<i style="width:8px;height:8px;border-radius:50%;background:${cssColor(a)};display:inline-block;vertical-align:1px;margin-right:3px;flex-shrink:0"></i>${esc(a)}` +
-      ` <span style="color:var(--text-muted)">×</span> ` +
-      `<i style="width:8px;height:8px;border-radius:50%;background:${cssColor(b)};display:inline-block;vertical-align:1px;margin-right:3px;flex-shrink:0"></i>${esc(b)}` +
-      `</span>` +
-      `<div class="lb-track"><div class="lb-fill" style="width:${pct}%;background:var(--spark)"></div></div>` +
-      `<span class="lb-count">${p.users}</span>` +
-      `</div>`;
-  }).join('');
+    if (!pos[a] || !pos[b]) return;
+    const pa = pos[a], pb = pos[b];
+    // Control point pulled toward center for inward arc
+    const cpx = (pa.x + pb.x) / 2 * 0.35 + CX * 0.65;
+    const cpy = (pa.y + pb.y) / 2 * 0.35 + CY * 0.65;
+    const sw = (1.5 + (p.users / maxUsers) * 6.5).toFixed(1);
+    const dStr = `M${pa.x.toFixed(1)},${pa.y.toFixed(1)} Q${cpx.toFixed(1)},${cpy.toFixed(1)} ${pb.x.toFixed(1)},${pb.y.toFixed(1)}`;
+    chordsSvg += `<path d="${dStr}" fill="none" stroke="${cssColor(a)}" stroke-width="${sw}" opacity="0.7" stroke-linecap="round" />`;
+    hitsSvg += `<path d="${dStr}" fill="none" stroke="transparent" stroke-width="12" class="chord-hit" data-idx="${idx}" />`;
+  });
+
+  // Render node dots and labels
+  let nodesSvg = '';
+  appList.forEach(app => {
+    const p = pos[app];
+    const lr = R + 18;
+    const lx = CX + lr * Math.cos(p.angle);
+    const ly = CY + lr * Math.sin(p.angle);
+    const cos = Math.cos(p.angle), sin = Math.sin(p.angle);
+    let anchor, dy;
+    if (cos > 0.3) { anchor = 'start'; dy = 4; }
+    else if (cos < -0.3) { anchor = 'end'; dy = 4; }
+    else if (sin > 0) { anchor = 'middle'; dy = 12; }
+    else { anchor = 'middle'; dy = -3; }
+    nodesSvg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" fill="${cssColor(app)}" />`;
+    nodesSvg += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" dy="${dy}" text-anchor="${anchor}" fill="var(--text-secondary)" font-size="11" font-family="ui-sans-serif,system-ui,sans-serif">${esc(app)}</text>`;
+  });
+
+  const body = document.getElementById('pairs-body');
+  body.innerHTML =
+    `<div style="position:relative;display:inline-block;max-width:100%">` +
+    `<svg width="${SIZE}" height="${SIZE}" viewBox="0 0 ${SIZE} ${SIZE}" style="display:block;max-width:100%">` +
+    chordsSvg + hitsSvg + nodesSvg +
+    `</svg>` +
+    `<div class="hm-tip" id="pairs-tip"></div>` +
+    `</div>`;
+
+  const tipEl = body.querySelector('#pairs-tip');
+  body.querySelectorAll('.chord-hit').forEach(el => {
+    el.addEventListener('mousemove', ev => {
+      const idx = parseInt(el.dataset.idx, 10);
+      const p = data.pairs[idx];
+      if (!p) return;
+      const [a, b] = p.apps;
+      tipEl.textContent = `${a} × ${b} — ${p.users} ${p.users === 1 ? 'person' : 'people'}`;
+      const wr = body.querySelector('div').getBoundingClientRect();
+      tipEl.style.display = 'block';
+      tipEl.style.left = (ev.clientX - wr.left + 10) + 'px';
+      tipEl.style.top = (ev.clientY - wr.top - 28) + 'px';
+    });
+    el.addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
+  });
 }
 
 function renderFunnel(data) {
@@ -749,49 +873,101 @@ function renderEntryApps(data) {
   }).join('');
 }
 
-function renderPaths(data) {
+function renderTransitions(data) {
   const card = document.getElementById('paths-card');
-  const qualified = data && data.paths ? data.paths.filter(p => p.apps.length >= 2) : [];
-  if (qualified.length < 2) { card.style.display = 'none'; return; }
+  if (!data || !data.transitions || data.transitions.length < 2) { card.style.display = 'none'; return; }
   card.style.display = '';
   document.getElementById('paths-sub').textContent =
-    'Top ordered app navigation sequences · ' + data.range;
-  const max = qualified[0].visitors;
-  document.getElementById('paths-body').innerHTML = qualified.map(p => {
-    const pct = Math.round(p.visitors / max * 100);
-    const pathHtml = p.apps.map((a, i) =>
-      (i > 0 ? '<span style="color:var(--text-muted);font-size:11px;margin:0 2px">→</span>' : '') +
-      `<i style="width:8px;height:8px;border-radius:50%;background:${cssColor(a)};display:inline-block;vertical-align:1px;margin-right:2px;flex-shrink:0"></i>${esc(a)}`
-    ).join('');
-    return `<div class="lb-row">` +
-      `<span class="lb-name" style="width:220px">${pathHtml}</span>` +
-      `<div class="lb-track"><div class="lb-fill" style="width:${pct}%;background:var(--spark)"></div></div>` +
-      `<span class="lb-count">${p.visitors}</span>` +
-      `</div>`;
-  }).join('');
+    'App-to-app navigation flow · ' + data.range;
+
+  const tx = data.transitions;
+  const maxCount = Math.max(...tx.map(t => t.count));
+
+  // Collect unique sources and targets ordered by volume
+  const srcVol = {}, dstVol = {};
+  for (const t of tx) {
+    srcVol[t.from] = (srcVol[t.from] || 0) + t.count;
+    dstVol[t.to] = (dstVol[t.to] || 0) + t.count;
+  }
+  const srcs = Object.keys(srcVol).sort((a, b) => srcVol[b] - srcVol[a]);
+  const dsts = Object.keys(dstVol).sort((a, b) => dstVol[b] - dstVol[a]);
+
+  const W = 400, ROW_H = 24, PAD = 10;
+  const LX = 110, RX = 290;  // x positions of left/right node columns
+  const H = Math.max(srcs.length, dsts.length) * ROW_H + PAD * 2;
+
+  const srcY = (app) => PAD + srcs.indexOf(app) * ROW_H + ROW_H / 2;
+  const dstY = (app) => PAD + dsts.indexOf(app) * ROW_H + ROW_H / 2;
+
+  let pathsSvg = '', hitsSvg = '', labelsSvg = '';
+
+  tx.forEach((t, idx) => {
+    if (srcs.indexOf(t.from) < 0 || dsts.indexOf(t.to) < 0) return;
+    const y1 = srcY(t.from), y2 = dstY(t.to);
+    const sw = (1.5 + (t.count / maxCount) * 6).toFixed(1);
+    const cpx1 = LX + (RX - LX) * 0.4, cpx2 = LX + (RX - LX) * 0.6;
+    const d = `M${LX},${y1.toFixed(1)} C${cpx1},${y1.toFixed(1)} ${cpx2},${y2.toFixed(1)} ${RX},${y2.toFixed(1)}`;
+    pathsSvg += `<path d="${d}" fill="none" stroke="${cssColor(t.from)}" stroke-width="${sw}" opacity="0.65" stroke-linecap="round" />`;
+    hitsSvg += `<path d="${d}" fill="none" stroke="transparent" stroke-width="12" class="tr-hit" data-idx="${idx}" />`;
+  });
+
+  srcs.forEach(app => {
+    const y = srcY(app);
+    labelsSvg += `<circle cx="${LX}" cy="${y.toFixed(1)}" r="4" fill="${cssColor(app)}" />`;
+    labelsSvg += `<text x="${(LX - 8).toFixed(1)}" y="${y.toFixed(1)}" dy="4" text-anchor="end" fill="var(--text-secondary)" font-size="11" font-family="ui-sans-serif,system-ui,sans-serif">${esc(app)}</text>`;
+  });
+  dsts.forEach(app => {
+    const y = dstY(app);
+    labelsSvg += `<circle cx="${RX}" cy="${y.toFixed(1)}" r="4" fill="${cssColor(app)}" />`;
+    labelsSvg += `<text x="${(RX + 8).toFixed(1)}" y="${y.toFixed(1)}" dy="4" text-anchor="start" fill="var(--text-secondary)" font-size="11" font-family="ui-sans-serif,system-ui,sans-serif">${esc(app)}</text>`;
+  });
+
+  const body = document.getElementById('paths-body');
+  body.innerHTML =
+    `<div style="position:relative;display:inline-block;max-width:100%">` +
+    `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;max-width:100%">` +
+    pathsSvg + hitsSvg + labelsSvg +
+    `</svg>` +
+    `<div class="hm-tip" id="tr-tip"></div>` +
+    `</div>`;
+
+  const tipEl = body.querySelector('#tr-tip');
+  body.querySelectorAll('.tr-hit').forEach(el => {
+    el.addEventListener('mousemove', ev => {
+      const t = tx[parseInt(el.dataset.idx, 10)];
+      if (!t) return;
+      tipEl.textContent = `${t.from} → ${t.to} — ${t.count} ${t.count === 1 ? 'transition' : 'transitions'}`;
+      const wr = body.querySelector('div').getBoundingClientRect();
+      tipEl.style.display = 'block';
+      tipEl.style.left = (ev.clientX - wr.left + 10) + 'px';
+      tipEl.style.top = (ev.clientY - wr.top - 28) + 'px';
+    });
+    el.addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
+  });
 }
 
 async function load() {
   try {
     const q = { range: state.range, top: SLOTS };
     if (state.pinned) q.apps = state.pinned.join(',');
-    const [s, sp, lv, ct, hm, co, pr, ea, fn, pt] = await Promise.all([
+    const [s, sp, lv, ct, hm, co, pr, ea, fn, tr] = await Promise.all([
       API('series', q), API('sparks', { range: state.range }), API('live'),
       API('countries', { range: state.range }), API('heatmap', { range: state.range }),
       API('cohorts', { range: state.range }), API('pairs', { range: state.range }),
       API('landing_apps', { range: state.range }), API('funnel', { range: state.range }),
-      API('paths', { range: state.range })
+      API('transitions', { range: state.range })
     ]);
     state.data = s; state.sparks = sp; state.liveApps = lv.apps || [];
     document.getElementById('total').textContent = lv.total;
     render();
     renderLiveBars(lv);
     renderCountries(ct);
+    renderGlobeRange(ct);
     renderHeatmap(hm);
     renderCohorts(co);
     renderFunnel(fn);
     renderPairs(pr);
-    renderPaths(pt);
+    renderTransitions(tr);
     renderEntryApps(ea);
   } catch (e) {
     document.getElementById('chartsub').textContent = 'Could not reach the traffic API: ' + e;
@@ -824,6 +1000,134 @@ syncUrl();
 load();
 setInterval(load, 15000);
 addEventListener('resize', () => state.data && drawChart());
+
+// Live activity ticker + globe
+(function() {
+  const card = document.getElementById('live-activity-card');
+  const body = document.getElementById('live-activity-body');
+  const globeSvg = document.getElementById('live-globe-svg');
+  let lastSeen = 0;
+  let displayList = [];
+  let lastEventTime = 0;
+
+  // Prepend simplified Natural Earth 110m land polygons so dots land on recognisable continents.
+  // Paths are pre-projected to 600×300 equirectangular matching the CENTROIDS formula.
+  (function() {
+    if (!globeSvg) return;
+    var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('fill', '#1e1e1c');
+    g.setAttribute('stroke', '#2e2e2b');
+    g.setAttribute('stroke-width', '0.5');
+    var lands = [
+      // North America
+      'M17,60 33,52 50,48 67,42 75,53 92,70 97,88 105,97 125,115 152,123 170,137 185,120 167,108 175,92 183,80 192,72 208,70 208,50 192,45 175,42 150,33 133,28 100,33 67,37 33,45Z',
+      // Greenland
+      'M200,22 215,18 228,20 235,27 230,37 222,43 208,45 197,38 193,30Z',
+      // South America
+      'M168,132 192,127 220,130 248,147 245,160 238,183 215,207 195,210 183,225 178,242 170,225 158,175 155,145 162,133Z',
+      // Europe (mainland + Iberia)
+      'M280,88 283,77 293,55 297,60 307,58 317,52 322,48 333,48 350,58 357,62 360,72 350,88 337,90 320,85 307,85 303,87 293,88 285,87Z',
+      // Scandinavia
+      'M317,52 322,48 328,43 330,33 337,28 343,32 343,38 340,45 335,48 330,53 322,55Z',
+      // Finland
+      'M343,38 350,33 357,32 363,37 360,48 353,50 348,47 345,42Z',
+      // UK
+      'M287,57 293,55 302,58 298,65 291,65Z',
+      // Ireland
+      'M281,60 285,57 288,60 287,65 282,65Z',
+      // Iceland
+      'M265,47 270,43 278,42 283,45 282,50 277,53 270,53 265,50Z',
+      // Russia + Asia (main continental blob)
+      'M357,62 363,35 383,28 433,22 483,25 517,28 533,30 550,33 567,35 583,38 600,40 600,50 580,52 560,50 540,50 520,47 510,53 513,60 517,67 513,87 502,98 490,117 473,100 458,103 447,102 435,117 422,115 407,102 387,97 375,108 367,85 360,83 360,72Z',
+      // Indian subcontinent
+      'M422,115 437,110 447,102 447,115 443,122 437,135 430,142 422,147 417,135Z',
+      // SE Asia peninsula (Indochina/Malay)
+      'M458,103 467,95 475,98 480,112 480,132 472,148 465,152 462,142 460,127 457,115Z',
+      // Japan (Honshu+Kyushu)
+      'M518,93 523,87 528,83 533,87 533,95 525,98 520,97Z',
+      // Hokkaido
+      'M527,80 532,77 535,80 533,85 528,83Z',
+      // Sumatra
+      'M460,148 465,145 472,145 478,152 480,160 473,163 467,158 460,153Z',
+      // Java
+      'M472,162 480,160 490,162 498,163 498,167 488,167 480,165Z',
+      // Borneo
+      'M487,140 495,137 502,140 503,152 498,158 490,157 485,148Z',
+      // Africa
+      'M287,90 300,88 318,88 342,90 357,95 373,108 382,128 375,143 358,158 345,185 340,207 333,212 325,195 318,175 312,148 307,130 298,118 288,107Z',
+      // Madagascar
+      'M365,173 368,168 373,172 373,183 370,190 365,188 362,180Z',
+      // Australia
+      'M480,173 497,165 513,162 530,163 545,168 553,182 553,197 545,207 530,213 517,213 500,207 490,195 482,183Z',
+      // New Zealand S
+      'M563,207 567,202 570,205 568,212 564,213Z',
+      // New Zealand N
+      'M558,198 562,195 565,198 563,203Z',
+      // Sri Lanka
+      'M430,143 433,140 436,143 435,147 431,147Z',
+      // Philippines (rough)
+      'M497,117 503,113 507,117 505,125 500,127 497,122Z',
+      // Taiwan
+      'M502,107 505,103 508,107 507,112 503,112Z',
+      // Korea
+      'M508,83 513,80 517,83 515,90 510,90 507,87Z',
+    ];
+    lands.forEach(function(d) {
+      var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p.setAttribute('d', d);
+      g.appendChild(p);
+    });
+    globeSvg.insertBefore(g, globeSvg.firstChild);
+  }());
+
+  function addGlobeDot(app, cc) {
+    const pos = CENTROIDS[cc];
+    if (!pos || !globeSvg) return;
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('cx', pos[0]);
+    c.setAttribute('cy', pos[1]);
+    c.setAttribute('r', '5');
+    c.setAttribute('fill', cssColor(app));
+    c.setAttribute('class', 'globe-dot');
+    globeSvg.appendChild(c);
+    c.addEventListener('animationend', function() { c.remove(); });
+  }
+
+  function fmtAgo(ts) {
+    const s = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+    if (s >= 60) return Math.floor(s / 60) + 'm ago';
+    return s + 's ago';
+  }
+
+  function renderActivity() {
+    body.innerHTML = displayList.map(function(e) {
+      const ts = e[0], app = e[1], cc = e[2] || '';
+      const label = cc ? esc(app) + ' · ' + esc(cc) : esc(app);
+      return '<div class="la-row"><span class="la-app" style="color:' + cssColor(app) + '">' + label + '</span><span class="la-ts">' + fmtAgo(ts) + '</span></div>';
+    }).join('');
+  }
+
+  function pollRecent() {
+    API('recent', { since: lastSeen }).then(function(data) {
+      const events = (data.events || []).filter(function(e) { return e[0] > lastSeen; });
+      if (events.length) {
+        const maxTs = events.reduce(function(m, e) { return Math.max(m, e[0]); }, lastSeen);
+        lastSeen = maxTs;
+        lastEventTime = Date.now();
+        events.forEach(function(e) { addGlobeDot(e[1], e[2] || ''); });
+        displayList = events.slice().reverse().concat(displayList).slice(0, 30);
+        renderActivity();
+      } else if (displayList.length) {
+        renderActivity();
+      }
+      const live = lastEventTime && (Date.now() - lastEventTime) < 60000;
+      card.style.display = live ? '' : 'none';
+    }).catch(function() {});
+  }
+
+  setInterval(pollRecent, 3000);
+  pollRecent();
+})();
 </script>
 </body>
 </html>

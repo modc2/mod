@@ -27,6 +27,8 @@ const SAMPLE_MS = 10 * 60 * 1000;
 const KEEP_MS = 30 * 24 * 3600 * 1000;
 /** Points per strat the route serves — plenty for a 120px sparkline. */
 const SERVE_POINTS = 120;
+/** Points cap when the caller requests full history (?full=1). */
+const FULL_POINTS = 2000;
 
 const historyPath = () => join(stateDir(), "strat-pnl-history.json");
 
@@ -182,7 +184,7 @@ export interface StratPnlSeries {
   days: number;
 }
 
-export function readStratPnlSeries(days = 7): StratPnlSeries {
+export function readStratPnlSeries(days = 7, full = false): StratPnlSeries {
   const file = readHistory();
   const out: Record<string, Array<[number, number]>> = {};
   if (file) {
@@ -193,10 +195,11 @@ export function readStratPnlSeries(days = 7): StratPnlSeries {
         (out[id] ??= []).push([row.t, v]);
       }
     }
+    const cap = full ? FULL_POINTS : SERVE_POINTS;
     for (const [id, pts] of Object.entries(out)) {
-      if (pts.length > SERVE_POINTS) {
-        const step = (pts.length - 1) / (SERVE_POINTS - 1);
-        out[id] = Array.from({ length: SERVE_POINTS }, (_, i) => pts[Math.round(i * step)]);
+      if (pts.length > cap) {
+        const step = (pts.length - 1) / (cap - 1);
+        out[id] = Array.from({ length: cap }, (_, i) => pts[Math.round(i * step)]);
       }
     }
   }

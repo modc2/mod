@@ -204,11 +204,16 @@ class Mod:
         )
         return c.model_dump()
 
-    def score_idea(self, idea: str, challenge: str = None, progress_callback=None):
+    def score_idea(self, idea: str, challenge: str = None, previous_feedback: str = None,
+                   progress_callback=None):
         from core.schemas import Challenge
         from neurons.miner import BitevoMiner
         if challenge is None:
             challenge = f"Pitch a YC-quality startup around this idea: {idea}"
+        else:
+            challenge = f"{challenge}\n\nBuild your pitch specifically around this idea: {idea}"
+        if previous_feedback:
+            challenge = f"{challenge}\n\nPrevious validator feedback to address: {previous_feedback}"
         ch = Challenge(id="manual", prompt=challenge)
         miner = BitevoMiner(
             backend=self.validator.backend,

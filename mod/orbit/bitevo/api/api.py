@@ -60,6 +60,7 @@ class AddMinerRequest(BaseModel):
 class ScoreIdeaRequest(BaseModel):
     idea: str
     challenge: Optional[str] = None
+    previous_feedback: Optional[str] = None
 
 
 class EvolveRequest(BaseModel):
@@ -296,6 +297,7 @@ async def score_idea(req: ScoreIdeaRequest):
 
     def _run():
         return get_bitevo().score_idea(idea=req.idea, challenge=req.challenge,
+                                       previous_feedback=req.previous_feedback,
                                        progress_callback=_cb)
 
     try:

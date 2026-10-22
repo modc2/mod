@@ -134,7 +134,7 @@ def get_bot(address, name):
 
 
 def save_bot(address, name, system=None, model=None, temperature=None,
-             search=None, description=None, public=None):
+             search=None, description=None, public=None, reasoning_effort=None):
     """A grokbot is a name, a model and a system prompt. Nothing more.
 
     `public=True` publishes it: anyone can see it on GET /public, chat with it
@@ -148,7 +148,8 @@ def save_bot(address, name, system=None, model=None, temperature=None,
     bot = all_bots.get(slug) or {'name': slug, 'created': int(time.time())}
     for field, value in (('system', system), ('model', model),
                          ('temperature', temperature), ('search', search),
-                         ('description', description)):
+                         ('description', description),
+                         ('reasoning_effort', reasoning_effort)):
         if value is not None:
             bot[field] = value
     if public is not None:
@@ -220,7 +221,7 @@ def copy_bot(address, ref, name=None):
     bot = save_bot(address, name or src['name'], system=src.get('system'),
                    model=src.get('model'), temperature=src.get('temperature'),
                    search=src.get('search'), description=src.get('description'),
-                   public=False)
+                   reasoning_effort=src.get('reasoning_effort'), public=False)
     if src.get('ref'):
         user = load_user(address)
         user['bots'][bot['name']]['from'] = src['ref']
@@ -411,7 +412,7 @@ class Client:
 
     def payload(self, model=None, prompt=None, system=None, messages=None,
                 temperature=None, max_tokens=None, search=None, bot=None,
-                tools=None, stream=False, **opts):
+                reasoning_effort=None, tools=None, stream=False, **opts):
         """Build the chat body without sending it — the one place shape lives."""
         if bot and not self.address:
             raise GrokError('bots are per account — sign in first', status=401)
@@ -440,6 +441,9 @@ class Client:
             mode = want_search if isinstance(want_search, str) else 'auto'
             body['search_parameters'] = {'mode': 'auto' if mode in ('1', 'true', True)
                                          else mode}
+        re = reasoning_effort if reasoning_effort is not None else persona.get('reasoning_effort')
+        if re:
+            body['reasoning_effort'] = re
         if stream:
             body['stream'] = True
             body['stream_options'] = {'include_usage': True}

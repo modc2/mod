@@ -119,6 +119,21 @@
         green ≤20% · amber 20–60% · red &gt;60% · grey = never fired.</p>
       <div id="matchup-board" style="overflow-x:auto"></div>
     </div>
+    <div class="panel" id="progression-panel" style="display:none">
+      <h2>defense progression — safety_score over rounds</h2>
+      <p class="note">each line = one defense's safety_score trajectory, oldest-first. zero line = refuse-everything baseline.</p>
+      <div id="progression-chart"></div>
+    </div>
+    <div class="panel" id="technique-panel" style="display:none">
+      <h2>technique breakdown — avg breach rate per family</h2>
+      <p class="note">attacks grouped by technique / category. green ≤20% · amber 20–60% · red &gt;60%</p>
+      <div id="technique-board" style="overflow-x:auto"></div>
+    </div>
+    <div class="panel" id="profile-panel" style="display:none">
+      <h2>defense profiles — safety · refusal · friendliness · solidity</h2>
+      <p class="note">top=safety_score · right=refusal_rate · bottom=friendly (1−over_refusal) · left=solid (1−breach_rate). a uniform defense fills the diamond; a refuse-everything one spikes toward top-right.</p>
+      <div id="profile-chart"></div>
+    </div>
   </section>
 
   <!-- ROUNDS ------------------------------------------------------------ -->
@@ -235,6 +250,8 @@
         <label>judge</label>
         <select id="f-judge"><option>heuristic</option><option>model</option></select>
         <button class="go" id="f-go">FIGHT</button>
+        <label><input type="checkbox" id="f-all-defenses"> vs all defenses</label>
+        <span id="f-gauntlet-progress" class="muted"></span>
         <span id="f-status" class="flash"></span>
       </div>
       <div class="row" style="align-items:flex-start">
@@ -354,6 +371,8 @@ async function loadBoard() {
       <td class="num">${pct(d.over_refusal)}</td>
       <td class="num">${d.rounds}</td></tr>`).join('')}</table>`
     : '<span class="muted">no completed rounds yet — run one.</span>';
+  window._boardHistoryRounds = {};
+  (b.blue || []).forEach(d => { window._boardHistoryRounds[d.defense] = d.history_rounds || []; });
   $('#red-board').innerHTML = (b.red || []).length ? `<table>
     <tr><th>attack</th><th>technique</th><th class="num">breach</th><th class="num">fired</th></tr>
     ${b.red.map(a => `<tr><td>${esc(a.name || a.attack)}
@@ -412,6 +431,56 @@ async function loadBoard() {
       document.querySelector('nav button[data-tab="fight"]').click();
     }, {once: false});
   }
+
+  // defense progression panel
+  const progDefs = (b.blue || []).filter(d => d.history && d.history.length >= 2);
+  const progPanel = $('#progression-panel');
+  if (progDefs.length >= 2) {
+    progPanel.style.display = 'block';
+    $('#progression-chart').innerHTML = defenseProgressionChart(progDefs);
+  } else {
+    progPanel.style.display = 'none';
+  }
+
+  // technique breakdown panel
+  const techRed = b.red || [];
+  const techMap = {};
+  techRed.forEach(a => {
+    const key = a.technique || a.category || '—';
+    if (!techMap[key]) techMap[key] = {attacks: 0, total: 0, max: 0};
+    techMap[key].attacks++;
+    techMap[key].total += (a.breach_rate || 0);
+    if ((a.breach_rate || 0) > techMap[key].max) techMap[key].max = a.breach_rate || 0;
+  });
+  const techGroups = Object.entries(techMap)
+    .map(([tech, s]) => ({tech, attacks: s.attacks, avg: s.total / s.attacks, max: s.max}))
+    .sort((a, b) => b.avg - a.avg);
+  const techPanel = $('#technique-panel');
+  if (techGroups.length >= 2) {
+    techPanel.style.display = 'block';
+    const tBg = r => r <= 0.2 ? '#0d2c1b' : r <= 0.6 ? '#332010' : '#331013';
+    const tFg = r => r <= 0.2 ? 'var(--good)' : r <= 0.6 ? 'var(--warn)' : 'var(--red)';
+    $('#technique-board').innerHTML = '<table style="width:auto">'
+      + '<tr><th>technique</th><th class="num">attacks</th><th class="num">avg breach</th><th class="num">max breach</th></tr>'
+      + techGroups.map(g =>
+          `<tr><td>${esc(g.tech)}</td><td class="num">${g.attacks}</td>`
+          + `<td class="num"><span class="v" style="background:${tBg(g.avg)};color:${tFg(g.avg)}">${pct(g.avg)}</span></td>`
+          + `<td class="num"><span class="v" style="background:${tBg(g.max)};color:${tFg(g.max)}">${pct(g.max)}</span></td></tr>`
+        ).join('')
+      + '</table>';
+  } else {
+    techPanel.style.display = 'none';
+  }
+
+  // defense profile panel
+  const profDefs = (b.blue || []).filter(d => d.rounds >= 1);
+  const profPanel = $('#profile-panel');
+  if (profDefs.length >= 2) {
+    profPanel.style.display = 'block';
+    $('#profile-chart').innerHTML = defenseProfileChart(profDefs);
+  } else {
+    profPanel.style.display = 'none';
+  }
 }
 $('#board-refresh').onclick = loadBoard;
 $('#blue-board').addEventListener('click', e => {
@@ -422,6 +491,42 @@ $('#blue-board').addEventListener('click', e => {
   document.querySelectorAll(`[data-col-def="${CSS.escape(did)}"]`).forEach(el => el.classList.add('col-highlight'));
   const mp = $('#matchup-panel');
   if (mp && mp.style.display !== 'none') mp.scrollIntoView({behavior:'smooth',block:'start'});
+  // drill-down toggle
+  const existing = row.nextElementSibling;
+  if (existing && existing.classList.contains('blue-drill-down')) {
+    existing.remove();
+    return;
+  }
+  document.querySelectorAll('.blue-drill-down').forEach(el => el.remove());
+  const hrs = (window._boardHistoryRounds || {})[did] || [];
+  const detail = document.createElement('tr');
+  detail.className = 'blue-drill-down';
+  const td = document.createElement('td');
+  td.colSpan = 6;
+  td.style.cssText = 'padding:8px 12px;background:#0a0f16';
+  if (!hrs.length) {
+    td.innerHTML = '<span class="muted">—</span>';
+  } else {
+    td.innerHTML = '<table style="width:auto;font-size:12px">'
+      + '<tr><th>Round</th><th>When</th><th>Target</th><th class="num">Safety</th><th class="num">Refusal</th><th class="num">Over-ref</th></tr>'
+      + hrs.map(h => `<tr>`
+          + `<td><button class="go" style="padding:2px 6px;font-size:11px" data-round="${esc(h.id)}">${esc(h.id)}</button></td>`
+          + `<td class="muted">${h.ts ? new Date(h.ts * 1000).toLocaleString() : '—'}</td>`
+          + `<td class="muted">${esc(h.model || '—')}</td>`
+          + `<td class="num">${(h.safety_score || 0).toFixed(2)}</td>`
+          + `<td class="num">${pct(h.refusal_rate || 0)}</td>`
+          + `<td class="num">${pct(h.over_refusal || 0)}</td>`
+          + `</tr>`).join('')
+      + '</table>';
+    td.querySelectorAll('button[data-round]').forEach(btn => {
+      btn.onclick = () => {
+        window._pendingRound = btn.dataset.round;
+        document.querySelector('nav button[data-tab="rounds"]').click();
+      };
+    });
+  }
+  detail.appendChild(td);
+  row.after(detail);
 });
 
 // ── rounds ─────────────────────────────────────────────────────
@@ -787,8 +892,18 @@ async function loadAttacks() {
           `</table>` : '';
       td.innerHTML = `<pre style="margin-top:0">${esc(prompt)}</pre>` +
         (markers ? `<div class="muted" style="margin-top:4px">markers: ${esc(markers)}</div>` : '') +
-        vsTable;
+        vsTable +
+        `<button class="clone-atk-btn go" style="margin-top:8px">→ CLONE</button>`;
+      detail.appendChild(td);
       tr.after(detail);
+      detail.querySelector('.clone-atk-btn').addEventListener('click', () => {
+        document.querySelector('nav button[data-tab="attacks"]').click();
+        $('#a-name').value = (a.name || a.id) + ' v2';
+        $('#a-prompt').value = prompt;
+        $('#a-goal').value = a.goal || '';
+        $('#a-technique').value = a.technique || '';
+        $('#a-markers').value = (a.markers || []).join(', ');
+      });
     };
   });
 }
@@ -888,8 +1003,20 @@ async function loadDefenses() {
         (inRules.length ? `<div class="muted" style="margin-top:4px"><b>input rules:</b></div><pre>${esc(inRules.join('\n'))}</pre>` : '') +
         (outRules.length ? `<div class="muted"><b>output rules:</b></div><pre>${esc(outRules.join('\n'))}</pre>` : '') +
         (d.max_input_chars ? `<div class="muted">max input chars: ${esc(String(d.max_input_chars))}</div>` : '') +
-        failTable;
+        failTable +
+        `<button class="clone-def-btn go" style="margin-top:8px">→ CLONE</button>`;
       detail.appendChild(td);
+      td.querySelectorAll('.clone-def-btn').forEach(btn => {
+        btn.onclick = () => {
+          document.querySelector('nav button[data-tab="defenses"]').click();
+          $('#d-name').value = (d.name || d.id) + ' v2';
+          $('#d-sys').value = d.system_prompt || '';
+          $('#d-in').value = JSON.stringify(d.input_rules || []);
+          $('#d-out').value = JSON.stringify(d.output_rules || []);
+          $('#d-self').checked = !!d.self_check;
+          $('#d-cap').value = String(d.max_input_chars || 0);
+        };
+      });
       tr.after(detail);
     };
   });
@@ -935,7 +1062,12 @@ async function loadPickers() {
     } catch { $('#f-cost-hint').textContent = ''; }
   }
   $('#f-defense').addEventListener('change', updateCostHint);
-  $('#f-custom-def').addEventListener('input', updateCostHint);
+  $('#f-custom-def').addEventListener('input', () => {
+    updateCostHint();
+    const hasCustomDef = !!$('#f-custom-def').value.trim();
+    $('#f-all-defenses').disabled = hasCustomDef;
+    if (hasCustomDef) $('#f-all-defenses').checked = false;
+  });
   updateCostHint();
   if (window._pendingFightPair) {
     const pair = window._pendingFightPair;
@@ -948,6 +1080,7 @@ async function loadPickers() {
 
 $('#f-go').onclick = async () => {
   $('#f-status').textContent = 'firing…'; $('#f-out').innerHTML = '';
+  $('#f-gauntlet-progress').textContent = '';
   try {
     const customText = $('#f-custom').value.trim();
     const customDefText = $('#f-custom-def').value.trim();
@@ -955,6 +1088,37 @@ $('#f-go').onclick = async () => {
     const attackArg = customText
       ? {prompt: customText, name: 'ad-hoc', goal: '', markers: []}
       : attackId;
+    const gauntlet = $('#f-all-defenses').checked && !customDefText;
+    if (gauntlet) {
+      const {defenses} = await api('/defenses');
+      if (!defenses || !defenses.length) {
+        $('#f-status').textContent = ''; $('#f-out').innerHTML = '<span class="muted">no defenses in corpus</span>';
+        return;
+      }
+      let done = 0;
+      const n = defenses.length;
+      $('#f-gauntlet-progress').textContent = `0/${n}`;
+      const results = await Promise.all(defenses.map(d =>
+        post('/fight', {attack: attackArg, defense: d.id,
+          model: $('#f-model').value.trim(), judge: $('#f-judge').value})
+          .then(m => { done++; $('#f-gauntlet-progress').textContent = `${done}/${n}`; return {d, m}; })
+          .catch(e => { done++; $('#f-gauntlet-progress').textContent = `${done}/${n}`; return {d, m: {verdict:'ERROR', reason: e.message, blocked_at:'', model_calls:0, ms:0}}; })
+      ));
+      $('#f-status').textContent = '';
+      const rows = results.map(({d, m}) =>
+        `<tr>
+          <td>${esc(d.name || d.id)}</td>
+          <td><span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span></td>
+          <td>${esc(m.blocked_at || 'model')}</td>
+          <td class="muted" style="max-width:260px;white-space:normal">${esc(m.reason || m.error || '')}</td>
+          <td class="num">${m.model_calls || 0}</td>
+          <td class="num">${m.ms || 0}</td>
+        </tr>`).join('');
+      $('#f-out').innerHTML = `<table style="width:auto;margin-top:10px">
+        <tr><th>Defense</th><th>Verdict</th><th>Stopped at</th><th>Reason</th><th>Calls</th><th>ms</th></tr>
+        ${rows}</table>`;
+      return;
+    }
     const defenseArg = customDefText
       ? {name: 'ad-hoc', system_prompt: customDefText, input_rules: [], output_rules: []}
       : $('#f-defense').value;
@@ -1017,7 +1181,51 @@ $('#f-go').onclick = async () => {
 async function loadGames() {
   const data = await api('/games?limit=20').catch(() => ({games: []}));
   const games = data.games || [];
-  $('#game-list').innerHTML = games.length ? `<table>
+
+  let standingsHtml = '';
+  if (games.length >= 2) {
+    const blueStats = {}, redStats = {};
+    for (const g of games) {
+      if (g.blue) {
+        if (!blueStats[g.blue]) blueStats[g.blue] = {games: 0, wins: 0, totalPts: 0, ptsGames: 0};
+        blueStats[g.blue].games++;
+        if (g.winner === 'blue') blueStats[g.blue].wins++;
+        if (g.totals) { blueStats[g.blue].totalPts += g.totals.blue; blueStats[g.blue].ptsGames++; }
+      }
+      if (g.red) {
+        if (!redStats[g.red]) redStats[g.red] = {games: 0, wins: 0, totalPts: 0, ptsGames: 0};
+        redStats[g.red].games++;
+        if (g.winner === 'red') redStats[g.red].wins++;
+        if (g.totals) { redStats[g.red].totalPts += g.totals.red; redStats[g.red].ptsGames++; }
+      }
+    }
+    const mkTable = (stats, color) => {
+      const rows = Object.entries(stats)
+        .map(([agent, s]) => ({
+          agent, games: s.games, wins: s.wins,
+          winPct: s.games ? s.wins / s.games : 0,
+          avgPts: s.ptsGames ? s.totalPts / s.ptsGames : null,
+        }))
+        .sort((a, b) => b.winPct - a.winPct || b.wins - a.wins)
+        .slice(0, 8);
+      if (!rows.length) return '<span class="muted">—</span>';
+      return `<table><tr><th>agent</th><th class="num">games</th><th class="num">wins</th>`
+        + `<th class="num">win%</th><th class="num">avg score</th></tr>`
+        + rows.map(r =>
+            `<tr><td style="color:${color}">${esc(r.agent)}</td>`
+            + `<td class="num">${r.games}</td><td class="num">${r.wins}</td>`
+            + `<td class="num">${(r.winPct * 100).toFixed(0)}%</td>`
+            + `<td class="num">${r.avgPts != null ? r.avgPts.toFixed(2) : '—'}</td></tr>`
+          ).join('')
+        + '</table>';
+    };
+    standingsHtml = `<div class="grid" style="margin-bottom:14px">`
+      + `<div class="panel"><h2 style="color:var(--blue)">blue — standings</h2>${mkTable(blueStats, 'var(--blue)')}</div>`
+      + `<div class="panel"><h2 style="color:var(--red)">red — standings</h2>${mkTable(redStats, 'var(--red)')}</div>`
+      + `</div>`;
+  }
+
+  $('#game-list').innerHTML = standingsHtml + (games.length ? `<table>
     <tr><th>game</th><th>blue</th><th>red</th><th>model</th>
         <th class="num">turns</th><th class="num">blue pts</th>
         <th class="num">red pts</th><th>winner</th></tr>
@@ -1034,7 +1242,7 @@ async function loadGames() {
               : g.winner === 'red' ? 'var(--red)' : 'var(--dim)'}">${esc(g.winner)}</b>`
           : `<span class="flash">${esc(g.status || '')}</span>`}</td>
     </tr>`).join('')}
-  </table>` : '<span class="muted">no games yet.</span>';
+  </table>` : '<span class="muted">no games yet.</span>');
   document.querySelectorAll('#game-list tr[data-gid]').forEach(
     tr => tr.onclick = () => fetchAndShowGame(tr.dataset.gid));
 }
@@ -1068,6 +1276,70 @@ function gameChart(g, turns) {
     + `<polyline points="${rLine}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-linejoin="round"/>`
     + dots
     + `</svg></div>`;
+}
+
+function defenseProgressionChart(defs) {
+  // defs: b.blue entries with ≥2 history points
+  const W = 480, H = 80, PX = 10, PY = 8;
+  const LO = -0.2, HI = 1.0, RNG = HI - LO;
+  const sy = v => PY + (1 - (Math.max(LO, Math.min(HI, v)) - LO) / RNG) * H;
+  const y0 = sy(0);
+  const colors = defs.map((d, i) => d.builtin ? 'var(--blue)' : `hsl(${(i * 67) % 360},70%,55%)`);
+  const lines = defs.map((d, i) => {
+    const n = d.history.length;
+    const sx = j => PX + (n > 1 ? j * W / (n - 1) : W / 2);
+    const pts = d.history.map((v, j) => `${sx(j)},${sy(v)}`).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${colors[i]}" stroke-width="1.5" stroke-linejoin="round"/>`;
+  }).join('');
+  const legend = defs.map((d, i) =>
+    `<span style="color:${colors[i]};margin-right:10px">&#9632; ${esc(d.name || d.defense)}</span>`
+  ).join('');
+  return `<div style="margin:6px 0 10px">`
+    + `<div style="font-size:11px;margin-bottom:6px">${legend}</div>`
+    + `<svg viewBox="0 0 500 ${H + PY * 2}" style="width:100%;max-width:500px;display:block">`
+    + `<line x1="${PX}" y1="${y0}" x2="${PX + W}" y2="${y0}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3,3"/>`
+    + `<text x="${PX + W - 2}" y="${y0 - 3}" text-anchor="end" font-size="9" fill="var(--dim)">score=0</text>`
+    + lines
+    + `</svg></div>`;
+}
+
+function defenseProfileChart(defs) {
+  const CX = 130, CY = 130, R = 90;
+  const colors = defs.map((d, i) => `hsl(${(i * 67) % 360},70%,55%)`);
+  const grids = [0.25, 0.5, 0.75].map(f => {
+    const r = f * R;
+    return `<polygon points="${CX},${CY - r} ${CX + r},${CY} ${CX},${CY + r} ${CX - r},${CY}" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="3,3"/>`;
+  }).join('');
+  const axisLines = [
+    `<line x1="${CX}" y1="${CY}" x2="${CX}" y2="${CY - R}" stroke="var(--line)" stroke-width="1"/>`,
+    `<line x1="${CX}" y1="${CY}" x2="${CX + R}" y2="${CY}" stroke="var(--line)" stroke-width="1"/>`,
+    `<line x1="${CX}" y1="${CY}" x2="${CX}" y2="${CY + R}" stroke="var(--line)" stroke-width="1"/>`,
+    `<line x1="${CX}" y1="${CY}" x2="${CX - R}" y2="${CY}" stroke="var(--line)" stroke-width="1"/>`,
+  ].join('');
+  const axisLabels = [
+    `<text x="${CX}" y="${CY - R - 8}" text-anchor="middle" font-size="9" fill="var(--dim)">safety</text>`,
+    `<text x="${CX + R + 6}" y="${CY + 4}" text-anchor="start" font-size="9" fill="var(--dim)">refusal</text>`,
+    `<text x="${CX}" y="${CY + R + 14}" text-anchor="middle" font-size="9" fill="var(--dim)">friendly</text>`,
+    `<text x="${CX - R - 6}" y="${CY + 4}" text-anchor="end" font-size="9" fill="var(--dim)">solid</text>`,
+  ].join('');
+  const polygons = defs.map((d, i) => {
+    const s  = Math.max(0, Math.min(1, d.safety_score || 0));
+    const rf = Math.max(0, Math.min(1, d.refusal_rate || 0));
+    const fr = Math.max(0, Math.min(1, 1 - (d.over_refusal || 0)));
+    const sl = Math.max(0, Math.min(1, 1 - (d.breach_rate || 0)));
+    const pts = `${CX},${CY - s * R} ${CX + rf * R},${CY} ${CX},${CY + fr * R} ${CX - sl * R},${CY}`;
+    const col = colors[i];
+    return `<polygon points="${pts}" fill="${col}" fill-opacity="0.18" stroke="${col}" stroke-width="1.5"/>`;
+  }).join('');
+  const legend = defs.map((d, i) =>
+    `<span style="color:${colors[i]};margin-right:10px">&#9632; ${esc(d.name || d.defense)}</span>`
+  ).join('');
+  return `<div style="margin:6px 0 10px">`
+    + `<svg viewBox="-15 -15 290 290" style="width:100%;max-width:280px;display:block">`
+    + grids + axisLines + axisLabels + polygons
+    + `</svg>`
+    + `<div style="font-size:11px;margin-top:6px">${legend}</div>`
+    + `</div>`;
 }
 
 async function fetchAndShowGame(id) {

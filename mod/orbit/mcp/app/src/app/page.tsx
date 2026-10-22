@@ -149,13 +149,15 @@ function SchemaForm({
   );
 }
 
-function ToolRow({ tool }: { tool: Tool }) {
+function ToolRow({ tool, onSelectServer }: { tool: Tool; onSelectServer?: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const [raw, setRaw] = useState(false);
   const [args, setArgs] = useState("{}");
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
-  const [out, setOut] = useState<string | null>(null);
+  const [out, setOut] = useState<{ display: string; raw: string } | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [curlCopied, setCurlCopied] = useState(false);
 
   const schemaProps = tool.inputSchema?.properties as Record<string, PropSchema> | undefined;
   const schemaRequired = (tool.inputSchema?.required as string[] | undefined) || [];
@@ -183,26 +185,57 @@ function ToolRow({ tool }: { tool: Tool }) {
     let parsed: unknown;
     if (hasSchema && !raw) {
       const r = buildFromForm();
-      if (!r.ok) { setOut(r.err); return; }
+      if (!r.ok) { setOut({ display: r.err, raw: r.err }); return; }
       parsed = r.val;
     } else {
       try {
         parsed = JSON.parse(args || "{}");
       } catch {
-        setOut("args must be valid JSON");
+        setOut({ display: "args must be valid JSON", raw: "args must be valid JSON" });
         return;
       }
     }
     setBusy(true);
     setOut(null);
+    setShowRaw(false);
     try {
       const r = await api.call(tool.name, parsed);
-      setOut(JSON.stringify(r.result, null, 2));
+      const rawStr = JSON.stringify(r.result, null, 2);
+      const res = r.result as Record<string, unknown> | null | undefined;
+      let displayStr = rawStr;
+      if (res?.structuredContent != null) {
+        displayStr = JSON.stringify(res.structuredContent, null, 2);
+      } else if (
+        Array.isArray(res?.content) &&
+        (res!.content as unknown[]).every((item) => (item as { type?: string }).type === "text")
+      ) {
+        displayStr = (res!.content as { text: string }[]).map((item) => item.text).join("\n");
+      }
+      setOut({ display: displayStr, raw: rawStr });
     } catch (e) {
-      setOut(String((e as Error).message || e));
+      const msg = String((e as Error).message || e);
+      setOut({ display: msg, raw: msg });
     } finally {
       setBusy(false);
     }
+  };
+
+  const copyCurl = () => {
+    let parsedArgs: unknown;
+    if (hasSchema && !raw) {
+      const r = buildFromForm();
+      parsedArgs = r.ok ? r.val : {};
+    } else {
+      try { parsedArgs = JSON.parse(args || "{}"); } catch { parsedArgs = {}; }
+    }
+    const body = JSON.stringify({ tool: tool.name, args: parsedArgs });
+    const token = getToken();
+    const authHeader = token ? ` -H "Authorization: Bearer ${token}"` : "";
+    const cmd = `curl -s -X POST "${window.location.origin}/mcp/api/call" -H "Content-Type: application/json"${authHeader} -d '${body}'`;
+    navigator.clipboard?.writeText(cmd).then(() => {
+      setCurlCopied(true);
+      setTimeout(() => setCurlCopied(false), 1200);
+    });
   };
 
   const switchToRaw = () => {
@@ -218,7 +251,21 @@ function ToolRow({ tool }: { tool: Tool }) {
         style={{ cursor: "pointer", justifyContent: "space-between" }}
         onClick={() => setOpen(!open)}
       >
-        <span className="name">{tool.name}</span>
+        <span className="row" style={{ gap: 6, alignItems: "center" }}>
+          {onSelectServer && tool.name.includes("__") && (() => {
+            const prefix = tool.name.split("__")[0];
+            return (
+              <button
+                className="sm ghost"
+                style={{ fontSize: 11, padding: "1px 6px" }}
+                onClick={(e) => { e.stopPropagation(); onSelectServer(prefix); }}
+              >
+                {prefix}
+              </button>
+            );
+          })()}
+          <span className="name">{tool.name}</span>
+        </span>
         <span className="muted small">{open ? "▾" : "▸"}</span>
       </div>
       {tool.description && <div className="d">{tool.description}</div>}
@@ -237,6 +284,9 @@ function ToolRow({ tool }: { tool: Tool }) {
                   raw JSON
                 </button>
                 <div style={{ flex: 1 }} />
+                <button className="sm ghost" disabled={busy} onClick={copyCurl}>
+                  {curlCopied ? "copied!" : "curl"}
+                </button>
                 <button className="primary sm" disabled={busy} onClick={run}>
                   {busy ? "running…" : "run"}
                 </button>
@@ -256,6 +306,9 @@ function ToolRow({ tool }: { tool: Tool }) {
                   onChange={(e) => setArgs(e.target.value)}
                   placeholder='{"arg": "value"}'
                 />
+                <button className="sm ghost" disabled={busy} onClick={copyCurl}>
+                  {curlCopied ? "copied!" : "curl"}
+                </button>
                 <button className="primary sm" disabled={busy} onClick={run}>
                   {busy ? "running…" : "run"}
                 </button>
@@ -268,9 +321,19 @@ function ToolRow({ tool }: { tool: Tool }) {
             </>
           )}
           {out !== null && (
-            <pre className="code" style={{ maxHeight: 280 }}>
-              {out}
-            </pre>
+            <div className="col" style={{ position: "relative" }}>
+              <pre className="code" style={{ maxHeight: 280 }}>
+                {showRaw ? out.raw : out.display}
+              </pre>
+              <div style={{ position: "absolute", top: 4, right: 4, display: "flex", gap: 4 }}>
+                {out.display !== out.raw && (
+                  <button className="sm ghost" onClick={() => setShowRaw(!showRaw)}>
+                    {showRaw ? "text" : "raw"}
+                  </button>
+                )}
+                <Copy text={showRaw ? out.raw : out.display} />
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -657,6 +720,9 @@ function AddSheet({
   const [paste, setPaste] = useState("");
   const [found, setFound] = useState<Candidate[] | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState("");
+  const [bulkResults, setBulkResults] = useState<{ id: string; ok: boolean; error?: string }[]>([]);
 
   const doParse = async () => {
     setBusy("parse");
@@ -681,6 +747,34 @@ function AddSheet({
     setName(c.name);
     if (c.note) setNote(c.note);
     if (c.headers && Object.keys(c.headers).length) setHeaders(JSON.stringify(c.headers, null, 2));
+  };
+
+  const doAddAll = async () => {
+    if (!found || found.length < 2) return;
+    setBulkBusy(true);
+    setBulkProgress("");
+    setBulkResults([]);
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (let i = 0; i < found.length; i++) {
+      const c = found[i];
+      setBulkProgress(`adding ${i + 1} of ${found.length}: ${c.name || c.id}…`);
+      try {
+        await api.addServer({ url: c.url, id: c.id, name: c.name, headers: c.headers });
+        results.push({ id: c.id, ok: true });
+      } catch (e) {
+        results.push({ id: c.id, ok: false, error: String((e as Error).message || e) });
+      }
+    }
+    setBulkResults(results);
+    const okCount = results.filter((r) => r.ok).length;
+    const failed = results.filter((r) => !r.ok);
+    setBulkProgress(
+      failed.length
+        ? `${okCount} of ${found.length} registered, ${failed.length} failed: ${failed.map((r) => r.id).join(", ")}`
+        : `${okCount} of ${found.length} registered`
+    );
+    setBulkBusy(false);
+    onAdded();
   };
 
   useEffect(() => {
@@ -809,16 +903,28 @@ function AddSheet({
             {found?.length === 0 && <span className="muted small">nothing registrable in there</span>}
           </div>
           {found && found.length > 1 && (
-            <div className="toollist">
-              {found.map((c) => (
-                <div key={c.url} className="tool" style={{ cursor: "pointer" }} onClick={() => useCandidate(c)}>
-                  <div className="row" style={{ justifyContent: "space-between" }}>
-                    <span className="name">{c.id}</span>
-                    <span className="badge plain">{c.kind}</span>
+            <div className="col" style={{ gap: 6 }}>
+              <div className="toollist">
+                {found.map((c) => (
+                  <div key={c.url} className="tool" style={{ cursor: "pointer" }} onClick={() => useCandidate(c)}>
+                    <div className="row" style={{ justifyContent: "space-between" }}>
+                      <span className="name">{c.id}</span>
+                      <span className="badge plain">{c.kind}</span>
+                    </div>
+                    <div className="d">{c.url}</div>
                   </div>
-                  <div className="d">{c.url}</div>
-                </div>
-              ))}
+                ))}
+              </div>
+              <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                <button className="sm primary" disabled={bulkBusy || !!busy} onClick={doAddAll}>
+                  {bulkBusy ? bulkProgress : `register all ${found.length} servers`}
+                </button>
+                {!bulkBusy && bulkProgress && (
+                  <span className={`small ${bulkResults.some((r) => !r.ok) ? "warn" : "muted"}`}>
+                    {bulkProgress}
+                  </span>
+                )}
+              </div>
             </div>
           )}
           {warnings.map((w) => (
@@ -938,7 +1044,7 @@ function AddSheet({
 
 /* ── tools search sheet ──────────────────────────────────────────── */
 
-function ToolsSheet({ onClose, initialQ }: { onClose: () => void; initialQ?: string }) {
+function ToolsSheet({ onClose, initialQ, onSelectServer }: { onClose: () => void; initialQ?: string; onSelectServer?: (id: string) => void }) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [q, setQ] = useState(initialQ || "");
   const [busy, setBusy] = useState(true);
@@ -998,7 +1104,7 @@ function ToolsSheet({ onClose, initialQ }: { onClose: () => void; initialQ?: str
         {!busy && !error && (
           <div className="toollist" style={{ marginTop: 12 }}>
             {shown.map((t) => (
-              <ToolRow key={t.name} tool={t} />
+              <ToolRow key={t.name} tool={t} onSelectServer={onSelectServer} />
             ))}
             {shown.length === 0 && tools.length > 0 && (
               <div className="muted small">no tools matched that filter</div>
@@ -1807,8 +1913,10 @@ function CmdPalette({
   onSearchWeb: () => void;
 }) {
   const [q, setQ] = useState("");
+  const [activeIdx, setActiveIdx] = useState(0);
   const [tools, setTools] = useState<Tool[]>(() => toolsCache.current || []);
   const inputRef = useRef<HTMLInputElement>(null);
+  const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -1825,6 +1933,10 @@ function CmdPalette({
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
+
+  useEffect(() => {
+    rowRefs.current[activeIdx]?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx]);
 
   const lq = q.toLowerCase();
 
@@ -1854,6 +1966,12 @@ function CmdPalette({
   ];
 
   const filteredStatic = q ? STATIC.filter((c) => c.label.includes(lq)) : STATIC;
+
+  const items = [
+    ...filteredServers.map((s) => ({ fn: () => { onSelectServer(s.id); onClose(); } })),
+    ...filteredTools.map((t) => ({ fn: () => { onSearchTools(t.name); onClose(); } })),
+    ...filteredStatic.map((c) => ({ fn: c.fn })),
+  ];
 
   const rowStyle: React.CSSProperties = {
     width: "100%", textAlign: "left", border: "none", borderRadius: 0,
@@ -1891,7 +2009,19 @@ function CmdPalette({
               borderRadius: 0, padding: 0, fontSize: 15, outline: "none",
             }}
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => { setQ(e.target.value); setActiveIdx(0); }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setActiveIdx((i) => Math.min(i + 1, items.length - 1));
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setActiveIdx((i) => Math.max(i - 1, 0));
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                items[activeIdx]?.fn();
+              }
+            }}
             placeholder="search servers, tools, commands…"
           />
         </div>
@@ -1900,8 +2030,8 @@ function CmdPalette({
           {filteredServers.length > 0 && (
             <div>
               <div style={sectionLabel}>Servers</div>
-              {filteredServers.map((s) => (
-                <button key={s.id} style={rowStyle} onClick={() => { onSelectServer(s.id); onClose(); }}>
+              {filteredServers.map((s, i) => (
+                <button key={s.id} ref={(el) => { rowRefs.current[i] = el; }} style={{ ...rowStyle, background: activeIdx === i ? "var(--hover)" : "transparent" }} onClick={() => { onSelectServer(s.id); onClose(); }}>
                   <span style={{ color: s.probe.ok ? "var(--good)" : "var(--bad)", fontSize: 10 }}>●</span>
                   <span style={{ flex: 1 }}>{s.name}</span>
                   <span className="mono" style={{ fontSize: 11, color: "var(--ink-mute)" }}>{s.id}</span>
@@ -1913,12 +2043,13 @@ function CmdPalette({
           {filteredTools.length > 0 && (
             <div>
               <div style={sectionLabel}>Tools</div>
-              {filteredTools.map((t) => {
+              {filteredTools.map((t, i) => {
+                const fi = filteredServers.length + i;
                 const sep = t.name.indexOf("__");
                 const srv = sep > -1 ? t.name.slice(0, sep) : null;
                 const tname = sep > -1 ? t.name.slice(sep + 2) : t.name;
                 return (
-                  <button key={t.name} style={rowStyle} onClick={() => { onSearchTools(t.name); onClose(); }}>
+                  <button key={t.name} ref={(el) => { rowRefs.current[fi] = el; }} style={{ ...rowStyle, background: activeIdx === fi ? "var(--hover)" : "transparent" }} onClick={() => { onSearchTools(t.name); onClose(); }}>
                     <span className="mono" style={{ flex: 1, fontSize: 13 }}>{tname}</span>
                     {srv && <span className="mono" style={{ fontSize: 11, color: "var(--ink-mute)" }}>{srv}</span>}
                     {t.description && (
@@ -1934,11 +2065,14 @@ function CmdPalette({
           {filteredStatic.length > 0 && (
             <div>
               <div style={sectionLabel}>Actions</div>
-              {filteredStatic.map((c) => (
-                <button key={c.label} style={rowStyle} onClick={c.fn}>
-                  {c.label}
-                </button>
-              ))}
+              {filteredStatic.map((c, i) => {
+                const fi = filteredServers.length + filteredTools.length + i;
+                return (
+                  <button key={c.label} ref={(el) => { rowRefs.current[fi] = el; }} style={{ ...rowStyle, background: activeIdx === fi ? "var(--hover)" : "transparent" }} onClick={c.fn}>
+                    {c.label}
+                  </button>
+                );
+              })}
             </div>
           )}
           {filteredServers.length === 0 && filteredTools.length === 0 && filteredStatic.length === 0 && q && (
@@ -1954,6 +2088,7 @@ function CmdPalette({
         }}>
           <span>&#8984;K toggle</span>
           <span>esc close</span>
+          <span>&#8593;&#8595; navigate · &#8629; select</span>
         </div>
       </div>
     </div>
@@ -1980,6 +2115,7 @@ export default function Page() {
   const [loadError, setLoadError] = useState("");
   const [gridFilter, setGridFilter] = useState("");
   const [gridSort, setGridSort] = useState("name");
+  const [recentlyActive, setRecentlyActive] = useState<Set<string>>(new Set());
 
   const load = useCallback(() => {
     api
@@ -2008,8 +2144,29 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    const stop = api.streamActivity(() => {
+    const stop = api.streamActivity((entry) => {
       setActivityTotal((prev) => prev + 1);
+      setServers((prev) =>
+        prev
+          ? prev.map((s) =>
+              s.id === entry.server
+                ? { ...s, calls: (s.calls ?? 0) + 1, last_call: entry.ts }
+                : s
+            )
+          : prev
+      );
+      setRecentlyActive((prev) => {
+        const next = new Set(prev);
+        next.add(entry.server);
+        return next;
+      });
+      setTimeout(() => {
+        setRecentlyActive((prev) => {
+          const next = new Set(prev);
+          next.delete(entry.server);
+          return next;
+        });
+      }, 1500);
     });
     return stop;
   }, []);
@@ -2294,7 +2451,7 @@ export default function Page() {
         <div className="grid">
           {servers === null && [0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="skel" />)}
           {shown?.map((s) => (
-            <div key={s.id} className="card" style={{ opacity: s.enabled ? 1 : 0.45 }} onClick={() => setSel(s.id)}>
+            <div key={s.id} className={`card${recentlyActive.has(s.id) ? " card-active" : ""}`} style={{ opacity: s.enabled ? 1 : 0.45 }} onClick={() => setSel(s.id)}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <h3>
                   <span style={{ color: s.probe.ok ? "var(--good)" : "var(--bad)", marginRight: 6 }}>●</span>
@@ -2390,6 +2547,7 @@ export default function Page() {
         <ToolsSheet
           initialQ={toolsInitQ}
           onClose={() => { setToolsOpen(false); setToolsInitQ(undefined); }}
+          onSelectServer={(id) => { setToolsOpen(false); setSel(id); }}
         />
       )}
       {activityOpen && <ActivitySheet onClose={() => setActivityOpen(false)} />}

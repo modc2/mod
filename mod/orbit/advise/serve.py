@@ -53,7 +53,7 @@ MOD = _anchor.Mod(local=False)
 
 READ_FNS = ('info', 'health', 'readme', 'modules', 'tree', 'file', 'grep',
             'brief', 'recs', 'rec', 'inbox', 'outbox')
-WRITE_FNS = ('recommend', 'approve', 'reject', 'withdraw', 'comment', 'relay')
+WRITE_FNS = ('recommend', 'approve', 'reject', 'withdraw', 'comment', 'relay', 'update')
 API_FNS = READ_FNS + WRITE_FNS
 
 INTS = ('depth', 'limit', 'lines', 'start')

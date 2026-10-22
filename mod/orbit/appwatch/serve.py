@@ -29,6 +29,7 @@ MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(MODULE_DIR, 'web')
 BUILD_CONFIG = os.path.join(MODULE_DIR, '..', 'build', 'config.json')
 HISTORY_FILE = os.path.expanduser('~/.mod/appwatch/history.jsonl')
+PROBES_FILE = os.path.expanduser('~/.mod/appwatch/probes.json')
 
 
 def _load(path):
@@ -47,6 +48,10 @@ _history = collections.deque(maxlen=500)
 
 _sse_clients: set = set()
 _sse_lock = threading.Lock()
+
+_probes: list = []
+_probe_hist: dict = {}
+_probes_lock = threading.Lock()
 
 
 def _load_history():
@@ -95,7 +100,7 @@ def _poll_status():
             c = data.get('last_check')
             if c != last_c:
                 last_c = c
-                entry = {'t': int(time.time()), 'up': data.get('up'), 'c': c, 'ms': ms}
+                entry = {'t': int(time.time()), 'up': data.get('up'), 'c': c, 'ms': ms if data.get('up') else None}
                 _history.append(entry)
                 _append_history_entry(entry)
                 count += 1
@@ -115,8 +120,70 @@ def _poll_status():
         time.sleep(5)
 
 
-def _daily_stats():
-    days = {}
+def _load_probes():
+    global _probes
+    try:
+        with open(PROBES_FILE) as f:
+            loaded = json.load(f)
+        if isinstance(loaded, list):
+            with _probes_lock:
+                _probes = loaded
+                for p in _probes:
+                    if p.get('id') and p['id'] not in _probe_hist:
+                        _probe_hist[p['id']] = collections.deque(maxlen=200)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+
+def _save_probes():
+    try:
+        os.makedirs(os.path.dirname(PROBES_FILE), exist_ok=True)
+        with _probes_lock:
+            data = list(_probes)
+        with open(PROBES_FILE, 'w') as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+def _poll_probes():
+    while True:
+        with _probes_lock:
+            probes_snap = list(_probes)
+        for p in probes_snap:
+            pid = p.get('id')
+            if not pid:
+                continue
+            try:
+                t0 = time.time()
+                with urllib.request.urlopen(p['url'], timeout=4) as r:
+                    status = r.status
+                ms = int((time.time() - t0) * 1000)
+                up = status < 400
+            except Exception:
+                ms = None
+                up = False
+            entry = {'t': int(time.time()), 'up': up, 'ms': ms}
+            with _probes_lock:
+                if pid not in _probe_hist:
+                    continue
+                _probe_hist[pid].append(entry)
+            payload = b'event: probe\ndata: ' + json.dumps({'id': pid, 'entry': entry}).encode() + b'\n\n'
+            with _sse_lock:
+                dead = set()
+                for q in _sse_clients:
+                    try:
+                        q.put_nowait(payload)
+                    except queue.Full:
+                        dead.add(q)
+                _sse_clients -= dead
+        time.sleep(5)
+
+
+def _daily_stats(days=90):
+    by_day = {}
     try:
         with open(HISTORY_FILE) as f:
             for line in f:
@@ -128,14 +195,14 @@ def _daily_stats():
                     d = datetime.datetime.utcfromtimestamp(t)
                     key = d.strftime('%Y-%m-%d')
                     label = d.strftime('%b') + ' ' + str(d.day)
-                    if key not in days:
-                        days[key] = {'label': label, 'total': 0, 'up_count': 0, 'ms_vals': []}
-                    days[key]['total'] += 1
+                    if key not in by_day:
+                        by_day[key] = {'label': label, 'total': 0, 'up_count': 0, 'ms_vals': []}
+                    by_day[key]['total'] += 1
                     if e.get('up'):
-                        days[key]['up_count'] += 1
+                        by_day[key]['up_count'] += 1
                     ms = e.get('ms')
                     if ms is not None:
-                        days[key]['ms_vals'].append(ms)
+                        by_day[key]['ms_vals'].append(ms)
                 except Exception:
                     pass
     except FileNotFoundError:
@@ -143,14 +210,15 @@ def _daily_stats():
     except Exception:
         pass
     result = []
-    for key in sorted(days.keys(), reverse=True)[:7]:
-        v = days[key]
+    for key in sorted(by_day.keys())[-days:]:
+        v = by_day[key]
         ms_vals = sorted(v['ms_vals'])
         n = len(ms_vals)
         avg_ms = round(sum(ms_vals) / n) if n else None
         p95_ms = ms_vals[int(n * 0.95)] if n >= 20 else None
         uptime_pct = round(v['up_count'] / v['total'] * 100, 2) if v['total'] else 0.0
         result.append({
+            'key': key,
             'date': v['label'],
             'total': v['total'],
             'up_count': v['up_count'],
@@ -159,6 +227,101 @@ def _daily_stats():
             'p95_ms': p95_ms,
         })
     return result
+
+
+def _hourly_stats():
+    now = int(time.time())
+    cutoff = now - 86400
+    hours = {}
+    try:
+        with open(HISTORY_FILE) as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                    t = e.get('t')
+                    if t is None or t < cutoff:
+                        continue
+                    h = (t // 3600) * 3600
+                    if h not in hours:
+                        dt = datetime.datetime.utcfromtimestamp(h)
+                        hours[h] = {'hour': h, 'label': dt.strftime('%H:%M'), 'total': 0, 'up_count': 0, 'ms_vals': []}
+                    hours[h]['total'] += 1
+                    if e.get('up'):
+                        hours[h]['up_count'] += 1
+                    ms = e.get('ms')
+                    if ms is not None:
+                        hours[h]['ms_vals'].append(ms)
+                except Exception:
+                    pass
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    result = []
+    for h in sorted(hours.keys())[-24:]:
+        v = hours[h]
+        ms_vals = v['ms_vals']
+        avg_ms = round(sum(ms_vals) / len(ms_vals)) if ms_vals else None
+        uptime_pct = round(v['up_count'] / v['total'] * 100, 2) if v['total'] else 0.0
+        result.append({
+            'hour': v['hour'],
+            'label': v['label'],
+            'total': v['total'],
+            'uptime_pct': uptime_pct,
+            'avg_ms': avg_ms,
+        })
+    return result
+
+
+def _compute_incidents(tolerance_s=30):
+    spans = []
+    cur = None
+    all_ms = []
+    try:
+        with open(HISTORY_FILE) as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                    t = e.get('t')
+                    if t is None:
+                        continue
+                    ms = e.get('ms')
+                    if ms is not None:
+                        all_ms.append(ms)
+                    if e.get('up') is False:
+                        if cur is None:
+                            cur = {'start': t, '_last': t}
+                        elif t - cur['_last'] > tolerance_s:
+                            spans.append({'start': cur['start'], 'end': cur['_last'], 'duration_s': cur['_last'] - cur['start']})
+                            cur = {'start': t, '_last': t}
+                        else:
+                            cur['_last'] = t
+                    else:
+                        if cur is not None:
+                            spans.append({'start': cur['start'], 'end': t, 'duration_s': t - cur['start']})
+                            cur = None
+                except Exception:
+                    pass
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    if cur is not None:
+        now = int(time.time())
+        spans.append({'start': cur['start'], 'end': None, 'duration_s': now - cur['start']})
+    total_down_s = sum(s['duration_s'] for s in spans)
+    resolved = [s for s in spans if s['end'] is not None]
+    mttr_s = round(sum(s['duration_s'] for s in resolved) / len(resolved)) if resolved else None
+    all_ms_sorted = sorted(all_ms)
+    n = len(all_ms_sorted)
+    p95_ms = all_ms_sorted[int(n * 0.95)] if n >= 20 else None
+    return {
+        'incidents': spans,
+        'total_incidents': len(spans),
+        'total_down_s': total_down_s,
+        'mttr_s': mttr_s,
+        'p95_ms': p95_ms,
+    }
 
 
 def info():
@@ -279,24 +442,102 @@ class Handler(SimpleHTTPRequestHandler):
         if path in ('/history', '/api/history'):
             return self._json(list(_history))
         if path in ('/daily', '/api/daily'):
-            return self._json(_daily_stats())
+            qs = urlparse(self.path).query
+            days_n = 90
+            for part in qs.split('&'):
+                if part.startswith('days='):
+                    try:
+                        days_n = max(1, min(365, int(part[5:])))
+                    except ValueError:
+                        pass
+            return self._json(_daily_stats(days_n))
+        if path in ('/hourly', '/api/hourly'):
+            return self._json(_hourly_stats())
+        if path in ('/incidents', '/api/incidents'):
+            return self._json(_compute_incidents())
         if path == '/badge.svg':
             return self._svg(_build_badge(), max_age=8)
+        if path in ('/public',):
+            self.path = '/public.html'
+            return super().do_GET()
         if path in ('/stream', '/api/stream'):
             if self.command == 'HEAD':
                 return self._json({'ok': True})
             return self._sse()
+        if path in ('/probes', '/api/probes'):
+            with _probes_lock:
+                result = []
+                for p in _probes:
+                    h = list(_probe_hist.get(p['id'], []))
+                    result.append({**p, 'last': h[-1] if h else None})
+            return self._json(result)
         self.path = path
         return super().do_GET()
 
     do_HEAD = do_GET
 
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if path.startswith(PREFIX + '/'):
+            path = path[len(PREFIX):]
+        elif path.startswith('/api' + PREFIX):
+            path = path[len('/api' + PREFIX):] or '/'
+        if path in ('/probes', '/api/probes'):
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length)
+            try:
+                data = json.loads(body)
+            except Exception:
+                return self._json({'error': 'invalid json'}, 400)
+            url = (data.get('url') or '').strip()
+            label = (data.get('label') or '').strip()
+            if not url:
+                return self._json({'error': 'url required'}, 400)
+            pid = f'p{int(time.time() * 1000)}'
+            probe = {'id': pid, 'url': url, 'label': label or url}
+            with _probes_lock:
+                _probes.append(probe)
+                _probe_hist[pid] = collections.deque(maxlen=200)
+            _save_probes()
+            return self._json(probe)
+        return self._json({'error': 'not found'}, 404)
+
+    def do_DELETE(self):
+        path = urlparse(self.path).path
+        if path.startswith(PREFIX + '/'):
+            path = path[len(PREFIX):]
+        elif path.startswith('/api' + PREFIX):
+            path = path[len('/api' + PREFIX):] or '/'
+        if path.startswith('/probes/'):
+            pid = path[len('/probes/'):]
+            if pid:
+                removed = False
+                with _probes_lock:
+                    before = len(_probes)
+                    _probes[:] = [p for p in _probes if p.get('id') != pid]
+                    _probe_hist.pop(pid, None)
+                    removed = len(_probes) < before
+                if removed:
+                    _save_probes()
+                    return self._json({'ok': True})
+        return self._json({'error': 'not found'}, 404)
+
 
 def serve(port=None, host='0.0.0.0'):
     port = int(port or CFG.get('port'))
     _load_history()
+    _load_probes()
     t = threading.Thread(target=_poll_status, daemon=True)
     t.start()
+    tp = threading.Thread(target=_poll_probes, daemon=True)
+    tp.start()
     srv = ThreadingHTTPServer((host, port), Handler)
     print(f'{NAME} on http://{host}:{port}{PREFIX}/', flush=True)
     srv.serve_forever()

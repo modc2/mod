@@ -44,6 +44,7 @@ let showPane = () => {};  // set in init(), once the tabs are wired
 let priceTimer = 0;
 let urlInfo = null;       // result of /fetch/info for the current url-input value
 let urlTimer = 0;
+let galleryMode = read('lighthouse.gallery') === '1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -631,13 +632,14 @@ function renderShelf() {
   const box = $('objects');
   const { objects, source } = shelf;
   const q = $('shelf-q').value.trim().toLowerCase();
-  const nameFiltered = q ? objects.filter((o) => `${o.key || ''} ${o.cid}`.toLowerCase().includes(q)) : objects;
+  const nameFiltered = q ? objects.filter((o) => `${o.key || ''} ${o.cid} ${o.source_url || ''}`.toLowerCase().includes(q)) : objects;
   const shown = typeFilter === 'all' ? nameFiltered : nameFiltered.filter((o) => {
     const ext = getExt(o);
     if (typeFilter === 'image') return IMAGE.test(ext);
     if (typeFilter === 'audio') return AUDIO.test(ext);
     if (typeFilter === 'video') return VIDEO.test(ext);
     if (typeFilter === 'text')  return TEXT.test(ext);
+    if (typeFilter === 'archived') return !!o.source_url;
     return !IMAGE.test(ext) && !AUDIO.test(ext) && !VIDEO.test(ext) && !TEXT.test(ext);
   });
   const sorted = [...shown].sort((a, b) => {
@@ -1053,6 +1055,19 @@ function init() {
         }
         if (info.accessible) {
           preview.innerHTML = `<div class="line"><span class="k">${esc(title)}</span><span class="v">${esc(info.content_type || 'unknown')} · ${bytes(info.size)}${priceStr}</span></div>`;
+          if (info.content_type && info.content_type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.src = val;
+            img.style.cssText = 'width:100%;max-height:140px;object-fit:contain;margin-top:4px;border-radius:4px';
+            img.onerror = function() { this.remove(); };
+            preview.appendChild(img);
+          } else if (info.og_image) {
+            const img = document.createElement('img');
+            img.src = info.og_image;
+            img.style.cssText = 'width:100%;max-height:140px;object-fit:contain;margin-top:4px;border-radius:4px';
+            img.onerror = function() { this.remove(); };
+            preview.appendChild(img);
+          }
         } else {
           preview.innerHTML = `<div class="line err"><span class="k">not reachable</span><span class="v">${esc(info.error || val)}</span></div>`;
         }
@@ -1128,7 +1143,9 @@ function init() {
         const autoKey = !key && (urlInfo?.content_type || '').startsWith('text/html') && urlInfo?.title
           ? urlInfo.title.slice(0, 200).trim()
           : null;
+        progress(0.1, 'checking…');
         const extra = await payFor(urlInfo?.size ?? 0, urlVal);
+        progress(0.3, 'fetching remote content…');
         kept.push(await call('/put/url', { method: 'POST', extra, json: { url: urlVal, key: key || autoKey, register, public: isPublic, pool: pool || null } }));
         $('url-input').value = '';
         urlInfo = null;
@@ -1231,6 +1248,18 @@ function init() {
   $('lookup-cid').onkeydown = (ev) => { if (ev.key === 'Enter') lookupDo(); };
 
   $('refresh').onclick = refresh;
+
+  const applyGallery = () => {
+    $('objects').classList.toggle('gallery', galleryMode);
+    $('gallery-toggle').textContent = galleryMode ? '≡' : '⊞';
+  };
+  applyGallery();
+  $('gallery-toggle').onclick = () => {
+    galleryMode = !galleryMode;
+    write('lighthouse.gallery', galleryMode ? '1' : '');
+    applyGallery();
+  };
+
   refresh();
   // The tool schema is the same for everyone and needs no token, so it loads
   // once and does not ride along with sign-in or the objects refresh.

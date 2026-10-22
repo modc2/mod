@@ -336,6 +336,7 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
       </div>
       <div id="run-cost" style="font:12px var(--mono);color:var(--dim);margin:4px 0 2px;min-height:16px"></div>
       <button id="replay" title="replay the last recorded epoch">Replay last epoch</button>
+      <button id="stepthrough" title="step through each event with privacy explanations">STEP THROUGH ▸</button>
       <button class="go" id="run">Run an anonymous epoch</button>
     </div>
   </section>
@@ -349,6 +350,17 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
   <div class="stage">
     <svg id="svg" viewBox="0 0 1140 440" preserveAspectRatio="xMidYMid meet"></svg>
     <div class="caption" id="cap"></div>
+  </div>
+
+  <div id="step-panel" class="card" style="display:none;margin-top:14px">
+    <h3><span id="step-kind" class="k"></span> <span class="sp"></span><span id="step-idx" style="color:var(--mute);font:12px var(--mono)"></span></h3>
+    <div id="step-caption" style="font:600 13px var(--mono);color:var(--acc2);margin-bottom:10px"></div>
+    <div id="step-explain" style="color:var(--dim);font-size:13px;line-height:1.55;margin-bottom:14px"></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button id="step-back" title="exit step-through mode">← END</button>
+      <span class="sp"></span>
+      <button class="go" id="step-next">NEXT →</button>
+    </div>
   </div>
 
   <div class="grid">
@@ -400,6 +412,11 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
     <h3>YUMA SANDBOX <span class="sp"></span><span class="pill" id="yuma-state">live</span></h3>
     <div class="ectl" style="align-items:flex-start;margin-bottom:10px">
       <label>SCORES<small style="display:block;color:var(--dim);font:11px var(--sans);margin:2px 0 4px">tag: s1 s2 … per line</small>
+        <div style="display:flex;gap:5px;margin-bottom:6px">
+          <button onclick="yumaPreset('honest')" style="font:11px var(--sans);padding:2px 7px;border-radius:6px;background:var(--panel2);border:1px solid var(--line2);color:var(--ink);cursor:pointer">honest consensus</button>
+          <button onclick="yumaPreset('gaming')" style="font:11px var(--sans);padding:2px 7px;border-radius:6px;background:var(--panel2);border:1px solid var(--line2);color:var(--ink);cursor:pointer">gaming attack</button>
+          <button onclick="yumaPreset('split')" style="font:11px var(--sans);padding:2px 7px;border-radius:6px;background:var(--panel2);border:1px solid var(--line2);color:var(--ink);cursor:pointer">split opinion</button>
+        </div>
         <textarea id="yuma-input" rows="4" style="font:12px var(--mono);background:var(--panel2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:8px 10px;resize:vertical;width:260px;outline:none"></textarea>
       </label>
       <label>VALIDATORS<select id="yuma-v"><option>2</option><option selected>4</option><option>8</option><option>16</option></select></label>
@@ -446,6 +463,12 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
       </div>
     </div>
     <div class="card" id="privcard"></div>
+    <div class="card" id="capgrid-card" style="margin-top:14px">
+      <h3>BLOCKSPACE CAPACITY GRID <span class="sp"></span><span class="pill" id="capgrid-at">loading</span></h3>
+      <div class="ectl"><label>EPOCH HRS<select id="capgrid-hrs"></select></label></div>
+      <div id="capgrid-svg" style="overflow-x:auto;margin-top:12px"></div>
+      <div id="capgrid-summary"></div>
+    </div>
   </div>
 
   <div class="pane" id="pane-forecast">
@@ -1062,7 +1085,7 @@ async function refresh() {
 
 /* ---------------- actions ---------------- */
 function setBusy(on, label) {
-  busy = on; $('run').disabled = on; $('replay').disabled = on;
+  busy = on; $('run').disabled = on; $('replay').disabled = on; $('stepthrough').disabled = on;
   $('logstate').textContent = label || (on ? 'live' : 'idle');
   $('logstate').className = 'pill' + (on ? ' open' : '');
   if (on) $('receipt').innerHTML = '';
@@ -1103,8 +1126,88 @@ async function replay() {
   renderReceipt(r);
   setTimeout(refresh, 2500);
 }
+/* ---------------- step-through mode ---------------- */
+let _stepResolve = null;
+function stepNext() { return new Promise(res => { _stepResolve = res; }); }
+function probBars(role, ringSize) {
+  const keys = S[role].slice(0, ringSize);
+  if (!keys.length) return '';
+  const color = role === 'miner' ? 'var(--teal)' : '#a78bfa';
+  const pct = (100 / ringSize).toFixed(1);
+  const rows = keys.map(k =>
+    `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">` +
+    `<span style="width:70px;font:11px var(--mono);color:var(--mute);flex:none">${esc(k.x.slice(0, 7))}</span>` +
+    `<div style="flex:1"><div style="width:${pct}%;height:8px;border-radius:3px;background:${color}"></div></div>` +
+    `<span style="width:36px;font:11px var(--mono);color:var(--dim);text-align:right;flex:none">${pct}%</span>` +
+    `</div>`
+  ).join('');
+  return `<div style="margin-top:10px;padding:8px;border:1px solid var(--line2);border-radius:6px">` +
+    `<div style="font:700 9px var(--mono);letter-spacing:1.2px;color:var(--mute);margin-bottom:6px">OBSERVER’S VIEW — UNIFORM PROBABILITY</div>` +
+    rows + `</div>`;
+}
+const STEP_EXPLAIN = {
+  submit: e => `Tag <b>${esc(short(e.tag))}</b> is the key image I = x·Hₚ(scope) where scope = H(mine, subnet, epoch). It proves one of these ${e.ring} miners signed, but the contract—and anyone watching—cannot tell which.` + probBars('miner', e.ring),
+  score: e => `Nullifier <b>${esc(short(e.nullifier))}</b> is the validator’s key image for this tag. It prevents double-scoring without linking the score to a validator identity.` + probBars('validator', e.ring),
+  settle: e => `Zuma consensus = <b>${esc(String(e.consensus))}</b>—the highest score at least ⌈V/2⌉ validators gave or exceeded. Raw score ${e.raw} was clipped to rank ${e.rank}${e.raw > e.rank ? ` (${e.raw - e.rank} points removed)` : ''}.`,
+  claim: e => `Tag <b>${esc(short(e.tag))}</b>: the owner re-signed in the same mine scope. The same private key produces the same key image, proving ownership of the tag without revealing which key in the ring.`,
+  replay: e => `A replay attempt for tag <b>${esc(short(e.tag || ''))}</b> was ${e.ok ? 'correctly <b>rejected</b>' : '<b>accepted</b> (bug)'}. The key image is already stored in the contract; the existence check prevents double-spending without exposing any identity.`,
+};
+async function stepReplay() {
+  const r = await get('last_sim', `?chain=${CHAIN}`);
+  if (!r || !r.events) return toast('no recorded run yet. Run one first');
+  setBusy(true, 'step');
+  logN = 0; $('log').innerHTML = '';
+  const panel = $('step-panel');
+  panel.style.display = '';
+  const steppable = r.events.filter(e => STEP_EXPLAIN[e.kind]);
+  const scoresByTag = {};
+  for (const ev of r.events) {
+    if (ev.kind === 'score') (scoresByTag[ev.tag] = scoresByTag[ev.tag] || []).push(ev.score);
+  }
+  const runningSeen = {};
+  let stepN = 0, skip = false;
+  for (const e of r.events) {
+    if (e.kind === 'score') (runningSeen[e.tag] ??= []).push(e.score);
+    await playEvent(e, false);
+    if (!skip && STEP_EXPLAIN[e.kind]) {
+      stepN++;
+      $('step-kind').className = 'k ' + e.kind;
+      $('step-kind').textContent = e.kind.toUpperCase();
+      $('step-idx').textContent = `${stepN} / ${steppable.length}`;
+      $('step-caption').textContent = $('cap').textContent;
+      let explainHtml = STEP_EXPLAIN[e.kind](e);
+      if (e.kind === 'settle' && scoresByTag[e.tag] && scoresByTag[e.tag].length) {
+        explainHtml += `<div style="margin-top:10px;padding:8px;border:1px solid var(--line2);border-radius:6px">` +
+          `<div style="font:700 9px var(--mono);letter-spacing:1.2px;color:var(--mute);margin-bottom:6px">SCORE DISTRIBUTION — AMBER = ABOVE CONSENSUS</div>` +
+          scoreSpark(scoresByTag[e.tag], e.consensus) + `</div>`;
+      }
+      if (e.kind === 'score' && runningSeen[e.tag] && runningSeen[e.tag].length) {
+        const pC = provisionalC(runningSeen[e.tag], S.validator.length);
+        const n = runningSeen[e.tag].length, v = S.validator.length;
+        explainHtml += `<div style="margin-top:10px;padding:8px;border:1px solid var(--line2);border-radius:6px">` +
+          `<div style="font:700 9px var(--mono);letter-spacing:1.2px;color:var(--mute);margin-bottom:6px">SCORES FOR THIS TAG SO FAR (${n} of ${v} validators) · provisional C=${pC}</div>` +
+          scoreSpark(runningSeen[e.tag], pC) + `</div>`;
+      }
+      $('step-explain').innerHTML = explainHtml;
+      panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      const cont = await stepNext();
+      if (!cont) skip = true;
+    }
+  }
+  panel.style.display = 'none';
+  _stepResolve = null;
+  setBusy(false);
+  renderReceipt(r);
+  setTimeout(refresh, 2500);
+}
 $('run').onclick = run;
 $('replay').onclick = replay;
+$('stepthrough').onclick = stepReplay;
+$('step-next').onclick = () => { if (_stepResolve) { const r = _stepResolve; _stepResolve = null; r(true); } };
+$('step-back').onclick = () => { if (_stepResolve) { const r = _stepResolve; _stepResolve = null; r(false); } };
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && _stepResolve) { const r = _stepResolve; _stepResolve = null; r(true); }
+});
 function updateRunCost() {
   const el = $('run-cost');
   if (!el) return;
@@ -1399,6 +1502,7 @@ async function renderCosts() {
   $('ctable').innerHTML = `<table class="cmp">${CH[c].how.map(([k, val]) => `<tr><td>${k}</td><td>${val}</td></tr>`).join('')}
     <tr><th colspan="2" style="padding-top:16px">SAME ON EVERY CHAIN</th></tr>${same.map(([k, val]) => `<tr class="same"><td>${k}</td><td>${val}</td></tr>`).join('')}
     <tr><td>last contract</td><td><code>${esc(x.contract || '-')}</code></td></tr></table>`;
+  renderCapGrid();
 }
 /* ---------------- costs : mainnet dollars, epoch sizing, limits ---------------- */
 const EOPT = {
@@ -1413,6 +1517,71 @@ for (const id in EOPT) {
   $(id).innerHTML = EOPT[id].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
   $(id).value = EOPT[id].some(([v]) => v == ESET[id]) ? ESET[id] : EDEF[id];
   $(id).onchange = () => { ESET[id] = +$(id).value; localStorage.setItem('ztao.econ', JSON.stringify(ESET)); renderEcon(); };
+}
+/* ---------------- costs : blockspace capacity grid ---------------- */
+{
+  const hrsOpts = [[1,'1h'],[2,'2h'],[4,'4h'],[6,'6h'],[12,'12h'],[24,'24h']];
+  $('capgrid-hrs').innerHTML = hrsOpts.map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+  $('capgrid-hrs').value = localStorage.getItem('ztao.capgrid.hrs') || '6';
+  $('capgrid-hrs').onchange = () => { localStorage.setItem('ztao.capgrid.hrs', $('capgrid-hrs').value); renderCapGrid(); };
+}
+async function renderCapGrid() {
+  const hrs = +$('capgrid-hrs').value;
+  $('capgrid-at').textContent = 'loading';
+  $('capgrid-svg').innerHTML = '<div class="empty" style="min-height:60px">loading</div>';
+  let d;
+  try { d = await get('experiment', `?chain=${CHAIN}&hours=${hrs}&trials=20`); } catch(_) { d = null; }
+  if (!d || !d.ok) {
+    $('capgrid-svg').innerHTML = '<div class="empty">no blockspace data</div>';
+    $('capgrid-at').textContent = d ? String(d.error || 'no data').slice(0, 40) : 'error';
+    $('capgrid-summary').innerHTML = '';
+    return;
+  }
+  const epoch = (d.epochs || []).find(e => e.hours === hrs) || (d.epochs || [])[0];
+  if (!epoch) {
+    $('capgrid-svg').innerHTML = '<div class="empty">no data for this chain</div>';
+    $('capgrid-at').textContent = 'no data';
+    $('capgrid-summary').innerHTML = '';
+    return;
+  }
+  const GM = [4, 8, 16, 32, 64, 128, 256], GV = [4, 8, 16, 32, 64];
+  const byKey = {};
+  for (const c of epoch.cells || []) byKey[`${c.miners},${c.validators}`] = c;
+  const bk = d.blockspace_known;
+  const CW = 70, CH = 40, LW = 36, TH = 28;
+  const W = LW + GV.length * CW + 2, H = TH + GM.length * CH + 2;
+  let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px" role="img" aria-label="Capacity grid ${esc(CH[CHAIN].name)}">`;
+  s += `<text x="${LW}" y="11" fill="var(--mute)" style="font:9px var(--mono)">miners ↓ / validators →</text>`;
+  GV.forEach((v, ci) => {
+    s += `<text x="${LW + ci * CW + CW / 2}" y="${TH - 7}" text-anchor="middle" fill="var(--dim)" style="font:600 11px var(--mono)">${v}</text>`;
+  });
+  GM.forEach((m, ri) => {
+    const ry = TH + ri * CH;
+    s += `<text x="${LW - 4}" y="${ry + CH / 2 + 4}" text-anchor="end" fill="var(--dim)" style="font:600 11px var(--mono)">${m}</text>`;
+    GV.forEach((v, ci) => {
+      const cx = LW + ci * CW, isBT = m === 256 && v === 64;
+      const cell = byKey[`${m},${v}`];
+      let fill = 'var(--panel2)', tc = 'var(--mute)';
+      if (cell) {
+        if (!cell.fits) { fill = 'rgba(244,63,94,.18)'; tc = 'var(--red)'; }
+        else if (!bk || cell.share == null) { fill = 'rgba(245,158,11,.13)'; tc = 'var(--amber)'; }
+        else { fill = 'rgba(20,184,166,.15)'; tc = 'var(--teal2)'; }
+      }
+      s += `<rect x="${cx + 1}" y="${ry + 1}" width="${CW - 2}" height="${CH - 2}" rx="4" fill="${fill}"/>`;
+      if (isBT) s += `<rect x="${cx + 1}" y="${ry + 1}" width="${CW - 2}" height="${CH - 2}" rx="4" fill="none" stroke="#f59e0b" stroke-width="1.5"/>`;
+      if (cell) {
+        const usdTxt = usd(cell.usd), pctTxt = cell.share != null ? Math.round(cell.share * 100) + '%' : '';
+        s += `<text x="${cx + CW / 2}" y="${ry + CH / 2 - (pctTxt ? 2 : 5)}" text-anchor="middle" fill="${tc}" style="font:600 10px var(--mono)">${esc(usdTxt)}${isBT ? ' BT' : ''}</text>`;
+        if (pctTxt) s += `<text x="${cx + CW / 2}" y="${ry + CH / 2 + 11}" text-anchor="middle" fill="${tc}" style="font:9px var(--mono);opacity:.75">${pctTxt}</text>`;
+      }
+    });
+  });
+  s += '</svg>';
+  $('capgrid-svg').innerHTML = s;
+  const sq = epoch.max_square, bt = epoch.bittensor || {};
+  const btNote = bt.fits != null ? ` \xb7 BT (256\xd764) <b style="color:${bt.fits ? 'var(--teal)' : 'var(--red)'}">${bt.fits ? 'fits' : 'over'}</b> ${usd(bt.usd)}/epoch` : '';
+  $('capgrid-summary').innerHTML = `<p class="note" style="margin:8px 0 0">largest square subnet that fits: <b>M = V = ${sq != null ? sq : '?'}</b>${btNote}${bk ? '' : ' \xb7 blockspace not tracked'}</p>`;
+  $('capgrid-at').textContent = bk ? `${Math.round((d.share || 0.1) * 100)}% block share` : 'no blockspace data';
 }
 /* value of `rows` (sorted by ring) at ring n, linear between points */
 function atRing(rows, n, k) {
@@ -1565,6 +1734,7 @@ for (const id in FOPT) {
   $(id).onchange = () => { FSET[id] = $(id).value; localStorage.setItem('ztao.forecast', JSON.stringify(FSET)); renderForecast(); };
 }
 const FC_COLORS = {baseline: '#8aa3a6', batch: '#f59e0b', lazy: '#fbbf24', proof: '#a78bfa', committee: '#00ec97', private: '#5eead4'};
+const CHAIN_COLORS = {starknet: 'var(--sn)', near: 'var(--nr)', eth: 'var(--eth)', solana: 'var(--sol)'};
 const fc_ylab = v => v === 0 ? '$0' : v >= 10000 ? '$' + Math.round(v / 1000) + 'k' : v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : v >= 100 ? '$' + Math.round(v) : v >= 1 ? '$' + v.toFixed(1) : usd(v);
 let _fcAbort = 0;
 let activeFcStrat = null;
@@ -1849,7 +2019,6 @@ async function renderAll() {
   }).join('');
   document.querySelectorAll('.acard').forEach(a => a.onclick = () => { location.hash = 'live'; setChain(a.dataset.chain, true); });
   /* ---- cost-by-ring-size chart ---- */
-  const CHAIN_COLORS = {starknet: 'var(--sn)', near: 'var(--nr)', eth: 'var(--eth)', solana: 'var(--sol)'};
   const chainsWithData = ORDER.filter(ch => {
     const ce = ((ECON || {}).chains || {})[ch];
     return ce && Array.isArray(ce.by_ring) && ce.by_ring.some(d => d.usd != null);
@@ -1950,6 +2119,15 @@ async function loadPaper() {
   $('paper').innerHTML = t ? md(t) : '<div class="empty">no WHITEPAPER.md</div>';
 }
 /* ---------------- yuma sandbox ---------------- */
+function provisionalC(scores, totalV) {
+  if (!scores || !scores.length) return 0;
+  const need = Math.ceil(Math.max(scores.length, totalV) / 2);
+  const h = new Array(101).fill(0);
+  scores.forEach(s => { if (s >= 0 && s <= 100) h[Math.round(s)]++; });
+  let above = 0;
+  for (let s = 100; s >= 0; s--) { above += h[s]; if (above >= need) return s; }
+  return 0;
+}
 function scoreSpark(rawScores, consensus) {
   if (!rawScores.length) return '';
   const W = 180, H = 32, pad = 2;
@@ -1977,6 +2155,15 @@ function yumaPopulate(sim) {
   }
   if (!Object.keys(byTag).length) return;
   $('yuma-input').value = Object.entries(byTag).map(([t, ss]) => `${t}: ${ss.join(' ')}`).join('\n');
+  yumaRun();
+}
+const YUMA_PRESETS = {
+  honest: 'alpha: 80 78 82 79\nbeta: 76 74 77 75\ngamma: 85 83 84 86',
+  gaming: 'alpha: 100 79 78 80\nbeta: 79 78 77 80\ngamma: 80 79 78 81',
+  split:  'alpha: 90 20 85 22\nbeta: 50 55 48 52\ngamma: 10 88 12 90',
+};
+function yumaPreset(name) {
+  $('yuma-input').value = YUMA_PRESETS[name] || '';
   yumaRun();
 }
 async function yumaRun() {

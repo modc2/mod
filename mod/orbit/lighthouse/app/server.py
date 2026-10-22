@@ -20,9 +20,13 @@ and say the API is down, which beats not answering.
     python3 server.py --port 8080 --api http://box:50680
 """
 import argparse
+import html as _html
+import json
 import os
+import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -48,6 +52,58 @@ MEDIA = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript',
 HOP = {'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer',
        'upgrade', 'proxy-authorization', 'proxy-authenticate', 'host',
        'content-length'}
+
+_CID_RE = re.compile(r'^(Qm[1-9A-HJ-NP-Za-km-z]{44,}|b[a-z0-9]{58,})$')
+
+
+def _human_size(n) -> str:
+    if n is None:
+        return 'unknown size'
+    n = float(n)
+    for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
+        if n < 1024 or unit == 'TB':
+            return f'{int(n)} {unit}' if unit == 'B' else f'{n:.1f} {unit}'
+        n /= 1024
+
+
+def _inject_og(body: bytes, qs: str, host: str, path: str) -> bytes:
+    """Inject OpenGraph meta tags before </head> for ?cid= deeplinks.
+
+    Calls the local /preview endpoint (no auth, public) to get the content
+    type and size; falls through silently on any error so the page is never
+    broken by a failed preview.
+    """
+    try:
+        params = urllib.parse.parse_qs(qs)
+        cids = params.get('cid', [])
+        if not cids:
+            return body
+        cid = cids[0]
+        if not _CID_RE.match(cid):
+            return body
+        url = f'{API}/preview?cid={urllib.parse.quote(cid)}&max_bytes=1'
+        with urllib.request.urlopen(url, timeout=3) as resp:
+            info = json.loads(resp.read())
+        key = _html.escape(info.get('key') or cid)
+        ct = (info.get('content_type') or 'application/octet-stream').split(';')[0].strip()
+        size_b = info.get('size') or info.get('bytes')
+        gateway = info.get('gateway', '')
+        is_image = ct.startswith('image/')
+        og_type = 'image' if is_image else 'article'
+        desc = _html.escape(
+            f'{ct} · {_human_size(size_b)} · pinned forever on IPFS/Filecoin')
+        og_url = _html.escape(f'http://{host}{path}' if host else path)
+        block = (
+            f'<meta property="og:title" content="{key} — lighthouse">\n'
+            f'<meta property="og:description" content="{desc}">\n'
+            f'<meta property="og:type" content="{og_type}">\n'
+        )
+        if is_image and gateway:
+            block += f'<meta property="og:image" content="{_html.escape(gateway)}">\n'
+        block += f'<meta property="og:url" content="{og_url}">\n'
+        return body.replace(b'</head>', block.encode() + b'</head>', 1)
+    except Exception:
+        return body
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -124,7 +180,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def serve_file(self, head_only: bool = False):
-        path = self.path.split('?', 1)[0]
+        path, _, qs = self.path.partition('?')
         if path in ('/', BASE, f'{BASE}/'):
             path = f'{BASE}/index.html'
         if not path.startswith(f'{BASE}/'):
@@ -137,6 +193,8 @@ class Handler(BaseHTTPRequestHandler):
         if not str(target).startswith(str(APP_DIR.resolve())) or not target.is_file():
             target = APP_DIR / 'index.html'          # single page, deep links work
         body = target.read_bytes()
+        if target.name == 'index.html' and qs:
+            body = _inject_og(body, qs, self.headers.get('host', ''), self.path)
         self.send_response(200)
         self.send_header('content-type',
                          MEDIA.get(target.suffix, 'application/octet-stream'))

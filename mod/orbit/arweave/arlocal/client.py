@@ -21,7 +21,7 @@ import os
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import requests
 
@@ -327,11 +327,12 @@ class ArweaveClient:
             f.write(raw)
         return {"txid": txid, "path": str(p), "size": len(raw)}
 
-    def _fetch(self, txid: str) -> bytes:
+    def _fetch_with_ct(self, txid: str) -> Tuple[bytes, Optional[str]]:
+        """Fetch content and return (bytes, content_type_or_None)."""
         if txid.startswith("sha256-"):
             blob = self._blob_path(txid)
             if blob is not None and blob.is_file():
-                return blob.read_bytes()
+                return blob.read_bytes(), None
             raise ValueError(
                 f"{txid} is a local-only id with no blob on this box; it was "
                 "stored before local blobs existed or has been removed."
@@ -343,11 +344,16 @@ class ArweaveClient:
             try:
                 r = requests.get(url, timeout=60, allow_redirects=True)
                 if r.ok and r.content:
-                    return r.content
+                    ct = r.headers.get("content-type") or None
+                    return r.content, ct
                 last_err = RuntimeError(f"{url} → {r.status_code}")
             except requests.RequestException as e:
                 last_err = e
         raise RuntimeError(f"all gateways failed for {txid}: {last_err}")
+
+    def _fetch(self, txid: str) -> bytes:
+        content, _ = self._fetch_with_ct(txid)
+        return content
 
     # ─── tx / chain ─────────────────────────────────────────────────────────
 
@@ -463,6 +469,66 @@ class ArweaveClient:
         except requests.RequestException as e:
             return {"error": str(e)}
 
+    def bookmark(self, txid: str) -> Dict[str, Any]:
+        """Fetch a permaweb tx's metadata and add it to the local index as a bookmark.
+
+        Returns the indexed row; includes `already_indexed: True` if it was already present.
+        Raises ValueError for local sha256- ids, RuntimeError on gateway failure.
+        """
+        if txid.startswith("sha256-"):
+            raise ValueError(f"{txid!r} is a local-only id and cannot be bookmarked")
+        # Return existing row if already indexed
+        with sqlite3.connect(str(self.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT txid, name, size, backend, created, metadata FROM objects WHERE txid = ?",
+                (txid,),
+            ).fetchone()
+        if row is not None:
+            result = dict(row)
+            try:
+                result["metadata"] = json.loads(result.get("metadata") or "{}")
+            except Exception:
+                result["metadata"] = {}
+            result["url"] = f"{self.gateway}/{txid}" if result.get("backend") == "arweave" else None
+            result["already_indexed"] = True
+            return result
+        # Fetch tx metadata from gateway
+        url = f"{self.gateway}/tx/{txid}"
+        try:
+            r = requests.get(url, timeout=30)
+            r.raise_for_status()
+            tx_data = r.json()
+        except requests.RequestException as e:
+            raise RuntimeError(f"gateway fetch failed for {txid}: {e}")
+        if not isinstance(tx_data, dict):
+            raise RuntimeError(f"gateway returned unexpected response for {txid}")
+        raw_tags = tx_data.get("tags") or []
+        name: Optional[str] = None
+        ct = "application/octet-stream"
+        for tag in raw_tags:
+            n = tag.get("name", "")
+            v = tag.get("value", "")
+            if n == "File-Name" and not name:
+                name = v
+            if n == "Content-Type":
+                ct = v
+        size: Optional[int] = None
+        try:
+            size_raw = tx_data.get("data_size")
+            if size_raw is not None:
+                size = int(size_raw) or None
+        except (ValueError, TypeError):
+            pass
+        if not name:
+            name = txid[:12]
+        tag_list = [[t.get("name", ""), t.get("value", "")] for t in raw_tags]
+        self._index(txid, name, size, "arweave", {"tags": tag_list, "content_type": ct})
+        return {
+            "txid": txid, "name": name, "size": size, "backend": "arweave",
+            "url": f"{self.gateway}/{txid}", "already_indexed": False,
+        }
+
     def query(
         self,
         owner: Optional[str] = None,
@@ -488,7 +554,7 @@ class ArweaveClient:
         gql = (
             "{ transactions("
             + ", ".join(conditions)
-            + ") { edges { cursor node { id tags { name value } data { size } } } } }"
+            + ") { edges { cursor node { id tags { name value } data { size } block { timestamp height } } } } }"
         )
         try:
             r = requests.post(

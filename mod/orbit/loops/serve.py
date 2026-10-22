@@ -16,8 +16,9 @@ here holds a credential or proxies one.
 import argparse
 import json
 import os
+import subprocess
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(MODULE_DIR, 'web')
@@ -73,6 +74,33 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _diff(self):
+        qs = parse_qs(urlparse(self.path).query)
+        module = (qs.get('module') or [''])[0]
+        since = (qs.get('since') or ['0'])[0]
+        if not module or '/' in module or module.startswith('.'):
+            return self._json({'error': 'invalid module'}, 400)
+        orbit_dir = os.path.realpath(os.path.join(MODULE_DIR, '..'))
+        mod_path = os.path.realpath(os.path.join(orbit_dir, module))
+        if not (mod_path == orbit_dir or mod_path.startswith(orbit_dir + os.sep)):
+            return self._json({'error': 'invalid module'}, 400)
+        if not os.path.isdir(mod_path):
+            return self._json({'error': 'module not found'}, 404)
+        try:
+            since_ts = int(float(since)) if since and since != '0' else 0
+            since_arg = f'@{since_ts}'
+            diff_out = subprocess.run(
+                ['git', '-C', mod_path, 'diff', 'HEAD'],
+                capture_output=True, text=True, timeout=10
+            ).stdout
+            log_out = subprocess.run(
+                ['git', '-C', mod_path, 'log', '--oneline', f'--since={since_arg}'],
+                capture_output=True, text=True, timeout=10
+            ).stdout
+        except Exception as e:
+            return self._json({'error': str(e)}, 500)
+        return self._json({'diff': diff_out, 'commits': log_out})
+
     def do_GET(self):
         path = urlparse(self.path).path
         if path == PREFIX:
@@ -88,6 +116,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(info())
         if path in ('/health', '/api/health'):
             return self._json({'ok': True, 'name': NAME})
+        if path in ('/diff', '/api/diff'):
+            return self._diff()
         self.path = path
         return super().do_GET()
 

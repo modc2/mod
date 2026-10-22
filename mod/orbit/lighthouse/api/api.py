@@ -311,8 +311,8 @@ def preview(cid: str, max_bytes: int = Query(default=65536, ge=1, le=1 << 20)):
 
 # ── x402 ─────────────────────────────────────────────────────────────
 
-def _extract_html_title(url: str) -> str:
-    """Fetch the first 4096 bytes of an HTML URL and return the page title."""
+def _extract_html_meta(url: str) -> dict:
+    """Fetch the first 4096 bytes of an HTML URL and return title + og:image."""
     try:
         snippet = b''
         r = requests.get(url, headers={'Range': 'bytes=0-4095'}, timeout=10,
@@ -327,11 +327,14 @@ def _extract_html_title(url: str) -> str:
                     break
         text = snippet.decode('utf-8', errors='replace')
         m = re.search(r'<title[^>]*>(.*?)</title>', text, re.I | re.S)
-        if not m:
-            return ''
-        return _html.unescape(m.group(1).strip())
+        title = _html.unescape(m.group(1).strip()) if m else ''
+        og = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', text, re.I)
+        if not og:
+            og = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', text, re.I)
+        og_image = og.group(1).strip() if og else ''
+        return {'title': title, 'og_image': og_image}
     except Exception:
-        return ''
+        return {'title': '', 'og_image': ''}
 
 
 @app.get('/fetch/info')
@@ -343,17 +346,50 @@ def fetch_info(url: str = Query(...)):
     """
     try:
         head = requests.head(url, timeout=10, allow_redirects=True)
-        content_type = head.headers.get('Content-Type', '').split(';')[0].strip()
-        size = int(head.headers.get('Content-Length', 0) or 0)
+        if head.status_code < 400:
+            content_type = head.headers.get('Content-Type', '').split(';')[0].strip()
+            size = int(head.headers.get('Content-Length', 0) or 0)
+            title = ''
+            og_image = ''
+            if content_type.startswith('text/html'):
+                meta = _extract_html_meta(url)
+                title = meta['title']
+                og_image = meta['og_image']
+            return {
+                'url': url,
+                'content_type': content_type,
+                'size': size,
+                'accessible': True,
+                'title': title,
+                'og_image': og_image,
+            }
+        # HEAD returned 4xx/5xx (e.g. 405 Method Not Allowed) — fall back to streaming GET
+        r = requests.get(url, timeout=10, allow_redirects=True, stream=True)
+        content_type = r.headers.get('Content-Type', '').split(';')[0].strip()
+        size = int(r.headers.get('Content-Length', 0) or 0)
         title = ''
-        if content_type == 'text/html' or content_type.startswith('text/html'):
-            title = _extract_html_title(url)
+        og_image = ''
+        if content_type.startswith('text/html'):
+            snippet = b''
+            for chunk in r.iter_content(4096):
+                snippet += chunk
+                break
+            text = snippet.decode('utf-8', errors='replace')
+            m = re.search(r'<title[^>]*>(.*?)</title>', text, re.I | re.S)
+            if m:
+                title = _html.unescape(m.group(1).strip())
+            og = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', text, re.I)
+            if not og:
+                og = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', text, re.I)
+            if og:
+                og_image = og.group(1).strip()
         return {
             'url': url,
             'content_type': content_type,
             'size': size,
-            'accessible': head.status_code < 400,
+            'accessible': r.status_code < 400,
             'title': title,
+            'og_image': og_image,
         }
     except requests.RequestException as e:
         return {
@@ -622,7 +658,13 @@ def put_url(request: Request, body: Optional[UrlBody] = Body(default=None),
         raise no_key_error(lh)
     try:
         head = requests.head(body.url, timeout=10, allow_redirects=True)
-        size = int(head.headers.get('Content-Length', 0))
+        if head.status_code < 400:
+            size = int(head.headers.get('Content-Length', 0) or 0)
+        else:
+            # HEAD rejected (e.g. 405) — fall back to streaming GET for headers only
+            r_probe = requests.get(body.url, timeout=10, allow_redirects=True, stream=True)
+            size = int(r_probe.headers.get('Content-Length', 0) or 0)
+            r_probe.close()
     except requests.RequestException as e:
         raise HTTPException(502, f'could not reach {body.url}: {e}')
     c = charge(request, authorization, x_lh_key, size, resource_url(request, '/put/url'))

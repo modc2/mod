@@ -94,6 +94,48 @@ def decode_kv(entries):
     return out
 
 
+def _decode_log(b64str):
+    b = codec.unb64(b64str)
+    try:
+        s = b.decode()
+        if s.isprintable():
+            return s
+    except UnicodeDecodeError:
+        pass
+    return '0x' + b.hex()
+
+
+def _decode_state_delta(delta):
+    """Indexer global-state-delta (action-keyed) → {key: value} dict.
+    action=1 uint, action=2 bytes, action=3 deleted."""
+    out = {}
+    for e in delta or []:
+        kb = codec.unb64(e.get('key') or '')
+        try:
+            key = kb.decode('utf-8')
+            if not key or not all(32 <= ord(c) < 127 for c in key):
+                key = '0x' + kb.hex()
+        except (UnicodeDecodeError, ValueError):
+            key = '0x' + kb.hex()
+        v = e.get('value') or {}
+        action = v.get('action', 0)
+        if action == 3:
+            out[key] = '(deleted)'
+        elif action == 1:
+            out[key] = v.get('uint', 0)
+        else:
+            vb = codec.unb64(v.get('bytes') or '')
+            if len(vb) == 32:
+                out[key] = codec.encode_address(vb)
+            else:
+                try:
+                    s = vb.decode('utf-8')
+                    out[key] = s if s and all(32 <= ord(c) < 127 for c in s) else ('0x' + vb.hex() if vb else '')
+                except UnicodeDecodeError:
+                    out[key] = '0x' + vb.hex() if vb else ''
+    return out
+
+
 class Client:
     def __init__(self, network=None, algod=None, indexer=None):
         self.network = (network or default_network()).lower()
@@ -466,10 +508,20 @@ class Client:
         body = codec.msgpack({'txn-groups': [{'txns': envs}],
                               'allow-empty-signatures': True,
                               'allow-unnamed-resources': True,
-                              'exec-trace-config': {}})
+                              'exec-trace-config': {'enable': True, 'stack-change': True}})
         raw = self._http(self.algod + '/v2/transactions/simulate?format=json',
                          'POST', body, 'application/msgpack')
         return raw
+
+    def dispense(self, address):
+        """Fund an address from the testnet faucet (testnet only)."""
+        if self.network != 'testnet':
+            raise AlgoError(f'faucet is only available on testnet, not {self.network!r}')
+        faucet = NETWORKS['testnet']['faucet']
+        r = self._http(faucet, 'POST',
+                       json.dumps({'wallet': address}).encode(), 'application/json')
+        txid = r.get('txID') or r.get('txId') or r.get('id') or r.get('txid')
+        return {'network': self.network, 'address': address, 'txid': txid}
 
 
 def _box_name(b64name):
@@ -520,6 +572,11 @@ def summarize(t, me=None):
     inners = t.get('inner-txns') or []
     if inners:
         out['inner_txns'] = [summarize(i) for i in inners]
+    if t.get('logs'):
+        out['logs'] = [_decode_log(x) for x in t['logs']]
+    gsd = t.get('global-state-delta')
+    if gsd:
+        out['global_delta'] = _decode_state_delta(gsd)
     return out
 
 

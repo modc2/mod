@@ -81,7 +81,9 @@ def wallet(op='status', mnemonic=None, address=None, label=None, network=None):
             try:
                 a = Client(network).account(store['selected'], names=False)
                 out['balance'] = {'network': a['network'], 'algo': a['balance_algo'],
-                                  'spendable_algo': a['spendable_algo']}
+                                  'spendable_algo': a['spendable_algo'],
+                                  'min_balance_algo': a['min_balance_algo'],
+                                  'usd': a.get('usd')}
             except AlgoError as e:
                 out['balance'] = {'error': str(e)}
         return out
@@ -450,8 +452,16 @@ def simulate_call(app_id, method=None, args=None, sender=None, accounts=None,
         app_idx = 0
     sim = c.simulate(txns)
     grp = (sim.get('txn-groups') or [{}])[0]
-    res = (grp.get('txn-results') or [{}])[app_idx].get('txn-result') or {}
+    txn_result_item = (grp.get('txn-results') or [{}])[app_idx]
+    res = txn_result_item.get('txn-result') or {}
+    raw_trace = (txn_result_item.get('exec-trace') or {}).get('approval-program-trace') or []
     logs = res.get('logs') or []
+    trace = [{'pc': e['pc'],
+              'push': [v['uint'] if v.get('type') == 2
+                       else '0x' + codec.unb64(v.get('bytes') or '').hex()
+                       for v in (e.get('stack-additions') or [])],
+              'pop': e.get('stack-pop-count', 0)}
+             for e in raw_trace] or None
     return {'network': c.network, 'app_id': int(app_id), 'sender': who,
             'method': method, 'ok': not grp.get('failure-message'),
             'failure': grp.get('failure-message'),
@@ -460,7 +470,8 @@ def simulate_call(app_id, method=None, args=None, sender=None, accounts=None,
             'app_budget_consumed': grp.get('app-budget-consumed'),
             'global_delta': _decode_delta(res.get('global-state-delta')),
             'inner_txns': [summarize(i) for i in (res.get('inner-txns') or [])],
-            'round': sim.get('last-round')}
+            'round': sim.get('last-round'),
+            'trace': trace}
 
 
 def _sim_sender(c):

@@ -17,7 +17,13 @@
 .hm-cells{display:flex;gap:1px;align-items:center}
 .hm-cell{display:inline-block;width:8px;height:8px;border-radius:1px;background:var(--line);opacity:.3}
 .hm-cell.on{background:var(--green);opacity:1}
-#guard-preview{font-size:12px;margin-top:8px;color:var(--faint)}</style>
+.hm-col-sel{outline:1px solid var(--accent);border-radius:2px}
+#hist-label{font-size:11px;color:var(--faint);margin:4px 0;min-height:14px}
+#guard-preview{font-size:12px;margin-top:8px;color:var(--faint)}
+#scatter-tip{position:fixed;display:none;pointer-events:none;z-index:10;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;font-size:11px;padding:4px 10px;white-space:nowrap}
+#scatter-action{position:fixed;display:none;z-index:20;background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:10px 12px;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,0.18)}
+#scatter-action .sa-name{font-size:13px;font-weight:600;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+#scatter-action .sa-btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}</style>
 </head>
 <body>
 <div class="wrap">
@@ -48,6 +54,12 @@
     <div class="card wide">
       <h2>Fleet activity</h2>
       <div id="heatmap"></div>
+      <input type="range" id="hist-scrub" style="display:none;width:100%;margin-top:6px">
+      <div id="hist-label"></div>
+    </div>
+    <div class="card wide">
+      <h2>Fleet scatter</h2>
+      <div id="scatter"></div>
     </div>
     <div class="card wide">
       <h2>Modules <span class="sp"></span><span id="counts" class="faint"></span><span id="fleet-spark" style="vertical-align:middle"></span><span id="sorter" style="font-size:12px;font-weight:normal;display:inline-flex;gap:4px;margin-left:10px"><button class="sm sel" data-s="status">Status</button><button class="sm" data-s="ram">RAM↓</button><button class="sm" data-s="cpu">CPU↓</button><button class="sm" data-s="hits">Hits↓</button><button class="sm" data-s="name">Name↑</button></span><button id="sleepAll" class="sm danger" style="display:none;font-size:12px;font-weight:normal;margin-left:10px">sleep all</button><button id="wakeAll" class="sm" style="display:none;font-size:12px;font-weight:normal;margin-left:6px">wake all</button></h2>
@@ -60,6 +72,8 @@
     </div>
   </div>
 </div>
+<div id="scatter-tip"></div>
+<div id="scatter-action"></div>
 <script src="kit.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -72,7 +86,57 @@ try { events = JSON.parse(localStorage.getItem('reaper_events') || '[]').slice(0
 let notifyEnabled = localStorage.getItem('reaper_notify') === '1';
 let histMap = new Map();
 let fleetHistory = [];
+let histScrubPos = null;
 let ramHistory = [];
+let lastKnownRam = new Map();
+
+function applyHeatmapScrub(pos) {
+  const scrub = $("hist-scrub"), label = $("hist-label");
+  if (!scrub || !label) return;
+  const maxPos = +scrub.max;
+  document.querySelectorAll('.hm-col-sel').forEach(el => el.classList.remove('hm-col-sel'));
+  if (pos === null || pos >= maxPos) {
+    histScrubPos = null;
+    label.textContent = 'now';
+    return;
+  }
+  histScrubPos = pos;
+  const pollsAgo = maxPos - pos;
+  const rows = document.querySelectorAll('#heatmap .hm-row');
+  if (!rows.length) return;
+  let maxCols = 0;
+  rows.forEach(row => { const n = row.querySelectorAll('.hm-cell').length; if (n > maxCols) maxCols = n; });
+  const colIdx = maxCols - 1 - pollsAgo;
+  if (colIdx < 0) return;
+  let awake = 0, total = 0;
+  rows.forEach(row => {
+    const cells = row.querySelectorAll('.hm-cell');
+    if (colIdx < cells.length) {
+      cells[colIdx].classList.add('hm-col-sel');
+      total++;
+      if (cells[colIdx].classList.contains('on')) awake++;
+    }
+  });
+  label.textContent = `${pollsAgo} poll${pollsAgo === 1 ? '' : 's'} ago (~${pollsAgo * 10}s) · ${awake} of ${total} awake`;
+}
+
+function updateScrubber() {
+  const scrub = $("hist-scrub"), label = $("hist-label");
+  if (!scrub) return;
+  const maxPos = Math.min(fleetHistory.length - 1, 20);
+  if (fleetHistory.length >= 5) {
+    scrub.style.display = '';
+    scrub.max = maxPos;
+    if (histScrubPos === null) {
+      scrub.value = maxPos;
+      if (label) label.textContent = 'now';
+    } else {
+      applyHeatmapScrub(histScrubPos);
+    }
+  } else {
+    scrub.style.display = 'none';
+  }
+}
 
 function tickBars() {
   if (!liveState) return;
@@ -87,6 +151,21 @@ function tickBars() {
     if (bar) { bar.style.width = Math.round(ratio * 100) + '%'; bar.style.background = ratio < 0.5 ? 'var(--green)' : ratio < 0.8 ? 'var(--amber)' : 'var(--red)'; }
     if (ratio > bestRatio) { bestRatio = ratio; bestName = row.dataset.m; bestIdle = mod.idleSeconds; }
   });
+  const scatterEl = $("scatter");
+  if (scatterEl) {
+    const padL = 40, plotW = 460;
+    scatterEl.querySelectorAll('.scatter-dot').forEach(circle => {
+      const mod = liveState.mods.get(circle.dataset.m);
+      if (!mod || !mod.running || mod.pinned || mod.alwaysOn) return;
+      const xVal = Math.min((mod.idleSeconds + elapsed) / timeout, 1);
+      circle.setAttribute('cx', (padL + xVal * plotW).toFixed(1));
+      const title = circle.querySelector('title');
+      if (title) {
+        const parts = title.textContent.split(' · ');
+        if (parts.length >= 3) { parts[2] = Math.round(xVal * 100) + '%'; title.textContent = parts.join(' · '); }
+      }
+    });
+  }
   const ns = $("next-sleep");
   if (!ns) return;
   if (!bestName) { ns.style.display = 'none'; return; }
@@ -118,8 +197,10 @@ function render() {
   const reclaimMb = Math.round(reclaimCandidates.reduce((acc, x) => acc + x.mb, 0));
   $("pressure").innerHTML = g.underPressure ? `<div class="notice warn">RAM PRESSURE · ${reclaimMb}MB available — ${K.esc(reclaimCandidates.map(x=>x.module).join(', '))}</div>` : "";
   const reclaimBtn = K.isOwner && reclaimMb > 100 ? `<button class="sm${usedPct > 85 ? ' danger' : ''}" data-reclaim="1" style="margin-top:10px">reclaim ~${reclaimMb}MB</button>` : '';
+  const sleepingRamMb = (s.modules || []).filter(x => !x.running && !x.disabled).reduce((acc, x) => acc + (lastKnownRam.get(x.module) || 0), 0);
+  const savingStr = sleepingRamMb > 0 ? (sleepingRamMb >= 1024 ? `~${(sleepingRamMb/1024).toFixed(1)} GB` : `~${Math.round(sleepingRamMb)} MB`) : '';
   $("mem").innerHTML = `<div class="stats"><div class="stat"><b>${(m.available_mb / 1024 || 0).toFixed(1)}G</b><span>free</span></div>
-    <div class="stat"><b>${(m.used_mb / 1024 || 0).toFixed(1)}G</b><span>used</span></div><div class="stat"><b>${(m.total_mb / 1024 || 0).toFixed(1)}G</b><span>total</span></div></div>
+    <div class="stat"><b>${(m.used_mb / 1024 || 0).toFixed(1)}G</b><span>used</span></div><div class="stat"><b>${(m.total_mb / 1024 || 0).toFixed(1)}G</b><span>total</span></div>${savingStr ? `<div class="stat"><b style="color:var(--green)">${savingStr}</b><span>saving</span></div>` : ''}</div>
     <div class="meter" style="margin-top:12px"><i style="width:${usedPct}%;background:${usedPct > 85 ? "var(--red)" : "var(--accent)"}"></i></div>
     <div class="faint" style="font-size:12px;margin-top:8px">${s.sweep ? `${s.sweep.idleStops ?? 0} idle stops` : ""}${g.pressureStops ? ` · ${g.pressureStops} pressure stops` : ""}${g.minFreeMb ? ` · guard keeps ${g.minFreeMb} MB free` : ""}</div>${topHtml}${reclaimBtn}`;
   if (ramHistory.length >= 2) {
@@ -203,6 +284,7 @@ function render() {
       bb.style.display = 'none';
     }
   }
+  renderScatter();
 }
 
 function renderHeatmap() {
@@ -228,6 +310,59 @@ function renderHeatmap() {
   }
   html += '</div>';
   el.innerHTML = html;
+  updateScrubber();
+}
+
+function renderScatter() {
+  const el = $("scatter");
+  if (!el || !R) return;
+  const s = R.state || {};
+  const mods = s.modules || [];
+  const timeout = s.idleSeconds || 60;
+  const liveElapsed = liveState ? (Date.now() - liveState.loadedAt) / 1000 : 0;
+  const memMap = Object.fromEntries((R.memory?.top || []).map(t => [t.name, t.mem_mb]));
+  const padL = 40, padR = 12, padT = 14, padB = 28, plotW = 460, plotH = 170;
+  const svgW = padL + plotW + padR, svgH = padT + plotH + padB;
+  const pts = mods.filter(x => !x.disabled).map(x => {
+    const ram = provMap[x.module]?.mem_mb ?? lastKnownRam.get(x.module) ?? memMap[x.module] ?? 0;
+    let xVal;
+    if (x.pinned || x.alwaysOn) xVal = 0;
+    else if (!x.running) xVal = 1;
+    else xVal = Math.min(((x.idleSeconds || 0) + liveElapsed) / timeout, 1);
+    return { name: x.module, xVal, ram, running: x.running, pinned: x.pinned || x.alwaysOn, hits: x.hits || 0 };
+  });
+  const maxRam = Math.max(...pts.map(p => p.ram), 1);
+  const maxHits = Math.max(...pts.map(p => p.hits), 1);
+  const toX = v => padL + v * plotW;
+  const toY = r => padT + plotH - (r / maxRam) * plotH;
+  let out = '';
+  for (let i = 0; i <= 4; i++) {
+    const rv = maxRam / 4 * i, y = toY(rv);
+    out += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="1" opacity="0.2"/>`;
+    out += `<text x="${padL - 4}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--faint)">${rv >= 1000 ? (rv / 1024).toFixed(1) + 'G' : Math.round(rv) + 'M'}</text>`;
+  }
+  for (const pct of [25, 50, 75, 100]) {
+    const x = toX(pct / 100);
+    if (pct === 100) {
+      out += `<line x1="${x.toFixed(1)}" y1="${padT}" x2="${x.toFixed(1)}" y2="${padT + plotH}" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+      out += `<text x="${(x - 3).toFixed(1)}" y="${(padT + plotH + 16).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--red)">reap zone</text>`;
+    } else {
+      out += `<line x1="${x.toFixed(1)}" y1="${padT}" x2="${x.toFixed(1)}" y2="${padT + plotH}" stroke="var(--line)" stroke-width="1" opacity="0.3"/>`;
+      out += `<text x="${x.toFixed(1)}" y="${(padT + plotH + 14).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--faint)">${pct}%</text>`;
+    }
+  }
+  for (const p of pts) {
+    const cx = toX(p.xVal), cy = toY(p.ram);
+    const ramStr = p.ram > 0 ? `${p.ram.toFixed(0)}MB` : '?MB';
+    const pctStr = Math.round(p.xVal * 100) + '%';
+    let fill, stroke, sw, op;
+    if (p.pinned) { fill = 'var(--green)'; stroke = 'var(--amber)'; sw = 2; op = 1; }
+    else if (p.running) { fill = 'var(--green)'; stroke = 'none'; sw = 0; op = 1; }
+    else { fill = 'var(--line)'; stroke = 'none'; sw = 0; op = 0.4; }
+    const r = (4 + (p.hits / maxHits) * 8).toFixed(1);
+    out += `<circle class="scatter-dot" data-m="${K.esc(p.name)}" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" opacity="${op}" style="cursor:pointer"><title>${K.esc(p.name)} · ${ramStr} · ${pctStr} · ${p.hits} hits</title></circle>`;
+  }
+  el.innerHTML = `<svg width="100%" viewBox="0 0 ${svgW} ${svgH}" style="overflow:visible">${out}</svg><span style="font-size:10px;color:var(--faint)">dot size = hit count</span>`;
 }
 
 function renderFeed() {
@@ -248,6 +383,8 @@ async function load() {
   if (prov.ok) provMap = Object.fromEntries((prov.data.providers || []).map(p => [p.module, p]));
   if (r.ok) {
     R = r.data;
+    for (const [mod, p] of Object.entries(provMap)) { if (p.mem_mb > 0) lastKnownRam.set(mod, p.mem_mb); }
+    for (const t of (R.memory?.top || [])) { if (t.mem_mb > 0) lastKnownRam.set(t.name, t.mem_mb); }
     ramHistory.push(R.memory?.available_mb || 0);
     if (ramHistory.length > 20) ramHistory.shift();
     render();
@@ -400,6 +537,19 @@ $("mem").onclick = async (e) => {
   load();
 };
 
+$("hist-scrub").addEventListener("input", () => {
+  const scrub = $("hist-scrub");
+  const v = +scrub.value, maxPos = +scrub.max;
+  if (v >= maxPos) {
+    document.querySelectorAll('.hm-col-sel').forEach(el => el.classList.remove('hm-col-sel'));
+    histScrubPos = null;
+    const label = $("hist-label");
+    if (label) label.textContent = 'now';
+  } else {
+    applyHeatmapScrub(v);
+  }
+});
+
 $("heatmap").addEventListener("click", (e) => {
   const mod = e.target.closest("[data-m]")?.dataset.m;
   if (!mod) return;
@@ -417,6 +567,89 @@ $("heatmap").addEventListener("click", (e) => {
   row.style.transition = "box-shadow 0.6s ease";
   row.style.boxShadow = "0 0 0 2px var(--accent)";
   setTimeout(() => { row.style.boxShadow = ""; }, 600);
+});
+
+let _scatterActionMod = null;
+function closeScatterAction() {
+  const sa = $("scatter-action");
+  if (sa) sa.style.display = "none";
+  _scatterActionMod = null;
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeScatterAction(); });
+document.addEventListener("click", (e) => {
+  const sa = $("scatter-action");
+  if (sa && sa.style.display !== "none" && !sa.contains(e.target) && !e.target.closest("circle[data-m]")) closeScatterAction();
+});
+$("scatter-action").addEventListener("click", async (e) => {
+  const a = e.target.dataset.a;
+  if (!a || !_scatterActionMod) return;
+  e.target.disabled = true;
+  await K.act("/reaper/control", { module: _scatterActionMod, action: a }, `${_scatterActionMod}: ${a}`);
+  closeScatterAction();
+  load();
+});
+$("scatter").addEventListener("click", (e) => {
+  const circle = e.target.closest("circle[data-m]");
+  if (!circle) { closeScatterAction(); return; }
+  const mod = circle.dataset.m;
+  // Toggle off if same dot clicked again
+  if (_scatterActionMod === mod) { closeScatterAction(); return; }
+  // Scroll + highlight row
+  const modsEl = $("mods");
+  let row = modsEl?.querySelector(`.row[data-m="${CSS.escape(mod)}"]`);
+  if (!row) {
+    view = "all";
+    const seg = $("seg");
+    if (seg) for (const b of seg.children) b.classList.toggle("sel", b.dataset.v === "all");
+    render();
+    row = modsEl?.querySelector(`.row[data-m="${CSS.escape(mod)}"]`);
+  }
+  if (row) {
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.style.transition = "box-shadow 0.6s ease";
+    row.style.boxShadow = "0 0 0 2px var(--accent)";
+    setTimeout(() => { row.style.boxShadow = ""; }, 600);
+  }
+  // Show popover
+  const x = R?.state?.modules?.find(m => m.module === mod);
+  if (!x) return;
+  const sa = $("scatter-action");
+  if (!sa) return;
+  const st = x.disabled ? ["disabled","bad"] : x.running ? ["awake","on"] : x.slept ? ["asleep",""] : ["down",""];
+  const btn = (a, label, cls) => `<button class="sm${cls ? ' '+cls : ''}" data-a="${a}">${label}</button>`;
+  const ownerBtns = K.isOwner
+    ? `<div class="sa-btns">${x.running ? btn("sleep","sleep") : btn("wake","wake")}${x.pinned ? btn("unpin","unpin") : btn("pin","pin")}</div>`
+    : "";
+  sa.innerHTML = `<div class="sa-name">${K.esc(mod)}</div><span class="pill ${st[1]}">${st[0]}</span>${ownerBtns}`;
+  _scatterActionMod = mod;
+  const rect = circle.getBoundingClientRect();
+  sa.style.display = "block";
+  const saW = sa.offsetWidth, saH = sa.offsetHeight;
+  let left = rect.right + 8, top = rect.top - saH / 2;
+  if (left + saW > window.innerWidth - 8) left = rect.left - saW - 8;
+  if (top < 8) top = 8;
+  if (top + saH > window.innerHeight - 8) top = window.innerHeight - saH - 8;
+  sa.style.left = left + "px";
+  sa.style.top = top + "px";
+});
+
+const scatterTip = $("scatter-tip");
+$("scatter").addEventListener("mouseover", (e) => {
+  const circle = e.target.closest("circle[data-m]");
+  if (!circle || !scatterTip) return;
+  const title = circle.querySelector("title");
+  scatterTip.textContent = title ? title.textContent : circle.dataset.m;
+  scatterTip.style.display = "block";
+  scatterTip.style.left = (e.clientX + 12) + "px";
+  scatterTip.style.top = (e.clientY - 28) + "px";
+});
+$("scatter").addEventListener("mousemove", (e) => {
+  if (!scatterTip || scatterTip.style.display === "none") return;
+  scatterTip.style.left = (e.clientX + 12) + "px";
+  scatterTip.style.top = (e.clientY - 28) + "px";
+});
+$("scatter").addEventListener("mouseleave", () => {
+  if (scatterTip) scatterTip.style.display = "none";
 });
 
 K.init({ glyph: "☾", title: "Reaper", accent: "#ef7a62", sub: "The fleet's scale-to-zero activator: sleeps idle modules and holds their ports, so the first byte wakes them again." })

@@ -25,7 +25,7 @@ const state = {
   token: localStorage.getItem('zkprof_token') || '',
   address: localStorage.getItem('zkprof_address') || '',
   systems: [], methods: [], proofs: [], sample: null, lastVerified: null, lastResult: null, openId: null,
-  activeTag: '', lastCounts: 0,
+  activeTag: '', activeAuthor: '', lastCounts: 0,
 };
 
 // ── plumbing ────────────────────────────────────────────────────────
@@ -288,7 +288,7 @@ function proofCard(proof) {
     ${(proof.tags || []).length ? `<div class="tags">${proof.tags.map((t) => `<span class="tagchip" data-act="tag" data-tag="${escape(t)}">${escape(t)}</span>`).join('')}</div>` : ''}
     <div class="spacer"></div>
     ${verdictSection}
-    <div class="who-line">${verifierRow(proof) || '<span></span>'}${buy}</div>
+    <div class="who-line">${proof.author ? `${avatar(proof.author, '', proof.author)}<button class="ghost small mono" data-act="author" data-addr="${escape(proof.author)}">${escape(short(proof.author, 10))}</button>` : ''}${verifierRow(proof) || '<span></span>'}${buy}</div>
     <footer>
       <button class="ghost" data-act="open" data-id="${proof.id}">Details ${ICON.down}</button>
       <button class="ghost" data-act="recheck" data-id="${proof.id}" title="sign a challenge naming this proof, and every method runs again under your address">${ICON.sign}Re-verify</button>
@@ -318,9 +318,14 @@ async function loadMarket() {
   if ($('#fStatus').value) params.set('status', $('#fStatus').value);
   if ($('#fSale').checked) params.set('for_sale', 'true');
   if (state.activeTag) params.set('tag', state.activeTag);
+  if (state.activeAuthor) params.set('author', state.activeAuthor);
   const tagEl = $('#activeTag');
   if (tagEl) tagEl.innerHTML = state.activeTag
     ? `<span class="tagchip" style="cursor:default">${escape(state.activeTag)}<span data-act="cleartag" style="margin-left:4px;cursor:pointer" title="clear tag filter">×</span></span>`
+    : '';
+  const authorEl = $('#activeAuthor');
+  if (authorEl) authorEl.innerHTML = state.activeAuthor
+    ? `<span class="tagchip" style="cursor:default">${escape(short(state.activeAuthor, 10))}<span data-act="clearauthor" style="margin-left:4px;cursor:pointer" title="clear author filter">×</span></span>`
     : '';
   if (!state.proofs.length && !$('#proofList').children.length) {
     $('#proofList').innerHTML = '<div class="skel"></div>'.repeat(3);
@@ -815,7 +820,8 @@ async function prove(system) {
       ${artifactPanel('proof.json', made.proof)}
       ${artifactPanel('public.json', made.public_signals || [])}
       <div class="row"><button id="proveSend">Send this to Verify</button>
-      <button class="ghost" id="provePublish">Publish it</button></div>`;
+      <button class="ghost" id="provePublish">Publish it</button>
+      <button class="ghost" id="proveDownload">Download bundle</button></div>`;
     applyTimingBars($('#pOut'));
     $('#pOut').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-dl-name],[data-cp-name]');
@@ -835,8 +841,33 @@ async function prove(system) {
       ['vProof', 'vKey', 'vPublic'].forEach((id) => state.footFor?.($(`#${id}`)));
       showTab('verify');
     };
-    $('#provePublish').onclick = () => $('#publishDlg').showModal();
+    $('#provePublish').onclick = () => { prefillPublish(); $('#publishDlg').showModal(); };
+    $('#proveDownload').onclick = () => downloadAs('verified_bundle.json', { system: made.system, proof: made.proof, statement: made.statement, public_signals: made.public_signals || [], verdicts: made.verification.verdicts, status: made.verification.status, why: made.verification.why });
   } catch (e) { $('#pOut').innerHTML = ''; toast(e.message, true); }
+}
+
+// ── publish prefill ──────────────────────────────────────────────────
+const PUBLISH_TITLES = {
+  schnorr:    'Schnorr proof of knowledge',
+  merkle:     'Merkle inclusion proof',
+  dleq:       'DLEQ proof (shared discrete log)',
+  pedersen:   'Pedersen commitment opening',
+  groth16:    'Groth16 proof',
+};
+
+function prefillPublish() {
+  if (!state.lastVerified) return;
+  const sys = state.lastVerified.system || '';
+  const titleEl = $('#pubTitle');
+  const tagsEl = $('#pubTags');
+  if (titleEl && !titleEl.value) {
+    titleEl.value = PUBLISH_TITLES[sys] || `${sys} proof`;
+  }
+  if (tagsEl && !tagsEl.value) {
+    const sysInfo = (state.systems || []).find((s) => s.system === sys);
+    const zkTag = sysInfo?.zero_knowledge ? 'zk' : 'nzk';
+    tagsEl.value = [sys, zkTag].filter(Boolean).join(', ');
+  }
 }
 
 // ── bounties ────────────────────────────────────────────────────────
@@ -888,7 +919,9 @@ function bountyCard(bounty) {
       ${open && (!staked || mine) ? `<button data-act="submit" data-id="${bounty.id}" data-system="${escape(bounty.system)}">Submit a proof</button>` : ''}
       ${due ? `<button data-act="settle" data-id="${bounty.id}">Settle the round</button>` : ''}
       ${open && bounty.poster === state.address ? `<button class="ghost" data-act="cancel" data-id="${bounty.id}">Cancel</button>` : ''}
+      ${bounty.state === 'paid' && bounty.winning_proof ? `<button class="ghost" data-act="view-winning" data-id="${bounty.winning_proof}">View winning proof →</button>` : ''}
     </footer>
+    ${open && subs > 0 ? `<div class="submission-log">${bounty.submissions.slice(-5).reverse().map((s) => `<div class="sub-row"><button class="ghost small mono" data-act="view-winning" data-id="${escape(s.proof)}">${escape(short(s.proof, 10))}</button><span class="hint mono">${escape(short(s.prover, 10))}</span><span class="status ${s.accepted ? 'claimed' : 'unverified'}">${s.accepted ? 'accepted' : 'rejected'}</span>${s.why ? `<span class="hint sub-why">${escape(s.why)}</span>` : ''}</div>`).join('')}</div>` : ''}
   </div>`;
 }
 
@@ -1011,6 +1044,7 @@ async function loadWallet() {
     return;
   }
   const me = await api('/me');
+  const { proofs: myProofs } = await api('/proofs?' + new URLSearchParams({ author: me.address })).catch(() => ({ proofs: [] }));
   $('#wallet').innerHTML = `
     <h3 class="mono" style="font-size:14px;word-break:break-all">${escape(me.address)}${me.owner ? ' <span class="status verified">owner</span>' : ''}</h3>
     <div class="hint">signed in with ${kind() === 'local'
@@ -1025,6 +1059,8 @@ async function loadWallet() {
       ${me.in_debt ? '<span class="bad"><b>in debt</b>a proof you sold was refunded</span>' : ''}
     </div>
     ${me.owner ? `<div class="row"><input id="grantTo" placeholder="0x… address" class="mono" style="flex:1;min-width:240px"><input id="grantAmt" type="number" value="100" style="max-width:110px"><button id="grantGo">Grant credits</button></div>` : ''}
+    <h4>my proofs (${myProofs.length})</h4>
+    ${myProofs.length ? myProofs.map((p) => `<div class="my-proof-row"><span class="status ${escape(p.status)}">${escape(p.status)}</span><span class="tagchip sys">${escape(p.system)}</span><b>${escape(p.title)}</b><span class="hint">${p.price > 0 ? p.price + ' credits' : 'free'}</span>${p.verifier_count ? `<span class="hint">${p.verifier_count} verifier${p.verifier_count !== 1 ? 's' : ''}</span>` : ''}<button class="ghost small" data-act="view-winning" data-id="${p.id}">View →</button></div>`).join('') : '<div class="hint">none yet</div>'}
     <h4>purchases</h4>
     ${me.purchases.length ? me.purchases.map((p) => `<div class="purchase"><span class="addr">${escape(short(p.proof, 16))}</span><span>${p.price} credits</span><span class="status ${escape(p.sold_as)}">${escape(p.sold_as)}</span>${p.refunded ? '<span class="tagchip nzk">refunded</span>' : ''} <button class="ghost small" data-act="refund" data-id="${p.proof}">Refund if it stopped verifying</button></div>`).join('') : '<div class="hint">none yet</div>'}
     <h4>ledger</h4>
@@ -1255,7 +1291,10 @@ async function boot() {
       if (act === 'settle') { const settled = await api(`/bounties/${id}/settle`, { method: 'POST' }); toast(settled.winner ? `settled — won by ${short(settled.winner, 12)}` : 'unwon — tokens returned, round reset'); await loadBounties(); }
       if (act === 'submit') { state.bounty = id; state.bountySystem = button.dataset.system || ''; showBountyCtx(state.bountySystem); showTab('verify'); }
       if (act === 'tag') { state.activeTag = button.dataset.tag; showTab('market'); }
+      if (act === 'view-winning') { state.openId = id; showTab('market'); }
       if (act === 'cleartag') { state.activeTag = ''; await loadMarket(); }
+      if (act === 'author') { state.activeAuthor = button.dataset.addr; showTab('market'); }
+      if (act === 'clearauthor') { state.activeAuthor = ''; await loadMarket(); }
     } catch (e) { toast(e.message, true); }
   });
 
@@ -1270,6 +1309,15 @@ async function boot() {
     }
     try {
       const value = JSON.parse(text);
+      if (area.id === 'vProof' && value.proof && value.statement) {
+        $('#vProof').value = JSON.stringify(value.proof, null, 1);
+        $('#vKey').value = JSON.stringify(value.statement, null, 1);
+        $('#vPublic').value = JSON.stringify(value.public_signals || [], null, 1);
+        if (value.system) $('#vSystem').value = value.system;
+        footFor($('#vProof')); footFor($('#vKey')); footFor($('#vPublic'));
+        toast('bundle detected — proof, statement and signals loaded');
+        return;
+      }
       const what = Array.isArray(value) ? `${value.length} item array`
         : `${Object.keys(value).length} keys${value.protocol ? ` · ${value.protocol}` : ''}`;
       foot.className = 'drop-foot ok';
@@ -1307,7 +1355,7 @@ async function boot() {
   $('#vBrowser').onclick = runBrowserVerify;
   $('#vSample').onclick = () => loadSample().catch((e) => toast(e.message, true));
   $('#vSampleLink').onclick = (e) => { e.preventDefault(); loadSample().catch((err) => toast(err.message, true)); };
-  $('#vPublish').onclick = () => $('#publishDlg').showModal();
+  $('#vPublish').onclick = () => { prefillPublish(); $('#publishDlg').showModal(); };
   $('#vDownload').onclick = () => {
     if (!state.lastVerified || !state.lastResult) return;
     downloadAs('verified_bundle.json', {
@@ -1326,6 +1374,7 @@ async function boot() {
   $$('button[data-prove]').forEach((b) => { b.onclick = () => prove(b.dataset.prove); });
   $('#publishOpen').onclick = () => {
     if (!state.lastVerified) { toast('verify something first — publish takes what is in VERIFY', true); showTab('verify'); return; }
+    prefillPublish();
     $('#publishDlg').showModal();
   };
   $('#bountyOpen').onclick = () => $('#bountyDlg').showModal();
@@ -1357,6 +1406,7 @@ async function boot() {
         state.bountySystem = null;
         const bc = $('#bountyCtx'); if (bc) bc.remove();
       }
+      state.openId = published.id;
       showTab('market');
     } catch (e) { toast(e.message, true); }
   };

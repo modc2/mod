@@ -129,7 +129,15 @@
   .tile .hd .ic{margin:0;flex:none}
   .tile .host{font:12px var(--mono);color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
   .tile .price{font:700 13px var(--mono);color:var(--accent);flex:none;background:rgba(250,204,21,.1);
-               border:1px solid rgba(250,204,21,.22);border-radius:999px;padding:2px 9px}
+               border:1px solid rgba(250,204,21,.22);border-radius:999px;padding:2px 9px;cursor:pointer}
+  .tile .price:hover{background:rgba(250,204,21,.2)}
+  .price-pop{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line2);border-radius:10px;
+             padding:10px 12px;box-shadow:0 8px 24px -4px rgba(0,0,0,.8);font-size:12px}
+  .price-pop table{border:none;background:none;border-radius:0;font-size:12px}
+  .price-pop th{background:none;color:var(--faint);font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px 5px;border:none}
+  .price-pop td{border:none;padding:3px 8px;font-family:var(--mono)}
+  .price-pop td:first-child{color:var(--dim);font-family:var(--sans)}
+  .price-pop td:nth-child(3){color:var(--accent)}
   .tile .nm{font-weight:700;font-size:15px;line-height:1.35;word-break:break-word;margin-top:4px;
             display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .tile .nm .m{vertical-align:2px}
@@ -224,6 +232,49 @@ const usd = p => p == null ? '<span class="dim">?</span>' : '$' + (p >= 1 ? p.to
 const big = n => n == null ? '0' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(n);
 const ago = t => { if (!t) return 'never'; const s = Date.now()/1000 - t;
   return s < 90 ? 'just now' : s < 5400 ? Math.round(s/60)+'m ago' : s < 129600 ? Math.round(s/3600)+'h ago' : Math.round(s/86400)+'d ago'; };
+function renderResult(r) {
+  const ct = (r.content_type || '').toLowerCase();
+  // 1. base64 image
+  if (r.base64 && ct.startsWith('image/')) {
+    return `<img src="data:${esc(ct)};base64,${r.base64}" style="max-width:100%;border-radius:8px;margin-top:8px">`;
+  }
+  if (r.json != null) {
+    const j = r.json;
+    // 3. top-level URL field that looks like an image
+    const imgFields = ['url','image_url','image'];
+    for (const k of imgFields) {
+      if (typeof j[k] === 'string' && /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(j[k])) {
+        return `<img src="${esc(j[k])}" style="max-width:100%;border-radius:8px;margin-top:8px">`;
+      }
+    }
+    // 2. LLM response shapes
+    let llmText = null;
+    if (j.choices && j.choices[0] && j.choices[0].message && typeof j.choices[0].message.content === 'string') llmText = j.choices[0].message.content;
+    else if (j.output && j.output[0] && typeof j.output[0].text === 'string') llmText = j.output[0].text;
+    else if (typeof j.result === 'string') llmText = j.result;
+    else if (typeof j.text === 'string') llmText = j.text;
+    else if (typeof j.response === 'string') llmText = j.response;
+    else if (typeof j.answer === 'string') llmText = j.answer;
+    if (llmText != null) {
+      return `<p style="margin-top:8px;line-height:1.6;color:var(--text);white-space:pre-wrap;font-size:13px;border-left:2px solid var(--accent);padding-left:10px">${esc(llmText.slice(0,2000))}</p>`;
+    }
+    // 4. shallow flat object → key-value table
+    const vals = Object.values(j);
+    if (vals.length && vals.every(v => v === null || typeof v !== 'object')) {
+      const rows = Object.entries(j).map(([k,v]) => {
+        const isNum = typeof v === 'number' || typeof v === 'boolean';
+        return `<tr><td style="color:var(--faint);font-family:var(--mono);font-size:11px;padding:3px 10px 3px 0;white-space:nowrap">${esc(k)}</td><td style="${isNum?'color:var(--accent)':''}font-size:12px;padding:3px 0">${esc(String(v))}</td></tr>`;
+      }).join('');
+      return `<table style="margin-top:8px;border-collapse:collapse">${rows}</table>`;
+    }
+    // 5. fallback
+    const body = JSON.stringify(j, null, 2).slice(0, 2000);
+    return `<pre style="margin-top:6px;max-height:200px">${esc(body)}</pre>`;
+  }
+  // 5. text fallback
+  const body = (r.text || '').slice(0, 2000);
+  return body ? `<pre style="margin-top:6px;max-height:200px">${esc(body)}</pre>` : '';
+}
 
 // Sign-in is the fleet auth protocol (orbit/passport): one session shared with
 // every console and build; the server asks passport who the token belongs to.
@@ -358,6 +409,7 @@ let me = null;  // module-level cache of whoami response
 
 const st = {tab: 'services', q: '', network: '', max_price: '', sort: 'popular', offset: 0, host: '',
             meaning: localStorage.getItem('x402.meaning') !== '0', mq: '', starred: false, tag: '',
+            source: '', sourceName: '',
             compare: new Map(), cmpCalls: 100, open: null};
 const PAGE = 50;
 
@@ -368,6 +420,7 @@ function stateToHash() {
   if (st.max_price) p.set('max_price', st.max_price);
   if (st.sort && st.sort !== 'popular') p.set('sort', st.sort);
   if (st.host) p.set('host', st.host);
+  if (st.source) { p.set('source', st.source); if (st.sourceName) p.set('sourceName', st.sourceName); }
   if (st.mq) p.set('mq', st.mq);
   if (st.open) p.set('open', st.open);
   const qs = p.toString();
@@ -385,6 +438,8 @@ function hashToState() {
   st.max_price = qs.get('max_price') || '';
   st.sort = qs.get('sort') || 'popular';
   st.host = qs.get('host') || '';
+  st.source = qs.get('source') || '';
+  st.sourceName = qs.get('sourceName') || '';
   st.mq = qs.get('mq') || '';
   st.open = qs.get('open') || null;
   st.offset = 0;
@@ -472,6 +527,7 @@ function bar() {
       `<option value="${v}" ${st.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <span class="seg" title="words: exact text match · meaning: what the service does"><a data-m="0" class="${st.meaning ? '' : 'on'}">words</a><a data-m="1" class="${st.meaning ? 'on' : ''}">meaning</a></span>
     ${st.host ? `<button type="button" class="quiet" id="clearhost">host: ${esc(st.host)} &times;</button>` : ''}
+    ${st.source ? `<button type="button" class="quiet" id="clearsource">source: ${esc(st.sourceName || st.source)} &times;</button>` : ''}
   </form>
   <div class="chips">${starred.length ? `<span class="pill starred${st.starred ? ' on' : ''}" id="starpill">★ Starred (${starred.length})</span>` : ''}${QUICK.map(q => `<span class="pill qk">${esc(q)}</span>`).join('')}
     <span class="pill ask" id="askbtn">Ask the agent &rarr;</span></div>`;
@@ -512,7 +568,7 @@ function tile(s, extra = '') {
     <button class="star${isStarred(s.url) ? ' on' : ''}" data-star="${esc(s.url)}" title="save">★</button>
     <button class="cmp-tog${st.compare.has(s.url) ? ' on' : ''}" data-cmp="${esc(s.url)}" title="add to compare">⊞</button>
     <div class="hd">${s.icon ? `<img class="ic" src="${esc(s.icon)}" loading="lazy" onerror="this.remove()">` : ''}
-      <span class="host">${esc(s.host || '')}</span><span class="price">${usd(activePrice)}</span></div>
+      <span class="host">${esc(s.host || '')}</span><span class="price" data-price="${activePrice ?? ''}">${usd(activePrice)}</span></div>
     <div class="nm"><span class="m ${mcls(s.method)}">${esc(s.method)}</span>${esc(s.name || pathOf(s.url))}</div>
     <div class="ds">${esc(s.description)}</div>
     ${extra}
@@ -549,6 +605,27 @@ function wireTiles(root) {
     }
     renderCompareBar();
   });
+  root.querySelectorAll('.price[data-price]').forEach(badge => badge.onclick = e => {
+    e.stopPropagation();
+    closePop();
+    const raw = badge.dataset.price;
+    const price = raw !== '' ? parseFloat(raw) : null;
+    const pop = document.createElement('div');
+    pop.className = 'price-pop';
+    const rows = [1, 100, 1000, 10000].map(n => {
+      const label = n >= 1000 ? (n / 1000) + 'k' : n;
+      const daily = price != null ? price * n : null;
+      const monthly = price != null ? price * n * 30 : null;
+      return `<tr><td>${label}/day</td><td>${usd(daily)}</td><td>${usd(monthly)}/mo</td></tr>`;
+    }).join('');
+    pop.innerHTML = `<table><thead><tr><th>volume</th><th>daily</th><th>monthly</th></tr></thead><tbody>${rows}</tbody></table>`;
+    document.body.appendChild(pop);
+    const r = badge.getBoundingClientRect();
+    let left = r.left;
+    if (left + pop.offsetWidth + 8 > window.innerWidth) left = window.innerWidth - pop.offsetWidth - 8;
+    pop.style.top = (r.bottom + 6) + 'px';
+    pop.style.left = Math.max(8, left) + 'px';
+  });
 }
 
 async function services() {
@@ -565,14 +642,14 @@ async function services() {
       return;
     }
   }
-  const showShelf = !st.q && !st.host && !st.network && !st.max_price && !st.starred;
+  const showShelf = !st.q && !st.host && !st.network && !st.max_price && !st.starred && !st.source;
   const shelfP = showShelf ? get('services', {sort: 'new', limit: 8}).catch(() => null) : Promise.resolve(null);
   const sem = st.meaning && st.q && !st.host;
   const r = sem
     ? await get('find', {q: st.q, network: st.network, max_price: st.max_price, k: 100})
         .then(f => { semNote(f); return {items: f.items.map(x => ({...x, sources: []})), total: f.items.length, offset: 0, limit: 100, sem: true}; })
     : await get('services', {q: st.q, network: st.network, max_price: st.max_price,
-                             sort: st.sort, host: st.host, limit: PAGE, offset: st.offset});
+                             sort: st.sort, host: st.host, source: st.source, limit: PAGE, offset: st.offset});
   const cutoff = Date.now() / 1000 - 7 * 86400;
   const shelfR = await shelfP;
   const newItems = shelfR ? (shelfR.items || []).filter(s => s.first_seen > cutoff) : [];
@@ -634,13 +711,14 @@ function wireBar() {
   f.querySelectorAll('.seg a').forEach(a => a.onclick = () => {
     st.meaning = a.dataset.m === '1'; localStorage.setItem('x402.meaning', st.meaning ? '1' : '0'); apply(); });
   const ch = $('#clearhost'); if (ch) ch.onclick = () => { st.host = ''; st.offset = 0; render(); };
+  const cs = $('#clearsource'); if (cs) cs.onclick = () => { st.source = ''; st.sourceName = ''; st.offset = 0; render(); };
   const p = $('#prev'), n = $('#next');
   if (p) p.onclick = () => { st.offset = Math.max(0, st.offset - PAGE); render(); };
   if (n) n.onclick = () => { st.offset += PAGE; render(); };
   const q = f.q; q.focus(); q.setSelectionRange(q.value.length, q.value.length);
 }
 
-async function detail(url) {
+async function detail(url, ctx = {}) {
   st.open = url; stateToHash();
   $('#drawer').classList.add('open');
   $('#dbody').innerHTML = '<div class="dim">loading</div>';
@@ -677,7 +755,13 @@ async function detail(url) {
       <table><tr><th>network</th><th>scheme</th><th>asset</th><th class="num">price</th><th>pays to</th></tr>${offers}</table>
       <h3>ACTIVITY</h3>
       <div class="dim">${big(s.calls_30d)} paid calls · ${big(s.payers_30d)} payers in 30d · x402 v${s.x402_version} · first seen ${ago(s.first_seen)}${s.pinned ? ' · <span class="chip ok">probed</span>' : ''}</div>
+      ${s.observed && s.observed.calls > 0 ? `<div class="dim" style="margin-top:4px">This node: ${big(s.observed.calls)} calls · ${s.observed.ok_rate != null ? Math.round(s.observed.ok_rate * 100) + '% ok · ' : ''}${big(s.observed.users)} users · last ${ago(s.observed.last)}</div>` : ''}
       <h3>LISTED BY</h3><div>${s.sources.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</div>
+      ${ctx.mcp && ctx.mcp.connect ? `<h3>PART OF MCP SERVER</h3>
+      <div style="margin-bottom:6px"><strong>${esc(ctx.mcp.name)}</strong><span class="dim url" style="margin-left:6px">${esc(ctx.mcp.server)}</span></div>
+      <div id="mcp-srv-conn" data-mode="cli" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+        <button class="quiet mcp-srv-mode on" data-m="cli">CLI</button><button class="quiet mcp-srv-mode" data-m="json">JSON config</button><button class="quiet mcp-srv-mode" data-m="auth">ready to use</button>
+        <code id="mcp-srv-code" style="flex:1;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:11px var(--mono);word-break:break-all">${esc(ctx.mcp.connect.claude)}</code><button class="quiet" id="mcp-srv-copy">copy</button></div>` : ''}
       <h3>TRY IT</h3>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div class="seg" id="tc-tabs"><a class="on" data-tab="curl">curl</a><a data-tab="js">JavaScript</a><a data-tab="py">Python</a><a data-tab="node">via node</a></div><button class="quiet" id="tc-copy" style="font-size:11px;padding:4px 10px">copy</button></div>
       <pre id="tc-code" style="overflow-x:auto"></pre>
@@ -791,9 +875,8 @@ async function detail(url) {
                 const callBtn = $('#spcall'); callBtn.disabled = true;
                 try {
                   const r = await post('call', {quote_id: spQid, signature: spSig});
-                  const body = r.json != null ? JSON.stringify(r.json, null, 2).slice(0,2000) : (r.text||'').slice(0,2000);
                   const rcpt = r.receipt ? `<div style="margin-top:8px"><span class="dim">receipt:</span> <code>${esc(JSON.stringify(r.receipt).slice(0,200))}</code></div>` : '';
-                  spres.innerHTML += `<div style="margin-top:8px"><span class="chip ${r.status < 300 ? 'ok' : 'bad'}">HTTP ${r.status}</span></div>${body ? `<pre style="margin-top:6px;max-height:200px">${esc(body)}</pre>` : ''}${rcpt}`;
+                  spres.innerHTML += `<div style="margin-top:8px"><span class="chip ${r.status < 300 ? 'ok' : 'bad'}">HTTP ${r.status}</span></div>${renderResult(r)}${rcpt}`;
                 } catch (e) { callBtn.disabled = false; spres.innerHTML += `<div style="margin-top:6px;color:var(--bad);font-size:12px">${esc(e.message)}</div>`; }
               };
             } catch (e) { signBtn.disabled = false; spres.innerHTML += `<div style="color:var(--bad);font-size:12px;margin-top:4px">${esc(e.message)}</div>`; }
@@ -810,10 +893,36 @@ async function detail(url) {
         let reqBody; if (rbVal) { try { reqBody = JSON.parse(rbVal); } catch { reqBody = rbVal; } }
         try {
           const r = await post('call', {url: s.url, method: s.method, pay: 'house', body: reqBody});
-          const body = r.json != null ? JSON.stringify(r.json, null, 2).slice(0, 2000) : (r.text || '').slice(0, 2000);
           const rcpt = r.receipt ? `<div style="margin-top:8px"><span class="dim">receipt:</span> <code>${esc(JSON.stringify(r.receipt).slice(0, 200))}</code></div>` : '';
-          hpres.innerHTML = `<div style="margin-top:8px"><span class="chip ${r.status < 300 ? 'ok' : 'bad'}">HTTP ${r.status}</span></div>${body ? `<pre style="margin-top:6px;max-height:200px">${esc(body)}</pre>` : ''}${rcpt}`;
+          hpres.innerHTML = `<div style="margin-top:8px"><span class="chip ${r.status < 300 ? 'ok' : 'bad'}">HTTP ${r.status}</span></div>${renderResult(r)}${rcpt}`;
         } catch (e) { hpbtn.disabled = false; hpres.innerHTML = `<div style="margin-top:6px;color:var(--bad);font-size:12px">${esc(e.message)}</div>`; }
+      };
+    }
+    if (ctx.mcp && ctx.mcp.connect) {
+      const mcpConn = $('#mcp-srv-conn');
+      const mcpCode = $('#mcp-srv-code');
+      const mcpCopy = $('#mcp-srv-copy');
+      const mcpG = ctx.mcp;
+      const getMcpText = m => {
+        if (m === 'auth') {
+          const slug = Object.keys(mcpG.connect.json.mcpServers)[0];
+          const tok = PP && PP.session() ? PP.session().token : '<YOUR_SESSION_TOKEN>';
+          const noteSuffix = PP && PP.session() ? '' : '\n# sign in to pre-fill your token';
+          return `claude mcp add --transport http ${slug} ${mcpG.server} --header "Authorization: Bearer ${tok}"${noteSuffix}`;
+        }
+        return m === 'cli' ? mcpG.connect.claude : JSON.stringify(mcpG.connect.json, null, 2);
+      };
+      mcpConn.querySelectorAll('.mcp-srv-mode').forEach(b => b.onclick = () => {
+        const m = b.dataset.m;
+        mcpConn.dataset.mode = m;
+        mcpConn.querySelectorAll('.mcp-srv-mode').forEach(x => x.classList.toggle('on', x.dataset.m === m));
+        mcpCode.textContent = getMcpText(m);
+      });
+      mcpCopy.onclick = async () => {
+        const m = mcpConn.dataset.mode;
+        try { await navigator.clipboard.writeText(getMcpText(m)); mcpCopy.textContent = 'copied!'; }
+        catch { mcpCopy.textContent = 'select it'; }
+        setTimeout(() => mcpCopy.textContent = 'copy', 1500);
       };
     }
     get('find', {q: (s.name || '') + (s.description ? ' ' + s.description : ''), k: 6}).then(r => {
@@ -827,12 +936,38 @@ async function detail(url) {
   } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
 }
 function closeDrawer() { st.open = null; stateToHash(); $('#drawer').classList.remove('open'); const ds = $('#drawerstar'); if (ds) ds.style.display = 'none'; const dc = $('#drawercopy'); if (dc) dc.style.display = 'none'; }
+function closePop() { document.querySelectorAll('.price-pop').forEach(p => p.remove()); }
 $('#close').onclick = closeDrawer;
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); closeAcct(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); closeAcct(); closePop(); } });
 document.addEventListener('click', e => {
   const w = $('#who');
   if ($('#acct') && $('#acct').classList.contains('open') && w && !w.contains(e.target)) closeAcct();
+  if (document.querySelector('.price-pop') && !e.target.closest('.price') && !e.target.closest('.price-pop')) closePop();
 });
+
+async function openHostDrawer(h) {
+  $('#drawer').classList.add('open');
+  const ds = $('#drawerstar'); if (ds) ds.style.display = 'none';
+  const dc = $('#drawercopy'); if (dc) dc.style.display = 'none';
+  $('#dbody').innerHTML = '<div class="dim">loading</div>';
+  try {
+    const r = await get('services', {host: h.host, limit: 6, sort: 'popular'});
+    const svcs = r.items || [];
+    const nets = [...new Set(svcs.flatMap(s => s.networks || []))].slice(0, 6);
+    const priceRange = usd(h.min_price) + (h.max_price !== h.min_price ? ' – ' + usd(h.max_price) : '');
+    $('#dbody').innerHTML = `
+      <h2>${h.icon ? `<img class="ic" src="${esc(h.icon)}" loading="lazy" onerror="this.remove()">` : ''}${esc(h.name || h.host)}</h2>
+      <div class="dim" style="margin-top:4px"><a href="https://${esc(h.host)}" target="_blank" rel="noopener">${esc(h.host)}</a></div>
+      <div style="margin-top:8px"><span style="font:700 13px var(--mono);color:var(--accent)">${priceRange}</span>
+        ${nets.map(n => `<span class="chip">${esc(n)}</span>`).join('')}</div>
+      ${svcs.length ? `<h3>TOP SERVICES</h3><div class="tiles" id="hdtiles">${svcs.map(s => tile(s)).join('')}</div>` : ''}
+      <div style="margin-top:16px">
+        <button class="quiet" id="hdbrowse">Browse all ${h.services} service${h.services === 1 ? '' : 's'} &rarr;</button>
+      </div>`;
+    if (svcs.length) wireTiles($('#hdtiles'));
+    $('#hdbrowse').onclick = () => { closeDrawer(); Object.assign(st, {host: h.host, q: '', offset: 0}); tab('services'); };
+  } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
+}
 
 async function hosts() {
   const r = await get('hosts', {q: st.q, limit: 200});
@@ -848,7 +983,7 @@ async function hosts() {
   f.onsubmit = e => e.preventDefault();
   f.q.oninput = () => { clearTimeout(t); t = setTimeout(() => { st.q = f.q.value; hosts().then(() => { $('#hf').q.focus(); }); }, 300); };
   document.querySelectorAll('.tile[data-i]').forEach(tr => tr.onclick = () => {
-    Object.assign(st, {host: r.items[+tr.dataset.i].host, q: '', offset: 0}); tab('services'); });
+    openHostDrawer(r.items[+tr.dataset.i]); });
 }
 
 // ── the finder agent: claude over this module's own read-only MCP tools ──
@@ -921,7 +1056,7 @@ async function sources() {
     <form class="bar" id="pf"><input class="q" name="url" placeholder="https://api.example/paid-endpoint (probe one URL for its 402)">
       <button>probe + pin</button></form>
     <table><tr><th>facilitator</th><th>state</th><th class="num">indexed</th><th class="num">reported</th><th>last crawl</th><th>found via</th></tr>
-    ${rows.map(s => `<tr><td>${esc(s.name)}<div class="dim url">${esc(s.base_url)}</div></td><td>${state(s)}</td>
+    ${rows.map(s => `<tr style="cursor:pointer" data-sid="${esc(s.id)}" data-sname="${esc(s.name)}"><td>${esc(s.name)}<div class="dim url">${esc(s.base_url)}</div></td><td>${state(s)}</td>
       <td class="num">${s.indexed.toLocaleString()}</td><td class="num">${s.total != null ? s.total.toLocaleString() : '-'}</td>
       <td class="dim">${ago(s.last_ok)}</td><td class="dim">${esc(s.origin)}</td></tr>`).join('')}</table>`;
   $('#af').onsubmit = async e => { e.preventDefault();
@@ -934,6 +1069,9 @@ async function sources() {
     catch (err) { status(err.message, true); } };
   $('#sync').onclick = async () => { try { await post('sync'); status('crawl started; this takes a few minutes'); setTimeout(sources, 2000); }
     catch (err) { status(err.message, true); } };
+  document.querySelectorAll('tr[data-sid]').forEach(tr => {
+    tr.onclick = () => { Object.assign(st, {source: tr.dataset.sid, sourceName: tr.dataset.sname, tab: 'services', offset: 0}); tab('services'); };
+  });
 }
 
 async function partners() {
@@ -999,23 +1137,39 @@ async function mcpResults() {
       <span class="m ${mcls(t.method)}">${esc(t.method)}</span>${esc(t.description || t.url).slice(0, 160)} <span class="dim">${usd(t.price_usd)}</span></div>`).join('')}
       ${g.tools.length > 4 ? `<div class="dim" style="padding-top:6px">+${g.tools.length - 4} more matching tools</div>` : ''}</div>
     <div class="conn" data-g="${gi}" data-mode="cli" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button class="quiet mode-btn on" data-m="cli">CLI</button><button class="quiet mode-btn" data-m="json">JSON config</button>
+      <button class="quiet mode-btn on" data-m="cli">CLI</button><button class="quiet mode-btn" data-m="json">JSON config</button><button class="quiet mode-btn" data-m="auth">ready to use</button>
       <code class="conn-code">${esc(g.connect.claude)}</code><button class="quiet cp">copy</button></div>
   </div>`).join('');
-  box.querySelectorAll('.tool').forEach(el => el.onclick = () => detail(r.items[+el.dataset.g].tools[+el.dataset.t].url));
+  box.querySelectorAll('.tool').forEach(el => el.onclick = () => detail(r.items[+el.dataset.g].tools[+el.dataset.t].url, {mcp: r.items[+el.dataset.g]}));
   box.querySelectorAll('.mode-btn').forEach(b => b.onclick = () => {
     const conn = b.closest('.conn');
     const gi = +conn.dataset.g;
     const m = b.dataset.m;
     conn.dataset.mode = m;
     conn.querySelectorAll('.mode-btn').forEach(x => x.classList.toggle('on', x.dataset.m === m));
-    conn.querySelector('.conn-code').textContent = m === 'cli' ? r.items[gi].connect.claude : JSON.stringify(r.items[gi].connect.json, null, 2);
+    const g = r.items[gi];
+    if (m === 'auth') {
+      const slug = Object.keys(g.connect.json.mcpServers)[0];
+      const tok = PP && PP.session() ? PP.session().token : '<YOUR_SESSION_TOKEN>';
+      const noteSuffix = PP && PP.session() ? '' : '\n# sign in to pre-fill your token';
+      conn.querySelector('.conn-code').textContent = `claude mcp add --transport http ${slug} ${g.server} --header "Authorization: Bearer ${tok}"${noteSuffix}`;
+    } else {
+      conn.querySelector('.conn-code').textContent = m === 'cli' ? g.connect.claude : JSON.stringify(g.connect.json, null, 2);
+    }
   });
   box.querySelectorAll('.cp').forEach(b => b.onclick = async () => {
     const conn = b.closest('.conn');
     const gi = +conn.dataset.g;
     const m = conn.dataset.mode;
-    const text = m === 'cli' ? r.items[gi].connect.claude : JSON.stringify(r.items[gi].connect.json, null, 2);
+    const g = r.items[gi];
+    let text;
+    if (m === 'auth') {
+      const slug = Object.keys(g.connect.json.mcpServers)[0];
+      const tok = PP && PP.session() ? PP.session().token : '<YOUR_SESSION_TOKEN>';
+      text = `claude mcp add --transport http ${slug} ${g.server} --header "Authorization: Bearer ${tok}"`;
+    } else {
+      text = m === 'cli' ? g.connect.claude : JSON.stringify(g.connect.json, null, 2);
+    }
     try { await navigator.clipboard.writeText(text); b.textContent = 'copied!'; }
     catch { b.textContent = 'select it'; }
     setTimeout(() => b.textContent = 'copy', 1500); });

@@ -386,9 +386,11 @@ class Renderer {
 const KW: Record<string, RegExp> = {
   solidity: /\b(contract|function|external|internal|public|private|view|pure|returns|return|require|mapping|address|uint256|bytes32|bool|memory|calldata|struct|event|emit|modifier|interface|string|if|indexed)\b/g,
   python: /\b(class|def|return|self|import|from|if|else|for|in|None|True|False|list|dict|str|bool|int)\b/g,
+  js: /\b(function|const|let|var|return|import|from|export|if|else|for|of|in|async|await|new|typeof)\b/g,
+  rust: /\b(fn|let|mut|pub|use|struct|impl|enum|match|return|if|else|for|in|while|loop|mod|trait|type|async|await|const|static)\b/g,
 };
 
-function highlight(src: string, lang: string) {
+export function highlight(src: string, lang: string) {
   const kw = KW[lang];
   const comment = lang === "python" ? /#.*$/ : /\/\/.*$/;
   return src

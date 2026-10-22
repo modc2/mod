@@ -387,43 +387,93 @@ export default function Flow({
     if (brief.length < 8 || vibing) return
     if (!token) { flash(false, 'sign in to vibecode a flow'); onSignIn?.(); return }
     setVibing(true)
+    const wasBlankish = isBlankish
+    const graphPayload = isBlankish ? null
+      : { id: loadedId || undefined, name: name || undefined,
+          description: description || undefined, nodes, edges }
+    if (vibeEngine) {
+      // harness path — a CLI drafts it, non-stream endpoint
+      try {
+        const res = await fetch(`${API_URL}/graphs/vibe`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(620000),
+          body: JSON.stringify({ description: brief, graph: graphPayload,
+                                 harness: vibeEngine, key: token }),
+        })
+        const d = await res.json()
+        if (d.error) { flash(false, d.error); return }
+        const draft = d.draft || {}
+        setNodes((draft.nodes || []).map((n: any) => ({ ...n, data: n.data || {} })))
+        setEdges((draft.edges || []).map((e: any) => ({ ...e, id: e.id || nid(), port: e.port || 'out' })))
+        if (draft.name) setName(draft.name)
+        if (draft.description) setDescription(draft.description)
+        if (wasBlankish) setLoadedId(null)
+        setStates({}); setResult(null); setLog([])
+        setDirty(true); setVibeText('')
+        if ((draft.nodes || []).length) needFitRef.current = true
+        else setViewport({ x: 40, y: 40, k: 0.9 })
+        flash(!!d.valid?.ok, d.valid?.ok
+          ? `drafted "${draft.name || 'flow'}" — look it over, then save`
+          : `drafted, but: ${d.valid?.errors?.[0] || 'it needs fixing'}`)
+      } catch (e: any) {
+        flash(false, e?.name === 'TimeoutError'
+          ? 'the draft timed out — try again' : e?.message || 'vibe failed')
+      } finally { setVibing(false) }
+      return
+    }
+    // streaming path — nodes materialise on the canvas as the draft arrives
+    setNodes([]); setEdges([])
+    setStates({}); setResult(null); setLog([])
     try {
-      const res = await fetch(`${API_URL}/graphs/vibe`, {
+      const res = await fetch(`${API_URL}/graphs/vibe/stream`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // a draft is a whole model run — give a harness engine even longer
-        signal: AbortSignal.timeout(vibeEngine ? 620000 : 180000),
-        body: JSON.stringify({
-          description: brief,
-          graph: isBlankish ? null
-            : { id: loadedId || undefined, name: name || undefined,
-                description: description || undefined, nodes, edges },
-          harness: vibeEngine || null,
-          key: token,
-        }),
+        signal: AbortSignal.timeout(180000),
+        body: JSON.stringify({ description: brief, graph: graphPayload, key: token }),
       })
-      const d = await res.json()
-      if (d.error) { flash(false, d.error); return }
-      const draft = d.draft || {}
-      setNodes((draft.nodes || []).map((n: any) => ({ ...n, data: n.data || {} })))
-      setEdges((draft.edges || []).map((e: any) => ({ ...e, id: e.id || nid(), port: e.port || 'out' })))
-      if (draft.name) setName(draft.name)
-      if (draft.description) setDescription(draft.description)
-      if (isBlankish) setLoadedId(null)
-      setStates({}); setResult(null); setLog([])
-      setDirty(true)
-      setVibeText('')
-      const dNodes: FNode[] = (draft.nodes || []).map((n: any) => ({ ...n, data: n.data || {} }))
-      if (dNodes.length) {
-        needFitRef.current = true
-      } else {
-        setViewport({ x: 40, y: 40, k: 0.9 })
+      if (!res.ok || !res.body) throw new Error('the vibe stream could not be started')
+      const reader = res.body.getReader()
+      const dec = new TextDecoder()
+      let buf = '', doneEv: any = null
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const frames = buf.split('\n\n')
+        buf = frames.pop() || ''
+        for (const frame of frames) {
+          const line = frame.split('\n').find(l => l.startsWith('data: '))
+          if (!line) continue
+          let ev: any
+          try { ev = JSON.parse(line.slice(6)) } catch { continue }
+          if (ev.type === 'node_added' && ev.node) {
+            const n: FNode = { ...ev.node, data: ev.node.data || {} }
+            setNodes(ns => [...ns, n])
+          } else if (ev.type === 'edge_added' && ev.edge) {
+            const e: FEdge = { ...ev.edge, id: ev.edge.id || nid(), port: ev.edge.port || 'out' }
+            setEdges(es => [...es, e])
+          } else if (ev.type === 'name') {
+            if (ev.name) setName(ev.name)
+            if (ev.description !== undefined) setDescription(ev.description)
+          } else if (ev.type === 'done') {
+            doneEv = ev
+          } else if (ev.type === 'error') {
+            flash(false, ev.error || 'vibe failed'); return
+          }
+        }
       }
-      flash(!!d.valid?.ok, d.valid?.ok
-        ? `drafted "${draft.name || 'flow'}" — look it over, then save`
-        : `drafted, but: ${d.valid?.errors?.[0] || 'it needs fixing'}`)
+      if (doneEv) {
+        if (wasBlankish) setLoadedId(null)
+        setDirty(true); setVibeText('')
+        if ((doneEv.draft?.nodes || []).length) needFitRef.current = true
+        else setViewport({ x: 40, y: 40, k: 0.9 })
+        flash(!!doneEv.valid?.ok, doneEv.valid?.ok
+          ? `drafted "${doneEv.draft?.name || 'flow'}" — look it over, then save`
+          : `drafted, but: ${doneEv.valid?.errors?.[0] || 'it needs fixing'}`)
+      }
     } catch (e: any) {
-      flash(false, e?.name === 'TimeoutError'
-        ? 'the draft timed out — try again' : e?.message || 'vibe failed')
+      if (e?.name !== 'AbortError')
+        flash(false, e?.name === 'TimeoutError'
+          ? 'the draft timed out — try again' : e?.message || 'vibe failed')
     } finally { setVibing(false) }
   }
 

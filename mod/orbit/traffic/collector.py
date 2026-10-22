@@ -10,6 +10,7 @@ own API counts as someone using that app.
 """
 
 import builtins
+import collections
 import hashlib
 import ipaddress
 import json
@@ -104,6 +105,7 @@ class Store:
                 f.write(secrets.token_hex(16))
             os.chmod(salt_path, 0o600)
         self.salt = open(salt_path).read().strip()
+        self.recent = collections.deque(maxlen=200)
 
     def vid(self, ip, ua):
         return hashlib.sha256(f"{self.salt}|{ip}|{ua}".encode()).hexdigest()[:16]
@@ -189,6 +191,7 @@ class Collector:
                 if not p:
                     continue
                 app, minute, vid, country, ts = p
+                self.store.recent.append((int(ts), app, country or ''))
                 agg[(app, minute, vid)] = agg.get((app, minute, vid), 0) + 1
                 v = vis.get(vid)
                 vis[vid] = (vid, min(v[1], ts) if v else ts, max(v[2], ts) if v else ts,
@@ -268,10 +271,14 @@ def series(store, range="24h", top=8, apps=None, now=None):
         (smin, smin * 60))
     new_users = {a: u for a, u in new_rows}
     range_unique = store.q("SELECT COUNT(DISTINCT vid) FROM seen WHERE minute >= ?", (smin,))[0][0] or 0
+    dwell_map = {a: d for a, d in store.q(
+        "SELECT app, ROUND(AVG(span), 1) FROM ("
+        "SELECT app, vid, MAX(minute) - MIN(minute) + 1 AS span "
+        "FROM seen WHERE minute >= ? GROUP BY app, vid) GROUP BY app", (smin,))}
     return {"range": rng, "step": step, "buckets": buckets, "total": total, "range_unique": range_unique,
             "series": [{"app": a, "values": out[a]} for a in names],
             "table": [{"app": a, "users": u, "hits": h, "live": lv.get(a, 0), "prev": prev_users.get(a, 0),
-                       "new": new_users.get(a, 0)}
+                       "new": new_users.get(a, 0), "dwell": dwell_map.get(a)}
                       for a, u, h in ranked],
             "first": (store.q("SELECT MIN(minute) FROM seen")[0][0] or 0) * 60}
 
@@ -335,6 +342,18 @@ def funnel(store, range="24h", now=None):
         (smin,))
     steps = [{"apps": c, "visitors": n} for c, n in rows]
     return {"range": range, "steps": steps}
+
+
+def dwell(store, range="24h", now=None):
+    """Avg session length in minutes per app over the range."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT app, ROUND(AVG(span), 1) FROM ("
+        "SELECT app, vid, MAX(minute) - MIN(minute) + 1 AS span "
+        "FROM seen WHERE minute >= ? GROUP BY app, vid) GROUP BY app", (smin,))
+    return {"range": range, "dwell": {a: d for a, d in rows}}
 
 
 def pairs(store, range="24h", limit=10, now=None):
@@ -438,6 +457,27 @@ def paths(store, range="24h", limit=10, now=None):
             path_counts[key] = path_counts.get(key, 0) + 1
     top = sorted(path_counts.items(), key=lambda x: -x[1])[:limit]
     return {"range": range, "paths": [{"apps": list(p), "visitors": n} for p, n in top]}
+
+
+def transitions(store, range="24h", limit=15, now=None):
+    """Pairwise app-to-app step counts extracted from visitor navigation sequences."""
+    span, _ = RANGES.get(range, RANGES["24h"])
+    now = int(now or time.time())
+    smin = (now - span) // 60
+    rows = store.q(
+        "SELECT vid, app, MIN(minute) FROM seen WHERE minute >= ? "
+        "GROUP BY vid, app ORDER BY vid, MIN(minute)",
+        (smin,))
+    visitor_apps = {}
+    for vid, app, _ in rows:
+        visitor_apps.setdefault(vid, []).append(app)
+    step_counts = {}
+    for seq in visitor_apps.values():
+        for i in builtins.range(len(seq) - 1):
+            key = (seq[i], seq[i + 1])
+            step_counts[key] = step_counts.get(key, 0) + 1
+    top = sorted(step_counts.items(), key=lambda x: -x[1])[:limit]
+    return {"range": range, "transitions": [{"from": f, "to": t, "count": c} for (f, t), c in top]}
 
 
 def heatmap(store, range="30d", app=None, now=None):

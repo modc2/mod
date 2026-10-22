@@ -211,6 +211,11 @@ button.sm { padding: 5px 10px; font-size: 12.5px; }
   transition: border-color 0.12s ease, transform 0.12s ease;
 }
 .card:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+@keyframes card-pulse {
+  from { box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 40%, transparent); }
+  to   { box-shadow: 0 0 0 8px color-mix(in srgb, var(--good) 0%, transparent); }
+}
+.card-active { animation: card-pulse 1.5s ease-out forwards; }
 .card h3 {
   margin: 0;
   font-size: 15px;
