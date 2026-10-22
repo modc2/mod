@@ -44,6 +44,7 @@
         <label class="f">keep this much RAM free (MB)<input id="minFree" type="number" min="0" step="500" /></label>
         <label class="f">max running (0 = no cap)<input id="maxRun" type="number" min="0" /></label>
       </div>
+      <div id="guard-suggest"></div>
       <div id="guard-preview"></div>
       <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="guardSave" class="sm">save guard</button></div>
     </div>
@@ -199,8 +200,11 @@ function render() {
   const reclaimBtn = K.isOwner && reclaimMb > 100 ? `<button class="sm${usedPct > 85 ? ' danger' : ''}" data-reclaim="1" style="margin-top:10px">reclaim ~${reclaimMb}MB</button>` : '';
   const sleepingRamMb = (s.modules || []).filter(x => !x.running && !x.disabled).reduce((acc, x) => acc + (lastKnownRam.get(x.module) || 0), 0);
   const savingStr = sleepingRamMb > 0 ? (sleepingRamMb >= 1024 ? `~${(sleepingRamMb/1024).toFixed(1)} GB` : `~${Math.round(sleepingRamMb)} MB`) : '';
+  const sessionFreedMb = events.filter(e => e.dir === 'asleep').reduce((acc, e) => acc + (e.memMb || 0), 0);
+  const sessionSleepCount = events.filter(e => e.dir === 'asleep').length;
+  const freedStr = sessionFreedMb >= 1024 ? `~${(sessionFreedMb/1024).toFixed(1)} GB` : sessionFreedMb > 0 ? `~${Math.round(sessionFreedMb)} MB` : '';
   $("mem").innerHTML = `<div class="stats"><div class="stat"><b>${(m.available_mb / 1024 || 0).toFixed(1)}G</b><span>free</span></div>
-    <div class="stat"><b>${(m.used_mb / 1024 || 0).toFixed(1)}G</b><span>used</span></div><div class="stat"><b>${(m.total_mb / 1024 || 0).toFixed(1)}G</b><span>total</span></div>${savingStr ? `<div class="stat"><b style="color:var(--green)">${savingStr}</b><span>saving</span></div>` : ''}</div>
+    <div class="stat"><b>${(m.used_mb / 1024 || 0).toFixed(1)}G</b><span>used</span></div><div class="stat"><b>${(m.total_mb / 1024 || 0).toFixed(1)}G</b><span>total</span></div>${savingStr ? `<div class="stat"><b style="color:var(--green)">${savingStr}</b><span>saving</span></div>` : ''}${freedStr ? `<div class="stat"><b style="color:var(--green)">${freedStr}</b><span>freed (${sessionSleepCount})</span></div>` : ''}</div>
     <div class="meter" style="margin-top:12px"><i style="width:${usedPct}%;background:${usedPct > 85 ? "var(--red)" : "var(--accent)"}"></i></div>
     <div class="faint" style="font-size:12px;margin-top:8px">${s.sweep ? `${s.sweep.idleStops ?? 0} idle stops` : ""}${g.pressureStops ? ` · ${g.pressureStops} pressure stops` : ""}${g.minFreeMb ? ` · guard keeps ${g.minFreeMb} MB free` : ""}</div>${topHtml}${reclaimBtn}`;
   if (ramHistory.length >= 2) {
@@ -220,6 +224,7 @@ function render() {
   $("idle").textContent = s.idleSeconds ? K.dur(s.idleSeconds) : "—";
   $("policy").textContent = s.policy || "";
   if (!seeded && s.guard) { $("minFree").value = g.minFreeMb ?? ""; $("maxRun").value = g.maxRunning ?? 0; seeded = true; }
+  updateGuardSuggest();
   for (const id of ["minus", "plus", "guardSave"]) $(id).disabled = !K.isOwner || !R.activator;
   const mods = s.modules || [];
   const awake = mods.filter((x) => x.running).length;
@@ -252,6 +257,7 @@ function render() {
     });
   const nb = $("notifyBtn"); if (nb) nb.textContent = notifyEnabled ? 'notify on' : 'notify off';
   const pressureSet = new Set(reclaimCandidates.map(x => x.module));
+  const cycleMap = events.reduce((acc, e) => { acc[e.module] = (acc[e.module]||0)+1; return acc; }, {});
   $("mods").innerHTML = vis.slice(0, showAll ? 999 : 40).map((x) => {
     const st = x.disabled ? ["disabled", "bad"] : x.running ? ["awake", "on"] : x.slept ? ["asleep", ""] : ["down", ""];
     const ports = [x.apiPort, x.appPort].filter(Boolean).filter((p, i, a) => a.indexOf(p) === i).map((p) => ":" + p).join(" ");
@@ -269,7 +275,7 @@ function render() {
     const spark = hist.length > 1
       ? `<div class="spark">${hist.map(r => `<i class="${r ? 'on' : ''}"></i>`).join('')}</div>`
       : '';
-    return `<div class="row" data-m="${K.esc(x.module)}"${memMb > 1000 ? ' data-heavy' : ''}${pressureSet.has(x.module) ? ' data-pressure="1"' : ''}>${K.isOwner ? `<label class="chk" style="flex:none;margin-right:2px"><input type="checkbox" data-chk="${K.esc(x.module)}"${selectedMods.has(x.module) ? ' checked' : ''}></label>` : ''}<span class="pill ${st[1]}">${st[0]}</span>
+    return `<div class="row" data-m="${K.esc(x.module)}"${memMb > 1000 ? ' data-heavy' : ''}${pressureSet.has(x.module) ? ' data-pressure="1"' : ''}>${K.isOwner ? `<label class="chk" style="flex:none;margin-right:2px"><input type="checkbox" data-chk="${K.esc(x.module)}"${selectedMods.has(x.module) ? ' checked' : ''}></label>` : ''}<span class="pill ${st[1]}">${st[0]}</span>${cycleMap[x.module] >= 3 ? ' <span class="pill warn" title="cycling — consider pinning">↕</span>' : ''}
       <div class="grow"><div class="t"><a href="/${K.esc(x.module)}/" target="_blank" rel="noopener" style="color:inherit;border-bottom:1px dotted var(--faint)">${K.esc(x.module)}</a>${x.pinned ? ` <span class="pill acc" style="padding:3px 7px">pinned</span>` : ""}${x.alwaysOn ? ` <span class="pill acc" style="padding:3px 7px">always on</span>` : ""}</div>
       <div class="s mono">${ports} · ${x.hits || 0} hits · ${idlePart}${cpuStr}${memMb ? ` · ${memMb.toFixed(0)}M` : ''}</div>
       ${spark}<div class="idle-bar"><i style="width:${Math.round(idleRatio * 100)}%;background:${barColor}"></i></div></div>
@@ -376,6 +382,22 @@ function renderFeed() {
   feed.innerHTML = events.map(ev =>
     `<div class="row"><span class="pill ${ev.dir === 'awake' ? 'on' : ''}">${ev.dir}</span><div class="grow"><div class="t">${K.esc(ev.module)}</div><div class="s mono">${K.ago(ev.ts)}${ev.memMb ? ' · was ' + ev.memMb.toFixed(0) + 'M' : ''}</div></div></div>`
   ).join('');
+  const feedCycleMap = events.reduce((acc, e) => { acc[e.module] = (acc[e.module]||0)+1; return acc; }, {});
+  const thrashing = Object.entries(feedCycleMap).filter(([, n]) => n >= 3);
+  if (thrashing.length > 0) {
+    let pHtml = '<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:4px">';
+    for (const [mod, n] of thrashing) {
+      pHtml += `<div style="display:flex;align-items:center;gap:8px"><div class="s mono" style="margin-top:8px;color:var(--amber);flex:1">↕ ${K.esc(mod)} — slept/woke ${n} times this session</div>${K.isOwner ? `<button class="sm" data-pin="${K.esc(mod)}">pin</button>` : ''}</div>`;
+    }
+    pHtml += '</div>';
+    feed.innerHTML += pHtml;
+    feed.querySelectorAll('[data-pin]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await K.act("/reaper/control", { module: btn.dataset.pin, action: "pin" });
+        load();
+      });
+    });
+  }
 }
 
 async function load() {
@@ -423,6 +445,25 @@ async function load() {
     renderFeed();
   } else K.setState(`<span class="pill bad">build unreachable</span>`);
 }
+function updateGuardSuggest() {
+  const el = $("guard-suggest");
+  if (!el || !R) { if (el) el.innerHTML = ''; return; }
+  const g = R.state?.guard || {};
+  const pressureStops = g.pressureStops || 0;
+  if (pressureStops === 0) { el.innerHTML = ''; return; }
+  const availMb = R.memory?.available_mb || 0;
+  const suggested = Math.round(Math.max(availMb * 0.25, 512) / 256) * 256;
+  const currentMinFree = +($("minFree").value) || 0;
+  if (currentMinFree >= suggested) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="notice warn" style="font-size:12px;margin-top:8px;display:flex;align-items:center;gap:8px;justify-content:space-between"><span>Had ${pressureStops} pressure stop${pressureStops !== 1 ? 's' : ''} — try min_free_mb → ${suggested} MB</span><button class="sm" id="guardSuggestApply">apply</button></div>`;
+  $("guardSuggestApply").onclick = () => {
+    $("minFree").value = suggested;
+    updateGuardPreview();
+    updateGuardSuggest();
+    $("guardSave").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+}
+
 function updateGuardPreview() {
   const el = $("guard-preview");
   if (!el) return;
@@ -472,7 +513,7 @@ const setIdle = async (d) => { const cur = R?.state?.idleSeconds || 60; await K.
 $("minus").onclick = () => setIdle(-60);
 $("plus").onclick = () => setIdle(60);
 $("guardSave").onclick = async () => { await K.act("/reaper/config", { min_free_mb: +$("minFree").value, max_running: +$("maxRun").value }, "guard saved"); load(); };
-$("minFree").oninput = updateGuardPreview;
+$("minFree").oninput = () => { updateGuardPreview(); updateGuardSuggest(); };
 $("maxRun").oninput = updateGuardPreview;
 $("q").oninput = () => R && render();
 $("seg").onclick = (e) => { const v = e.target.dataset.v; if (!v) return; view = v; for (const b of $("seg").children) b.classList.toggle("sel", b.dataset.v === v); render(); };

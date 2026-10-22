@@ -36,6 +36,28 @@ GATEWAY_FALLBACKS = [
 # Wallet JWK lives off-tree with the other per-module secrets, never in config.
 WALLET_PATH = Path(os.path.expanduser("~/.mod/arweave/wallet.json"))
 
+_rate_cache: Dict[str, Any] = {"ts": 0.0, "rate": None}
+_RATE_TTL = 300.0
+
+
+def ar_usd_rate() -> Optional[float]:
+    """Return the current AR/USD rate from CoinGecko, cached for 5 minutes. Returns None on failure."""
+    now = time.time()
+    if _rate_cache["rate"] is not None and now - _rate_cache["ts"] < _RATE_TTL:
+        return _rate_cache["rate"]
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price?ids=arweave&vs_currencies=usd",
+            timeout=5,
+        )
+        r.raise_for_status()
+        rate = float(r.json()["arweave"]["usd"])
+        _rate_cache["ts"] = now
+        _rate_cache["rate"] = rate
+        return rate
+    except Exception:
+        return None
+
 
 class ArweaveClient:
     """Pragmatic Arweave client. Works without auth for reads; uploads need a wallet."""

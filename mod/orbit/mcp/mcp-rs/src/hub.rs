@@ -139,6 +139,7 @@ async fn server_rows(state: &Arc<AppState>) -> Vec<Value> {
         .map(|s| {
             let p = probes.get(&s.id).cloned().unwrap_or_default();
             let review_risk = reviews.get(&s.id).map(|r| json!(r.risk)).unwrap_or(Value::Null);
+            let review_capabilities = reviews.get(&s.id).map(|r| json!(r.capabilities)).unwrap_or(json!([]));
             let (calls, last_call) = stats
                 .get(&s.id)
                 .map(|st| (st.calls, st.last_ts))
@@ -156,6 +157,7 @@ async fn server_rows(state: &Arc<AppState>) -> Vec<Value> {
                 "auth_headers": s.headers.keys().collect::<Vec<_>>(),
                 "probe": probe_json(&p),
                 "review_risk": review_risk,
+                "review_capabilities": review_capabilities,
                 "calls": calls,
                 "last_call": if last_call > 0 { json!(last_call) } else { Value::Null },
                 "uptime": uptime,

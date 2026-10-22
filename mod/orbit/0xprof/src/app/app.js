@@ -639,6 +639,58 @@ async function inlineRace(id) {
   } catch (e) { toast(e.message, true); }
 }
 
+async function inlineHeroRace(sample) {
+  const container = $('#heroMethods');
+  const authMethods = (state.methods || []).filter((m) => m.authoritative);
+  container.innerHTML = authMethods.length
+    ? authMethods.map((m) => pendingLane(m.method)).join('')
+    : '<div class="placeholder"><span class="spin"></span>asking every method…</div>';
+
+  const body = { proof: sample.proof, statement: sample.statement,
+                 public_signals: sample.public_signals, system: sample.system };
+  const headers = { 'content-type': 'application/json' };
+  if (state.token) headers.authorization = `Bearer ${state.token}`;
+  let response;
+  try {
+    response = await fetch(API + '/verify/stream', { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!response.ok) {
+      const t = await response.text();
+      let p; try { p = JSON.parse(t); } catch { p = { detail: t }; }
+      throw new Error(p.detail || p.error || response.statusText);
+    }
+  } catch (e) { toast(e.message, true); return; }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const blocks = buf.split('\n\n');
+      buf = blocks.pop();
+      for (const block of blocks) {
+        const line = block.trim();
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data.startsWith('[DONE] ')) {
+          const result = JSON.parse(data.slice(7));
+          container.insertAdjacentHTML('afterbegin', summaryBlock(result));
+          applyTimingBars(container);
+        } else {
+          const verdict = JSON.parse(data);
+          if (!verdict.error) {
+            const existing = container.querySelector(`.verdict[data-method="${CSS.escape(verdict.method)}"]`);
+            if (existing) existing.outerHTML = verdictRow(verdict);
+            else container.insertAdjacentHTML('beforeend', verdictRow(verdict));
+          }
+        }
+      }
+    }
+  } catch (e) { toast(e.message, true); }
+}
+
 // ── verify tab ──────────────────────────────────────────────────────
 
 async function runVerify() {
@@ -1166,9 +1218,14 @@ async function boot() {
   $$('#tabs button').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
   $$('button[data-go]').forEach((b) => { b.onclick = () => showTab(b.dataset.go); });
   $('#heroDemo').onclick = async () => {
-    showTab('verify');
-    await loadSample();
-    await runVerify();
+    const btn = $('#heroDemo');
+    btn.disabled = true;
+    try {
+      const sample = await api('/sample');
+      await inlineHeroRace(sample);
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false;
+    btn.textContent = 'Watch it again';
   };
   // A session that predates the two doors says which address, not which door.
   // Work it out once rather than guessing later, when the answer decides which

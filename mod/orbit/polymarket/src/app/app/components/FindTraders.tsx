@@ -766,6 +766,19 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                         </div>
                       )}
 
+                      {t.buyVolume + t.sellVolume > 0 && (
+                        <div
+                          className="w-full h-[3px] rounded-full overflow-hidden flex"
+                          title={`Buys: ${formatVolume(t.buyVolume)} · Sells: ${formatVolume(t.sellVolume)} — ${Math.round(Math.max(t.buyVolume, t.sellVolume) / (t.buyVolume + t.sellVolume) * 100)}% directional`}
+                        >
+                          <div
+                            className="bg-emerald-400/80 h-full"
+                            style={{ width: `${(t.buyVolume / (t.buyVolume + t.sellVolume)) * 100}%` }}
+                          />
+                          <div className="bg-amber-400/80 h-full flex-1" />
+                        </div>
+                      )}
+
                       <div className={`grid ${score !== null ? "grid-cols-8" : "grid-cols-7"} gap-1`}>
                         <Stat
                           label="ROI"
@@ -851,6 +864,12 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                           active={ran.sort === "volume"}
                           value={formatVolume(t.volume)}
                           title="Dollars traded over the window"
+                        />
+                        <Stat
+                          label="TODAY"
+                          value={t.trades24h ? String(t.trades24h) : "—"}
+                          valueClass={t.trades24h ? "text-pixel-green" : "text-pixel-gray"}
+                          title="Trades in the last 24 hours — green means actively trading right now"
                         />
                         {score !== null && (
                           <Stat

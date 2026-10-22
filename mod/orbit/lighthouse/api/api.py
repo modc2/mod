@@ -687,8 +687,24 @@ def put_url(request: Request, body: Optional[UrlBody] = Body(default=None),
         actual_size = local.stat().st_size
         if c.mode == 'free':
             anon_guard(lh, address, x_lh_key, actual_size)
+        og_image = ''
+        ct = resp.headers.get('Content-Type', '').split(';')[0].strip()
+        if ct.startswith('text/html'):
+            try:
+                with open(local, 'rb') as _f:
+                    snippet = _f.read(8192).decode('utf-8', errors='replace')
+                og = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', snippet, re.I)
+                if not og:
+                    og = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', snippet, re.I)
+                if og:
+                    og_image = og.group(1).strip()
+            except Exception:
+                pass
+        _meta: dict = {'source_url': body.url}
+        if og_image:
+            _meta['og_image'] = og_image
         try:
-            result = lh.put(str(local), owner=address, key=name, meta={'source_url': body.url})
+            result = lh.put(str(local), owner=address, key=name, meta=_meta)
         except Exception as e:
             raise HTTPException(502, f'lighthouse upload failed (not charged): {e}')
     finally:
@@ -726,8 +742,11 @@ def list_objects(limit: int = Query(default=100, ge=1, le=1000),
         if meta_raw:
             try:
                 meta_obj = json.loads(meta_raw)
-                if isinstance(meta_obj, dict) and 'source_url' in meta_obj:
-                    row['source_url'] = meta_obj['source_url']
+                if isinstance(meta_obj, dict):
+                    if 'source_url' in meta_obj:
+                        row['source_url'] = meta_obj['source_url']
+                    if 'og_image' in meta_obj:
+                        row['og_image'] = meta_obj['og_image']
             except (json.JSONDecodeError, TypeError):
                 pass
     return {'owner': address, 'scope': scope, 'count': len(rows), 'objects': rows}

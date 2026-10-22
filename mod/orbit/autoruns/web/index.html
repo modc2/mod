@@ -135,6 +135,14 @@
   .away-banner span { flex: 1; }
   .away-banner .close { background: none; border: 0; color: var(--faint); font-size: 14px; padding: 0 2px; cursor: pointer; line-height: 1; }
   .away-banner .close:hover { color: var(--text); }
+
+  .wins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 4px; }
+  .win-tile { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; cursor: pointer; }
+  .win-tile:hover { border-color: var(--line2); }
+  .win-tile .wt-mod { color: var(--accent); font: 700 11px var(--sans); display: block; margin-bottom: 4px; }
+  .win-tile .wt-title { font-size: 13px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 8px; }
+  .win-tile .wt-foot { display: flex; gap: 6px; align-items: center; }
+  .win-tile .wt-usd { font: 11px var(--mono); color: var(--faint); margin-left: auto; }
 </style>
 </head>
 <body>
@@ -167,12 +175,19 @@
 
     <div class="card wide">
       <h2>By module <span class="n" id="lbN"></span></h2>
+      <div class="bar"><span class="seg" id="lb_sort"><button class="sel" data-v="rate">rate</button><button data-v="stale">stale first</button></span></div>
       <div id="leaderboard" class="rows"></div>
     </div>
 
     <div class="card wide live">
       <h2>Running now <span class="n" id="liveN"></span><span class="sp"></span><button id="stopAllBtn" class="danger sm" hidden>stop all</button></h2>
       <div id="live" class="rows"></div>
+    </div>
+
+    <div class="card wide" id="wins">
+      <h2>Landed ideas <span class="n" id="winsN"></span></h2>
+      <div id="winsGrid" class="wins-grid"></div>
+      <button id="winsMore" class="more" hidden></button>
     </div>
 
     <div class="card wide">
@@ -209,6 +224,8 @@ const prevLive = new Set();
 let _sessionShown = false;
 const lastVisit = parseInt(localStorage.getItem('ar_last_visit') || '0', 10);
 let _awayBannerDismissed = false;
+let winsAll = false;
+let lbSort = "rate";
 let selectedMods = [];
 let modelRates = {};
 const isLive = (r) => r.status === "running" || r.status === "stopping";
@@ -247,11 +264,15 @@ function showSessionSummary(ids) {
   const completedRuns = [...ids].map(id => runs.find(r => r.id === id)).filter(Boolean);
   let landedN = 0, totalSteps = 0, totalUsd = 0;
   const mods = new Set();
+  const landedItems = [];
   for (const r of completedRuns) {
     for (const s of (r.history || [])) {
       if (!s.outcome) continue;
       totalSteps++;
-      if (landed(s.outcome)) landedN++;
+      if (landed(s.outcome)) {
+        landedN++;
+        if (s.title) landedItems.push({ mod: r.module, title: s.title });
+      }
     }
     totalUsd += +r.usd || 0;
     mods.add(r.module);
@@ -259,9 +280,16 @@ function showSessionSummary(ids) {
   const kind = totalSteps === 0 ? "meh" : landedN === totalSteps ? "ok" : landedN === 0 ? "miss" : "meh";
   const v = document.createElement("div");
   v.className = "veil";
+  const landedList = landedN > 0 ? (() => {
+    const show = landedItems.slice(0, 5);
+    const more = landedItems.length - show.length;
+    const items = show.map(x => `<li><span class="mod">${K.esc(x.mod)}</span> ${K.esc(x.title)}</li>`).join("");
+    const tail = more > 0 ? `<li style="list-style:none">and ${more} more…</li>` : "";
+    return `<ul style="margin:4px 0 8px;padding:0 0 0 1em;font-size:12px;color:var(--dim);max-height:120px;overflow:auto">${items}${tail}</ul>`;
+  })() : "";
   v.innerHTML = `<div class="dlg">
     <p><span class="tag ${kind}">Session complete</span></p>
-    <p>${landedN} of ${totalSteps} step${totalSteps !== 1 ? "s" : ""} landed</p>
+    <p>${landedN} of ${totalSteps} step${totalSteps !== 1 ? "s" : ""} landed</p>${landedList}
     <p style="font-size:12px;color:var(--dim)">modules: ${K.esc([...mods].join(" · "))}</p>
     <p style="font-size:12px;color:var(--dim)">${totalUsd > 0 ? "$" + totalUsd.toFixed(2) + " spent" : "no spend recorded"}</p>
     <div class="inline"><button data-a="results">view results</button><button data-a="new" class="primary">new run</button></div>
@@ -471,10 +499,11 @@ function modSparkline(modRuns) {
 function renderLeaderboard() {
   const map = {};
   for (const r of runs) {
-    if (!map[r.module]) map[r.module] = { runs: 0, completed: 0, landedN: 0, usd: 0 };
+    if (!map[r.module]) map[r.module] = { runs: 0, completed: 0, landedN: 0, usd: 0, last_run: 0 };
     const m = map[r.module];
     m.runs++;
     m.usd += +r.usd || 0;
+    m.last_run = Math.max(m.last_run || 0, r.updated_at);
     for (const s of (r.history || [])) {
       if (!s.outcome) continue;
       m.completed++;
@@ -483,8 +512,8 @@ function renderLeaderboard() {
   }
   const rows = Object.entries(map)
     .filter(([, m]) => m.completed > 0)
-    .map(([mod, m]) => ({ mod, runs: m.runs, rate: Math.round(100 * m.landedN / m.completed), usd: m.usd }))
-    .sort((a, b) => b.rate - a.rate || b.runs - a.runs);
+    .map(([mod, m]) => ({ mod, runs: m.runs, rate: Math.round(100 * m.landedN / m.completed), usd: m.usd, last_run: m.last_run }))
+    .sort((a, b) => lbSort === "stale" ? a.last_run - b.last_run : (b.rate - a.rate || b.runs - a.runs));
   $("lbN").textContent = rows.length ? `· ${rows.length}` : "";
   const el = $("leaderboard");
   if (!rows.length) { el.innerHTML = '<div class="empty">no completed steps yet</div>'; return; }
@@ -503,8 +532,31 @@ function renderLeaderboard() {
       : '';
     const spark = modSparkline(modRuns);
     const hasLive = liveModules.has(r.mod);
-    return `<div class="ev${hasLive ? " live" : ""}"><span class="mod" style="cursor:pointer" data-lb-mod="${K.esc(r.mod)}">${K.esc(r.mod)}</span>${trendEl}${spark}<span style="flex:1"></span><span class="tag ${kind}">${r.rate}%</span><span class="when">${r.runs} run${r.runs !== 1 ? "s" : ""}</span>${cost}<button class="btn" style="padding:4px 8px;font-size:10px" data-lb-run="${K.esc(r.mod)}" title="run ${K.esc(r.mod)} now">▶</button></div>`;
+    const daysSince = Math.floor((Date.now()/1000 - r.last_run) / 86400);
+    const staleTag = `<span class="tag${daysSince >= 7 ? " miss" : daysSince >= 3 ? " meh" : ""}">·${daysSince}d</span>`;
+    return `<div class="ev${hasLive ? " live" : ""}"><span class="mod" style="cursor:pointer" data-lb-mod="${K.esc(r.mod)}">${K.esc(r.mod)}</span>${trendEl}${spark}<span style="flex:1"></span><span class="tag ${kind}">${r.rate}%</span><span class="when">${r.runs} run${r.runs !== 1 ? "s" : ""}</span>${cost}${staleTag}<button class="btn" style="padding:4px 8px;font-size:10px" data-lb-run="${K.esc(r.mod)}" title="run ${K.esc(r.mod)} now">▶</button></div>`;
   }).join("");
+}
+
+function renderWinsWall() {
+  const wins = runs
+    .flatMap(r => (r.history || []).filter(s => landed(s.outcome) && s.title).map(s => ({...s, module: r.module, runId: r.id, rusd: r.usd})))
+    .sort((a, b) => (b.ended_at || 0) - (a.ended_at || 0));
+  const total = wins.length;
+  $("winsN").textContent = total ? `\xB7 ${total}` : "";
+  const el = $("winsGrid");
+  if (!total) { el.innerHTML = '<div class="empty">no landed ideas yet</div>'; $("winsMore").hidden = true; return; }
+  const visible = winsAll ? wins : wins.slice(0, 15);
+  el.innerHTML = visible.map(s =>
+    `<div class="win-tile" data-run-id="${K.esc(s.runId)}">
+      <span class="wt-mod">${K.esc(s.module)}</span>
+      <div class="wt-title">${K.esc(s.title)}</div>
+      <div class="wt-foot"><span class="tag ok">${K.esc(K.ago(s.ended_at))}</span>${s.rusd ? `<span class="wt-usd">${usd(s.rusd)}</span>` : ""}</div>
+    </div>`
+  ).join("");
+  const moreBtn = $("winsMore");
+  moreBtn.hidden = total <= 15 || winsAll;
+  if (!moreBtn.hidden) moreBtn.textContent = `show all ${total}`;
 }
 
 function renderAwayBanner() {
@@ -535,6 +587,7 @@ function render() {
   if (show !== "all") done = done.filter((r) => verdict(r)[1] === show || (show === "miss" && verdict(r)[1] === "meh"));
   K.setState(K.pill(live.length > 0, `${live.length} running`, "quiet"));
   renderStats();
+  renderWinsWall();
   renderEvents();
   renderLeaderboard();
   $("liveN").textContent = live.length ? `· ${live.length}` : "";
@@ -725,6 +778,8 @@ const seg = (id, set) => ($(id).onclick = (e) => {
 });
 seg("a_mode", (v) => { mode = v; renderHint(); });
 seg("show", (v) => { show = v; limit = 40; render(); });
+seg("lb_sort", (v) => { lbSort = v; renderLeaderboard(); });
+$("winsMore").onclick = () => { winsAll = true; renderWinsWall(); };
 $("filter").oninput = () => { limit = 40; render(); };
 $("moreBtn").onclick = () => { limit += 40; render(); };
 $("stopAllBtn").onclick = async () => {

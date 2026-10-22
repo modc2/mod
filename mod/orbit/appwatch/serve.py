@@ -315,12 +315,14 @@ def _compute_incidents(tolerance_s=30):
     all_ms_sorted = sorted(all_ms)
     n = len(all_ms_sorted)
     p95_ms = all_ms_sorted[int(n * 0.95)] if n >= 20 else None
+    last_incident_end = spans[-1]['end'] if resolved else None
     return {
         'incidents': spans,
         'total_incidents': len(spans),
         'total_down_s': total_down_s,
         'mttr_s': mttr_s,
         'p95_ms': p95_ms,
+        'last_incident_end': last_incident_end,
     }
 
 

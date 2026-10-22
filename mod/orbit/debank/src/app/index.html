@@ -965,9 +965,29 @@ const perfFrom = (pts, secsBack) => {
   const delta = last.usd - ref.usd;
   return { delta, pct: ref.usd ? delta / ref.usd * 100 : 0 };
 };
+const netStats = (pts) => {
+  if (!pts || pts.length < 2) return null;
+  let athIdx = 0;
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].usd > pts[athIdx].usd) athIdx = i;
+  }
+  const ath = pts[athIdx].usd;
+  const athDate = pts[athIdx].time;
+  const current = pts[pts.length - 1].usd;
+  const drawdownPct = ath > 0 ? (current - ath) / ath * 100 : 0;
+  let bestDay = 0, worstDay = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const d = pts[i].usd - pts[i - 1].usd;
+    if (d > bestDay) bestDay = d;
+    if (d < worstDay) worstDay = d;
+  }
+  return { ath, athDate, drawdownPct, bestDay, worstDay };
+};
 const VIEWS = {
   async overview(id) {
     const humP = get('/humanity', { id }).catch(() => null);
+    const savP = get('/savings', { id }).catch(() => null);
+    const fundsP = get('/funds').catch(() => null);
     const { rail, full, fullErr } = await overviewData(id);
     const hum = await humP;
     if (rail.error && !full) throw rail.error;
@@ -990,6 +1010,16 @@ const VIEWS = {
         }
       } catch {}
     }
+    const sav = await savP;
+    const fundsData = await fundsP;
+    let yieldBanner = '';
+    if (sav?.idle?.usd > 100 && fundsData?.funds?.length) {
+      const best = [...fundsData.funds].sort((a, b) => (b.projected_apy || 0) - (a.projected_apy || 0))[0];
+      if (best?.projected_apy) {
+        const projected_1y = sav.idle.usd * (best.projected_apy / 100);
+        yieldBanner = `<div class="note ok" style="cursor:pointer" onclick="go('savings')"><b>${usd(sav.idle.usd)} idle in stablecoins</b> — the <b>${esc(best.name)}</b> fund targets <b>${best.projected_apy}%</b> APY (~${usd(projected_1y)}/yr). <a href="#" onclick="go('savings');return false">Put them to work →</a></div>`;
+      }
+    }
     const localPts = snapshotRead(id);
     const localSpk = !spkPts && localPts.length >= 2
       ? sparkline(localPts.map(p => ({ time: p.t, usd: p.usd })), 160, 44) : '';
@@ -1000,6 +1030,7 @@ const VIEWS = {
     let assets = [];
     if (full) { try { assets = (await get('/tokens', { id, limit: 8 })).tokens; } catch {} }
     else assets = rail.tokens.filter((t) => t.amount > 0).slice(0, 8);
+    const stats = spkPts ? netStats(spkPts) : null;
     let chartPanel = '';
     if (spkPts && state.chartOpen) {
       const secsMap = { '7D': 604800, '30D': 2592000, '90D': 7776000 };
@@ -1010,9 +1041,20 @@ const VIEWS = {
       const periodBtns = ['7D', '30D', '90D', 'All'].map(p =>
         `<button class="btn sm ghost" style="padding:0 8px;height:24px;font-size:11px${p === period ? ';color:var(--gold);border-color:rgba(227,194,122,.4)' : ''}" onclick="state.chartPeriod='${p}';render()">${p}</button>`
       ).join('');
+      let statsRow = '';
+      if (stats) {
+        const ddColor = stats.drawdownPct < -10 ? 'var(--coral)' : stats.drawdownPct < -5 ? 'var(--amber)' : 'var(--mint)';
+        const athFmt = new Date(stats.athDate * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        statsRow = `<div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+          <div><div style="font-size:13px;font-weight:700;color:var(--gold)">${usd(stats.ath)}</div><div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);margin-top:2px">ATH · ${esc(athFmt)}</div></div>
+          <div><div style="font-size:13px;font-weight:700;color:${ddColor}">${stats.drawdownPct >= 0 ? '+' : ''}${stats.drawdownPct.toFixed(2)}%</div><div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);margin-top:2px">From ATH</div></div>
+          <div><div style="font-size:13px;font-weight:700;color:var(--mint)">${stats.bestDay > 0 ? '+' : ''}${usd(stats.bestDay)}</div><div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);margin-top:2px">Best day</div></div>
+          <div><div style="font-size:13px;font-weight:700;color:var(--coral)">${usd(stats.worstDay)}</div><div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);margin-top:2px">Worst day</div></div>
+        </div>`;
+      }
       chartPanel = `<div class="card" style="margin-bottom:18px;position:relative">
         <h3>Net worth <span class="r" style="display:flex;align-items:center;gap:4px">${periodBtns}<button class="btn sm ghost" style="padding:0 7px;height:24px;font-size:14px;margin-left:2px" onclick="state.chartOpen=false;render()">×</button></span></h3>
-        ${bigChart(pPts)}
+        ${bigChart(pPts)}${statsRow}
       </div>`;
     }
     return `
@@ -1024,6 +1066,7 @@ const VIEWS = {
         <div class="side">${mineLabel()}${humanTag(hum)}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div><div style="margin-top:6px"><button class="btn sm ghost" style="font-size:11.5px;height:26px;padding:0 9px" onclick="saveAddr()">★ Save</button></div>${spkPts ? `<div style="margin-top:8px;line-height:0;position:relative">${sparkline(spkPts)}<button style="position:absolute;top:2px;right:2px;background:rgba(9,12,18,0.6);border:1px solid var(--line2);color:var(--dim);font-size:10px;border-radius:5px;width:18px;height:18px;display:grid;place-items:center;cursor:pointer;padding:0" onclick="state.chartOpen=!state.chartOpen;render()" title="${state.chartOpen ? 'Close chart' : 'Expand chart'}">↗</button></div>` : localSpk ? `<div style="margin-top:8px"><div style="font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin-bottom:3px">local history</div><div style="line-height:0">${localSpk}</div></div>` : ''}</div>
       </div>
       ${chartPanel}
+      ${yieldBanner}
       <div class="actions">
         <button class="action" onclick="go('send')"><b>Send</b><span>native or stablecoins</span></button>
         <button class="action" onclick="go('receive')"><b>Receive</b><span>show your address</span></button>

@@ -11,6 +11,11 @@
   100% { border-color: var(--line);   background-color: var(--panel2); }
 }
 .row.flash { animation: snapFlash 1.8s ease-out; }
+@keyframes tileFlash {
+  from { filter: brightness(1.8) saturate(1.4); }
+  to   { filter: none; }
+}
+.fb-tile.fb-flash { animation: tileFlash 1.8s ease-out; }
 .fb-tile { width: 12px; height: 12px; border-radius: 2px; cursor: pointer; flex-shrink: 0; transition: opacity .15s; }
 .fb-tile:hover { opacity: .75; }
 .fb-dot { display: inline-block; width: 9px; height: 9px; border-radius: 1px; }
@@ -140,6 +145,12 @@ function fleetBoard(S) {
     actCounts[r.module] = (actCounts[r.module] || 0) + 1;
   }
   const maxActs = Math.max(1, ...Object.values(actCounts));
+  const newMods = new Set();
+  if (!firstLoad) {
+    for (const r of (S.recent || [])) {
+      if (r.cid && !seenCids.has(r.cid) && !r.error) newMods.add(r.module);
+    }
+  }
   // Use all_modules if the backend provides it; otherwise derive from available state fields.
   let mods;
   if (Array.isArray(S.all_modules) && S.all_modules.length) {
@@ -172,7 +183,8 @@ function fleetBoard(S) {
       const acts = actCounts[name] || 0;
       const pillClass = s === 'held' ? 'bad' : s === 'stale' ? 'warn' : s === 'pending' ? '' : 'on';
       const hidden = f && !name.toLowerCase().includes(f) ? 'display:none;' : '';
-      return `<div class="row" data-m="${K.esc(name)}" style="${hidden}cursor:pointer;padding:4px 8px;gap:8px">` +
+      const rowFlash = newMods.has(name) ? ' flash' : '';
+      return `<div class="row${rowFlash}" data-m="${K.esc(name)}" style="${hidden}cursor:pointer;padding:4px 8px;gap:8px">` +
         `<i style="display:inline-block;width:8px;height:8px;border-radius:1px;flex-shrink:0;background:${c}"></i>` +
         `<div class="grow" style="font-size:13px">${K.esc(name)}</div>` +
         `<span class="pill ${pillClass}">${s}</span>` +
@@ -189,7 +201,8 @@ function fleetBoard(S) {
     const sz = 10 + Math.round(acts / maxActs * 14);
     const tip = `${K.esc(name)} — ${LABELS[s] || s}${acts ? ` · ${acts} snap${acts !== 1 ? 's' : ''} this hour` : ''}`;
     const dimmed = f && !name.toLowerCase().includes(f);
-    return `<div class="fb-tile" style="background:${c};width:${sz}px;height:${sz}px;opacity:${dimmed ? '0.15' : '1'}" title="${tip}" data-m="${K.esc(name)}"></div>`;
+    const tileFlashCls = newMods.has(name) ? ' fb-flash' : '';
+    return `<div class="fb-tile${tileFlashCls}" style="background:${c};width:${sz}px;height:${sz}px;opacity:${dimmed ? '0.15' : '1'}" title="${tip}" data-m="${K.esc(name)}"></div>`;
   }).join('');
   const legend = Object.entries(COLORS).map(([s, c]) =>
     `<span style="display:inline-flex;align-items:center;gap:4px"><i class="fb-dot" style="background:${c}"></i>${s}</span>`

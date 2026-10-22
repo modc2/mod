@@ -289,6 +289,8 @@ body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 
 /* ── mod-mention code links ─────────────────────────────────────── */
 .mod-mention { cursor: pointer; border-bottom: 1px dotted rgb(var(--modcyan) / 0.55); color: inherit; }
+.mod-mention-proved { background: rgb(var(--modblue) / .12); border-bottom-color: rgb(var(--modblue)); color: rgb(var(--modblue)); transition: background .4s, color .4s; }
+.mod-mention-verified { background: rgb(var(--green) / .12); border-bottom-color: rgb(var(--green)); color: rgb(var(--green)); transition: background .4s, color .4s; }
 
 /* ── registry floating beacon ───────────────────────────────────── */
 .registry-beacon {

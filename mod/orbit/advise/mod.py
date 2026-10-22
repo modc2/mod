@@ -209,7 +209,7 @@ class Mod:
         rec = store.decide(self._need(id, 'id'), caller, 'rejected', note=note)
         return {'id': rec['id'], 'status': rec['status'], 'note': rec.get('note')}
 
-    def autoscan(self, module=None, preview=False, token=None, ip=None, ua=None, local=None):
+    def autoscan(self, module=None, focus=None, preview=False, token=None, ip=None, ua=None, local=None):
         """Use Claude to scan a module and return a targeted recommendation.
 
         When preview=True (the default from the UI), returns the raw AI-generated
@@ -230,7 +230,7 @@ class Mod:
             return {'error': 'autoscan requires ANTHROPIC_API_KEY'}
 
         module = self._need(module, 'module')
-        ctx = json.dumps(self.brief(module), indent=2)[:14000]
+        ctx = json.dumps(self.brief(module, focus=focus), indent=2)[:14000]
 
         system = (
             'You are a senior software engineer reviewing a module\'s code. '

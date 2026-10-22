@@ -20,6 +20,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .banner.up .banner-title { color: #5ee08a; }
 .banner.down .banner-title { color: #dc3c3c; }
 .banner.checking .banner-title { color: #9f9f9f; }
+.banner.degraded { background: rgba(232,196,94,0.10); border: 1px solid rgba(232,196,94,0.28); }
+.banner.degraded .dot { background: #e8c45e; }
+.banner.degraded .banner-title { color: #e8c45e; }
 .banner-sub { font-size: 12px; color: #777; margin-top: 3px; }
 .section { margin-bottom: 28px; }
 .section-title { font-size: 11px; font-weight: 600; color: #888; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
@@ -41,6 +44,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .stat-tile { flex: 1; min-width: 120px; background: rgba(255,255,255,0.04); border: 1px solid #222; border-radius: 6px; padding: 12px 14px; }
 .stat-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
 .stat-value { font-size: 18px; font-weight: 600; color: #ccc; }
+.probe-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #1e1e1e; font-size: 12px; }
+.probe-row:last-child { border-bottom: none; }
+.probe-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.probe-dot.up { background: #5ee08a; }
+.probe-dot.down { background: #dc3c3c; }
+.probe-dot.unknown { background: #555; }
+.probe-label { flex: 1; color: #ccc; }
+.probe-time { color: #666; }
+.probe-ms { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; background: rgba(255,255,255,0.06); color: #888; }
 </style>
 </head>
 <body>
@@ -53,6 +65,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
     </div>
   </div>
   <div id="stats-row"></div>
+  <div id="probes-section" class="section" style="display:none">
+    <div class="section-title">Monitored endpoints</div>
+    <div id="probes-list"></div>
+  </div>
   <div class="section">
     <div class="section-title">90-day uptime</div>
     <div id="calendar" class="calendar-wrap"><div class="empty">Loading…</div></div>
@@ -75,6 +91,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 <script>
 var lastFetch = 0;
 var subBase = '';
+var bannerIncidentFreeStart = null;
 
 function timeAgo() {
   if (!lastFetch) return '';
@@ -87,8 +104,12 @@ function timeAgo() {
 function refreshSub() {
   var sub = document.getElementById('banner-sub');
   if (sub) {
+    var base = subBase;
+    if (bannerIncidentFreeStart) {
+      base = 'Incident-free for ' + dur(Math.round((Date.now() / 1000) - bannerIncidentFreeStart));
+    }
     var ta = timeAgo();
-    sub.textContent = subBase + (ta ? ' · Last checked: ' + ta : '');
+    sub.textContent = base + (ta ? ' · Last checked: ' + ta : '');
   }
 }
 
@@ -105,6 +126,7 @@ function renderCalendar(days) {
   var byDate = {};
   for (var i = 0; i < days.length; i++) byDate[days[i].key] = days[i];
   var MS = 86400000, CELL = 12, GAP = 2;
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var firstDate = new Date(days[0].key + 'T00:00:00Z');
   var lastDate = new Date(days[days.length - 1].key + 'T00:00:00Z');
   var startDow = (firstDate.getUTCDay() + 6) % 7;
@@ -113,7 +135,7 @@ function renderCalendar(days) {
   var gridEnd = new Date(lastDate.getTime() + (6 - endDow) * MS);
   var nDays = Math.round((gridEnd - gridStart) / MS) + 1;
   var wrap = document.createElement('div');
-  wrap.style.cssText = 'position:relative;overflow:visible';
+  wrap.style.cssText = 'position:relative;overflow:visible;padding-top:14px';
   var tooltip = document.createElement('div');
   tooltip.style.cssText = 'position:absolute;background:rgba(30,30,30,0.92);color:#eee;font-size:11px;font-family:monospace;padding:4px 8px;border-radius:4px;pointer-events:none;display:none;white-space:nowrap;z-index:10';
   var grid = document.createElement('div');
@@ -141,6 +163,17 @@ function renderCalendar(days) {
     }
     grid.appendChild(cell);
   }
+  for (var j = 0; j < nDays; j++) {
+    var dm = new Date(gridStart.getTime() + j * MS);
+    if (dm.getUTCDate() === 1) {
+      var col = Math.floor(j / 7);
+      var x = col * (CELL + GAP);
+      var lbl = document.createElement('span');
+      lbl.textContent = MONTHS[dm.getUTCMonth()];
+      lbl.style.cssText = 'position:absolute;left:' + x + 'px;top:0;font-size:9px;font-family:monospace;color:#888;white-space:nowrap';
+      wrap.appendChild(lbl);
+    }
+  }
   wrap.appendChild(grid);
   wrap.appendChild(tooltip);
   el.innerHTML = '';
@@ -164,7 +197,7 @@ function renderIncidents(data) {
   }).join('');
 }
 
-function updateBanner(data) {
+function updateBanner(data, probes) {
   var banner = document.getElementById('banner');
   var title = document.getElementById('banner-title');
   var ongoing = (data.incidents || []).filter(function(i) { return i.end === null; })[0];
@@ -172,13 +205,24 @@ function updateBanner(data) {
     banner.className = 'banner down';
     title.textContent = 'Service disruption in progress';
     subBase = 'Started ' + new Date(ongoing.start * 1000).toLocaleString();
+    bannerIncidentFreeStart = null;
     document.title = '✗ Disruption – Appwatch';
   } else {
-    banner.className = 'banner up';
-    title.textContent = 'All systems operational';
-    var total = data.total_incidents || 0;
-    subBase = total ? (total + ' incident' + (total !== 1 ? 's' : '') + ' on record, none ongoing') : 'No incidents on record';
-    document.title = '✓ All systems operational – Appwatch';
+    var downProbes = (probes || []).filter(function(p) { return p.last && p.last.up === false; });
+    if (downProbes.length) {
+      banner.className = 'banner degraded';
+      title.textContent = 'Partial outage · ' + downProbes.length + ' endpoint' + (downProbes.length !== 1 ? 's' : '') + ' degraded';
+      subBase = '';
+      bannerIncidentFreeStart = null;
+      document.title = '⚠ Partial Outage – Appwatch';
+    } else {
+      banner.className = 'banner up';
+      title.textContent = 'All systems operational';
+      var total = data.total_incidents || 0;
+      subBase = total ? (total + ' incident' + (total !== 1 ? 's' : '') + ' on record, none ongoing') : 'No incidents on record';
+      bannerIncidentFreeStart = data.last_incident_end || null;
+      document.title = '✓ All systems operational – Appwatch';
+    }
   }
   refreshSub();
   var statsRow = document.getElementById('stats-row');
@@ -194,21 +238,50 @@ function updateBanner(data) {
   }
 }
 
+function probeTimeAgo(ts) {
+  if (!ts) return '';
+  var s = Math.round((Date.now() - ts * 1000) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return s + 's ago';
+  return Math.floor(s / 60) + 'm ago';
+}
+
+function renderProbes(probes) {
+  var section = document.getElementById('probes-section');
+  var list = document.getElementById('probes-list');
+  if (!probes || !probes.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  list.innerHTML = probes.map(function(p) {
+    var last = p.last;
+    var dotClass = !last ? 'unknown' : (last.up ? 'up' : 'down');
+    var timeStr = last ? probeTimeAgo(last.t) : '';
+    var msStr = (last && last.ms != null) ? '<span class="probe-ms">' + last.ms + 'ms</span>' : '';
+    return '<div class="probe-row">' +
+      '<span class="probe-dot ' + dotClass + '"></span>' +
+      '<span class="probe-label">' + p.label + '</span>' +
+      (timeStr ? '<span class="probe-time">' + timeStr + '</span>' : '') +
+      msStr +
+      '</div>';
+  }).join('');
+}
+
 function load() {
   Promise.all([
     fetch('/appwatch/daily').then(function(r) { return r.json(); }),
-    fetch('/appwatch/incidents').then(function(r) { return r.json(); })
+    fetch('/appwatch/incidents').then(function(r) { return r.json(); }),
+    fetch('/appwatch/probes').then(function(r) { return r.json(); })
   ]).then(function(results) {
     lastFetch = Date.now();
-    var daily = results[0], incidents = results[1];
+    var daily = results[0], incidents = results[1], probes = results[2];
     if (Array.isArray(daily)) renderCalendar(daily);
     else document.getElementById('calendar').innerHTML = '<div class="empty">Could not load uptime data.</div>';
     if (incidents && Array.isArray(incidents.incidents)) {
-      updateBanner(incidents);
+      updateBanner(incidents, Array.isArray(probes) ? probes : []);
       renderIncidents(incidents);
     } else {
       document.getElementById('incidents').innerHTML = '<div class="empty">Could not load incident data.</div>';
     }
+    if (Array.isArray(probes)) renderProbes(probes);
   }).catch(function() {
     document.getElementById('banner').className = 'banner checking';
     document.getElementById('banner-title').textContent = 'Status unavailable';

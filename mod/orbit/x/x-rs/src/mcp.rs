@@ -343,7 +343,7 @@ pub async fn call_tool(name: &str, args: &Value, header_key: Option<&str>) -> Re
                 .ok_or("user requires `username`")?;
             let who = x::handle(who).map_err(|e| e.to_string())?;
             let params = q(vec![
-                ("user.fields", format!("{},pinned_tweet_id", USER_FIELDS)),
+                ("user.fields", format!("{},pinned_tweet_id,entities", USER_FIELDS)),
                 ("expansions", "pinned_tweet_id".to_string()),
                 ("tweet.fields", TWEET_FIELDS.to_string()),
             ]);

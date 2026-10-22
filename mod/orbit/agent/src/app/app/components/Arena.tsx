@@ -23,6 +23,7 @@ import { API_URL } from '../config'
 import TaskBuilder from './TaskBuilder'
 import SkillLab from './SkillLab'
 import { ask } from '../lib/ask'
+import { renderText, CodeBlock } from '../lib/renderText'
 
 type Row = {
   rank: number; agent: string; icon: string; active: boolean
@@ -41,6 +42,9 @@ type Match = {
   // a program-graded match carries the judge's case list on its check
   checks?: { type: string; passed: boolean; reason: string; score?: number
              cases?: { name: string; passed: boolean; hidden: boolean }[] }[]
+  // the agent's final response and files it created/edited (up to 6)
+  answer?: string
+  files?: { path: string; kind?: string; content: string; note?: string }[]
 }
 type Scorer = { type: string; path?: string; text?: string; pattern?: string
                 name?: string; n?: number; task?: string; language?: string }
@@ -255,6 +259,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
   const [matches, setMatches] = useState<Match[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [picked, setPicked] = useState<string | null>(null)     // agent card
+  const [expandedMatches, setExpandedMatches] = useState<Set<string>>(new Set())
   const [card, setCard] = useState<Card | null>(null)
   const [pane, setPane] = useState<'matches' | 'tasks' | 'openarena'>('matches')
   const [busy, setBusy] = useState(false)
@@ -2076,13 +2081,14 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
             <span className="shrink-0">{ago(m.ts)}</span>
           </div>
         ) : (
-          <div key={m.id} className="card card-hover p-2.5 space-y-2">
+          <div key={m.id} className="card card-hover p-2.5 space-y-2 cursor-pointer"
+            onClick={() => setExpandedMatches(s => { const n = new Set(s); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n })}>
             <div className="flex items-baseline gap-2">
               <span className="text-[11px] text-gray-100 shrink-0">{m.agent}</span>
               {/* the task a score was posted on, opened from the score — a
                   match nobody can read the exam for is a number on its own */}
               {taskByKey[m.task] ? (
-                <button onClick={() => setSpec(m.task)} title={`${m.title} — open the task`}
+                <button onClick={e => { e.stopPropagation(); setSpec(m.task) }} title={`${m.title} — open the task`}
                   className="text-[10px] text-gray-600 hover:text-emerald-300 transition truncate flex-1 text-left">
                   {m.title}
                 </button>
@@ -2131,6 +2137,27 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
                 {m.reason?.startsWith('qualifier') ? 'qualifier' : m.reason} · {ago(m.ts)}
               </span>
             </div>
+            {expandedMatches.has(m.id) && (m.answer || (m.files && m.files.filter(f => !f.note).length > 0)) && (
+              <div className="border-t border-white/[0.06] pt-2 space-y-2" onClick={e => e.stopPropagation()}>
+                {m.answer && (
+                  <div>
+                    <div className="text-[9px] uppercase tracking-wider text-gray-600 mb-1">answer</div>
+                    <div className="max-h-48 overflow-y-auto no-scrollbar text-[11px] text-gray-300 leading-relaxed bg-white/[0.03] border border-white/[0.06] rounded-lg p-2.5">
+                      {renderText(m.answer)}
+                    </div>
+                  </div>
+                )}
+                {(m.files || []).filter(f => !f.note).map((f, i) => (
+                  <div key={i} className="space-y-1">
+                    <div className="text-[9px] text-gray-500 flex items-baseline gap-1.5">
+                      <span className="truncate">{f.path}</span>
+                      {f.kind && <span className="uppercase tracking-wider text-emerald-400/70 shrink-0">{f.kind}</span>}
+                    </div>
+                    <CodeBlock lang={f.path.split('.').pop() || ''} code={f.content} />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
 

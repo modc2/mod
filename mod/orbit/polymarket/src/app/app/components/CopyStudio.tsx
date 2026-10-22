@@ -548,8 +548,9 @@ export default function CopyStudio() {
                       <td className={`px-2 py-1 text-right ${toneOf(t.pnl)}`}>{fmtUsd(t.pnl, true)}</td>
                       {!simple && <>
                       <td className="px-2 py-1 text-right text-pixel-gray-light">{formatVolume(t.volume)}</td>
-                      <td className="px-2 py-1 text-right text-pixel-gray-light" title={`${t.recentTrades} trades in ${days}D · ${t.trades24h ?? 0} in the last 24h`}>
+                      <td className="px-2 py-1 text-right text-pixel-gray-light">
                         {fmtPerDay(t.recentTrades / Math.max(1, days))}
+                        {t.trades24h ? <span className="ml-1 text-pixel-green" title={`${t.recentTrades} trades in ${days}D · ${t.trades24h} today`}>{t.trades24h}t</span> : null}
                       </td>
                       <td className="px-2 py-1 text-right text-pixel-gray-light">
                         {t.winRate >= 0 ? `${Math.round(t.winRate)}%` : "—"}
@@ -787,6 +788,11 @@ export default function CopyStudio() {
                       </span>
                       <span className="text-pixel-gray">max drop {run.portfolio.drawdown.toFixed(1)}%</span>
                       <span className="text-pixel-gray">{run.portfolio.trades} trades</span>
+                      {run.portfolio.fees > 0 && (
+                        <span className="text-pixel-gray">
+                          fees {fmtUsd(run.portfolio.fees)} ({run.portfolio.feeBps.toFixed(0)} bps)
+                        </span>
+                      )}
                     </div>
                     {run.portfolio.idleUsd > 0 && (
                       <p className="font-mono text-[10px] text-amber-400">

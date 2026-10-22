@@ -100,6 +100,13 @@
         nets ~0 here.</p>
       <div class="row">
         <button class="go" id="board-refresh">REFRESH</button>
+        <select id="board-rounds">
+          <option value="4">4 rounds</option>
+          <option value="8" selected>8 rounds</option>
+          <option value="16">16 rounds</option>
+          <option value="32">32 rounds</option>
+          <option value="0">all rounds</option>
+        </select>
         <span class="pill" id="board-meta">—</span>
       </div>
     </div>
@@ -358,7 +365,8 @@ function barRow(value, colour) {
 }
 
 async function loadBoard() {
-  const b = await api('/board?rounds=8');
+  const n = $('#board-rounds')?.value || '8';
+  const b = await api('/board?rounds=' + n);
   $('#board-meta').textContent = b.rounds_counted
     ? b.rounds_counted + ' rounds counted' : (b.note || 'no rounds yet');
   $('#blue-board').innerHTML = (b.blue || []).length ? `<table>
@@ -483,6 +491,7 @@ async function loadBoard() {
   }
 }
 $('#board-refresh').onclick = loadBoard;
+$('#board-rounds').addEventListener('change', loadBoard);
 $('#blue-board').addEventListener('click', e => {
   const row = e.target.closest('tr[data-def-id]');
   if (!row) return;
@@ -685,6 +694,7 @@ async function showRound(id) {
   if (r.status === 'done') {
     $('#rerun-btn').onclick = () => {
       window._rerunConfig = {attacks: r.attacks, defenses: r.defenses, model: r.model};
+      window._rerunSourceId = id;
       document.querySelector('nav button[data-tab="rounds"]').click();
     };
   }
@@ -801,7 +811,57 @@ async function poll(id, total, lastDone = -1) {
     } else {
       updateTicker('');
     }
-    showRound(id); loadBoard();
+    await showRound(id);
+    loadBoard();
+    if (window._rerunSourceId) {
+      const srcId = window._rerunSourceId;
+      delete window._rerunSourceId;
+      try {
+        const [srcRound, newRound, {attacks: atks2}, {defenses: defs2}] = await Promise.all([
+          api('/rounds?id=' + encodeURIComponent(srcId) + '&verbose=1'),
+          api('/rounds?id=' + encodeURIComponent(id) + '&verbose=1'),
+          api('/attacks'),
+          api('/defenses'),
+        ]);
+        const atkN = {}, defN = {};
+        atks2.forEach(a => { atkN[a.id] = a.name || a.id; });
+        defs2.forEach(d => { defN[d.id] = d.name || d.id; });
+        const srcMap = {};
+        (srcRound.matches || []).forEach(m => { srcMap[m.attack + '__' + m.defense] = m.verdict; });
+        const blocked = [], regressed = [];
+        (newRound.matches || []).forEach(m => {
+          const key = m.attack + '__' + m.defense;
+          const sv = srcMap[key], nv = m.verdict;
+          if ((sv === 'BREACHED' || sv === 'LEAKED') && (nv === 'BLOCKED' || nv === 'DEFLECTED'))
+            blocked.push({key, sv, nv});
+          if ((sv === 'BLOCKED' || sv === 'DEFLECTED') && (nv === 'BREACHED' || nv === 'LEAKED'))
+            regressed.push({key, sv, nv});
+        });
+        const fmtKey = k => {
+          const sep = k.indexOf('__');
+          const atk = k.slice(0, sep), def = k.slice(sep + 2);
+          return esc((atkN[atk] || atk) + ' vs ' + (defN[def] || def));
+        };
+        let vcHtml = `<div class="panel" style="margin-bottom:14px"><h2>verdict changes vs ${esc(srcId.slice(-8))}</h2>`;
+        if (!blocked.length && !regressed.length) {
+          vcHtml += '<span class="muted">no verdict changes vs previous run</span>';
+        } else {
+          if (blocked.length)
+            vcHtml += `<div style="color:var(--good);margin-bottom:4px"><b>Newly blocked (${blocked.length})</b></div>`
+              + `<ul style="margin:0 0 10px;padding-left:18px;color:var(--good)">`
+              + blocked.map(x => `<li>${fmtKey(x.key)}: <span class="v ${esc(x.sv)}">${esc(x.sv)}</span> → <span class="v ${esc(x.nv)}">${esc(x.nv)}</span></li>`).join('')
+              + `</ul>`;
+          if (regressed.length)
+            vcHtml += `<div style="color:var(--red);margin-bottom:4px"><b>New regressions (${regressed.length})</b></div>`
+              + `<ul style="margin:0 0 6px;padding-left:18px;color:var(--red)">`
+              + regressed.map(x => `<li>${fmtKey(x.key)}: <span class="v ${esc(x.sv)}">${esc(x.sv)}</span> → <span class="v ${esc(x.nv)}">${esc(x.nv)}</span></li>`).join('')
+              + `</ul>`;
+        }
+        vcHtml += '</div>';
+        $('#round-body').insertAdjacentHTML('afterbegin', vcHtml);
+        $('#round-detail').scrollIntoView({behavior: 'smooth'});
+      } catch (_) {}
+    }
   }
 }
 
@@ -832,7 +892,7 @@ async function loadAttacks() {
   const matchupByAtk = {};
   (board.matchups || []).forEach(m => {
     if (!matchupByAtk[m.attack]) matchupByAtk[m.attack] = [];
-    matchupByAtk[m.attack].push({defName: defNameFromBoard[m.defense] || m.defense, breach_rate: m.breach_rate, fired: m.fired});
+    matchupByAtk[m.attack].push({defName: defNameFromBoard[m.defense] || m.defense, defId: m.defense, breach_rate: m.breach_rate, fired: m.fired});
   });
   Object.values(matchupByAtk).forEach(arr => arr.sort((a, b) => b.breach_rate - a.breach_rate));
   $('#attack-list').innerHTML = attacks.length ? `<table>
@@ -890,12 +950,19 @@ async function loadAttacks() {
             `<td class="num"><span style="background:${cellBg(r.breach_rate)};color:${cellFg(r.breach_rate)};padding:1px 5px;border-radius:3px">${pct(r.breach_rate)}</span></td>` +
             `<td class="num">${r.fired}</td></tr>`).join('') +
           `</table>` : '';
+      const hardestDef = vsRows.length ? vsRows.reduce((min, r) => r.breach_rate < min.breach_rate ? r : min) : null;
       td.innerHTML = `<pre style="margin-top:0">${esc(prompt)}</pre>` +
         (markers ? `<div class="muted" style="margin-top:4px">markers: ${esc(markers)}</div>` : '') +
         vsTable +
+        (hardestDef ? `<button class="fight-atk-btn go" style="margin-top:8px;margin-right:6px">→ FIGHT vs ${esc(hardestDef.defName)}</button>` : '') +
         `<button class="clone-atk-btn go" style="margin-top:8px">→ CLONE</button>`;
       detail.appendChild(td);
       tr.after(detail);
+      const fightAtkBtn = detail.querySelector('.fight-atk-btn');
+      if (fightAtkBtn) fightAtkBtn.addEventListener('click', () => {
+        window._pendingFightPair = {attack: a.id, defense: hardestDef.defId};
+        document.querySelector('nav button[data-tab="fight"]').click();
+      });
       detail.querySelector('.clone-atk-btn').addEventListener('click', () => {
         document.querySelector('nav button[data-tab="attacks"]').click();
         $('#a-name').value = (a.name || a.id) + ' v2';
@@ -945,7 +1012,7 @@ async function loadDefenses() {
   const matchupByDef = {};
   (board.matchups || []).forEach(m => {
     if (!matchupByDef[m.defense]) matchupByDef[m.defense] = [];
-    matchupByDef[m.defense].push({atkName: atkNameFromBoard[m.attack] || m.attack, breach_rate: m.breach_rate, fired: m.fired});
+    matchupByDef[m.defense].push({atkName: atkNameFromBoard[m.attack] || m.attack, atkId: m.attack, breach_rate: m.breach_rate, fired: m.fired});
   });
   Object.values(matchupByDef).forEach(arr => arr.sort((a, b) => b.breach_rate - a.breach_rate));
   $('#defense-list').innerHTML = `<table>
@@ -998,14 +1065,21 @@ async function loadDefenses() {
             `<td class="num"><span style="background:${defCellBg(r.breach_rate)};color:${defCellFg(r.breach_rate)};padding:1px 5px;border-radius:3px">${pct(r.breach_rate)}</span></td>` +
             `<td class="num">${r.fired}</td></tr>`).join('') +
           `</table>` : '';
+      const mostDangerous = failRows.length ? failRows[0] : null;
       td.innerHTML =
         (d.system_prompt ? `<pre style="margin-top:0">${esc(d.system_prompt)}</pre>` : '') +
         (inRules.length ? `<div class="muted" style="margin-top:4px"><b>input rules:</b></div><pre>${esc(inRules.join('\n'))}</pre>` : '') +
         (outRules.length ? `<div class="muted"><b>output rules:</b></div><pre>${esc(outRules.join('\n'))}</pre>` : '') +
         (d.max_input_chars ? `<div class="muted">max input chars: ${esc(String(d.max_input_chars))}</div>` : '') +
         failTable +
+        (mostDangerous ? `<button class="fight-def-btn go" style="margin-top:8px;margin-right:6px">→ FIGHT vs ${esc(mostDangerous.atkName)}</button>` : '') +
         `<button class="clone-def-btn go" style="margin-top:8px">→ CLONE</button>`;
       detail.appendChild(td);
+      const fightDefBtn = td.querySelector('.fight-def-btn');
+      if (fightDefBtn) fightDefBtn.onclick = () => {
+        window._pendingFightPair = {attack: mostDangerous.atkId, defense: d.id};
+        document.querySelector('nav button[data-tab="fight"]').click();
+      };
       td.querySelectorAll('.clone-def-btn').forEach(btn => {
         btn.onclick = () => {
           document.querySelector('nav button[data-tab="defenses"]').click();

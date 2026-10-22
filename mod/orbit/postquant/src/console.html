@@ -3422,7 +3422,7 @@ async function remix(it) {
 
 // ── KEY TYPE MARKET: trading cards ──
 const mk = {sort: 'hot', kind: 'all', q: '', items: [], offline: false, view: 'cards'};
-let mkCache = null, mkTimer = null;
+let mkCache = null, mkTimer = null, mkMapQu = false;
 // Until /keymarket answers, deal the cards from the DAG so the floor isn't empty.
 async function dagAsMarket() {
   const d = await api('/keytype_dag');
@@ -3513,10 +3513,13 @@ function drawCards() {
 function mkMapHover(ev, name) {
   const it = mk.items.find(x => x.name === name);
   if (!it) return;
+  const secLabel = mkMapQu
+    ? `quantum: ${fmtN(qbitsOf(it.quantum, it.quantum_safe))} bits`
+    : `security: ${fmtN(it.classical_bits)} bits`;
   const html = `<b>${esc(it.name)}</b><br>` +
     `family: ${esc(it.family || '—')}<br>` +
     `witness: ${fmtN(it.witness_bytes)}B<br>` +
-    `security: ${fmtN(it.classical_bits)} bits<br>` +
+    secLabel + `<br>` +
     scoreBadge(it.pq_score) + `<br>` +
     `uses: ${fmtN(it.uses)}<br>` +
     `<span style="color:var(--dim);font-size:11px">click to open card</span>`;
@@ -3547,16 +3550,18 @@ function drawMap() {
   }).join('');
   const dots = items.map(it => {
     const x = xPos(it.witness_bytes || 64).toFixed(1);
-    const y = yPos(it.classical_bits || 0).toFixed(1);
+    const yBits = mkMapQu ? (qbitsOf(it.quantum, it.quantum_safe) || 0) : (it.classical_bits || 0);
+    const y = yPos(yBits).toFixed(1);
     const r = Math.max(4, Math.sqrt(it.uses || 1) * 3).toFixed(1);
-    const fill = famColor(it);
-    const opacity = it.accepted === false ? '0.3' : '1';
+    const fill = mkMapQu && !it.quantum_safe ? 'var(--bad)' : famColor(it);
+    const opacity = (it.accepted === false || (mkMapQu && !it.quantum_safe)) ? '0.35' : '1';
     const filterAttr = it.quantum_safe ? ' filter="url(#pq-glow)"' : '';
     const nameJson = JSON.stringify(it.name);
     return `<g style="cursor:pointer" onclick="openCard(${nameJson})" onmouseenter="mkMapHover(event,${nameJson})" onmouseleave="wpTip.hide()"${filterAttr} opacity="${opacity}">` +
            `<circle cx="${x}" cy="${y}" r="${r}" fill="${fill}"/>` +
            `</g>`;
   }).join('');
+  const axisLabel = `SECURITY (${mkMapQu ? 'QUANTUM' : 'CLASSICAL'}) ↑`;
   const svgHtml = `<svg width="${W}" height="${H}" style="display:block;overflow:visible;max-width:100%">` +
     `<defs><filter id="pq-glow" x="-60%" y="-60%" width="220%" height="220%">` +
     `<feGaussianBlur stdDeviation="3" result="blur"/>` +
@@ -3565,7 +3570,7 @@ function drawMap() {
     gridLines +
     `<line x1="${PL}" y1="${PT + ph}" x2="${W - PR}" y2="${PT + ph}" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>` +
     `<text x="${PL + pw / 2}" y="${H - 2}" text-anchor="middle" font-family="VT323" font-size="13" fill="rgba(255,255,255,0.5)">WITNESS COST →</text>` +
-    `<text x="10" y="${(PT + ph / 2).toFixed(1)}" text-anchor="middle" font-family="VT323" font-size="13" fill="rgba(255,255,255,0.5)" transform="rotate(-90,10,${(PT + ph / 2).toFixed(1)})">SECURITY ↑</text>` +
+    `<text x="10" y="${(PT + ph / 2).toFixed(1)}" text-anchor="middle" font-family="VT323" font-size="13" fill="rgba(255,255,255,0.5)" transform="rotate(-90,10,${(PT + ph / 2).toFixed(1)})">${axisLabel}</text>` +
     dots +
     `</svg>`;
   const legendItems = [['var(--cy)','LATTICE'],['var(--ac)','HASH'],['var(--vi)','WASM'],['var(--mag)','COMPOSITE'],['var(--bad)','PRIVATE']];
@@ -3573,7 +3578,11 @@ function drawMap() {
     legendItems.map(([c, l]) => `<span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:${c};display:inline-block;border-radius:2px"></span>${l}</span>`).join('') +
     `<span style="display:flex;align-items:center;gap:5px"><span style="color:var(--cy)">&#10022;</span>PQ-SAFE GLOW</span>` +
     `</div>`;
-  out('mk-cards', svgHtml + legend);
+  const quToggle = `<div style="display:flex;gap:0;margin-bottom:8px">` +
+    `<button class="kt-seg${mkMapQu ? '' : ' on'}" style="font-size:11px;padding:5px 14px;margin:0;border-radius:3px 0 0 3px" onclick="mkMapQu=false;drawMap()">CL</button>` +
+    `<button class="kt-seg${mkMapQu ? ' on' : ''}" style="font-size:11px;padding:5px 14px;margin:0;border-radius:0 3px 3px 0" onclick="mkMapQu=true;drawMap()">QU</button>` +
+    `</div>`;
+  out('mk-cards', quToggle + svgHtml + legend);
 }
 document.querySelectorAll('#mk-sorts button:not(#mk-vs-btn):not(#mk-map-btn)').forEach(b => b.onclick = () => {
   document.querySelectorAll('#mk-sorts button:not(#mk-vs-btn):not(#mk-map-btn)').forEach(x => x.classList.toggle('on', x === b));
@@ -4682,18 +4691,29 @@ $('v-open').onclick = async () => {
     const {meta, data} = await vOpen(vUnB64(r.blob), secret, $('v-open-pass').value);
     const url = URL.createObjectURL(new Blob([data], {type: meta.type || 'application/octet-stream'}));
     const txt = (meta.type || '').startsWith('text') || /\.(txt|md|json|csv|cairo|rs|py|js)$/i.test(meta.name || '');
+    const img = (meta.type || '').startsWith('image/');
+    const aud = (meta.type || '').startsWith('audio/');
+    const vid = (meta.type || '').startsWith('video/');
     vOk('v-open-out', `<p><b>opened in this browser.</b> ${esc(meta.name || 'file')} · ${wpN(meta.size)} bytes ·
       hash check ${r.verified ? '<span class="pill good">cid matches</span>' : '<span class="pill bad">MISMATCH</span>'}</p>
       <p><a class="pill" href="${url}" download="${esc(meta.name || 'file')}">DOWNLOAD</a></p>` +
-      (txt ? `<pre style="max-height:260px;overflow:auto">${esc(new TextDecoder().decode(data.slice(0, 20000)))}</pre>` : ''));
+      (txt ? `<pre style="max-height:260px;overflow:auto">${esc(new TextDecoder().decode(data.slice(0, 20000)))}</pre>` : '') +
+      (img ? `<img src="${url}" style="max-width:100%;max-height:360px;margin-top:8px;display:block;border:2px solid var(--line2)">` : '') +
+      (aud ? `<audio src="${url}" controls style="margin-top:8px;width:100%"></audio>` : '') +
+      (vid ? `<video src="${url}" controls style="max-width:100%;max-height:320px;margin-top:8px"></video>` : ''));
   } catch (e) { vErr('v-open-out', e); }
 };
 async function vList() {
   try { const r = await api('/vault?action=list');
-    out('v-list', r.blobs.length ? '<table><tr><th>cid</th><th>kind</th><th class="num">bytes</th><th>anchored by</th></tr>' +
+    out('v-list', r.blobs.length ? '<table><tr><th>cid</th><th>kind</th><th class="num">bytes</th><th>anchored by</th><th></th></tr>' +
       r.blobs.map(b => `<tr><td class="mono addr" data-copy="${esc(b.cid)}">${esc(b.cid.slice(0, 16))}…</td><td>${esc(b.kind)}${b.lang ? ' · ' + esc(b.lang) : ''}</td>` +
-        `<td class="num">${wpN(b.bytes)}</td><td>${b.anchors.length ? b.anchors.map(esc).join(', ') : '<span class="muted">none — pruned after grace</span>'}</td></tr>`).join('') + '</table>'
+        `<td class="num">${wpN(b.bytes)}</td><td>${b.anchors.length ? b.anchors.map(esc).join(', ') : '<span class="muted">none — pruned after grace</span>'}</td>` +
+        `<td><button class="sm" data-open-cid="${esc(b.cid)}">OPEN</button></td></tr>`).join('') + '</table>'
       : '<span class="muted">nothing stored yet</span>');
+    $('v-list').querySelectorAll('[data-open-cid]').forEach(btn => btn.onclick = () => {
+      $('v-link').value = 'pqv1:' + btn.dataset.openCid;
+      $('v-link').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    });
   } catch (e) { err('v-list', e); }
 }
 $('c-deploy').onclick = async () => {

@@ -6,9 +6,10 @@ import Link from "next/link";
 import {
   analyzeTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago,
   sharpeMeasured, MIN_SHARPE_DAYS, fetchCandles,
-  liveStatus, liveStart,
+  liveStatus, liveStart, fetchScoreMarket,
 } from "../../lib/api";
-import type { Candle } from "../../lib/api";
+import type { Candle, ScoreMarket } from "../../lib/api";
+import { formatScore } from "../../lib/scoreFormula";
 import { useSession } from "../../lib/auth";
 import { buildRoundTrips, fmtDuration } from "../../lib/trips";
 import PnlChart from "../../components/PnlChart";
@@ -16,6 +17,9 @@ import CoinChart from "../../components/CoinChart";
 import BacktestPanel from "../../components/BacktestPanel";
 import AskConsole from "../../components/AskConsole";
 import OrderbookPanel from "../../components/OrderbookPanel";
+import { fmtDay } from "../../components/TraderCard";
+
+const BOARD_CAP_KEY = "hl.board.capital";
 
 export default function TraderPage() {
   const { addr } = useParams<{ addr: string }>();
@@ -28,6 +32,9 @@ export default function TraderPage() {
   const [liveStatusData, setLiveStatusData] = useState<any>(null);
   const [addBusy, setAddBusy] = useState(false);
   const [addFeedback, setAddFeedback] = useState<string | null>(null);
+  const [capital, setCapital] = useState(1000);
+  const [capText, setCapText] = useState("1000");
+  const [scoreMarket, setScoreMarket] = useState<ScoreMarket | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -36,6 +43,19 @@ export default function TraderPage() {
       .then((d) => { if (alive) setData(d); })
       .catch((e) => { if (alive) setErr(e.message ?? String(e)); })
       .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [addr, days]);
+
+  useEffect(() => {
+    const c = Number(localStorage.getItem(BOARD_CAP_KEY));
+    if (c > 0) { setCapital(c); setCapText(String(c)); }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    fetchScoreMarket({ days, limit: 200 })
+      .then((m) => { if (alive) setScoreMarket(m); })
+      .catch(() => {});
     return () => { alive = false; };
   }, [addr, days]);
 
@@ -88,6 +108,12 @@ export default function TraderPage() {
     }
   };
 
+  const setBoardCap = (v: number) => {
+    setCapital(v);
+    setCapText(String(v));
+    try { localStorage.setItem(BOARD_CAP_KEY, String(v)); } catch {}
+  };
+
   if (loading) return <div className="text-xs text-muted">loading {shortAddr(addr)}…</div>;
   if (err) return <div className="text-xs text-loss">{err}</div>;
   if (!data) return null;
@@ -131,6 +157,14 @@ export default function TraderPage() {
     .sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
   const coinAbsTotal = coinBreakdown.reduce((s, e) => s + Math.abs(e.pnl), 0);
 
+  const capK = capital / 1000;
+  const expPerDay = s.expected?.per_1k != null ? s.expected.per_1k * capK : null;
+  const feePerDay = s.expected?.copy_fee_1k != null ? s.expected.copy_fee_1k * capK : null;
+  const capLabel = capital >= 1000 ? `$${Math.round(capital / 1000)}k` : `$${capital}`;
+
+  const myRow = scoreMarket?.rows.find((r) => r.address.toLowerCase() === addr.toLowerCase());
+  const smRank = myRow ? scoreMarket!.rows.indexOf(myRow) + 1 : null;
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -159,11 +193,31 @@ export default function TraderPage() {
         </div>
       </div>
 
+      {/* Capital scaler — shared key with board and market page so the value persists. */}
+      <div className="flex items-center gap-2 text-[11px] text-muted">
+        <span>capital</span>
+        <div className="flex items-center gap-0.5 border border-border rounded px-1.5 py-0.5">
+          <span className="text-dim">$</span>
+          <input
+            value={capText}
+            inputMode="numeric"
+            aria-label="capital copied"
+            className="w-16 bg-transparent text-ink text-right text-[11px] outline-none"
+            onChange={(e) => setCapText(e.target.value)}
+            onBlur={() => {
+              const n = Number(capText.replace(/,/g, ""));
+              if (Number.isFinite(n) && n > 0) setBoardCap(n);
+              else setCapText(String(capital));
+            }}
+          />
+        </div>
+      </div>
+
       {/* Summary tiles.
           Every ratio here carries the count it was computed from. A win rate
           without its denominator is how "100% · 16 trades" ended up meaning
           "8 of 8 closes, and the other 8 fills were opens". */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <Tile
           label={`pnl (${days}d)`}
           value={fmtPnl(s.pnl)}
@@ -211,9 +265,43 @@ export default function TraderPage() {
                 `Over so few days the standard deviation describes the sample, not the strategy.`
           }
         />
+        <Tile
+          label="exp/day"
+          value={expPerDay != null ? fmtDay(expPerDay) : "—"}
+          tone={expPerDay != null ? (expPerDay >= 0 ? "win" : "loss") : "warn"}
+          sub={
+            expPerDay != null
+              ? `at ${capLabel} · fees ${feePerDay != null ? fmtDay(-feePerDay) : "—"}/day`
+              : "no expected data"
+          }
+          title={
+            expPerDay != null
+              ? `Expected net USD/day copying ${capLabel}. Based on ${s.closes} closes; per_1k haircut applied.`
+              : "Not enough closes to compute expected value."
+          }
+        />
+        {scoreMarket && (
+          myRow && smRank != null ? (
+            <Tile
+              label="score market"
+              value={formatScore(myRow.score)}
+              tone="win"
+              sub={`rank #${smRank} of ${scoreMarket.matched} · ${days}d`}
+            />
+          ) : (
+            <Tile
+              label="score market"
+              value="—"
+              tone="warn"
+              sub={scoreGateFailSub(s, scoreMarket.gate)}
+            />
+          )
+        )}
       </div>
 
       <TradeStyle trips={trips} days={days} closes={s.closes} />
+
+      <TradeCalendar fills={fills} />
 
       <TraderCopilot addr={addr} />
 
@@ -409,6 +497,124 @@ export default function TraderPage() {
   );
 }
 
+function TradeCalendar({ fills }: { fills: any[] }) {
+  if (fills.length === 0) return null;
+
+  type DayData = { count: number; notional: number };
+  const dayMap = new Map<number, DayData>();
+  for (const f of fills) {
+    const dayKey = Math.floor(Number(f.time) / 86400000);
+    const entry = dayMap.get(dayKey) ?? { count: 0, notional: 0 };
+    entry.count++;
+    entry.notional += Number(f.px || 0) * Math.abs(Number(f.sz || 0));
+    dayMap.set(dayKey, entry);
+  }
+  if (dayMap.size === 0) return null;
+
+  const maxTs = fills.reduce((m, f) => Math.max(m, Number(f.time)), 0);
+  const latestDay = Math.floor(maxTs / 86400000);
+  const WINDOW = 31;
+  const earliestDay = latestDay - WINDOW + 1;
+
+  // find Monday on or before earliestDay (getUTCDay: 0=Sun, 1=Mon…6=Sat)
+  const firstDow = new Date(earliestDay * 86400000).getUTCDay();
+  const backToMonday = firstDow === 0 ? 6 : firstDow - 1;
+  const gridStart = earliestDay - backToMonday;
+
+  const COLS = 5;
+  const ROWS = 7;
+
+  // col-major: col 0 = week 0 (Mon…Sun), col 1 = week 1, …
+  const cells: { dayKey: number; date: Date; data: DayData | null; inWindow: boolean }[] = [];
+  for (let col = 0; col < COLS; col++) {
+    for (let row = 0; row < ROWS; row++) {
+      const dayKey = gridStart + col * 7 + row;
+      cells.push({
+        dayKey,
+        date: new Date(dayKey * 86400000),
+        data: dayMap.get(dayKey) ?? null,
+        inWindow: dayKey >= earliestDay && dayKey <= latestDay,
+      });
+    }
+  }
+
+  const activeCells = cells.filter((c) => c.inWindow && c.data && c.data.count > 0);
+  const maxNotional = activeCells.reduce((m, c) => Math.max(m, c.data!.notional), 0);
+
+  const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const DOW_NAMES  = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const busiest = activeCells.reduce(
+    (best: typeof activeCells[0] | undefined, c) =>
+      c.data!.notional > (best?.data?.notional ?? 0) ? c : best,
+    undefined
+  );
+  const busiestDow = busiest ? DOW_NAMES[busiest.date.getUTCDay()] : "—";
+
+  const intensity = (notional: number) => {
+    if (notional === 0 || maxNotional === 0) return 0;
+    return Math.log1p(notional) / Math.log1p(maxNotional);
+  };
+
+  const fmtDate = (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+
+  return (
+    <Panel title="activity calendar · 31d">
+      <div className="px-4 py-3">
+        <div className="flex gap-2 items-start">
+          <div className="flex flex-col gap-[3px] shrink-0 pt-px">
+            {DOW_LABELS.map((label) => (
+              <div key={label} className="text-[9px] text-muted/60" style={{ height: 14, lineHeight: "14px" }}>
+                {label}
+              </div>
+            ))}
+          </div>
+          <div
+            className="grid gap-[3px]"
+            style={{
+              gridTemplateColumns: `repeat(${COLS}, 14px)`,
+              gridTemplateRows: `repeat(${ROWS}, 14px)`,
+            }}
+          >
+            {cells.map((cell, i) => {
+              const col = Math.floor(i / ROWS) + 1;
+              const row = (i % ROWS) + 1;
+              const inten = cell.inWindow && cell.data ? intensity(cell.data.notional) : 0;
+              const tipText = cell.inWindow
+                ? cell.data && cell.data.count > 0
+                  ? `${fmtDate(cell.date)}\n${cell.data.count} fill${cell.data.count !== 1 ? "s" : ""} · ${fmtUsd(cell.data.notional)} notional`
+                  : fmtDate(cell.date)
+                : undefined;
+              return (
+                <div
+                  key={i}
+                  title={tipText}
+                  style={{
+                    gridColumn: col,
+                    gridRow: row,
+                    width: 14,
+                    height: 14,
+                    opacity: cell.inWindow ? 1 : 0,
+                    backgroundColor: inten > 0
+                      ? `rgb(var(--c-accent2) / ${(0.18 + inten * 0.82).toFixed(2)})`
+                      : undefined,
+                  }}
+                  className={`rounded-sm ${inten > 0 ? "" : "bg-border/25"}`}
+                />
+              );
+            })}
+          </div>
+        </div>
+        <div className="mt-2 text-[10px] text-muted">
+          active on <span className="text-ink">{activeCells.length}</span> of {WINDOW} days
+          {busiest ? <> · busiest on <span className="text-ink">{busiestDow}</span></> : null}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function TraderCopilot({ addr }: { addr: string }) {
   const [open, setOpen] = useState(false);
   const [ever, setEver] = useState(false);
@@ -446,6 +652,13 @@ function TraderCopilot({ addr }: { addr: string }) {
       )}
     </div>
   );
+}
+
+function scoreGateFailSub(s: any, gate: ScoreMarket["gate"]): string {
+  if (s.closes < gate.min_closes) return `${s.closes} of ${gate.min_closes} closes needed`;
+  if (gate.factors_positive.includes("sharpe") && s.sharpe <= 0) return "sharpe must be > 0";
+  if (gate.factors_positive.includes("win_rate") && s.win_rate <= 0) return "win rate must be > 0";
+  return "not in score market";
 }
 
 /**

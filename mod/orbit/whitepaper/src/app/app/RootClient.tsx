@@ -136,9 +136,10 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
   const replayTimerRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   const [codeOpen, setCodeOpen] = useState<Record<string, boolean>>({});
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
-  const [codeTab, setCodeTab] = useState<Record<string, "solidity" | "python" | "js" | "rust">>({});
+  const [codeTab, setCodeTab] = useState<Record<string, "solidity" | "python" | "js" | "rust" | "cli">>({});
   const articleRef = useRef<HTMLElement>(null);
   const matchRefs = useRef<HTMLElement[]>([]);
+  const mentionElemsRef = useRef<Map<string, HTMLElement[]>>(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const registryRef = useRef<HTMLElement>(null);
   const [registryInView, setRegistryInView] = useState(true);
@@ -682,11 +683,26 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
     return lines.join("\n");
   }
 
+  function buildCliSnippet(modName: string, prf: ProofResult): string {
+    const proofJson = JSON.stringify(prf.proof);
+    const lines = [
+      `# Verify proof for "${modName}" using the mod CLI:`,
+      `m whitepaper/tree_verify \\`,
+      `  leaf="${prf.leaf}" \\`,
+      `  proof='${proofJson}'`,
+      ``,
+      `# Optional: specify a different root`,
+      `# m whitepaper/tree_verify leaf="${prf.leaf}" proof='${proofJson}' root="${prf.root}"`,
+    ];
+    return lines.join("\n");
+  }
+
   function activeSnippet(modName: string, prf: ProofResult): string {
     const tab = codeTab[modName] ?? "solidity";
     if (tab === "python") return buildPythonSnippet(modName, prf);
     if (tab === "js") return buildJSSnippet(modName, prf);
     if (tab === "rust") return buildRustSnippet(modName, prf);
+    if (tab === "cli") return buildCliSnippet(modName, prf);
     return buildSoliditySnippet(modName, prf);
   }
 
@@ -776,6 +792,7 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
     if (!mods || !articleRef.current) return;
     const modNames = new Set(mods.map((m) => m.name));
     const handlers: Array<{ el: HTMLElement; fn: () => void }> = [];
+    const mentionMap = new Map<string, HTMLElement[]>();
 
     articleRef.current.querySelectorAll<HTMLElement>("code").forEach((el) => {
       const name = el.textContent?.trim() ?? "";
@@ -789,17 +806,42 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
       };
       el.addEventListener("click", fn);
       handlers.push({ el, fn });
+      if (!mentionMap.has(name)) mentionMap.set(name, []);
+      mentionMap.get(name)!.push(el);
     });
+
+    mentionElemsRef.current = mentionMap;
 
     return () => {
       handlers.forEach(({ el, fn }) => {
         el.removeEventListener("click", fn);
-        el.classList.remove("mod-mention");
+        el.classList.remove("mod-mention", "mod-mention-proved", "mod-mention-verified");
         if (el.title === "prove in registry →") el.title = "";
       });
+      mentionElemsRef.current = new Map();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mods]);
+
+  // Reflect proof/verification state onto inline <code> module mentions.
+  useEffect(() => {
+    const map = mentionElemsRef.current;
+    if (!map.size) return;
+    map.forEach((els, name) => {
+      const prf = proofs[name];
+      const vrf = verifications[name];
+      for (const el of els) {
+        el.classList.remove("mod-mention-proved", "mod-mention-verified");
+        if (prf && prf !== "loading" && prf !== "error") {
+          if (vrf === "ok") {
+            el.classList.add("mod-mention-verified");
+          } else {
+            el.classList.add("mod-mention-proved");
+          }
+        }
+      }
+    });
+  }, [proofs, verifications]);
 
   useEffect(() => {
     const el = registryRef.current;
@@ -1266,13 +1308,13 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
                               {codeOpen[m.name] && (
                                 <div style={{ marginTop: "0.5rem" }}>
                                   <div style={{ display: "flex", gap: "4px", marginBottom: "4px" }}>
-                                    {(["solidity", "python", "js", "rust"] as const).map((lang) => (
+                                    {(["solidity", "python", "js", "rust", "cli"] as const).map((lang) => (
                                       <button
                                         key={lang}
                                         className={`btn btn-sm${(codeTab[m.name] ?? "solidity") === lang ? " btn-active" : ""}`}
                                         onClick={() => setCodeTab((t) => ({ ...t, [m.name]: lang }))}
                                       >
-                                        {lang === "solidity" ? "Solidity" : lang === "python" ? "Python" : lang === "js" ? "JS" : "Rust"}
+                                        {lang === "solidity" ? "Solidity" : lang === "python" ? "Python" : lang === "js" ? "JS" : lang === "rust" ? "Rust" : "CLI"}
                                       </button>
                                     ))}
                                   </div>

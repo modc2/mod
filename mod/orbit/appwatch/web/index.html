@@ -97,6 +97,7 @@ let lastUp = null;
 let lastA = null;
 let upSince = null;
 let streakTimer = null;
+let incidentFreeTimer = null;
 let downAt = null;
 let serverIncidents = null;
 
@@ -239,7 +240,8 @@ function render(A) {
     + `<div class="stat"><b>${incidentCount}</b><span>incidents</span></div>`
     + `<div class="stat"><b>${totalDown ? K.dur(totalDown) : "—"}</b><span>total down</span></div>`
     + `<div class="stat"><b>${mttr !== null ? K.dur(mttr) : "—"}</b><span>avg recovery</span></div>`
-    + `<div class="stat"><b>${p95 !== null ? p95 + "ms" : "—"}</b><span>p95 latency</span></div>`;
+    + `<div class="stat"><b>${p95 !== null ? p95 + "ms" : "—"}</b><span>p95 latency</span></div>`
+    + `<div class="stat"><b id="incident_free">—</b><span>incident-free</span></div>`;
   const incCard = $("incidents_card");
   if (incCard) {
     const useServer = si && Array.isArray(si.incidents);
@@ -263,6 +265,7 @@ function render(A) {
     }
     incCard.innerHTML = ih;
   }
+  if (incidentFreeTimer) { clearInterval(incidentFreeTimer); incidentFreeTimer = null; }
   if (streakTimer) { clearInterval(streakTimer); streakTimer = null; }
   if (A.up === true) {
     if (A.last_start?.at && A.last_start?.ok === true) {
@@ -287,6 +290,12 @@ function render(A) {
       upSince = null;
       const lbl = $("streak_lbl"); if (lbl) { lbl.textContent = "uptime"; lbl.style.color = ""; }
     }
+  }
+  const ife = si && si.last_incident_end && !A.down_since;
+  if (ife) {
+    const tickFree = () => { const el = $("incident_free"); if (el) el.textContent = K.dur(Math.floor(Date.now() / 1000) - si.last_incident_end); };
+    tickFree();
+    incidentFreeTimer = setInterval(tickFree, 1000);
   }
   $("down").innerHTML = A.down_since
     ? `<div class="notice bad">dark since ${K.ago(A.down_since)}${A.in_progress ? " · restart in progress" : ""}${A.next_attempt ? ` · next attempt ${K.ago(A.next_attempt)}` : ""}</div>`
@@ -488,6 +497,7 @@ function renderCalendar(days) {
   const byDate = {};
   for (const d of days) byDate[d.key] = d;
   const MS = 86400000, CELL = 12, GAP = 2;
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const firstDate = new Date(days[0].key + "T00:00:00Z");
   const lastDate = new Date(days[days.length - 1].key + "T00:00:00Z");
   const startDow = (firstDate.getUTCDay() + 6) % 7;
@@ -496,7 +506,7 @@ function renderCalendar(days) {
   const gridEnd = new Date(lastDate.getTime() + (6 - endDow) * MS);
   const nDays = Math.round((gridEnd - gridStart) / MS) + 1;
   const wrap = document.createElement("div");
-  wrap.style.cssText = "position:relative;overflow:visible";
+  wrap.style.cssText = "position:relative;overflow:visible;padding-top:14px";
   const tooltip = document.createElement("div");
   tooltip.style.cssText = "position:absolute;background:rgba(30,30,30,0.92);color:#eee;font-size:11px;font-family:monospace;padding:4px 8px;border-radius:4px;pointer-events:none;display:none;white-space:nowrap;z-index:10";
   const grid = document.createElement("div");
@@ -522,6 +532,17 @@ function renderCalendar(days) {
       cell.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
     }
     grid.appendChild(cell);
+  }
+  for (let i = 0; i < nDays; i++) {
+    const d = new Date(gridStart.getTime() + i * MS);
+    if (d.getUTCDate() === 1) {
+      const col = Math.floor(i / 7);
+      const x = col * (CELL + GAP);
+      const lbl = document.createElement("span");
+      lbl.textContent = MONTHS[d.getUTCMonth()];
+      lbl.style.cssText = `position:absolute;left:${x}px;top:0;font-size:9px;font-family:monospace;color:#888;white-space:nowrap`;
+      wrap.appendChild(lbl);
+    }
   }
   wrap.appendChild(grid);
   wrap.appendChild(tooltip);

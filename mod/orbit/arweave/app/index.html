@@ -100,6 +100,7 @@
     <button class="ghost" style="font-size:11px;padding:2px 8px;margin-top:6px" onclick="addTagRow()">+ Add tag</button>
     <div id="upload-estimate" style="margin-top:6px;min-height:20px"></div>
     <div id="upload-queue"></div>
+    <div id="manifest-wrap" style="margin-top:6px"></div>
     <div class="row" style="margin-top:10px">
       <input id="url-to-archive" type="text" placeholder="https://example.com/article" />
       <button onclick="archiveUrl()">Archive URL</button>
@@ -458,16 +459,21 @@ function setQueueRow(row, status, result) {
 }
 
 async function putFiles(files) {
-  const rows = Array.from(files).map(f => addQueueRow(f.name));
-  for (let i = 0; i < files.length; i++) {
+  const fileArr = Array.from(files);
+  const rows = fileArr.map(f => addQueueRow(f.name));
+  const successes = [];
+  for (let i = 0; i < fileArr.length; i++) {
     setQueueRow(rows[i], 'uploading');
     try {
       const fd = new FormData();
-      fd.append('file', files[i]);
+      fd.append('file', fileArr[i]);
       fd.append('tags', JSON.stringify(getTags() || []));
       const result = await jpost('/put', fd);
       setQueueRow(rows[i], 'done', result);
-      if (result.txid) document.getElementById('txid').value = result.txid;
+      if (result.txid) {
+        document.getElementById('txid').value = result.txid;
+        successes.push({path: fileArr[i].name, txid: result.txid});
+      }
     } catch (e) {
       setQueueRow(rows[i], 'error', e);
     }
@@ -475,7 +481,59 @@ async function putFiles(files) {
   document.getElementById('file').value = '';
   document.getElementById('dz-label').textContent = 'Paste (Ctrl+V) or drop files here or click to browse';
   document.getElementById('upload-estimate').innerHTML = '';
+  if (successes.length >= 2) showManifestBtn(successes);
   refresh();
+}
+
+function showManifestBtn(paths) {
+  const wrap = document.getElementById('manifest-wrap');
+  wrap.innerHTML = '';
+  const btn = document.createElement('button');
+  btn.className = 'ghost';
+  btn.style.cssText = 'font-size:12px;padding:4px 10px';
+  btn.textContent = 'Create Site Manifest →';
+  btn.onclick = () => createManifest(paths, wrap);
+  wrap.appendChild(btn);
+}
+
+async function createManifest(paths, wrap) {
+  wrap.innerHTML = '<span style="font-size:12px;color:#7a8896">creating manifest…</span>';
+  const indexPath = (paths.find(p => p.path === 'index.html') || paths[0]).path;
+  try {
+    const result = await jpost('/manifest',
+      JSON.stringify({paths, index: indexPath}),
+      {headers: {'Content-Type': 'application/json'}});
+    if (result.txid) {
+      const siteUrl = 'https://arweave.net/' + result.txid + '/';
+      const div = document.createElement('div');
+      div.style.cssText = 'padding:10px;background:#0f2010;border:1px solid #1a4020;border-radius:6px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+      const lbl = document.createElement('span');
+      lbl.style.color = '#6abf6a';
+      lbl.textContent = 'Site deployed: ';
+      const a = document.createElement('a');
+      a.href = siteUrl;
+      a.target = '_blank';
+      a.className = 'txid';
+      a.textContent = siteUrl;
+      lbl.appendChild(a);
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'ghost';
+      copyBtn.style.cssText = 'font-size:11px;padding:2px 8px';
+      copyBtn.textContent = 'copy link';
+      copyBtn.onclick = () => navigator.clipboard.writeText(siteUrl).then(() => {
+        copyBtn.textContent = 'copied!';
+        setTimeout(() => { copyBtn.textContent = 'copy link'; }, 1500);
+      }).catch(() => {});
+      div.appendChild(lbl);
+      div.appendChild(copyBtn);
+      wrap.innerHTML = '';
+      wrap.appendChild(div);
+    } else {
+      wrap.innerHTML = '<span class="pill bad">manifest failed: ' + String(result.detail || result.warning || 'unknown') + '</span>';
+    }
+  } catch (e) {
+    wrap.innerHTML = '<span class="pill bad">manifest error: ' + String(e) + '</span>';
+  }
 }
 
 async function putData() {

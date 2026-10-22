@@ -484,10 +484,12 @@ function ServerPanel({
   server,
   onClose,
   onChanged,
+  onCompare,
 }: {
   server: Server;
   onClose: () => void;
   onChanged: () => void;
+  onCompare?: () => void;
 }) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [filter, setFilter] = useState("");
@@ -653,6 +655,11 @@ function ServerPanel({
           >
             {server.enabled ? "disable" : "enable"}
           </button>
+          {onCompare && (
+            <button className="sm" disabled={!!busy} onClick={onCompare}>
+              compare
+            </button>
+          )}
           <button
             className="sm danger"
             disabled={!!busy}
@@ -689,6 +696,176 @@ function ServerPanel({
         </section>
       </div>
     </>
+  );
+}
+
+/* ── compare sheet ────────────────────────────────────────────────── */
+
+function toolBaseName(t: Tool): string {
+  const sep = t.name.indexOf("__");
+  return sep > -1 ? t.name.slice(sep + 2) : t.name;
+}
+
+function CompareSheet({
+  serverA,
+  servers,
+  onClose,
+}: {
+  serverA: Server;
+  servers: Server[];
+  onClose: () => void;
+}) {
+  const [serverBId, setServerBId] = useState("");
+  const [toolsA, setToolsA] = useState<Tool[] | null>(null);
+  const [toolsB, setToolsB] = useState<Tool[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const serverB = useMemo(
+    () => servers.find((s) => s.id === serverBId) || null,
+    [servers, serverBId]
+  );
+
+  useEffect(() => {
+    if (!serverBId) {
+      setToolsA(null);
+      setToolsB(null);
+      return;
+    }
+    setBusy(true);
+    setError("");
+    Promise.all([api.tools(serverA.id), api.tools(serverBId)])
+      .then(([ra, rb]) => {
+        setToolsA(ra.tools);
+        setToolsB(rb.tools);
+      })
+      .catch((e) => setError(String((e as Error).message || e)))
+      .finally(() => setBusy(false));
+  }, [serverA.id, serverBId]);
+
+  const sharedNames = useMemo(() => {
+    if (!toolsA || !toolsB) return new Set<string>();
+    const setA = new Set(toolsA.map(toolBaseName));
+    const setB = new Set(toolsB.map(toolBaseName));
+    const shared = new Set<string>();
+    for (const n of setA) {
+      if (setB.has(n)) shared.add(n);
+    }
+    return shared;
+  }, [toolsA, toolsB]);
+
+  const uniqueA = toolsA ? toolsA.filter((t) => !sharedNames.has(toolBaseName(t))).length : 0;
+  const uniqueB = toolsB ? toolsB.filter((t) => !sharedNames.has(toolBaseName(t))).length : 0;
+  const sharedCount = sharedNames.size;
+
+  const others = servers.filter((s) => s.id !== serverA.id);
+
+  return (
+    <div className="sheet" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="sheet-inner" style={{ width: "min(900px, 94vw)", maxWidth: "none" }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ margin: 0 }}>Compare tools</h2>
+          <button className="sm ghost" onClick={onClose}>close</button>
+        </div>
+        <p className="muted small" style={{ margin: "6px 0 0" }}>
+          Pick a second server to compare its tools with <strong>{serverA.name}</strong> side by side. Shared base names are highlighted.
+        </p>
+
+        <div className="row" style={{ marginTop: 12 }}>
+          <select
+            style={{ flex: 1 }}
+            value={serverBId}
+            onChange={(e) => setServerBId(e.target.value)}
+          >
+            <option value="">pick a server to compare…</option>
+            {others.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} — {s.probe.toolCount} tools
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {error && <div className="note bad" style={{ marginTop: 12 }}>{error}</div>}
+        {busy && <div className="muted small" style={{ marginTop: 12 }}>loading tools…</div>}
+
+        {toolsA && toolsB && serverB && (
+          <>
+            <div className="row" style={{ marginTop: 12, padding: "6px 10px", background: "var(--bg-card)", borderRadius: 6, fontSize: 13, gap: 0 }}>
+              <span><strong>{uniqueA}</strong> unique to {serverA.name}</span>
+              <span className="muted" style={{ margin: "0 8px" }}>·</span>
+              <span><strong>{sharedCount}</strong> shared by base name</span>
+              <span className="muted" style={{ margin: "0 8px" }}>·</span>
+              <span><strong>{uniqueB}</strong> unique to {serverB.name}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+              <div>
+                <div className="row" style={{ gap: 6, alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontWeight: 600 }}>{serverA.name}</span>
+                  <span
+                    className="badge"
+                    style={{ ["--hue" as string]: serverA.local || serverA.source === "fleet" ? "var(--src-fleet)" : "var(--accent)" }}
+                  >
+                    {sourceLabel(serverA).text}
+                  </span>
+                  <span className="badge plain">{toolsA.length} tools</span>
+                </div>
+                <div className="toollist">
+                  {toolsA.map((t) => {
+                    const base = toolBaseName(t);
+                    const shared = sharedNames.has(base);
+                    return (
+                      <div key={t.name} className="tool" style={shared ? { background: "var(--line-soft)" } : {}}>
+                        <div className="row" style={{ gap: 6, alignItems: "center", justifyContent: "space-between" }}>
+                          <span className="name">{base}</span>
+                          {shared && <span className="badge plain" style={{ fontSize: 10 }}>shared</span>}
+                        </div>
+                        {t.description && <div className="d">{t.description}</div>}
+                      </div>
+                    );
+                  })}
+                  {toolsA.length === 0 && <div className="muted small">no tools</div>}
+                </div>
+              </div>
+              <div>
+                <div className="row" style={{ gap: 6, alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontWeight: 600 }}>{serverB.name}</span>
+                  <span
+                    className="badge"
+                    style={{ ["--hue" as string]: serverB.local || serverB.source === "fleet" ? "var(--src-fleet)" : "var(--accent)" }}
+                  >
+                    {sourceLabel(serverB).text}
+                  </span>
+                  <span className="badge plain">{toolsB.length} tools</span>
+                </div>
+                <div className="toollist">
+                  {toolsB.map((t) => {
+                    const base = toolBaseName(t);
+                    const shared = sharedNames.has(base);
+                    return (
+                      <div key={t.name} className="tool" style={shared ? { background: "var(--line-soft)" } : {}}>
+                        <div className="row" style={{ gap: 6, alignItems: "center", justifyContent: "space-between" }}>
+                          <span className="name">{base}</span>
+                          {shared && <span className="badge plain" style={{ fontSize: 10 }}>shared</span>}
+                        </div>
+                        {t.description && <div className="d">{t.description}</div>}
+                      </div>
+                    );
+                  })}
+                  {toolsB.length === 0 && <div className="muted small">no tools</div>}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1197,6 +1374,97 @@ function ActivitySheet({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ── top tools leaderboard ────────────────────────────────────────── */
+
+function TopToolsPanel({
+  recent,
+  open,
+  onToggle,
+  onOpenTools,
+  onOpenServer,
+}: {
+  recent: CallEntry[];
+  open: boolean;
+  onToggle: () => void;
+  onOpenTools: (q: string) => void;
+  onOpenServer: (id: string) => void;
+}) {
+  const top = useMemo(() => {
+    const byTool = new Map<string, { count: number; errors: number; latencySum: number }>();
+    for (const e of recent) {
+      const prev = byTool.get(e.tool) || { count: 0, errors: 0, latencySum: 0 };
+      byTool.set(e.tool, {
+        count: prev.count + 1,
+        errors: prev.errors + (e.ok ? 0 : 1),
+        latencySum: prev.latencySum + e.latency_ms,
+      });
+    }
+    return [...byTool.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 10)
+      .map(([tool, s]) => {
+        const sep = tool.indexOf("__");
+        const server = sep > -1 ? tool.slice(0, sep) : "";
+        const name = sep > -1 ? tool.slice(sep + 2) : tool;
+        return { tool, server, name, count: s.count, errors: s.errors, avgMs: Math.round(s.latencySum / s.count) };
+      });
+  }, [recent]);
+
+  if (top.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 14, border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+      <button
+        className="ghost"
+        style={{
+          width: "100%", display: "flex", alignItems: "center", gap: 8,
+          padding: "7px 12px", fontSize: 12.5, fontWeight: 550,
+          borderRadius: 0, background: "var(--bg-card)",
+        }}
+        onClick={onToggle}
+      >
+        <span style={{ flex: 1, textAlign: "left", color: "var(--ink-dim)" }}>top tools</span>
+        <span style={{ color: "var(--ink-faint)", fontSize: 11 }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ borderTop: "1px solid var(--line-soft)" }}>
+          {top.map((row) => (
+            <div
+              key={row.tool}
+              className="row"
+              style={{
+                padding: "5px 12px", gap: 8, cursor: "pointer", flexWrap: "nowrap",
+                borderBottom: "1px solid var(--line-soft)",
+              }}
+              onClick={() => onOpenTools(row.name)}
+            >
+              <span className="mono small" style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {row.name}
+              </span>
+              {row.server && (
+                <button
+                  className="badge plain"
+                  style={{ fontSize: 10.5, padding: "1px 5px", cursor: "pointer", flexShrink: 0 }}
+                  onClick={(e) => { e.stopPropagation(); onOpenServer(row.server); }}
+                >
+                  {row.server}
+                </button>
+              )}
+              <span className="badge" style={{ fontSize: 10.5, padding: "1px 5px", flexShrink: 0 }}>
+                {row.count}
+              </span>
+              <span style={{ color: row.errors === 0 ? "var(--good)" : "var(--bad)", fontSize: 12, flexShrink: 0 }}>●</span>
+              <span className="muted small" style={{ minWidth: 46, textAlign: "right", flexShrink: 0 }}>
+                {row.avgMs}ms
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2130,6 +2398,7 @@ export default function Page() {
     api.activity().then((r) => {
       setActivityTotal(r.total);
       setActivityBaseline((prev) => (prev !== null ? prev : r.total));
+      setActivityRecent(r.recent.slice(0, 200));
     }).catch(() => {});
   }, []);
 
@@ -2146,6 +2415,7 @@ export default function Page() {
   useEffect(() => {
     const stop = api.streamActivity((entry) => {
       setActivityTotal((prev) => prev + 1);
+      setActivityRecent((prev) => [entry, ...prev].slice(0, 200));
       setServers((prev) =>
         prev
           ? prev.map((s) =>
@@ -2227,6 +2497,7 @@ export default function Page() {
     }
   };
 
+  const [compareA, setCompareA] = useState<Server | null>(null);
   const [hubsOpen, setHubsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [toolsInitQ, setToolsInitQ] = useState<string | undefined>();
@@ -2246,6 +2517,8 @@ export default function Page() {
   }, []);
   const [activityBaseline, setActivityBaseline] = useState<number | null>(null);
   const [activityTotal, setActivityTotal] = useState(0);
+  const [activityRecent, setActivityRecent] = useState<CallEntry[]>([]);
+  const [topToolsOpen, setTopToolsOpen] = useState(true);
   const [catalogRegistry, setCatalogRegistry] = useState("all");
 
   const connectListing = (l: Listing) => {
@@ -2430,6 +2703,16 @@ export default function Page() {
           </div>
         )}
 
+        {activityTotal > 0 && (
+          <TopToolsPanel
+            recent={activityRecent}
+            open={topToolsOpen}
+            onToggle={() => setTopToolsOpen((v) => !v)}
+            onOpenTools={(q) => { setToolsInitQ(q); setToolsOpen(true); }}
+            onOpenServer={(id) => setSel(id)}
+          />
+        )}
+
         {servers !== null && servers.length > 6 && (
           <div className="searchbar" style={{ marginTop: 8 }}>
             <input
@@ -2487,6 +2770,24 @@ export default function Page() {
                     {s.review_risk}
                   </span>
                 )}
+                {s.review_capabilities && s.review_capabilities.length > 0 && s.review_capabilities.map((cap) => {
+                  const label =
+                    cap === "filesystem-write" ? "fs-write" :
+                    cap === "filesystem-read" ? "fs-read" :
+                    cap === "prompt-injection" ? "⚠inject" :
+                    cap === "database" ? "db" :
+                    cap === "network" ? "net" :
+                    cap === "exec" ? "exec" : cap;
+                  const bg =
+                    cap === "prompt-injection" || cap === "exec" ? "var(--bad)" :
+                    cap === "filesystem-write" || cap === "database" ? "#f59e0b" :
+                    "var(--ink-mute)";
+                  return (
+                    <span key={cap} style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, background: bg, color: "#fff", fontWeight: 600, letterSpacing: "0.02em" }}>
+                      {label}
+                    </span>
+                  );
+                })}
                 {s.pay && <span className="tag" title="a 402 from this server is paid through the x402 module">x402</span>}
                 {!s.enabled && <span className="tag">disabled</span>}
                 {s.uptime && s.uptime.length > 0 && (
@@ -2520,7 +2821,21 @@ export default function Page() {
         </div>
       </div>
 
-      {selected && <ServerPanel server={selected} onClose={() => setSel(null)} onChanged={load} />}
+      {selected && (
+        <ServerPanel
+          server={selected}
+          onClose={() => setSel(null)}
+          onChanged={load}
+          onCompare={() => { setCompareA(selected); setSel(null); }}
+        />
+      )}
+      {compareA && (
+        <CompareSheet
+          serverA={compareA}
+          servers={servers || []}
+          onClose={() => setCompareA(null)}
+        />
+      )}
       {adding && (
         <AddSheet
           seed={seed}

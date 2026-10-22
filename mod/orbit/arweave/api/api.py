@@ -177,6 +177,41 @@ async def archive(request: Request):
     return client._upload_bytes(content, url, content_type, extra_tags=extra_tags)
 
 
+@api.post("/manifest")
+async def create_manifest(request: Request):
+    """Build and store an Arweave path manifest for multi-file static site hosting.
+
+    Body: {paths: [{path: "index.html", txid: "abc..."}, ...], index?: "index.html"}
+    Returns: {txid, url: "https://arweave.net/{txid}/"}
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "body must be JSON {paths: [{path, txid}], index?}")
+    paths_input = body.get("paths")
+    if not paths_input or not isinstance(paths_input, list):
+        raise HTTPException(400, "paths must be a non-empty array of {path, txid}")
+    manifest_paths: dict = {}
+    for entry in paths_input:
+        if not isinstance(entry, dict) or not entry.get("path") or not entry.get("txid"):
+            raise HTTPException(400, "each paths entry must have path and txid fields")
+        manifest_paths[entry["path"]] = {"id": entry["txid"]}
+    index_path = body.get("index") or (paths_input[0]["path"] if paths_input else "index.html")
+    manifest = {
+        "manifest": "arweave/paths",
+        "version": "0.1.0",
+        "index": {"path": index_path},
+        "paths": manifest_paths,
+    }
+    result = client.put(manifest, name="manifest.json",
+                        content_type="application/x.arweave-manifest+json")
+    out: dict = {"txid": result["txid"], "url": f"https://arweave.net/{result['txid']}/",
+                 "backend": result.get("backend")}
+    if result.get("warning"):
+        out["warning"] = result["warning"]
+    return out
+
+
 @api.get("/get/{txid}")
 def get(txid: str, raw: bool = False):
     try:
@@ -263,7 +298,16 @@ def view_tx(txid: str):
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>arweave viewer</title>
+<title>Arweave · {txid[:12]}…</title>
+<meta property="og:title" content="Arweave · {txid[:12]}…">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://arweave.net/{txid}">
+<meta property="og:image" content="https://arweave.net/{txid}">
+<meta property="og:description" content="Permanent content on Arweave">
+<meta property="og:site_name" content="arweave mod">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Arweave · {txid[:12]}…">
+<meta name="twitter:image" content="https://arweave.net/{txid}">
 <style>
   :root {{ color-scheme: dark; }}
   * {{ box-sizing: border-box; }}
@@ -367,6 +411,46 @@ async function renderContent(res) {{
       img.src = URL.createObjectURL(blob);
       img.style.cssText = 'max-width:100%;max-height:500px;display:block;border-radius:4px';
       areaEl.appendChild(img);
+    }} else if (ct === 'application/x.arweave-manifest+json') {{
+      const mf = await res.json();
+      const mfPaths = mf.paths || {{}};
+      const siteUrl = 'https://arweave.net/' + TXID + '/';
+      const openA = document.createElement('a');
+      openA.href = siteUrl;
+      openA.target = '_blank';
+      openA.textContent = 'Open site ↗';
+      openA.style.cssText = 'display:inline-block;padding:4px 12px;background:#5d3aa8;color:white;border-radius:6px;font-size:12px;text-decoration:none;margin-bottom:10px';
+      areaEl.appendChild(openA);
+      const mfTbl = document.createElement('table');
+      mfTbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px';
+      const mfThead = document.createElement('thead');
+      mfThead.innerHTML = '<tr><th style="text-align:left;padding:6px 8px;border-bottom:1px solid #20262d;color:#7a8896">path</th><th style="text-align:left;padding:6px 8px;border-bottom:1px solid #20262d;color:#7a8896">tx id</th></tr>';
+      const mfTbody = document.createElement('tbody');
+      Object.entries(mfPaths).forEach(([p, v]) => {{
+        const itemTxid = (v || {{}}).id || '';
+        const viewBase = location.pathname.replace(/\\/view\\/.*$/, '') || '';
+        const viewUrl = viewBase + '/view/' + itemTxid;
+        const tr = document.createElement('tr');
+        const td1 = document.createElement('td');
+        td1.style.cssText = 'padding:6px 8px;border-bottom:1px solid #20262d';
+        const pathA = document.createElement('a');
+        pathA.href = viewUrl;
+        pathA.textContent = p;
+        td1.appendChild(pathA);
+        const td2 = document.createElement('td');
+        td2.style.cssText = 'padding:6px 8px;border-bottom:1px solid #20262d;font-size:11px';
+        const txA = document.createElement('a');
+        txA.href = viewUrl;
+        txA.className = 'txid';
+        txA.textContent = itemTxid.slice(0, 12) + '…';
+        td2.appendChild(txA);
+        tr.appendChild(td1);
+        tr.appendChild(td2);
+        mfTbody.appendChild(tr);
+      }});
+      mfTbl.appendChild(mfThead);
+      mfTbl.appendChild(mfTbody);
+      areaEl.appendChild(mfTbl);
     }} else if (ct === 'application/json') {{
       const json = await res.json();
       const pre = document.createElement('pre');

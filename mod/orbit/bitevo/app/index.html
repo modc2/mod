@@ -395,7 +395,7 @@ async function loadBackends(){
 /* actions */
 const out=$('#console-out');
 let _lockedChallenge=null;
-let _lastIdea=null,_lastFeedback=null,_lastScore=null,_lastChallenge=null;
+let _lastIdea=null,_lastFeedback=null,_lastScore=null,_lastChallenge=null,_lastBreakdown=null;
 function busy(btn,on){btn.disabled=on;btn.dataset.t??=btn.textContent;btn.textContent=on?'WORKING…':btn.dataset.t}
 async function run(btn,fn){busy(btn,true);out.textContent='';try{const r=await fn();out.textContent=JSON.stringify(r.result??r,null,2)}catch(e){out.innerHTML=`<span class="err">${esc(e.message)}</span>`}busy(btn,false);refresh()}
 
@@ -522,7 +522,7 @@ $('#b-score').onclick=async e=>{
     radarChart(document.getElementById('score-radar'), b);
     saveJudgeResult(r, total ? pct : null);
     renderJudgeHistory();
-    _lastIdea=idea;_lastChallenge=challengeObj;_lastFeedback=r.feedback||'';_lastScore=r.composite_score??0;
+    _lastIdea=idea;_lastChallenge=challengeObj;_lastFeedback=r.feedback||'';_lastScore=r.composite_score??0;_lastBreakdown=r.breakdown||{};
     $('#refine-row').style.display=_lastFeedback?'':'none';
   }catch(err){clearInterval(timer);$('#score-out').innerHTML=`<p class="err">${esc(err.message)}</p>`;$('#refine-row').style.display='none';}
   busy(e.target,false);
@@ -602,10 +602,10 @@ $('#b-refine').onclick=async e=>{
         <div class="bar"><span>${k}</span><div class="tr"><div class="fi" style="width:${Math.min(100,v*10)}%"></div></div><span>${(+v).toFixed(1)}</span></div>`).join('')}</div>
       ${r.feedback?`<div class="fb">${esc(r.feedback)}</div>`:''}`;
     scoreHistChart(document.getElementById('score-dist'),topArr.map(p=>p.composite_score),newScore);
-    radarChart(document.getElementById('score-radar'),b);
+    radarChart(document.getElementById('score-radar'),_lastBreakdown||{},b,['BEFORE','AFTER']);
     saveJudgeResult(r,total?pct:null);
     renderJudgeHistory();
-    _lastFeedback=r.feedback||'';_lastScore=newScore;
+    _lastFeedback=r.feedback||'';_lastScore=newScore;_lastBreakdown=b;
     $('#refine-row').style.display=_lastFeedback?'':'none';
   }catch(err){clearInterval(timer);$('#score-out').innerHTML=`<p class="err">${esc(err.message)}</p>`;$('#refine-row').style.display='none';}
   busy(e.target,false);
@@ -678,7 +678,7 @@ $('#b-sweep').onclick=e=>{
       .then(cr=>{
         const challengeObj=cr.result||null;
         const body=challengeObj?{idea,challenge:challengeObj.prompt}:{idea};
-        return post('/score',body).then(sr=>({ctype,score:sr.result}));
+        return post('/score',body).then(sr=>({ctype,score:sr.result,challenge:challengeObj}));
       })
       .then(r=>{
         settled.push(r);
@@ -703,6 +703,58 @@ $('#b-sweep').onclick=e=>{
                 if(el)el.classList.add('best');
               }
             });
+          }
+          if(valid.length>=2){
+            const sweepSeries=SWEEP_TYPES.map((ctype,i)=>{
+              const r=settled.find(s=>s&&s.ctype===ctype);
+              if(!r||!r.score)return null;
+              return{bd:r.score.breakdown||{},color:SLOTS[i],label:ctype};
+            }).filter(Boolean);
+            if(sweepSeries.length>=2){
+              const rDiv=document.createElement('div');
+              rDiv.id='sweep-radar';
+              rDiv.style.marginBottom='16px';
+              $('#score-out').prepend(rDiv);
+              radarChart(rDiv,{},sweepSeries);
+            }
+          }
+          if(valid.length){
+            const best=valid.reduce((a,b)=>(a.score.composite_score??0)>=(b.score.composite_score??0)?a:b);
+            const rBtnDiv=document.createElement('div');
+            rBtnDiv.style.marginTop='12px';
+            rBtnDiv.innerHTML='<button class="act" id="b-refine-best">REFINE BEST →</button>';
+            $('#score-out').appendChild(rBtnDiv);
+            document.getElementById('b-refine-best').onclick=async()=>{
+              const sweepIdea=$('#i-sweep-idea').value.trim();
+              const bs=best.score;
+              _lastIdea=sweepIdea;_lastChallenge=best.challenge;
+              _lastFeedback=bs.feedback||'';_lastScore=bs.composite_score??0;_lastBreakdown=bs.breakdown||{};
+              $('#sweep-input').style.display='none';$('#single-input').style.display='';$('#i-idea').value=sweepIdea;
+              const b=bs.breakdown||{},p=bs.pitch||{};
+              const PITCH_FIELDS=['problem','solution','market','traction','business_model','team','defensibility','ask'];
+              const pitchRows=PITCH_FIELDS.filter(k=>p[k]).map(k=>`<dt>${k.replace('_',' ')}</dt><dd>${esc(p[k])}</dd>`).join('');
+              const pitchCard=p.company_name?`<div class="pitch"><h4>${esc(p.company_name)}</h4>${p.one_liner?`<div class="ol">${esc(p.one_liner)}</div>`:''}<dl>${pitchRows}</dl></div>`:'';
+              const challengeCard=best.challenge?`<div class="pitch"><h4>challenge · ${esc(best.challenge.type||best.ctype)}</h4><div class="ol">${esc(best.challenge.prompt)}</div></div>`:'';
+              let pctBadge='';let topArrForHist=[];
+              try{
+                const topRes=await api('/top?limit=500');
+                topArrForHist=topRes.result||[];
+                const total=topArrForHist.length,below=topArrForHist.filter(x=>x.composite_score<_lastScore).length;
+                const pct=total?Math.floor((below/total)*100):0;
+                pctBadge=total===0
+                  ?'<div style="color:var(--dim);font:600 13px var(--mono);margin-top:4px">No archived pitches yet — run an epoch to benchmark.</div>'
+                  :`<div style="color:var(--good);font:600 13px var(--mono);margin-top:4px">Top ${100-pct}% of archived pitches · beats ${below} of ${total}</div>`;
+              }catch(e){}
+              $('#score-out').innerHTML=`${challengeCard}${pitchCard}<div class="composite">${_lastScore.toFixed(2)} / 10</div>${pctBadge}
+                <div id="score-dist"></div>
+                <div id="score-radar"></div>
+                <div class="bars">${Object.entries(b).map(([k,v])=>`
+                  <div class="bar"><span>${k}</span><div class="tr"><div class="fi" style="width:${Math.min(100,v*10)}%"></div></div><span>${(+v).toFixed(1)}</span></div>`).join('')}</div>
+                ${bs.feedback?`<div class="fb">${esc(bs.feedback)}</div>`:''}`;
+              scoreHistChart(document.getElementById('score-dist'),topArrForHist.map(p=>p.composite_score),_lastScore);
+              radarChart(document.getElementById('score-radar'),b);
+              $('#refine-row').style.display=_lastFeedback?'':'none';
+            };
           }
           renderJudgeHistory();
           busy(e.target,false);
@@ -925,7 +977,7 @@ function scoreHistChart(el,allScores,myScore){
     +`<div style="color:var(--dim);font:11px var(--mono);text-align:center;margin-top:2px">n=${allScores.length} archived pitches</div>`;
 }
 
-function radarChart(el, bd1, bd2) {
+function radarChart(el, bd1, bd2, labels) {
   const FIELDS = ['novelty','feasibility','market_size','clarity','defensibility','traction_signal'];
   const N = FIELDS.length;
   const W = 360, H = 240, cx = 180, cy = 118, R = 80;
@@ -947,15 +999,27 @@ function radarChart(el, bd1, bd2) {
     }).join(' ');
     return `<polygon points="${pts}" fill="${color}" fill-opacity="0.3" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
   };
+  const addLabels = () => {
+    FIELDS.forEach((k, i) => {
+      const lx = px(i, R+20), ly = py(i, R+20);
+      const anchor = lx < cx-3 ? 'end' : lx > cx+3 ? 'start' : 'middle';
+      svg += `<text x="${lx.toFixed(1)}" y="${(ly+3.5).toFixed(1)}" text-anchor="${anchor}" font-size="9.5" fill="var(--dim)">${k.replace(/_/g,' ')}</text>`;
+    });
+  };
+  // Multi-series mode: bd2 is an array of {bd, color, label}
+  if (Array.isArray(bd2)) {
+    bd2.forEach(s => { svg += poly(s.bd, s.color); });
+    addLabels();
+    const legend = `<div class="legend" style="justify-content:center">${bd2.map(s => `<span><span class="sw" style="background:${s.color}"></span>${esc(s.label)}</span>`).join('')}</div>`;
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin:8px auto 0">${svg}</svg>${legend}`;
+    return;
+  }
   svg += poly(bd1, 'var(--accent)');
   if (bd2) svg += poly(bd2, 'var(--accent2)');
-  FIELDS.forEach((k, i) => {
-    const lx = px(i, R+20), ly = py(i, R+20);
-    const anchor = lx < cx-3 ? 'end' : lx > cx+3 ? 'start' : 'middle';
-    svg += `<text x="${lx.toFixed(1)}" y="${(ly+3.5).toFixed(1)}" text-anchor="${anchor}" font-size="9.5" fill="var(--dim)">${k.replace(/_/g,' ')}</text>`;
-  });
+  addLabels();
+  const [labelA,labelB]=(labels||['IDEA A','IDEA B']);
   const legend = bd2
-    ? `<div class="legend" style="justify-content:center"><span><span class="sw" style="background:var(--accent)"></span>IDEA A</span><span><span class="sw" style="background:var(--accent2)"></span>IDEA B</span></div>`
+    ? `<div class="legend" style="justify-content:center"><span><span class="sw" style="background:var(--accent)"></span>${labelA}</span><span><span class="sw" style="background:var(--accent2)"></span>${labelB}</span></div>`
     : '';
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;display:block;margin:8px auto 0">${svg}</svg>${legend}`;
 }

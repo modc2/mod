@@ -41,6 +41,7 @@
       <div id="lastNote" style="display:none"></div>
       <div id="vibeGoalBox" style="display:none"></div>
       <div id="idleBar" style="margin-top:8px;display:none"></div>
+      <div id="skipNotice" style="display:none"></div>
       <div id="live" style="margin-top:12px"></div>
     </div>
     <div class="card">
@@ -176,7 +177,7 @@ function render() {
     const tiles = Array.from({length: D.lanes || 3}, (_, i) => {
       const l = lives[i];
       if (l) {
-        return `<div class="od-lane ${l.title ? 'is-building' : 'is-ideating'}"><div class="od-badge">✦${i + 1}</div><div class="t">${K.esc(l.module)}</div><div class="s">${l.title ? `<span class="pill on">building</span> ${K.esc(l.title)}` : `<span class="pill warn">ideating</span>`} · ${K.ago(l.created_at)}</div><div class="od-acts"><a class="pill acc" href="${K.BUILD_APP}?mod=${encodeURIComponent(l.module)}">open ↗</a>${K.isOwner && i === 0 ? `<button class="sm danger" id="stopLive">stop all</button>` : ""}</div></div>`;
+        return `<div class="od-lane ${l.title ? 'is-building' : 'is-ideating'}"><div class="od-badge">✦${i + 1}</div><div class="t">${K.esc(l.module)}</div><div class="s">${l.title ? `<span class="pill on">building</span> ${K.esc(l.title)}` : `<span class="pill warn">ideating</span>`} · ${K.ago(l.created_at)}</div><div class="od-acts"><a class="pill acc" href="${K.BUILD_APP}?mod=${encodeURIComponent(l.module)}">open ↗</a>${K.isOwner && l.run_id ? `<button class="sm danger stopLane" data-run-id="${K.esc(l.run_id)}">stop</button>` : ""}</div></div>`;
       }
       return `<div class="od-lane" style="opacity:.35;border-style:dashed"><div class="od-badge" style="color:var(--dim)">✦${i + 1}</div><div class="t">empty</div><div class="s">${D.enabled ? `fills in ~${secsToTick}s` : 'standby'}</div></div>`;
     });
@@ -193,6 +194,15 @@ function render() {
       : `<div class="faint" style="font-size:12.5px">no run in flight</div>`;
   }
   if ($("stopLive")) $("stopLive").onclick = async () => { if (await K.ask("Stop the evolver's run(s) in flight? A job already running finishes on its own.", "Stop", true)) { await K.act("/evolver/stop", {}, "stopping"); load(); } };
+  document.querySelectorAll(".stopLane").forEach(btn => {
+    btn.onclick = async () => {
+      const rid = btn.dataset.runId;
+      if (await K.ask("Stop this lane? The freed slot refills on the next tick.", "Stop", true)) {
+        await K.act(`/evolver/stop/${encodeURIComponent(rid)}`, {}, "stopping");
+        load();
+      }
+    };
+  });
   const idleBar = $("idleBar");
   if (D.mode === "idle" && !lives.length) {
     const elapsed = D.idle_for || 0;
@@ -205,6 +215,29 @@ function render() {
     idleBar.innerHTML = `<div class="meter"><i style="width:${pct}%"></i></div><div class="faint" style="font-size:12px;margin-top:4px">${label}</div>`;
   } else {
     idleBar.style.display = "none";
+  }
+
+  const skipNotice = $("skipNotice");
+  if (D.enabled && D.last_skip && D.last_skip !== '' && D.last_skip !== 'off' && !lives.length) {
+    const sk = D.last_skip;
+    let msg;
+    if (sk === 'plan weekly limit') {
+      msg = `plan budget at capacity · resets ${K.ago(D.plan_weekly?.resets_at)}`;
+    } else if (sk === 'weekly budget spent') {
+      msg = `${(D.week||{}).used}/${(D.week||{}).cap} runs used · resets ${K.ago((D.week||{}).resets_at)}`;
+    } else if (sk === 'someone is active') {
+      msg = `quiet room waiting — console active, fires after ${K.dur(D.idle_secs)} quiet (${K.dur(D.idle_for||0)} now)`;
+    } else if (sk === 'a task is running' || sk === 'an auto run is live') {
+      msg = `another run is in flight`;
+    } else if (sk === 'nothing to evolve') {
+      msg = `no eligible modules — check the focus list`;
+    } else {
+      msg = sk;
+    }
+    skipNotice.style.display = "";
+    skipNotice.innerHTML = `<div class="notice" style="margin-top:8px;font-size:12.5px">⏸ ${msg} · last tick ${K.ago(D.last_tick)}</div>`;
+  } else {
+    skipNotice.style.display = "none";
   }
 
   const w = D.week || {};
@@ -292,9 +325,10 @@ function render() {
   $("recent").innerHTML = filteredRecent.slice(0, 20).map((r) => {
     const mark = r.sched ? "◷ " : r.task ? "⚑ " : "";
     const kind = r.outcome === "played" ? "on" : r.status === "failed" ? "bad" : r.status === "running" ? "warn" : "";
+    const goalLine = r.goal_brief && r.goal_brief !== r.task ? `<div class="s">${K.esc(r.goal_brief)}</div>` : '';
     return `<div class="row click" onclick="location.href='${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}'"><span class="pill ${kind}">${K.esc(r.outcome || r.status)}</span><div class="grow">
       <div class="t">${mark}${K.esc(r.module)} — ${K.esc(r.title || r.task || "")}</div>
-      <div class="s mono">${K.ago(r.ts)}${r.cost_usd > 0 ? ' · $' + r.cost_usd.toFixed(2) : ''} · <a href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">${K.esc(r.run_id)}</a></div></div></div>`;
+      ${goalLine}<div class="s mono">${K.ago(r.ts)}${r.cost_usd > 0 ? ' · $' + r.cost_usd.toFixed(2) : ''} · <a href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">${K.esc(r.run_id)}</a></div></div></div>`;
   }).join("") || `<div class="empty">no runs yet</div>`;
   $("recentDots").innerHTML = filteredRecent.slice(0, 30).map(r => {
     const c = r.outcome === "played" ? "#5ee08a" : r.status === "failed" ? "#e05e5e" : "#555";

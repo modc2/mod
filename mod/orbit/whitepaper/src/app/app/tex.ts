@@ -388,11 +388,12 @@ const KW: Record<string, RegExp> = {
   python: /\b(class|def|return|self|import|from|if|else|for|in|None|True|False|list|dict|str|bool|int)\b/g,
   js: /\b(function|const|let|var|return|import|from|export|if|else|for|of|in|async|await|new|typeof)\b/g,
   rust: /\b(fn|let|mut|pub|use|struct|impl|enum|match|return|if|else|for|in|while|loop|mod|trait|type|async|await|const|static)\b/g,
+  cli: /(?<![a-zA-Z0-9_/])(m)(?![a-zA-Z0-9_/])/g,
 };
 
 export function highlight(src: string, lang: string) {
   const kw = KW[lang];
-  const comment = lang === "python" ? /#.*$/ : /\/\/.*$/;
+  const comment = (lang === "python" || lang === "cli") ? /#.*$/ : /\/\/.*$/;
   return src
     .split("\n")
     .map((line) => {

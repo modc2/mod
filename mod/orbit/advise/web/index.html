@@ -1003,7 +1003,10 @@ function renderBrief(b) {
             ${esc(langs.slice(0, 3).map(([l]) => l).join(' · '))}</span>` : ''}
         </div>
       </div>
-      <button id="autoscan-btn" class="btn" style="align-self:flex-start;white-space:nowrap;margin-top:4px" onclick="autoScan()">AI-fill form &#x2192;</button>
+      <div style="display:flex;gap:6px;align-items:center;align-self:flex-start;margin-top:4px">
+        <input id="autoscan-focus" placeholder="Focus on (optional)" style="font-size:12px;padding:4px 8px;border:1px solid var(--border,#444);border-radius:6px;background:var(--bg2,#1a1a1a);color:inherit;width:160px">
+        <button id="autoscan-btn" class="btn" style="white-space:nowrap" onclick="autoScan()">AI-fill form &#x2192;</button>
+      </div>
       <div class="owner">Approved by<br><code>${icon('shield')}${esc(b.owner ? short(b.owner) : 'deployment owner')}</code></div>
     </div>`;
   paintFiles();
@@ -1338,7 +1341,8 @@ async function autoScan() {
   const btn = document.getElementById('autoscan-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
   try {
-    const out = await call('autoscan', { module: BRIEF.module, preview: true }, 'POST');
+    const focusVal = document.getElementById('autoscan-focus')?.value.trim();
+    const out = await call('autoscan', { module: BRIEF.module, preview: true, ...(focusVal ? { focus: focusVal } : {}) }, 'POST');
     if (out.error) { toast(out.error, 'err'); return; }
     burst(btn);
     $('title').value = out.title || '';
@@ -1351,6 +1355,8 @@ async function autoScan() {
     if (out.kind) KIND = out.kind;
     if (out.severity) SEV = out.severity;
     paintChips(); renderAnchors(); paintCode(); score();
+    if (ANCHORS.length && ANCHORS[0].path) openFile(ANCHORS[0].path, ANCHORS[0].line || undefined);
+    const pp = document.getElementById('owner-preview-panel'); if (pp && !pp.open) pp.open = true;
     const panel = document.getElementById('form-panel');
     if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     toast('AI suggestion loaded — review and edit before sending', 'ok');

@@ -28,7 +28,9 @@
 .act-bar-g{background:var(--green,#22c55e);display:block}
 .act-bar-r{background:var(--red,#ef4444);display:block}
 @keyframes new-glow{0%{background:rgba(200,230,90,.18);box-shadow:0 0 0 2px rgba(200,230,90,.35)}100%{background:transparent;box-shadow:none}}
+@keyframes hm-fade{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:scale(1)}}
 .is-new{animation:new-glow 2.2s ease-out forwards}
+.spark-tip{position:fixed;pointer-events:none;background:var(--surface,#1a1a1a);border:1px solid var(--border,#2a2a2a);border-radius:5px;padding:5px 9px;font-size:11px;line-height:1.6;white-space:nowrap;display:none;z-index:200}
 </style>
 </head>
 <body>
@@ -69,8 +71,13 @@
         <input id="modIn" list="modList" placeholder="module name…" style="max-width:220px;padding:6px 10px" /><datalist id="modList"></datalist><button id="modLoad" class="sm">open</button></h2>
       <div id="mod"><div class="empty">Open a module to see and set its guardian: house rules, edit approvals, AUTO mode.</div></div>
     </div>
+    <div class="card wide" id="analyticsCard" style="display:none">
+      <h2>Guardian insights</h2>
+      <div id="analyticsContent"></div>
+    </div>
   </div>
 </div>
+<div id="sparkTip" class="spark-tip"></div>
 <div class="veil" id="triageVeil" style="display:none">
   <div class="triage-box">
     <div class="triage-hdr">
@@ -250,39 +257,121 @@ async function openMod(name) {
   renderMod(g.data, u.ok ? u.data : null);
 }
 
-function activitySparkline(recent) {
+function activityHeatmap(recent) {
   if (!recent.length) return '';
-  const now = Date.now(), DAY = 86400000;
-  const days = Array.from({length:7}, (_, i) => {
-    const d = new Date(now - (6-i)*DAY); d.setHours(0,0,0,0);
-    return {ts:d.getTime(), dow:['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()], green:0, red:0};
+  const DAY = 86400000;
+  const now = new Date(); now.setHours(0,0,0,0);
+  const todayTs = now.getTime();
+  // Align grid to Monday of current week
+  const dow = now.getDay();
+  const daysFromMon = dow === 0 ? 6 : dow - 1;
+  const weekStart = new Date(todayTs - daysFromMon * DAY);
+  const gridStart = new Date(weekStart.getTime() - 21 * DAY); // 4 weeks total
+  // 28 cells: index = col*7 + row, col=0..3 (oldest→newest), row=0..6 (Mon→Sun)
+  const cells = Array.from({length:28}, (_, i) => {
+    const d = new Date(gridStart.getTime() + i * DAY);
+    return {ts:d.getTime(), date:d, green:0, red:0};
   });
   let inRange = 0;
   for (const u of recent) {
     const t = new Date(u.created_at).getTime();
-    if (isNaN(t) || now - t > 8*DAY) continue;
+    if (isNaN(t)) continue;
     const d = new Date(t); d.setHours(0,0,0,0);
-    const idx = days.findIndex(b => b.ts === d.getTime());
+    const idx = cells.findIndex(c => c.ts === d.getTime());
     if (idx < 0) continue;
     inRange++;
     const s = u.status || '';
-    if (s === 'approved' || s === 'played') days[idx].green++;
-    else if (s === 'rejected' || s === 'blocked') days[idx].red++;
+    if (s === 'approved' || s === 'played') cells[idx].green++;
+    else if (s === 'rejected' || s === 'blocked') cells[idx].red++;
   }
   if (inRange === 0) return '';
-  const maxC = Math.max(1, ...days.map(d => d.green + d.red));
-  const MAX_H = 40, MIN_H = 2;
-  return '<div class="act-chart">' + days.map(d => {
-    const total = d.green + d.red;
-    const bH = total ? Math.max(MIN_H, Math.round(total/maxC*MAX_H)) : 0;
-    const inner = total
-      ? (d.red > 0 ? `<i class="act-bar-r" style="flex:${d.red}"></i>` : '') + (d.green > 0 ? `<i class="act-bar-g" style="flex:${d.green}"></i>` : '')
-      : `<div style="height:2px;background:var(--border,#2a2a2a);border-radius:1px;width:100%"></div>`;
-    const bar = total
-      ? `<div style="height:${bH}px;display:flex;flex-direction:column;overflow:hidden;border-radius:2px;width:100%">${inner}</div>`
-      : inner;
-    return `<div class="act-bar"><div style="height:${MAX_H}px;display:flex;flex-direction:column;justify-content:flex-end;width:100%">${bar}</div><span class="act-bar-lbl">${d.dow}</span></div>`;
-  }).join('') + '</div>';
+  const maxC = Math.max(1, ...cells.map(c => c.green + c.red));
+  const DOW = ['Mo','Tu','We','Th','Fr','Sa','Su'];
+  const colHdrs = [0,1,2,3].map(col => cells[col*7].date.toLocaleDateString('en-US',{month:'short',day:'numeric'}));
+  let out = '<div style="padding:8px 0 10px;border-bottom:1px solid var(--border,#2a2a2a);margin-bottom:4px">';
+  // Column headers
+  out += '<div style="display:flex;gap:3px;margin-bottom:4px;padding-left:24px">';
+  for (const h of colHdrs) out += `<div style="flex:1;text-align:center;font-size:9px;color:var(--muted,#888);white-space:nowrap">${h}</div>`;
+  out += '</div>';
+  // Day rows
+  for (let row = 0; row < 7; row++) {
+    out += '<div style="display:flex;gap:3px;margin-bottom:2px;align-items:center">';
+    out += `<div style="width:20px;flex-shrink:0;font-size:9px;color:var(--muted,#888);text-align:right;padding-right:3px">${DOW[row]}</div>`;
+    for (let col = 0; col < 4; col++) {
+      const cell = cells[col*7 + row];
+      const total = cell.green + cell.red;
+      const isFuture = cell.ts > todayTs;
+      const stagger = (col*7 + row) * 20;
+      let bg, border;
+      if (isFuture || total === 0) {
+        bg = 'transparent'; border = '1px solid rgba(200,230,90,0.12)';
+      } else {
+        const k = total / maxC;
+        if (cell.red >= cell.green) {
+          bg = `rgba(239,68,68,${(0.25 + k * 0.75).toFixed(2)})`; border = '1px solid transparent';
+        } else {
+          bg = `rgba(200,230,90,${(0.2 + k * 0.8).toFixed(2)})`; border = '1px solid transparent';
+        }
+      }
+      const dateStr = cell.date.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+      out += `<div style="flex:1;height:14px;border-radius:3px;background:${bg};border:${border};animation:hm-fade 0.2s ease-out both;animation-delay:${stagger}ms" data-date="${dateStr}" data-green="${cell.green}" data-red="${cell.red}" onmouseenter="var t=document.getElementById('sparkTip'),g=+this.dataset.green,r=+this.dataset.red;t.innerHTML='<b>'+this.dataset.date+'</b><br>'+(g||r?'&#10003; '+g+' approved<br>&#10007; '+r+' rejected':'no activity');t.style.left=(event.clientX+8)+'px';t.style.top=(event.clientY-64)+'px';t.style.display='block'" onmouseleave="document.getElementById('sparkTip').style.display='none'"></div>`;
+    }
+    out += '</div>';
+  }
+  out += '</div>';
+  return out;
+}
+
+function renderAnalytics(resolved) {
+  const card = $("analyticsCard");
+  if (!card) return;
+  if (!resolved.length) { card.style.display = "none"; return; }
+  card.style.display = "";
+  const modStats = {};
+  const catCount = {};
+  for (const u of resolved) {
+    const m = u._mod || "";
+    if (!modStats[m]) modStats[m] = { pass: 0, block: 0, auto: 0 };
+    const s = u.status || "";
+    if (s === "approved" || s === "played") modStats[m].pass++;
+    if (s === "rejected" || s === "blocked") modStats[m].block++;
+    if (s === "played") modStats[m].auto++;
+    for (const c of (u.screen?.categories || [])) catCount[c] = (catCount[c] || 0) + 1;
+  }
+  const mods = Object.entries(modStats).sort((a, b) => (b[1].pass + b[1].block) - (a[1].pass + a[1].block));
+  const modRows = mods.map(([name, s]) => {
+    const total = s.pass + s.block;
+    const pPct = total ? Math.round(s.pass / total * 100) : 0;
+    const bPct = total ? 100 - pPct : 0;
+    const BAR = 80;
+    const pW = total ? Math.max(2, Math.round(s.pass / total * BAR)) : 0;
+    const bW = total ? Math.max(2, Math.round(s.block / total * BAR)) : 0;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border,#2a2a2a)">
+      <span class="pill acc" style="min-width:80px;text-align:center;flex-shrink:0;overflow:hidden;text-overflow:ellipsis">${K.esc(name)}</span>
+      <span style="color:var(--muted,#888);min-width:28px;flex-shrink:0;text-align:right">${total}</span>
+      <span class="pill on" style="font-size:10px;flex-shrink:0">${pPct}%</span>
+      <div style="display:flex;gap:2px;align-items:center">
+        ${pW ? `<div style="height:8px;width:${pW}px;background:var(--green,#22c55e);border-radius:2px"></div>` : ""}
+        ${bW ? `<div style="height:8px;width:${bW}px;background:var(--red,#ef4444);border-radius:2px"></div>` : ""}
+      </div>
+      <span class="pill bad" style="font-size:10px;flex-shrink:0">${bPct}%</span>
+      ${s.auto ? `<span class="pill" style="background:var(--accent,#7c3aed);color:#fff;font-size:10px;flex-shrink:0">AUTO ${s.auto}</span>` : ""}
+    </div>`;
+  }).join("");
+  const cats = Object.entries(catCount).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const maxCat = cats.length ? cats[0][1] : 1;
+  const catRows = cats.map(([c, n]) => {
+    const w = Math.max(2, Math.round(n / maxCat * 100));
+    return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px">
+      <span style="min-width:140px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${K.esc(c)}</span>
+      <div style="flex:1;background:var(--surface2,#111);border-radius:2px;height:8px;min-width:60px;max-width:200px"><div style="height:100%;width:${w}%;background:var(--accent,#c8e65a);border-radius:2px"></div></div>
+      <span style="color:var(--muted,#888);min-width:20px;text-align:right">${n}</span>
+    </div>`;
+  }).join("");
+  $("analyticsContent").innerHTML =
+    `<div class="upd-label" style="margin-bottom:6px">Per module (${mods.length})</div>` +
+    `<div style="margin-bottom:14px">${modRows || '<div class="empty">no data</div>'}</div>` +
+    (cats.length ? `<div class="upd-label" style="margin-bottom:6px">Top screening categories</div><div>${catRows}</div>` : "");
 }
 
 function renderRecentActivity(recent, showAll) {
@@ -294,7 +383,7 @@ function renderRecentActivity(recent, showAll) {
   const hasMore = !showAll && recent.length > CAP;
   const vc = s => (s === "approved" || s === "played") ? "on" : (s === "rejected" || s === "blocked") ? "bad" : "warn";
   const autoBadge = `<span class="pill" style="background:var(--accent,#7c3aed);color:#fff;font-size:10px;letter-spacing:.04em;flex-shrink:0">AUTO</span>`;
-  el.innerHTML = activitySparkline(recent) + `<div class="upd-label" style="margin-top:4px;margin-bottom:6px">Decision history (${recent.length})</div>` +
+  el.innerHTML = activityHeatmap(recent) + `<div class="upd-label" style="margin-top:4px;margin-bottom:6px">Decision history (${recent.length})</div>` +
     items.map(u => `<div class="row" data-u="${K.esc(u.id)}" style="padding:5px 8px;gap:7px">
       <span class="chev">▶</span>
       <span class="pill acc" style="flex-shrink:0">${K.esc(u._mod)}</span>
@@ -367,7 +456,7 @@ async function renderPendingInbox() {
   });
   all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   resolved.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  resolvedAll = resolved; renderRecentActivity(resolved);
+  resolvedAll = resolved; renderRecentActivity(resolved); renderAnalytics(resolved);
   requesterTrack = {};
   resolved.forEach(u => {
     const key = u.requester || u.user_address || u.by || ""; if (!key) return;

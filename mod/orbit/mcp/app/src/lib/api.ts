@@ -28,6 +28,7 @@ export type Server = {
   needs_payment?: boolean;
   probe: Probe;
   review_risk?: string | null;
+  review_capabilities?: string[];
   calls?: number;
   last_call?: number | null;
   uptime?: { ok: boolean; latency_ms: number | null }[];

@@ -16,11 +16,12 @@
   <div id="hdr"></div>
   <div class="grid">
     <div class="card wide">
-      <h2>Loop agents <span class="sp"></span><span id="caps" class="faint"></span><button id="fleetBtn" class="sm">⊞ fleet</button><button id="tlBtn" class="sm">◷ timeline</button><button id="newBtn" class="primary sm">+ new loop</button></h2>
+      <h2>Loop agents <span class="sp"></span><span id="caps" class="faint"></span><button id="fleetBtn" class="sm">⊞ fleet</button><button id="tlBtn" class="sm">◷ timeline</button><button id="diaryBtn" class="sm">&#x1F4DC; diary</button><button id="newBtn" class="primary sm">+ new loop</button></h2>
       <div id="stats" style="margin-bottom:4px"></div>
       <div id="search_row" style="display:none;margin-bottom:8px;margin-top:4px"><input id="search_input" placeholder="/ filter loops…" style="max-width:240px;font-size:12px" /></div>
       <div id="fleet" style="display:none;margin-bottom:8px"></div>
       <div id="timeline" style="display:none;margin-bottom:8px"></div>
+      <div id="diary" style="display:none;margin-bottom:8px"></div>
       <div id="form" class="card" style="display:none;margin-bottom:12px;background:var(--panel2)">
         <div class="form">
           <div class="chips full" id="recipe_chips" style="flex-wrap:wrap;margin-bottom:2px">
@@ -78,6 +79,7 @@ let statusFilter = "all";
 let textFilter = "";
 let timelineOpen = localStorage.getItem('loops_timeline_open') === '1';
 let fleetOpen = localStorage.getItem('loops_fleet_open') === '1';
+let diaryOpen = localStorage.getItem('loops_diary_open') === '1';
 let allMods = [];
 
 async function maybeRequestNotifPerm() {
@@ -175,13 +177,62 @@ function renderFleet() {
   container.innerHTML = `<div class="chips" style="flex-wrap:wrap;gap:4px">${chips}</div>`;
 }
 
+function renderDiary() {
+  const container = document.getElementById('diary');
+  if (!container) return;
+  const btn = document.getElementById('diaryBtn');
+  if (btn) { btn.style.borderColor = diaryOpen ? 'var(--accent)' : ''; btn.style.color = diaryOpen ? 'var(--accent)' : ''; }
+  container.style.display = diaryOpen ? '' : 'none';
+  if (!diaryOpen || !last) return;
+
+  const now = Date.now() / 1000 + clockOff;
+  const WINDOW_48H = 48 * 3600;
+  const MAX_ENTRIES = 40;
+  const entries = [];
+
+  for (const l of (last.loops || [])) {
+    const iterMap = {};
+    for (const e of (l.log || [])) {
+      const k = e.iter ?? 0;
+      if (!iterMap[k]) iterMap[k] = { hasCmd: false, passed: false };
+      if (e.kind === 'cmd') { iterMap[k].hasCmd = true; iterMap[k].passed = e.code === 0; }
+    }
+    for (const e of (l.log || [])) {
+      if (e.kind !== 'agent' || !e.ts || !e.out) continue;
+      if (now - e.ts > WINDOW_48H) continue;
+      const lines = e.out.split('\n');
+      const meaningful = lines.filter(ln => { const t = ln.trim(); return t.length > 0 && t.length < 110 && !/^[-=]{3,}$/.test(t); });
+      if (!meaningful.length) continue;
+      const sentence = meaningful[meaningful.length - 1].trim();
+      const iter = e.iter ?? 0;
+      const im = iterMap[iter] || { hasCmd: false, passed: false };
+      const dot = im.hasCmd ? (im.passed ? 'var(--green)' : 'var(--red)') : 'var(--accent)';
+      entries.push({ ts: e.ts, label: l.name || l.module || l.id || '', iter, dot, sentence });
+    }
+  }
+
+  if (!entries.length) { container.innerHTML = '<div style="padding:4px 0;font-size:11px;color:var(--faint)">no agent output yet</div>'; return; }
+  entries.sort((a, b) => b.ts - a.ts);
+  const top = entries.slice(0, MAX_ENTRIES);
+  container.innerHTML = '<div>' + top.map(en =>
+    `<div style="display:flex;align-items:baseline;gap:6px;padding:2px 0;font-size:11px;line-height:1.4;border-top:.5px solid var(--line)">` +
+    `<span class="chip" style="flex-shrink:0;font-size:10px;opacity:.7">${K.esc(K.ago(en.ts))}</span>` +
+    `<span style="flex-shrink:0;font-family:monospace;color:var(--accent)">${K.esc(en.label)}</span>` +
+    `<span style="flex-shrink:0;color:var(--faint)">#${en.iter}</span>` +
+    `<span style="flex-shrink:0;width:7px;height:7px;border-radius:50%;background:${en.dot};display:inline-block;align-self:center"></span>` +
+    `<span style="font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${K.esc(en.sentence)}</span>` +
+    `</div>`
+  ).join('') + '</div>';
+}
+
 function render() {
   const d = last;
   const list = document.getElementById("list");
   if (!d) return;
-  if (d.error) { list.innerHTML = `<div class="notice bad">${K.esc(d.error)}</div>`; renderTimeline(); renderFleet(); return; }
+  if (d.error) { list.innerHTML = `<div class="notice bad">${K.esc(d.error)}</div>`; renderTimeline(); renderFleet(); renderDiary(); return; }
   renderTimeline();
   renderFleet();
+  renderDiary();
   const loops = d.loops || [];
   const running = loops.filter((l) => l.status === "running").length;
   K.setState(K.pill(running > 0, `${running} running`, "idle"));
@@ -278,7 +329,7 @@ function render() {
         <div class="t">${K.esc(l.name)} <span class="faint mono">· ${K.esc(where)}</span></div>
         <div class="s mono">${l.cmd ? "$ " + K.esc(l.cmd) : ""}${l.goal ? ` → ${K.esc(l.goal)}` : ""}</div>
         <div class="s">iter ${l.iter}/${l.max_iters} · every ${K.dur(l.every_secs)}${l.until_pass ? " · until pass" : ""}${l.budget_usd != null ? ` · cap $${parseFloat(l.budget_usd).toFixed(2)}` : ""}${l.status === "running" && l.next_at ? ` · next <span class="cd" data-ts="${l.next_at}">${fmtCd(l.next_at - (Date.now() / 1000 + clockOff))}</span>` : ""}${l.note ? ` · ${K.esc(l.note)}` : ""}${(() => { const t = (l.log || []).filter(e => e.kind === "agent" && e.cost_usd).reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); return t > 0 ? ` · $${t.toFixed(2)} total` : ""; })()} · updated ${K.ago(l.updated_at)}</div>
-        ${(() => { if (!l.iter) return ""; const log = l.log || []; const cmdEvs = log.filter(e => e.kind === "cmd"); const passedCnt = cmdEvs.filter(e => e.code === 0).length; const passRate = cmdEvs.length ? `${passedCnt}/${cmdEvs.length} passed` : null; const agentEvs = log.filter(e => e.kind === "agent" && e.cost_usd); const totalCost = agentEvs.reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); const avgCost = agentEvs.length ? `$${(totalCost / agentEvs.length).toFixed(2)} avg/iter` : null; let trendHtml = ""; if (l.iter >= 2 && cmdEvs.length >= 2) { const half = Math.floor(l.iter / 2); const firstHalf = cmdEvs.filter(e => e.iter <= half); const secondHalf = cmdEvs.filter(e => e.iter > half); if (firstHalf.length && secondHalf.length) { const r1 = firstHalf.filter(e => e.code === 0).length / firstHalf.length; const r2 = secondHalf.filter(e => e.code === 0).length / secondHalf.length; if (r2 > r1) trendHtml = `<span style="color:var(--green)">↑ improving</span>`; else if (r2 < r1) trendHtml = `<span style="color:var(--red)">↓ regressing</span>`; } } const parts = [passRate, avgCost, trendHtml].filter(Boolean); if (!parts.length) return ""; return `<div class="s faint">${parts.join(" · ")}</div>`; })()}
+        ${(() => { if (!l.iter) return ""; const log = l.log || []; const cmdEvs = log.filter(e => e.kind === "cmd"); const passedCnt = cmdEvs.filter(e => e.code === 0).length; const passRate = cmdEvs.length ? `${passedCnt}/${cmdEvs.length} passed` : null; const agentEvs = log.filter(e => e.kind === "agent" && e.cost_usd); const totalCost = agentEvs.reduce((acc, e) => acc + parseFloat(e.cost_usd), 0); const avgCost = agentEvs.length ? `$${(totalCost / agentEvs.length).toFixed(2)} avg/iter` : null; let trendHtml = ""; if (l.iter >= 2 && cmdEvs.length >= 2) { const half = Math.floor(l.iter / 2); const firstHalf = cmdEvs.filter(e => e.iter <= half); const secondHalf = cmdEvs.filter(e => e.iter > half); if (firstHalf.length && secondHalf.length) { const r1 = firstHalf.filter(e => e.code === 0).length / firstHalf.length; const r2 = secondHalf.filter(e => e.code === 0).length / secondHalf.length; if (r2 > r1) trendHtml = `<span style="color:var(--green)">↑ improving</span>`; else if (r2 < r1) trendHtml = `<span style="color:var(--red)">↓ regressing</span>`; } } const ds = diffState[l.id]; const statsBadge = ds?.stats ? `<span class="faint mono">+${ds.stats.added} −${ds.stats.removed} · ${ds.stats.files} files</span>` : null; const parts = [passRate, avgCost, trendHtml, statsBadge].filter(Boolean); if (!parts.length) return ""; return `<div class="s faint">${parts.join(" · ")}</div>`; })()}
         ${(() => { const agentEvs = (l.log || []).filter(e => e.kind === "agent" && e.out); if (!agentEvs.length) return ""; const lines = agentEvs[agentEvs.length - 1].out.split("\n"); const q = lines.filter(ln => { const t = ln.trim(); return t.length > 0 && t.length < 110 && !/^[-=]{3,}$/.test(t); }); if (!q.length) return ""; return `<div class="s faint" style="font-style:italic">"${K.esc(q[q.length - 1].trim())}"</div>`; })()}
         <div class="meter" style="margin-top:6px;display:flex;gap:2px;align-items:flex-end;height:40px">${(() => { const maxIterCost = Math.max(...Object.values(iterMap).map(v => v.cost), 0.001); return Array.from({length: l.max_iters}, (_, i) => { const it = iterMap[i + 1]; const c = !it ? "var(--line)" : it.hasCmd ? (it.passed ? "var(--green)" : "var(--red)") : "var(--accent)"; const h = Math.max(22, Math.round((it?.cost || 0) / maxIterCost * 100)); return `<span style="flex:1;height:${h}%;background:${c};border-radius:3px"></span>`; }).join(""); })()}</div>
       </div>
@@ -290,7 +341,7 @@ function render() {
         ${l.status !== "running" && (l.log || []).some(e => e.kind === "cmd" && e.code !== 0) ? `<button class="sm" data-a="fixfail">→ fix</button>` : ""}
         <button class="sm" data-a="copylink" title="copy link">⎘</button>
         ${l.status !== "running" && l.iter > 1 && open.has(l.id) && replayState[l.id] === undefined ? `<button class="sm" data-a="replay">▶ replay</button>` : ""}
-        ${l.status !== "running" && l.module && open.has(l.id) ? `<button class="sm" data-a="diff">${diffState[l.id] && diffState[l.id] !== 'loading' ? 'hide diff' : '📋 diff'}</button>` : ""}
+        ${l.module && open.has(l.id) ? `<button class="sm" data-a="diff">${diffState[l.id] && diffState[l.id] !== 'loading' && l.status !== 'running' ? 'hide diff' : l.status === 'running' ? '↺ live diff' : '📋 diff'}</button>` : ""}
         <button class="sm" data-a="clone">clone</button>
         <button class="sm danger" data-a="del">delete</button>
       </div>
@@ -343,6 +394,24 @@ async function load() {
           new Notification(title, { body: `Done after ${l.iter}/${l.max_iters} iters · $${cost.toFixed(2)}` });
         }
       }
+    }
+  }
+  for (const l of (last.loops || [])) {
+    const prev = prevStatuses[l.id];
+    if (prev !== "running") continue;
+    if ((l.status === "done" || l.status === "stopped" || l.status === "error") && l.module && !diffState[l.id]) {
+      const since = l.log?.[0]?.ts || 0;
+      fetch(`/api/loops/diff?module=${encodeURIComponent(l.module)}&since=${encodeURIComponent(since)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data) return;
+          const lines = (data.diff || '').split('\n');
+          const added = lines.filter(ln => ln.startsWith('+') && !ln.startsWith('+++')).length;
+          const removed = lines.filter(ln => ln.startsWith('-') && !ln.startsWith('---')).length;
+          const files = ((data.diff || '').match(/^diff --git /mg) || []).length;
+          diffState[l.id] = { ...data, stats: { added, removed, files } };
+          render();
+        });
     }
   }
   if (!cdTimer) cdTimer = setInterval(tickCd, 1000);
@@ -558,6 +627,7 @@ function openForm(mod) { form.style.display = ""; if (mod) { modEl.dataset.want 
 document.getElementById("fleetBtn").onclick = () => { fleetOpen = !fleetOpen; localStorage.setItem('loops_fleet_open', fleetOpen ? '1' : '0'); renderFleet(); };
 document.getElementById("fleet").addEventListener("click", e => { const chip = e.target.closest("[data-fleet-mod]"); if (!chip) return; openForm(chip.dataset.fleetMod); });
 document.getElementById("tlBtn").onclick = () => { timelineOpen = !timelineOpen; localStorage.setItem('loops_timeline_open', timelineOpen ? '1' : '0'); renderTimeline(); };
+document.getElementById("diaryBtn").onclick = () => { diaryOpen = !diaryOpen; localStorage.setItem('loops_diary_open', diaryOpen ? '1' : '0'); renderDiary(); };
 document.getElementById("newBtn").onclick = () => { form.style.display === "none" ? openForm() : (form.style.display = "none"); };
 document.getElementById("cancelBtn").onclick = () => { form.style.display = "none"; editingId = null; syncBtn(); };
 createBtn.onclick = async () => {

@@ -437,6 +437,8 @@ export default function Home() {
   // inline follow-up composer at thread bottom
   const [followUpQuery, setFollowUpQuery] = useState('')
   const followUpRef = useRef<HTMLTextAreaElement>(null)
+  const [recording, setRecording] = useState(false)
+  const recRef = useRef<any>(null)
 
   // agent state
   const [agentType, setAgentType] = useState<string>('default')
@@ -2002,6 +2004,34 @@ export default function Home() {
     abortRef.current?.abort()
   }
 
+  const toggleRecording = () => {
+    if (recording) {
+      recRef.current?.stop()
+      return
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) return
+    const rec = new SR()
+    rec.continuous = false
+    rec.interimResults = true
+    rec.onresult = (e: any) => {
+      const t = Array.from(e.results as any[]).map((r: any) => r[0].transcript).join('')
+      setQuery(t)
+    }
+    rec.onend = () => {
+      setRecording(false)
+      recRef.current = null
+      setTimeout(() => inputRef.current?.focus(), 0)
+    }
+    rec.onerror = () => {
+      setRecording(false)
+      recRef.current = null
+    }
+    recRef.current = rec
+    rec.start()
+    setRecording(true)
+  }
+
   const run = async (opts?: { intoTaskId?: number; q?: string; agentTypeOverride?: string }) => {
     const effectiveAgentType = opts?.agentTypeOverride ?? agentType
     const effectiveAgentDef = opts?.agentTypeOverride
@@ -2341,6 +2371,26 @@ export default function Home() {
       fetch(`${API_URL}/conversations/${encodeURIComponent(task.uid)}?key=${encodeURIComponent(auth.token)}`,
         { method: 'DELETE', signal: AbortSignal.timeout(10000) }).catch(() => {})
     }
+  }
+
+  const branchAt = (task: TaskEntry, msgIndex: number) => {
+    const id = ++taskId.current
+    const turnNum = task.messages.slice(0, msgIndex + 1).filter(m => m.role === 'agent').length
+    const forked: TaskEntry = {
+      id,
+      uid: genUid(),
+      query: task.query,
+      agent_type: task.agent_type,
+      messages: task.messages.slice(0, msgIndex + 1),
+      status: 'done',
+      name: `↱ fork from turn ${turnNum}`,
+      startedAt: task.startedAt,
+      finishedAt: task.finishedAt,
+    }
+    setTasks(t => [forked, ...t])
+    setSelectedTask(id)
+    setActiveTab('output')
+    setTimeout(() => followUpRef.current?.focus(), 40)
   }
 
   const dismissTask = () => {
@@ -3641,6 +3691,26 @@ export default function Home() {
           <polyline points="21 15 16 10 5 21" />
         </svg>
       </button>
+      {typeof window !== 'undefined' && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) && (
+        <button onClick={toggleRecording} disabled={loading}
+          title={recording ? 'Stop recording' : 'Dictate — speak, transcript lands here'}
+          className={`w-8 h-8 shrink-0 mb-0.5 flex items-center justify-center rounded-lg border transition ${
+            recording
+              ? 'border-red-500/50 text-red-400 bg-red-500/10'
+              : 'border-white/[0.08] text-gray-600 hover:text-emerald-300 hover:border-emerald-500/30 disabled:opacity-40'
+          }`}>
+          {recording ? (
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="2" width="6" height="11" rx="3" />
+              <path d="M5 10a7 7 0 0 0 14 0" />
+              <line x1="12" y1="19" x2="12" y2="22" />
+              <line x1="8" y1="22" x2="16" y2="22" />
+            </svg>
+          )}
+        </button>
+      )}
       <textarea
         ref={inputRef}
         value={query}
@@ -3652,7 +3722,7 @@ export default function Home() {
         placeholder={`Ask ${promptSel ? promptSel.name : (currentAgentDef?.label || 'agent')}…`}
         rows={1}
         className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1.5 leading-relaxed min-w-0 overflow-y-auto"
-        disabled={loading}
+        disabled={loading || recording}
       />
       <button onClick={togglePromptFloat}
         title={promptFloat ? 'Dock the prompt back to the bottom' : 'Pop the prompt out — drag it anywhere, resize it'}
@@ -4276,15 +4346,28 @@ export default function Home() {
                       <span className="text-[10px] text-emerald-400/60 font-mono truncate max-w-[16rem]" title={`sent to ${agentTag}`}>→ {agentTag}</span>
                     )}
                     {msg.role === 'agent' && !msg.live && msg.text && (
-                      <button
-                        onClick={() => copy(msg.text)}
-                        title="Copy message text"
-                        className="ml-auto opacity-0 group-hover:opacity-100 transition text-gray-600 hover:text-gray-300"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                        </svg>
-                      </button>
+                      <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                        <button
+                          onClick={() => copy(msg.text)}
+                          title="Copy message text"
+                          className="text-gray-600 hover:text-gray-300 transition"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                        {currentTask && (
+                          <button
+                            onClick={() => branchAt(currentTask, i)}
+                            title="Branch conversation from here"
+                            className="text-gray-600 hover:text-gray-300 transition"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}

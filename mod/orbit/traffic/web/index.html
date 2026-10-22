@@ -692,28 +692,94 @@ function renderHeatmap(data) {
   document.getElementById('heatmap-sub').textContent =
     'Hour of day × day of week — distinct people (' + data.range + ')';
 
-  // replace svg but keep the tip overlay
-  wrap.querySelector('svg') && wrap.querySelector('svg').remove();
+  // remove previous SVGs but keep the tip overlay
+  wrap.querySelectorAll('svg').forEach(s => s.remove());
+  wrap.style.display = 'flex';
+  wrap.style.flexWrap = 'wrap';
+  wrap.style.gap = '16px';
+  wrap.style.alignItems = 'flex-start';
+
   const tmp = document.createElement('div');
   tmp.innerHTML = buildHeatmapSvg(data, 26, 22, true);
-  wrap.insertBefore(tmp.firstChild, tipEl);
+  const gridSvg = tmp.firstChild;
+  wrap.insertBefore(gridSvg, tipEl);
 
-  wrap.querySelector('svg').addEventListener('mousemove', ev => {
+  gridSvg.addEventListener('mousemove', ev => {
     const rect = ev.target;
     if (rect.tagName !== 'rect') { tipEl.style.display = 'none'; return; }
     const day = rect.dataset.day, hr = rect.dataset.hr, val = rect.dataset.val;
     const hrN = parseInt(hr, 10);
-    const hrLabel = `${hrN}:00–${hrN + 1}:00`;
-    tipEl.textContent = `${day} ${hrLabel}: ${val} ${val === '1' ? 'person' : 'people'}`;
-    const svgEl = wrap.querySelector('svg');
-    const sr = svgEl.getBoundingClientRect();
+    tipEl.textContent = `${day} ${hrN}:00–${hrN + 1}:00: ${val} ${val === '1' ? 'person' : 'people'}`;
     const wr = wrap.getBoundingClientRect();
-    const cx = ev.clientX - wr.left, cy = ev.clientY - wr.top;
     tipEl.style.display = 'block';
-    tipEl.style.left = (cx + 10) + 'px';
-    tipEl.style.top = (cy - 28) + 'px';
+    tipEl.style.left = (ev.clientX - wr.left + 10) + 'px';
+    tipEl.style.top = (ev.clientY - wr.top - 28) + 'px';
   });
-  wrap.querySelector('svg').addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
+  gridSvg.addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
+
+  // Daily rhythm radial clock — 24 bars, hour 0 at 12 o'clock, clockwise
+  const hourlyTotals = Array.from({ length: 24 }, (_, h) =>
+    data.grid.reduce((sum, row) => sum + row[h], 0));
+  const maxTotal = Math.max(1, ...hourlyTotals);
+  const CX = 105, CY = 105, SIZE = 210, innerR = 35, outerMaxR = 85;
+  let barsSvg = '';
+  for (let h = 0; h < 24; h++) {
+    const val = hourlyTotals[h];
+    const frac = val / maxTotal;
+    const barR = innerR + Math.max(1, (outerMaxR - innerR) * frac);
+    const brF = barR.toFixed(2);
+    const op = (0.1 + 0.9 * frac).toFixed(3);
+    const mid = (h * 15 - 90) * Math.PI / 180;
+    const sa = mid - 7.5 * Math.PI / 180;
+    const ea = mid + 7.5 * Math.PI / 180;
+    const x1 = (CX + innerR * Math.cos(sa)).toFixed(2);
+    const y1 = (CY + innerR * Math.sin(sa)).toFixed(2);
+    const x2 = (CX + innerR * Math.cos(ea)).toFixed(2);
+    const y2 = (CY + innerR * Math.sin(ea)).toFixed(2);
+    const x3 = (CX + barR * Math.cos(ea)).toFixed(2);
+    const y3 = (CY + barR * Math.sin(ea)).toFixed(2);
+    const x4 = (CX + barR * Math.cos(sa)).toFixed(2);
+    const y4 = (CY + barR * Math.sin(sa)).toFixed(2);
+    barsSvg += `<path d="M${x1},${y1} A${innerR},${innerR} 0 0,1 ${x2},${y2} L${x3},${y3} A${brF},${brF} 0 0,0 ${x4},${y4} Z"`
+             + ` fill="var(--accent)" opacity="${op}" data-h="${h}" data-val="${val}" />`;
+  }
+  // "now" hand pointing to current local hour
+  const nowH = new Date().getHours();
+  const nowAngle = (nowH * 15 - 90) * Math.PI / 180;
+  const hx1 = (CX + (innerR - 4) * Math.cos(nowAngle)).toFixed(2);
+  const hy1 = (CY + (innerR - 4) * Math.sin(nowAngle)).toFixed(2);
+  const hx2 = (CX + (outerMaxR + 4) * Math.cos(nowAngle)).toFixed(2);
+  const hy2 = (CY + (outerMaxR + 4) * Math.sin(nowAngle)).toFixed(2);
+  const handSvg = `<line x1="${hx1}" y1="${hy1}" x2="${hx2}" y2="${hy2}" stroke="white" stroke-width="1.5" opacity="0.7" stroke-linecap="round" pointer-events="none"/>`;
+  // Cardinal labels: 0, 6, 12, 18
+  const labelR = outerMaxR + 13;
+  let cardinalSvg = '';
+  [[0, -90], [6, 0], [12, 90], [18, 180]].forEach(([lh, deg]) => {
+    const rad = deg * Math.PI / 180;
+    cardinalSvg += `<text x="${(CX + labelR * Math.cos(rad)).toFixed(1)}" y="${(CY + labelR * Math.sin(rad)).toFixed(1)}" dy="4" text-anchor="middle" fill="var(--text-muted)" font-size="9" font-family="ui-monospace,monospace,sans-serif">${lh}</text>`;
+  });
+  const clockSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  clockSvg.setAttribute('width', SIZE);
+  clockSvg.setAttribute('height', SIZE);
+  clockSvg.setAttribute('viewBox', `0 0 ${SIZE} ${SIZE}`);
+  clockSvg.style.cssText = 'display:block;flex-shrink:0;align-self:flex-start';
+  clockSvg.innerHTML = barsSvg
+    + `<circle cx="${CX}" cy="${CY}" r="${innerR}" fill="none" stroke="var(--line)" stroke-width="1" opacity="0.5" pointer-events="none"/>`
+    + handSvg + cardinalSvg;
+  wrap.insertBefore(clockSvg, tipEl);
+
+  clockSvg.addEventListener('mousemove', ev => {
+    const t = ev.target;
+    if (t.tagName !== 'path' || !t.hasAttribute('data-h')) { tipEl.style.display = 'none'; return; }
+    const h = parseInt(t.getAttribute('data-h'), 10);
+    const val = t.getAttribute('data-val');
+    tipEl.textContent = `${h}:00–${h + 1}:00: ${val} ${val === '1' ? 'person' : 'people'}`;
+    const wr = wrap.getBoundingClientRect();
+    tipEl.style.display = 'block';
+    tipEl.style.left = (ev.clientX - wr.left + 10) + 'px';
+    tipEl.style.top = (ev.clientY - wr.top - 28) + 'px';
+  });
+  clockSvg.addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
 }
 
 function renderCohorts(data) {
@@ -796,7 +862,7 @@ function renderPairs(data) {
     const cpy = (pa.y + pb.y) / 2 * 0.35 + CY * 0.65;
     const sw = (1.5 + (p.users / maxUsers) * 6.5).toFixed(1);
     const dStr = `M${pa.x.toFixed(1)},${pa.y.toFixed(1)} Q${cpx.toFixed(1)},${cpy.toFixed(1)} ${pb.x.toFixed(1)},${pb.y.toFixed(1)}`;
-    chordsSvg += `<path d="${dStr}" fill="none" stroke="${cssColor(a)}" stroke-width="${sw}" opacity="0.7" stroke-linecap="round" />`;
+    chordsSvg += `<path class="chord" data-a="${esc(a)}" data-b="${esc(b)}" d="${dStr}" fill="none" stroke="${cssColor(a)}" stroke-width="${sw}" opacity="0.7" stroke-linecap="round" />`;
     hitsSvg += `<path d="${dStr}" fill="none" stroke="transparent" stroke-width="12" class="chord-hit" data-idx="${idx}" />`;
   });
 
@@ -813,7 +879,7 @@ function renderPairs(data) {
     else if (cos < -0.3) { anchor = 'end'; dy = 4; }
     else if (sin > 0) { anchor = 'middle'; dy = 12; }
     else { anchor = 'middle'; dy = -3; }
-    nodesSvg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" fill="${cssColor(app)}" />`;
+    nodesSvg += `<circle class="pair-node" data-app="${esc(app)}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" fill="${cssColor(app)}" />`;
     nodesSvg += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" dy="${dy}" text-anchor="${anchor}" fill="var(--text-secondary)" font-size="11" font-family="ui-sans-serif,system-ui,sans-serif">${esc(app)}</text>`;
   });
 
@@ -840,6 +906,27 @@ function renderPairs(data) {
       tipEl.style.top = (ev.clientY - wr.top - 28) + 'px';
     });
     el.addEventListener('mouseleave', () => { tipEl.style.display = 'none'; });
+  });
+
+  body.querySelectorAll('.pair-node').forEach(nodeEl => {
+    const app = nodeEl.dataset.app;
+    nodeEl.addEventListener('mouseenter', ev => {
+      body.querySelectorAll('.chord').forEach(ch => {
+        ch.setAttribute('opacity', (ch.dataset.a === app || ch.dataset.b === app) ? '1.0' : '0.07');
+      });
+      nodeEl.setAttribute('r', '8');
+      const count = data.pairs.filter(p => p.apps.includes(app)).length;
+      tipEl.textContent = `${app} — co-visited with ${count} app${count !== 1 ? 's' : ''}`;
+      const wr = body.querySelector('div').getBoundingClientRect();
+      tipEl.style.display = 'block';
+      tipEl.style.left = (ev.clientX - wr.left + 10) + 'px';
+      tipEl.style.top = (ev.clientY - wr.top - 28) + 'px';
+    });
+    nodeEl.addEventListener('mouseleave', () => {
+      body.querySelectorAll('.chord').forEach(ch => ch.setAttribute('opacity', '0.7'));
+      nodeEl.setAttribute('r', '5');
+      tipEl.style.display = 'none';
+    });
   });
 }
 

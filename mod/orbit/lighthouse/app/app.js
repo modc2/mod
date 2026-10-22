@@ -583,9 +583,11 @@ function objectCard(o, source) {
   }
   const name = o.key || 'unnamed';
   const ext = getExt(o);
-  // Images show themselves; the gateway is public, so the thumb costs nothing to sign.
+  // Images show themselves; archived HTML shows its og:image if stored.
   const face = IMAGE.test(ext)
     ? `<span class="ext thumb"><img src="${esc(url)}" alt="" loading="lazy" onerror="this.remove()">${esc(ext.slice(0, 4).toUpperCase())}</span>`
+    : o.og_image
+    ? `<span class="ext thumb"><img src="${esc(o.og_image)}" alt="" loading="lazy" onerror="this.remove()">${esc(ext.slice(0, 4).toUpperCase())}</span>`
     : `<span class="ext">${esc(ext.slice(0, 4).toUpperCase())}</span>`;
   return `<div class="obj">
     ${face}
@@ -1074,6 +1076,21 @@ function init() {
       } catch (e) {
         urlInfo = null;
         preview.innerHTML = `<div class="line err"><span class="k">error</span><span class="v">${esc(e.message)}</span></div>`;
+      }
+      const dup = shelf.objects.find((o) => o.source_url === val);
+      if (dup) {
+        let fname = dup.key || '';
+        if (!fname) { try { fname = new URL(val).hostname; } catch { fname = val; } }
+        const shortCid = dup.cid.slice(0, 12) + (dup.cid.length > 12 ? '…' : '');
+        const noticeEl = document.createElement('div');
+        noticeEl.className = 'line';
+        noticeEl.innerHTML = `<span class="k" style="color:var(--warn)">already archived</span><span class="v">${esc(fname)} · ${esc(shortCid)} · ${esc(relTime(dup.timestamp))}</span>`;
+        const peekBtn = document.createElement('button');
+        peekBtn.textContent = 'peek';
+        peekBtn.style.cssText = 'margin-left:6px;font-size:0.85em;padding:1px 6px';
+        peekBtn.onclick = () => { showPane('pane-lookup'); $('lookup-cid').value = dup.cid; lookupDo(); };
+        noticeEl.querySelector('.v').appendChild(peekBtn);
+        preview.appendChild(noticeEl);
       }
       showPrice();
     }, 600);

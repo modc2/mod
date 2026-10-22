@@ -496,6 +496,28 @@ THEME_CSS = FONT_CSS + SPRITE_CSS + r"""
   .tsw.on{border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
   .sw{width:26px;height:11px;flex:none;border:2px solid var(--text);image-rendering:pixelated}
   .tsw.on .sw{border-color:var(--on-accent)}
+
+  /* ── toasts ──
+     This box has no emoji font and the house rule is no native alert() — a
+     browser dialog blows the whole 8-bit illusion and sits outside the theme.
+     A failed install/build drops a pixel panel into the corner instead: it
+     slides up on its own shadow, wears the theme like everything else, and
+     dismisses itself. bad=danger, ok=green, plain=accent. */
+  #toasts{position:fixed;right:14px;bottom:14px;z-index:1000;display:flex;
+    flex-direction:column;gap:8px;max-width:min(360px,calc(100vw - 28px));pointer-events:none}
+  .toast{pointer-events:auto;cursor:pointer;display:flex;gap:9px;align-items:flex-start;
+    font:14px/1.4 var(--f-bd);color:var(--text);background:var(--panel);
+    border:var(--bw) solid var(--accent);padding:10px 12px;box-shadow:5px 5px 0 var(--line2);
+    word-break:break-word;animation:toastin .16s steps(3) both}
+  .toast::before{content:"";flex:none;width:10px;height:10px;margin-top:2px;background:var(--accent)}
+  .toast.bad{border-color:var(--danger);box-shadow:5px 5px 0 var(--danger)}
+  .toast.bad::before{background:var(--danger)}
+  .toast.ok{border-color:var(--green);box-shadow:5px 5px 0 var(--green)}
+  .toast.ok::before{background:var(--green)}
+  .toast .tx b{color:var(--accent2)}
+  .toast.out{animation:toastout .16s steps(3) both}
+  @keyframes toastin{from{transform:translate(0,14px);opacity:0}to{transform:none;opacity:1}}
+  @keyframes toastout{from{transform:none;opacity:1}to{transform:translate(14px,0);opacity:0}}
 """
 
 # The picker itself. Lives in the head of both pages: it applies the saved
@@ -574,6 +596,24 @@ document.addEventListener('keydown',e=>{
 });
 document.addEventListener('DOMContentLoaded',()=>applyTheme(
   document.documentElement.getAttribute('data-theme')||'pliny'));
+
+// A pixel toast in place of alert(): this host has no emoji font and a native
+// dialog breaks the console. kind is '', 'bad' or 'ok'. Click to dismiss; it
+// also clears itself after a beat (longer for errors, which you want to read).
+function toast(msg, kind){
+  let host=document.getElementById('toasts');
+  if(!host){ host=document.createElement('div'); host.id='toasts'; document.body.appendChild(host); }
+  const t=document.createElement('div');
+  t.className='toast'+(kind?' '+kind:'');
+  t.innerHTML='<span class="tx">'+String(msg==null?'':msg)
+    .replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))+'</span>';
+  const kill=()=>{ if(t.dataset.gone) return; t.dataset.gone='1';
+    t.classList.add('out'); setTimeout(()=>t.remove(),180); };
+  t.addEventListener('click',kill);
+  host.appendChild(t);
+  setTimeout(kill, kind==='bad'?6000:3200);
+  return t;
+}
 """
 
 
@@ -699,7 +739,11 @@ INDEX_HTML = _skin(r"""<!doctype html>
   .card{display:flex;flex-direction:column;padding:0}
   .card:hover{border-color:var(--accent);box-shadow:7px 7px 0 var(--line2);transform:translate(-2px,-2px)}
   .card .hd{display:flex;align-items:center;gap:9px;padding:9px 10px;min-height:44px;
-    background:var(--accent);color:var(--on-accent);border-bottom:var(--bw) solid var(--line)}
+    background:var(--accent);color:var(--on-accent);border-bottom:var(--bw) solid var(--line);
+    /* a flat 2px bevel, no gradient: light on the top edge of the cartridge
+       label, dark on the bottom, the way a keycap or a NES label catches it */
+    box-shadow:inset 0 2px 0 color-mix(in srgb,var(--on-accent) 28%,transparent),
+               inset 0 -2px 0 color-mix(in srgb,#000 22%,transparent)}
   .card .hd a{flex:1;min-width:0;font:11px/1.4 var(--f-hd);text-decoration:none;word-break:break-word;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .card .hd a:hover{text-decoration:underline}
@@ -951,8 +995,8 @@ function render(){
         <div class="acts">
           ${r.run&&r.run_degraded?`<span class="ttag" style="color:var(--warn);border-color:var(--warn)" title="${esc(r.run_degraded_why||'')}">RUNS, BUT...</span>`:''}
           ${r.run?(r.run_defanged
-            ? `<a class="btn" href="${B}/plinyworld" target="_blank" rel="noopener" title="a live clipboard-hijack PoC - the defanged exhibit runs instead">RUN &gt;</a>`
-            : `<a class="btn" href="${B}/m/${encodeURIComponent(r.name)}#run" title="run it here, sandboxed">RUN &gt;</a>`):''}
+            ? `<a class="btn primary" href="${B}/plinyworld" target="_blank" rel="noopener" title="a live clipboard-hijack PoC - the defanged exhibit runs instead">RUN &gt;</a>`
+            : `<a class="btn primary" href="${B}/m/${encodeURIComponent(r.name)}#run" title="run it here, sandboxed">RUN &gt;</a>`):''}
           ${(!r.run&&r.build)?`<button class="btn" onclick="build('${esc(r.name)}',this)" title="${esc(r.build_note||'')} - this app ships as source; build it here and it becomes playable">BUILD &gt;</button>`:''}
           <a class="btn ghost" href="${B}/m/${encodeURIComponent(r.name)}">OPEN &gt;</a>
           ${r.installed?'':`<button class="btn ghost" onclick="install('${esc(r.name)}',this)">+ INSTALL</button>`}
@@ -991,7 +1035,7 @@ async function build(name, btn){
     throw new Error('still building after ten minutes - see GET /builds');
   }catch(e){
     label('BUILD FAILED',false);
-    alert('build failed: '+e.message);
+    toast('build failed: '+e.message,'bad');
   }
 }
 
@@ -1003,9 +1047,10 @@ async function install(name, btn){
     const r=REPOS.find(x=>x.name===name);
     if(r){ r.installed=true; r.cid=j.cid; r.files_stored=j.files_stored; }
     render();
+    toast(esc(name)+' archived · '+(j.files_stored||0)+' files in the store','ok');
   }catch(e){
     if(btn){ btn.classList.remove('cur'); btn.textContent='FAILED'; btn.disabled=false; }
-    alert('install failed: '+e.message);
+    toast('install failed: '+e.message,'bad');
   }
 }
 
@@ -1540,7 +1585,7 @@ async function install(){
   const b=document.getElementById('install');
   b.textContent='ARCHIVING'; b.classList.add('cur'); b.disabled=true;
   try{ const j=await mpost('/install'); if(j.error) throw new Error(j.error); b.classList.remove('cur'); boot(); }
-  catch(e){ b.classList.remove('cur'); b.textContent='FAILED'; b.disabled=false; alert(e.message); }
+  catch(e){ b.classList.remove('cur'); b.textContent='FAILED'; b.disabled=false; toast(e.message,'bad'); }
 }
 boot();
 </script>

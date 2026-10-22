@@ -1109,7 +1109,10 @@ ROUTES.user = async (seg, q) => {
       u.location ? el('span', { text: u.location }) : null,
       u.created_at ? el('span', { text: 'joined ' + new Date(u.created_at)
         .toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) }) : null,
-      el('a', { href: 'https://x.com/' + u.username, target: '_blank', rel: 'noopener', text: 'x.com' })));
+      el('a', { href: 'https://x.com/' + u.username, target: '_blank', rel: 'noopener', text: 'x.com' }),
+      el('a', { class: 'chip', href: '#/search?q=' + encodeURIComponent('from:@' + u.username), text: 'search' }),
+      el('a', { class: 'chip', href: '#/summary?feed=@' + u.username, text: 'summarize' }),
+      u.url ? el('a', { class: 'chip', href: u.entities?.url?.urls?.[0]?.expanded_url || u.url, target: '_blank', rel: 'noopener', text: u.entities?.url?.urls?.[0]?.display_url || u.url }) : null));
 
   const TABS = [['posts', 'Posts'], ['replies', 'Posts & replies'], ['mentions', 'Mentions'],
                 ['followers', 'Followers'], ['following', 'Following'], ['media', 'Media']];
@@ -1819,7 +1822,7 @@ ROUTES.accounts = async () => {
 
   // fire-and-append "What's new" section — mentions preview + home feed peek
   const mentionsSlot = me ? el('div') : null;
-  const homeSlot = st.reads ? el('div') : null;
+  const homeSlot = st.writes ? el('div') : null;
   const slots = [mentionsSlot, homeSlot].filter(Boolean);
   if (slots.length) $('#view').append(...slots);
 

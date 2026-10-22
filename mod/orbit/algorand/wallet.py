@@ -83,7 +83,8 @@ def wallet(op='status', mnemonic=None, address=None, label=None, network=None):
                 out['balance'] = {'network': a['network'], 'algo': a['balance_algo'],
                                   'spendable_algo': a['spendable_algo'],
                                   'min_balance_algo': a['min_balance_algo'],
-                                  'usd': a.get('usd')}
+                                  'usd': a.get('usd'),
+                                  'assets': a.get('assets', [])}
             except AlgoError as e:
                 out['balance'] = {'error': str(e)}
         return out

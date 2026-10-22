@@ -335,6 +335,7 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
         <label>VALIDATORS<select id="lvals"><option>3</option><option selected>4</option><option>8</option></select></label>
       </div>
       <div id="run-cost" style="font:12px var(--mono);color:var(--dim);margin:4px 0 2px;min-height:16px"></div>
+      <div id="run-meter" style="display:none;font:12px var(--mono);color:var(--acc2);margin:0 0 2px"></div>
       <button id="replay" title="replay the last recorded epoch">Replay last epoch</button>
       <button id="stepthrough" title="step through each event with privacy explanations">STEP THROUGH ▸</button>
       <button class="go" id="run">Run an anonymous epoch</button>
@@ -836,6 +837,15 @@ function logEv(e) {
 async function playEvent(e, fast) {
   logEv(e);
   const s = SETS;
+  if (e.kind === 'submit' || e.kind === 'score' || e.kind === 'claim') {
+    const ce = ((ECON || {}).chains || {})[e.chain || CHAIN];
+    if (ce && ce.actions && ce.actions[e.kind]) {
+      const K = ce.actions[e.kind], base = ce.ring || 4;
+      const a = atRing(ce.by_ring || [], e.ring, 'usd'), b = atRing(ce.by_ring || [], base, 'usd');
+      runMeterTotal += K.usd * (a && b ? a / b : e.ring / base);
+      const m = $('run-meter'); if (m && m.style.display !== 'none') m.textContent = `~$${runMeterTotal.toFixed(2)} spent`;
+    }
+  }
   switch (e.kind) {
     case 'devnet':
     case 'deploying':
@@ -906,7 +916,7 @@ async function playEvent(e, fast) {
 }
 
 /* ---------------- board (idle state) ---------------- */
-let busy = false, lastBoard = null;
+let busy = false, lastBoard = null, runMeterTotal = 0;
 function renderTally(b) {
   const box = $('tally');
   const ep = (b.epochs || [])[0];
@@ -1088,7 +1098,8 @@ function setBusy(on, label) {
   busy = on; $('run').disabled = on; $('replay').disabled = on; $('stepthrough').disabled = on;
   $('logstate').textContent = label || (on ? 'live' : 'idle');
   $('logstate').className = 'pill' + (on ? ' open' : '');
-  if (on) $('receipt').innerHTML = '';
+  if (on) { $('receipt').innerHTML = ''; runMeterTotal = 0; $('run-meter').style.display = ''; $('run-meter').textContent = '~$0.00 spent'; }
+  else $('run-meter').style.display = 'none';
 }
 async function run() {
   const r = await post('simulate', {miners: +$('lmin').value, validators: +$('lvals').value, chain: CHAIN});
@@ -1213,8 +1224,6 @@ function updateRunCost() {
   if (!el) return;
   const M = +$('lmin').value, V = +$('lvals').value;
   const chains = (ECON || {}).chains || {};
-  const e = chains[CHAIN];
-  if (!e || !e.actions) { el.textContent = ''; return; }
   function epochCost(chain, m, v) {
     const ce = chains[chain];
     if (!ce || !ce.actions) return null;
@@ -1227,17 +1236,33 @@ function updateRunCost() {
     const sub = rowUsd('submit', ringM), sco = rowUsd('score', ringV), clm = rowUsd('claim', ringM);
     return sub * m + sco * m * v + clm * m;
   }
-  const cost = epochCost(CHAIN, M, V);
-  if (cost == null) { el.textContent = ''; return; }
-  let txt = `~${usd(cost)} / epoch on ${CH[CHAIN].name}`;
-  const others = ORDER.filter(c => c !== CHAIN);
-  let cheapestChain = null, cheapestCost = cost;
-  for (const c of others) {
-    const oc = epochCost(c, M, V);
-    if (oc != null && oc < cheapestCost) { cheapestCost = oc; cheapestChain = c; }
+  const bitsColor = b => b >= 3 ? 'var(--teal2)' : b >= 1 ? 'var(--amber)' : 'var(--red)';
+  const chData = ORDER.map(c => {
+    const cost = epochCost(c, M, V);
+    const mBits = M > 0 ? Math.log2(Math.min(M, CH[c].cap)) : 0;
+    const vBits = V > 0 ? Math.log2(Math.min(V, CH[c].cap)) : 0;
+    return { c, name: CH[c].name, cost, mBits, vBits, hex: CHAIN_HEX[c] };
+  });
+  if (chData.every(d => d.cost == null)) { el.textContent = ''; return; }
+  let cheapest = null, cheapestCost = Infinity;
+  for (const d of chData) {
+    if (d.cost != null && d.cost < cheapestCost) { cheapestCost = d.cost; cheapest = d.c; }
   }
-  if (cheapestChain) txt += ` · cheapest on ${CH[cheapestChain].name}`;
-  el.textContent = txt;
+  const chips = chData.map(d => {
+    const isActive = d.c === CHAIN;
+    const border = isActive ? d.hex : 'var(--line2)';
+    const costStr = d.cost != null ? `~${usd(d.cost)}` : '—';
+    const cheapMark = d.c === cheapest ? ` <span style="color:var(--teal2)">&#10003;</span>` : '';
+    return `<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 5px;border:1px solid ${border};border-radius:4px;background:var(--panel);font:11px var(--mono);margin-right:3px">`
+      + `<span style="color:${d.hex}">${d.name}</span>`
+      + `<span style="color:var(--dim)">${costStr}/ep</span>`
+      + ` <span style="color:${bitsColor(d.mBits)}" title="miner anon">${d.mBits.toFixed(1)}b</span>`
+      + `<span style="color:var(--dim)">&#183;</span>`
+      + `<span style="color:${bitsColor(d.vBits)}" title="validator anon">${d.vBits.toFixed(1)}b</span>`
+      + cheapMark
+      + `</span>`;
+  }).join('');
+  el.innerHTML = chips;
 }
 $('lmin').onchange = updateRunCost;
 $('lvals').onchange = updateRunCost;
@@ -1735,6 +1760,7 @@ for (const id in FOPT) {
 }
 const FC_COLORS = {baseline: '#8aa3a6', batch: '#f59e0b', lazy: '#fbbf24', proof: '#a78bfa', committee: '#00ec97', private: '#5eead4'};
 const CHAIN_COLORS = {starknet: 'var(--sn)', near: 'var(--nr)', eth: 'var(--eth)', solana: 'var(--sol)'};
+const CHAIN_HEX = {starknet: '#ff875b', near: '#00ec97', eth: '#8ea2ff', solana: '#b57cff'};
 const fc_ylab = v => v === 0 ? '$0' : v >= 10000 ? '$' + Math.round(v / 1000) + 'k' : v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : v >= 100 ? '$' + Math.round(v) : v >= 1 ? '$' + v.toFixed(1) : usd(v);
 let _fcAbort = 0;
 let activeFcStrat = null;

@@ -399,7 +399,7 @@ def one_proof(proof_id: str, authorization: Optional[str] = Header(None)):
 
 @app.get('/proofs/{proof_id}/badge.svg')
 def proof_badge(proof_id: str):
-    """Shields.io-style SVG badge showing the proof's current status.
+    """SVG badge with one colored pip per verifier verdict.
 
     Read-only, no auth, public. Embed in a README as:
         [![verified by 0xprof](…/badge.svg)](…#market/{id})
@@ -409,42 +409,55 @@ def proof_badge(proof_id: str):
     except proofs.ProofError as e:
         raise HTTPException(404, str(e))
 
-    STATUS_COLORS = {
-        'verified':   '#34d399',
-        'invalid':    '#f87171',
-        'disputed':   '#fbbf24',
-        'claimed':    '#38bdf8',
-        'unverified': '#6a7184',
+    def _xe(s: str) -> str:
+        return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
+    PIP_COLORS = {
+        'valid':       '#34d399',
+        'invalid':     '#f87171',
+        'error':       '#fbbf24',
+        'unavailable': '#2a2f3d',
     }
-    status = record.get('status', 'unverified')
-    color = STATUS_COLORS.get(status, '#6a7184')
-    title_raw = (record.get('title') or proof_id)[:22]
-    # truncate with ellipsis if needed
-    title_label = (title_raw + '…') if len(record.get('title') or '') > 22 else title_raw
+
+    verdicts = record.get('verdicts') or []
+    pips = verdicts if verdicts else [{'method': 'none', 'status': 'unavailable'}]
 
     char_w = 6.5
     pad = 12
-    left_text = f'0xprof · {title_label}'
-    right_text = status
-    lw = max(int(len(left_text) * char_w + pad), 80)
-    rw = max(int(len(right_text) * char_w + pad), 52)
+    left_text = _xe('◈ 0xprof')
+    lw = max(int(len('◈ 0xprof') * char_w + pad), 80)
+
+    pip_r = 5
+    pip_spacing = 13  # 10px diameter + 3px gap
+    pip_pad = 6
+    rw = max(pip_pad * 2 + len(pips) * pip_spacing - 3, 30)
     total = lw + rw
-    ly = 14   # text baseline
+    ly = 14
     lx = lw // 2
-    rx = lw + rw // 2
+
+    circles = []
+    for i, v in enumerate(pips):
+        cx = lw + pip_pad + pip_r + i * pip_spacing
+        color = PIP_COLORS.get(v.get('status', 'unavailable'), '#2a2f3d')
+        method = _xe(str(v.get('method', '')))
+        vstatus = _xe(str(v.get('status', 'unavailable')))
+        circles.append(
+            f'<circle cx="{cx}" cy="10" r="{pip_r}" fill="{color}">'
+            f'<title>{method}: {vstatus}</title>'
+            f'</circle>'
+        )
 
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{total}" height="20">'
         f'<rect width="{lw}" height="20" fill="#1c202b"/>'
-        f'<rect x="{lw}" width="{rw}" height="20" fill="{color}"/>'
+        f'<rect x="{lw}" width="{rw}" height="20" fill="#12161f"/>'
         f'<text x="{lx}" y="{ly}" fill="#fff" font-family="Verdana,Arial,sans-serif"'
         f' font-size="11" text-anchor="middle">{left_text}</text>'
-        f'<text x="{rx}" y="{ly}" fill="#fff" font-family="Verdana,Arial,sans-serif"'
-        f' font-size="11" font-weight="bold" text-anchor="middle">{right_text}</text>'
+        f'{"".join(circles)}'
         f'</svg>'
     )
     return Response(content=svg, media_type='image/svg+xml',
-                    headers={'Cache-Control': 'max-age=300'})
+                    headers={'Cache-Control': 'max-age=60'})
 
 
 @app.post('/proofs/{proof_id}/verify/challenge')

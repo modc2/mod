@@ -969,6 +969,61 @@ async function openHostDrawer(h) {
   } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
 }
 
+async function openMcpDrawer(g) {
+  $('#drawer').classList.add('open');
+  const ds = $('#drawerstar'); if (ds) ds.style.display = 'none';
+  const dc = $('#drawercopy'); if (dc) dc.style.display = 'none';
+  $('#dbody').innerHTML = '<div class="dim">loading</div>';
+  try {
+    const hostname = new URL(g.server).hostname;
+    const r = await get('services', {host: hostname, limit: 50});
+    const svcs = r.items || [];
+    const priceRange = usd(g.min_price) + (g.max_price !== g.min_price ? ' – ' + usd(g.max_price) : '');
+    const getMcpText = m => {
+      if (m === 'auth') {
+        const slug = Object.keys(g.connect.json.mcpServers)[0];
+        const tok = PP && PP.session() ? PP.session().token : '<YOUR_SESSION_TOKEN>';
+        const noteSuffix = PP && PP.session() ? '' : '\n# sign in to pre-fill your token';
+        return `claude mcp add --transport http ${slug} ${g.server} --header "Authorization: Bearer ${tok}"${noteSuffix}`;
+      }
+      return m === 'cli' ? g.connect.claude : JSON.stringify(g.connect.json, null, 2);
+    };
+    $('#dbody').innerHTML = `
+      <h2>${g.icon ? `<img class="ic" src="${esc(g.icon)}" loading="lazy" onerror="this.remove()">` : ''}${esc(g.name)}</h2>
+      <div class="dim" style="margin-top:4px"><a href="${esc(g.server)}" target="_blank" rel="noopener">${esc(g.server)}</a></div>
+      <div style="margin-top:8px"><span style="font:700 13px var(--mono);color:var(--accent)">${priceRange}</span>
+        ${g.networks.slice(0, 6).map(n => `<span class="chip">${esc(n)}</span>`).join('')}</div>
+      <h3>TOOLS (${g.tools.length})</h3>
+      <div class="tools">${g.tools.map(t => `<div class="tool" data-url="${esc(t.url)}">
+        <span class="m ${mcls(t.method)}">${esc(t.method)}</span>${esc(t.description || t.url).slice(0, 160)} <span class="dim">${usd(t.price_usd)}</span></div>`).join('')}</div>
+      <h3>CONNECT</h3>
+      <div id="mcp-draw-conn" data-mode="cli" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+        <button class="quiet mode-btn on" data-m="cli">CLI</button><button class="quiet mode-btn" data-m="json">JSON config</button><button class="quiet mode-btn" data-m="auth">ready to use</button>
+        <code id="mcp-draw-code" style="flex:1;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:11px var(--mono);word-break:break-all">${esc(g.connect.claude)}</code>
+        <button class="quiet" id="mcp-draw-copy">copy</button></div>
+      ${svcs.length ? `<h3>SERVICES</h3><div class="tiles" id="mddtiles">${svcs.map(s => tile(s)).join('')}</div>` : ''}
+      <div style="margin-top:16px">
+        <button class="quiet" id="mdbrowse">Browse all ${r.total || svcs.length} service${(r.total || svcs.length) === 1 ? '' : 's'} &rarr;</button>
+      </div>`;
+    $('#dbody').querySelectorAll('.tool[data-url]').forEach(el => el.onclick = () => detail(el.dataset.url, {mcp: g}));
+    const connDiv = $('#mcp-draw-conn');
+    connDiv.querySelectorAll('.mode-btn').forEach(b => b.onclick = () => {
+      const m = b.dataset.m;
+      connDiv.dataset.mode = m;
+      connDiv.querySelectorAll('.mode-btn').forEach(x => x.classList.toggle('on', x.dataset.m === m));
+      $('#mcp-draw-code').textContent = getMcpText(m);
+    });
+    $('#mcp-draw-copy').onclick = async () => {
+      const m = connDiv.dataset.mode;
+      try { await navigator.clipboard.writeText(getMcpText(m)); $('#mcp-draw-copy').textContent = 'copied!'; }
+      catch { $('#mcp-draw-copy').textContent = 'select it'; }
+      setTimeout(() => { const btn = $('#mcp-draw-copy'); if (btn) btn.textContent = 'copy'; }, 1500);
+    };
+    if (svcs.length) wireTiles($('#mddtiles'));
+    $('#mdbrowse').onclick = () => { closeDrawer(); Object.assign(st, {host: hostname, q: '', offset: 0}); tab('services'); };
+  } catch (e) { $('#dbody').innerHTML = `<div class="dim">${esc(e.message)}</div>`; }
+}
+
 async function hosts() {
   const r = await get('hosts', {q: st.q, limit: 200});
   $('#view').innerHTML = `<form class="bar" id="hf"><input class="q" name="q" placeholder="filter providers" value="${esc(st.q)}"></form>
@@ -1030,6 +1085,23 @@ async function askAgent(q) {
           if (e.session) { ag.session = e.session; localStorage.setItem('x402.agent.session', e.session); }
           tl.innerHTML = e.picks.map(s => tile(s)).join(''); wireTiles(tl);
           if (!e.picks.length) tl.remove();
+          if (e.picks.length >= 2) {
+            const cmpBtn = document.createElement('button');
+            cmpBtn.className = 'quiet';
+            cmpBtn.style.marginTop = '8px';
+            cmpBtn.textContent = 'Compare all →';
+            cmpBtn.onclick = () => {
+              st.compare.clear();
+              tl.querySelectorAll('.tile[data-snap]').forEach(el => {
+                if (st.compare.size < 3) {
+                  try { const s = JSON.parse(el.dataset.snap); st.compare.set(s.url, s); } catch {}
+                }
+              });
+              tl.querySelectorAll('.cmp-tog').forEach(b => b.classList.toggle('on', st.compare.has(b.dataset.cmp)));
+              renderCompareBar();
+            };
+            tl.after(cmpBtn);
+          }
         } else if (e.type === 'error') {
           ans.className = 'ans'; ans.innerHTML = `<span style="color:var(--bad)">${esc(e.error)}</span>` +
             (e.login ? ` <a href="${esc(e.login)}" target="_blank">sign in</a>` : '');
@@ -1127,7 +1199,7 @@ async function mcpResults() {
   semNote(r);
   if (!r.items.length) { box.innerHTML = '<div class="empty">no MCP server does that yet</div>'; return; }
   box.innerHTML = r.items.map((g, gi) => `<div class="srv">
-    <div class="top">${g.icon ? `<img class="ic" src="${esc(g.icon)}" loading="lazy" onerror="this.remove()">` : ''}
+    <div class="top" data-g="${gi}" style="cursor:pointer">${g.icon ? `<img class="ic" src="${esc(g.icon)}" loading="lazy" onerror="this.remove()">` : ''}
       <span class="name">${esc(g.name)}</span><span class="score">${g.score.toFixed(2)}</span>
       <span class="dim">${usd(g.min_price)}${g.max_price !== g.min_price ? ' - ' + usd(g.max_price) : ''} a call</span>
       ${g.networks.slice(0, 4).map(n => `<span class="chip">${esc(n)}</span>`).join('')}
@@ -1141,6 +1213,7 @@ async function mcpResults() {
       <code class="conn-code">${esc(g.connect.claude)}</code><button class="quiet cp">copy</button></div>
   </div>`).join('');
   box.querySelectorAll('.tool').forEach(el => el.onclick = () => detail(r.items[+el.dataset.g].tools[+el.dataset.t].url, {mcp: r.items[+el.dataset.g]}));
+  box.querySelectorAll('.top[data-g]').forEach(el => el.onclick = e => { if (!e.target.closest('.tool')) openMcpDrawer(r.items[+el.dataset.g]); });
   box.querySelectorAll('.mode-btn').forEach(b => b.onclick = () => {
     const conn = b.closest('.conn');
     const gi = +conn.dataset.g;
