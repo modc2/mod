@@ -18,6 +18,8 @@ import {
   hasLocalKey,
   importLocalKey,
   loadLocalKey,
+  MIN_PASSWORD,
+  passwordLocalKey,
   localSign,
 } from "@/lib/localKey";
 import {
@@ -308,6 +310,7 @@ export default function Page() {
   const [infoFor, setInfoFor] = useState<string | null>(null);
   const [linkPhone, setLinkPhone] = useState<{ code: string; expires: number } | null>(null);
   const [showLocalKey, setShowLocalKey] = useState(false);
+  const [showNewKey, setShowNewKey] = useState(false);
   const [openPool, setOpenPool] = useState<PoolDetail | null>(null);
   const [termsDoc, setTermsDoc] = useState<TermsResponse | null>(null);
 
@@ -472,14 +475,19 @@ export default function Page() {
     }
   };
 
-  /** Sign in with a browser-held keypair — minted on first use. */
-  const signInLocal = async () => {
+  /** Sign in with a browser-held keypair. No key yet → ask: password or random. */
+  const signInLocal = async (how?: { password?: string; random?: boolean }) => {
     setError(null);
-    const fresh = !hasLocalKey();
-    setBusy(fresh ? "creating a local key…" : "signing in…");
+    const fresh = !!how || !hasLocalKey();
+    if (fresh && !how) {
+      setShowNewKey(true);
+      return;
+    }
+    setShowNewKey(false);
+    setBusy(how?.password ? "deriving key from password…" : fresh ? "creating a local key…" : "signing in…");
     try {
       if (fresh) {
-        const { persisted } = createLocalKey();
+        const { persisted } = how?.password ? await passwordLocalKey(how.password) : createLocalKey();
         if (!persisted) {
           setError(
             "this browser wouldn't save the key (private mode or full storage) — back it up before you store anything, or it's gone when the tab closes"
@@ -488,7 +496,9 @@ export default function Page() {
       }
       await localSession();
       setSuccess(
-        fresh
+        how?.password
+          ? "signed in — the same password opens this account on any device"
+          : fresh
           ? "local account created — back up the key before you store anything"
           : "signed in with this browser's key"
       );
@@ -806,7 +816,7 @@ export default function Page() {
             {!token && (
               <button
                 className={hasWallet ? "ghost" : "primary"}
-                onClick={signInLocal}
+                onClick={() => signInLocal()}
                 disabled={!!busy}
                 title={
                   hasLocal
@@ -1251,6 +1261,14 @@ export default function Page() {
       {ticketFor && token && <TicketModal token={token} object={ticketFor} onClose={() => setTicketFor(null)} setError={setError} />}
       {infoFor && token && <InfoModal token={token} cid={infoFor} onClose={() => setInfoFor(null)} onNavigate={setInfoFor} />}
       {linkPhone && <LinkPhoneModal data={linkPhone} onClose={() => setLinkPhone(null)} />}
+      {showNewKey && !token && (
+        <NewKeyModal
+          busy={!!busy}
+          onClose={() => setShowNewKey(false)}
+          onPassword={(password) => signInLocal({ password })}
+          onRandom={() => signInLocal({ random: true })}
+        />
+      )}
       {showLocalKey && address && (
         <LocalKeyModal
           address={address}
@@ -2322,6 +2340,70 @@ function ShareModal({
 
 /* ──────────────────────────── local key modal ─────────────────────────── */
 
+function NewKeyModal({
+  busy, onClose, onPassword, onRandom,
+}: {
+  busy: boolean;
+  onClose: () => void;
+  onPassword: (password: string) => void;
+  onRandom: () => void;
+}) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const short = pw.length < MIN_PASSWORD;
+  const mismatch = pw2.length > 0 && pw !== pw2;
+  const ok = !short && pw === pw2;
+  return (
+    <Modal title="Sign in without a wallet" onClose={onClose}>
+      <h3 className="panel-title" style={{ marginTop: 0 }}>Type a password</h3>
+      <form
+        className="col"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (ok && !busy) onPassword(pw);
+        }}
+      >
+        <input
+          type="password"
+          autoFocus
+          autoComplete="new-password"
+          placeholder={`password (${MIN_PASSWORD}+ characters)`}
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+        />
+        <input
+          type="password"
+          autoComplete="new-password"
+          placeholder="type it again"
+          value={pw2}
+          onChange={(e) => setPw2(e.target.value)}
+        />
+        <div className="row">
+          <button className="primary" type="submit" disabled={!ok || busy}>
+            {busy ? "working…" : "Sign in"}
+          </button>
+          {pw.length > 0 && short && <span className="muted">{MIN_PASSWORD - pw.length} more characters</span>}
+          {mismatch && <span className="muted">passwords don&apos;t match</span>}
+        </div>
+        <p className="muted hint">
+          Your key is made from the password, so the same password opens the same account on any device. There is no
+          reset — forget it and the account is gone. Use something long that nobody could guess.
+        </p>
+      </form>
+
+      <div style={{ marginTop: 16 }}>
+        <h3 className="panel-title">Or skip the password</h3>
+        <div className="col">
+          <div className="row">
+            <button onClick={onRandom} disabled={busy}>Make a random key</button>
+          </div>
+          <p className="muted hint">Stored in this browser only — back it up from the key button once you&apos;re in.</p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function LocalKeyModal({
   address, copied, onCopy, onClose, onImported, onForget, setError,
 }: {
@@ -2335,6 +2417,8 @@ function LocalKeyModal({
 }) {
   const [revealed, setRevealed] = useState(false);
   const [importPk, setImportPk] = useState("");
+  const [importPw, setImportPw] = useState("");
+  const [deriving, setDeriving] = useState(false);
   const [confirmForget, setConfirmForget] = useState(false);
   const pk = revealed ? exportLocalKey() : null;
 
@@ -2344,6 +2428,18 @@ function LocalKeyModal({
       onImported();
     } catch {
       setError("that doesn't look like a private key — expect 64 hex characters");
+    }
+  };
+
+  const doPassword = async () => {
+    setDeriving(true);
+    try {
+      await passwordLocalKey(importPw);
+      onImported();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setDeriving(false);
     }
   };
 
@@ -2386,6 +2482,18 @@ function LocalKeyModal({
           />
           <div className="row">
             <button className="primary" onClick={doImport} disabled={!importPk.trim()}>Import &amp; sign in</button>
+          </div>
+          <input
+            type="password"
+            autoComplete="current-password"
+            placeholder={`or type a password (${MIN_PASSWORD}+ characters)`}
+            value={importPw}
+            onChange={(e) => setImportPw(e.target.value)}
+          />
+          <div className="row">
+            <button className="primary" onClick={doPassword} disabled={importPw.length < MIN_PASSWORD || deriving}>
+              {deriving ? "deriving…" : "Use password & sign in"}
+            </button>
           </div>
           <p className="muted hint">Replaces the key in this browser — back up the current one first.</p>
         </div>
