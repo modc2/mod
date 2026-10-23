@@ -25,9 +25,11 @@ body { font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans
 .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 20px 60px; }
 header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 h1 { margin: 0; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; }
-.hero { margin-top: 6px; display: flex; align-items: baseline; gap: 12px; }
+.hero { margin-top: 6px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .hero b { font-size: 48px; line-height: 1; font-weight: 650; font-variant-numeric: tabular-nums; }
 .hero span { color: var(--text-secondary); }
+#hero-spark { width: 90px; height: 28px; flex: none; align-self: center; }
+.hero .hero-label { white-space: nowrap; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #1baf7a; margin-right: 6px; vertical-align: 1px; animation: pulse 2s infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
@@ -98,7 +100,7 @@ tr.detail > td { background: #111110; padding: 8px 12px 10px; border-bottom: 1px
   <header>
     <div>
       <h1>Traffic &middot; every app on modc2.com</h1>
-      <div class="hero"><b id="total">-</b><svg id="hero-spark" width="90" height="28" style="align-self:center;flex-shrink:0" aria-hidden="true"></svg><span id="hero-arrow" style="font-size:16px;align-self:center"></span><span><span class="dot"></span>people using the sites right now</span><span id="range-unique-stat" style="color:var(--text-secondary);font-size:13px;margin-left:4px"></span></div>
+      <div class="hero"><b id="total">-</b><svg id="hero-spark" width="90" height="28" aria-hidden="true"></svg><span id="hero-arrow" style="font-size:16px;align-self:center"></span><span class="hero-label"><span class="dot"></span>people using the sites right now</span><span class="hero-label" id="range-unique-stat" style="color:var(--text-secondary);font-size:13px;margin-left:4px"></span></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
       <div class="ranges" id="ranges" role="group" aria-label="Time range"></div>

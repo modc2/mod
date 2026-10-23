@@ -7,7 +7,7 @@
     "network": "local",
     "port": 51550,
     "app_port": 51550,
-    "route": false,
+    "route": true,
     "private": true,
     "deps": [],
     "urls": {
