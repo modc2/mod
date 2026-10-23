@@ -3526,6 +3526,10 @@ function mkMapHover(ev, name) {
   wpTip.show(ev, html);
 }
 function drawMap() {
+  const prevCy = {};
+  ($('mk-cards').querySelector('svg') || {querySelectorAll: () => []})
+    .querySelectorAll('circle[data-pqn]')
+    .forEach(c => { prevCy[c.dataset.pqn] = c.getAttribute('cy'); });
   const items = mk.items;
   const W = 560, H = 320;
   const PL = 44, PT = 24, PB = 32, PR = 16;
@@ -3558,7 +3562,7 @@ function drawMap() {
     const filterAttr = it.quantum_safe ? ' filter="url(#pq-glow)"' : '';
     const nameJson = JSON.stringify(it.name);
     return `<g style="cursor:pointer" onclick="openCard(${nameJson})" onmouseenter="mkMapHover(event,${nameJson})" onmouseleave="wpTip.hide()"${filterAttr} opacity="${opacity}">` +
-           `<circle cx="${x}" cy="${y}" r="${r}" fill="${fill}"/>` +
+           `<circle cx="${x}" cy="${y}" r="${r}" fill="${fill}" data-pqn="${esc(it.name)}"/>` +
            `</g>`;
   }).join('');
   const axisLabel = `SECURITY (${mkMapQu ? 'QUANTUM' : 'CLASSICAL'}) ↑`;
@@ -3583,6 +3587,22 @@ function drawMap() {
     `<button class="kt-seg${mkMapQu ? ' on' : ''}" style="font-size:11px;padding:5px 14px;margin:0;border-radius:0 3px 3px 0" onclick="mkMapQu=true;drawMap()">QU</button>` +
     `</div>`;
   out('mk-cards', quToggle + svgHtml + legend);
+  requestAnimationFrame(() => {
+    const svg = $('mk-cards').querySelector('svg');
+    if (!svg || !Object.keys(prevCy).length) return;
+    svg.querySelectorAll('circle[data-pqn]').forEach(c => {
+      const old = prevCy[c.dataset.pqn];
+      if (old === undefined) return;
+      const newCy = c.getAttribute('cy');
+      if (old === newCy) return;
+      c.style.transition = 'none';
+      c.setAttribute('cy', old);
+      requestAnimationFrame(() => {
+        c.style.transition = 'cy 0.55s cubic-bezier(0.22,1,0.36,1)';
+        c.setAttribute('cy', newCy);
+      });
+    });
+  });
 }
 document.querySelectorAll('#mk-sorts button:not(#mk-vs-btn):not(#mk-map-btn)').forEach(b => b.onclick = () => {
   document.querySelectorAll('#mk-sorts button:not(#mk-vs-btn):not(#mk-map-btn)').forEach(x => x.classList.toggle('on', x === b));

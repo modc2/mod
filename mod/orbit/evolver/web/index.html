@@ -23,6 +23,8 @@
 .od-lane.is-building { animation: od-pulse 2s ease-in-out infinite; }
 .od-lane.is-ideating { animation: od-think 3.5s ease-in-out infinite; }
 .od-done { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; opacity: 0.5; }
+@keyframes rr-flash { from { background: #5ee08a22; } to { background: transparent; } }
+.rr-hl { animation: rr-flash 1.4s ease-out; }
 </style>
 </head>
 <body>
@@ -322,17 +324,18 @@ function render() {
     recentHdr.innerHTML = `Recent runs<span id="recentDots" style="margin-left:8px;vertical-align:middle"></span>`;
   }
   const filteredRecent = (D.recent || []).filter(r => !focusFilter || r.module === focusFilter);
-  $("recent").innerHTML = filteredRecent.slice(0, 20).map((r) => {
+  $("recent").innerHTML = filteredRecent.slice(0, 20).map((r, i) => {
     const mark = r.sched ? "◷ " : r.task ? "⚑ " : "";
     const kind = r.outcome === "played" ? "on" : r.status === "failed" ? "bad" : r.status === "running" ? "warn" : "";
     const goalLine = r.goal_brief && r.goal_brief !== r.task ? `<div class="s">${K.esc(r.goal_brief)}</div>` : '';
-    return `<div class="row click" onclick="location.href='${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}'"><span class="pill ${kind}">${K.esc(r.outcome || r.status)}</span><div class="grow">
+    return `<div id="rr-${i}" class="row click" onclick="location.href='${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}'"><span class="pill ${kind}">${K.esc(r.outcome || r.status)}</span><div class="grow">
       <div class="t">${mark}${K.esc(r.module)} — ${K.esc(r.title || r.task || "")}</div>
       ${goalLine}<div class="s mono">${K.ago(r.ts)}${r.cost_usd > 0 ? ' · $' + r.cost_usd.toFixed(2) : ''} · <a href="${K.BUILD_APP}?mod=${encodeURIComponent(r.module)}">${K.esc(r.run_id)}</a></div></div></div>`;
   }).join("") || `<div class="empty">no runs yet</div>`;
-  $("recentDots").innerHTML = filteredRecent.slice(0, 30).map(r => {
+  $("recentDots").innerHTML = filteredRecent.slice(0, 30).map((r, i) => {
     const c = r.outcome === "played" ? "#5ee08a" : r.status === "failed" ? "#e05e5e" : "#555";
-    return `<span title="${K.esc(r.module + ' · ' + (r.outcome || r.status) + ' · ' + K.ago(r.ts))}" style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c};margin:0 1px;cursor:default"></span>`;
+    const clickable = i < 20;
+    return `<span data-dot="${i}" title="${K.esc(r.module + ' · ' + (r.outcome || r.status) + ' · ' + K.ago(r.ts))}" style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c};margin:0 1px;cursor:${clickable ? 'pointer' : 'default'}"></span>`;
   }).join("");
   for (const id of ["saveBtn", "focusAdd", "t_add", "q_add"]) $(id).disabled = !K.isOwner;
 }
@@ -412,6 +415,15 @@ $("tasks").onclick = async (e) => {
   if (e.target.dataset.a === "del") { await K.act(`/evolver/tasks/${id}`, undefined, "removed", "DELETE"); load(); }
 };
 
+$("recentDots").onclick = e => {
+  const i = +e.target.dataset.dot;
+  if (isNaN(i) || i >= 20) return;
+  const row = document.getElementById(`rr-${i}`);
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.add('rr-hl');
+  setTimeout(() => row.classList.remove('rr-hl'), 1400);
+};
 K.init({ glyph: "✦", title: "Evolver", accent: "#5ee08a", sub: "The meta agent: improves your mods — one run at a time, or OVERDRIVE lanes in parallel — on timers, a task queue, or a rotation — within a weekly budget." })
   .then(() => K.poll(load, 8000));
 </script>

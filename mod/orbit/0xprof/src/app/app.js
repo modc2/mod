@@ -251,6 +251,18 @@ function checkRow(entry) {
   </div>`;
 }
 
+function statusStrip(checks) {
+  const entries = checks.filter(e => e.saw);
+  if (!entries.length) return '';
+  const chips = entries.map(e => `<span class="status ${escape(e.saw)}">${escape(e.saw)}</span>`);
+  const parts = [];
+  chips.forEach((chip, i) => {
+    parts.push(chip);
+    if (i < chips.length - 1) parts.push('<span class="sep">→</span>');
+  });
+  return `<div class="status-strip">${parts.join('')}</div>`;
+}
+
 // ── market ──────────────────────────────────────────────────────────
 
 function proofCard(proof) {
@@ -424,6 +436,7 @@ async function openProof(id, toggle = false) {
   const checks = (proof.checks || []).slice().reverse();
   box.innerHTML = `
     <div class="verdicts">${(proof.verdicts || []).map(verdictRow).join(‘’)}</div>
+    ${statusStrip(checks)}
     <h4>who made those methods run</h4>
     <div class="checklog">${checks.length ? checks.map(checkRow).join(‘’)
       : ‘<div class="hint">nothing but the publish — nobody has re-checked this yet</div>’}</div>`;

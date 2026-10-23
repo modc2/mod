@@ -227,7 +227,7 @@ function syncUrl() {
 const rangesEl = document.getElementById('ranges');
 RANGES.forEach(r => {
   const b = document.createElement('button'); b.textContent = r.toUpperCase(); b.dataset.r = r;
-  b.onclick = () => { state.range = r; localStorage.setItem('traffic.range', r); state.expanded.clear(); state.ctryData = {}; state.vinData = {}; syncUrl(); load(); };
+  b.onclick = () => { state.range = r; localStorage.setItem('traffic.range', r); state.expanded.clear(); state.ctryData = {}; state.vinData = {}; state.affData = {}; state.hmData = {}; syncUrl(); load(); };
   rangesEl.appendChild(b);
 });
 
@@ -273,7 +273,7 @@ function drawChart() {
   if (!d.series.length) { svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#8a897f" font-size="13">No visits recorded in this range yet</text>`; return; }
   const liveMap = {};
   if (state.liveApps) state.liveApps.forEach(a => { liveMap[a.app] = a.users; });
-  const max = niceMax(Math.max(1, ...shown.flatMap(s => s.values), ...shown.map(s => liveMap[s.app] || 0)));
+  const max = niceMax(Math.max(1, ...shown.flatMap(s => s.values), ...shown.map(s => liveMap[s.app] || 0), ...(d.total || [])));
   const x = i => L + (n <= 1 ? 0 : i * (W - L - R) / (n - 1));
   const y = v => T + (H - T - B) * (1 - v / max);
   let g = '<g class="axis">';
@@ -289,6 +289,10 @@ function drawChart() {
   }
   g += '</g>';
   let lines = '';
+  if (d.total && d.total.length === n) {
+    const totalPts = d.total.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    lines += `<polyline points="${totalPts}" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.45" stroke-linejoin="round" stroke-linecap="round" />`;
+  }
   shown.forEach(s => {
     const pts = s.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
     lines += `<polyline points="${pts}" fill="none" stroke="${cssColor(s.app)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />`;
@@ -359,7 +363,8 @@ function render() {
   const onChart = new Set(d.series.map(s => s.app));
   assignColors(d.series.map(s => s.app));
   document.getElementById('legend').innerHTML = d.series.map(s =>
-    `<button aria-pressed="${!state.hidden.has(s.app)}" data-app="${esc(s.app)}"><i style="background:${cssColor(s.app)}"></i>${esc(s.app)}</button>`).join('');
+    `<button aria-pressed="${!state.hidden.has(s.app)}" data-app="${esc(s.app)}"><i style="background:${cssColor(s.app)}"></i>${esc(s.app)}</button>`).join('')
+    + (d.total ? `<span style="display:inline-flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:12px;opacity:0.45"><svg width="14" height="3" style="display:inline-block"><line x1="0" y1="1.5" x2="14" y2="1.5" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="4,3"/></svg>all sites</span>` : '');
   document.querySelectorAll('#legend button').forEach(b => b.onclick = () => {
     const a = b.dataset.app; state.hidden.has(a) ? state.hidden.delete(a) : state.hidden.add(a); render();
   });

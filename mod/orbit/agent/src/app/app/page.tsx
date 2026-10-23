@@ -4788,17 +4788,20 @@ export default function Home() {
         )
       })()}
       {(() => {
-        if (t.status === 'running') return null
-        const allSteps = t.messages.flatMap((m: any) => m.steps || [])
-        if (allSteps.length < 3) return null
+        const isRunning = t.status === 'running'
+        const allSteps = isRunning
+          ? t.messages.filter((m: any) => !m.live).flatMap((m: any) => m.steps || [])
+          : t.messages.flatMap((m: any) => m.steps || [])
+        if (allSteps.length < (isRunning ? 1 : 3)) return null
         const cats: Record<string, number> = {}
         allSteps.forEach((s: any) => { const c = stepCat(s); cats[c] = (cats[c] || 0) + 1 })
-        const tip = Object.entries(cats).map(([k, n]) => `${n} ${k}`).join(' · ')
+        const tip = Object.entries(cats).map(([k, n]) => `${n} ${k}`).join(' · ') + (isRunning ? ' · in progress' : '')
         return (
           <div className="flex h-1.5 rounded overflow-hidden mt-1 pl-[18px]" title={tip}>
             {allSteps.map((step: any, i: number) => (
               <div key={i} className={`flex-1 ${stepColor(step)}`} />
             ))}
+            {isRunning && <div className="flex-1 bg-emerald-400/50 animate-pulse" />}
           </div>
         )
       })()}

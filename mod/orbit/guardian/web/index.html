@@ -184,6 +184,17 @@ function renderGlobal() {
 function renderMod(m, upd) {
   const sw = (key, label, note) => `<label class="chk"><input type="checkbox" data-k="${key}" ${m[key] ? "checked" : ""}/> <span><b style="color:var(--text)">${label}</b> — ${note}</span></label>`;
   const ups = (upd?.updates || []);
+  const blockedUps = ups.filter(u => u.status === 'rejected' || u.status === 'blocked' || u.screen?.verdict === 'blocked' || u.screen?.verdict === 'flagged');
+  const catCounts = {};
+  for (const u of blockedUps) for (const cat of (u.screen?.categories || [])) catCounts[cat] = (catCounts[cat] || 0) + 1;
+  const existingRules = (m.rules || '').toLowerCase();
+  const suggestedFrags = Object.entries(catCounts).filter(([cat, n]) => n >= 2 && !existingRules.includes(cat.toLowerCase())).map(([cat, n]) => {
+    const lcat = cat.toLowerCase();
+    const frag = lcat.includes('ui change') ? 'No UI changes without approval' : lcat.includes('breaking') ? 'No breaking API changes' : `No ${cat} without approval`;
+    return { frag, n };
+  });
+  const showSuggest = blockedUps.length >= 2 && suggestedFrags.length > 0;
+  const suggestChipsHtml = showSuggest ? `<div class="inline" style="flex-wrap:wrap;gap:4px;margin-top:4px" id="mSuggestChips"><span style="font-size:11px;color:var(--muted,#888);letter-spacing:.04em;width:100%;margin-bottom:2px">from your activity</span>${suggestedFrags.map(({frag, n}) => `<span class="pill" style="cursor:pointer;opacity:.55" data-frag="${K.esc(frag)}">${K.esc(frag)} <span style="opacity:.6;font-size:10px">(${n} seen)</span></span>`).join('')}</div>` : '';
   $("mod").innerHTML = `
     <div class="inline" style="margin-bottom:10px"><span class="pill acc">${K.esc(m.module)}</span>${m.screening ? `<span class="pill on">screening</span>` : `<span class="pill warn">keyword pass only</span>`}<span class="faint" style="font-size:12px">${K.esc(m.note || "")}</span></div>
     <div class="rows">
@@ -200,6 +211,7 @@ function renderMod(m, upd) {
       <span class="pill" style="cursor:pointer" data-frag="Security changes need rationale">Security changes need rationale</span>
       <span class="pill" style="cursor:pointer" data-frag="UI changes only">UI changes only</span>
     </div>
+    ${suggestChipsHtml}
     <div class="inline" style="justify-content:flex-end;margin-top:8px"><button id="mSave" class="primary sm">save ${K.esc(m.module)}</button></div>
     <hr style="border:0;border-top:1px solid var(--border,#2a2a2a);margin:14px 0 10px">
     <div class="upd-label" style="margin-bottom:6px">Test these rules</div>
@@ -220,6 +232,14 @@ function renderMod(m, upd) {
     else go();
   };
   $("mRuleChips").onclick = e => {
+    const chip = e.target.closest("[data-frag]");
+    if (!chip) return;
+    const frag = chip.dataset.frag;
+    const ta = $("m_rules");
+    if (ta.value.includes(frag)) return;
+    ta.value = ta.value ? ta.value + "\n" + frag : frag;
+  };
+  if (showSuggest) $("mSuggestChips").onclick = e => {
     const chip = e.target.closest("[data-frag]");
     if (!chip) return;
     const frag = chip.dataset.frag;

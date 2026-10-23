@@ -195,6 +195,26 @@
         z-index:20;box-shadow:0 16px 40px -8px rgba(0,0,0,.8);font-size:13px;line-height:1.5;
         overflow:auto;max-height:90vh}
   #acct.open{display:block}
+  .pal{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:none;align-items:flex-start;justify-content:center;padding-top:12vh;backdrop-filter:blur(4px)}
+  .pal.open{display:flex}
+  .pal-box{width:min(620px,94vw);background:var(--panel);border:1px solid var(--line2);border-radius:18px;overflow:hidden;box-shadow:0 30px 80px -20px rgba(0,0,0,.9),0 0 0 1px rgba(250,204,21,.06)}
+  .pal-in{display:flex;align-items:center;padding:14px 18px;gap:10px;border-bottom:1px solid var(--line)}
+  .pal-in svg{color:var(--faint);flex:none}
+  .pal-in input{flex:1;background:none;border:none;outline:none;font:16px var(--sans);color:var(--text);padding:0}
+  .pal-in input::placeholder{color:var(--faint)}
+  .pal-in input:focus{border-color:transparent;box-shadow:none}
+  .pal-kbd{font:11px var(--mono);color:var(--faint);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:2px 6px;flex:none}
+  .pal-rows{max-height:360px;overflow-y:auto}
+  .pal-row{display:flex;align-items:center;gap:10px;padding:10px 18px;cursor:pointer;transition:background .08s}
+  .pal-row:hover,.pal-row.sel{background:var(--panel2)}
+  .pal-row.sel{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
+  .pal-ic{width:22px;height:22px;border-radius:6px;flex:none}
+  .pal-pi{width:22px;height:22px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);flex:none;display:grid;place-items:center;font:700 10px var(--mono);color:var(--faint)}
+  .pal-nm{font-weight:600;font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pal-pc{font:700 12px var(--mono);color:var(--accent);flex:none}
+  .pal-ds{color:var(--dim);font-size:12px;flex:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pal-sec{padding:7px 18px 3px;font:600 10px var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+  .pal-empty{padding:24px 18px;color:var(--faint);font-size:13px;text-align:center}
 </style>
 </head>
 <body>
@@ -222,6 +242,16 @@
 <div id="view"></div>
 <aside id="drawer"><button class="quiet x" id="close">close</button><button class="quiet" id="drawercopy" style="position:absolute;top:18px;right:136px;display:none" title="Copy link to this service">copy link</button><button class="quiet" id="drawerstar" style="position:absolute;top:18px;right:76px;display:none">☆ Save</button><div id="dbody"></div></aside>
 <div id="cmpbar"></div>
+<div id="pal" class="pal">
+  <div class="pal-box">
+    <div class="pal-in">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="palinput" placeholder="Search services…" autocomplete="off" spellcheck="false">
+      <span class="pal-kbd">Esc</span>
+    </div>
+    <div id="palrows" class="pal-rows"></div>
+  </div>
+</div>
 
 <script src="/passport/passport.js"></script>
 <script>
@@ -938,7 +968,7 @@ async function detail(url, ctx = {}) {
 function closeDrawer() { st.open = null; stateToHash(); $('#drawer').classList.remove('open'); const ds = $('#drawerstar'); if (ds) ds.style.display = 'none'; const dc = $('#drawercopy'); if (dc) dc.style.display = 'none'; }
 function closePop() { document.querySelectorAll('.price-pop').forEach(p => p.remove()); }
 $('#close').onclick = closeDrawer;
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); closeAcct(); closePop(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closePal(); closeDrawer(); closeAcct(); closePop(); } });
 document.addEventListener('click', e => {
   const w = $('#who');
   if ($('#acct') && $('#acct').classList.contains('open') && w && !w.contains(e.target)) closeAcct();
@@ -1340,6 +1370,84 @@ hashToState();
 if (PP) { PP.onChange(who); PP.ready().then(who); } else who();
 Promise.all([loadStats(), loadTags()]).then(() => render().then(() => { if (st.open) detail(st.open); }));
 setInterval(loadStats, 30000);
+
+// ── command palette ──────────────────────────────────────────────────────
+const PALCMDS = [
+  {label: 'MCP servers →',   fn: () => tab('mcp')},
+  {label: 'Providers →',     fn: () => tab('hosts')},
+  {label: 'Facilitators →',  fn: () => tab('sources')},
+];
+let palSel = -1, palItems = [], palTimer = null;
+function openPal() {
+  $('#pal').classList.add('open');
+  const inp = $('#palinput'); inp.value = ''; inp.focus();
+  palSel = -1; palRenderStatic();
+}
+function closePal() {
+  $('#pal').classList.remove('open');
+  if (palTimer) { clearTimeout(palTimer); palTimer = null; }
+}
+function palRenderStatic() {
+  palSel = -1; palItems = [];
+  let h = '<div class="pal-sec">Quick jump</div>';
+  PALCMDS.forEach((c, i) => {
+    palItems.push({type: 'cmd', fn: c.fn});
+    h += `<div class="pal-row" data-pi="${i}"><div class="pal-pi">⌘</div><div class="pal-nm">${esc(c.label)}</div></div>`;
+  });
+  h += '<div class="pal-sec">Quick search</div>';
+  QUICK.forEach((q, i) => {
+    palItems.push({type: 'search', q});
+    h += `<div class="pal-row" data-pi="${i + PALCMDS.length}"><div class="pal-pi">/</div><div class="pal-nm">${esc(q)}</div></div>`;
+  });
+  $('#palrows').innerHTML = h; palWire();
+}
+function palWire() {
+  $('#palrows').querySelectorAll('.pal-row').forEach(r => {
+    r.onmouseenter = () => { palSel = +r.dataset.pi; palHighlight(); };
+    r.onclick = () => palSelect(+r.dataset.pi);
+  });
+}
+function palHighlight() {
+  $('#palrows').querySelectorAll('.pal-row').forEach(r => r.classList.toggle('sel', +r.dataset.pi === palSel));
+}
+function palSelect(i) {
+  const item = palItems[i]; if (!item) return;
+  closePal();
+  if (item.type === 'cmd') item.fn();
+  else if (item.type === 'search') { Object.assign(st, {q: item.q, offset: 0}); tab('services'); }
+  else if (item.type === 'svc') detail(item.url);
+}
+async function palSearch(q) {
+  palSel = -1; palItems = [];
+  $('#palrows').innerHTML = '<div class="pal-empty">searching…</div>';
+  try {
+    const r = await get('find', {q, k: 8});
+    const items = r.items || [];
+    if (!items.length) { $('#palrows').innerHTML = '<div class="pal-empty">no results</div>'; return; }
+    let h = '<div class="pal-sec">Services</div>';
+    items.forEach((s, i) => {
+      palItems.push({type: 'svc', url: s.url});
+      const icon = s.icon ? `<img class="pal-ic" src="${esc(s.icon)}" loading="lazy" onerror="this.style.display='none'">` : `<div class="pal-pi">${esc((s.name || s.host || '?').slice(0, 1).toUpperCase())}</div>`;
+      const price = s.price_usd != null ? `<span class="pal-pc">${usd(s.price_usd)}</span>` : '';
+      h += `<div class="pal-row" data-pi="${i}">${icon}<div class="pal-nm">${esc(s.name || s.url)}</div>${price}<div class="pal-ds">${esc((s.description || '').slice(0, 80))}</div></div>`;
+    });
+    $('#palrows').innerHTML = h; palWire();
+  } catch (e) { $('#palrows').innerHTML = `<div class="pal-empty">${esc(e.message)}</div>`; }
+}
+function palScrollSel() { const r = $('#palrows .pal-row.sel'); if (r) r.scrollIntoView({block: 'nearest'}); }
+$('#palinput').addEventListener('input', () => {
+  const q = $('#palinput').value.trim();
+  if (palTimer) clearTimeout(palTimer);
+  if (!q) { palRenderStatic(); return; }
+  palTimer = setTimeout(() => palSearch(q), 200);
+});
+$('#palinput').addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); palSel = Math.min(palSel + 1, palItems.length - 1); palHighlight(); palScrollSel(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); palSel = Math.max(palSel - 1, 0); palHighlight(); palScrollSel(); }
+  else if (e.key === 'Enter' && palSel >= 0) palSelect(palSel);
+});
+$('#pal').addEventListener('click', e => { if (e.target === $('#pal')) closePal(); });
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); $('#pal').classList.contains('open') ? closePal() : openPal(); } });
 </script>
 </body>
 </html>

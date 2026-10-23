@@ -1157,6 +1157,9 @@ function probBars(role, ringSize) {
     rows + `</div>`;
 }
 const STEP_EXPLAIN = {
+  deploy: e => `Contract <b>${esc(short(e.address))}</b> is the on-chain authority for this epoch — every prover signs against this address. It enforces <b>min_ring ${e.min_ring}</b> and will reject any submit or score ring that is smaller, padded, or contains duplicate keys. Tempo is set to <b>${e.tempo} blocks</b>, the minimum epoch length.`,
+  register: e => `<b>${e.role}</b> key <b>${esc(short(e.x))}</b> joins the public set (${e.role === 'miner' ? S.miner.length : S.validator.length} registered so far). Membership is deliberately public — the anonymity guarantee hides <b>which</b> member signed, not that they belong. The contract caps rings at this final set size.`,
+  close: e => `Epoch <b>${e.epoch}</b> closed at block <b>${e.block}</b> — no new submits or scores are accepted after this point. <b>settle()</b> will now run Zuma over every tag, computing consensus C as the highest score at least ⌈V/2⌉ validators matched or exceeded, then clipping each raw score down to that rank.`,
   submit: e => `Tag <b>${esc(short(e.tag))}</b> is the key image I = x·Hₚ(scope) where scope = H(mine, subnet, epoch). It proves one of these ${e.ring} miners signed, but the contract—and anyone watching—cannot tell which.` + probBars('miner', e.ring),
   score: e => `Nullifier <b>${esc(short(e.nullifier))}</b> is the validator’s key image for this tag. It prevents double-scoring without linking the score to a validator identity.` + probBars('validator', e.ring),
   settle: e => `Zuma consensus = <b>${esc(String(e.consensus))}</b>—the highest score at least ⌈V/2⌉ validators gave or exceeded. Raw score ${e.raw} was clipped to rank ${e.rank}${e.raw > e.rank ? ` (${e.raw - e.rank} points removed)` : ''}.`,

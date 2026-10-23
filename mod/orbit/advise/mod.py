@@ -209,13 +209,18 @@ class Mod:
         rec = store.decide(self._need(id, 'id'), caller, 'rejected', note=note)
         return {'id': rec['id'], 'status': rec['status'], 'note': rec.get('note')}
 
-    def autoscan(self, module=None, focus=None, preview=False, token=None, ip=None, ua=None, local=None):
+    def autoscan(self, module=None, focus=None, preview=False, anchors=None,
+                 token=None, ip=None, ua=None, local=None):
         """Use Claude to scan a module and return a targeted recommendation.
 
         When preview=True (the default from the UI), returns the raw AI-generated
         dict for the caller to review and edit before filing — no signed caller
         required. When preview=False, files the recommendation immediately and
         requires a signed caller.
+
+        anchors: optional JSON list of {path, line} dicts. When provided, the
+        code context around each pinned line is prepended to the AI prompt so
+        the suggestion is grounded in those exact lines.
         """
         caller = self._caller(token, ip, ua, local)
         if not preview and not caller['signed']:
@@ -230,7 +235,36 @@ class Mod:
             return {'error': 'autoscan requires ANTHROPIC_API_KEY'}
 
         module = self._need(module, 'module')
-        ctx = json.dumps(self.brief(module, focus=focus), indent=2)[:14000]
+
+        # Build anchor snippets first so they lead the context.
+        anchor_list = anchors or []
+        if isinstance(anchor_list, str):
+            try:
+                anchor_list = json.loads(anchor_list)
+            except (json.JSONDecodeError, ValueError):
+                anchor_list = []
+
+        pinned_parts = []
+        for a in (anchor_list if isinstance(anchor_list, list) else []):
+            path = (a or {}).get('path')
+            line = (a or {}).get('line')
+            if not path or line is None:
+                continue
+            try:
+                snippet = scan.read(module, path,
+                                    start=max(1, int(line) - 8), lines=16)
+                pinned_parts.append(
+                    f'# {path} (around line {line})\n{snippet["content"]}'
+                )
+            except Exception:
+                pass
+
+        brief_ctx = json.dumps(self.brief(module, focus=focus), indent=2)
+        if pinned_parts:
+            pinned_block = 'User-pinned lines:\n\n' + '\n\n'.join(pinned_parts) + '\n\n'
+            ctx = (pinned_block + brief_ctx)[:14000]
+        else:
+            ctx = brief_ctx[:14000]
 
         system = (
             'You are a senior software engineer reviewing a module\'s code. '

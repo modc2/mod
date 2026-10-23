@@ -12,7 +12,7 @@ type HistoryEntry = { epoch: number; root: string; count: number; scope: string 
 
 const API = process.env.NEXT_PUBLIC_API_URL || "/api/whitepaper";
 
-function ProofTreeSvg({ index, total, depth }: { index: number; total: number; depth: number }) {
+function ProofTreeSvg({ index, total, depth, step = null }: { index: number; total: number; depth: number; step?: number | null }) {
   if (depth < 1) return null;
 
   const W = 220;
@@ -85,10 +85,42 @@ function ProofTreeSvg({ index, total, depth }: { index: number; total: number; d
     }
   }
 
+  const overlays: React.ReactNode[] = [];
+  if (step !== null) {
+    if (step === -1) {
+      const { x, y } = nodePos(0, di);
+      overlays.push(
+        <circle key={`glow-leaf-${step}`} cx={x} cy={y} r={baseR + 5}
+          style={{ fill: "rgb(var(--modblue))", animation: "svgtree-flash 0.75s ease-out forwards" }} />
+      );
+    } else if (step >= 0 && step < vd) {
+      const sibP = (di >> step) ^ 1;
+      const { x: sx, y: sy } = nodePos(step, sibP);
+      overlays.push(
+        <circle key={`glow-sib-${step}`} cx={sx} cy={sy} r={baseR + 4}
+          style={{ fill: "rgb(var(--amber))", animation: "svgtree-flash 0.6s ease-out forwards" }} />
+      );
+      const ancP = di >> step;
+      const { x: lx1, y: ly1 } = nodePos(step, ancP);
+      const { x: lx2, y: ly2 } = nodePos(step + 1, ancP >> 1);
+      overlays.push(
+        <line key={`edge-${step}`} x1={lx1} y1={ly1} x2={lx2} y2={ly2}
+          style={{ stroke: "rgb(var(--amber))", strokeWidth: 1.8, animation: "svgtree-flash 0.6s ease-out forwards" }} />
+      );
+    } else {
+      const { x, y } = nodePos(vd, 0);
+      overlays.push(
+        <circle key={`glow-root-${step}`} cx={x} cy={y} r={baseR + 5}
+          style={{ fill: "rgb(var(--modcyan))", animation: "svgtree-flash 0.75s ease-out forwards" }} />
+      );
+    }
+  }
+
   return (
     <svg width={W} height={H} style={{ display: "block", margin: "6px 0 2px", overflow: "visible" }}>
       {edges}
       {circles}
+      {overlays}
       <text x={W - padX} y={H - 1} textAnchor="end"
         style={{ fontSize: "8px", fill: "rgb(var(--muted) / 0.6)", fontFamily: "monospace" }}>
         {index} / {total}
@@ -1303,6 +1335,7 @@ export default function RootClient({ paper, initialRoot }: { paper: Paper; initi
                                   index={(prf as ProofResult).index!}
                                   total={(prf as ProofResult).total!}
                                   depth={(prf as ProofResult).proof.length}
+                                  step={replayStep[m.name] ?? null}
                                 />
                               )}
                               {codeOpen[m.name] && (

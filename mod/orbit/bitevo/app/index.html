@@ -100,6 +100,12 @@ button.act:disabled{opacity:.45;cursor:wait}
 @media(max-width:700px){.sweep-grid{grid-template-columns:1fr}}
 .sweep-card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px}
 .sweep-card.best{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.bracket{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:center;margin:14px 0}
+.bracket-round{display:flex;flex-direction:column;gap:12px}
+.bracket-entry{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 14px;font:13px var(--mono);transition:border-color .3s,opacity .3s;margin-bottom:4px}
+.bracket-entry.winner{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.bracket-entry.loser{opacity:.4}
+@media(max-width:700px){.bracket{grid-template-columns:1fr}.bracket .bracket-arrows{display:none}}
 </style>
 </head>
 <body>
@@ -170,6 +176,7 @@ button.act:disabled{opacity:.45;cursor:wait}
           <button class="act" id="b-score">JUDGE IT</button>
           <button class="act alt" id="b-battle-toggle">BATTLE</button>
           <button class="act alt" id="b-sweep-toggle">SWEEP</button>
+          <button class="act alt" id="b-tourney-toggle">TOURNEY</button>
         </div>
       </div>
       <div id="sweep-input" style="display:none">
@@ -190,6 +197,20 @@ button.act:disabled{opacity:.45;cursor:wait}
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="act" id="b-battle">BATTLE</button>
           <button class="act alt" id="b-battle-cancel">CANCEL</button>
+        </div>
+      </div>
+      <div id="tourney-input" style="display:none">
+        <div class="battle-cols" style="grid-template-columns:1fr 1fr 1fr 1fr">
+          <div><label>IDEA 1</label><textarea id="i-t1" placeholder="Pitch idea 1…"></textarea></div>
+          <div><label>IDEA 2</label><textarea id="i-t2" placeholder="Pitch idea 2…"></textarea></div>
+          <div><label>IDEA 3</label><textarea id="i-t3" placeholder="Pitch idea 3…"></textarea></div>
+          <div><label>IDEA 4</label><textarea id="i-t4" placeholder="Pitch idea 4…"></textarea></div>
+        </div>
+        <label>challenge type</label>
+        <select id="tourney-ctype"><option value="">auto (open prompt)</option><option>open</option><option>vertical</option><option>problem_first</option><option>contrarian</option></select>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="act" id="b-tourney">TOURNEY</button>
+          <button class="act alt" id="b-tourney-cancel">CANCEL</button>
         </div>
       </div>
       <div id="score-out"></div>
@@ -550,6 +571,66 @@ $('#b-sweep-cancel').onclick=()=>{
   $('#single-input').style.display='';
   $('#sweep-input').style.display='none';
   $('#score-out').innerHTML='';
+};
+$('#b-tourney-toggle').onclick=()=>{
+  $('#single-input').style.display='none';
+  $('#sweep-input').style.display='none';
+  $('#battle-input').style.display='none';
+  $('#tourney-input').style.display='block';
+  $('#score-out').innerHTML='';$('#refine-row').style.display='none';
+};
+$('#b-tourney-cancel').onclick=()=>{
+  $('#single-input').style.display='';
+  $('#tourney-input').style.display='none';
+  $('#score-out').innerHTML='';
+};
+$('#b-tourney').onclick=async e=>{
+  const ideas=[$('#i-t1'),$('#i-t2'),$('#i-t3'),$('#i-t4')].map(el=>el.value.trim());
+  if(ideas.some(x=>!x))return;
+  busy(e.target,true);
+  const mkEntry=(id,label)=>`<div class="bracket-entry" id="be-${id}"><div style="font:600 10px var(--mono);color:var(--dim);letter-spacing:1px;margin-bottom:4px">${label}</div><div id="be-${id}-name" style="word-break:break-word">—</div><div id="be-${id}-score" style="color:var(--accent);font:600 13px var(--mono);margin-top:2px"></div></div>`;
+  $('#score-out').innerHTML=`
+    <div class="bracket">
+      <div class="bracket-round">
+        <div><div style="font:700 10px var(--mono);color:var(--dim);letter-spacing:1px;margin-bottom:6px">ROUND 1</div>${mkEntry('m1a','IDEA 1')}${mkEntry('m1b','IDEA 2')}</div>
+        <div><div style="height:14px"></div>${mkEntry('m2a','IDEA 3')}${mkEntry('m2b','IDEA 4')}</div>
+      </div>
+      <div class="bracket-arrows" style="display:flex;flex-direction:column;align-items:center;justify-content:space-around;padding:24px 4px;color:var(--dim);font:20px var(--mono);gap:24px"><span>▶</span><span>▶</span></div>
+      <div class="bracket-round" style="justify-content:center">
+        <div><div style="font:700 10px var(--mono);color:var(--dim);letter-spacing:1px;margin-bottom:6px">FINAL</div>${mkEntry('f1','FINALIST 1')}${mkEntry('f2','FINALIST 2')}</div>
+      </div>
+    </div>
+    <div id="tourney-champion" style="display:none;margin-top:14px"></div>`;
+  const getName=r=>(r.pitch?.company_name||'').trim()||'Idea';
+  const tCtype=$('#tourney-ctype').value;
+  let tChallenge=null;
+  try{
+    if(tCtype){const cr=await api('/challenge?type='+encodeURIComponent(tCtype));tChallenge=cr.result||null;}
+    const runMatch=async(ideaX,ideaY,entA,entB)=>{
+      const bX=tChallenge?{idea:ideaX,challenge:tChallenge.prompt}:{idea:ideaX};
+      const bY=tChallenge?{idea:ideaY,challenge:tChallenge.prompt}:{idea:ideaY};
+      const [rX,rY]=await Promise.all([post('/score',bX),post('/score',bY)]);
+      const resX=rX.result,resY=rY.result;
+      const sX=resX.composite_score??0,sY=resY.composite_score??0;
+      const nX=getName(resX)||ideaX.slice(0,24),nY=getName(resY)||ideaY.slice(0,24);
+      $('#be-'+entA+'-name').textContent=nX;$('#be-'+entA+'-score').textContent=sX.toFixed(2);
+      $('#be-'+entB+'-name').textContent=nY;$('#be-'+entB+'-score').textContent=sY.toFixed(2);
+      if(sX>=sY){
+        $('#be-'+entA).classList.add('winner');$('#be-'+entB).classList.add('loser');
+        return {winnerIdea:ideaX,winnerName:nX,winScore:sX};
+      }else{
+        $('#be-'+entB).classList.add('winner');$('#be-'+entA).classList.add('loser');
+        return {winnerIdea:ideaY,winnerName:nY,winScore:sY};
+      }
+    };
+    const m1=await runMatch(ideas[0],ideas[1],'m1a','m1b');
+    const m2=await runMatch(ideas[2],ideas[3],'m2a','m2b');
+    $('#be-f1-name').textContent=m1.winnerName;$('#be-f2-name').textContent=m2.winnerName;
+    const fin=await runMatch(m1.winnerIdea,m2.winnerIdea,'f1','f2');
+    const champ=$('#tourney-champion');champ.style.display='';
+    champ.innerHTML=`<div class="battle-winner" style="color:var(--accent);border:1px solid var(--accent);background:#021a16">CHAMPION · ${esc(fin.winnerName)} · ${fin.winScore.toFixed(2)}</div>`;
+  }catch(err){$('#score-out').innerHTML+=`<p class="err">${esc(err.message)}</p>`;}
+  busy(e.target,false);
 };
 
 $('#b-refine').onclick=async e=>{

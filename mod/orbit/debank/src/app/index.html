@@ -262,6 +262,7 @@
 <div id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-sha3@0.8.0/build/sha3.min.js"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════
    debank — the bank console.
@@ -340,6 +341,46 @@ const pct24h = (n) => n == null ? '' : '<span class="' + (n >= 0 ? 'up' : 'down'
 const short = (a) => a && a.length > 14 ? a.slice(0, 6) + '…' + a.slice(-4) : (a || '—');
 const isAddr = (a) => /^0x[0-9a-fA-F]{40}$/.test(a || '');
 const same = (a, b) => a && b && a.toLowerCase() === b.toLowerCase();
+
+function namehash(name) {
+  let node = new Uint8Array(32);
+  if (!name) return node;
+  const labels = name.split('.').reverse();
+  for (const label of labels) {
+    const enc = new TextEncoder().encode(label);
+    const labelHash = keccak256.array(enc);
+    const combined = new Uint8Array(64);
+    combined.set(node, 0);
+    combined.set(labelHash, 32);
+    node = new Uint8Array(keccak256.array(combined));
+  }
+  return node;
+}
+
+async function ensResolve(name) {
+  const ENS_REGISTRY = '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e';
+  const RPC = 'https://ethereum-rpc.publicnode.com';
+  const node = namehash(name);
+  const nodeHex = '0x' + Array.from(node).map(b => b.toString(16).padStart(2, '0')).join('');
+  const call = async (to, data) => {
+    const res = await fetch(RPC, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data }, 'latest'] })
+    });
+    const json = await res.json();
+    return json.result || '0x';
+  };
+  const resolverResult = await call(ENS_REGISTRY, '0x0178b8bf' + nodeHex.slice(2).padStart(64, '0'));
+  if (!resolverResult || resolverResult === '0x' || resolverResult === '0x' + '0'.repeat(64)) return null;
+  const resolver = '0x' + resolverResult.slice(-40);
+  if (/^0x0+$/.test(resolver)) return null;
+  const addrResult = await call(resolver, '0x3b3b57de' + nodeHex.slice(2).padStart(64, '0'));
+  if (!addrResult || addrResult === '0x' || addrResult === '0x' + '0'.repeat(64)) return null;
+  const addr = '0x' + addrResult.slice(-40);
+  if (/^0x0+$/.test(addr)) return null;
+  return addr;
+}
 const clock = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 const netOf = (chain) => state.networks.find((n) => n.chain === chain);
 const netOfId = (id) => state.networks.find((n) => n.chain_id === Number(id));
@@ -484,11 +525,31 @@ $('nav').innerHTML = NAV.map(([k, label, needs]) => k === 'sect'
   ? `<div class="sect">${label}</div>`
   : `<button data-t="${k}">${label}${needs ? '<span class="k">key</span>' : ''}</button>`).join('');
 $('nav').onclick = (e) => { const b = e.target.closest('button'); if (b?.dataset.t) go(b.dataset.t); };
-$('addr').onkeydown = (e) => {
+$('addr').onkeydown = async (e) => {
   if (e.key !== 'Enter') return;
   const v = $('addr').value.trim();
-  if (!isAddr(v)) return toast('That is not an EVM address (0x + 40 hex). ENS names are not resolved here.', true);
-  setView(v); if (!['overview', 'accounts', 'assets', 'savings', 'positions', 'statement', 'permissions', 'vault'].includes(state.tab)) go('overview');
+  if (isAddr(v)) {
+    setView(v); if (!['overview', 'accounts', 'assets', 'savings', 'positions', 'statement', 'permissions', 'vault'].includes(state.tab)) go('overview');
+  } else if (/^[a-z0-9][a-z0-9-]*\.eth$/i.test(v)) {
+    $('addr').disabled = true;
+    toast(`Resolving ${v}…`);
+    try {
+      const resolved = await ensResolve(v);
+      if (!resolved) { toast(`Could not resolve ${v} — no address registered`, true); }
+      else {
+        $('addr').value = resolved;
+        setView(resolved);
+        if (!['overview', 'accounts', 'assets', 'savings', 'positions', 'statement', 'permissions', 'vault'].includes(state.tab)) go('overview');
+        toast(`${v} → ${resolved.slice(0, 6)}…${resolved.slice(-4)}`);
+      }
+    } catch (err) {
+      toast(`ENS lookup failed: ${err.message}`, true);
+    } finally {
+      $('addr').disabled = false;
+    }
+  } else {
+    toast('That is not an EVM address (0x + 40 hex) or an ENS name (.eth).', true);
+  }
 };
 $('mine').onclick = () => { setView(state.me); go('overview'); };
 $('connectTop').onclick = () => (state.me ? disconnect() : connect());

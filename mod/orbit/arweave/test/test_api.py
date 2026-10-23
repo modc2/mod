@@ -12,6 +12,7 @@ sys.path.insert(0, str(MOD))
 sys.path.insert(0, str(MOD / "api"))
 
 IMAGE_TXID = "IMAGETXIDDD000000000000000000000000000000"
+PDF_TXID   = "PDFTXIDDDDD000000000000000000000000000000"
 
 
 @pytest.fixture()
@@ -44,6 +45,8 @@ def tc(tmp_path, monkeypatch):
             return FakeResp(content=b'{"from":"gateway"}')
         if url.endswith("/" + IMAGE_TXID):
             return FakeResp(content=b"\x89PNG\r\n\x1a\n", headers={"content-type": "image/png"})
+        if url.endswith("/" + PDF_TXID):
+            return FakeResp(content=b"%PDF-1.4 fake", headers={"content-type": "application/pdf"})
         if "/wallet/" in url and url.endswith("/balance"):
             return FakeResp(text="1000000000000")  # 1 AR in winston
         return FakeResp(status=404)
@@ -540,3 +543,10 @@ def test_archive_html_injects_base_href(tc, monkeypatch):
     stored = tc.get(f"/api/get/{txid}")
     assert stored.status_code == 200
     assert f'<base href="{source_url}">' in stored.text
+
+
+def test_get_pdf_txid_returns_pdf_media_type(tc):
+    """Gateway PDF content-type is propagated correctly for /api/get/{txid}."""
+    r = tc.get(f"/api/get/{PDF_TXID}")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"

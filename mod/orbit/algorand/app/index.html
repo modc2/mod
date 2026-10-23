@@ -532,7 +532,66 @@ function renderAsset(a) {
       `<tr><th>${r.toUpperCase()}</th><td>${a[r] ? go(a[r]) : '<span class="dim">none (locked)</span>'}</td></tr>`).join('')}
     ${a.url ? `<tr><th>URL</th><td>${esc(a.url)}</td></tr>` : ''}</table>
     ${a.explorer ? `<div class="note"><a href="${a.explorer}" target="_blank">explorer</a></div>` : ''}</div>
-  <div class="card"><h3>TOP HOLDERS</h3><div id="holders_${a.asset_id}" class="dim">loading...</div></div>` + (setTimeout(() => loadHolders(a.asset_id), 0), '');
+  <div id="nftmeta_${a.asset_id}"></div>
+  <div class="card"><h3>TOP HOLDERS</h3><div id="holders_${a.asset_id}" class="dim">loading...</div></div>` + (setTimeout(() => loadHolders(a.asset_id), 0), setTimeout(() => loadNftMetadata(a), 0), '');
+}
+async function loadNftMetadata(a) {
+  const el = $('nftmeta_' + a.asset_id);
+  if (!el) return;
+  const url = a.url || '';
+  let meta = null, standard = null;
+
+  const hashIdx = url.lastIndexOf('#');
+  const fragment = hashIdx !== -1 ? url.slice(hashIdx + 1) : '';
+  const isArc3 = url.startsWith('ipfs://') || fragment === 'arc3';
+
+  if (isArc3) {
+    try {
+      let metaUrl = fragment === 'arc3' ? url.slice(0, hashIdx) : url;
+      if (metaUrl.startsWith('ipfs://')) metaUrl = 'https://ipfs.algonode.xyz/ipfs/' + metaUrl.slice(7);
+      const r = await fetch(metaUrl);
+      if (r.ok) { meta = await r.json(); standard = 'ARC-3'; }
+    } catch (_) {}
+  }
+
+  if (!meta) {
+    try {
+      const r = await api('/rpc?path=/v2/assets/' + a.asset_id + '/transactions&tx-type=acfg&limit=1&indexer=true');
+      const txns = r.transactions || [];
+      if (txns.length && txns[0].note) {
+        const decoded = atob(txns[0].note);
+        if (decoded.startsWith('arc69:')) { meta = JSON.parse(decoded.slice(6)); standard = 'ARC-69'; }
+      }
+    } catch (_) {}
+  }
+
+  if (!meta) return;
+
+  let imgHtml = '';
+  if (meta.image) {
+    let imgUrl = meta.image;
+    if (imgUrl.startsWith('ipfs://')) imgUrl = 'https://ipfs.algonode.xyz/ipfs/' + imgUrl.slice(7);
+    imgHtml = `<img src="${esc(imgUrl)}" style="max-width:200px;border-radius:8px;float:left;margin:0 14px 8px 0" loading="lazy">`;
+  }
+
+  const props = meta.properties || meta.attributes;
+  let propsHtml = '';
+  if (props) {
+    let rows = '';
+    if (Array.isArray(props)) {
+      rows = props.map(p => `<tr><td class="dim">${esc(p.trait_type || p.name || '')}</td><td>${esc(String(p.value ?? ''))}</td></tr>`).join('');
+    } else if (typeof props === 'object') {
+      rows = Object.entries(props).map(([k, v]) => `<tr><td class="dim">${esc(k)}</td><td>${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</td></tr>`).join('');
+    }
+    if (rows) propsHtml = `<table style="margin-top:10px">${rows}</table>`;
+  }
+
+  el.innerHTML = `<div class="card"><h3>NFT METADATA <span class="chip" style="vertical-align:middle">${esc(standard)}</span></h3>
+    ${imgHtml}
+    ${meta.description ? `<p style="margin:0 0 8px">${esc(meta.description)}</p>` : ''}
+    ${propsHtml}
+    <div style="clear:both"></div>
+  </div>`;
 }
 async function loadHolders(asset_id) {
   const el = $('holders_' + asset_id);

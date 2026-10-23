@@ -128,6 +128,11 @@
     .seg button { white-space: nowrap; padding: 0 10px; }
     .start .modeseg { grid-column: span 1; }
   }
+  #topbar { position:fixed; top:0; left:0; right:0; height:3px; z-index:1000; pointer-events:none; }
+  #topbar .fill { height:100%; background:var(--accent); transition:width .6s ease,opacity .4s ease; width:0; opacity:0; }
+  #topbar.active .fill { opacity:1; }
+  #topbar.done .fill { width:100% !important; opacity:0; transition:width .2s ease,opacity .8s .3s ease; }
+
   .away-banner { display: flex; align-items: center; gap: 10px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase;
     color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent);
     border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 8px;
@@ -146,6 +151,7 @@
 </style>
 </head>
 <body>
+<div id="topbar"><div class="fill" id="topfill"></div></div>
 <div class="wrap">
   <div id="hdr"></div>
   <div id="stats" class="stats"></div>
@@ -224,6 +230,8 @@ const prevLive = new Set();
 let _sessionShown = false;
 const lastVisit = parseInt(localStorage.getItem('ar_last_visit') || '0', 10);
 let _awayBannerDismissed = false;
+let _barWasActive = false;
+let _barDoneTimer = null;
 let winsAll = false;
 let lbSort = "rate";
 let selectedMods = [];
@@ -583,6 +591,24 @@ function render() {
     || (r.goal || "").toLowerCase().includes(f)
     || (r.history || []).some(s => (s.title || "").toLowerCase().includes(f)));
   const live = vis.filter(isLive);
+  const bar = $("topbar"), fill = $("topfill");
+  if (bar && fill) {
+    const totalSteps = live.reduce((s, r) => s + (r.steps || 0), 0);
+    const doneSteps = live.reduce((s, r) => s + (r.history || []).filter(st => st.outcome).length, 0);
+    fill.style.width = (totalSteps > 0 ? Math.round(100 * doneSteps / totalSteps) : 0) + '%';
+    if (live.length > 0) {
+      bar.className = "active";
+      _barWasActive = true;
+      if (_barDoneTimer) { clearTimeout(_barDoneTimer); _barDoneTimer = null; }
+    } else if (_barWasActive) {
+      _barWasActive = false;
+      bar.className = "done";
+      if (_barDoneTimer) clearTimeout(_barDoneTimer);
+      _barDoneTimer = setTimeout(() => { bar.className = ""; _barDoneTimer = null; }, 1500);
+    } else {
+      bar.className = "";
+    }
+  }
   let done = vis.filter((r) => !isLive(r));
   if (show !== "all") done = done.filter((r) => verdict(r)[1] === show || (show === "miss" && verdict(r)[1] === "meh"));
   K.setState(K.pill(live.length > 0, `${live.length} running`, "quiet"));

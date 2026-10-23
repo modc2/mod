@@ -772,6 +772,8 @@
           </select>
         </div>
         <div class="row"><input id="bdesc" placeholder="one line — what it is for (shown when published)"></div>
+        <div class="row"><textarea id="bgreeting" rows="2"
+          placeholder="greeting — what the bot says first (optional)"></textarea></div>
         <div class="row">
           <label class="muted" style="display:flex;gap:6px;align-items:center;cursor:pointer">
             <input type="checkbox" id="bpublic" style="flex:none;min-width:0"> publish &mdash;
@@ -1010,6 +1012,10 @@ function ensureConvo(){
          title:'', msgs:[], ts: Date.now()};
     CONVOS.unshift(c); ACTIVE = c.id;
   }
+  if (c.msgs.length === 0 && BOT) {
+    const g = botGreeting(BOT);
+    if (g) c.msgs.push({role:'assistant', text: g, isGreeting: true});
+  }
   return c;
 }
 
@@ -1160,7 +1166,9 @@ function drawBots(){
       $('#bmodel').value = b.model || ''; $('#bsearch').value = b.search || '';
       $('#btemp').value = b.temperature != null ? String(b.temperature) : '';
       $('#bthink').value = b.reasoning_effort || '';
-      $('#bdesc').value = b.description || ''; $('#bpublic').checked = !!b.public;
+      $('#bdesc').value = b.description || '';
+      $('#bgreeting').value = b.greeting || '';
+      $('#bpublic').checked = !!b.public;
       $('#bname').focus();
     });
     wrap.querySelectorAll('.pubt').forEach(el => el.onclick = async () => {
@@ -1211,6 +1219,7 @@ function drawSideBots(){
     BOT = BOT === el.dataset.bot ? null : el.dataset.bot;
     drawBots(); drawHint();
     toast(BOT ? 'chatting as ' + BOT : 'no bot — plain Grok');
+    if (BOT) { const cv = convo(); if (!cv || cv.msgs.length === 0) { ensureConvo(); drawThread(); } }
   });
 }
 
@@ -1467,8 +1476,11 @@ function msgHTML(m, live, idx, total){
   const badgeHtml = m.debateSide && m.debateBot
     ? `<span class="debate-bot-badge side-${m.debateSide}">◈ ${esc(m.debateBot.toUpperCase())}</span>`
     : '';
+  const greetLabel = m.isGreeting
+    ? '<span class="muted" style="display:block;font:10px var(--mono);letter-spacing:.14em;margin-bottom:5px;opacity:.65">greeting</span>'
+    : '';
   return `<div class="msg assistant${dside}">${XAVA}<div class="bubble${
-      live ? ' live' : ''}">${badgeHtml}${thinkHtml}${md(m.text)}${cites}${footer}</div></div>`;
+      live ? ' live' : ''}">${badgeHtml}${thinkHtml}${greetLabel}${md(m.text)}${cites}${footer}</div></div>`;
 }
 
 const SEEDS = [
@@ -1912,6 +1924,14 @@ function refLabel(ref){
   return i < 0 ? ref : ref.slice(i + 1) + ' @' + short(ref.slice(0, i));
 }
 
+function botGreeting(key){
+  if (!key) return null;
+  const b = BOTS.find(x => x.name === key)
+    || PUBLIC.find(x => !x.mine && x.ref === key)
+    || PUBLIC.find(x => x.mine && x.name === key);
+  return (b && b.greeting) ? b.greeting : null;
+}
+
 async function loadPublic(){
   try { PUBLIC = (await api('/public')).bots || []; }
   catch(e){ PUBLIC = []; }
@@ -2000,12 +2020,13 @@ $('#savebot').onclick = async () => {
                 temperature: parseFloat($('#btemp').value) || null,
                 reasoning_effort: $('#bthink').value || null,
                 description: $('#bdesc').value.trim() || null,
+                greeting: $('#bgreeting').value.trim() || null,
                 public: $('#bpublic').checked};
   if (!body.name) return toast('a bot needs a name', true);
   try { await api('/bots', {method:'POST', body});
         $('#bname').value = ''; $('#bsystem').value = '';
         $('#btemp').value = ''; $('#bthink').value = '';
-        $('#bdesc').value = ''; $('#bpublic').checked = false;
+        $('#bdesc').value = ''; $('#bgreeting').value = ''; $('#bpublic').checked = false;
         toast((body.public ? 'published ' : 'saved ') + body.name);
         loadBots(); loadPublic(); }
   catch(e){ toast(e.message, true); }
@@ -2052,8 +2073,11 @@ $('#trysend').onclick = async () => {
   }
 };
 
-$('#botpick').onchange = () => { BOT = $('#botpick').value || null;
-                                 drawBots(); drawHint(); };
+$('#botpick').onchange = () => {
+  BOT = $('#botpick').value || null;
+  drawBots(); drawHint();
+  if (BOT) { const cv = convo(); if (!cv || cv.msgs.length === 0) { ensureConvo(); drawThread(); } }
+};
 
 $('#debatebtn').onclick = e => {
   e.stopPropagation();
@@ -2825,6 +2849,8 @@ refresh().then(() => {
     BOT = found.mine ? found.name : found.ref;
     drawBots(); drawHint();
     toast('chatting as ' + refLabel(BOT));
+    const cv = convo();
+    if (!cv || cv.msgs.length === 0) { ensureConvo(); drawThread(); }
   } else {
     toast('bot not found', true);
   }

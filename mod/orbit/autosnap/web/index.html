@@ -229,6 +229,35 @@ function hotModules(recent) {
     `</div>`
   ).join('');
 }
+function heatmap(entries) {
+  const DAYS = 84;
+  const now = Math.floor(Date.now() / 1000);
+  const slots = new Array(DAYS).fill(0);
+  for (const e of entries) {
+    if (e.error) continue;
+    const daysAgo = Math.floor((now - (e.ts || 0)) / 86400);
+    const idx = DAYS - 1 - daysAgo;
+    if (idx >= 0 && idx < DAYS) slots[idx]++;
+  }
+  const total = slots.reduce((a, b) => a + b, 0);
+  if (total === 0) return '';
+  const maxCount = Math.max(1, ...slots);
+  const CELL = 11, GAP = 2, COLS = 12, ROWS = 7;
+  const W = COLS * (CELL + GAP) - GAP, H = ROWS * (CELL + GAP) - GAP;
+  let rects = '';
+  for (let i = 0; i < DAYS; i++) {
+    const col = Math.floor(i / ROWS), row = i % ROWS;
+    const count = slots[i];
+    const opacity = count === 0 ? 0.06 : (0.06 + (count / maxCount) * 0.84);
+    const daysAgo = DAYS - 1 - i;
+    const d = new Date((now - daysAgo * 86400) * 1000);
+    const dateStr = d.toISOString().slice(0, 10);
+    const tip = `${count} snap${count !== 1 ? 's' : ''} on ${dateStr}`;
+    rects += `<rect x="${col * (CELL + GAP)}" y="${row * (CELL + GAP)}" width="${CELL}" height="${CELL}" rx="2" fill="var(--green)" fill-opacity="${opacity.toFixed(2)}"><title>${K.esc(tip)}</title></rect>`;
+  }
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;margin-bottom:6px">${rects}</svg>` +
+    `<div class="faint" style="font-size:11.5px;margin-bottom:8px">${total} snap${total !== 1 ? 's' : ''} in the last 12 weeks.</div>`;
+}
 function render() {
   K.setState(K.pill(S.enabled, "on", "off"));
   if (tickTimer) clearInterval(tickTimer);
@@ -368,7 +397,7 @@ async function showFocus(mod) {
     $("focusHistory").innerHTML = `<div class="empty">never snapped yet — use the button below for a first snapshot</div>`;
     return;
   }
-  $("focusHistory").innerHTML = merged.map(r => {
+  $("focusHistory").innerHTML = heatmap(merged) + merged.map(r => {
     const authorPill = r.fromApi && r.author
       ? `<span class="pill ${r.author === "autosnap" ? "on" : ""}" style="font-size:10px">${K.esc(r.author)}</span>`
       : "";

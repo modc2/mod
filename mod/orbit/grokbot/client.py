@@ -134,7 +134,8 @@ def get_bot(address, name):
 
 
 def save_bot(address, name, system=None, model=None, temperature=None,
-             search=None, description=None, public=None, reasoning_effort=None):
+             search=None, description=None, public=None, reasoning_effort=None,
+             greeting=None):
     """A grokbot is a name, a model and a system prompt. Nothing more.
 
     `public=True` publishes it: anyone can see it on GET /public, chat with it
@@ -149,7 +150,8 @@ def save_bot(address, name, system=None, model=None, temperature=None,
     for field, value in (('system', system), ('model', model),
                          ('temperature', temperature), ('search', search),
                          ('description', description),
-                         ('reasoning_effort', reasoning_effort)):
+                         ('reasoning_effort', reasoning_effort),
+                         ('greeting', greeting)):
         if value is not None:
             bot[field] = value
     if public is not None:
@@ -203,7 +205,7 @@ def public_bots(q=None, owner=None, limit=200):
             if not b.get('public'):
                 continue
             row = {k: b.get(k) for k in ('name', 'model', 'system', 'search',
-                                         'temperature', 'description',
+                                         'temperature', 'description', 'greeting',
                                          'published', 'updated', 'uses')}
             row.update(owner=addr, ref=f'{addr}/{b["name"]}')
             if needle and needle not in ' '.join(
@@ -221,7 +223,8 @@ def copy_bot(address, ref, name=None):
     bot = save_bot(address, name or src['name'], system=src.get('system'),
                    model=src.get('model'), temperature=src.get('temperature'),
                    search=src.get('search'), description=src.get('description'),
-                   reasoning_effort=src.get('reasoning_effort'), public=False)
+                   reasoning_effort=src.get('reasoning_effort'),
+                   greeting=src.get('greeting'), public=False)
     if src.get('ref'):
         user = load_user(address)
         user['bots'][bot['name']]['from'] = src['ref']

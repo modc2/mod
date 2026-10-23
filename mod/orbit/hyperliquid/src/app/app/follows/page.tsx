@@ -78,13 +78,25 @@ export default function FollowsPage() {
 
       {/* ── recent signals ── */}
       <div className="space-y-1">
-        <h2 className="text-[13px] font-semibold tracking-tight">recent signals</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-[13px] font-semibold tracking-tight">recent signals</h2>
+          {signals && signals.length > 0 && (() => {
+            const executed = signals.filter(s => s.status === "executed").length;
+            const skipped = signals.filter(s => s.status === "skipped").length;
+            return (
+              <span className="text-[11px] text-muted">
+                {executed} of {signals.length} executed · {skipped} skipped
+              </span>
+            );
+          })()}
+        </div>
         <div className="panel">
-          <div className="grid grid-cols-[1fr_1.2fr_0.8fr_0.7fr_0.9fr_0.9fr_0.9fr] gap-2 px-4 py-2 border-b border-border text-[10px] uppercase tracking-wider text-muted">
+          <div className="grid grid-cols-[1fr_1.2fr_0.8fr_0.7fr_0.9fr_0.9fr_0.9fr_0.9fr] gap-2 px-4 py-2 border-b border-border text-[10px] uppercase tracking-wider text-muted">
             <div>time</div>
             <div>leader</div>
             <div>coin</div>
             <div>side</div>
+            <div className="text-right">leader px</div>
             <div className="text-right">leader sz</div>
             <div className="text-right">copy sz</div>
             <div className="text-right">status</div>
@@ -94,22 +106,25 @@ export default function FollowsPage() {
           ) : signals.length === 0 ? (
             <div className="px-4 py-4 text-xs text-muted">no signals yet — signals appear here once a follow fires</div>
           ) : signals.map((s) => (
-            <div key={s.id} className="grid grid-cols-[1fr_1.2fr_0.8fr_0.7fr_0.9fr_0.9fr_0.9fr] gap-2 px-4 py-2 items-center table-row">
+            <div key={s.id} className="grid grid-cols-[1fr_1.2fr_0.8fr_0.7fr_0.9fr_0.9fr_0.9fr_0.9fr] gap-2 px-4 py-2 items-center table-row">
               <div className="text-[11px] text-muted">{ago(s.ts_ms)}</div>
               <Link href={`/trader/${s.leader}`} className="text-accent2 hover:underline text-xs">
                 {shortAddr(s.leader)}
               </Link>
               <div className="text-xs">{s.coin}</div>
-              <div className={`text-xs font-medium ${s.side === "BUY" ? "text-win" : "text-danger"}`}>
-                {s.side}
+              <div className={`text-xs font-medium ${s.side === "B" ? "text-win" : "text-danger"}`}>
+                {s.side === "B" ? "buy" : "sell"}
               </div>
+              <div className="text-right text-xs num">{s.leader_px.toFixed(4)}</div>
               <div className="text-right text-xs num">{s.leader_sz}</div>
               <div className="text-right text-xs num">{s.copy_sz}</div>
-              <div className={`text-right text-xs ${
-                s.status === "filled" || s.status === "ok" ? "text-accent2"
-                : s.status === "skipped" || s.status === "error" ? "text-danger"
-                : "text-muted"
-              }`}>{s.status}</div>
+              <div className="text-right text-xs">
+                <span className={`pill ${
+                  s.status === "executed" ? "border-win/40 text-win"
+                  : s.status === "skipped" ? "border-muted/40 text-muted"
+                  : "border-warn/40 text-warn"
+                }`}>{s.status}</span>
+              </div>
             </div>
           ))}
         </div>

@@ -499,6 +499,18 @@ async function renderContent(res) {{
       audio.src = URL.createObjectURL(blob);
       audio.style.cssText = 'width:100%';
       areaEl.appendChild(audio);
+    }} else if (ct === 'application/pdf') {{
+      const iframe = document.createElement('iframe');
+      iframe.src = API + '/get/' + TXID;
+      iframe.style.cssText = 'width:100%;height:620px;border:1px solid #20262d;border-radius:6px;display:block';
+      const a = document.createElement('a');
+      a.href = API + '/get/' + TXID;
+      a.download = TXID;
+      a.textContent = 'Download PDF';
+      a.className = 'txid';
+      a.style.cssText = 'display:block;margin-top:4px;font-size:12px';
+      areaEl.appendChild(iframe);
+      areaEl.appendChild(a);
     }} else if (ct.startsWith('text/')) {{
       const text = await res.text();
       const pre = document.createElement('pre');

@@ -166,6 +166,7 @@ def route(method, path, query, body, token, key):
                               search=b.get('search'),
                               description=b.get('description'),
                               reasoning_effort=b.get('reasoning_effort'),
+                              greeting=b.get('greeting'),
                               public=b.get('public'))
         if method == 'DELETE':
             return C.delete_bot(address, _need(arg('name'), 'name'))

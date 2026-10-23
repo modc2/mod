@@ -351,6 +351,10 @@ function postCard(tweet, includes, opts) {
   const irBox = el('div', { class: 'ir', style: 'display:none' },
     irTa, el('div', { class: 'ir-row' }, irCounter, el('div', { class: 'grow' }), irBtn));
   irTa.addEventListener('input', irTick);
+  let replyCount = m.reply_count;
+  let repostCount = m.retweet_count;
+  let likeCount = m.like_count;
+
   irBtn.addEventListener('click', async () => {
     try {
       await jpost('/posts', { text: irTa.value, reply_to: tweet.id });
@@ -358,6 +362,8 @@ function postCard(tweet, includes, opts) {
       irTa.value = '';
       irTick();
       toast('replied');
+      replyCount = (replyCount || 0) + 1;
+      replyBtn.lastElementChild.textContent = num(replyCount);
     } catch (err) {
       if (err.status === 401) { location.hash = '#/compose?reply=' + tweet.id; }
       else { toast(err.message, true); }
@@ -365,33 +371,35 @@ function postCard(tweet, includes, opts) {
   });
   irTick();
 
+  const replyBtn = metric('reply', replyCount, '', () => {
+    if (S.auth.writes) {
+      const open = irBox.style.display === 'none';
+      irBox.style.display = open ? '' : 'none';
+      if (open) irTa.focus();
+    } else {
+      location.hash = '#/compose?reply=' + tweet.id;
+    }
+  }, 'reply to this');
+
   const acts = el('div', { class: 'pmeta' },
-    metric('reply', m.reply_count, '', () => {
-      if (S.auth.writes) {
-        const open = irBox.style.display === 'none';
-        irBox.style.display = open ? '' : 'none';
-        if (open) irTa.focus();
-      } else {
-        location.hash = '#/compose?reply=' + tweet.id;
-      }
-    }, 'reply to this'),
-    metric('repost', m.retweet_count, 'rt', async e => {
+    replyBtn,
+    metric('repost', repostCount, 'rt', async e => {
       const b = e.currentTarget;
       if (b.classList.contains('on')) {
-        try { await fetch('/posts/' + tweet.id + '/repost', { method: 'DELETE' }); b.classList.remove('on'); toast('unreposted'); }
+        try { await fetch('/posts/' + tweet.id + '/repost', { method: 'DELETE' }); b.classList.remove('on'); toast('unreposted'); repostCount = Math.max(0, (repostCount || 0) - 1); b.lastElementChild.textContent = num(repostCount); }
         catch (err) { toast(err.message, true); }
       } else {
-        try { await jpost('/posts/' + tweet.id + '/repost'); b.classList.add('on'); toast('reposted'); }
+        try { await jpost('/posts/' + tweet.id + '/repost'); b.classList.add('on'); toast('reposted'); repostCount = (repostCount || 0) + 1; b.lastElementChild.textContent = num(repostCount); }
         catch (err) { toast(err.message, true); }
       }
     }, 'repost'),
-    metric('like', m.like_count, 'like', async e => {
+    metric('like', likeCount, 'like', async e => {
       const b = e.currentTarget;
       if (b.classList.contains('on')) {
-        try { await fetch('/posts/' + tweet.id + '/like', { method: 'DELETE' }); b.classList.remove('on'); toast('unliked'); }
+        try { await fetch('/posts/' + tweet.id + '/like', { method: 'DELETE' }); b.classList.remove('on'); toast('unliked'); likeCount = Math.max(0, (likeCount || 0) - 1); b.lastElementChild.textContent = num(likeCount); }
         catch (err) { toast(err.message, true); }
       } else {
-        try { await jpost('/posts/' + tweet.id + '/like'); b.classList.add('on'); toast('liked'); }
+        try { await jpost('/posts/' + tweet.id + '/like'); b.classList.add('on'); toast('liked'); likeCount = (likeCount || 0) + 1; b.lastElementChild.textContent = num(likeCount); }
         catch (err) { toast(err.message, true); }
       }
     }, 'like'),

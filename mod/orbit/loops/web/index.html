@@ -69,6 +69,7 @@
 const open = new Set();
 const watchedByUser = new Set();
 const diffState = {};
+const evoState = {};
 const replayState = {};
 let last = null;
 let clockOff = 0;
@@ -342,6 +343,7 @@ function render() {
         <button class="sm" data-a="copylink" title="copy link">⎘</button>
         ${l.status !== "running" && l.iter > 1 && open.has(l.id) && replayState[l.id] === undefined ? `<button class="sm" data-a="replay">▶ replay</button>` : ""}
         ${l.module && open.has(l.id) ? `<button class="sm" data-a="diff">${diffState[l.id] && diffState[l.id] !== 'loading' && l.status !== 'running' ? 'hide diff' : l.status === 'running' ? '↺ live diff' : '📋 diff'}</button>` : ""}
+        ${(() => { if (!open.has(l.id) || l.status === 'running') return ''; const cmdIters = [...new Set((l.log || []).filter(ev => ev.kind === 'cmd' && ev.out).map(ev => ev.iter ?? 0))]; if (cmdIters.length < 2) return ''; return `<button class="sm" data-a="evo">${evoState[l.id] ? 'hide evolution' : '◈ evolution'}</button>`; })()}
         <button class="sm" data-a="clone">clone</button>
         <button class="sm danger" data-a="del">delete</button>
       </div>
@@ -355,6 +357,23 @@ function render() {
         if (ds.commits && ds.commits.trim()) out += `<div class="s mono" style="margin:6px 0 2px">${ds.commits.trim().split('\n').map(K.esc).join('<br>')}</div>`;
         if (ds.diff) { const lines = ds.diff.split('\n').map(ln => { const esc = K.esc(ln); if (ln.startsWith('+') && !ln.startsWith('+++')) return `<span style="color:var(--green)">${esc}</span>`; if (ln.startsWith('-') && !ln.startsWith('---')) return `<span style="color:var(--red)">${esc}</span>`; return esc; }); out += `<pre class="log" style="margin:4px 0 0">${lines.join('\n')}</pre>`; }
         return out;
+      })()}${(() => {
+        if (!open.has(l.id) || !evoState[l.id]) return "";
+        const cmdEvsByIter = {};
+        for (const ev of (l.log || []).filter(ev => ev.kind === 'cmd' && ev.out)) { const k = ev.iter ?? 0; if (!cmdEvsByIter[k]) cmdEvsByIter[k] = ev; }
+        const sortedIters = Object.keys(cmdEvsByIter).sort((a, b) => +a - +b);
+        if (sortedIters.length < 2) return "";
+        let evoParts = '';
+        for (let i = 0; i < sortedIters.length - 1; i++) {
+          const prevIter = sortedIters[i]; const nextIter = sortedIters[i + 1];
+          const prevLines = cmdEvsByIter[prevIter].out.split('\n'); const nextLines = cmdEvsByIter[nextIter].out.split('\n');
+          const prevSet = new Set(prevLines); const nextSet = new Set(nextLines);
+          const fixed = prevLines.filter(ln => !nextSet.has(ln)); const broken = nextLines.filter(ln => !prevSet.has(ln));
+          if (!fixed.length && !broken.length) continue;
+          const rows = [...fixed.map(ln => `<span style="color:var(--green)">${K.esc(ln)}</span>`), ...broken.map(ln => `<span style="color:var(--red)">${K.esc(ln)}</span>`)].join('\n');
+          evoParts += `<div class="faint s" style="padding:3px 0;border-top:.5px solid var(--line)">iteration ${prevIter} → ${nextIter}</div><pre class="log" style="margin:2px 0 4px">${rows}</pre>`;
+        }
+        return evoParts || `<div class="faint s" style="padding:3px 0">no line-level changes between iterations</div>`;
       })()}</div>
     </div>`;
   }).join("");
@@ -562,6 +581,7 @@ document.getElementById("list").addEventListener("click", async (e) => {
     render();
     return;
   }
+  if (a === "evo") { if (evoState[id]) delete evoState[id]; else evoState[id] = true; render(); return; }
   load();
 });
 

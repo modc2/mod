@@ -1153,6 +1153,8 @@ function renderAnchors() {
       <input value="${esc(a.note || '')}" placeholder="what is here" oninput="ANCHORS[${i}].note=this.value">
       <button class="x" onclick="unpin(${i})" title="remove">${icon('x')}</button></div>`).join('')
     || `<div class="pinhint">${icon('pin')}No lines yet — click a line number in the code.</div>`;
+  const asbtn = document.getElementById('autoscan-btn');
+  if (asbtn && !asbtn.disabled) asbtn.textContent = ANCHORS.length ? 'AI-fill form (from pins) →' : 'AI-fill form →';
 }
 
 function unpin(i) {
@@ -1342,7 +1344,8 @@ async function autoScan() {
   if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
   try {
     const focusVal = document.getElementById('autoscan-focus')?.value.trim();
-    const out = await call('autoscan', { module: BRIEF.module, preview: true, ...(focusVal ? { focus: focusVal } : {}) }, 'POST');
+    const anchorPayload = ANCHORS.length ? ANCHORS.map(a => ({ path: a.path, line: a.line })) : undefined;
+    const out = await call('autoscan', { module: BRIEF.module, preview: true, ...(focusVal ? { focus: focusVal } : {}), ...(anchorPayload ? { anchors: anchorPayload } : {}) }, 'POST');
     if (out.error) { toast(out.error, 'err'); return; }
     burst(btn);
     $('title').value = out.title || '';
@@ -1363,7 +1366,7 @@ async function autoScan() {
   } catch (e) {
     toast(e.message, 'err');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'AI-fill form →'; }
+    if (btn) { btn.disabled = false; btn.textContent = ANCHORS.length ? 'AI-fill form (from pins) →' : 'AI-fill form →'; }
   }
 }
 

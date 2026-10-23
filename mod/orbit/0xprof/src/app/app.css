@@ -416,6 +416,10 @@ label code { font-size: 11px; }
 .price { font: 600 13px var(--mono); color: var(--pink); white-space: nowrap; }
 .free { font: 500 12px var(--sans); color: var(--faint); }
 
+/* proof status progression strip */
+.status-strip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 0 16px; }
+.status-strip .sep { color: var(--faint); font-size: 12px; padding: 0 2px; }
+
 /* per-method verdict chips — the card's whole argument in one row */
 .verdict-strip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 14px; }
 .mc {
