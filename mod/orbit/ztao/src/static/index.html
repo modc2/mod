@@ -288,6 +288,35 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
 .cc-bar{height:100%;border-radius:3px}
 .cc-amt{font:11px var(--mono);color:var(--dim);text-align:right;white-space:nowrap}
 .cc-amt.cc-act{color:var(--acc2);font-weight:700}
+/* budget */
+.vrow{display:grid;grid-template-columns:132px 64px 1fr;gap:12px;align-items:center;padding:11px 12px;
+  border:1px solid var(--line);border-radius:12px;background:var(--panel2);margin-bottom:8px}
+.vrow .vb{font:700 12px var(--mono);letter-spacing:1.4px;text-align:center;padding:4px 0;border-radius:7px;border:1px solid}
+.vrow .vb.pass{color:var(--teal2);border-color:rgba(20,184,166,.5);background:rgba(20,184,166,.10)}
+.vrow .vb.fail{color:var(--red);border-color:rgba(244,63,94,.45);background:rgba(244,63,94,.08)}
+.vrow .vd{font:12px var(--mono);color:var(--dim)}
+.vrow .vd b{color:var(--ink)}
+.vrow .vd .big2{font:700 16px var(--mono);color:var(--teal2);letter-spacing:-.3px}
+.vrow .vd .warn2{color:var(--amber)}
+.mx{font:11px var(--mono);border-collapse:separate;border-spacing:3px;width:auto;min-width:100%}
+.mx th{border-bottom:0;padding:4px 7px;white-space:nowrap;text-align:right}
+.mx th.lab{text-align:left}
+.mx td{border-bottom:0;padding:6px 8px;text-align:right;border-radius:7px;background:var(--panel2);
+  color:var(--mute);white-space:nowrap}
+.mx td.lab{text-align:left;background:transparent;color:var(--ink)}
+.mx td.pass{background:rgba(20,184,166,.16);color:var(--teal2);font-weight:700}
+.mx td.near{background:rgba(245,158,11,.10);color:var(--amber)}
+.snd{font:700 9px var(--mono);letter-spacing:1.1px;padding:2px 6px;border-radius:5px;border:1px solid;white-space:nowrap}
+.snd.chain{color:var(--teal2);border-color:rgba(20,184,166,.45)}
+.snd.challenge{color:var(--amber);border-color:rgba(245,158,11,.45)}
+.snd.proof{color:var(--violet);border-color:rgba(167,139,250,.45)}
+.rulepill{cursor:pointer;font:600 11px var(--mono);padding:5px 10px;border-radius:99px;border:1px solid var(--line2);
+  background:var(--panel2);color:var(--dim);white-space:nowrap}
+.rulepill:hover{border-color:var(--acc)}
+.rulepill.on{color:var(--acc2);border-color:var(--accln);background:var(--accbg)}
+.hbk{display:inline-block;font:10px var(--mono);color:var(--mute);background:var(--panel2);border:1px solid var(--line);
+  border-radius:5px;padding:1px 5px;margin:0 3px 3px 0}
+.hbk b{color:var(--teal2)}
 </style>
 </head>
 <body>
@@ -307,6 +336,7 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
     <a href="#live" data-tab="live">LIVE</a>
     <a href="#code" data-tab="code">CONTRACT</a>
     <a href="#costs" data-tab="costs">COSTS</a>
+    <a href="#budget" data-tab="budget">BUDGET</a>
     <a href="#forecast" data-tab="forecast">FORECAST</a>
     <a href="#tests" data-tab="tests">TESTS<span class="cnt" id="tcount"></span></a>
     <span class="gap"></span>
@@ -469,6 +499,50 @@ pre.cl span.l:hover{background:rgba(94,234,212,.04)}
       <div class="ectl"><label>EPOCH HRS<select id="capgrid-hrs"></select></label></div>
       <div id="capgrid-svg" style="overflow-x:auto;margin-top:12px"></div>
       <div id="capgrid-summary"></div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-budget">
+    <div class="card" style="margin-top:18px">
+      <h3>CAN IT BE AFFORDED? <span class="sp"></span><span class="pill" id="bg-at">loading</span></h3>
+      <div class="ectl">
+        <label>TARGET $ / WEEK<select id="bgtarget"></select></label>
+        <label>MINERS<select id="bgminers"></select></label>
+        <label>VALIDATORS<select id="bgvals"></select></label>
+      </div>
+      <div id="bg-verdict" style="margin-top:14px"><div class="empty">loading</div></div>
+      <p class="note" id="bg-note"></p>
+      <div id="bg-caps"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>STRATEGY &times; EPOCH LENGTH <span class="sp"></span><span class="pill" id="bg-mx-at">&ndash;</span></h3>
+      <div id="bg-matrix" style="overflow-x:auto"><div class="empty">&ndash;</div></div>
+      <p class="note" id="bg-mx-note"></p>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>HOW THE PRICE SCALES <span class="sp"></span><span class="pill" id="bg-sc-at">&ndash;</span></h3>
+      <div class="chart" id="bg-sc-chart"><div class="empty">&ndash;</div></div>
+      <div id="bg-sc-legend" style="display:flex;flex-wrap:wrap;margin-top:10px;font:12px var(--mono)"></div>
+      <div id="bg-sc-table" style="overflow-x:auto;margin-top:14px"></div>
+      <div id="bg-growth" style="margin-top:16px"></div>
+      <p class="note" id="bg-sc-note"></p>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h3>MODULAR CONSENSUS + SECURE AGGREGATION <span class="sp"></span><span class="pill" id="bg-agg-state">idle</span></h3>
+      <p class="note" style="margin-top:0" id="bg-rule-note"></p>
+      <div id="bg-rules" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"><span class="empty">loading rules</span></div>
+      <div id="bg-ruletable" style="margin-top:12px"></div>
+      <div class="ectl" style="margin-top:14px">
+        <label>VALIDATORS<select id="bgav"></select></label>
+        <label>TAGS<select id="bgat"></select></label>
+        <label>SILENT<select id="bgad"></select></label>
+        <button class="go" id="bg-run">RUN ONE ROUND</button>
+      </div>
+      <p class="note" id="bg-agg-warn">One round is real cryptography, not a mock: every pair of validators derives a shared pad, so the masks cancel in the sum. It costs about a second and a half at 8 validators and grows with the square of the set.</p>
+      <div id="bg-agg" style="margin-top:4px"><div class="empty">no round yet. Press RUN ONE ROUND.</div></div>
     </div>
   </div>
 
@@ -1355,8 +1429,8 @@ async function followRunning() {
 }
 
 /* ---------------- tabs ---------------- */
-const TABS = ['live', 'code', 'costs', 'forecast', 'tests', 'all', 'paper'];
-const SCOPED = ['live', 'code', 'costs', 'forecast', 'tests'];
+const TABS = ['live', 'code', 'costs', 'budget', 'forecast', 'tests', 'all', 'paper'];
+const SCOPED = ['live', 'code', 'costs', 'budget', 'forecast', 'tests'];
 let TAB = 'live', paperLoaded = false;
 function route() {
   let [tab, ...rest] = (location.hash.slice(1) || 'live').split('/');
@@ -1369,6 +1443,7 @@ function route() {
   $('scope').style.visibility = SCOPED.includes(t) ? '' : 'hidden';
   if (t === 'code') openCode(rest.join('/'));
   if (t === 'costs') renderCosts();
+  if (t === 'budget') renderBudget();
   if (t === 'forecast') renderForecast();
   if (t === 'tests') renderTests();
   if (t === 'all') renderAll();
@@ -1945,6 +2020,401 @@ async function renderForecast() {
   document.querySelectorAll('#fc-legend tr[data-s]').forEach(row => {
     row.onclick = () => _focusFc(row.dataset.s, STRATS);
   });
+}
+
+/* ---------------- budget : can an M x V subnet run for under $X a week ---------------- */
+const BOPT = {
+  bgtarget: [[0.1, '$0.10'], [0.5, '$0.50'], [1, '$1'], [5, '$5'], [10, '$10'], [50, '$50'], [100, '$100'], [1000, '$1,000']],
+  bgminers: [[16, '16'], [64, '64'], [256, '256'], [1024, '1,024'], [4096, '4,096'], [16384, '16,384']],
+  bgvals:   [[8, '8'], [16, '16'], [32, '32'], [64, '64'], [256, '256'], [1024, '1,024']],
+  bgav:     [[4, '4'], [6, '6'], [8, '8'], [12, '12'], [16, '16']],
+  bgat:     [[1, '1'], [2, '2'], [4, '4'], [6, '6'], [8, '8']],
+  bgad:     [[0, 'none'], [1, '1'], [2, '2'], [3, '3']],
+};
+const BDEF = {bgtarget: 1, bgminers: 256, bgvals: 64, bgav: 8, bgat: 4, bgad: 0};
+const BSET = Object.assign({}, BDEF, JSON.parse(localStorage.getItem('ztao.budget') || '{}'));
+for (const id in BOPT) {
+  $(id).innerHTML = BOPT[id].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $(id).value = BOPT[id].some(([v]) => String(v) === String(BSET[id])) ? BSET[id] : BDEF[id];
+  $(id).onchange = () => {
+    BSET[id] = $(id).value; localStorage.setItem('ztao.budget', JSON.stringify(BSET));
+    if (id === 'bgtarget' || id === 'bgminers' || id === 'bgvals') renderBudget(true);
+  };
+}
+const BG_COLORS = Object.assign({}, FC_COLORS, {secagg: '#38bdf8', aggregate: '#14b8a6', proved: '#c084fc'});
+const SND_WHY = {
+  chain: 'soundness from the chain: it verifies every signature itself',
+  challenge: 'soundness from a challenge window: cheap by default, anyone can force the chain to re-check it',
+  proof: 'soundness from a validity proof: one proof stands in for every signature',
+};
+const BG_SIZES = '64,256,1024,4096,10000,16384,65536';
+/* decade labels on a log axis: $0.01 … $100 plain, $1.0k and up abbreviated */
+const bg_ylab = v => '$' + (v >= 1000 ? fmtM(v) : String(+v.toPrecision(12)));
+const TICK_SVG = '<svg viewBox="0 0 12 12" width="12" height="12" fill="none"><path d="M2 6.4l3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CROSS_SVG = '<svg viewBox="0 0 12 12" width="12" height="12" fill="none"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+let BGF = null, BGS = null, BGRULES = null, BRULE = 'yuma';
+let _bgFKey = '', _bgSKey = '', _bgSeq = 0, _bgAggBusy = false;
+const bgNum = v => v == null ? '-' : Number(v).toLocaleString();
+const bgTarget = () => parseFloat(BSET.bgtarget) || 1;
+const bgName = c => (CH[c] && CH[c].name) || c;
+const bgRowOf = (d, s) => ((d && d.rows) || []).find(r => r.strategy === s) || {};
+const bgChains = f => {
+  const ks = Object.keys((f && f.chains) || {});
+  return ORDER.filter(c => ks.includes(c)).concat(ks.filter(c => !ORDER.includes(c)));
+};
+
+async function renderBudget(force) {
+  const t = bgTarget(), M = parseInt(BSET.bgminers, 10), V = parseInt(BSET.bgvals, 10);
+  const fkey = `${t}|${M}|${V}`;
+  const seq = ++_bgSeq;
+  if (force || fkey !== _bgFKey || !BGF) {
+    _bgFKey = fkey; BGF = null;
+    $('bg-at').textContent = 'loading';
+    $('bg-verdict').innerHTML = '<div class="empty">pricing every chain</div>';
+    let f = null;
+    try { f = await get('feasible', `?target=${t}&miners=${M}&validators=${V}`); } catch { f = null; }
+    if (seq !== _bgSeq) return;
+    BGF = (f && !f.error && f.chains) ? f : null;
+    if (!BGF) _bgFKey = '';  // a load that failed must not be cached as an answer
+  }
+  bgVerdict();
+  bgMatrix();
+  bgRules();
+  bgScale(force);
+}
+
+function bgVerdict() {
+  const f = BGF;
+  if (!f) {
+    $('bg-at').textContent = 'no data';
+    $('bg-verdict').innerHTML = '<div class="empty">could not price a subnet this size</div>';
+    $('bg-note').textContent = ''; $('bg-caps').innerHTML = '';
+    return;
+  }
+  const t = f.target, names = bgChains(f), chains = f.chains;
+  $('bg-at').textContent = `${bgNum(f.miners)} miners \xd7 ${bgNum(f.validators)} validators under ${usd(t)} a week`;
+  if (!names.length) {
+    $('bg-verdict').innerHTML = '<div class="empty">no chain has mainnet pricing yet</div>';
+    $('bg-note').textContent = ''; $('bg-caps').innerHTML = '';
+    return;
+  }
+  let h = '';
+  for (const c of names) {
+    const d = chains[c] || {}, b = d.best, ok = !!(d.feasible && b);
+    const col = CHAIN_COLORS[c] || 'var(--ink)';
+    let det;
+    if (ok) {
+      const row = bgRowOf(d, b.strategy);
+      const hr = b.headroom == null ? null : (b.headroom >= 1 ? +b.headroom.toPrecision(3) : b.headroom.toFixed(2));
+      det = `<span class="big2">${usd(b.usd_week)}</span> a week &middot; ` +
+        `<b>${esc(b.strategy)}</b> on <b>${esc(String(b.hours))} h</b> epochs` +
+        `<div style="margin-top:3px">${esc(row.label || '')}</div>` +
+        `<div style="margin-top:3px">running ${usd(b.running)} + payouts ${usd(b.payout)} &middot; ` +
+        `${usd(b.epoch_usd)} an epoch` + (hr ? ` &middot; <b>${hr}\xd7 headroom</b>` : '') +
+        (row.soundness ? ` &middot; <span class="snd ${esc(row.soundness)}" title="${esc(SND_WHY[row.soundness] || '')}">${esc(row.soundness)}</span>` : '') +
+        `</div>`;
+    } else {
+      let best = null;
+      for (const r of d.rows || []) if (r.cheapest != null && (!best || r.cheapest < best.cheapest)) best = r;
+      const over = best ? best.cheapest / (t || 1) : 0;
+      det = best
+        ? `<span class="warn2">nothing fits.</span> The cheapest anything gets is <b>${usd(best.cheapest)}</b> a week ` +
+          `(<b>${esc(best.strategy)}</b> on ${esc(String(best.cheapest_hours))} h epochs), ` +
+          `<b>${over >= 100 ? bgNum(Math.round(over)) : over.toFixed(1)}\xd7</b> over the budget`
+        : `<span class="warn2">nothing fits at this size.</span>`;
+    }
+    const ub = new Set(d.unbounded || []);
+    const cap = k => ub.has(k)
+      ? '<span style="color:var(--teal2)">unbounded (cost does not depend on it)</span>'
+      : `<b>${d[k] != null && d[k] === d.search_ceiling ? '&ge; ' : ''}${bgNum(d[k])}</b>`;
+    const largest = ok
+      ? `<div style="margin-top:5px;color:var(--mute)">largest subnet that still fits ${usd(t)}: ` +
+        `${cap('max_miners')} miners / ${cap('max_validators')} validators</div>`
+      : '';
+    h += `<div class="vrow"><div><span class="chainbadge ${esc(c)}" style="color:${col}">${esc(bgName(c).toUpperCase())}</span>` +
+      `<div style="font:11px var(--mono);color:var(--mute);margin-top:4px">${esc(d.symbol || '')} ${usd(d.usd_price)}${d.stale ? ' stale' : ''}</div></div>` +
+      `<div class="vb ${ok ? 'pass' : 'fail'}">${ok ? 'PASS' : 'FAIL'}</div>` +
+      `<div class="vd">${det}${largest}</div></div>`;
+  }
+  $('bg-verdict').innerHTML = h;
+  const fo = f.feasible_on || [];
+  $('bg-note').innerHTML = fo.length
+    ? `A subnet of ${bgNum(f.miners)} miners and ${bgNum(f.validators)} validators runs for under ${usd(t)} a week on ` +
+      `<b>${fo.map(c => esc(bgName(c))).join(', ')}</b>` +
+      (f.cheapest ? ` &mdash; cheapest on <b>${esc(bgName(f.cheapest))}</b>.` : '.')
+    : `No chain can run ${bgNum(f.miners)} miners and ${bgNum(f.validators)} validators for under ${usd(t)} a week. Raise the budget or lengthen the epoch.`;
+  const caps = names.filter(c => (chains[c] || {}).proof_over_tx_cap).map(c => {
+    const d = chains[c];
+    const over = (d.rows || []).filter(r => r.over_tx_cap).map(r => r.strategy);
+    return `<p class="note"><b>${esc(bgName(c))}:</b> a validity proof needs about ${bgNum(Math.round(d.proof_load))} ${esc(d.capacity_unit || '')} ` +
+      `and one transaction may spend ${bgNum(Math.round(d.tx_cap))} &mdash; the proof does not fit in a single transaction, ` +
+      `which is why its proof-based rungs (${over.map(s => esc(s)).join(', ') || 'proof'}) cannot pass.</p>`;
+  }).join('');
+  $('bg-caps').innerHTML = caps;
+}
+
+function bgMatrix() {
+  const c = CHAIN, d = BGF && (BGF.chains || {})[c], el = $('bg-matrix');
+  if (!d || !(d.rows || []).length) {
+    $('bg-mx-at').textContent = 'no mainnet pricing';
+    el.innerHTML = `<div class="empty">no mainnet pricing for ${esc(bgName(c))} yet</div>`;
+    $('bg-mx-note').textContent = '';
+    return;
+  }
+  const t = BGF.target;
+  $('bg-mx-at').textContent = `${bgName(c)} \xb7 ring ${d.ring} \xb7 target ${usd(t)}/week`;
+  const hours = (d.hours && d.hours.length) ? d.hours : ((d.rows[0] || {}).cells || []).map(x => x.hours);
+  let h = `<table class="mx"><tr><th class="lab">strategy</th><th class="lab">sound</th><th class="lab">order</th>` +
+    hours.map(x => `<th>${esc(String(x))} h</th>`).join('') + `<th class="lab">cheapest</th></tr>`;
+  for (const r of d.rows) {
+    const by = {};
+    for (const x of r.cells || []) by[x.hours] = x;
+    const tip = `${r.trust || ''}${r.privacy && r.privacy.note ? ' — privacy: ' + r.privacy.note : ''}`;
+    h += `<tr><td class="lab" title="${esc(tip)}"><b>${esc(r.strategy)}</b>` +
+      (r.optimistic ? ' <span style="color:var(--amber)" title="optimistic: priced assuming nobody challenges">*</span>' : '') +
+      `<div style="color:var(--mute);font-size:10px;max-width:230px;white-space:normal">${esc(r.label || '')}</div></td>` +
+      `<td class="lab"><span class="snd ${esc(r.soundness || 'chain')}" title="${esc(SND_WHY[r.soundness] || '')}">${esc(r.soundness || '-')}</span>` +
+      (r.over_tx_cap ? '<div style="color:var(--red);font:700 9px var(--mono);letter-spacing:1px;margin-top:4px">OVER TX CAP</div>' : '') +
+      `</td><td class="lab" style="color:var(--dim)">${esc(r.order || '')}</td>`;
+    for (const x of hours) {
+      const cell = by[x];
+      if (!cell) { h += '<td>&ndash;</td>'; continue; }
+      const cls = cell.pass ? 'pass' : (cell.headroom >= 0.5 ? 'near' : '');
+      const ht = cell.headroom != null ? ` \xb7 ${cell.headroom >= 1 ? (+cell.headroom.toPrecision(3)) : cell.headroom.toPrecision(2)}x headroom` : '';
+      h += `<td class="${cls}" title="running ${usd(cell.running)} + payouts ${usd(cell.payout)} \xb7 ${usd(cell.epoch_usd)} an epoch \xb7 K=${cell.K}${ht}">${usd(cell.usd_week)}</td>`;
+    }
+    h += `<td class="lab" style="color:var(--dim)">${r.cheapest != null ? `${usd(r.cheapest)} @ ${esc(String(r.cheapest_hours))} h` : '-'}</td></tr>`;
+  }
+  h += '</table>';
+  el.innerHTML = h;
+  const pass = d.rows.filter(r => (r.passes || []).length).map(r => esc(r.strategy));
+  $('bg-mx-note').innerHTML = `Green cells come in under ${usd(t)} a week, amber ones get within half of it. ` +
+    (pass.length ? `On ${esc(bgName(c))} only <b>${pass.join(', ')}</b> ever land under the target.` : `On ${esc(bgName(c))} no rung lands under the target at this size.`) +
+    ` A <span style="color:var(--amber)">*</span> marks an optimistic price: it assumes nobody opens a challenge. Hover a row for what it trusts and what it leaks.`;
+}
+
+async function bgScale(force) {
+  const c = CHAIN, t = bgTarget(), skey = `${c}|${t}`, seq = _bgSeq;
+  if (force || skey !== _bgSKey || !BGS) {
+    _bgSKey = skey; BGS = null;
+    $('bg-sc-at').textContent = 'loading';
+    $('bg-sc-chart').innerHTML = '<div class="empty">pricing every set size</div>';
+    let s = null;
+    try { s = await get('scale', `?chain=${encodeURIComponent(c)}&sizes=${BG_SIZES}&ratio=4&target=${t}`); } catch { s = null; }
+    if (seq !== _bgSeq) return;
+    BGS = (s && !s.error && s.chains) ? s : null;
+    if (!BGS) _bgSKey = '';  // likewise: retry on the next activation
+  }
+  const d = BGS && (BGS.chains || {})[c];
+  if (!d || !(d.rows || []).length) {
+    $('bg-sc-at').textContent = 'no mainnet pricing';
+    $('bg-sc-chart').innerHTML = `<div class="empty">no mainnet pricing for ${esc(bgName(c))} yet</div>`;
+    $('bg-sc-legend').innerHTML = ''; $('bg-sc-table').innerHTML = '';
+    $('bg-growth').innerHTML = ''; $('bg-sc-note').textContent = '';
+    return;
+  }
+  const target = d.target != null ? d.target : t;
+  const rows = d.rows, STR = d.strategies || [];
+  $('bg-sc-at').textContent = `${bgName(c)} \xb7 ${d.symbol} ${usd(d.usd_price)}${d.stale ? ' \xb7 stale' : ''} \xb7 ${d.epoch_hours} h epochs \xb7 1 validator per ${d.ratio} miners`;
+  /* log-log chart: $/week against set size, one polyline per strategy */
+  const vals = rows.flatMap(r => STR.map(s => r[s] && r[s].usd_week)).filter(v => v != null && v > 0);
+  if (vals.length) {
+    const W3 = 680, H3 = 300, ll = 62, rr = 18, tt = 20, bb = 42;
+    const lo = Math.min(...vals, target), hi = Math.max(...vals, target);
+    const d0 = Math.floor(Math.log10(lo)), d1 = Math.ceil(Math.log10(hi));
+    const span = Math.max(d1 - d0, 1);
+    const yl = v => tt + (H3 - tt - bb) * (1 - (Math.log10(Math.max(v, Math.pow(10, d0))) - d0) / span);
+    const nx0 = Math.log2(rows[0].n), nx1 = Math.log2(rows[rows.length - 1].n);
+    const xl = n => ll + (Math.log2(n) - nx0) / Math.max(nx1 - nx0, 1e-9) * (W3 - ll - rr);
+    let g = `<svg viewBox="0 0 ${W3} ${H3}" role="img" aria-label="cost per week against subnet size, log-log">`;
+    for (let k = d0; k <= d1; k++) {
+      g += `<line x1="${ll}" x2="${W3 - rr}" y1="${yl(Math.pow(10, k)).toFixed(1)}" y2="${yl(Math.pow(10, k)).toFixed(1)}" stroke="#152126"/>`;
+      g += `<text x="${ll - 6}" y="${(yl(Math.pow(10, k)) + 4).toFixed(1)}" text-anchor="end" fill="#566d71" style="font:11px var(--mono)">${bg_ylab(Math.pow(10, k))}</text>`;
+    }
+    rows.forEach(r => {
+      g += `<text x="${xl(r.n).toFixed(1)}" y="${H3 - bb + 18}" text-anchor="middle" fill="#8aa3a6" style="font:10px var(--mono)">${fmtM(r.n)}</text>`;
+    });
+    g += `<line x1="${ll}" x2="${W3 - rr}" y1="${yl(target).toFixed(1)}" y2="${yl(target).toFixed(1)}" stroke="var(--teal2)" stroke-width="1.5" stroke-dasharray="5 3" opacity="0.9"/>`;
+    g += `<text x="${W3 - rr - 4}" y="${(yl(target) - 6).toFixed(1)}" text-anchor="end" fill="var(--teal2)" style="font:10px var(--mono)">target ${usd(target)} / week</text>`;
+    for (const s of STR) {
+      const col = BG_COLORS[s] || '#566d71';
+      const pts = rows.map(r => { const v = r[s] && r[s].usd_week; return v != null && v > 0 ? `${xl(r.n).toFixed(1)},${yl(v).toFixed(1)}` : null; }).filter(Boolean);
+      const wide = s === 'aggregate' || s === 'baseline';
+      if (pts.length > 1) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="${wide ? 3 : 1.6}" stroke-linejoin="round" stroke-linecap="round" opacity="${wide ? 1 : 0.8}"/>`;
+      rows.forEach(r => { const v = r[s] && r[s].usd_week; if (v != null && v > 0) g += `<circle cx="${xl(r.n).toFixed(1)}" cy="${yl(v).toFixed(1)}" r="2.2" fill="${col}"/>`; });
+    }
+    const colW = (W3 - ll - rr) / Math.max(rows.length - 1, 1);
+    rows.forEach((r, i) => {
+      const rx = i === 0 ? ll : xl(r.n) - colW / 2;
+      const rend = i === rows.length - 1 ? W3 - rr : xl(r.n) + colW / 2;
+      g += `<rect x="${rx.toFixed(1)}" y="${tt}" width="${Math.max(0, rend - rx).toFixed(1)}" height="${H3 - tt - bb}" fill="transparent" data-i="${i}"/>`;
+    });
+    g += `<text x="${ll - 54}" y="${tt - 6}" fill="#566d71" style="font:10px var(--mono)">$/week</text>`;
+    g += `<text x="${(ll + (W3 - ll - rr) / 2).toFixed(1)}" y="${H3 - 6}" text-anchor="middle" fill="#566d71" style="font:10px var(--mono);letter-spacing:1.2px">MINERS IN THE SUBNET (LOG)</text>`;
+    g += '</svg><div class="tip"></div>';
+    const chEl = $('bg-sc-chart');
+    chEl.innerHTML = g;
+    const tip = chEl.querySelector('.tip');
+    chEl.querySelectorAll('rect[data-i]').forEach(rc => {
+      rc.onmousemove = ev => {
+        const r = rows[+rc.dataset.i], bb2 = chEl.getBoundingClientRect();
+        const lines = STR.map(s => {
+          const sd = r[s];
+          return `<span style="color:${BG_COLORS[s] || '#8aa3a6'}">${esc(s)}</span> ${usd(sd && sd.usd_week)}` +
+            (sd && sd.under_target ? ' <span style="color:var(--teal2)">under</span>' : '');
+        }).join('<br>');
+        tip.innerHTML = `<div style="color:var(--dim);margin-bottom:3px;font-weight:700">${bgNum(r.miners)} miners \xd7 ${bgNum(r.validators)} validators</div>${lines}`;
+        tip.style.left = Math.max(0, Math.min(ev.clientX - bb2.left + 12, bb2.width - 230)) + 'px';
+        tip.style.top = (ev.clientY - bb2.top - 34) + 'px';
+        tip.style.opacity = 1;
+      };
+      rc.onmouseleave = () => { tip.style.opacity = 0; };
+    });
+  } else {
+    $('bg-sc-chart').innerHTML = '<div class="empty">nothing priced at these sizes</div>';
+  }
+  $('bg-sc-legend').innerHTML = STR.map(s => {
+    const col = BG_COLORS[s] || '#566d71', gw = (d.growth || {})[s] || {};
+    return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px" title="${esc(gw.claimed_order || '')}">` +
+      `<span style="display:inline-block;width:18px;height:3px;background:${col};border-radius:2px"></span>` +
+      `<span style="color:var(--dim)">${esc(s)}</span>` +
+      `<span style="color:var(--mute);font-size:10px">${esc(gw.claimed_order || '')}</span></span>`;
+  }).join('');
+  /* the same numbers as a table */
+  let tb = `<table class="mx"><tr><th class="lab">set size</th>` + STR.map(s => `<th>${esc(s)}</th>`).join('') + '</tr>';
+  for (const r of rows) {
+    tb += `<tr><td class="lab"><b>${bgNum(r.miners)}</b> m <span style="color:var(--mute)">/ ${bgNum(r.validators)} v</span></td>` +
+      STR.map(s => {
+        const sd = r[s];
+        if (!sd) return '<td>&ndash;</td>';
+        return `<td class="${sd.under_target ? 'pass' : ''}" title="running ${usd(sd.running)} + payouts ${usd(sd.payout)} \xb7 ${usd(sd.epoch_usd)} an epoch \xb7 ${usd(sd.per_miner)} per miner">${usd(sd.usd_week)}</td>`;
+      }).join('') + '</tr>';
+  }
+  tb += '</table>';
+  $('bg-sc-table').innerHTML = tb;
+  /* claimed order against the measured slope */
+  const gr = d.growth || {};
+  let gt = '<h3 style="margin-bottom:10px">CLAIMED ORDER vs MEASURED SLOPE</h3><table class="cmp"><tr><th>strategy</th><th>claimed order</th>' +
+    '<th>measured slope</th><th>in band</th><th>largest subnet under target</th></tr>';
+  for (const s of STR) {
+    const g2 = gr[s];
+    if (!g2) continue;
+    const band = g2.slope_band || [];
+    const inb = g2.slope != null && band.length === 2 && g2.slope >= band[0] && g2.slope <= band[1];
+    const col = BG_COLORS[s] || '#566d71';
+    gt += `<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};margin-right:6px"></span>` +
+      `<span title="${esc(g2.label || '')}">${esc(s)}</span>${g2.optimistic ? ' <span style="color:var(--amber)">*</span>' : ''}</td>` +
+      `<td><code>${esc(g2.claimed_order || '')}</code></td>` +
+      `<td><b>${g2.slope != null ? g2.slope.toFixed(2) : '-'}</b> <span style="color:var(--mute)">band ${band.length === 2 ? `${band[0]}–${band[1]}` : '-'}` +
+      (g2.fit_between ? ` \xb7 fit ${fmtM(g2.fit_between[0])}–${fmtM(g2.fit_between[1])}` : '') + '</span></td>' +
+      `<td><span style="color:${inb ? 'var(--teal2)' : 'var(--red)'}" title="${inb ? 'the measured slope matches the claimed order' : 'the measured slope falls outside the band the claimed order predicts'}">${inb ? TICK_SVG : CROSS_SVG}</span></td>` +
+      `<td>${g2.max_n_under_target ? `<b>${bgNum(g2.max_n_under_target)}</b> miners` : '<span style="color:var(--mute)">never</span>'}</td></tr>`;
+  }
+  gt += '</table>';
+  $('bg-growth').innerHTML = gt;
+  const base = gr.baseline || {}, agg = gr.aggregate || {};
+  $('bg-sc-note').innerHTML = (base.slope != null && agg.slope != null)
+    ? `A slope of 1 on this chart means the price doubles when the subnet doubles. <b>baseline</b> measures ` +
+      `<b>${base.slope.toFixed(2)}</b> &mdash; squared growth, ${usd((rows[rows.length - 1].baseline || {}).usd_week)} a week at ` +
+      `${bgNum(rows[rows.length - 1].miners)} miners &mdash; while <b>aggregate</b> measures <b>${agg.slope.toFixed(2)}</b>, ` +
+      `nearly flat, and stays under ${usd(target)} up to <b>${bgNum(agg.max_n_under_target)}</b> miners. ` +
+      `That is the whole argument: the chain stops paying per signature.`
+    : 'A slope of 1 means the price doubles when the subnet doubles.';
+}
+
+async function bgRules() {
+  if (BGRULES) return;
+  let r = null;
+  try { r = await get('rules'); } catch { r = null; }
+  if (!r || !r.rules) { $('bg-rules').innerHTML = '<span class="empty">could not load the rules</span>'; return; }
+  BGRULES = r;
+  if ((r.rules || []).some(x => x.rule === (r.default || 'yuma'))) BRULE = r.default || 'yuma';
+  $('bg-rule-note').innerHTML = `Consensus is a module, not a constant: the same masked round settles under any of these rules. ` +
+    `Scores are 0&ndash;${esc(String(r.max_score))}.` + (r.note ? ` <span style="color:var(--mute)"><code>${esc(r.note)}</code></span>` : '');
+  $('bg-ruletable').innerHTML = '<table class="cmp"><tr><th>rule</th><th>what it does</th><th>aggregate it needs</th></tr>' +
+    r.rules.map(x => `<tr><td>${esc(x.rule)}${x.rule === r.default ? ' <span class="pill">default</span>' : ''}</td>` +
+      `<td>${esc(x.note || '')}</td><td><code>${esc(x.aggregate || '')}</code></td></tr>`).join('') + '</table>';
+  bgRulePills();
+}
+function bgRulePills() {
+  if (!BGRULES) return;
+  $('bg-rules').innerHTML = BGRULES.rules.map(x =>
+    `<span class="rulepill${x.rule === BRULE ? ' on' : ''}" data-rule="${esc(x.rule)}" role="radio" tabindex="0" ` +
+    `aria-checked="${x.rule === BRULE}" title="${esc(x.note || '')}">${esc(x.rule.toUpperCase())} <span style="color:var(--mute)">${esc(x.aggregate || '')}</span></span>`).join('');
+  $('bg-rules').querySelectorAll('.rulepill').forEach(p => {
+    const pick = () => { BRULE = p.dataset.rule; bgRulePills(); };
+    p.onclick = pick;
+    p.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(); } };
+  });
+}
+
+$('bg-run').onclick = async () => {
+  if (_bgAggBusy) return;
+  const btn = $('bg-run');
+  const V = Math.min(16, parseInt(BSET.bgav, 10) || 8);
+  const T = Math.min(8, parseInt(BSET.bgat, 10) || 4);
+  const D = Math.max(0, Math.min(parseInt(BSET.bgad, 10) || 0, V - 1));
+  _bgAggBusy = true; btn.disabled = true; btn.classList.add('running');
+  $('bg-agg-state').textContent = 'running…';
+  $('bg-agg').innerHTML = `<div class="empty">${V} validators masking ${T} tags, summing, unmasking…</div>`;
+  let a = null;
+  try { a = await get('aggregate', `?validators=${V}&tags=${T}&rule=${encodeURIComponent(BRULE)}&drop=${D}`); } catch { a = null; }
+  _bgAggBusy = false; btn.disabled = false; btn.classList.remove('running');
+  if (!a || a.error || !a.hists) {
+    $('bg-agg-state').textContent = 'error';
+    $('bg-agg').innerHTML = `<div class="empty">${esc((a && a.error) || 'the round did not come back')}</div>`;
+    return;
+  }
+  $('bg-agg-state').textContent = `${a.rule} \xb7 ${a.reported}/${a.validators}`;
+  bgAggRender(a);
+};
+
+function bgAggRender(a) {
+  const ok = !!(a.exact && a.matches_plain);
+  const st = a.settled || {}, tags = st.tags || {};
+  const refs = a.reference_scores || {}, hists = a.hists || {}, rhists = a.reference_hists || {};
+  const nz = h => (h || []).map((cnt, s) => [s, cnt]).filter(([, cnt]) => cnt > 0);
+  let h = `<div class="vrow" style="grid-template-columns:76px 1fr"><div class="vb ${ok ? 'pass' : 'fail'}">${ok ? 'PASS' : 'FAIL'}</div>` +
+    `<div class="vd">${ok
+      ? 'The aggregate equals the histogram of the scores in the clear, and no single score was revealed.'
+      : `The recovered aggregate does not match the scores in the clear (exact ${a.exact}, matches_plain ${a.matches_plain}).`}` +
+    `<div style="margin-top:4px;color:var(--mute)">rule <b>${esc(a.rule)}</b> \xb7 ${a.reported} of ${a.validators} validators reported` +
+    (a.dropped ? ` \xb7 <span class="warn2">${a.dropped} went silent, recovered from the survivors' pads</span>` : ' \xb7 nobody went silent') +
+    ` \xb7 modulus 2^${Math.round(Math.log2(a.modulus || 1))}</div></div></div>`;
+  h += '<table style="margin-top:12px"><tr><th>tag</th><th>scores in the clear</th><th>recovered histogram</th><th>C</th><th>R</th><th>share</th><th>same</th></tr>';
+  for (const tag of Object.keys(hists)) {
+    const d = tags[tag] || {}, scores = refs[tag] || [];
+    const same = JSON.stringify(hists[tag]) === JSON.stringify(rhists[tag] || hists[tag]);
+    const buckets = nz(hists[tag]).map(([s, cnt]) => `<span class="hbk"><b>${s}</b>${cnt > 1 ? ' \xd7' + cnt : ''}</span>`).join('');
+    h += `<tr><td class="tag">${esc(tag)}</td>` +
+      `<td style="vertical-align:middle;padding:2px 4px">${scoreSpark(scores, d.consensus != null ? d.consensus : 0)}` +
+      `<div style="color:var(--mute);font-size:10px;max-width:220px;white-space:normal;margin-top:4px">${esc(scores.join(' '))}</div></td>` +
+      `<td style="white-space:normal;max-width:260px">${buckets || '<span style="color:var(--mute)">empty</span>'}</td>` +
+      `<td><b>${d.consensus != null ? d.consensus : '-'}</b></td><td>${d.rank != null ? bgNum(d.rank) : '-'}</td>` +
+      `<td>${d.share != null ? `${bgNum(d.share)} <span style="color:var(--mute)">/ ${bgNum(st.emission)}</span>` : '-'}</td>` +
+      `<td style="color:${same ? 'var(--teal2)' : 'var(--red)'}">${same ? TICK_SVG : CROSS_SVG}</td></tr>`;
+  }
+  h += '</table>';
+  h += `<p class="note">Only the non-zero buckets are shown: each tag's histogram is ${(a.wire || {}).buckets || 101} buckets wide, ` +
+    `and the aggregate recovers all of them. <b>C</b> is the consensus the rule picks, <b>R</b> the rank it emits, ` +
+    `and share is out of ${bgNum(st.emission)} with ${bgNum(st.rank_total)} points emitted across ${Object.keys(tags).length} tags ` +
+    `(it needs ${bgNum(st.need)} of ${bgNum(st.validators)} validators).</p>`;
+  const w = a.wire || {};
+  h += `<div class="grid" style="grid-template-columns:1fr 1fr;margin-top:8px">` +
+    `<div class="card" style="background:var(--panel2)"><h3>WHAT WENT ON THE WIRE</h3><div class="kv">` +
+    `<span>buckets per tag</span><span>${bgNum(w.buckets)}</span>` +
+    `<span>values per validator</span><span>${bgNum(w.vector_values)}</span>` +
+    `<span>bytes per validator</span><span>${bgNum(w.vector_bytes)} B</span>` +
+    `<span>every masked vector</span><span>${bgNum(w.masked_total_bytes)} B</span>` +
+    `<span>the aggregate</span><span>${bgNum(w.aggregate_bytes)} B</span>` +
+    `<span>pair masks each holds</span><span>${bgNum(w.pairmasks_per_validator)}</span>` +
+    `</div><p class="note">Masked. Every <code>y_i</code> is a one-time pad; the pads cancel only in the sum.</p></div>` +
+    `<div class="card" style="background:var(--panel2)"><h3>WHAT THE CHAIN STORES</h3>` +
+    `<div class="big" style="color:var(--teal2)">${bgNum(w.onchain_values)}<small>values</small></div>` +
+    `<p class="note">One settled number per tag instead of ${bgNum(w.vector_values)} masked ones per validator. ` +
+    `The chain never sees a score, only the set's histogram.</p>` +
+    `<div class="kv" style="margin-top:10px"><span>leaked</span><span style="white-space:normal;color:var(--teal2)">${esc(a.leaked || '')}</span></div></div></div>`;
+  $('bg-agg').innerHTML = h;
 }
 
 /* ---------------- tests : only this chain ---------------- */

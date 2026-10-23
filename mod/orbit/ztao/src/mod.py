@@ -56,7 +56,8 @@ def _package():
 
 _package()
 from ztao_src import DATA, ROOT  # noqa: E402
-from ztao_src.core import experiment as ex, fees, forecast as fc, guard, util, yuma  # noqa: E402
+from ztao_src.core import (budget as bg, consensus as cs, experiment as ex,  # noqa: E402
+                           fees, forecast as fc, guard, secagg as sa, util, yuma)
 from ztao_src.core.signer import Signer  # noqa: E402
 from ztao_src.core.util import ROLES, load, save  # noqa: E402
 from ztao_src.networks import Registry  # noqa: E402
@@ -335,6 +336,111 @@ class Mod:
                 if per_block and bs else None}
         return out
 
+    def _priced(self, a, row, m):
+        """(units, caps) for one chain: forecast.units() with the modeled
+        validity proof and the minimal transaction priced through the
+        adapter's own fee(), plus the per-transaction limit a rung has to fit
+        in (a proof that does not fit cannot be used, however cheap it is)."""
+        def usd(cost):
+            if not cost or not m.get('usd'):
+                return None
+            n = a.fee(cost, m)
+            return n * m['usd'] if n else None
+        pc, tc = fc.PROOF_COST.get(a.chain), fc.TX_COST.get(a.chain)
+        return fc.units(row, usd(pc), usd(tc)), {
+            'tx_cap': row.get('tx_cap'), 'unit': row.get('capacity_unit'),
+            'proof_load': a.load(pc) if pc else None,
+            'proof_estimated': pc is not None, 'tx_estimated': tc is not None}
+
+    def _chain_units(self, chain=None):
+        """{chain: (adapter, economics row, units, caps)} for every priced
+        chain — what feasible()/scale()/forecast() all start from."""
+        eco = self.economics()
+        q = (fees.quote(NETS).get('chains') or {})
+        out = {}
+        for a in NETS:
+            row = eco['chains'].get(a.chain)
+            if not row or (chain and a.chain != chain):
+                continue
+            u, caps = self._priced(a, row, q.get(a.chain) or {})
+            if u:
+                out[a.chain] = (a, row, u, caps)
+        return eco, out
+
+    def feasible(self, target=1.0, miners=256, validators=64, chain=None,
+                 ring=16, hours='1,2,4,6,12,24', epoch_hours=None, k=None,
+                 c=None):
+        """CAN IT BE AFFORDED? Every chain x strategy x epoch length against a
+        $/week budget for an M x V subnet (default: the module's own bar, $1 a
+        week for 256 miners and 64 validators). Per cell PASS/FAIL, per chain
+        the cheapest passing config (`best`) and the largest subnet that
+        config still affords. See core/budget."""
+        eco, chains = self._chain_units(chain)
+        hs = tuple(sorted({int(float(x)) for x in str(hours).split(',')
+                           if x.strip()}) or bg.HOURS)
+        if epoch_hours:
+            hs = (int(float(epoch_hours)),)
+        out = {'at': eco.get('at'), 'target': float(target),
+               'miners': int(miners), 'validators': int(validators),
+               'chains': {}, 'feasible_on': []}
+        for name, (a, row, u, caps) in chains.items():
+            r = bg.feasible(u, float(target), int(miners), int(validators),
+                            min(int(ring), a.max_ring), hs, K=k and int(k),
+                            C=int(c or fc.COMMITTEE), caps=caps)
+            out['chains'][name] = {'symbol': a.symbol, 'stale': row.get('stale'),
+                                   'usd_price': row.get('usd_price'),
+                                   'max_ring': a.max_ring, **caps, **r}
+            if r['feasible']:
+                out['feasible_on'].append(name)
+        passing = [(c['best']['usd_week'], n) for n, c in out['chains'].items()
+                   if c.get('best')]
+        out['cheapest'] = min(passing)[1] if passing else None
+        return out
+
+    def scale(self, chain=None, sizes='64,256,1024,4096,10000,16384,65536',
+              ratio=4, ring=16, epoch_hours=1, target=1.0, k=None, c=None):
+        """HOW THE PRICE SCALES with the set sizes, past 10,000 of each: one
+        row per size (M = n miners, V = n / ratio validators), every strategy
+        priced per week, plus each strategy's measured growth order (the
+        log-log slope) and the largest n it keeps under `target`.
+        See core/budget."""
+        eco, chains = self._chain_units(chain)
+        ns = tuple(sorted({int(float(x)) for x in str(sizes).split(',')
+                           if x.strip()}) or bg.SIZES)
+        out = {'at': eco.get('at'), 'sizes': list(ns), 'ratio': int(ratio),
+               'target': float(target), 'chains': {}}
+        for name, (a, row, u, caps) in chains.items():
+            out['chains'][name] = {
+                'symbol': a.symbol, 'usd_price': row.get('usd_price'),
+                'stale': row.get('stale'),
+                **bg.scale(u, ns, int(ratio), min(int(ring), a.max_ring),
+                           epoch_hours=float(epoch_hours), K=k and int(k),
+                           C=int(c or fc.COMMITTEE), target=float(target))}
+        return out
+
+    def rules(self):
+        """MODULAR CONSENSUS: every settlement rule a subnet can pick, what it
+        does to a tag's scores and which aggregate it needs (core/consensus).
+        Each one is a pure function of the score histogram, which is exactly
+        what secure aggregation can produce without seeing a single score."""
+        return {'rules': cs.rules(), 'default': 'yuma',
+                'max_score': cs.MAX_SCORE,
+                'note': 'rule=<name> on yuma(), aggregate() and simulate()'}
+
+    def aggregate(self, validators=8, tags=4, rule='yuma', drop=0,
+                  emission=1000, scores=None, seed=7):
+        """SIMPLE SECURE AGGREGATION, end to end: every validator masks its
+        one-hot score vector with pads that cancel pairwise, publishes it, and
+        the SUM — the histogram `rule` settles on — falls out without any one
+        score ever being revealed. `drop` validators go silent to exercise the
+        recovery round. Returns the aggregate, the plain scores it is checked
+        against, and what went on the wire. See core/secagg."""
+        if isinstance(scores, str):
+            scores = json.loads(scores)
+        v = min(max(int(validators), 1), 48)
+        return sa.demo(v, min(max(int(tags), 1), 32), scores, rule,
+                       int(drop), int(emission), int(seed))
+
     def forecast(self, chain=None, miners='16,256', validators='4,64',
                  months=12, shape='exp', ring=16, epoch_hours=1, k=None, f=0.25):
         """Cost over time as the subnet grows: miners/validators = 'start,end'
@@ -344,8 +450,7 @@ class Mod:
         (batch, lazy, proof) and the privacy-preserving one (committee,
         private), each with what an observer learns (`privacy`).
         No chain = every priced chain, side by side."""
-        eco = self.economics()
-        q = (fees.quote(NETS).get('chains') or {})
+        eco, chains = self._chain_units(chain)
         pair = lambda v: tuple(int(x) for x in str(v).replace(' ', '').split(',')[:2])  # noqa: E731
         M, V = pair(miners), pair(validators)
         if len(M) == 1:
@@ -356,20 +461,9 @@ class Mod:
                'months': int(months), 'shape': shape, 'chains': {},
                'entry_of_settle': fc.ENTRY_OF_SETTLE,
                'prover_usd_per_mstep': fc.PROVER_USD_PER_MSTEP}
-        for a in NETS:
-            row = eco['chains'].get(a.chain)
-            if not row or (chain and a.chain != chain):
-                continue
-            proof = None
-            pc, m = fc.PROOF_COST.get(a.chain), q.get(a.chain)
-            if pc and m and m.get('usd'):
-                n = a.fee(pc, m)
-                proof = n * m['usd'] if n else None
-            u = fc.units(row, proof)
-            if not u:
-                continue
-            out['chains'][a.chain] = {
-                'symbol': a.symbol, 'proof_estimated': pc is not None,
+        for name, (a, row, u, caps) in chains.items():
+            out['chains'][name] = {
+                'symbol': a.symbol, **caps,
                 **fc.project(u, M, V, int(months), shape, int(ring),
                              float(epoch_hours), int(k) if k else None,
                              f=float(f))}
@@ -391,16 +485,10 @@ class Mod:
                     'error': f'{a.chain} has no mainnet price (no token or no '
                              'priced run yet)'}
         q = (fees.quote(NETS).get('chains') or {}).get(a.chain) or {}
-        pc = fc.PROOF_COST.get(a.chain)
-        proof = cap_proof = None
-        if pc and q.get('usd'):
-            n = a.fee(pc, q)
-            proof = n * q['usd'] if n else None
-            cap_proof = a.load(pc)
-        u = fc.units(row, proof)
+        u, caps = self._priced(a, row, q)
         if not u:
             return {'ok': False, 'chain': a.chain, 'error': 'no priced run yet'}
-        lu = ex.load_units(row, cap_proof)
+        lu = ex.load_units(row, caps['proof_load'])
         ints = lambda v: tuple(sorted({int(float(x)) for x in str(v).split(',') if x.strip()}))  # noqa: E731
         out = ex.run(row, u, lu, hours=ints(hours) or ex.HOURS, ring=int(ring),
                      strategy=strategy, share=float(share),
@@ -585,13 +673,14 @@ class Mod:
             a.settle(network, int(epoch), t['tag'])
             for t in a.tally(network, epoch)['tags'] if not t.get('settled')]}
 
-    def yuma(self, scores, validators=None, emission=1000):
+    def yuma(self, scores, validators=None, emission=1000, rule='yuma'):
         """Yuma by hand, off chain: scores = {tag: [s, ...]} (or JSON of it).
-        What a chain's settle() must produce for the same votes."""
+        What a chain's settle() must produce for the same votes. rule= picks
+        any modular-consensus rule (see rules()); 'yuma' is the chain's."""
         if isinstance(scores, str):
             scores = json.loads(scores)
         v = validators or max([len(x) for x in scores.values()] or [0])
-        return yuma.epoch(scores, int(v), int(emission))
+        return cs.epoch(scores, int(v), int(emission), rule)
 
     def tally(self, epoch=None, network='devnet'):
         """Every tag in an epoch: score sum/count and its Yuma consensus +

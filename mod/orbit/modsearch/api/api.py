@@ -12,6 +12,18 @@ modsearch api — semantic search over modules (or any short documents).
     GET  /mods/{name}?vector=1        one mod's row (+ its vector)
     POST /reindex                     re-read the fleet, re-hash what changed
 
+Agent protocol (the orbit/agent contract — GET /agents + POST /run/stream):
+
+    GET  /agents                      this module's roster: one search agent
+    POST /run {query, docs?, k?}      one ranked search as an agent run
+    POST /run/stream                  same, as SSE step/done/error events
+
+so any console that mounts agent mods (orbit/build's roster) can mount
+modsearch and drive the hub's agent search over the standard contract
+instead of a bespoke seam. A run IS a search: steps show what was ranked
+and how, `done` carries the full search payload. charged is always null —
+this agent runs local models and bills nobody.
+
 POST with your own docs is the reusable door: a caller that already holds a
 list (the build hub, which only holds what its viewer may see) sends it and
 gets ids back — this service never decides who sees what.
@@ -135,3 +147,113 @@ def mod(name: str, vector: bool = False):
 @app.post('/reindex')
 def reindex():
     return INDEX.rebuild()
+
+
+# ── agent protocol ────────────────────────────────────────────────────
+# GET /agents + POST /run(/stream) — the orbit/agent shape, so consoles
+# that mount agent mods can drive this search as a standard agent instead
+# of calling the bespoke /search. One agent, one skill: rank documents.
+
+class RunRequest(BaseModel):
+    query: str = ''
+    docs: Optional[List[Doc]] = None
+    k: int = 50
+    # fields a mounting console sends that a search has no use for —
+    # accepted so the contract call never 422s on the standard body
+    goal: Optional[str] = None
+    prompt: Optional[str] = None
+    model: Optional[str] = None
+    agent_type: Optional[str] = None
+    key: Optional[str] = None
+    path: Optional[str] = None
+    timeout: Optional[int] = None
+
+
+def _agent_card():
+    state = 'ready' if ENCODER.active else ('error' if ENCODER.error else 'loading')
+    return {
+        'name': 'modsearch',
+        'label': '⌕ modsearch',
+        'description': ('Semantic search agent — ranks this fleet’s modules '
+                        '(or any docs you send) by what the query means. '
+                        'Liquid LFM embeddings + BM25, local, no key.'),
+        'module': 'modsearch',
+        # lexical BM25 still answers when no encoder is up, so the agent
+        # is available as long as the process is — mode says how well
+        'available': True,
+        'encoder': state,
+        'model': ENCODER.model_name,
+        'search': True,
+    }
+
+
+@app.get('/agents')
+def agents():
+    """The contract's roster: this module hosts exactly one agent."""
+    return {'agents': [_agent_card()]}
+
+
+def _run_search(req: RunRequest):
+    """One agent run = one ranked search. Returns (steps, search payload).
+
+    The query a mounting console sends may carry its 'Working directory:'
+    preamble — a search has no cwd, so everything after the first blank
+    line is treated as the real query when that preamble is present.
+    """
+    query = req.query.strip()
+    if query.startswith('Working directory:') and '\n\n' in query:
+        query = query.split('\n\n', 1)[1].strip()
+    if len(req.docs or []) > engine.MAX_DOCS:
+        raise HTTPException(400, f'at most {engine.MAX_DOCS} docs per search')
+    docs = [d.model_dump() for d in req.docs] if req.docs is not None else engine.fleet_docs(FLEET_ROOTS)
+    steps = [{'tool': 'search', 'params': {
+        'query': query, 'docs': len(docs),
+        'scope': 'caller docs' if req.docs is not None else 'fleet',
+    }}]
+    res = engine.search(query, docs, k=req.k, encoder=ENCODER)
+    top = [r['id'] for r in (res.get('results') or [])[:5]]
+    summary = (f"{len(res.get('results') or [])} match(es), mode {res.get('mode')}"
+               + (f" — top: {', '.join(top)}" if top else ''))
+    steps.append({'tool': 'finish', 'params': {'summary': summary, 'search': res}})
+    return steps, res
+
+
+@app.post('/run')
+def run(req: RunRequest):
+    """Blocking agent run — {result: steps, search, task_id}."""
+    import uuid
+    if not req.query.strip():
+        raise HTTPException(400, 'query is required')
+    steps, res = _run_search(req)
+    return {'result': steps, 'search': res, 'task_id': uuid.uuid4().hex[:12],
+            'charged': None}
+
+
+@app.post('/run/stream')
+def run_stream(req: RunRequest):
+    """Streaming agent run — SSE data: {type: step|done|error, ...}."""
+    import uuid
+    from fastapi.responses import StreamingResponse
+    task_id = uuid.uuid4().hex[:12]
+
+    def gen():
+        try:
+            if not req.query.strip():
+                yield 'data: ' + json.dumps({'type': 'error', 'error': 'query is required',
+                                             'task_id': task_id}) + '\n\n'
+                return
+            steps, res = _run_search(req)
+            for s in steps:
+                yield 'data: ' + json.dumps({'type': 'step', 'step': s}) + '\n\n'
+            yield 'data: ' + json.dumps({'type': 'done', 'result': steps, 'search': res,
+                                         'task_id': task_id, 'charged': None}) + '\n\n'
+        except HTTPException as e:
+            yield 'data: ' + json.dumps({'type': 'error', 'error': str(e.detail),
+                                         'task_id': task_id}) + '\n\n'
+        except Exception as e:
+            yield 'data: ' + json.dumps({'type': 'error', 'error': str(e),
+                                         'task_id': task_id}) + '\n\n'
+
+    return StreamingResponse(gen(), media_type='text/event-stream',
+                             headers={'Cache-Control': 'no-cache',
+                                      'X-Accel-Buffering': 'no'})

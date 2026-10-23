@@ -163,6 +163,27 @@ def lease_seconds(nbytes: int, escrow: int) -> int:
     return (escrow * 3600) // (nbytes * RENT_PER_BYTE_HOUR)
 
 
+def next_base_fee(fee: int, growth_bytes: int) -> int:
+    """The base fee after a block that added `growth_bytes` of state.
+
+    A free function, not just a method, because the fee market is also
+    evaluated where there is no State in hand: lazy.py prices an idle gap as
+    the empty slots it would have been, and consensus.check_block re-derives
+    a lazily produced block's fee from its parent header alone. One copy of
+    the arithmetic or the three of them will drift.
+    """
+    target = STATE_TARGET_BYTES
+    fee = int(fee)
+    if growth_bytes == target:
+        return fee
+    if growth_bytes > target:
+        delta = max(1, fee * (growth_bytes - target) //
+                    target // BASE_FEE_MAX_CHANGE_DEN)
+        return fee + min(delta, fee // BASE_FEE_MAX_CHANGE_DEN or 1)
+    delta = fee * (target - growth_bytes) // target // BASE_FEE_MAX_CHANGE_DEN
+    return max(BASE_FEE_MIN, fee - delta)
+
+
 def to_pq(nq: int) -> str:
     sign = "-" if nq < 0 else ""
     nq = abs(int(nq))
@@ -609,16 +630,7 @@ class State:
     def next_base_fee(self, growth_bytes):
         """EIP-1559 over state growth instead of execution gas. The scarce
         thing here is not CPU, it is every node's disk forever."""
-        target = STATE_TARGET_BYTES
-        fee = self.base_fee
-        if growth_bytes == target:
-            return fee
-        if growth_bytes > target:
-            delta = max(1, fee * (growth_bytes - target) //
-                        target // BASE_FEE_MAX_CHANGE_DEN)
-            return fee + min(delta, fee // BASE_FEE_MAX_CHANGE_DEN or 1)
-        delta = fee * (target - growth_bytes) // target // BASE_FEE_MAX_CHANGE_DEN
-        return max(BASE_FEE_MIN, fee - delta)
+        return next_base_fee(self.base_fee, growth_bytes)
 
     # ── the state root ────────────────────────────────────────────
 
@@ -635,17 +647,7 @@ class State:
                 a["nonce"].to_bytes(8, "big"),
                 sha3(bytes.fromhex(a["pk"])) if a["pk"] else b"\x00" * 32)))
         for key in sorted(self.store):
-            e = self.store[key]
-            out.append(("kv", key, sha3(
-                b"kv\x00", key.encode(),
-                sha3(bytes.fromhex(e["value"] or "")),
-                e["owner"].encode(),
-                e["bytes"].to_bytes(4, "big"),
-                e["escrow"].to_bytes(16, "big"),
-                e["bounty"].to_bytes(16, "big"),
-                e["expires_at"].to_bytes(8, "big"),
-                e["price"].to_bytes(16, "big"),
-                (e["value_kind"] or "").encode())))
+            out.append(("kv", key, kv_leaf(key, self.store[key])))
         out.append(("params", self.chain_id, sha3(
             b"params\x00", self.chain_id.encode(),
             self.base_fee.to_bytes(16, "big"),
@@ -699,6 +701,27 @@ class State:
             "rent_collected": snap.get("rent_collected", 0),
             "accounts": snap["accounts"], "store": snap["store"]})
         return s
+
+
+def kv_leaf(key, e) -> bytes:
+    """The leaf a store entry commits to, as one function.
+
+    leaves() builds the tree from this and anyone holding an entry plus a
+    Merkle path recomputes it from the same code — which is what lets a
+    verifier outside this process (a subchain proof walking from a leaf in a
+    child tree up to this root) check the binding between a key and its value
+    without trusting the node that served the proof.
+    """
+    return sha3(
+        b"kv\x00", key.encode(),
+        sha3(bytes.fromhex(e["value"] or "")),
+        e["owner"].encode(),
+        e["bytes"].to_bytes(4, "big"),
+        e["escrow"].to_bytes(16, "big"),
+        e["bounty"].to_bytes(16, "big"),
+        e["expires_at"].to_bytes(8, "big"),
+        e["price"].to_bytes(16, "big"),
+        (e["value_kind"] or "").encode())
 
 
 def merkle_path(leaves, index):

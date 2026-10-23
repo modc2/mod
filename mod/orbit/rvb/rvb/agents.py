@@ -161,6 +161,53 @@ def resolve(name):
     return 'agent', name
 
 
+def verify(name, error=Exception):
+    """Resolve a team slot to a real agent on the protocol, or raise.
+
+    A side in this arena is an agent, never a prompt and never a model string,
+    so the check is deliberately strict about the two things an operator
+    actually gets wrong: naming a mod that does not speak the protocol, and
+    naming an agent_type that is not on the provider's roster. An unreachable
+    provider is *not* a rejection — its mod may be socket-activated and wake on
+    the first move — but it is reported, so the console can say so before the
+    game spends anything.
+
+    Returns {spec, provider, agent_type, url, reachable, note}.
+    """
+    prov, atype = resolve(name)
+    p = provider(prov)
+    if not p:
+        known = ', '.join(x['name'] for x in providers())
+        raise error(f'{prov!r} does not speak the agent protocol — a side here '
+                    f'is an agent, not a prompt. Providers: {known}')
+    r = roster(prov)
+    out = {'spec': f'{prov}/{atype}' if atype else prov, 'provider': prov,
+           'agent_type': atype, 'url': p['url'], 'reachable': not r.get('error')}
+    if r.get('error'):
+        out['note'] = r['error'] + ' — the move will wake it, or forfeit'
+        return out
+    names = [a['name'] for a in r['agents']]
+    if not atype:
+        out['agent_type'] = r.get('default') or ''
+        out['spec'] = f'{prov}/{out["agent_type"]}' if out['agent_type'] else prov
+    elif atype not in names:
+        raise error(f'{prov} has no agent {atype!r} — {_some(names)}')
+    return out
+
+
+def _some(names, keep=10):
+    """A roster, quotable in an error. orbit/agent registers two hundred agent
+    types; pasting all of them turns a one-line mistake into a wall nobody
+    reads, so the error names a few and points at the full list."""
+    if not names:
+        return 'its roster is empty'
+    head = ', '.join(names[:keep])
+    if len(names) <= keep:
+        return f'its roster is {head}'
+    return (f'its roster is {head} and {len(names) - keep} more — '
+            'GET /agents (MCP rvb_agents) lists them all')
+
+
 def run(query, system=None, name='', timeout=120, error=Exception):
     """One exchange with an agent. Returns its answer text; raises `error`."""
     prov, atype = resolve(name)

@@ -210,7 +210,10 @@ def test_a_full_round_over_http_scores_the_builtins(server, seeded):
         'model': 'mock:naive', 'judge': 'heuristic', 'parallel': 8})
     assert rec['status'] == 'done'
     assert len(rec['leaderboard']) == 3
-    board = _get(server + '/board?rounds=4')
+    # The default board ranks the TEAMS, and a team here is an agent — a round
+    # fired by hand has no players, so it shows up on the ammunition board.
+    assert _get(server + '/board')['view'] == 'agents'
+    board = _get(server + '/board?view=corpus&rounds=4')
     assert board['rounds_counted'] >= 1
 
 

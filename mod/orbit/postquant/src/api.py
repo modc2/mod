@@ -154,6 +154,11 @@ READ_ACTIONS = {
     # a vote is authenticated by its own signature, not by the bearer
     'consensus': ('info', 'info', 'engines', 'catalog', 'schedule', 'plan',
                   'proposal', 'vote'),
+    # reading a subchain, proving a leaf and checking a bundle cost nothing
+    # and sign nothing; a proof bundle is too big for a query string, so
+    # verify has to be POSTable without the write bearer
+    'subchain': ('info', 'info', 'list', 'tree', 'show', 'keys', 'get',
+                 'proof', 'verify', 'replay', 'batch', 'cost'),
 }
 
 

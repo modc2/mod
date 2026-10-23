@@ -1,7 +1,8 @@
 {
     "name": "modsearch",
-    "description": "Find a module by what you mean. Semantic search over the module fleet (or any docs you send): LiquidAI/LFM2.5-Embedding-350M running server-side in the liquidai module (own process, never evicts its chat model), falling back to an in-process all-MiniLM-L6-v2, fused with BM25. Every mod gets its own embedding hash (sha256 of model + kind + float16 vector) kept in an index. No key, no cloud. Powers the build hub's agent search and serves raw vectors (POST /embed).",
-    "version": "0.2.0",
+    "description": "Find a module by what you mean. Semantic search over the module fleet (or any docs you send): LiquidAI/LFM2.5-Embedding-350M running server-side in the liquidai module (own process, never evicts its chat model), falling back to an in-process all-MiniLM-L6-v2, fused with BM25. Every mod gets its own embedding hash (sha256 of model + kind + float16 vector) kept in an index. No key, no cloud. Powers the build hub's agent search and serves raw vectors (POST /embed). Speaks the agent protocol (GET /agents + POST /run/stream), so consoles mount it as a search agent.",
+    "version": "0.3.0",
+    "agent_contract": true,
     "anchor": "mod.py",
     "port": 51090,
     "route": false,
@@ -34,6 +35,16 @@
             "method": "POST",
             "auth": false,
             "docs": "Re-read the fleet and re-hash changed mods (also runs every 10 min)"
+        },
+        "agents": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Agent protocol roster -> {agents:[{name:'modsearch', search:true, ...}]} (the orbit/agent contract)"
+        },
+        "run": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Agent protocol run: {query, docs?, k?} -> {result: steps, search, task_id, charged:null}; /run/stream is the same as SSE step/done/error"
         }
     },
     "fns": [

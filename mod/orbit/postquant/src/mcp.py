@@ -1987,6 +1987,17 @@ def _live_anchors():
                 out.setdefault(ref, []).append('receipt:' + cid[:16])
                 if (st.meta(ref) or {}).get('kind') == 'receipt':
                     todo.append(ref)
+    # A subchain's batch blobs are what makes its root re-derivable by a
+    # stranger, so a live chain keeps every batch it ever published — the
+    # anchor on the L1 is 32 bytes and cannot keep them by itself.
+    try:
+        import subchain as SC
+        for sc in SC.registry():
+            for b in sc['batches']:
+                out.setdefault(b['blob_sha3'], []).append(
+                    f'subchain:{sc["path"]}#{b["n"]}')
+    except Exception:                                      # noqa: BLE001
+        pass
     return out
 
 
@@ -3113,11 +3124,426 @@ TOOLS['pq_consensus'] = {
     'handler': _t_consensus,
 }
 
+# ── recursive chains: a whole tree in one slot ────────────────────
+
+
+def _sc_path(a, required=True):
+    """A subchain by path (chain_id/name/...) or by bare name."""
+    import subchain as SC
+    raw = str(a.get('chain') or a.get('path') or a.get('name') or '').strip()
+    raw = raw.strip('/')
+    if not raw:
+        if not required:
+            return None
+        raise StateError('which subchain? pass chain=<path> — '
+                         'pq_subchain action=list', code='missing_arg')
+    if SC.exists(raw):
+        return raw
+    hits = [s['path'] for s in SC.registry()
+            if s['path'] == raw or s['name'] == raw
+            or s['path'].endswith('/' + raw)]
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1:
+        raise StateError(f'{raw!r} is ambiguous: {", ".join(hits)}',
+                         code='ambiguous')
+    raise StateError(f'no subchain {raw!r} on this node — '
+                     'pq_subchain action=list', code='no_subchain', status=404)
+
+
+def _sc_fetch():
+    """fetch(sha3) -> bytes, out of this node's vault: what replay needs."""
+    st = _vault_store()
+
+    def fetch(cid):
+        return st.get(cid)
+    return fetch
+
+
+def _sc_cost(keys=10_000, value_bytes=32, key_bytes=24):
+    """One slot against the same data written to the L1, at today's fee."""
+    n = node()
+    q_slot = n.state.quote('chain/app', '00' * 32, 'hash', 86400 * 30)
+    q_one = n.state.quote('k' * key_bytes, '00' * (value_bytes), 'hash',
+                          86400 * 30)
+    direct = q_one['total'] * keys
+    return {
+        'keys': keys, 'days': 30,
+        'on_l1': {'total_nq': direct, 'total_pq': to_pq(direct),
+                  'entries': keys,
+                  'state_bytes': q_one['billable_bytes'] * keys,
+                  'per_key_pq': to_pq(q_one['total'])},
+        'in_a_subchain': {'total_nq': q_slot['total'],
+                          'total_pq': to_pq(q_slot['total']),
+                          'entries': 1, 'state_bytes': 32,
+                          'note': 'one 32-byte hash entry, whatever the '
+                                  'child holds'},
+        'ratio': round(direct / max(q_slot['total'], 1), 1),
+        'why': 'the L1 charges for every byte every node must carry; a '
+               'subchain gives it one hash and keeps its own bytes',
+    }
+
+
+def _t_subchain(a):
+    import subchain as SC
+    n = node()
+    action = a.get('action') or 'info'
+    st = _vault_store()
+
+    if action == 'info':
+        t = SC.tree(n.chain_id)
+        return {
+            'what': 'recursive chains: one key on this chain holds the '
+                    'signed head of ANOTHER chain — its own key space, its '
+                    'own writers, its own Merkle root — and that chain can '
+                    'do the same, to any depth',
+            'slot': f'{SC.SLOT_PREFIX}<name>, a normal 32-byte hash entry, '
+                    'owned and rented like any key',
+            'the_hop': 'parent slot value = SHA3-256(the child\'s signed '
+                       'head), and the head commits to the child\'s root, '
+                       'its batch and the head before it — so 32 bytes on '
+                       'the L1 commit to every leaf of every descendant',
+            'who_writes': 'anyone the chain\'s policy allows, each signing '
+                          'their own pqx1 transaction with their own '
+                          'post-quantum wallet; the sequencer orders them '
+                          'and signs the head. It cannot forge a write — '
+                          'every witness is in the published batch',
+            'proofs': 'pq_subchain action=proof returns one bundle from a '
+                      'leaf to the L1 state root; action=verify checks it '
+                      'with SHA3-256 and nothing else',
+            'trust': {
+                'the_l1_gives': 'anchoring and ordering of HEADS: rewriting '
+                                'your history means rewriting the L1\'s',
+                'the_l1_does_not': 'execute your transitions. A false head '
+                                   'is refuted by replay (action=replay), '
+                                   'not prevented',
+                'availability': 'the batch blobs are public and '
+                                'content-addressed; a batch nobody kept is '
+                                'a root nobody can expand',
+                'censorship': 'a sequencer can leave you out, and the batch '
+                              'that did is signed',
+            },
+            'depth_cap': SC.MAX_DEPTH,
+            'tree': t,
+            'economics': _sc_cost(),
+            'flow': ['pq_subchain action=create name=app parent=' +
+                     n.chain_id + ' wallet=<w>',
+                     'pq_subchain action=write chain=app key=orders/1 '
+                     'data="hello" wallet=<anyone>',
+                     'pq_subchain action=seal chain=app wallet=<sequencer>',
+                     'pq_subchain action=proof chain=app key=orders/1',
+                     'pq_subchain action=verify (the bundle)',
+                     'pq_subchain action=create name=eu parent=' +
+                     n.chain_id + '/app  # recursion'],
+            'validator': 'pq_node — what running the chain under all this '
+                         'costs',
+        }
+
+    if action in ('list', 'tree'):
+        t = SC.tree(n.chain_id)
+        if action == 'tree':
+            return t
+        return {'chains': [{'path': s['path'], 'parent': s['parent'],
+                            'depth': s['depth'], 'slot': s['slot'],
+                            'keys': len(s['store']), 'batches': s['n'],
+                            'pending': len(s['mempool']),
+                            'root': s['root'], 'head': s['head'],
+                            'anchored': s['anchored'],
+                            'in_sync': s['anchored'] == s['head'],
+                            'writers': s['policy']['writers'],
+                            'sequencer': s['sequencer']}
+                           for s in SC.registry()],
+                'count': t['subchains'], 'keys_below': t['keys_below'],
+                'l1_bytes': t['l1_bytes']}
+
+    if action == 'create':
+        w = _wallet(a.get('wallet'))
+        parent = str(a.get('parent') or n.chain_id).strip().strip('/')
+        allow = a.get('allow') or []
+        if isinstance(allow, str):
+            allow = [x.strip() for x in allow.split(',') if x.strip()]
+        sc = SC.create(a.get('name'), parent=parent, sequencer=w['address'],
+                       writers=a.get('writers') or 'open', allow=allow,
+                       note=a.get('note') or '')
+        out = {'created': sc['path'], 'parent': sc['parent'],
+               'depth': sc['depth'], 'slot': sc['slot'],
+               'sequencer': sc['sequencer'],
+               'writers': sc['policy'], 'keys': 0, 'batches': 0,
+               'next': f'pq_subchain action=write chain={sc["path"]} '
+                       'key=<k> data=<v> wallet=<anyone>, then action=seal'}
+        if sc['depth'] == 1:
+            out['anchor_quote'] = _money(
+                n.state.quote(sc['slot'], '00' * 32, 'hash',
+                              _seconds(a))['total'])
+            out['anchor_note'] = (f'nothing is on the L1 yet: the first seal '
+                                  f'produces a head and sets {sc["slot"]}')
+        else:
+            out['anchor_note'] = (f'this chain is anchored inside '
+                                  f'{sc["parent"]}, which reaches the L1 '
+                                  'through its own ancestor — no L1 write of '
+                                  'its own, ever')
+        return out
+
+    if action == 'drop':
+        return SC.drop(_sc_path(a))
+
+    if action == 'cost':
+        return _sc_cost(int(a.get('keys') or 10_000),
+                        int(a.get('value_bytes') or 32))
+
+    path = _sc_path(a, required=action != 'verify')
+
+    if action == 'show':
+        sc = SC.load(path)
+        kids = SC.children(path)
+        return {
+            'chain': sc['path'], 'parent': sc['parent'], 'depth': sc['depth'],
+            'slot': sc['slot'], 'sequencer': sc['sequencer'],
+            'policy': sc['policy'], 'note': sc['note'],
+            'keys': len(sc['store']), 'batches': sc['n'],
+            'pending': len(sc['mempool']),
+            'root': sc['root'], 'head': sc['head'],
+            'anchored': sc['anchored'],
+            'in_sync': sc['anchored'] == sc['head'],
+            'children': [{'path': k['path'], 'slot': k['slot'],
+                          'head': k['head'], 'keys': len(k['store'])}
+                         for k in kids],
+            'l1_cost': 'one 32-byte hash entry' if sc['depth'] == 1
+            else f'none — it lives in {sc["parent"]}',
+            'recent': sc['batches'][-5:],
+        }
+
+    if action in ('keys', 'get'):
+        sc = SC.load(path)
+        if action == 'get':
+            key = a.get('key')
+            e = sc['store'].get(key)
+            if e is None:
+                raise StateError(f'nothing at {key!r} in {path}',
+                                 code='no_entry', status=404)
+            return {'chain': path, 'key': key, **e,
+                    'leaf': SC.sub_leaf(path, key, e).hex(),
+                    'root': sc['root'],
+                    'proof': f'pq_subchain action=proof chain={path} '
+                             f'key={key}'}
+        return {'chain': path, 'root': sc['root'], 'keys': len(sc['store']),
+                'entries': [{'key': k, **sc['store'][k]}
+                            for k in sorted(sc['store'])]}
+
+    if action == 'write':
+        w = _wallet(a.get('wallet'))
+        sc = SC.load(path)
+        kind = a.get('value_kind') or ('raw' if a.get('value')
+                                       and not a.get('data') else 'hash')
+        value = _value_for(a, kind)
+        tx = SC.make_tx(w, path, key=a['key'], value=value, value_kind=kind,
+                        nonce=a.get('nonce'), sc=sc)
+        if a.get('dry_run'):
+            return {'dry_run': True, 'chain': path, 'tx': tx,
+                    'note': 'signed but not queued'}
+        out = SC.submit(path, tx)
+        out.update(key=a['key'], value=value, value_kind=kind,
+                   signed_by=w['address'], scheme=w['scheme'],
+                   witness_bytes=len(tx['sig']) // 2 + len(tx['pk']) // 2,
+                   l1_cost='none — this transaction never touches the L1; '
+                           'its chain pays 32 bytes when it seals')
+        if a.get('data') is not None:
+            out['committed'] = {'value': value,
+                                'of': 'sha3-256 of your data'}
+        if a.get('seal'):
+            out['seal'] = _t_subchain({**a, 'action': 'seal'})
+        return out
+
+    if action == 'seal':
+        w = _wallet(a.get('wallet'))
+        res = SC.seal(path, w)
+        blob = S.canonical(res['batch'])
+        live = _live_anchors()
+        res['blob'] = st.put(blob, kind='state', live=live)
+        res.pop('batch', None)
+        anchor = res['anchor']
+        if anchor['scope'] == 'l1' and a.get('anchor', True) not in \
+                (False, 'false', '0', 0, 'no'):
+            res['anchor']['l1'] = _anchor({**a, 'wallet': w['name']},
+                                          anchor['key'], anchor['value'])
+            if not a.get('dry_run'):
+                SC.mark_anchored(path, anchor['value'],
+                                 res['anchor']['l1'].get('hash'))
+                res['anchor']['anchored'] = True
+                res['anchor']['note'] = (f'{anchor["key"]} on '
+                                         f'{n.chain_id} now commits to this '
+                                         'head — 32 bytes')
+        res['replay'] = f'pq_subchain action=replay chain={path}'
+        return res
+
+    if action == 'replay':
+        return SC.replay(path, _sc_fetch())
+
+    if action == 'batch':
+        sc = SC.load(path)
+        want = int(a.get('n') or sc['n'])
+        rec = next((b for b in sc['batches'] if b['n'] == want), None)
+        if rec is None:
+            raise StateError(f'no batch {want} in {path} (1..{sc["n"]})',
+                             code='no_batch', status=404)
+        out = {'chain': path, **{k: v for k, v in rec.items()
+                                 if k != 'header'}, 'header': rec['header']}
+        try:
+            blob = st.get(rec['blob_sha3'])
+            out['check'] = SC.check_batch(SC.parse_batch(blob))
+            out['blob_bytes'] = len(blob)
+        except Exception as e:                             # noqa: BLE001
+            out['blob'] = f'not on this node: {e}'
+        return out
+
+    if action == 'proof':
+        def l1_proof(key):
+            return n.state.proof(key)
+        bundle = SC.proof(path, a['key'], l1_proof=l1_proof)
+        bundle['verify'] = SC.verify_bundle(bundle)
+        bundle['chain_id'] = n.chain_id
+        bundle['height'] = n.blocks[-1]['height']
+        return bundle
+
+    if action == 'verify':
+        bundle = a.get('bundle') or a.get('proof')
+        if isinstance(bundle, str):
+            try:
+                bundle = json.loads(bundle)
+            except ValueError:
+                raise StateError('bundle= must be the proof JSON',
+                                 code='bad_args') from None
+        if not bundle:
+            if not path:
+                raise StateError('verify needs bundle= (a proof) or chain= + '
+                                 'key= to make one first', code='missing_arg')
+            bundle = SC.proof(path, a['key'],
+                              l1_proof=lambda k: n.state.proof(k))
+        out = SC.verify_bundle(bundle)
+        out['root_is_live'] = out.get('root') == n.state.root()
+        out['note'] += ('' if not out['root_is_live'] else
+                        f' — and that root is {n.chain_id} height '
+                        f'{n.blocks[-1]["height"]}')
+        return out
+
+    raise StateError(f'unknown subchain action {action!r} — info, list, tree, '
+                     'create, show, write, seal, keys, get, proof, verify, '
+                     'replay, batch, cost, drop', code='bad_action')
+
+
+def _t_node(a):
+    import footprint as F
+    action = a.get('action') or 'requirements'
+    n = node()
+    if action in ('requirements', 'info'):
+        return F.requirements(n, bench=a.get('bench', True) not in
+                              (False, 'false', '0', 0, 'no'))
+    if action == 'bench':
+        return {'sha3': F.hash_bench(),
+                'witness': F.witness_bench(
+                    tuple(x.strip() for x in str(
+                        a.get('schemes') or 'ML-DSA-44').split(',')))}
+    if action == 'disk':
+        return F.chain_disk(n)
+    if action == 'appchain':
+        r = F.requirements(n, bench=False)
+        return {**r['appchains'], 'minimum': r['minimum'],
+                'subchains': _t_subchain({'action': 'list'})}
+    raise StateError(f'unknown node action {action!r} — requirements, bench, '
+                     'disk, appchain', code='bad_action')
+
+
+TOOLS['pq_subchain'] = {
+    'description': 'RECURSIVE CHAINS — a whole chain inside one key. A '
+                   'subchain has its own key space, its own writers and its '
+                   'own Merkle root, and the parent carries 32 bytes: '
+                   'chain/<name> = SHA3-256 over the child\'s signed head, '
+                   'which commits to the child\'s root, its batch of '
+                   'transactions and the head before it. A subchain can '
+                   'hold subchains, to depth 8, so one L1 slot commits to '
+                   'every leaf of every descendant. Everyone writing into a '
+                   'child signs their own pqx1 transaction with their own '
+                   'post-quantum wallet; a sequencer orders them, applies '
+                   'them and signs the head — it can censor, it cannot '
+                   'forge, and the published batch proves which. '
+                   'action=info | list | tree | create (name, parent, '
+                   'wallet, writers=open|allowlist|owner, allow) | show | '
+                   'write (chain, key, data|value, wallet — this never '
+                   'touches the L1) | seal (chain, wallet: order the '
+                   'mempool, sign the head, anchor it) | keys | get | proof '
+                   '(one bundle from a leaf to the L1 state root) | verify '
+                   '(check a bundle with SHA3-256 alone) | replay (refetch '
+                   'every batch and re-derive every root) | batch | cost '
+                   '(one slot vs the same keys on the L1) | drop.',
+    'inputSchema': {'type': 'object', 'properties': {
+        'action': _str('info | list | tree | create | show | write | seal | '
+                       'keys | get | proof | verify | replay | batch | cost '
+                       '| drop (default info)',
+                       enum=['info', 'list', 'tree', 'create', 'show',
+                             'write', 'seal', 'keys', 'get', 'proof',
+                             'verify', 'replay', 'batch', 'cost', 'drop']),
+        'name': _str('create: the chain\'s name (becomes chain/<name> in '
+                     'the parent)'),
+        'parent': _str('create: the L1 chain_id (default) or another '
+                       'subchain\'s path — that is the recursion'),
+        'chain': _str('the subchain path, or a bare name if unambiguous'),
+        'key': _str('write/get/proof: the key inside the subchain'),
+        'value': _str('write: raw bytes as hex'),
+        'data': _str('write: text to commit — the chain stores its SHA3-256'),
+        'value_kind': _str('write: hash (default) | raw', enum=['hash', 'raw']),
+        'nonce': _int('write: override the per-writer nonce'),
+        'wallet': _str('which wallet signs (create: it becomes the '
+                       'sequencer; write: any allowed writer; seal: the '
+                       'sequencer)'),
+        'writers': _str('create: open | allowlist | owner',
+                        enum=['open', 'allowlist', 'owner']),
+        'allow': _str('create: addresses for writers=allowlist (comma list)'),
+        'note': _str('create: one line about what this chain is for'),
+        'anchor': _bool('seal: write the L1 key (default true)'),
+        'days': _str('seal: lease for the L1 anchor'),
+        'hours': _str('seal: lease for the L1 anchor, in hours'),
+        'seal': _bool('write: seal a batch immediately after queueing'),
+        'bundle': {'type': 'object', 'description': 'verify: a proof bundle '
+                                                    'from action=proof'},
+        'n': _int('batch: which batch (default the latest)'),
+        'keys': _int('cost: how many keys to compare (default 10000)'),
+        'value_bytes': _int('cost: bytes per value (default 32)'),
+        'dry_run': _bool('write/seal: sign and price without committing'),
+        'mine': _bool('seal: mine the anchoring L1 block now (default true)'),
+    }},
+    'handler': _t_subchain,
+}
+
+TOOLS['pq_node'] = {
+    'description': 'WHAT A VALIDATOR COSTS — measured on this node, now: '
+                   'resident memory, the block log on disk and its growth '
+                   'per day and per year, SHA3-256 throughput, the '
+                   'milliseconds one post-quantum witness check takes per '
+                   'key type, bytes per block on the wire, and the minimum '
+                   'machine derived from those numbers. Quoted beside the '
+                   'published validator minimums of other chains for scale. '
+                   'The requirements are small for three structural '
+                   'reasons — no VM in the consensus path, state that is '
+                   'rented and expires rather than accumulating, and '
+                   'subchains that occupy 32 bytes however large they get — '
+                   'and small requirements are what make per-app chains '
+                   'something an ordinary person can run. action='
+                   'requirements (default) | bench | disk | appchain.',
+    'inputSchema': {'type': 'object', 'properties': {
+        'action': _str('requirements | bench | disk | appchain (default '
+                       'requirements)',
+                       enum=['requirements', 'bench', 'disk', 'appchain']),
+        'bench': _bool('requirements: run the CPU benchmarks (default true)'),
+        'schemes': _str('bench: key types to time (comma list)'),
+    }},
+    'handler': _t_node,
+}
+
 WRITE_TOOLS = {'pq_set', 'pq_del', 'pq_fund', 'pq_sweep', 'pq_list', 'pq_buy',
                'pq_transfer', 'pq_wallet', 'pq_faucet', 'pq_mine',
                'pq_keytype', 'pq_prim', 'pq_private'}
 
-WRITE_TOOLS |= {'pq_vault', 'pq_contract', 'pq_consensus'}
+WRITE_TOOLS |= {'pq_vault', 'pq_contract', 'pq_consensus', 'pq_subchain'}
 
 
 def call_tool(name, args):

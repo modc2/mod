@@ -175,7 +175,13 @@ class Mod:
     def game(self, red, blue, model=None, turns=3, per_turn=3, judge='model',
              parallel=6, controls=True, timeout=None, agent_timeout=None,
              name=None):
-        """Start a blue-vs-red agent game; returns the id immediately, runs in background."""
+        """Draft two agents and play. Returns the id immediately, runs in background.
+
+        `red` and `blue` are agents on the agent protocol —
+        `agent:<provider>/<agent_type>`, from `m rvb/agents`. A prompt cannot
+        hold a side, and a lineup that is not on a provider's roster is
+        rejected here, before anything is spent.
+        """
         return gamemod.spawn(red, blue, model=model, turns=int(turns),
                              per_turn=int(per_turn), judge_kind=judge,
                              parallel=int(parallel), controls=self._flag(controls),
@@ -233,13 +239,27 @@ class Mod:
         """One round in full — every match, the responses, both boards."""
         return store.get('round', round)
 
-    def board(self, rounds=8):
-        """The standings across recent rounds: blue's ranking and red's.
+    def board(self, view='agents', limit=50, rounds=8, roster=False):
+        """The standings. Both teams are agents, so the board ranks agents.
 
-        Blue: defenses by safety_score, averaged over the rounds they appear in.
-        Red: attacks by how often they breach, across every defense they meet.
+        Blue agents by safety_score, red agents by breach + over-refusal, both
+        by win rate and by forfeit rate — the moves the agent could not make.
+        `view=corpus` switches to the ammunition board instead: which stored
+        attack breaches the most defenses, over `rounds` recent rounds.
         """
-        return bimod.board_across(int(rounds))
+        from rvb import mcp as mcpsrv
+        return mcpsrv.t_board({'view': view, 'limit': limit, 'rounds': rounds,
+                               'roster': self._flag(roster)})
+
+    def agents(self, provider=None):
+        """Every agent on the agent protocol this box can reach.
+
+        This is the player pool: `m rvb/game red=<one> blue=<another>`. The
+        same string is also valid as an `agent:` target, which puts an agent in
+        the seat being defended rather than on a team.
+        """
+        from rvb import mcp as mcpsrv
+        return mcpsrv.t_agents({'provider': provider})
 
     # ── target & judge introspection ─────────────────────────────
 

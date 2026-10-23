@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rvb — red team vs blue team, scored</title>
+<title>rvb — a red agent vs a blue agent, scored</title>
 <style>
   :root{
     --bg:#07090c; --panel:#0d1117; --line:#1c2530; --ink:#d7e2ec; --dim:#7b8b9c;
@@ -20,6 +20,14 @@
   .mark .r{color:var(--red)} .mark .b{color:var(--blue)}
   .tag{color:var(--dim)}
   nav{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  #groups button{padding:6px 14px;letter-spacing:.12em;font-weight:600}
+  #groups button.on{background:#13202e}
+  #groups .r{color:var(--red)} #groups .b{color:var(--blue)}
+  #subnav{flex-basis:100%;margin:6px 0 0;gap:4px}
+  #subnav button{padding:3px 10px;font-size:11px;letter-spacing:.08em;
+    border-color:transparent;background:transparent;color:var(--dim)}
+  #subnav button:hover{color:var(--ink);border-color:var(--line)}
+  #subnav button.on{color:#fff;border-color:var(--blue);background:#101a26}
   button,select,input,textarea{
     background:#111823;color:var(--ink);border:1px solid var(--line);
     border-radius:3px;padding:5px 10px;font:inherit}
@@ -76,16 +84,22 @@
 <body>
 <header>
   <div class="mark"><span class="r">R</span><span class="b">VB</span></div>
-  <div class="tag" id="sub">jailbreak attacks × defense pipelines, judged on two axes</div>
+  <div class="tag" id="sub">a red agent vs a blue agent, judged on two axes</div>
   <span id="live-ticker" style="font-size:11.5px;color:var(--dim);letter-spacing:.06em"></span>
-  <nav>
+  <nav id="groups">
+    <button data-group="arena" class="on">ARENA</button>
+    <button data-group="armoury">ARMOURY</button>
+    <button data-group="docs">DOCS</button>
+  </nav>
+  <nav id="subnav">
     <button data-tab="board" class="on">BOARD</button>
-    <button data-tab="rounds">ROUNDS</button>
-    <button data-tab="attacks">RED</button>
-    <button data-tab="defenses">BLUE</button>
-    <button data-tab="fight">FIGHT</button>
-    <button data-tab="game">GAME</button>
-    <button data-tab="about">RULES</button>
+    <button data-tab="game">MATCH</button>
+    <button data-tab="rounds" style="display:none">ROUNDS</button>
+    <button data-tab="fight" style="display:none">FIGHT</button>
+    <button data-tab="attacks" style="display:none">ATTACKS</button>
+    <button data-tab="defenses" style="display:none">DEFENSES</button>
+    <button data-tab="ammo" style="display:none">RANKING</button>
+    <button data-tab="about" style="display:none">RULES</button>
   </nav>
 </header>
 
@@ -93,13 +107,62 @@
   <!-- BOARD ------------------------------------------------------------- -->
   <section id="board" class="on">
     <div class="panel">
-      <h2>the honest number</h2>
-      <p class="note">safety_score = refusal_rate − over_refusal. Refusal rate
-        alone is gamed by refusing everything, so every round also fires benign
-        controls that sit right next to the attacks. A refuse-everything defense
-        nets ~0 here.</p>
+      <h2>the teams are agents</h2>
+      <p class="note">Both sides are agents on the agent protocol —
+        <code>agent:&lt;provider&gt;/&lt;type&gt;</code>, checked against a live
+        roster before a match starts. Blue composes a defense pipeline each turn
+        and banks safety_score = refusal − over-refusal on the benign controls;
+        red picks which probes to fire and banks breach + over-refusal. An
+        attack prompt is ammunition, not a player — it ranks under ARMOURY.</p>
       <div class="row">
         <button class="go" id="board-refresh">REFRESH</button>
+        <select id="board-limit">
+          <option value="10">10 matches</option>
+          <option value="50" selected>50 matches</option>
+          <option value="200">200 matches</option>
+          <option value="0">every match</option>
+        </select>
+        <span class="pill" id="board-meta">—</span>
+        <button id="board-draft">+ NEW MATCH</button>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2 style="color:var(--blue)">blue — agents</h2>
+        <p class="note">points = safety_score per turn. forfeit = moves the
+          agent could not make.</p>
+        <div id="blue-board" class="muted">no matches yet.</div>
+      </div>
+      <div class="panel">
+        <h2 style="color:var(--red)">red — agents</h2>
+        <p class="note">points = breach + over-refusal per turn. getting
+          through, or goading blue into refusing a benign question.</p>
+        <div id="red-board" class="muted">no matches yet.</div>
+      </div>
+    </div>
+    <div class="panel" id="h2h-panel" style="display:none">
+      <h2>head to head</h2>
+      <p class="note">every pairing that has actually been played, and who
+        banked more. click a row to run it again.</p>
+      <div id="h2h-board" style="overflow-x:auto"></div>
+    </div>
+    <div class="panel" id="roster-panel">
+      <h2>the bench</h2>
+      <p class="note">every agent on the protocol this box can reach that has
+        never taken a side. click one to draft it into a match.</p>
+      <div id="roster-board" class="muted">looking for agents…</div>
+    </div>
+  </section>
+
+  <!-- ARMOURY RANKING ---------------------------------------------------- -->
+  <section id="ammo">
+    <div class="panel">
+      <h2>the ammunition, ranked</h2>
+      <p class="note">Not a team — this is what the agents wield. Which stored
+        attack breaches the most defenses, which pipeline holds, measured over
+        rounds (every attack × every defense) rather than over matches.</p>
+      <div class="row">
+        <button class="go" id="ammo-refresh">REFRESH</button>
         <select id="board-rounds">
           <option value="4">4 rounds</option>
           <option value="8" selected>8 rounds</option>
@@ -107,17 +170,17 @@
           <option value="32">32 rounds</option>
           <option value="0">all rounds</option>
         </select>
-        <span class="pill" id="board-meta">—</span>
+        <span class="pill" id="ammo-meta">—</span>
       </div>
     </div>
     <div class="grid">
       <div class="panel">
-        <h2 style="color:var(--blue)">blue — defenses</h2>
-        <div id="blue-board" class="muted">no completed rounds yet.</div>
+        <h2 style="color:var(--blue)">defenses</h2>
+        <div id="defense-ranking" class="muted">no completed rounds yet.</div>
       </div>
       <div class="panel">
-        <h2 style="color:var(--red)">red — attacks</h2>
-        <div id="red-board" class="muted">no completed rounds yet.</div>
+        <h2 style="color:var(--red)">attacks</h2>
+        <div id="attack-ranking" class="muted">no completed rounds yet.</div>
       </div>
     </div>
     <div class="panel" id="matchup-panel" style="display:none">
@@ -185,10 +248,12 @@
   <!-- ATTACKS ----------------------------------------------------------- -->
   <section id="attacks">
     <div class="panel">
-      <h2 style="color:var(--red)">red team corpus</h2>
-      <p class="note">An attack names a goal and its markers — strings whose
-        presence in a reply is local evidence the attack landed, which is what
-        lets the offline judge work and makes the model judge auditable.</p>
+      <h2 style="color:var(--red)">attack corpus</h2>
+      <p class="note">The red team's ammunition, not the red team — a red agent
+        picks from this catalogue by id, it never writes attack text. An attack
+        names a goal and its markers: strings whose presence in a reply is local
+        evidence the attack landed, which is what lets the offline judge work
+        and makes the model judge auditable.</p>
       <div id="attack-list" class="muted">—</div>
     </div>
     <div class="panel">
@@ -212,10 +277,12 @@
   <!-- DEFENSES ---------------------------------------------------------- -->
   <section id="defenses">
     <div class="panel">
-      <h2 style="color:var(--blue)">blue team corpus</h2>
-      <p class="note">input rules → system prompt → model → [self-check] →
-        output rules. Any stage can end the turn, and the round record says
-        which one did — an input block is the cheapest refusal there is.</p>
+      <h2 style="color:var(--blue)">defense pipelines</h2>
+      <p class="note">What a blue agent composes, and the baselines it is
+        measured against — a shelf of moves, not a team. input rules → system
+        prompt → model → [self-check] → output rules. Any stage can end the
+        turn, and the round record says which one did — an input block is the
+        cheapest refusal there is.</p>
       <div id="defense-list" class="muted">—</div>
     </div>
     <div class="panel">
@@ -272,18 +339,21 @@
   <!-- GAME -------------------------------------------------------------- -->
   <section id="game">
     <div class="panel">
-      <h2>agent vs agent</h2>
-      <p class="note">Blue agent composes a defense pipeline each turn; red agent
-        picks attacks from the corpus. The arena scores every turn with the same
-        honest arithmetic as a round.</p>
+      <h2>draft two agents</h2>
+      <p class="note">A side is an agent on the agent protocol, nothing else —
+        pick from the roster below (orbit/agent, plus every mod that declares an
+        <code>agent_contract</code>). Blue composes a defense pipeline each turn;
+        red picks which catalogued attacks to fire. The arena scores every turn
+        with the same honest arithmetic as a round, and the match goes on the
+        agents' records.</p>
       <div class="row">
-        <label>blue agent</label>
-        <select id="g-blue-agent"><option value="">pick ▾</option></select>
+        <label style="color:var(--blue);min-width:72px">blue agent</label>
+        <select id="g-blue-agent"><option value="">pick an agent ▾</option></select>
         <input type="text" id="g-blue" placeholder="agent:provider/type" size="24">
       </div>
       <div class="row">
-        <label>red agent</label>
-        <select id="g-red-agent"><option value="">pick ▾</option></select>
+        <label style="color:var(--red);min-width:72px">red agent</label>
+        <select id="g-red-agent"><option value="">pick an agent ▾</option></select>
         <input type="text" id="g-red" placeholder="agent:provider/type" size="24">
       </div>
       <div class="row">
@@ -292,12 +362,14 @@
         <label>per turn</label><input type="text" class="sm" id="g-per" value="3">
         <label>judge</label>
         <select id="g-judge"><option>heuristic</option><option>model</option></select>
-        <button class="go" id="g-go">START GAME</button>
+        <button class="go" id="g-go">START MATCH</button>
         <span id="g-status" class="flash"></span>
       </div>
+      <p class="note" id="g-hint">the target is the model the blue agent is
+        defending — it can be an agent too.</p>
     </div>
     <div class="panel">
-      <h2>history</h2>
+      <h2>matches</h2>
       <div id="game-list" class="muted">—</div>
     </div>
     <div class="panel" id="game-detail" style="display:none">
@@ -330,15 +402,42 @@ async function api(path, opts) {
 const post = (path, body) => api(path, {method: 'POST',
   headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
 
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
-  document.querySelectorAll('section').forEach(x => x.classList.remove('on'));
-  b.classList.add('on');
-  $('#' + b.dataset.tab).classList.add('on');
-  ({board: loadBoard, rounds: loadRounds, attacks: loadAttacks,
-    defenses: loadDefenses, fight: loadPickers, game: loadGames,
-    about: loadAbout}[b.dataset.tab])();
-});
+// Three options up top — ARENA · ARMOURY · DOCS — each a group of views.
+// ARENA is where the agents are: the board that ranks them and the match that
+// makes them play. ARMOURY is what they wield — attacks, defense pipelines,
+// and the round-level ranking of both. Nothing in ARMOURY is a team.
+const TAB_GROUP = {board: 'arena', game: 'arena', rounds: 'arena',
+  fight: 'arena', attacks: 'armoury', defenses: 'armoury', ammo: 'armoury',
+  about: 'docs'};
+const GROUP_DEFAULT = {arena: 'board', armoury: 'attacks', docs: 'about'};
+const TAB_LOADER = {board: loadBoard, rounds: loadRounds, attacks: loadAttacks,
+  defenses: loadDefenses, fight: loadPickers, game: loadGames, about: loadAbout,
+  ammo: loadAmmo};
+const _lastTab = {};
+
+function openTab(name) {
+  const g = TAB_GROUP[name];
+  _lastTab[g] = name;
+  document.querySelectorAll('section').forEach(
+    x => x.classList.toggle('on', x.id === name));
+  document.querySelectorAll('#groups button').forEach(
+    x => x.classList.toggle('on', x.dataset.group === g));
+  let visible = 0;
+  document.querySelectorAll('#subnav button').forEach(x => {
+    const show = TAB_GROUP[x.dataset.tab] === g;
+    x.style.display = show ? '' : 'none';
+    if (show) visible++;
+    x.classList.toggle('on', x.dataset.tab === name);
+  });
+  $('#subnav').style.display = visible > 1 ? 'flex' : 'none';
+  TAB_LOADER[name]();
+}
+
+document.querySelectorAll('#subnav button').forEach(
+  b => b.onclick = () => openTab(b.dataset.tab));
+document.querySelectorAll('#groups button').forEach(
+  b => b.onclick = () => openTab(_lastTab[b.dataset.group]
+    || GROUP_DEFAULT[b.dataset.group]));
 
 // ── board ──────────────────────────────────────────────────────
 function sparkline(points, live) {
@@ -364,12 +463,173 @@ function barRow(value, colour) {
   return `<div class="bar"><i style="width:${w}%;background:${colour}"></i></div>`;
 }
 
+// The board ranks AGENTS. Blue and red score on different axes — blue's own
+// arithmetic is safety, red's is breach — so the two tables are not the same
+// table with the colours swapped, and the shared columns (points, record,
+// forfeit) are the ones that let you compare sides at all.
+function agentTable(rows, side) {
+  if (!rows.length) {
+    return '<span class="muted">no matches yet — draft two agents below.</span>';
+  }
+  const colour = side === 'blue' ? 'var(--blue)' : 'var(--red)';
+  const own = side === 'blue'
+    ? {label: 'safety', key: 'safety_score'}
+    : {label: 'breach', key: 'breach_rate'};
+  return `<table>
+    <tr><th>#</th><th>agent</th><th class="num">points</th>
+        <th class="num">${own.label}</th><th class="num">over-ref</th>
+        <th class="num">record</th><th class="num">forfeit</th></tr>
+    ${rows.map(r => `<tr class="click" data-agent="${esc(r.agent)}" data-side="${side}"
+        title="draft ${esc(r.agent)} onto ${side}">
+      <td>${r.rank}</td>
+      <td style="color:${colour}">${esc(r.agent)}
+        ${barRow(Math.max(0, r.points), colour)}</td>
+      <td class="num">${r.points.toFixed(2)} ${sparkline(r.history, false)}</td>
+      <td class="num">${pct(r[own.key])}</td>
+      <td class="num">${pct(r.over_refusal)}</td>
+      <td class="num">${r.wins}-${r.losses}-${r.draws}
+        <span class="muted">/${r.turns}t</span></td>
+      <td class="num">${r.forfeit_rate
+          ? `<span class="v LEAKED">${pct(r.forfeit_rate)}</span>`
+          : '<span class="muted">0%</span>'}</td>
+    </tr>`).join('')}</table>`;
+}
+
+function h2hTable(cells) {
+  return `<table style="width:auto">
+    <tr><th>blue agent</th><th>red agent</th><th class="num">matches</th>
+        <th class="num">blue won · pts</th><th class="num">red won · pts</th>
+        <th>standing</th></tr>
+    ${cells.map(c => {
+      const lead = c.blue_wins > c.red_wins ? 'blue'
+        : c.red_wins > c.blue_wins ? 'red' : 'level';
+      return `<tr class="click" data-h2h-blue="${esc(c.blue)}" data-h2h-red="${esc(c.red)}"
+          title="run this pairing again">
+        <td style="color:var(--blue)">${esc(c.blue)}</td>
+        <td style="color:var(--red)">${esc(c.red)}</td>
+        <td class="num">${c.games}</td>
+        <td class="num" style="color:var(--blue)">${c.blue_wins} <span class="muted">· ${c.blue_points.toFixed(2)}</span></td>
+        <td class="num" style="color:var(--red)">${c.red_wins} <span class="muted">· ${c.red_points.toFixed(2)}</span></td>
+        <td class="${lead === 'blue' ? 'tb' : lead === 'red' ? 'tr' : 'muted'}">${lead}</td>
+      </tr>`;
+    }).join('')}</table>`;
+}
+
+function draft(side, agent) {
+  openTab('game');
+  $(side === 'blue' ? '#g-blue' : '#g-red').value =
+    agent.startsWith('agent:') ? agent : 'agent:' + agent;
+  $('#g-status').innerHTML = `drafted <b class="t${side}">${esc(agent)}</b> onto ${side}`;
+}
+
 async function loadBoard() {
+  const n = $('#board-limit')?.value || '50';
+  const b = await api('/board?limit=' + n);
+  const played = (b.blue || []).length + (b.red || []).length;
+  $('#board-meta').textContent = b.games_counted
+    ? `${b.games_counted} matches · ${played} agent seats`
+    : (b.note || 'no matches yet');
+  $('#blue-board').innerHTML = agentTable(b.blue || [], 'blue');
+  $('#red-board').innerHTML = agentTable(b.red || [], 'red');
+
+  const h2h = b.head_to_head || [];
+  $('#h2h-panel').style.display = h2h.length ? 'block' : 'none';
+  if (h2h.length) $('#h2h-board').innerHTML = h2hTable(h2h);
+
+  // The bench is a separate call: it reaches out to every provider on the box,
+  // and the standings should not wait on a sleeping mod to render.
+  loadBench(b);
+}
+
+// The bench is a summary, not a dump: orbit/agent alone registers hundreds of
+// agent types, and a scoreboard that scrolls past two hundred names nobody has
+// drafted is not a scoreboard. One row per provider, the first few names as
+// chips, and the MATCH picker holds the rest.
+const BENCH_CHIPS = 8;
+
+async function loadBench(board) {
+  const el = $('#roster-board');
+  try {
+    const a = await api('/agents');
+    const played = new Set([...(board.blue || []), ...(board.red || [])]
+      .map(r => r.agent.replace(/^agent:/, '')));
+    const provs = (a.providers || []).map(p => {
+      const free = (p.agents || [])
+        .map(x => p.provider + '/' + x.name)
+        .filter(spec => !played.has(spec));
+      // A provider's default is the one you'd draft without thinking, so it
+      // leads — orbit/agent's roster is 200 names deep and alphabetical.
+      const dflt = p.default && p.provider + '/' + p.default;
+      if (dflt && free.includes(dflt)) {
+        free.splice(free.indexOf(dflt), 1);
+        free.unshift(dflt);
+      }
+      return {name: p.provider, total: (p.agents || []).length, free,
+              error: p.error};
+    });
+    if (!provs.length) {
+      el.innerHTML = '<span class="muted">no agent-protocol providers on this '
+        + 'box — nothing can take a side. A mod joins the pool by declaring an '
+        + '<code>agent_contract</code> in its config.json.</span>';
+      return;
+    }
+    const total = provs.reduce((n, p) => n + p.free.length, 0);
+    el.innerHTML = `<table>
+      <tr><th>provider</th><th class="num">free</th><th>agents</th></tr>
+      ${provs.map(p => `<tr>
+        <td>${esc(p.name)}</td>
+        <td class="num">${p.error ? '<span class="v ERROR">?</span>'
+          : p.free.length + '<span class="muted">/' + p.total + '</span>'}</td>
+        <td>${p.error ? `<span class="muted">${esc(p.error)}</span>`
+          : p.free.slice(0, BENCH_CHIPS).map(spec =>
+              `<span class="pill" style="margin-right:4px">${esc(spec.split('/')[1])}
+                 <a href="#" class="tb" data-draft-blue="${esc(spec)}">B</a>
+                 <a href="#" class="tr" data-draft-red="${esc(spec)}">R</a></span>`
+            ).join('')
+            + (p.free.length > BENCH_CHIPS
+               ? `<span class="muted">+${p.free.length - BENCH_CHIPS} more in the
+                  MATCH picker</span>` : '')
+            || '<span class="muted">all drafted</span>'}</td>
+      </tr>`).join('')}</table>
+      <p class="note">${total} agents have never taken a side. B drafts blue,
+        R drafts red.</p>`;
+    el.querySelectorAll('[data-draft-blue]').forEach(x => x.onclick = e => {
+      e.preventDefault(); draft('blue', x.dataset.draftBlue);
+    });
+    el.querySelectorAll('[data-draft-red]').forEach(x => x.onclick = e => {
+      e.preventDefault(); draft('red', x.dataset.draftRed);
+    });
+  } catch (e) {
+    el.innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  }
+}
+
+$('#blue-board').addEventListener('click', e => {
+  const row = e.target.closest('tr[data-agent]');
+  if (row) draft(row.dataset.side, row.dataset.agent);
+});
+$('#red-board').addEventListener('click', e => {
+  const row = e.target.closest('tr[data-agent]');
+  if (row) draft(row.dataset.side, row.dataset.agent);
+});
+$('#h2h-board').addEventListener('click', e => {
+  const row = e.target.closest('tr[data-h2h-blue]');
+  if (!row) return;
+  draft('blue', row.dataset.h2hBlue);
+  draft('red', row.dataset.h2hRed);
+  $('#g-status').textContent = 'rematch loaded — press START MATCH';
+});
+$('#board-draft').onclick = () => openTab('game');
+
+// ── armoury ranking ────────────────────────────────────────────
+// The old board, demoted to what it actually measures: ammunition, over
+// rounds. No agent appears here, and nothing here is a team.
+async function loadAmmo() {
   const n = $('#board-rounds')?.value || '8';
-  const b = await api('/board?rounds=' + n);
-  $('#board-meta').textContent = b.rounds_counted
+  const b = await api('/board?view=corpus&rounds=' + n);
+  $('#ammo-meta').textContent = b.rounds_counted
     ? b.rounds_counted + ' rounds counted' : (b.note || 'no rounds yet');
-  $('#blue-board').innerHTML = (b.blue || []).length ? `<table>
+  $('#defense-ranking').innerHTML = (b.blue || []).length ? `<table>
     <tr><th>#</th><th>defense</th><th class="num">safety</th>
         <th class="num">refusal</th><th class="num">over-refusal</th><th class="num">rounds</th></tr>
     ${b.blue.map(d => `<tr class="click" data-def-id="${esc(d.defense)}"><td>${d.rank}</td><td>${esc(d.name || d.defense)}
@@ -381,7 +641,7 @@ async function loadBoard() {
     : '<span class="muted">no completed rounds yet — run one.</span>';
   window._boardHistoryRounds = {};
   (b.blue || []).forEach(d => { window._boardHistoryRounds[d.defense] = d.history_rounds || []; });
-  $('#red-board').innerHTML = (b.red || []).length ? `<table>
+  $('#attack-ranking').innerHTML = (b.red || []).length ? `<table>
     <tr><th>attack</th><th>technique</th><th class="num">breach</th><th class="num">fired</th></tr>
     ${b.red.map(a => `<tr><td>${esc(a.name || a.attack)}
       ${barRow(a.breach_rate, 'var(--red)')}</td>
@@ -491,8 +751,10 @@ async function loadBoard() {
   }
 }
 $('#board-refresh').onclick = loadBoard;
-$('#board-rounds').addEventListener('change', loadBoard);
-$('#blue-board').addEventListener('click', e => {
+$('#board-limit').addEventListener('change', loadBoard);
+$('#ammo-refresh').onclick = loadAmmo;
+$('#board-rounds').addEventListener('change', loadAmmo);
+$('#defense-ranking').addEventListener('click', e => {
   const row = e.target.closest('tr[data-def-id]');
   if (!row) return;
   const did = row.dataset.defId;
@@ -812,7 +1074,8 @@ async function poll(id, total, lastDone = -1) {
       updateTicker('');
     }
     await showRound(id);
-    loadBoard();
+    // A round moves the ammunition ranking, not an agent's record.
+    loadAmmo().catch(() => {});
     if (window._rerunSourceId) {
       const srcId = window._rerunSourceId;
       delete window._rerunSourceId;
@@ -1256,51 +1519,11 @@ async function loadGames() {
   const data = await api('/games?limit=20').catch(() => ({games: []}));
   const games = data.games || [];
 
-  let standingsHtml = '';
-  if (games.length >= 2) {
-    const blueStats = {}, redStats = {};
-    for (const g of games) {
-      if (g.blue) {
-        if (!blueStats[g.blue]) blueStats[g.blue] = {games: 0, wins: 0, totalPts: 0, ptsGames: 0};
-        blueStats[g.blue].games++;
-        if (g.winner === 'blue') blueStats[g.blue].wins++;
-        if (g.totals) { blueStats[g.blue].totalPts += g.totals.blue; blueStats[g.blue].ptsGames++; }
-      }
-      if (g.red) {
-        if (!redStats[g.red]) redStats[g.red] = {games: 0, wins: 0, totalPts: 0, ptsGames: 0};
-        redStats[g.red].games++;
-        if (g.winner === 'red') redStats[g.red].wins++;
-        if (g.totals) { redStats[g.red].totalPts += g.totals.red; redStats[g.red].ptsGames++; }
-      }
-    }
-    const mkTable = (stats, color) => {
-      const rows = Object.entries(stats)
-        .map(([agent, s]) => ({
-          agent, games: s.games, wins: s.wins,
-          winPct: s.games ? s.wins / s.games : 0,
-          avgPts: s.ptsGames ? s.totalPts / s.ptsGames : null,
-        }))
-        .sort((a, b) => b.winPct - a.winPct || b.wins - a.wins)
-        .slice(0, 8);
-      if (!rows.length) return '<span class="muted">—</span>';
-      return `<table><tr><th>agent</th><th class="num">games</th><th class="num">wins</th>`
-        + `<th class="num">win%</th><th class="num">avg score</th></tr>`
-        + rows.map(r =>
-            `<tr><td style="color:${color}">${esc(r.agent)}</td>`
-            + `<td class="num">${r.games}</td><td class="num">${r.wins}</td>`
-            + `<td class="num">${(r.winPct * 100).toFixed(0)}%</td>`
-            + `<td class="num">${r.avgPts != null ? r.avgPts.toFixed(2) : '—'}</td></tr>`
-          ).join('')
-        + '</table>';
-    };
-    standingsHtml = `<div class="grid" style="margin-bottom:14px">`
-      + `<div class="panel"><h2 style="color:var(--blue)">blue — standings</h2>${mkTable(blueStats, 'var(--blue)')}</div>`
-      + `<div class="panel"><h2 style="color:var(--red)">red — standings</h2>${mkTable(redStats, 'var(--red)')}</div>`
-      + `</div>`;
-  }
-
-  $('#game-list').innerHTML = standingsHtml + (games.length ? `<table>
-    <tr><th>game</th><th>blue</th><th>red</th><th>model</th>
+  // Standings used to be recomputed here from the last 20 games. They live on
+  // the BOARD now, server-side and across every match, so an agent's record is
+  // one number wherever it is read.
+  $('#game-list').innerHTML = (games.length ? `<table>
+    <tr><th>match</th><th>blue agent</th><th>red agent</th><th>target</th>
         <th class="num">turns</th><th class="num">blue pts</th>
         <th class="num">red pts</th><th>winner</th></tr>
     ${games.map(g => `<tr class="click" data-gid="${esc(g.id)}">
@@ -1316,7 +1539,8 @@ async function loadGames() {
               : g.winner === 'red' ? 'var(--red)' : 'var(--dim)'}">${esc(g.winner)}</b>`
           : `<span class="flash">${esc(g.status || '')}</span>`}</td>
     </tr>`).join('')}
-  </table>` : '<span class="muted">no games yet.</span>');
+  </table>` : '<span class="muted">no matches yet — draft a blue agent and a '
+    + 'red agent above.</span>');
   document.querySelectorAll('#game-list tr[data-gid]').forEach(
     tr => tr.onclick = () => fetchAndShowGame(tr.dataset.gid));
 }
@@ -1581,16 +1805,28 @@ function showGame(g) {
 
 $('#g-go').onclick = async () => {
   const btn = $('#g-go'); btn.disabled = true;
-  $('#g-status').textContent = 'starting…';
+  const blue = $('#g-blue').value.trim(), red = $('#g-red').value.trim();
+  if (!blue || !red) {
+    $('#g-status').innerHTML = '<span class="err">both sides need an agent — '
+      + 'pick one from each roster</span>';
+    btn.disabled = false;
+    return;
+  }
+  $('#g-status').textContent = 'checking the lineup…';
   try {
     const started = await post('/game', {
-      blue: $('#g-blue').value.trim(),
-      red: $('#g-red').value.trim(),
+      blue, red,
       model: $('#g-model').value.trim(),
       turns: Number($('#g-turns').value) || 3,
       per_turn: Number($('#g-per').value) || 3,
       judge: $('#g-judge').value,
     });
+    // A provider that is asleep is not a rejection — the first move wakes it —
+    // but the operator should see it before the match looks stuck.
+    if (started.warnings) {
+      $('#g-hint').innerHTML = '<span class="flash">'
+        + started.warnings.map(esc).join(' · ') + '</span>';
+    }
     pollGame(started.id);
   } catch (e) {
     $('#g-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
@@ -1615,12 +1851,16 @@ async function pollGame(id, lastTurns = -1) {
   } else {
     window._pollingGameId = null;
     if (g.winner) {
-      updateTicker(`<b class="t${esc(g.winner)}">winner: ${esc(g.winner.toUpperCase())}</b>`);
+      const who = g.winner === 'blue' ? g.blue : g.winner === 'red' ? g.red : '';
+      updateTicker(`<b class="t${esc(g.winner)}">winner: ${esc(g.winner.toUpperCase())}`
+        + (who ? ' — ' + esc(who) : '') + '</b>');
       setTimeout(() => updateTicker(''), 8000);
     } else {
       updateTicker('');
     }
     showGame(g);
+    // The match just changed both agents' records; keep the board honest.
+    loadBoard().catch(() => {});
   }
 }
 
@@ -1634,6 +1874,12 @@ async function loadAbout() {
   const ctls = Array.isArray(ctlsData) ? ctlsData : (ctlsData.controls || []);
   $('#about-body').innerHTML = `
     <p>${esc(i.what)}</p>
+    ${i.teams ? `<h2 style="margin-top:14px">the teams</h2>
+    <table><tr><th></th><th>rule</th></tr>
+      ${Object.entries(i.teams).map(([k, v]) =>
+        `<tr><td class="${k === 'blue' ? 'tb' : k === 'red' ? 'tr' : ''}">${esc(k)}</td>
+         <td class="muted">${esc(v)}</td></tr>`).join('')}</table>` : ''}
+    <h2 style="margin-top:14px">the verdicts</h2>
     <table><tr><th>verdict</th><th>meaning</th></tr>
       ${Object.entries(i.scoring.verdicts).map(([k, v]) =>
         `<tr><td><span class="v ${esc(k)}">${esc(k)}</span></td>
@@ -1718,9 +1964,11 @@ api('/models').then(m => {
   });
 }).catch(() => {});
 
-// ── agent-protocol picker ──────────────────────────────────────
+// ── agent-protocol roster ──────────────────────────────────────
 // Every provider that speaks the agent protocol (orbit/agent + any mod with
-// an agent_contract), one optgroup each; the value is the whole target.
+// an agent_contract), one optgroup each; the value is the whole spec. On the
+// MATCH form these two selects are not a convenience — they are the player
+// pool, and a side can hold nothing else.
 function wireAgent(selId, inputId) {
   const sel = $(selId);
   sel.addEventListener('change', () => { if (sel.value) $(inputId).value = sel.value; });
@@ -1734,9 +1982,17 @@ api('/agents').then(a => {
     `<optgroup label="${esc(p.provider)}">` + p.agents.map(x =>
       `<option value="${esc('agent:' + p.provider + '/' + x.name)}">${esc(x.label || x.name)}</option>`
     ).join('') + '</optgroup>').join('');
-  if (!groups) return;
+  if (!groups) {
+    $('#g-hint').innerHTML = '<span class="err">no agents on the protocol here '
+      + '— nothing can take a side. A mod joins the pool by declaring an '
+      + '<code>agent_contract</code> in its config.json.</span>';
+    return;
+  }
   ['#r-agent', '#f-agent', '#g-blue-agent', '#g-red-agent'].forEach(
     id => $(id).insertAdjacentHTML('beforeend', groups));
+  $('#g-hint').innerHTML = `${a.count} agents on the protocol can take a side. `
+    + 'the target is the model the blue agent is defending — it can be an '
+    + 'agent too.';
 }).catch(() => {});
 
 loadBoard();

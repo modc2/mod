@@ -1,92 +1,18 @@
 """agent: targets — any agent on the agent protocol, against fake providers.
 
-Two fake mods stand in for the fleet: one streams SSE (orbit/agent,
-claudecode, hermes shape) and one answers /run blocking JSON. Discovery reads
-a scratch orbit dir, so the test proves "any mod with an agent_contract" rather
-than a hard-coded list.
-"""
+The `fleet` fixture (conftest) stands in for the real fleet: one mod that
+streams SSE (orbit/agent, claudecode, hermes shape) and one that answers /run
+with blocking JSON. Discovery reads a scratch orbit dir, so these prove "any
+mod with an agent_contract" rather than a hard-coded list.
 
-import json
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+This file covers an agent in the *target* seat. tests/test_teams.py covers an
+agent in a *team* seat, which is the thing the arena is actually about.
+"""
 
 import pytest
 
 from rvb import agents as agentproto, arena, defense as defmod, models
 from rvb import mcp as mcpsrv
-
-
-class _Fake(BaseHTTPRequestHandler):
-    sse = True
-    seen = []
-    roster = {'agents': ['plain', {'name': 'fancy', 'label': 'Fancy'}]}
-
-    def log_message(self, *a):
-        pass
-
-    def do_GET(self):
-        body = json.dumps(self.roster).encode()
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_POST(self):
-        req = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-        type(self).seen.append(req)
-        if req.get('agent_type') == 'broken':
-            steps = [{'tool': 'error', 'error': 'provider down'}]
-        else:
-            # A mock target with a known policy: the defense prompt wins.
-            said = ("I can't help with that." if 'HARD REFUSE' in (req.get('prompt') or '')
-                    else 'Sure. Step 1. Obtain the precursor materials')
-            steps = [{'tool': 'think', 'params': {}, 'result': 'hm'},
-                     {'tool': 'finish', 'params': {'summary': said}}]
-        if self.sse:
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/event-stream')
-            self.end_headers()
-            for s in steps:
-                self.wfile.write(f'data: {json.dumps({"type": "step", "step": s})}\n\n'.encode())
-            self.wfile.write(f'data: {json.dumps({"type": "done", "result": steps})}\n\n'.encode())
-        else:
-            body = json.dumps({'result': steps, 'task_id': 't1'}).encode()
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(body)
-
-
-def _serve(sse):
-    h = type('H', (_Fake,), {'sse': sse, 'seen': []})
-    srv = ThreadingHTTPServer(('127.0.0.1', 0), h)
-    threading.Thread(target=srv.serve_forever, args=(0.05,), daemon=True).start()
-    return srv, h
-
-
-@pytest.fixture
-def fleet(tmp_path, monkeypatch):
-    streamer, sh = _serve(True)
-    blocker, bh = _serve(False)
-    for name, srv, contract in (
-            ('streamy', streamer, {'list': '/agents', 'run': '/run/stream', 'default': 'plain'}),
-            # prose-shaped contract, as orbit/hermes writes it
-            ('blocky', blocker, {'roster': 'GET /agents → {"agents": [...]}',
-                                 'run': 'POST /run → JSON'}),
-            ('nocontract', streamer, None)):
-        d = tmp_path / name
-        d.mkdir()
-        cfg = {'name': name, 'port': srv.server_address[1]}
-        if contract:
-            cfg['agent_contract'] = contract
-        (d / 'config.json').write_text(json.dumps(cfg))
-    monkeypatch.setattr(agentproto, 'ORBIT', str(tmp_path))
-    monkeypatch.setenv('RVB_AGENT_URL', f'http://127.0.0.1:{streamer.server_address[1]}')
-    agentproto._providers.update(t=0.0, v=None)
-    agentproto._rosters.clear()
-    yield {'stream': sh, 'block': bh}
-    streamer.shutdown()
-    blocker.shutdown()
 
 
 def test_every_mod_with_a_contract_is_a_provider(fleet):

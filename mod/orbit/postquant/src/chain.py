@@ -18,9 +18,14 @@ choice — one node, one log. `verify()` replays the whole chain from genesis,
 rebuilds the consensus schedule from the headers, and checks every root,
 seal and commit against the epoch that was live at its height.
 
-Blocks are produced on demand and on a heartbeat, not on a fixed tick, because
-rent is priced in wall-clock seconds rather than block height. Nothing about
-the state machine depends on how often blocks appear.
+Blocks are produced LAZILY (lazy.py): on demand, and not at all when there is
+no demand. Rent is priced in wall-clock seconds rather than block height and
+settles per entry at the moment something touches it, so nothing about the
+state machine depends on how often blocks appear — which means a chain with an
+empty mempool has nothing to produce, and a node with nothing to produce is
+allowed to stop. After PARK_SECONDS of that, the node writes dormant.json and
+declares itself safe to turn off; the first transaction after it comes back
+produces the block that prices the whole sleep as the idle slots it was.
 """
 
 from __future__ import annotations
@@ -37,6 +42,7 @@ if HERE not in sys.path:
 
 import consensus as CN                                         # noqa: E402
 import keys as K                                                # noqa: E402
+import lazy as LZ                                               # noqa: E402
 import state as S                                               # noqa: E402
 from pq import algos                                            # noqa: E402
 from pq import complexity as CPLX                               # noqa: E402
@@ -96,6 +102,10 @@ class Node:
         self.consensus_note = ""           # why the last produce() stalled
         self._round_floor = (0, 0)         # (height, first round to try)
         self.pending_file = os.path.join(self.dir, "consensus_pending.json")
+        self.pulse = LZ.Pulse()            # measured demand, for the tier plan
+        self.dormant = False               # storage mode: safe to turn off
+        self.dormant_since = 0
+        self.dormant_file = os.path.join(self.dir, "dormant.json")
         if autoload:
             self.open()
 
@@ -113,6 +123,19 @@ class Node:
         else:
             self._init_genesis()
         self._load_schedule()
+        # A node that was parked when it stopped comes back parked. Nothing
+        # is asking it for a block — if something were, it would have been
+        # woken by the request that asked — so it resumes storage mode and
+        # the first write unparks it.
+        parked = LZ.read_manifest(self.dormant_file) if LZ.LAZY else None
+        if parked and parked.get("height") == self.blocks[-1]["height"]:
+            self.dormant = True
+            self.dormant_since = int(parked.get("since") or time.time())
+        elif parked:
+            try:
+                os.remove(self.dormant_file)
+            except OSError:
+                pass
         return self.head()
 
     def _load_schedule(self):
@@ -182,7 +205,19 @@ class Node:
                 "fee_market": {"target_state_bytes": S.STATE_TARGET_BYTES,
                                "max_change_denominator":
                                    S.BASE_FEE_MAX_CHANGE_DEN,
-                               "min_base_fee": S.BASE_FEE_MIN},
+                               "min_base_fee": S.BASE_FEE_MIN,
+                               "slot_seconds": LZ.SLOT_SECONDS,
+                               "idle_slots": "a gap between blocks is priced "
+                                             "as the empty slots it skipped; "
+                                             "a block carrying lazy=1 must "
+                                             "prove its fee from its parent "
+                                             "header"},
+                "liveness": ("lazy — no block without something to put in "
+                             "it, and a node with nothing to produce may be "
+                             "switched off; the tip is the commitment"
+                             if LZ.LAZY else
+                             f"heartbeat — an empty block every "
+                             f"{HEARTBEAT_SECONDS}s"),
             },
         }
         if spec:
@@ -340,6 +375,7 @@ class Node:
             genesis = json.load(f)
         st = State(self.chain_id, genesis["alloc"], genesis["base_fee"])
         parent = "0" * 64
+        parent_header = None
         checked = bad = 0
         problems = []
         schedule = [CN.genesis_epoch(genesis)]
@@ -365,7 +401,7 @@ class Node:
                 epoch = CN.epoch_at(schedule, h["height"])
                 try:
                     found = CN.check_block(epoch, block, parent, st.balance,
-                                           scheme0)
+                                           scheme0, parent_header)
                 except StateError as e:
                     found = [e.message]
                 for p in found:
@@ -409,6 +445,7 @@ class Node:
             if h["height"]:
                 st.base_fee = st.next_base_fee(h["state_bytes"])
             parent = block["hash"]
+            parent_header = h
         return {"ok": bad == 0, "blocks": checked, "problems": problems,
                 "signatures_checked": bool(signatures),
                 "epochs": len(schedule),
@@ -454,7 +491,15 @@ class Node:
                     "this address has never transacted, so the chain does not "
                     "know its public key — include pk with the first "
                     "transaction from an address", code="pk_required")
-            if not K.verify_tx(tx, known):
+            # Timed, not modelled: this is the one unavoidable cost of a
+            # post-quantum chain (every node re-runs every witness inside its
+            # key type's wasm verifier) and it is what lazy.py converts into
+            # a core count when the chain is asked to scale up.
+            started = time.perf_counter()
+            ok = K.verify_tx(tx, known)
+            self.pulse.witness(scheme, len(tx.get("sig", "")) // 2,
+                               (time.perf_counter() - started) * 1000.0)
+            if not ok:
                 raise StateError("signature does not verify for this address",
                                  code="bad_witness", status=401)
             tx["hash"] = K.tx_hash(tx)
@@ -607,6 +652,14 @@ class Node:
             epoch = self.epoch(height)
             eng = CN.get(epoch["engine"])
             pre = self.state
+            # The fee this block charges. Under lazy consensus the producer
+            # derives it with the SAME function the verifier re-derives it
+            # with (consensus.lazy_problems), from the parent header rather
+            # than from this node's running state: the slots the chain slept
+            # through have to be priced as the empty blocks they would have
+            # been, and a rule only the producer can evaluate is not a rule.
+            base_fee = (LZ.expected_base_fee(tip, {"timestamp": now})
+                        if LZ.LAZY else pre.base_fee)
             rnd, wallet = self._pick_proposer(epoch, height, now, pre.balance)
             if not epoch.get("legacy") and wallet is None:
                 self.consensus_note = (
@@ -616,6 +669,7 @@ class Node:
             proposer = wallet["address"] if wallet else self._proposer()
 
             st = self._fork_state()
+            st.base_fee = base_fee
             included, receipts, dropped = [], [], []
             gas_used = growth = 0
             for tx in candidates:
@@ -626,10 +680,12 @@ class Node:
                                     "code": e.code,
                                     "kind": tx["body"]["kind"],
                                     "from": tx["body"]["from"]})
-                    st = self._replay_into(st, included, now, proposer)
+                    st = self._replay_into(st, included, now, proposer,
+                                           base_fee)
                     continue
                 if gas_used + receipt["gas"] > S.BLOCK_GAS_LIMIT:
-                    st = self._replay_into(st, included, now, proposer)
+                    st = self._replay_into(st, included, now, proposer,
+                                           base_fee)
                     break
                 gas_used += receipt["gas"]
                 growth += receipt.get("state_bytes", 0)
@@ -645,13 +701,20 @@ class Node:
                 "parent": self._tip_hash(),
                 "timestamp": now,
                 "proposer": proposer,
-                "base_fee": self.state.base_fee,
+                "base_fee": base_fee,
                 "gas_used": gas_used,
                 "state_bytes": growth,
                 "tx_count": len(included),
                 "tx_root": tx_root(included),
                 "state_root": st.root(),
             }
+            if LZ.LAZY:
+                # The marker is what puts this block's fee under replay: a
+                # verifier seeing it re-derives base_fee from the parent and
+                # refuses the block if it disagrees. Blocks produced before
+                # lazy consensus existed carry no marker and are checked
+                # exactly as they always were.
+                header["lazy"] = 1
             if not epoch.get("legacy"):
                 header.update(consensus=eng.name, epoch=CN.epoch_id(epoch),
                               round=rnd)
@@ -701,6 +764,9 @@ class Node:
         self.state = st
         self.blocks.append(header)
         self.last_block_time = header["timestamp"]
+        self.pulse.block(header)
+        if header.get("tx_count"):
+            self.wake("a block was produced")
         self.proposal = None
         self.consensus_note = ""
         for tx in block["txs"]:
@@ -844,11 +910,13 @@ class Node:
             self.consensus_note = (f"height {h}: round {p['round']} timed "
                                    "out without a quorum — next round")
 
-    def _replay_into(self, _stale, included, now, proposer):
+    def _replay_into(self, _stale, included, now, proposer, base_fee=None):
         """A transaction failed mid-block. Rebuild the block's state from the
         transactions that did succeed rather than trusting a state that a
         half-applied transaction may have touched."""
         st = self._fork_state()
+        if base_fee is not None:
+            st.base_fee = base_fee
         for tx in included:
             st.apply(tx, now, proposer=proposer)
         return st
@@ -860,34 +928,250 @@ class Node:
         return blocks[0]["hash"] if blocks else "0" * 64
 
     def maybe_produce(self, now=None):
-        """Called by the block loop: produce if there is work, or on the
-        heartbeat so wall-clock rent keeps being settled into the chain."""
+        """Called by the block loop: produce if there is work, and otherwise
+        do nothing whatsoever.
+
+        Lazy consensus is this method. There is no tick to keep up with — if
+        the mempool is empty and no migration is waiting then there is no
+        block to produce, so none is produced and the tip stays where it is,
+        final, for as long as nobody wants anything. What used to live here
+        was a heartbeat: an empty block every HEARTBEAT_SECONDS, justified by
+        rent. Rent never needed it. An entry's escrow is drained by
+        `rent_for(bytes, now - rent_from)` whenever something next touches it
+        (state.py `_settle`), so a lease runs down on the wall clock whether
+        or not anyone is awake to watch, and expiry is a timestamp
+        comparison. The only thing the heartbeat really did was let the fee
+        market cool off, and produce() now prices an idle gap as the slots it
+        skipped. POSTQUANT_LAZY=0 puts the heartbeat back for anyone who
+        wants a chain that ticks.
+        """
         now = int(now or time.time())
         with self.lock:
             self._expire_proposal(int(time.time()))
         if self.mempool or self.pending_migration:
+            self.wake("work arrived")
             return self.produce(now, force=bool(self.pending_migration))
-        if now - self.last_block_time >= HEARTBEAT_SECONDS:
+        if not LZ.LAZY and HEARTBEAT_SECONDS > 0 and \
+                now - self.last_block_time >= HEARTBEAT_SECONDS:
             return self.produce(now, force=True)
+        self._maybe_park(now)
         return None
 
     def run(self, stop=None):
-        """The block loop. One thread, one proposer."""
+        """The block loop. One thread, one proposer, and a cadence that
+        follows demand: the tier's block time while the chain is awake,
+        PARK_POLL once it has parked. The wait is on the stop event rather
+        than a sleep, so a node that has gone quiet for an hour still shuts
+        down the instant it is asked to."""
         while not (stop and stop.is_set()):
             try:
                 self.maybe_produce()
             except Exception as e:                 # never let a bad block stop
                 print(f"postquant: block production failed — {e}", flush=True)
-            time.sleep(BLOCK_SECONDS)
+            wait = self.tick_seconds()
+            if stop is not None:
+                stop.wait(wait)
+            else:
+                time.sleep(wait)
+
+    def tick_seconds(self):
+        """How long the loop should sleep before looking at the mempool
+        again. A dormant node looks once a minute; a busy one looks at its
+        tier's cadence. Nothing here is consensus — it is how much CPU this
+        process spends waiting."""
+        if self.proposal:
+            return max(1, min(BLOCK_SECONDS, CN.ROUND_SECONDS // 4))
+        if self.mempool or self.pending_migration:
+            return 1
+        if self.dormant:
+            return LZ.PARK_POLL
+        return self.tier()["block_seconds"] or BLOCK_SECONDS
+
+    # ── storage mode ──────────────────────────────────────────────
+
+    def tier(self, now=None):
+        """Which rung of the ladder the measured demand puts this chain on."""
+        return LZ.tier_for(self.pulse.demand(now), dormant=self.dormant)
+
+    def _maybe_park(self, now):
+        if not LZ.LAZY or self.dormant or self.proposal:
+            return
+        if self.pulse.idle_for(now) >= LZ.PARK_SECONDS:
+            self.park()
+
+    def park(self, reason="idle"):
+        """Enter storage mode: declare this node safe to turn off.
+
+        No block is written. Parking is the ABSENCE of chain events, which is
+        exactly why it is safe — there is nothing here for a replay to agree
+        about, dormant.json is a manifest for whoever finds the directory,
+        and blocks.jsonl stays the only thing anyone has to trust. The
+        process may now exit. It comes back on the first byte (the orbit
+        activator in front of it) or the first transaction, and the block
+        that follows prices the whole sleep in one step.
+
+        Dormant means "nothing to produce", not "not answering": reads are
+        served out of the snapshot the whole time, and serving them does not
+        unpark the node, because answering a question is not work a validator
+        has to be awake for.
+        """
+        with self.lock:
+            if self.proposal:
+                raise StateError("a proposal is waiting for votes — parking "
+                                 "now would abandon it", code="not_idle")
+            self.dormant = True
+            self.dormant_since = int(time.time())
+            doc = LZ.manifest(self, self.dormant_since, reason)
+            LZ.write_manifest(self.dormant_file, doc)
+            return doc
+
+    def wake(self, reason="activity"):
+        """Leave storage mode. Idempotent and cheap, because every write path
+        calls it: the thing that wakes this chain is somebody using it."""
+        self.pulse.touch()
+        if not self.dormant:
+            return None
+        with self.lock:
+            slept = max(0, int(time.time()) - self.dormant_since)
+            self.dormant = False
+            self.dormant_since = 0
+            self.pulse.woke_at = int(time.time())
+            self.pulse.wakes += 1
+            try:
+                os.remove(self.dormant_file)
+            except FileNotFoundError:
+                pass
+            return {"woke": True, "reason": reason, "slept_seconds": slept,
+                    "idle_slots_to_price": LZ.idle_slots(
+                        self.blocks[-1]["timestamp"], int(time.time()))}
+
+    def lazy_view(self, now=None):
+        """Lazy consensus, storage mode and the measured demand, in one
+        answer: what the chain is doing, what it is not doing, and what it
+        would cost to run if the load it has been seeing kept up."""
+        now = int(now or time.time())
+        demand = self.pulse.demand(now)
+        tier = LZ.tier_for(demand, dormant=self.dormant)
+        tip = self.blocks[-1]
+        slots = LZ.idle_slots(tip["timestamp"], now)
+        live_fee = (LZ.expected_base_fee(tip, {"timestamp": now})
+                    if LZ.LAZY else self.state.base_fee)
+        return {
+            "lazy": LZ.LAZY,
+            "mode": ("storage" if self.dormant else
+                     "hot" if self.mempool else "idle"),
+            "tip": {"height": tip["height"], "timestamp": tip["timestamp"],
+                    "age": max(0, now - tip["timestamp"]),
+                    "state_root": tip["state_root"]},
+            "blocks_not_produced": slots,
+            "saved": {
+                "empty_blocks": slots,
+                "note": f"a heartbeat chain would have appended {slots} "
+                        f"empty headers since height {tip['height']}; this "
+                        f"one appended none, and the state root is the same",
+            },
+            "base_fee": {
+                "at_tip": tip["base_fee"],
+                "now": live_fee,
+                "floor": S.BASE_FEE_MIN,
+                "slot_seconds": LZ.SLOT_SECONDS,
+                "idle_slots": slots,
+                "why": "the gap is priced as the empty slots it would have "
+                       "been (lazy.decay, -1/8 per slot to the floor), so a "
+                       "chain is never charging a congestion premium for "
+                       "congestion that stopped while it was asleep",
+            },
+            "rent": {
+                "settles": "lazily, per entry, from rent_from on the wall "
+                           "clock — no block has to exist for a lease to run "
+                           "down or for an entry to become sweepable",
+                "needs_blocks": False,
+            },
+            "storage_mode": {
+                "dormant": self.dormant,
+                "since": self.dormant_since or None,
+                "idle_for": self.pulse.idle_for(now),
+                "parks_after": LZ.PARK_SECONDS,
+                "parks_in": (None if self.dormant else
+                             max(0, LZ.PARK_SECONDS -
+                                 self.pulse.idle_for(now))),
+                "safe_to_stop": self.dormant,
+                "blocked_by": ("a proposal is waiting for votes"
+                               if self.proposal else None),
+                "manifest": self.dormant_file,
+                "wakes": self.pulse.wakes,
+                "poll_seconds": LZ.PARK_POLL if self.dormant
+                else self.tick_seconds(),
+            },
+            "demand": demand,
+            "tier": tier["name"],
+            "tiers": LZ.TIER_NAMES,
+            "plan": self.scale_plan(now, demand, tier),
+        }
+
+    def scale_plan(self, now=None, demand=None, tier=None):
+        """What this chain would need to run the load it has been seeing.
+
+        A recommendation, and only that. Widening a validator set is a signed
+        migration on this chain (pq_consensus), and renting a machine spends
+        somebody's money; neither is something a block loop should do to
+        itself because a counter moved.
+        """
+        now = int(now or time.time())
+        demand = demand if demand is not None else self.pulse.demand(now)
+        tier = tier or LZ.tier_for(demand, dormant=self.dormant)
+        log_bytes = 0
+        try:
+            log_bytes = os.path.getsize(self.blocks_file)
+        except OSError:
+            pass
+        req = LZ.requirements(demand, tier, self.state.state_bytes(),
+                              log_bytes)
+        epoch = self.epoch()
+        have = len(epoch.get("validators") or []) or 1
+        want = max(1, req["nodes"])
+        out = {**req, "validators": {"have": have, "want": want,
+                                     "engine": epoch["engine"]}}
+        if self.dormant:
+            out["recommend"] = ("nothing — the chain is dormant. Stop the "
+                               "process if you want; the tip is the "
+                               "commitment and the first byte wakes it")
+        elif want > have:
+            engine = epoch["engine"] if epoch["engine"] in ("bft", "pos") \
+                else "bft"
+            out["recommend"] = (
+                f"{tier['name']} wants {want} validators and this chain has "
+                f"{have}: pq_consensus action=migrate engine={engine} "
+                f"create={want} — the switch rides in a block sealed by the "
+                f"engine it replaces, so nothing forks")
+            out["migration"] = {"action": "migrate", "engine": engine,
+                                "create": want}
+        else:
+            out["recommend"] = (
+                f"{tier['name']} is covered by the {have} validator(s) this "
+                f"chain already has; {req['per_node']['vcpu']} vcpu and "
+                f"{req['per_node']['ram_mb']} MB each")
+        return out
 
     # ── reads ─────────────────────────────────────────────────────
 
     def head(self):
         tip = self.blocks[-1]
+        now = int(time.time())
         return {"chain_id": self.chain_id, "height": tip["height"],
                 "hash": self._tip_hash(), "timestamp": tip["timestamp"],
                 "state_root": tip["state_root"],
-                "base_fee": self.state.base_fee,
+                # Under lazy consensus the live fee is not the fee at the tip:
+                # the slots the chain slept through are priced as empty ones,
+                # so a quote taken now is cheaper than the tip says.
+                "base_fee": (LZ.expected_base_fee(tip, {"timestamp": now})
+                             if LZ.LAZY else self.state.base_fee),
+                "base_fee_at_tip": tip["base_fee"],
+                "lazy": LZ.LAZY,
+                "mode": ("storage" if self.dormant else
+                         "hot" if self.mempool else "idle"),
+                "tier": self.tier()["name"],
+                "idle_for": self.pulse.idle_for(now),
                 "mempool": len(self.mempool),
                 "keys": len(self.state.store),
                 "state_bytes": self.state.state_bytes(),

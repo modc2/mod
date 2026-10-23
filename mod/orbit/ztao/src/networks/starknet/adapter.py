@@ -80,6 +80,16 @@ def sig_calldata(sig):
                 int(sig['image']['x'], 16), int(sig['image']['y'], 16)]
 
 
+# the ring-4 action as last measured on devnet (paper/generated/macros.tex:
+# 17,133 Cairo steps, 19 ec_op applications). One row, so forecast.fit()
+# reads it as linear through the origin — which OVERprices small rings, the
+# safe direction for a feasibility claim. `m ztao gas_sweep chain=starknet`
+# replaces it with a real sweep.
+MEASURED = {'at': None, 'max_ring': 64, 'single_point': True,
+            'from': 'devnet epoch, frozen in paper/generated/macros.tex',
+            'rows': [{'ring': 4, 'steps': 17_133, 'ec_op': 19}]}
+
+
 class Starknet(Network):
     chain = 'starknet'
     title = 'Starknet'
@@ -87,6 +97,7 @@ class Starknet(Network):
     order = 10
     max_ring = 64
     sim_tempo = 60
+    default_costs = MEASURED
     cost_fields = ('steps', 'ec_op', 'l2_gas', 'da_gas')
     token, symbol = 'starknet', 'STRK'
     deploy_fields = ('class_hash',)

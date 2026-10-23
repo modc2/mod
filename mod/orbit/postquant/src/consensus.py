@@ -52,6 +52,7 @@ if HERE not in sys.path:
     sys.path.append(HERE)
 
 import keys as K                                                # noqa: E402
+import lazy as LZ                                               # noqa: E402
 from pq import algos                                            # noqa: E402
 from state import StateError, canonical, sha3                   # noqa: E402
 
@@ -536,10 +537,33 @@ def seal_ok(block, scheme_default):
         return False
 
 
-def check_block(epoch, block, parent_hash, stake, genesis_scheme):
+def lazy_problems(block, parent_header):
+    """The fee rule a block that declares `lazy` has signed up to.
+
+    Lazy consensus skips the slots in which nothing happened, so the fee
+    market has to price those slots instead of living through them
+    (lazy.expected_base_fee). A block carrying `lazy: 1` is asserting that
+    its base fee is exactly what that rule produces from its parent header —
+    an assertion a replay can refute, which is the only kind worth making.
+    Blocks without the marker, including every block produced before lazy
+    consensus existed, are left exactly as they were.
+    """
+    h = block["header"]
+    if not h.get("lazy") or not parent_header:
+        return []
+    want = LZ.expected_base_fee(parent_header, h)
+    if h.get("base_fee") != want:
+        return [f"lazy base fee is {h.get('base_fee')}, the rule says {want} "
+                f"({LZ.idle_slots(parent_header['timestamp'], h['timestamp'])}"
+                f" idle slots since height {parent_header['height']})"]
+    return []
+
+
+def check_block(epoch, block, parent_hash, stake, genesis_scheme,
+                parent_header=None):
     """Every way a committed block can break its epoch's consensus rule."""
     h = block["header"]
-    out = []
+    out = lazy_problems(block, parent_header)
     if epoch.get("legacy"):
         # The original rule: a proposer signature, checked if present.
         if block.get("sig") and not seal_ok(block, genesis_scheme):

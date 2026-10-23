@@ -13,7 +13,9 @@ the same round. There is exactly one scoreboard.
     POST /fight             one attack × one defense, judged
     POST /round             the tournament (background=1 returns immediately)
     GET  /rounds            history, or ?id=<round> for one in full
-    GET  /board             standings, blue and red
+    POST /game              draft a red agent and a blue agent, and play
+    GET  /games             game history, or ?id=<game> for one in full
+    GET  /board             the standings — red and blue AGENTS
     GET  /targets           which backends can run right now
     GET  /models            Venice model catalogue (choices for a venice: target)
     GET  /agents            agent-protocol providers + rosters (agent: targets)
@@ -93,13 +95,20 @@ def info():
                            'background} — the tournament',
             'GET /rounds': 'history (?limit=, ?status=) or ?id= for one in full',
             'POST /game': '{red, blue, model, turns, per_turn, judge, parallel, '
-                          'controls} — start an agent vs agent game (background)',
+                          'controls} — draft two agent-protocol agents onto the '
+                          'two teams and play (background). Both sides are '
+                          'verified against a provider roster first.',
             'GET /games': 'game history (?limit=, ?status=) or ?id= for one in full',
-            'GET /board': '?rounds=8 — standings, blue and red',
+            'GET /board': 'the standings — red and blue AGENTS ranked by '
+                          'points, win rate and forfeit rate (?limit=50, '
+                          '?roster=1 adds agents that have never played). '
+                          '?view=corpus ranks the ammunition instead '
+                          '(?rounds=8)',
             'GET /targets': 'which model backends can run right now',
             'GET /models': 'Venice model catalogue — choices for a venice: target',
-            'GET /agents': '?provider= — agent-protocol agents, choices for an '
-                           'agent:<provider>/<agent_type> target',
+            'GET /agents': '?provider= — every agent on the agent protocol: the '
+                           'player pool POST /game drafts from, and also valid '
+                           'as an agent:<provider>/<agent_type> target',
             'POST /ping': '{model} — prove a target is reachable',
             'GET /tools': 'the MCP tool registry',
             'POST /mcp': 'MCP JSON-RPC 2.0',
@@ -180,7 +189,9 @@ def route(method, path, query, body):
                                 'status': arg('status')})
 
     if path == '/board' and method == 'GET':
-        return bimod.board_across(int(arg('rounds', 8)))
+        return mcpsrv.t_board({'view': arg('view'), 'limit': arg('limit'),
+                               'rounds': arg('rounds'),
+                               'roster': _flag(arg('roster', False))})
 
     if path == '/targets' and method == 'GET':
         return mcpsrv.t_targets({})

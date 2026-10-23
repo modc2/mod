@@ -33,6 +33,30 @@ score vector under one nullifier, lazy ties K of a miner's epoch tags
 together. The privacy-preserving ladder keeps every signature exactly as it
 is today (per-tag nullifiers, per-epoch tags) and only changes who checks it:
 
+  secagg     SECURE AGGREGATION (core/secagg.py): the scores never reach the
+             chain at all. Each validator masks its one-hot score vector with
+             pads that cancel pairwise, publishes it off chain, and the set's
+             SUM — exactly the histogram every rule in core/consensus.py eats
+             — falls out. One aggregate transaction per epoch carries the M
+             results instead of V x M score transactions, and because every
+             masked vector is public anyone can recompute the sum, so a wrong
+             aggregate is challengeable. V x M -> M: the single biggest cut on
+             the whole page, and it costs nothing in privacy.
+  aggregate  + the epoch lands as ONE transaction: a root over (tag,
+             consensus, rank) instead of M result writes, and the miners'
+             submits go into the same root. Emission accrues to tags in the
+             contract's ledger, so a miner withdraws on its own schedule
+             (every K epochs) rather than once per epoch. On chain per epoch:
+             one transaction, whatever the subnet's size. This is the rung
+             that makes a 256-miner subnet cost cents a week.
+  private    every submit, score and claim verified OFF chain in one validity
+             proof, M results published (see below).
+  proved     aggregate + that validity proof: the chain checks the whole
+             epoch — every signature, every nullifier distinct, the consensus
+             result — instead of trusting a challenge window. Costs one proof
+             verification per epoch on top of `aggregate`, which on most
+             chains is the single most expensive thing in the epoch.
+
   committee  sortition: validator v scores tag t only when
              H(nullifier_v(epoch, t)) < C / V. The nullifier is already
              public and only v can compute it, so the committee is secret
@@ -59,19 +83,43 @@ are labelled as such wherever they are shown.
 """
 import math
 
-STRATEGIES = ('baseline', 'batch', 'lazy', 'proof', 'committee', 'private')
+STRATEGIES = ('baseline', 'batch', 'lazy', 'proof', 'committee', 'secagg',
+              'private', 'aggregate', 'proved')
 LABELS = {
     'baseline': 'today: one ring sig per score',
     'batch': 'one sig per validator per epoch',
     'lazy': '+ claim K epochs at once',
     'proof': '+ one validity proof per epoch',
     'committee': 'secret committee of ~C scores each tag',
+    'secagg': 'scores summed off chain, masked (secure aggregation)',
     'private': '+ every sig checked in one validity proof',
+    'aggregate': '+ one transaction per epoch, withdraw every K',
+    'proved': '+ that one transaction carries a validity proof',
 }
-# two ladders, each rung includes the ones before it: the linking one trades
-# unlinkability for gas, the private one keeps exactly today's
+# three ladders, each rung including the ones before it. `linking` trades
+# unlinkability for gas; `private` keeps exactly today's unlinkability and
+# gets its cheapness from moving work off chain, challengeable because every
+# masked vector is public; `proved` pays for a validity proof instead of a
+# challenge window.
 LADDERS = {'linking': ('baseline', 'batch', 'lazy', 'proof'),
-           'private': ('baseline', 'committee', 'private')}
+           'private': ('baseline', 'committee', 'secagg', 'aggregate'),
+           'proved': ('baseline', 'committee', 'secagg', 'private', 'proved')}
+# rungs whose soundness rests on a challenge window rather than a proof
+OPTIMISTIC = ('secagg', 'aggregate')
+# what makes each rung SOUND — the price of the cheap ones is not paid in
+# privacy (see PRIVACY) but here, in what you have to trust
+TRUST = {
+    'chain': 'nothing: the chain verifies every signature itself',
+    'challenge': 'data availability + one honest watcher: every masked vector '
+                 'and submit is published off chain, so anyone can recompute '
+                 'the aggregate and challenge a wrong one inside the window',
+    'proof': 'nothing beyond the proof system: the chain checks one validity '
+             'proof covering every signature and the consensus result',
+}
+SOUNDNESS = {'baseline': 'chain', 'batch': 'chain', 'lazy': 'chain',
+             'committee': 'chain', 'secagg': 'challenge',
+             'aggregate': 'challenge', 'proof': 'proof', 'private': 'proof',
+             'proved': 'proof'}
 # what an observer learns beyond today's contract
 PRIVACY = {
     'baseline': (True, 'nothing beyond the ring: every score has its own '
@@ -84,8 +132,14 @@ PRIVACY = {
     'proof': (False, 'inherits batch and lazy linkage'),
     'committee': (True, 'nothing: selection is a function of the public '
                   'nullifier; costs security (capture), not privacy'),
+    'secagg': (True, 'less than today: only the SUM of the set is learnable, '
+               'never one validator\'s score (pairwise pads cancel)'),
     'private': (True, 'less than today: per-tag scores can stay inside the '
                 'proof, only consensus results are published'),
+    'aggregate': (True, 'less than today: one root per epoch, individual '
+                  'scores and submits never published on chain'),
+    'proved': (True, 'the same as aggregate, and the chain verifies it '
+               'instead of trusting a challenge window'),
 }
 COMMITTEE = 32            # expected scores per tag under sortition
 # a batched score entry updates ~4 slots (sum, n, hist, top); a settle writes
@@ -106,6 +160,21 @@ PROOF_COST = {
     'solana': {'txs': 1, 'cu': 300_000},
     'near': {'tgas': 30},
     'starknet': {'steps': 1, 'l2_gas': 50_000_000},
+    # pallet-contracts has no pairing host function, so the whole verifier
+    # runs in wasm: ~1.5 s ref_time, ABOVE the 1.3 s one extrinsic may use.
+    # Priced anyway so the number is visible; budget.py flags it as over the
+    # per-transaction cap, which is what actually rules it out today.
+    'substrate': {'weight_ms': 1_500, 'bytes': 300},
+}
+# ONE minimal transaction that writes a couple of words (the floor an epoch
+# pays even when every signature moved off chain). Estimates, per chain's own
+# units; a chain missing here is priced at 2 entries.
+TX_COST = {
+    'eth': {'gas': 70_000},                    # 21k base + 2 SSTORE + calldata
+    'solana': {'txs': 1, 'cu': 20_000},
+    'near': {'tgas': 3},                       # receipt + 2 storage writes
+    'starknet': {'steps': 1, 'l2_gas': 2_000_000, 'da_gas': 128},
+    'substrate': {'weight_ms': 1.0, 'bytes': 200},
 }
 
 
@@ -130,7 +199,7 @@ def fit(by_ring):
     return max(a, 0.0), b
 
 
-def units(row, proof_usd=None):
+def units(row, proof_usd=None, tx_usd=None):
     """Per-action dollar prices for one chain from its economics() row, or
     None when the chain has no priced run yet."""
     acts = row.get('actions') or {}
@@ -149,10 +218,18 @@ def units(row, proof_usd=None):
         return u / at if u and at else 1.0
     settle = (acts.get('settle') or {}).get('usd') or at * 0.1
     aph = row.get('actions_per_hour')
+    entry = settle * ENTRY_OF_SETTLE
+    if tx_usd:
+        # a single word written inside an existing transaction cannot cost
+        # more than half a whole minimal one. Without this, chains with
+        # expensive signature VERIFICATION (settle is measured next to a ring
+        # check) price a storage write as if it were cryptography.
+        entry = min(entry, tx_usd / 2)
     return {'a': a, 'b': b, 'ring': meas, 'submit_k': rel('submit'),
             'claim_k': rel('claim'), 'settle': settle,
             'register': (acts.get('register') or {}).get('usd') or settle,
-            'entry': settle * ENTRY_OF_SETTLE, 'proof': proof_usd,
+            'entry': entry, 'proof': proof_usd,
+            'tx': tx_usd if tx_usd is not None else 2 * entry,
             'score_at': at, 'max_ring': row.get('max_ring'),
             # blockspace: how many measured-ring scores fit in an hour
             'scores_per_hour': aph}
@@ -226,6 +303,23 @@ def epoch_cost(u, M, V, ring, strategy='baseline', K=24, C=COMMITTEE):
                    prover=steps / 1e6 * PROVER_USD_PER_MSTEP)
     elif strategy == 'committee':
         out.update(score=c * M * s, settle=M * u['settle'], claim=clm)
+    elif strategy == 'secagg':
+        # no score transactions at all: the set's masked vectors are summed
+        # off chain and ONE aggregate tx carries the M consensus results
+        out.update(score=0.0, settle=u['tx'] + M * u['entry'], claim=clm)
+    elif strategy in ('aggregate', 'proved'):
+        # one tx per epoch: the epoch root (tags, consensus, rank total).
+        # Submits go inside it and emission accrues to tags in the ledger, so
+        # a withdrawal is a ring signature checked OFF chain (in the proof, or
+        # against the challenge window) plus one payout record written on it,
+        # once every K epochs.
+        out.update(submit=0.0, score=0.0,
+                   settle=u['tx'] + 2 * u['entry'], claim=M * u['entry'] / K)
+        if strategy == 'proved':
+            steps = (M * rm + c * M * rv + M * rm / K) * STEPS_PER_MEMBER
+            out.update(proof=u['proof'] if u['proof'] is not None
+                       else 30 * u['score_at'],
+                       prover=steps / 1e6 * PROVER_USD_PER_MSTEP)
     elif strategy == 'private':
         # same signatures as today (claims every epoch, K = 1), all verified
         # in the proof; per-tag nullifiers are epoch-scoped and never stored

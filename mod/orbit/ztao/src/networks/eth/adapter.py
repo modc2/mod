@@ -17,6 +17,15 @@ from ..base import Network
 from .client import FOUNDRY, EthZTao
 
 
+# the last forge gas sweep, as frozen in paper/generated/fits.json:
+# gas = 412_066 + 409_368 x ring (r2 = 0.99999 over rings 4, 8, 16, 32).
+# `m ztao gas_sweep chain=eth` overwrites this with a fresh measurement.
+MEASURED = {'at': None, 'cap': 1 << 24, 'max_ring': 32, 'fit': [412_066, 409_368],
+            'from': 'forge test gas sweep, frozen in paper/generated/fits.json',
+            'rows': [{'ring': r, 'gas': round(412_066 + 409_368 * r)}
+                     for r in (4, 8, 16, 32)]}
+
+
 def _pt(p):
     return int(p['x'], 16), int(p['y'], 16)
 
@@ -30,6 +39,7 @@ class Eth(Network):
     sim_tempo = 60
     cost_fields = ('gas',)
     deploy_fields = ('gas', 'code_bytes', 'hades')
+    default_costs = MEASURED
     sweep_meta = {'cap': 1 << 24}
     token, symbol = 'ethereum', 'ETH'
     mainnet_rpc = os.environ.get('ZTAO_RPC_ETH_MAINNET',

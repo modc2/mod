@@ -19,6 +19,23 @@ from ..base import Network
 from .client import SolZTao, b58decode, felt_of
 
 
+UNIT_CU = 971_000   # measured: ring 4 verifies in ~41 units of ~0.97M CU
+
+# the last sweep, as frozen in paper/generated/fits.json:
+# CU = 2.08e6 + 9.44e6 x ring (r2 = 0.99999 over rings 4, 8, 16, 32), cut
+# into units of UNIT_CU (each one transaction, 5000 lamports of signature).
+# `m ztao gas_sweep chain=solana` overwrites this with a fresh measurement.
+def _row(r):
+    cu = round(2_080_926 + 9_440_882 * r)
+    n = max(1, round(cu / UNIT_CU))
+    return {'ring': r, 'cu': cu, 'units': n, 'txs': n, 'cu_max': 1_400_000}
+
+
+MEASURED = {'at': None, 'cap_cu': 1_400_000, 'max_ring': 32,
+            'from': 'solana sweep, frozen in paper/generated/fits.json',
+            'rows': [_row(r) for r in (4, 8, 16, 32)]}
+
+
 class Solana(Network):
     chain = 'solana'
     title = 'Solana'
@@ -30,6 +47,7 @@ class Solana(Network):
     sweep_tempo = 100000
     cost_fields = ('cu', 'units', 'txs', 'cu_max')
     deploy_fields = ('program', 'program_bytes')
+    default_costs = MEASURED
     sweep_meta = {'cap_cu': 1_400_000}
     token, symbol = 'solana', 'SOL'
     rounds = 3  # open session, the units (in parallel), finish

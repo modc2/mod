@@ -76,24 +76,39 @@ Reply with ONLY a JSON object, no prose:
   {"attacks": ["<attack-id>", ...]}"""
 
 
-class GameError(Exception):
-    pass
+class GameError(arena.ArenaError):
+    """A bad move or a bad lineup — a caller's mistake, not a server fault."""
 
 
 def game_id():
     return 'g-' + time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:4]
 
 
-def _agent_name(spec, side):
-    """An agent spec as the operator writes it — with or without the agent:
-    prefix a *target* carries — reduced to what agents.run wants."""
+def lineup(spec, side):
+    """A side of this arena, checked before a single call is spent.
+
+    Both teams are agents on the agent protocol — that is the whole rule, and
+    this is where it is enforced. The operator may write the slot with or
+    without the `agent:` prefix a *target* carries; what comes back is the
+    verified {spec, provider, agent_type, …} record, whose `spec` is what
+    agents.run wants.
+    """
     name = str(spec or '').strip()
     if name.lower().startswith('agent:'):
         name = name[6:]
     if not name:
         raise GameError(f'{side} needs an agent — agent:<provider>/<agent_type>'
-                        ', see GET /agents for the rosters')
-    return name
+                        '. GET /agents lists every agent on the protocol; a '
+                        'prompt cannot hold a side here.')
+    try:
+        return agents.verify(name, error=GameError)
+    except GameError as e:
+        raise GameError(f'{side}: {e}')
+
+
+def _agent_name(spec, side):
+    """The verified spec string alone — what gets written into a record."""
+    return lineup(spec, side)['spec']
 
 
 def _extract_json(text):
@@ -239,8 +254,8 @@ def run_game(red, blue, model=None, turns=3, per_turn=3, judge_kind='model',
              parallel=6, controls=True, timeout=None, agent_timeout=None,
              name=None):
     """Play it. Returns the finished game record; writes it as it goes."""
-    red = _agent_name(red, 'red')
-    blue = _agent_name(blue, 'blue')
+    red_side, blue_side = lineup(red, 'red'), lineup(blue, 'blue')
+    red, blue = red_side['spec'], blue_side['spec']
     model = model or models.DEFAULT
     turns = max(1, min(int(turns), MAX_TURNS))
     per_turn = max(1, min(int(per_turn), MAX_PER_TURN))
@@ -252,6 +267,7 @@ def run_game(red, blue, model=None, turns=3, per_turn=3, judge_kind='model',
     gid = store.check_id(name) if name else game_id()
     rec = {'id': gid, 'kind': 'game', 'status': 'running',
            'red': red, 'blue': blue, 'model': model, 'judge': judge_kind,
+           'lineup': {'red': red_side, 'blue': blue_side},
            'turns_planned': turns, 'per_turn': per_turn,
            'started': int(time.time()), 'turns': [],
            'totals': {'red': 0.0, 'blue': 0.0}}
@@ -311,25 +327,36 @@ def run_game(red, blue, model=None, turns=3, per_turn=3, judge_kind='model',
 
 def spawn(red, blue, **kwargs):
     """Start a game in a thread and hand back its id, placeholder written in
-    the request thread so the id polls immediately — the round's own rule."""
+    the request thread so the id polls immediately — the round's own rule.
+
+    The lineup is checked here too, in the caller's thread: "that is not an
+    agent on the protocol" is a 400 the operator reads, not a game record that
+    dies in a background thread a minute later.
+    """
+    red_side, blue_side = lineup(red, 'red'), lineup(blue, 'blue')
     gid = kwargs.pop('name', None) or game_id()
     store.put('game', {'id': gid, 'kind': 'game', 'status': 'running',
-                       'red': _agent_name(red, 'red'),
-                       'blue': _agent_name(blue, 'blue'),
+                       'red': red_side['spec'], 'blue': blue_side['spec'],
+                       'lineup': {'red': red_side, 'blue': blue_side},
                        'model': kwargs.get('model') or models.DEFAULT,
                        'turns_planned': int(kwargs.get('turns') or 3),
                        'turns': [], 'totals': {'red': 0.0, 'blue': 0.0}})
 
     def go():
         try:
-            run_game(red, blue, name=gid, **kwargs)
+            run_game(red_side['spec'], blue_side['spec'], name=gid, **kwargs)
         except Exception as e:                               # noqa: BLE001
             old = store.find('game', gid) or {'id': gid, 'kind': 'game'}
             if old.get('status') != 'error':
                 store.put('game', dict(old, status='error', error=str(e)))
 
     threading.Thread(target=go, daemon=True).start()
+    warn = [f'{s}: {d["note"]}' for s, d in (('red', red_side),
+                                             ('blue', blue_side))
+            if d.get('note')]
     return {'id': gid, 'status': 'running', 'background': True,
+            'red': red_side['spec'], 'blue': blue_side['spec'],
+            **({'warnings': warn} if warn else {}),
             'poll': f'GET /games?id={gid}'}
 
 

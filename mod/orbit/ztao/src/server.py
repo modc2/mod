@@ -89,6 +89,22 @@ GET_FNS = {
         min(int(_q(q, 'months', 12)), 120), _q(q, 'shape', 'exp'),
         _q(q, 'ring', 16), _q(q, 'epoch_hours', 1), _q(q, 'k'),
         float(_q(q, 'f', 0.25))),
+    'rules': lambda q: MOD.rules(),
+    'feasible': lambda q: MOD.feasible(
+        float(_q(q, 'target', 1.0)), int(_q(q, 'miners', 256)),
+        int(_q(q, 'validators', 64)), _q(q, 'chain'), _q(q, 'ring', 16),
+        ','.join(str(_q(q, 'hours', '1,2,4,6,12,24')).split(',')[:8]),
+        _q(q, 'epoch_hours'), _q(q, 'k'), _q(q, 'c')),
+    'scale': lambda q: MOD.scale(
+        _q(q, 'chain'),
+        ','.join(str(_q(q, 'sizes', '64,256,1024,4096,10000,16384,65536'))
+                 .split(',')[:12]),
+        int(_q(q, 'ratio', 4)), _q(q, 'ring', 16), _q(q, 'epoch_hours', 1),
+        float(_q(q, 'target', 1.0)), _q(q, 'k'), _q(q, 'c')),
+    'aggregate': lambda q: MOD.aggregate(
+        int(_q(q, 'validators', 8)), int(_q(q, 'tags', 4)),
+        _q(q, 'rule', 'yuma'), int(_q(q, 'drop', 0)),
+        int(_q(q, 'emission', 1000)), _q(q, 'scores'), int(_q(q, 'seed', 7))),
     'experiment': lambda q: MOD.experiment(
         _q(q, 'chain', 'near'), ','.join(str(_q(q, 'hours', '1,2,4,6,12,24')).split(',')[:8]),
         _q(q, 'ring', 16), _q(q, 'strategy', 'baseline'), _q(q, 'share', 0.1),

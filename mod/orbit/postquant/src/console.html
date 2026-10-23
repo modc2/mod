@@ -792,6 +792,26 @@
   /* ════════════ PRIVATE: builder switch ════════════ */
   .redact{background:#fff;color:#fff;user-select:none;padding:0 4px}
   #pv-panel .kv span{word-break:break-all}
+  /* ── recursive chains: the tree, and the ladder a proof walks ── */
+  .sctree{margin-top:12px}
+  .scnode{border:1px solid #2d2a46;border-left:3px solid #9d7bff;background:#15132a;
+    padding:8px 10px;margin:6px 0}
+  .scnode.l1{border-left-color:#ffd166;background:#191634}
+  .scnode .hd{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .scnode .nm{font-weight:bold;letter-spacing:.5px}
+  .scnode .kids{margin-left:26px;border-left:1px dashed #3a3560;padding-left:12px}
+  .scslot{display:inline-block;border:1px dashed #ffd166;color:#ffd166;
+    padding:0 6px;font-size:.92em}
+  .scbtn{font-size:.85em;padding:1px 7px}
+  .ladder{display:flex;flex-direction:column;gap:0;margin-top:10px}
+  .hop{border:1px solid #2d2a46;background:#15132a;padding:8px 10px}
+  .hop.bad{border-color:#ff5d73}
+  .hop .lv{color:#9d7bff;letter-spacing:1px;font-size:.85em}
+  .hoparrow{text-align:center;color:#6f6a97;line-height:1.1;padding:2px 0}
+  .scgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+  .scfact{border:1px solid #2d2a46;padding:8px 10px;background:#15132a}
+  .scfact b{display:block;font-size:1.25em;color:#ece4ff}
+  .scfact span{color:#8e88b5;font-size:.9em}
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation:none !important;transition:none !important}
     #lattice{display:none} .glitch::before,.glitch::after{display:none}}
@@ -805,6 +825,7 @@
     <button data-tab="home" class="on">Home</button>
     <button data-tab="keymarket">Keys</button>
     <button data-tab="chain">Chain</button>
+    <button data-tab="recursive">Chains</button>
     <button data-tab="wallet">Wallet</button>
     <button data-tab="about">Paper</button>
     <!-- sub-tabs: reached from the strip under the header, not the bar -->
@@ -816,6 +837,8 @@
     <button data-tab="consensus" data-parent="chain" hidden>Consensus</button>
     <button data-tab="vault" data-parent="wallet" hidden>Vault</button>
     <button data-tab="machines" data-parent="wallet" hidden>Machines</button>
+    <button data-tab="rproof" data-parent="recursive" hidden>Proof</button>
+    <button data-tab="node" data-parent="recursive" hidden>Validator</button>
   </nav>
   <button class="kbtn" id="pal-open" title="jump anywhere, run anything">FIND <kbd id="pal-key">CTRL K</kbd></button>
 </header>
@@ -1565,6 +1588,160 @@ mod Counter {
     </div>
   </section>
 
+  <!-- RECURSIVE CHAINS --------------------------------------------------- -->
+  <section id="recursive">
+    <div class="panel">
+      <h2>one slot, a whole chain</h2>
+      <p class="note">A key on this chain is 32 bytes and a rent meter. Put
+        another chain behind it — its own key space, its own writers, its own
+        Merkle root — and the parent still carries 32 bytes, however many
+        people are writing into the child. The slot holds SHA3-256 over the
+        child's signed head, and that head commits to the child's root, to
+        the batch of transactions that produced it and to the head before it.
+        So those 32 bytes commit to every leaf of every descendant, and a
+        child can hold children.</p>
+      <div class="stats" id="sc-stats"><span class="muted">loading…</span></div>
+      <div class="sctree" id="sc-tree"></div>
+      <div id="sc-empty"></div>
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>open a chain inside a slot</h2>
+        <p class="note">Nothing touches the L1 yet: a chain with no batch has
+          no head to commit to. The first seal is what reaches the parent.</p>
+        <div class="row">
+          <input type="text" id="sc-name" placeholder="name (becomes chain/&lt;name&gt;)" style="flex:1">
+          <select id="sc-parent" title="parent chain"></select>
+        </div>
+        <div class="row">
+          <label class="muted">writers
+            <select id="sc-writers">
+              <option value="open">open — anyone with a wallet</option>
+              <option value="allowlist">allowlist</option>
+              <option value="owner">owner only</option>
+            </select></label>
+          <label class="muted">sequencer <select id="sc-wallet"></select></label>
+          <button class="go" id="sc-create" style="margin-left:auto">CREATE</button>
+        </div>
+        <div id="sc-create-out" class="muted">—</div>
+      </div>
+
+      <div class="panel">
+        <h2>many hands, one slot</h2>
+        <p class="note">Every writer signs their own transaction with their
+          own post-quantum wallet — the sequencer orders them, it cannot
+          forge them. Queue a few from different wallets, then seal: all of
+          it lands on the L1 as one hash.</p>
+        <div class="row">
+          <select id="sc-w-chain" title="which chain"></select>
+          <input type="text" id="sc-w-key" placeholder="key inside that chain" style="flex:1">
+        </div>
+        <div class="row">
+          <input type="text" id="sc-w-data" placeholder="data (stored as its SHA3-256)" style="flex:1">
+          <label class="muted">as <select id="sc-w-wallet"></select></label>
+          <button class="go" id="sc-w-go">QUEUE</button>
+        </div>
+        <div id="sc-mempool" class="muted">—</div>
+        <div class="row" style="margin-top:8px">
+          <label class="muted">seal as <select id="sc-s-wallet"></select></label>
+          <button class="go" id="sc-seal" style="margin-left:auto">SEAL + ANCHOR</button>
+        </div>
+        <div id="sc-seal-out" class="muted">—</div>
+      </div>
+    </div>
+
+    <details class="panel fold">
+      <summary><h2>what the parent pays</h2></summary>
+      <div id="sc-cost" class="muted">loading…</div>
+      <div class="grid" style="margin-top:10px">
+        <div><h3 style="color:#9d7bff">what the L1 gives you</h3>
+          <ul id="sc-gives" class="note"></ul></div>
+        <div><h3 style="color:#ff9f6b">what stays your problem</h3>
+          <ul id="sc-owes" class="note"></ul></div>
+      </div>
+    </details>
+  </section>
+
+  <!-- RECURSIVE PROOF ------------------------------------------------------ -->
+  <section id="rproof">
+    <div class="panel">
+      <h2>a proof is a ladder of proofs</h2>
+      <p class="note">Pick a leaf anywhere in the tree. What comes back is a
+        Merkle path inside its own chain, then — for every level between it
+        and the L1 — one hash: the parent slot's value IS the child's head.
+        The check below runs on hashes alone: no node, no network, no trust
+        in whoever served it.</p>
+      <div class="row">
+        <select id="rp-chain" title="chain"></select>
+        <select id="rp-key" title="key"></select>
+        <button class="go" id="rp-go">PROVE</button>
+        <span class="pill" id="rp-meta">—</span>
+      </div>
+      <div id="rp-ladder"></div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2>verify a bundle you were handed</h2>
+        <p class="note">Paste a proof bundle from anywhere. It is checked
+          against the L1 state root this node holds — and if the root does
+          not match, you are told that too.</p>
+        <textarea id="rp-paste" rows="5" placeholder='{"hops":[…]}' style="width:100%"></textarea>
+        <div class="row"><button class="go" id="rp-verify">VERIFY</button>
+          <button id="rp-copy">COPY THE LAST PROOF</button></div>
+        <div id="rp-verify-out" class="muted">—</div>
+      </div>
+      <div class="panel">
+        <h2>republish and re-derive</h2>
+        <p class="note">The L1 does not execute a subchain — it commits to
+          its heads. So the honest check is replay: refetch every published
+          batch by hash, re-check every witness in it, re-derive every root
+          and re-link every head. A sequencer who rewrote history fails here.</p>
+        <div class="row"><select id="rp-replay-chain"></select>
+          <button class="go" id="rp-replay">REPLAY</button></div>
+        <div id="rp-replay-out" class="muted">—</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VALIDATOR ------------------------------------------------------------ -->
+  <section id="node">
+    <div class="panel">
+      <h2>what a validator needs — measured on this node, now</h2>
+      <p class="note">Not a claim: resident memory read off this process, the
+        block log's real size on disk, the real cost of one post-quantum
+        witness check, the real bytes a block weighs.</p>
+      <div class="stats" id="nd-stats"><span class="muted">measuring…</span></div>
+      <div class="scgrid" id="nd-min" style="margin-top:12px"></div>
+      <p class="note" id="nd-derive"></p>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2>why the number is small</h2>
+        <ul id="nd-why" class="note"></ul>
+        <p class="note" id="nd-matters"></p>
+      </div>
+      <div class="panel">
+        <h2>published minimums elsewhere</h2>
+        <div id="nd-published"></div>
+        <p class="note" id="nd-pubnote"></p>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>…and that is the appchain argument</h2>
+      <p class="note" id="nd-claim"></p>
+      <div class="grid">
+        <div><h3 style="color:#ff9f6b">the old way</h3><ul id="nd-old" class="note"></ul></div>
+        <div><h3 style="color:#9d7bff">here</h3><ol id="nd-here" class="note"></ol></div>
+      </div>
+      <div id="nd-anchor"></div>
+    </div>
+    <details class="panel fold">
+      <summary><h2>the measurements, raw</h2></summary>
+      <div id="nd-raw" class="muted">—</div>
+    </details>
+  </section>
+
   <!-- WHITEPAPER --------------------------------------------------------- -->
   <section id="about">
     <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
@@ -2194,6 +2371,7 @@ const json = o => '<pre>' + esc(JSON.stringify(o, null, 2)) + '</pre>';
 const SUB = {
   keymarket: [['keymarket', 'Market'], ['builder', 'Builder'], ['prims', 'Prims']],
   chain: [['chain', 'Blocks'], ['store', 'Store'], ['write', 'Write'], ['market', 'Bytes'], ['consensus', 'Consensus']],
+  recursive: [['recursive', 'Tree'], ['rproof', 'Proof'], ['node', 'Validator']],
   wallet: [['wallet', 'Wallets'], ['vault', 'Vault'], ['machines', 'Machines']],
 };
 function drawSubnav(group, tab) {
@@ -2222,6 +2400,9 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
     wallet: () => { loadWallets(); loadAlgos(); },
     machines: loadMachines,
     consensus: loadConsensus,
+    recursive: loadRecursive,
+    rproof: loadRproof,
+    node: loadNodeReq,
     write: fillWallets}[b.dataset.tab] || (()=>{}))();
 });
 
@@ -2565,6 +2746,10 @@ const PAL = [
   ['hottest key types', 'market sorted by heat', () => { go('keymarket'); }],
   ['safest key types', 'market sorted by security', () => { go('keymarket'); document.querySelector('#mk-sorts [data-s=safe]').click(); }],
   ['Write a key', 'claim a key', () => { go('write'); $('w-key').focus(); }],
+  ['Chains', 'recursive chains — a whole tree in one slot', () => go('recursive')],
+  ['open an appchain', 'a chain inside one 32-byte key', () => { go('recursive'); $('sc-name').focus(); }],
+  ['prove a leaf to the L1', 'the ladder of Merkle proofs', () => go('rproof')],
+  ['Validator requirements', 'what running this costs, measured', () => go('node')],
   ['Wallet', 'the keystore', () => go('wallet')],
   ['Paper', 'two voices, one truth', () => go('about')],
   ['first key in 60 seconds', 'the guided journey', () => { go('home'); journey(); }],
@@ -4764,6 +4949,316 @@ async function cList() {
   } catch (e) { err('c-list', e); }
 }
 document.querySelector('nav button[data-tab="vault"]').addEventListener('click', () => { vWallets(); vList(); cList(); });
+
+/* ══════════════════════════════════════════════════════════════════════
+   RECURSIVE CHAINS — a whole chain inside one 32-byte slot, and the
+   ladder of Merkle proofs that walks a leaf back to the L1 state root.
+   Backend: /subchain {action: info|list|tree|create|show|write|seal|
+   keys|get|proof|verify|replay|cost} and /node for the footprint.
+   ══════════════════════════════════════════════════════════════════════ */
+const SCS = {tree: null, chains: [], wallets: [], def: '', chain: '', proof: null};
+
+function scOpts(list, sel) {
+  return list.map(x => `<option value="${esc(x.v ?? x)}"${(x.v ?? x) === sel ? ' selected' : ''}>${esc(x.l ?? x)}</option>`).join('');
+}
+async function scWallets() {
+  try { const w = await api('/wallet?action=list');
+    SCS.wallets = (w.wallets || []).map(x => x.name);
+    SCS.def = w.default || SCS.wallets[0] || '';
+  } catch (e) { SCS.wallets = SCS.wallets || []; }
+  ['sc-wallet', 'sc-w-wallet', 'sc-s-wallet'].forEach(id =>
+    $(id).innerHTML = scOpts(SCS.wallets, SCS.def) || '<option value="">make a wallet first</option>');
+}
+function scFlat(nodes, out = []) {
+  (nodes || []).forEach(n => { out.push(n); scFlat(n.children, out); });
+  return out;
+}
+function scNode(n) {
+  const sync = n.anchored === n.head
+    ? '<span class="pill good">anchored</span>'
+    : (n.head ? '<span class="pill bad">sealed past its parent</span>'
+              : '<span class="pill">no batch yet</span>');
+  return `<div class="scnode">
+    <div class="hd">
+      <span class="scslot" title="the key in the parent — 32 bytes">${esc(n.slot)}</span>
+      <span class="nm">${esc(n.path)}</span>
+      ${sync}
+      <span class="muted">${n.keys} key${n.keys === 1 ? '' : 's'} · batch ${n.batches}${n.pending ? ' · ' + n.pending + ' queued' : ''} · writers ${esc(n.writers)}</span>
+      <span class="mono addr" data-copy="${esc(n.head || '')}" title="the head this slot holds">${n.head ? esc(short(n.head, 18)) : '—'}</span>
+      <span style="margin-left:auto"></span>
+      <button class="sm scbtn" data-sc-w="${esc(n.path)}">WRITE</button>
+      <button class="sm scbtn" data-sc-s="${esc(n.path)}">SEAL</button>
+      <button class="sm scbtn" data-sc-p="${esc(n.path)}">PROVE</button>
+      <button class="sm scbtn" data-sc-c="${esc(n.path)}">+ SUBCHAIN</button>
+    </div>
+    ${n.children && n.children.length ? `<div class="kids">${n.children.map(scNode).join('')}</div>` : ''}
+  </div>`;
+}
+async function loadRecursive() {
+  await scWallets();
+  try {
+    const [t, info, head] = await Promise.all([
+      api('/subchain?action=tree'), api('/subchain'), api('/head')]);
+    SCS.tree = t;
+    SCS.chains = scFlat(t.children).map(n => n.path);
+    out('sc-stats',
+      stat(t.subchains, 'chains in slots') +
+      stat(t.keys_below.toLocaleString(), 'keys under them') +
+      stat(t.l1_bytes + ' B', 'state they use on the L1') +
+      stat(t.depth, 'levels deep') +
+      stat(head.keys, 'keys on the L1 itself'));
+    out('sc-tree', `<div class="scnode l1">
+        <div class="hd"><span class="nm">${esc(t.chain)}</span>
+          <span class="pill">the L1 — ${head.keys} keys, height ${head.height}</span>
+          <span class="muted">state root</span>
+          <span class="mono addr" data-copy="${esc(head.state_root)}">${esc(short(head.state_root, 18))}</span></div>
+        ${t.children.length ? `<div class="kids">${t.children.map(scNode).join('')}</div>`
+          : '<div class="kids"><span class="muted">no chains in slots yet — open one below and watch 32 bytes hold all of it</span></div>'}
+      </div>`);
+    $('sc-tree').querySelectorAll('[data-sc-w]').forEach(b => b.onclick = () => {
+      $('sc-w-chain').value = b.dataset.scW; $('sc-w-key').focus(); scMempool(); });
+    $('sc-tree').querySelectorAll('[data-sc-s]').forEach(b => b.onclick = () => {
+      $('sc-w-chain').value = b.dataset.scS; scMempool(); $('sc-seal').click(); });
+    $('sc-tree').querySelectorAll('[data-sc-p]').forEach(b => b.onclick = () => {
+      go('rproof'); setTimeout(() => { $('rp-chain').value = b.dataset.scP; rpKeys(); }, 60); });
+    $('sc-tree').querySelectorAll('[data-sc-c]').forEach(b => b.onclick = () => {
+      $('sc-parent').value = b.dataset.scC; $('sc-name').focus(); });
+    const parents = [{v: t.chain, l: t.chain + '  (the L1)'}].concat(
+      SCS.chains.map(p => ({v: p, l: p})));
+    $('sc-parent').innerHTML = scOpts(parents, $('sc-parent').value || t.chain);
+    const cur = $('sc-w-chain').value;
+    $('sc-w-chain').innerHTML = scOpts(SCS.chains, SCS.chains.includes(cur) ? cur : SCS.chains[0]);
+    scMempool();
+    // the economics, and the honest half
+    const c = info.economics;
+    out('sc-cost', `<table>
+      <tr><th>${c.keys.toLocaleString()} keys for ${c.days} days</th><th class="num">entries on the L1</th><th class="num">L1 state bytes</th><th class="num">cost</th></tr>
+      <tr><td>written straight to the L1</td><td class="num">${c.on_l1.entries.toLocaleString()}</td>
+        <td class="num">${c.on_l1.state_bytes.toLocaleString()}</td><td class="num amt">${esc(c.on_l1.total_pq)} PQ</td></tr>
+      <tr><td>written into a subchain</td><td class="num">1</td>
+        <td class="num">32</td><td class="num amt">${esc(c.in_a_subchain.total_pq)} PQ</td></tr>
+      </table><p class="note">${esc(c.ratio.toLocaleString())}x — and the ratio keeps going
+      because the parent's side of it never changes. ${esc(c.why)}.</p>`);
+    $('sc-gives').innerHTML = (info.trust ? [
+      ['anchoring', info.trust.the_l1_gives],
+      ['proofs', info.proofs],
+      ['who writes', info.who_writes]] : []).map(([k, v]) =>
+      `<li><b>${esc(k)}</b> — ${esc(v)}</li>`).join('');
+    $('sc-owes').innerHTML = (info.trust ? [
+      ['no execution', info.trust.the_l1_does_not],
+      ['availability', info.trust.availability],
+      ['censorship', info.trust.censorship]] : []).map(([k, v]) =>
+      `<li><b>${esc(k)}</b> — ${esc(v)}</li>`).join('');
+    $('sc-empty').innerHTML = '';
+  } catch (e) { err('sc-stats', e); }
+}
+async function scMempool() {
+  const chain = $('sc-w-chain').value;
+  if (!chain) return out('sc-mempool', '<span class="muted">no chain yet</span>');
+  try {
+    const s = await api('/subchain?action=show&chain=' + encodeURIComponent(chain));
+    const k = await api('/subchain?action=keys&chain=' + encodeURIComponent(chain));
+    out('sc-mempool', `<p class="note">${esc(chain)} · ${s.keys} key(s) · ${s.pending} queued ·
+      sequenced by <span class="mono addr" data-copy="${esc(s.sequencer)}">${esc(short(s.sequencer, 16))}</span></p>` +
+      (k.entries.length ? '<table><tr><th>key</th><th>value</th><th>written by</th></tr>' +
+        k.entries.slice(-8).map(e => `<tr><td class="mono">${esc(e.key)}</td>` +
+          `<td class="mono muted">${esc(short(e.value, 16))}</td>` +
+          `<td class="mono addr" data-copy="${esc(e.owner)}">${esc(short(e.owner, 14))}</td></tr>`).join('') + '</table>'
+        : '<span class="muted">nothing sealed into it yet</span>'));
+  } catch (e) { err('sc-mempool', e); }
+}
+$('sc-w-chain').onchange = scMempool;
+$('sc-create').onclick = async () => {
+  const name = $('sc-name').value.trim();
+  if (!name) return toast('name it first', 'bad');
+  $('sc-create').disabled = true;
+  try {
+    const r = await api('/subchain', {action: 'create', name,
+      parent: $('sc-parent').value, writers: $('sc-writers').value,
+      wallet: $('sc-wallet').value});
+    out('sc-create-out', `<p class="note"><b>${esc(r.created)}</b> is open at depth ${r.depth},
+      and will live in the key <span class="scslot">${esc(r.slot)}</span> of ${esc(r.parent)}.
+      ${esc(r.anchor_note)}</p>`);
+    $('sc-name').value = '';
+    toast('chain ' + r.created);
+    loadRecursive();
+  } catch (e) { err('sc-create-out', e); }
+  $('sc-create').disabled = false;
+};
+$('sc-w-go').onclick = async () => {
+  const chain = $('sc-w-chain').value, key = $('sc-w-key').value.trim();
+  if (!chain || !key) return toast('a chain and a key', 'bad');
+  try {
+    const r = await api('/subchain', {action: 'write', chain, key,
+      data: $('sc-w-data').value, wallet: $('sc-w-wallet').value});
+    toast(`queued by ${short(r.signed_by, 10)}`);
+    $('sc-w-key').value = ''; $('sc-w-data').value = '';
+    out('sc-seal-out', `<p class="note">${r.pending} transaction(s) queued, each signed by
+      its own wallet (${esc(r.scheme)}, ${r.witness_bytes.toLocaleString()} witness bytes).
+      ${esc(r.l1_cost)}.</p>`);
+    scMempool(); loadRecursive();
+  } catch (e) { err('sc-seal-out', e); }
+};
+$('sc-seal').onclick = async () => {
+  const chain = $('sc-w-chain').value;
+  if (!chain) return;
+  $('sc-seal').disabled = true;
+  out('sc-seal-out', '<span class="muted">ordering, applying, signing the head…</span>');
+  try {
+    const r = await api('/subchain', {action: 'seal', chain,
+      wallet: $('sc-s-wallet').value, days: 2});
+    const a = r.anchor;
+    out('sc-seal-out', `<p class="note"><b>batch ${r.n}</b> — ${r.applied} write(s) applied,
+      ${r.keys} key(s) in the tree, root
+      <span class="mono addr" data-copy="${esc(r.root)}">${esc(short(r.root, 18))}</span>.</p>
+      <p class="note">${a.scope === 'l1'
+        ? `It landed on the L1 as <b>32 bytes</b>: <span class="scslot">${esc(a.key)}</span> =
+           <span class="mono addr" data-copy="${esc(a.value)}">${esc(short(a.value, 20))}</span>
+           ${a.anchored ? '<span class="pill good">anchored</span>' : ''}`
+        : `It is anchored inside <b>${esc(a.chain)}</b> at <span class="scslot">${esc(a.key)}</span> —
+           ${esc(a.note)}`}</p>` +
+      (r.rejected && r.rejected.length ? `<p class="note">refused: ${r.rejected.map(x => esc(x.why)).join('; ')}</p>` : '') +
+      (r.folded && r.folded.length ? `<p class="note">folded in ${r.folded.length} child chain head(s): ${r.folded.map(f => esc(f.chain)).join(', ')}</p>` : ''));
+    toast('sealed batch ' + r.n);
+    scMempool(); loadRecursive();
+  } catch (e) { err('sc-seal-out', e); }
+  $('sc-seal').disabled = false;
+};
+
+// ── the ladder ──
+async function rpKeys() {
+  const chain = $('rp-chain').value;
+  if (!chain) return;
+  try {
+    const k = await api('/subchain?action=keys&chain=' + encodeURIComponent(chain));
+    $('rp-key').innerHTML = scOpts(k.entries.map(e => e.key), $('rp-key').value)
+      || '<option value="">nothing sealed in this chain yet</option>';
+  } catch (e) { err('rp-ladder', e); }
+}
+async function loadRproof() {
+  try {
+    const t = await api('/subchain?action=tree');
+    const paths = scFlat(t.children).map(n => n.path);
+    const cur = $('rp-chain').value;
+    $('rp-chain').innerHTML = scOpts(paths, paths.includes(cur) ? cur : paths[0]);
+    $('rp-replay-chain').innerHTML = $('rp-chain').innerHTML;
+    if (paths.length) rpKeys();
+    else out('rp-ladder', '<span class="muted">open a chain in the Tree tab first</span>');
+  } catch (e) { err('rp-ladder', e); }
+}
+$('rp-chain').onchange = rpKeys;
+function rpHop(h, c, i, n) {
+  const ok = c.ok;
+  const arrow = i < n - 1 ? `<div class="hoparrow">&#9650;<br><span class="muted">this head is the value in the slot above — one hash, one level</span></div>` : '';
+  return `<div class="hop${ok ? '' : ' bad'}">
+      <div class="hd"><span class="lv">${h.level === 'l1' ? 'L1 STATE TREE' : 'SUBCHAIN &middot; DEPTH ' + h.depth}</span>
+        <b>${esc(h.chain)}</b>
+        ${ok ? '<span class="pill good">checks out</span>' : `<span class="pill bad">${esc(c.reason || 'refuted')}</span>`}</div>
+      <div class="muted">key <span class="mono">${esc(h.key)}</span> = <span class="mono">${esc(short(h.entry.value, 20))}</span>
+        &middot; ${h.hashes} sibling hash${h.hashes === 1 ? '' : 'es'} to the root
+        <span class="mono addr" data-copy="${esc(h.root)}">${esc(short(h.root, 18))}</span></div>
+      ${h.level !== 'l1' ? `<div class="muted">head <span class="mono">${esc(short(h.head, 20))}</span>
+        = SHA3-256 over the signed batch ${h.batch} ${c.head_commits_root ? '<span class="pill good">commits to this root</span>' : '<span class="pill bad">does not commit to this root</span>'}</div>` : ''}
+    </div>${arrow}`;
+}
+$('rp-go').onclick = async () => {
+  const chain = $('rp-chain').value, key = $('rp-key').value;
+  if (!chain || !key) return;
+  out('rp-ladder', '<span class="muted">walking the ladder…</span>');
+  try {
+    const b = await api('/subchain', {action: 'proof', chain, key});
+    SCS.proof = b;
+    const v = b.verify;
+    $('rp-meta').textContent = `${b.depth} level(s) · ${b.hashes} hashes · ${b.bytes.toLocaleString()} bytes`;
+    // deepest first, climbing to the L1 — render top-down so the L1 is on top
+    const hops = b.hops.map((h, i) => rpHop(h, v.hops[i], i, b.hops.length)).reverse().join('');
+    out('rp-ladder', `<div class="ladder">${hops}</div>
+      <p class="note">${v.ok ? '<span class="pill good">VERIFIED</span>' : '<span class="pill bad">REFUTED</span>'}
+      ${esc(v.note)} — root <span class="mono addr" data-copy="${esc(b.root)}">${esc(short(b.root, 24))}</span>,
+      ${esc(b.chain_id)} height ${b.height}.</p>`);
+  } catch (e) { err('rp-ladder', e); }
+};
+$('rp-copy').onclick = () => {
+  if (!SCS.proof) return toast('prove something first', 'bad');
+  const b = {...SCS.proof}; delete b.verify;
+  $('rp-paste').value = JSON.stringify(b, null, 1);
+  navigator.clipboard && navigator.clipboard.writeText(JSON.stringify(b));
+  toast('the bundle is in the box — and on your clipboard');
+};
+$('rp-verify').onclick = async () => {
+  let bundle;
+  try { bundle = JSON.parse($('rp-paste').value); }
+  catch (e) { return err('rp-verify-out', new Error('that is not JSON')); }
+  try {
+    const v = await api('/subchain', {action: 'verify', bundle});
+    out('rp-verify-out', `<p class="note">${v.ok ? '<span class="pill good">HOLDS UP</span>' : '<span class="pill bad">DOES NOT HOLD UP</span>'}
+      ${v.depth} level(s), ${v.hashes} hashes, key <span class="mono">${esc(v.key || '')}</span>
+      = <span class="mono">${esc(short(v.value || '', 20))}</span>.
+      ${v.root_is_live ? '<span class="pill good">that root is this chain\'s tip</span>'
+        : '<span class="pill">root is not this node\'s current state root</span>'}</p>` +
+      '<table>' + v.hops.map(h => `<tr><td>${esc(h.chain)}</td><td class="mono muted">${esc(h.key)}</td>` +
+        `<td>${h.ok ? '<span class="pill good">ok</span>' : '<span class="pill bad">' + esc(h.reason || 'no') + '</span>'}</td></tr>`).join('') + '</table>');
+  } catch (e) { err('rp-verify-out', e); }
+};
+$('rp-replay').onclick = async () => {
+  const chain = $('rp-replay-chain').value;
+  if (!chain) return;
+  out('rp-replay-out', '<span class="muted">refetching every batch…</span>');
+  try {
+    const r = await api('/subchain', {action: 'replay', chain});
+    out('rp-replay-out', `<p class="note">${r.ok ? '<span class="pill good">EVERY ROOT RE-DERIVED</span>'
+      : '<span class="pill bad">THIS CHAIN DOES NOT REPRODUCE</span>'}
+      ${r.batches} batch(es) refetched by hash. ${esc(r.note)}</p>` +
+      '<table><tr><th>batch</th><th>witnesses</th><th>root</th><th>links to the one before</th></tr>' +
+      r.steps.map(s => `<tr><td class="num">${s.n}</td>` +
+        `<td>${s.sig_valid ? '<span class="pill good">signed</span>' : '<span class="pill bad">bad</span>'}</td>` +
+        `<td>${s.root_matches ? '<span class="pill good">matches</span>' : '<span class="pill bad">differs</span>'}</td>` +
+        `<td>${s.prev_matches ? '<span class="pill good">yes</span>' : '<span class="pill bad">no</span>'}</td></tr>`).join('') + '</table>');
+  } catch (e) { err('rp-replay-out', e); }
+};
+
+// ── the validator footprint ──
+const ndFact = (v, k) => `<div class="scfact"><b>${v}</b><span>${k}</span></div>`;
+async function loadNodeReq() {
+  out('nd-stats', '<span class="muted">measuring this node…</span>');
+  try {
+    const r = await api('/node?action=requirements');
+    const m = r.measured, w = (m.cpu.witness || [])[0] || {};
+    out('nd-stats',
+      stat(esc(m.memory.rss_human), 'memory, this process') +
+      stat(esc(m.disk.growth_per_year), 'chain growth / year') +
+      stat(m.disk.bytes_per_block.toLocaleString() + ' B', 'per block, on the wire') +
+      stat(w.verify_ms ? w.verify_ms + ' ms' : '—', 'one PQ witness check') +
+      stat(m.code.dependencies, 'dependencies') +
+      stat(m.code.lines.toLocaleString(), 'lines of node'));
+    const mn = r.minimum;
+    out('nd-min', ndFact(esc(mn.cpu), 'cpu') + ndFact(esc(mn.ram), 'ram') +
+      ndFact(esc(mn.disk), 'disk') + ndFact(esc(mn.gpu), 'gpu') +
+      ndFact(esc(mn.network), 'network'), 'scgrid');
+    $('nd-derive').textContent = mn.derivation + ' · ' + mn.dependencies;
+    $('nd-why').innerHTML = r.why_small.map(x => `<li>${esc(x)}</li>`).join('');
+    $('nd-matters').textContent = r.why_it_matters;
+    out('nd-published', '<table><tr><th>chain</th><th>cpu</th><th>ram</th><th>disk</th><th>network</th></tr>' +
+      `<tr><td><b>this chain</b> <span class="pill good">measured</span></td><td>${esc(mn.cpu)}</td>` +
+      `<td>${esc(mn.ram)}</td><td>${esc(mn.disk)}</td><td class="muted">negligible</td></tr>` +
+      r.published_elsewhere.map(p => `<tr><td>${esc(p.chain)}</td><td class="muted">${esc(p.cpu)}</td>` +
+        `<td class="muted">${esc(p.ram)}</td><td class="muted">${esc(p.disk)}</td>` +
+        `<td class="muted">${esc(p.net)}</td></tr>`).join('') + '</table>');
+    $('nd-pubnote').textContent = r.published_note;
+    const ap = r.appchains;
+    $('nd-claim').textContent = ap.claim + '.';
+    $('nd-old').innerHTML = ap.the_old_way.map(x => `<li>${esc(x)}</li>`).join('');
+    $('nd-here').innerHTML = ap.here.map(x => `<li>${esc(x)}</li>`).join('');
+    out('nd-anchor', `<p class="note">The anchor: <span class="scslot">${esc(ap.anchor_cost.key)}</span>,
+      ${ap.anchor_cost.bytes} bytes, <span class="amt">${esc(ap.anchor_cost.total_pq)} PQ</span>
+      for ${ap.anchor_cost.days} days at the current base fee — ${esc(ap.anchor_cost.note)}.</p>
+      <div class="grid"><div><h3 style="color:#9d7bff">what you get</h3><ul class="note">${
+        ap.what_you_get.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>
+      <div><h3 style="color:#ff9f6b">what you owe</h3><ul class="note">${
+        ap.what_you_owe.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div></div>`);
+    out('nd-raw', json(r.measured));
+  } catch (e) { err('nd-stats', e); }
+}
 
 /* ══════════════════════════════════════════════════════════════════════
    MACHINES — off-chain state machines + customizable proof systems.
